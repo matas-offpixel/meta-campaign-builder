@@ -41,6 +41,12 @@ export interface ValidateOpts {
    * fallback. Pass null/undefined to skip the fallback gracefully.
    */
   pageToken?: string | null;
+  /**
+   * Operator-selected IG id from `settings.pageInstagramOverrides[pageId]`.
+   * When it matches `igActorId`, validate that specific id via page-level
+   * (then BM) lists without accepting a different auto-resolved actor.
+   */
+  operatorOverrideId?: string;
 }
 
 export interface IgActorValidator {
@@ -150,19 +156,44 @@ export function createIgActorValidator(
       if (!igActorId) return null;
       if (idCache.has(igActorId)) return idCache.get(igActorId) ?? null;
 
+      const { pageId, pageToken, operatorOverrideId } = opts ?? {};
+      const isOperatorPick =
+        Boolean(operatorOverrideId) && operatorOverrideId === igActorId;
+
+      // ── Operator override: validate the chosen id on page-level list first ──
+      if (isOperatorPick && pageId && pageToken) {
+        const pageList = await fetchPageIds(pageId, pageToken);
+        if (pageList.includes(igActorId)) {
+          console.error(
+            `[ig-actor-validator] resolved via=operator-override page=${pageId} ig=${igActorId}`,
+          );
+          idCache.set(igActorId, igActorId);
+          return igActorId;
+        }
+      }
+      if (isOperatorPick) {
+        const bmList = await fetchBmIds();
+        if (bmList.includes(igActorId)) {
+          console.error(
+            `[ig-actor-validator] resolved via=operator-override-bm page=${pageId ?? "(none)"} ig=${igActorId}`,
+          );
+          idCache.set(igActorId, igActorId);
+          return igActorId;
+        }
+      }
+
       // ── Path 1: BM-asset list ───────────────────────────────────────────────
       const bmList = await fetchBmIds();
       if (bmList.includes(igActorId)) {
         console.error(
           `[ig-actor-validator] resolved via=bm-asset ` +
-            `page=${opts?.pageId ?? "(none)"} ig=${igActorId}`,
+            `page=${pageId ?? "(none)"} ig=${igActorId}`,
         );
         idCache.set(igActorId, igActorId);
         return igActorId;
       }
 
       // ── Path 2: page-level fallback ─────────────────────────────────────────
-      const { pageId, pageToken } = opts ?? {};
       if (pageId && pageToken) {
         const pageList = await fetchPageIds(pageId, pageToken);
         if (pageList.includes(igActorId)) {
