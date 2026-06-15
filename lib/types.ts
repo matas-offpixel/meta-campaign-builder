@@ -1270,6 +1270,17 @@ export interface LaunchSummary {
    * `adsCreated` fields). Absent for single-campaign launches.
    */
   campaignAttachResults?: CampaignAttachResult[];
+  /**
+   * Ad sets whose internalAdSetId appeared in `creativeAssignments` but was not
+   * in the Phase-2 `adSetMetaIds` map (i.e. the operator deselected them in
+   * Step 1 after the assignment matrix was saved). These are silently skipped in
+   * Phase 4 — no Meta mutation attempted, no hard error.
+   */
+  skippedOrphanAdSets?: {
+    internalAdSetId: string;
+    creativeName: string;
+    reason: "orphan_assignment";
+  }[];
   adSetsCreated: {
     name: string;
     metaAdSetId: string;
