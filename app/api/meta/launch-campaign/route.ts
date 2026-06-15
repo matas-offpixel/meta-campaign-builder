@@ -2965,6 +2965,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Create all ads in parallel batches
   const adCreationTasks: Promise<void>[] = [];
+  // Orphan ad-set keys: in creativeAssignments but not in adSetMetaIds (stale
+  // matrix from a prior Step-1 selection; see PR #602 audit).
+  const skippedOrphanAdSets: NonNullable<LaunchSummary["skippedOrphanAdSets"]> = [];
 
   for (const creativeEntry of creativesCreated) {
     const creative = draft.creatives.find((c) => c.name === creativeEntry.name);
@@ -2980,9 +2983,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const metaAdSetId = adSetMetaIds.get(internalAdSetId);
       const adSetName = adSetNameById.get(internalAdSetId) ?? internalAdSetId;
       if (!metaAdSetId) {
-        creativeEntry.adsFailed.push({
-          adSetName,
-          error: "Ad set was not created in Meta — no metaAdSetId available",
+        // PR #602: stale assignment matrix — the operator changed Step-1 ad-set
+        // selection after saving the assignment matrix. Skip silently rather than
+        // failing the ad; record for the UI so the operator can reconcile.
+        console.warn(
+          `[launch-campaign] Phase 4 — skipping orphan ad set ${internalAdSetId} ` +
+            `for creative "${creative.name}": not in current Step-1 selection ` +
+            `(was likely deselected since the assignment matrix was last saved).`,
+        );
+        skippedOrphanAdSets.push({
+          internalAdSetId,
+          creativeName: creative.name,
+          reason: "orphan_assignment",
         });
         continue;
       }
@@ -3293,6 +3305,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           }
         : undefined,
     campaignAttachResults: campaignAttachResults.length > 0 ? campaignAttachResults : undefined,
+    skippedOrphanAdSets: skippedOrphanAdSets.length > 0 ? skippedOrphanAdSets : undefined,
     adSetsCreated,
     adSetsFailed,
     creativesCreated,

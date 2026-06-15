@@ -160,26 +160,49 @@ export function createIgActorValidator(
       const isOperatorPick =
         Boolean(operatorOverrideId) && operatorOverrideId === igActorId;
 
-      // ── Operator override: validate the chosen id on page-level list first ──
-      if (isOperatorPick && pageId && pageToken) {
-        const pageList = await fetchPageIds(pageId, pageToken);
-        if (pageList.includes(igActorId)) {
-          console.error(
-            `[ig-actor-validator] resolved via=operator-override page=${pageId} ig=${igActorId}`,
-          );
-          idCache.set(igActorId, igActorId);
-          return igActorId;
-        }
-      }
+      // ── PR #602: operator picks bypass list validation entirely ─────────────
+      //
+      // The operator explicitly chose this IG in the wizard's IG dropdown. The
+      // whole purpose of pageInstagramOverrides is to skip auto-resolution; the
+      // page-list / BM-asset checks were designed to filter auto-resolved guesses,
+      // not deliberate operator selections. If the list lookup fails for any
+      // reason (empty scope, rate-limit, token mismatch, transient API error) the
+      // old code fell through to Path 3 → null → instagram_user_id omitted →
+      // Meta defaulted to the page's primary IG → @ionfestival EU DMA rejection.
+      //
+      // Fix: trust the operator's pick unconditionally. Run diagnostic lookups as
+      // fire-and-forget so we still log whether the id appears in the lists — but
+      // never block the launch on the result.
       if (isOperatorPick) {
-        const bmList = await fetchBmIds();
-        if (bmList.includes(igActorId)) {
-          console.error(
-            `[ig-actor-validator] resolved via=operator-override-bm page=${pageId ?? "(none)"} ig=${igActorId}`,
-          );
-          idCache.set(igActorId, igActorId);
-          return igActorId;
-        }
+        idCache.set(igActorId, igActorId);
+        // Diagnostic fire-and-forget: logs whether the id is list-visible.
+        // Result is deliberately discarded — it cannot change the return value.
+        void (async () => {
+          try {
+            const [pageList, bmList] = await Promise.all([
+              pageId && pageToken ? fetchPageIds(pageId, pageToken) : Promise.resolve([]),
+              fetchBmIds(),
+            ]);
+            const inPageList = pageList.includes(igActorId);
+            const inBmList = bmList.includes(igActorId);
+            if (!inPageList && !inBmList) {
+              console.warn(
+                `[ig-actor-validator] operator override ${igActorId} not found in ` +
+                  `page-list (${pageList.length}) or BM-list (${bmList.length}) for ` +
+                  `page=${pageId ?? "(none)"} — trusting operator anyway`,
+              );
+            } else {
+              console.error(
+                `[ig-actor-validator] resolved via=operator-override-trusted ` +
+                  `page=${pageId ?? "(none)"} ig=${igActorId} ` +
+                  `found_in=${inPageList ? "page-list" : "bm-list"}`,
+              );
+            }
+          } catch {
+            // Suppress diagnostic errors — they must never surface to the caller.
+          }
+        })();
+        return igActorId;
       }
 
       // ── Path 1: BM-asset list ───────────────────────────────────────────────
