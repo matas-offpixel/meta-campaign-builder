@@ -260,6 +260,50 @@ export async function getAudienceListActivity(
   return res.activity ?? [];
 }
 
+/**
+ * One segment/tag entry from the Mailchimp segments endpoint.
+ * Tags created via the Mailchimp UI appear as type === "static" segments.
+ */
+export interface MailchimpSegment {
+  id: number;
+  name: string;
+  type: string;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MailchimpSegmentsResponse {
+  segments: MailchimpSegment[];
+  list_id: string;
+  total_items: number;
+}
+
+/**
+ * Lists all segments for an audience, optionally filtered by type.
+ * Mailchimp tags created in the UI appear as type="static" segments.
+ * Pass `type: "static"` to limit to tags only.
+ */
+export async function getAudienceSegments(
+  dc: string,
+  audienceId: string,
+  apiKey: string,
+  options: { type?: "static" | "saved" | "fuzzy"; count?: number } = {},
+): Promise<MailchimpSegmentsResponse> {
+  const params: Record<string, string> = {
+    count: String(options.count ?? 1000),
+  };
+  if (options.type) {
+    params.type = options.type;
+  }
+  return mailchimpGet<MailchimpSegmentsResponse>(
+    dc,
+    `/lists/${audienceId}/segments`,
+    params,
+    apiKey,
+  );
+}
+
 /** Returns the account info (used to derive loginId at connect time). */
 export async function getAccountInfo(
   dc: string,
