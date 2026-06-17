@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 603
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/603
 - **Branch:** `cursor/tiktok-breakdown-dedupe-and-deeplink-username`
 
 ## Summary
