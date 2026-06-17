@@ -625,6 +625,7 @@ function groupByEventCodeAndDate(events: PortalEvent[]): VenueGroup[] {
 
 interface VenueTotals {
   prereg: number;
+  registrations: number;
   ad: number | null;
   total: number | null;
   tickets: number;
@@ -639,6 +640,7 @@ interface VenueTotals {
 
 function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
   let prereg = 0;
+  let registrations = 0;
   let tickets = 0;
   let prevTickets = 0;
   let revenue = 0;
@@ -654,6 +656,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
         ? 0
         : ev.prereg_spend ?? 0;
     prereg += rowPrereg;
+    registrations += ev.mailchimp_registrations ?? 0;
     const sold = resolveDisplayTicketCount({
       ticket_tiers: ev.ticket_tiers,
       latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
@@ -715,6 +718,7 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
       : null;
   return {
     prereg,
+    registrations,
     ad,
     total,
     tickets,
@@ -1261,6 +1265,7 @@ interface OverallLondonSectionProps {
 
 interface OverallLondonTotals {
   prereg: number;
+  registrations: number;
   ad: number | null;
   total: number | null;
   tickets: number;
@@ -1282,6 +1287,7 @@ function computeOverallLondon(
   onsaleSpend: number | null,
 ): OverallLondonTotals {
   let prereg = 0;
+  let registrations = 0;
   let tickets = 0;
   let prevTickets = 0;
   let revenue = 0;
@@ -1297,6 +1303,7 @@ function computeOverallLondon(
     }
     for (const ev of group.events) {
       prereg += ev.prereg_spend ?? 0;
+      registrations += ev.mailchimp_registrations ?? 0;
       tickets += resolveDisplayTicketCount({
         ticket_tiers: ev.ticket_tiers,
         latest_snapshot_tickets: ev.latest_snapshot?.tickets_sold ?? null,
@@ -1338,6 +1345,7 @@ function computeOverallLondon(
 
   return {
     prereg,
+    registrations,
     ad: adSpend,
     total,
     tickets,
@@ -1417,7 +1425,7 @@ function OverallLondonSection({
           <thead>
             <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
               <th className="px-3 py-2.5">Event</th>
-              <th className="px-3 py-2.5 text-right">Pre-reg</th>
+              <th className="px-3 py-2.5 text-right">Registrations</th>
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
               <th className="px-3 py-2.5 text-right">Total Spend</th>
               <th className="px-3 py-2.5 text-right">Tickets Sold</th>
@@ -1430,7 +1438,7 @@ function OverallLondonSection({
             <tr className="bg-muted text-foreground">
               <td className="px-3 py-2.5 font-semibold">All London</td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {formatGBP(totals.prereg)}
+                {formatNumber(totals.registrations)}
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.ad)}
@@ -2048,10 +2056,18 @@ function VenueSection({
           )}
         </button>
         <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 text-xs">
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
-            Suggested: {formatSuggestedPct(venueSuggestedPct)}
-          </span>
-          <CommsChip phrase={venueCommsPhrase} />
+          {campaignPerformance.ticketsSold > 0 ? (
+            <>
+              <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
+                Suggested: {formatSuggestedPct(venueSuggestedPct)}
+              </span>
+              <CommsChip phrase={venueCommsPhrase} />
+            </>
+          ) : (
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
+              Awaiting on-sale
+            </span>
+          )}
         </div>
         {/* Inline edit only makes sense on the public share surface
             where the NumericCell POST hits `/api/share/client/[token]/tickets`
@@ -2190,7 +2206,7 @@ function VenueSection({
             <tr className="bg-foreground text-left text-xs font-medium uppercase tracking-wide text-background">
               <th className="px-3 py-2.5">Event</th>
               <th className="px-3 py-2.5">Last updated</th>
-              <th className="px-3 py-2.5 text-right">Pre-reg</th>
+              <th className="px-3 py-2.5 text-right">Registrations</th>
               <th className="px-3 py-2.5 text-right">Ad Spend</th>
               <th className="px-3 py-2.5 text-right">Total Spend</th>
               <th className="px-3 py-2.5 text-right">Tickets Sold</th>
@@ -2235,7 +2251,7 @@ function VenueSection({
                 <VenueTicketingStatusBadge events={group.events} clientId={clientId} />
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                {formatGBP(totals.prereg)}
+                {formatNumber(totals.registrations)}
               </td>
               <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                 {formatGBP(totals.ad)}
@@ -2827,7 +2843,7 @@ function EventRow({
         <EventTicketingStatusBadge event={event} clientId={undefined} />
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
-        {formatGBP(m.prereg)}
+        {formatNumber(event.mailchimp_registrations ?? 0)}
       </td>
       <td
         className="px-3 py-2.5 text-right tabular-nums text-foreground"
