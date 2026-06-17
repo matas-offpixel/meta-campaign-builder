@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   getAudience,
   getAudienceListActivity,
+  getAudienceSegments,
   MailchimpApiError,
   type MailchimpActivityRow,
   type MailchimpAudience,
@@ -312,4 +313,142 @@ export async function syncMailchimpAudienceDailyHistory(
     `[mailchimp-daily-sync] event=${event.id} wrote ${rows.length} rows ${firstDate}..${lastDate}`,
   );
   return { ok: true, rowsWritten: rows.length, firstDate, lastDate };
+}
+
+// ── Tag-scoped snapshot sync ──────────────────────────────────────────────────
+
+/**
+ * Event row shape required by syncMailchimpTagForEvent.
+ * Extends MailchimpSyncEventRow with the tag column.
+ */
+export interface MailchimpTagSyncEventRow extends MailchimpSyncEventRow {
+  mailchimp_tag: string;
+  client_id?: string | null;
+}
+
+export interface SyncMailchimpTagResult {
+  eventId: string;
+  ok: boolean;
+  snapshotId?: string;
+  memberCount?: number;
+  error?: string;
+}
+
+/**
+ * Syncs one tag-scoped Mailchimp snapshot for a single-event row that has
+ * `mailchimp_tag` set.
+ *
+ * Algorithm:
+ *   1. Resolve audience ID + credentials (same as syncMailchimpAudienceForEvent).
+ *   2. Fetch /lists/{audienceId}/segments to find the segment whose name
+ *      matches event.mailchimp_tag (case-insensitive trim).
+ *   3. Write one row to mailchimp_tag_snapshots with the segment's member_count.
+ *
+ * Why segments, not tags? Mailchimp tags created in the UI appear in the
+ * /segments endpoint as type="static" segments. member_count is the canonical
+ * count of list members currently carrying that tag.
+ *
+ * Idempotent: upserts on (event_id, snapshot_at::date UTC).
+ */
+export async function syncMailchimpTagForEvent(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  event: MailchimpTagSyncEventRow,
+): Promise<SyncMailchimpTagResult> {
+  const audienceId = resolveMailchimpAudienceId(event);
+  if (!audienceId) {
+    return { eventId: event.id, ok: false, error: "no_audience_id" };
+  }
+
+  const client = Array.isArray(event.client) ? event.client[0] : event.client;
+  const accountId = client?.mailchimp_account_id ?? null;
+  if (!accountId) {
+    return { eventId: event.id, ok: false, error: "no_account_id" };
+  }
+
+  let credentials;
+  try {
+    credentials = await getMailchimpCredentials(supabase, accountId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { eventId: event.id, ok: false, error: `credentials: ${message}` };
+  }
+  if (!credentials) {
+    return { eventId: event.id, ok: false, error: "no_credentials" };
+  }
+
+  // Fetch all static segments (= tags) for this audience.
+  let segmentsResponse;
+  try {
+    segmentsResponse = await getAudienceSegments(
+      credentials.dc,
+      audienceId,
+      credentials.apiKey,
+      { type: "static", count: 1000 },
+    );
+  } catch (err) {
+    const message = err instanceof MailchimpApiError ? err.message : String(err);
+    return { eventId: event.id, ok: false, error: `api_segments: ${message}` };
+  }
+
+  const tagLower = event.mailchimp_tag.trim().toLowerCase();
+  const matchedSegment = segmentsResponse.segments.find(
+    (s) => s.type === "static" && s.name.trim().toLowerCase() === tagLower,
+  );
+
+  if (!matchedSegment) {
+    console.warn(
+      `[mailchimp-tag-sync] event=${event.id} tag="${event.mailchimp_tag}" not found in ${segmentsResponse.segments.length} segments for audience ${audienceId}`,
+    );
+    return { eventId: event.id, ok: false, error: `tag_not_found: ${event.mailchimp_tag}` };
+  }
+
+  const memberCount = matchedSegment.member_count;
+  const clientId = event.client_id ?? null;
+
+  const snapshotRow = {
+    user_id: event.user_id,
+    event_id: event.id,
+    client_id: clientId,
+    mailchimp_audience_id: audienceId,
+    mailchimp_tag: event.mailchimp_tag,
+    total_contacts: memberCount,
+    email_subscribers: memberCount,
+    snapshot_at: new Date().toISOString(),
+    raw_json: {
+      segment_id: matchedSegment.id,
+      segment_name: matchedSegment.name,
+      member_count: matchedSegment.member_count,
+      source: "mailchimp_tag_sync",
+    } as object,
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as unknown as any;
+  const { data: upserted, error: upsertError } = await sb
+    .from("mailchimp_tag_snapshots")
+    .upsert(snapshotRow, {
+      onConflict: "event_id,snapshot_at",
+      ignoreDuplicates: false,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (upsertError) {
+    return {
+      eventId: event.id,
+      ok: false,
+      error: `upsert: ${upsertError.message}`,
+    };
+  }
+
+  console.log(
+    `[mailchimp-tag-sync] event=${event.id} tag="${event.mailchimp_tag}" member_count=${memberCount}`,
+  );
+
+  return {
+    eventId: event.id,
+    ok: true,
+    snapshotId: (upserted as { id?: string } | null)?.id,
+    memberCount,
+  };
 }

@@ -3,7 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   syncMailchimpAudienceForEvent,
+  syncMailchimpTagForEvent,
   type MailchimpSyncEventRow,
+  type MailchimpTagSyncEventRow,
 } from "@/lib/mailchimp/sync";
 
 export const maxDuration = 800;
@@ -22,12 +24,20 @@ function isAuthorized(req: NextRequest): boolean {
 /**
  * GET /api/cron/sync-mailchimp-audiences
  *
- * Daily cron (06:00 UTC). For every active brand_campaign event that has a
- * resolved mailchimp_audience_id (event override > client default), calls
- * the Mailchimp Marketing API and upserts one row into
- * mailchimp_audience_snapshots.
+ * Daily cron (06:00 UTC). Two passes:
  *
- * Service-role only. Idempotent on (event_id, snapshot_at::date).
+ * Pass 1 — Audience-level (existing):
+ *   For every active brand_campaign event with a resolved mailchimp_audience_id,
+ *   upserts one row into mailchimp_audience_snapshots.
+ *
+ * Pass 2 — Tag-level (new):
+ *   For every event (any kind) that has mailchimp_tag set, calls the Mailchimp
+ *   segments API to find the matching static segment and upserts one row into
+ *   mailchimp_tag_snapshots. This scopes the registration count to the specific
+ *   per-event tag, fixing CPR for multi-event shared-audience clients like
+ *   Ironworks.
+ *
+ * Service-role only. Both passes are idempotent on (event_id, snapshot_at::date).
  */
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
@@ -40,50 +50,105 @@ export async function GET(req: NextRequest) {
   const startedAt = new Date().toISOString();
   const supabase = createServiceRoleClient();
 
-  // Load all brand_campaign events. We filter to events that have either a
-  // direct mailchimp_audience_id or a client with one — the sync helper
-  // resolves the effective id.
-  const { data, error } = await supabase
+  // ── Pass 1: audience-level snapshots (brand_campaign events) ─────────────
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as unknown as any;
+
+  const { data: audienceData, error: audienceError } = await sb
     .from("events")
     .select(
       "id, user_id, kind, mailchimp_audience_id, client_id, client:clients ( mailchimp_account_id, mailchimp_audience_id )",
     )
     .eq("kind", "brand_campaign");
 
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  if (audienceError) {
+    return NextResponse.json({ ok: false, error: audienceError.message }, { status: 500 });
   }
 
-  const events = (data ?? []) as unknown as (MailchimpSyncEventRow & { client_id?: string | null })[];
+  const audienceEvents = (audienceData ?? []) as (MailchimpSyncEventRow & { client_id?: string | null })[];
 
-  const results: Array<{
+  const audienceResults: Array<{
     eventId: string;
     ok: boolean;
     snapshotId?: string;
     error?: string;
   }> = [];
 
-  for (const event of events) {
+  for (const event of audienceEvents) {
     const result = await syncMailchimpAudienceForEvent(supabase, event);
-    results.push(result);
+    audienceResults.push(result);
   }
 
-  const synced = results.filter((r) => r.ok).length;
-  const skipped = results.filter((r) => !r.ok && (r.error === "no_audience_id" || r.error === "no_account_id")).length;
-  const failed = results.filter((r) => !r.ok && r.error !== "no_audience_id" && r.error !== "no_account_id").length;
+  const audienceSynced = audienceResults.filter((r) => r.ok).length;
+  const audienceSkipped = audienceResults.filter((r) => !r.ok && (r.error === "no_audience_id" || r.error === "no_account_id")).length;
+  const audienceFailed = audienceResults.filter((r) => !r.ok && r.error !== "no_audience_id" && r.error !== "no_account_id").length;
 
   console.log(
-    `[sync-mailchimp-audiences] synced=${synced} skipped=${skipped} failed=${failed} total=${results.length}`,
+    `[sync-mailchimp-audiences] audience: synced=${audienceSynced} skipped=${audienceSkipped} failed=${audienceFailed} total=${audienceResults.length}`,
+  );
+
+  // ── Pass 2: tag-level snapshots (any kind of event with mailchimp_tag) ────
+
+  const { data: tagData, error: tagError } = await sb
+    .from("events")
+    .select(
+      "id, user_id, kind, mailchimp_audience_id, mailchimp_tag, client_id, client:clients ( mailchimp_account_id, mailchimp_audience_id )",
+    )
+    .not("mailchimp_tag", "is", null);
+
+  if (tagError) {
+    console.error("[sync-mailchimp-audiences] tag query error:", tagError.message);
+    // Don't fail the whole cron — return audience results + partial error.
+    return NextResponse.json({
+      ok: true,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      audienceEventsProcessed: audienceResults.length,
+      audienceSynced,
+      audienceSkipped,
+      audienceFailed,
+      audienceResults,
+      tagError: tagError.message,
+    });
+  }
+
+  const tagEvents = (tagData ?? []) as (MailchimpTagSyncEventRow & { client_id?: string | null })[];
+
+  const tagResults: Array<{
+    eventId: string;
+    ok: boolean;
+    snapshotId?: string;
+    memberCount?: number;
+    error?: string;
+  }> = [];
+
+  for (const event of tagEvents) {
+    const result = await syncMailchimpTagForEvent(supabase, event);
+    tagResults.push(result);
+  }
+
+  const tagSynced = tagResults.filter((r) => r.ok).length;
+  const tagSkipped = tagResults.filter((r) => !r.ok && (r.error === "no_audience_id" || r.error === "no_account_id")).length;
+  const tagFailed = tagResults.filter((r) => !r.ok && r.error !== "no_audience_id" && r.error !== "no_account_id" && !r.error?.startsWith("tag_not_found")).length;
+
+  console.log(
+    `[sync-mailchimp-audiences] tag: synced=${tagSynced} skipped=${tagSkipped} failed=${tagFailed} total=${tagResults.length}`,
   );
 
   return NextResponse.json({
     ok: true,
     startedAt,
     finishedAt: new Date().toISOString(),
-    eventsProcessed: results.length,
-    synced,
-    skipped,
-    failed,
-    results,
+    audienceEventsProcessed: audienceResults.length,
+    audienceSynced,
+    audienceSkipped,
+    audienceFailed,
+    audienceResults,
+    tagEventsProcessed: tagResults.length,
+    tagSynced,
+    tagSkipped,
+    tagFailed,
+    tagResults,
   });
 }

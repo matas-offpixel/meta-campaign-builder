@@ -275,7 +275,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, mailchimp_tag, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -566,8 +566,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     token,
   });
 
-  // Mailchimp audience snapshots — brand-awareness events only.
-  // Soft-fail: a missing audience or no rows simply omits the card.
+  // Mailchimp snapshots — brand-awareness and tag-scoped per-event reports.
+  // Priority:
+  //   1. mailchimp_tag set → load from mailchimp_tag_snapshots (any kind).
+  //      Fixes per-event CPR for multi-event shared-audience clients.
+  //   2. brand_campaign + audience id → load from mailchimp_audience_snapshots.
+  //      Existing path, no regression.
+  // Soft-fail: missing audience / no rows simply omits the card.
   const mailchimpAudienceId =
     (eventRow.data.mailchimp_audience_id as string | null) ??
     (() => {
@@ -578,23 +583,45 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       const first = Array.isArray(c) ? c[0] : c;
       return first?.mailchimp_audience_id ?? null;
     })();
+  const mailchimpTag = (eventRow.data.mailchimp_tag as string | null) ?? null;
+
   const mailchimpSnapshots: MailchimpAudienceSnapshotSummary[] =
-    mailchimpAudienceId && event.kind === "brand_campaign"
-      ? await (async () => {
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data } = await (admin as unknown as any)
-              .from("mailchimp_audience_snapshots")
-              .select("email_subscribers, snapshot_at")
-              .eq("event_id", event_id)
-              .eq("mailchimp_audience_id", mailchimpAudienceId)
-              .order("snapshot_at", { ascending: true });
-            return (data ?? []) as MailchimpAudienceSnapshotSummary[];
-          } catch {
-            return [];
-          }
-        })()
-      : [];
+    await (async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = admin as unknown as any;
+
+      // Path 1: tag-scoped snapshot (per-event with shared audience).
+      if (mailchimpTag) {
+        try {
+          const { data } = await db
+            .from("mailchimp_tag_snapshots")
+            .select("email_subscribers, snapshot_at")
+            .eq("event_id", event_id)
+            .order("snapshot_at", { ascending: true });
+          const rows = (data ?? []) as MailchimpAudienceSnapshotSummary[];
+          if (rows.length > 0) return rows;
+        } catch {
+          // fall through to audience path
+        }
+      }
+
+      // Path 2: whole-audience snapshot (brand_campaign always-on).
+      if (mailchimpAudienceId && event.kind === "brand_campaign") {
+        try {
+          const { data } = await db
+            .from("mailchimp_audience_snapshots")
+            .select("email_subscribers, snapshot_at")
+            .eq("event_id", event_id)
+            .eq("mailchimp_audience_id", mailchimpAudienceId)
+            .order("snapshot_at", { ascending: true });
+          return (data ?? []) as MailchimpAudienceSnapshotSummary[];
+        } catch {
+          return [];
+        }
+      }
+
+      return [];
+    })();
 
   // Diagnostic: log each platform loader's resolution so production
   // logs surface silent null returns immediately.
@@ -714,7 +741,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       initialPresale={presale}
       canonicalTicketsLifetime={canonicalTicketsLifetime}
       mailchimpSnapshots={
-        event.kind === "brand_campaign" && mailchimpSnapshots.length > 0
+        (event.kind === "brand_campaign" || mailchimpTag != null) && mailchimpSnapshots.length > 0
           ? (mailchimpSnapshots as { email_subscribers: number | null; snapshot_at: string }[])
           : undefined
       }
@@ -851,11 +878,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       : null;
 
   // Registrations data for the Campaign Performance header strip card.
+  // Computed for brand_campaign events (audience-level) and for any event
+  // with mailchimp_tag set (tag-scoped).
   const registrationsData =
-    event.kind === "brand_campaign"
+    event.kind === "brand_campaign" || mailchimpTag != null
       ? computeRegistrationsData(
           mailchimpSnapshots as { email_subscribers: number | null; snapshot_at: string }[],
-          mailchimpAudienceId != null,
+          mailchimpAudienceId != null || mailchimpTag != null,
         )
       : null;
 
@@ -894,11 +923,11 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         />
       }
       mailchimpSlot={
-        mailchimpAudienceId ? (
+        (mailchimpAudienceId || mailchimpTag) && mailchimpSnapshots.length > 0 ? (
           <MailchimpRegistrationsCard
             snapshots={mailchimpSnapshots}
             totalSpendGbp={totalSpendForCpr}
-            audienceId={mailchimpAudienceId}
+            audienceId={mailchimpAudienceId ?? ""}
           />
         ) : null
       }
