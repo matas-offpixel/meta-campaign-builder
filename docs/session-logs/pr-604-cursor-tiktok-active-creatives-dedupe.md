@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 604
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/604
 - **Branch:** `cursor/tiktok-active-creatives-dedupe`
 
 ## Summary
