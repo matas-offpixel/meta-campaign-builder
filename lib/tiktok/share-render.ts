@@ -232,9 +232,17 @@ export async function fetchTikTokAdsForShareUncached(
   if (sparkItemIds.length > 0) {
     const sparkInfo = await fetchSparkAdInfo(sparkItemIds);
     for (const ad of ads.values()) {
-      if (!ad.thumbnailUrl && ad.tiktokItemId) {
-        const url = sparkInfo.get(ad.tiktokItemId);
-        if (url) ad.thumbnailUrl = url;
+      if (ad.tiktokItemId) {
+        const info = sparkInfo.get(ad.tiktokItemId);
+        if (info) {
+          if (!ad.thumbnailUrl && info.thumbnail) ad.thumbnailUrl = info.thumbnail;
+          // Build canonical public URL from author_url + /video/{itemId}.
+          // author_url = "https://www.tiktok.com/@username" — appending the
+          // video path gives the correct shareable link with @username prefix.
+          if (info.authorUrl) {
+            ad.canonicalPostUrl = `${info.authorUrl}/video/${ad.tiktokItemId}`;
+          }
+        }
       }
     }
   }
@@ -290,9 +298,9 @@ export async function fetchTikTokAdsForShareUncached(
           primary_source: null,
           attribution_source: null,
           currency: "GBP",
-          post_url: ad.previewUrl ?? ad.landingPageUrl ?? (ad.tiktokItemId ? `https://www.tiktok.com/video/${ad.tiktokItemId}` : null),
+          post_url: ad.previewUrl ?? ad.landingPageUrl ?? ad.canonicalPostUrl ?? (ad.tiktokItemId ? `https://www.tiktok.com/video/${ad.tiktokItemId}` : null),
           thumbnail_url: ad.thumbnailUrl,
-          deeplink_url: ad.previewUrl ?? ad.landingPageUrl ?? (ad.tiktokItemId ? `https://www.tiktok.com/video/${ad.tiktokItemId}` : null),
+          deeplink_url: ad.previewUrl ?? ad.landingPageUrl ?? ad.canonicalPostUrl ?? (ad.tiktokItemId ? `https://www.tiktok.com/video/${ad.tiktokItemId}` : null),
           ad_text: ad.adText,
           video_id: ad.videoId,
           image_ids: ad.imageIds,
@@ -358,6 +366,7 @@ async function fetchAllAds(input: {
         previewUrl: null,
         landingPageUrl: row.landing_page_url ?? null,
         adText: row.ad_text ?? null,
+        canonicalPostUrl: null,
       });
     }
     const pageInfo = res.page_info;
@@ -431,14 +440,14 @@ async function fetchImageInfo(input: {
   return out;
 }
 
-/** Resolve thumbnails for Spark Ads via TikTok's public OEmbed endpoint.
+/** Resolve thumbnails and canonical author URLs for Spark Ads via TikTok's public OEmbed endpoint.
  *  Spark Ads reference an organic TikTok post (tiktok_item_id).  TikTok's
  *  Marketing API has no accessible endpoint for fetching organic post info;
  *  the public OEmbed endpoint (https://www.tiktok.com/oembed) works instead,
- *  requires no authentication, and returns thumbnail_url directly.
- *  Returns Map<tiktok_item_id, thumbnail_url>. */
-async function fetchSparkAdInfo(itemIds: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+ *  requires no authentication, and returns thumbnail_url + author_url.
+ *  Returns Map<tiktok_item_id, { thumbnail, authorUrl }>. */
+async function fetchSparkAdInfo(itemIds: string[]): Promise<Map<string, { thumbnail?: string; authorUrl?: string }>> {
+  const out = new Map<string, { thumbnail?: string; authorUrl?: string }>();
   if (itemIds.length === 0) return out;
 
   // console.error — Vercel reliably surfaces error-level logs; console.log/warn
@@ -467,21 +476,24 @@ async function fetchSparkAdInfo(itemIds: string[]): Promise<Map<string, string>>
         );
         continue;
       }
-      let json: { thumbnail_url?: string };
+      let json: { thumbnail_url?: string; author_url?: string };
       try {
-        json = JSON.parse(bodyText) as { thumbnail_url?: string };
+        json = JSON.parse(bodyText) as { thumbnail_url?: string; author_url?: string };
       } catch {
         console.error(
           `[spark-oembed] non-JSON item=${itemId} body=${bodyText.slice(0, 200)}`,
         );
         continue;
       }
-      if (json.thumbnail_url) {
-        out.set(itemId, json.thumbnail_url);
-        console.error(`[spark-oembed] resolved item=${itemId}`);
+      const entry: { thumbnail?: string; authorUrl?: string } = {};
+      if (json.thumbnail_url) entry.thumbnail = json.thumbnail_url;
+      if (json.author_url) entry.authorUrl = json.author_url;
+      if (entry.thumbnail || entry.authorUrl) {
+        out.set(itemId, entry);
+        console.error(`[spark-oembed] resolved item=${itemId} thumbnail=${!!entry.thumbnail} authorUrl=${!!entry.authorUrl}`);
       } else {
         console.error(
-          `[spark-oembed] no thumbnail_url item=${itemId} body=${bodyText.slice(0, 200)}`,
+          `[spark-oembed] no thumbnail_url/author_url item=${itemId} body=${bodyText.slice(0, 200)}`,
         );
       }
     } catch (err) {
@@ -626,6 +638,8 @@ interface NormalizedAd {
   previewUrl: string | null;
   landingPageUrl: string | null;
   adText: string | null;
+  /** Canonical public URL for Spark Ads, built from OEmbed author_url + /video/{itemId}. */
+  canonicalPostUrl: string | null;
 }
 
 interface AdMetrics {

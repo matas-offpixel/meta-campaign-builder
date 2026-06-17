@@ -614,10 +614,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
               db
                 .from("tiktok_breakdown_snapshots")
                 .select(
-                  "dimension,dimension_value,spend,impressions,reach,clicks,ctr",
+                  "dimension,dimension_value,spend,impressions,reach,clicks,ctr,window_until",
                 )
                 .eq("event_id", event_id)
-                .order("spend", { ascending: false }),
+                // Sort newest window first so the dedupe below keeps the latest
+                // cumulative snapshot per (dimension, dimension_value).
+                .order("window_until", { ascending: false })
+                .order("fetched_at", { ascending: false }),
               db
                 .from("tiktok_active_creatives_snapshots")
                 .select(
@@ -627,7 +630,20 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
                 .eq("kind", "ok")
                 .order("spend", { ascending: false }),
             ]);
-            const breakdowns = (bdRes.data ?? []) as import("@/components/report/event-report-view").TikTokSnapshotBreakdown[];
+            // tiktok_breakdown_snapshots accumulates one cumulative row per
+            // (dimension, dimension_value, window_until). Rows are sorted
+            // newest window first; deduplicate here to keep only the latest
+            // window per dimension+value pair before passing to the renderer.
+            const seenBreakdowns = new Set<string>();
+            const breakdowns = (bdRes.data ?? [])
+              .filter((row: { dimension: string; dimension_value: string }) => {
+                const key = `${row.dimension}|${row.dimension_value}`;
+                if (seenBreakdowns.has(key)) return false;
+                seenBreakdowns.add(key);
+                return true;
+              })
+              // Strip window_until — not part of TikTokSnapshotBreakdown
+              .map(({ window_until: _w, ...rest }: { window_until: unknown; dimension: string; dimension_value: string; spend: number | null; impressions: number | null; reach: number | null; clicks: number | null; ctr: number | null }) => rest) as import("@/components/report/event-report-view").TikTokSnapshotBreakdown[];
             const creatives = (crRes.data ?? []) as import("@/components/report/event-report-view").TikTokSnapshotCreative[];
             console.log(
               `[share/report] tiktok_snapshots breakdown_rows=${breakdowns.length} creative_rows=${creatives.length}`,
