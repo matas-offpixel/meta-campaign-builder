@@ -12,27 +12,46 @@ import {
 /**
  * POST /api/events/[id]/mailchimp/refresh
  *
- * Auth-gated manual trigger. Syncs the Mailchimp snapshot for one event:
- *   - If events.mailchimp_tag is set → writes a tag-scoped row to
- *     mailchimp_tag_snapshots (per-event shared-audience fix).
- *   - Otherwise → writes an audience-level row to mailchimp_audience_snapshots
- *     (brand_campaign always-on, existing behaviour).
+ * Syncs the Mailchimp snapshot for one event. Accepts two auth methods:
+ *   1. Bearer CRON_SECRET — trusted ops path (terminal batch scripts). Skips
+ *      the per-user ownership check; the service-role client still enforces
+ *      that the event exists.
+ *   2. Supabase session cookie — in-app "Sync now" button path. Retains the
+ *      ownership check (user_id must match the event row).
+ *
+ * Dispatch:
+ *   - events.mailchimp_tag set → writes to mailchimp_tag_snapshots.
+ *   - Otherwise               → writes to mailchimp_audience_snapshots.
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id: eventId } = await params;
 
-  const userClient = await createClient();
-  const {
-    data: { user },
-  } = await userClient.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
+  // ── Bearer auth (ops / cron path) ──────────────────────────────────────
+  const authHeader = req.headers.get("authorization") ?? "";
+  const cronSecret = process.env.CRON_SECRET ?? "";
+  const isCronAuthed =
+    cronSecret.length > 0 &&
+    (authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7).trim() === cronSecret.trim()
+      : authHeader.trim() === cronSecret.trim());
+
+  // ── Session auth (in-app path) ──────────────────────────────────────────
+  let authUserId: string | null = null;
+  if (!isCronAuthed) {
+    const userClient = await createClient();
+    const {
+      data: { user },
+    } = await userClient.auth.getUser();
+    if (!user) {
+      return NextResponse.json(
+        { ok: false, error: "Not signed in" },
+        { status: 401 },
+      );
+    }
+    authUserId = user.id;
   }
 
   const supabase = createServiceRoleClient();
@@ -61,7 +80,9 @@ export async function POST(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ev = eventRow as unknown as any;
 
-  if (ev.user_id !== user.id) {
+  // Per-user ownership check only when using session auth.
+  // Bearer auth implies trusted ops — skip the check.
+  if (!isCronAuthed && ev.user_id !== authUserId) {
     return NextResponse.json(
       { ok: false, error: "Forbidden." },
       { status: 403 },
