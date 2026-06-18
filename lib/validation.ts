@@ -1,6 +1,7 @@
 import type { CampaignDraft, WizardStep } from "./types";
 import { attachedAdSetKey, getVisibleSteps } from "./types";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram";
+import { validateCreativeAssetCompleteness } from "./validation/asset-completeness";
 
 export interface ValidationResult {
   valid: boolean;
@@ -221,6 +222,14 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
 
     if (sourceType === "existing_post") {
       if (!c.existingPost?.postId) errors.push(`${label}: Select an existing post`);
+    }
+
+    // Asset completeness: dual/full mode requires all aspect ratio slots to have
+    // a Meta asset ID before launch (assetHash for images, videoId for videos).
+    for (const issue of validateCreativeAssetCompleteness(c)) {
+      errors.push(
+        `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
+      );
     }
   });
 
