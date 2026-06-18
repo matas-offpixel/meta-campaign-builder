@@ -903,6 +903,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         ticketsSoldSource: event.ticketsSoldSource,
         ticketsSoldAsOf: event.ticketsSoldAsOf,
         capacity: event.capacity,
+        mailchimpTag: mailchimpTag ?? undefined,
       }}
       meta={metaPayload}
       tiktok={tiktokRowResolved}
