@@ -17,7 +17,6 @@ import {
   loadEventCodeLifetimeMetaCacheForClient,
   type EventCodeLifetimeMetaCacheRow,
 } from "@/lib/db/event-code-lifetime-meta-cache";
-import { applyAdsetSplitsToLifetimeMeta } from "@/lib/dashboard/event-code-adset-splits";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -1083,7 +1082,7 @@ async function loadPortalForClientId(
     trendTicketSnapshots,
     trendDailyHistory,
     tierChannels,
-    lifetimeMetaByEventCode: applyAdsetSplitsToLifetimeMeta(lifetimeMetaByEventCode),
+    lifetimeMetaByEventCode,
     shareVisibility: {
       showCreativeInsights: true,
       showFunnelPacing: true,

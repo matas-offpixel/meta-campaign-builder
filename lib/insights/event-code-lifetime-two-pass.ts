@@ -100,7 +100,18 @@ const REG_ACTION_TYPES = [
 export function aggregatePass1Pages(
   pages: ReadonlyArray<{ data: ReadonlyArray<PerCampaignLifetimeRow> }>,
   eventCode: string,
+  /**
+   * Campaign IDs to skip entirely (Glasgow-only: the mixed-ad-set TRAFFIC
+   * campaign 6925933901665 is excluded from the bracket match so its venue
+   * split can be re-added at ad-set level — see
+   * `lib/dashboard/glasgow-adset-rollup-fetch.ts`). Skipped campaigns drop out
+   * of BOTH the additive sums AND `matchedCampaignIds` (so Pass-2's reach
+   * dedup is computed over the remaining campaigns only). Empty by default →
+   * non-Glasgow behaviour is byte-identical.
+   */
+  excludeCampaignIds: ReadonlyArray<string> = [],
 ): Pass1Totals {
+  const excludeSet = new Set(excludeCampaignIds);
   let perCampaignReachSum = 0;
   let impressions = 0;
   let linkClicks = 0;
@@ -118,6 +129,9 @@ export function aggregatePass1Pages(
     for (const row of page.data ?? []) {
       const name = row.campaign_name ?? "";
       const id = row.campaign_id ?? "";
+      // Glasgow ad-set-split exclusion: drop the mixed campaign entirely so it
+      // contributes to neither the additive sums nor the Pass-2 dedup set.
+      if (id && excludeSet.has(id)) continue;
       if (!campaignMatchesBracketedEventCode(name, eventCode)) {
         if (name) filteredOut.add(name);
         continue;

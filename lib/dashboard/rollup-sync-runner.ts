@@ -44,6 +44,12 @@ import {
   allocateVenueSpendForCode,
   type VenueAllocatorResult,
 } from "@/lib/dashboard/venue-spend-allocator";
+import {
+  GLASGOW_TRAFFIC_CAMPAIGN_ID,
+  fetchGlasgowAdSetSplits,
+  fetchGlasgowAdSetLifetimeSplits,
+  isGlasgowSplitEventCode,
+} from "@/lib/dashboard/glasgow-adset-rollup-fetch";
 import { getTikTokCredentials } from "@/lib/tiktok/credentials";
 import {
   fetchTikTokDailyRollupInsights,
@@ -498,12 +504,20 @@ export async function runRollupSyncForEvent(
   } else {
     try {
       const { token } = await resolveServerMetaToken(supabase, userId);
+      // Glasgow ad-set split (replaces the deleted read-time snapshot): the
+      // mixed `[WC26-GLASGOW-O2] TRAFFIC` campaign 6925933901665 is EXCLUDED
+      // from the campaign-level bracket match here and re-added at ad-set
+      // level below, so each ad set lands on its true venue event_code.
+      const isGlasgowSplit = isGlasgowSplitEventCode(eventCode);
       const metaFetch = await fetchEventDailyMetaMetrics({
         eventCode,
         adAccountId,
         token,
         since: sinceStr,
         until: untilStr,
+        ...(isGlasgowSplit
+          ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
+          : {}),
       });
       if (!metaFetch.ok) {
         metaResult.reason = metaFetch.error.reason;
@@ -620,6 +634,9 @@ export async function runRollupSyncForEvent(
               adAccountId,
               token,
               todayDate: todayStr,
+              ...(isGlasgowSplit
+                ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
+                : {}),
             });
             if (snap.ok && snap.days.length > 0) {
               snapshotSpend = snap.days[0]?.spend ?? 0;
@@ -673,6 +690,64 @@ export async function runRollupSyncForEvent(
             meta_video_plays_p100: snapshotVideoP100,
             meta_engagements: snapshotEngagements,
           });
+        }
+
+        // ── Glasgow ad-set split merge ─────────────────────────────
+        // Re-add campaign 6925933901665's share for THIS venue (it was
+        // excluded from the bracket match above). Throws on Meta error —
+        // intentional: no campaign-level fallback (the drift this PR
+        // removes). The throw is caught by the Meta-leg try/catch, so the
+        // sync fails loud for this event and the cron retries; no partial
+        // rollup is written because the upsert is below this point.
+        if (isGlasgowSplit) {
+          const adSetSplits = await fetchGlasgowAdSetSplits({
+            token,
+            adAccountId,
+            since: sinceStr,
+            until: untilStr,
+          });
+          const venueSplit = adSetSplits.find(
+            (s) => s.eventCode === eventCode,
+          );
+          let mergedDays = 0;
+          for (const d of venueSplit?.days ?? []) {
+            const cur = metaByDate.get(d.day);
+            if (cur) {
+              cur.ad_spend += d.spend;
+              cur.ad_spend_presale += d.presaleSpend;
+              cur.link_clicks += d.linkClicks;
+              cur.landing_page_views += d.landingPageViews;
+              cur.meta_regs += d.metaRegs;
+              cur.meta_purchases += d.metaPurchases;
+              cur.meta_leads += d.metaLeads;
+              cur.meta_impressions += d.impressions;
+              cur.meta_reach += d.reach;
+              cur.meta_video_plays_3s += d.videoPlays3s;
+              cur.meta_video_plays_15s += d.videoPlays15s;
+              cur.meta_video_plays_p100 += d.videoPlaysP100;
+              cur.meta_engagements += d.engagements;
+            } else {
+              metaByDate.set(d.day, {
+                ad_spend: d.spend,
+                ad_spend_presale: d.presaleSpend,
+                link_clicks: d.linkClicks,
+                landing_page_views: d.landingPageViews,
+                meta_regs: d.metaRegs,
+                meta_purchases: d.metaPurchases,
+                meta_leads: d.metaLeads,
+                meta_impressions: d.impressions,
+                meta_reach: d.reach,
+                meta_video_plays_3s: d.videoPlays3s,
+                meta_video_plays_15s: d.videoPlays15s,
+                meta_video_plays_p100: d.videoPlaysP100,
+                meta_engagements: d.engagements,
+              });
+            }
+            mergedDays += 1;
+          }
+          console.log(
+            `[rollup-sync] glasgow ad-set merge event_code=${eventCode} campaign=${GLASGOW_TRAFFIC_CAMPAIGN_ID} merged_days=${mergedDays}`,
+          );
         }
 
         const metaDaysBeforeWindowPad = metaByDate.size;
@@ -808,32 +883,84 @@ export async function runRollupSyncForEvent(
         );
       } else {
         const { token } = await resolveServerMetaToken(supabase, userId);
+        // Glasgow lifetime engagement split (D1-a, replaces the deleted
+        // read-time `applyAdsetSplitsToLifetimeMeta`): exclude the mixed
+        // campaign from the two-pass, then re-add THIS venue's ad-set share.
+        const isGlasgowSplit = isGlasgowSplitEventCode(eventCode);
         const lifetime = await fetchEventLifetimeMetaMetrics({
           eventCode,
           adAccountId,
           token,
+          ...(isGlasgowSplit
+            ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
+            : {}),
         });
         if (!lifetime.ok) {
           console.warn(
             `[rollup-sync] lifetime fetch failed event_code=${eventCode} reason=${lifetime.error.reason} msg=${lifetime.error.message}`,
           );
         } else {
+          // Additive metrics (impressions/clicks/LPV/regs/video/engagements)
+          // are EXACT after re-adding the ad-set share. Reach is APPROXIMATE
+          // — account-level dedup can't be reconstructed from per-ad-set
+          // reach — matching the precision of the deleted snapshot. Throws on
+          // Meta error (caught by the lifetime-leg try/catch → best-effort,
+          // does not fail the sync).
+          const add = {
+            reach: 0,
+            impressions: 0,
+            linkClicks: 0,
+            landingPageViews: 0,
+            metaRegs: 0,
+            videoPlays3s: 0,
+            videoPlays15s: 0,
+            videoPlaysP100: 0,
+            engagements: 0,
+          };
+          if (isGlasgowSplit) {
+            const lifeSplits = await fetchGlasgowAdSetLifetimeSplits({
+              token,
+              adAccountId,
+            });
+            const v = lifeSplits.find((s) => s.eventCode === eventCode)?.totals;
+            if (v) {
+              add.reach = v.reach;
+              add.impressions = v.impressions;
+              add.linkClicks = v.linkClicks;
+              add.landingPageViews = v.landingPageViews;
+              add.metaRegs = v.metaRegs;
+              add.videoPlays3s = v.videoPlays3s;
+              add.videoPlays15s = v.videoPlays15s;
+              add.videoPlaysP100 = v.videoPlaysP100;
+              add.engagements = v.engagements;
+            }
+          }
           const upsert = await upsertEventCodeLifetimeMetaCache(supabase, {
             clientId,
             eventCode,
-            meta_reach: nullIfZero(lifetime.totals.reach),
-            meta_impressions: nullIfZero(lifetime.totals.impressions),
-            meta_link_clicks: nullIfZero(lifetime.totals.linkClicks),
+            meta_reach: nullIfZero(lifetime.totals.reach + add.reach),
+            meta_impressions: nullIfZero(
+              lifetime.totals.impressions + add.impressions,
+            ),
+            meta_link_clicks: nullIfZero(
+              lifetime.totals.linkClicks + add.linkClicks,
+            ),
             meta_landing_page_views: nullIfZero(
-              lifetime.totals.landingPageViews,
+              lifetime.totals.landingPageViews + add.landingPageViews,
             ),
-            meta_regs: nullIfZero(lifetime.totals.metaRegs),
-            meta_video_plays_3s: nullIfZero(lifetime.totals.videoPlays3s),
-            meta_video_plays_15s: nullIfZero(lifetime.totals.videoPlays15s),
+            meta_regs: nullIfZero(lifetime.totals.metaRegs + add.metaRegs),
+            meta_video_plays_3s: nullIfZero(
+              lifetime.totals.videoPlays3s + add.videoPlays3s,
+            ),
+            meta_video_plays_15s: nullIfZero(
+              lifetime.totals.videoPlays15s + add.videoPlays15s,
+            ),
             meta_video_plays_p100: nullIfZero(
-              lifetime.totals.videoPlaysP100,
+              lifetime.totals.videoPlaysP100 + add.videoPlaysP100,
             ),
-            meta_engagements: nullIfZero(lifetime.totals.engagements),
+            meta_engagements: nullIfZero(
+              lifetime.totals.engagements + add.engagements,
+            ),
             campaign_names: lifetime.campaignNames,
           });
           if (upsert.ok) {
