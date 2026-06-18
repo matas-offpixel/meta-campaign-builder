@@ -2269,10 +2269,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Split ad sets: standard ones can proceed now, lookalike ones must wait
+  // Split ad sets: standard ones can proceed now, lookalike ones must wait.
+  // In attach_adset mode both are empty — ad sets already exist; only Phase 4
+  // needs to run (routing ads to the synthetic keys seeded above).
   const LOOKALIKE_TYPES = new Set(["lookalike_group", "selected_pages_lookalike", "custom_group_lookalike"]);
-  const standardSets = enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
-  const lookalikeSets = enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
+  const standardSets = wizardMode === "attach_adset"
+    ? ([] as typeof enabledSets)
+    : enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
+  const lookalikeSets = wizardMode === "attach_adset"
+    ? ([] as typeof enabledSets)
+    : enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
   const phase2Objective =
     wizardMode === "attach_campaign" || isAttachAllAdSets
@@ -2284,6 +2290,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       : draft.settings.objective;
 
   const adSetCreationPromise = (async () => {
+    if (wizardMode === "attach_adset") {
+      // Synthetic keys already seeded above; no ad sets to create.
+      console.log(
+        `[launch-campaign] Phase 2 (attach_adset) ✓  seeded ${adSetMetaIds.size}` +
+          ` synthetic key(s); skipping ad set creation entirely`,
+      );
+      return;
+    }
     console.log("[launch-campaign] Phase 2 — creating", standardSets.length, "standard ad sets");
 
     // Build adSetId → first existing-post creative so placement overrides can
