@@ -135,6 +135,13 @@ export interface EventReportViewEvent {
   preregSpend?: number | null;
   /** Cached Meta lifetime spend — pacing when timeline has no ad_spend rows. */
   metaSpendCached?: number | null;
+  /**
+   * Mailchimp tag name configured for this event (e.g. "Camelphat - London").
+   * When set the Campaign performance grid shows a headline COST PER
+   * REGISTRATION card using the tag-scoped `registrationsData` denominator.
+   * Null → card is hidden.
+   */
+  mailchimpTag?: string | null;
 }
 
 export type CreativesSource =
@@ -493,6 +500,21 @@ export function EventReportView({
       ? spentTotalAll / ticketsSold
       : null;
 
+  // Headline CPR — only for single (non-brand) events with a Mailchimp tag.
+  // Numerator: same spentTotalAll used for cost-per-ticket.
+  // Denominator: totalSubscribers from tag-scoped mailchimp_tag_snapshots,
+  // already surfaced by registrationsData (see registrations-loader.ts).
+  const mailchimpRegistrations =
+    !isBrandCampaign && registrationsData?.totalSubscribers != null
+      ? registrationsData.totalSubscribers
+      : null;
+  const costPerRegistration =
+    mailchimpRegistrations != null &&
+    mailchimpRegistrations > 0 &&
+    spentTotalAll > 0
+      ? spentTotalAll / mailchimpRegistrations
+      : null;
+
   // Capacity + sell-through — same rule as EventSummaryHeader.computeMetrics:
   // tickets numerator follows the timeframe pill via ticketsSold
   // (meta.ticketsSoldInWindow when present).
@@ -678,6 +700,9 @@ export function EventReportView({
             mailchimpSlot={mailchimpSlot}
             registrationsData={registrationsData}
             onRefreshRegistrations={onRefreshRegistrations}
+            costPerRegistration={costPerRegistration}
+            mailchimpRegistrations={mailchimpRegistrations}
+            totalSpentAll={spentTotalAll}
             platformFilter={isBrandCampaign ? platformFilter : "all"}
             totalCrossPlatformSpent={paidMediaSpent}
             brandRollupSpend={brandRollupSpend}
@@ -778,6 +803,24 @@ interface MetaReportBlockProps {
   /** Mailchimp registration metrics — rendered as the REGISTRATIONS card for brand_campaign events. */
   registrationsData?: MailchimpRegistrationsData | null;
   /**
+   * Headline cost-per-registration for single events with a Mailchimp tag.
+   * = spentTotalAll / registrationsData.totalSubscribers.
+   * Null when: brand_campaign, no tag, no snapshot, or zero registrations.
+   */
+  costPerRegistration?: number | null;
+  /**
+   * Latest email_subscribers count from mailchimp_tag_snapshots.
+   * Used as the denominator sub-line on the CPR card.
+   * Null when: brand_campaign, no tag, or no snapshot yet.
+   */
+  mailchimpRegistrations?: number | null;
+  /**
+   * Total spend across all platforms + additional spend entries for the
+   * active timeframe window. Used as the CPR card numerator sub-line.
+   * Equals spentTotalAll in EventReportView.
+   */
+  totalSpentAll?: number;
+  /**
    * When provided, a Refresh button is shown on the REGISTRATIONS card
    * (internal dashboard only). Calls POST /api/events/:id/mailchimp/refresh
    * and reloads the registrations data.
@@ -850,6 +893,9 @@ function MetaReportBlock({
   mailchimpSlot,
   registrationsData,
   onRefreshRegistrations,
+  costPerRegistration,
+  mailchimpRegistrations,
+  totalSpentAll = 0,
   platformFilter = "all",
   totalCrossPlatformSpent = 0,
   brandRollupSpend = null,
@@ -914,6 +960,8 @@ function MetaReportBlock({
       <Section title="Campaign performance">
         <div
           className={`grid grid-cols-1 gap-3 lg:grid-cols-3 ${
+            !isBrandCampaign && event.mailchimpTag ? "xl:grid-cols-4" : ""
+          } ${
             isRefreshing ? "opacity-60 transition-opacity" : ""
           }`}
         >
@@ -1080,6 +1128,40 @@ function MetaReportBlock({
               </div>
             </div>
           )}
+
+          {/* ─── COST PER REGISTRATION card (single events only) ── */}
+          {!isBrandCampaign && event.mailchimpTag ? (
+            <div className="rounded-md border border-border bg-card p-4">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Cost per registration
+              </p>
+              <div className="mt-3 space-y-2 text-foreground">
+                <p className="font-heading text-xl tracking-wide tabular-nums">
+                  {costPerRegistration != null ? (
+                    <>{fmtCurrencyCompact(costPerRegistration)}</>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </p>
+                {costPerRegistration != null ? (
+                  <p className="text-[11px] text-muted-foreground tabular-nums">
+                    {fmtCurrency(totalSpentAll)} spent /{" "}
+                    {mailchimpRegistrations != null
+                      ? fmtInt(mailchimpRegistrations)
+                      : "0"}{" "}
+                    registrations
+                  </p>
+                ) : mailchimpRegistrations === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    0 registrations
+                  </p>
+                ) : null}
+                <p className="text-[11px] text-muted-foreground">
+                  · Tagged: {event.mailchimpTag}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
         {channelMultiActive ? (
           <ChannelBreakdownStrip

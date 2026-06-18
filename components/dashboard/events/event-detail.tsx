@@ -830,6 +830,12 @@ export function EventDetail({
                               }
                             ).meta_spend_cached ?? null,
                           kind: event.kind ?? null,
+                          mailchimpTag:
+                            (
+                              event as unknown as {
+                                mailchimp_tag: string | null;
+                              }
+                            ).mailchimp_tag ?? undefined,
                         }}
                         datePreset={reportDatePreset}
                         customRange={reportCustomRange}
