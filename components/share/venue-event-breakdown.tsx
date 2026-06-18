@@ -123,6 +123,10 @@ export function VenueEventBreakdown({
     ]),
   );
   const venueMetrics = computeVenueMetrics([...metricsByEventId.values()]);
+  const venueTotalTickets = [...metricsByEventId.values()].reduce(
+    (sum, m) => sum + m.tickets,
+    0,
+  );
   const showFloorNote =
     orderedEvents.length > 0 &&
     orderedEvents.every((event) => {
@@ -156,10 +160,18 @@ export function VenueEventBreakdown({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
-            Suggested: <SuggestedValue value={venueMetrics.suggestedPct} />
-          </span>
-          <CommsChip phrase={venueMetrics.commsPhrase} />
+          {venueTotalTickets > 0 ? (
+            <>
+              <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
+                Suggested: <SuggestedValue value={venueMetrics.suggestedPct} />
+              </span>
+              <CommsChip phrase={venueMetrics.commsPhrase} />
+            </>
+          ) : (
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-muted-foreground">
+              Awaiting on-sale
+            </span>
+          )}
         </div>
       </div>
       {showFloorNote ? (
@@ -300,7 +312,13 @@ function VenueEventBreakdownRows({
           <SuggestedValue value={metrics.suggestedPct} />
         </td>
         <td className="px-3 py-2.5 text-right">
-          <CommsChip phrase={metrics.commsPhrase} />
+          {metrics.tickets > 0 ? (
+            <CommsChip phrase={metrics.commsPhrase} />
+          ) : (
+            <span className="rounded-full border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground">
+              Awaiting on-sale
+            </span>
+          )}
         </td>
         <td className="px-3 py-2.5 text-right tabular-nums text-foreground">
           {formatGBP(metrics.spend)}

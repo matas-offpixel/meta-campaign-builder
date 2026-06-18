@@ -561,18 +561,17 @@ export function EventDetail({
           <TabPanel active={activeTab === "campaigns"}>
             <div className="space-y-6">
               {/*
-                Live performance for every Meta campaign whose name
-                contains this event's event_code. Sits above the
-                actions + draft list so the question "how is the
-                campaign doing?" is answerable before "what drafts do
-                I have?". The panel handles its own empty / no-code /
-                no-account states inline so the parent doesn't need
-                to gate it.
+                LinkedCampaignsPerformance is shown here for
+                brand_campaign events only. Single events use the
+                Reporting tab (InternalEventReport) as the canonical
+                performance surface — showing it twice was confusing.
               */}
-              <LinkedCampaignsPerformance
-                eventId={event.id}
-                hasEventCode={Boolean(event.event_code)}
-              />
+              {isBrand && (
+                <LinkedCampaignsPerformance
+                  eventId={event.id}
+                  hasEventCode={Boolean(event.event_code)}
+                />
+              )}
 
               <section className="rounded-md border border-border bg-card p-5">
                 <div className="flex items-start justify-between gap-6">

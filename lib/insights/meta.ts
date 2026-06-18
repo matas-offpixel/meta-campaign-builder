@@ -1067,9 +1067,7 @@ function mapCampaignRow(
   const reach = parseNum(insights?.reach);
   const clicks = parseNum(insights?.clicks);
   const lpv = sumActions(insights?.actions, ["landing_page_view"]);
-  const regs = sumActions(insights?.actions, [
-    "offsite_conversion.fb_pixel_lead",
-  ]);
+  const regs = pickRegistrationValue(insights?.actions);
   const purchases = sumActions(insights?.actions, [
     "offsite_conversion.fb_pixel_purchase",
   ]);
@@ -1522,9 +1520,7 @@ function mapCreativeRow(
   const reach = parseNum(insights?.reach);
   const clicks = parseNum(insights?.clicks);
   const lpv = sumActions(insights?.actions, ["landing_page_view"]);
-  const regs = sumActions(insights?.actions, [
-    "offsite_conversion.fb_pixel_lead",
-  ]);
+  const regs = pickRegistrationValue(insights?.actions);
   const purchases = sumActions(insights?.actions, [
     "offsite_conversion.fb_pixel_purchase",
   ]);
@@ -1684,6 +1680,35 @@ function sumActions(
     }
   }
   return total;
+}
+
+/**
+ * Priority-ordered registration action types. Mirrors
+ * `REGISTRATION_ACTION_PRIORITY` in `active-creatives-group.ts`
+ * so campaign-level totals use identical de-dup logic to the
+ * per-creative cards. Stops at the first matching type to avoid
+ * double-counting when Meta reports multiple overlapping buckets
+ * (e.g. both `fb_pixel_lead` and `complete_registration`).
+ */
+const REGISTRATION_ACTION_PRIORITY = [
+  "onsite_conversion.lead_grouped",
+  "offsite_conversion.fb_pixel_complete_registration",
+  "offsite_conversion.fb_pixel_lead",
+  "complete_registration",
+  "lead",
+  "registration",
+] as const;
+
+function pickRegistrationValue(actions: ActionRow[] | undefined): number {
+  if (!actions?.length) return 0;
+  for (const type of REGISTRATION_ACTION_PRIORITY) {
+    const hit = actions.find((a) => a.action_type === type);
+    if (hit) {
+      const v = Number(hit.value);
+      return Number.isFinite(v) ? v : 0;
+    }
+  }
+  return 0;
 }
 
 function ensureActPrefix(id: string): string {

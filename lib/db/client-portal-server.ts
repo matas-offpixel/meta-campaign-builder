@@ -91,6 +91,13 @@ export interface PortalEvent {
   meta_spend_cached: number | null;
   /** Pre-registration / D2C phase spend (migration 022). */
   prereg_spend: number | null;
+  /**
+   * Latest Mailchimp email_subscribers count for this event.
+   * Sourced from `mailchimp_tag_snapshots` when the event has a
+   * `mailchimp_tag`, falling back to `mailchimp_audience_snapshots`.
+   * Null when no snapshot exists yet.
+   */
+  mailchimp_registrations: number | null;
   /** Manual tickets_sold override on the event row itself (legacy). */
   tickets_sold: number | null;
   api_tickets_sold: number | null;
@@ -684,7 +691,7 @@ async function loadPortalForClientId(
   const eventsQueryBase = admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status, mailchimp_tag",
     )
     .eq("client_id", clientId);
   const eventsQuery = options?.eventCode
@@ -831,6 +838,41 @@ async function loadPortalForClientId(
     loadEventCodeLifetimeMetaCacheForClient(admin, clientId),
   ]);
   if (devTiming) console.timeEnd(parallelLabel);
+
+  // Load latest Mailchimp registrations per event. Prefer tag-scoped snapshots
+  // (for events with mailchimp_tag set) over audience-level snapshots.
+  const mailchimpRegsByEvent = new Map<string, number>();
+  if (eventIds.length > 0) {
+    // Tag-scoped snapshots first (priority pass).
+    const { data: tagRows } = await admin
+      .from("mailchimp_tag_snapshots" as "events")
+      .select("event_id, email_subscribers")
+      .in("event_id", eventIds)
+      .order("snapshot_at", { ascending: false });
+    const seenTag = new Set<string>();
+    for (const row of (tagRows ?? []) as unknown as Array<{ event_id: string; email_subscribers: number | null }>) {
+      if (!seenTag.has(row.event_id) && row.email_subscribers != null) {
+        mailchimpRegsByEvent.set(row.event_id, row.email_subscribers);
+        seenTag.add(row.event_id);
+      }
+    }
+    // Audience-level fallback for events not covered by tag snapshots.
+    const missingIds = eventIds.filter((id) => !mailchimpRegsByEvent.has(id));
+    if (missingIds.length > 0) {
+      const { data: audRows } = await admin
+        .from("mailchimp_audience_snapshots" as "events")
+        .select("event_id, email_subscribers")
+        .in("event_id", missingIds)
+        .order("snapshot_at", { ascending: false });
+      const seenAud = new Set<string>();
+      for (const row of (audRows ?? []) as unknown as Array<{ event_id: string; email_subscribers: number | null }>) {
+        if (!seenAud.has(row.event_id) && row.email_subscribers != null) {
+          mailchimpRegsByEvent.set(row.event_id, row.email_subscribers);
+          seenAud.add(row.event_id);
+        }
+      }
+    }
+  }
 
   for (const row of snapshotsRaw.data ?? []) {
     const eventId = row.event_id as string;
@@ -1128,6 +1170,7 @@ async function loadPortalForClientId(
         meta_campaign_id: e.meta_campaign_id,
         meta_spend_cached: e.meta_spend_cached,
         prereg_spend: e.prereg_spend,
+        mailchimp_registrations: mailchimpRegsByEvent.get(e.id) ?? null,
         status: (e as unknown as { status?: string | null }).status ?? null,
         tickets_sold: resolvedTicketsSold,
         api_tickets_sold: apiTicketsSold,
