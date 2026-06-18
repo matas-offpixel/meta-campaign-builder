@@ -56,6 +56,10 @@ import {
   assessCreativeLaunchReadiness,
   parseLaunchValidationResponse,
 } from "@/lib/bulk-attach/launch-validation";
+import {
+  validateAllCreativesAssetCompleteness,
+  formatAssetCompletenessIssues,
+} from "@/lib/validation/asset-completeness";
 import { useFetchPages } from "@/lib/hooks/useMeta";
 import { parseAspectFromFilename } from "@/lib/clients/asset-queue/aspect-detect";
 import { resolveOrganiserDestinationUrl, resolveUniversalClientUrl } from "@/lib/clients/asset-queue/destination-url";
@@ -519,6 +523,8 @@ export function ClientBulkAttachWizard({
     pagesLoading: pages.loading,
     pagesCount: pages.data.length,
   });
+  const assetCompletenessIssues = validateAllCreativesAssetCompleteness(creatives);
+  const assetCompletenessError = formatAssetCompletenessIssues(assetCompletenessIssues);
 
   // ── Active template match pattern (from applied template, step 1) ────────────
   const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
@@ -1462,7 +1468,12 @@ export function ClientBulkAttachWizard({
             />
           </div>
 
-          <div className="flex justify-end">
+          <div className="flex flex-col items-end gap-2">
+            {assetCompletenessIssues.length > 0 && (
+              <p className="text-xs text-amber-700">
+                Upload all required aspect ratios before continuing.
+              </p>
+            )}
             <Button
               size="sm"
               onClick={() => setStep(3)}
@@ -1472,7 +1483,8 @@ export function ClientBulkAttachWizard({
                   c.assetVariations?.some((v) =>
                     v.assets?.some((a) => a.uploadStatus === "uploaded"),
                   ),
-                )
+                ) ||
+                assetCompletenessIssues.length > 0
               }
             >
               Review & launch <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -1562,6 +1574,17 @@ export function ClientBulkAttachWizard({
                 onBackToCreatives={() => navigateToStep(2)}
               />
             )}
+            {assetCompletenessIssues.length > 0 && (
+              <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                <p className="mb-1 font-medium">Asset variations incomplete</p>
+                {assetCompletenessError.split("\n").filter((l) => l.startsWith("-")).map((line, i) => (
+                  <p key={i}>{line}</p>
+                ))}
+                <p className="mt-1 text-muted-foreground">
+                  Go back to creatives, upload the missing aspect ratio(s), or switch to Single mode.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col items-end gap-2">
@@ -1578,7 +1601,7 @@ export function ClientBulkAttachWizard({
               )}
             <Button
               onClick={handleLaunch}
-              disabled={launching || !creativeLaunchReadiness.ready}
+              disabled={launching || !creativeLaunchReadiness.ready || assetCompletenessIssues.length > 0}
             >
               {launching ? (
                 <>

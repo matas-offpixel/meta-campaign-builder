@@ -1030,6 +1030,7 @@ export function Creatives({
                               variation={variation}
                               index={vi}
                               mediaType={active.mediaType ?? "image"}
+                              assetMode={active.assetMode ?? "dual"}
                               adAccountId={adAccountId}
                               canRemove={(active.assetVariations ?? []).length > 1}
                               onUpdate={(patch) => updateAssetVariation(active.id, variation.id, patch)}
@@ -2168,6 +2169,7 @@ function AssetVariationCard({
   variation,
   index,
   mediaType,
+  assetMode,
   adAccountId,
   canRemove,
   onUpdate,
@@ -2177,6 +2179,7 @@ function AssetVariationCard({
   variation: AssetVariation;
   index: number;
   mediaType: "image" | "video";
+  assetMode: AssetMode;
   adAccountId?: string;
   canRemove: boolean;
   onUpdate: (updater: AssetVariationUpdater) => void;
@@ -2187,6 +2190,14 @@ function AssetVariationCard({
   const slots = variation.assets ?? [];
   const uploadedCount = slots.filter((a) => a.uploadStatus === "uploaded").length;
   const allDone = slots.length > 0 && uploadedCount === slots.length;
+
+  const requiredRatios = getAspectRatioSlots(mediaType, assetMode);
+  const uploadedRatioSet = new Set(
+    slots.filter((a) => Boolean(a.videoId) || Boolean(a.assetHash)).map((a) => a.aspectRatio),
+  );
+  const missingRatios = assetMode !== "single"
+    ? requiredRatios.filter((r) => !uploadedRatioSet.has(r))
+    : [];
 
   function updateAsset(assetId: string, patch: Partial<Asset>) {
     // Use the functional form so the update reads `prev.assets` from current
@@ -2269,6 +2280,13 @@ function AssetVariationCard({
               />
             ))}
           </div>
+          {missingRatios.length > 0 && (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              ⚠ {assetMode === "dual" ? "Dual" : "Full"} mode requires{" "}
+              {requiredRatios.join(" + ")}. Missing:{" "}
+              {missingRatios.join(", ")}.
+            </div>
+          )}
         </div>
       )}
     </div>
