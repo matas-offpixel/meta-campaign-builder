@@ -10,7 +10,6 @@ import { loadVenuePortalByCode } from "@/lib/db/client-portal-server";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
-import { getSpendAdjustmentGbp } from "@/lib/dashboard/event-code-adset-splits";
 import { venueCampaignEndDate } from "@/lib/dashboard/venue-campaign-end-date";
 import {
   aggregateSharedVenueBudget,
@@ -236,7 +235,6 @@ export default async function ClientVenueReportPage({
     dailyRollups: venueDailyRollups,
     eventDate: displayEventDate,
     allocatedBudget: venueAllocatedBudget,
-    spendAdjustmentGbp: getSpendAdjustmentGbp(eventCode),
   });
 
   const subTabs = buildSubTabs(id, eventCode, {

@@ -404,12 +404,15 @@ export interface VenueCanonicalFunnelInput {
   /** Override "today" for deterministic tests. Defaults to `new Date()`. */
   today?: Date;
   /**
-   * GBP spend adjustment to apply on top of the rollup-backed spend sum.
-   * Negative for venues that over-attribute spend from a shared campaign
-   * (e.g. WC26-GLASGOW-O2 loses SWG3's share); positive for venues that
-   * receive attributed spend back (WC26-GLASGOW-SWG3 gains its share).
-   * Computed by `getSpendAdjustmentGbp` in `event-code-adset-splits.ts`.
-   * Defaults to 0 (no adjustment) for all non-Glasgow venues.
+   * Optional GBP spend adjustment added on top of the rollup-backed spend sum.
+   *
+   * DEPRECATED / no-op: the Glasgow O2↔SWG3 ad-set split that used to feed this
+   * (the read-time `getSpendAdjustmentGbp` snapshot) was replaced by a
+   * write-time split in the rollup writer
+   * (`lib/dashboard/glasgow-adset-rollup-fetch.ts`), so rollups are already
+   * correctly attributed and no caller passes this. Retained as a 0-default
+   * seam to avoid churning the funnel's internal arithmetic; safe to remove in
+   * a later cleanup once confirmed unused.
    */
   spendAdjustmentGbp?: number;
 }
@@ -598,7 +601,8 @@ function computeSpendReconciliation({
   ticketsRemaining: number;
   daysToEvent: number | null;
   today: Date;
-  /** GBP adjustment from ad-set split (see `event-code-adset-splits.ts`). */
+  /** No-op seam (default 0); ad-set split now applied write-time in the rollup
+   * writer (`lib/dashboard/glasgow-adset-rollup-fetch.ts`). */
   spendAdjustmentGbp?: number;
 }): VenueSpendReconciliation {
   const todayYmd = today.toISOString().slice(0, 10);

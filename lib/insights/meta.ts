@@ -1933,6 +1933,14 @@ export interface FetchEventDailyMetaMetricsArgs {
   since: string;
   /** YYYY-MM-DD inclusive upper bound. */
   until: string;
+  /**
+   * Campaign IDs to exclude from the primary bracket-match loop (Glasgow-only:
+   * campaign 6925933901665 is mixed-ad-set and is re-added at ad-set level via
+   * `fetchGlasgowAdSetSplits`). Empty/omitted → byte-identical for every other
+   * event. Does NOT affect the WC26-GLASGOW umbrella loop (those campaigns are
+   * suffix-less and not the excluded id).
+   */
+  excludeCampaignIds?: string[];
 }
 
 /**
@@ -1964,6 +1972,7 @@ export async function fetchEventDailyMetaMetrics(
   args: FetchEventDailyMetaMetricsArgs,
 ): Promise<DailyMetaMetricsResult> {
   const { eventCode, adAccountId, token, since, until } = args;
+  const excludeCampaignIds = new Set(args.excludeCampaignIds ?? []);
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -2045,7 +2054,7 @@ export async function fetchEventDailyMetaMetrics(
         // helper landed the matching swap in the same PR — keep them
         // atomic.
         fields:
-          "spend,impressions,reach,clicks,date_start,campaign_name,actions,action_values",
+          "spend,impressions,reach,clicks,date_start,campaign_id,campaign_name,actions,action_values",
         level: "campaign",
         time_increment: "1",
         time_range: timeRange,
@@ -2062,6 +2071,7 @@ export async function fetchEventDailyMetaMetrics(
           reach?: string;
           clicks?: string;
           date_start?: string;
+          campaign_id?: string;
           campaign_name?: string;
           actions?: ActionRow[];
         }>
@@ -2070,6 +2080,11 @@ export async function fetchEventDailyMetaMetrics(
       for (const row of res.data ?? []) {
         const day = row.date_start;
         if (!day) continue;
+        // Glasgow ad-set-split exclusion: skip the mixed campaign entirely;
+        // its venue split is merged back at ad-set level by the runner.
+        if (row.campaign_id && excludeCampaignIds.has(row.campaign_id)) {
+          continue;
+        }
         // Case-sensitive post-filter: Meta's CONTAIN matched
         // case-insensitively, but the spec requires exact-case
         // matching so `LEEDS26-FACUP-RT` matches and
@@ -2336,6 +2351,13 @@ export interface FetchEventTodayMetaSnapshotArgs {
    * the system never queries for.
    */
   todayDate: string;
+  /**
+   * Campaign IDs to exclude from the primary bracket-match loop (Glasgow-only;
+   * mirrors `FetchEventDailyMetaMetricsArgs.excludeCampaignIds` so today's
+   * snapshot stays consistent with the historical window). Empty/omitted →
+   * byte-identical for every other event.
+   */
+  excludeCampaignIds?: string[];
 }
 
 /**
@@ -2366,6 +2388,7 @@ export async function fetchEventTodayMetaSnapshot(
   args: FetchEventTodayMetaSnapshotArgs,
 ): Promise<DailyMetaMetricsResult> {
   const { eventCode, adAccountId, token, todayDate } = args;
+  const excludeCampaignIds = new Set(args.excludeCampaignIds ?? []);
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -2421,7 +2444,7 @@ export async function fetchEventTodayMetaSnapshot(
         // before aggregating (Meta's CONTAIN is case-INsensitive).
         // PR-A (issue #467): `inline_link_clicks` → `clicks`.
         fields:
-          "spend,impressions,reach,clicks,campaign_name,actions,action_values",
+          "spend,impressions,reach,clicks,campaign_id,campaign_name,actions,action_values",
         level: "campaign",
         date_preset: "today",
         filtering,
@@ -2436,12 +2459,17 @@ export async function fetchEventTodayMetaSnapshot(
           impressions?: string;
           reach?: string;
           clicks?: string;
+          campaign_id?: string;
           campaign_name?: string;
           actions?: ActionRow[];
         }>
       >(`/${account}/insights`, params, token);
 
       for (const row of res.data ?? []) {
+        // Glasgow ad-set-split exclusion (mirrors the historical window).
+        if (row.campaign_id && excludeCampaignIds.has(row.campaign_id)) {
+          continue;
+        }
         const name = row.campaign_name ?? "";
         if (!campaignMatchesBracketedEventCode(name, eventCode)) continue;
         matchedCampaigns.add(name);
@@ -2579,6 +2607,15 @@ export interface FetchEventLifetimeMetaMetricsArgs {
   adAccountId: string;
   /** OAuth token of the event owner. */
   token: string;
+  /**
+   * Campaign IDs to exclude from the Pass-1 bracket match (Glasgow-only:
+   * campaign 6925933901665 is excluded so its venue engagement share can be
+   * re-added at ad-set level — see the lifetime leg in
+   * `lib/dashboard/rollup-sync-runner.ts`). Excluded campaigns drop out of the
+   * additive sums AND the Pass-2 reach-dedup ID set. Empty/omitted →
+   * byte-identical for every other event (PR #418 two-pass unchanged).
+   */
+  excludeCampaignIds?: string[];
 }
 
 export interface LifetimeMetaMetricsTotals {
@@ -2715,6 +2752,7 @@ export async function fetchEventLifetimeMetaMetricsWithFetcher(
   graphGet: GraphPageFetcher,
 ): Promise<LifetimeMetaMetricsResult> {
   const { eventCode, adAccountId, token } = args;
+  const excludeCampaignIds = args.excludeCampaignIds ?? [];
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -2766,7 +2804,7 @@ export async function fetchEventLifetimeMetaMetricsWithFetcher(
       if (!res.paging?.next || !after) break;
     }
 
-    const pass1 = aggregatePass1Pages(pass1Pages, eventCode);
+    const pass1 = aggregatePass1Pages(pass1Pages, eventCode, excludeCampaignIds);
 
     if (pass1.filteredOutCampaignNames.length > 0) {
       console.warn(

@@ -5,7 +5,6 @@ import { listDraftsForEventIds } from "@/lib/db/venue-drafts";
 import { VenueFullReport } from "@/components/share/venue-full-report";
 import { loadPurchaseAttributionMaps } from "@/lib/dashboard/canonical-event-metrics-loader";
 import { buildVenueCanonicalFunnel } from "@/lib/dashboard/venue-canonical-funnel";
-import { getSpendAdjustmentGbp } from "@/lib/dashboard/event-code-adset-splits";
 import { venueCampaignEndDate } from "@/lib/dashboard/venue-campaign-end-date";
 import {
   aggregateSharedVenueBudget,
@@ -157,7 +156,6 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
     dailyRollups: result.dailyRollups,
     eventDate: displayEventDate,
     allocatedBudget: venueAllocatedBudget,
-    spendAdjustmentGbp: getSpendAdjustmentGbp(result.event_code),
   });
 
   const subTabs = buildShareSubTabs(token, {
