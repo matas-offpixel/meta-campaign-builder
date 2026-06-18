@@ -126,6 +126,14 @@ export function isPublicPath(
   if (/^\/api\/clients\/[^/]+\/venues\/[^/]+\/daily-budget$/.test(pathname)) {
     return true;
   }
+  // `/api/events/{id}/mailchimp/refresh` — accepts EITHER a Supabase session
+  // cookie (in-app "Sync now" button) OR a `Bearer CRON_SECRET` header (ops
+  // batch scripts). The route's own auth enforces both paths; without this
+  // carve-out the proxy 307s bearer-only curls to /login before the handler
+  // ever sees the Authorization header.
+  if (/^\/api\/events\/[^/]+\/mailchimp\/refresh$/.test(pathname)) {
+    return true;
+  }
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
