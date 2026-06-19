@@ -370,16 +370,17 @@ export interface VenueCanonicalFunnelInput {
   ticketsSold: number;
   /**
    * Lifetime cache row for this `(client_id, event_code)`. `null` when
-   * the cache has not yet been populated — Reach / Clicks / LPV
-   * surface as `null` (the cache-miss state, per #418 audit
-   * deliverable #4).
+   * the cache has not yet been populated — in that case `buildVenueCanonicalFunnel`
+   * falls back to summing the daily rollup columns (same "Reach (sum)" fallback
+   * the Performance tab uses) so newly-tagged or pre-cache events still render
+   * funnel stage numerators.
    */
   lifetimeCacheRow: EventCodeLifetimeMetaCacheRow | null;
   /**
    * Daily rollup rows scoped to the venue's events. Used for spend
    * SUM (allocator-aware) and for the recent-window pace average in
-   * the backward read. NOT used for Reach / Clicks / LPV — those
-   * come from the lifetime cache.
+   * the backward read. Also used as a Reach / Clicks / LPV fallback
+   * when `lifetimeCacheRow` is null (e.g. cache not yet populated).
    */
   dailyRollups: ReadonlyArray<DailyRollupRow>;
   /**
@@ -423,9 +424,29 @@ export function buildVenueCanonicalFunnel(
 ): VenueCanonicalFunnel {
   const today = input.today ?? new Date();
   const cache = input.lifetimeCacheRow;
-  const reach = cache?.meta_reach ?? null;
-  const clicks = cache?.meta_link_clicks ?? null;
-  const lpv = cache?.meta_landing_page_views ?? null;
+
+  // Primary source: lifetime cache (deduplicated, cross-campaign).
+  // Fallback: daily rollup SUMs — used when the cache cron hasn't
+  // written for this event_code yet (e.g. a newly-tagged event that
+  // hasn't had its first lifetime-sync). The SUM is not deduplicated
+  // across campaigns but is the same signal the Performance tab shows
+  // in its "Reach (sum)" fallback path, so the two surfaces agree.
+  const rollupReach = input.dailyRollups.reduce(
+    (s, r) => s + (r.meta_reach ?? 0),
+    0,
+  );
+  const rollupClicks = input.dailyRollups.reduce(
+    (s, r) => s + (r.link_clicks ?? 0),
+    0,
+  );
+  const rollupLpv = input.dailyRollups.reduce(
+    (s, r) => s + (r.landing_page_views ?? 0),
+    0,
+  );
+
+  const reach = cache?.meta_reach ?? (rollupReach > 0 ? rollupReach : null);
+  const clicks = cache?.meta_link_clicks ?? (rollupClicks > 0 ? rollupClicks : null);
+  const lpv = cache?.meta_landing_page_views ?? (rollupLpv > 0 ? rollupLpv : null);
   const purchases = Math.max(0, Math.floor(input.ticketsSold));
   const capacity = Math.max(0, Math.floor(input.capacity));
 

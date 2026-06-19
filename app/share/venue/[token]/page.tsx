@@ -108,8 +108,9 @@ export default async function VenueSharePage({ params, searchParams }: Props) {
 
   const venueTitle =
     getSeriesDisplayLabel(result.event_code) ??
-    result.events[0]?.venue_name ??
-    result.event_code;
+    (result.events.length === 1
+      ? (result.events[0]?.name ?? result.events[0]?.venue_name ?? result.event_code)
+      : (result.events[0]?.venue_name ?? result.event_code));
 
   // PR #423 — Real Attribution Reconciliation v2 (dark build).
   // Server-side flag read + per-event attribution maps so the
