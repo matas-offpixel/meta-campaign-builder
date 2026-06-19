@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   syncMailchimpAudienceForEvent,
   syncMailchimpTagForEvent,
+  syncMailchimpTagDailyHistory,
   type MailchimpSyncEventRow,
   type MailchimpTagSyncEventRow,
 } from "@/lib/mailchimp/sync";
@@ -20,7 +21,9 @@ import {
  *      ownership check (user_id must match the event row).
  *
  * Dispatch:
- *   - events.mailchimp_tag set → writes to mailchimp_tag_snapshots.
+ *   - events.mailchimp_tag set → writes today's point to mailchimp_tag_snapshots,
+ *     then also runs the daily-history backfill to reconstruct any missing
+ *     historical rows from member date_added timestamps.
  *   - Otherwise               → writes to mailchimp_audience_snapshots.
  */
 export async function POST(
@@ -94,13 +97,14 @@ export async function POST(
   const mailchimpTag: string | null = ev.mailchimp_tag ?? null;
 
   if (mailchimpTag) {
-    // Tag-scoped refresh — write to mailchimp_tag_snapshots.
+    // Tag-scoped refresh — write today's point then backfill history.
     const tagEvent: MailchimpTagSyncEventRow = {
       ...(ev as MailchimpSyncEventRow),
       mailchimp_tag: mailchimpTag,
       client_id: ev.client_id ?? null,
     };
 
+    // 1. Today's point-in-time snapshot (fast).
     const result = await syncMailchimpTagForEvent(supabase, tagEvent);
 
     if (!result.ok) {
@@ -115,6 +119,18 @@ export async function POST(
       .select("*")
       .eq("id", result.snapshotId)
       .maybeSingle();
+
+    // 2. Historical backfill (may take a few seconds for large segments).
+    // Run fire-and-forget style — the snapshot above is already persisted so
+    // the response is not blocked on the history write completing.
+    // We await it so errors surface in logs, but we don't surface them to the
+    // caller since the primary snapshot already succeeded.
+    syncMailchimpTagDailyHistory(supabase, tagEvent).catch((err: unknown) => {
+      console.error(
+        `[mailchimp-refresh] history backfill error for event=${eventId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
 
     return NextResponse.json({ ok: true, snapshot });
   }
