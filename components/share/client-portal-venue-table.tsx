@@ -66,6 +66,7 @@ import { AdditionalTicketEntriesCard } from "@/components/dashboard/events/addit
 import { VenueAdditionalSpendCard } from "@/components/dashboard/events/venue-additional-spend-card";
 import { TicketTiersSection } from "@/components/dashboard/events/ticket-tiers-section";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 import {
   buildVenueTicketSnapshotPoints,
   type TierChannelSalesAnchorRow,
@@ -1895,6 +1896,51 @@ function VenueSection({
     [group.events],
   );
 
+  // Mailchimp registrations — sum across events. Used by the Registrations card.
+  const mailchimpRegistrations = useMemo(() => {
+    let total: number | null = null;
+    for (const ev of group.events) {
+      if (ev.mailchimp_registrations != null) {
+        total = (total ?? 0) + ev.mailchimp_registrations;
+      }
+    }
+    return total;
+  }, [group.events]);
+
+  const totalSpendForCpr =
+    campaignPerformance.paidMediaSpent + campaignPerformance.additionalSpend;
+  const costPerRegistration =
+    mailchimpRegistrations != null &&
+    mailchimpRegistrations > 0 &&
+    totalSpendForCpr > 0
+      ? totalSpendForCpr / mailchimpRegistrations
+      : null;
+
+  // Fetch Mailchimp tag snapshots for the trend chart when a tag is configured.
+  const primaryEvent = group.events[0] ?? null;
+  const mailchimpTag = primaryEvent?.mailchimp_tag ?? null;
+  const [mailchimpSnapshots, setMailchimpSnapshots] = useState<
+    MailchimpSnapshotRow[] | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!mailchimpTag || !primaryEvent) return;
+    fetch(
+      `/api/events/${encodeURIComponent(primaryEvent.id)}/mailchimp/snapshots`,
+      { cache: "no-store" },
+    )
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          rows?: MailchimpSnapshotRow[];
+        };
+        if (json.ok && Array.isArray(json.rows) && json.rows.length > 0) {
+          setMailchimpSnapshots(json.rows);
+        }
+      })
+      .catch(() => {});
+  }, [mailchimpTag, primaryEvent]);
+
   // Muted section styling: cancelled gets a subtle red border tint;
   // past groups get reduced opacity; active groups are unstyled.
   const sectionClass = isCancelledGroup
@@ -2176,6 +2222,8 @@ function VenueSection({
           clientId={clientId}
           eventCode={group.eventCode}
           shareToken={isInternal ? "" : token}
+          mailchimpRegistrations={mailchimpRegistrations}
+          costPerRegistration={costPerRegistration}
         />
       )}
 
@@ -2185,6 +2233,7 @@ function VenueSection({
             points={venueTrendPoints}
             title="Venue trend"
             className="border-border"
+            mailchimpSnapshots={mailchimpSnapshots}
           />
         </div>
       )}
@@ -2421,11 +2470,15 @@ function VenueCampaignPerformanceCards({
   clientId,
   eventCode,
   shareToken,
+  mailchimpRegistrations,
+  costPerRegistration,
 }: {
   performance: VenueCampaignPerformance;
   clientId: string;
   eventCode: string | null;
   shareToken: string;
+  mailchimpRegistrations: number | null;
+  costPerRegistration: number | null;
 }) {
   return (
     <section className="border-b border-border bg-background/60 px-4 py-4">
@@ -2539,17 +2592,11 @@ function VenueCampaignPerformanceCards({
                 <>{formatNumber(performance.ticketsSold)} sold</>
               )}
             </p>
-            <p className="font-heading text-xl tracking-wide tabular-nums">
-              {performance.costPerTicket !== null ? (
-                <>
-                  {formatGBP(performance.costPerTicket, 2)}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    cost per ticket
-                  </span>
-                </>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
+            <p className="text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground">Revenue:</span>{" "}
+              {performance.ticketRevenue != null && performance.ticketRevenue > 0
+                ? formatGBP(performance.ticketRevenue)
+                : "—"}
             </p>
             <p className="text-[11px] leading-snug text-muted-foreground">
               <span className="font-medium text-foreground">Pacing:</span>{" "}
@@ -2569,32 +2616,23 @@ function VenueCampaignPerformanceCards({
 
         <div className="rounded-md border border-border bg-card p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Ticket revenue
+            Registrations
           </p>
           <div className="mt-3 space-y-2 text-foreground">
             <p className="font-heading text-xl tracking-wide tabular-nums">
-              {performance.ticketRevenue != null ? (
-                formatGBP(performance.ticketRevenue)
+              {mailchimpRegistrations != null ? (
+                <>{formatNumber(mailchimpRegistrations)}</>
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </p>
-            <p className="font-heading text-xl tracking-wide tabular-nums">
-              {performance.roas != null ? (
-                <>
-                  {formatRoas(performance.roas)}{" "}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    ROAS
-                  </span>
-                </>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </p>
-            {performance.ticketRevenue != null && performance.paidMediaSpent > 0 ? (
+            {costPerRegistration != null ? (
               <p className="text-[11px] text-muted-foreground tabular-nums">
-                {formatGBP(performance.paidMediaSpent / performance.ticketRevenue, 2)} cost per
-                acquired £1
+                {formatGBP(costPerRegistration, 2)} cost per reg
+              </p>
+            ) : mailchimpRegistrations === 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                0 registrations
               </p>
             ) : null}
           </div>
