@@ -304,6 +304,52 @@ export async function getAudienceSegments(
   );
 }
 
+/**
+ * One tag entry from the Mailchimp member-level tags array.
+ * `date_added` is when the tag was applied to this specific member (ISO 8601).
+ */
+export interface MailchimpMemberTag {
+  id: number;
+  name: string;
+  date_added: string; // ISO 8601 — when this tag was applied to the member
+}
+
+export interface MailchimpSegmentMember {
+  id: string;
+  tags: MailchimpMemberTag[];
+}
+
+export interface MailchimpSegmentMembersResponse {
+  members: MailchimpSegmentMember[];
+  total_items: number;
+}
+
+/**
+ * Fetches one page of members for a segment (tag), requesting only the `tags`
+ * field so we can read per-member `date_added` timestamps.
+ *
+ * Mailchimp max page size is 1 000. Callers should paginate via `offset` until
+ * `members.length < count` or `total >= total_items`.
+ */
+export async function getSegmentMembers(
+  dc: string,
+  audienceId: string,
+  segmentId: number,
+  apiKey: string,
+  options: { count?: number; offset?: number } = {},
+): Promise<MailchimpSegmentMembersResponse> {
+  return mailchimpGet<MailchimpSegmentMembersResponse>(
+    dc,
+    `/lists/${audienceId}/segments/${segmentId}/members`,
+    {
+      fields: "members.id,members.tags,total_items",
+      count: String(options.count ?? 1000),
+      offset: String(options.offset ?? 0),
+    },
+    apiKey,
+  );
+}
+
 /** Returns the account info (used to derive loginId at connect time). */
 export async function getAccountInfo(
   dc: string,

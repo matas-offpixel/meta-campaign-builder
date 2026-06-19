@@ -5,6 +5,7 @@ import {
   getAudience,
   getAudienceListActivity,
   getAudienceSegments,
+  getSegmentMembers,
   MailchimpApiError,
   type MailchimpActivityRow,
   type MailchimpAudience,
@@ -451,4 +452,228 @@ export async function syncMailchimpTagForEvent(
     snapshotId: (upserted as { id?: string } | null)?.id,
     memberCount,
   };
+}
+
+// ── Tag daily-history backfill ────────────────────────────────────────────────
+
+/**
+ * Reconstructs per-day cumulative `email_subscribers` history for a tag-scoped
+ * event by walking the `date_added` field on each segment member.
+ *
+ * Algorithm:
+ *   1. Resolve credentials + audience ID (same as syncMailchimpTagForEvent).
+ *   2. Find the segment whose name matches event.mailchimp_tag.
+ *   3. Paginate GET /lists/{audienceId}/segments/{segmentId}/members
+ *      requesting `members.id,members.tags` — each tag entry carries
+ *      a per-member `date_added` timestamp (when the tag was applied).
+ *   4. Filter each member's tags for the target tag and extract `date_added`.
+ *   5. Bucket by calendar day → build cumulative totals (oldest → newest).
+ *   6. Delete existing tag snapshot rows in the reconstructed window, then
+ *      insert one row per day. Idempotent — safe to re-run.
+ *
+ * Why not use /growth-history?
+ *   Mailchimp's /growth-history endpoint only exists for audiences, not for
+ *   static segments (tags). The member-level date_added field is the only
+ *   per-day signal available.
+ *
+ * Caveat:
+ *   Only CURRENTLY-TAGGED members contribute dates. Members who held the tag
+ *   historically and then had it removed are absent from the segment — so
+ *   early-day counts may be slightly under-reported. In practice this is
+ *   negligible for campaign-lifetime accuracy.
+ */
+export async function syncMailchimpTagDailyHistory(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: ReturnType<typeof createServiceRoleClient> | any,
+  event: MailchimpTagSyncEventRow & { client_id?: string | null },
+): Promise<SyncMailchimpDailyHistoryResult> {
+  const audienceId = resolveMailchimpAudienceId(event);
+  if (!audienceId) {
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} failed: no_audience_id`,
+    );
+    return { ok: false, rowsWritten: 0, error: "no_audience_id" };
+  }
+
+  const client = Array.isArray(event.client) ? event.client[0] : event.client;
+  const accountId = client?.mailchimp_account_id ?? null;
+  if (!accountId) {
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} failed: no_account_id`,
+    );
+    return { ok: false, rowsWritten: 0, error: "no_account_id" };
+  }
+
+  let credentials;
+  try {
+    credentials = await getMailchimpCredentials(supabase, accountId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, rowsWritten: 0, error: `credentials: ${message}` };
+  }
+  if (!credentials) {
+    return { ok: false, rowsWritten: 0, error: "no_credentials" };
+  }
+
+  // Find the segment matching the tag name.
+  let segmentsResponse;
+  try {
+    segmentsResponse = await getAudienceSegments(
+      credentials.dc,
+      audienceId,
+      credentials.apiKey,
+      { type: "static", count: 1000 },
+    );
+  } catch (err) {
+    const message = err instanceof MailchimpApiError ? err.message : String(err);
+    return { ok: false, rowsWritten: 0, error: `api_segments: ${message}` };
+  }
+
+  const tagLower = event.mailchimp_tag.trim().toLowerCase();
+  const matchedSegment = segmentsResponse.segments.find(
+    (s) => s.type === "static" && s.name.trim().toLowerCase() === tagLower,
+  );
+  if (!matchedSegment) {
+    console.warn(
+      `[mailchimp-tag-history] event=${event.id} tag="${event.mailchimp_tag}" not found in ${segmentsResponse.segments.length} segments`,
+    );
+    return {
+      ok: false,
+      rowsWritten: 0,
+      error: `tag_not_found: ${event.mailchimp_tag}`,
+    };
+  }
+
+  // Paginate through all segment members to collect per-member tag date_added.
+  const PAGE_SIZE = 1000;
+  const dateAddedList: string[] = [];
+  let offset = 0;
+  let totalItems = matchedSegment.member_count;
+
+  try {
+    // First page also gives us the accurate total_items.
+    let fetched = 0;
+    do {
+      const page = await getSegmentMembers(
+        credentials.dc,
+        audienceId,
+        matchedSegment.id,
+        credentials.apiKey,
+        { count: PAGE_SIZE, offset },
+      );
+
+      totalItems = page.total_items ?? totalItems;
+
+      for (const member of page.members) {
+        const matchedTag = member.tags?.find(
+          (t) => t.name.trim().toLowerCase() === tagLower,
+        );
+        if (matchedTag?.date_added) {
+          dateAddedList.push(matchedTag.date_added);
+        }
+      }
+
+      fetched += page.members.length;
+      offset += PAGE_SIZE;
+
+      // Stop when we've exhausted the segment or received an empty page.
+      if (page.members.length < PAGE_SIZE || fetched >= totalItems) break;
+    } while (true);
+  } catch (err) {
+    const message = err instanceof MailchimpApiError ? err.message : String(err);
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} member-fetch error: ${message}`,
+    );
+    return { ok: false, rowsWritten: 0, error: `api_members: ${message}` };
+  }
+
+  if (dateAddedList.length === 0) {
+    console.warn(
+      `[mailchimp-tag-history] event=${event.id} tag="${event.mailchimp_tag}" fetched ${totalItems} members but none had date_added`,
+    );
+    return { ok: true, rowsWritten: 0 };
+  }
+
+  // Bucket date_added timestamps by calendar day → daily new-member counts.
+  const deltaByDay = new Map<string, number>();
+  for (const ts of dateAddedList) {
+    const day = ts.slice(0, 10); // YYYY-MM-DD
+    deltaByDay.set(day, (deltaByDay.get(day) ?? 0) + 1);
+  }
+
+  // Build cumulative totals sorted oldest → newest.
+  const sortedDays = [...deltaByDay.keys()].sort();
+  const dailyCumulatives: { day: string; cumulative: number }[] = [];
+  let cumulative = 0;
+  for (const day of sortedDays) {
+    cumulative += deltaByDay.get(day)!;
+    dailyCumulatives.push({ day, cumulative });
+  }
+
+  if (dailyCumulatives.length === 0) {
+    return { ok: true, rowsWritten: 0 };
+  }
+
+  const firstDate = dailyCumulatives[0]!.day;
+  const lastDate = dailyCumulatives[dailyCumulatives.length - 1]!.day;
+  const clientId = event.client_id ?? null;
+
+  const rows = dailyCumulatives.map(({ day, cumulative: cnt }) => ({
+    user_id: event.user_id,
+    event_id: event.id,
+    client_id: clientId,
+    mailchimp_audience_id: audienceId,
+    mailchimp_tag: event.mailchimp_tag,
+    total_contacts: cnt,
+    email_subscribers: cnt,
+    // Anchor to noon UTC so the unique index on snapshot_at::date resolves
+    // consistently regardless of server timezone.
+    snapshot_at: `${day}T12:00:00Z`,
+    raw_json: {
+      source: "mailchimp_tag_daily_history",
+      segment_id: matchedSegment.id,
+    } as object,
+  }));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as unknown as any;
+
+  // Delete existing tag snapshots in the reconstructed window, then re-insert.
+  const { error: deleteError } = await sb
+    .from("mailchimp_tag_snapshots")
+    .delete()
+    .eq("event_id", event.id)
+    .gte("snapshot_at", `${firstDate}T00:00:00Z`)
+    .lte("snapshot_at", `${lastDate}T23:59:59Z`);
+
+  if (deleteError) {
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} delete error: ${deleteError.message}`,
+    );
+    return {
+      ok: false,
+      rowsWritten: 0,
+      error: `delete: ${deleteError.message}`,
+    };
+  }
+
+  const { error: insertError } = await sb
+    .from("mailchimp_tag_snapshots")
+    .insert(rows);
+
+  if (insertError) {
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} insert error: ${insertError.message}`,
+    );
+    return {
+      ok: false,
+      rowsWritten: 0,
+      error: `insert: ${insertError.message}`,
+    };
+  }
+
+  console.log(
+    `[mailchimp-tag-history] event=${event.id} tag="${event.mailchimp_tag}" wrote ${rows.length} rows ${firstDate}..${lastDate} (${dateAddedList.length} members bucketed)`,
+  );
+  return { ok: true, rowsWritten: rows.length, firstDate, lastDate };
 }
