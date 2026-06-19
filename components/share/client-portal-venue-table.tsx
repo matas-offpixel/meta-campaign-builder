@@ -1039,17 +1039,6 @@ export function ClientPortalVenueTable({
             <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
               {REGION_LABEL[region]}
             </h2>
-            {/* Overall London aggregate sits at the top of the London
-                region, mirroring the spreadsheet layout the client uses
-                offline. Other regions don't have a shared-campaign
-                aggregate so this only fires for `london`. */}
-            {region === "london" && (
-              <OverallLondonSection
-                groups={groups}
-                onsaleSpend={londonOnsaleSpend}
-                presaleSpend={londonPresaleSpend}
-              />
-            )}
             {groups.map((group) => (
               <VenueSection
                 key={group.key}
@@ -1984,6 +1973,29 @@ function VenueSection({
               className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Registrations + CPR — surfaces headline engagement
+                  metric before ticket sales so operators can read
+                  "audience built → sales converted" left-to-right. */}
+              <span className="flex-shrink-0 tabular-nums">
+                Registrations:{" "}
+                <span className="font-semibold text-foreground">
+                  {formatNumber(totals.registrations)}
+                </span>
+              </span>
+              {totals.ad !== null && totals.registrations > 0 && (
+                <>
+                  <span className="flex-shrink-0 text-muted-foreground/60" aria-hidden="true">·</span>
+                  <span className="flex-shrink-0 tabular-nums">
+                    CPR:{" "}
+                    <span className="font-semibold text-foreground">
+                      {formatGBP(totals.total !== null && totals.registrations > 0
+                        ? totals.total / totals.registrations
+                        : null, 2)}
+                    </span>
+                  </span>
+                </>
+              )}
+              <span className="flex-shrink-0 text-muted-foreground/60" aria-hidden="true">·</span>
               <span className="flex-shrink-0 tabular-nums">
                 Tickets:{" "}
                 <VenueTicketsClickEdit

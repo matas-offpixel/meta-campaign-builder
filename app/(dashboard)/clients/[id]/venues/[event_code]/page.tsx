@@ -177,9 +177,12 @@ export default async function ClientVenueReportPage({
   // Title: prefer the curated series label (e.g. "Arsenal Champions
   // League Final – London") over the raw venue_name fallback so the
   // sticky header reads like the marketing copy rather than the
-  // logistics venue. Falls back to venue_name → event_code.
+  // logistics venue. For single-event venues, use the event name
+  // directly (e.g. "Ironworks — Camelphat") which includes the artist.
+  // Falls back to venue_name → event_code.
   const venueTitle =
     getSeriesDisplayLabel(eventCode) ??
+    (venueEvents.length === 1 ? venueEvents[0]?.name : null) ??
     venueEvents[0]?.venue_name ??
     eventCode;
   const lastSyncedAt = computeLastSyncedAt(venueDailyRollups);
