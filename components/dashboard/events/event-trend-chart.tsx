@@ -223,6 +223,24 @@ function LegacyTrendChart({
   const [active, setActive] = useState<Set<MetricKey>>(
     () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
   );
+
+  // Auto-enable Registrations + CPR pills the first time mailchimp snapshot
+  // data becomes available for this event (async-loaded prop). Uses the React 19
+  // "adjust state in render" pattern (see react.dev/learn/you-might-not-need-an-
+  // effect#adjusting-some-state-when-a-prop-changes) — calling setState during
+  // render rather than in a useEffect, which avoids the react-hooks/set-state-in-
+  // effect lint rule and avoids the extra round-trip commit.
+  const hasMailchimpData = (mailchimpSnapshots?.length ?? 0) > 0;
+  const [didAutoEnableMailchimp, setDidAutoEnableMailchimp] = useState(false);
+  if (hasMailchimpData && !didAutoEnableMailchimp) {
+    setDidAutoEnableMailchimp(true);
+    setActive((prev) => {
+      const next = new Set(prev);
+      next.add("registrations");
+      next.add("cpr");
+      return next;
+    });
+  }
   const [hover, setHover] = useState<{
     index: number;
     chartWidth: number;
