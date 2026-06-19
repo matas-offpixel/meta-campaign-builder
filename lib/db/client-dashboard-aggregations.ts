@@ -81,6 +81,13 @@ export interface AggregatableEvent {
    * Budget" card.
    */
   budget_marketing?: number | null;
+  /**
+   * Latest Mailchimp email_subscribers count for this event
+   * (tag-scoped preferred, falling back to audience-scoped).
+   * Optional for legacy callers; treated as 0 when absent.
+   * Feeds the client topline's "Total Registrations" and CPR cards.
+   */
+  mailchimp_registrations?: number | null;
   latest_snapshot: {
     tickets_sold: number | null;
     revenue: number | null;
@@ -273,6 +280,18 @@ export interface ClientWideTotals {
    * capacity configured yet" instead of a meaningless %.
    */
   sellThroughPct: number | null;
+  /**
+   * Sum of mailchimp_registrations across all events in scope.
+   * Feeds the "Total Registrations" topline card and CPR computation.
+   * Zero when no event has registrations data yet.
+   */
+  totalRegistrations: number;
+  /**
+   * totalSpend / totalRegistrations — the headline CPR for the client
+   * portfolio. `null` when either denominator is zero or registrations
+   * data is absent.
+   */
+  totalCpr: number | null;
 }
 
 /**
@@ -404,6 +423,7 @@ export function aggregateClientWideTotals(
   let capacityAnyNonNull = false;
   let revenue = 0;
   let hasRevenue = false;
+  let totalRegistrations = 0;
   const groupKeys = new Set<string>();
   const groupingRows: GroupableRow[] = events.map((ev) => ({
     eventId: ev.id,
@@ -421,6 +441,7 @@ export function aggregateClientWideTotals(
   for (const ev of events) {
     prereg += ev.prereg_spend ?? 0;
     ticketsSold += ticketsForAggregatableEvent(ev);
+    totalRegistrations += ev.mailchimp_registrations ?? 0;
     if (ev.capacity != null) {
       capacity += ev.capacity;
       capacityAnyNonNull = true;
@@ -447,6 +468,10 @@ export function aggregateClientWideTotals(
     capacityOut != null && capacityOut > 0
       ? (ticketsSold / capacityOut) * 100
       : null;
+  const totalCpr =
+    totalRegistrations > 0 && totalSpend > 0
+      ? totalSpend / totalRegistrations
+      : null;
 
   return {
     venueGroups: groupKeys.size,
@@ -463,6 +488,8 @@ export function aggregateClientWideTotals(
     roas,
     cpt,
     sellThroughPct,
+    totalRegistrations,
+    totalCpr,
   };
 }
 

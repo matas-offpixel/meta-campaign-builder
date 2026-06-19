@@ -11,7 +11,7 @@ import type {
   WeeklyTicketSnapshotRow,
 } from "@/lib/db/client-portal-server";
 import type { TierChannelDailyHistoryRow } from "@/lib/dashboard/venue-trend-points";
-import { aggregateAllBuckets } from "@/lib/db/client-dashboard-aggregations";
+import { aggregateAllBuckets, aggregateSharedVenueBudget } from "@/lib/db/client-dashboard-aggregations";
 import {
   CLIENT_REGION_LABELS,
   defaultClientRegion,
@@ -207,7 +207,34 @@ export function ClientPortal({
       ),
     [events, dailyRollups, additionalSpend, londonOnsaleSpend, londonPresaleSpend],
   );
-  const clientWideTotals = allBucketTotals.active;
+
+  // Marketing budget should aggregate ALL events (active + past + cancelled)
+  // so the topline card reflects the full portfolio commitment rather than
+  // just the active recency-filtered subset.
+  const allEventsBudget = useMemo(
+    () => aggregateSharedVenueBudget(events),
+    [events],
+  );
+
+  // Total registrations from ALL events (same scope as budget — full portfolio).
+  const allEventsRegistrations = useMemo(
+    () => events.reduce((sum, ev) => sum + (ev.mailchimp_registrations ?? 0), 0),
+    [events],
+  );
+
+  const clientWideTotals = useMemo(() => {
+    const active = allBucketTotals.active;
+    const totalCpr =
+      allEventsRegistrations > 0 && active.totalSpend > 0
+        ? active.totalSpend / allEventsRegistrations
+        : null;
+    return {
+      ...active,
+      marketingBudget: allEventsBudget,
+      totalRegistrations: allEventsRegistrations,
+      totalCpr,
+    };
+  }, [allBucketTotals.active, allEventsBudget, allEventsRegistrations]);
 
   const grouped = useMemo(() => {
     return groupEventsByClientRegion(events);

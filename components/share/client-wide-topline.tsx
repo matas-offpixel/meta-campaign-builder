@@ -93,11 +93,11 @@ export function ClientWideTopline({ clientName, totals, pastTotals, cancelledTot
           </p>
         </div>
       </header>
-      {/* Stat grid — 7 cards lifetime. Budget + Spend pair leads so
+      {/* Stat grid — 9 cards lifetime. Budget + Spend pair leads so
           operators read "what was planned" before "what was spent".
-          Wraps to 2 rows on narrow viewports (sm:grid-cols-4 → 2×4
-          minus one empty cell, then a short 3-card row). */}
-      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-7">
+          Wraps to 2 rows on narrow viewports (sm:grid-cols-4 → 3×3
+          on sm screens, 1 row of 9 on lg). */}
+      <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4 lg:grid-cols-9">
         <Stat
           label="Marketing budget"
           value={formatGBP(totals.marketingBudget)}
@@ -108,6 +108,14 @@ export function ClientWideTopline({ clientName, totals, pastTotals, cancelledTot
         />
         <Stat label="Ad spend" value={formatGBP(totals.adSpend)} />
         <Stat label="Total spend" value={formatGBP(totals.totalSpend)} />
+        <Stat
+          label="Total registrations"
+          value={formatNumber(totals.totalRegistrations)}
+        />
+        <Stat
+          label="Total CPR"
+          value={formatGBP(totals.totalCpr, 2)}
+        />
         <Stat label="Tickets sold" value={formatNumber(totals.ticketsSold)} />
         <Stat
           label="Ticket revenue"
@@ -121,11 +129,22 @@ export function ClientWideTopline({ clientName, totals, pastTotals, cancelledTot
       </div>
       <footer className="flex flex-wrap items-baseline gap-3 border-t border-border bg-muted px-4 py-2.5 text-xs text-muted-foreground">
         <span>
-          Pre-reg:{" "}
+          Total registrations:{" "}
           <span className="font-semibold text-foreground">
-            {formatGBP(totals.preregSpend)}
+            {formatNumber(totals.totalRegistrations)}
           </span>
         </span>
+        {totals.totalCpr !== null && (
+          <>
+            <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+            <span>
+              Total CPR:{" "}
+              <span className="font-semibold text-foreground">
+                {formatGBP(totals.totalCpr, 2)}
+              </span>
+            </span>
+          </>
+        )}
         {totals.additionalSpend > 0 && (
           <>
             <span className="text-muted-foreground/60" aria-hidden="true">·</span>
@@ -137,13 +156,6 @@ export function ClientWideTopline({ clientName, totals, pastTotals, cancelledTot
             </span>
           </>
         )}
-        <span className="text-muted-foreground/60" aria-hidden="true">·</span>
-        <span>
-          CPT:{" "}
-          <span className="font-semibold text-foreground">
-            {formatGBP(totals.cpt, 2)}
-          </span>
-        </span>
         {totals.sellThroughPct !== null && totals.capacity !== null && (
           <>
             <span className="text-muted-foreground/60" aria-hidden="true">·</span>
