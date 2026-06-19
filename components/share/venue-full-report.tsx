@@ -6,7 +6,10 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { fmtInt } from "@/components/report/meta-insights-sections";
 import { fmtCurrencyCompact } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
-import { resolveDisplayTicketCount } from "@/lib/dashboard/tier-channel-rollups";
+import {
+  resolveDisplayTicketCount,
+  resolveDisplayTicketRevenue,
+} from "@/lib/dashboard/tier-channel-rollups";
 import { computeCanonicalEventMetrics } from "@/lib/dashboard/canonical-event-metrics";
 import { AttributionGapTile } from "@/components/dashboard/event-report/AttributionGapTile";
 import { RealAttributionTile } from "@/components/dashboard/event-report/RealAttributionTile";
@@ -354,6 +357,8 @@ export function VenueFullReport({
         datePreset={datePreset}
         customRange={customRange}
         platform={platform}
+        mailchimpTag={initialEvents[0]?.mailchimp_tag ?? undefined}
+        eventId={initialEvents[0]?.id ?? undefined}
       />
       <VenueDailyTrackerSection
         eventCode={eventCode}
@@ -406,7 +411,7 @@ function PerformanceSummaryCards({
       <h2 className="font-heading text-base tracking-wide text-foreground">
         Performance summary
       </h2>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
         <div className="rounded-md border border-border bg-card p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Total marketing
@@ -470,38 +475,57 @@ function PerformanceSummaryCards({
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
             Tickets
           </p>
-          <p className="mt-3 font-heading text-xl tracking-wide tabular-nums text-foreground">
-            {performance.tickets != null ? (
-              performance.capacity != null ? (
-                <>
-                  {fmtInt(performance.tickets)} / {fmtInt(performance.capacity)}{" "}
-                  sold
-                  {performance.sellThroughPct != null ? (
-                    <span className="text-sm font-normal text-muted-foreground">
-                      {" "}
-                      ({performance.sellThroughPct.toFixed(1)}%)
-                    </span>
-                  ) : null}
-                </>
+          <div className="mt-3 space-y-2 text-foreground">
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.tickets != null ? (
+                performance.capacity != null ? (
+                  <>
+                    {fmtInt(performance.tickets)} / {fmtInt(performance.capacity)}{" "}
+                    sold
+                    {performance.sellThroughPct != null ? (
+                      <span className="text-sm font-normal text-muted-foreground">
+                        {" "}
+                        ({performance.sellThroughPct.toFixed(1)}%)
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <>{fmtInt(performance.tickets)} sold</>
+                )
               ) : (
-                <>{fmtInt(performance.tickets)} sold</>
-              )
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              <span className="font-medium text-foreground">Revenue:</span>{" "}
+              {performance.ticketRevenue != null && performance.ticketRevenue > 0
+                ? fmtCurrencyCompact(performance.ticketRevenue)
+                : "—"}
+            </p>
+          </div>
+        </div>
+        <div className="rounded-md border border-border bg-card p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Registrations
           </p>
-          <p className="mt-1 font-heading text-xl tracking-wide tabular-nums text-foreground">
-            {performance.costPerTicket != null ? (
-              <>
-                {fmtCurrencyCompact(performance.costPerTicket)}{" "}
-                <span className="text-sm font-normal text-muted-foreground">
-                  cost per ticket
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </p>
+          <div className="mt-3 space-y-2 text-foreground">
+            <p className="font-heading text-xl tracking-wide tabular-nums">
+              {performance.mailchimpRegistrations != null ? (
+                <>{fmtInt(performance.mailchimpRegistrations)}</>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </p>
+            {performance.costPerRegistration != null ? (
+              <p className="text-[11px] text-muted-foreground tabular-nums">
+                {fmtCurrencyCompact(performance.costPerRegistration)} cost per reg
+              </p>
+            ) : performance.mailchimpRegistrations === 0 ? (
+              <p className="text-[11px] text-muted-foreground">
+                0 registrations
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
     </section>
@@ -577,9 +601,12 @@ interface VenuePerformance {
   totalMarketing: number;
   capacity: number | null;
   tickets: number | null;
+  ticketRevenue: number | null;
   sellThroughPct: number | null;
   costPerTicket: number | null;
   percentUsed: number | null;
+  mailchimpRegistrations: number | null;
+  costPerRegistration: number | null;
 }
 
 function computeVenuePerformance(
@@ -604,17 +631,29 @@ function computeVenuePerformance(
     latestVenueEventTickets(events) ??
     sumLifetimeTickets(rollups) ??
     latestVenueSnapshotTickets(weeklyTicketSnapshots);
+  const ticketRevenue = latestVenueEventRevenue(events);
   const paidMediaSpent = sumLifetimeMetaSpend(rollups, events.length > 1);
   const sellThroughPct =
     capacity != null && capacity > 0 && tickets != null
       ? (tickets / capacity) * 100
       : null;
-  const costPerTicket =
-    tickets != null && tickets > 0 && paidMediaSpent > 0
-      ? paidMediaSpent / tickets
-      : null;
+  const costPerTicket = tickets != null && tickets > 0 && paidMediaSpent > 0 ? paidMediaSpent / tickets : null;
   const percentUsed =
     paidMediaBudget > 0 ? (paidMediaSpent / paidMediaBudget) * 100 : null;
+
+  // Mailchimp registrations: sum mailchimp_registrations from events.
+  let mailchimpRegistrations: number | null = null;
+  for (const ev of events) {
+    if (ev.mailchimp_registrations != null) {
+      mailchimpRegistrations = (mailchimpRegistrations ?? 0) + ev.mailchimp_registrations;
+    }
+  }
+  const totalSpend = paidMediaSpent + additionalSpendTotal;
+  const costPerRegistration =
+    mailchimpRegistrations != null && mailchimpRegistrations > 0 && totalSpend > 0
+      ? totalSpend / mailchimpRegistrations
+      : null;
+
   return {
     paidMediaBudget,
     paidMediaSpent,
@@ -622,9 +661,12 @@ function computeVenuePerformance(
     totalMarketing: paidMediaBudget + additionalSpendTotal,
     capacity,
     tickets,
+    ticketRevenue,
     sellThroughPct,
     costPerTicket,
     percentUsed,
+    mailchimpRegistrations,
+    costPerRegistration,
   };
 }
 
@@ -676,6 +718,28 @@ function latestVenueEventTickets(events: PortalEvent[]): number | null {
     const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold;
     if (tickets == null) continue;
     total += tickets;
+    any = true;
+  }
+  return any ? total : null;
+}
+
+function latestVenueEventRevenue(events: PortalEvent[]): number | null {
+  if (events.length === 0) return null;
+  let total = 0;
+  let any = false;
+  for (const event of events) {
+    if (event.ticket_tiers.length > 0) {
+      const r = resolveDisplayTicketRevenue({
+        ticket_tiers: event.ticket_tiers,
+        latest_snapshot_revenue: event.latest_snapshot?.revenue ?? null,
+        tier_channel_sales_revenue: event.tier_channel_sales_revenue ?? null,
+      });
+      if (r != null) { total += r; any = true; }
+      continue;
+    }
+    const r = event.latest_snapshot?.revenue;
+    if (r == null) continue;
+    total += r;
     any = true;
   }
   return any ? total : null;

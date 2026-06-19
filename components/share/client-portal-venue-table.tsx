@@ -686,9 +686,18 @@ function sumVenue(group: VenueGroup, spend: GroupSpend): VenueTotals {
     ad = spend.venuePaidMedia;
     total = prereg + spend.venuePaidMedia;
   } else if (spend.kind === "split") {
-    // Legacy: campaign value already includes prereg, so ad = total − prereg.
-    total = group.campaignSpend;
-    ad = total !== null ? total - prereg : null;
+    if (group.campaignSpend !== null && group.campaignSpend > 0) {
+      // Legacy: campaign value already includes prereg, so ad = total − prereg.
+      total = group.campaignSpend;
+      ad = total - prereg;
+    } else {
+      // No / zero Meta campaign: total = external prereg spend only.
+      // This covers events like partner-driven campaigns where
+      // prereg_spend is set but no Meta campaign exists.
+      const base = group.campaignSpend ?? 0;
+      total = prereg > 0 ? prereg + base : (group.campaignSpend !== null ? 0 : null);
+      ad = group.campaignSpend !== null ? base : null;
+    }
   } else if (spend.kind === "add") {
     // London: venue ad = perEventAd × eventCount (== onsaleShare + venueMeta).
     // Total = prereg + venueAd. Re-multiplying perEventAd preserves the
