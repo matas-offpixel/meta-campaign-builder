@@ -283,6 +283,11 @@ interface Props {
    */
   sellOutPacing?: SellOutPacingResult | null;
   /**
+   * Lifetime ticket revenue from `event_daily_rollups.revenue`.
+   * Optional — shown as a sub-line on the Tickets card when available.
+   */
+  ticketRevenue?: number | null;
+  /**
    * Optional slot below TikTok / above the event daily block — used on the
    * public share page for token-scoped additional spend CRUD.
    */
@@ -409,6 +414,7 @@ export function EventReportView({
   onManualRefresh,
   additionalSpendEntries = NO_ADDITIONAL_SPEND,
   sellOutPacing = null,
+  ticketRevenue = null,
   additionalSpendSlot,
   mailchimpSlot,
   registrationsData,
@@ -687,6 +693,7 @@ export function EventReportView({
             costPerTicket={costPerTicket}
             isBrandCampaign={isBrandCampaign}
             sellOutPacing={sellOutPacing}
+            ticketRevenue={ticketRevenue}
             channelMultiActive={channelMultiActive}
             isRefreshing={isRefreshing}
             datePreset={datePreset}
@@ -774,6 +781,8 @@ interface MetaReportBlockProps {
   costPerTicket: number | null;
   isBrandCampaign: boolean;
   sellOutPacing: SellOutPacingResult | null;
+  /** Lifetime ticket revenue from event_daily_rollups — shown as sub-line on the Tickets card. */
+  ticketRevenue?: number | null;
   channelMultiActive: boolean;
   isRefreshing: boolean;
   datePreset: DatePreset;
@@ -877,9 +886,9 @@ function MetaReportBlock({
   ticketsSold,
   capacity,
   sellThroughPct,
-  costPerTicket,
   isBrandCampaign,
   sellOutPacing,
+  ticketRevenue = null,
   channelMultiActive,
   isRefreshing,
   datePreset,
@@ -895,7 +904,6 @@ function MetaReportBlock({
   onRefreshRegistrations,
   costPerRegistration,
   mailchimpRegistrations,
-  totalSpentAll = 0,
   platformFilter = "all",
   totalCrossPlatformSpent = 0,
   brandRollupSpend = null,
@@ -1109,17 +1117,11 @@ function MetaReportBlock({
                     {ticketsSub}
                   </p>
                 ) : null}
-                <p className="font-heading text-xl tracking-wide tabular-nums">
-                  {costPerTicket != null ? (
-                    <>
-                      {fmtCurrencyCompact(costPerTicket)}{" "}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        cost per ticket
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
+                <p className="text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">Revenue:</span>{" "}
+                  {ticketRevenue != null && ticketRevenue > 0
+                    ? fmtCurrencyCompact(ticketRevenue)
+                    : "—"}
                 </p>
                 <p className="text-[11px] leading-snug text-muted-foreground">
                   <span className="font-medium text-foreground">Pacing:</span>{" "}
@@ -1129,27 +1131,23 @@ function MetaReportBlock({
             </div>
           )}
 
-          {/* ─── COST PER REGISTRATION card (single events only) ── */}
+          {/* ─── REGISTRATIONS card (single events with Mailchimp tag) ── */}
           {!isBrandCampaign && event.mailchimpTag ? (
             <div className="rounded-md border border-border bg-card p-4">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Cost per registration
+                Registrations
               </p>
               <div className="mt-3 space-y-2 text-foreground">
                 <p className="font-heading text-xl tracking-wide tabular-nums">
-                  {costPerRegistration != null ? (
-                    <>{fmtCurrencyCompact(costPerRegistration)}</>
+                  {mailchimpRegistrations != null ? (
+                    <>{fmtInt(mailchimpRegistrations)}</>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
                 </p>
                 {costPerRegistration != null ? (
                   <p className="text-[11px] text-muted-foreground tabular-nums">
-                    {fmtCurrency(totalSpentAll)} spent /{" "}
-                    {mailchimpRegistrations != null
-                      ? fmtInt(mailchimpRegistrations)
-                      : "0"}{" "}
-                    registrations
+                    {fmtCurrencyCompact(costPerRegistration)} cost per reg
                   </p>
                 ) : mailchimpRegistrations === 0 ? (
                   <p className="text-[11px] text-muted-foreground">
