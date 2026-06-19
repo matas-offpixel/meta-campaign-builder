@@ -717,6 +717,12 @@ export function EventDetail({
                     // pre-date the backfill.
                     report_cadence:
                       event.report_cadence === "weekly" ? "weekly" : "daily",
+                    mailchimpTag:
+                      (
+                        event as unknown as {
+                          mailchimp_tag: string | null;
+                        }
+                      ).mailchimp_tag ?? undefined,
                   }}
                   performanceSummary={{
                     datePreset: reportDatePreset,

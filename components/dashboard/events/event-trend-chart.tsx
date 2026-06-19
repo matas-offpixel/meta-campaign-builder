@@ -40,7 +40,7 @@ import {
  * fetch + sync.
  */
 
-type MetricKey = "spend" | "tickets" | "cpt" | "roas" | "linkClicks" | "cpc";
+type MetricKey = "spend" | "registrations" | "cpr" | "tickets" | "cpt" | "roas" | "linkClicks" | "cpc";
 
 interface MetricDef {
   key: MetricKey;
@@ -61,8 +61,10 @@ const NUM = new Intl.NumberFormat("en-GB");
 
 const METRICS: MetricDef[] = [
   { key: "spend", label: "Spend", colour: "#27272a", format: (n) => GBP2.format(n) },
-  { key: "tickets", label: "Tickets", colour: "#10b981", format: (n) => NUM.format(n) },
-  { key: "cpt", label: "CPT", colour: "#f59e0b", format: (n) => GBP2.format(n) },
+  { key: "registrations", label: "Registrations", colour: "#10b981", format: (n) => NUM.format(n) },
+  { key: "cpr", label: "CPR", colour: "#f59e0b", format: (n) => GBP2.format(n) },
+  { key: "tickets", label: "Tickets", colour: "#6366f1", format: (n) => NUM.format(n) },
+  { key: "cpt", label: "CPT", colour: "#a855f7", format: (n) => GBP2.format(n) },
   { key: "roas", label: "ROAS", colour: "#8b5cf6", format: (n) => `${n.toFixed(2)}×` },
   { key: "linkClicks", label: "Clicks", colour: "#0ea5e9", format: (n) => NUM.format(n) },
   { key: "cpc", label: "CPC", colour: "#f43f5e", format: (n) => GBP2.format(n) },
@@ -121,7 +123,9 @@ function chartTooltipDate(iso: string, granularity: TrendGranularity): string {
 }
 
 function pillMetricValue(summary: TrendSummary, key: MetricKey): number | null {
-  return summary[key];
+  if (key === "registrations" || key === "cpr") return null; // handled by mailchimpSummary
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (summary as any)[key] ?? null;
 }
 
 export function EventTrendChart(props: Props) {
@@ -149,6 +153,7 @@ function LegacyTrendChart({
   title,
   defaultGranularity = "daily",
   showGranularityToggle = true,
+  mailchimpSnapshots,
 }: Props) {
   const [granularity, setGranularity] =
     useState<TrendGranularity>(defaultGranularity);
@@ -172,6 +177,46 @@ function LegacyTrendChart({
     () => summarizeTrendChartPoints(days, hasCumulativeTickets),
     [days, hasCumulativeTickets],
   );
+
+  // Build per-day registrations + CPR from mailchimp snapshots (carry-forward semantics).
+  const mailchimpByDate = useMemo(() => {
+    if (!mailchimpSnapshots?.length) return null;
+    const m = new Map<string, number>();
+    for (const s of mailchimpSnapshots) {
+      const d = s.snapshot_at.slice(0, 10);
+      if (s.email_subscribers != null) m.set(d, s.email_subscribers);
+    }
+    return m;
+  }, [mailchimpSnapshots]);
+
+  // Extended per-day registration + CPR values aligned to the chart day range.
+  const mailchimpDays = useMemo(() => {
+    if (!mailchimpByDate) return null;
+    let lastRegs: number | null = null;
+    let runningSpend = 0;
+    return days.map((day) => {
+      if (mailchimpByDate.has(day.date)) lastRegs = mailchimpByDate.get(day.date)!;
+      if (day.spend != null && Number.isFinite(day.spend)) runningSpend += day.spend;
+      const cpr =
+        runningSpend > 0 && lastRegs != null && lastRegs > 0
+          ? runningSpend / lastRegs
+          : null;
+      return { registrations: lastRegs, cpr };
+    });
+  }, [days, mailchimpByDate]);
+
+  // Summary values for mailchimp pills (latest carry-forward value).
+  const mailchimpSummary = useMemo(() => {
+    if (!mailchimpDays) return { registrations: null, cpr: null };
+    let registrations: number | null = null;
+    let cpr: number | null = null;
+    for (const d of mailchimpDays) {
+      if (d.registrations != null) registrations = d.registrations;
+      if (d.cpr != null) cpr = d.cpr;
+    }
+    return { registrations, cpr };
+  }, [mailchimpDays]);
+
   const [active, setActive] = useState<Set<MetricKey>>(
     () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
   );
@@ -225,7 +270,12 @@ function LegacyTrendChart({
     points: SeriesPoint[];
   };
   const series: Series[] = METRICS.filter((m) => active.has(m.key)).map((m) => {
-    const raw = days.map((d) => d[m.key]);
+    const raw = days.map((d, idx) => {
+      if (m.key === "registrations") return mailchimpDays?.[idx]?.registrations ?? null;
+      if (m.key === "cpr") return mailchimpDays?.[idx]?.cpr ?? null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (d as any)[m.key] ?? null;
+    });
     const nonNull = raw.filter(
       (v): v is number => v !== null && Number.isFinite(v),
     );
@@ -322,9 +372,18 @@ function LegacyTrendChart({
           </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {METRICS.map((m) => {
+          {METRICS.filter((m) => {
+            // Only show registrations/cpr pills when mailchimp data is available.
+            if (m.key === "registrations" || m.key === "cpr") return !!mailchimpDays;
+            return true;
+          }).map((m) => {
             const isActive = active.has(m.key);
-            const latest = pillMetricValue(summary, m.key);
+            const latest =
+              m.key === "registrations"
+                ? mailchimpSummary.registrations
+                : m.key === "cpr"
+                  ? mailchimpSummary.cpr
+                  : pillMetricValue(summary, m.key);
             return (
               <button
                 key={m.key}
@@ -461,7 +520,13 @@ function LegacyTrendChart({
                       </p>
                       <ul className="space-y-0.5">
                         {series.map((s) => {
-                          const v = day[s.metric.key];
+                          const v =
+                            s.metric.key === "registrations"
+                              ? (mailchimpDays?.[idx]?.registrations ?? null)
+                              : s.metric.key === "cpr"
+                                ? (mailchimpDays?.[idx]?.cpr ?? null)
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                : (day as any)[s.metric.key] ?? null;
                           const isSmoothedTickets =
                             s.metric.key === "tickets" && day.ticketsSmoothed === true;
                           return (

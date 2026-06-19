@@ -157,6 +157,8 @@ interface EventLike {
    *  `events.report_cadence` (migration 040). Optional so legacy
    *  callers that haven't been re-wired keep defaulting to 'daily'. */
   report_cadence?: "daily" | "weekly";
+  /** Mailchimp tag for this event — enables Registrations + CPR chart series. */
+  mailchimpTag?: string | null;
 }
 
 const DEFAULT_PERF_SUMMARY: PerformanceSummaryTimeframe = {
@@ -254,6 +256,11 @@ export function EventDailyReportBlock(props: Props) {
     props.mode === "share" && event.kind === "brand_campaign"
       ? (props.mailchimpSnapshots ?? undefined)
       : undefined;
+  // Mailchimp snapshot rows for the per-event Daily Trend chart
+  // (non-brand_campaign with mailchimpTag, dashboard mode only).
+  const [chartMailchimpRows, setChartMailchimpRows] = useState<
+    MailchimpSnapshotRow[] | undefined
+  >(undefined);
   // Loading is true on the dashboard if no initial data; share always
   // arrives with data, so loading starts false there.
   const [loading, setLoading] = useState(
@@ -498,6 +505,26 @@ export function EventDailyReportBlock(props: Props) {
     isShare,
   ]);
 
+  // Fetch Mailchimp snapshot rows for per-event Daily Trend chart
+  // (non-brand_campaign, dashboard mode, when a mailchimpTag is set).
+  useEffect(() => {
+    if (isShare || event.kind === "brand_campaign" || !event.mailchimpTag) return;
+    fetch(`/api/events/${encodeURIComponent(event.id)}/mailchimp/snapshots`, {
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          rows?: MailchimpSnapshotRow[];
+        };
+        if (json.ok && Array.isArray(json.rows) && json.rows.length > 0) {
+          setChartMailchimpRows(json.rows);
+        }
+      })
+      .catch(() => {}); // non-fatal
+  }, [event.id, event.kind, event.mailchimpTag, isShare]);
+
   // Edit pencil + manual-entry dialog are dashboard-only by default.
   // Share mode hard-disables it; dashboard callers can opt out via
   // an explicit `isEditable={false}` (no current call site does, but
@@ -664,7 +691,7 @@ export function EventDailyReportBlock(props: Props) {
         defaultGranularity={event.kind === "brand_campaign" ? "daily" : (event.report_cadence ?? "daily")}
         awarenessPlatform={awarenessPlatform}
         onAwarenessPlatformChange={setAwarenessPlatform}
-        mailchimpSnapshots={shareMailchimpSnapshots}
+        mailchimpSnapshots={shareMailchimpSnapshots ?? chartMailchimpRows}
       />
       <DailyTracker
         eventId={event.id}

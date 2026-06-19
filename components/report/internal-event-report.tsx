@@ -311,6 +311,16 @@ export function InternalEventReport({
     ],
   );
 
+  const ticketRevenue = useMemo(() => {
+    let total: number | null = null;
+    for (const r of rollupTimeline) {
+      if (r.revenue != null) {
+        total = (total ?? 0) + Number(r.revenue);
+      }
+    }
+    return total;
+  }, [rollupTimeline]);
+
   // Imperative handle on the active creatives section so the manual
   // refresh below can ALSO bust that endpoint — not just the headline
   // insights cache. Pre-PR #63 the Refresh button only re-fetched the
@@ -503,6 +513,7 @@ export function InternalEventReport({
       variant="embedded"
       additionalSpendEntries={additionalSpendEntries}
       sellOutPacing={sellOutPacing}
+      ticketRevenue={ticketRevenue}
       additionalSpendSlot={additionalSpendSlot}
       registrationsData={registrationsData}
       onRefreshRegistrations={handleRefreshMailchimp}
