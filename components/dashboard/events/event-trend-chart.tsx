@@ -190,15 +190,18 @@ function LegacyTrendChart({
   }, [mailchimpSnapshots]);
 
   // Extended per-day registration + CPR values aligned to the chart day range.
+  // Seed lastRegs at 0 (not null) so the line draws from the window start even
+  // when the first Mailchimp snapshot falls mid-window. CPR is null until a
+  // non-zero registration count exists — avoids a misleading early point.
   const mailchimpDays = useMemo(() => {
     if (!mailchimpByDate) return null;
-    let lastRegs: number | null = null;
+    let lastRegs = 0;
     let runningSpend = 0;
     return days.map((day) => {
       if (mailchimpByDate.has(day.date)) lastRegs = mailchimpByDate.get(day.date)!;
       if (day.spend != null && Number.isFinite(day.spend)) runningSpend += day.spend;
       const cpr =
-        runningSpend > 0 && lastRegs != null && lastRegs > 0
+        runningSpend > 0 && lastRegs > 0
           ? runningSpend / lastRegs
           : null;
       return { registrations: lastRegs, cpr };
