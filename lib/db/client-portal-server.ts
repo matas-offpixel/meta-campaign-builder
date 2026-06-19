@@ -98,6 +98,11 @@ export interface PortalEvent {
    * Null when no snapshot exists yet.
    */
   mailchimp_registrations: number | null;
+  /**
+   * Mailchimp tag name used to scope snapshots to this event's
+   * audience segment (migration 118). Null = whole-audience fallback.
+   */
+  mailchimp_tag: string | null;
   /** Manual tickets_sold override on the event row itself (legacy). */
   tickets_sold: number | null;
   api_tickets_sold: number | null;
@@ -1171,6 +1176,7 @@ async function loadPortalForClientId(
         meta_spend_cached: e.meta_spend_cached,
         prereg_spend: e.prereg_spend,
         mailchimp_registrations: mailchimpRegsByEvent.get(e.id) ?? null,
+        mailchimp_tag: (e as unknown as { mailchimp_tag?: string | null }).mailchimp_tag ?? null,
         status: (e as unknown as { status?: string | null }).status ?? null,
         tickets_sold: resolvedTicketsSold,
         api_tickets_sold: apiTicketsSold,

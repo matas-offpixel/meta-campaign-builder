@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
@@ -38,6 +38,7 @@ import {
   type TierChannelSalesAnchorRow,
 } from "@/lib/dashboard/venue-trend-points";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
 /**
  * components/share/venue-daily-report-block.tsx
@@ -343,14 +344,42 @@ export function VenueTrendChartSection({
   customRange,
   platform,
   title = "Daily trend",
+  mailchimpTag,
+  eventId,
 }: {
   model: VenueReportModel;
   datePreset: DatePreset;
   customRange?: CustomDateRange;
   platform: PlatformId;
   title?: string;
+  /** Mailchimp tag for this venue — enables Registrations + CPR chart series. */
+  mailchimpTag?: string | null;
+  /** Primary event ID used to fetch Mailchimp snapshots from the API. */
+  eventId?: string;
 }) {
   const { timeline, otherSpendByDate, cumulativeTicketPoints } = model;
+
+  // Fetch Mailchimp tag snapshots for the trend chart when a tag is configured.
+  const [mailchimpSnapshots, setMailchimpSnapshots] = useState<
+    MailchimpSnapshotRow[] | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!mailchimpTag || !eventId) return;
+    fetch(`/api/events/${encodeURIComponent(eventId)}/mailchimp/snapshots`, {
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          rows?: MailchimpSnapshotRow[];
+        };
+        if (json.ok && Array.isArray(json.rows) && json.rows.length > 0) {
+          setMailchimpSnapshots(json.rows);
+        }
+      })
+      .catch(() => {});
+  }, [mailchimpTag, eventId]);
   const chartTimeline = useMemo(
     () =>
       trimTimelineForTrackerDisplay(timeline, {
@@ -413,7 +442,7 @@ export function VenueTrendChartSection({
     return [...dayPoints, ...cumulativePoints];
   }, [platformTimeline, cumulativeTicketPoints, windowDaySet]);
 
-  return <EventTrendChart points={points} title={title} />;
+  return <EventTrendChart points={points} title={title} mailchimpSnapshots={mailchimpSnapshots} />;
 }
 
 /**

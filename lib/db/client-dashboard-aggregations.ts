@@ -752,6 +752,14 @@ export function aggregateVenueCampaignPerformance(
     }
   }
 
+  // Add manually-tracked external spend (prereg_spend) that is not in
+  // Meta/TikTok rollups. This covers partner-driven campaigns (e.g. Jamie
+  // Jones self-funding external ads) where events.prereg_spend is set but
+  // no Meta/TikTok campaign exists.
+  for (const ev of events) {
+    paidSpent += ev.prereg_spend ?? 0;
+  }
+
   // Ticket revenue = SUM of per-event canonical revenue (tier_channel_sales
   // preferred, via resolveDisplayTicketRevenue) — the SAME source the per-event
   // breakdown rows use — NOT event_daily_rollups.revenue, which the rollup writer
