@@ -120,17 +120,20 @@ export async function POST(
       .eq("id", result.snapshotId)
       .maybeSingle();
 
-    // 2. Historical backfill (may take a few seconds for large segments).
-    // Run fire-and-forget style — the snapshot above is already persisted so
-    // the response is not blocked on the history write completing.
-    // We await it so errors surface in logs, but we don't surface them to the
-    // caller since the primary snapshot already succeeded.
-    syncMailchimpTagDailyHistory(supabase, tagEvent).catch((err: unknown) => {
+    // 2. Historical backfill — await so Vercel doesn't terminate the lambda
+    // before the writes land. The ~3s extra latency on "Sync now" is
+    // acceptable; fire-and-forget was silently killed on Vercel (PR #619).
+    try {
+      const historyResult = await syncMailchimpTagDailyHistory(supabase, tagEvent);
+      console.log(
+        `[mailchimp-refresh] history backfill complete for event=${eventId}: rows=${historyResult.rowsWritten}`,
+      );
+    } catch (err) {
       console.error(
         `[mailchimp-refresh] history backfill error for event=${eventId}:`,
         err instanceof Error ? err.message : String(err),
       );
-    });
+    }
 
     return NextResponse.json({ ok: true, snapshot });
   }

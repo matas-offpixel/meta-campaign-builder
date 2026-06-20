@@ -126,8 +126,9 @@ export function buildClientVenuePacingRows(
 
     const label =
       getSeriesDisplayLabel(eventCode) ??
-      venueEvents[0]?.venue_name ??
-      eventCode;
+      (venueEvents.length === 1
+        ? (venueEvents[0]?.name ?? venueEvents[0]?.venue_name ?? eventCode)
+        : (venueEvents[0]?.venue_name ?? eventCode));
 
     rows.push(
       buildVenuePacingRow({
