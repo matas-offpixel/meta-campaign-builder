@@ -453,38 +453,56 @@ export async function syncMailchimpTagForEvent(
   };
 }
 
-// ── Tag daily-history backfill (Option B: backwards-walk from rollup REGS) ────
+// ── Tag daily-history backfill (Option C: snapshot-based deltas + linear ramp) ─
+
+/** One day worth of date arithmetic (UTC). */
+function addDaysUtcStr(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Number of calendar days from `start` (inclusive) to `end` (exclusive). */
+function dayDiffUtc(start: string, end: string): number {
+  const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`);
+  return Math.round(ms / 86_400_000);
+}
 
 /**
  * Reconstructs per-day cumulative `email_subscribers` history for a
- * tag-scoped event using a backwards-walk from `event_daily_rollups.meta_regs`.
+ * tag-scoped event using real Mailchimp tag snapshots as the truth source.
  *
  * Algorithm:
- *   1. Read the latest `mailchimp_tag_snapshots` row as the anchor cumulative
- *      (today's known live count). No Mailchimp API call needed.
- *   2. Query `event_daily_rollups` for daily `meta_regs` (Meta-pixel-attributed
- *      registrations) ordered newest → oldest.
- *   3. Walk backwards: subtract each day's delta from the running cumulative
- *      to produce a per-day estimated cumulative.
- *   4. Delete existing `source=mailchimp_tag_daily_history` rows in the window
- *      (leaves point-in-time cron rows untouched), then insert the reconstructed
- *      rows.
+ *   1. Read all existing `mailchimp_tag_snapshots` rows for the event.
+ *      Group by calendar day, keep the latest snapshot per day.
+ *      Exclude any previously written `linear_ramp_pre_snapshot` rows from
+ *      this grouping so re-runs stay idempotent.
+ *   2. Find the event's campaign start (first `event_daily_rollups` row).
+ *   3. If campaignStart < firstSnapshotDay: write linear-ramp rows from 0 →
+ *      firstSnapshotValue across the pre-snapshot window. These are labelled
+ *      `method: "linear_ramp_pre_snapshot"` in raw_json so:
+ *        • The Daily Trend chart shows a believable curve from campaign launch.
+ *        • The Daily Tracker filters them out for delta (REGS) computation,
+ *          so pre-snapshot days correctly show "—" instead of a fake count.
+ *   4. Delete all existing `source=mailchimp_tag_daily_history` rows for the
+ *      event (idempotent cleanup of PR #622 backwards-walk rows and any
+ *      previous ramp rows).
+ *   5. Insert the new ramp rows (if any).
  *
- * Why Option B instead of getSegmentMembers + date_added?
- *   Mailchimp's segment-members endpoint does NOT reliably populate the `tags`
- *   array even when `fields=members.id,members.tags` is requested. The
- *   backwards-walk approach uses data we already have in the database, runs in
- *   O(N rollup rows) with zero Mailchimp API calls, and completes well within
- *   Vercel's lambda timeout.
+ * Why not meta_regs (PR #622's approach)?
+ *   Meta REG counts only capture Meta-attributed clicks — they miss TikTok,
+ *   Google, organic, and direct signups. Subtracting meta_regs from the
+ *   Mailchimp total gives a curve that systematically under-estimates by
+ *   ~40 % for multi-channel campaigns (e.g. Camelphat: 1,380 Meta REGS vs.
+ *   2,339 real Mailchimp count). The snapshot-based approach is the truth.
  *
  * Trade-off:
- *   Meta REG counts proxy Mailchimp tag-add events — they're correlated (both
- *   driven by ad clicks) but not identical. Non-Meta sources (TikTok, direct,
- *   Google) contribute to Mailchimp but not to meta_regs. Result: mid-window
- *   cumulatives may under-count by ~5–10%. The end-of-window number is exact.
+ *   Pre-snapshot days (before the first real cron run) use a linear ramp
+ *   approximation. Mid-window cumulatives are exact (taken from real syncs).
+ *   The end-of-window number is always exact.
  *
- * All log lines use console.error so Vercel surfaces them reliably (console.log
- * is filtered under load — see PRs #514, #525, #619).
+ * All log lines use console.error so Vercel surfaces them reliably
+ * (console.log is filtered under load — PRs #514, #525, #619).
  */
 export async function syncMailchimpTagDailyHistory(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -502,82 +520,112 @@ export async function syncMailchimpTagDailyHistory(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
 
-  // ── Step 1: Get anchor cumulative from the latest snapshot row ────────────
-  const { data: latestSnap, error: snapError } = await sb
+  // ── Step 1: Read all tag snapshots; group by day keeping latest ───────────
+  const { data: allSnaps, error: snapReadErr } = await sb
     .from("mailchimp_tag_snapshots")
-    .select("snapshot_at, email_subscribers")
+    .select("snapshot_at, email_subscribers, raw_json")
     .eq("event_id", event.id)
-    .order("snapshot_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("snapshot_at", { ascending: true });
 
-  if (snapError) {
+  if (snapReadErr) {
     console.error(
-      `[mailchimp-tag-history] event=${event.id} snapshot read error: ${snapError.message}`,
+      `[mailchimp-tag-history] event=${event.id} snapshot read error: ${snapReadErr.message}`,
     );
-    return { ok: false, rowsWritten: 0, error: `snapshot_read: ${snapError.message}` };
-  }
-  if (!latestSnap) {
-    console.error(
-      `[mailchimp-tag-history] event=${event.id} no anchor snapshot; run syncMailchimpTagForEvent first`,
-    );
-    return { ok: false, rowsWritten: 0, error: "no_anchor_snapshot" };
+    return { ok: false, rowsWritten: 0, error: `snapshot_read: ${snapReadErr.message}` };
   }
 
-  const todayCumulative: number = latestSnap.email_subscribers ?? 0;
-  const anchorDate: string = (latestSnap.snapshot_at as string).slice(0, 10);
+  // Keep only rows that are real point-in-time syncs (not previous ramp rows)
+  // so that the first-snapshot value we use as the ramp target is accurate.
+  const realSnaps = (
+    allSnaps as Array<{
+      snapshot_at: string;
+      email_subscribers: number | null;
+      raw_json?: Record<string, unknown> | null;
+    }>
+  ).filter((r) => r.raw_json?.method !== "linear_ramp_pre_snapshot");
 
-  // ── Step 2: Read daily meta_regs deltas from event_daily_rollups ──────────
-  const { data: dailyRows, error: rollupError } = await sb
+  if (realSnaps.length === 0) {
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} no real snapshots found; run syncMailchimpTagForEvent first`,
+    );
+    return { ok: false, rowsWritten: 0, error: "no_real_snapshots" };
+  }
+
+  // Latest value per calendar day (ascending sort means last write wins)
+  const latestPerDay = new Map<string, number>();
+  for (const row of realSnaps) {
+    const day = row.snapshot_at.slice(0, 10);
+    if (row.email_subscribers != null) {
+      latestPerDay.set(day, row.email_subscribers);
+    }
+  }
+
+  const sortedSnapshotDays = [...latestPerDay.keys()].sort();
+  const firstSnapshotDay = sortedSnapshotDays[0]!;
+  const firstSnapshotValue = latestPerDay.get(firstSnapshotDay)!;
+  const lastSnapshotDay = sortedSnapshotDays[sortedSnapshotDays.length - 1]!;
+
+  // ── Step 2: Find campaign start (earliest event_daily_rollups row) ────────
+  const { data: firstRollupRows } = await sb
     .from("event_daily_rollups")
-    .select("date, meta_regs")
+    .select("date")
     .eq("event_id", event.id)
-    .lte("date", anchorDate)
-    .order("date", { ascending: false });
+    .order("date", { ascending: true })
+    .limit(1);
 
-  if (rollupError) {
-    console.error(
-      `[mailchimp-tag-history] event=${event.id} rollup read error: ${rollupError.message}`,
-    );
-    return { ok: false, rowsWritten: 0, error: `rollup_read: ${rollupError.message}` };
+  const firstRollupDay: string | null =
+    (firstRollupRows as Array<{ date: string }> | null)?.[0]?.date ?? null;
+
+  const campaignStart =
+    firstRollupDay && firstRollupDay < firstSnapshotDay
+      ? firstRollupDay
+      : null; // null → no pre-snapshot gap
+
+  // ── Step 3: Build linear-ramp rows for the pre-snapshot window ───────────
+  const rampRows: Array<{
+    user_id: string;
+    event_id: string;
+    client_id: string | null;
+    mailchimp_audience_id: string;
+    mailchimp_tag: string;
+    total_contacts: number;
+    email_subscribers: number;
+    snapshot_at: string;
+    raw_json: object;
+  }> = [];
+
+  if (campaignStart) {
+    const preDays = dayDiffUtc(campaignStart, firstSnapshotDay); // exclusive end
+    for (let i = 0; i < preDays; i++) {
+      const day = addDaysUtcStr(campaignStart, i);
+      // Ramp from 0 at day 0 → approaches firstSnapshotValue at the day before
+      // the first real snapshot. Fraction is i/preDays (0 at start, never 1).
+      const cumulative = Math.round(firstSnapshotValue * (i / preDays));
+      rampRows.push({
+        user_id: event.user_id,
+        event_id: event.id,
+        client_id: event.client_id ?? null,
+        mailchimp_audience_id: audienceId,
+        mailchimp_tag: event.mailchimp_tag,
+        total_contacts: cumulative,
+        email_subscribers: cumulative,
+        snapshot_at: `${day}T12:00:00Z`,
+        raw_json: {
+          source: "mailchimp_tag_daily_history",
+          method: "linear_ramp_pre_snapshot",
+          ramp_target: firstSnapshotValue,
+          ramp_anchor_day: firstSnapshotDay,
+        },
+      });
+    }
   }
-  if (!dailyRows || dailyRows.length === 0) {
-    console.error(
-      `[mailchimp-tag-history] event=${event.id} no rollup rows for backwards-walk`,
-    );
-    return { ok: false, rowsWritten: 0, error: "no_rollup_rows" };
-  }
 
-  // ── Step 3: Walk backwards subtracting each day's meta_regs delta ─────────
-  const reconstructed: { day: string; cumulative: number }[] = [];
-  let running = todayCumulative;
-
-  // Always include the anchor date at its exact count.
-  reconstructed.push({ day: anchorDate, cumulative: running });
-
-  for (const row of dailyRows as Array<{ date: string; meta_regs: number | null }>) {
-    if (row.date === anchorDate) continue; // already pushed above
-    const delta = row.meta_regs ?? 0;
-    running = Math.max(0, running - delta);
-    reconstructed.push({ day: row.date, cumulative: running });
-  }
-
-  // Re-order oldest → newest for clear logging + chronological insert.
-  reconstructed.sort((a, b) => a.day.localeCompare(b.day));
-
-  const firstDate = reconstructed[0]!.day;
-  const lastDate = reconstructed[reconstructed.length - 1]!.day;
-  const clientId = event.client_id ?? null;
-
-  // ── Step 4: Delete previous _daily_history rows in range, then insert ─────
-  // Only delete rows written by this function (source=mailchimp_tag_daily_history).
-  // Point-in-time cron rows (source=mailchimp_tag_sync) are preserved.
+  // ── Step 4: Delete ALL existing _daily_history rows (cleanup) ─────────────
+  // This removes PR #622's backwards-walk rows AND any previous ramp rows.
   const { error: deleteError } = await sb
     .from("mailchimp_tag_snapshots")
     .delete()
     .eq("event_id", event.id)
-    .gte("snapshot_at", `${firstDate}T00:00:00Z`)
-    .lte("snapshot_at", `${lastDate}T23:59:59Z`)
     .eq("raw_json->>source", "mailchimp_tag_daily_history");
 
   if (deleteError) {
@@ -587,28 +635,17 @@ export async function syncMailchimpTagDailyHistory(
     return { ok: false, rowsWritten: 0, error: `delete: ${deleteError.message}` };
   }
 
-  const rows = reconstructed.map(({ day, cumulative }) => ({
-    user_id: event.user_id,
-    event_id: event.id,
-    client_id: clientId,
-    mailchimp_audience_id: audienceId,
-    mailchimp_tag: event.mailchimp_tag,
-    total_contacts: cumulative,
-    email_subscribers: cumulative,
-    // Noon UTC so the unique index on snapshot_at::date resolves consistently
-    // regardless of server timezone.
-    snapshot_at: `${day}T12:00:00Z`,
-    raw_json: {
-      source: "mailchimp_tag_daily_history",
-      method: "backwards_walk_daily_rollups",
-      anchor_date: anchorDate,
-      anchor_cumulative: todayCumulative,
-    } as object,
-  }));
+  // ── Step 5: Insert ramp rows (if any) ────────────────────────────────────
+  if (rampRows.length === 0) {
+    console.error(
+      `[mailchimp-tag-history] event=${event.id} no pre-snapshot gap (firstSnapshot=${firstSnapshotDay}); cleaned up _daily_history rows`,
+    );
+    return { ok: true, rowsWritten: 0, firstDate: firstSnapshotDay, lastDate: lastSnapshotDay };
+  }
 
   const { error: insertError } = await sb
     .from("mailchimp_tag_snapshots")
-    .insert(rows);
+    .insert(rampRows);
 
   if (insertError) {
     console.error(
@@ -617,9 +654,12 @@ export async function syncMailchimpTagDailyHistory(
     return { ok: false, rowsWritten: 0, error: `insert: ${insertError.message}` };
   }
 
+  const firstDate = rampRows[0]!.snapshot_at.slice(0, 10);
+  const lastDate = rampRows[rampRows.length - 1]!.snapshot_at.slice(0, 10);
+
   // console.error so Vercel surfaces it reliably (console.log filtered under load).
   console.error(
-    `[mailchimp-tag-history] event=${event.id} backwards-walk wrote ${rows.length} rows ${firstDate}..${lastDate} anchor=${anchorDate}:${todayCumulative}`,
+    `[mailchimp-tag-history] event=${event.id} wrote ${rampRows.length} linear-ramp rows ${firstDate}..${lastDate} → ${firstSnapshotDay}:${firstSnapshotValue}`,
   );
-  return { ok: true, rowsWritten: rows.length, firstDate, lastDate };
+  return { ok: true, rowsWritten: rampRows.length, firstDate, lastDate };
 }
