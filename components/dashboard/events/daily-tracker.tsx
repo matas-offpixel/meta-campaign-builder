@@ -228,7 +228,7 @@ interface Props {
      *   • Brand campaigns: Registrations column shows net-new email subscribers.
      *   • Tag-scoped non-brand events: REGS column uses Mailchimp tag deltas
      *     instead of Meta-pixel meta_regs (which only captures Meta-attributed
-     *     clicks). Rows with method="linear_ramp_pre_snapshot" are excluded from
+     *     clicks). Rows with method="linear_ramp_pre_snapshot" or "weighted_ramp_pre_snapshot" are excluded from
      *     delta computation (so pre-snapshot days correctly show "—") but still
      *     flow to the chart for visual continuity from campaign launch.
      */
@@ -1239,11 +1239,14 @@ function buildDisplayRows({
         )
       : null;
 
-  // Real snapshots only — excludes linear_ramp_pre_snapshot rows so that
-  // delta computation for the REGS column shows "—" for pre-snapshot days
-  // instead of a count derived from a fake anchor.
+  // Real snapshots only — excludes linear_ramp_pre_snapshot and
+  // weighted_ramp_pre_snapshot rows so that delta computation for the REGS
+  // column shows "—" for pre-snapshot days instead of a count derived from
+  // a fake anchor.
   const realSnapshotsForRegs = mailchimpSnapshotsSorted?.filter(
-    (s) => s.raw_json?.method !== "linear_ramp_pre_snapshot",
+    (s) =>
+      s.raw_json?.method !== "linear_ramp_pre_snapshot" &&
+      s.raw_json?.method !== "weighted_ramp_pre_snapshot",
   ) ?? null;
 
   // Working shape — same fields as the upstream timeline row plus a
@@ -1529,9 +1532,12 @@ function buildWeeklyDisplayRows({
         )
       : null;
 
-  // Real snapshots only — excludes linear_ramp_pre_snapshot rows.
+  // Real snapshots only — excludes linear_ramp_pre_snapshot and
+  // weighted_ramp_pre_snapshot rows.
   const realSnapshotsForRegs = mailchimpSnapshotsSorted?.filter(
-    (s) => s.raw_json?.method !== "linear_ramp_pre_snapshot",
+    (s) =>
+      s.raw_json?.method !== "linear_ramp_pre_snapshot" &&
+      s.raw_json?.method !== "weighted_ramp_pre_snapshot",
   ) ?? null;
 
   // Daily rows post-cutoff (or all rows when there's no cutoff).

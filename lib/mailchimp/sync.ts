@@ -453,7 +453,22 @@ export async function syncMailchimpTagForEvent(
   };
 }
 
-// ── Tag daily-history backfill (Option C: snapshot-based deltas + linear ramp) ─
+// ── Tag daily-history backfill (Option C: snapshot-based deltas + weighted ramp) ─
+
+/**
+ * Weighted launch-burst curve for pre-snapshot ramp rows.
+ *
+ * Index 0 = day BEFORE first activity (anchor, always 0).
+ * Index 1 = launch day (~40 % of first snapshot value).
+ * Index 2 = day after launch (~75 %).
+ * Values beyond the array length stay at the last weight (0.75).
+ *
+ * Rationale: real event campaigns front-load registrations on launch day
+ * ("announcement + paid burst"). A pure linear ramp assigns 0 to the launch
+ * day itself; the 40/75 weights give launch-day a meaningful estimate that
+ * is within ~15 % of Eventree truth for Camelphat (496 actual vs ~518 ramp).
+ */
+const WEIGHTED_RAMP_WEIGHTS = [0.0, 0.4, 0.75];
 
 /** One day worth of date arithmetic (UTC). */
 function addDaysUtcStr(ymd: string, days: number): string {
@@ -478,9 +493,11 @@ function dayDiffUtc(start: string, end: string): number {
  *      Exclude any previously written `linear_ramp_pre_snapshot` rows from
  *      this grouping so re-runs stay idempotent.
  *   2. Find the event's campaign start (first `event_daily_rollups` row).
- *   3. If campaignStart < firstSnapshotDay: write linear-ramp rows from 0 →
- *      firstSnapshotValue across the pre-snapshot window. These are labelled
- *      `method: "linear_ramp_pre_snapshot"` in raw_json so:
+ *   3. If campaignStart < firstSnapshotDay: write weighted-ramp rows from 0 →
+ *      firstSnapshotValue across the pre-snapshot window. The ramp starts ONE
+ *      day BEFORE the first real-activity day so that launch day gets a
+ *      non-zero estimate. These are labelled `method: "weighted_ramp_pre_snapshot"`
+ *      in raw_json so:
  *        • The Daily Trend chart shows a believable curve from campaign launch.
  *        • The Daily Tracker filters them out for delta (REGS) computation,
  *          so pre-snapshot days correctly show "—" instead of a fake count.
@@ -497,8 +514,8 @@ function dayDiffUtc(start: string, end: string): number {
  *   2,339 real Mailchimp count). The snapshot-based approach is the truth.
  *
  * Trade-off:
- *   Pre-snapshot days (before the first real cron run) use a linear ramp
- *   approximation. Mid-window cumulatives are exact (taken from real syncs).
+ *   Pre-snapshot days (before the first real cron run) use a weighted-launch-burst
+ *   ramp approximation. Mid-window cumulatives are exact (taken from real syncs).
  *   The end-of-window number is always exact.
  *
  * All log lines use console.error so Vercel surfaces them reliably
@@ -542,7 +559,11 @@ export async function syncMailchimpTagDailyHistory(
       email_subscribers: number | null;
       raw_json?: Record<string, unknown> | null;
     }>
-  ).filter((r) => r.raw_json?.method !== "linear_ramp_pre_snapshot");
+  ).filter(
+    (r) =>
+      r.raw_json?.method !== "linear_ramp_pre_snapshot" &&
+      r.raw_json?.method !== "weighted_ramp_pre_snapshot",
+  );
 
   if (realSnaps.length === 0) {
     console.error(
@@ -585,10 +606,17 @@ export async function syncMailchimpTagDailyHistory(
 
   const campaignStart =
     firstRollupDay && firstRollupDay < firstSnapshotDay
-      ? firstRollupDay
+      ? addDaysUtcStr(firstRollupDay, -1) // start one day BEFORE first activity
       : null; // null → no pre-snapshot gap
 
-  // ── Step 3: Build linear-ramp rows for the pre-snapshot window ───────────
+  // ── Step 3: Build weighted-ramp rows for the pre-snapshot window ─────────
+  // The ramp spans [campaignStart, firstSnapshotDay) — i.e. campaignStart is
+  // the day BEFORE first real ad activity. This ensures the launch day itself
+  // gets a non-zero estimate rather than being stuck at 0.
+  //
+  // Weights: WEIGHTED_RAMP_WEIGHTS[0] = 0.0, [1] = 0.40, [2] = 0.75.
+  // Days beyond index 2 stay at 0.75 so the curve never exceeds the
+  // first real snapshot but also never drops back to zero.
   const rampRows: Array<{
     user_id: string;
     event_id: string;
@@ -605,9 +633,9 @@ export async function syncMailchimpTagDailyHistory(
     const preDays = dayDiffUtc(campaignStart, firstSnapshotDay); // exclusive end
     for (let i = 0; i < preDays; i++) {
       const day = addDaysUtcStr(campaignStart, i);
-      // Ramp from 0 at day 0 → approaches firstSnapshotValue at the day before
-      // the first real snapshot. Fraction is i/preDays (0 at start, never 1).
-      const cumulative = Math.round(firstSnapshotValue * (i / preDays));
+      const weight =
+        WEIGHTED_RAMP_WEIGHTS[Math.min(i, WEIGHTED_RAMP_WEIGHTS.length - 1)]!;
+      const cumulative = Math.round(firstSnapshotValue * weight);
       rampRows.push({
         user_id: event.user_id,
         event_id: event.id,
@@ -619,7 +647,7 @@ export async function syncMailchimpTagDailyHistory(
         snapshot_at: `${day}T12:00:00Z`,
         raw_json: {
           source: "mailchimp_tag_daily_history",
-          method: "linear_ramp_pre_snapshot",
+          method: "weighted_ramp_pre_snapshot",
           ramp_target: firstSnapshotValue,
           ramp_anchor_day: firstSnapshotDay,
         },
