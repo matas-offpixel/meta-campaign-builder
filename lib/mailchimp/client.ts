@@ -328,6 +328,18 @@ export interface MailchimpSegmentMembersResponse {
  * Fetches one page of members for a segment (tag), requesting only the `tags`
  * field so we can read per-member `date_added` timestamps.
  *
+ * ⚠️ NOTE: The `tags` array returned by this endpoint may be empty or
+ * undefined even when `fields=members.id,members.tags` is requested.
+ * Mailchimp's segment-members API only reliably populates `members.id`.
+ * For per-member tag info with `date_added`, the top-level
+ * `/lists/{id}/members` endpoint or per-member `/lists/{id}/members/{hash}/tags`
+ * would be needed — at the cost of iterating every member individually
+ * (2,000+ API calls for a typical campaign audience).
+ *
+ * For historical cumulative reconstruction, use `syncMailchimpTagDailyHistory`
+ * which backwards-walks `event_daily_rollups.meta_regs` as a more reliable
+ * proxy — no Mailchimp API calls required beyond the single point-in-time sync.
+ *
  * Mailchimp max page size is 1 000. Callers should paginate via `offset` until
  * `members.length < count` or `total >= total_items`.
  */
