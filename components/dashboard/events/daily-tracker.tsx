@@ -36,6 +36,7 @@ import {
   netNewMailchimpRegistrationsForDay,
   netNewMailchimpRegistrationsForWeek,
 } from "@/lib/mailchimp/tracker-registrations";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
 /**
  * components/dashboard/events/daily-tracker.tsx
@@ -223,14 +224,15 @@ interface Props {
      */
     reportEmbed?: boolean;
     /**
-     * Mailchimp audience snapshots for brand_campaign events. When provided,
-     * a "Registrations" column is inserted between Video views and CPM showing
-     * net-new email subscribers for each day or week bucket.
+     * Mailchimp audience snapshots. When provided:
+     *   • Brand campaigns: Registrations column shows net-new email subscribers.
+     *   • Tag-scoped non-brand events: REGS column uses Mailchimp tag deltas
+     *     instead of Meta-pixel meta_regs (which only captures Meta-attributed
+     *     clicks). Rows with method="linear_ramp_pre_snapshot" are excluded from
+     *     delta computation (so pre-snapshot days correctly show "—") but still
+     *     flow to the chart for visual continuity from campaign launch.
      */
-    mailchimpSnapshots?: ReadonlyArray<{
-      email_subscribers: number | null;
-      snapshot_at: string;
-    }>;
+    mailchimpSnapshots?: ReadonlyArray<MailchimpSnapshotRow>;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -1222,18 +1224,27 @@ function buildDisplayRows({
   mailchimpSnapshots?: ReadonlyArray<{
     email_subscribers: number | null;
     snapshot_at: string;
+    raw_json?: Record<string, unknown> | null;
   }>;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
 
-  // Build Mailchimp net-new registrations when snapshots are provided.
+  // All snapshots sorted ascending — used for chart continuity (includes ramp
+  // rows written by syncMailchimpTagDailyHistory).
   const mailchimpSnapshotsSorted =
     mailchimpSnapshots && mailchimpSnapshots.length > 0
       ? [...mailchimpSnapshots].sort((a, b) =>
           a.snapshot_at.localeCompare(b.snapshot_at),
         )
       : null;
+
+  // Real snapshots only — excludes linear_ramp_pre_snapshot rows so that
+  // delta computation for the REGS column shows "—" for pre-snapshot days
+  // instead of a count derived from a fake anchor.
+  const realSnapshotsForRegs = mailchimpSnapshotsSorted?.filter(
+    (s) => s.raw_json?.method !== "linear_ramp_pre_snapshot",
+  ) ?? null;
 
   // Working shape — same fields as the upstream timeline row plus a
   // synthetic flag for the empty "today" placeholder.
@@ -1273,7 +1284,10 @@ function buildDisplayRows({
         otherSpendBreakdownByDate?.get(r.date),
       ),
       link_clicks: linkClicksForDisplay(r, isBrandCampaign, platform),
-      meta_regs: r.meta_regs,
+      meta_regs:
+        realSnapshotsForRegs && !isBrandCampaign
+          ? netNewMailchimpRegistrationsForDay(realSnapshotsForRegs, r.date)
+          : r.meta_regs,
       impressions: totalImpressionsOf(r, platform),
       video_views: totalVideoViewsOf(r, platform),
       tickets_sold: r.tickets_sold,
@@ -1504,6 +1518,7 @@ function buildWeeklyDisplayRows({
   mailchimpSnapshots?: ReadonlyArray<{
     email_subscribers: number | null;
     snapshot_at: string;
+    raw_json?: Record<string, unknown> | null;
   }>;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -1513,6 +1528,11 @@ function buildWeeklyDisplayRows({
           a.snapshot_at.localeCompare(b.snapshot_at),
         )
       : null;
+
+  // Real snapshots only — excludes linear_ramp_pre_snapshot rows.
+  const realSnapshotsForRegs = mailchimpSnapshotsSorted?.filter(
+    (s) => s.raw_json?.method !== "linear_ramp_pre_snapshot",
+  ) ?? null;
 
   // Daily rows post-cutoff (or all rows when there's no cutoff).
   // Sort ascending so we can fold into weeks in order.
@@ -1674,7 +1694,10 @@ function buildWeeklyDisplayRows({
       other_spend: otherSp,
       other_spend_tooltip: fmtOtherSpendTooltipLines(otherTooltipLines),
       link_clicks: clicks,
-      meta_regs: regs,
+      meta_regs:
+        realSnapshotsForRegs && !isBrandCampaign
+          ? netNewMailchimpRegistrationsForWeek(realSnapshotsForRegs, wk)
+          : regs,
       impressions,
       video_views: videoViews,
       tickets_sold: tickets,

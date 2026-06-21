@@ -61,7 +61,7 @@ export async function GET(_req: Request, { params }: Context) {
     if (mailchimpTag) {
       const { data: tagRows } = await supabase
         .from("mailchimp_tag_snapshots")
-        .select("email_subscribers, snapshot_at")
+        .select("email_subscribers, snapshot_at, raw_json")
         .eq("event_id", id)
         .order("snapshot_at", { ascending: true });
       rows = (tagRows ?? []) as MailchimpSnapshotRow[];

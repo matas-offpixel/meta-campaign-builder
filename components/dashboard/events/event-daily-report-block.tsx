@@ -573,9 +573,11 @@ export function EventDailyReportBlock(props: Props) {
       otherSpendByDate,
       otherSpendBreakdownByDate,
       awarenessPlatform,
-      // Mailchimp snapshots flow into the Daily Tracker Registrations
-      // column for brand_campaign events on the share page.
-      mailchimpSnapshots: shareMailchimpSnapshots,
+      // Mailchimp snapshots flow into both the Daily Trend chart and the
+      // Daily Tracker REGS column. Brand-campaign share pages use
+      // shareMailchimpSnapshots; tag-scoped dashboard events use the
+      // async-fetched chartMailchimpRows.
+      mailchimpSnapshots: shareMailchimpSnapshots ?? chartMailchimpRows,
     }),
     [
       timeline,
@@ -592,6 +594,7 @@ export function EventDailyReportBlock(props: Props) {
       otherSpendBreakdownByDate,
       awarenessPlatform,
       shareMailchimpSnapshots,
+      chartMailchimpRows,
     ],
   );
 

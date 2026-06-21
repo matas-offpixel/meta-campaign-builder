@@ -9,6 +9,8 @@
 export interface MailchimpSnapshotRow {
   email_subscribers: number | null;
   snapshot_at: string;
+  /** Present when the snapshots API includes raw_json (tag snapshot rows only). */
+  raw_json?: Record<string, unknown> | null;
 }
 
 export interface MailchimpRegistrationsData {
