@@ -3,8 +3,6 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
-import { fmtInt } from "@/components/report/meta-insights-sections";
-import { fmtCurrencyCompact } from "@/lib/dashboard/format";
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import {
   resolveDisplayTicketCount,
@@ -35,6 +33,7 @@ import {
   VenueDailyTrackerSection,
   VenueTrendChartSection,
 } from "./venue-daily-report-block";
+import { VenuePerformanceSummary } from "@/components/shared/venue-performance-summary";
 import { VenueEventBreakdown } from "./venue-event-breakdown";
 import { VenueStatsGrid } from "./venue-stats-grid";
 import { VenuePaidMediaDailySpendTracker } from "./venue-paid-media-daily-tracker";
@@ -301,11 +300,29 @@ export function VenueFullReport({
 
   return (
     <div className="space-y-6">
-      <PerformanceSummaryCards
-        performance={performance}
-        clientId={clientId}
-        eventCode={eventCode}
-        shareToken={mode === "share" ? token : undefined}
+      <VenuePerformanceSummary
+        totalMarketing={performance.totalMarketing}
+        paidMediaAllocated={performance.paidMediaBudget}
+        additionalSpend={performance.additionalSpend}
+        paidMediaSpent={performance.paidMediaSpent}
+        paidMediaUsedPct={performance.percentUsed}
+        ticketsCapacity={performance.capacity}
+        ticketsSold={performance.tickets}
+        ticketsSellThroughPct={performance.sellThroughPct}
+        ticketRevenue={performance.ticketRevenue}
+        mailchimpRegistrations={performance.mailchimpRegistrations}
+        costPerRegistration={performance.costPerRegistration}
+        mailchimpTag={initialEvents[0]?.mailchimp_tag ?? null}
+        dailySpendTrackerSlot={
+          <VenuePaidMediaDailySpendTracker
+            key={`${clientId}:${eventCode}`}
+            clientId={clientId}
+            eventCode={eventCode}
+            shareToken={mode === "share" ? token : undefined}
+            paidMediaBudget={performance.paidMediaBudget}
+            paidMediaSpent={performance.paidMediaSpent}
+          />
+        }
       />
       <CollapsibleAdditionalEntries
         mode={mode}
@@ -389,146 +406,6 @@ export function VenueFullReport({
         fullReport
       />
     </div>
-  );
-}
-
-function PerformanceSummaryCards({
-  performance,
-  clientId,
-  eventCode,
-  shareToken,
-}: {
-  performance: VenuePerformance;
-  clientId: string;
-  eventCode: string;
-  shareToken?: string;
-}) {
-  return (
-    <section
-      className="space-y-3"
-      data-testid="venue-performance-summary"
-    >
-      <h2 className="font-heading text-base tracking-wide text-foreground">
-        Performance summary
-      </h2>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-        <div className="rounded-md border border-border bg-card p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Total marketing
-          </p>
-          <p className="mt-3 font-heading text-xl tracking-wide tabular-nums text-foreground">
-            {performance.totalMarketing > 0 ? (
-              <>
-                {fmtCurrencyCompact(performance.totalMarketing)}
-                <span className="text-sm font-normal text-muted-foreground">
-                  {" "}
-                  · {fmtCurrencyCompact(performance.paidMediaBudget)} Paid media
-                  + {fmtCurrencyCompact(performance.additionalSpend)} Additional
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </p>
-        </div>
-        <div className="rounded-md border border-border bg-card p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Paid media
-          </p>
-          <p className="mt-3 font-heading text-xl tracking-wide tabular-nums text-foreground">
-            {performance.paidMediaBudget > 0 ? (
-              <>
-                {fmtCurrencyCompact(performance.paidMediaBudget)}{" "}
-                <span className="text-sm font-normal text-muted-foreground">
-                  Allocated
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </p>
-          <p className="mt-1 font-heading text-xl tracking-wide tabular-nums text-foreground">
-            {performance.paidMediaSpent > 0 ? (
-              <>
-                {fmtCurrencyCompact(performance.paidMediaSpent)}{" "}
-                <span className="text-sm font-normal text-muted-foreground">
-                  Spent
-                  {performance.percentUsed != null
-                    ? ` (${performance.percentUsed.toFixed(0)}%)`
-                    : ""}
-                </span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </p>
-          <VenuePaidMediaDailySpendTracker
-            key={`${clientId}:${eventCode}`}
-            clientId={clientId}
-            eventCode={eventCode}
-            shareToken={shareToken}
-            paidMediaBudget={performance.paidMediaBudget}
-            paidMediaSpent={performance.paidMediaSpent}
-          />
-        </div>
-        <div className="rounded-md border border-border bg-card p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Tickets
-          </p>
-          <div className="mt-3 space-y-2 text-foreground">
-            <p className="font-heading text-xl tracking-wide tabular-nums">
-              {performance.tickets != null ? (
-                performance.capacity != null ? (
-                  <>
-                    {fmtInt(performance.tickets)} / {fmtInt(performance.capacity)}{" "}
-                    sold
-                    {performance.sellThroughPct != null ? (
-                      <span className="text-sm font-normal text-muted-foreground">
-                        {" "}
-                        ({performance.sellThroughPct.toFixed(1)}%)
-                      </span>
-                    ) : null}
-                  </>
-                ) : (
-                  <>{fmtInt(performance.tickets)} sold</>
-                )
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              <span className="font-medium text-foreground">Revenue:</span>{" "}
-              {performance.ticketRevenue != null && performance.ticketRevenue > 0
-                ? fmtCurrencyCompact(performance.ticketRevenue)
-                : "—"}
-            </p>
-          </div>
-        </div>
-        <div className="rounded-md border border-border bg-card p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Registrations
-          </p>
-          <div className="mt-3 space-y-2 text-foreground">
-            <p className="font-heading text-xl tracking-wide tabular-nums">
-              {performance.mailchimpRegistrations != null ? (
-                <>{fmtInt(performance.mailchimpRegistrations)}</>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </p>
-            {performance.costPerRegistration != null ? (
-              <p className="text-[11px] text-muted-foreground tabular-nums">
-                {fmtCurrencyCompact(performance.costPerRegistration)} cost per reg
-              </p>
-            ) : performance.mailchimpRegistrations === 0 ? (
-              <p className="text-[11px] text-muted-foreground">
-                0 registrations
-              </p>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </section>
   );
 }
 
