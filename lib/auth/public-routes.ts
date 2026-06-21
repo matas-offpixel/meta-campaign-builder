@@ -134,6 +134,13 @@ export function isPublicPath(
   if (/^\/api\/events\/[^/]+\/mailchimp\/refresh$/.test(pathname)) {
     return true;
   }
+  // `/api/events/{id}/meta/resolve-campaign-id` — same dual-auth pattern as
+  // /mailchimp/refresh (PR #611). Ops scripts call it with Bearer CRON_SECRET
+  // to backfill events.meta_campaign_id; without this carve-out the proxy
+  // 307s the curl to /login before the handler's isCronAuthed check runs.
+  if (/^\/api\/events\/[^/]+\/meta\/resolve-campaign-id$/.test(pathname)) {
+    return true;
+  }
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
