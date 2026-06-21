@@ -565,11 +565,18 @@ export async function syncMailchimpTagDailyHistory(
   const firstSnapshotValue = latestPerDay.get(firstSnapshotDay)!;
   const lastSnapshotDay = sortedSnapshotDays[sortedSnapshotDays.length - 1]!;
 
-  // ── Step 2: Find campaign start (earliest event_daily_rollups row) ────────
+  // ── Step 2: Find campaign start (first day with real activity) ──────────
+  // Use the first day where at least one spend or impression column is
+  // non-zero. This skips zero-activity placeholder rows that Supabase can
+  // create from event.created_at forward — which would otherwise push the
+  // ramp start back weeks or months before the campaign actually launched.
   const { data: firstRollupRows } = await sb
     .from("event_daily_rollups")
     .select("date")
     .eq("event_id", event.id)
+    .or(
+      "ad_spend.gt.0,meta_impressions.gt.0,tiktok_impressions.gt.0,google_ads_impressions.gt.0",
+    )
     .order("date", { ascending: true })
     .limit(1);
 
