@@ -160,6 +160,14 @@ export interface RollupSyncInput {
    * fixtures in one pass. Omit for single-event dashboard sync.
    */
   venueAllocatorCompletedKeys?: Set<string>;
+  /**
+   * Persisted `events.meta_campaign_id` value — when set, the Meta leg
+   * uses this as a campaign.id filter instead of re-discovering the
+   * campaign by name on every cron tick. The runner also writes this back
+   * when it discovers a new ID via name-based lookup so subsequent runs are
+   * more reliable. Comma-separated for multi-campaign events.
+   */
+  metaCampaignId?: string | null;
 }
 
 export interface SyncLegResult {
@@ -398,6 +406,7 @@ export async function runRollupSyncForEvent(
     googleAdsDeps,
     rollupWindowDays,
     venueAllocatorCompletedKeys,
+    metaCampaignId,
   } = input;
 
   const windowDays = rollupWindowDays ?? 60;
@@ -509,6 +518,11 @@ export async function runRollupSyncForEvent(
       // from the campaign-level bracket match here and re-added at ad-set
       // level below, so each ad set lands on its true venue event_code.
       const isGlasgowSplit = isGlasgowSplitEventCode(eventCode);
+      // Use persisted campaign IDs when available to skip name-based discovery
+      // (more reliable for events like Ironworks where CONTAIN is flaky).
+      const knownCampaignIds = metaCampaignId
+        ? metaCampaignId.split(",").map((id) => id.trim()).filter(Boolean)
+        : undefined;
       const metaFetch = await fetchEventDailyMetaMetrics({
         eventCode,
         adAccountId,
@@ -518,6 +532,7 @@ export async function runRollupSyncForEvent(
         ...(isGlasgowSplit
           ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
           : {}),
+        ...(knownCampaignIds ? { knownCampaignIds } : {}),
       });
       if (!metaFetch.ok) {
         metaResult.reason = metaFetch.error.reason;
@@ -537,6 +552,27 @@ export async function runRollupSyncForEvent(
               : ""
           }`,
         );
+
+        // Persist newly discovered campaign IDs so subsequent cron runs use
+        // the faster campaign.id IN filter instead of name-based CONTAIN.
+        // Only persists on first discovery (when metaCampaignId was null).
+        if (!metaCampaignId && metaFetch.campaignIds.length > 0 && eventId) {
+          const newCampaignId = metaFetch.campaignIds.join(",");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const { error: persistErr } = await (supabase as any)
+            .from("events")
+            .update({ meta_campaign_id: newCampaignId })
+            .eq("id", eventId);
+          if (persistErr) {
+            console.warn(
+              `[rollup-sync] meta campaign_id persist failed event=${eventId} ids=${newCampaignId}: ${persistErr.message}`,
+            );
+          } else {
+            console.log(
+              `[rollup-sync] meta campaign_id persisted event=${eventId} ids=${newCampaignId}`,
+            );
+          }
+        }
 
         // ── Today's row guarantee ──────────────────────────────────
         //
@@ -637,6 +673,7 @@ export async function runRollupSyncForEvent(
               ...(isGlasgowSplit
                 ? { excludeCampaignIds: [GLASGOW_TRAFFIC_CAMPAIGN_ID] }
                 : {}),
+              ...(knownCampaignIds ? { knownCampaignIds } : {}),
             });
             if (snap.ok && snap.days.length > 0) {
               snapshotSpend = snap.days[0]?.spend ?? 0;

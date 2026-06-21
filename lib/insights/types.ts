@@ -525,5 +525,11 @@ export type DailyMetaMetricsResult =
        * legitimate "no rows yet" signal, not an error.
        */
       campaignNames: string[];
+      /**
+       * Distinct Meta campaign IDs that contributed to the result.
+       * Used by the rollup runner to persist `events.meta_campaign_id`
+       * on first discovery (skipping name-based lookup on subsequent runs).
+       */
+      campaignIds: string[];
     }
   | { ok: false; error: InsightsError };

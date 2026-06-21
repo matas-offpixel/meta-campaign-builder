@@ -169,10 +169,36 @@ function LegacyTrendChart({
     () => hasCumulativeTicketPoints(sourcePoints),
     [sourcePoints],
   );
-  const days = useMemo(
-    () => aggregateTrendChartPoints(sourcePoints, granularity),
-    [sourcePoints, granularity],
-  );
+  const days = useMemo(() => {
+    const base = aggregateTrendChartPoints(sourcePoints, granularity);
+    // Extend the chart window to cover any Mailchimp snapshot dates that fall
+    // after the last rollup row. Without this, days like "20 Jun" and "21 Jun"
+    // are invisible on the chart even when snapshots exist for those dates.
+    // Only applied to daily granularity; weekly buckets already span the full
+    // ISO week so the last rollup week contains the extra days.
+    if (granularity !== "daily" || !mailchimpSnapshots?.length) return base;
+    const baseDateSet = new Set(base.map((d) => d.date));
+    const lastBaseDate = base[base.length - 1]?.date ?? null;
+    const extraDates = [
+      ...new Set(
+        mailchimpSnapshots
+          .map((s) => s.snapshot_at.slice(0, 10))
+          .filter((d) => !baseDateSet.has(d) && (lastBaseDate == null || d > lastBaseDate)),
+      ),
+    ].sort();
+    if (extraDates.length === 0) return base;
+    const emptyDay = (date: string): TrendChartDay => ({
+      date,
+      spend: null,
+      tickets: null,
+      revenue: null,
+      linkClicks: null,
+      cpt: null,
+      roas: null,
+      cpc: null,
+    });
+    return [...base, ...extraDates.map(emptyDay)];
+  }, [sourcePoints, granularity, mailchimpSnapshots]);
   const summary = useMemo(
     () => summarizeTrendChartPoints(days, hasCumulativeTickets),
     [days, hasCumulativeTickets],

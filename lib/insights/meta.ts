@@ -332,8 +332,11 @@ interface GraphPaged<T> {
  * Fetch every campaign under an ad account whose name contains the
  * bracket-wrapped event code. Pages through Graph until all matches are
  * collected; capped at CAMPAIGN_FETCH_LIMIT pages defensively.
+ *
+ * Exported so the resolve-campaign-id endpoint can call it directly
+ * without going through the full insights pipeline.
  */
-async function listCampaignsForEvent(args: {
+export async function listCampaignsForEvent(args: {
   adAccountId: string;
   eventCode: string;
   token: string;
@@ -1966,6 +1969,13 @@ export interface FetchEventDailyMetaMetricsArgs {
    * suffix-less and not the excluded id).
    */
   excludeCampaignIds?: string[];
+  /**
+   * When set, skip name-based discovery and filter insights directly by these
+   * campaign IDs. Persisted from a prior successful name-match via
+   * `events.meta_campaign_id`. Provides more reliable syncing for events where
+   * the CONTAIN filter is flaky (e.g. Ironworks events with meta_campaign_id=NULL).
+   */
+  knownCampaignIds?: string[];
 }
 
 /**
@@ -1998,6 +2008,9 @@ export async function fetchEventDailyMetaMetrics(
 ): Promise<DailyMetaMetricsResult> {
   const { eventCode, adAccountId, token, since, until } = args;
   const excludeCampaignIds = new Set(args.excludeCampaignIds ?? []);
+  const knownCampaignIds = args.knownCampaignIds?.length
+    ? new Set(args.knownCampaignIds)
+    : null;
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -2013,9 +2026,16 @@ export async function fetchEventDailyMetaMetrics(
 
   const account = ensureActPrefix(adAccountId);
   const filterPrefix = metaCampaignFilterPrefix(eventCode);
-  const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
-  ]);
+  // When the runner has already resolved campaign IDs from a prior sync, use
+  // a campaign.id IN filter instead of name-based CONTAIN. This is more
+  // reliable and avoids re-running the fallback scan on every cron tick.
+  const filtering = knownCampaignIds
+    ? JSON.stringify([
+        { field: "campaign.id", operator: "IN", value: [...knownCampaignIds] },
+      ])
+    : JSON.stringify([
+        { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
+      ]);
   const timeRange = JSON.stringify({ since, until });
 
   try {
@@ -2047,6 +2067,7 @@ export async function fetchEventDailyMetaMetrics(
     // (rollup-sync prints these so we can confirm at a glance the
     // sync saw the same campaigns the live block sees).
     const matchedCampaigns = new Set<string>();
+    const matchedCampaignIds = new Set<string>();
     const filteredOutCampaignNames = new Set<string>();
 
     // Action-type buckets used to populate `event_daily_rollups`
@@ -2110,17 +2131,22 @@ export async function fetchEventDailyMetaMetrics(
         if (row.campaign_id && excludeCampaignIds.has(row.campaign_id)) {
           continue;
         }
-        // Case-sensitive post-filter: Meta's CONTAIN matched
-        // case-insensitively, but the spec requires exact-case
-        // matching so `LEEDS26-FACUP-RT` matches and
-        // `leeds26-facup-v2` doesn't. Plain `includes` does the
-        // case-sensitive substring check we want.
         const name = row.campaign_name ?? "";
-        if (!campaignMatchesBracketedEventCode(name, eventCode)) {
-          filteredOutCampaignNames.add(name);
-          continue;
+        // When filtering by known campaign IDs, skip the case-sensitive name
+        // check — the API already returned only the right campaigns.
+        if (!knownCampaignIds) {
+          // Case-sensitive post-filter: Meta's CONTAIN matched
+          // case-insensitively, but the spec requires exact-case
+          // matching so `LEEDS26-FACUP-RT` matches and
+          // `leeds26-facup-v2` doesn't. Plain `includes` does the
+          // case-sensitive substring check we want.
+          if (!campaignMatchesBracketedEventCode(name, eventCode)) {
+            filteredOutCampaignNames.add(name);
+            continue;
+          }
         }
         matchedCampaigns.add(name);
+        if (row.campaign_id) matchedCampaignIds.add(row.campaign_id);
         const { regular, presale } = partitionMetaSpendForCampaign(
           name,
           parseNum(row.spend),
@@ -2349,6 +2375,7 @@ export async function fetchEventDailyMetaMetrics(
       ok: true,
       days,
       campaignNames: [...matchedCampaigns].sort(),
+      campaignIds: [...matchedCampaignIds].sort(),
       ...(filteredSorted.length > 0
         ? { filteredOutCampaignNames: filteredSorted }
         : {}),
@@ -2383,6 +2410,8 @@ export interface FetchEventTodayMetaSnapshotArgs {
    * byte-identical for every other event.
    */
   excludeCampaignIds?: string[];
+  /** Mirrors `FetchEventDailyMetaMetricsArgs.knownCampaignIds`. */
+  knownCampaignIds?: string[];
 }
 
 /**
@@ -2414,6 +2443,9 @@ export async function fetchEventTodayMetaSnapshot(
 ): Promise<DailyMetaMetricsResult> {
   const { eventCode, adAccountId, token, todayDate } = args;
   const excludeCampaignIds = new Set(args.excludeCampaignIds ?? []);
+  const knownCampaignIds = args.knownCampaignIds?.length
+    ? new Set(args.knownCampaignIds)
+    : null;
   if (!eventCode.trim()) {
     return errorResult("no_event_code", "Event has no event_code set.");
   }
@@ -2426,9 +2458,13 @@ export async function fetchEventTodayMetaSnapshot(
 
   const account = ensureActPrefix(adAccountId);
   const filterPrefix = metaCampaignFilterPrefix(eventCode);
-  const filtering = JSON.stringify([
-    { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
-  ]);
+  const filtering = knownCampaignIds
+    ? JSON.stringify([
+        { field: "campaign.id", operator: "IN", value: [...knownCampaignIds] },
+      ])
+    : JSON.stringify([
+        { field: "campaign.name", operator: "CONTAIN", value: filterPrefix },
+      ]);
 
   try {
     let totalSpend = 0;
@@ -2445,6 +2481,7 @@ export async function fetchEventTodayMetaSnapshot(
     let totalVideoP100 = 0;
     let totalEngagements = 0;
     const matchedCampaigns = new Set<string>();
+    const matchedCampaignIds = new Set<string>();
     // Mirror the bucket lists used by the historical fetch above so
     // today's snapshot writes the same `meta_purchases` / `meta_leads`
     // semantics as the per-day backfill.
@@ -2496,8 +2533,9 @@ export async function fetchEventTodayMetaSnapshot(
           continue;
         }
         const name = row.campaign_name ?? "";
-        if (!campaignMatchesBracketedEventCode(name, eventCode)) continue;
+        if (!knownCampaignIds && !campaignMatchesBracketedEventCode(name, eventCode)) continue;
         matchedCampaigns.add(name);
+        if (row.campaign_id) matchedCampaignIds.add(row.campaign_id);
         const { regular, presale } = partitionMetaSpendForCampaign(
           name,
           parseNum(row.spend),
@@ -2617,6 +2655,7 @@ export async function fetchEventTodayMetaSnapshot(
         },
       ],
       campaignNames: [...matchedCampaigns].sort(),
+      campaignIds: [...matchedCampaignIds].sort(),
     };
   } catch (err) {
     return handleMetaError(err);
