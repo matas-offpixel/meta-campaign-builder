@@ -376,6 +376,7 @@ export function VenueFullReport({
         platform={platform}
         mailchimpTag={initialEvents[0]?.mailchimp_tag ?? undefined}
         eventId={initialEvents[0]?.id ?? undefined}
+        mailchimpSnapshots={initialEvents[0]?.mailchimp_snapshots}
       />
       <VenueDailyTrackerSection
         eventCode={eventCode}
