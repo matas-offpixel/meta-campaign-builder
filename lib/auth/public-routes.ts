@@ -141,6 +141,11 @@ export function isPublicPath(
   if (/^\/api\/events\/[^/]+\/meta\/resolve-campaign-id$/.test(pathname)) {
     return true;
   }
+  // `/api/events/{id}/rollup/sync` — per-event rollup sync (ops escape hatch
+  // when the bulk cron times out). Same dual-auth pattern as the above.
+  if (/^\/api\/events\/[^/]+\/rollup\/sync$/.test(pathname)) {
+    return true;
+  }
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;
