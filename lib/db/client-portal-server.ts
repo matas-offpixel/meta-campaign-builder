@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 import { bumpShareView, resolveShareByToken } from "@/lib/db/report-shares";
 import {
   listEventTicketTiersForEvents,
@@ -103,6 +104,17 @@ export interface PortalEvent {
    * audience segment (migration 118). Null = whole-audience fallback.
    */
   mailchimp_tag: string | null;
+  /**
+   * Ordered time-series of Mailchimp snapshot rows for this event,
+   * suitable for passing directly to `VenueTrendChart` as
+   * `mailchimpSnapshots`. Populated server-side so the public share
+   * page doesn't need to call the session-authed snapshots API.
+   * For `kind="brand_campaign"` events the series is composed:
+   * audience-level rows predating the earliest tag snapshot are
+   * prepended so the chart shows continuous growth from campaign launch.
+   * `undefined` when the event has no Mailchimp integration.
+   */
+  mailchimp_snapshots?: MailchimpSnapshotRow[];
   /** Manual tickets_sold override on the event row itself (legacy). */
   tickets_sold: number | null;
   api_tickets_sold: number | null;
@@ -696,7 +708,7 @@ async function loadPortalForClientId(
   const eventsQueryBase = admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status, mailchimp_tag",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status, mailchimp_tag, mailchimp_audience_id, kind",
     )
     .eq("client_id", clientId);
   const eventsQuery = options?.eventCode
@@ -875,6 +887,75 @@ async function loadPortalForClientId(
           mailchimpRegsByEvent.set(row.event_id, row.email_subscribers);
           seenAud.add(row.event_id);
         }
+      }
+    }
+  }
+
+  // Fetch ordered time-series tag snapshot rows for events that have a
+  // mailchimp_tag. These are passed through to `VenueTrendChart` on the
+  // public share page where the session-authed /mailchimp/snapshots API
+  // is unreachable. The compose logic mirrors PR #628's snapshots route:
+  // for `kind="brand_campaign"` events, audience-level rows predating the
+  // earliest tag snapshot are prepended so the chart shows continuous
+  // growth from campaign launch.
+  const snapshotSeriesByEvent = new Map<string, MailchimpSnapshotRow[]>();
+  const taggedEventIds = (allRows as unknown as Array<{ id: string; mailchimp_tag?: string | null }>)
+    .filter((e) => !!e.mailchimp_tag)
+    .map((e) => e.id);
+
+  if (taggedEventIds.length > 0) {
+    const { data: allTagRows } = await admin
+      .from("mailchimp_tag_snapshots" as "events")
+      .select("event_id, email_subscribers, snapshot_at, raw_json")
+      .in("event_id", taggedEventIds)
+      .order("snapshot_at", { ascending: true });
+
+    // Group tag rows by event_id.
+    const rawTagByEvent = new Map<string, MailchimpSnapshotRow[]>();
+    for (const row of (allTagRows ?? []) as unknown as Array<{
+      event_id: string;
+      email_subscribers: number | null;
+      snapshot_at: string;
+      raw_json: Record<string, unknown> | null;
+    }>) {
+      const arr = rawTagByEvent.get(row.event_id) ?? [];
+      arr.push({
+        email_subscribers: row.email_subscribers,
+        snapshot_at: row.snapshot_at,
+        raw_json: row.raw_json,
+      });
+      rawTagByEvent.set(row.event_id, arr);
+    }
+
+    // For brand_campaign events, prepend audience snapshots that predate the
+    // earliest tag row so the chart line doesn't start mid-campaign.
+    for (const [eventId, tagRows] of rawTagByEvent) {
+      if (tagRows.length === 0) {
+        snapshotSeriesByEvent.set(eventId, tagRows);
+        continue;
+      }
+      const rawEvent = (allRows as unknown as Array<{ id: string; kind?: string | null }>)
+        .find((e) => e.id === eventId);
+      const isBrandCampaign = rawEvent?.kind === "brand_campaign";
+
+      if (isBrandCampaign) {
+        const earliestTagAt = tagRows[0]!.snapshot_at;
+        const { data: audRows } = await admin
+          .from("mailchimp_audience_snapshots" as "events")
+          .select("event_id, email_subscribers, snapshot_at")
+          .eq("event_id", eventId)
+          .lt("snapshot_at", earliestTagAt)
+          .order("snapshot_at", { ascending: true });
+        const shaped: MailchimpSnapshotRow[] = (
+          audRows as unknown as Array<{ email_subscribers: number | null; snapshot_at: string }> ?? []
+        ).map((r) => ({
+          email_subscribers: r.email_subscribers,
+          snapshot_at: r.snapshot_at,
+          raw_json: { source: "mailchimp_audience_snapshot", composed_for_brand_campaign: true },
+        }));
+        snapshotSeriesByEvent.set(eventId, [...shaped, ...tagRows]);
+      } else {
+        snapshotSeriesByEvent.set(eventId, tagRows);
       }
     }
   }
@@ -1177,6 +1258,7 @@ async function loadPortalForClientId(
         prereg_spend: e.prereg_spend,
         mailchimp_registrations: mailchimpRegsByEvent.get(e.id) ?? null,
         mailchimp_tag: (e as unknown as { mailchimp_tag?: string | null }).mailchimp_tag ?? null,
+        mailchimp_snapshots: snapshotSeriesByEvent.get(e.id),
         status: (e as unknown as { status?: string | null }).status ?? null,
         tickets_sold: resolvedTicketsSold,
         api_tickets_sold: apiTicketsSold,

@@ -2261,6 +2261,7 @@ function VenueSection({
             className="border-border"
             mailchimpTag={mailchimpTag}
             eventId={primaryEvent?.id ?? null}
+            mailchimpSnapshots={primaryEvent?.mailchimp_snapshots}
           />
         </div>
       )}
