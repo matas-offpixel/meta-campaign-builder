@@ -146,6 +146,11 @@ export function isPublicPath(
   if (/^\/api\/events\/[^/]+\/rollup\/sync$/.test(pathname)) {
     return true;
   }
+  // `/api/events/{id}/mailchimp/tag-history-backfill` — true per-member tag
+  // history backfill (Option D). Long-running ops endpoint; dual-auth.
+  if (/^\/api\/events\/[^/]+\/mailchimp\/tag-history-backfill$/.test(pathname)) {
+    return true;
+  }
   if (PUBLIC_PATHS.has(pathname)) return true;
   // Magic link callback, logout route, future OAuth callbacks
   if (pathname.startsWith("/auth/")) return true;

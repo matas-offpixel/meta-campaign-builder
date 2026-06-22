@@ -374,6 +374,102 @@ export async function getAccountInfo(
   }>(dc, "/", {}, apiKey);
 }
 
+// ── Per-member tag history backfill helpers ───────────────────────────────────
+
+export interface MailchimpMemberIdRow {
+  id: string; // MD5 hash of lowercased email — Mailchimp member hash
+}
+
+interface MailchimpSegmentMemberIdsResponse {
+  members: MailchimpMemberIdRow[];
+  total_items: number;
+}
+
+/**
+ * Fetches all member IDs for a segment (tag) by paginating through
+ * `/lists/{listId}/segments/{segmentId}/members` with `fields=members.id`.
+ *
+ * Returns only member hashes — no tag data — so each page is small and fast.
+ */
+export async function getAllSegmentMemberIds(
+  dc: string,
+  listId: string,
+  segmentId: number,
+  apiKey: string,
+  options: { pageSize?: number; safetyCap?: number } = {},
+): Promise<MailchimpMemberIdRow[]> {
+  const PAGE_SIZE = options.pageSize ?? 1000;
+  const SAFETY_CAP = options.safetyCap ?? 50000;
+  const all: MailchimpMemberIdRow[] = [];
+  let offset = 0;
+
+  while (true) {
+    const page = await mailchimpGet<MailchimpSegmentMemberIdsResponse>(
+      dc,
+      `/lists/${listId}/segments/${segmentId}/members`,
+      {
+        fields: "members.id,total_items",
+        count: String(PAGE_SIZE),
+        offset: String(offset),
+      },
+      apiKey,
+    );
+    const members = page.members ?? [];
+    all.push(...members);
+    if (members.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+    if (all.length >= SAFETY_CAP) {
+      console.error(
+        `[getAllSegmentMemberIds] safety cap hit at ${all.length} members for segment ${segmentId}`,
+      );
+      break;
+    }
+  }
+
+  return all;
+}
+
+export interface MailchimpMemberTagEntry {
+  id: number;
+  name: string;
+  date_added: string; // ISO 8601 UTC — when this tag was applied to the member
+}
+
+interface MailchimpMemberTagsResponse {
+  tags: MailchimpMemberTagEntry[];
+  total_items: number;
+}
+
+/**
+ * Fetches the tag list for a single member via
+ * `GET /lists/{listId}/members/{memberHash}/tags`.
+ *
+ * Returns the matching tag entry for `targetTagName`, or null if the member
+ * doesn't have the tag or the member hash 404s.
+ */
+export async function getMemberTagDateAdded(
+  dc: string,
+  listId: string,
+  memberHash: string,
+  targetTagName: string,
+  apiKey: string,
+): Promise<string | null> {
+  let resp: MailchimpMemberTagsResponse;
+  try {
+    resp = await mailchimpGet<MailchimpMemberTagsResponse>(
+      dc,
+      `/lists/${listId}/members/${memberHash}/tags`,
+      {},
+      apiKey,
+    );
+  } catch (err) {
+    if (err instanceof MailchimpApiError && err.status === 404) return null;
+    throw err;
+  }
+  const match = (resp.tags ?? []).find((t) => t.name === targetTagName);
+  return match?.date_added ?? null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
