@@ -494,6 +494,34 @@ export async function getMemberTagDateAdded(
   return match?.date_added ?? null;
 }
 
+/**
+ * Fetches the full tag list for a single member via
+ * `GET /lists/{listId}/members/{memberHash}/tags`.
+ *
+ * Returns an empty array if the member doesn't exist (404) or has no tags.
+ * Used by the profile-update webhook fallback to reconcile a member's current
+ * Mailchimp tag state against our event log.
+ */
+export async function getMemberTags(
+  dc: string,
+  listId: string,
+  memberHash: string,
+  apiKey: string,
+): Promise<MailchimpMemberTagEntry[]> {
+  try {
+    const resp = await mailchimpGet<MailchimpMemberTagsResponse>(
+      dc,
+      `/lists/${listId}/members/${memberHash}/tags`,
+      {},
+      apiKey,
+    );
+    return resp.tags ?? [];
+  } catch (err) {
+    if (err instanceof MailchimpApiError && err.status === 404) return [];
+    throw err;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -2,6 +2,10 @@ import "server-only";
 
 import crypto from "node:crypto";
 
+import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
+import { getMemberTags } from "@/lib/mailchimp/client";
+import type { createServiceRoleClient } from "@/lib/supabase/server";
+
 /**
  * Shared helpers for the layered Mailchimp tag-tracking architecture
  * (webhooks + EOD cron + resumable backfill).
@@ -123,6 +127,140 @@ export async function recomputeDaySnapshot(
 
   if (upsertErr) return { ok: false, error: upsertErr.message };
   return { ok: true, cumulative, net, baseline };
+}
+
+/**
+ * Profile-update fallback: reconciles a single member's current Mailchimp tag
+ * state against our event log for every tracked tag on (client, audience), then
+ * recomputes affected snapshots.
+ *
+ * Mailchimp's classic webhook UI exposes "Profile updates" (not tag events), so
+ * this path receives only the member email. We re-fetch the member's tags and
+ * diff: a tag present in Mailchimp with no open "added" log row → synthesise an
+ * "added" row (using Mailchimp's real `date_added`); a tag absent in Mailchimp
+ * whose last log row is "added" → synthesise a "removed" row. Self-correcting
+ * even if the Customer Journey webhook misfires.
+ */
+export async function handleProfileUpdate(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  clientId: string,
+  audienceId: string,
+  email: string,
+): Promise<{ ok: boolean; reconciled: number; error?: string }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as unknown as any;
+  const memberHash = md5Email(email);
+
+  // Events tracking this client + audience that have a tag set.
+  const { data: events } = await sb
+    .from("events")
+    .select("id, user_id, client_id, mailchimp_tag, client:clients ( mailchimp_account_id )")
+    .eq("client_id", clientId)
+    .eq("mailchimp_audience_id", audienceId)
+    .not("mailchimp_tag", "is", null);
+
+  if (!events || events.length === 0) {
+    return { ok: true, reconciled: 0 };
+  }
+
+  // Resolve credentials once (all events on this audience share the account).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const first = events[0] as any;
+  const clientRow = Array.isArray(first.client) ? first.client[0] : first.client;
+  const accountId = clientRow?.mailchimp_account_id ?? null;
+  if (!accountId) return { ok: false, reconciled: 0, error: "no_account_id" };
+
+  const creds = await getMailchimpCredentials(supabase, accountId);
+  if (!creds) return { ok: false, reconciled: 0, error: "no_credentials" };
+
+  const memberTags = await getMemberTags(creds.dc, audienceId, memberHash, creds.apiKey);
+  const tagByName = new Map(memberTags.map((t) => [t.name, t]));
+
+  let reconciled = 0;
+  const affectedDays = new Map<string, Set<string>>(); // eventId → set of days
+
+  for (const event of events) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ev = event as any;
+    const tagName: string = ev.mailchimp_tag;
+    const mcTag = tagByName.get(tagName);
+    const hasTagNow = Boolean(mcTag);
+
+    // Last logged action for this member+event.
+    const { data: lastRow } = await sb
+      .from("mailchimp_tag_event_log")
+      .select("action")
+      .eq("event_id", ev.id)
+      .eq("member_email_hash", memberHash)
+      .order("event_timestamp", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const lastAction: string | null = lastRow?.action ?? null;
+
+    let newAction: "added" | "removed" | null = null;
+    let eventTimestamp = new Date().toISOString();
+    if (hasTagNow && lastAction !== "added") {
+      newAction = "added";
+      // Use Mailchimp's real application time when available.
+      if (mcTag?.date_added) eventTimestamp = new Date(mcTag.date_added).toISOString();
+    } else if (!hasTagNow && lastAction === "added") {
+      newAction = "removed";
+    }
+
+    if (!newAction) continue;
+
+    const { error: insErr } = await sb.from("mailchimp_tag_event_log").upsert(
+      {
+        event_id: ev.id,
+        user_id: ev.user_id,
+        client_id: ev.client_id,
+        mailchimp_audience_id: audienceId,
+        mailchimp_tag: tagName,
+        member_email_hash: memberHash,
+        member_email_address: email,
+        action: newAction,
+        event_timestamp: eventTimestamp,
+        raw_webhook_body: { source: "profile_update_reconcile", has_tag_now: hasTagNow },
+      },
+      { onConflict: "event_id,member_email_hash,action,event_timestamp", ignoreDuplicates: true },
+    );
+    if (insErr) continue;
+
+    reconciled += 1;
+    const day = eventTimestamp.slice(0, 10);
+    if (!affectedDays.has(ev.id)) affectedDays.set(ev.id, new Set());
+    affectedDays.get(ev.id)!.add(day);
+  }
+
+  // Recompute snapshots for every (event, day) we touched.
+  for (const [eventId, days] of affectedDays) {
+    for (const day of days) {
+      await recomputeDaySnapshot(sb, eventId, day);
+    }
+  }
+
+  return { ok: true, reconciled };
+}
+
+/**
+ * Fire-and-forget kick of the resumable tag backfill for an event. Safe to call
+ * whenever an event gains a `mailchimp_tag`; the start endpoint dedupes against
+ * any in-progress job, and the per-minute cron drives the work.
+ */
+export async function maybeTriggerTagBackfill(
+  eventId: string,
+  mailchimpTag: string | null | undefined,
+): Promise<void> {
+  if (!mailchimpTag) return;
+  const base = resolveAppBaseUrl();
+  const secret = process.env.CRON_SECRET;
+  if (!base || !secret) return;
+  void fetch(`${base}/api/events/${eventId}/mailchimp/tag-backfill/start`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secret}` },
+  }).catch(() => {
+    /* best-effort; per-minute cron + manual trigger backstop */
+  });
 }
 
 /** Resolves the base URL for self-referential server-to-server fetches. */

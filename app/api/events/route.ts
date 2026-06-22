@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listEventsServer } from "@/lib/db/events-server";
 import { slugifyEvent } from "@/lib/db/events";
 import type { TablesInsert } from "@/lib/db/database.types";
+import { maybeTriggerTagBackfill } from "@/lib/mailchimp/tag-tracking";
 
 /**
  * GET /api/events
@@ -166,6 +167,9 @@ export async function POST(req: NextRequest) {
   const capacity = asInteger(body.capacity);
   const presaleAt = asTrimmedString(body.presale_at);
   const generalSaleAt = asTrimmedString(body.general_sale_at);
+  const mailchimpTag = asTrimmedString(
+    (body as Record<string, unknown>).mailchimp_tag,
+  );
 
   // Slug = name + client slug + year. Year comes from event_date when
   // present, otherwise the current year — keeps two same-name events on
@@ -189,9 +193,15 @@ export async function POST(req: NextRequest) {
     status: "upcoming",
   };
 
+  // mailchimp_tag is a real column (migration 118) but absent from the stale
+  // generated types, so attach it via an untyped payload + cast.
+  const insertPayload = mailchimpTag
+    ? { ...insert, mailchimp_tag: mailchimpTag }
+    : insert;
+
   const { data, error } = await supabase
     .from("events")
-    .insert(insert)
+    .insert(insertPayload as TablesInsert<"events">)
     .select("id, name, slug, event_date, status, capacity, genres, venue_name, venue_city, client_id")
     .single();
 
@@ -200,6 +210,12 @@ export async function POST(req: NextRequest) {
       { ok: false, error: error.message },
       { status: 500 },
     );
+  }
+
+  // If the event was created with a Mailchimp tag, kick the one-time historical
+  // backfill so the registration curve renders from launch. Fire-and-forget.
+  if (mailchimpTag && data?.id) {
+    await maybeTriggerTagBackfill(data.id, mailchimpTag);
   }
 
   return NextResponse.json(

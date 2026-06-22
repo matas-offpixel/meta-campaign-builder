@@ -51,6 +51,23 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const results: any[] = [];
 
+  // Per-run segment cache: many events share one Ironworks audience, so fetch
+  // each audience's static segments at most once per cron run. Keyed by
+  // `${dc}:${audienceId}`; stores the resolved segments array.
+  type Segment = { id: number; name: string; member_count: number };
+  const segmentCache = new Map<string, Promise<Segment[]>>();
+  function getSegmentsCached(dc: string, audienceId: string, apiKey: string): Promise<Segment[]> {
+    const key = `${dc}:${audienceId}`;
+    let cached = segmentCache.get(key);
+    if (!cached) {
+      cached = getAudienceSegments(dc, audienceId, apiKey, { type: "static", count: 1000 }).then(
+        (resp) => (resp.segments ?? []) as Segment[],
+      );
+      segmentCache.set(key, cached);
+    }
+    return cached;
+  }
+
   for (const event of (events ?? [])) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ev = event as any;
@@ -68,13 +85,8 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      const segmentsResp = await getAudienceSegments(
-        creds.dc,
-        ev.mailchimp_audience_id,
-        creds.apiKey,
-        { type: "static", count: 1000 },
-      );
-      const segment = (segmentsResp.segments ?? []).find((s) => s.name === ev.mailchimp_tag);
+      const segments = await getSegmentsCached(creds.dc, ev.mailchimp_audience_id, creds.apiKey);
+      const segment = segments.find((s) => s.name === ev.mailchimp_tag);
       if (!segment) {
         results.push({ eventId: ev.id, action: "skip", reason: "segment_not_found" });
         continue;

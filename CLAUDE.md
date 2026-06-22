@@ -252,22 +252,42 @@ dashboard chart shows true, API-sourced cumulative data without re-fetching
 every contact on each request (replaces the synchronous PR #629 backfill):
 
 1. **Webhooks (real-time)** — `POST /api/webhooks/mailchimp/{clientId}/{audienceId}`
-   receives Mailchimp tag add/remove events, appends to `mailchimp_tag_event_log`
-   (deduped), and recomputes the affected events' per-day snapshot.
+   appends tag add/remove events to `mailchimp_tag_event_log` (deduped) and
+   recomputes the affected events' per-day snapshot. The **primary path is the
+   classic Profile-updates webhook**: Mailchimp fires a `profile`/`upemail`/
+   `cleaned` event on any member change (including tag changes), and
+   `handleProfileUpdate` re-fetches the member's `/tags`, diffs against the event
+   log, and writes the missing add/remove rows. This is self-correcting and reads
+   Mailchimp as the source of truth.
+
+   > Mailchimp **Customer Journeys** ("Tag added" trigger → "Make API call") were
+   > evaluated and rejected: journey starts under-report real tag adds (measured
+   > 4,230 journey starts vs 4,559 segment members). The handler still parses the
+   > JSON shape if one is ever wired up, but **do not** rely on or document it.
+
+   Auth (`isTrusted`, all timing-safe): `?secret=` query param, OR
+   `Authorization: Bearer <MAILCHIMP_WEBHOOK_SECRET>` header, OR an
+   `x-mailchimp-signature` HMAC-SHA256 of the raw body.
 2. **EOD cron (backstop)** — `/api/cron/mailchimp-eod-snapshot` (23:55 UTC) reads
    the segment's authoritative `member_count` and corrects today's snapshot if it
-   drifts > 5 from the webhook-maintained value.
+   drifts > 5 from the webhook-maintained value. Segments are fetched once per
+   audience per run (in-memory cache) so many events on one audience don't refetch.
 3. **Resumable backfill (one-time)** — `POST /api/events/{id}/mailchimp/tag-backfill/start`
    creates a job; `/api/cron/mailchimp-backfill-tick` (per-minute) processes it in
    chunks, reading each member's true tag `date_added`; `…/tag-backfill/status`
-   reports progress. Run ONCE per event launch.
+   reports progress. Auto-fired when an event gains a `mailchimp_tag` (create or
+   PATCH); `scripts/run-mailchimp-tag-backfill.mjs` drives + watches it manually.
 
 All per-day writers use a deterministic `snapshot_at` of `${day}T12:00:00Z` so
 the existing `uq_mailchimp_tag_snapshots_event_snapshot_at (event_id, snapshot_at)`
 unique index dedupes to one row per UTC day (see `lib/mailchimp/tag-tracking.ts`).
 
-**One-time webhook setup per audience** (Mailchimp UI → Audience → Settings →
-Webhooks): add URL
-`https://app.offpixel.co.uk/api/webhooks/mailchimp/{clientId}/{audienceId}?secret={MAILCHIMP_WEBHOOK_SECRET}`,
-enable the tag add/remove events. Repeat for each client audience (Ironworks
-first). Schema: migration `119_mailchimp_bulletproof_tracking.sql`.
+**One-time webhook setup per audience** (primary path): Mailchimp UI → Audience →
+Settings → Webhooks → add the event's webhook URL with the `?secret=` query param
+(or set `Authorization: Bearer {MAILCHIMP_WEBHOOK_SECRET}` if the transport
+supports custom headers), and enable **Profile updates** + **Email changed**.
+`handleProfileUpdate` reconciles against Mailchimp's true tag state on every
+fire, so day-to-day accuracy comes from the EOD `member_count` backstop +
+per-event backfill, not from the webhook being exhaustive.
+`GET /api/events/{id}/mailchimp/webhook-url` (session auth) returns the exact URL
++ auth to paste in. Schema: migration `119_mailchimp_bulletproof_tracking.sql`.
