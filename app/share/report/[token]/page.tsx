@@ -598,8 +598,26 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
             .select("email_subscribers, snapshot_at")
             .eq("event_id", event_id)
             .order("snapshot_at", { ascending: true });
-          const rows = (data ?? []) as MailchimpAudienceSnapshotSummary[];
-          if (rows.length > 0) return rows;
+          const tagRows = (data ?? []) as MailchimpAudienceSnapshotSummary[];
+
+          // For brand_campaign events, compose audience snapshots that predate
+          // the earliest tag snapshot so the chart shows continuous growth from
+          // campaign launch (PR #605 regression fix). kind="event" tagged events
+          // (e.g. Camelphat) use tag_snapshots only.
+          if (event.kind === "brand_campaign" && mailchimpAudienceId && tagRows.length > 0) {
+            const earliestTagAt = tagRows[0]!.snapshot_at;
+            const { data: audData } = await db
+              .from("mailchimp_audience_snapshots")
+              .select("email_subscribers, snapshot_at")
+              .eq("event_id", event_id)
+              .eq("mailchimp_audience_id", mailchimpAudienceId)
+              .lt("snapshot_at", earliestTagAt)
+              .order("snapshot_at", { ascending: true });
+            const audRows = (audData ?? []) as MailchimpAudienceSnapshotSummary[];
+            return [...audRows, ...tagRows];
+          }
+
+          if (tagRows.length > 0) return tagRows;
         } catch {
           // fall through to audience path
         }
