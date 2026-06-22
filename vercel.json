@@ -56,6 +56,14 @@
     {
       "path": "/api/cron/sync-mailchimp-audiences",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/mailchimp-eod-snapshot",
+      "schedule": "55 23 * * *"
+    },
+    {
+      "path": "/api/cron/mailchimp-backfill-tick",
+      "schedule": "* * * * *"
     }
   ]
 }
