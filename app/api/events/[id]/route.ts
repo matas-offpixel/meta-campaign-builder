@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import type { TablesUpdate } from "@/lib/db/database.types";
+import { maybeTriggerTagBackfill } from "@/lib/mailchimp/tag-tracking";
 
 /**
  * PATCH /api/events/[id]
@@ -25,6 +26,9 @@ const ALLOWED_FIELDS = [
   // queries (capacity rollups, repeat-venue analytics) can lean on the FK
   // instead of fuzzy-matching on venue_name.
   "venue_id",
+  // Mailchimp tag scoping (migration 118). Setting this kicks off a one-time
+  // historical backfill (see below) so the registration curve renders.
+  "mailchimp_tag",
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
@@ -71,7 +75,7 @@ export async function PATCH(
 
   const { data: existing, error: lookupErr } = await supabase
     .from("events")
-    .select("id, user_id, client_id")
+    .select("id, user_id, client_id, mailchimp_tag")
     .eq("id", id)
     .maybeSingle();
   if (lookupErr) {
@@ -158,6 +162,20 @@ export async function PATCH(
       { ok: false, error: "Update returned no row" },
       { status: 500 },
     );
+  }
+
+  // If this PATCH newly set (or changed) the Mailchimp tag, kick the one-time
+  // historical backfill so the registration curve renders. Fire-and-forget;
+  // the per-minute cron drives the work and the start endpoint dedupes.
+  // mailchimp_tag is absent from the stale generated types, so read loosely.
+  const patchTag = (patch as Record<string, unknown>).mailchimp_tag;
+  const priorTag = (existing as { mailchimp_tag?: string | null }).mailchimp_tag ?? null;
+  if (
+    typeof patchTag === "string" &&
+    patchTag.trim() !== "" &&
+    patchTag !== priorTag
+  ) {
+    await maybeTriggerTagBackfill(id, patchTag);
   }
 
   if (shouldWriteManualTicketSnapshot && manualTicketsSold !== null) {
