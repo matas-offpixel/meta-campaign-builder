@@ -146,9 +146,16 @@ export function isPublicPath(
   if (/^\/api\/events\/[^/]+\/rollup\/sync$/.test(pathname)) {
     return true;
   }
-  // `/api/events/{id}/mailchimp/tag-history-backfill` — true per-member tag
-  // history backfill (Option D). Long-running ops endpoint; dual-auth.
-  if (/^\/api\/events\/[^/]+\/mailchimp\/tag-history-backfill$/.test(pathname)) {
+  // `/api/events/{id}/mailchimp/tag-backfill/start` and `/status` — resumable
+  // historical backfill control (bulletproof tag-tracking architecture).
+  // Dual-auth (Bearer CRON_SECRET or session) enforced in the handlers.
+  if (/^\/api\/events\/[^/]+\/mailchimp\/tag-backfill\/(start|status)$/.test(pathname)) {
+    return true;
+  }
+  // `/api/webhooks/mailchimp/{clientId}/{audienceId}` — Mailchimp tag webhook
+  // receiver. Authenticates via URL secret / HMAC in the handler, so it must
+  // bypass the session proxy entirely.
+  if (/^\/api\/webhooks\/mailchimp\/[^/]+\/[^/]+$/.test(pathname)) {
     return true;
   }
   if (PUBLIC_PATHS.has(pathname)) return true;

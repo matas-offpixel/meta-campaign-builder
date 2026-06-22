@@ -429,6 +429,30 @@ export async function getAllSegmentMemberIds(
   return all;
 }
 
+/**
+ * Fetches a single page of member hashes for a segment (offset-based). Used by
+ * the resumable backfill so each chunk reads only `count` members from `offset`.
+ */
+export async function getSegmentMemberIdsPage(
+  dc: string,
+  listId: string,
+  segmentId: number,
+  apiKey: string,
+  options: { offset: number; count: number },
+): Promise<MailchimpMemberIdRow[]> {
+  const page = await mailchimpGet<MailchimpSegmentMemberIdsResponse>(
+    dc,
+    `/lists/${listId}/segments/${segmentId}/members`,
+    {
+      fields: "members.id,total_items",
+      count: String(options.count),
+      offset: String(options.offset),
+    },
+    apiKey,
+  );
+  return page.members ?? [];
+}
+
 export interface MailchimpMemberTagEntry {
   id: number;
   name: string;

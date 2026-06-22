@@ -112,7 +112,16 @@ DROPBOX_APP_SECRET=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ENABLE_MULTI_PLACEMENT_ASSETS=
+MAILCHIMP_WEBHOOK_SECRET=
 ```
+
+> **`MAILCHIMP_WEBHOOK_SECRET`** secures the real-time Mailchimp tag webhook
+> receiver (`POST /api/webhooks/mailchimp/{clientId}/{audienceId}`). The handler
+> trusts a request if EITHER the `?secret=` query param equals this value
+> (Mailchimp's URL-secret approach — append `?secret=…` to the configured webhook
+> URL) OR an `x-mailchimp-signature` HMAC-SHA256 of the raw body matches. Without
+> it, all webhook posts are rejected `401`. See the Mailchimp tag-tracking
+> architecture note below for one-time webhook setup.
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
 > are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape
@@ -235,3 +244,30 @@ internal surfaces added by the April 2026 session
 `/api/clients/*/ticketing-import/*`) are **intentionally** NOT in
 the allow-list — they require a cookie-bound session and run
 ownership checks server-side.
+
+### Mailchimp tag tracking (layered architecture)
+
+Per-event Mailchimp tag growth is tracked by three cooperating layers so the
+dashboard chart shows true, API-sourced cumulative data without re-fetching
+every contact on each request (replaces the synchronous PR #629 backfill):
+
+1. **Webhooks (real-time)** — `POST /api/webhooks/mailchimp/{clientId}/{audienceId}`
+   receives Mailchimp tag add/remove events, appends to `mailchimp_tag_event_log`
+   (deduped), and recomputes the affected events' per-day snapshot.
+2. **EOD cron (backstop)** — `/api/cron/mailchimp-eod-snapshot` (23:55 UTC) reads
+   the segment's authoritative `member_count` and corrects today's snapshot if it
+   drifts > 5 from the webhook-maintained value.
+3. **Resumable backfill (one-time)** — `POST /api/events/{id}/mailchimp/tag-backfill/start`
+   creates a job; `/api/cron/mailchimp-backfill-tick` (per-minute) processes it in
+   chunks, reading each member's true tag `date_added`; `…/tag-backfill/status`
+   reports progress. Run ONCE per event launch.
+
+All per-day writers use a deterministic `snapshot_at` of `${day}T12:00:00Z` so
+the existing `uq_mailchimp_tag_snapshots_event_snapshot_at (event_id, snapshot_at)`
+unique index dedupes to one row per UTC day (see `lib/mailchimp/tag-tracking.ts`).
+
+**One-time webhook setup per audience** (Mailchimp UI → Audience → Settings →
+Webhooks): add URL
+`https://app.offpixel.co.uk/api/webhooks/mailchimp/{clientId}/{audienceId}?secret={MAILCHIMP_WEBHOOK_SECRET}`,
+enable the tag add/remove events. Repeat for each client audience (Ironworks
+first). Schema: migration `119_mailchimp_bulletproof_tracking.sql`.
