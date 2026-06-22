@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 631
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/631
 - **Branch:** `cursor/mailchimp-end-to-end-opus`
 
 ## Summary
