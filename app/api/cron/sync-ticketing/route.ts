@@ -37,9 +37,53 @@ import {
  * every user to feed the cron. RLS still gates write paths to
  * `tickets_sales_snapshots` via `user_id` columns derived from the
  * connection row — we never trust caller-supplied IDs.
+ *
+ * Timeout / retry design:
+ *   - maxDuration=300 lets Vercel run the function for up to 5 minutes so
+ *     large connection pools don't get killed at the default 60 s wall.
+ *   - CRON_TIMEOUT_MS=15 000 gives each individual provider call 15 s.
+ *   - callWithRetry retries once on timeout (after 1.5 s) before recording
+ *     the link as failed.  Non-timeout errors skip the retry immediately.
+ *   - A wall-clock budget guard breaks the outer connection loop 30 s
+ *     before maxDuration so the function always returns a clean response.
  */
 
-const CRON_TIMEOUT_MS = 8000;
+export const maxDuration = 300;
+
+const CRON_TIMEOUT_MS = 15_000;
+const BUDGET_MS = 270_000; // 30 s headroom before maxDuration
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callWithRetry<T>(
+  fn: () => Promise<T>,
+  timeoutMs: number,
+  retries = 1,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await sleep(1500 * attempt);
+    try {
+      return await Promise.race([
+        fn(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("getEventSales timed out")),
+            timeoutMs,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      lastErr = err;
+      const isTimeout =
+        err instanceof Error && err.message.includes("timed out");
+      if (!isTimeout) throw err;
+    }
+  }
+  throw lastErr;
+}
 
 interface ConnectionSyncResult {
   connectionId: string;
@@ -56,6 +100,7 @@ interface SyncResponse {
   connectionsConsidered: number;
   connectionsProcessed: number;
   totalSnapshotsWritten: number;
+  budget_exceeded?: boolean;
   results: ConnectionSyncResult[];
 }
 
@@ -79,6 +124,7 @@ export async function GET(req: NextRequest) {
   }
 
   const startedAt = new Date().toISOString();
+  const startEpoch = Date.now();
   let supabase: ReturnType<typeof createServiceRoleClient>;
   try {
     supabase = createServiceRoleClient();
@@ -127,6 +173,17 @@ export async function GET(req: NextRequest) {
   let totalSnapshotsWritten = 0;
 
   for (const connection of connections) {
+    if (Date.now() - startEpoch > BUDGET_MS) {
+      results.push({
+        connectionId: connection.id,
+        provider: connection.provider,
+        linksProcessed: 0,
+        snapshotsWritten: 0,
+        errors: [{ linkId: "(none)", message: "budget_exceeded — cron stopping early" }],
+      });
+      break;
+    }
+
     const { data: rawLinks, error: linkErr } = await supabase
       .from("event_ticketing_links")
       .select("*")
@@ -235,19 +292,15 @@ export async function GET(req: NextRequest) {
       let snapshotAtForTiers: string | undefined;
       for (const link of eventLinks) {
         try {
-          const fetched = await Promise.race([
-            provider.getEventSales(
-              connectionForProvider,
-              link.external_event_id,
-              { apiBase: link.external_api_base ?? null },
-            ),
-            new Promise((_, reject) =>
-              setTimeout(
-                () => reject(new Error("getEventSales timed out")),
-                CRON_TIMEOUT_MS,
+          const fetched = await callWithRetry(
+            () =>
+              provider.getEventSales(
+                connectionForProvider,
+                link.external_event_id,
+                { apiBase: link.external_api_base ?? null },
               ),
-            ),
-          ]);
+            CRON_TIMEOUT_MS,
+          );
           const sales = fetched as Awaited<
             ReturnType<typeof provider.getEventSales>
           >;
@@ -336,7 +389,10 @@ export async function GET(req: NextRequest) {
   }
 
   const finishedAt = new Date().toISOString();
-  const allOk = results.every((r) => r.errors.length === 0);
+  const budgetExceeded = results.some((r) =>
+    r.errors.some((e) => e.message.startsWith("budget_exceeded")),
+  );
+  const allOk = !budgetExceeded && results.every((r) => r.errors.length === 0);
   const response: SyncResponse = {
     ok: allOk,
     startedAt,
@@ -344,6 +400,7 @@ export async function GET(req: NextRequest) {
     connectionsConsidered: connections.length,
     connectionsProcessed: results.length,
     totalSnapshotsWritten,
+    ...(budgetExceeded && { budget_exceeded: true }),
     results,
   };
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
