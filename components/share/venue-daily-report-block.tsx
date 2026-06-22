@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 import { VenueTrendChart } from "@/components/shared/venue-trend-chart";
+import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 import {
   additionalSpendBreakdownLinesByDate,
   additionalSpendTotalsByDate,
@@ -345,6 +346,7 @@ export function VenueTrendChartSection({
   title = "Daily trend",
   mailchimpTag,
   eventId,
+  mailchimpSnapshots,
 }: {
   model: VenueReportModel;
   datePreset: DatePreset;
@@ -355,6 +357,13 @@ export function VenueTrendChartSection({
   mailchimpTag?: string | null;
   /** Primary event ID used to fetch Mailchimp snapshots from the API. */
   eventId?: string;
+  /**
+   * Pre-fetched ordered Mailchimp snapshot rows. When provided, the chart
+   * skips the client-side session-authed API call entirely — required on
+   * surfaces where the visitor may not have a Supabase session (share pages)
+   * and preferred on internal pages for instant paint without a second fetch.
+   */
+  mailchimpSnapshots?: MailchimpSnapshotRow[];
 }) {
   const { timeline, otherSpendByDate, cumulativeTicketPoints } = model;
 
@@ -426,6 +435,7 @@ export function VenueTrendChartSection({
       title={title}
       mailchimpTag={mailchimpTag}
       eventId={eventId}
+      mailchimpSnapshots={mailchimpSnapshots}
     />
   );
 }
