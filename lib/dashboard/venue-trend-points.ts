@@ -41,7 +41,10 @@
 import type { WeeklyTicketSnapshotRow } from "@/lib/db/client-portal-server";
 import type { TierChannelDailyHistoryRow } from "@/lib/db/tier-channel-daily-history";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
-import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
+import {
+  collapseSnapshotsToOnePerDay,
+  type MailchimpSnapshotRow,
+} from "@/lib/mailchimp/compute-registrations";
 
 /**
  * Per-event SUM of `tier_channel_sales.tickets_sold` (and revenue).
@@ -285,7 +288,7 @@ export function buildEventCumulativeTicketTimeline(
 export function buildMailchimpRegistrationSnapshotPoints(
   snapshots: MailchimpSnapshotRow[],
 ): TrendChartPoint[] {
-  return snapshots
+  return collapseSnapshotsToOnePerDay(snapshots)
     .filter((s) => s.email_subscribers != null)
     .map((s) => ({
       date: s.snapshot_at.slice(0, 10),
