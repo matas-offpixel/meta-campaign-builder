@@ -94,6 +94,30 @@ export async function GET(req: NextRequest) {
 
       const apiCount = segment.member_count ?? 0;
 
+      // Zero from Mailchimp means the tag exists but has no members — this
+      // happens when a tag is freshly created, briefly renamed, or suffers a
+      // lookup-race window. Writing a 0 snapshot produces "drop-to-zero"
+      // artifacts on the chart before real signups arrive. Skip in all cases:
+      // - If we already have non-zero history: the prior value is authoritative.
+      // - If we have no history yet: the event genuinely has 0 signups so far;
+      //   writing nothing is correct (chart renders nothing until real data).
+      if (apiCount === 0) {
+        const { data: existingNonZero } = await sb
+          .from("mailchimp_tag_snapshots")
+          .select("email_subscribers")
+          .eq("event_id", ev.id)
+          .gt("email_subscribers", 0)
+          .order("snapshot_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const reason = existingNonZero
+          ? "zero_count_but_have_history"
+          : "zero_count_no_history";
+        results.push({ eventId: ev.id, action: "skip", reason });
+        continue;
+      }
+
       const { data: todaySnap } = await sb
         .from("mailchimp_tag_snapshots")
         .select("email_subscribers")
