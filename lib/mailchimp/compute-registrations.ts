@@ -38,6 +38,35 @@ export interface MailchimpRegistrationsData {
 }
 
 /**
+ * Collapses a snapshot array to one row per calendar day (UTC date).
+ *
+ * When multiple snapshots land on the same day (EOD cron at 23:55 + tag-sync
+ * at ~06:00 UTC both writing), callers that build chart points should call
+ * this first so each day produces exactly one data point. The row with the
+ * highest `email_subscribers` value is kept — the later/higher reading is
+ * the most accurate view of that day's state. Input order does not matter;
+ * the returned array is sorted ascending by snapshot_at.
+ */
+export function collapseSnapshotsToOnePerDay(
+  snapshots: MailchimpSnapshotRow[],
+): MailchimpSnapshotRow[] {
+  const byDay = new Map<string, MailchimpSnapshotRow>();
+  for (const snap of snapshots) {
+    const day = snap.snapshot_at.slice(0, 10);
+    const existing = byDay.get(day);
+    if (
+      !existing ||
+      (snap.email_subscribers ?? 0) > (existing.email_subscribers ?? 0)
+    ) {
+      byDay.set(day, snap);
+    }
+  }
+  return [...byDay.values()].sort((a, b) =>
+    a.snapshot_at.localeCompare(b.snapshot_at),
+  );
+}
+
+/**
  * Computes `MailchimpRegistrationsData` from pre-fetched snapshot rows.
  *
  * Pure function — easily unit-tested without DB involvement.

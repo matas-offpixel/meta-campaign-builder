@@ -188,10 +188,13 @@ function LegacyTrendChart({
     )].sort();
 
     // Mailchimp dates AFTER the last rollup row (PR #625: extend upper bound).
+    // Exclude dates already claimed by extraBefore — when base is empty both
+    // filters would otherwise select all snapshot dates, duplicating every label.
+    const extraBeforeSet = new Set(extraBefore);
     const extraAfter = [...new Set(
       mailchimpSnapshots
         .map((s) => s.snapshot_at.slice(0, 10))
-        .filter((d) => !baseDateSet.has(d) && (lastBaseDate == null || d > lastBaseDate)),
+        .filter((d) => !baseDateSet.has(d) && !extraBeforeSet.has(d) && (lastBaseDate == null || d > lastBaseDate)),
     )].sort();
 
     if (extraBefore.length === 0 && extraAfter.length === 0) return base;
