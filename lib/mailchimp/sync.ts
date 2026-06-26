@@ -403,6 +403,33 @@ export async function syncMailchimpTagForEvent(
   }
 
   const memberCount = matchedSegment.member_count;
+
+  // A zero member_count means the tag exists in Mailchimp but has no
+  // contacts yet — tag just created, briefly renamed, or lookup race.
+  // Writing a 0 snapshot creates "drop-to-zero" chart artifacts.
+  // Return ok=true so callers don't treat this as an error, but include
+  // a skip_reason so logs can surface it.
+  if (memberCount === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as unknown as any;
+    const { data: existingNonZero } = await sb
+      .from("mailchimp_tag_snapshots")
+      .select("email_subscribers")
+      .eq("event_id", event.id)
+      .gt("email_subscribers", 0)
+      .order("snapshot_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const skipReason = existingNonZero
+      ? "zero_count_but_have_history"
+      : "zero_count_no_history";
+    console.warn(
+      `[mailchimp-tag-sync] event=${event.id} tag="${event.mailchimp_tag}" member_count=0 — skipping write (${skipReason})`,
+    );
+    return { eventId: event.id, ok: true, memberCount: 0 };
+  }
+
   const clientId = event.client_id ?? null;
 
   const snapshotRow = {
