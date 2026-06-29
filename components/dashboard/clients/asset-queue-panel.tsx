@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import {
   Loader2, RefreshCw, ChevronDown, ChevronRight,
   ExternalLink, AlertCircle, CheckCircle2, Clock, SkipForward, Globe,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 import type { AssetQueueRow, AssetQueueStatus } from "@/lib/db/asset-queue";
@@ -564,7 +565,39 @@ function QueueRowCard({
   );
 }
 
+// ─── Skeleton loading card ────────────────────────────────────────────────────
+
+function QueueSkeleton() {
+  return (
+    <div className="space-y-6">
+      {[1, 2, 3].map((i) => (
+        <section key={i}>
+          <div className="mb-2 flex items-center gap-2">
+            <div className="h-4 w-4 rounded bg-muted animate-pulse" />
+            <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            {[1, 2].map((j) => (
+              <div key={j} className="rounded-lg border border-border bg-card p-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+                    <div className="h-3 w-64 rounded bg-muted animate-pulse" />
+                  </div>
+                  <div className="h-7 w-24 rounded-md bg-muted animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
+
+const PAGE_LIMIT = 25;
 
 const STATUS_ORDER: AssetQueueStatus[] = [
   "error", "matched_umbrella", "matched", "pending", "confirmed", "launched", "skipped",
@@ -573,27 +606,59 @@ const STATUS_ORDER: AssetQueueStatus[] = [
 export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQueuePanelProps) {
   const [rows, setRows] = useState<AssetQueueRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // True only on the very first load (shows skeleton instead of spinner).
+  const [initialLoading, setInitialLoading] = useState(true);
   const [scraping, setScraping] = useState(false);
   const [scrapeResult, setScrapeResult] = useState<ScrapeResult | null>(null);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [hasConfig, setHasConfig] = useState<boolean | null>(hasConfigProp ?? null);
 
-  const loadQueue = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/clients/${clientId}/asset-queue?pageSize=100`);
-      const data = await res.json();
-      setRows(data.rows ?? []);
-      setTotal(data.total ?? 0);
-    } finally {
-      setLoading(false);
-    }
-  }, [clientId]);
+  /** Fetch one page of queue rows and append/replace depending on mode. */
+  const fetchPage = useCallback(
+    async (pageOffset: number, replace: boolean) => {
+      const isFirst = replace;
+      if (!isFirst) setLoadingMore(true);
+      try {
+        const res = await fetch(
+          `/api/clients/${clientId}/asset-queue?offset=${pageOffset}&limit=${PAGE_LIMIT}`,
+        );
+        const data = (await res.json()) as {
+          rows: AssetQueueRow[];
+          total: number;
+          hasMore: boolean;
+          offset: number;
+        };
+        if (replace) {
+          setRows(data.rows ?? []);
+        } else {
+          setRows((prev) => [...prev, ...(data.rows ?? [])]);
+        }
+        setTotal(data.total ?? 0);
+        setHasMore(data.hasMore ?? false);
+        setOffset((data.offset ?? pageOffset) + (data.rows?.length ?? 0));
+      } finally {
+        if (isFirst) setInitialLoading(false);
+        else setLoadingMore(false);
+      }
+    },
+    [clientId],
+  );
+
+  /** Reload from offset=0 (used after scrape or row actions). */
+  const reloadQueue = useCallback(() => {
+    setInitialLoading(true);
+    setRows([]);
+    setOffset(0);
+    fetchPage(0, true);
+  }, [fetchPage]);
 
   useEffect(() => {
     if (hasConfigProp !== undefined) {
-      if (hasConfigProp) loadQueue();
+      if (hasConfigProp) reloadQueue();
+      else setInitialLoading(false);
       return;
     }
     fetch(`/api/clients/${clientId}/asset-sheet-config`)
@@ -601,10 +666,16 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
       .then((data) => {
         const configured = !!data.config?.google_sheet_id;
         setHasConfig(configured);
-        if (configured) loadQueue();
+        if (configured) reloadQueue();
+        else setInitialLoading(false);
       })
-      .catch(() => setHasConfig(false));
-  }, [clientId, hasConfigProp, loadQueue]);
+      .catch(() => {
+        setHasConfig(false);
+        setInitialLoading(false);
+      });
+  // reloadQueue is stable (useCallback with no deps that change).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, hasConfigProp]);
 
   async function handleScrape() {
     setScraping(true);
@@ -617,7 +688,7 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
         setScrapeError(data.error ?? "Scrape failed");
       } else {
         setScrapeResult(data);
-        await loadQueue();
+        reloadQueue();
       }
     } catch (err) {
       setScrapeError(err instanceof Error ? err.message : "Unexpected error");
@@ -626,10 +697,17 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
     }
   }
 
-  if (hasConfig === null) {
+  if (hasConfig === null || (initialLoading && hasConfig !== false)) {
     return (
-      <div className="flex items-center justify-center py-12 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin" />
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="h-5 w-28 rounded bg-muted animate-pulse" />
+            <div className="mt-1 h-4 w-40 rounded bg-muted animate-pulse" />
+          </div>
+          <div className="h-8 w-36 rounded-md bg-muted animate-pulse" />
+        </div>
+        <QueueSkeleton />
       </div>
     );
   }
@@ -672,6 +750,11 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
           <h2 className="font-heading text-base tracking-wide">Asset Queue</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {total} total · {activeCount} need attention
+            {rows.length < total && (
+              <span className="ml-1 text-muted-foreground/70">
+                · showing {rows.length}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -684,10 +767,11 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
           <button
             onClick={handleScrape}
             disabled={scraping}
+            title="Pull new rows from the Google Sheet and match them to events"
             className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50"
           >
-            {scraping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            Scrape new assets
+            {scraping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            Refresh from sheet
           </button>
         </div>
       </div>
@@ -712,13 +796,9 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
         </div>
       )}
 
-      {loading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </div>
-      ) : rows.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-          No assets in queue. Click &ldquo;Scrape new assets&rdquo; to pull from the sheet.
+          No assets in queue. Click &ldquo;Refresh from sheet&rdquo; to pull from the sheet.
         </div>
       ) : (
         <div className="space-y-6">
@@ -739,12 +819,29 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
                 </div>
                 <div className="space-y-2">
                   {group.map((row) => (
-                    <QueueRowCard key={row.id} row={row} clientId={clientId} onUpdate={loadQueue} />
+                    <QueueRowCard key={row.id} row={row} clientId={clientId} onUpdate={reloadQueue} />
                   ))}
                 </div>
               </section>
             );
           })}
+
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={() => fetchPage(offset, false)}
+                disabled={loadingMore}
+                className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm hover:bg-accent disabled:opacity-50"
+              >
+                {loadingMore ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Load more ({total - rows.length} remaining)
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

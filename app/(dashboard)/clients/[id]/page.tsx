@@ -64,6 +64,20 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
   // fallback in case a route slips through.
   if (!user) redirect("/login");
 
+  // Resolve which tab is active before kicking off parallel data loads so
+  // we can skip the two most expensive queries on non-relevant tabs.
+  const initialTab: ClientTab =
+    tab && ALLOWED_TABS.has(tab) ? (tab as ClientTab) : "overview";
+
+  // Heavy tab-specific loaders: only run when the tab is actually requested.
+  // loadClientCampaignsData internally re-calls loadClientPortalByClientId,
+  // making it a double-load of the most expensive query. For a client with
+  // 165+ events this alone causes FUNCTION_INVOCATION_TIMEOUT on non-campaigns
+  // tabs. loadClientPortalByClientId is similarly deferred — the Events tab
+  // uses it for venue-grouped layout but doesn't need it on other tabs.
+  const needsCampaigns = initialTab === "campaigns";
+  const needsPortal = initialTab === "overview" || initialTab === "events";
+
   // Fetch everything the tab shell can possibly need in parallel — the
   // ticketing / d2c / creatives panels mount even when their tab isn't
   // active so the count badges in the tab bar are accurate without a
@@ -80,11 +94,6 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     d2cTemplates,
     creativeTemplates,
     hasTaggedEvents,
-    // PR D3 — fetch the client-portal payload alongside the other
-    // loads so the Events tab can render the same venue-grouped
-    // layout as `/clients/[id]/dashboard`. Fails soft (returns
-    // `{ ok: false }`) when the client has no events, and the
-    // Events tab renders the legacy flat table in that case.
     portal,
     campaignsData,
   ] = await Promise.all([
@@ -99,13 +108,18 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listD2CTemplatesForUser(supabase, { clientId: id }),
     listCreativeTemplatesForUser(supabase),
     clientHasTaggedEvents(id),
-    loadClientPortalByClientId(id),
-    loadClientCampaignsData(id).catch((err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : String(err);
-      console.warn("[clients page] campaigns load failed", message);
-      return null;
-    }),
+    // Only load the heavy portal aggregation when the tab needs it.
+    needsPortal
+      ? loadClientPortalByClientId(id)
+      : Promise.resolve({ ok: false as const }),
+    // Only load campaigns data when the campaigns tab is active.
+    needsCampaigns
+      ? loadClientCampaignsData(id).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn("[clients page] campaigns load failed", message);
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
 
   if (!client) notFound();
@@ -209,9 +223,6 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
         "Template-based render API with similar surface area to Bannerbear.",
     },
   ];
-
-  const initialTab: ClientTab =
-    tab && ALLOWED_TABS.has(tab) ? (tab as ClientTab) : "overview";
 
   return (
     <ClientDetail
