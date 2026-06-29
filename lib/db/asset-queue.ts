@@ -58,13 +58,25 @@ export interface AssetQueueRow {
 
 export async function listAssetQueue(
   clientId: string,
-  opts?: { status?: AssetQueueStatus; page?: number; pageSize?: number },
+  opts?: {
+    status?: AssetQueueStatus;
+    /** 0-based page index. Ignored when `offset` is supplied. */
+    page?: number;
+    /** Rows per page (default 25, max 100). */
+    pageSize?: number;
+    /** Byte-offset override — takes precedence over page×pageSize. */
+    offset?: number;
+    /** Alias for pageSize when using offset-based pagination. */
+    limit?: number;
+  },
 ): Promise<{ rows: AssetQueueRow[]; total: number }> {
   const supabase = await createClient();
-  const page = opts?.page ?? 0;
-  const pageSize = opts?.pageSize ?? 50;
-  const from = page * pageSize;
-  const to = from + pageSize - 1;
+  const limit = Math.min(100, Math.max(1, opts?.limit ?? opts?.pageSize ?? 25));
+  const from =
+    opts?.offset !== undefined
+      ? opts.offset
+      : (opts?.page ?? 0) * limit;
+  const to = from + limit - 1;
 
   let query = supabase
     .from("client_asset_queue")

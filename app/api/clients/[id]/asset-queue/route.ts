@@ -1,12 +1,21 @@
 /**
  * GET /api/clients/[id]/asset-queue
  *
- * Returns paginated asset queue rows for a client, optionally filtered by status.
+ * Returns paginated asset queue rows for a client, optionally filtered by
+ * status. Supports two pagination styles (both return the same shape):
+ *
+ *   Offset-based (preferred):
+ *     ?offset=0&limit=25
+ *
+ *   Page-based (backward compat):
+ *     ?page=0&pageSize=25
  *
  * Query params:
- *   status  — one of pending | matched | confirmed | launched | skipped | error
- *   page    — 0-based page index (default 0)
- *   pageSize — rows per page (default 50, max 100)
+ *   status   — one of pending|matched|confirmed|launched|skipped|error
+ *   offset   — 0-based row offset (default 0)
+ *   limit    — rows per page (default 25, max 100)
+ *   page     — 0-based page index (ignored when offset is present)
+ *   pageSize — alias for limit when using page-based pagination
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,7 +23,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listAssetQueue, type AssetQueueStatus } from "@/lib/db/asset-queue";
 
 const VALID_STATUSES = new Set<AssetQueueStatus>([
-  "pending", "matched", "confirmed", "launched", "skipped", "error",
+  "pending", "matched", "matched_umbrella", "confirmed", "launched", "skipped", "error",
 ]);
 
 export async function GET(
@@ -39,14 +48,47 @@ export async function GET(
   if (client.user_id !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const sp = req.nextUrl.searchParams;
+
   const rawStatus = sp.get("status");
   const status = rawStatus && VALID_STATUSES.has(rawStatus as AssetQueueStatus)
     ? (rawStatus as AssetQueueStatus)
     : undefined;
-  const page = Math.max(0, parseInt(sp.get("page") ?? "0", 10));
-  const pageSize = Math.min(100, Math.max(1, parseInt(sp.get("pageSize") ?? "50", 10)));
 
-  const { rows, total } = await listAssetQueue(clientId, { status, page, pageSize });
+  // Offset-based pagination (preferred).
+  const rawOffset = sp.get("offset");
+  const rawLimit = sp.get("limit");
+  const rawPage = sp.get("page");
+  const rawPageSize = sp.get("pageSize");
 
-  return NextResponse.json({ rows, total, page, pageSize });
+  const limit = Math.min(100, Math.max(1, parseInt(rawLimit ?? rawPageSize ?? "25", 10)));
+
+  let offset: number | undefined;
+  let page: number | undefined;
+
+  if (rawOffset !== null) {
+    offset = Math.max(0, parseInt(rawOffset, 10));
+  } else {
+    page = Math.max(0, parseInt(rawPage ?? "0", 10));
+  }
+
+  const { rows, total } = await listAssetQueue(clientId, {
+    status,
+    offset,
+    limit,
+    page,
+    pageSize: limit,
+  });
+
+  const resolvedOffset = offset ?? (page ?? 0) * limit;
+
+  return NextResponse.json({
+    rows,
+    total,
+    offset: resolvedOffset,
+    limit,
+    hasMore: resolvedOffset + rows.length < total,
+    // Legacy fields (backward compat for any existing callers)
+    page: page ?? Math.floor(resolvedOffset / limit),
+    pageSize: limit,
+  });
 }
