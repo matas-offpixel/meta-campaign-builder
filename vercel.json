@@ -64,6 +64,10 @@
     {
       "path": "/api/cron/mailchimp-backfill-tick",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/refresh-client-portal-snapshots",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

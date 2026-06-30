@@ -19,6 +19,7 @@ import {
   type EventCodeLifetimeMetaCacheRow,
 } from "@/lib/db/event-code-lifetime-meta-cache";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { readClientPortalSnapshot } from "@/lib/reporting/client-portal-snapshot";
 
 /**
  * Server-only data layer for the public client portal share
@@ -523,8 +524,22 @@ export async function loadClientPortalData(
  */
 export async function loadClientPortalByClientId(
   clientId: string,
+  opts?: { force?: boolean },
 ): Promise<ClientPortalData> {
   if (!clientId) return { ok: false, reason: "not_found" };
+  // Snapshot-first cache (migration 123). Unless `force`d — the refresh cron
+  // and admin-debug paths pass `force: true` so they always do a fresh live
+  // load to WRITE — try the warm `client_portal_snapshots` row first. A hit
+  // (<15 min old, current build_version, owned by the caller via RLS) skips
+  // the ~3-5s service-role waterfall entirely. A miss / stale / build-mismatch
+  // returns null and we fall straight through to the live-load path below,
+  // UNCHANGED. Centralised here (rather than inline in the page) so every
+  // caller — `/clients/[id]`, `/clients/[id]/dashboard`, the Today pacing
+  // alerts, and the PR #641 campaigns-loader dedup — gets the cache for free.
+  if (!opts?.force) {
+    const cached = await readClientPortalSnapshot(clientId);
+    if (cached) return cached;
+  }
   return loadPortalForClientId(clientId);
 }
 
