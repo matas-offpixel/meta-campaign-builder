@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { Suspense } from "react";
 
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { ClientPortal } from "@/components/share/client-portal";
 import { SubTabBar } from "@/components/dashboard/clients/sub-tab-bar";
+import { HoverPrefetchLink } from "@/components/dashboard/_shared/hover-prefetch-link";
 import { CreativePatternsPanel } from "@/components/dashboard/clients/creative-patterns-panel";
 import { FunnelPacingSection } from "@/components/dashboard/clients/funnel-pacing-section";
 import { ClientStatsViewToggle } from "@/components/dashboard/clients/client-stats-view-toggle";
@@ -191,8 +191,9 @@ export function DashboardTabs({
               const isActive = region === selectedRegion;
               const count = grouped.get(region)?.length ?? 0;
               return (
-                <Link
+                <HoverPrefetchLink
                   key={region}
+                  prefetchOnHover={!isShared}
                   href={dashboardHref({
                     clientId,
                     token,
@@ -212,13 +213,17 @@ export function DashboardTabs({
                   <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     {count}
                   </span>
-                </Link>
+                </HoverPrefetchLink>
               );
             })}
           </nav>
         ) : null}
         {selectedRegion ? (
-          <SubTabBar activeTab={selectedTab} tabs={tabs} />
+          <SubTabBar
+            activeTab={selectedTab}
+            tabs={tabs}
+            prefetchOnHover={!isShared}
+          />
         ) : null}
       </div>
 

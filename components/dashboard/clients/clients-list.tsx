@@ -33,7 +33,10 @@ export function ClientsList({
         title="Clients"
         description="Promoters, venues, brands, artists and festivals we work with."
         actions={
-          <Button onClick={() => router.push("/clients/new")}>
+          <Button
+            onClick={() => router.push("/clients/new")}
+            onMouseEnter={() => router.prefetch("/clients/new")}
+          >
             <Plus className="h-4 w-4" />
             New client
           </Button>
@@ -84,6 +87,7 @@ export function ClientsList({
                 <Link
                   key={c.id}
                   href={`/clients/${c.id}`}
+                  onMouseEnter={() => router.prefetch(`/clients/${c.id}`)}
                   className="block rounded-md border border-border bg-card p-4 transition-colors
                     hover:border-border-strong"
                 >

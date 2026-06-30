@@ -76,7 +76,10 @@ export function EventsList({
         actions={
           <>
             <ViewToggle view={view} onChange={setView} />
-            <Button onClick={() => router.push("/events/new")}>
+            <Button
+              onClick={() => router.push("/events/new")}
+              onMouseEnter={() => router.prefetch("/events/new")}
+            >
               <Plus className="h-4 w-4" />
               New event
             </Button>
@@ -147,7 +150,11 @@ export function EventsList({
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <Link href={`/events/${ev.id}`} className="truncate text-sm font-medium hover:underline">
+                        <Link
+                          href={`/events/${ev.id}`}
+                          onMouseEnter={() => router.prefetch(`/events/${ev.id}`)}
+                          className="truncate text-sm font-medium hover:underline"
+                        >
                           {ev.name}
                         </Link>
                         <KindBadge kind={ev.kind} />
