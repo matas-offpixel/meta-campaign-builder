@@ -66,7 +66,7 @@ export async function setGoogleAdsCredentials(
   const { error } = await supabase.rpc("set_google_ads_credentials", {
     p_account_id: accountId,
     p_plaintext: JSON.stringify(credentials),
-    p_key: key ?? null,
+    p_key: key,
   });
   if (error) {
     throw new Error(`Failed to encrypt Google Ads credentials: ${error.message}`);
@@ -80,7 +80,7 @@ export async function getGoogleAdsCredentials(
 ): Promise<GoogleAdsCredentials | null> {
   const { data, error } = await supabase.rpc("get_google_ads_credentials", {
     p_account_id: accountId,
-    p_key: key ?? null,
+    p_key: key,
   });
   if (error) {
     throw new Error(`Failed to decrypt Google Ads credentials: ${error.message}`);
