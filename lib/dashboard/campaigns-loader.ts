@@ -28,6 +28,7 @@ import "server-only";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   loadClientPortalByClientId,
+  type ClientPortalData,
   type DailyRollupRow,
   type PortalEvent,
 } from "@/lib/db/client-portal-server";
@@ -101,8 +102,15 @@ export interface ClientCampaignsData {
  */
 export async function loadClientCampaignsData(
   clientId: string,
+  preloadedPortal?: ClientPortalData,
 ): Promise<ClientCampaignsData> {
-  const portal = await loadClientPortalByClientId(clientId);
+  // Dedup: `/clients/[id]/page.tsx` already loads the portal payload for the
+  // Events tab. When it passes that result in, skip the redundant
+  // `loadClientPortalByClientId` waterfall (previously a full second
+  // 1.5-3.5s service-role load on every render). Falls back to loading when
+  // called standalone — the param is OPTIONAL, so existing call sites stay
+  // backward-compatible.
+  const portal = preloadedPortal ?? (await loadClientPortalByClientId(clientId));
   if (!portal.ok) {
     return emptyResult();
   }

@@ -18,9 +18,11 @@ const UUID_RE =
 
 export async function PATCH(
   _req: NextRequest,
-  { params }: { params: Promise<{ clientId: string; flagId: string }> },
+  { params }: { params: Promise<{ id: string; flagId: string }> },
 ) {
-  const { clientId, flagId } = await params;
+  // Slug renamed [clientId] → [id] to match the /api/clients/[id]/*
+  // convention. Aliased so the handler body is unchanged; URL is identical.
+  const { id: clientId, flagId } = await params;
 
   if (!UUID_RE.test(clientId) || !UUID_RE.test(flagId)) {
     return NextResponse.json(
