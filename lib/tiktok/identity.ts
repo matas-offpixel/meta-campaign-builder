@@ -1,6 +1,10 @@
 import { tiktokGet } from "./client.ts";
 
-export type TikTokIdentityType = "PERSONAL_HUB" | "CUSTOMIZED_USER" | "TT_USER";
+export type TikTokIdentityType =
+  | "AUTH_CODE"
+  | "BC_AUTH_TT"
+  | "CUSTOMIZED_USER"
+  | "TT_USER";
 
 export interface TikTokIdentity {
   identity_id: string;
@@ -24,7 +28,8 @@ interface TikTokIdentityGetResponse {
 type TikTokGet = typeof tiktokGet;
 
 const IDENTITY_TYPES: TikTokIdentityType[] = [
-  "PERSONAL_HUB",
+  "BC_AUTH_TT",
+  "AUTH_CODE",
   "CUSTOMIZED_USER",
   "TT_USER",
 ];

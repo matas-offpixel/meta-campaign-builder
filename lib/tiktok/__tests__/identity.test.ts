@@ -28,12 +28,13 @@ describe("fetchTikTokIdentities", () => {
     });
 
     assert.deepEqual(identityTypes, [
-      "PERSONAL_HUB",
+      "BC_AUTH_TT",
+      "AUTH_CODE",
       "CUSTOMIZED_USER",
       "TT_USER",
     ]);
-    assert.equal(rows.length, 3);
-    assert.equal(rows[0].identity_type, "CUSTOMIZED_USER");
-    assert.equal(rows[0].display_name, "Identity CUSTOMIZED_USER");
+    assert.equal(rows.length, 4);
+    assert.equal(rows[0].identity_type, "AUTH_CODE");
+    assert.equal(rows[0].display_name, "Identity AUTH_CODE");
   });
 });
