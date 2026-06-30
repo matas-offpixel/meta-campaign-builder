@@ -86,7 +86,6 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     // `{ ok: false }`) when the client has no events, and the
     // Events tab renders the legacy flat table in that case.
     portal,
-    campaignsData,
   ] = await Promise.all([
     getClientByIdServer(id),
     listEventsServer(user.id, { clientId: id }),
@@ -100,12 +99,6 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listCreativeTemplatesForUser(supabase),
     clientHasTaggedEvents(id),
     loadClientPortalByClientId(id),
-    loadClientCampaignsData(id).catch((err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : String(err);
-      console.warn("[clients page] campaigns load failed", message);
-      return null;
-    }),
   ]);
 
   if (!client) notFound();
@@ -133,37 +126,49 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
   }));
   const eventIds = events.map((event) => event.id);
   const eventNameById = new Map(events.map((e) => [e.id, e.name]));
+
+  // Second parallel batch — the queries that depend on the first batch's
+  // results. `event_ticketing_links` needs `eventIds` (previously queried
+  // sequentially after the main Promise.all), and `loadClientCampaignsData`
+  // reuses the already-loaded `portal` (Fix 3 dedup) so it no longer triggers
+  // a second portal waterfall. Both run together instead of in sequence.
+  const [ticketingLinks, campaignsData] = await Promise.all([
+    eventIds.length > 0
+      ? supabase
+          .from("event_ticketing_links")
+          .select("event_id, external_event_id, external_api_base")
+          .in("event_id", eventIds)
+      : Promise.resolve({ data: null, error: null }),
+    loadClientCampaignsData(id, portal).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn("[clients page] campaigns load failed", message);
+      return null;
+    }),
+  ]);
+
   const linkedEventIds = new Set<string>();
   const customApiBaseLinks: Array<{
     eventName: string;
     externalEventId: string;
     apiBase: string;
   }> = [];
-  if (eventIds.length > 0) {
-    const { data: links, error: linksError } = await supabase
-      .from("event_ticketing_links")
-      .select("event_id, external_event_id, external_api_base")
-      .in("event_id", eventIds);
-    if (linksError) {
-      console.warn(
-        "[client detail ticketing link stats]",
-        linksError.message,
-      );
-    } else {
-      for (const link of links ?? []) {
-        const l = link as {
-          event_id: string;
-          external_event_id: string;
-          external_api_base: string | null;
-        };
-        linkedEventIds.add(l.event_id);
-        if (l.external_api_base) {
-          customApiBaseLinks.push({
-            eventName: eventNameById.get(l.event_id) ?? l.event_id,
-            externalEventId: l.external_event_id,
-            apiBase: l.external_api_base,
-          });
-        }
+  const { data: links, error: linksError } = ticketingLinks;
+  if (linksError) {
+    console.warn("[client detail ticketing link stats]", linksError.message);
+  } else {
+    for (const link of links ?? []) {
+      const l = link as {
+        event_id: string;
+        external_event_id: string;
+        external_api_base: string | null;
+      };
+      linkedEventIds.add(l.event_id);
+      if (l.external_api_base) {
+        customApiBaseLinks.push({
+          eventName: eventNameById.get(l.event_id) ?? l.event_id,
+          externalEventId: l.external_event_id,
+          apiBase: l.external_api_base,
+        });
       }
     }
   }

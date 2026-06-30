@@ -927,6 +927,55 @@ async function loadPortalForClientId(
       rawTagByEvent.set(row.event_id, arr);
     }
 
+    // Batch the audience-snapshot prepend for brand_campaign events into ONE
+    // service-role query (was an N+1: one query per brand_campaign event with
+    // a tag — 15-20 sequential round-trips on 4thefans). We can't push the
+    // per-event `snapshot_at < earliestTagAt` bound into a single SQL filter
+    // because that bound differs per event, so we fetch all audience rows for
+    // the brand_campaign events once and apply the per-event cutoff in memory
+    // below. Ordering matches the old per-event query (snapshot_at ascending)
+    // so the assembled series shape is byte-for-byte identical.
+    const kindByEventId = new Map<string, string | null>();
+    for (const e of allRows as unknown as Array<{
+      id: string;
+      kind?: string | null;
+    }>) {
+      kindByEventId.set(e.id, e.kind ?? null);
+    }
+    const brandCampaignTaggedIds = [...rawTagByEvent.entries()]
+      .filter(
+        ([id, rows]) =>
+          rows.length > 0 && kindByEventId.get(id) === "brand_campaign",
+      )
+      .map(([id]) => id);
+
+    const audienceSnapshotsByEvent = new Map<
+      string,
+      Array<{ email_subscribers: number | null; snapshot_at: string }>
+    >();
+    if (brandCampaignTaggedIds.length > 0) {
+      const audLabel = `[client-portal] mailchimp audience-snapshot batch (${brandCampaignTaggedIds.length} brand_campaign events)`;
+      if (devTiming) console.time(audLabel);
+      const { data: audRowsAll } = await admin
+        .from("mailchimp_audience_snapshots" as "events")
+        .select("event_id, email_subscribers, snapshot_at")
+        .in("event_id", brandCampaignTaggedIds)
+        .order("snapshot_at", { ascending: true });
+      if (devTiming) console.timeEnd(audLabel);
+      for (const r of (audRowsAll ?? []) as unknown as Array<{
+        event_id: string;
+        email_subscribers: number | null;
+        snapshot_at: string;
+      }>) {
+        const arr = audienceSnapshotsByEvent.get(r.event_id) ?? [];
+        arr.push({
+          email_subscribers: r.email_subscribers,
+          snapshot_at: r.snapshot_at,
+        });
+        audienceSnapshotsByEvent.set(r.event_id, arr);
+      }
+    }
+
     // For brand_campaign events, prepend audience snapshots that predate the
     // earliest tag row so the chart line doesn't start mid-campaign.
     for (const [eventId, tagRows] of rawTagByEvent) {
@@ -940,19 +989,21 @@ async function loadPortalForClientId(
 
       if (isBrandCampaign) {
         const earliestTagAt = tagRows[0]!.snapshot_at;
-        const { data: audRows } = await admin
-          .from("mailchimp_audience_snapshots" as "events")
-          .select("event_id, email_subscribers, snapshot_at")
-          .eq("event_id", eventId)
-          .lt("snapshot_at", earliestTagAt)
-          .order("snapshot_at", { ascending: true });
+        // In-memory equivalent of the old per-event
+        // `.eq(event_id).lt(snapshot_at, earliestTagAt)` query — rows came
+        // back snapshot_at-ascending from the single batched fetch above, and
+        // `.filter` preserves order, so the shaped/prepended series is
+        // identical to the pre-batch behaviour. String `<` on ISO snapshot_at
+        // matches the SQL strict-less-than (same column, same format).
         const shaped: MailchimpSnapshotRow[] = (
-          audRows as unknown as Array<{ email_subscribers: number | null; snapshot_at: string }> ?? []
-        ).map((r) => ({
-          email_subscribers: r.email_subscribers,
-          snapshot_at: r.snapshot_at,
-          raw_json: { source: "mailchimp_audience_snapshot", composed_for_brand_campaign: true },
-        }));
+          audienceSnapshotsByEvent.get(eventId) ?? []
+        )
+          .filter((r) => r.snapshot_at < earliestTagAt)
+          .map((r) => ({
+            email_subscribers: r.email_subscribers,
+            snapshot_at: r.snapshot_at,
+            raw_json: { source: "mailchimp_audience_snapshot", composed_for_brand_campaign: true },
+          }));
         snapshotSeriesByEvent.set(eventId, [...shaped, ...tagRows]);
       } else {
         snapshotSeriesByEvent.set(eventId, tagRows);

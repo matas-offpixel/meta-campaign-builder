@@ -34,9 +34,13 @@ function parseIncludeTracked(req: NextRequest): boolean {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ clientId: string }> },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const { clientId } = await params;
+  // Slug renamed [clientId] → [id] to match the established
+  // /api/clients/[id]/* convention (resolves a Next.js dynamic-segment
+  // slug conflict that blocked local dev). Aliased to keep the handler
+  // body unchanged; the runtime URL is identical.
+  const { id: clientId } = await params;
 
   const userClient = await createClient();
   const {
