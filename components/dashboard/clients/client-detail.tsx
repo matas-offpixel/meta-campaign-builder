@@ -306,6 +306,9 @@ export function ClientDetail({
             <Button
               variant="outline"
               onClick={() => router.push(`/clients/${client.id}/dashboard`)}
+              onMouseEnter={() =>
+                router.prefetch(`/clients/${client.id}/dashboard`)
+              }
             >
               <LayoutDashboard className="h-3.5 w-3.5" />
               Dashboard
@@ -313,6 +316,9 @@ export function ClientDetail({
             <Button
               variant="outline"
               onClick={() => router.push(`/clients/${client.id}/rollout`)}
+              onMouseEnter={() =>
+                router.prefetch(`/clients/${client.id}/rollout`)
+              }
             >
               <Rocket className="h-3.5 w-3.5" />
               Rollout
@@ -323,6 +329,9 @@ export function ClientDetail({
                 onClick={() =>
                   router.push(`/clients/${client.id}/dashboard?tab=insights`)
                 }
+                onMouseEnter={() =>
+                  router.prefetch(`/clients/${client.id}/dashboard?tab=insights`)
+                }
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 Creative Patterns
@@ -331,6 +340,7 @@ export function ClientDetail({
             <Button
               variant="outline"
               onClick={() => router.push(`/clients/${client.id}/edit`)}
+              onMouseEnter={() => router.prefetch(`/clients/${client.id}/edit`)}
             >
               <Pencil className="h-3.5 w-3.5" />
               Edit
@@ -379,6 +389,8 @@ export function ClientDetail({
         <div className="mx-auto max-w-6xl space-y-6">
           <Link
             href="/clients"
+            prefetch
+            onMouseEnter={() => router.prefetch("/clients")}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-3 w-3" />
@@ -582,6 +594,10 @@ export function ClientDetail({
                 <div className="flex flex-wrap items-start gap-2">
                   <Link
                     href={`/clients/${client.id}/dashboard`}
+                    prefetch
+                    onMouseEnter={() =>
+                      router.prefetch(`/clients/${client.id}/dashboard`)
+                    }
                     className="inline-flex items-center gap-1 rounded border border-border-strong bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:bg-foreground/90"
                   >
                     <LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />

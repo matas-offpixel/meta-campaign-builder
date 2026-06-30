@@ -386,6 +386,7 @@ export function OverviewTable({ initialRows, initialFilter }: Props) {
 // ─── Row component ────────────────────────────────────────────────
 
 function OverviewRowView({ row }: { row: OverviewRow }) {
+  const router = useRouter();
   return (
     <tr className="bg-card hover:bg-muted/40 transition-colors">
       <td className="sticky left-0 z-10 bg-card px-3 py-3 align-top w-[88px] whitespace-nowrap">
@@ -396,6 +397,7 @@ function OverviewRowView({ row }: { row: OverviewRow }) {
       <td className="sticky left-[88px] z-10 bg-card px-3 py-3 align-top min-w-[260px]">
         <Link
           href={`/events/${row.event_id}`}
+          onMouseEnter={() => router.prefetch(`/events/${row.event_id}`)}
           className="block group"
         >
           <p className="font-medium text-sm text-foreground group-hover:underline truncate">
