@@ -4,10 +4,12 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   getD2CConnectionById,
   getD2CConnectionCredentials,
+  getD2CEventCopy,
   setD2CConnectionStatus,
   updateScheduledSendStatus,
 } from "@/lib/db/d2c";
 import { MailchimpHttpError, isMailchimpAuthErrorStatus } from "@/lib/d2c/mailchimp/client";
+import { BirdHttpError, isBirdAuthErrorStatus } from "@/lib/d2c/bird/client";
 import { getD2CProvider } from "@/lib/d2c/registry";
 import { resolveEventVariables } from "@/lib/d2c/event-variables";
 import type { D2CChannel, D2CConnection, D2CMessage, D2CTemplate } from "@/lib/d2c/types";
@@ -125,7 +127,7 @@ export async function GET(req: NextRequest) {
   const { data: batch, error: qErr } = await supabase
     .from("d2c_scheduled_sends")
     .select(
-      "id, user_id, event_id, template_id, connection_id, channel, audience, variables, scheduled_for",
+      "id, user_id, event_id, template_id, connection_id, channel, audience, variables, scheduled_for, job_type",
     )
     .eq("status", "scheduled")
     .eq("approval_status", "approved")
@@ -222,10 +224,23 @@ export async function GET(req: NextRequest) {
         { artistHeadliners: headliners.length ? headliners : undefined },
       );
 
+      // The single human runtime input lives on d2c_event_copy. Inject the
+      // WhatsApp community URL + resolved artwork so brief-generated copy
+      // (which references {{community_url}} / {{artwork_url}}) renders.
+      const eventCopy = await getD2CEventCopy(supabase, row.event_id as string);
+      const copyVars: Record<string, string> = {};
+      if (eventCopy?.whatsapp_community_url) {
+        copyVars.community_url = eventCopy.whatsapp_community_url;
+      }
+      if (eventCopy?.artwork_url) {
+        copyVars.artwork_url = eventCopy.artwork_url;
+      }
+
       const mergedVars: Record<string, string> = {
         ...Object.fromEntries(
           Object.entries(known).map(([k, v]) => [k, String(v)]),
         ),
+        ...copyVars,
         ...Object.fromEntries(
           Object.entries((row.variables as Record<string, unknown>) ?? {}).map(
             ([k, v]) => [k, v === null || v === undefined ? "" : String(v)],
@@ -253,6 +268,14 @@ export async function GET(req: NextRequest) {
         providerResult = await provider.send(connection, message);
       } catch (err) {
         if (err instanceof MailchimpHttpError && isMailchimpAuthErrorStatus(err.status)) {
+          await setD2CConnectionStatus(
+            supabase,
+            connection.id,
+            "error",
+            err.message,
+          );
+        }
+        if (err instanceof BirdHttpError && isBirdAuthErrorStatus(err.status)) {
           await setD2CConnectionStatus(
             supabase,
             connection.id,

@@ -3,9 +3,15 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type {
+  D2CBriefIngestJob,
+  D2CBriefIngestSource,
+  D2CBriefIngestStatus,
   D2CChannel,
   D2CConnection,
   D2CConnectionStatus,
+  D2CEventCopy,
+  D2CEventCopyBundle,
+  D2CJobType,
   D2CProviderName,
   D2CScheduledSend,
   D2CScheduledSendApprovalStatus,
@@ -58,6 +64,8 @@ function mapD2CScheduledSend(raw: Record<string, unknown>): D2CScheduledSend {
       "pending_approval",
     approved_by: (raw.approved_by as string | null) ?? null,
     approved_at: (raw.approved_at as string | null) ?? null,
+    job_type: (raw.job_type as D2CJobType | null) ?? null,
+    idempotency_key: (raw.idempotency_key as string | null) ?? null,
     created_at: raw.created_at as string,
     updated_at: raw.updated_at as string,
   };
@@ -378,6 +386,8 @@ export interface InsertD2CScheduledSendInput {
   resultJsonb?: unknown;
   dryRun?: boolean;
   approvalStatus?: D2CScheduledSendApprovalStatus;
+  jobType?: D2CJobType | null;
+  idempotencyKey?: string | null;
 }
 
 export async function listScheduledSendsForEvent(
@@ -419,11 +429,55 @@ export async function insertScheduledSend(
       result_jsonb: input.resultJsonb ?? null,
       dry_run: input.dryRun ?? true,
       approval_status: input.approvalStatus ?? "pending_approval",
+      job_type: input.jobType ?? null,
+      idempotency_key: input.idempotencyKey ?? null,
     })
     .select("*")
     .maybeSingle();
   if (error) {
     console.warn("[d2c insertScheduledSend]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CScheduledSend(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Idempotent insert keyed on `idempotency_key` (migration 124). Used by the
+ * brief processor so re-running an ingest does not create duplicate sends.
+ * Requires `idempotencyKey` to be set on the input.
+ */
+export async function upsertScheduledSendByIdempotencyKey(
+  supabase: AnySupabaseClient,
+  input: InsertD2CScheduledSendInput & { idempotencyKey: string },
+): Promise<D2CScheduledSend | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_scheduled_sends")
+    .upsert(
+      {
+        user_id: input.userId,
+        event_id: input.eventId,
+        template_id: input.templateId,
+        connection_id: input.connectionId,
+        channel: input.channel,
+        audience: input.audience,
+        variables: input.variables,
+        scheduled_for: input.scheduledFor,
+        status: input.status ?? "scheduled",
+        result_jsonb: input.resultJsonb ?? null,
+        dry_run: input.dryRun ?? true,
+        approval_status: input.approvalStatus ?? "pending_approval",
+        job_type: input.jobType ?? null,
+        idempotency_key: input.idempotencyKey,
+      },
+      { onConflict: "idempotency_key" },
+    )
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c upsertScheduledSendByIdempotencyKey]", error.message);
     return null;
   }
   return data
@@ -476,4 +530,212 @@ export async function deleteScheduledSend(
   const sb = asAny(supabase);
   const { error } = await sb.from("d2c_scheduled_sends").delete().eq("id", id);
   if (error) console.warn("[d2c deleteScheduledSend]", error.message);
+}
+
+// ─── d2c_event_copy (migration 124) ──────────────────────────────────────
+
+function mapD2CEventCopy(raw: Record<string, unknown>): D2CEventCopy {
+  const bundle =
+    raw.copy_jsonb && typeof raw.copy_jsonb === "object"
+      ? (raw.copy_jsonb as D2CEventCopyBundle)
+      : {};
+  return {
+    id: raw.id as string,
+    user_id: raw.user_id as string,
+    event_id: raw.event_id as string,
+    client_id: raw.client_id as string,
+    artwork_url: (raw.artwork_url as string | null) ?? null,
+    whatsapp_community_url: (raw.whatsapp_community_url as string | null) ?? null,
+    copy_jsonb: bundle,
+    source_brief_job_id: (raw.source_brief_job_id as string | null) ?? null,
+    created_at: raw.created_at as string,
+    updated_at: raw.updated_at as string,
+  };
+}
+
+export async function getD2CEventCopy(
+  supabase: AnySupabaseClient,
+  eventId: string,
+): Promise<D2CEventCopy | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_event_copy")
+    .select("*")
+    .eq("event_id", eventId)
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c getD2CEventCopy]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CEventCopy(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+export interface UpsertD2CEventCopyInput {
+  userId: string;
+  eventId: string;
+  clientId: string;
+  artworkUrl?: string | null;
+  whatsappCommunityUrl?: string | null;
+  copyJsonb: D2CEventCopyBundle;
+  sourceBriefJobId?: string | null;
+}
+
+export async function upsertD2CEventCopy(
+  supabase: AnySupabaseClient,
+  input: UpsertD2CEventCopyInput,
+): Promise<D2CEventCopy | null> {
+  const sb = asAny(supabase);
+  const row: Record<string, unknown> = {
+    user_id: input.userId,
+    event_id: input.eventId,
+    client_id: input.clientId,
+    copy_jsonb: input.copyJsonb,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.artworkUrl !== undefined) row.artwork_url = input.artworkUrl;
+  if (input.whatsappCommunityUrl !== undefined)
+    row.whatsapp_community_url = input.whatsappCommunityUrl;
+  if (input.sourceBriefJobId !== undefined)
+    row.source_brief_job_id = input.sourceBriefJobId;
+
+  const { data, error } = await sb
+    .from("d2c_event_copy")
+    .upsert(row, { onConflict: "event_id" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c upsertD2CEventCopy]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CEventCopy(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+/** Patch just the artwork URL / community URL on an existing copy row. */
+export async function updateD2CEventCopyFields(
+  supabase: AnySupabaseClient,
+  eventId: string,
+  patch: { artworkUrl?: string | null; whatsappCommunityUrl?: string | null },
+): Promise<D2CEventCopy | null> {
+  const sb = asAny(supabase);
+  const update: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (patch.artworkUrl !== undefined) update.artwork_url = patch.artworkUrl;
+  if (patch.whatsappCommunityUrl !== undefined)
+    update.whatsapp_community_url = patch.whatsappCommunityUrl;
+  const { data, error } = await sb
+    .from("d2c_event_copy")
+    .update(update)
+    .eq("event_id", eventId)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c updateD2CEventCopyFields]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CEventCopy(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+// ─── d2c_brief_ingest_jobs (migration 125) ───────────────────────────────
+
+function mapBriefIngestJob(raw: Record<string, unknown>): D2CBriefIngestJob {
+  return {
+    id: raw.id as string,
+    user_id: raw.user_id as string,
+    client_id: raw.client_id as string,
+    source: raw.source as D2CBriefIngestSource,
+    source_uri: (raw.source_uri as string | null) ?? null,
+    status: raw.status as D2CBriefIngestStatus,
+    result_event_id: (raw.result_event_id as string | null) ?? null,
+    error: (raw.error as string | null) ?? null,
+    created_at: raw.created_at as string,
+    updated_at: raw.updated_at as string,
+  };
+}
+
+export async function insertBriefIngestJob(
+  supabase: AnySupabaseClient,
+  input: {
+    userId: string;
+    clientId: string;
+    source: D2CBriefIngestSource;
+    sourceUri?: string | null;
+  },
+): Promise<D2CBriefIngestJob | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_brief_ingest_jobs")
+    .insert({
+      user_id: input.userId,
+      client_id: input.clientId,
+      source: input.source,
+      source_uri: input.sourceUri ?? null,
+      status: "pending",
+    })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c insertBriefIngestJob]", error.message);
+    return null;
+  }
+  return data
+    ? mapBriefIngestJob(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+export async function getBriefIngestJob(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<D2CBriefIngestJob | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_brief_ingest_jobs")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c getBriefIngestJob]", error.message);
+    return null;
+  }
+  return data
+    ? mapBriefIngestJob(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+export async function updateBriefIngestJob(
+  supabase: AnySupabaseClient,
+  id: string,
+  patch: {
+    status?: D2CBriefIngestStatus;
+    resultEventId?: string | null;
+    error?: string | null;
+  },
+): Promise<D2CBriefIngestJob | null> {
+  const sb = asAny(supabase);
+  const update: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+  if (patch.status !== undefined) update.status = patch.status;
+  if (patch.resultEventId !== undefined)
+    update.result_event_id = patch.resultEventId;
+  if (patch.error !== undefined) update.error = patch.error;
+  const { data, error } = await sb
+    .from("d2c_brief_ingest_jobs")
+    .update(update)
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c updateBriefIngestJob]", error.message);
+    return null;
+  }
+  return data
+    ? mapBriefIngestJob(data as unknown as Record<string, unknown>)
+    : null;
 }
