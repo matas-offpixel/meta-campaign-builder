@@ -1,10 +1,11 @@
--- Migration 126 — cron_health_reports
+-- Migration 124 — cron_health_reports
 --
--- (Filed as 126: prod ledger applied this as `124_cron_health_reports`
---  on 2026-06-30, but the d2c branch's 124_d2c_orchestration +
---  125_d2c_brief_ingest landed on main's migrations/ dir afterward, so 124/125
---  are taken on disk. 126 is the next free integer on disk; the prod apply is
---  timestamp-versioned so the on-disk renumber is cosmetic — no re-apply.)
+-- (Renumbered 126→124 to match the prod ledger, which registered this as
+--  `124_cron_health_reports` on 2026-06-30. The d2c branch's orchestration +
+--  brief-ingest migrations were correspondingly renumbered to 126/127 to match
+--  their prod-ledger entries (126_d2c_orchestration / 127_d2c_brief_ingest).
+--  The prod apply is timestamp-versioned, so this on-disk renumber is
+--  cosmetic — no re-apply.)
 --
 -- Backing store for the cron silent-failure monitor. Each row is one
 -- point-in-time health report produced by `runCronHealthCheck`
@@ -61,6 +62,6 @@ begin
 end $$;
 
 comment on table cron_health_reports is
-  'Point-in-time cron silent-failure reports. report_jsonb holds per-table freshness/staleness; any_stale denormalises the alert flag. Written by /api/cron/cron-health-check + /api/admin/cron-health-check (service-role), read by /admin/cron-health. Migration 126 (applied to prod as 124_cron_health_reports).';
+  'Point-in-time cron silent-failure reports. report_jsonb holds per-table freshness/staleness; any_stale denormalises the alert flag. Written by /api/cron/cron-health-check + /api/admin/cron-health-check (service-role), read by /admin/cron-health. Migration 124 (matches prod ledger 124_cron_health_reports).';
 
 notify pgrst, 'reload schema';

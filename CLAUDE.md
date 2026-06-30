@@ -51,6 +51,8 @@ npm run lint     # ESLint
 | `/login` | Magic link, invite-only email allowlist |
 | `/auth/callback` | Supabase code exchange |
 | `/auth/logout` | Sign out |
+| `/d2c/brief-ingest` | Upload a PDF (or paste text) brief → background parse into a scheduled D2C campaign |
+| `/d2c/event/[id]` | D2C orchestration: resolved artwork, WhatsApp community URL paste, per-send Matas approval |
 
 ### Wizard (8 steps, indices 0–7)
 
@@ -76,6 +78,8 @@ Managed by `components/wizard/wizard-shell.tsx`, receives `draftId` from `/campa
 - **localStorage** — `lib/autosave.ts` (`saveDraftToStorage` / `loadDraftFromStorage`)
 - **Supabase** — `lib/db/drafts.ts` (CRUD on `campaign_drafts`), `lib/db/templates.ts`
 - `migrateDraft()` in `lib/autosave.ts` handles schema evolution on load
+- **D2C** — `lib/db/d2c.ts` (CRUD on `d2c_connections`, `d2c_scheduled_sends`,
+  `d2c_event_copy`, `d2c_brief_ingest_jobs`)
 
 ### Meta API layer
 
@@ -113,6 +117,10 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ENABLE_MULTI_PLACEMENT_ASSETS=
 MAILCHIMP_WEBHOOK_SECRET=
+D2C_TOKEN_KEY=
+D2C_BRIEF_PARSER_MODEL=
+BIRD_API_BASE=
+FEATURE_D2C_LIVE=
 ```
 
 > **`MAILCHIMP_WEBHOOK_SECRET`** secures the real-time Mailchimp tag webhook
@@ -168,11 +176,28 @@ MAILCHIMP_WEBHOOK_SECRET=
 > correct per-placement creative. Background + root-cause: see
 > `docs/AUDIT_DUAL_PLACEMENT_ASSET_2026-06-05.md` (PR #560).
 
+> **D2C orchestration env vars** (brief→campaign automation, PR #647):
+> - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C
+>   provider credentials (`get_d2c_credentials` / `set_d2c_credentials`, migration
+>   042). Required for any live D2C send; without it credential decryption fails.
+>   Never log.
+> - `D2C_BRIEF_PARSER_MODEL` — Anthropic model the brief PDF parser uses
+>   (`lib/d2c/brief-parser/index.ts`). Defaults to `claude-opus-4-6` when unset.
+> - `BIRD_API_BASE` — base URL for the Bird.com API client
+>   (`lib/d2c/bird/client.ts`). Defaults to `https://api.bird.com` when unset.
+> - `FEATURE_D2C_LIVE` — master live-send gate. When unset/`false` (default) every
+>   provider `send` short-circuits to a dry run regardless of per-client flags.
+>   This is the first of the **3-of-3 live gates**: `FEATURE_D2C_LIVE` (env) AND
+>   `d2c_connections.live_enabled` AND `d2c_connections.approved_by_matas` must all
+>   be true for a real send (`shouldD2CDryRun` / `d2cDryRunGates` in
+>   `lib/d2c/types.ts`, enforced by every provider and cron-side in
+>   `/api/cron/d2c-send`).
+
 ### Database
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `067_snapshot_build_version.sql`.
+**Latest migration:** `127_d2c_brief_ingest.sql`.
 
 Notable recently-added tables / columns (dashboard-era, April 2026):
 
@@ -224,6 +249,35 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   `active_creatives_snapshots` and `share_insight_snapshots` (migration
   067) stamped with `VERCEL_GIT_COMMIT_SHA`; readers treat mismatched/NULL
   as stale across deploys.
+- D2C comms (April 2026, encryption June 2026): `d2c_connections` stores
+  per-client provider credentials. Migration 042 added `credentials_encrypted`
+  (pgcrypto blob; raw `credentials` deprecated), `live_enabled`, and
+  `approved_by_matas` — the per-client legs of the 3-of-3 live-send gate.
+  `d2c_scheduled_sends` holds queued/sent messages with `dry_run`,
+  `approval_status`, `approved_by`/`approved_at`.
+- D2C orchestration (June 2026, PR #647): `d2c_event_copy` (migration 126) —
+  one row per event holding resolved `artwork_url`, pasted
+  `whatsapp_community_url`, and a `copy_jsonb` bundle of per-milestone rendered
+  copy. `d2c_scheduled_sends` extended with `job_type` (one of `announce`,
+  `reminder`, `community_early`, `presale_live`, `gen_sale`, `autoresp_setup`)
+  and `idempotency_key` (`${event_id}:${job_type}`, full unique index so the
+  brief processor upserts without duplicating sends). `d2c_brief_ingest_jobs`
+  (migration 127) tracks PDF/manual brief → campaign ingestion
+  (`pending`/`processing`/`succeeded`/`failed`, `result_event_id`).
+
+### Crons
+
+`vercel.json` registers the scheduled jobs under `app/api/cron/*`. Notable:
+
+- `/api/cron/d2c-send` — drives the D2C brief→campaign automation. Reads due
+  `d2c_scheduled_sends` rows (now carrying a `job_type`), hydrates
+  `whatsapp_community_url` + `artwork_url` from `d2c_event_copy`, and dispatches
+  each of the 6 milestone job types (`announce`, `reminder`, `community_early`,
+  `presale_live`, `gen_sale`, `autoresp_setup`) through the Mailchimp/Bird
+  providers. Live sends require the 3-of-3 gate (see env vars above); otherwise
+  every send is logged as a dry run.
+- `/api/cron/cron-health-check` — silent-failure monitor (migration 124),
+  surfaced at `/admin/cron-health`.
 
 ### Canonical spec
 

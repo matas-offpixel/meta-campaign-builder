@@ -1,5 +1,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Migration 125 — D2C brief ingest jobs.
+-- Migration 127 — D2C brief ingest jobs.
+-- (Renumbered 125→127 on disk to match the prod ledger entry
+--  `127_d2c_brief_ingest`. Prod apply is timestamp-versioned — no re-apply.)
 --
 -- Tracks PDF (or manual JSON) brief → structured campaign ingestion. The
 -- /api/d2c/ingest-brief route inserts a row, then background processing

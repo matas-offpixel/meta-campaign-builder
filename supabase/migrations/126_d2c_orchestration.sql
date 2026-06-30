@@ -1,6 +1,9 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Migration 124 — D2C orchestration: per-send job typing + idempotency + the
+-- Migration 126 — D2C orchestration: per-send job typing + idempotency + the
 -- per-event rendered-copy snapshot table.
+-- (Renumbered 124→126 on disk to match the prod ledger entry
+--  `126_d2c_orchestration`; cron-health holds 124. Prod apply is
+--  timestamp-versioned, so this renumber is cosmetic — no re-apply.)
 --
 -- Context: migration 042 already landed credential encryption + the
 -- live_enabled / approved_by_matas / approval_status gates. This migration adds
@@ -59,7 +62,7 @@ create table if not exists d2c_event_copy (
   --   { announce: {subject, body_markdown}, reminder: {...}, community_early: {...},
   --     presale_live: {...}, gen_sale: {...}, autoresp_setup: {...} }
   copy_jsonb            jsonb       not null default '{}'::jsonb,
-  -- Link back to the brief ingest job that produced this snapshot (migration 125).
+  -- Link back to the brief ingest job that produced this snapshot (migration 127).
   source_brief_job_id   uuid,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now(),

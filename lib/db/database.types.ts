@@ -336,6 +336,62 @@ export type Database = {
           },
         ]
       }
+      additional_ticket_entries: {
+        Row: {
+          created_at: string | null
+          date: string | null
+          event_id: string
+          id: string
+          label: string
+          notes: string | null
+          revenue_amount: number | null
+          scope: string
+          source: string | null
+          tickets_count: number
+          tier_name: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          date?: string | null
+          event_id: string
+          id?: string
+          label: string
+          notes?: string | null
+          revenue_amount?: number | null
+          scope: string
+          source?: string | null
+          tickets_count: number
+          tier_name?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string | null
+          event_id?: string
+          id?: string
+          label?: string
+          notes?: string | null
+          revenue_amount?: number | null
+          scope?: string
+          source?: string | null
+          tickets_count?: number
+          tier_name?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "additional_ticket_entries_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       artists: {
         Row: {
           bandcamp_url: string | null
@@ -411,6 +467,68 @@ export type Database = {
         }
         Relationships: []
       }
+      attribution_order_matches: {
+        Row: {
+          client_id: string
+          confidence_score: number | null
+          event_id: string
+          id: string
+          match_strategy: string
+          matched_at: string | null
+          purchase_event_id: string
+          touchpoint_id: string | null
+        }
+        Insert: {
+          client_id: string
+          confidence_score?: number | null
+          event_id: string
+          id?: string
+          match_strategy: string
+          matched_at?: string | null
+          purchase_event_id: string
+          touchpoint_id?: string | null
+        }
+        Update: {
+          client_id?: string
+          confidence_score?: number | null
+          event_id?: string
+          id?: string
+          match_strategy?: string
+          matched_at?: string | null
+          purchase_event_id?: string
+          touchpoint_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attribution_order_matches_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attribution_order_matches_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attribution_order_matches_purchase_event_id_fkey"
+            columns: ["purchase_event_id"]
+            isOneToOne: true
+            referencedRelation: "ticketing_purchase_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attribution_order_matches_touchpoint_id_fkey"
+            columns: ["touchpoint_id"]
+            isOneToOne: false
+            referencedRelation: "meta_click_touchpoints"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audience_seeds: {
         Row: {
           created_at: string
@@ -443,6 +561,53 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      audience_source_cache: {
+        Row: {
+          build_version: string | null
+          cache_key: string
+          client_id: string
+          expires_at: string
+          fetched_at: string
+          id: string
+          payload: Json
+          payload_size_bytes: number | null
+          source_kind: string
+          user_id: string
+        }
+        Insert: {
+          build_version?: string | null
+          cache_key: string
+          client_id: string
+          expires_at: string
+          fetched_at?: string
+          id?: string
+          payload: Json
+          payload_size_bytes?: number | null
+          source_kind: string
+          user_id: string
+        }
+        Update: {
+          build_version?: string | null
+          cache_key?: string
+          client_id?: string
+          expires_at?: string
+          fetched_at?: string
+          id?: string
+          payload?: Json
+          payload_size_bytes?: number | null
+          source_kind?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audience_source_cache_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       benchmark_alerts: {
         Row: {
@@ -512,6 +677,104 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bulk_attach_drafts: {
+        Row: {
+          client_id: string | null
+          created_at: string
+          event_id: string | null
+          id: string
+          last_used_at: string
+          name: string
+          state: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          last_used_at?: string
+          name?: string
+          state?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string
+          event_id?: string | null
+          id?: string
+          last_used_at?: string
+          name?: string
+          state?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bulk_attach_drafts_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bulk_attach_drafts_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bulk_attach_templates: {
+        Row: {
+          client_id: string | null
+          created_at: string
+          creative_config: Json
+          description: string | null
+          id: string
+          match_pattern: Json
+          name: string
+          updated_at: string
+          use_count: number
+          user_id: string
+        }
+        Insert: {
+          client_id?: string | null
+          created_at?: string
+          creative_config?: Json
+          description?: string | null
+          id?: string
+          match_pattern?: Json
+          name: string
+          updated_at?: string
+          use_count?: number
+          user_id: string
+        }
+        Update: {
+          client_id?: string | null
+          created_at?: string
+          creative_config?: Json
+          description?: string | null
+          id?: string
+          match_pattern?: Json
+          name?: string
+          updated_at?: string
+          use_count?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bulk_attach_templates_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
             referencedColumns: ["id"]
           },
         ]
@@ -608,6 +871,196 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      client_asset_queue: {
+        Row: {
+          asset_blob_url: string | null
+          asset_blob_urls: Json | null
+          asset_name: string | null
+          client_id: string
+          confirmed_overrides: Json | null
+          created_at: string
+          dropbox_url: string | null
+          error_message: string | null
+          event_match_ambiguous: boolean | null
+          funnel: string | null
+          funnels: string[] | null
+          generated_copy: string | null
+          generated_cta: string | null
+          generated_url: string | null
+          id: string
+          launched_meta_ad_ids: Json | null
+          location: string | null
+          media_file_count: number | null
+          media_type: string | null
+          nation: string | null
+          notes: string | null
+          resolved_event_code: string | null
+          resolved_event_codes_multi: string[] | null
+          resolved_event_id: string | null
+          source_sheet_row_hash: string
+          status: Database["public"]["Enums"]["asset_queue_status"]
+          updated_at: string
+        }
+        Insert: {
+          asset_blob_url?: string | null
+          asset_blob_urls?: Json | null
+          asset_name?: string | null
+          client_id: string
+          confirmed_overrides?: Json | null
+          created_at?: string
+          dropbox_url?: string | null
+          error_message?: string | null
+          event_match_ambiguous?: boolean | null
+          funnel?: string | null
+          funnels?: string[] | null
+          generated_copy?: string | null
+          generated_cta?: string | null
+          generated_url?: string | null
+          id?: string
+          launched_meta_ad_ids?: Json | null
+          location?: string | null
+          media_file_count?: number | null
+          media_type?: string | null
+          nation?: string | null
+          notes?: string | null
+          resolved_event_code?: string | null
+          resolved_event_codes_multi?: string[] | null
+          resolved_event_id?: string | null
+          source_sheet_row_hash: string
+          status?: Database["public"]["Enums"]["asset_queue_status"]
+          updated_at?: string
+        }
+        Update: {
+          asset_blob_url?: string | null
+          asset_blob_urls?: Json | null
+          asset_name?: string | null
+          client_id?: string
+          confirmed_overrides?: Json | null
+          created_at?: string
+          dropbox_url?: string | null
+          error_message?: string | null
+          event_match_ambiguous?: boolean | null
+          funnel?: string | null
+          funnels?: string[] | null
+          generated_copy?: string | null
+          generated_cta?: string | null
+          generated_url?: string | null
+          id?: string
+          launched_meta_ad_ids?: Json | null
+          location?: string | null
+          media_file_count?: number | null
+          media_type?: string | null
+          nation?: string | null
+          notes?: string | null
+          resolved_event_code?: string | null
+          resolved_event_codes_multi?: string[] | null
+          resolved_event_id?: string | null
+          source_sheet_row_hash?: string
+          status?: Database["public"]["Enums"]["asset_queue_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_asset_queue_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_asset_queue_resolved_event_id_fkey"
+            columns: ["resolved_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_asset_sheet_config: {
+        Row: {
+          client_id: string
+          copy_templates: Json
+          created_at: string
+          cta_defaults: Json
+          destination_url_pattern: Json
+          google_sheet_id: string
+          id: string
+          last_scraped_at: string | null
+          service_account_email: string | null
+          sheet_range: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          copy_templates?: Json
+          created_at?: string
+          cta_defaults?: Json
+          destination_url_pattern?: Json
+          google_sheet_id: string
+          id?: string
+          last_scraped_at?: string | null
+          service_account_email?: string | null
+          sheet_range?: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          copy_templates?: Json
+          created_at?: string
+          cta_defaults?: Json
+          destination_url_pattern?: Json
+          google_sheet_id?: string
+          id?: string
+          last_scraped_at?: string | null
+          service_account_email?: string | null
+          sheet_range?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_asset_sheet_config_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: true
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_portal_snapshots: {
+        Row: {
+          build_version: string
+          client_id: string
+          created_at: string
+          id: string
+          payload_jsonb: Json
+          refreshed_at: string
+        }
+        Insert: {
+          build_version: string
+          client_id: string
+          created_at?: string
+          id?: string
+          payload_jsonb: Json
+          refreshed_at?: string
+        }
+        Update: {
+          build_version?: string
+          client_id?: string
+          created_at?: string
+          id?: string
+          payload_jsonb?: Json
+          refreshed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_portal_snapshots_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       client_report_weekly_snapshots: {
         Row: {
@@ -725,6 +1178,47 @@ export type Database = {
           },
         ]
       }
+      client_venue_mappings: {
+        Row: {
+          client_id: string
+          created_at: string
+          event_code: string
+          id: string
+          nation_label: string | null
+          notes: string | null
+          sheet_label: string
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          event_code: string
+          id?: string
+          nation_label?: string | null
+          notes?: string | null
+          sheet_label: string
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          event_code?: string
+          id?: string
+          nation_label?: string | null
+          notes?: string | null
+          sheet_label?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_venue_mappings_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           billing_model: string
@@ -741,9 +1235,14 @@ export type Database = {
           id: string
           instagram_handle: string | null
           last_probed_at: string | null
+          mailchimp_account_id: string | null
+          mailchimp_audience_id: string | null
           meta_ad_account_id: string | null
           meta_business_id: string | null
           meta_pixel_id: string | null
+          meta_system_user_token_encrypted: string | null
+          meta_system_user_token_last_used_at: string | null
+          meta_system_user_token_set_at: string | null
           name: string
           notes: string | null
           primary_type: string
@@ -773,9 +1272,14 @@ export type Database = {
           id?: string
           instagram_handle?: string | null
           last_probed_at?: string | null
+          mailchimp_account_id?: string | null
+          mailchimp_audience_id?: string | null
           meta_ad_account_id?: string | null
           meta_business_id?: string | null
           meta_pixel_id?: string | null
+          meta_system_user_token_encrypted?: string | null
+          meta_system_user_token_last_used_at?: string | null
+          meta_system_user_token_set_at?: string | null
           name: string
           notes?: string | null
           primary_type: string
@@ -805,9 +1309,14 @@ export type Database = {
           id?: string
           instagram_handle?: string | null
           last_probed_at?: string | null
+          mailchimp_account_id?: string | null
+          mailchimp_audience_id?: string | null
           meta_ad_account_id?: string | null
           meta_business_id?: string | null
           meta_pixel_id?: string | null
+          meta_system_user_token_encrypted?: string | null
+          meta_system_user_token_last_used_at?: string | null
+          meta_system_user_token_set_at?: string | null
           name?: string
           notes?: string | null
           primary_type?: string
@@ -828,6 +1337,13 @@ export type Database = {
             columns: ["google_ads_account_id"]
             isOneToOne: false
             referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clients_mailchimp_account_id_fkey"
+            columns: ["mailchimp_account_id"]
+            isOneToOne: false
+            referencedRelation: "mailchimp_accounts"
             referencedColumns: ["id"]
           },
           {
@@ -1064,36 +1580,152 @@ export type Database = {
           },
         ]
       }
-      creative_tags: {
+      creative_scores: {
         Row: {
-          created_at: string
-          event_id: string | null
+          axis: string
+          creative_name: string
+          event_id: string
+          fetched_at: string
           id: string
-          meta_ad_id: string
-          meta_creative_id: string | null
-          tag_type: string
-          tag_value: string
+          score: number
+          significance: boolean
           user_id: string
         }
         Insert: {
-          created_at?: string
-          event_id?: string | null
+          axis: string
+          creative_name: string
+          event_id: string
+          fetched_at?: string
           id?: string
-          meta_ad_id: string
-          meta_creative_id?: string | null
-          tag_type: string
-          tag_value: string
+          score: number
+          significance?: boolean
           user_id: string
         }
         Update: {
+          axis?: string
+          creative_name?: string
+          event_id?: string
+          fetched_at?: string
+          id?: string
+          score?: number
+          significance?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_scores_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_tag_assignments: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          creative_name: string
+          event_id: string
+          id: string
+          model_version: string | null
+          source: string
+          tag_id: string
+          thumbnail_hash: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          confidence?: number | null
           created_at?: string
+          creative_name: string
+          event_id: string
+          id?: string
+          model_version?: string | null
+          source: string
+          tag_id: string
+          thumbnail_hash?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          creative_name?: string
+          event_id?: string
+          id?: string
+          model_version?: string | null
+          source?: string
+          tag_id?: string
+          thumbnail_hash?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "creative_tag_assignments_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "creative_tag_assignments_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "creative_tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      creative_tags: {
+        Row: {
+          created_at: string
+          description: string | null
+          dimension: string | null
+          event_id: string | null
+          id: string
+          meta_ad_id: string | null
+          meta_creative_id: string | null
+          source: string
+          tag_type: string | null
+          tag_value: string | null
+          updated_at: string
+          user_id: string
+          value_key: string | null
+          value_label: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          dimension?: string | null
           event_id?: string | null
           id?: string
-          meta_ad_id?: string
+          meta_ad_id?: string | null
           meta_creative_id?: string | null
-          tag_type?: string
-          tag_value?: string
+          source?: string
+          tag_type?: string | null
+          tag_value?: string | null
+          updated_at?: string
+          user_id: string
+          value_key?: string | null
+          value_label?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          dimension?: string | null
+          event_id?: string | null
+          id?: string
+          meta_ad_id?: string | null
+          meta_creative_id?: string | null
+          source?: string
+          tag_type?: string | null
+          tag_value?: string | null
+          updated_at?: string
           user_id?: string
+          value_key?: string | null
+          value_label?: string | null
         }
         Relationships: [
           {
@@ -1147,16 +1779,36 @@ export type Database = {
         }
         Relationships: []
       }
-      d2c_connections: {
+      cron_health_reports: {
+        Row: {
+          any_stale: boolean
+          generated_at: string
+          id: string
+          report_jsonb: Json
+        }
+        Insert: {
+          any_stale?: boolean
+          generated_at?: string
+          id?: string
+          report_jsonb: Json
+        }
+        Update: {
+          any_stale?: boolean
+          generated_at?: string
+          id?: string
+          report_jsonb?: Json
+        }
+        Relationships: []
+      }
+      d2c_brief_ingest_jobs: {
         Row: {
           client_id: string
           created_at: string
-          credentials: Json
-          external_account_id: string | null
+          error: string | null
           id: string
-          last_error: string | null
-          last_synced_at: string | null
-          provider: string
+          result_event_id: string | null
+          source: string
+          source_uri: string | null
           status: string
           updated_at: string
           user_id: string
@@ -1164,12 +1816,11 @@ export type Database = {
         Insert: {
           client_id: string
           created_at?: string
-          credentials?: Json
-          external_account_id?: string | null
+          error?: string | null
           id?: string
-          last_error?: string | null
-          last_synced_at?: string | null
-          provider: string
+          result_event_id?: string | null
+          source: string
+          source_uri?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -1177,11 +1828,76 @@ export type Database = {
         Update: {
           client_id?: string
           created_at?: string
+          error?: string | null
+          id?: string
+          result_event_id?: string | null
+          source?: string
+          source_uri?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_brief_ingest_jobs_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_brief_ingest_jobs_result_event_id_fkey"
+            columns: ["result_event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      d2c_connections: {
+        Row: {
+          approved_by_matas: boolean
+          client_id: string
+          created_at: string
+          credentials: Json
+          credentials_encrypted: string | null
+          external_account_id: string | null
+          id: string
+          last_error: string | null
+          last_synced_at: string | null
+          live_enabled: boolean
+          provider: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_by_matas?: boolean
+          client_id: string
+          created_at?: string
           credentials?: Json
+          credentials_encrypted?: string | null
           external_account_id?: string | null
           id?: string
           last_error?: string | null
           last_synced_at?: string | null
+          live_enabled?: boolean
+          provider: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_by_matas?: boolean
+          client_id?: string
+          created_at?: string
+          credentials?: Json
+          credentials_encrypted?: string | null
+          external_account_id?: string | null
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          live_enabled?: boolean
           provider?: string
           status?: string
           updated_at?: string
@@ -1197,8 +1913,65 @@ export type Database = {
           },
         ]
       }
+      d2c_event_copy: {
+        Row: {
+          artwork_url: string | null
+          client_id: string
+          copy_jsonb: Json
+          created_at: string
+          event_id: string
+          id: string
+          source_brief_job_id: string | null
+          updated_at: string
+          user_id: string
+          whatsapp_community_url: string | null
+        }
+        Insert: {
+          artwork_url?: string | null
+          client_id: string
+          copy_jsonb?: Json
+          created_at?: string
+          event_id: string
+          id?: string
+          source_brief_job_id?: string | null
+          updated_at?: string
+          user_id: string
+          whatsapp_community_url?: string | null
+        }
+        Update: {
+          artwork_url?: string | null
+          client_id?: string
+          copy_jsonb?: Json
+          created_at?: string
+          event_id?: string
+          id?: string
+          source_brief_job_id?: string | null
+          updated_at?: string
+          user_id?: string
+          whatsapp_community_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "d2c_event_copy_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "d2c_event_copy_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       d2c_scheduled_sends: {
         Row: {
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
           audience: Json
           channel: string
           connection_id: string
@@ -1206,6 +1979,8 @@ export type Database = {
           dry_run: boolean
           event_id: string
           id: string
+          idempotency_key: string | null
+          job_type: string | null
           result_jsonb: Json | null
           scheduled_for: string
           status: string
@@ -1215,6 +1990,9 @@ export type Database = {
           variables: Json
         }
         Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           audience?: Json
           channel: string
           connection_id: string
@@ -1222,6 +2000,8 @@ export type Database = {
           dry_run?: boolean
           event_id: string
           id?: string
+          idempotency_key?: string | null
+          job_type?: string | null
           result_jsonb?: Json | null
           scheduled_for: string
           status?: string
@@ -1231,6 +2011,9 @@ export type Database = {
           variables?: Json
         }
         Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           audience?: Json
           channel?: string
           connection_id?: string
@@ -1238,6 +2021,8 @@ export type Database = {
           dry_run?: boolean
           event_id?: string
           id?: string
+          idempotency_key?: string | null
+          job_type?: string | null
           result_jsonb?: Json | null
           scheduled_for?: string
           status?: string
@@ -1457,6 +2242,68 @@ export type Database = {
           },
         ]
       }
+      event_code_lifetime_meta_cache: {
+        Row: {
+          campaign_names: Json
+          client_id: string
+          created_at: string
+          event_code: string
+          fetched_at: string
+          meta_engagements: number | null
+          meta_impressions: number | null
+          meta_landing_page_views: number | null
+          meta_link_clicks: number | null
+          meta_reach: number | null
+          meta_regs: number | null
+          meta_video_plays_15s: number | null
+          meta_video_plays_3s: number | null
+          meta_video_plays_p100: number | null
+          updated_at: string
+        }
+        Insert: {
+          campaign_names?: Json
+          client_id: string
+          created_at?: string
+          event_code: string
+          fetched_at?: string
+          meta_engagements?: number | null
+          meta_impressions?: number | null
+          meta_landing_page_views?: number | null
+          meta_link_clicks?: number | null
+          meta_reach?: number | null
+          meta_regs?: number | null
+          meta_video_plays_15s?: number | null
+          meta_video_plays_3s?: number | null
+          meta_video_plays_p100?: number | null
+          updated_at?: string
+        }
+        Update: {
+          campaign_names?: Json
+          client_id?: string
+          created_at?: string
+          event_code?: string
+          fetched_at?: string
+          meta_engagements?: number | null
+          meta_impressions?: number | null
+          meta_landing_page_views?: number | null
+          meta_link_clicks?: number | null
+          meta_reach?: number | null
+          meta_regs?: number | null
+          meta_video_plays_15s?: number | null
+          meta_video_plays_3s?: number | null
+          meta_video_plays_p100?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_code_lifetime_meta_cache_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_daily_rollups: {
         Row: {
           ad_spend: number | null
@@ -1473,8 +2320,17 @@ export type Database = {
           google_ads_spend: number | null
           google_ads_video_views: number | null
           id: string
+          landing_page_views: number | null
           link_clicks: number | null
+          meta_engagements: number | null
+          meta_impressions: number | null
+          meta_leads: number | null
+          meta_purchases: number | null
+          meta_reach: number | null
           meta_regs: number | null
+          meta_video_plays_15s: number | null
+          meta_video_plays_3s: number | null
+          meta_video_plays_p100: number | null
           notes: string | null
           revenue: number | null
           source_eventbrite_at: string | null
@@ -1484,6 +2340,7 @@ export type Database = {
           tickets_sold: number | null
           tiktok_avg_play_time_ms: number | null
           tiktok_clicks: number | null
+          tiktok_engagement_results: number | null
           tiktok_impressions: number | null
           tiktok_post_engagement: number | null
           tiktok_reach: number | null
@@ -1511,8 +2368,17 @@ export type Database = {
           google_ads_spend?: number | null
           google_ads_video_views?: number | null
           id?: string
+          landing_page_views?: number | null
           link_clicks?: number | null
+          meta_engagements?: number | null
+          meta_impressions?: number | null
+          meta_leads?: number | null
+          meta_purchases?: number | null
+          meta_reach?: number | null
           meta_regs?: number | null
+          meta_video_plays_15s?: number | null
+          meta_video_plays_3s?: number | null
+          meta_video_plays_p100?: number | null
           notes?: string | null
           revenue?: number | null
           source_eventbrite_at?: string | null
@@ -1522,6 +2388,7 @@ export type Database = {
           tickets_sold?: number | null
           tiktok_avg_play_time_ms?: number | null
           tiktok_clicks?: number | null
+          tiktok_engagement_results?: number | null
           tiktok_impressions?: number | null
           tiktok_post_engagement?: number | null
           tiktok_reach?: number | null
@@ -1549,8 +2416,17 @@ export type Database = {
           google_ads_spend?: number | null
           google_ads_video_views?: number | null
           id?: string
+          landing_page_views?: number | null
           link_clicks?: number | null
+          meta_engagements?: number | null
+          meta_impressions?: number | null
+          meta_leads?: number | null
+          meta_purchases?: number | null
+          meta_reach?: number | null
           meta_regs?: number | null
+          meta_video_plays_15s?: number | null
+          meta_video_plays_3s?: number | null
+          meta_video_plays_p100?: number | null
           notes?: string | null
           revenue?: number | null
           source_eventbrite_at?: string | null
@@ -1560,6 +2436,7 @@ export type Database = {
           tickets_sold?: number | null
           tiktok_avg_play_time_ms?: number | null
           tiktok_clicks?: number | null
+          tiktok_engagement_results?: number | null
           tiktok_impressions?: number | null
           tiktok_post_engagement?: number | null
           tiktok_reach?: number | null
@@ -1576,6 +2453,203 @@ export type Database = {
           {
             foreignKeyName: "event_daily_rollups_event_id_fkey"
             columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_daily_ticket_history: {
+        Row: {
+          currency: string | null
+          date: string
+          event_id: string
+          fetched_at: string
+          id: string
+          revenue_minor: number
+          source: string
+          tickets_sold: number
+          user_id: string
+        }
+        Insert: {
+          currency?: string | null
+          date: string
+          event_id: string
+          fetched_at?: string
+          id?: string
+          revenue_minor?: number
+          source: string
+          tickets_sold?: number
+          user_id: string
+        }
+        Update: {
+          currency?: string | null
+          date?: string
+          event_id?: string
+          fetched_at?: string
+          id?: string
+          revenue_minor?: number
+          source?: string
+          tickets_sold?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_daily_ticket_history_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_funnel_overrides: {
+        Row: {
+          bofu_to_reg_rate: number | null
+          client_id: string
+          cost_per_lpv: number | null
+          cost_per_reach: number | null
+          cost_per_reg: number | null
+          created_at: string
+          event_code: string | null
+          event_id: string | null
+          id: string
+          mofu_to_bofu_rate: number | null
+          organic_lift_rate: number | null
+          reg_to_sale_rate: number | null
+          sellout_target_override: number | null
+          tofu_to_mofu_rate: number | null
+          updated_at: string
+        }
+        Insert: {
+          bofu_to_reg_rate?: number | null
+          client_id: string
+          cost_per_lpv?: number | null
+          cost_per_reach?: number | null
+          cost_per_reg?: number | null
+          created_at?: string
+          event_code?: string | null
+          event_id?: string | null
+          id?: string
+          mofu_to_bofu_rate?: number | null
+          organic_lift_rate?: number | null
+          reg_to_sale_rate?: number | null
+          sellout_target_override?: number | null
+          tofu_to_mofu_rate?: number | null
+          updated_at?: string
+        }
+        Update: {
+          bofu_to_reg_rate?: number | null
+          client_id?: string
+          cost_per_lpv?: number | null
+          cost_per_reach?: number | null
+          cost_per_reg?: number | null
+          created_at?: string
+          event_code?: string | null
+          event_id?: string | null
+          id?: string
+          mofu_to_bofu_rate?: number | null
+          organic_lift_rate?: number | null
+          reg_to_sale_rate?: number | null
+          sellout_target_override?: number | null
+          tofu_to_mofu_rate?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_funnel_overrides_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_funnel_overrides_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_funnel_targets: {
+        Row: {
+          bofu_target_cpa: number | null
+          bofu_target_cplpv: number | null
+          bofu_target_lpv: number | null
+          bofu_target_purchases: number | null
+          bofu_to_sale_rate: number | null
+          client_id: string
+          created_at: string | null
+          derived_from_event_id: string | null
+          id: string
+          mofu_target_clicks: number | null
+          mofu_target_cpc: number | null
+          mofu_to_bofu_rate: number | null
+          scope_type: string
+          scope_value: string
+          source: string
+          tofu_target_cpm: number | null
+          tofu_target_reach: number | null
+          tofu_to_mofu_rate: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          bofu_target_cpa?: number | null
+          bofu_target_cplpv?: number | null
+          bofu_target_lpv?: number | null
+          bofu_target_purchases?: number | null
+          bofu_to_sale_rate?: number | null
+          client_id: string
+          created_at?: string | null
+          derived_from_event_id?: string | null
+          id?: string
+          mofu_target_clicks?: number | null
+          mofu_target_cpc?: number | null
+          mofu_to_bofu_rate?: number | null
+          scope_type: string
+          scope_value: string
+          source: string
+          tofu_target_cpm?: number | null
+          tofu_target_reach?: number | null
+          tofu_to_mofu_rate?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          bofu_target_cpa?: number | null
+          bofu_target_cplpv?: number | null
+          bofu_target_lpv?: number | null
+          bofu_target_purchases?: number | null
+          bofu_to_sale_rate?: number | null
+          client_id?: string
+          created_at?: string | null
+          derived_from_event_id?: string | null
+          id?: string
+          mofu_target_clicks?: number | null
+          mofu_target_cpc?: number | null
+          mofu_to_bofu_rate?: number | null
+          scope_type?: string
+          scope_value?: string
+          source?: string
+          tofu_target_cpm?: number | null
+          tofu_target_reach?: number | null
+          tofu_to_mofu_rate?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_funnel_targets_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_funnel_targets_derived_from_event_id_fkey"
+            columns: ["derived_from_event_id"]
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
@@ -1629,14 +2703,60 @@ export type Database = {
           },
         ]
       }
+      event_ticket_tiers: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          price: number | null
+          quantity_available: number | null
+          quantity_sold: number
+          snapshot_at: string
+          tier_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          price?: number | null
+          quantity_available?: number | null
+          quantity_sold?: number
+          snapshot_at?: string
+          tier_name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          price?: number | null
+          quantity_available?: number | null
+          quantity_sold?: number
+          snapshot_at?: string
+          tier_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_ticket_tiers_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_ticketing_links: {
         Row: {
           connection_id: string
           created_at: string
           event_id: string
+          external_api_base: string | null
           external_event_id: string
           external_event_url: string | null
           id: string
+          manual_lock: boolean
           updated_at: string
           user_id: string
         }
@@ -1644,9 +2764,11 @@ export type Database = {
           connection_id: string
           created_at?: string
           event_id: string
+          external_api_base?: string | null
           external_event_id: string
           external_event_url?: string | null
           id?: string
+          manual_lock?: boolean
           updated_at?: string
           user_id: string
         }
@@ -1654,9 +2776,11 @@ export type Database = {
           connection_id?: string
           created_at?: string
           event_id?: string
+          external_api_base?: string | null
           external_event_id?: string
           external_event_url?: string | null
           id?: string
+          manual_lock?: boolean
           updated_at?: string
           user_id?: string
         }
@@ -1698,18 +2822,22 @@ export type Database = {
           google_drive_folder_url: string | null
           id: string
           kind: string
+          mailchimp_audience_id: string | null
+          mailchimp_tag: string | null
           meta_campaign_id: string | null
           meta_spend_cached: number | null
           meta_spend_cached_at: string | null
           name: string
           notes: string | null
           objective: string | null
+          preferred_provider: string | null
           prereg_spend: number | null
           presale_at: string | null
           report_cadence: string
           signup_url: string | null
           slug: string
           status: string
+          target_capacity: number | null
           ticket_price: number | null
           ticket_url: string | null
           tickets_sold: number | null
@@ -1741,18 +2869,22 @@ export type Database = {
           google_drive_folder_url?: string | null
           id?: string
           kind?: string
+          mailchimp_audience_id?: string | null
+          mailchimp_tag?: string | null
           meta_campaign_id?: string | null
           meta_spend_cached?: number | null
           meta_spend_cached_at?: string | null
           name: string
           notes?: string | null
           objective?: string | null
+          preferred_provider?: string | null
           prereg_spend?: number | null
           presale_at?: string | null
           report_cadence?: string
           signup_url?: string | null
           slug: string
           status?: string
+          target_capacity?: number | null
           ticket_price?: number | null
           ticket_url?: string | null
           tickets_sold?: number | null
@@ -1784,18 +2916,22 @@ export type Database = {
           google_drive_folder_url?: string | null
           id?: string
           kind?: string
+          mailchimp_audience_id?: string | null
+          mailchimp_tag?: string | null
           meta_campaign_id?: string | null
           meta_spend_cached?: number | null
           meta_spend_cached_at?: string | null
           name?: string
           notes?: string | null
           objective?: string | null
+          preferred_provider?: string | null
           prereg_spend?: number | null
           presale_at?: string | null
           report_cadence?: string
           signup_url?: string | null
           slug?: string
           status?: string
+          target_capacity?: number | null
           ticket_price?: number | null
           ticket_url?: string | null
           tickets_sold?: number | null
@@ -1834,6 +2970,81 @@ export type Database = {
             columns: ["venue_id"]
             isOneToOne: false
             referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      external_event_candidates: {
+        Row: {
+          capacity: number | null
+          client_id: string
+          connection_id: string
+          created_at: string
+          event_name: string
+          external_event_id: string
+          id: string
+          last_synced_at: string
+          provider: string
+          raw_payload: Json | null
+          start_date: string | null
+          status: string | null
+          tickets_sold: number | null
+          updated_at: string
+          url: string | null
+          user_id: string
+          venue: string | null
+        }
+        Insert: {
+          capacity?: number | null
+          client_id: string
+          connection_id: string
+          created_at?: string
+          event_name: string
+          external_event_id: string
+          id?: string
+          last_synced_at?: string
+          provider: string
+          raw_payload?: Json | null
+          start_date?: string | null
+          status?: string | null
+          tickets_sold?: number | null
+          updated_at?: string
+          url?: string | null
+          user_id: string
+          venue?: string | null
+        }
+        Update: {
+          capacity?: number | null
+          client_id?: string
+          connection_id?: string
+          created_at?: string
+          event_name?: string
+          external_event_id?: string
+          id?: string
+          last_synced_at?: string
+          provider?: string
+          raw_payload?: Json | null
+          start_date?: string | null
+          status?: string | null
+          tickets_sold?: number | null
+          updated_at?: string
+          url?: string | null
+          user_id?: string
+          venue?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "external_event_candidates_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_event_candidates_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "client_ticketing_connections"
             referencedColumns: ["id"]
           },
         ]
@@ -1914,28 +3125,374 @@ export type Database = {
         Row: {
           account_name: string
           created_at: string
+          credentials_encrypted: string | null
+          credentials_format: string
           google_customer_id: string | null
           id: string
+          login_customer_id: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           account_name: string
           created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
           google_customer_id?: string | null
           id?: string
+          login_customer_id?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           account_name?: string
           created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
           google_customer_id?: string | null
           id?: string
+          login_customer_id?: string | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
+      }
+      google_search_ad_groups: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          default_cpc: number | null
+          id: string
+          name: string
+          pushed_resource_name: string | null
+          sort_order: number
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          default_cpc?: number | null
+          id?: string
+          name: string
+          pushed_resource_name?: string | null
+          sort_order?: number
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          default_cpc?: number | null
+          id?: string
+          name?: string
+          pushed_resource_name?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_ad_groups_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_search_campaigns: {
+        Row: {
+          bid_adjustments: Json
+          created_at: string
+          daily_budget: number | null
+          id: string
+          monthly_budget: number | null
+          name: string
+          notes: string | null
+          plan_id: string
+          priority: string | null
+          pushed_resource_name: string | null
+          sort_order: number
+        }
+        Insert: {
+          bid_adjustments?: Json
+          created_at?: string
+          daily_budget?: number | null
+          id?: string
+          monthly_budget?: number | null
+          name: string
+          notes?: string | null
+          plan_id: string
+          priority?: string | null
+          pushed_resource_name?: string | null
+          sort_order?: number
+        }
+        Update: {
+          bid_adjustments?: Json
+          created_at?: string
+          daily_budget?: number | null
+          id?: string
+          monthly_budget?: number | null
+          name?: string
+          notes?: string | null
+          plan_id?: string
+          priority?: string | null
+          pushed_resource_name?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_campaigns_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_search_keywords: {
+        Row: {
+          ad_group_id: string
+          created_at: string
+          est_cpc_high: number | null
+          est_cpc_low: number | null
+          id: string
+          intent: string | null
+          keyword: string
+          match_type: string
+          notes: string | null
+          pushed_resource_name: string | null
+        }
+        Insert: {
+          ad_group_id: string
+          created_at?: string
+          est_cpc_high?: number | null
+          est_cpc_low?: number | null
+          id?: string
+          intent?: string | null
+          keyword: string
+          match_type: string
+          notes?: string | null
+          pushed_resource_name?: string | null
+        }
+        Update: {
+          ad_group_id?: string
+          created_at?: string
+          est_cpc_high?: number | null
+          est_cpc_low?: number | null
+          id?: string
+          intent?: string | null
+          keyword?: string
+          match_type?: string
+          notes?: string | null
+          pushed_resource_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_keywords_ad_group_id_fkey"
+            columns: ["ad_group_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_ad_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_search_negatives: {
+        Row: {
+          campaign_id: string | null
+          created_at: string
+          id: string
+          keyword: string
+          match_type: string
+          plan_id: string
+          pushed_resource_name: string | null
+          reason: string | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          keyword: string
+          match_type: string
+          plan_id: string
+          pushed_resource_name?: string | null
+          reason?: string | null
+        }
+        Update: {
+          campaign_id?: string | null
+          created_at?: string
+          id?: string
+          keyword?: string
+          match_type?: string
+          plan_id?: string
+          pushed_resource_name?: string | null
+          reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_negatives_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_search_negatives_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_search_plans: {
+        Row: {
+          bidding_strategy: string
+          created_at: string
+          date_range: Json | null
+          event_id: string | null
+          geo_targets: Json
+          google_ads_account_id: string | null
+          id: string
+          name: string
+          pushed_at: string | null
+          status: string
+          structure_mode: string
+          total_budget: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bidding_strategy?: string
+          created_at?: string
+          date_range?: Json | null
+          event_id?: string | null
+          geo_targets?: Json
+          google_ads_account_id?: string | null
+          id?: string
+          name: string
+          pushed_at?: string | null
+          status?: string
+          structure_mode?: string
+          total_budget?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bidding_strategy?: string
+          created_at?: string
+          date_range?: Json | null
+          event_id?: string | null
+          geo_targets?: Json
+          google_ads_account_id?: string | null
+          id?: string
+          name?: string
+          pushed_at?: string | null
+          status?: string
+          structure_mode?: string
+          total_budget?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_plans_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_search_plans_google_ads_account_id_fkey"
+            columns: ["google_ads_account_id"]
+            isOneToOne: false
+            referencedRelation: "google_ads_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_search_rsas: {
+        Row: {
+          ad_group_id: string
+          created_at: string
+          descriptions: Json
+          final_url: string | null
+          headlines: Json
+          id: string
+          path1: string | null
+          path2: string | null
+          pushed_resource_name: string | null
+        }
+        Insert: {
+          ad_group_id: string
+          created_at?: string
+          descriptions?: Json
+          final_url?: string | null
+          headlines?: Json
+          id?: string
+          path1?: string | null
+          path2?: string | null
+          pushed_resource_name?: string | null
+        }
+        Update: {
+          ad_group_id?: string
+          created_at?: string
+          descriptions?: Json
+          final_url?: string | null
+          headlines?: Json
+          id?: string
+          path1?: string | null
+          path2?: string | null
+          pushed_resource_name?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_rsas_ad_group_id_fkey"
+            columns: ["ad_group_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_ad_groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_search_sitelinks: {
+        Row: {
+          created_at: string
+          description1: string | null
+          description2: string | null
+          final_url: string | null
+          id: string
+          link_text: string
+          plan_id: string
+          pushed_resource_name: string | null
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          description1?: string | null
+          description2?: string | null
+          final_url?: string | null
+          id?: string
+          link_text: string
+          plan_id: string
+          pushed_resource_name?: string | null
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          description1?: string | null
+          description2?: string | null
+          final_url?: string | null
+          id?: string
+          link_text?: string
+          plan_id?: string
+          pushed_resource_name?: string | null
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_search_sitelinks_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "google_search_plans"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invoices: {
         Row: {
@@ -2018,6 +3575,460 @@ export type Database = {
             columns: ["quote_id"]
             isOneToOne: false
             referencedRelation: "quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mailchimp_accounts: {
+        Row: {
+          account_name: string | null
+          created_at: string
+          credentials_encrypted: string | null
+          credentials_format: string
+          id: string
+          mailchimp_dc: string | null
+          mailchimp_login_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_name?: string | null
+          created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
+          id?: string
+          mailchimp_dc?: string | null
+          mailchimp_login_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_name?: string | null
+          created_at?: string
+          credentials_encrypted?: string | null
+          credentials_format?: string
+          id?: string
+          mailchimp_dc?: string | null
+          mailchimp_login_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      mailchimp_audience_snapshots: {
+        Row: {
+          avg_click_rate: number | null
+          avg_open_rate: number | null
+          cleaned: number | null
+          client_id: string | null
+          email_subscribers: number | null
+          event_id: string | null
+          id: string
+          mailchimp_audience_id: string
+          member_count_since_send: number | null
+          pending: number | null
+          raw_json: Json | null
+          snapshot_at: string
+          total_contacts: number | null
+          unsubscribed: number | null
+          user_id: string | null
+        }
+        Insert: {
+          avg_click_rate?: number | null
+          avg_open_rate?: number | null
+          cleaned?: number | null
+          client_id?: string | null
+          email_subscribers?: number | null
+          event_id?: string | null
+          id?: string
+          mailchimp_audience_id: string
+          member_count_since_send?: number | null
+          pending?: number | null
+          raw_json?: Json | null
+          snapshot_at?: string
+          total_contacts?: number | null
+          unsubscribed?: number | null
+          user_id?: string | null
+        }
+        Update: {
+          avg_click_rate?: number | null
+          avg_open_rate?: number | null
+          cleaned?: number | null
+          client_id?: string | null
+          email_subscribers?: number | null
+          event_id?: string | null
+          id?: string
+          mailchimp_audience_id?: string
+          member_count_since_send?: number | null
+          pending?: number | null
+          raw_json?: Json | null
+          snapshot_at?: string
+          total_contacts?: number | null
+          unsubscribed?: number | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mailchimp_audience_snapshots_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mailchimp_audience_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mailchimp_tag_backfill_jobs: {
+        Row: {
+          completed_at: string | null
+          error_count: number
+          event_id: string
+          id: string
+          last_error: string | null
+          last_processed_member_hash: string | null
+          last_progress_at: string | null
+          mailchimp_audience_id: string
+          mailchimp_tag: string
+          members_processed: number
+          started_at: string
+          status: string
+          summary: Json | null
+          total_members: number | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          error_count?: number
+          event_id: string
+          id?: string
+          last_error?: string | null
+          last_processed_member_hash?: string | null
+          last_progress_at?: string | null
+          mailchimp_audience_id: string
+          mailchimp_tag: string
+          members_processed?: number
+          started_at?: string
+          status?: string
+          summary?: Json | null
+          total_members?: number | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          error_count?: number
+          event_id?: string
+          id?: string
+          last_error?: string | null
+          last_processed_member_hash?: string | null
+          last_progress_at?: string | null
+          mailchimp_audience_id?: string
+          mailchimp_tag?: string
+          members_processed?: number
+          started_at?: string
+          status?: string
+          summary?: Json | null
+          total_members?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mailchimp_tag_backfill_jobs_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mailchimp_tag_event_log: {
+        Row: {
+          action: string
+          client_id: string | null
+          event_id: string
+          event_timestamp: string
+          id: number
+          inserted_at: string
+          mailchimp_audience_id: string
+          mailchimp_tag: string
+          member_email_address: string | null
+          member_email_hash: string
+          raw_webhook_body: Json | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          client_id?: string | null
+          event_id: string
+          event_timestamp: string
+          id?: number
+          inserted_at?: string
+          mailchimp_audience_id: string
+          mailchimp_tag: string
+          member_email_address?: string | null
+          member_email_hash: string
+          raw_webhook_body?: Json | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          client_id?: string | null
+          event_id?: string
+          event_timestamp?: string
+          id?: number
+          inserted_at?: string
+          mailchimp_audience_id?: string
+          mailchimp_tag?: string
+          member_email_address?: string | null
+          member_email_hash?: string
+          raw_webhook_body?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mailchimp_tag_event_log_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mailchimp_tag_event_log_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mailchimp_tag_snapshots: {
+        Row: {
+          client_id: string | null
+          day: string | null
+          email_subscribers: number
+          event_id: string
+          id: string
+          mailchimp_audience_id: string
+          mailchimp_tag: string
+          raw_json: Json | null
+          snapshot_at: string
+          snapshot_date: string | null
+          total_contacts: number
+          user_id: string
+        }
+        Insert: {
+          client_id?: string | null
+          day?: string | null
+          email_subscribers?: number
+          event_id: string
+          id?: string
+          mailchimp_audience_id: string
+          mailchimp_tag: string
+          raw_json?: Json | null
+          snapshot_at: string
+          snapshot_date?: string | null
+          total_contacts?: number
+          user_id: string
+        }
+        Update: {
+          client_id?: string | null
+          day?: string | null
+          email_subscribers?: number
+          event_id?: string
+          id?: string
+          mailchimp_audience_id?: string
+          mailchimp_tag?: string
+          raw_json?: Json | null
+          snapshot_at?: string
+          snapshot_date?: string | null
+          total_contacts?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mailchimp_tag_snapshots_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mailchimp_tag_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_audience_write_idempotency: {
+        Row: {
+          audience_id: string
+          created_at: string
+          idempotency_key: string
+          meta_audience_id: string | null
+          user_id: string
+        }
+        Insert: {
+          audience_id: string
+          created_at?: string
+          idempotency_key: string
+          meta_audience_id?: string | null
+          user_id: string
+        }
+        Update: {
+          audience_id?: string
+          created_at?: string
+          idempotency_key?: string
+          meta_audience_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_audience_write_idempotency_audience_id_fkey"
+            columns: ["audience_id"]
+            isOneToOne: false
+            referencedRelation: "meta_custom_audiences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_click_touchpoints: {
+        Row: {
+          ad_id: string | null
+          adset_id: string | null
+          campaign_id: string | null
+          clicked_at: string
+          client_id: string
+          email_hash: string | null
+          event_id: string | null
+          external_id_hash: string | null
+          fbc: string
+          fbclid: string
+          id: string
+          inserted_at: string | null
+          landing_url: string | null
+        }
+        Insert: {
+          ad_id?: string | null
+          adset_id?: string | null
+          campaign_id?: string | null
+          clicked_at: string
+          client_id: string
+          email_hash?: string | null
+          event_id?: string | null
+          external_id_hash?: string | null
+          fbc: string
+          fbclid: string
+          id?: string
+          inserted_at?: string | null
+          landing_url?: string | null
+        }
+        Update: {
+          ad_id?: string | null
+          adset_id?: string | null
+          campaign_id?: string | null
+          clicked_at?: string
+          client_id?: string
+          email_hash?: string | null
+          event_id?: string | null
+          external_id_hash?: string | null
+          fbc?: string
+          fbclid?: string
+          id?: string
+          inserted_at?: string | null
+          landing_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_click_touchpoints_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_click_touchpoints_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_custom_audiences: {
+        Row: {
+          audience_subtype: string
+          client_id: string
+          created_at: string
+          event_id: string | null
+          funnel_stage: string
+          id: string
+          meta_ad_account_id: string
+          meta_audience_id: string | null
+          name: string
+          retention_days: number
+          source_id: string
+          source_meta: Json
+          status: string
+          status_error: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          audience_subtype: string
+          client_id: string
+          created_at?: string
+          event_id?: string | null
+          funnel_stage: string
+          id?: string
+          meta_ad_account_id: string
+          meta_audience_id?: string | null
+          name: string
+          retention_days: number
+          source_id: string
+          source_meta?: Json
+          status?: string
+          status_error?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          audience_subtype?: string
+          client_id?: string
+          created_at?: string
+          event_id?: string | null
+          funnel_stage?: string
+          id?: string
+          meta_ad_account_id?: string
+          meta_audience_id?: string | null
+          name?: string
+          retention_days?: number
+          source_id?: string
+          source_meta?: Json
+          status?: string
+          status_error?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_custom_audiences_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_custom_audiences_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -2141,6 +4152,8 @@ export type Database = {
           expires_at: string | null
           last_viewed_at: string | null
           scope: string
+          show_creative_insights: boolean
+          show_funnel_pacing: boolean
           token: string
           user_id: string
           view_count: number
@@ -2155,6 +4168,8 @@ export type Database = {
           expires_at?: string | null
           last_viewed_at?: string | null
           scope?: string
+          show_creative_insights?: boolean
+          show_funnel_pacing?: boolean
           token: string
           user_id: string
           view_count?: number
@@ -2169,6 +4184,8 @@ export type Database = {
           expires_at?: string | null
           last_viewed_at?: string | null
           scope?: string
+          show_creative_insights?: boolean
+          show_funnel_pacing?: boolean
           token?: string
           user_id?: string
           view_count?: number
@@ -2292,6 +4309,262 @@ export type Database = {
           },
         ]
       }
+      ticketing_purchase_events: {
+        Row: {
+          amount_minor: number | null
+          client_id: string
+          currency: string | null
+          email_hash: string | null
+          event_id: string
+          external_id_hash: string | null
+          external_order_id: string
+          fbc: string | null
+          fbp: string | null
+          id: string
+          inserted_at: string | null
+          ip_hash: string | null
+          provider: string
+          purchased_at: string
+          raw_payload: Json | null
+          ticket_count: number
+          ua: string | null
+        }
+        Insert: {
+          amount_minor?: number | null
+          client_id: string
+          currency?: string | null
+          email_hash?: string | null
+          event_id: string
+          external_id_hash?: string | null
+          external_order_id: string
+          fbc?: string | null
+          fbp?: string | null
+          id?: string
+          inserted_at?: string | null
+          ip_hash?: string | null
+          provider: string
+          purchased_at: string
+          raw_payload?: Json | null
+          ticket_count?: number
+          ua?: string | null
+        }
+        Update: {
+          amount_minor?: number | null
+          client_id?: string
+          currency?: string | null
+          email_hash?: string | null
+          event_id?: string
+          external_id_hash?: string | null
+          external_order_id?: string
+          fbc?: string | null
+          fbp?: string | null
+          id?: string
+          inserted_at?: string | null
+          ip_hash?: string | null
+          provider?: string
+          purchased_at?: string
+          raw_payload?: Json | null
+          ticket_count?: number
+          ua?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticketing_purchase_events_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticketing_purchase_events_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tier_channel_allocations: {
+        Row: {
+          allocation_count: number
+          channel_id: string
+          created_at: string
+          event_id: string
+          id: string
+          notes: string | null
+          tier_name: string
+          updated_at: string
+        }
+        Insert: {
+          allocation_count: number
+          channel_id: string
+          created_at?: string
+          event_id: string
+          id?: string
+          notes?: string | null
+          tier_name: string
+          updated_at?: string
+        }
+        Update: {
+          allocation_count?: number
+          channel_id?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          notes?: string | null
+          tier_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tier_channel_allocations_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "tier_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tier_channel_allocations_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tier_channel_sales: {
+        Row: {
+          channel_id: string
+          created_at: string
+          event_id: string
+          id: string
+          notes: string | null
+          revenue_amount: number
+          revenue_overridden: boolean
+          snapshot_at: string
+          tickets_sold: number
+          tier_name: string
+          updated_at: string
+        }
+        Insert: {
+          channel_id: string
+          created_at?: string
+          event_id: string
+          id?: string
+          notes?: string | null
+          revenue_amount?: number
+          revenue_overridden?: boolean
+          snapshot_at?: string
+          tickets_sold: number
+          tier_name: string
+          updated_at?: string
+        }
+        Update: {
+          channel_id?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          notes?: string | null
+          revenue_amount?: number
+          revenue_overridden?: boolean
+          snapshot_at?: string
+          tickets_sold?: number
+          tier_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tier_channel_sales_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "tier_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tier_channel_sales_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tier_channel_sales_daily_history: {
+        Row: {
+          captured_at: string
+          event_id: string
+          id: string
+          revenue_total: number
+          snapshot_date: string
+          source_kind: string
+          tickets_sold_total: number
+        }
+        Insert: {
+          captured_at?: string
+          event_id: string
+          id?: string
+          revenue_total?: number
+          snapshot_date: string
+          source_kind: string
+          tickets_sold_total: number
+        }
+        Update: {
+          captured_at?: string
+          event_id?: string
+          id?: string
+          revenue_total?: number
+          snapshot_date?: string
+          source_kind?: string
+          tickets_sold_total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tier_channel_sales_daily_history_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tier_channels: {
+        Row: {
+          channel_name: string
+          client_id: string
+          created_at: string
+          display_label: string
+          id: string
+          is_automatic: boolean
+          provider_link: string | null
+        }
+        Insert: {
+          channel_name: string
+          client_id: string
+          created_at?: string
+          display_label: string
+          id?: string
+          is_automatic?: boolean
+          provider_link?: string | null
+        }
+        Update: {
+          channel_name?: string
+          client_id?: string
+          created_at?: string
+          display_label?: string
+          id?: string
+          is_automatic?: boolean
+          provider_link?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tier_channels_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tiktok_accounts: {
         Row: {
           access_token_encrypted: string | null
@@ -2343,14 +4616,19 @@ export type Database = {
           event_id: string
           fetched_at: string
           id: string
+          identity_id: string | null
+          identity_type: string | null
+          image_ids: string[] | null
           impressions: number | null
           kind: string
           reach: number | null
           spend: number | null
           status: string | null
           thumbnail_url: string | null
+          tiktok_item_id: string | null
           updated_at: string
           user_id: string
+          video_id: string | null
           video_views_100p: number | null
           video_views_2s: number | null
           video_views_6s: number | null
@@ -2371,14 +4649,19 @@ export type Database = {
           event_id: string
           fetched_at?: string
           id?: string
+          identity_id?: string | null
+          identity_type?: string | null
+          image_ids?: string[] | null
           impressions?: number | null
           kind: string
           reach?: number | null
           spend?: number | null
           status?: string | null
           thumbnail_url?: string | null
+          tiktok_item_id?: string | null
           updated_at?: string
           user_id: string
+          video_id?: string | null
           video_views_100p?: number | null
           video_views_2s?: number | null
           video_views_6s?: number | null
@@ -2399,14 +4682,19 @@ export type Database = {
           event_id?: string
           fetched_at?: string
           id?: string
+          identity_id?: string | null
+          identity_type?: string | null
+          image_ids?: string[] | null
           impressions?: number | null
           kind?: string
           reach?: number | null
           spend?: number | null
           status?: string | null
           thumbnail_url?: string | null
+          tiktok_item_id?: string | null
           updated_at?: string
           user_id?: string
+          video_id?: string | null
           video_views_100p?: number | null
           video_views_2s?: number | null
           video_views_6s?: number | null
@@ -2651,6 +4939,60 @@ export type Database = {
           },
         ]
       }
+      tiktok_write_idempotency: {
+        Row: {
+          created_at: string
+          draft_id: string
+          event_id: string
+          id: string
+          op_kind: string
+          op_payload_hash: string
+          op_result_id: string | null
+          op_status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          draft_id: string
+          event_id: string
+          id?: string
+          op_kind: string
+          op_payload_hash: string
+          op_result_id?: string | null
+          op_status: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          draft_id?: string
+          event_id?: string
+          id?: string
+          op_kind?: string
+          op_payload_hash?: string
+          op_result_id?: string | null
+          op_status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tiktok_write_idempotency_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "tiktok_campaign_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tiktok_write_idempotency_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_facebook_tokens: {
         Row: {
           expires_at: string | null
@@ -2755,11 +5097,48 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      v_event_code_attribution_snapshot: {
+        Row: {
+          attribution_rate: number | null
+          attribution_state: string | null
+          cache_fetched_at: string | null
+          client_id: string | null
+          event_code: string | null
+          meta_regs: number | null
+          tickets_rollup_sum: number | null
+          tickets_tier_channel_sum: number | null
+          tickets_true: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_code_lifetime_meta_cache_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      clear_meta_system_user_token: {
+        Args: { p_client_id: string }
+        Returns: undefined
+      }
+      get_d2c_credentials: {
+        Args: { p_id: string; p_key: string }
+        Returns: Json
+      }
       get_google_ads_credentials: {
-        Args: { p_account_id: string; p_key?: string | null }
+        Args: { p_account_id: string; p_key?: string }
+        Returns: string
+      }
+      get_mailchimp_credentials: {
+        Args: { p_account_id: string; p_key: string }
+        Returns: string
+      }
+      get_meta_system_user_token: {
+        Args: { p_client_id: string; p_key: string }
         Returns: string
       }
       get_ticketing_credentials: {
@@ -2770,12 +5149,44 @@ export type Database = {
         Args: { p_account_id: string; p_key: string }
         Returns: string
       }
-      set_google_ads_credentials: {
+      increment_bulk_attach_template_use_count: {
+        Args: { template_id: string; template_user_id: string }
+        Returns: undefined
+      }
+      meta_reconcile_event_spend: {
         Args: {
-          p_account_id: string
-          p_key?: string | null
-          p_plaintext: string
+          p_event_code: string
+          p_since_date: string
+          p_until_date: string
         }
+        Returns: {
+          campaign_id: string
+          campaign_name: string
+          drift: number
+          drift_pct: number
+          event_code: string
+          meta_clicks: number
+          meta_impressions: number
+          meta_spend: number
+          rollup_spend_lifetime: number
+          rollup_spend_window: number
+          status: string
+        }[]
+      }
+      set_d2c_credentials: {
+        Args: { p_credentials: Json; p_id: string; p_key: string }
+        Returns: undefined
+      }
+      set_google_ads_credentials: {
+        Args: { p_account_id: string; p_key?: string; p_plaintext: string }
+        Returns: undefined
+      }
+      set_mailchimp_credentials: {
+        Args: { p_account_id: string; p_key: string; p_plaintext: string }
+        Returns: undefined
+      }
+      set_meta_system_user_token: {
+        Args: { p_client_id: string; p_key: string; p_token: string }
         Returns: undefined
       }
       set_ticketing_credentials: {
@@ -2786,6 +5197,7 @@ export type Database = {
         Args: { p_account_id: string; p_key: string; p_plaintext: string }
         Returns: undefined
       }
+      url_encode: { Args: { input: string }; Returns: string }
     }
     Enums: {
       additional_spend_category:
@@ -2794,6 +5206,14 @@ export type Database = {
         | "PRINT"
         | "RADIO"
         | "OTHER"
+      asset_queue_status:
+        | "pending"
+        | "matched"
+        | "confirmed"
+        | "launched"
+        | "skipped"
+        | "error"
+        | "matched_umbrella"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2927,6 +5347,15 @@ export const Constants = {
         "PRINT",
         "RADIO",
         "OTHER",
+      ],
+      asset_queue_status: [
+        "pending",
+        "matched",
+        "confirmed",
+        "launched",
+        "skipped",
+        "error",
+        "matched_umbrella",
       ],
     },
   },
