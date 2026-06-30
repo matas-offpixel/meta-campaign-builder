@@ -72,6 +72,11 @@ export function isPublicPath(
   pathname: string,
   _searchParams?: URLSearchParams,
 ): boolean {
+  // `/api/admin/mailchimp-overlap` — one-shot admin endpoint for Mailchimp
+  // tag-overlap analysis. Bearer CRON_SECRET only; the route's own
+  // isAuthorized check enforces auth. Without this carve-out the proxy
+  // 307s to /login before the handler runs (same lesson as PR #407 etc.).
+  if (pathname === "/api/admin/mailchimp-overlap") return true;
   // `/api/admin/meta-enhancement-probe` validates CRON_SECRET or session in
   // the route — bearer-only curls must reach the handler (see probe doc).
   if (pathname === "/api/admin/meta-enhancement-probe") return true;
