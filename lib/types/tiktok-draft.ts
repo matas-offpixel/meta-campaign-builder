@@ -23,7 +23,13 @@ export interface TikTokAccountSetup {
   identityId: string | null;
   identityDisplayName: string | null;
   identityManualName: string | null;
-  identityType: "PERSONAL_HUB" | "CUSTOMIZED_USER" | "TT_USER" | "MANUAL" | null;
+  identityType:
+    | "AUTH_CODE"
+    | "BC_AUTH_TT"
+    | "CUSTOMIZED_USER"
+    | "TT_USER"
+    | "MANUAL"
+    | null;
   pixelId: string | null;
   pixelName: string | null;
 }

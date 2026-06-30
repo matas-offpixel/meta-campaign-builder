@@ -13,7 +13,7 @@ import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 interface TikTokIdentityOption {
   identity_id: string;
   display_name: string;
-  identity_type: "PERSONAL_HUB" | "CUSTOMIZED_USER" | "TT_USER";
+  identity_type: "AUTH_CODE" | "BC_AUTH_TT" | "CUSTOMIZED_USER" | "TT_USER";
 }
 
 interface TikTokPixelOption {
