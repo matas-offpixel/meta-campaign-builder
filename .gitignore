@@ -48,5 +48,8 @@ next-env.d.ts
 # these are business-sensitive binary files — keep out of git history
 References/
 
+# reel source photos (uploaded to Supabase Storage via scripts/upload-reel-photos.ts)
+Crowd photos/
+
 # supabase CLI scratch (linked-project metadata, gen-types cache)
 supabase/.temp/
