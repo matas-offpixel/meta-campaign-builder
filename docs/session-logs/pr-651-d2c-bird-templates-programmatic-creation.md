@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {set after gh pr create}
+- **Number:** 651
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/651
 - **Branch:** `d2c/bird-templates-programmatic-creation`
 
 ## Summary
