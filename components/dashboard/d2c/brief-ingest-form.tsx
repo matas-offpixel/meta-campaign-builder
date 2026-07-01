@@ -14,15 +14,23 @@ import type { D2CBriefIngestJob } from "@/lib/d2c/types";
 
 export interface BriefIngestFormProps {
   clients: { id: string; name: string }[];
+  /** When set (from ?client_id= on a client the user owns), pre-selects the picker. */
+  initialClientId?: string;
 }
 
 type Phase = "idle" | "submitting" | "processing" | "done" | "error";
 
 const POLL_MS = 2000;
 
-export function BriefIngestForm({ clients }: BriefIngestFormProps) {
+export function BriefIngestForm({ clients, initialClientId }: BriefIngestFormProps) {
   const router = useRouter();
-  const [clientId, setClientId] = useState(clients[0]?.id ?? "");
+  const prefilledClient =
+    initialClientId != null
+      ? clients.find((c) => c.id === initialClientId)
+      : undefined;
+  const [clientId, setClientId] = useState(
+    prefilledClient?.id ?? clients[0]?.id ?? "",
+  );
   const [mode, setMode] = useState<"pdf" | "manual">("pdf");
   const [file, setFile] = useState<File | null>(null);
   const [briefText, setBriefText] = useState("");
@@ -114,6 +122,13 @@ export function BriefIngestForm({ clients }: BriefIngestFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {prefilledClient && (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+          Uploading for:{" "}
+          <span className="font-medium">{prefilledClient.name}</span>
+        </p>
+      )}
+
       <div>
         <label htmlFor="client" className="block text-sm font-medium text-foreground">
           Client
