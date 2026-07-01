@@ -41,11 +41,19 @@ export async function executeBirdJob(
         `job=${input.jobType} template=${input.bird?.templateId}`,
     );
   }
-  // Once the shape is confirmed, POST /workspaces/{wid}/channels/{cid}/messages
-  // with { template: { projectId, templateId, parameters }, scheduledFor } via
-  // birdFetch (typed client). Intentionally not implemented against an
-  // unverified contract.
+  // Once `.scratch/bird-runtime-send-capture.txt` lands and the send shape is
+  // confirmed, this executor should, IN ORDER (2026-07-01 incident layers 7-9):
+  //   1. Layer 8 — resolve artwork: `resolveEventArtwork(supabase, eventId, …)`
+  //      (lib/d2c/assets/resolver.ts) so event_artwork_url is never empty; it
+  //      also writes the resolved URL back to d2c_event_copy.
+  //   2. Layer 7 — `hydrateSendVariables(sendRow, eventCopy, event, client)`
+  //      (lib/d2c/bird/hydrate-variables.ts) which LOUD-FAILS if any of the 6
+  //      required template variables is empty — BEFORE any HTTP call.
+  //   3. Layers 6 & 9 — POST the verified receiver + template body shape via
+  //      the typed client (see BIRD_RUNTIME_SEND_VERIFIED in provider.ts).
+  // Intentionally not implemented against an unverified contract.
   throw new Error(
-    "BIRD_RUNTIME_UNVERIFIED: live Bird template send not implemented pending verified runtime payload.",
+    "BIRD_RUNTIME_UNVERIFIED: live Bird template send not implemented pending verified runtime payload " +
+      "(.scratch/bird-runtime-send-capture.txt). See docs/D2C_LIVE_FIRE_RUNBOOK.md.",
   );
 }

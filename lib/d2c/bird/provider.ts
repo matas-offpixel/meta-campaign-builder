@@ -31,6 +31,27 @@ function readString(obj: Record<string, unknown>, key: string): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+/**
+ * Layers 6 & 9 of the 2026-07-01 direct-fire incident.
+ *
+ * The live WhatsApp send shape below is UNVERIFIED against a real Bird runtime
+ * capture and produced a 422 tonight:
+ *   - Layer 6: `receiver: { contacts: { listId } }` sends contacts as an object;
+ *     Bird returned 422 "value must be an array". The correct receiver shape for
+ *     a list-targeted send (or whether list_id is accepted at all vs. requiring
+ *     a preflight list→contacts expansion) is unknown without a capture.
+ *   - Layer 9: the template body uses `template.locale` + keyed
+ *     `parameters[].key`; Meta/Bird's runtime WhatsApp API historically expects
+ *     `language.code` + positional params. Never verified against a real send.
+ *
+ * Until `.scratch/bird-runtime-send-capture.txt` lands on main and this code is
+ * reconciled against it (same discipline as PR #657's draft-campaign flow), the
+ * live WhatsApp send LOUD-FAILS instead of emitting a known-broken payload.
+ * Flip to `true` only after reconciling the shapes below against the capture.
+ * See docs/D2C_LIVE_FIRE_RUNBOOK.md.
+ */
+export const BIRD_RUNTIME_SEND_VERIFIED = false;
+
 /** Exposed for tests + the connections UI — mirrors the Mailchimp helper. */
 export function birdDryRunGatesBlockLiveSend(connection: D2CConnection): {
   featureOff: boolean;
@@ -87,6 +108,21 @@ export class BirdProvider implements D2CProvider {
         ok: false,
         dryRun: false,
         error: "Missing Bird api_key, workspace_id or channel_id on connection.",
+      };
+    }
+
+    // Layers 6 & 9: refuse to emit the unverified live WhatsApp shape. SMS and
+    // any future verified path are unaffected; only the WhatsApp runtime send
+    // (the shape that 422'd tonight) is gated.
+    if (message.channel === "whatsapp" && !BIRD_RUNTIME_SEND_VERIFIED) {
+      return {
+        ok: false,
+        dryRun: false,
+        error:
+          "BIRD_RUNTIME_UNVERIFIED: live WhatsApp send blocked pending the runtime-send DevTools capture " +
+          "(.scratch/bird-runtime-send-capture.txt). Receiver shape (layer 6) and template body shape " +
+          "(layer 9) must be reconciled against the capture before flipping BIRD_RUNTIME_SEND_VERIFIED. " +
+          "See docs/D2C_LIVE_FIRE_RUNBOOK.md.",
       };
     }
 
