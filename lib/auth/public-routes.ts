@@ -48,6 +48,10 @@ const PUBLIC_PREFIXES: readonly string[] = [
   // mismatch — the bypass here only stops the session check, it does
   // not stop the route's own auth.
   "/api/cron/",
+  // `/j/{invite}` — public WhatsApp community redirect clicked from Bird
+  // WhatsApp template buttons (Meta subcode 2388081 fix). Validates the
+  // invite code itself before redirecting; carries no user data.
+  "/j/",
 ];
 
 /**

@@ -24,6 +24,7 @@ import {
   activateTemplate,
   createProject,
   createTemplate,
+  deleteTemplate,
   findProjectByName,
   findTemplateByName,
   resolveChannelGroup,
@@ -199,4 +200,78 @@ export async function shipBrandTemplates(
   }
 
   return { brand, channelGroupId, dryRun, results };
+}
+
+export type DeleteOutcome = "deleted" | "skipped_not_found" | "dry_run" | "error";
+
+export interface DeleteResult {
+  name: string;
+  outcome: DeleteOutcome;
+  projectId?: string;
+  templateId?: string;
+  error?: string;
+  errorCode?: string;
+}
+
+export interface DeleteReport {
+  brand: string;
+  dryRun: boolean;
+  results: DeleteResult[];
+}
+
+/**
+ * Delete templates by whatsappTemplateName (the "one project per template"
+ * layout means: find the project named after the template, find the template
+ * inside it, delete it). A missing project or template is a no-op skip, not
+ * an error, so re-runs are safe.
+ */
+export async function deleteBrandTemplates(
+  cfg: BirdTemplateClientConfig,
+  brand: string,
+  opts: Pick<ShipOptions, "dryRun" | "templateNames"> = {},
+): Promise<DeleteReport> {
+  const brandCfg = getBrandConfig(brand);
+  const dryRun = opts.dryRun ?? false;
+  const selected = selectTemplates(brandCfg.templates, opts.templateNames);
+  const results: DeleteResult[] = [];
+
+  for (const def of selected) {
+    if (dryRun) {
+      results.push({ name: def.name, outcome: "dry_run" });
+      continue;
+    }
+    try {
+      const project = await findProjectByName(cfg, def.name);
+      if (!project) {
+        results.push({ name: def.name, outcome: "skipped_not_found" });
+        continue;
+      }
+      const existing = await findTemplateByName(cfg, project.id, def.name);
+      if (!existing) {
+        results.push({
+          name: def.name,
+          outcome: "skipped_not_found",
+          projectId: project.id,
+        });
+        continue;
+      }
+      await deleteTemplate(cfg, project.id, existing.id);
+      results.push({
+        name: def.name,
+        outcome: "deleted",
+        projectId: project.id,
+        templateId: existing.id,
+      });
+    } catch (e) {
+      const err = e as { message?: string; code?: string; status?: number };
+      results.push({
+        name: def.name,
+        outcome: "error",
+        error: err?.message ?? String(e),
+        errorCode: err?.code ?? (err?.status ? `BIRD_HTTP_${err.status}` : "BIRD_TPL_ERROR"),
+      });
+    }
+  }
+
+  return { brand, dryRun, results };
 }

@@ -9,16 +9,27 @@
  *     npx tsx scripts/d2c/ship-bird-templates.ts --brand throwback [--dry-run] \
  *       [--locales en,es_ES] [--templates throwback_autoresp,throwback_presale_reminder] [--submit]
  *
+ *   # Delete templates by name (one project-per-template layout — finds the
+ *   # project named after the template, deletes the template inside it):
+ *   set -a && source .env.local && set +a && \
+ *     npx tsx scripts/d2c/ship-bird-templates.ts --brand throwback --delete \
+ *       --templates throwback_autoresp,throwback_presale_reminder
+ *
  * Also runs under: node --experimental-strip-types --env-file=.env.local scripts/d2c/ship-bird-templates.ts …
  *
- * Every create is a Bird *draft*; Meta submission is a separate Studio action
- * (audit §U8) — `--submit` currently reports `publish_unsupported`.
+ * Every create is a Bird *draft*; `--submit` activates it (publish → submit to
+ * Meta, idempotent — see `activateTemplate`).
  */
 
-import { shipBrandTemplates, type ShipOptions } from "../../lib/d2c/bird/templates/runner.ts";
+import {
+  deleteBrandTemplates,
+  shipBrandTemplates,
+  type ShipOptions,
+} from "../../lib/d2c/bird/templates/runner.ts";
 
 interface CliArgs extends ShipOptions {
   brand: string;
+  delete?: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -30,6 +41,7 @@ function parseArgs(argv: string[]): CliArgs {
       case "--brand": out.brand = next(); break;
       case "--dry-run": out.dryRun = true; break;
       case "--submit": out.submit = true; break;
+      case "--delete": out.delete = true; break;
       case "--no-channel-group": out.attachChannelGroup = false; break;
       case "--locales": out.locales = next()?.split(",").map((s) => s.trim()).filter(Boolean); break;
       case "--templates": out.templateNames = next()?.split(",").map((s) => s.trim()).filter(Boolean); break;
@@ -39,6 +51,29 @@ function parseArgs(argv: string[]): CliArgs {
   }
   if (!out.brand) throw new Error("--brand is required (e.g. --brand throwback)");
   return out as CliArgs;
+}
+
+function deleteIcon(outcome: string): string {
+  return (
+    { deleted: "🗑", skipped_not_found: "↷", dry_run: "○", error: "✗" }[outcome] ?? "?"
+  );
+}
+
+async function runDelete(
+  cfg: { apiKey: string; workspaceId: string },
+  args: CliArgs,
+): Promise<void> {
+  console.log(`\n▶ ship-bird-templates --delete brand=${args.brand}${args.dryRun ? " (DRY RUN)" : ""}`);
+  const report = await deleteBrandTemplates(cfg, args.brand, args);
+  for (const r of report.results) {
+    const id = r.templateId ? ` id=${r.templateId}` : "";
+    const proj = r.projectId ? ` project=${r.projectId}` : "";
+    console.log(`  ${deleteIcon(r.outcome)} ${r.name} ${r.outcome}${id}${proj}`);
+    if (r.error) console.log(`      ${r.errorCode ?? ""}: ${r.error}`);
+  }
+  const failed = report.results.filter((r) => r.outcome === "error");
+  console.log(`\n  summary: ${report.results.length} template(s), ${failed.length} error(s).`);
+  process.exit(failed.length ? 1 : 0);
 }
 
 function icon(outcome: string): string {
@@ -59,6 +94,11 @@ async function main() {
   if (!apiKey) {
     console.error("BIRD_API_KEY not set. Source .env.local first.");
     process.exit(1);
+  }
+
+  if (args.delete) {
+    await runDelete({ apiKey, workspaceId }, args);
+    return;
   }
 
   console.log(`\n▶ ship-bird-templates brand=${args.brand}${args.dryRun ? " (DRY RUN)" : ""}`);
