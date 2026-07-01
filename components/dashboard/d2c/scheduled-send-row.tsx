@@ -3,14 +3,21 @@
 import type {
   D2CScheduledSend,
   D2CScheduledSendApprovalStatus,
+  D2CJobType,
 } from "@/lib/d2c/types";
+import {
+  getFireType,
+  FIRE_TYPE_LABEL,
+  FIRE_TYPE_BADGE_CLASS,
+} from "@/lib/d2c/fire-type";
 
 /**
  * components/dashboard/d2c/scheduled-send-row.tsx
  *
  * Presentational row for one brief-generated scheduled send: milestone label,
- * channel, scheduled_for, status + approval badges, a [DRY RUN] badge when the
- * row will not send live, and an Approve button (operator-gated).
+ * channel badge, fire-type badge (DRAFT REVIEW / SENDS NOW), dispatch time,
+ * status + approval badges, dry-run indicator, and a Preview button that opens
+ * the send-preview modal.
  */
 
 const JOB_TYPE_LABELS: Record<string, string> = {
@@ -78,6 +85,8 @@ export interface ScheduledSendRowProps {
   canApprove: boolean;
   busy?: boolean;
   onApprove?: (id: string) => void;
+  /** Opens the preview modal for this send. */
+  onPreview?: (id: string) => void;
 }
 
 export function ScheduledSendRow({
@@ -85,26 +94,34 @@ export function ScheduledSendRow({
   canApprove,
   busy,
   onApprove,
+  onPreview,
 }: ScheduledSendRowProps) {
+  const jobType = send.job_type as D2CJobType | null;
   const jobLabel =
-    (send.job_type && JOB_TYPE_LABELS[send.job_type]) ??
-    send.job_type ??
-    "Send";
+    (jobType && JOB_TYPE_LABELS[jobType]) ?? jobType ?? "Send";
   const approval = APPROVAL_BADGE[send.approval_status];
   const isPending = send.approval_status === "pending_approval";
   const isDraftReady = send.status === "draft_ready";
   const preview = isDraftReady ? draftPreview(send.result_jsonb) : null;
 
+  const fireType = getFireType(jobType);
+
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-sm font-medium text-foreground">
               {jobLabel}
             </span>
             <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
               {send.channel}
+            </span>
+            {/* Fire-type badge */}
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${FIRE_TYPE_BADGE_CLASS[fireType]}`}
+            >
+              {FIRE_TYPE_LABEL[fireType]}
             </span>
             {send.dry_run && (
               <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
@@ -118,6 +135,17 @@ export function ScheduledSendRow({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          {/* Preview button — shown so operator can inspect before approving */}
+          {onPreview && (
+            <button
+              type="button"
+              onClick={() => onPreview(send.id)}
+              className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+            >
+              Preview
+            </button>
+          )}
+
           {isDraftReady ? (
             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-800">
               Draft ready for review

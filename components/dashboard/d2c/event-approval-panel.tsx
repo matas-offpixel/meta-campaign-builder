@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 
-import type { D2CScheduledSend } from "@/lib/d2c/types";
+import type { D2CScheduledSend, D2CEventCopyBundle } from "@/lib/d2c/types";
+import { batchContainsDirectFire } from "@/lib/d2c/fire-type";
 import { ScheduledSendRow } from "./scheduled-send-row";
+import { SendPreviewModal } from "./send-preview-modal";
 
 /**
  * components/dashboard/d2c/event-approval-panel.tsx
@@ -11,6 +13,9 @@ import { ScheduledSendRow } from "./scheduled-send-row";
  * Matas's per-event approval surface: paste the WhatsApp community URL (the one
  * required runtime input), then approve each scheduled send individually or in
  * bulk. Dry-run badges make the safety state obvious.
+ *
+ * Approve-all is blocked when the batch contains any direct-fire jobs — those
+ * must be reviewed and approved individually via the preview modal.
  */
 
 export interface EventApprovalPanelProps {
@@ -19,6 +24,8 @@ export interface EventApprovalPanelProps {
   artworkUrl: string | null;
   initialCommunityUrl: string | null;
   initialSends: D2CScheduledSend[];
+  /** Rendered copy bundle (copy_jsonb) — used by the preview modal. */
+  copyBundle: D2CEventCopyBundle;
   canApprove: boolean;
 }
 
@@ -28,6 +35,7 @@ export function EventApprovalPanel({
   artworkUrl,
   initialCommunityUrl,
   initialSends,
+  copyBundle,
   canApprove,
 }: EventApprovalPanelProps) {
   const [sends, setSends] = useState<D2CScheduledSend[]>(initialSends);
@@ -37,7 +45,20 @@ export function EventApprovalPanel({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  // Preview modal state
+  const [previewSendId, setPreviewSendId] = useState<string | null>(null);
+  const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
+
   const pending = sends.filter((s) => s.approval_status === "pending_approval");
+  const pendingDirectFire = pending.filter((s) => {
+    const test: { job_type: typeof s.job_type | null } = { job_type: s.job_type };
+    return batchContainsDirectFire([test]);
+  });
+  const approveAllBlocked = batchContainsDirectFire(pending);
+
+  const previewSend = previewSendId
+    ? sends.find((s) => s.id === previewSendId) ?? null
+    : null;
 
   async function saveCommunityUrl() {
     setSavingUrl(true);
@@ -79,6 +100,14 @@ export function EventApprovalPanel({
     setMessage(null);
     await approveOne(id);
     setBusyId(null);
+  }
+
+  async function handleApproveFromModal(id: string) {
+    setPreviewBusyId(id);
+    setMessage(null);
+    const ok = await approveOne(id);
+    setPreviewBusyId(null);
+    if (ok) setPreviewSendId(null);
   }
 
   async function handleBulkApprove() {
@@ -141,14 +170,30 @@ export function EventApprovalPanel({
             Scheduled sends ({sends.length})
           </h2>
           {canApprove && pending.length > 0 && (
-            <button
-              type="button"
-              disabled={bulkBusy}
-              onClick={handleBulkApprove}
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90 disabled:opacity-50"
-            >
-              {bulkBusy ? "Approving…" : `Approve all (${pending.length})`}
-            </button>
+            approveAllBlocked ? (
+              <span
+                title={`Contains ${pendingDirectFire.length} direct-send job${pendingDirectFire.length === 1 ? "" : "s"} — approve individually.`}
+                className="cursor-not-allowed"
+              >
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-md bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-50 cursor-not-allowed"
+                  aria-disabled="true"
+                >
+                  Approve all ({pending.length})
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={handleBulkApprove}
+                className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+              >
+                {bulkBusy ? "Approving…" : `Approve all (${pending.length})`}
+              </button>
+            )
           )}
         </div>
 
@@ -165,6 +210,7 @@ export function EventApprovalPanel({
                 canApprove={canApprove}
                 busy={busyId === s.id || bulkBusy}
                 onApprove={handleApprove}
+                onPreview={(id) => setPreviewSendId(id)}
               />
             ))}
           </div>
@@ -181,6 +227,20 @@ export function EventApprovalPanel({
         <p className="text-xs text-muted-foreground" role="status">
           {message}
         </p>
+      )}
+
+      {/* Preview modal — rendered once, driven by previewSendId */}
+      {previewSend && (
+        <SendPreviewModal
+          send={previewSend}
+          copyBundle={copyBundle}
+          artworkUrl={artworkUrl}
+          eventName={eventName}
+          open={previewSendId !== null}
+          onClose={() => setPreviewSendId(null)}
+          onApprove={handleApproveFromModal}
+          approving={previewBusyId === previewSend.id}
+        />
       )}
     </div>
   );
