@@ -62,6 +62,13 @@ export async function POST(
     );
   }
 
+  // Source discriminant (migration 128): the sheet is always a Google Sheet,
+  // but the per-row asset URLs point at either Dropbox (default/legacy) or
+  // Google Drive. The download provider is dispatched later in the prepare
+  // route (resolveQueueSourceProvider). We surface it here so callers can see
+  // which cloud a client's queue is backed by.
+  const source = config.source ?? "dropbox";
+
   // ── Fetch CSV from Google Sheets public export ────────────────────────────
   const sheetName = sheetNameFromRange(config.sheet_range);
   const csvUrl = `https://docs.google.com/spreadsheets/d/${config.google_sheet_id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
@@ -128,7 +135,7 @@ export async function POST(
 
   if (newCount === 0) {
     await touchLastScrapedAt(clientId);
-    return NextResponse.json({ scraped, new: 0, matched: 0, errors: 0, errorDetails: [] });
+    return NextResponse.json({ scraped, new: 0, matched: 0, errors: 0, errorDetails: [], source });
   }
 
   // ── Venue resolution ──────────────────────────────────────────────────────
@@ -246,11 +253,12 @@ export async function POST(
 
   console.error("[asset-queue/scrape] complete", {
     clientId,
+    source,
     scraped,
     new: newCount,
     matched,
     errors,
   });
 
-  return NextResponse.json({ scraped, new: newCount, matched, errors, errorDetails });
+  return NextResponse.json({ scraped, new: newCount, matched, errors, errorDetails, source });
 }

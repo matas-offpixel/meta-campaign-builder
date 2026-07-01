@@ -22,12 +22,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getAssetQueueRow, updateQueueRowStatus, updateQueueRowPrepared } from "@/lib/db/asset-queue";
 import { getAssetSheetConfig } from "@/lib/db/asset-sheet-config";
-import {
-  isDropboxFolderUrl,
-  downloadDropboxAsset,
-  downloadDropboxFolderFiles,
-  DropboxFetchError,
-} from "@/lib/clients/asset-queue/dropbox";
+import { DropboxFetchError } from "@/lib/clients/asset-queue/dropbox";
+import { DriveFetchError } from "@/lib/clients/asset-queue/drive";
+import { resolveQueueSourceProvider } from "@/lib/clients/asset-queue/queue-handoff";
 import { generateCopy } from "@/lib/clients/asset-queue/copy-generator";
 import { resolveOrganiserDestinationUrl, resolveUniversalClientUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
@@ -107,23 +104,30 @@ export async function POST(
 
   const serviceClient = createServiceRoleClient();
 
-  // ── Download from Dropbox + upload to Storage ─────────────────────────────
+  // Load the sheet config once — its `source` field selects the download
+  // provider (Dropbox vs Google Drive); reused later for copy defaults.
+  const config = await getAssetSheetConfig(clientId);
+  const provider = resolveQueueSourceProvider(row, config?.source ?? null);
+
+  // ── Download from source (Dropbox / Drive) + upload to Storage ────────────
   let uploadedPaths: string[] = [];
 
-  if (isDropboxFolderUrl(row.dropbox_url)) {
+  if (provider.isFolderUrl(row.dropbox_url)) {
     // ── Folder branch: download all media files ───────────────────────────
-    let folderFiles: Awaited<ReturnType<typeof downloadDropboxFolderFiles>>;
+    let folderFiles: Awaited<ReturnType<typeof provider.downloadFolderFiles>>;
     try {
-      folderFiles = await downloadDropboxFolderFiles(row.dropbox_url);
+      folderFiles = await provider.downloadFolderFiles(row.dropbox_url);
     } catch (err) {
-      if (err instanceof DropboxFetchError) {
-        console.error("[asset-queue/prepare] Dropbox folder error", {
+      const code = sourceFetchErrorCode(err);
+      if (code) {
+        console.error("[asset-queue/prepare] source folder error", {
           clientId,
           queueId,
-          code: err.code,
+          source: provider.source,
+          code,
         });
-        await updateQueueRowStatus(queueId, "error", { error_message: err.code });
-        return NextResponse.json({ error: err.message, code: err.code }, { status: 200 });
+        await updateQueueRowStatus(queueId, "error", { error_message: code });
+        return NextResponse.json({ error: (err as Error).message, code }, { status: 200 });
       }
       throw err;
     }
@@ -162,16 +166,18 @@ export async function POST(
     let extension: string;
     let originalName: string;
     try {
-      ({ buffer, extension, name: originalName } = await downloadDropboxAsset(row.dropbox_url));
+      ({ buffer, extension, name: originalName } = await provider.downloadSingleAsset(row.dropbox_url));
     } catch (err) {
-      if (err instanceof DropboxFetchError) {
-        console.error("[asset-queue/prepare] Dropbox fetch error", {
+      const code = sourceFetchErrorCode(err);
+      if (code) {
+        console.error("[asset-queue/prepare] source fetch error", {
           clientId,
           queueId,
-          code: err.code,
+          source: provider.source,
+          code,
         });
-        await updateQueueRowStatus(queueId, "error", { error_message: err.code });
-        return NextResponse.json({ error: err.message, code: err.code }, { status: 200 });
+        await updateQueueRowStatus(queueId, "error", { error_message: code });
+        return NextResponse.json({ error: (err as Error).message, code }, { status: 200 });
       }
       throw err;
     }
@@ -235,8 +241,7 @@ export async function POST(
     }
   }
 
-  // ── Load sheet config for defaults ────────────────────────────────────────
-  const config = await getAssetSheetConfig(clientId);
+  // ── Sheet config defaults (config already loaded above for source) ────────
   const ctaDefaults  = (config?.cta_defaults        ?? {}) as Record<string, string>;
   const copyTemplates = (config?.copy_templates       ?? {}) as Record<string, string>;
   const urlPattern   = (config?.destination_url_pattern ?? {}) as Record<string, string>;
@@ -296,7 +301,8 @@ export async function POST(
     clientId,
     queueId,
     fileCount: uploadedPaths.length,
-    isFolder: isDropboxFolderUrl(row.dropbox_url),
+    source: provider.source,
+    isFolder: provider.isFolderUrl(row.dropbox_url),
     funnel: row.funnel,
     fromFallback: generated.fromFallback,
   });
@@ -311,6 +317,18 @@ export async function POST(
     generatedUrl,
     fromFallback: generated.fromFallback,
   });
+}
+
+/**
+ * Returns the shared error `code` when `err` is a source-provider fetch error
+ * (Dropbox or Drive — identical code unions), or null otherwise. Lets the
+ * download branches map any provider error to a row status without logging URLs.
+ */
+function sourceFetchErrorCode(err: unknown): string | null {
+  if (err instanceof DropboxFetchError || err instanceof DriveFetchError) {
+    return err.code;
+  }
+  return null;
 }
 
 function mimeFor(ext: string): string {

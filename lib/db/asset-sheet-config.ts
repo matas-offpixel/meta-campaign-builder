@@ -13,6 +13,8 @@ export interface AssetSheetConfigRow {
   client_id: string;
   google_sheet_id: string;
   sheet_range: string;
+  /** Which cloud backs the asset queue for this client. See migration 128. */
+  source: "dropbox" | "drive";
   service_account_email: string | null;
   copy_templates: Record<string, string>;
   cta_defaults: Record<string, string>;

@@ -21,6 +21,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveArtworkChain } from "./chain.ts";
 import { getD2CEventCopy, getD2CConnectionCredentials } from "@/lib/db/d2c";
 import { findBirdMediaUrl } from "@/lib/d2c/bird/asset-resolver";
+import {
+  isDriveUrl,
+  isDriveFolderUrl,
+  parseFileId,
+  parseFolderId,
+  publicUrlFor,
+  listFolderRecursive,
+  mimeToExtension,
+} from "@/lib/clients/asset-queue/drive.ts";
 
 export { AssetUnresolvedError } from "./chain.ts";
 
@@ -42,13 +51,50 @@ function toPublicUrl(supabase: AnySupabaseClient, pathOrUrl: string): string {
   return data.publicUrl;
 }
 
-/** Step 1: explicit artwork on the event copy snapshot. */
+/**
+ * Step 1: explicit artwork on the event copy snapshot.
+ *
+ * If the stored artwork_url is a Google Drive link (Creative-thread Drive
+ * provider), it is not directly fetchable by downstream consumers (Meta, Bird,
+ * Mailchimp) — Drive downloads require an auth header. So we materialise it:
+ * download via the Drive provider → upload to the public 'event-artwork'
+ * Supabase Storage bucket → return the durable Supabase public URL. Non-Drive
+ * URLs (already-public artwork, prior storage URLs) are returned verbatim.
+ */
 async function fromEventCopy(
   supabase: AnySupabaseClient,
   eventId: string,
 ): Promise<string | null> {
   const copy = await getD2CEventCopy(supabase, eventId);
-  return copy?.artwork_url ?? null;
+  const artworkUrl = copy?.artwork_url ?? null;
+  if (!artworkUrl) return null;
+  if (isDriveUrl(artworkUrl)) return resolveDriveArtwork(artworkUrl);
+  return artworkUrl;
+}
+
+/**
+ * Materialises a Google Drive artwork URL into a durable Supabase Storage
+ * public URL. Handles both single-file (/file/d/…) and folder (/drive/folders/…)
+ * links — for folders, the first media file found is used.
+ */
+async function resolveDriveArtwork(driveUrl: string): Promise<string | null> {
+  let fileId = parseFileId(driveUrl);
+
+  if (!fileId && isDriveFolderUrl(driveUrl)) {
+    const folderId = parseFolderId(driveUrl);
+    if (folderId) {
+      for await (const entry of listFolderRecursive(folderId)) {
+        const ext = mimeToExtension(entry.mimeType, entry.name);
+        if (["mp4", "mov", "webm", "jpg", "jpeg", "png", "gif", "webp"].includes(ext)) {
+          fileId = entry.id;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!fileId) return null;
+  return publicUrlFor(fileId, { uploadToStorage: true });
 }
 
 /** Step 2: first uploaded asset-queue file for this event → public URL. */

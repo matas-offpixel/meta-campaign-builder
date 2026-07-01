@@ -3,6 +3,12 @@ import {
   resolveOrganiserDestinationUrl,
   resolveUniversalClientUrl,
 } from "./destination-url.ts";
+import {
+  type AssetSource,
+  type SourceProvider,
+  getSourceProvider,
+  detectSourceFromUrl,
+} from "./provider.ts";
 
 /** Default umbrella venue-wide copy when AI/funnel template is unavailable. */
 export const UMBRELLA_VENUE_WIDE_DEFAULT_COPY =
@@ -64,4 +70,25 @@ export function resolveQueueHandoffDestinationUrl(
   }
 
   return resolveOrganiserDestinationUrl(clientSlug, opts?.venueCity) ?? null;
+}
+
+// ─── Source dispatch ────────────────────────────────────────────────────────
+
+/**
+ * Picks the download provider for a queue row's asset URL.
+ *
+ * Resolution order:
+ *   1. explicit config source (client_asset_sheet_config.source) when supplied
+ *   2. URL sniffing (Drive vs Dropbox) as a fallback for mixed-source sheets
+ *
+ * Both providers share the SourceFile shape + error `code` union, so callers
+ * download without caring which cloud backs the row.
+ */
+export function resolveQueueSourceProvider(
+  row: Pick<AssetQueueRow, "dropbox_url">,
+  configSource?: AssetSource | null,
+): SourceProvider {
+  if (configSource) return getSourceProvider(configSource);
+  const url = row.dropbox_url ?? "";
+  return getSourceProvider(detectSourceFromUrl(url));
 }
