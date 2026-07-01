@@ -42,7 +42,14 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 function icon(outcome: string): string {
-  return { created: "✓", skipped_exists: "↷", dry_run: "○", publish_unsupported: "⚠", error: "✗" }[outcome] ?? "?";
+  return {
+    created: "✓",
+    created_activated: "🚀",
+    skipped_exists: "↷",
+    skipped_activated: "🚀",
+    dry_run: "○",
+    error: "✗",
+  }[outcome] ?? "?";
 }
 
 async function main() {
@@ -61,8 +68,9 @@ async function main() {
   for (const r of report.results) {
     const id = r.templateId ? ` id=${r.templateId}` : "";
     const st = r.status ? ` status=${r.status}` : "";
+    const pf = r.platformStatuses?.length ? ` meta=[${r.platformStatuses.join(",")}]` : "";
     const proj = r.projectId ? ` project=${r.projectId}${r.projectCreated ? "(new)" : ""}` : "";
-    console.log(`  ${icon(r.outcome)} ${r.name} [${r.locales.join(",")}] ${r.outcome}${id}${st}${proj}`);
+    console.log(`  ${icon(r.outcome)} ${r.name} [${r.locales.join(",")}] ${r.outcome}${id}${st}${pf}${proj}`);
     if (r.error) console.log(`      ${r.errorCode ?? ""}: ${r.error}`);
   }
 

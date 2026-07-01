@@ -21,6 +21,7 @@
  */
 
 import {
+  activateTemplate,
   createProject,
   createTemplate,
   findProjectByName,
@@ -34,9 +35,10 @@ import type { BrandTemplateDefinition } from "./types.ts";
 
 export type TemplateOutcome =
   | "created"
+  | "created_activated"
   | "skipped_exists"
+  | "skipped_activated"
   | "dry_run"
-  | "publish_unsupported"
   | "error";
 
 export interface TemplateResult {
@@ -48,6 +50,8 @@ export interface TemplateResult {
   projectCreated?: boolean;
   templateId?: string;
   status?: string;
+  /** Per-locale Meta approval statuses after activation (pending/active/…). */
+  platformStatuses?: string[];
   error?: string;
   errorCode?: string;
 }
@@ -144,17 +148,26 @@ export async function shipBrandTemplates(
         }
       }
 
-      // Idempotency: skip if the template already exists in its project.
+      // Idempotency: skip create if the template already exists in its project.
       const existing = await findTemplateByName(cfg, project.id, def.name);
       if (existing) {
-        results.push({
+        const res: TemplateResult = {
           ...base,
           outcome: "skipped_exists",
           projectId: project.id,
           projectCreated,
           templateId: existing.id,
           status: existing.status,
-        });
+        };
+        // If asked to submit, activate the existing draft (idempotent — a
+        // no-op if already pending/active).
+        if (opts.submit) {
+          const act = await activateTemplate(cfg, project.id, existing.id);
+          res.status = act.statusAfter;
+          res.platformStatuses = act.platformStatuses;
+          if (act.activated) res.outcome = "skipped_activated";
+        }
+        results.push(res);
         continue;
       }
 
@@ -168,10 +181,10 @@ export async function shipBrandTemplates(
         status: created.status,
       };
       if (opts.submit) {
-        result.outcome = "publish_unsupported";
-        result.error =
-          "Template created as draft; Meta submission is a separate Studio action not yet automatable (audit §U8). Submit in Bird Studio.";
-        result.errorCode = "BIRD_TPL_PUBLISH_UNSUPPORTED";
+        const act = await activateTemplate(cfg, project.id, created.id);
+        result.outcome = "created_activated";
+        result.status = act.statusAfter;
+        result.platformStatuses = act.platformStatuses;
       }
       results.push(result);
     } catch (e) {

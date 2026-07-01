@@ -59,9 +59,9 @@ const presale_reminder: BrandTemplateDefinition = {
   category: "MARKETING",
   locales: ["en", "es_ES"],
   body: {
-    en: "{{event_name}}: presale starts tomorrow at {{presale_time}}. For 30-minute early access, join the community below.",
+    en: "Reminder — {{event_name}} presale starts tomorrow at {{presale_time}}. For 30-minute early access, join the community below.",
     es_ES:
-      "{{event_name}}: la preventa empieza mañana a las {{presale_time}}. Para acceso anticipado 30 minutos antes, únete a la comunidad abajo.",
+      "Recordatorio — la preventa de {{event_name}} empieza mañana a las {{presale_time}}. Para acceso anticipado 30 minutos antes, únete a la comunidad abajo.",
   },
   footer: {
     en: "Reply STOP to unsubscribe.",

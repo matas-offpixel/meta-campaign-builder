@@ -151,6 +151,82 @@ export async function deleteTemplate(
   if (!res.ok) throw new BirdHttpError(res.status, await res.text());
 }
 
+/**
+ * The lifecycle state of a template, derived from its top-level `status` and
+ * per-locale `platformInfo` entries. `draft` = never submitted; anything else
+ * means it has already been sent to Meta at least once.
+ */
+export function templateActivationState(t: BirdTemplate): {
+  status: string;
+  submitted: boolean;
+  platformStatuses: string[];
+} {
+  const platformStatuses = Object.values(t.platformInfo ?? {})
+    .map((p) => p?.status)
+    .filter((s): s is string => typeof s === "string");
+  // Only Meta lifecycle states count as "submitted". `draft` and `inactive`
+  // are local, pre-submission states (a created-but-not-activated template),
+  // so they still need activation.
+  const SUBMITTED = new Set(["pending", "active", "rejected", "paused", "disabled"]);
+  const submitted =
+    SUBMITTED.has(t.status) || platformStatuses.some((s) => SUBMITTED.has(s));
+  return { status: t.status, submitted, platformStatuses };
+}
+
+export interface ActivateResult {
+  templateId: string;
+  activated: boolean;
+  skipped: boolean;
+  statusBefore: string;
+  statusAfter: string;
+  platformStatuses: string[];
+}
+
+/**
+ * Activate (publish → submit to Meta) a template. Verified endpoint:
+ * `PUT /workspaces/{wid}/projects/{pid}/channel-templates/{id}/activate`
+ * (empty body, AccessKey auth). Idempotent: GETs the template first and skips
+ * the PUT if it is already submitted (pending/active/rejected), so re-runs are
+ * safe and never re-submit to Meta.
+ */
+export async function activateTemplate(
+  cfg: BirdTemplateClientConfig,
+  projectId: string,
+  templateId: string,
+): Promise<ActivateResult> {
+  const before = await getTemplate(cfg, projectId, templateId);
+  const stateBefore = templateActivationState(before);
+  if (stateBefore.submitted) {
+    return {
+      templateId,
+      activated: false,
+      skipped: true,
+      statusBefore: stateBefore.status,
+      statusAfter: stateBefore.status,
+      platformStatuses: stateBefore.platformStatuses,
+    };
+  }
+
+  const res = await birdFetch(
+    cfg.apiKey,
+    `${ws(cfg)}/projects/${projectId}/channel-templates/${templateId}/activate`,
+    { method: "PUT", headers: { Accept: "application/json" } },
+  );
+  if (!res.ok) throw new BirdHttpError(res.status, await res.text());
+
+  // Re-read for the authoritative post-activation state.
+  const after = await getTemplate(cfg, projectId, templateId);
+  const stateAfter = templateActivationState(after);
+  return {
+    templateId,
+    activated: true,
+    skipped: false,
+    statusBefore: stateBefore.status,
+    statusAfter: stateAfter.status,
+    platformStatuses: stateAfter.platformStatuses,
+  };
+}
+
 /** Find a template in a project by its whatsappTemplateName. */
 export async function findTemplateByName(
   cfg: BirdTemplateClientConfig,
