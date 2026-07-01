@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 652
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/652
 - **Branch:** `d2c/full-send-orchestration` (worktree `~/worktrees/d2c-orchestration`)
 
 ## Summary
