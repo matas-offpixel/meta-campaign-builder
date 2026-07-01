@@ -57,7 +57,9 @@ const autoresp: BrandTemplateDefinition = {
   footer: { es_ES: "Responde STOP para darte de baja." },
   button: {
     text: { es_ES: "UNIRTE A LA COMUNIDAD" },
-    url: "https://chat.whatsapp.com/{{wa_community_invite}}",
+    // Static approved-domain redirect (Meta 2388081 fix) — see
+    // app/j/[invite]/route.ts. Variable name unchanged, URL prefix only.
+    url: "https://app.offpixel.co.uk/j/{{wa_community_invite}}",
   },
   variableDescriptions: VARIABLE_DESCRIPTIONS,
   variableExamples: {
@@ -81,7 +83,9 @@ const presale_reminder: BrandTemplateDefinition = {
   footer: { es_ES: "Responde STOP para darte de baja." },
   button: {
     text: { es_ES: "UNIRTE A LA COMUNIDAD" },
-    url: "https://chat.whatsapp.com/{{wa_community_invite}}",
+    // Static approved-domain redirect (Meta 2388081 fix) — see
+    // app/j/[invite]/route.ts. Variable name unchanged, URL prefix only.
+    url: "https://app.offpixel.co.uk/j/{{wa_community_invite}}",
   },
   variableDescriptions: VARIABLE_DESCRIPTIONS,
   variableExamples: {
