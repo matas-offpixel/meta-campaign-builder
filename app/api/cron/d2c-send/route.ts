@@ -13,6 +13,7 @@ import { BirdHttpError, isBirdAuthErrorStatus } from "@/lib/d2c/bird/client";
 import { getD2CProvider } from "@/lib/d2c/registry";
 import { resolveEventVariables } from "@/lib/d2c/event-variables";
 import { orchestrateJob, type OrchestrationInput } from "@/lib/d2c/orchestration";
+import { logDraftReady } from "@/lib/d2c/notifications/draft-ready";
 import type { D2CChannel, D2CConnection, D2CJobType, D2CMessage, D2CTemplate } from "@/lib/d2c/types";
 
 function isAuthorized(req: NextRequest): boolean {
@@ -286,6 +287,7 @@ export async function GET(req: NextRequest) {
             templateId: str(rowAudience.template_id) ?? "",
             templateStatus: str(rowAudience.template_status),
             channelId: str(rowAudience.channel_id),
+            locale: str(rowAudience.locale),
           },
         };
 
@@ -304,11 +306,15 @@ export async function GET(req: NextRequest) {
             resultJsonb: {
               orchestration: orch.plan,
               dryRun: true,
+              draftReady: orch.draftReady ?? false,
               error: "dry_run_invariant",
               hint: "FEATURE_D2C_LIVE and per-connection live flags must be on for cron sends.",
             },
           });
-          results.push({ id: sendId, outcome: "dry_run" });
+          results.push({
+            id: sendId,
+            outcome: orch.draftReady ? "dry_run_draft" : "dry_run",
+          });
           continue;
         }
         if (!orch.ok) {
@@ -317,6 +323,30 @@ export async function GET(req: NextRequest) {
             resultJsonb: { orchestration: orch.plan, error: orch.error ?? "orchestration_failed" },
           });
           results.push({ id: sendId, outcome: "failed_orchestration" });
+          continue;
+        }
+        // Review-first Bird broadcast: draft created, do NOT fire. Matas reviews.
+        if (orch.draftReady) {
+          await updateScheduledSendStatus(supabase, sendId, {
+            status: "draft_ready",
+            resultJsonb: {
+              orchestration: orch.plan,
+              birdCampaignId: orch.birdCampaignId,
+              birdBroadcastId: orch.birdBroadcastId,
+              editUrl: orch.birdCampaignEditUrl,
+            },
+            birdCampaignId: orch.birdCampaignId ?? null,
+            birdBroadcastId: orch.birdBroadcastId ?? null,
+            birdCampaignEditUrl: orch.birdCampaignEditUrl ?? null,
+            dryRun: false,
+          });
+          logDraftReady({
+            event_id: row.event_id as string,
+            job_type: jobType,
+            bird_campaign_id: orch.birdCampaignId ?? "",
+            edit_url: orch.birdCampaignEditUrl ?? "",
+          });
+          results.push({ id: sendId, outcome: "draft_ready" });
           continue;
         }
         await updateScheduledSendStatus(supabase, sendId, {

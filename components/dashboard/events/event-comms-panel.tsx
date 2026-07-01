@@ -43,6 +43,7 @@ const STATUS_LABELS: Record<D2CScheduledSendStatus, string> = {
   sent: "Sent",
   failed: "Failed",
   cancelled: "Cancelled",
+  draft_ready: "Draft ready for review",
 };
 
 const APPROVAL_LABELS: Record<D2CScheduledSendApprovalStatus, string> = {
