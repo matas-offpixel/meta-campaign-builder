@@ -5,9 +5,45 @@ brands. Turns declarative brand definitions into Bird-shaped drafts via a typed
 client + fluent builder, with a CLI and an admin API trigger.
 
 - **Code:** `lib/d2c/bird/templates/`
-- **CLI:** `scripts/d2c/ship-bird-templates.ts`
+- **CLI:** `scripts/d2c/ship-bird-templates.ts` (`--submit` activates), `scripts/d2c/delete-bird-template.ts`
 - **Admin route:** `POST /api/admin/d2c/bird-templates`
 - **Reverse-engineering audit (ground truth):** `docs/audits/D2C_BIRD_TEMPLATES_API_AUDIT_2026-06-30.md`
+
+---
+
+## Activate (publish → submit to Meta) — verified 2026-07-01
+
+Bird calls "publish" **activate**. The Studio UI's Publish button fires:
+
+```
+PUT /workspaces/{wid}/projects/{pid}/channel-templates/{templateId}/activate
+```
+
+- **Body:** empty. **Auth:** `AccessKey` (`BIRD_API_KEY`) — the SSO JWT in the
+  DevTools capture is a red herring.
+- On success the template is sent to Meta; `platformInfo[].status` moves
+  `draft`/`inactive` → **`pending`** → `active` (approved) or `rejected`.
+- Wired as `activateTemplate(cfg, projectId, templateId)` in
+  `lib/d2c/bird/templates/client.ts`. **Idempotent:** GETs first and only PUTs
+  when the template is `draft`/`inactive`; skips if already `pending`/`active`/
+  `rejected`. The CLI/admin `--submit` flag activates after create (and
+  activates existing drafts).
+
+**Two gotchas found while shipping the 5 production templates:**
+
+1. **Only `draft` templates can be activated.** A template stuck in `inactive`
+   (a created-but-abandoned state, distinct from `draft`) returns
+   `422 NotInDraft`. Fix: delete + recreate as a fresh draft
+   (`delete-bird-template.ts`), then activate. `templateActivationState()`
+   treats `draft` **and** `inactive` as activatable.
+2. **Meta content rule: a template body must not start with a variable.**
+   Bodies beginning with `{{event_name}}` return
+   `422 InvalidPayload … body should not start with a variable`. The two
+   `presale_reminder` bodies were reworded to lead with static text
+   (`Reminder —` / `Recordatorio —`). **Flagged for Matas to approve copy.**
+
+Recreating a template mints a **new** template id (idempotency is by
+`whatsappTemplateName` within its project, not by id).
 
 ---
 

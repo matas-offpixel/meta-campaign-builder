@@ -12,7 +12,8 @@ import { MailchimpHttpError, isMailchimpAuthErrorStatus } from "@/lib/d2c/mailch
 import { BirdHttpError, isBirdAuthErrorStatus } from "@/lib/d2c/bird/client";
 import { getD2CProvider } from "@/lib/d2c/registry";
 import { resolveEventVariables } from "@/lib/d2c/event-variables";
-import type { D2CChannel, D2CConnection, D2CMessage, D2CTemplate } from "@/lib/d2c/types";
+import { orchestrateJob, type OrchestrationInput } from "@/lib/d2c/orchestration";
+import type { D2CChannel, D2CConnection, D2CJobType, D2CMessage, D2CTemplate } from "@/lib/d2c/types";
 
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
@@ -247,6 +248,85 @@ export async function GET(req: NextRequest) {
           ),
         ),
       };
+
+      // ── Job-type-aware orchestration ────────────────────────────────────
+      // When the scheduling layer stamped a job_type AND supplied brand +
+      // event_code (in variables) we dispatch through the richer orchestration
+      // planner/executor. Rows without those refs fall back to the generic
+      // provider.send path below (legacy / template-only sends).
+      const jobType = (row.job_type as D2CJobType | null) ?? null;
+      const brand = mergedVars.brand ?? mergedVars.BRAND ?? "";
+      const eventCode = mergedVars.event_code ?? mergedVars.EVENT_CODE ?? "";
+      if (jobType && brand && eventCode) {
+        const rowAudience = (row.audience as Record<string, unknown>) ?? {};
+        const str = (v: unknown): string | undefined =>
+          typeof v === "string" && v.trim() ? v.trim() : undefined;
+        const orchInput: OrchestrationInput = {
+          jobType,
+          channel: template.channel,
+          brand,
+          eventCode,
+          connection: {
+            id: connection.id,
+            live_enabled: connection.live_enabled,
+            approved_by_matas: connection.approved_by_matas,
+          },
+          variables: mergedVars,
+          scheduleTimeIso: row.scheduled_for as string,
+          mailchimp: {
+            templateName: str(rowAudience.template_name) ?? template.name,
+            audienceName: str(rowAudience.audience_name),
+            listId: str(rowAudience.list_id),
+            fromName: str(rowAudience.from_name),
+            replyTo: str(rowAudience.reply_to),
+            subject: template.subject ?? undefined,
+          },
+          bird: {
+            projectId: str(rowAudience.project_id) ?? "",
+            templateId: str(rowAudience.template_id) ?? "",
+            templateStatus: str(rowAudience.template_status),
+            channelId: str(rowAudience.channel_id),
+          },
+        };
+
+        const mcApiKey = typeof creds.api_key === "string" ? creds.api_key : "";
+        const mcPrefix = typeof creds.server_prefix === "string" ? creds.server_prefix : "";
+        const birdKey = process.env.BIRD_API_KEY?.trim();
+        const birdWs = process.env.BIRD_WORKSPACE_ID?.trim() || "9c308f77-c5ed-44d3-9714-9da017c7536c";
+        const orch = await orchestrateJob(orchInput, {
+          mailchimp: mcApiKey && mcPrefix ? { serverPrefix: mcPrefix, apiKey: mcApiKey } : undefined,
+          bird: birdKey ? { apiKey: birdKey, workspaceId: birdWs } : undefined,
+        });
+
+        if (orch.dryRun) {
+          await updateScheduledSendStatus(supabase, sendId, {
+            status: "failed",
+            resultJsonb: {
+              orchestration: orch.plan,
+              dryRun: true,
+              error: "dry_run_invariant",
+              hint: "FEATURE_D2C_LIVE and per-connection live flags must be on for cron sends.",
+            },
+          });
+          results.push({ id: sendId, outcome: "dry_run" });
+          continue;
+        }
+        if (!orch.ok) {
+          await updateScheduledSendStatus(supabase, sendId, {
+            status: "failed",
+            resultJsonb: { orchestration: orch.plan, error: orch.error ?? "orchestration_failed" },
+          });
+          results.push({ id: sendId, outcome: "failed_orchestration" });
+          continue;
+        }
+        await updateScheduledSendStatus(supabase, sendId, {
+          status: "sent",
+          resultJsonb: { orchestration: orch.plan, providerJobId: orch.providerJobId },
+          dryRun: false,
+        });
+        results.push({ id: sendId, outcome: "sent" });
+        continue;
+      }
 
       const audience = {
         ...(row.audience as Record<string, unknown>),
