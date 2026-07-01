@@ -52,6 +52,13 @@ const PUBLIC_PREFIXES: readonly string[] = [
   // WhatsApp template buttons (Meta subcode 2388081 fix). Validates the
   // invite code itself before redirecting; carries no user data.
   "/j/",
+  // `/l/{clientSlug}/{eventSlug}` — public event landing pages (migration
+  // 132, landing-page arc PR 1). The route resolves the slug chain via the
+  // service-role client and 404s on any unknown link in the chain; only
+  // public-safe display fields are ever selected (see
+  // lib/db/landing-pages.ts). Trailing slash matters — a bare "/l" prefix
+  // would also match /login.
+  "/l/",
 ];
 
 /**
