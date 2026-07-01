@@ -58,6 +58,7 @@ export default async function D2CEventPage({ params }: Props) {
             artworkUrl={copy?.artwork_url ?? null}
             initialCommunityUrl={copy?.whatsapp_community_url ?? null}
             initialSends={sends}
+            copyBundle={copy?.copy_jsonb ?? {}}
             canApprove={canApprove}
           />
         </div>
