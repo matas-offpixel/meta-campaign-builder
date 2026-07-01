@@ -11,6 +11,7 @@ import {
   Rocket,
   LayoutDashboard,
   Sparkles,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KindBadge } from "@/components/dashboard/_shared/kind-badge";
@@ -675,6 +676,27 @@ export function ClientDetail({
 
           <TabPanel active={activeTab === "d2c"}>
             <div className="space-y-6">
+              <section className="rounded-md border border-border bg-card p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-heading text-base tracking-wide">
+                      Brief ingest
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Upload an event brief to create a fully scheduled
+                      multi-channel campaign.
+                    </p>
+                  </div>
+                  <Link
+                    href={`/d2c/brief-ingest?client_id=${encodeURIComponent(client.id)}`}
+                  >
+                    <Button size="sm">
+                      <Upload className="h-4 w-4" />
+                      Upload new brief
+                    </Button>
+                  </Link>
+                </div>
+              </section>
               <D2CTemplateEditor
                 clientId={client.id}
                 initialTemplates={d2cTemplates}
