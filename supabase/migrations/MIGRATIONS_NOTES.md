@@ -12,6 +12,11 @@ Migrations **021**, **043**, and **047** are missing. These are intentional gaps
 rolled-back early-development attempts. They are preserved as a historical record.
 **Do NOT renumber** existing migrations to fill these gaps.
 
+Migration **131** (`131_enable_pgcrypto_for_d2c_credentials`, prod timestamp
+`20260701223108`) exists **only in the prod ledger** — it was applied directly
+via the Supabase MCP on 2026-07-01 to enable pgcrypto in the `extensions`
+schema and has no repo file. Do not reuse the number.
+
 ## 068a–e collision resolution (May 2026)
 
 Five migration files previously had numeric collisions at prefixes `068` and `069`.
