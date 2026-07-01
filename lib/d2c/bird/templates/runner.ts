@@ -119,6 +119,10 @@ export async function shipBrandTemplates(
       const payload = buildTemplatePayload(def, {
         channelGroupIds: cg ? [cg] : undefined,
         onlyLocales: opts.locales,
+        // Enable Bird link-shortening so click-through tracking works. Without
+        // this, shortLinks.enabled defaults false and Bird leaves URLs raw
+        // (link tracking disabled — capture §F, jackies_autoresp regression).
+        shortLinks: true,
       });
 
       if (dryRun) {
@@ -144,7 +148,11 @@ export async function shipBrandTemplates(
           // rebuild with the resolved channel group
           Object.assign(
             payload,
-            buildTemplatePayload(def, { channelGroupIds: [cg], onlyLocales: opts.locales }),
+            buildTemplatePayload(def, {
+              channelGroupIds: [cg],
+              onlyLocales: opts.locales,
+              shortLinks: true,
+            }),
           );
         }
       }

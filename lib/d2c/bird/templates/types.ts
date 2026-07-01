@@ -143,6 +143,17 @@ export interface BrandTemplateDefinition {
   /** whatsappTemplateName (Meta-visible, snake_case). */
   name: string;
   category: WhatsAppCategory;
+  /**
+   * Bird template **project** id (stable). Resolved after creation; needed by
+   * the broadcast-campaign flow's `content.channelTemplate.projectId`. Hydrate
+   * via `scripts/hydrate-bird-template-ids.mjs`.
+   */
+  projectId?: string;
+  /**
+   * Bird template **version** id — bumps on every template edit. Maps to
+   * `content.channelTemplate.projectVersionId`. Hydrate alongside `projectId`.
+   */
+  projectVersionId?: string;
   /** Locales this template ships in, in `defaultLocale`-first order. */
   locales: LocaleId[];
   /** Per-locale body text; may contain `{{var}}` tokens. */

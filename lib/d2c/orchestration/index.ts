@@ -125,6 +125,7 @@ export interface OrchestrationResult {
   /** Set for review-first Bird broadcasts: a draft campaign was (or would be) created. */
   draftReady?: boolean;
   birdCampaignId?: string | null;
+  birdBroadcastId?: string | null;
   birdCampaignEditUrl?: string | null;
   error?: string;
 }
@@ -269,16 +270,17 @@ export async function orchestrateJob(
     if (isDraftReview) {
       const { createDraftCampaign } = await import("../bird/campaigns/client.ts");
       const name = draftCampaignName(input.eventCode, input.jobType, input.scheduleTimeIso);
+      // Recipients are intentionally omitted: a Mailchimp-style signup tag is not
+      // a valid Bird group/list UUID, so Matas selects the audience(s) in the UI.
       const draft = await createDraftCampaign({
         apiKey: deps.bird.apiKey,
         workspaceId: deps.bird.workspaceId,
         channelId: input.bird?.channelId ?? "",
         projectId: input.bird?.projectId ?? "",
-        templateId: input.bird?.templateId ?? "",
+        projectVersionId: input.bird?.templateId ?? "",
         name,
-        locale: input.bird?.locale ?? "en",
+        defaultLocale: input.bird?.locale ?? "en",
         variables: input.variables,
-        recipients: { tag: plan.tag },
       });
       return {
         ok: true,
@@ -288,7 +290,8 @@ export async function orchestrateJob(
         tag: plan.tag,
         plan,
         draftReady: true,
-        birdCampaignId: draft.id,
+        birdCampaignId: draft.campaignId,
+        birdBroadcastId: draft.broadcastId,
         birdCampaignEditUrl: draft.editUrl,
       };
     }

@@ -67,6 +67,7 @@ function mapD2CScheduledSend(raw: Record<string, unknown>): D2CScheduledSend {
     job_type: (raw.job_type as D2CJobType | null) ?? null,
     idempotency_key: (raw.idempotency_key as string | null) ?? null,
     bird_campaign_id: (raw.bird_campaign_id as string | null) ?? null,
+    bird_broadcast_id: (raw.bird_broadcast_id as string | null) ?? null,
     bird_campaign_edit_url: (raw.bird_campaign_edit_url as string | null) ?? null,
     created_at: raw.created_at as string,
     updated_at: raw.updated_at as string,
@@ -498,6 +499,7 @@ export async function updateScheduledSendStatus(
     approvedBy?: string | null;
     approvedAt?: string | null;
     birdCampaignId?: string | null;
+    birdBroadcastId?: string | null;
     birdCampaignEditUrl?: string | null;
   },
 ): Promise<D2CScheduledSend | null> {
@@ -514,6 +516,8 @@ export async function updateScheduledSendStatus(
   if (patch.approvedAt !== undefined) update.approved_at = patch.approvedAt;
   if (patch.birdCampaignId !== undefined)
     update.bird_campaign_id = patch.birdCampaignId;
+  if (patch.birdBroadcastId !== undefined)
+    update.bird_broadcast_id = patch.birdBroadcastId;
   if (patch.birdCampaignEditUrl !== undefined)
     update.bird_campaign_edit_url = patch.birdCampaignEditUrl;
   const { data, error } = await sb

@@ -90,31 +90,55 @@ stats back into the dashboard — Bird is the source of truth for a fired
 broadcast, and the dashboard row's job is only to get Matas to the right Bird
 campaign.
 
+## Bird create flow (VERIFIED — nested three-call sequence)
+
+Reconciled against `.scratch/bird-campaign-draft-capture.txt` (2026-07-01).
+Creating a draft campaign is **not** one flat POST — it's a nested sequence
+(`lib/d2c/bird/campaigns/client.ts`, `DRAFT_CAMPAIGN_VERIFIED = true`):
+
+1. `POST /workspaces/{wid}/campaigns` → `{ id: campaignId }` (outer envelope).
+2. `POST /workspaces/{wid}/campaigns/{cid}/broadcasts` → `{ id: broadcastId }`
+   (child; returns the default `schedule` we preserve).
+3. `PATCH /workspaces/{wid}/campaigns/{cid}/broadcasts/{bid}` → the full config
+   body (`buildBroadcastPatch`), mirroring the captured configured-broadcast
+   response minus server-computed fields (`_issues` / `counters` / `changelog`
+   / `id` / `createdAt` / `updatedAt`).
+
+Content is a `channel_template`:
+
+```
+content.channelTemplate = { projectId, projectVersionId, defaultLocale, variables: { <key>: <value>, … } }
+```
+
+Every template variable must be present or Bird returns `_issues`. Recipients
+use typed refs `{ type: "group" | "list", id }` (NOT flat tag strings) plus
+`capFrequency` + `holdoutPercentage`. Auth is the server AccessKey
+(`BIRD_API_KEY`) — the capture confirms `editorType:"accesskey"` on our
+resources, so it routes identically to the SPA's Bearer JWT.
+
+Recipients are **omitted** by our orchestration (a Mailchimp-style signup tag is
+not a valid Bird group/list UUID), so the draft opens with an empty recipient
+list and Matas selects the audience(s) in the UI — which is the whole point of
+the review step.
+
+## Template ids (registry)
+
+The broadcast content needs both a stable `projectId` and a version-bumping
+`projectVersionId` per template. Brand definitions
+(`lib/d2c/bird/templates/definitions/*`) carry both fields; hydrate them with
+`BIRD_API_KEY=… node scripts/hydrate-bird-template-ids.mjs` (re-run after any
+template edit, since `projectVersionId` changes).
+
 ## Data model
 
 Migration `129_d2c_bird_draft_campaigns.sql`:
 
 - `d2c_scheduled_sends.status` CHECK gains `'draft_ready'`.
-- `d2c_scheduled_sends.bird_campaign_id text` — Bird campaign resource id.
-- `d2c_scheduled_sends.bird_campaign_edit_url text` — Bird Studio deep link.
+- `d2c_scheduled_sends.bird_campaign_id text` — Bird campaign envelope id.
+- `d2c_scheduled_sends.bird_campaign_edit_url text` — `https://app.bird.com/workspaces/{wid}/campaigns/{cid}` review deep link.
 
-## ⚠️ Unverified endpoint (maintenance note)
+Migration `130_bird_broadcast_id.sql`:
 
-The prompt referenced `.scratch/bird-campaign-draft-capture.txt` as ground
-truth for the "Create campaign draft" POST, but that capture file was **not
-present** in the repo. `lib/d2c/bird/campaigns/client.ts` therefore uses a
-best-effort endpoint (`POST /workspaces/{wid}/campaigns`) and payload shape
-derived from Bird's known Studio internal-API conventions, guarded by the
-`DRAFT_CAMPAIGN_VERIFIED = false` flag.
-
-This is safe today because live draft creation only runs under the 3-of-3 gate,
-which is off (`FEATURE_D2C_LIVE` unset). **Before flipping the gate live**,
-capture a real "Create campaign draft" request from Bird DevTools and reconcile:
-
-- `campaignsPath()` (create + list URL),
-- `buildDraftPayload()` (body shape),
-- `birdCampaignEditUrl()` (Studio deep-link format),
-- the list-by-name envelope key in `listCampaigns()`,
-
-then set `DRAFT_CAMPAIGN_VERIFIED = true`. Every non-2xx already logs the full
-request + response body.
+- `d2c_scheduled_sends.bird_broadcast_id text` — Bird broadcast child id
+  (nested under `bird_campaign_id`; addressable for reporting via
+  `GET …/broadcasts/{bid}?expand=counters_subscribed`).

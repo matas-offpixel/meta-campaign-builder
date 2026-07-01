@@ -49,6 +49,11 @@ const presale_live: BrandTemplateDefinition = {
 const autoresp: BrandTemplateDefinition = {
   name: "jackies_autoresp",
   category: "UTILITY",
+  // Hydrated from the DevTools capture (§5 TEMPLATE PROJECT GET RESPONSE,
+  // 2026-07-01). projectVersionId bumps whenever the template is re-edited —
+  // re-run scripts/hydrate-bird-template-ids.mjs after any template change.
+  projectId: "53b26928-1df2-4d7a-a40a-8a92abc44429",
+  projectVersionId: "7f913243-a9ca-4485-b0bd-0e4c13302375",
   locales: ["es_ES"],
   body: {
     es_ES:

@@ -332,9 +332,11 @@ export async function GET(req: NextRequest) {
             resultJsonb: {
               orchestration: orch.plan,
               birdCampaignId: orch.birdCampaignId,
+              birdBroadcastId: orch.birdBroadcastId,
               editUrl: orch.birdCampaignEditUrl,
             },
             birdCampaignId: orch.birdCampaignId ?? null,
+            birdBroadcastId: orch.birdBroadcastId ?? null,
             birdCampaignEditUrl: orch.birdCampaignEditUrl ?? null,
             dryRun: false,
           });

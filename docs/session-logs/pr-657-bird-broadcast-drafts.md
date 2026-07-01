@@ -49,11 +49,19 @@ proof-tests and fires manually in the Bird UI. Low-blast personalised sends
 
 ## Notes
 
-- **Blocker / maintenance:** the prompt's `.scratch/bird-campaign-draft-capture.txt`
-  ground-truth capture was **not present** in the repo. `createDraftCampaign`
-  uses a best-effort endpoint (`POST /workspaces/{wid}/campaigns`) + payload,
-  guarded by `DRAFT_CAMPAIGN_VERIFIED = false`. Safe because live creation only
-  runs under the (off) 3-of-3 gate. Capture a real request and reconcile
-  `campaignsPath` / `buildDraftPayload` / `birdCampaignEditUrl` before going live.
+- **Endpoint reconciled (2026-07-01):** the `.scratch/bird-campaign-draft-capture.txt`
+  ground-truth capture landed. Cursor's original flat `POST /campaigns` guess was
+  wrong — the real create flow is a **nested three-call sequence** (POST campaign
+  → POST broadcast → PATCH broadcast config). `createDraftCampaign` was rewritten
+  accordingly, `DRAFT_CAMPAIGN_VERIFIED` flipped to `true`, and a PATCH-shape test
+  now asserts equality with the captured configured broadcast (minus computed
+  fields). Migration 130 adds `bird_broadcast_id`; template registry gained
+  `projectId` + `projectVersionId` (hydrate via
+  `scripts/hydrate-bird-template-ids.mjs`); template submission now sets
+  `shortLinks.enabled=true` (capture §F link-tracking fix).
+- Recipients are omitted at draft creation (a Mailchimp tag is not a Bird
+  group/list UUID) — Matas picks the audience in the Bird UI.
 - Draft-review jobs intentionally skip the template-`active` check (Matas fires
   manually after review); direct-fire jobs still refuse non-active templates.
+- Not merged: Matas verifies with one live cron dry-run (campaign + broadcast +
+  PATCH triple appearing in the JACKIES workspace) before merge.

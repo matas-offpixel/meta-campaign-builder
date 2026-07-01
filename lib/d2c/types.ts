@@ -114,6 +114,8 @@ export interface D2CScheduledSend {
   idempotency_key: string | null;
   /** Bird draft campaign id (draft_ready broadcast sends only). */
   bird_campaign_id: string | null;
+  /** Bird broadcast child id nested under bird_campaign_id (draft_ready only). */
+  bird_broadcast_id: string | null;
   /** Deep link into Bird Studio to review/fire the draft campaign. */
   bird_campaign_edit_url: string | null;
   created_at: string;
