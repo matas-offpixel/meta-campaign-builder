@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 656
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/656
 - **Branch:** `d2c/wa-community-button-redirect`
 
 ## Summary
