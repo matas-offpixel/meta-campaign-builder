@@ -26,7 +26,9 @@ export type D2CScheduledSendStatus =
   | "scheduled"
   | "sent"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  // Bird broadcast draft created; awaiting Matas review + manual fire in Bird UI.
+  | "draft_ready";
 
 export type D2CScheduledSendApprovalStatus =
   | "pending_approval"
@@ -110,6 +112,10 @@ export interface D2CScheduledSend {
   approved_at: string | null;
   job_type: D2CJobType | null;
   idempotency_key: string | null;
+  /** Bird draft campaign id (draft_ready broadcast sends only). */
+  bird_campaign_id: string | null;
+  /** Deep link into Bird Studio to review/fire the draft campaign. */
+  bird_campaign_edit_url: string | null;
   created_at: string;
   updated_at: string;
 }

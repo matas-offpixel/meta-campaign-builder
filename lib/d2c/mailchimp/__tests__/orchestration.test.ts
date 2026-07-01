@@ -72,12 +72,22 @@ test("fake Jackies event: 6 job types dispatch as dry-run (no live flags)", asyn
   }
 });
 
-test("whatsapp variants (Bird) for reminder/presale_live/autoresp_setup also dry-run", async () => {
-  for (const jt of ["reminder", "presale_live", "autoresp_setup"] as D2CJobType[]) {
+test("whatsapp Bird broadcast pivot: reminder/presale_live draft, autoresp direct — all dry-run", async () => {
+  // Broadcast pivot: announce/reminder/presale_live/gen_sale → review draft;
+  // autoresp_setup/community_early → direct message.
+  for (const jt of ["reminder", "presale_live"] as D2CJobType[]) {
     const res = await orchestrateJob(inputFor(jt, "whatsapp"), {});
     assert.equal(res.provider, "bird");
     assert.equal(res.dryRun, true);
-    assert.equal(res.plan.action, "message");
+    assert.equal(res.plan.action, "draft_campaign", `${jt} → draft`);
+    assert.equal(res.draftReady, true, `${jt} draftReady`);
+  }
+  for (const jt of ["autoresp_setup", "community_early"] as D2CJobType[]) {
+    const res = await orchestrateJob(inputFor(jt, "whatsapp"), {});
+    assert.equal(res.provider, "bird");
+    assert.equal(res.dryRun, true);
+    assert.equal(res.plan.action, "message", `${jt} → direct message`);
+    assert.ok(!res.draftReady, `${jt} not draftReady`);
   }
 });
 
@@ -104,7 +114,9 @@ test("live send refuses a non-active Bird template (fails loudly, not silently)"
   const prev = process.env.FEATURE_D2C_LIVE;
   process.env.FEATURE_D2C_LIVE = "true";
   try {
-    const input = inputFor("presale_live", "whatsapp");
+    // Use a direct-fire job (autoresp_setup) — draft-review jobs skip the
+    // active-check because Matas fires them manually after review.
+    const input = inputFor("autoresp_setup", "whatsapp");
     input.connection = { id: "c", live_enabled: true, approved_by_matas: true };
     input.bird!.templateStatus = "pending"; // not active
     const res = await orchestrateJob(input, { bird: { apiKey: "k", workspaceId: "w" } });
