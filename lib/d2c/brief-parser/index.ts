@@ -89,11 +89,29 @@ export interface ParseBriefDeps {
   model?: string;
   /** Already-extracted text instead of a PDF (manual path). */
   briefText?: string;
+  /**
+   * Reference "now" used for the system-prompt date injection and the
+   * post-parse year-inference guard (see `applyYearInferenceGuard`).
+   * Defaults to `new Date()`. Exposed for deterministic unit tests.
+   */
+  now?: Date;
 }
 
-const SYSTEM_PROMPT = `You are an expert event-marketing operator. You read a single event brief (PDF or text) for a live music / club / sports event and extract a precise, structured campaign specification.
+/**
+ * Builds the system prompt with today's date injected explicitly. Anthropic
+ * models are biased toward their training-data year when a brief's dates are
+ * ambiguous or partial — the Jackies Mallorca live trial (2026-06) surfaced
+ * every extracted date coming back stamped 2025. Telling the model the actual
+ * current date, plus an explicit future-bias rule, fixes this at the source;
+ * `applyYearInferenceGuard` is the deterministic backstop in case the model
+ * still gets it wrong.
+ */
+function buildSystemPrompt(todayIso: string): string {
+  return `You are an expert event-marketing operator. You read a single event brief (PDF or text) for a live music / club / sports event and extract a precise, structured campaign specification.
 
 Return your answer ONLY by calling the ${TOOL_NAME} tool. Do not write prose.
+
+Today is ${todayIso}. Assume dates in the brief refer to future events. If a date has no year, use the current or next year such that the event date is in the future.
 
 Rules:
 - All timestamps MUST be full ISO-8601 with timezone offset or Z (e.g. 2026-09-01T10:00:00Z). If the brief gives a local time, convert using the venue's IANA timezone.
@@ -102,6 +120,7 @@ Rules:
 - For community_early copy, include the literal token {{community_url}} where the WhatsApp community link should appear — an operator pastes it before sending.
 - Always substitute these tokens where natural: {{event_name}}, {{ticket_url}}, {{venue_name}}, {{city}}, {{presale_start_at_local}}, {{general_sale_at_local}}.
 - Provide copy for all six milestones: announce, reminder, community_early, presale_live, gen_sale, autoresp_setup.`;
+}
 
 function buildTool() {
   const copyBlock = {
@@ -242,6 +261,101 @@ function validateEvent(event: BriefEventInsert): void {
   }
 }
 
+// ─── Year-inference guard ───────────────────────────────────────────────────
+//
+// Deterministic backstop for the system-prompt date instructions above: if the
+// model still returns a timestamp that lies more than a day in the past, we
+// roll its year forward (repeatedly, in case the model is off by more than
+// one year) until the date is in the future, and log a warning tagged
+// `[d2c brief parser] year_rolled_forward` so bad extractions are visible in
+// prod logs without silently corrupting the schedule.
+
+/** Event fields the model returns as date/datetime strings. */
+type DateFieldKey =
+  | "event_date"
+  | "event_start_at"
+  | "announcement_at"
+  | "signup_launch_at"
+  | "presale_at"
+  | "general_sale_at";
+
+const DATE_FIELDS: readonly DateFieldKey[] = [
+  "event_date",
+  "event_start_at",
+  "announcement_at",
+  "signup_launch_at",
+  "presale_at",
+  "general_sale_at",
+];
+
+/** More than this far in the past counts as "wrong year", per spec. */
+const PAST_TOLERANCE_MS = 24 * 60 * 60 * 1000; // 1 day
+
+/** Safety cap so a malformed date can never loop forever. */
+const MAX_YEAR_ROLLS = 20;
+
+/**
+ * If `value` (a "YYYY-MM-DD..." date or full ISO-8601 timestamp) lies more
+ * than 1 day in the past relative to `now`, increments its leading year until
+ * it is no longer in the past. Non-date-shaped or unparseable strings are
+ * returned unchanged.
+ */
+function rollYearForwardIfPast(
+  value: string,
+  now: Date,
+): { value: string; rolled: boolean } {
+  const match = value.match(/^(\d{4})(-\d{2}-\d{2}.*)$/);
+  if (!match) return { value, rolled: false };
+
+  let year = Number(match[1]);
+  const rest = match[2];
+  let dt = new Date(`${year}${rest}`);
+  if (Number.isNaN(dt.getTime())) return { value, rolled: false };
+
+  let rolled = false;
+  let iterations = 0;
+  while (
+    dt.getTime() < now.getTime() - PAST_TOLERANCE_MS &&
+    iterations < MAX_YEAR_ROLLS
+  ) {
+    year += 1;
+    dt = new Date(`${year}${rest}`);
+    rolled = true;
+    iterations += 1;
+  }
+
+  return { value: rolled ? `${year}${rest}` : value, rolled };
+}
+
+/**
+ * Post-process validator: rolls any past-dated field on the parsed event
+ * forward to the future, logging `[d2c brief parser] year_rolled_forward` for
+ * each field it touches. Runs after `validateEvent` (so required/invalid-date
+ * checks have already passed) and before schedule derivation, so
+ * `computeSchedule` always sees corrected dates.
+ */
+function applyYearInferenceGuard(
+  event: BriefEventInsert,
+  now: Date,
+): BriefEventInsert {
+  const corrected: BriefEventInsert = { ...event };
+  for (const field of DATE_FIELDS) {
+    const raw = corrected[field];
+    if (typeof raw !== "string" || !raw) continue;
+
+    const { value, rolled } = rollYearForwardIfPast(raw, now);
+    if (rolled) {
+      console.warn("[d2c brief parser] year_rolled_forward", {
+        field,
+        from: raw,
+        to: value,
+      });
+      corrected[field] = value;
+    }
+  }
+  return corrected;
+}
+
 function buildScheduledSends(
   event: BriefEventInsert,
   copy: Record<string, D2CRenderedCopyBlock>,
@@ -279,12 +393,14 @@ export async function parseBrief(
 ): Promise<BriefParseResult> {
   const anthropic = deps.anthropic ?? (await defaultAnthropic());
   const model = deps.model ?? BRIEF_PARSER_MODEL;
+  const now = deps.now ?? new Date();
+  const todayIso = now.toISOString().slice(0, 10);
 
   const response = await anthropic.messages.create({
     model,
     max_tokens: 4096,
     temperature: 0,
-    system: SYSTEM_PROMPT,
+    system: buildSystemPrompt(todayIso),
     tools: [buildTool()],
     tool_choice: { type: "tool", name: TOOL_NAME },
     messages: [
@@ -296,8 +412,8 @@ export async function parseBrief(
   });
 
   const output = extractToolInput(response.content);
-  const event = output.event;
-  validateEvent(event);
+  validateEvent(output.event);
+  const event = applyYearInferenceGuard(output.event, now);
 
   const { sends, bundle } = buildScheduledSends(event, output.copy ?? {});
 
