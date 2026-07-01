@@ -99,22 +99,48 @@ test("gate 3: approved_by_matas off → dry run, no fetch", async () => {
   assert.equal(calls, 0);
 });
 
-test("all three gates pass → live POST to Bird messages endpoint", async () => {
+test("all gates pass but WhatsApp runtime unverified → loud-fail, no fetch", async () => {
+  // Layers 6 & 9 (2026-07-01 incident): the live WhatsApp shape 422'd and is
+  // gated behind BIRD_RUNTIME_SEND_VERIFIED until the runtime-send capture
+  // lands. A live whatsapp send must NOT hit the wire until then.
+  process.env.FEATURE_D2C_LIVE = "true";
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response(JSON.stringify({ id: "msg-1" }), { status: 200 });
+  };
+
+  const r = await new BirdProvider().send(baseConnection(), sampleMessage());
+  assert.equal(r.dryRun, false);
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? "", /BIRD_RUNTIME_UNVERIFIED/);
+  assert.equal(calls, 0, "must not hit the Bird API while unverified");
+});
+
+test("gate is WhatsApp-scoped: live SMS still POSTs to the messages endpoint", async () => {
   process.env.FEATURE_D2C_LIVE = "true";
   const urls: string[] = [];
   globalThis.fetch = async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
     if (url.includes("/messages")) {
-      return new Response(JSON.stringify({ id: "msg-1" }), { status: 200 });
+      return new Response(JSON.stringify({ id: "sms-1" }), { status: 200 });
     }
     return new Response("not found", { status: 404 });
   };
 
-  const r = await new BirdProvider().send(baseConnection(), sampleMessage());
+  const smsMessage: D2CMessage = {
+    channel: "sms",
+    subject: null,
+    bodyMarkdown: "Hi {{event_name}}",
+    audience: { recipients: ["+447700900000"] },
+    variables: { event_name: "Jackies" },
+    correlationId: "sms-send-1",
+  };
+  const r = await new BirdProvider().send(baseConnection(), smsMessage);
   assert.equal(r.dryRun, false);
   assert.equal(r.ok, true);
-  assert.equal(r.providerJobId, "msg-1");
+  assert.equal(r.providerJobId, "sms-1");
   assert.ok(
     urls.some((u) => u.includes("/workspaces/ws-1/channels/ch-1/messages")),
   );

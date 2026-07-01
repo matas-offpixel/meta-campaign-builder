@@ -7,7 +7,12 @@
  *   1. d2c_event_copy.artwork_url (operator override / prior resolution)
  *   2. Asset queue → Supabase Storage public URL (existing infra)
  *   3. Bird Media Library auto-discovery
- *   4. throw AssetUnresolvedError
+ *   4. clients.d2c_fallback_artwork_url (per-client placeholder, migration 133)
+ *   5. throw AssetUnresolvedError
+ *
+ * After a successful resolution from any step BEYOND step 1, the URL is written
+ * back to d2c_event_copy.artwork_url so subsequent sends skip the chain (layer
+ * 8 of the 2026-07-01 direct-fire incident — see docs/D2C_LIVE_FIRE_RUNBOOK.md).
  *
  * Depends on the Creative thread's Drive integration only indirectly: the
  * asset queue already abstracts the source cloud, so this gracefully no-ops
@@ -19,7 +24,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveArtworkChain } from "./chain.ts";
-import { getD2CEventCopy, getD2CConnectionCredentials } from "@/lib/db/d2c";
+import {
+  getD2CEventCopy,
+  getD2CConnectionCredentials,
+  updateD2CEventCopyFields,
+} from "@/lib/db/d2c";
 import { findBirdMediaUrl } from "@/lib/d2c/bird/asset-resolver";
 import {
   isDriveUrl,
@@ -152,7 +161,31 @@ async function fromBirdMedia(
 }
 
 /**
+ * Step 4: per-client fallback placeholder (migration 133). Last resort before
+ * throwing — degrades a missing per-event poster to a brand-safe image so a
+ * required `event_artwork_url` template variable never resolves empty.
+ */
+async function fromClientFallback(
+  supabase: AnySupabaseClient,
+  clientId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("clients")
+    .select("d2c_fallback_artwork_url")
+    .eq("id", clientId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const url = (data as { d2c_fallback_artwork_url: string | null })
+    .d2c_fallback_artwork_url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
+/**
  * Resolves a usable artwork URL for an event, or throws AssetUnresolvedError.
+ *
+ * On resolution from any step beyond the event-copy snapshot, the URL is
+ * persisted back to d2c_event_copy.artwork_url (best-effort) so later sends
+ * short-circuit at step 1 and don't re-run the chain.
  */
 export async function resolveEventArtwork(
   supabase: AnySupabaseClient,
@@ -164,9 +197,32 @@ export async function resolveEventArtwork(
     .join(" ")
     .trim();
 
-  return resolveArtworkChain(eventId, [
+  // Snapshot the pre-existing copy artwork so we only write back when the
+  // resolved URL actually differs (avoids a redundant UPDATE on the common
+  // step-1 hit).
+  const existing = await getD2CEventCopy(supabase, eventId);
+  const existingArtwork = existing?.artwork_url ?? null;
+
+  const resolved = await resolveArtworkChain(eventId, [
     () => fromEventCopy(supabase, eventId),
     () => fromAssetQueue(supabase, eventId),
     () => fromBirdMedia(supabase, options.clientId, hint),
+    () => fromClientFallback(supabase, options.clientId),
   ]);
+
+  if (resolved && resolved !== existingArtwork) {
+    try {
+      await updateD2CEventCopyFields(supabase, eventId, {
+        artworkUrl: resolved,
+      });
+    } catch (e) {
+      // Never let a write-back failure block a successful resolution.
+      console.warn(
+        "[resolveEventArtwork] write-back failed",
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+
+  return resolved;
 }
