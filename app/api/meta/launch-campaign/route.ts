@@ -58,6 +58,7 @@ import {
   invertAssignments,
   validateCreativePayload,
   sanitizeCreativeForStrictMode,
+  creativeTriggersVariationRotation,
 } from "@/lib/meta/creative";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
@@ -392,6 +393,81 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     enabledAdSets: enabledSets.length,
     creatives: draft.creatives.length,
   });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Dynamic Creative planning (variation rotation) — runs before any Meta call
+  //
+  // A creative with N variations (Single mode) is built as a Dynamic-Creative
+  // asset_feed_spec (see buildVariationRotationCreative). Meta only rotates the
+  // assets if the AD SET is created with is_dynamic_creative:true — otherwise it
+  // silently degrades to a single asset. Two rules follow:
+  //   1. Flag every ad set that has ≥1 variation-rotation creative assigned so
+  //      Phase 2/2b (and the multi-campaign loop) create it as dynamic.
+  //   2. A dynamic ad set allows AT MOST ONE ad. Each assigned creative becomes
+  //      one ad, so a dynamic ad set MUST have exactly one creative assigned.
+  //      We fail fast with an actionable error rather than auto-splitting the ad
+  //      set, because cloning an ad set would duplicate its daily budget — an
+  //      unsafe silent side effect. The operator moves the extra creatives to
+  //      their own ad set.
+  //
+  // Detection mirrors buildCreativePayload exactly (creativeTriggersVariationRotation
+  // is gated on ENABLE_MULTI_PLACEMENT_ASSETS and skips BOOK_NOW), so nothing is
+  // flagged dynamic when rotation cannot actually fire. Attach modes reuse
+  // existing ad sets whose is_dynamic_creative flag cannot be changed, so this
+  // only affects ad sets we create.
+  const dynamicAdSetIds = new Set<string>();
+  {
+    const creativesById = new Map(draft.creatives.map((c) => [c.id, c]));
+    const adSetToCreativeIds = new Map<string, string[]>();
+    for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
+      for (const asId of adSetIds ?? []) {
+        const arr = adSetToCreativeIds.get(asId) ?? [];
+        arr.push(creativeId);
+        adSetToCreativeIds.set(asId, arr);
+      }
+    }
+    const dynamicViolations: { adSetName: string; creativeNames: string[] }[] = [];
+    for (const adSet of enabledSets) {
+      const assignedCreativeIds = adSetToCreativeIds.get(adSet.id) ?? [];
+      const hasRotationCreative = assignedCreativeIds.some((id) => {
+        const c = creativesById.get(id);
+        return c ? creativeTriggersVariationRotation(c) : false;
+      });
+      if (!hasRotationCreative) continue;
+      dynamicAdSetIds.add(adSet.id);
+      if (assignedCreativeIds.length > 1) {
+        dynamicViolations.push({
+          adSetName: adSet.name,
+          creativeNames: assignedCreativeIds.map((id) => creativesById.get(id)?.name ?? id),
+        });
+      }
+    }
+    if (dynamicViolations.length > 0) {
+      const detail = dynamicViolations
+        .map(
+          (v) =>
+            `"${v.adSetName}" has ${v.creativeNames.length} creatives assigned (${v.creativeNames.join(", ")})`,
+        )
+        .join("; ");
+      console.error(
+        `[launch-campaign] ✗ Dynamic Creative guard: ${dynamicViolations.length} ad set(s) violate the one-ad-per-dynamic-ad-set rule — ${detail}`,
+      );
+      return NextResponse.json(
+        {
+          error:
+            "A variation-rotation creative uses Dynamic Creative, and a Dynamic Creative ad set can contain only ONE ad. " +
+            "Give each variation-rotation creative its own ad set and move the other creatives to a separate ad set, then relaunch. " +
+            `Affected ad sets: ${detail}.`,
+        },
+        { status: 400 },
+      );
+    }
+    if (dynamicAdSetIds.size > 0) {
+      console.log(
+        `[launch-campaign] Dynamic Creative — ${dynamicAdSetIds.size} ad set(s) will be created with is_dynamic_creative:true`,
+      );
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 0 — Preflight validation (no Meta mutations)
@@ -2329,6 +2405,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.optimisationGoal,
             phase2Objective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            dynamicAdSetIds.has(adSet.id),
           );
 
           // ── Manual placement override for existing-post ad sets ─────────────
@@ -2484,6 +2561,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
                   draft.settings.optimisationGoal, phase2Objective,
                   draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+                  dynamicAdSetIds.has(adSet.id),
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
                 // run the local sync sanitiser one more time so any other
@@ -2887,6 +2965,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           draft.settings.optimisationGoal,
           phase2Objective,
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+          dynamicAdSetIds.has(adSet.id),
         );
 
         // Targeting trace log
@@ -3117,6 +3196,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               draft.settings.optimisationGoal,
               ciObjective,
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+              dynamicAdSetIds.has(adSet.id),
             );
 
             // Placement override for existing-post ad sets.
@@ -3157,6 +3237,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
                     draft.settings.optimisationGoal, ciObjective,
                     draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+                    dynamicAdSetIds.has(adSet.id),
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
                   if ((retryPayload.targeting.interests ?? []).length > 0) {
@@ -3207,6 +3288,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
             draft.settings.optimisationGoal, ciObjective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            dynamicAdSetIds.has(adSet.id),
           );
           if (!hasAudienceTargeting(adSetPayload.targeting)) {
             throw new Error(`No valid targeting for lookalike ad set "${adSet.name}"`);
