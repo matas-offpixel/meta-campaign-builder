@@ -108,13 +108,21 @@ export interface MetaAdLabel {
 
 export interface AssetFeedImage {
   hash: string;
-  adlabels: MetaAdLabel[];
+  /**
+   * Optional — only required when the asset is referenced by an
+   * `asset_customization_rule` (Placement Asset Customization, see
+   * {@link buildMultiPlacementCreative}). Plain variation rotation
+   * (see {@link buildVariationRotationCreative}) has no rules, so its
+   * entries omit adlabels entirely.
+   */
+  adlabels?: MetaAdLabel[];
 }
 
 export interface AssetFeedVideo {
   video_id: string;
   thumbnail_url?: string;
-  adlabels: MetaAdLabel[];
+  /** See {@link AssetFeedImage.adlabels}. */
+  adlabels?: MetaAdLabel[];
 }
 
 export interface AssetFeedText {
@@ -630,6 +638,135 @@ function buildMultiPlacementCreative(
   };
 }
 
+// ─── Variation rotation (Single mode + N variations) ──────────────────────────
+//
+// Matas's design intent: "variations" = asset rotation within a single ad via
+// asset_feed_spec — Meta natively rotates the assets and optimizes toward the
+// best performer (Dynamic Creative). Separate ads are created via the
+// "Add Ad" button, not via variations.
+//
+// SCOPE (this PR): Single mode only (all variations are 9:16, one asset each).
+// Dual/Full mode + N variations is a follow-up (see buildCreativePayload).
+
+export interface VariationRotationPlan {
+  mediaKind: "video" | "image";
+  variations: Array<{
+    videoId?: string;
+    assetHash?: string;
+    thumbnailUrl?: string;
+  }>;
+}
+
+/**
+ * Detect whether a creative is eligible for variation-rotation asset_feed_spec:
+ * Single asset mode, 2+ variations, each with exactly one uploaded asset of
+ * the same media kind.
+ *
+ * Returns null (→ caller falls through to existing single-asset / multi-
+ * placement paths) when:
+ *   - fewer than 2 variations, or
+ *   - assetMode is not "single" (Dual/Full + N variations is out of scope
+ *     for this PR — see buildCreativePayload's dual-mode fallback log), or
+ *   - any variation is missing its asset or the asset has no uploaded id, or
+ *   - variations mix image and video assets.
+ */
+function detectVariationRotation(creative: AdCreativeDraft): VariationRotationPlan | null {
+  const variations = creative.assetVariations ?? [];
+  if (variations.length < 2) return null;
+
+  // Single mode only for now — all variations must have exactly 1 asset each,
+  // all 9:16 aspect ratio.
+  if (creative.assetMode !== "single") return null;
+
+  const collected: VariationRotationPlan["variations"] = [];
+  let mediaKind: "video" | "image" | null = null;
+
+  for (const variation of variations) {
+    const asset = variation.assets?.[0];
+    if (!asset) return null; // incomplete variation
+    if (!asset.videoId && !asset.assetHash) return null; // no uploaded asset
+
+    const kind: "video" | "image" = asset.videoId ? "video" : "image";
+    if (mediaKind === null) mediaKind = kind;
+    else if (mediaKind !== kind) return null; // mixed media across variations
+
+    collected.push({
+      videoId: asset.videoId,
+      assetHash: asset.assetHash,
+      thumbnailUrl: asset.thumbnailUrl,
+    });
+  }
+
+  return { mediaKind: mediaKind!, variations: collected };
+}
+
+/**
+ * Build a variation-rotation creative using `asset_feed_spec` with N assets
+ * and NO `asset_customization_rules` — Meta rotates across all placements and
+ * optimizes toward the best-performing variation (Dynamic Creative).
+ *
+ * Shape mirrors {@link buildMultiPlacementCreative} minus the per-placement
+ * rules: `object_story_spec` carries only `page_id` (+ optional
+ * `instagram_user_id`); the assets live in `asset_feed_spec`.
+ *
+ * Caller (`buildCreativePayload`) only routes here when `detectVariationRotation`
+ * returns a plan, and never for CTA=BOOK_NOW (blocked in AFS, constraint 1885396).
+ */
+function buildVariationRotationCreative(
+  creative: AdCreativeDraft,
+  plan: VariationRotationPlan,
+  validatedIgActorId?: string,
+): MetaCreativePayload {
+  const caption = pickPrimaryCaption(creative);
+  const cta = mapCTAToMeta(creative.cta);
+
+  const spec: AssetFeedSpec = {
+    bodies: [{ text: caption }],
+    link_urls: [{ website_url: creative.destinationUrl }],
+    call_to_action_types: [cta],
+    optimization_type: "PLACEMENT",
+  };
+
+  if (creative.headline) spec.titles = [{ text: creative.headline }];
+  if (creative.description) spec.descriptions = [{ text: creative.description }];
+
+  if (plan.mediaKind === "video") {
+    spec.ad_formats = ["SINGLE_VIDEO"];
+    spec.videos = plan.variations.map((v) => ({
+      video_id: v.videoId!,
+      ...(v.thumbnailUrl ? { thumbnail_url: v.thumbnailUrl } : {}),
+    }));
+  } else {
+    spec.ad_formats = ["SINGLE_IMAGE"];
+    spec.images = plan.variations.map((v) => ({ hash: v.assetHash! }));
+  }
+  // NO asset_customization_rules — plain rotation across all placements.
+
+  console.error(
+    `[buildVariationRotationCreative] "${creative.name}" variation-rotation payload:`,
+    JSON.stringify({
+      mediaKind: plan.mediaKind,
+      variationCount: plan.variations.length,
+      adFormat: spec.ad_formats?.[0],
+      optimizationType: spec.optimization_type,
+      hasRules: false,
+      ids:
+        plan.mediaKind === "video"
+          ? plan.variations.map((v) => v.videoId)
+          : plan.variations.map((v) => v.assetHash),
+    }),
+  );
+
+  return {
+    name: creative.name || "Ad Creative",
+    object_story_spec: {
+      page_id: creative.identity.pageId,
+      ...(validatedIgActorId ? { instagram_user_id: validatedIgActorId } : {}),
+    },
+    asset_feed_spec: spec,
+  };
+}
+
 function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePayload {
   const source = creative.existingPost?.source ?? "facebook";
   const postId = creative.existingPost?.postId ?? "";
@@ -840,6 +977,33 @@ export function buildCreativePayload(
   //   2. The vertical asset cross-publishes more acceptably across placements
   //      than 4:5 would (Stories/Reels receive the native ratio; Feed auto-crops).
   if (process.env.ENABLE_MULTI_PLACEMENT_ASSETS === "1") {
+    // ── Variation rotation (Single mode + N variations) ────────────────────
+    // Checked BEFORE multi-placement detection so Single mode + N variations
+    // always wins over any accidental multi-placement detection.
+    const rotationPlan = detectVariationRotation(creative);
+    if (rotationPlan) {
+      const metaCta = mapCTAToMeta(creative.cta);
+      if (metaCta === "BOOK_NOW") {
+        // BOOK_NOW is blocked in asset_feed_spec.call_to_action_types (Meta
+        // subcode 1885396) — same constraint as multi-placement. Fall through
+        // to the existing single-asset path below, which uses variation[0]
+        // only. CTA is preserved as-is (never silently substituted).
+        console.error(
+          `[buildCreativePayload] "${creative.name}" → SINGLE-ASSET path` +
+            ` (BOOK_NOW + N variations blocked in AFS per Meta API constraint 1885396;` +
+            ` using variation[0] only. Variations 2-${rotationPlan.variations.length} discarded.` +
+            ` To rotate variations: switch CTA to LEARN_MORE, SIGN_UP, or BUY_TICKETS.)`,
+        );
+        // Fall through — continue to multi-placement / single-asset logic below.
+      } else {
+        console.error(
+          `[buildCreativePayload] "${creative.name}" → VARIATION-ROTATION path` +
+            ` (${rotationPlan.variations.length} variations, ${rotationPlan.mediaKind})`,
+        );
+        return buildVariationRotationCreative(creative, rotationPlan, validatedIgActorId);
+      }
+    }
+
     const plan = detectMultiPlacement(creative);
     if (plan) {
       const metaCta = mapCTAToMeta(creative.cta);
@@ -853,6 +1017,19 @@ export function buildCreativePayload(
             ` using ${plan.mediaKind} vertical 9:16 asset for all placements)`,
         );
         return buildSingleAssetFromVertical(creative, plan, validatedIgActorId);
+      }
+      // Dual/Full mode + N variations — OUT OF SCOPE for this PR. The
+      // multi-placement path below only ever reads variation[0] (see
+      // detectMultiPlacement), so this is already the correct fallback
+      // behaviour; we just make the discard explicit in the logs.
+      const variationCount = creative.assetVariations?.length ?? 0;
+      if (variationCount >= 2) {
+        console.error(
+          `[buildCreativePayload] "${creative.name}" → variation[0] only` +
+            ` (Dual mode + N variations not yet supported — using variation 1 with per-` +
+            ` placement customization. Variations 2-${variationCount} discarded. Future PR will extend` +
+            ` asset_feed_spec to support Dual + Variations.)`,
+        );
       }
       return buildMultiPlacementCreative(creative, plan, validatedIgActorId);
     }
@@ -1090,15 +1267,26 @@ export function sanitizeCreativeForStrictMode(
   // Discrimination (doc-backed):
   //   - Placement Asset Customization (ours) ALWAYS has asset_customization_rules
   //     with explicit placements → user configured this → PRESERVE.
-  //   - Dynamic Creative / Advantage+ uses asset_feed_spec WITHOUT customization
-  //     rules ("For Dynamic Creative, asset_feed_spec should not have
-  //     customization rules" — Meta docs) → auto-generated → STRIP.
+  //   - Variation rotation (ours, see buildVariationRotationCreative) has NO
+  //     customization rules but carries 2+ image/video entries — a plain
+  //     Dynamic-Creative rotation the user explicitly configured via the
+  //     Creatives step → PRESERVE.
+  //   - Dynamic Creative / Advantage+ AUTO spec uses asset_feed_spec WITHOUT
+  //     customization rules AND without multiple user-supplied assets
+  //     ("For Dynamic Creative, asset_feed_spec should not have customization
+  //     rules" — Meta docs) → auto-generated → STRIP.
   let assetFeedSpec: StrictModeSanitizationReport["assetFeedSpec"] = "absent";
   if ("asset_feed_spec" in bag && bag.asset_feed_spec) {
-    const afs = bag.asset_feed_spec as { asset_customization_rules?: unknown };
+    const afs = bag.asset_feed_spec as {
+      asset_customization_rules?: unknown;
+      images?: unknown[];
+      videos?: unknown[];
+    };
     const rules = afs.asset_customization_rules;
     const hasRules = Array.isArray(rules) && rules.length > 0;
-    if (hasRules) {
+    const assetCount = (afs.images?.length ?? 0) + (afs.videos?.length ?? 0);
+    const isVariationRotation = !hasRules && assetCount >= 2;
+    if (hasRules || isVariationRotation) {
       assetFeedSpec = "preserved";
     } else {
       delete bag.asset_feed_spec;
