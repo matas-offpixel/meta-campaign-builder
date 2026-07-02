@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 666
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/666
 - **Branch:** `cursor/creator/variation-rotation-dynamic-adset-fix`
 
 ## Summary
