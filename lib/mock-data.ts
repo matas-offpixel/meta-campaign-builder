@@ -202,6 +202,7 @@ export const CTA_OPTIONS: { value: CTAType; label: string }[] = [
   { value: "sign_up", label: "Sign Up" },
   { value: "learn_more", label: "Learn More" },
   { value: "book_now", label: "Book Now" },
+  { value: "buy_tickets", label: "Buy Tickets" },
 ];
 
 // ─── Optimisation goals per objective ───

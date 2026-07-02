@@ -20,6 +20,7 @@ export const CTA_MAP: Record<CTAType, string> = {
   sign_up: "SIGN_UP",
   learn_more: "LEARN_MORE",
   book_now: "BOOK_NOW",
+  buy_tickets: "BUY_TICKETS",
 } as const;
 
 export function mapCTAToMeta(cta: CTAType): string {
