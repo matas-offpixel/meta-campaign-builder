@@ -1,12 +1,21 @@
 /**
  * Tests for variation-rotation asset_feed_spec (Single mode + N variations).
  *
- * Bug: buildCreativePayload read assetVariations[0] exclusively across every
- * payload builder — when an operator uploaded N variations expecting Meta to
- * rotate them, only variation 0 reached Meta (variations 2..N silently
- * discarded at payload build time). Matas's design intent: variations = asset
- * rotation within a single ad via asset_feed_spec (Dynamic Creative rotation),
- * NOT separate ads.
+ * Bug (PR #663): buildCreativePayload read assetVariations[0] exclusively
+ * across every payload builder — when an operator uploaded N variations
+ * expecting Meta to rotate them, only variation 0 reached Meta (variations
+ * 2..N silently discarded at payload build time). Matas's design intent:
+ * variations = asset rotation within a single ad via asset_feed_spec
+ * (Dynamic Creative rotation), NOT separate ads.
+ *
+ * Bug #2 (follow-up fix, this file): PR #663's first cut shipped the
+ * rotation asset_feed_spec with 0 asset_customization_rules, assuming "no
+ * rules = free rotation." Meta rejects that outright ("The ad asset feed has
+ * 0 target rule(s) for format: INSTAGRAM_FEED_WEB, but exactly 1 target rule
+ * for this format is expected"). The fix mirrors buildMultiPlacementCreative's
+ * 2-rule shape (Stories/Reels + empty-spec catch-all) but points every rule
+ * at the SAME shared "rotation" adlabel across all N assets, so Meta can pick
+ * any of them for a given placement — true rotation, not per-asset pinning.
  *
  * Scope (this PR): Single mode (all variations 9:16, one asset each) only.
  * Dual/Full mode + N variations is a follow-up PR — those cases fall back to
@@ -90,7 +99,7 @@ afterEach(() => {
 // ─── Single mode + N variations (images) ──────────────────────────────────────
 
 describe("buildVariationRotationCreative — image (Single mode, flag ON)", () => {
-  it("4 variations → asset_feed_spec.images with all 4 hashes, NO customization_rules", () => {
+  it("4 variations → asset_feed_spec.images with all 4 hashes, each sharing the rotation label, + 2 customization_rules", () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [
@@ -108,13 +117,27 @@ describe("buildVariationRotationCreative — image (Single mode, flag ON)", () =
       images.map((i) => i.hash),
       ["hash_1", "hash_2", "hash_3", "hash_4"],
     );
+    // Every image shares the SAME adlabel — Meta is free to rotate any of
+    // the N images into any placement (true rotation, not per-asset pinning).
+    for (const img of images) {
+      assert.deepEqual(img.adlabels, [{ name: "rotation" }]);
+    }
     assert.deepEqual(payload.asset_feed_spec?.ad_formats, ["SINGLE_IMAGE"]);
     assert.equal(payload.asset_feed_spec?.optimization_type, "PLACEMENT");
-    assert.equal(
-      payload.asset_feed_spec?.asset_customization_rules,
-      undefined,
-      "no customization_rules — rotation across all placements",
-    );
+
+    // Meta requires >=1 customization_rule per placement format, even for
+    // pure rotation (0-rule payloads are rejected — see PR follow-up fix).
+    const rules = payload.asset_feed_spec?.asset_customization_rules ?? [];
+    assert.equal(rules.length, 2, "exactly 2 rules — Stories/Reels + catch-all default");
+    for (const rule of rules) {
+      assert.equal(rule.image_label?.name, "rotation", "every rule points at the shared label");
+    }
+    assert.deepEqual(rules[0].customization_spec, {
+      publisher_platforms: ["facebook", "instagram"],
+      facebook_positions: ["story", "facebook_reels"],
+      instagram_positions: ["story", "reels"],
+    });
+    assert.deepEqual(rules[1].customization_spec, {}, "second rule is the empty-spec catch-all default");
 
     // object_story_spec carries page_id ONLY — assets live in asset_feed_spec
     assert.equal(payload.object_story_spec?.page_id, "pg_123");
@@ -143,7 +166,7 @@ describe("buildVariationRotationCreative — image (Single mode, flag ON)", () =
 // ─── Single mode + N variations (videos) ──────────────────────────────────────
 
 describe("buildVariationRotationCreative — video (Single mode, flag ON)", () => {
-  it("3 variations → asset_feed_spec.videos with all 3 videoIds + thumbnails", () => {
+  it("3 variations → asset_feed_spec.videos with all 3 videoIds + thumbnails, shared rotation label, + 2 customization_rules", () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -164,8 +187,16 @@ describe("buildVariationRotationCreative — video (Single mode, flag ON)", () =
     assert.equal(videos[0].thumbnail_url, "https://cdn/t1.jpg");
     assert.equal(videos[1].thumbnail_url, "https://cdn/t2.jpg");
     assert.equal(videos[2].thumbnail_url, undefined, "no thumbnail → omitted, not required");
+    for (const vid of videos) {
+      assert.deepEqual(vid.adlabels, [{ name: "rotation" }]);
+    }
     assert.deepEqual(payload.asset_feed_spec?.ad_formats, ["SINGLE_VIDEO"]);
-    assert.equal(payload.asset_feed_spec?.asset_customization_rules, undefined);
+
+    const rules = payload.asset_feed_spec?.asset_customization_rules ?? [];
+    assert.equal(rules.length, 2, "exactly 2 rules — required by Meta even for pure rotation");
+    for (const rule of rules) {
+      assert.equal(rule.video_label?.name, "rotation");
+    }
   });
 });
 
@@ -329,7 +360,7 @@ describe("Flag OFF → variation rotation never fires", () => {
 // ─── Sanitizer discrimination — variation rotation is PRESERVED, not stripped ─
 
 describe("sanitizeCreativeForStrictMode — variation-rotation asset_feed_spec is preserved", () => {
-  it("preserves the built variation-rotation payload (no rules, 4 images)", () => {
+  it("preserves the built variation-rotation payload (has customization_rules, 4 images)", () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [
@@ -343,6 +374,7 @@ describe("sanitizeCreativeForStrictMode — variation-rotation asset_feed_spec i
     const report = sanitizeCreativeForStrictMode(payload);
     assert.equal(report.assetFeedSpec, "preserved");
     assert.equal(payload.asset_feed_spec?.images?.length, 4, "all 4 images kept");
+    assert.equal(payload.asset_feed_spec?.asset_customization_rules?.length, 2, "rules kept intact");
     assert.ok(!report.strippedTopLevel.includes("asset_feed_spec"));
   });
 

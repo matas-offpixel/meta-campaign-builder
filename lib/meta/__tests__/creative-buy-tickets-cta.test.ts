@@ -95,11 +95,14 @@ describe("Single mode + N variations + BUY_TICKETS → variation-rotation path f
     assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BUY_TICKETS"]);
     const images = payload.asset_feed_spec?.images ?? [];
     assert.equal(images.length, 4, "no fallback — all 4 variations reach Meta");
-    assert.equal(
-      payload.asset_feed_spec?.asset_customization_rules,
-      undefined,
-      "rotation path has no customization_rules",
-    );
+    // Meta requires >=1 customization_rule per placement format even for
+    // pure rotation — the rotation path always carries the 2-rule shared-label
+    // shape (see creative-variation-rotation.test.ts for full coverage).
+    const rules = payload.asset_feed_spec?.asset_customization_rules ?? [];
+    assert.equal(rules.length, 2, "rotation path always carries the required 2 rules");
+    for (const rule of rules) {
+      assert.equal(rule.image_label?.name, "rotation");
+    }
   });
 });
 
