@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** #662
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/662
 - **Branch:** `d2c/direct-fire-live-fix-followup`
 
 ## Summary
