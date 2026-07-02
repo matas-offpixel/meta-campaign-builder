@@ -179,6 +179,17 @@ export interface MetaAdSetPayload {
   end_time?: number;
   status: "PAUSED" | "ACTIVE";
   promoted_object?: MetaPromotedObject;
+  /**
+   * Opts the ad set into **Dynamic Creative**. Set to `true` ONLY when a
+   * variation-rotation creative (asset_feed_spec with N assets, no customization
+   * rules — see `buildVariationRotationCreative`) is attached to this ad set;
+   * without it Meta silently degrades the multi-asset creative to a single asset.
+   *
+   * Meta rule: an `is_dynamic_creative:true` ad set allows AT MOST ONE ad. The
+   * field is OMITTED (never sent as `false`) for normal ad sets — Meta can treat
+   * an explicit `false` differently, and once set it cannot be edited.
+   */
+  is_dynamic_creative?: boolean;
 }
 
 // ─── Route request / response types ──────────────────────────────────────────
@@ -619,6 +630,12 @@ export function buildAdSetPayload(
   optimisationGoal: OptimisationGoal,
   objective: CampaignObjective,
   pixelId?: string,
+  /**
+   * When true, opts this ad set into Dynamic Creative (`is_dynamic_creative:true`)
+   * because a variation-rotation creative is assigned to it. Omit / pass false
+   * for normal ad sets — the field is then never added to the payload.
+   */
+  hasVariationRotationCreative?: boolean,
 ): MetaAdSetPayload {
   // Resolve the effective goal BEFORE mapping — corrects stale draft values
   // that are incompatible with the campaign objective (see resolveOptimisationGoal).
@@ -658,6 +675,13 @@ export function buildAdSetPayload(
   const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);
   if (promotedObject) payload.promoted_object = promotedObject;
 
+  // Dynamic Creative opt-in — only set when a variation-rotation creative is
+  // attached. Never set `false` (Meta may treat an explicit false differently,
+  // and the flag is immutable once the ad set is created).
+  if (hasVariationRotationCreative) {
+    payload.is_dynamic_creative = true;
+  }
+
   if (optimisationGoal !== effectiveGoal) {
     console.warn(
       `[buildAdSetPayload] "${adSet.name}" — draft had optimisationGoal="${optimisationGoal}", ` +
@@ -689,6 +713,13 @@ export function buildAdSetPayload(
     `end_time=${payload.end_time ?? "(not set — ad set will run Ongoing)"}`,
     `rawStartDate=${budgetSchedule.startDate ?? "(none)"}`,
     `rawEndDate=${budgetSchedule.endDate ?? "(none)"}`,
+  );
+
+  // Dynamic Creative flag beacon — surfaces in Vercel Function logs so future
+  // debugging can confirm whether this ad set was opted into asset rotation.
+  console.error(
+    `[buildAdSetPayload] "${adSet.name}" is_dynamic_creative=${payload.is_dynamic_creative === true}` +
+      ` (variation-rotation creative ${hasVariationRotationCreative ? "ATTACHED → dynamic" : "not attached → field omitted"})`,
   );
 
   return payload;
