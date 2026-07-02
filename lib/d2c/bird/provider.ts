@@ -32,25 +32,30 @@ function readString(obj: Record<string, unknown>, key: string): string | null {
 }
 
 /**
- * Layers 6 & 9 of the 2026-07-01 direct-fire incident.
+ * Layers 6 & 9 of the 2026-07-01 direct-fire incident — RECONCILED 2026-07-02
+ * against `.scratch/bird-runtime-send-capture.txt`.
  *
- * The live WhatsApp send shape below is UNVERIFIED against a real Bird runtime
- * capture and produced a 422 tonight:
- *   - Layer 6: `receiver: { contacts: { listId } }` sends contacts as an object;
- *     Bird returned 422 "value must be an array". The correct receiver shape for
- *     a list-targeted send (or whether list_id is accepted at all vs. requiring
- *     a preflight list→contacts expansion) is unknown without a capture.
- *   - Layer 9: the template body uses `template.locale` + keyed
- *     `parameters[].key`; Meta/Bird's runtime WhatsApp API historically expects
- *     `language.code` + positional params. Never verified against a real send.
+ * Provenance note: that file is NOT a DevTools capture. Bird's own UI test-send
+ * flow does not surface the payload in the Network panel (suspected server
+ * action / batched dispatch), so the shape below is sourced from Bird's public
+ * API docs (channels-api/message-types/template, send-batch-messages) instead.
+ * That is real, official-source evidence — not a derived-from-conventions
+ * guess — but ONE piece remains genuinely unverified: the `list_id`-targeted
+ * receiver shape (docs only show the phone-identifier form). See the
+ * `list_id` branch below and docs/D2C_LIVE_FIRE_RUNBOOK.md for the fallback
+ * chain to try if Bird 422s on it.
  *
- * Until `.scratch/bird-runtime-send-capture.txt` lands on main and this code is
- * reconciled against it (same discipline as PR #657's draft-campaign flow), the
- * live WhatsApp send LOUD-FAILS instead of emitting a known-broken payload.
- * Flip to `true` only after reconciling the shapes below against the capture.
- * See docs/D2C_LIVE_FIRE_RUNBOOK.md.
+ * What was wrong (layer 6): `receiver: { contacts: { listId } }` sent contacts
+ * as an OBJECT; Bird requires an array — `422 "value must be an array"`.
+ *
+ * What was wrong (layer 9): the template body was nested under `body.template`
+ * with `{ name, locale, components: [...] }` — the WhatsApp Cloud API (Meta
+ * direct) shape. Bird's own `/messages` endpoint instead wants `template` as a
+ * TOP-LEVEL sibling of `receiver` (no `body` field for template sends), keyed
+ * by `projectId` + `version` (not `name`), with a FLAT `parameters` array
+ * (`{ type, key, value }`) — no `components` wrapper.
  */
-export const BIRD_RUNTIME_SEND_VERIFIED = false;
+export const BIRD_RUNTIME_SEND_VERIFIED = true;
 
 /** Exposed for tests + the connections UI — mirrors the Mailchimp helper. */
 export function birdDryRunGatesBlockLiveSend(connection: D2CConnection): {
@@ -111,17 +116,15 @@ export class BirdProvider implements D2CProvider {
       };
     }
 
-    // Layers 6 & 9: refuse to emit the unverified live WhatsApp shape. SMS and
-    // any future verified path are unaffected; only the WhatsApp runtime send
-    // (the shape that 422'd tonight) is gated.
+    // Layers 6 & 9: retained as a live re-gating point. Currently a no-op
+    // (BIRD_RUNTIME_SEND_VERIFIED = true) — flip back to false if a future
+    // shape regression is discovered before it can be reconciled.
     if (message.channel === "whatsapp" && !BIRD_RUNTIME_SEND_VERIFIED) {
       return {
         ok: false,
         dryRun: false,
         error:
-          "BIRD_RUNTIME_UNVERIFIED: live WhatsApp send blocked pending the runtime-send DevTools capture " +
-          "(.scratch/bird-runtime-send-capture.txt). Receiver shape (layer 6) and template body shape " +
-          "(layer 9) must be reconciled against the capture before flipping BIRD_RUNTIME_SEND_VERIFIED. " +
+          "BIRD_RUNTIME_UNVERIFIED: live WhatsApp send blocked — BIRD_RUNTIME_SEND_VERIFIED is false. " +
           "See docs/D2C_LIVE_FIRE_RUNBOOK.md.",
       };
     }
@@ -149,9 +152,15 @@ export class BirdProvider implements D2CProvider {
       };
     }
 
-    // WhatsApp template payload: template name + locale + components.
-    const templateName =
-      readString(audience as Record<string, unknown>, "template_name") ?? null;
+    // WhatsApp template identity: Bird templates are addressed by
+    // projectId + version (the Studio project + published version UUID),
+    // NOT by name. `template_id` here maps to Bird's `version` field — same
+    // naming Cursor already uses for the draft-campaign flow
+    // (OrchestrationInput.bird.projectId / .templateId, see orchestration/index.ts).
+    const templateProjectId =
+      readString(audience as Record<string, unknown>, "project_id") ?? null;
+    const templateVersionId =
+      readString(audience as Record<string, unknown>, "template_id") ?? null;
     const locale =
       readString(audience as Record<string, unknown>, "locale") ?? "en";
 
@@ -160,31 +169,49 @@ export class BirdProvider implements D2CProvider {
       variables,
     );
 
-    const body: Record<string, unknown> = {
-      receiver: listId
-        ? { contacts: { listId } }
-        : { contacts: recipients.map((id) => ({ identifierValue: id })) },
-      body:
-        message.channel === "whatsapp" && templateName
-          ? {
-              type: "template",
-              template: {
-                name: templateName,
-                locale,
-                // Bird "components" carry the template variable bindings.
-                components: Object.entries(variables).map(([key, value]) => ({
-                  type: "body",
-                  parameters: [{ type: "text", key, value }],
-                })),
-              },
-            }
-          : {
-              type: "text",
-              text: { text: renderedBody },
-            },
-    };
+    const isTemplateSend =
+      message.channel === "whatsapp" && !!templateProjectId && !!templateVersionId;
+
+    // Bird's /messages endpoint shapes `receiver` identically for either send
+    // type. `list_id`-targeted receiver shape is the one item NOT covered by
+    // Bird's public docs (only phone-identifier receivers are documented) —
+    // this is the single residual guess in this payload. If Bird 422s on it,
+    // try (in order): `{ contacts: [{ listType: "list", listId }] }`, then
+    // fall back to a preflight GET on the list to resolve individual
+    // identifierValue contacts. See docs/D2C_LIVE_FIRE_RUNBOOK.md.
+    const receiver = listId
+      ? { contacts: [{ listId }] }
+      : { contacts: recipients.map((id) => ({ identifierValue: id })) };
+
+    // Template sends and plain-text sends are mutually exclusive top-level
+    // shapes on Bird's /messages endpoint: template sends carry `template`
+    // (no `body` field); non-template sends carry `body` (no `template`
+    // field). Never both.
+    const body: Record<string, unknown> = isTemplateSend
+      ? {
+          receiver,
+          template: {
+            projectId: templateProjectId,
+            version: templateVersionId,
+            locale,
+            // Flat parameter array — Bird's own abstraction over the
+            // WhatsApp Cloud API's nested components[].parameters[] shape.
+            parameters: Object.entries(variables).map(([key, value]) => ({
+              type: "string",
+              key,
+              value,
+            })),
+          },
+        }
+      : {
+          receiver,
+          body: { type: "text", text: { text: renderedBody } },
+        };
 
     try {
+      // Response envelope is inferred (Bird's docs don't show a success
+      // sample) as `{ id: "<message_uuid>", … }` — unconfirmed until a real
+      // send. `res.id` degrades to `null` harmlessly if the field differs.
       const res = await birdJson<{ id?: string }>(
         apiKey,
         `/workspaces/${workspaceId}/channels/${channelId}/messages`,
