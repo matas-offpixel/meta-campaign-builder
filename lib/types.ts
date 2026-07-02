@@ -292,7 +292,7 @@ export type BudgetType = "daily" | "lifetime";
 
 export type PlacementPreset = "advantage_plus" | "manual";
 
-export type CTAType = "sign_up" | "learn_more" | "book_now";
+export type CTAType = "sign_up" | "learn_more" | "book_now" | "buy_tickets";
 
 export type OptimisationGoal =
   | "conversions"
