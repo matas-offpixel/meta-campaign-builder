@@ -30,7 +30,8 @@ const sampleMessage = (): D2CMessage => ({
   bodyMarkdown: "Hello {{event_name}}",
   audience: {
     recipients: ["+447700900000"],
-    template_name: "presale_reminder",
+    project_id: "proj-1",
+    template_id: "ver-1",
     locale: "en",
   },
   variables: { event_name: "Jackies" },
@@ -99,22 +100,63 @@ test("gate 3: approved_by_matas off → dry run, no fetch", async () => {
   assert.equal(calls, 0);
 });
 
-test("all gates pass but WhatsApp runtime unverified → loud-fail, no fetch", async () => {
-  // Layers 6 & 9 (2026-07-01 incident): the live WhatsApp shape 422'd and is
-  // gated behind BIRD_RUNTIME_SEND_VERIFIED until the runtime-send capture
-  // lands. A live whatsapp send must NOT hit the wire until then.
+test("all gates pass + runtime verified → live template POST to Bird messages endpoint", async () => {
+  // Layers 6 & 9 (2026-07-01 incident), reconciled 2026-07-02 against
+  // .scratch/bird-runtime-send-capture.txt. BIRD_RUNTIME_SEND_VERIFIED is now
+  // true — a live WhatsApp template send must reach the wire with the
+  // corrected shape (array receiver, top-level `template` keyed by
+  // projectId/version, flat parameters).
   process.env.FEATURE_D2C_LIVE = "true";
-  let calls = 0;
-  globalThis.fetch = async () => {
-    calls++;
+  let capturedBody: Record<string, unknown> | null = null;
+  const urls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    urls.push(String(input));
+    capturedBody = init?.body ? JSON.parse(String(init.body)) : null;
     return new Response(JSON.stringify({ id: "msg-1" }), { status: 200 });
   };
 
   const r = await new BirdProvider().send(baseConnection(), sampleMessage());
   assert.equal(r.dryRun, false);
-  assert.equal(r.ok, false);
-  assert.match(r.error ?? "", /BIRD_RUNTIME_UNVERIFIED/);
-  assert.equal(calls, 0, "must not hit the Bird API while unverified");
+  assert.equal(r.ok, true);
+  assert.equal(r.providerJobId, "msg-1");
+  assert.ok(
+    urls.some((u) => u.includes("/workspaces/ws-1/channels/ch-1/messages")),
+  );
+  assert.ok(capturedBody, "expected a JSON body");
+  const b = capturedBody as unknown as Record<string, unknown>;
+  assert.deepEqual(b.receiver, {
+    contacts: [{ identifierValue: "+447700900000" }],
+  });
+  assert.deepEqual(b.template, {
+    projectId: "proj-1",
+    version: "ver-1",
+    locale: "en",
+    parameters: [{ type: "string", key: "event_name", value: "Jackies" }],
+  });
+  assert.equal(b.body, undefined, "template sends must not carry a body field");
+});
+
+test("live send without project_id/template_id on audience falls back to plain text", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  let capturedBody: Record<string, unknown> | null = null;
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    capturedBody = init?.body ? JSON.parse(String(init.body)) : null;
+    return new Response(JSON.stringify({ id: "msg-2" }), { status: 200 });
+  };
+
+  const textOnlyMessage: D2CMessage = {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "Hello {{event_name}}",
+    audience: { recipients: ["+447700900000"] },
+    variables: { event_name: "Jackies" },
+    correlationId: "send-text",
+  };
+  const r = await new BirdProvider().send(baseConnection(), textOnlyMessage);
+  assert.equal(r.ok, true);
+  const b = capturedBody as unknown as Record<string, unknown>;
+  assert.equal(b.template, undefined, "non-template sends must not carry a template field");
+  assert.deepEqual(b.body, { type: "text", text: { text: "Hello Jackies" } });
 });
 
 test("gate is WhatsApp-scoped: live SMS still POSTs to the messages endpoint", async () => {
