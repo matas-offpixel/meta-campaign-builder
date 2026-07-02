@@ -132,7 +132,7 @@ describe("buildMultiPlacementCreative — video (flag ON)", () => {
     const ids = videos.map((v) => v.video_id).sort();
     assert.deepEqual(ids, ["vid_45", "vid_916"]);
 
-    const labels = videos.flatMap((v) => v.adlabels.map((l) => l.name)).sort();
+    const labels = videos.flatMap((v) => (v.adlabels ?? []).map((l) => l.name)).sort();
     assert.deepEqual(labels, ["feed_asset", "story_asset"]);
 
     assert.deepEqual(payload.asset_feed_spec?.ad_formats, ["SINGLE_VIDEO"]);
@@ -174,8 +174,8 @@ describe("buildMultiPlacementCreative — video (flag ON)", () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const payload = buildCreativePayload(dualVideoCreative());
     const videos = payload.asset_feed_spec?.videos ?? [];
-    const feedVid = videos.find((v) => v.adlabels.some((l) => l.name === "feed_asset"));
-    const storyVid = videos.find((v) => v.adlabels.some((l) => l.name === "story_asset"));
+    const feedVid = videos.find((v) => (v.adlabels ?? []).some((l) => l.name === "feed_asset"));
+    const storyVid = videos.find((v) => (v.adlabels ?? []).some((l) => l.name === "story_asset"));
     assert.equal(feedVid?.video_id, "vid_45");
     assert.equal(feedVid?.thumbnail_url, "https://cdn/thumb_45.jpg");
     assert.equal(storyVid?.video_id, "vid_916");

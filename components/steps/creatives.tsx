@@ -1119,6 +1119,11 @@ export function Creatives({
                           <strong>Book Now + multi-placement assets:</strong> Meta does not support this combination in the API. The ad will use the 9:16 vertical asset for all placements — the 4:5 feed asset will not be used. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to preserve per-placement asset routing.
                         </p>
                       )}
+                      {active.cta === "book_now" && active.assetMode === "single" && (active.assetVariations ?? []).length >= 2 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                          <strong>Book Now blocks variation rotation:</strong> Only variation 1 will run. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to rotate all {(active.assetVariations ?? []).length} variations.
+                        </p>
+                      )}
                     </div>
                   </Card>
                 </>
