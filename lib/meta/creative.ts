@@ -110,11 +110,13 @@ export interface MetaAdLabel {
 export interface AssetFeedImage {
   hash: string;
   /**
-   * Optional — only required when the asset is referenced by an
-   * `asset_customization_rule` (Placement Asset Customization, see
-   * {@link buildMultiPlacementCreative}). Plain variation rotation
-   * (see {@link buildVariationRotationCreative}) has no rules, so its
-   * entries omit adlabels entirely.
+   * Required whenever the spec carries `asset_customization_rules` — Meta
+   * rejects any asset_feed_spec with 0 rules per placement format, so both
+   * {@link buildMultiPlacementCreative} (distinct per-asset labels) and
+   * {@link buildVariationRotationCreative} (one shared label across all N
+   * assets) always populate this. Left optional on the type only so
+   * lightweight test fixtures simulating an unlabelled Advantage+ auto spec
+   * (see {@link sanitizeCreativeForStrictMode}) don't need to set it.
    */
   adlabels?: MetaAdLabel[];
 }
@@ -535,6 +537,21 @@ const FEED_LABEL = "feed_asset";
 const STORY_LABEL = "story_asset";
 
 /**
+ * Shared adlabel used by {@link buildVariationRotationCreative} across ALL N
+ * rotation assets (as opposed to {@link FEED_LABEL} / {@link STORY_LABEL},
+ * which each identify a single specific asset). Meta requires ≥1
+ * `asset_customization_rule` per placement format even for pure Dynamic-
+ * Creative rotation — a payload with 0 rules is rejected ("The ad asset feed
+ * has 0 target rule(s) for format: INSTAGRAM_FEED_WEB, but exactly 1 target
+ * rule for this format is expected"). Pointing every rule at the SAME shared
+ * label (rather than one label per asset) lets Meta freely pick any of the N
+ * images/videos for a given placement — true rotation, not per-placement
+ * pinning. See PR #663 (shipped 0 rules — wrong) and its prod-evidence
+ * follow-up fix.
+ */
+const ROTATION_LABEL = "rotation";
+
+/**
  * Build a per-placement creative using `asset_feed_spec` +
  * `asset_customization_rules`: the 4:5/1:1 asset renders in Feed (and all
  * non-vertical placements), the 9:16 asset renders in Stories & Reels.
@@ -702,12 +719,19 @@ function detectVariationRotation(creative: AdCreativeDraft): VariationRotationPl
 }
 
 /**
- * Build a variation-rotation creative using `asset_feed_spec` with N assets
- * and NO `asset_customization_rules` — Meta rotates across all placements and
- * optimizes toward the best-performing variation (Dynamic Creative).
+ * Build a variation-rotation creative using `asset_feed_spec` with N assets,
+ * all sharing the single {@link ROTATION_LABEL} adlabel, plus the same
+ * 2-rule `asset_customization_rules` shape used by
+ * {@link buildMultiPlacementCreative} (Stories/Reels rule + empty-spec
+ * catch-all) — Meta rejects any asset_feed_spec with 0 customization rules
+ * ("0 target rule(s) for format: INSTAGRAM_FEED_WEB, but exactly 1 ... is
+ * expected"), even for pure Dynamic-Creative rotation. Because every rule
+ * points at the SAME shared label (not one label per asset), Meta is free to
+ * pick any of the N images/videos for a given placement — true rotation, not
+ * per-placement pinning.
  *
- * Shape mirrors {@link buildMultiPlacementCreative} minus the per-placement
- * rules: `object_story_spec` carries only `page_id` (+ optional
+ * Shape otherwise mirrors {@link buildMultiPlacementCreative}:
+ * `object_story_spec` carries only `page_id` (+ optional
  * `instagram_user_id`); the assets live in `asset_feed_spec`.
  *
  * Caller (`buildCreativePayload`) only routes here when `detectVariationRotation`
@@ -736,21 +760,39 @@ function buildVariationRotationCreative(
     spec.videos = plan.variations.map((v) => ({
       video_id: v.videoId!,
       ...(v.thumbnailUrl ? { thumbnail_url: v.thumbnailUrl } : {}),
+      adlabels: [{ name: ROTATION_LABEL }],
     }));
+    spec.asset_customization_rules = [
+      { customization_spec: STORIES_REELS_SPEC, video_label: { name: ROTATION_LABEL } },
+      // Default catch-all (empty spec) → same shared label. Must be last.
+      { customization_spec: {}, video_label: { name: ROTATION_LABEL } },
+    ];
   } else {
     spec.ad_formats = ["SINGLE_IMAGE"];
-    spec.images = plan.variations.map((v) => ({ hash: v.assetHash! }));
+    spec.images = plan.variations.map((v) => ({
+      hash: v.assetHash!,
+      adlabels: [{ name: ROTATION_LABEL }],
+    }));
+    spec.asset_customization_rules = [
+      { customization_spec: STORIES_REELS_SPEC, image_label: { name: ROTATION_LABEL } },
+      { customization_spec: {}, image_label: { name: ROTATION_LABEL } },
+    ];
   }
-  // NO asset_customization_rules — plain rotation across all placements.
 
+  const rules = spec.asset_customization_rules ?? [];
   console.error(
-    `[buildVariationRotationCreative] "${creative.name}" variation-rotation payload:`,
+    `[buildVariationRotationCreative] "${creative.name}" VARIATION-ROTATION payload:`,
     JSON.stringify({
       mediaKind: plan.mediaKind,
       variationCount: plan.variations.length,
       adFormat: spec.ad_formats?.[0],
       optimizationType: spec.optimization_type,
-      hasRules: false,
+      hasCustomizationRules: rules.length > 0,
+      rulesCount: rules.length,
+      ruleCoverage: rules.map((r) =>
+        Object.keys(r.customization_spec ?? {}).length === 0 ? "catch_all" : "stories_reels",
+      ),
+      sharedLabel: ROTATION_LABEL,
       ids:
         plan.mediaKind === "video"
           ? plan.variations.map((v) => v.videoId)
@@ -1266,28 +1308,21 @@ export function sanitizeCreativeForStrictMode(
 
   // ── asset_feed_spec: preserve user-configured, strip Advantage+ auto ──────
   // Discrimination (doc-backed):
-  //   - Placement Asset Customization (ours) ALWAYS has asset_customization_rules
-  //     with explicit placements → user configured this → PRESERVE.
-  //   - Variation rotation (ours, see buildVariationRotationCreative) has NO
-  //     customization rules but carries 2+ image/video entries — a plain
-  //     Dynamic-Creative rotation the user explicitly configured via the
-  //     Creatives step → PRESERVE.
+  //   - Placement Asset Customization (ours, buildMultiPlacementCreative) and
+  //     variation rotation (ours, buildVariationRotationCreative) BOTH ALWAYS
+  //     carry asset_customization_rules — Meta requires ≥1 rule per placement
+  //     format even for pure rotation (0-rule payloads are rejected: "0
+  //     target rule(s) for format: INSTAGRAM_FEED_WEB, but exactly 1 ... is
+  //     expected"). Either shape → user configured this → PRESERVE.
   //   - Dynamic Creative / Advantage+ AUTO spec uses asset_feed_spec WITHOUT
-  //     customization rules AND without multiple user-supplied assets
-  //     ("For Dynamic Creative, asset_feed_spec should not have customization
-  //     rules" — Meta docs) → auto-generated → STRIP.
+  //     customization rules ("For Dynamic Creative, asset_feed_spec should
+  //     not have customization rules" — Meta docs) → auto-generated → STRIP.
   let assetFeedSpec: StrictModeSanitizationReport["assetFeedSpec"] = "absent";
   if ("asset_feed_spec" in bag && bag.asset_feed_spec) {
-    const afs = bag.asset_feed_spec as {
-      asset_customization_rules?: unknown;
-      images?: unknown[];
-      videos?: unknown[];
-    };
+    const afs = bag.asset_feed_spec as { asset_customization_rules?: unknown };
     const rules = afs.asset_customization_rules;
     const hasRules = Array.isArray(rules) && rules.length > 0;
-    const assetCount = (afs.images?.length ?? 0) + (afs.videos?.length ?? 0);
-    const isVariationRotation = !hasRules && assetCount >= 2;
-    if (hasRules || isVariationRotation) {
+    if (hasRules) {
       assetFeedSpec = "preserved";
     } else {
       delete bag.asset_feed_spec;
