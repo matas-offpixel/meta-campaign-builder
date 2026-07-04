@@ -17,6 +17,13 @@ Migration **131** (`131_enable_pgcrypto_for_d2c_credentials`, prod timestamp
 via the Supabase MCP on 2026-07-01 to enable pgcrypto in the `extensions`
 schema and has no repo file. Do not reuse the number.
 
+> **pgcrypto schema note (2026-07-04):** despite 131's name, pgcrypto now
+> lives in **`public`** — the D2C direct-fire ops fix (2026-07-01 night)
+> moved it after 131 installed it in `extensions`. It has occupied both
+> schemas within one week. Any migration calling `pgp_sym_*` must work with
+> EITHER placement (`set search_path = public, extensions` + unqualified
+> calls — the migration 134 pattern). Never single-schema-qualify.
+
 ## 068a–e collision resolution (May 2026)
 
 Five migration files previously had numeric collisions at prefixes `068` and `069`.

@@ -113,6 +113,71 @@ export interface LandingPageContext {
   template: PageTemplateRow | null;
 }
 
+// ─── PR 2: theming ──────────────────────────────────────────────────────────
+
+/**
+ * Resolved landing-page theme. Every field is guaranteed present after
+ * resolveTheme() — components never see undefined. Source jsonb keys use
+ * the same snake_case names on client_landing_pages.theme /
+ * page_events.theme_overrides.
+ */
+export interface LandingPageTheme {
+  primary_color: string;
+  secondary_color: string;
+  accent_color: string;
+  bg_color: string;
+  text_color: string;
+  font_family: string;
+  /** Absolute http(s) URL or null — rendered as <img>, never as CSS url(). */
+  logo_url: string | null;
+  thank_you_message: string;
+}
+
+// ─── PR 2: signup form ──────────────────────────────────────────────────────
+
+/** Raw (untrusted) form values as posted by the client. */
+export interface SignupFormValues {
+  first_name?: unknown;
+  last_name?: unknown;
+  email?: unknown;
+  phone?: unknown;
+  /** ISO 3166-1 alpha-2, e.g. 'GB' — drives E.164 parsing. */
+  phone_country?: unknown;
+  city?: unknown;
+  ig_handle?: unknown;
+  tt_handle?: unknown;
+  consent_gdpr?: unknown;
+  consent_wa_opt_in?: unknown;
+  /** Attribution payload captured client-side (sessionStorage first-touch). */
+  utm?: unknown;
+  referrer_url?: unknown;
+  /** reCAPTCHA v3 token (absent in dev when keys unset). */
+  captcha_token?: unknown;
+}
+
+/** Validated + normalised submission (output of parseSignupSubmission). */
+export interface SignupSubmission {
+  first_name: string;
+  last_name: string;
+  /** Lowercased, trimmed. At least one of email / phone_e164 is non-null. */
+  email: string | null;
+  phone_e164: string | null;
+  phone_country_code: string | null;
+  city: string | null;
+  /** Lowercased, @ stripped. */
+  ig_handle: string | null;
+  tt_handle: string | null;
+  consent_wa_opt_in: boolean;
+  utm: Record<string, string>;
+  referrer_url: string | null;
+  source: string | null;
+}
+
+/** JSON contract of POST /api/l/[clientSlug]/[eventSlug]/signup. */
+export type SubmitSignupResult =
+  | { ok: true; signup_id: string; deduplicated: boolean }
+  | { ok: false; error: string; field_errors?: Record<string, string> };
+
 /**
  * What the public route should do with a resolved context. Kept as a typed
  * outcome (rather than branching inline in the page) so the loud-fail branch

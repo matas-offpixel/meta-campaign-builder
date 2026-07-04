@@ -89,3 +89,78 @@ export function buildLandingRateLimitKey(
 export function _resetLandingPageRateLimitForTests(): void {
   store.clear();
 }
+
+// ─── Signup write-path limiter (PR 2) ───────────────────────────────────────
+//
+// Separate store + much tighter budget than the page-view limiter: the
+// signup POST triggers captcha verification, hashing, TWO encrypt RPCs and
+// an insert, and writes encrypted PII — a real target. Default 5 signups /
+// 10 min per (IP, page) pair; a fan legitimately re-submitting after a typo
+// stays well inside it. Env-tunable without redeploy of the constants:
+//   LANDING_PAGES_SIGNUP_RATE_MAX             (default 5)
+//   LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES  (default 10)
+// Same in-process trade-offs as above (per-worker, Vercel WAF backstop).
+
+const signupStore = new Map<string, WindowEntry>();
+const SIGNUP_MAX_ENTRIES = 5000;
+const SIGNUP_DEFAULT_MAX = 5;
+const SIGNUP_DEFAULT_WINDOW_MINUTES = 10;
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+export function checkSignupRateLimit(
+  key: string,
+  nowMs: number = Date.now(),
+): LandingRateLimitDecision {
+  const maxPerWindow = envInt(
+    "LANDING_PAGES_SIGNUP_RATE_MAX",
+    SIGNUP_DEFAULT_MAX,
+  );
+  const windowMs =
+    envInt(
+      "LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES",
+      SIGNUP_DEFAULT_WINDOW_MINUTES,
+    ) * 60_000;
+
+  const existing = signupStore.get(key);
+
+  if (!existing || nowMs - existing.windowStartMs >= windowMs) {
+    signupStore.delete(key);
+    signupStore.set(key, { windowStartMs: nowMs, count: 1 });
+    if (signupStore.size > SIGNUP_MAX_ENTRIES) {
+      const iter = signupStore.keys().next();
+      if (!iter.done) signupStore.delete(iter.value);
+    }
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  if (existing.count < maxPerWindow) {
+    existing.count += 1;
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  return {
+    allowed: false,
+    retryAfterMs: windowMs - (nowMs - existing.windowStartMs),
+  };
+}
+
+/** Per-(IP, page) key so one hot event can't starve another. */
+export function buildSignupRateLimitKey(
+  xForwardedFor: string | null | undefined,
+  clientSlug: string,
+  eventSlug: string,
+): string {
+  const ip = (xForwardedFor ?? "").split(",")[0]?.trim() || "anon";
+  return `s:${ip}:${clientSlug}/${eventSlug}`;
+}
+
+/** Test-only. Production code must not call this. */
+export function _resetSignupRateLimitForTests(): void {
+  signupStore.clear();
+}

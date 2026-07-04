@@ -1,0 +1,215 @@
+import { hashEmail, hashIp, hashPhone, ipFromForwardedFor } from "./hash.ts";
+import { parseSignupSubmission } from "./signup-schema.ts";
+import type { SignupDb } from "./signup-store.ts";
+import { storeSignup } from "./signup-store.ts";
+import type {
+  LandingPageContext,
+  SignupFormValues,
+  SubmitSignupResult,
+} from "./types.ts";
+
+/**
+ * lib/landing-pages/signup-handler.ts
+ *
+ * The signup POST pipeline, DI-shaped so node:test drives the full
+ * accept/reject matrix without an HTTP harness. The route file
+ * (app/api/l/[clientSlug]/[eventSlug]/signup/route.ts) is a thin adapter.
+ *
+ * Pipeline order is deliberate — cheapest/widest filters first:
+ *   1. rate limit        (in-memory, no IO)
+ *   2. schema validation (pure)
+ *   3. captcha           (external fetch — before ANY DB work so bot floods
+ *                         never touch Supabase)
+ *   4. context resolve   (slug chain; 404 unknown, 409 when provider is
+ *                         'evntree' — the rollback gate covers the API, not
+ *                         just the page render)
+ *   5. hash + encrypt + store
+ */
+
+export interface SignupHandlerEnv {
+  tokenKey: string | undefined;
+  hashSalt: string | undefined;
+  recaptchaSecret: string | undefined;
+  recaptchaRequired: boolean;
+}
+
+export interface SignupHandlerDeps {
+  db: SignupDb;
+  resolveContext(
+    clientSlug: string,
+    eventSlug: string,
+  ): Promise<LandingPageContext | null>;
+  checkRateLimit(key: string): { allowed: boolean; retryAfterMs: number };
+  buildRateLimitKey(
+    xForwardedFor: string | null,
+    clientSlug: string,
+    eventSlug: string,
+  ): string;
+  verifyCaptcha(
+    token: string | null,
+    env: SignupHandlerEnv,
+  ): Promise<{ ok: boolean; reason?: string }>;
+  env: SignupHandlerEnv;
+  now(): Date;
+}
+
+export interface SignupRequestInput {
+  clientSlug: string;
+  eventSlug: string;
+  body: unknown;
+  xForwardedFor: string | null;
+  userAgent: string | null;
+}
+
+export interface SignupHandlerResponse {
+  status: number;
+  json: SubmitSignupResult;
+}
+
+function fail(
+  status: number,
+  error: string,
+  fieldErrors?: Record<string, string>,
+): SignupHandlerResponse {
+  return {
+    status,
+    json: { ok: false, error, ...(fieldErrors ? { field_errors: fieldErrors } : {}) },
+  };
+}
+
+/**
+ * reCAPTCHA v3 verification against Google's siteverify. Dev mode: keys
+ * unset → warn + skip, UNLESS LANDING_PAGES_RECAPTCHA_REQUIRED=1 (prod
+ * gate) in which case missing keys is a hard 500-shaped failure.
+ */
+export async function verifyRecaptcha(
+  token: string | null,
+  env: SignupHandlerEnv,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!env.recaptchaSecret) {
+    if (env.recaptchaRequired) {
+      return { ok: false, reason: "recaptcha_required_but_unconfigured" };
+    }
+    console.warn(
+      "[landing-pages] RECAPTCHA_LANDING_PAGES_SECRET unset — skipping captcha check (dev mode)",
+    );
+    return { ok: true };
+  }
+  if (!token) return { ok: false, reason: "missing_captcha_token" };
+
+  try {
+    const response = await fetchImpl(
+      "https://www.google.com/recaptcha/api/siteverify",
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          secret: env.recaptchaSecret,
+          response: token,
+        }).toString(),
+      },
+    );
+    const payload = (await response.json()) as {
+      success?: boolean;
+      score?: number;
+    };
+    if (!payload.success) return { ok: false, reason: "captcha_rejected" };
+    // v3 score: 0 (bot) → 1 (human). 0.3 keeps false-positives rare on a
+    // low-stakes signup; tune upward if abuse shows up in ip_hash clusters.
+    if (typeof payload.score === "number" && payload.score < 0.3) {
+      return { ok: false, reason: "captcha_low_score" };
+    }
+    return { ok: true };
+  } catch (error) {
+    // Google unreachable: fail OPEN (a fan's signup beats bot paranoia) but
+    // loudly — sustained failures show in Vercel logs.
+    console.error("[landing-pages] captcha verify errored, failing open:", error);
+    return { ok: true };
+  }
+}
+
+export async function processSignup(
+  deps: SignupHandlerDeps,
+  input: SignupRequestInput,
+): Promise<SignupHandlerResponse> {
+  const { clientSlug, eventSlug } = input;
+
+  // 1. Rate limit.
+  const rateKey = deps.buildRateLimitKey(input.xForwardedFor, clientSlug, eventSlug);
+  const decision = deps.checkRateLimit(rateKey);
+  if (!decision.allowed) {
+    return fail(429, "Too many signups from this connection — try again shortly.");
+  }
+
+  // 2. Validate + normalise.
+  if (typeof input.body !== "object" || input.body === null || Array.isArray(input.body)) {
+    return fail(400, "Invalid request body.");
+  }
+  const parsed = parseSignupSubmission(input.body as SignupFormValues);
+  if (!parsed.ok) {
+    return fail(400, "Validation failed.", parsed.field_errors);
+  }
+
+  // 3. Captcha — before any DB work.
+  const captchaToken =
+    typeof (input.body as SignupFormValues).captcha_token === "string"
+      ? ((input.body as SignupFormValues).captcha_token as string)
+      : null;
+  const captcha = await deps.verifyCaptcha(captchaToken, deps.env);
+  if (!captcha.ok) {
+    console.error(
+      `[landing-pages] captcha failed for ${clientSlug}/${eventSlug}: ${captcha.reason}`,
+    );
+    return fail(403, "Captcha verification failed — please try again.");
+  }
+
+  // 4. Resolve the tenant chain (authorisation-by-resolution, PR-1 model).
+  const context = await deps.resolveContext(clientSlug, eventSlug);
+  if (!context) {
+    return fail(404, "Unknown landing page.");
+  }
+  if (context.pageEvent.provider !== "internal") {
+    // Rollback gate: a page flipped back to Evntr.ee must not silently keep
+    // collecting internal signups through the API.
+    return fail(409, "This page is not accepting signups here.");
+  }
+
+  // 5. Server config — loud 500s beat silent PII mishandling.
+  if (!deps.env.tokenKey || deps.env.tokenKey.length < 8) {
+    console.error("[landing-pages] LANDING_PAGES_TOKEN_KEY missing/short — cannot store signup");
+    return fail(500, "Signup is temporarily unavailable.");
+  }
+  if (!deps.env.hashSalt || deps.env.hashSalt.length < 8) {
+    console.error("[landing-pages] LANDING_PAGES_HASH_SALT missing/short — cannot store signup");
+    return fail(500, "Signup is temporarily unavailable.");
+  }
+
+  const submission = parsed.data;
+  const salt = deps.env.hashSalt;
+  const ip = ipFromForwardedFor(input.xForwardedFor);
+
+  try {
+    const outcome = await storeSignup(deps.db, {
+      eventId: context.event.id,
+      clientId: context.client.id,
+      submission,
+      emailHash: submission.email ? hashEmail(submission.email, salt) : null,
+      phoneHash: submission.phone_e164 ? hashPhone(submission.phone_e164, salt) : null,
+      ipHash: ip ? hashIp(ip, salt) : null,
+      userAgent: input.userAgent ? input.userAgent.slice(0, 500) : null,
+      tokenKey: deps.env.tokenKey,
+      now: deps.now(),
+    });
+    return {
+      status: 200,
+      json: { ok: true, signup_id: outcome.signupId, deduplicated: outcome.deduplicated },
+    };
+  } catch (error) {
+    console.error(
+      `[landing-pages] signup store failed for ${clientSlug}/${eventSlug}:`,
+      error,
+    );
+    return fail(500, "Something went wrong saving your signup — please try again.");
+  }
+}

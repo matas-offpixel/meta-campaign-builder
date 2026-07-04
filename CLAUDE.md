@@ -121,7 +121,24 @@ D2C_TOKEN_KEY=
 D2C_BRIEF_PARSER_MODEL=
 BIRD_API_BASE=
 FEATURE_D2C_LIVE=
+LANDING_PAGES_TOKEN_KEY=
+LANDING_PAGES_HASH_SALT=
+RECAPTCHA_LANDING_PAGES_SITE_KEY=
+RECAPTCHA_LANDING_PAGES_SECRET=
+LANDING_PAGES_RECAPTCHA_REQUIRED=
+LANDING_PAGES_SIGNUP_RATE_MAX=
+LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 ```
+
+> **Landing-page env vars** (PR 2 of the landing-page arc):
+> `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII
+> (deliberately NOT `D2C_TOKEN_KEY` — blast-radius isolation, see
+> `docs/LANDING_PAGE_ARCHITECTURE.md` §8). `LANDING_PAGES_HASH_SALT` salts
+> the dedupe hashes and is **effectively immutable** once live (rotating it
+> breaks per-event dedupe). reCAPTCHA v3 keys are landing-page-specific;
+> when unset the signup captcha check is skipped (dev mode) unless
+> `LANDING_PAGES_RECAPTCHA_REQUIRED=1` (set in prod). Rate-limit vars tune
+> the signup limiter (defaults 5 signups / 10 min per IP+page).
 
 > **`MAILCHIMP_WEBHOOK_SECRET`** secures the real-time Mailchimp tag webhook
 > receiver (`POST /api/webhooks/mailchimp/{clientId}/{audienceId}`). The handler
