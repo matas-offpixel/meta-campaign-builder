@@ -16,8 +16,9 @@
  *
  * Event-id contract: one base uuid per browser session (sessionStorage, so
  * it survives the submit → success-state transition and reloads).
- *   PageView event_id = `${base}-pv`   (client-only in PR 3)
- *   Lead     event_id = `${base}-lead` (fired client-side AND sent in the
+ *   PageView            event_id = `${base}-pv` (client-only in PR 3)
+ *   CompleteRegistration event_id = `${base}-cr` (signup's Meta standard
+ *   event — swapped from Lead post-PR-3; fired client-side AND sent in the
  *   signup POST body so the server CAPI event carries the SAME id — Meta
  *   dedups the pair on (event_name, event_id)).
  */
@@ -65,8 +66,8 @@ export function pageViewEventId(base: string): string {
   return `${base}-pv`;
 }
 
-export function leadEventId(base: string): string {
-  return `${base}-lead`;
+export function completeRegistrationEventId(base: string): string {
+  return `${base}-cr`;
 }
 
 /**
@@ -83,12 +84,18 @@ export function buildPixelInitCommands(
   ];
 }
 
-/** The Lead command fired after a successful (non-deduplicated) signup. */
-export function buildLeadCommand(
+/**
+ * The CompleteRegistration command fired after a successful
+ * (non-deduplicated) signup. Meta's standard event for account/newsletter
+ * signups — pairs with Purchase in the funnel (signup → presale → ticket
+ * buy). See design doc §12 + landmine 16: do not drift this back to Lead,
+ * and future conversion events must use their own exact Meta name.
+ */
+export function buildCompleteRegistrationCommand(
   pixelId: string,
   eventId: string,
 ): PixelCommand {
-  return ["trackSingle", pixelId, "Lead", {}, { eventID: eventId }];
+  return ["trackSingle", pixelId, "CompleteRegistration", {}, { eventID: eventId }];
 }
 
 interface FbqWindow {

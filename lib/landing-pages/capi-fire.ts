@@ -11,9 +11,9 @@ import type { SignupSubmission } from "./types.ts";
  * lib/landing-pages/capi-fire.ts
  *
  * Bridges the signup pipeline to the CAPI sender: resolves the TENANT's
- * credentials at send time and fires the Lead event. DI-shaped (db +
- * fetch/sleep injectable) so the isolation tests can byte-diff the
- * outgoing call across tenants.
+ * credentials at send time and fires the CompleteRegistration event.
+ * DI-shaped (db + fetch/sleep injectable) so the isolation tests can
+ * byte-diff the outgoing call across tenants.
  *
  * Credential silo (C+O non-negotiable C):
  *   - pixel id: passed in from `context.landingPage.meta_pixel_id` — the
@@ -84,11 +84,11 @@ async function decryptCapiToken(
 }
 
 /**
- * Fire the server-side Lead. Never throws; never blocks signup success
- * beyond the sender's 6s deadline. Returns the debug outcome echoed in
- * the signup response.
+ * Fire the server-side CompleteRegistration event. Never throws; never
+ * blocks signup success beyond the sender's 6s deadline. Returns the
+ * debug outcome echoed in the signup response.
  */
-export async function fireLeadCapi(
+export async function fireCompleteRegistrationCapi(
   db: SignupDb,
   args: FireCapiArgs,
   options: SendCapiOptions = {},

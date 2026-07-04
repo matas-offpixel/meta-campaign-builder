@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { fireLeadCapi } from "@/lib/landing-pages/capi-fire";
+import { fireCompleteRegistrationCapi } from "@/lib/landing-pages/capi-fire";
 import { getLandingPageContext } from "@/lib/db/landing-pages";
 import {
   processSignup,
@@ -74,9 +74,10 @@ export async function POST(
       checkRateLimit: (key) => checkSignupRateLimit(key),
       buildRateLimitKey: buildSignupRateLimitKey,
       verifyCaptcha: verifyTurnstile,
-      // PR 3: server-side Meta CAPI Lead — same db handle, credentials
-      // resolved per call from the tenant's client_landing_pages row.
-      fireCapi: (args) => fireLeadCapi(db, args),
+      // Server-side Meta CAPI CompleteRegistration — same db handle,
+      // credentials resolved per call from the tenant's
+      // client_landing_pages row.
+      fireCapi: (args) => fireCompleteRegistrationCapi(db, args),
       env: handlerEnv(),
       now: () => new Date(),
     },

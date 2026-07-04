@@ -26,12 +26,13 @@ import type {
  *                         'evntree' — the rollback gate covers the API, not
  *                         just the page render)
  *   5. hash + encrypt + store
- *   6. Meta CAPI Lead    (PR 3 — AFTER the DB write, inline before the
- *                         response so its outcome ships in the debug `capi`
- *                         field. Fail-open: a Meta outage can never turn a
- *                         stored signup into a fan-facing error. Fires only
- *                         for NON-deduplicated signups — a repeat signup
- *                         re-firing Lead would inflate conversion counts.)
+ *   6. Meta CAPI CompleteRegistration (AFTER the DB write, inline before
+ *                         the response so its outcome ships in the debug
+ *                         `capi` field. Fail-open: a Meta outage can
+ *                         never turn a stored signup into a fan-facing
+ *                         error. Fires only for NON-deduplicated
+ *                         signups — a repeat signup re-firing the event
+ *                         would inflate conversion counts.)
  */
 
 export interface SignupHandlerEnv {
@@ -58,11 +59,11 @@ export interface SignupHandlerDeps {
     env: SignupHandlerEnv,
   ): Promise<{ ok: boolean; reason?: string }>;
   /**
-   * PR 3: server-side Meta CAPI Lead. Optional — absent means no CAPI leg
-   * (and no `capi` debug field), which keeps the PR-2 contract intact.
-   * The handler passes the pixel id FROM THE RESOLVED CONTEXT and the
-   * client id from the same chain — the implementation must not source
-   * credentials anywhere else.
+   * Server-side Meta CAPI CompleteRegistration. Optional — absent means
+   * no CAPI leg (and no `capi` debug field), which keeps the PR-2
+   * contract intact. The handler passes the pixel id FROM THE RESOLVED
+   * CONTEXT and the client id from the same chain — the implementation
+   * must not source credentials anywhere else.
    */
   fireCapi?: FireCapi;
   env: SignupHandlerEnv;
@@ -223,7 +224,7 @@ export async function processSignup(
       now: deps.now(),
     });
 
-    // 6. Meta CAPI Lead — after the write, before the response.
+    // 6. Meta CAPI CompleteRegistration — after the write, before the response.
     let capi: CapiOutcome | undefined;
     if (deps.fireCapi) {
       if (outcome.deduplicated) {
@@ -237,7 +238,7 @@ export async function processSignup(
             // Same id the browser pixel fired (validated in step 2);
             // fallback is deterministic per signup so CAPI retries and
             // accidental double-POSTs still dedup on Meta's side.
-            eventId: submission.capi_event_id ?? `${outcome.signupId}-lead`,
+            eventId: submission.capi_event_id ?? `${outcome.signupId}-cr`,
             eventTime: Math.floor(deps.now().getTime() / 1000),
             eventSourceUrl:
               input.pageUrl ??
