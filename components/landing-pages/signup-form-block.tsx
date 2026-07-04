@@ -8,6 +8,12 @@ import {
   type CapturedAttribution,
 } from "@/lib/landing-pages/attribution";
 import {
+  buildLeadCommand,
+  getOrCreateEventBase,
+  leadEventId,
+  runPixelCommand,
+} from "@/lib/landing-pages/pixel-events";
+import {
   parseSignupSubmission,
   SIGNUP_PHONE_COUNTRIES,
 } from "@/lib/landing-pages/signup-schema";
@@ -71,11 +77,14 @@ export function SignupFormBlock({
   eventSlug,
   thankYouMessage,
   turnstileSiteKey,
+  metaPixelId,
 }: {
   clientSlug: string;
   eventSlug: string;
   thankYouMessage: string;
   turnstileSiteKey: string | null;
+  /** Tenant pixel from the view-model seam — Lead fires ONLY into this. */
+  metaPixelId: string | null;
 }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -190,6 +199,12 @@ export function SignupFormBlock({
     setState({ phase: "submitting" });
 
     try {
+      // Same event_id travels client-side (Lead below) and server-side
+      // (CAPI) — Meta dedups the pair on (event_name, event_id).
+      const capiEventId = leadEventId(
+        getOrCreateEventBase(window.sessionStorage),
+      );
+
       const response = await fetch(
         `/api/l/${encodeURIComponent(clientSlug)}/${encodeURIComponent(eventSlug)}/signup`,
         {
@@ -198,11 +213,18 @@ export function SignupFormBlock({
           body: JSON.stringify({
             ...values,
             captcha_token: turnstileTokenRef.current,
+            capi_event_id: capiEventId,
           }),
         },
       );
       const result = (await response.json()) as SubmitSignupResult;
       if (result.ok) {
+        // Fire the browser-side Lead only for NEW signups (a repeat
+        // signup firing a fresh-id Lead would inflate conversion counts)
+        // and ONLY into the tenant pixel via trackSingle.
+        if (!result.deduplicated && metaPixelId) {
+          runPixelCommand(buildLeadCommand(metaPixelId, capiEventId));
+        }
         setState({ phase: "success", deduplicated: result.deduplicated });
         return;
       }

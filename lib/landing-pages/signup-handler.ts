@@ -1,4 +1,6 @@
+import type { FireCapi } from "./capi-fire.ts";
 import { hashEmail, hashIp, hashPhone, ipFromForwardedFor } from "./hash.ts";
+import type { CapiOutcome } from "./meta-capi.ts";
 import { parseSignupSubmission } from "./signup-schema.ts";
 import type { SignupDb } from "./signup-store.ts";
 import { storeSignup } from "./signup-store.ts";
@@ -24,6 +26,12 @@ import type {
  *                         'evntree' — the rollback gate covers the API, not
  *                         just the page render)
  *   5. hash + encrypt + store
+ *   6. Meta CAPI Lead    (PR 3 — AFTER the DB write, inline before the
+ *                         response so its outcome ships in the debug `capi`
+ *                         field. Fail-open: a Meta outage can never turn a
+ *                         stored signup into a fan-facing error. Fires only
+ *                         for NON-deduplicated signups — a repeat signup
+ *                         re-firing Lead would inflate conversion counts.)
  */
 
 export interface SignupHandlerEnv {
@@ -49,6 +57,14 @@ export interface SignupHandlerDeps {
     token: string | null,
     env: SignupHandlerEnv,
   ): Promise<{ ok: boolean; reason?: string }>;
+  /**
+   * PR 3: server-side Meta CAPI Lead. Optional — absent means no CAPI leg
+   * (and no `capi` debug field), which keeps the PR-2 contract intact.
+   * The handler passes the pixel id FROM THE RESOLVED CONTEXT and the
+   * client id from the same chain — the implementation must not source
+   * credentials anywhere else.
+   */
+  fireCapi?: FireCapi;
   env: SignupHandlerEnv;
   now(): Date;
 }
@@ -59,6 +75,8 @@ export interface SignupRequestInput {
   body: unknown;
   xForwardedFor: string | null;
   userAgent: string | null;
+  /** Public URL of the landing page (CAPI event_source_url). */
+  pageUrl?: string | null;
 }
 
 export interface SignupHandlerResponse {
@@ -204,9 +222,47 @@ export async function processSignup(
       tokenKey: deps.env.tokenKey,
       now: deps.now(),
     });
+
+    // 6. Meta CAPI Lead — after the write, before the response.
+    let capi: CapiOutcome | undefined;
+    if (deps.fireCapi) {
+      if (outcome.deduplicated) {
+        capi = { ok: false, skipped: "deduplicated" };
+      } else {
+        try {
+          capi = await deps.fireCapi({
+            clientId: context.client.id,
+            pixelId: context.landingPage?.meta_pixel_id ?? null,
+            submission,
+            // Same id the browser pixel fired (validated in step 2);
+            // fallback is deterministic per signup so CAPI retries and
+            // accidental double-POSTs still dedup on Meta's side.
+            eventId: submission.capi_event_id ?? `${outcome.signupId}-lead`,
+            eventTime: Math.floor(deps.now().getTime() / 1000),
+            eventSourceUrl:
+              input.pageUrl ??
+              `https://unknown-origin.invalid/l/${clientSlug}/${eventSlug}`,
+            clientIp: ip,
+            userAgent: input.userAgent ? input.userAgent.slice(0, 500) : null,
+            tokenKey: deps.env.tokenKey,
+          });
+        } catch (error) {
+          // fireCapi is contractually non-throwing; this is belt-and-braces
+          // so a future refactor can still never break a stored signup.
+          console.error("[landing-pages capi] unexpected throw:", error);
+          capi = { ok: false, error: "capi_internal_error" };
+        }
+      }
+    }
+
     return {
       status: 200,
-      json: { ok: true, signup_id: outcome.signupId, deduplicated: outcome.deduplicated },
+      json: {
+        ok: true,
+        signup_id: outcome.signupId,
+        deduplicated: outcome.deduplicated,
+        ...(capi ? { capi } : {}),
+      },
     };
   } catch (error) {
     console.error(

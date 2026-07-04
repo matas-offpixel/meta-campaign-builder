@@ -5,6 +5,7 @@ import type { LandingPageView } from "@/lib/landing-pages/view";
 import type { LandingPageContext } from "@/lib/landing-pages/types";
 
 import styles from "./landing-page.module.css";
+import { MetaPixel } from "./meta-pixel";
 import { SignupFormBlock } from "./signup-form-block";
 
 /**
@@ -31,6 +32,8 @@ export function LandingPage({
 
   return (
     <div className={styles.root} style={view.themeStyle as CSSProperties}>
+      {/* Per-tenant pixel — id comes ONLY from the view-model seam. */}
+      <MetaPixel pixelId={view.metaPixelId} />
       <div className={styles.inner}>
         <HeroBlock view={view} />
         <EventCardBlock view={view} />
@@ -39,6 +42,7 @@ export function LandingPage({
           eventSlug={view.eventSlug}
           thankYouMessage={view.thankYouMessage}
           turnstileSiteKey={turnstileSiteKey}
+          metaPixelId={view.metaPixelId}
         />
         <FooterBlock view={view} />
       </div>

@@ -128,6 +128,7 @@ LANDING_PAGES_TURNSTILE_SECRET_KEY=
 LANDING_PAGES_TURNSTILE_REQUIRED=
 LANDING_PAGES_SIGNUP_RATE_MAX=
 LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
+LANDING_PAGES_META_API_VERSION=
 ```
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
@@ -140,6 +141,18 @@ LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 > (dev mode) unless `LANDING_PAGES_TURNSTILE_REQUIRED=1` (set in prod).
 > Rate-limit vars tune the signup limiter (defaults 5 signups / 10 min per
 > IP+page).
+>
+> **PR 3 (Meta Pixel + CAPI):** `LANDING_PAGES_META_API_VERSION` sets the
+> Graph API version for landing-page CAPI sends (default `v21.0`) —
+> deliberately independent from `META_API_VERSION` (the ad-side client in
+> `lib/meta/`); the LP arc never imports from `lib/meta/**`. Per-client
+> pixel ids and CAPI tokens live on `client_landing_pages` (tokens
+> encrypted; set via `set_landing_page_capi_token(client_id, token,
+> LANDING_PAGES_TOKEN_KEY)`, decrypted only at send time). There is NO
+> org-level pixel/token fallback by design — missing config = tracking
+> off. `client_landing_pages.meta_test_event_code` routes a client's CAPI
+> events to Meta's Test Events surface (QA only — clear after use). See
+> `docs/LANDING_PAGE_ARCHITECTURE.md` §12.
 
 > **`MAILCHIMP_WEBHOOK_SECRET`** secures the real-time Mailchimp tag webhook
 > receiver (`POST /api/webhooks/mailchimp/{clientId}/{audienceId}`). The handler
@@ -215,7 +228,7 @@ LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `127_d2c_brief_ingest.sql`.
+**Latest migration:** `135_landing_page_meta_capi.sql`.
 
 Notable recently-added tables / columns (dashboard-era, April 2026):
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { fireLeadCapi } from "@/lib/landing-pages/capi-fire";
 import { getLandingPageContext } from "@/lib/db/landing-pages";
 import {
   processSignup,
@@ -55,13 +56,27 @@ export async function POST(
     );
   }
 
+  const db = createServiceRoleClient() as unknown as SignupDb;
+
+  // CAPI event_source_url: the public page this signup came from. Origin
+  // from the request URL (Vercel rewrites preserve the public host).
+  let pageUrl: string | null = null;
+  try {
+    pageUrl = `${new URL(request.url).origin}/l/${encodeURIComponent(clientSlug)}/${encodeURIComponent(eventSlug)}`;
+  } catch {
+    pageUrl = null;
+  }
+
   const result = await processSignup(
     {
-      db: createServiceRoleClient() as unknown as SignupDb,
+      db,
       resolveContext: getLandingPageContext,
       checkRateLimit: (key) => checkSignupRateLimit(key),
       buildRateLimitKey: buildSignupRateLimitKey,
       verifyCaptcha: verifyTurnstile,
+      // PR 3: server-side Meta CAPI Lead — same db handle, credentials
+      // resolved per call from the tenant's client_landing_pages row.
+      fireCapi: (args) => fireLeadCapi(db, args),
       env: handlerEnv(),
       now: () => new Date(),
     },
@@ -71,6 +86,7 @@ export async function POST(
       body,
       xForwardedFor: request.headers.get("x-forwarded-for"),
       userAgent: request.headers.get("user-agent"),
+      pageUrl,
     },
   );
 

@@ -153,6 +153,12 @@ export interface SignupFormValues {
   referrer_url?: unknown;
   /** Cloudflare Turnstile token (absent in dev when keys unset). */
   captcha_token?: unknown;
+  /**
+   * PR 3: client-generated Meta event id shared by the browser Lead and
+   * the server CAPI event so Meta dedups the pair. Optional — the server
+   * generates one when absent (older cached bundles, pixel-less tenants).
+   */
+  capi_event_id?: unknown;
 }
 
 /** Validated + normalised submission (output of parseSignupSubmission). */
@@ -171,11 +177,30 @@ export interface SignupSubmission {
   utm: Record<string, string>;
   referrer_url: string | null;
   source: string | null;
+  /** PR 3: validated Meta event id ([A-Za-z0-9._:-]{8,64}) or null. */
+  capi_event_id: string | null;
+}
+
+/**
+ * Debug outcome of the server-side Meta CAPI fire, echoed in the signup
+ * response so failures are diagnosable via curl (design: CAPI never blocks
+ * signup success — `ok:false` here still ships with a 200 signup).
+ */
+export interface SignupCapiDebug {
+  ok: boolean;
+  fbtrace_id?: string;
+  error?: string;
+  skipped?: string;
 }
 
 /** JSON contract of POST /api/l/[clientSlug]/[eventSlug]/signup. */
 export type SubmitSignupResult =
-  | { ok: true; signup_id: string; deduplicated: boolean }
+  | {
+      ok: true;
+      signup_id: string;
+      deduplicated: boolean;
+      capi?: SignupCapiDebug;
+    }
   | { ok: false; error: string; field_errors?: Record<string, string> };
 
 /**

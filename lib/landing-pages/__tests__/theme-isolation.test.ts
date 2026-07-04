@@ -18,9 +18,10 @@ import { buildLandingPageView } from "../view.ts";
  * builds, where the only cross-page CSS is the shared hashed module, which
  * contains var() references and zero tenant literals.
  *
- * Also enforced here: PR 2's view model must NOT carry meta_pixel_id at
- * all (pixel rendering is PR 3) — the strongest possible "pixel cannot
- * leak" guarantee: the renderer never receives it.
+ * PR 3: the view model now carries `metaPixelId` (the explicit field PR 2
+ * reserved) — asserted here to be exactly the OWN tenant's pixel and
+ * nothing else. The deeper pixel/CAPI isolation matrix lives in
+ * capi-isolation.test.ts.
  */
 
 const TENANT_A = {
@@ -116,11 +117,15 @@ describe("tenant theme isolation", () => {
     }
   });
 
-  it("meta_pixel_id does not exist in the PR-2 view model at all", () => {
-    assert.ok(!serializedA.includes(TENANT_A.pixel), "own pixel id leaked into the view");
-    assert.ok(!serializedB.includes(TENANT_B.pixel), "own pixel id leaked into the view");
-    assert.ok(!("metaPixelId" in viewA));
-    assert.ok(!("meta_pixel_id" in viewA));
+  it("metaPixelId is exactly the own tenant's pixel — never the other's (PR 3 seam)", () => {
+    assert.equal(viewA.metaPixelId, TENANT_A.pixel);
+    assert.equal(viewB.metaPixelId, TENANT_B.pixel);
+    assert.ok(!serializedA.includes(TENANT_B.pixel), "tenant B pixel leaked into A's view");
+    assert.ok(!serializedB.includes(TENANT_A.pixel), "tenant A pixel leaked into B's view");
+    // No landing-page row → no pixel at all; no fallback source exists.
+    const bare = makeContext("a", TENANT_A);
+    bare.landingPage = null;
+    assert.equal(buildLandingPageView(bare).metaPixelId, null);
   });
 
   it("theme resolution never falls back to another tenant — a broken theme falls to DEFAULTS", () => {
