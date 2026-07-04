@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fireLeadCapi } from "../capi-fire.ts";
+import { fireCompleteRegistrationCapi } from "../capi-fire.ts";
 import {
-  buildLeadCommand,
+  buildCompleteRegistrationCommand,
   buildPixelInitCommands,
 } from "../pixel-events.ts";
 import {
@@ -26,7 +26,7 @@ import { makeFakeCapiDb, type FakeCapiClientRow } from "./_fake-capi-db.ts";
  * commands, view model, the full CAPI fetch call: URL + body) against
  * every secret of tenant B — zero occurrences allowed, and vice versa.
  * Both submissions run SEQUENTIALLY through the same module instances,
- * same db handle and same fireLeadCapi import, so module-level caches,
+ * same db handle and same fireCompleteRegistrationCapi import, so module-level caches,
  * memoised tokens or singleton HTTP state would show up as a leak.
  */
 
@@ -144,7 +144,7 @@ function makeHarness() {
     buildRateLimitKey: (xff, c, e) => `s:${xff ?? "anon"}:${c}/${e}`,
     verifyCaptcha: async () => ({ ok: true }),
     fireCapi: (args) =>
-      fireLeadCapi(db, args, { fetchImpl, sleep: async () => {} }),
+      fireCompleteRegistrationCapi(db, args, { fetchImpl, sleep: async () => {} }),
     env,
     now: () => new Date("2026-07-04T12:00:00Z"),
   };
@@ -176,8 +176,8 @@ describe("cross-tenant CAPI isolation — byte-diff", () => {
   it("A then B through the SAME harness: each call carries ONLY its own tenant's pixel, token and test code", async () => {
     const { deps, calls } = makeHarness();
 
-    const resultA = await processSignup(deps, makeInput("a", "fan-a@example.com", "evt-aaaa-1234-lead"));
-    const resultB = await processSignup(deps, makeInput("b", "fan-b@example.com", "evt-bbbb-1234-lead"));
+    const resultA = await processSignup(deps, makeInput("a", "fan-a@example.com", "evt-aaaa-1234-cr"));
+    const resultB = await processSignup(deps, makeInput("b", "fan-b@example.com", "evt-bbbb-1234-cr"));
     assert.equal(resultA.json.ok && resultB.json.ok, true);
     assert.equal(calls.length, 2, "exactly one CAPI call per signup");
 
@@ -208,8 +208,8 @@ describe("cross-tenant CAPI isolation — byte-diff", () => {
     }
 
     // Event ids belong to their own submission (dedup pairs stay tenant-local).
-    assert.ok(callA.body.includes("evt-aaaa-1234-lead"));
-    assert.ok(!callB.body.includes("evt-aaaa-1234-lead"));
+    assert.ok(callA.body.includes("evt-aaaa-1234-cr"));
+    assert.ok(!callB.body.includes("evt-aaaa-1234-cr"));
   });
 
   it("B-first ordering leaks nothing either (order-dependence guard)", async () => {
@@ -227,7 +227,7 @@ describe("cross-tenant CAPI isolation — byte-diff", () => {
     const viewB = buildLandingPageView(makeContext("b", TENANT_B));
     const commandsA = JSON.stringify([
       ...buildPixelInitCommands(viewA.metaPixelId!, "eva-pv"),
-      buildLeadCommand(viewA.metaPixelId!, "eva-lead"),
+      buildCompleteRegistrationCommand(viewA.metaPixelId!, "eva-cr"),
     ]);
     assert.ok(commandsA.includes(TENANT_A.pixel));
     for (const secret of secretsOf(TENANT_B)) {
@@ -259,7 +259,7 @@ describe("CAPI handler flows", () => {
       assert.equal(second.json.deduplicated, true);
       assert.equal(second.json.capi?.skipped, "deduplicated");
     }
-    assert.equal(calls.length, 1, "repeat signup must not re-fire Lead");
+    assert.equal(calls.length, 1, "repeat signup must not re-fire CompleteRegistration");
   });
 
   it("pixel unset → skipped not_configured, token never even looked up", async () => {
@@ -277,7 +277,7 @@ describe("CAPI handler flows", () => {
     const db = makeFakeCapiDb([
       { client_id: TENANT_A.clientId, capi_token_encrypted: null, meta_test_event_code: null },
     ]);
-    const outcome = await fireLeadCapi(db, {
+    const outcome = await fireCompleteRegistrationCapi(db, {
       clientId: TENANT_A.clientId,
       pixelId: TENANT_A.pixel,
       submission: {
@@ -286,7 +286,7 @@ describe("CAPI handler flows", () => {
         consent_wa_opt_in: false, utm: {}, referrer_url: null, source: null,
         capi_event_id: null,
       },
-      eventId: "evt-x-lead-123",
+      eventId: "evt-x-cr-123",
       eventTime: 1_751_630_000,
       eventSourceUrl: "https://app.example.com/l/a/b",
       clientIp: null,
@@ -298,7 +298,7 @@ describe("CAPI handler flows", () => {
 
   it("wrong token key → decrypt fails → not_configured (never a wrong-tenant token)", async () => {
     const db = makeFakeCapiDb(capiRows());
-    const outcome = await fireLeadCapi(db, {
+    const outcome = await fireCompleteRegistrationCapi(db, {
       clientId: TENANT_A.clientId,
       pixelId: TENANT_A.pixel,
       submission: {
@@ -307,7 +307,7 @@ describe("CAPI handler flows", () => {
         consent_wa_opt_in: false, utm: {}, referrer_url: null, source: null,
         capi_event_id: null,
       },
-      eventId: "evt-x-lead-456",
+      eventId: "evt-x-cr-456",
       eventTime: 1_751_630_000,
       eventSourceUrl: "https://app.example.com/l/a/b",
       clientIp: null,
@@ -327,7 +327,7 @@ describe("CAPI handler flows", () => {
     assert.equal(withoutId.json.ok, true);
     if (withoutId.json.ok) {
       assert.ok(
-        calls[1].body.includes(`"event_id":"${withoutId.json.signup_id}-lead"`),
+        calls[1].body.includes(`"event_id":"${withoutId.json.signup_id}-cr"`),
         "fallback id must be deterministic per signup so accidental re-POSTs still dedup",
       );
     }
@@ -342,7 +342,7 @@ describe("CAPI handler flows", () => {
       buildRateLimitKey: () => "k",
       verifyCaptcha: async () => ({ ok: true }),
       fireCapi: (args) =>
-        fireLeadCapi(db, args, {
+        fireCompleteRegistrationCapi(db, args, {
           fetchImpl: (() =>
             Promise.resolve(
               new Response(JSON.stringify({ error: { message: "down" } }), { status: 500 }),
@@ -370,7 +370,7 @@ describe("CAPI handler flows", () => {
       },
     ]);
     const calls: CapturedCall[] = [];
-    await fireLeadCapi(
+    await fireCompleteRegistrationCapi(
       db,
       {
         clientId: TENANT_A.clientId,
@@ -381,7 +381,7 @@ describe("CAPI handler flows", () => {
           consent_wa_opt_in: false, utm: {}, referrer_url: null, source: null,
           capi_event_id: null,
         },
-        eventId: "evt-tec-lead-1",
+        eventId: "evt-tec-cr-1",
         eventTime: 1_751_630_000,
         eventSourceUrl: "https://app.example.com/l/a/b",
         clientIp: null,

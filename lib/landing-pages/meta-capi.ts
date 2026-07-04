@@ -109,7 +109,13 @@ export function buildCapiEventPayload(
   const payload: CapiEventPayload = {
     data: [
       {
-        event_name: "Lead",
+        // Signup's Meta standard event. CompleteRegistration (not Lead) —
+        // pairs naturally with Purchase in the event-marketing funnel
+        // (signup → presale link → ticket buy). See design doc §12 +
+        // landmine 16: future conversion events (Purchase, AddToCart, …)
+        // must use their own exact Meta standard name; do not drift this
+        // back to Lead or reuse CompleteRegistration for a different step.
+        event_name: "CompleteRegistration",
         event_time: input.eventTime,
         event_id: input.eventId,
         event_source_url: input.eventSourceUrl,
@@ -155,6 +161,13 @@ export async function sendCapiEvent(
   const eventId = String(
     (payload.data[0] as { event_id?: unknown })?.event_id ?? "unknown",
   );
+  // Derived from the payload rather than hardcoded so this stays correct
+  // for whatever event name the caller builds (CompleteRegistration today;
+  // future Purchase/AddToCart events per design-doc landmine 16 need no
+  // edit here).
+  const eventName = String(
+    (payload.data[0] as { event_name?: unknown })?.event_name ?? "event",
+  );
   const deadline = now() + TOTAL_DEADLINE_MS;
   let lastError = "unknown";
 
@@ -194,7 +207,7 @@ export async function sendCapiEvent(
       if (response.ok) {
         const fbtraceId = body.fbtrace_id ?? body.error?.fbtrace_id;
         console.error(
-          `[landing-pages capi] Lead sent ok event_id=${eventId} fbtrace_id=${fbtraceId ?? "n/a"} attempt=${attempt}`,
+          `[landing-pages capi] ${eventName} sent ok event_id=${eventId} fbtrace_id=${fbtraceId ?? "n/a"} attempt=${attempt}`,
         );
         return { ok: true, ...(fbtraceId ? { fbtrace_id: fbtraceId } : {}) };
       }
@@ -206,7 +219,7 @@ export async function sendCapiEvent(
         // 4xx is permanent (bad token / pixel / payload) — retrying cannot
         // heal it and burns the fan's response-time budget.
         console.error(
-          `[landing-pages capi] Lead REJECTED event_id=${eventId} ${lastError} fbtrace_id=${fbtraceId ?? "n/a"} (permanent, no retry)`,
+          `[landing-pages capi] ${eventName} REJECTED event_id=${eventId} ${lastError} fbtrace_id=${fbtraceId ?? "n/a"} (permanent, no retry)`,
         );
         return {
           ok: false,
@@ -216,7 +229,7 @@ export async function sendCapiEvent(
       }
 
       console.error(
-        `[landing-pages capi] Lead attempt ${attempt}/${MAX_ATTEMPTS} failed event_id=${eventId} ${lastError} fbtrace_id=${fbtraceId ?? "n/a"}`,
+        `[landing-pages capi] ${eventName} attempt ${attempt}/${MAX_ATTEMPTS} failed event_id=${eventId} ${lastError} fbtrace_id=${fbtraceId ?? "n/a"}`,
       );
     } catch (error) {
       clearTimeout(timer);
@@ -225,7 +238,7 @@ export async function sendCapiEvent(
           ? `timeout_after_${ATTEMPT_TIMEOUT_MS}ms`
           : `network_error: ${error instanceof Error ? error.message : String(error)}`;
       console.error(
-        `[landing-pages capi] Lead attempt ${attempt}/${MAX_ATTEMPTS} errored event_id=${eventId} ${lastError}`,
+        `[landing-pages capi] ${eventName} attempt ${attempt}/${MAX_ATTEMPTS} errored event_id=${eventId} ${lastError}`,
       );
     }
 
@@ -240,7 +253,7 @@ export async function sendCapiEvent(
   }
 
   console.error(
-    `[landing-pages capi] Lead FAILED after retries event_id=${eventId} last_error=${lastError} — failing open, signup unaffected`,
+    `[landing-pages capi] ${eventName} FAILED after retries event_id=${eventId} last_error=${lastError} — failing open, signup unaffected`,
   );
   return { ok: false, error: lastError };
 }

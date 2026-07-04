@@ -154,9 +154,10 @@ export interface SignupFormValues {
   /** Cloudflare Turnstile token (absent in dev when keys unset). */
   captcha_token?: unknown;
   /**
-   * PR 3: client-generated Meta event id shared by the browser Lead and
-   * the server CAPI event so Meta dedups the pair. Optional — the server
-   * generates one when absent (older cached bundles, pixel-less tenants).
+   * Client-generated Meta event id shared by the browser
+   * CompleteRegistration event and the server CAPI event so Meta dedups
+   * the pair. Optional — the server generates one when absent (older
+   * cached bundles, pixel-less tenants).
    */
   capi_event_id?: unknown;
 }

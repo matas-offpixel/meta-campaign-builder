@@ -63,7 +63,7 @@ describe("hashForCapi — Meta's unsalted sha256 spec", () => {
 // ── Payload builder ──────────────────────────────────────────────────────────
 
 const baseInput: CapiEventInput = {
-  eventId: "base-uuid-1234-lead",
+  eventId: "base-uuid-1234-cr",
   eventTime: 1_751_630_000,
   eventSourceUrl: "https://app.example.com/l/gmc/jackies",
   email: "fan@example.com",
@@ -78,7 +78,7 @@ describe("buildCapiEventPayload", () => {
     const payload = buildCapiEventPayload(baseInput, null);
     assert.equal(payload.data.length, 1);
     const event = payload.data[0] as Record<string, unknown>;
-    assert.equal(event.event_name, "Lead");
+    assert.equal(event.event_name, "CompleteRegistration");
     assert.equal(event.event_time, baseInput.eventTime);
     assert.equal(event.event_id, baseInput.eventId);
     assert.equal(event.event_source_url, baseInput.eventSourceUrl);
@@ -192,8 +192,8 @@ describe("sendCapiEvent — retry / timeout / fail-open-loudly", () => {
     assert.equal(calls.length, 3);
     for (const call of calls) {
       assert.ok(
-        call.body.includes('"event_id":"base-uuid-1234-lead"'),
-        "retries must reuse the SAME event_id — Meta dedups on it; a fresh id per attempt would create duplicate Leads",
+        call.body.includes('"event_id":"base-uuid-1234-cr"'),
+        "retries must reuse the SAME event_id — Meta dedups on it; a fresh id per attempt would create duplicate CompleteRegistration events",
       );
     }
   });

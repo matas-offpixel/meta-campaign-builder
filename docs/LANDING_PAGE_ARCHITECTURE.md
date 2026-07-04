@@ -126,7 +126,7 @@ How the schema enforces it:
   references, never tenant literals — true in dev and prod builds alike.
 - PR 3 extends it to PIXEL + CAPI: `__tests__/capi-isolation.test.ts`
   runs two tenants' signups sequentially through the SAME module
-  instances / db handle / `fireLeadCapi` import (so module-level caches,
+  instances / db handle / `fireCompleteRegistrationCapi` import (so module-level caches,
   memoised tokens or singleton HTTP state would surface as a leak) and
   **byte-diffs** everything that leaves the system — pixel command
   tuples, serialized view models, and the full CAPI fetch call (URL +
@@ -229,7 +229,7 @@ gospel — but the boundaries are.
 | PR | Owns | Must not |
 |---|---|---|
 | **2 — theming + signup form ✅ DONE** | Theme jsonb schema + merge semantics; block renderer (`hero`/`event_card`/`signup_form`/`footer`); `template_key` promotion (migration 134); `event_signups` + encrypted PII storage; write-path rate limit + Turnstile; UTM/attribution capture | No pixel firing, no CAPI, no CRM push (scope pulled the signup form forward from PR 3 per the PR-2 prompt) |
-| **3 — Meta Pixel + CAPI ✅ DONE** | Per-client pixel loader (`meta_pixel_id` through the view-model seam); PageView + Lead with shared `event_id` dedup; server-side CAPI Lead post-DB-write (migration 135: `meta_test_event_code`, `meta_pixel_id_verified_at`, token accessor RPCs); retry ×3 + 2s/6s timeouts + fail-open-loudly; cross-tenant byte-diff isolation tests. See §12 | No CRM push, no admin UI, no TikTok/Google pixels (scope pulled CAPI forward from PR 4 per the PR-3 prompt) |
+| **3 — Meta Pixel + CAPI ✅ DONE** | Per-client pixel loader (`meta_pixel_id` through the view-model seam); PageView + CompleteRegistration with shared `event_id` dedup (switched from Lead post-merge, see landmine 16); server-side CAPI CompleteRegistration post-DB-write (migration 135: `meta_test_event_code`, `meta_pixel_id_verified_at`, token accessor RPCs); retry ×3 + 2s/6s timeouts + fail-open-loudly; cross-tenant byte-diff isolation tests. See §12 | No CRM push, no admin UI, no TikTok/Google pixels (scope pulled CAPI forward from PR 4 per the PR-3 prompt) |
 | **4 — CRM push (Bird + Mailchimp on signup)** | Push stored signups to the client's CRM/community stack; same per-client credential silo + idempotency on repeated `signup_id`s | Never batch across clients; never log credentials |
 | **5 — admin dashboard** | View/edit pixel_id, capi token (write-only — see §12 breadcrumbs), test_event_code, verification status; surface signup counts | Never display decrypted CAPI tokens; warn loudly when `meta_test_event_code` is set |
 | **6 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
@@ -371,9 +371,20 @@ conversion spends against — which is exactly the job these pages take over).
 16. **CAPI retries reuse the SAME `event_id`** (PR 3). Meta dedups on
    `(event_name, event_id)` for 48h — a stable id makes retries and
    accidental double-POSTs idempotent. Generating a fresh id per attempt
-   would convert every retry into a duplicate Lead. The browser Lead and
-   server CAPI event share one id (sessionStorage-persisted base) for the
-   same reason.
+   would convert every retry into a duplicate CompleteRegistration. The
+   browser CompleteRegistration and server CAPI event share one id
+   (sessionStorage-persisted base) for the same reason.
+17. **The signup event is `CompleteRegistration`, not `Lead`** (switched
+   shortly after PR 3 merged). It is Meta's standard event for
+   account/newsletter signups and pairs with `Purchase` in the
+   event-marketing funnel (signup → presale link → ticket buy) — see
+   §12. Every future conversion event this arc adds (`Purchase` for the
+   ticket buy, `AddToCart` for a basket, etc.) MUST use its own exact
+   Meta standard name and MUST NOT drift back to `Lead` for signups or
+   reuse `CompleteRegistration` for a different step. MVP fires exactly
+   ONE signup event — do not add a second simultaneous event (some
+   integrations fire `Lead` AND `CompleteRegistration`; that is an
+   explicit non-goal here) without a deliberate decision recorded here.
 
 ## 8. PII encryption + storage (PR 2)
 
@@ -504,14 +515,23 @@ surface cannot drift when the app shell restyles.
 | Event | Side | When | Data |
 |---|---|---|---|
 | `PageView` | Browser (`fbq trackSingle`) | LP mount, when `metaPixelId` is set | Whatever Meta Pixel auto-captures; `eventID = {base}-pv` |
-| `Lead` | Browser (`fbq trackSingle`) | Successful NON-deduplicated signup | No manual PII — Meta's auto-capture only; `eventID = {base}-lead` |
-| `Lead` | Server (CAPI `POST /{pixel_id}/events`) | After the DB write succeeds, inline before the signup response | `em`/`ph` = unsalted SHA256 of the just-decrypted email / digits-only E.164 phone (computed at send time, discarded); `client_ip_address` from x-forwarded-for; `client_user_agent`; `event_source_url` = the public LP URL; `custom_data.source` = the PR-2 attribution bucket; same `event_id` as the browser Lead |
+| `CompleteRegistration` | Browser (`fbq trackSingle`) | Successful NON-deduplicated signup | No manual PII — Meta's auto-capture only; `eventID = {base}-cr` |
+| `CompleteRegistration` | Server (CAPI `POST /{pixel_id}/events`) | After the DB write succeeds, inline before the signup response | `em`/`ph` = unsalted SHA256 of the just-decrypted email / digits-only E.164 phone (computed at send time, discarded); `client_ip_address` from x-forwarded-for; `client_user_agent`; `event_source_url` = the public LP URL; `custom_data.source` = the PR-2 attribution bucket; same `event_id` as the browser CompleteRegistration event |
+
+**Why `CompleteRegistration` and not `Lead`:** Meta's standard event for
+account/newsletter-style signups; it pairs naturally with `Purchase` in
+the event-marketing conversion funnel (fan signs up → gets the presale
+link → buys a ticket) — `Purchase` is the natural next event a future PR
+adds for the ticket-buy step, and Meta's optimisation/attribution tooling
+expects that pairing rather than `Lead` → `Purchase`. This was switched
+from `Lead` shortly after PR 3 shipped (see landmine 16) — MVP fires
+exactly one signup event, never both.
 
 **eventID dedup pattern:** one base uuid per browser session, persisted in
 `sessionStorage` (`lp_pixel_event_base_v1`) so it survives the submit
-transition and reloads. The form sends `{base}-lead` in the POST body
+transition and reloads. The form sends `{base}-cr` in the POST body
 (`capi_event_id`, validated `[A-Za-z0-9._:-]{8,64}`); the server uses it
-verbatim, falling back to the deterministic `{signup_id}-lead` when
+verbatim, falling back to the deterministic `{signup_id}-cr` when
 absent/invalid. Meta collapses the browser + server pair — and any CAPI
 retries — on `(event_name, event_id)` within 48h (landmine 16).
 
@@ -550,7 +570,8 @@ cannot heal it. Every outcome logs `console.error` prefixed
 lower log levels) and the signup response carries a debug field:
 `{ ok, signup_id, deduplicated, capi: { ok, fbtrace_id?, error?, skipped? } }`
 so Matas can diagnose via curl. `skipped` values: `not_configured`
-(no pixel or no token), `deduplicated` (repeat signup — no Lead fired).
+(no pixel or no token), `deduplicated` (repeat signup — no
+CompleteRegistration fired).
 
 ### PR-5 admin dashboard breadcrumbs
 
@@ -579,14 +600,15 @@ so Matas can diagnose via curl. `skipped` values: `not_configured`
    then `select set_landing_page_capi_token('<gmc>', '<capi token>', '<LANDING_PAGES_TOKEN_KEY>');`
 3. QA path: `update client_landing_pages set meta_test_event_code='<code from Events Manager Test Events>' …`,
    open the LP, submit a signup → Test Events shows PageView (browser) +
-   Lead (browser + server, deduped to one). The signup response's `capi`
-   field shows `{ok: true, fbtrace_id: …}`.
+   CompleteRegistration (browser + server, deduped to one). The signup
+   response's `capi` field shows `{ok: true, fbtrace_id: …}`.
 4. Clear the test code → repeat with a fresh email → events appear on the
    live pixel in Events Manager, correct pixel id.
 5. Rollback check: flip `provider='evntree'` → page 307s before any pixel
    renders; flip back.
 6. Repeat-signup check: same email again → response has
-   `capi: {ok:false, skipped:"deduplicated"}` and no new Lead in Meta.
+   `capi: {ok:false, skipped:"deduplicated"}` and no new CompleteRegistration
+   in Meta.
 
 ## 13. PR-2 verification runbook (Matas, pre-merge)
 

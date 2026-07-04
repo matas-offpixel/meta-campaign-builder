@@ -4,11 +4,11 @@ import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
-  buildLeadCommand,
+  buildCompleteRegistrationCommand,
   buildPixelInitCommands,
+  completeRegistrationEventId,
   getOrCreateEventBase,
   isValidCapiEventId,
-  leadEventId,
   pageViewEventId,
 } from "../pixel-events.ts";
 
@@ -37,16 +37,16 @@ describe("event id lifecycle", () => {
     assert.equal(storage.store.size, 1);
   });
 
-  it("PageView and Lead ids derive from the same base and validate", () => {
+  it("PageView and CompleteRegistration ids derive from the same base and validate", () => {
     const storage = makeStorage();
     const base = getOrCreateEventBase(storage);
     const pv = pageViewEventId(base);
-    const lead = leadEventId(base);
+    const cr = completeRegistrationEventId(base);
     assert.ok(pv.endsWith("-pv"));
-    assert.ok(lead.endsWith("-lead"));
-    assert.notEqual(pv, lead);
+    assert.ok(cr.endsWith("-cr"));
+    assert.notEqual(pv, cr);
     assert.ok(isValidCapiEventId(pv), `pv id ${pv} must pass the shared charset`);
-    assert.ok(isValidCapiEventId(lead));
+    assert.ok(isValidCapiEventId(cr));
   });
 
   it("throwing storage (privacy mode) still yields a usable id", () => {
@@ -59,7 +59,7 @@ describe("event id lifecycle", () => {
       },
     };
     const base = getOrCreateEventBase(storage);
-    assert.ok(isValidCapiEventId(leadEventId(base)));
+    assert.ok(isValidCapiEventId(completeRegistrationEventId(base)));
   });
 });
 
@@ -74,20 +74,20 @@ describe("pixel commands — trackSingle invariant", () => {
     ]);
   });
 
-  it("lead command uses trackSingle with the shared event id", () => {
-    assert.deepEqual(buildLeadCommand(PIXEL, "base-1234-lead"), [
+  it("CompleteRegistration command uses trackSingle with the shared event id", () => {
+    assert.deepEqual(buildCompleteRegistrationCommand(PIXEL, "base-1234-cr"), [
       "trackSingle",
       PIXEL,
-      "Lead",
+      "CompleteRegistration",
       {},
-      { eventID: "base-1234-lead" },
+      { eventID: "base-1234-cr" },
     ]);
   });
 
   it("no builder ever emits a plain 'track' (fires to EVERY initialised pixel)", () => {
     const all = [
       ...buildPixelInitCommands(PIXEL, "x-pv"),
-      buildLeadCommand(PIXEL, "x-lead"),
+      buildCompleteRegistrationCommand(PIXEL, "x-cr"),
     ];
     for (const command of all) {
       assert.notEqual(
