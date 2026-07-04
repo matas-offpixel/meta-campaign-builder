@@ -73,6 +73,30 @@ export function normalizePhoneForCapi(
   return digits.length > 0 ? digits : null;
 }
 
+/**
+ * Meta user_data.country expects sha256(lowercase ISO-2). Anything that
+ * isn't exactly two letters → null (drop the field, don't hash junk).
+ */
+export function normalizeCountryForCapi(
+  country: string | null | undefined,
+): string | null {
+  if (!country) return null;
+  const trimmed = country.trim().toLowerCase();
+  return /^[a-z]{2}$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Meta user_data.st expects sha256(lowercase, no punctuation/whitespace)
+ * — e.g. "ENG" → "eng", "New York" → "newyork".
+ */
+export function normalizeRegionForCapi(
+  region: string | null | undefined,
+): string | null {
+  if (!region) return null;
+  const normalised = region.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return normalised.length > 0 ? normalised : null;
+}
+
 export interface CapiEventInput {
   eventId: string;
   /** Unix seconds. */
@@ -82,6 +106,10 @@ export interface CapiEventInput {
   phoneE164: string | null;
   clientIp: string | null;
   clientUserAgent: string | null;
+  /** Server-derived (Vercel headers): ISO-2 country code (PR 6). */
+  geoCountry: string | null;
+  /** Server-derived (Vercel headers): region code, e.g. "ENG" (PR 6). */
+  geoRegion: string | null;
   source: string | null;
 }
 
@@ -103,6 +131,13 @@ export function buildCapiEventPayload(
   if (em) userData.em = [em];
   const ph = hashForCapi(normalizePhoneForCapi(input.phoneE164));
   if (ph) userData.ph = [ph];
+  // PR 6: hashed coarse geo (country + st) improves match quality now
+  // that fn/ln/ct are gone with the name/city form fields. (PR 3 never
+  // sent fn/ln/ct — nothing to remove here; the geo pair is the delta.)
+  const country = hashForCapi(normalizeCountryForCapi(input.geoCountry));
+  if (country) userData.country = [country];
+  const st = hashForCapi(normalizeRegionForCapi(input.geoRegion));
+  if (st) userData.st = [st];
   if (input.clientIp) userData.client_ip_address = input.clientIp;
   if (input.clientUserAgent) userData.client_user_agent = input.clientUserAgent;
 

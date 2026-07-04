@@ -228,7 +228,19 @@ LANDING_PAGES_META_API_VERSION=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `135_landing_page_meta_capi.sql`.
+**Latest migration:** `136_landing_page_supreme_ux.sql`.
+
+- Landing pages Supreme UX (July 2026, LP PR 6): `event_signups` DROPPED
+  `first_name`/`last_name`/`city` and gained `geo_country`/`geo_region`/
+  `geo_city` (server-derived from Vercel geo headers, never from the form
+  body). `client_landing_pages` gained presentation + consent config
+  (`privacy_policy_url`, `logo_style` box_logo/wordmark, `box_logo_text`,
+  `show_off_pixel_attribution`, `partner_consent_enabled`, `partner_name`,
+  `partner_privacy_policy_url`). `page_events` (NOT `events` — LP
+  presentation stays on the LP-owned table) gained `artwork_palette`
+  (server-extracted via sharp, lazy at render time), `hero_images`,
+  `countdown_target_at`/`countdown_label`, `youtube_url`, `bottom_images`.
+  See `docs/LANDING_PAGE_ARCHITECTURE.md` §15.
 
 Notable recently-added tables / columns (dashboard-era, April 2026):
 

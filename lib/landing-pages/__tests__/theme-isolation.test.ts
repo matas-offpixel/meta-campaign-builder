@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 
 import type { LandingPageContext } from "../types.ts";
 import { buildLandingPageView } from "../view.ts";
+import {
+  LANDING_PAGE_PRESENTATION_DEFAULTS,
+  PAGE_EVENT_PRESENTATION_DEFAULTS,
+} from "./_fixtures.ts";
 
 /**
  * TENANT THEME ISOLATION — the PR-2 counterpart of PR 1's data-isolation
@@ -31,6 +35,10 @@ const TENANT_A = {
   logo: "https://cdn.tenant-a.example/logo-a.png",
   thanks: "TENANT_A_THANK_YOU_COPY",
   pixel: "111111111111111",
+  // PR 6 surfaces:
+  palette: "#A44A44",
+  privacy: "https://tenant-a.example/privacy-a",
+  boxLogo: "BOX_LOGO_A",
 };
 
 const TENANT_B = {
@@ -40,6 +48,9 @@ const TENANT_B = {
   logo: "https://cdn.tenant-b.example/logo-b.png",
   thanks: "TENANT_B_THANK_YOU_COPY",
   pixel: "999999999999999",
+  palette: "#B44B44",
+  privacy: "https://tenant-b.example/privacy-b",
+  boxLogo: "BOX_LOGO_B",
 };
 
 function makeContext(
@@ -56,6 +67,7 @@ function makeContext(
       venue_name: `Venue ${name.toUpperCase()}`,
       venue_city: `City ${name.toUpperCase()}`,
       ticket_url: null,
+      capacity: null,
     },
     pageEvent: {
       id: `pe-${name}`,
@@ -67,6 +79,8 @@ function makeContext(
       status: "live",
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
+      ...PAGE_EVENT_PRESENTATION_DEFAULTS,
+      artwork_palette: [tenant.palette],
     },
     landingPage: {
       id: `lp-${name}`,
@@ -79,6 +93,9 @@ function makeContext(
       },
       meta_pixel_id: tenant.pixel,
       default_provider: "internal",
+      ...LANDING_PAGE_PRESENTATION_DEFAULTS,
+      privacy_policy_url: tenant.privacy,
+      box_logo_text: tenant.boxLogo,
     },
     template: { id: `t`, key: "mvp_v1", name: "MVP", block_types_supported: [], default_config: {}, version: 1 },
   };
@@ -137,6 +154,17 @@ describe("tenant theme isolation", () => {
     for (const token of [...Object.values(TENANT_A), ...Object.values(TENANT_B)]) {
       assert.ok(!JSON.stringify(view.theme).includes(token));
     }
+  });
+
+  it("PR 6: accent resolves from the OWN tenant's palette; privacy/box-logo stay tenant-local", () => {
+    assert.equal(viewA.accent, TENANT_A.palette);
+    assert.equal(viewB.accent, TENANT_B.palette);
+    assert.equal(viewA.privacyPolicyUrl, TENANT_A.privacy);
+    assert.equal(viewA.boxLogoText, TENANT_A.boxLogo);
+    // Palette gone → falls to the OWN client's primary, never B's anything.
+    const noPalette = makeContext("a", TENANT_A);
+    noPalette.pageEvent.artwork_palette = null;
+    assert.equal(buildLandingPageView(noPalette).accent, TENANT_A.color);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { RpcDb } from "./encrypt.ts";
 import { encryptPii } from "./encrypt.ts";
-import type { SignupSubmission } from "./types.ts";
+import type { SignupGeo, SignupSubmission } from "./types.ts";
 
 /**
  * lib/landing-pages/signup-store.ts
@@ -19,11 +19,10 @@ import type { SignupSubmission } from "./types.ts";
  *     23505 we re-read the canonical row and take the repeat path.
  */
 
-export interface SignupInsertBuilder
-  extends PromiseLike<{
-    data: Array<{ id: string }> | null;
-    error: { message: string; code?: string } | null;
-  }> {}
+export type SignupInsertBuilder = PromiseLike<{
+  data: Array<{ id: string }> | null;
+  error: { message: string; code?: string } | null;
+}>;
 
 export interface SignupDb extends RpcDb {
   from(table: string): {
@@ -51,6 +50,8 @@ export interface StoreSignupInput {
   phoneHash: string | null;
   ipHash: string | null;
   userAgent: string | null;
+  /** Server-derived coarse geo (Vercel headers) — PR 6, migration 136. */
+  geo: SignupGeo;
   tokenKey: string;
   now: Date;
 }
@@ -88,12 +89,14 @@ function baseRow(input: StoreSignupInput): Record<string, unknown> {
   return {
     event_id: input.eventId,
     client_id: input.clientId,
-    first_name: s.first_name,
-    last_name: s.last_name,
     phone_country_code: s.phone_country_code,
-    city: s.city,
+    // Public identifiers — deliberately NOT encrypted (design doc §PII
+    // tiers): @-stripped + lowercased in the shared schema module.
     ig_handle: s.ig_handle,
     tt_handle: s.tt_handle,
+    geo_country: input.geo.country,
+    geo_region: input.geo.region,
+    geo_city: input.geo.city,
     consent_gdpr_at: input.now.toISOString(),
     consent_wa_opt_in_at: s.consent_wa_opt_in ? input.now.toISOString() : null,
     source: s.source,

@@ -97,7 +97,7 @@ export async function resolveLandingPageContext(
   const events = (await selectRows(
     db,
     "events",
-    "id, name, slug, client_id, event_date, venue_name, venue_city, ticket_url",
+    "id, name, slug, client_id, event_date, venue_name, venue_city, ticket_url, capacity",
     [
       ["slug", eventSlug],
       ["client_id", clientRow.id],
@@ -111,6 +111,7 @@ export async function resolveLandingPageContext(
     venue_name: string | null;
     venue_city: string | null;
     ticket_url: string | null;
+    capacity: number | null;
   }>;
   if (events.length === 0) return null;
   if (events.length > 1) {
@@ -125,7 +126,8 @@ export async function resolveLandingPageContext(
   const pageEvents = (await selectRows(
     db,
     "page_events",
-    "id, event_id, provider, evntree_url, theme_overrides, content, status, created_at, updated_at",
+    "id, event_id, provider, evntree_url, theme_overrides, content, status, created_at, updated_at, " +
+      "artwork_palette, hero_images, countdown_target_at, countdown_label, youtube_url, bottom_images",
     [["event_id", eventRow.id]],
   )) as PageEventRow[];
   if (pageEvents.length === 0) return null;
@@ -136,7 +138,8 @@ export async function resolveLandingPageContext(
   const landingPages = (await selectRows(
     db,
     "client_landing_pages",
-    "id, client_id, theme, meta_pixel_id, default_provider",
+    "id, client_id, theme, meta_pixel_id, default_provider, " +
+      "privacy_policy_url, logo_style, box_logo_text, show_off_pixel_attribution",
     [["client_id", clientRow.id]],
   )) as Array<{
     id: string;
@@ -144,8 +147,22 @@ export async function resolveLandingPageContext(
     theme: Record<string, unknown>;
     meta_pixel_id: string | null;
     default_provider: "internal" | "evntree";
+    privacy_policy_url: string | null;
+    logo_style: "box_logo" | "wordmark" | null;
+    box_logo_text: string | null;
+    show_off_pixel_attribution: boolean | null;
   }>;
-  const landingPage = landingPages[0] ?? null;
+  const landingPageRaw = landingPages[0] ?? null;
+  const landingPage = landingPageRaw
+    ? {
+        ...landingPageRaw,
+        // NULL-safe defaults matching the migration-136 column defaults —
+        // fakes/older rows without the columns still resolve cleanly.
+        logo_style: landingPageRaw.logo_style ?? ("box_logo" as const),
+        show_off_pixel_attribution:
+          landingPageRaw.show_off_pixel_attribution ?? true,
+      }
+    : null;
 
   // 5. Template row for content.template_key (default mvp_v1). Missing
   //    template → null; the placeholder renders the key it looked for.
@@ -175,6 +192,7 @@ export async function resolveLandingPageContext(
       venue_name: eventRow.venue_name,
       venue_city: eventRow.venue_city,
       ticket_url: eventRow.ticket_url,
+      capacity: eventRow.capacity,
     },
     pageEvent,
     landingPage,

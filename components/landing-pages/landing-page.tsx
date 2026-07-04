@@ -5,20 +5,34 @@ import type { LandingPageView } from "@/lib/landing-pages/view";
 import type { LandingPageContext } from "@/lib/landing-pages/types";
 
 import styles from "./landing-page.module.css";
+import { BottomMedia } from "./bottom-media";
+import { CountdownBlock } from "./countdown-block";
+import { HeroCarousel } from "./hero-carousel";
 import { MetaPixel } from "./meta-pixel";
-import { SignupFormBlock } from "./signup-form-block";
+import { SignupForm } from "./signup-form";
 
 /**
  * components/landing-pages/landing-page.tsx
  *
- * The themed /l renderer (PR 2). Server component; only SignupFormBlock is
- * a client island. Consumes ONLY the LandingPageView built from the
- * context — the tenant-isolation seam (see lib/landing-pages/view.ts).
+ * The /l renderer — PR 6 Supreme rewrite. Server component; the client
+ * islands are the carousel, countdown, form, and bottom media. Consumes
+ * ONLY the LandingPageView built from the context — the tenant-isolation
+ * seam (see lib/landing-pages/view.ts) — exactly as in PR 2/3.
  *
- * Theme scoping: the resolved --lp-* custom properties are set INLINE on
- * the root element. CSS variables inherit downward only; combined with
- * hashed CSS-module class names, tenant theming has no code path into
- * global styles or another tenant's page.
+ * Layout (mobile-first, desktop max-width 480px centered):
+ *   header (box logo | wordmark + LDN timestamp)
+ *   hero carousel (falls back to single artwork image)
+ *   countdown (only when a future target is set)
+ *   event block (title + lowercase dot-separated details)
+ *   signup form
+ *   description
+ *   bottom media (YouTube lite-embed + image grid)
+ *   footer (only when show_off_pixel_attribution)
+ *
+ * The tenant accent arrives as --accent on the root (resolveAccent:
+ * artwork palette → client primary → default) alongside the legacy
+ * --lp-* variables — CSS custom properties inherit downward only, so the
+ * PR-2 scoping/isolation mechanism is unchanged.
  */
 
 export function LandingPage({
@@ -29,52 +43,96 @@ export function LandingPage({
   turnstileSiteKey: string | null;
 }) {
   const view = buildLandingPageView(context);
+  const rootStyle = {
+    ...view.themeStyle,
+    "--accent": view.accent,
+  } as CSSProperties;
 
   return (
-    <div className={styles.root} style={view.themeStyle as CSSProperties}>
+    <div className={styles.root} style={rootStyle}>
       {/* Per-tenant pixel — id comes ONLY from the view-model seam. */}
       <MetaPixel pixelId={view.metaPixelId} />
-      <div className={styles.inner}>
-        <HeroBlock view={view} />
-        <EventCardBlock view={view} />
-        <SignupFormBlock
+      <div className={styles.page}>
+        <HeaderBlock view={view} />
+
+        {view.heroImages.length > 0 ? (
+          <HeroCarousel images={view.heroImages} alt={view.headline} />
+        ) : (
+          <div className={styles.heroPlaceholder} aria-hidden="true">
+            <span>{view.headline}</span>
+          </div>
+        )}
+
+        {view.countdown ? (
+          <CountdownBlock
+            targetAt={view.countdown.targetAt}
+            label={view.countdown.label}
+            accent={view.accent}
+          />
+        ) : null}
+
+        <EventBlock view={view} />
+
+        <SignupForm
           clientSlug={view.clientSlug}
           eventSlug={view.eventSlug}
+          clientName={view.clientName}
+          eventName={view.headline}
           thankYouMessage={view.thankYouMessage}
+          privacyPolicyUrl={view.privacyPolicyUrl}
           turnstileSiteKey={turnstileSiteKey}
           metaPixelId={view.metaPixelId}
         />
-        <FooterBlock view={view} />
+
+        {view.description ? (
+          <p className={styles.description}>{view.description}</p>
+        ) : null}
+
+        <BottomMedia
+          videoId={view.youtubeVideoId}
+          images={view.bottomImages}
+          eventName={view.headline}
+        />
+
+        {view.showOffPixelAttribution ? <FooterBlock view={view} /> : null}
       </div>
     </div>
   );
 }
 
-function HeroBlock({ view }: { view: LandingPageView }) {
+/** "dd.MM.yyyy HH:mm ldn" — always Europe/London (UK agency, by design). */
+function formatLondonTimestamp(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Europe/London",
+  }).formatToParts(date);
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("day")}.${get("month")}.${get("year")} ${get("hour")}:${get("minute")} ldn`;
+}
+
+function HeaderBlock({ view }: { view: LandingPageView }) {
+  if (view.logoStyle === "wordmark") {
+    return (
+      <header className={styles.header}>
+        <span className={styles.wordmark}>{view.clientName}</span>
+        <span className={styles.timestamp}>
+          {formatLondonTimestamp(new Date())}
+        </span>
+      </header>
+    );
+  }
   return (
-    <header className={styles.hero}>
-      {view.theme.logo_url ? (
-        // eslint-disable-next-line @next/next/no-img-element -- external,
-        // operator-provided URL; next/image would require remotePatterns
-        // per client domain.
-        <img
-          className={styles.heroLogo}
-          src={view.theme.logo_url}
-          alt={view.clientName}
-        />
-      ) : null}
-      {view.artworkUrl ? (
-        <div className={styles.heroArtwork}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- same as logo */}
-          <img src={view.artworkUrl} alt={view.headline} />
-        </div>
-      ) : (
-        <div className={styles.heroArtworkPlaceholder} aria-hidden="true">
-          <span>{view.headline}</span>
-        </div>
-      )}
-      <h1 className={styles.heroTitle}>{view.headline}</h1>
-      {view.subtitle ? <p className={styles.heroSubtitle}>{view.subtitle}</p> : null}
+    <header className={styles.header}>
+      <span className={styles.boxLogo}>{view.boxLogoText}</span>
+      <span className={styles.timestamp}>
+        {formatLondonTimestamp(new Date())}
+      </span>
     </header>
   );
 }
@@ -88,33 +146,31 @@ function formatEventDate(isoDate: string): string {
     month: "long",
     year: "numeric",
     timeZone: "UTC",
-  }).format(parsed);
+  })
+    .format(parsed)
+    .toLowerCase();
 }
 
-function EventCardBlock({ view }: { view: LandingPageView }) {
-  const hasAnything =
-    view.venueName || view.venueCity || view.eventDate || view.presaleInfo;
-  if (!hasAnything) return null;
+function EventBlock({ view }: { view: LandingPageView }) {
+  const details: string[] = [];
+  if (view.venueName || view.venueCity) {
+    details.push(
+      [view.venueName, view.venueCity].filter(Boolean).join(", "),
+    );
+  }
+  if (view.eventDate) details.push(formatEventDate(view.eventDate));
+  if (view.presaleInfo) details.push(view.presaleInfo);
+  if (view.capacity) details.push(`${view.capacity} capacity`);
 
   return (
-    <section className={styles.eventCard} aria-label="Event details">
-      {view.venueName || view.venueCity ? (
-        <div className={styles.eventCardRow}>
-          <span className={styles.eventCardLabel}>Where</span>
-          <span>
-            {view.venueName}
-            {view.venueName && view.venueCity ? ", " : ""}
-            {view.venueCity}
-          </span>
-        </div>
+    <section className={styles.eventBlock} aria-label="Event details">
+      <h1 className={styles.eventTitle}>{view.headline}</h1>
+      {view.subtitle ? (
+        <p className={styles.eventDetails}>{view.subtitle}</p>
       ) : null}
-      {view.eventDate ? (
-        <div className={styles.eventCardRow}>
-          <span className={styles.eventCardLabel}>When</span>
-          <span>{formatEventDate(view.eventDate)}</span>
-        </div>
+      {details.length > 0 ? (
+        <p className={styles.eventDetails}>{details.join(" \u00b7 ")}</p>
       ) : null}
-      {view.presaleInfo ? <p className={styles.presale}>{view.presaleInfo}</p> : null}
     </section>
   );
 }
@@ -122,12 +178,21 @@ function EventCardBlock({ view }: { view: LandingPageView }) {
 function FooterBlock({ view }: { view: LandingPageView }) {
   return (
     <footer className={styles.footer}>
-      <span>
-        © {new Date().getUTCFullYear()} {view.clientName}. By signing up you
-        agree to be contacted about this event.
-      </span>
-      {/* Invisible-brand line — Off/Pixel stays out of the fan's eyeline. */}
-      <span>Event pages by O/P.</span>
+      {view.socialLinks.length > 0 ? (
+        <div className={styles.footerLinks}>
+          {view.socialLinks.map((link) => (
+            <a
+              key={link.label}
+              href={link.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      ) : null}
+      <div className={styles.footerMade}>~ made with off/pixel ~</div>
     </footer>
   );
 }

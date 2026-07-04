@@ -14,15 +14,14 @@ import type { SignupFormValues } from "../types.ts";
  */
 
 const valid: SignupFormValues = {
-  first_name: "Amelia",
-  last_name: "Stone",
   email: "Amelia.Stone@Example.COM",
-  // 07700 900xxx is the Ofcom drama range — unambiguously GB (  // actually a Guernsey prefix; libphonenumber resolves it to GG).
+  // 07400 xxxxxx is unambiguously a GB mobile prefix (07700 900xxx is the
+  // Ofcom drama range but libphonenumber resolves 07911 to Guernsey).
   phone: "07400 123456",
   phone_country: "GB",
-  city: "London",
+  // PR-6 mutex: exactly one social platform per submission.
   ig_handle: "@Amelia.Stone",
-  tt_handle: "@amelia_tt",
+  tt_handle: "",
   consent_gdpr: true,
   consent_wa_opt_in: true,
   utm: { utm_source: "instagram", utm_medium: "paid" },
@@ -38,9 +37,36 @@ describe("parseSignupSubmission — accept + normalisation", () => {
     assert.equal(result.data.phone_e164, "+447400123456");
     assert.equal(result.data.phone_country_code, "GB");
     assert.equal(result.data.ig_handle, "amelia.stone");
-    assert.equal(result.data.tt_handle, "amelia_tt");
+    assert.equal(result.data.tt_handle, null);
     assert.equal(result.data.consent_wa_opt_in, true);
     assert.equal(result.data.source, "paid_meta");
+  });
+
+  it("PR 6: legacy first_name/last_name/city keys are ignored, not rejected", () => {
+    const result = parseSignupSubmission({
+      ...valid,
+      first_name: "Amelia",
+      last_name: "Stone",
+      city: "London",
+    } as SignupFormValues);
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.ok(!("first_name" in result.data));
+      assert.ok(!("city" in result.data));
+    }
+  });
+
+  it("PR 6: tiktok-only submissions normalise the same way", () => {
+    const result = parseSignupSubmission({
+      ...valid,
+      ig_handle: "",
+      tt_handle: "@Amelia_TT",
+    });
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.data.ig_handle, null);
+      assert.equal(result.data.tt_handle, "amelia_tt");
+    }
   });
 
   it("accepts email-only (no phone) and phone-only (no email)", () => {
@@ -106,18 +132,31 @@ describe("parseSignupSubmission — reject matrix", () => {
       ig_handle: "@" + "a".repeat(31),
     });
     assert.equal(tooLong.ok, false);
-    const badChars = parseSignupSubmission({ ...valid, tt_handle: "@has spaces!" });
+    const badChars = parseSignupSubmission({
+      ...valid,
+      ig_handle: "",
+      tt_handle: "@has spaces!",
+    });
     assert.equal(badChars.ok, false);
   });
 
-  it("rejects missing first/last name and an empty payload collects ALL errors", () => {
+  it("PR 6: rejects when BOTH ig_handle and tt_handle are set (social mutex)", () => {
+    const result = parseSignupSubmission({
+      ...valid,
+      ig_handle: "@one",
+      tt_handle: "@two",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.field_errors.social);
+  });
+
+  it("an empty payload collects ALL errors in one pass", () => {
     const result = parseSignupSubmission({});
     assert.equal(result.ok, false);
     if (!result.ok) {
-      assert.ok(result.field_errors.first_name);
-      assert.ok(result.field_errors.last_name);
       assert.ok(result.field_errors.contact);
       assert.ok(result.field_errors.consent_gdpr);
+      assert.ok(!result.field_errors.first_name, "names left the schema in PR 6");
     }
   });
 });
@@ -140,8 +179,6 @@ describe("normalizeHandle / inferSignupSource", () => {
 
 describe("capi_event_id (PR 3)", () => {
   const base = {
-    first_name: "Amelia",
-    last_name: "Stone",
     email: "amelia@example.com",
     consent_gdpr: true,
   };

@@ -6,7 +6,9 @@ import {
   buildCapiEventPayload,
   CAPI_API_VERSION,
   hashForCapi,
+  normalizeCountryForCapi,
   normalizePhoneForCapi,
+  normalizeRegionForCapi,
   sendCapiEvent,
   type CapiEventInput,
 } from "../meta-capi.ts";
@@ -70,6 +72,8 @@ const baseInput: CapiEventInput = {
   phoneE164: "+447400123456",
   clientIp: "203.0.113.7",
   clientUserAgent: "node-test-ua",
+  geoCountry: "GB",
+  geoRegion: "ENG",
   source: "paid_meta",
 };
 
@@ -89,6 +93,45 @@ describe("buildCapiEventPayload", () => {
     assert.equal(userData.client_ip_address, "203.0.113.7");
     assert.equal(userData.client_user_agent, "node-test-ua");
     assert.deepEqual(event.custom_data, { source: "paid_meta", value: null });
+  });
+
+  it("PR 6: hashed country + st present; fn/ln/ct never existed and stay absent", () => {
+    const payload = buildCapiEventPayload(baseInput, null);
+    const userData = (payload.data[0] as Record<string, unknown>)
+      .user_data as Record<string, unknown>;
+    // country = sha256(lowercase ISO-2), st = sha256(lowercase region).
+    assert.deepEqual(userData.country, [hashForCapi("gb")]);
+    assert.deepEqual(userData.st, [hashForCapi("eng")]);
+    for (const banned of ["fn", "ln", "ct"]) {
+      assert.ok(
+        !(banned in userData),
+        `user_data.${banned} must not exist — names/city left the form in PR 6`,
+      );
+    }
+    // Raw geo never appears unhashed.
+    const serialized = JSON.stringify(payload);
+    assert.ok(!serialized.includes('"GB"'));
+    assert.ok(!serialized.includes('"ENG"'));
+  });
+
+  it("PR 6: missing geo drops country/st entirely (no hash of junk)", () => {
+    const payload = buildCapiEventPayload(
+      { ...baseInput, geoCountry: null, geoRegion: null },
+      null,
+    );
+    const userData = (payload.data[0] as Record<string, unknown>)
+      .user_data as Record<string, unknown>;
+    assert.ok(!("country" in userData));
+    assert.ok(!("st" in userData));
+  });
+
+  it("geo normalisers: ISO-2 lowercase; region lowercase, punctuation stripped", () => {
+    assert.equal(normalizeCountryForCapi(" GB "), "gb");
+    assert.equal(normalizeCountryForCapi("GBR"), null, "3-letter codes rejected");
+    assert.equal(normalizeCountryForCapi(""), null);
+    assert.equal(normalizeRegionForCapi("ENG"), "eng");
+    assert.equal(normalizeRegionForCapi("New York"), "newyork");
+    assert.equal(normalizeRegionForCapi(" - "), null);
   });
 
   it("no raw PII anywhere in the serialized payload", () => {

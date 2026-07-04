@@ -7,6 +7,7 @@ import { storeSignup } from "./signup-store.ts";
 import type {
   LandingPageContext,
   SignupFormValues,
+  SignupGeo,
   SubmitSignupResult,
 } from "./types.ts";
 
@@ -78,7 +79,15 @@ export interface SignupRequestInput {
   userAgent: string | null;
   /** Public URL of the landing page (CAPI event_source_url). */
   pageUrl?: string | null;
+  /**
+   * Coarse geo from Vercel's x-vercel-ip-* headers (PR 6) — server-derived
+   * by the route, NEVER read from the body. Stored plaintext + hashed into
+   * CAPI user_data.country / .st.
+   */
+  geo?: SignupGeo;
 }
+
+const EMPTY_GEO: SignupGeo = { country: null, region: null, city: null };
 
 export interface SignupHandlerResponse {
   status: number;
@@ -210,6 +219,7 @@ export async function processSignup(
   const submission = parsed.data;
   const salt = deps.env.hashSalt;
   const ip = ipFromForwardedFor(input.xForwardedFor);
+  const geo = input.geo ?? EMPTY_GEO;
 
   try {
     const outcome = await storeSignup(deps.db, {
@@ -220,6 +230,7 @@ export async function processSignup(
       phoneHash: submission.phone_e164 ? hashPhone(submission.phone_e164, salt) : null,
       ipHash: ip ? hashIp(ip, salt) : null,
       userAgent: input.userAgent ? input.userAgent.slice(0, 500) : null,
+      geo,
       tokenKey: deps.env.tokenKey,
       now: deps.now(),
     });
@@ -245,6 +256,7 @@ export async function processSignup(
               `https://unknown-origin.invalid/l/${clientSlug}/${eventSlug}`,
             clientIp: ip,
             userAgent: input.userAgent ? input.userAgent.slice(0, 500) : null,
+            geo,
             tokenKey: deps.env.tokenKey,
           });
         } catch (error) {

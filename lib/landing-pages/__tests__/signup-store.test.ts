@@ -10,12 +10,9 @@ const KEY = "test-token-key-123";
 
 function makeSubmission(overrides: Partial<SignupSubmission> = {}): SignupSubmission {
   return {
-    first_name: "Amelia",
-    last_name: "Stone",
     email: "amelia@example.com",
     phone_e164: null,
     phone_country_code: null,
-    city: "London",
     ig_handle: "amelia",
     tt_handle: null,
     consent_wa_opt_in: false,
@@ -38,6 +35,7 @@ function makeInput(
     phoneHash: null,
     ipHash: "hash-ip-1",
     userAgent: "test-agent",
+    geo: { country: "GB", region: "ENG", city: "London" },
     tokenKey: KEY,
     now: new Date("2026-07-04T12:00:00Z"),
     ...overrides,
@@ -59,6 +57,13 @@ describe("storeSignup — canonical path", () => {
     assert.equal(row.phone_hash, null);
     assert.equal(row.consent_gdpr_at, "2026-07-04T12:00:00.000Z");
     assert.equal(row.consent_wa_opt_in_at, null);
+    // PR 6: geo stored plaintext; names/city no longer exist on the row.
+    assert.equal(row.geo_country, "GB");
+    assert.equal(row.geo_region, "ENG");
+    assert.equal(row.geo_city, "London");
+    assert.ok(!("first_name" in row));
+    assert.ok(!("last_name" in row));
+    assert.ok(!("city" in row));
 
     // Round trip through the (stubbed) decrypt proves the blob is the
     // encrypted email, not garbage.

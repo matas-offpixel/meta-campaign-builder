@@ -232,9 +232,10 @@ gospel — but the boundaries are.
 | **3 — Meta Pixel + CAPI ✅ DONE** | Per-client pixel loader (`meta_pixel_id` through the view-model seam); PageView + CompleteRegistration with shared `event_id` dedup (switched from Lead post-merge, see landmine 16); server-side CAPI CompleteRegistration post-DB-write (migration 135: `meta_test_event_code`, `meta_pixel_id_verified_at`, token accessor RPCs); retry ×3 + 2s/6s timeouts + fail-open-loudly; cross-tenant byte-diff isolation tests. See §12 | No CRM push, no admin UI, no TikTok/Google pixels (scope pulled CAPI forward from PR 4 per the PR-3 prompt) |
 | **4 — CRM push (Bird + Mailchimp on signup)** | Push stored signups to the client's CRM/community stack; same per-client credential silo + idempotency on repeated `signup_id`s | Never batch across clients; never log credentials |
 | **5 — admin dashboard** | View/edit pixel_id, capi token (write-only — see §12 breadcrumbs), test_event_code, verification status; surface signup counts | Never display decrypted CAPI tokens; warn loudly when `meta_test_event_code` is set |
-| **6 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
-| **7 — analytics** | Page-view/section tracking, internal reporting | |
-| **8+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
+| **6 — Supreme UX rewrite ✅ DONE** | Full visual rewrite (Supreme-inspired mono/zero-radius system); minimal form fields (names/city DROPPED, social-handle mutex); hero carousel, countdown, YouTube lite-embed + image grid; server-side artwork palette extraction (sharp) + accent resolution; server-derived geo capture → hashed `country`/`st` in CAPI user_data (migration 136). See §15 | Landed OUT of the arc's original order (before 4/5 — C+O prioritised the fan-facing surface). No CRM push, no admin UI. Presentation columns on `page_events`, never `events` |
+| **7 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
+| **8 — analytics** | Page-view/section tracking, internal reporting | |
+| **9+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
 
 Design references for PR 2 (pattern, not visual system): Co:brand compact
 multi-signup pattern (music.cobrand.com) — single-viewport event card with
@@ -648,3 +649,108 @@ CompleteRegistration fired).
    evntree_url='https://evntr.ee/<page>' where event_id='160fbb1c-…'` →
    reload → temporary redirect to Evntr.ee. Flip back.
 5. Unknown slugs → 404; logged-out visit works (no /login bounce).
+
+## 15. Supreme UX rewrite (PR 6)
+
+The full fan-facing rewrite: Supreme-inspired system (mono type, hard
+black borders, zero radius, one accent colour), minimal form, and the
+presentation blocks (carousel / countdown / bottom media). Migration:
+`136_landing_page_supreme_ux.sql` — the prompt said "128" against a stale
+snapshot of the repo; the sequence had already reached 135, so it shipped
+as 136. Two other spec deviations, both deliberate:
+
+- **Presentation columns live on `page_events`, NOT `events`.** The
+  prompt asked for `events.artwork_palette` etc., but `events` is the
+  shared dashboard table (dashboard-boundaries: read-only for this arc)
+  and artwork already lives in `page_events.content.artwork_url`. Every
+  LP presentation field (`artwork_palette`, `hero_images`,
+  `countdown_target_at`, `countdown_label`, `youtube_url`,
+  `bottom_images`) sits on the LP-owned row instead.
+- **`instagram_handle`/`tiktok_handle` already existed** as
+  `ig_handle`/`tt_handle` (PR 2, plaintext by design — public
+  identifiers). Kept those names; PR 6 added only the mutex.
+
+### The form contract (breaking, deliberately soft)
+
+`event_signups` dropped `first_name`/`last_name`/`city` (test rows for
+GMC truncated in-migration before the drop). The parser IGNORES legacy
+keys rather than rejecting them — a cached client bundle mid-deploy must
+not 400 a fan. The social toggle sends exactly one of
+`ig_handle`/`tt_handle`; BOTH set means a bypassed client → 400
+(`errors.social`). Consent copy: single checkbox → client mailing list +
+privacy-policy link (`client_landing_pages.privacy_policy_url`); the
+always-visible marketing-consent line below is informational, not a
+second checkbox.
+
+### Geo capture (server-derived, never from the body)
+
+`x-vercel-ip-country` / `-country-region` / `-city` are read in the route
+handler and stored plaintext (`geo_country`/`geo_region`/`geo_city` —
+coarse, not contactable, analytics-grade). CAPI `user_data` gained
+`country` + `st` (Meta's unsalted-SHA256 normalisation: lowercase ISO-2 /
+lowercased region); `fn`/`ln`/`ct` never existed in our CAPI payload, so
+"drop" was a no-op. IG/TikTok handles are CRM-only — Meta accepts no such
+field, and sending them anywhere near `user_data` is banned.
+
+### Palette pipeline (lazy, render-time, fail-silent)
+
+No application write-path exists for artwork (Matas edits `page_events`
+via SQL/seed scripts), so there is no "on upload" hook to wire. Instead
+the LP route schedules `maybeExtractAndPersistPalette` via `next/server`
+`after()` whenever a page renders with artwork but NULL
+`artwork_palette`: fetch → sharp resize (100px) → dominant-bin ranking
+(`lib/landing-pages/palette.ts`, pure + unit-tested) → 3 hex codes
+persisted. 3s hard deadline, every failure path returns `[]` and leaves
+the column NULL (next render retries; an in-process guard stops
+stampedes). Accent resolution (`resolveAccent`, `theme.ts`):
+`artwork_palette[0]` → `theme.primary_color` → `#E5322D`; every candidate
+is `#rrggbb`-validated because the value lands in a style attribute —
+hostile palette/theme strings fall through to the default.
+
+### Component tree (all view-model-fed, landmine 9 upheld)
+
+`landing-page.tsx` (server) → `HeroCarousel` (scroll-snap + Intersection
+Observer "N of M" counter, arrow-key accessible; 1 image = plain img, no
+scroller), `CountdownBlock` (setInterval ticker, cleanup on unmount, self
+-hides past target — the view model also gates it server-side so the
+block never SSRs for past targets), `SignupForm` (rewrite of
+signup-form-block; Turnstile/attribution/pixel plumbing carried over
+verbatim), `BottomMedia` (YouTube lite-embed — thumbnail until user
+gesture, then autoplay iframe; strict 11-char id charset doubles as
+injection defence — + square image grid). Fonts are system stacks (mono
++ Futura-with-fallbacks) — no webfont request, no `next/font`.
+
+### PR-6 landmines
+
+1. **node:test cannot render client components** (react-server
+   condition, landmine 11 last bullet). All PR-6 component behaviour is
+   tested at the logic seams: `countdown.ts`, `youtube.ts`, `palette.ts`
+   pure modules + `view-supreme.test.ts` on the view model. Do not add
+   renderToString tests; they will not import.
+2. **`palette-extract.ts` is `server-only` and imports sharp (native
+   binary) at module top.** Only the `/l` page route (and node tests)
+   may import it — never any client-adjacent module, and never re-export
+   it through a barrel a client component touches. The 3s deadline
+   races sharp's decode too (the AbortSignal only covers the fetch), so
+   the budget is genuinely hard.
+3. **The countdown gate exists twice on purpose**: view model (SSR skip)
+   + component (client ticker reaching zero). Removing either
+   reintroduces a bug class (stale SSR shows a dead countdown, or a
+   page open across the deadline never hides the block).
+
+### Verification runbook (Matas)
+
+1. Apply `supabase/migrations/136_landing_page_supreme_ux.sql` — must
+   print `migration 136 verification: all assertions passed`. Note it
+   DELETES GMC test signups then DROPS three columns; there is no undo.
+2. Seed presentation on the GMC row, e.g.
+   `update page_events set hero_images='["…"]'::jsonb, countdown_target_at='2026-08-01T18:00:00Z' where event_id='160fbb1c-…';`
+3. Open the LP → Supreme layout, carousel counter advances on swipe,
+   countdown ticks, accent = artwork colour once
+   `artwork_palette` populates (reload once — extraction is lazy).
+4. Signup with an IG handle → row has `ig_handle` set, `tt_handle`
+   NULL, `geo_*` populated (prod; localhost gives NULLs).
+5. With `meta_test_event_code` set: Test Events shows CompleteRegistration
+   with hashed `country`/`st` in user_data and no fn/ln/ct.
+6. Palette check against the live artwork: `select artwork_palette from
+   page_events where event_id='160fbb1c-…';` → 3 hex codes.
