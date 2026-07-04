@@ -31,6 +31,8 @@ function makeContext(): LandingPageContext {
       venue_city: "Mallorca",
       ticket_url: "https://tickets.example/jackies",
       capacity: 1200,
+      presale_at: null,
+      general_sale_at: null,
     },
     pageEvent: {
       id: "pe-1",
@@ -175,6 +177,56 @@ describe("bottom media + footer + logo config", () => {
       { label: "tickets", url: "https://tickets.example/jackies" },
     ]);
     assert.equal(view.capacity, 1200);
+  });
+});
+
+describe("PR 7: onSaleAt — presale/general-sale precedence", () => {
+  it("presale_at wins when both are set", () => {
+    const context = makeContext();
+    context.event.presale_at = "2026-07-08T10:00:00Z";
+    context.event.general_sale_at = "2026-07-10T10:00:00Z";
+    assert.equal(
+      buildLandingPageView(context, NOW).onSaleAt,
+      "2026-07-08T10:00:00Z",
+    );
+  });
+
+  it("falls back to general_sale_at when presale_at is null", () => {
+    const context = makeContext();
+    context.event.presale_at = null;
+    context.event.general_sale_at = "2026-07-10T10:00:00Z";
+    assert.equal(
+      buildLandingPageView(context, NOW).onSaleAt,
+      "2026-07-10T10:00:00Z",
+    );
+  });
+
+  it("both null or unparseable → null (header hides the row entirely)", () => {
+    for (const [presale, general] of [
+      [null, null],
+      ["garbage", null],
+      ["garbage", "also garbage"],
+      ["", ""],
+    ] as const) {
+      const context = makeContext();
+      context.event.presale_at = presale;
+      context.event.general_sale_at = general;
+      assert.equal(
+        buildLandingPageView(context, NOW).onSaleAt,
+        null,
+        `presale=${presale} general=${general} should hide the row`,
+      );
+    }
+  });
+
+  it("an unparseable presale_at still falls through to a valid general_sale_at", () => {
+    const context = makeContext();
+    context.event.presale_at = "not-a-date";
+    context.event.general_sale_at = "2026-07-10T10:00:00Z";
+    assert.equal(
+      buildLandingPageView(context, NOW).onSaleAt,
+      "2026-07-10T10:00:00Z",
+    );
   });
 });
 

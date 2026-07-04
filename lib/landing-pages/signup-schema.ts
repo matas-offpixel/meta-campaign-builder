@@ -76,6 +76,17 @@ export function parseSignupSubmission(
     errors.email = "Enter a valid email address.";
   }
 
+  // PR 7 note (E.164 trunk-prefix stripping): parsePhoneNumberFromString
+  // ALREADY strips a national trunk "0" (GB "07700…", FR "06…", DE "030…"
+  // etc.) when given the right defaultCountry — verified directly against
+  // this exact libphonenumber-js version before writing this comment.
+  // A hand-rolled "strip a leading 0" pass on top would be redundant at
+  // best and wrong at worst (some numbering plans use a leading 0 as part
+  // of the subscriber number, not a trunk prefix — libphonenumber's
+  // per-country metadata already knows the difference; a blind string
+  // strip does not). No separate sanitiser was added; see
+  // signup-schema.test.ts's "trunk-zero" describe block for the pinned
+  // behaviour (07700…, 7700…, +447700… → the same E.164).
   const rawPhone = asTrimmedString(values.phone);
   const phoneCountry = asTrimmedString(values.phone_country).toUpperCase();
   let phoneE164: string | null = null;

@@ -132,10 +132,14 @@
 }
 
 /* ── Countdown ──────────────────────────────────────────────────────── */
+/* PR 7: de-emphasised to match the rest of the page's discipline — white
+   bg, bordered cells (same 0.5px pattern as inputs), black header text.
+   Numbers stay on --accent (never a hardcoded color) so the palette-driven
+   branding still reads through. */
 
 .countdown {
-  background: #000000;
-  padding: 16px 14px;
+  background: #ffffff;
+  padding: 14px 12px;
 }
 
 .countdownHeader {
@@ -144,7 +148,7 @@
   justify-content: center;
   gap: 7px;
   margin-bottom: 12px;
-  color: #ffffff;
+  color: #000000;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -163,7 +167,8 @@
 }
 
 .countdownCell {
-  background: #1a1a1a;
+  background: #ffffff;
+  border: 0.5px solid #000000;
   padding: 12px 6px;
   text-align: center;
 }
@@ -173,7 +178,7 @@
   font-family: var(--lp-futura);
   font-style: italic;
   font-weight: 700;
-  font-size: 28px;
+  font-size: 26px;
   line-height: 1;
   color: var(--accent);
 }
@@ -182,8 +187,10 @@
   display: block;
   margin-top: 5px;
   font-family: var(--lp-mono);
+  /* Brief asked for 9px; clamped to the repo's ≥10px floor (see the PR-6
+     footer precedent — same trade-off, same reasoning). */
   font-size: 10px;
-  color: #999999;
+  color: #666666;
   text-transform: uppercase;
 }
 
@@ -259,6 +266,43 @@
   font-size: 12px;
   color: #444444;
   text-transform: lowercase;
+}
+
+/* PR 7: non-interactive "@" prefix baked into the input chrome — the
+   field still accepts a pasted "@handle" (stripped server + client side
+   by normalizeHandle), this only changes what's rendered. */
+.socialInputWrap {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border: 0.5px solid #000000;
+  background: #ffffff;
+}
+
+.socialInputWrap:focus-within {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.socialAtPrefix {
+  padding-left: 8px;
+  color: #666666;
+  font-family: var(--lp-mono);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.socialInputField {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  border: none;
+  padding: 7px 8px 7px 2px;
+  background: transparent;
+  color: #000000;
+  font-family: var(--lp-mono);
+  font-size: 13px;
+  outline: none;
 }
 
 .socialToggle {
@@ -361,6 +405,21 @@
   cursor: pointer;
 }
 
+.ctaGhost {
+  display: block;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  background: none;
+  color: #666666;
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  text-transform: lowercase;
+  text-align: center;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .fieldError {
   font-size: 11px;
   color: #c00000;
@@ -397,6 +456,13 @@
   margin: 8px 0 0;
 }
 
+.successActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* ── Description ────────────────────────────────────────────────────── */
 
 .description {
@@ -407,6 +473,19 @@
 }
 
 /* ── Bottom media ───────────────────────────────────────────────────── */
+/* PR 7: Supreme lookbook rhythm — 4 columns at every viewport (no mobile
+   fallback), 2px white gutters between every tile AND between the video
+   embed and the grid. mediaWrap's white bg is what makes the 2px gaps
+   read as hairlines rather than holes. */
+
+.mediaWrap {
+  background: #ffffff;
+}
+
+.mediaGap {
+  height: 2px;
+  background: #ffffff;
+}
 
 .youtubeWrap {
   position: relative;
@@ -443,14 +522,9 @@
 
 .imageGrid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0;
-}
-
-@media (min-width: 480px) {
-  .imageGrid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  background: #ffffff;
 }
 
 .gridImage {

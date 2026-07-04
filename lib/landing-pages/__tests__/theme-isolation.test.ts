@@ -68,6 +68,8 @@ function makeContext(
       venue_city: `City ${name.toUpperCase()}`,
       ticket_url: null,
       capacity: null,
+      presale_at: null,
+      general_sale_at: null,
     },
     pageEvent: {
       id: `pe-${name}`,

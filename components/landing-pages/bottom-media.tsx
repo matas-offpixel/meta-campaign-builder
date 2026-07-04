@@ -21,8 +21,10 @@ import styles from "./landing-page.module.css";
  * (lib/landing-pages/youtube.ts); this component only ever sees a
  * validated id.
  *
- * Image grid: 2 columns mobile / 4 desktop (CSS media query), square
- * crops, zero gap, zero radius. Click opens the raw image in a new tab.
+ * Image grid (PR 7): 4 columns at every viewport, 2px white gutters
+ * between tiles AND between the video embed and the grid (Supreme
+ * lookbook rhythm) — square crops, zero radius. Click opens the raw
+ * image in a new tab.
  */
 
 export function BottomMedia({
@@ -37,8 +39,11 @@ export function BottomMedia({
   if (!videoId && images.length === 0) return null;
 
   return (
-    <section aria-label="Media">
+    <section aria-label="Media" className={styles.mediaWrap}>
       {videoId ? <YouTubeLiteEmbed videoId={videoId} title={eventName} /> : null}
+      {videoId && images.length > 0 ? (
+        <div className={styles.mediaGap} aria-hidden="true" />
+      ) : null}
       {images.length > 0 ? (
         <div className={styles.imageGrid}>
           {images.map((src, index) => (

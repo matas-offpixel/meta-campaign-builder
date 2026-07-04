@@ -13,8 +13,9 @@ import styles from "./landing-page.module.css";
 /**
  * components/landing-pages/countdown-block.tsx
  *
- * Countdown block (PR 6): black container, 4-cell grid, Futura numbers in
- * the tenant accent. The math lives in lib/landing-pages/countdown.ts
+ * Countdown block (PR 6, de-emphasised in PR 7): white container, 4-cell
+ * bordered grid, Futura numbers in the tenant accent. The math lives in
+ * lib/landing-pages/countdown.ts
  * (pure, node:test); this component only ticks.
  *
  * The server shell already gates on targetAt > now, but the client
@@ -85,7 +86,7 @@ function TicketIcon() {
       className={styles.countdownIcon}
       viewBox="0 0 24 24"
       fill="none"
-      stroke="#ffffff"
+      stroke="#000000"
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"

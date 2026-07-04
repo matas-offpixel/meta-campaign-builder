@@ -97,7 +97,8 @@ export async function resolveLandingPageContext(
   const events = (await selectRows(
     db,
     "events",
-    "id, name, slug, client_id, event_date, venue_name, venue_city, ticket_url, capacity",
+    "id, name, slug, client_id, event_date, venue_name, venue_city, ticket_url, capacity, " +
+      "presale_at, general_sale_at",
     [
       ["slug", eventSlug],
       ["client_id", clientRow.id],
@@ -112,6 +113,8 @@ export async function resolveLandingPageContext(
     venue_city: string | null;
     ticket_url: string | null;
     capacity: number | null;
+    presale_at: string | null;
+    general_sale_at: string | null;
   }>;
   if (events.length === 0) return null;
   if (events.length > 1) {
@@ -193,6 +196,8 @@ export async function resolveLandingPageContext(
       venue_city: eventRow.venue_city,
       ticket_url: eventRow.ticket_url,
       capacity: eventRow.capacity,
+      presale_at: eventRow.presale_at,
+      general_sale_at: eventRow.general_sale_at,
     },
     pageEvent,
     landingPage,

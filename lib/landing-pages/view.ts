@@ -70,6 +70,14 @@ export interface LandingPageView {
   socialLinks: Array<{ label: string; url: string }>;
   /** Event capacity for the details line. */
   capacity: number | null;
+  /**
+   * PR 7: header on-sale timestamp source — event.presale_at, falling
+   * back to event.general_sale_at. Null (both unset, or both unparseable)
+   * hides the header meta row entirely. Raw ISO — formatting is a
+   * component/format-datetime.ts concern, same split as every other
+   * date field on this seam.
+   */
+  onSaleAt: string | null;
 }
 
 function contentString(
@@ -102,6 +110,13 @@ function safeUrlArray(raw: unknown): string[] {
   return raw
     .map((entry) => safeHttpUrl(entry))
     .filter((url): url is string => url !== null);
+}
+
+/** Parseable non-empty ISO string, or null (defensive — same pattern as
+ *  the countdown gate below). */
+function safeIsoTimestamp(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
+  return Number.isNaN(Date.parse(raw)) ? null : raw;
 }
 
 export function buildLandingPageView(
@@ -175,6 +190,9 @@ export function buildLandingPageView(
     description: contentString(content, "description"),
     socialLinks: buildSocialLinks(content, context.event.ticket_url),
     capacity: context.event.capacity ?? null,
+    onSaleAt:
+      safeIsoTimestamp(context.event.presale_at) ??
+      safeIsoTimestamp(context.event.general_sale_at),
   };
 }
 
