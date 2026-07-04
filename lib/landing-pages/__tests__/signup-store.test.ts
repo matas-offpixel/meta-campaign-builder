@@ -22,6 +22,7 @@ function makeSubmission(overrides: Partial<SignupSubmission> = {}): SignupSubmis
     utm: { utm_source: "instagram" },
     referrer_url: null,
     source: "paid_meta",
+    capi_event_id: null,
     ...overrides,
   };
 }

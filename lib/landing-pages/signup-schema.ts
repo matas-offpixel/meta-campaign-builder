@@ -149,6 +149,14 @@ export function parseSignupSubmission(
   const referrerUrl =
     referrerRaw.length > 0 && referrerRaw.length <= 2000 ? referrerRaw : null;
 
+  // PR 3: Meta event id for client/server dedup. Invalid or missing values
+  // degrade to null (server generates one) — never a field error, because
+  // ad-tracking hygiene must not block a fan's signup.
+  const capiEventIdRaw = asTrimmedString(values.capi_event_id);
+  const capiEventId = CAPI_EVENT_ID_RE.test(capiEventIdRaw)
+    ? capiEventIdRaw
+    : null;
+
   if (Object.keys(errors).length > 0) {
     return { ok: false, field_errors: errors };
   }
@@ -168,9 +176,17 @@ export function parseSignupSubmission(
       utm,
       referrer_url: referrerUrl,
       source: inferSignupSource(utm),
+      capi_event_id: capiEventId,
     },
   };
 }
+
+/**
+ * Meta event_id charset — mirrors isValidCapiEventId in pixel-events.ts
+ * (kept as a literal here so this module stays dependency-free for the
+ * client bundle).
+ */
+const CAPI_EVENT_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 
 export const UTM_ALLOWLIST = [
   "utm_source",

@@ -93,7 +93,7 @@ patch the lookup.
 ## 2. Multi-tenant isolation contract (Pixel + CAPI)
 
 **The rule: every client owns their Pixel ID and CAPI token. Landing-page
-events — client-side pixel fires (PR 3) and server-side CAPI pushes (PR 4) —
+events — client-side pixel fires and server-side CAPI pushes (both PR 3) —
 go to THAT client's Pixel with THAT client's token. Never Off/Pixel's own
 pixel. Never another client's.**
 
@@ -119,13 +119,20 @@ How the schema enforces it:
 - PR 2 extends the contract to THEMES with the same shape:
   `__tests__/theme-isolation.test.ts` builds the view model for two
   maximally distinguishable tenants and asserts zero cross-tenant tokens
-  (colors, logo, thank-you copy, names) in either serialized view — plus
-  that `meta_pixel_id` is absent from the PR-2 view model entirely
-  (landmine 9). Theme scoping mechanism: resolved `--lp-*` CSS custom
-  properties applied inline on the LP root (inheritance is strictly
-  downward) + hashed CSS-module class names; the shared stylesheet contains
-  only `var()` references, never tenant literals — true in dev and prod
-  builds alike.
+  (colors, logo, thank-you copy, names) in either serialized view. Theme
+  scoping mechanism: resolved `--lp-*` CSS custom properties applied
+  inline on the LP root (inheritance is strictly downward) + hashed
+  CSS-module class names; the shared stylesheet contains only `var()`
+  references, never tenant literals — true in dev and prod builds alike.
+- PR 3 extends it to PIXEL + CAPI: `__tests__/capi-isolation.test.ts`
+  runs two tenants' signups sequentially through the SAME module
+  instances / db handle / `fireLeadCapi` import (so module-level caches,
+  memoised tokens or singleton HTTP state would surface as a leak) and
+  **byte-diffs** everything that leaves the system — pixel command
+  tuples, serialized view models, and the full CAPI fetch call (URL +
+  body) — against every secret of the other tenant (pixel id, decrypted
+  token, test_event_code). Zero occurrences allowed, both orderings
+  tested. See §12 for the event contract.
 - RLS on both tables resolves ownership through the parent
   (`clients.user_id` / `events.user_id`) EXISTS chain — the migration-123
   pattern, no denormalised `user_id`.
@@ -137,9 +144,13 @@ pixel. They may coincide for some clients but are separate concerns. **Never
 fall back from one to the other in code.** If a PR needs "the client's pixel"
 it must decide which one it means and say so.
 
-For PR 4 (CAPI push): read the token via a dedicated SECURITY DEFINER
-accessor in the shape of `get_d2c_credentials` (service-role or owner) — but
-see §6 pgcrypto landmine before writing it.
+CAPI token access (shipped in PR 3, migration 135): the raw
+`meta_capi_token_encrypted` blob is never selected into app code. The
+signup route decrypts at send time via `get_landing_page_capi_token(
+client_id, key)` — SECURITY DEFINER, `search_path = public, extensions`
+(§6 landmine 1), EXECUTE granted to `service_role` only. Ops set tokens
+via `set_landing_page_capi_token(client_id, token, key)`. Key =
+`LANDING_PAGES_TOKEN_KEY`.
 
 ---
 
@@ -217,12 +228,13 @@ gospel — but the boundaries are.
 
 | PR | Owns | Must not |
 |---|---|---|
-| **2 — theming + signup form ✅ DONE** | Theme jsonb schema + merge semantics; block renderer (`hero`/`event_card`/`signup_form`/`footer`); `template_key` promotion (migration 134); `event_signups` + encrypted PII storage; write-path rate limit + Turnstile; UTM/attribution capture | No pixel firing, no CAPI, no CRM push (scope pulled the signup form forward from PR 3 per the PR-2 prompt — PR 3 is now pixel-only) |
-| **3 — Pixel client-side** | Loads the CLIENT's pixel from context (add `meta_pixel_id` to the view model — PR 2 deliberately excludes it, see §2); consent/cookie posture; fires PageView + Lead with an `event_id` for PR-4 dedup | No CAPI; no CRM push beyond storage |
-| **4 — CAPI server-side** | `set/get` accessor RPCs for `meta_capi_token_encrypted` (schema-qualified pgcrypto! §6); server-side event push to the client's pixel; dedup with client-side fires via event_id | Never log tokens; never batch across clients |
-| **5 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
-| **6 — analytics** | Page-view/section tracking, internal reporting | |
-| **7+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, admin UI | |
+| **2 — theming + signup form ✅ DONE** | Theme jsonb schema + merge semantics; block renderer (`hero`/`event_card`/`signup_form`/`footer`); `template_key` promotion (migration 134); `event_signups` + encrypted PII storage; write-path rate limit + Turnstile; UTM/attribution capture | No pixel firing, no CAPI, no CRM push (scope pulled the signup form forward from PR 3 per the PR-2 prompt) |
+| **3 — Meta Pixel + CAPI ✅ DONE** | Per-client pixel loader (`meta_pixel_id` through the view-model seam); PageView + Lead with shared `event_id` dedup; server-side CAPI Lead post-DB-write (migration 135: `meta_test_event_code`, `meta_pixel_id_verified_at`, token accessor RPCs); retry ×3 + 2s/6s timeouts + fail-open-loudly; cross-tenant byte-diff isolation tests. See §12 | No CRM push, no admin UI, no TikTok/Google pixels (scope pulled CAPI forward from PR 4 per the PR-3 prompt) |
+| **4 — CRM push (Bird + Mailchimp on signup)** | Push stored signups to the client's CRM/community stack; same per-client credential silo + idempotency on repeated `signup_id`s | Never batch across clients; never log credentials |
+| **5 — admin dashboard** | View/edit pixel_id, capi token (write-only — see §12 breadcrumbs), test_event_code, verification status; surface signup counts | Never display decrypted CAPI tokens; warn loudly when `meta_test_event_code` is set |
+| **6 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
+| **7 — analytics** | Page-view/section tracking, internal reporting | |
+| **8+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
 
 Design references for PR 2 (pattern, not visual system): Co:brand compact
 multi-signup pattern (music.cobrand.com) — single-viewport event card with
@@ -289,32 +301,39 @@ conversion spends against — which is exactly the job these pages take over).
    become new canonical rows. Rotation requires a decrypt-and-rehash
    backfill (see §8). Do not "rotate for hygiene" like a secret; it is a
    namespace, not a credential.
-9. **The renderer consumes the VIEW MODEL, not the context** (PR 2).
-   `buildLandingPageView` (`lib/landing-pages/view.ts`) is the isolation
-   seam: `meta_pixel_id` is deliberately absent from it, and the theme-bleed
-   test serialises the whole view. PR 3 must add the pixel THROUGH the view
-   model (with the isolation test extended), not by passing the raw context
-   into components — bypassing the seam reopens the leak surface the test
-   watches.
+9. **The renderer consumes the VIEW MODEL, not the context** (PR 2,
+   extended PR 3). `buildLandingPageView` (`lib/landing-pages/view.ts`) is
+   the isolation seam and the theme-bleed test serialises the whole view.
+   PR 3 added `metaPixelId` through the seam as planned — it is the ONLY
+   pixel-shaped value the component tree can see, sourced exclusively
+   from `context.landingPage.meta_pixel_id`. Anything else the renderer
+   ever needs must come through the seam the same way, never by passing
+   the raw context into components.
 10. **Repeat-signup rows carry NO PII** (PR 2 dedupe model, §8). Anything
    analytics-side that joins signups must treat
    `deduplicated_signup_id IS NULL` as "the person" and other rows as
    "signup events". Counting rows = signup attempts; counting canonical
    rows = unique fans. Do not "fix" the NULL PII columns on repeat rows —
    they are intentional (the contactable CHECK exempts them by design).
-11. **What PRs 3/4/5 must NOT assume from this doc alone:**
+11. **What PRs 4/5/6 must NOT assume from this doc alone:**
    - The Turnstile env vars are LANDING-PAGE-SPECIFIC
      (`LANDING_PAGES_TURNSTILE_*`) — do not reuse for other surfaces, and
      the site key reaches the client as a server-component PROP, not a
-     `NEXT_PUBLIC_` var. Copy that pattern for the PR-3 pixel id (it is
-     already in the context, NOT an env var).
-   - `LANDING_PAGES_TOKEN_KEY ≠ D2C_TOKEN_KEY` (§8). PR 4's CAPI token
+     `NEXT_PUBLIC_` var. The PR-3 pixel id follows the same pattern (it
+     comes from the tenant context, NOT an env var).
+   - `LANDING_PAGES_TOKEN_KEY ≠ D2C_TOKEN_KEY` (§8). The PR-3 CAPI token
      accessors use the LANDING-PAGE key. Passing the D2C key "because it's
      already set" will decrypt nothing and corrupt nothing — it will just
      fail — but writing with it would silently fork the key domain.
    - The signup POST returns the CANONICAL id on dedupe, not the new
      repeat row's id — CRM push (PR 4/5) keyed on `signup_id` must expect
-     repeated ids and stay idempotent.
+     repeated ids and stay idempotent. Note the CAPI leg already skips
+     deduplicated signups (`capi.skipped="deduplicated"`) — CRM push must
+     make its own equivalent decision, not inherit this one implicitly.
+   - CRM push (PR 4) has the SAME per-client silo requirement as
+     pixel/CAPI: per-client credentials, no org-level fallback, missing
+     config = feature off, and a two-tenant byte-diff isolation test
+     before merge. Copy the `capi-isolation.test.ts` harness shape.
    - `events` has no artwork column; artwork comes from
      `page_events.content.artwork_url` only. Do not "helpfully" fall back
      to `clients.d2c_fallback_artwork_url` — that column is D2C-owned and
@@ -322,6 +341,39 @@ conversion spends against — which is exactly the job these pages take over).
    - node:test runs with `--conditions react-server`: `react-dom/server`
      is NOT importable in tests. Isolation/render tests must target the
      view-model seam (or pure helpers), not renderToString.
+12. **Pixel + CAPI credentials are per-client, FOREVER** (PR 3). Future
+   PRs must never introduce an org-level default pixel or token, however
+   convenient for onboarding. `client_landing_pages.meta_pixel_id` null →
+   nothing loads; token null → CAPI leg off (`skipped:"not_configured"`).
+   Absence of config fails SAFE, never sideways into another identity.
+13. **`meta_test_event_code` is dev-only** (PR 3). While set, that
+   client's CAPI Leads route to Meta's Test Events surface instead of live
+   reporting — QA gold, prod poison. Clear it after testing; the PR-5
+   admin dashboard must warn loudly whenever it is non-null (a client
+   whose events "disappeared" probably has a stale test code).
+14. **Two SHA256 families that must never be swapped** (PR 3).
+   `lib/landing-pages/hash.ts` = salted + namespaced
+   (`lp-email:{salt}:{value}`) for stored dedupe hashes;
+   `hashForCapi` in `lib/landing-pages/meta-capi.ts` = Meta's UNSALTED
+   `sha256(lower(trim(value)))` computed at send time and discarded.
+   Feeding a salted hash to Meta silently breaks match quality (no error,
+   just zero matches); storing the unsalted hash weakens the PR-2 privacy
+   design. `meta-capi.test.ts` pins that the families differ for the same
+   input.
+15. **`fbq` is a window-global — `trackSingle` only** (PR 3). After a
+   soft navigation between two tenants' pages, BOTH pixels stay
+   initialised in the same `fbq` instance; a plain `fbq('track', …)`
+   fires the event to EVERY initialised pixel — the exact cross-tenant
+   leak this arc bans. All pixel commands are built in
+   `lib/landing-pages/pixel-events.ts` using `trackSingle`, and
+   `pixel-events.test.ts` has a source-level guard that fails on any
+   quoted `'track'` literal in the pixel modules.
+16. **CAPI retries reuse the SAME `event_id`** (PR 3). Meta dedups on
+   `(event_name, event_id)` for 48h — a stable id makes retries and
+   accidental double-POSTs idempotent. Generating a fresh id per attempt
+   would convert every retry into a duplicate Lead. The browser Lead and
+   server CAPI event share one id (sessionStorage-persisted base) for the
+   same reason.
 
 ## 8. PII encryption + storage (PR 2)
 
@@ -429,6 +481,7 @@ in `signup-form-block.tsx`, exactly as the seam was designed for.
 | `LANDING_PAGES_TURNSTILE_SECRET_KEY` | Turnstile secret for Cloudflare's siteverify. |
 | `LANDING_PAGES_TURNSTILE_REQUIRED` | `"1"` = unset keys are a hard failure (set in prod once keys exist). |
 | `LANDING_PAGES_SIGNUP_RATE_MAX` / `LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES` | Signup limiter tuning (defaults 5 / 10). |
+| `LANDING_PAGES_META_API_VERSION` | Graph API version for the CAPI endpoint (PR 3). Defaults to `v21.0` — same default as the ad-side client but a deliberately independent env var (the LP arc must never couple to `lib/meta/` config). |
 
 ## 11. Design reference appendix (PR 2, C+O non-negotiable B)
 
@@ -444,7 +497,98 @@ deliberately zero imports from `components/ui/**` (shared/ask-first per
 thread boundaries) and zero Tailwind utility coupling, so the fan-facing
 surface cannot drift when the app shell restyles.
 
-## 12. PR-2 verification runbook (Matas, pre-merge)
+## 12. Meta Pixel + CAPI contract (PR 3)
+
+### What fires, where, with what data
+
+| Event | Side | When | Data |
+|---|---|---|---|
+| `PageView` | Browser (`fbq trackSingle`) | LP mount, when `metaPixelId` is set | Whatever Meta Pixel auto-captures; `eventID = {base}-pv` |
+| `Lead` | Browser (`fbq trackSingle`) | Successful NON-deduplicated signup | No manual PII — Meta's auto-capture only; `eventID = {base}-lead` |
+| `Lead` | Server (CAPI `POST /{pixel_id}/events`) | After the DB write succeeds, inline before the signup response | `em`/`ph` = unsalted SHA256 of the just-decrypted email / digits-only E.164 phone (computed at send time, discarded); `client_ip_address` from x-forwarded-for; `client_user_agent`; `event_source_url` = the public LP URL; `custom_data.source` = the PR-2 attribution bucket; same `event_id` as the browser Lead |
+
+**eventID dedup pattern:** one base uuid per browser session, persisted in
+`sessionStorage` (`lp_pixel_event_base_v1`) so it survives the submit
+transition and reloads. The form sends `{base}-lead` in the POST body
+(`capi_event_id`, validated `[A-Za-z0-9._:-]{8,64}`); the server uses it
+verbatim, falling back to the deterministic `{signup_id}-lead` when
+absent/invalid. Meta collapses the browser + server pair — and any CAPI
+retries — on `(event_name, event_id)` within 48h (landmine 16).
+
+**test_event_code:** read per call from
+`client_landing_pages.meta_test_event_code`. Per-client column rather than
+an env var, deliberately — Matas toggles it per client via SQL
+(`set_landing_page_capi_token` sibling workflow, no redeploy), and an
+env-level code would route EVERY tenant's events to one client's Test
+Events view. Dev-only: landmine 13.
+
+### The client A ≠ client B invariant, worked
+
+A signup on Client A's page must produce: fbevents init'd with A's pixel
+only; `trackSingle(A_pixel, …)` fires only; a CAPI POST to
+`graph.facebook.com/vXX.X/{A_pixel}/events?access_token={A_token}`
+carrying A's test code if set. If ANY of B's material appears — B's pixel
+in the fbq init (fan lands in B's PageView audience), B's token on the
+POST (event writes into B's dataset), B's test code (A's events vanish
+into B's test view) — that is A's fans enrolled in B's custom audiences:
+PII-derived audience data crossing legal entities without consent. GDPR
+violation + Meta ToS violation + both clients' retargeting pools poisoned
+(B pays to retarget people who never engaged with B). This is why
+`capi-isolation.test.ts` byte-diffs the full outgoing surface for both
+orderings rather than spot-checking fields.
+
+### Failure posture (retry / timeout / fail-open-loudly)
+
+Signup success must NEVER depend on Meta being up: the fan's data is
+already committed before the CAPI leg starts, and a fan-facing error over
+a tracking hiccup would cost real signups. So: 3 attempts max, backoff
+200ms → 500ms → 1200ms, 2s hard abort per attempt, 6s total deadline
+(worst-case added latency on a Meta outage ≈ 6s, still inside serverless
+budgets). 4xx = permanent (bad token/pixel), fail immediately — retrying
+cannot heal it. Every outcome logs `console.error` prefixed
+`[landing-pages capi]` (success with fbtrace_id included — Vercel filters
+lower log levels) and the signup response carries a debug field:
+`{ ok, signup_id, deduplicated, capi: { ok, fbtrace_id?, error?, skipped? } }`
+so Matas can diagnose via curl. `skipped` values: `not_configured`
+(no pixel or no token), `deduplicated` (repeat signup — no Lead fired).
+
+### PR-5 admin dashboard breadcrumbs
+
+- Surface per client: `meta_pixel_id`, `meta_pixel_id_verified_at`
+  (stale/null ⇒ "unverified" badge), `meta_test_event_code`
+  (non-null ⇒ loud warning banner, landmine 13), and whether a CAPI token
+  is set (existence only).
+- CAPI tokens are WRITE-ONLY in the UI: set via
+  `set_landing_page_capi_token`, display as "configured/not configured",
+  never render decrypted — not even to Matas. Decrypt happens exclusively
+  at send time via `get_landing_page_capi_token` (service-role).
+- Token freshness: Meta system-user tokens can be long-lived but do get
+  revoked; the `capi.error=http_4xx` log line is the detection signal.
+  A dashboard "last successful CAPI fire" timestamp would need a new
+  column or log query — decide in PR 5, do not bolt onto 135's columns.
+- `meta_pixel_id_verified_at` is set manually (SQL) in this PR; PR 5 can
+  add a "verify now" button that fires a CAPI test event and stamps it.
+
+### PR-3 verification runbook (Matas)
+
+1. Apply `supabase/migrations/135_landing_page_meta_capi.sql` via Supabase
+   MCP `apply_migration` — must print
+   `migration 135 verification: all assertions passed`.
+2. Seed the GMC row:
+   `update client_landing_pages set meta_pixel_id='<pixel>' where client_id='<gmc>';`
+   then `select set_landing_page_capi_token('<gmc>', '<capi token>', '<LANDING_PAGES_TOKEN_KEY>');`
+3. QA path: `update client_landing_pages set meta_test_event_code='<code from Events Manager Test Events>' …`,
+   open the LP, submit a signup → Test Events shows PageView (browser) +
+   Lead (browser + server, deduped to one). The signup response's `capi`
+   field shows `{ok: true, fbtrace_id: …}`.
+4. Clear the test code → repeat with a fresh email → events appear on the
+   live pixel in Events Manager, correct pixel id.
+5. Rollback check: flip `provider='evntree'` → page 307s before any pixel
+   renders; flip back.
+6. Repeat-signup check: same email again → response has
+   `capi: {ok:false, skipped:"deduplicated"}` and no new Lead in Meta.
+
+## 13. PR-2 verification runbook (Matas, pre-merge)
 
 1. Apply `supabase/migrations/134_event_signups.sql` via Supabase MCP
    `apply_migration` — must print
@@ -469,7 +613,7 @@ surface cannot drift when the app shell restyles.
    back.
 7. 6 rapid signups from one IP → 6th returns 429.
 
-## 13. PR-1 verification runbook (historical — completed 2026-07-02)
+## 14. PR-1 verification runbook (historical — completed 2026-07-02)
 
 1. Apply `supabase/migrations/132_landing_pages_scaffold.sql` via Supabase
    MCP `apply_migration` — the in-migration verification block must print

@@ -137,3 +137,26 @@ describe("normalizeHandle / inferSignupSource", () => {
     assert.equal(inferSignupSource({ utm_source: "newsletter" }), "other_newsletter");
   });
 });
+
+describe("capi_event_id (PR 3)", () => {
+  const base = {
+    first_name: "Amelia",
+    last_name: "Stone",
+    email: "amelia@example.com",
+    consent_gdpr: true,
+  };
+
+  it("valid id passes through verbatim", () => {
+    const result = parseSignupSubmission({ ...base, capi_event_id: "abc-123-DEF_45:lead" });
+    assert.ok(result.ok);
+    if (result.ok) assert.equal(result.data.capi_event_id, "abc-123-DEF_45:lead");
+  });
+
+  it("missing / invalid ids degrade to null WITHOUT a field error (tracking must never block a signup)", () => {
+    for (const bad of [undefined, "", "short", "x".repeat(65), "has spaces here", 42, { evil: 1 }]) {
+      const result = parseSignupSubmission({ ...base, capi_event_id: bad });
+      assert.ok(result.ok, `capi_event_id=${JSON.stringify(bad)} must not reject the signup`);
+      if (result.ok) assert.equal(result.data.capi_event_id, null);
+    }
+  });
+});

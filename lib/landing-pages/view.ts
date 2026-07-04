@@ -10,10 +10,13 @@ import type { LandingPageContext, LandingPageTheme } from "./types.ts";
  * `buildLandingPageView(contextA)` must contain nothing of tenant B — see
  * lib/landing-pages/__tests__/theme-isolation.test.ts.
  *
- * Deliberately EXCLUDED from the view: `landingPage.meta_pixel_id`. PR 2
- * renders no pixel — keeping it out of the view model means the renderer
- * cannot leak it even accidentally; PR 3 adds it back through an explicit,
- * tested field.
+ * PR 3: `metaPixelId` now flows through this seam (the explicit, tested
+ * field PR 2 reserved). It is STILL the only pixel-shaped value the
+ * renderer can see, and it comes exclusively from
+ * `context.landingPage.meta_pixel_id` — the row resolved through the
+ * clientSlug → client_id chain. Never from clients.meta_pixel_id
+ * (Off/Pixel's operational pixel — design doc landmine 3), never from an
+ * env var, never from a module-level default.
  */
 
 export interface LandingPageView {
@@ -29,6 +32,11 @@ export interface LandingPageView {
   eventDate: string | null;
   presaleInfo: string | null;
   templateKey: string;
+  /**
+   * The TENANT's Meta Pixel id (client_landing_pages.meta_pixel_id) or
+   * null = no pixel loads at all. There is no fallback source by design.
+   */
+  metaPixelId: string | null;
   theme: LandingPageTheme;
   /** CSS custom properties for the LP root element (scoped inheritance). */
   themeStyle: Record<string, string>;
@@ -79,6 +87,7 @@ export function buildLandingPageView(
     presaleInfo: contentString(content, "presale_info"),
     templateKey:
       context.template?.key ?? contentString(content, "template_key") ?? "mvp_v1",
+    metaPixelId: context.landingPage?.meta_pixel_id ?? null,
     theme,
     themeStyle: buildThemeStyle(theme),
     thankYouMessage: theme.thank_you_message,
