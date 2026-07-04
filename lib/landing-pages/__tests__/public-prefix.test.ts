@@ -1,3 +1,4 @@
+// NOTE (PR 2): /api/l/ assertions appended below the PR-1 cases.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -41,5 +42,25 @@ describe("PUBLIC_PREFIXES /l/ entry", () => {
     );
     assert.equal(isPublicPath("/lounge"), false);
     assert.equal(isPublicPath("/library"), false);
+  });
+});
+
+describe("PUBLIC_PREFIXES /api/l/ entry (PR 2 — signup POST)", () => {
+  it('public-routes.ts contains the "/api/l/" prefix with trailing slash', async () => {
+    const src = await readFile(PUBLIC_ROUTES_PATH, "utf8");
+    assert.match(src, /"\/api\/l\/"/, 'expected "/api/l/" in PUBLIC_PREFIXES');
+    assert.ok(!/"\/api\/l",/.test(src), 'found a bare "/api/l" prefix — must be "/api/l/"');
+  });
+
+  it("isPublicPath: the signup endpoint is public, /api/library-lookalikes are not", async () => {
+    const { isPublicPath } = await import(
+      "../../../lib/auth/public-routes.ts"
+    );
+    assert.equal(
+      isPublicPath("/api/l/gmc-worldwide-productions/jackies-mallorca-wlf8br/signup"),
+      true,
+    );
+    assert.equal(isPublicPath("/api/library"), false);
+    assert.equal(isPublicPath("/api/launch"), false);
   });
 });

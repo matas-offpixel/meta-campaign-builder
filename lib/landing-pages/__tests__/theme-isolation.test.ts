@@ -1,0 +1,147 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import type { LandingPageContext } from "../types.ts";
+import { buildLandingPageView } from "../view.ts";
+
+/**
+ * TENANT THEME ISOLATION — the PR-2 counterpart of PR 1's data-isolation
+ * test. Two clients with maximally distinguishable themes; building the
+ * view for tenant A must produce output containing NOTHING of tenant B —
+ * no colors, no logo, no thank-you copy, no name — and vice versa.
+ *
+ * Why this seam: the component tree consumes ONLY LandingPageView (see
+ * lib/landing-pages/view.ts), and the view's themeStyle is applied as
+ * inline CSS custom properties on the LP root (inheritance is strictly
+ * downward, CSS-module class names are hashed). So "no B token in view A"
+ * plus that architecture IS the no-bleed guarantee — including in prod
+ * builds, where the only cross-page CSS is the shared hashed module, which
+ * contains var() references and zero tenant literals.
+ *
+ * Also enforced here: PR 2's view model must NOT carry meta_pixel_id at
+ * all (pixel rendering is PR 3) — the strongest possible "pixel cannot
+ * leak" guarantee: the renderer never receives it.
+ */
+
+const TENANT_A = {
+  color: "#a11a11",
+  accent: "#a22a22",
+  bg: "#a33a33",
+  logo: "https://cdn.tenant-a.example/logo-a.png",
+  thanks: "TENANT_A_THANK_YOU_COPY",
+  pixel: "111111111111111",
+};
+
+const TENANT_B = {
+  color: "#b11b11",
+  accent: "#b22b22",
+  bg: "#b33b33",
+  logo: "https://cdn.tenant-b.example/logo-b.png",
+  thanks: "TENANT_B_THANK_YOU_COPY",
+  pixel: "999999999999999",
+};
+
+function makeContext(
+  name: "a" | "b",
+  tenant: typeof TENANT_A,
+): LandingPageContext {
+  return {
+    client: { id: `client-${name}`, name: `Client ${name.toUpperCase()}`, slug: `client-${name}` },
+    event: {
+      id: `event-${name}`,
+      name: `Event ${name.toUpperCase()}`,
+      slug: `event-${name}`,
+      event_date: "2026-08-01",
+      venue_name: `Venue ${name.toUpperCase()}`,
+      venue_city: `City ${name.toUpperCase()}`,
+      ticket_url: null,
+    },
+    pageEvent: {
+      id: `pe-${name}`,
+      event_id: `event-${name}`,
+      provider: "internal",
+      evntree_url: null,
+      theme_overrides: { accent_color: tenant.accent },
+      content: { headline: `HEADLINE_${name.toUpperCase()}` },
+      status: "live",
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+    },
+    landingPage: {
+      id: `lp-${name}`,
+      client_id: `client-${name}`,
+      theme: {
+        primary_color: tenant.color,
+        bg_color: tenant.bg,
+        logo_url: tenant.logo,
+        thank_you_message: tenant.thanks,
+      },
+      meta_pixel_id: tenant.pixel,
+      default_provider: "internal",
+    },
+    template: { id: `t`, key: "mvp_v1", name: "MVP", block_types_supported: [], default_config: {}, version: 1 },
+  };
+}
+
+describe("tenant theme isolation", () => {
+  const contextA = makeContext("a", TENANT_A);
+  const contextB = makeContext("b", TENANT_B);
+  const viewA = buildLandingPageView(contextA);
+  const viewB = buildLandingPageView(contextB);
+  const serializedA = JSON.stringify(viewA);
+  const serializedB = JSON.stringify(viewB);
+
+  it("view A carries its own theme values", () => {
+    assert.equal(viewA.theme.primary_color, TENANT_A.color);
+    assert.equal(viewA.theme.accent_color, TENANT_A.accent);
+    assert.equal(viewA.theme.logo_url, TENANT_A.logo);
+    assert.equal(viewA.thankYouMessage, TENANT_A.thanks);
+    assert.equal(viewA.themeStyle["--lp-primary-color"], TENANT_A.color);
+  });
+
+  it("NOTHING of tenant B appears anywhere in tenant A's view (and vice versa)", () => {
+    for (const token of Object.values(TENANT_B)) {
+      assert.ok(
+        !serializedA.includes(token),
+        `tenant B token "${token}" leaked into tenant A's view`,
+      );
+    }
+    assert.ok(!serializedA.includes("HEADLINE_B"));
+    assert.ok(!serializedA.includes("Client B"));
+    for (const token of Object.values(TENANT_A)) {
+      assert.ok(
+        !serializedB.includes(token),
+        `tenant A token "${token}" leaked into tenant B's view`,
+      );
+    }
+  });
+
+  it("meta_pixel_id does not exist in the PR-2 view model at all", () => {
+    assert.ok(!serializedA.includes(TENANT_A.pixel), "own pixel id leaked into the view");
+    assert.ok(!serializedB.includes(TENANT_B.pixel), "own pixel id leaked into the view");
+    assert.ok(!("metaPixelId" in viewA));
+    assert.ok(!("meta_pixel_id" in viewA));
+  });
+
+  it("theme resolution never falls back to another tenant — a broken theme falls to DEFAULTS", () => {
+    const broken = makeContext("a", TENANT_A);
+    broken.landingPage = null; // client has no landing-page row at all
+    broken.pageEvent.theme_overrides = {}; // and no per-event overrides
+    const view = buildLandingPageView(broken);
+    // Defaults, not anything tenant-shaped.
+    for (const token of [...Object.values(TENANT_A), ...Object.values(TENANT_B)]) {
+      assert.ok(!JSON.stringify(view.theme).includes(token));
+    }
+  });
+});
+
+describe("buildLandingPageView content handling", () => {
+  it("falls back headline → event name, rejects non-http artwork, survives empty content", () => {
+    const context = makeContext("a", TENANT_A);
+    context.pageEvent.content = { artwork_url: "javascript:alert(1)" };
+    const view = buildLandingPageView(context);
+    assert.equal(view.headline, "Event A");
+    assert.equal(view.artworkUrl, null);
+    assert.equal(view.templateKey, "mvp_v1");
+  });
+});

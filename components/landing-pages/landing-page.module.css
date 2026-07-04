@@ -1,0 +1,309 @@
+/*
+ * Landing-page styles (PR 2). Every color/font reads a --lp-* custom
+ * property that <LandingPage /> sets INLINE on .root — CSS variables
+ * inherit down the subtree only, so tenant theming physically cannot bleed
+ * into global styles or another page. The CSS module hashes these class
+ * names, so nothing here can collide with app-shell selectors either.
+ */
+
+.root {
+  min-height: 100vh;
+  background: var(--lp-bg-color);
+  color: var(--lp-text-color);
+  font-family: var(--lp-font-family);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.inner {
+  width: 100%;
+  max-width: 640px;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* ── Hero ── */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: center;
+}
+
+.heroLogo {
+  height: 44px;
+  width: auto;
+  max-width: 220px;
+  object-fit: contain;
+  align-self: center;
+}
+
+.heroArtwork {
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.16);
+}
+
+.heroArtwork img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.heroArtworkPlaceholder {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    var(--lp-primary-color),
+    var(--lp-accent-color)
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.heroArtworkPlaceholder span {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #fff;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
+  overflow-wrap: anywhere;
+}
+
+.heroTitle {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin: 0;
+  color: var(--lp-text-color);
+}
+
+.heroSubtitle {
+  font-size: 17px;
+  line-height: 1.4;
+  margin: 0;
+  opacity: 0.8;
+}
+
+/* ── Event card ── */
+
+.eventCard {
+  border-radius: 16px;
+  padding: 20px;
+  background: color-mix(in srgb, var(--lp-primary-color) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--lp-primary-color) 25%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eventCardRow {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 15px;
+}
+
+.eventCardLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lp-primary-color);
+  min-width: 64px;
+}
+
+.presale {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lp-secondary-color);
+  background: color-mix(in srgb, var(--lp-accent-color) 30%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+/* ── Signup form ── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-radius: 16px;
+  padding: 24px 20px;
+  background: #fff;
+  border: 1px solid rgb(0 0 0 / 0.08);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.06);
+}
+
+.formTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--lp-text-color);
+}
+
+.formIntro {
+  margin: -6px 0 0;
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 480px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgb(0 0 0 / 0.18);
+  background: #fff;
+  color: #1c1a1f;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--lp-primary-color);
+  outline-offset: 1px;
+  border-color: var(--lp-primary-color);
+}
+
+.phoneRow {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px;
+}
+
+.fieldError {
+  font-size: 12.5px;
+  color: #c0262c;
+  margin: 0;
+}
+
+.socialsToggle {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--lp-primary-color);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.consent input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--lp-primary-color);
+  flex-shrink: 0;
+}
+
+.consentProminent {
+  font-weight: 600;
+}
+
+.submit {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  padding: 14px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  background: var(--lp-primary-color);
+  color: #fff;
+  transition: filter 120ms ease;
+}
+
+.submit:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.formError {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #c0262c;
+}
+
+.success {
+  border-radius: 16px;
+  padding: 28px 22px;
+  background: color-mix(in srgb, var(--lp-accent-color) 22%, #fff);
+  border: 1px solid color-mix(in srgb, var(--lp-accent-color) 60%, transparent);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.successTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--lp-text-color);
+}
+
+.successBody {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* ── Footer ── */
+
+.footer {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.55;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
