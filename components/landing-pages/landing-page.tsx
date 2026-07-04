@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 
+import { formatOnSaleHeaderLabel } from "@/lib/landing-pages/format-datetime";
 import { buildLandingPageView } from "@/lib/landing-pages/view";
 import type { LandingPageView } from "@/lib/landing-pages/view";
 import type { LandingPageContext } from "@/lib/landing-pages/types";
@@ -20,7 +21,7 @@ import { SignupForm } from "./signup-form";
  * seam (see lib/landing-pages/view.ts) — exactly as in PR 2/3.
  *
  * Layout (mobile-first, desktop max-width 480px centered):
- *   header (box logo | wordmark + LDN timestamp)
+ *   header (box logo | wordmark + on-sale timestamp, PR 7)
  *   hero carousel (falls back to single artwork image)
  *   countdown (only when a future target is set)
  *   event block (title + lowercase dot-separated details)
@@ -82,6 +83,7 @@ export function LandingPage({
           privacyPolicyUrl={view.privacyPolicyUrl}
           turnstileSiteKey={turnstileSiteKey}
           metaPixelId={view.metaPixelId}
+          onSaleAt={view.onSaleAt}
         />
 
         {view.description ? (
@@ -100,20 +102,20 @@ export function LandingPage({
   );
 }
 
-/** "dd.MM.yyyy HH:mm ldn" — always Europe/London (UK agency, by design). */
-function formatLondonTimestamp(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Europe/London",
-  }).formatToParts(date);
-  const get = (type: string) =>
-    parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("day")}.${get("month")}.${get("year")} ${get("hour")}:${get("minute")} ldn`;
+/**
+ * PR 7: the header meta row now shows the on-sale timestamp (presale_at,
+ * falling back to general_sale_at) instead of the current render time —
+ * Matas didn't recognise the old "always-now" clock and asked for
+ * something meaningful. Null (neither timestamp set) hides the row
+ * entirely rather than rendering an empty span.
+ */
+function HeaderMeta({ view }: { view: LandingPageView }) {
+  if (!view.onSaleAt) return null;
+  return (
+    <span className={styles.timestamp}>
+      {formatOnSaleHeaderLabel(view.onSaleAt)}
+    </span>
+  );
 }
 
 function HeaderBlock({ view }: { view: LandingPageView }) {
@@ -121,18 +123,14 @@ function HeaderBlock({ view }: { view: LandingPageView }) {
     return (
       <header className={styles.header}>
         <span className={styles.wordmark}>{view.clientName}</span>
-        <span className={styles.timestamp}>
-          {formatLondonTimestamp(new Date())}
-        </span>
+        <HeaderMeta view={view} />
       </header>
     );
   }
   return (
     <header className={styles.header}>
       <span className={styles.boxLogo}>{view.boxLogoText}</span>
-      <span className={styles.timestamp}>
-        {formatLondonTimestamp(new Date())}
-      </span>
+      <HeaderMeta view={view} />
     </header>
   );
 }

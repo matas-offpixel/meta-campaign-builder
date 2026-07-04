@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   captureAttribution,
   persistAttribution,
   type CapturedAttribution,
 } from "@/lib/landing-pages/attribution";
+import { formatPresaleNotifyDate } from "@/lib/landing-pages/format-datetime";
 import {
   buildCompleteRegistrationCommand,
   completeRegistrationEventId,
@@ -38,7 +39,17 @@ import styles from "./landing-page.module.css";
  * Phone: the country cell renders a static "uk +44" (text only — Supreme
  * discipline, no flag emoji) and parsing defaults to GB; international
  * fans can still type a full +XX number, which E.164 parsing honours
- * over the default country.
+ * over the default country. parsePhoneNumberFromString already strips a
+ * national trunk "0" for every supported numbering plan — see the
+ * comment in signup-schema.ts (PR 7); no extra sanitiser lives here.
+ *
+ * PR 7: Share moved out of the pre-submit view (single-CTA discipline —
+ * only "sign up" is visible before a submit) into the post-signup
+ * confirmation card, alongside a "sign up another" reset link. Resetting
+ * unmounts-then-remounts the form, which also unmounts-then-remounts the
+ * Turnstile container div — the widget-mount logic below is a ref
+ * CALLBACK (not a plain ref + one-shot effect) specifically so a fresh
+ * widget attaches to the new container node on remount.
  */
 
 interface TurnstileLike {
@@ -78,6 +89,7 @@ export function SignupForm({
   privacyPolicyUrl,
   turnstileSiteKey,
   metaPixelId,
+  onSaleAt,
 }: {
   clientSlug: string;
   eventSlug: string;
@@ -92,6 +104,12 @@ export function SignupForm({
    * ONLY into this.
    */
   metaPixelId: string | null;
+  /**
+   * view.onSaleAt (presale_at ?? general_sale_at) — PR 7's confirmation
+   * card shows "we'll notify you when presale opens on …" when set,
+   * falling back to thankYouMessage when null.
+   */
+  onSaleAt: string | null;
 }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -123,43 +141,60 @@ export function SignupForm({
   const turnstileWidgetIdRef = useRef<string | null>(null);
   const turnstileTokenRef = useRef<string | null>(null);
 
+  /**
+   * Renders into whatever container is CURRENTLY attached — called both
+   * from the script-load effect and from the container ref callback, so
+   * a remount (the "sign up another" reset path) attaches a fresh widget
+   * even though this component instance never unmounts.
+   */
+  const renderTurnstileWidget = useCallback(() => {
+    const container = turnstileContainerRef.current;
+    if (
+      !container ||
+      !turnstileSiteKey ||
+      !window.turnstile ||
+      turnstileWidgetIdRef.current
+    ) {
+      return;
+    }
+    try {
+      turnstileWidgetIdRef.current = window.turnstile.render(container, {
+        sitekey: turnstileSiteKey,
+        appearance: "interaction-only",
+        callback: (token) => {
+          turnstileTokenRef.current = token;
+        },
+        "expired-callback": () => {
+          turnstileTokenRef.current = null;
+        },
+        "error-callback": () => {
+          turnstileTokenRef.current = null;
+        },
+      });
+    } catch {
+      // Widget failure must never block the form — the server's
+      // TURNSTILE_REQUIRED gate decides whether a missing token is fatal.
+    }
+  }, [turnstileSiteKey]);
+
   useEffect(() => {
     if (!turnstileSiteKey) return;
-
-    function renderWidget() {
-      const container = turnstileContainerRef.current;
-      if (!container || !window.turnstile || turnstileWidgetIdRef.current) return;
-      try {
-        turnstileWidgetIdRef.current = window.turnstile.render(container, {
-          sitekey: turnstileSiteKey as string,
-          appearance: "interaction-only",
-          callback: (token) => {
-            turnstileTokenRef.current = token;
-          },
-          "expired-callback": () => {
-            turnstileTokenRef.current = null;
-          },
-          "error-callback": () => {
-            turnstileTokenRef.current = null;
-          },
-        });
-      } catch {
-        // Widget failure must never block the form — the server's
-        // TURNSTILE_REQUIRED gate decides whether a missing token is fatal.
-      }
-    }
-
     if (window.turnstile) {
-      renderWidget();
+      renderTurnstileWidget();
       return;
     }
     const script = document.createElement("script");
     script.src =
       "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
     script.async = true;
-    script.onload = renderWidget;
+    script.onload = renderTurnstileWidget;
     document.head.appendChild(script);
-  }, [turnstileSiteKey]);
+  }, [turnstileSiteKey, renderTurnstileWidget]);
+
+  function attachTurnstileContainer(node: HTMLDivElement | null) {
+    turnstileContainerRef.current = node;
+    if (node) renderTurnstileWidget();
+  }
 
   /** Tokens are single-use — mint a fresh one after a failed submit. */
   function resetTurnstile() {
@@ -171,6 +206,28 @@ export function SignupForm({
         // Best-effort.
       }
     }
+  }
+
+  /**
+   * "Sign up another" — clears the form and the Turnstile refs so the
+   * container-ref callback mounts a genuinely fresh widget on the next
+   * render. No explicit `.remove()` call here: by this point the success
+   * view has already unmounted the OLD container div, and Turnstile
+   * self-destructs widgets whose container leaves the DOM (calling
+   * `.remove()` on an already-self-cleaned id just logs a harmless
+   * "Cannot find Widget" warning — verified via manual browser testing).
+   */
+  function resetForNewSignup() {
+    turnstileWidgetIdRef.current = null;
+    turnstileTokenRef.current = null;
+    setEmail("");
+    setPhone("");
+    setSocialPlatform("instagram");
+    setSocialHandle("");
+    setConsent(false);
+    setFieldErrors({});
+    setShareState("idle");
+    setState({ phase: "idle" });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -266,13 +323,33 @@ export function SignupForm({
   if (state.phase === "success") {
     return (
       <section className={styles.success} aria-live="polite">
-        <h2 className={styles.successTitle}>you&apos;re on the list</h2>
-        <p className={styles.successBody}>{thankYouMessage}</p>
+        <h2 className={styles.successTitle}>you&apos;re in.</h2>
+        <p className={styles.successBody}>
+          {onSaleAt
+            ? `we'll notify you when presale opens on ${formatPresaleNotifyDate(onSaleAt)} uk.`
+            : thankYouMessage}
+        </p>
         {state.deduplicated ? (
           <p className={styles.successBody}>
             (looks like you&apos;d already signed up — you&apos;re all set.)
           </p>
         ) : null}
+        <div className={styles.successActions}>
+          <button
+            type="button"
+            className={styles.ctaSecondary}
+            onClick={handleShare}
+          >
+            {shareState === "copied" ? "link copied" : "share"}
+          </button>
+          <button
+            type="button"
+            className={styles.ctaGhost}
+            onClick={resetForNewSignup}
+          >
+            sign up another
+          </button>
+        </div>
       </section>
     );
   }
@@ -316,6 +393,7 @@ export function SignupForm({
             type="tel"
             autoComplete="tel"
             inputMode="tel"
+            placeholder="7700 900123"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
@@ -357,15 +435,21 @@ export function SignupForm({
           {socialPlatform === "instagram" ? "instagram" : "tiktok"}{" "}
           <span className={styles.fieldLabelMuted}>(optional)</span>
         </label>
-        <input
-          id="lp-social"
-          className={styles.input}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          value={socialHandle}
-          onChange={(e) => setSocialHandle(e.target.value)}
-        />
+        <div className={styles.socialInputWrap}>
+          <span className={styles.socialAtPrefix} aria-hidden="true">
+            @
+          </span>
+          <input
+            id="lp-social"
+            className={styles.socialInputField}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="handle"
+            value={socialHandle}
+            onChange={(e) => setSocialHandle(e.target.value)}
+          />
+        </div>
         {err("ig_handle")}
         {err("tt_handle")}
         {err("social")}
@@ -407,21 +491,16 @@ export function SignupForm({
 
       {/* Turnstile mounts here; interaction-only stays invisible unless a
           challenge is required. */}
-      {turnstileSiteKey ? <div ref={turnstileContainerRef} /> : null}
+      {turnstileSiteKey ? <div ref={attachTurnstileContainer} /> : null}
 
+      {/* Single-CTA discipline pre-submit — Share moves into the
+          post-signup confirmation card below. */}
       <button
         type="submit"
         className={styles.ctaPrimary}
         disabled={state.phase === "submitting"}
       >
         {state.phase === "submitting" ? "signing you up" : "sign up"}
-      </button>
-      <button
-        type="button"
-        className={styles.ctaSecondary}
-        onClick={handleShare}
-      >
-        {shareState === "copied" ? "link copied" : "share"}
       </button>
     </form>
   );

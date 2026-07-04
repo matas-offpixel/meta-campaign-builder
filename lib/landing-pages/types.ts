@@ -128,6 +128,14 @@ export interface LandingPageContext {
     ticket_url: string | null;
     /** PR 6: shown in the details line when present. */
     capacity: number | null;
+    /**
+     * PR 7: on-sale timestamps from the shared `events` table (read-only
+     * for this arc — dashboard-boundaries). The header shows presale_at,
+     * falling back to general_sale_at, and hides entirely when both are
+     * null (view.onSaleAt).
+     */
+    presale_at: string | null;
+    general_sale_at: string | null;
   };
   pageEvent: PageEventRow;
   /**

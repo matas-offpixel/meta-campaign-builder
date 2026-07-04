@@ -233,6 +233,7 @@ gospel — but the boundaries are.
 | **4 — CRM push (Bird + Mailchimp on signup)** | Push stored signups to the client's CRM/community stack; same per-client credential silo + idempotency on repeated `signup_id`s | Never batch across clients; never log credentials |
 | **5 — admin dashboard** | View/edit pixel_id, capi token (write-only — see §12 breadcrumbs), test_event_code, verification status; surface signup counts | Never display decrypted CAPI tokens; warn loudly when `meta_test_event_code` is set |
 | **6 — Supreme UX rewrite ✅ DONE** | Full visual rewrite (Supreme-inspired mono/zero-radius system); minimal form fields (names/city DROPPED, social-handle mutex); hero carousel, countdown, YouTube lite-embed + image grid; server-side artwork palette extraction (sharp) + accent resolution; server-derived geo capture → hashed `country`/`st` in CAPI user_data (migration 136). See §15 | Landed OUT of the arc's original order (before 4/5 — C+O prioritised the fan-facing surface). No CRM push, no admin UI. Presentation columns on `page_events`, never `events` |
+| **6b — Supreme polish pass ✅ DONE** | 7 post-review UI/copy tweaks: countdown de-emphasised (white/bordered); header meta row swapped from "current LDN time" to on-sale timestamp (`events.presale_at`/`general_sale_at`, read-only); `@` prefix baked into the social input; post-signup confirmation card (Share + "sign up another" reset) replaces the old always-visible Share button. See §16 | No schema changes at all (pure UI/copy PR — this is why it's "6b", not "7": the arc's numbered PR 7 below is unrelated and still pending) |
 | **7 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
 | **8 — analytics** | Page-view/section tracking, internal reporting | |
 | **9+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
@@ -754,3 +755,96 @@ injection defence — + square image grid). Fonts are system stacks (mono
    with hashed `country`/`st` in user_data and no fn/ln/ct.
 6. Palette check against the live artwork: `select artwork_palette from
    page_events where event_id='160fbb1c-…';` → 3 hex codes.
+
+## 16. Supreme polish pass (PR 6b)
+
+Seven post-review UI/copy tweaks against the live GMC Mallorca page.
+Zero schema changes — every field this PR reads already existed. Called
+"6b" in the plan table above to avoid colliding with the arc's own
+numbered "PR 7" (brief-parser extension, unrelated, still pending).
+
+- **Countdown de-emphasised**: white container/cells, 0.5px black
+  borders (same pattern as form inputs), black header text + icon.
+  Numbers stay on `var(--accent)` — never a hardcoded colour, that part
+  was already correct pre-PR. Label font-size is clamped to 10px (spec
+  asked for 9px; repo floor is 10px — same trade-off as the PR-6 footer).
+- **Header meta row**: was "current render time in London" (always-on,
+  meaningless to Matas). Now `events.presale_at` falling back to
+  `events.general_sale_at` (both columns pre-existed on the shared
+  dashboard table — read-only for this arc, dashboard-boundaries), title-
+  cased ("On sale: 12:00 Fri 10 July" — a DELIBERATE one-line exception
+  to the page's lowercase convention). Null when both timestamps are
+  null → the row doesn't render at all (`view.onSaleAt`,
+  `lib/landing-pages/format-datetime.ts`). This is the one place PR 6b
+  extended the resolution chain: `context.event` gained
+  `presale_at`/`general_sale_at` (context.ts/types.ts), `view.ts` picks
+  the first parseable one.
+- **`@` prefix**: baked into the social-handle input chrome
+  (non-interactive `<span>@</span>` inside the bordered wrapper) instead
+  of a `@handle` placeholder. Submit-time behaviour unchanged — the
+  shared schema already strips a leading `@` (`normalizeHandle`), so a
+  pasted `@handle` still works.
+- **Phone E.164 trunk-zero**: audited, not built. `parsePhoneNumberFromString`
+  (already the only phone parser in this codebase) strips a national
+  trunk "0" per-country via its own metadata whenever `defaultCountry` is
+  supplied — verified directly against the pinned dependency version
+  before writing anything. A hand-rolled "strip a leading 0" pass would
+  be redundant at best (libphonenumber already does it) and wrong at
+  worst (some numbering plans use a leading 0 as part of the subscriber
+  number, not a trunk prefix — a blind string strip can't tell the
+  difference). Pinned in `signup-schema.test.ts`'s "trunk-zero" describe
+  block (GB/FR/DE, with-0 / without-0 / full-E.164-with-0 all converge).
+  Only change: a `placeholder="7700 900123"` was added — the field had
+  no placeholder at all pre-PR despite the brief assuming one existed.
+- **Turnstile invisible**: audited, not built. `appearance:
+  "interaction-only"` was already the render option PR 6 shipped — no
+  visible-widget bug existed. Confirmed via CDP: `window.turnstile.render()`
+  produces zero DOM footprint (no iframe at all) until a challenge is
+  actually required.
+- **Bottom media 4-col grid**: `repeat(4, 1fr)` at every viewport (mobile
+  media-query override removed), `gap: 2px`, explicit white background
+  on the wrapping `<section>` so the gap reads as a hairline. A `2px`
+  white spacer div sits between the YouTube embed and the grid ONLY when
+  both are present. Verified at a 375px CDP-emulated viewport: 4 columns
+  of ~92px each, 2px gaps, confirmed via `getComputedStyle`.
+- **Share moved to post-signup confirmation**: pre-submit view now shows
+  only "sign up" (single-CTA discipline). On success, a confirmation card
+  replaces the form — "you're in." (mono 13px) + "we'll notify you when
+  presale opens on {onSaleAt formatted as 'd MMM at HH:mm'} uk." (reuses
+  the SAME `onSaleAt` as the header, not a presale_at-only lookup — a
+  deliberate consistency choice; falls back to `thankYouMessage` when
+  `onSaleAt` is null) + the Share button (unchanged styling/behaviour,
+  just relocated) + an optional "sign up another" ghost link.
+
+### Landmine 17: Turnstile remount on "sign up another"
+
+"Sign up another" resets `state` back to `"idle"`, which unmounts the
+success card and remounts the `<form>` — including the Turnstile
+container `<div>`. The PR-6 mount logic was a plain `ref` + a
+`useEffect` that runs ONCE (`[turnstileSiteKey]` deps); on remount the
+effect does not re-fire, and the old `turnstileWidgetIdRef.current`
+guard would silently prevent ever rendering a widget into the NEW
+container node — a real fan hitting "sign up another" would get a
+permanently-invisible, permanently-unusable Turnstile slot on their
+second attempt.
+
+Fixed by making the container a `ref` CALLBACK
+(`attachTurnstileContainer`) that calls the (now memoised)
+`renderTurnstileWidget` whenever a node attaches — covering both the
+original mount (script-load path) and every remount. `resetForNewSignup`
+nulls `turnstileWidgetIdRef`/`turnstileTokenRef` but deliberately does
+NOT call `window.turnstile.remove()` — by the time it runs, React has
+already unmounted the OLD container, and Turnstile self-destructs
+widgets whose container leaves the DOM; calling `.remove()` afterward
+just logs a harmless "Cannot find Widget" console warning (verified via
+manual browser testing with `LANDING_PAGES_TURNSTILE_SECRET_KEY` unset
+locally — dev-mode captcha skip lets the confirmation card render
+without a real Cloudflare pass). A fresh widget id was confirmed to
+mount on the remounted container after this fix.
+
+**Untestable locally, by design**: the real Cloudflare challenge cannot
+be solved from `localhost` (the configured sitekey is domain-bound to
+the production hostname — confirms as Turnstile error `110200`,
+"invalid domain", in the browser console). This is a pre-existing
+environment limitation, not a PR 6b regression — it applied identically
+to the PR-6 code before this PR touched anything.

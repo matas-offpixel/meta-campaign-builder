@@ -101,6 +101,45 @@ describe("parseSignupSubmission — accept + normalisation", () => {
   });
 });
 
+describe("PR 7: E.164 trunk-zero handling (no leading 0 in the stored number)", () => {
+  it("07400 123456 / 7400 123456 / +447400123456 all converge to the same E.164 (GB)", () => {
+    for (const phone of ["07400 123456", "7400 123456", "+44 7400 123456"]) {
+      const result = parseSignupSubmission({ ...valid, phone, phone_country: "GB" });
+      assert.equal(result.ok, true, `phone=${phone} should parse`);
+      if (result.ok) {
+        assert.equal(result.data.phone_e164, "+447400123456");
+        assert.equal(result.data.phone_e164?.startsWith("+440"), false);
+      }
+    }
+  });
+
+  it("same convergence holds for other trunk-0 numbering plans (FR, DE)", () => {
+    const fr = parseSignupSubmission({
+      ...valid,
+      phone: "06 12 34 56 78",
+      phone_country: "FR",
+    });
+    assert.equal(fr.ok, true);
+    if (fr.ok) assert.equal(fr.data.phone_e164, "+33612345678");
+
+    const frNoZero = parseSignupSubmission({
+      ...valid,
+      phone: "6 12 34 56 78",
+      phone_country: "FR",
+    });
+    assert.equal(frNoZero.ok, true);
+    if (frNoZero.ok) assert.equal(frNoZero.data.phone_e164, "+33612345678");
+
+    const de = parseSignupSubmission({
+      ...valid,
+      phone: "030 12345678",
+      phone_country: "DE",
+    });
+    assert.equal(de.ok, true);
+    if (de.ok) assert.equal(de.data.phone_e164, "+493012345678");
+  });
+});
+
 describe("parseSignupSubmission — reject matrix", () => {
   it("rejects missing consent_gdpr", () => {
     const result = parseSignupSubmission({ ...valid, consent_gdpr: false });
