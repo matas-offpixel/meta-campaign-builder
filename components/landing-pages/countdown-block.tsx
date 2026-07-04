@@ -7,6 +7,7 @@ import {
   padCountdownValue,
   type CountdownParts,
 } from "@/lib/landing-pages/countdown";
+import { formatPresaleHeaderLabel } from "@/lib/landing-pages/format-datetime";
 
 import styles from "./landing-page.module.css";
 
@@ -17,6 +18,11 @@ import styles from "./landing-page.module.css";
  * bordered grid, Futura numbers in the tenant accent. The math lives in
  * lib/landing-pages/countdown.ts
  * (pure, node:test); this component only ticks.
+ *
+ * PR 8: the old "PRESALE OPENS IN" + ticket-icon header row is replaced
+ * by a static "Presale: HH:mm EEE d MMMM" text line, formatted from the
+ * SAME targetAt the ticker below counts down to (no separate resolver —
+ * one source of truth for both).
  *
  * The server shell already gates on targetAt > now, but the client
  * re-computes every second and returns null once the target passes — an
@@ -56,10 +62,9 @@ export function CountdownBlock({
 
   return (
     <section className={styles.countdown} aria-label={label}>
-      <div className={styles.countdownHeader}>
-        <TicketIcon />
-        <span>{label}</span>
-      </div>
+      <p className={styles.countdownPresale}>
+        {formatPresaleHeaderLabel(targetAt)}
+      </p>
       <div className={styles.countdownGrid}>
         {cells.map(([unit, value]) => (
           <div className={styles.countdownCell} key={unit}>
@@ -77,25 +82,5 @@ export function CountdownBlock({
         ))}
       </div>
     </section>
-  );
-}
-
-function TicketIcon() {
-  return (
-    <svg
-      className={styles.countdownIcon}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="#000000"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
-      <path d="M13 5v2" />
-      <path d="M13 17v2" />
-      <path d="M13 11v2" />
-    </svg>
   );
 }

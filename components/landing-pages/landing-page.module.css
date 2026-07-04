@@ -135,29 +135,23 @@
 /* PR 7: de-emphasised to match the rest of the page's discipline — white
    bg, bordered cells (same 0.5px pattern as inputs), black header text.
    Numbers stay on --accent (never a hardcoded color) so the palette-driven
-   branding still reads through. */
+   branding still reads through.
+   PR 8: the old "PRESALE OPENS IN" + ticket-icon header row is replaced
+   by a single static "Presale: HH:mm EEE d MMMM" text line (no icon —
+   cleaner minimalism), formatted from the same targetAt the ticker below
+   counts down to. */
 
 .countdown {
   background: #ffffff;
   padding: 14px 12px;
 }
 
-.countdownHeader {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  margin-bottom: 12px;
+.countdownPresale {
+  margin: 0 0 12px;
   color: #000000;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-}
-
-.countdownIcon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
+  font-family: var(--lp-mono);
+  font-size: 12px;
+  text-align: center;
 }
 
 .countdownGrid {
@@ -538,35 +532,37 @@
   cursor: pointer;
 }
 
+/* ── Brand socials ──────────────────────────────────────────────────── */
+/* PR 8, Goal 5: IG/TikTok row between the bottom media block and the
+   footer — independent of (and a replacement for) the PR-6 footer social
+   row that Goal 6 removed. */
+
+.brandSocials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px 14px;
+}
+
+.brandSocialIcon {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
 /* ── Footer ─────────────────────────────────────────────────────────── */
+/* PR 8, Goal 6: the black bar + social nav row are gone — a single mono
+   attribution line, flowing into the white page. */
 
 .footer {
-  background: #000000;
-  color: #ffffff;
-  padding: 14px;
+  padding: 14px 0;
   text-align: center;
-}
-
-.footerLinks {
-  display: flex;
-  justify-content: center;
-  gap: 14px;
   font-size: 10px;
-  letter-spacing: 0.5px;
-  text-transform: lowercase;
+  color: #666666;
 }
 
-.footerLinks a {
-  color: #ffffff;
-  text-decoration: none;
-}
-
-.footerLinks a:hover {
+.footer a {
+  color: inherit;
   text-decoration: underline;
-}
-
-.footerMade {
-  margin-top: 10px;
-  font-size: 10px;
-  color: #999999;
 }

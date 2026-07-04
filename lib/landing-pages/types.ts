@@ -130,12 +130,18 @@ export interface LandingPageContext {
     capacity: number | null;
     /**
      * PR 7: on-sale timestamps from the shared `events` table (read-only
-     * for this arc — dashboard-boundaries). The header shows presale_at,
-     * falling back to general_sale_at, and hides entirely when both are
-     * null (view.onSaleAt).
+     * for this arc — dashboard-boundaries). Still consumed by the
+     * post-signup confirmation copy (view.onSaleAt) — the PR-8 header
+     * meta row below reads event_start_at instead (see next field).
      */
     presale_at: string | null;
     general_sale_at: string | null;
+    /**
+     * PR 8: the header meta row's date source (Europe/London), replacing
+     * the PR-7 on-sale timestamp there. Read-only for this arc — shared
+     * dashboard table, dashboard-boundaries.
+     */
+    event_start_at: string | null;
   };
   pageEvent: PageEventRow;
   /**

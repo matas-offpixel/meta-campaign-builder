@@ -66,18 +66,43 @@ export interface LandingPageView {
   showOffPixelAttribution: boolean;
   /** Long-form description (content.description), mono body block. */
   description: string | null;
-  /** Footer social links — only present entries render. */
+  /** Footer social links — only present entries render. Computed but
+   *  UNUSED by the current renderer post-PR-8 (Goal 6 simplified the
+   *  footer to a single attribution line, superseding this row); left on
+   *  the seam rather than removed, per no-unrelated-refactor discipline —
+   *  a future cleanup PR can drop it. */
   socialLinks: Array<{ label: string; url: string }>;
-  /** Event capacity for the details line. */
+  /** Event capacity — no renderer reads this post-PR-8 (Goal 1 killed the
+   *  details line); kept on the seam for a future template. */
   capacity: number | null;
   /**
-   * PR 7: header on-sale timestamp source — event.presale_at, falling
-   * back to event.general_sale_at. Null (both unset, or both unparseable)
-   * hides the header meta row entirely. Raw ISO — formatting is a
-   * component/format-datetime.ts concern, same split as every other
-   * date field on this seam.
+   * PR 7: on-sale timestamp source — event.presale_at, falling back to
+   * event.general_sale_at. The header no longer reads this (PR 8, Goal
+   * 2, swapped to eventStartAt/venueShort below); the post-signup
+   * confirmation card (signup-form.tsx) still does. Null (both unset, or
+   * both unparseable) hides whatever consumes it. Raw ISO — formatting
+   * is a component/format-datetime.ts concern.
    */
   onSaleAt: string | null;
+  /**
+   * PR 8: header meta row date — events.event_start_at (Europe/London),
+   * sanitised to a parseable ISO string or null. Distinct from onSaleAt
+   * above: this is "when the EVENT happens", not "when tickets go on
+   * sale".
+   */
+  eventStartAt: string | null;
+  /**
+   * PR 8: header meta row venue label — content.venue_short, falling
+   * back to the first comma-separated segment of content.venue. Null
+   * when neither is authored (NOT the same source as venueName/venueCity
+   * above, which feed the now-removed details line).
+   */
+  venueShort: string | null;
+  /** PR 8: brand social row (Goal 5) — independent of the footer's old
+   *  socialLinks (Goal 6 dropped that row from the render tree). Null
+   *  hides the icon; the row itself hides when both are null. */
+  brandInstagramUrl: string | null;
+  brandTiktokUrl: string | null;
 }
 
 function contentString(
@@ -117,6 +142,15 @@ function safeUrlArray(raw: unknown): string[] {
 function safeIsoTimestamp(raw: string | null | undefined): string | null {
   if (typeof raw !== "string" || raw.trim().length === 0) return null;
   return Number.isNaN(Date.parse(raw)) ? null : raw;
+}
+
+/** "Costa da Caparica, Portugal" → "Costa da Caparica" (PR 8's venueShort
+ *  fallback source — content.venue is a free-form authored string, not a
+ *  structured field, so this is a best-effort split, not a parser). */
+function firstCommaSegment(raw: string | null): string | null {
+  if (!raw) return null;
+  const first = raw.split(",")[0]?.trim() ?? "";
+  return first.length > 0 ? first : null;
 }
 
 export function buildLandingPageView(
@@ -193,6 +227,12 @@ export function buildLandingPageView(
     onSaleAt:
       safeIsoTimestamp(context.event.presale_at) ??
       safeIsoTimestamp(context.event.general_sale_at),
+    eventStartAt: safeIsoTimestamp(context.event.event_start_at),
+    venueShort:
+      contentString(content, "venue_short") ??
+      firstCommaSegment(contentString(content, "venue")),
+    brandInstagramUrl: safeHttpUrl(contentString(content, "brand_instagram_url")),
+    brandTiktokUrl: safeHttpUrl(contentString(content, "brand_tiktok_url")),
   };
 }
 

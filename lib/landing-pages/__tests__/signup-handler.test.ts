@@ -32,6 +32,7 @@ function makeContext(provider: "internal" | "evntree" = "internal"): LandingPage
       capacity: null,
       presale_at: null,
       general_sale_at: null,
+      event_start_at: null,
     },
     pageEvent: {
       id: "pe-1",
