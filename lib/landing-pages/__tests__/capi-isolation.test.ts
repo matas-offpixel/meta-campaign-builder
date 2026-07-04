@@ -76,6 +76,7 @@ function makeContext(
       capacity: null,
       presale_at: null,
       general_sale_at: null,
+      event_start_at: null,
     },
     pageEvent: {
       id: `pe-${name}`,

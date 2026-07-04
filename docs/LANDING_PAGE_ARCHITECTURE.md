@@ -234,6 +234,7 @@ gospel — but the boundaries are.
 | **5 — admin dashboard** | View/edit pixel_id, capi token (write-only — see §12 breadcrumbs), test_event_code, verification status; surface signup counts | Never display decrypted CAPI tokens; warn loudly when `meta_test_event_code` is set |
 | **6 — Supreme UX rewrite ✅ DONE** | Full visual rewrite (Supreme-inspired mono/zero-radius system); minimal form fields (names/city DROPPED, social-handle mutex); hero carousel, countdown, YouTube lite-embed + image grid; server-side artwork palette extraction (sharp) + accent resolution; server-derived geo capture → hashed `country`/`st` in CAPI user_data (migration 136). See §15 | Landed OUT of the arc's original order (before 4/5 — C+O prioritised the fan-facing surface). No CRM push, no admin UI. Presentation columns on `page_events`, never `events` |
 | **6b — Supreme polish pass ✅ DONE** | 7 post-review UI/copy tweaks: countdown de-emphasised (white/bordered); header meta row swapped from "current LDN time" to on-sale timestamp (`events.presale_at`/`general_sale_at`, read-only); `@` prefix baked into the social input; post-signup confirmation card (Share + "sign up another" reset) replaces the old always-visible Share button. See §16 | No schema changes at all (pure UI/copy PR — this is why it's "6b", not "7": the arc's numbered PR 7 below is unrelated and still pending) |
+| **6c — Layout tidy ✅ DONE** | 6 more post-review UI/copy tweaks: killed the redundant auto-rendered venue+date line; header meta row swapped AGAIN, this time to `events.event_start_at` + `content.venue_short` (superseding 6b's on-sale header — on-sale info now lives ONLY in the countdown's static line); countdown header text swapped for a static "Presale: …" line (icon dropped); new Instagram/TikTok brand-socials row; footer reduced to one mono attribution line. See §17 | No schema changes (same "letter suffix" rule as 6b — this is why it's "6c", not "8": the arc's numbered PR 8 below is unrelated and still pending) |
 | **7 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
 | **8 — analytics** | Page-view/section tracking, internal reporting | |
 | **9+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
@@ -848,3 +849,73 @@ the production hostname — confirms as Turnstile error `110200`,
 "invalid domain", in the browser console). This is a pre-existing
 environment limitation, not a PR 6b regression — it applied identically
 to the PR-6 code before this PR touched anything.
+
+## 17. Layout tidy (PR 6c)
+
+Six more post-review UI/copy tweaks against the live GMC Mallorca page —
+Matas's second review pass after 6b landed. Zero schema changes; every
+new field this PR reads (`content.venue_short`, `content.brand_instagram_url`,
+`content.brand_tiktok_url`, `content.venue`, `events.event_start_at`) was
+either already authored on the live Jackies `page_events.content` row
+(verified live 2026-07-05 — nothing needed seeding) or already a real
+column on the shared `events` table. Called "6c" for the same reason 6b
+was: avoids colliding with the arc's own numbered "PR 8" (analytics,
+unrelated, still pending).
+
+- **Killed the redundant venue+date line**: `EventBlock` no longer
+  builds/renders the auto-formatted `[venue, city] · [date] · [presale
+  info] · [capacity]` paragraph under the subtitle — it duplicated the
+  header meta row and often read badly for real venue names ("es bosq,
+  recinto mallorca live, calvià, mallorca · sunday, 16 august 2026").
+  `content.subtitle` is now the ONLY sub-title text; the local
+  `formatEventDate` helper that built the killed line was removed with
+  it. `view.venueName`/`venueCity`/`eventDate`/`presaleInfo`/`capacity`
+  are UNCHANGED on the view-model seam (still computed, still tested) —
+  only the renderer stopped reading them, per no-unrelated-refactor
+  discipline.
+- **Header meta row swapped again**: 6b had JUST changed this row to the
+  on-sale timestamp; 6c changes it again, this time to
+  `"{EEE d MMM} · {venue_short}"` (e.g. "Sun 16 Aug · Costa da Caparica")
+  — `events.event_start_at` (Europe/London, a real pre-existing column
+  distinct from the date-only `event_date`) + `content.venue_short`
+  (falling back to the first comma-segment of `content.venue`, e.g.
+  "Costa da Caparica, Portugal" → "Costa da Caparica"). Renders
+  whichever of the two parts exists; hides entirely when NEITHER does.
+  The on-sale info this row used to show hasn't disappeared — it moved
+  into the countdown block's new static line (next bullet), which is
+  the ONLY place it appears now (no duplication). `view.onSaleAt` is
+  UNCHANGED and still feeds the post-signup confirmation card
+  (signup-form.tsx) — this PR only touched what the HEADER reads.
+- **Countdown header → static presale line**: the "PRESALE OPENS IN" +
+  ticket-icon row is replaced by one static text line, "Presale: HH:mm
+  EEE d MMMM" (e.g. "Presale: 11:00 Wed 8 July"), formatted from the
+  SAME `targetAt` the 4-cell ticker below counts down to — no icon, no
+  separate resolver. `formatOnSaleHeaderLabel` (6b) is fully retired;
+  `format-datetime.ts` now exports `formatPresaleHeaderLabel` (shares a
+  `fullDateTimeLabel` helper with the old function's logic) and the new
+  `formatEventDateShort` for the header row above. `pageEvent.countdown_label`
+  (e.g. "presale opens in") still flows through as the section's
+  `aria-label` — only the VISIBLE text changed.
+- **Brand socials row** (new `components/landing-pages/brand-socials.tsx`):
+  a centred Instagram/TikTok row, 20px icons, 20px gap, between the
+  bottom-media block and the footer. Sources `content.brand_instagram_url`
+  / `content.brand_tiktok_url` — deliberately NOT the same content keys
+  as the pre-existing (and now unrendered) footer `instagram_url` /
+  `tiktok_url`. Icons are hand-rolled inline SVG paths (Simple Icons'
+  public glyph data, pasted directly into the component — NOT a new
+  package dependency; lucide-react, the repo's only icon library, ships
+  no brand marks).
+- **Footer simplified**: the black bar + white social-nav row are gone.
+  One mono `#666` line, "Product by **Off/Pixel**" (only the link text
+  underlined), no background — flows straight into the white page.
+  Still gated on `show_off_pixel_attribution`, unchanged. `view.socialLinks`
+  / `buildSocialLinks` (the footer's old instagram/tiktok/**tickets**
+  link row) are now computed-but-unrendered dead code on the view-model
+  seam — left in place (still exercised by `view-supreme.test.ts`'s
+  URL-sanitisation coverage) rather than deleted, per no-unrelated-
+  refactor discipline. A consequence worth flagging: `events.ticket_url`
+  had NO other surface on this page before this PR (it only ever
+  reached the fan via that footer "tickets" text link) — 6c makes it
+  fully unreachable from `/l`. Nobody asked for a replacement CTA and
+  the page is presale-signup-first by design, so none was added; flag
+  to Matas if a direct ticket-buy path turns out to be wanted here.

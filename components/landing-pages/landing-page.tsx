@@ -1,12 +1,13 @@
 import type { CSSProperties } from "react";
 
-import { formatOnSaleHeaderLabel } from "@/lib/landing-pages/format-datetime";
+import { formatEventDateShort } from "@/lib/landing-pages/format-datetime";
 import { buildLandingPageView } from "@/lib/landing-pages/view";
 import type { LandingPageView } from "@/lib/landing-pages/view";
 import type { LandingPageContext } from "@/lib/landing-pages/types";
 
 import styles from "./landing-page.module.css";
 import { BottomMedia } from "./bottom-media";
+import { BrandSocials } from "./brand-socials";
 import { CountdownBlock } from "./countdown-block";
 import { HeroCarousel } from "./hero-carousel";
 import { MetaPixel } from "./meta-pixel";
@@ -21,14 +22,18 @@ import { SignupForm } from "./signup-form";
  * seam (see lib/landing-pages/view.ts) — exactly as in PR 2/3.
  *
  * Layout (mobile-first, desktop max-width 480px centered):
- *   header (box logo | wordmark + on-sale timestamp, PR 7)
+ *   header (box logo | wordmark + event date · venue meta, PR 8)
  *   hero carousel (falls back to single artwork image)
- *   countdown (only when a future target is set)
- *   event block (title + lowercase dot-separated details)
+ *   countdown (only when a future target is set; static "Presale: …"
+ *     line above the ticker, PR 8)
+ *   event block (title + subtitle tagline only — no auto-rendered
+ *     venue/date line, PR 8 Goal 1)
  *   signup form
  *   description
  *   bottom media (YouTube lite-embed + image grid)
- *   footer (only when show_off_pixel_attribution)
+ *   brand socials (Instagram/TikTok row, PR 8)
+ *   footer (single mono attribution line, only when
+ *     show_off_pixel_attribution, PR 8)
  *
  * The tenant accent arrives as --accent on the root (resolveAccent:
  * artwork palette → client primary → default) alongside the legacy
@@ -96,25 +101,31 @@ export function LandingPage({
           eventName={view.headline}
         />
 
-        {view.showOffPixelAttribution ? <FooterBlock view={view} /> : null}
+        <BrandSocials
+          instagramUrl={view.brandInstagramUrl}
+          tiktokUrl={view.brandTiktokUrl}
+        />
+
+        {view.showOffPixelAttribution ? <FooterBlock /> : null}
       </div>
     </div>
   );
 }
 
 /**
- * PR 7: the header meta row now shows the on-sale timestamp (presale_at,
- * falling back to general_sale_at) instead of the current render time —
- * Matas didn't recognise the old "always-now" clock and asked for
- * something meaningful. Null (neither timestamp set) hides the row
- * entirely rather than rendering an empty span.
+ * PR 8: the header meta row now shows "{event date} · {venue short}"
+ * (e.g. "Sun 16 Aug · Costa da Caparica") instead of the PR-7 on-sale
+ * timestamp — that info now lives ONLY in the countdown block's static
+ * "Presale: …" line, so it isn't duplicated. Renders whichever of the
+ * two parts is present; hides the row entirely when NEITHER is set.
  */
 function HeaderMeta({ view }: { view: LandingPageView }) {
-  if (!view.onSaleAt) return null;
+  const parts: string[] = [];
+  if (view.eventStartAt) parts.push(formatEventDateShort(view.eventStartAt));
+  if (view.venueShort) parts.push(view.venueShort);
+  if (parts.length === 0) return null;
   return (
-    <span className={styles.timestamp}>
-      {formatOnSaleHeaderLabel(view.onSaleAt)}
-    </span>
+    <span className={styles.timestamp}>{parts.join(" \u00b7 ")}</span>
   );
 }
 
@@ -135,62 +146,41 @@ function HeaderBlock({ view }: { view: LandingPageView }) {
   );
 }
 
-function formatEventDate(isoDate: string): string {
-  const parsed = new Date(`${isoDate}T12:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return isoDate;
-  return new Intl.DateTimeFormat("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  })
-    .format(parsed)
-    .toLowerCase();
-}
-
+/**
+ * PR 8, Goal 1: the auto-rendered "venue, city · date" line is gone —
+ * it duplicated the header meta row (date) and top-right venue, and
+ * frequently ran long/lowercased oddly for real-world venue names (e.g.
+ * "es bosq, recinto mallorca live, calvià, mallorca · sunday, 16 august
+ * 2026"). The subtitle (content.subtitle) is now the ONLY sub-title
+ * text — a pure marketing tagline, never auto-appended data.
+ */
 function EventBlock({ view }: { view: LandingPageView }) {
-  const details: string[] = [];
-  if (view.venueName || view.venueCity) {
-    details.push(
-      [view.venueName, view.venueCity].filter(Boolean).join(", "),
-    );
-  }
-  if (view.eventDate) details.push(formatEventDate(view.eventDate));
-  if (view.presaleInfo) details.push(view.presaleInfo);
-  if (view.capacity) details.push(`${view.capacity} capacity`);
-
   return (
     <section className={styles.eventBlock} aria-label="Event details">
       <h1 className={styles.eventTitle}>{view.headline}</h1>
       {view.subtitle ? (
         <p className={styles.eventDetails}>{view.subtitle}</p>
       ) : null}
-      {details.length > 0 ? (
-        <p className={styles.eventDetails}>{details.join(" \u00b7 ")}</p>
-      ) : null}
     </section>
   );
 }
 
-function FooterBlock({ view }: { view: LandingPageView }) {
+/**
+ * PR 8, Goal 6: the black bar + social nav row are gone — a single mono
+ * attribution line (superseded by the new brand-socials row above it
+ * for IG/TikTok). Still gated on showOffPixelAttribution, unchanged.
+ */
+function FooterBlock() {
   return (
     <footer className={styles.footer}>
-      {view.socialLinks.length > 0 ? (
-        <div className={styles.footerLinks}>
-          {view.socialLinks.map((link) => (
-            <a
-              key={link.label}
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {link.label}
-            </a>
-          ))}
-        </div>
-      ) : null}
-      <div className={styles.footerMade}>~ made with off/pixel ~</div>
+      Product by{" "}
+      <a
+        href="https://www.offpixel.co.uk"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Off/Pixel
+      </a>
     </footer>
   );
 }

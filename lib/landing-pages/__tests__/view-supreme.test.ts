@@ -33,6 +33,7 @@ function makeContext(): LandingPageContext {
       capacity: 1200,
       presale_at: null,
       general_sale_at: null,
+      event_start_at: null,
     },
     pageEvent: {
       id: "pe-1",
@@ -227,6 +228,96 @@ describe("PR 7: onSaleAt — presale/general-sale precedence", () => {
       buildLandingPageView(context, NOW).onSaleAt,
       "2026-07-10T10:00:00Z",
     );
+  });
+});
+
+describe("PR 8: header meta — eventStartAt + venueShort", () => {
+  it("eventStartAt is a sanitised pass-through of events.event_start_at", () => {
+    const context = makeContext();
+    context.event.event_start_at = "2026-08-16T16:00:00Z";
+    assert.equal(
+      buildLandingPageView(context, NOW).eventStartAt,
+      "2026-08-16T16:00:00Z",
+    );
+  });
+
+  it("null/unparseable event_start_at → eventStartAt null", () => {
+    for (const raw of [null, "garbage", ""]) {
+      const context = makeContext();
+      context.event.event_start_at = raw;
+      assert.equal(buildLandingPageView(context, NOW).eventStartAt, null);
+    }
+  });
+
+  it("venue_short wins when authored", () => {
+    const context = makeContext();
+    context.pageEvent.content = {
+      ...context.pageEvent.content,
+      venue_short: "Costa da Caparica",
+      venue: "Costa da Caparica, Portugal",
+    };
+    assert.equal(
+      buildLandingPageView(context, NOW).venueShort,
+      "Costa da Caparica",
+    );
+  });
+
+  it("falls back to the first comma segment of content.venue when venue_short is absent", () => {
+    const context = makeContext();
+    context.pageEvent.content = {
+      ...context.pageEvent.content,
+      venue: "Costa da Caparica, Portugal",
+    };
+    assert.equal(
+      buildLandingPageView(context, NOW).venueShort,
+      "Costa da Caparica",
+    );
+  });
+
+  it("neither venue_short nor content.venue → null", () => {
+    const view = buildLandingPageView(makeContext(), NOW);
+    assert.equal(view.venueShort, null);
+  });
+
+  it("a bare content.venue with no comma is used whole", () => {
+    const context = makeContext();
+    context.pageEvent.content = {
+      ...context.pageEvent.content,
+      venue: "Ushuaïa",
+    };
+    assert.equal(buildLandingPageView(context, NOW).venueShort, "Ushuaïa");
+  });
+});
+
+describe("PR 8: brand socials — content.brand_instagram_url / brand_tiktok_url", () => {
+  it("valid http(s) urls pass through", () => {
+    const context = makeContext();
+    context.pageEvent.content = {
+      ...context.pageEvent.content,
+      brand_instagram_url: "https://instagram.com/jackiesibiza",
+      brand_tiktok_url: "https://tiktok.com/@jackies_ibiza",
+    };
+    const view = buildLandingPageView(context, NOW);
+    assert.equal(view.brandInstagramUrl, "https://instagram.com/jackiesibiza");
+    assert.equal(view.brandTiktokUrl, "https://tiktok.com/@jackies_ibiza");
+  });
+
+  it("junk/unsafe schemes are dropped, not passed through", () => {
+    const context = makeContext();
+    context.pageEvent.content = {
+      ...context.pageEvent.content,
+      brand_instagram_url: "javascript:alert(1)",
+      brand_tiktok_url: 42,
+    };
+    const view = buildLandingPageView(context, NOW);
+    assert.equal(view.brandInstagramUrl, null);
+    assert.equal(view.brandTiktokUrl, null);
+  });
+
+  it("both absent → both null (renderer hides the whole row)", () => {
+    const view = buildLandingPageView(makeContext(), NOW);
+    assert.equal(view.brandInstagramUrl, null);
+    assert.equal(view.brandTiktokUrl, null);
   });
 });
 
