@@ -14,7 +14,7 @@ form: migration 134 adds `event_signups` (encrypted PII, salted dedupe
 hashes, attribution-only repeat rows) + schema-agnostic pgcrypto helpers +
 the `page_events.template_key` promotion; a public
 `POST /api/l/{clientSlug}/{eventSlug}/signup` endpoint runs
-rate limit → shared-schema validation → reCAPTCHA v3 → tenant resolution →
+rate limit → shared-schema validation → Cloudflare Turnstile → tenant resolution →
 hash/encrypt/store; the renderer (`components/landing-pages/`) scopes theme
 CSS variables to the LP root so cross-tenant theme bleed is structurally
 impossible. No Pixel, no CAPI, no CRM push (PRs 3/4).
@@ -62,8 +62,12 @@ impossible. No Pixel, no CAPI, no CRM push (PRs 3/4).
 - **pgcrypto:** now in `public` on prod (ops move 2026-07-01); migration 134
   functions use `search_path = public, extensions` + unqualified calls so
   either placement works; verification probes both.
-- **Turnstile preference flagged:** reCAPTCHA v3 shipped per spec'd env
-  contract; Turnstile would be a ~30-line swap at the `verifyCaptcha` seam.
+- **Turnstile flip (2026-07-04, same PR):** initially shipped reCAPTCHA v3
+  per the prompt's env contract; Matas approved the flagged Turnstile
+  preference pre-merge. Flip confined to the `verifyCaptcha` seam
+  (`signup-handler.ts`), the widget in `signup-form-block.tsx`, and env-var
+  renames (`LANDING_PAGES_TURNSTILE_SITE_KEY` /
+  `LANDING_PAGES_TURNSTILE_SECRET_KEY` / `LANDING_PAGES_TURNSTILE_REQUIRED`).
 - Env vars needed on Vercel before live signups: `LANDING_PAGES_TOKEN_KEY`,
-  `LANDING_PAGES_HASH_SALT` (immutable!), reCAPTCHA pair +
-  `LANDING_PAGES_RECAPTCHA_REQUIRED=1`.
+  `LANDING_PAGES_HASH_SALT` (immutable!), Turnstile pair +
+  `LANDING_PAGES_TURNSTILE_REQUIRED=1`.

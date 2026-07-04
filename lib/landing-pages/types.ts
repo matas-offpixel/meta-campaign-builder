@@ -151,7 +151,7 @@ export interface SignupFormValues {
   /** Attribution payload captured client-side (sessionStorage first-touch). */
   utm?: unknown;
   referrer_url?: unknown;
-  /** reCAPTCHA v3 token (absent in dev when keys unset). */
+  /** Cloudflare Turnstile token (absent in dev when keys unset). */
   captcha_token?: unknown;
 }
 

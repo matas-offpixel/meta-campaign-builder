@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getLandingPageContext } from "@/lib/db/landing-pages";
 import {
   processSignup,
-  verifyRecaptcha,
+  verifyTurnstile,
   type SignupHandlerEnv,
 } from "@/lib/landing-pages/signup-handler";
 import {
@@ -34,8 +34,8 @@ function handlerEnv(): SignupHandlerEnv {
   return {
     tokenKey: process.env.LANDING_PAGES_TOKEN_KEY,
     hashSalt: process.env.LANDING_PAGES_HASH_SALT,
-    recaptchaSecret: process.env.RECAPTCHA_LANDING_PAGES_SECRET,
-    recaptchaRequired: process.env.LANDING_PAGES_RECAPTCHA_REQUIRED === "1",
+    turnstileSecret: process.env.LANDING_PAGES_TURNSTILE_SECRET_KEY,
+    turnstileRequired: process.env.LANDING_PAGES_TURNSTILE_REQUIRED === "1",
   };
 }
 
@@ -61,7 +61,7 @@ export async function POST(
       resolveContext: getLandingPageContext,
       checkRateLimit: (key) => checkSignupRateLimit(key),
       buildRateLimitKey: buildSignupRateLimitKey,
-      verifyCaptcha: verifyRecaptcha,
+      verifyCaptcha: verifyTurnstile,
       env: handlerEnv(),
       now: () => new Date(),
     },

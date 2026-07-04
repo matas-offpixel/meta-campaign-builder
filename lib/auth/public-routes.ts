@@ -61,7 +61,7 @@ const PUBLIC_PREFIXES: readonly string[] = [
   "/l/",
   // `/api/l/{clientSlug}/{eventSlug}/signup` — the landing pages' signup
   // POST (landing-page arc PR 2). Fans have no session; the route defends
-  // itself (rate limit → shared-schema validation → reCAPTCHA → slug-chain
+  // itself (rate limit → shared-schema validation → Turnstile → slug-chain
   // tenant resolution → service-role insert into a table with NO write
   // policies). Trailing slash for the same /login-adjacent reason as "/l/".
   "/api/l/",

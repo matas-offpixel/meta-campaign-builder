@@ -29,8 +29,8 @@ import type {
 export interface SignupHandlerEnv {
   tokenKey: string | undefined;
   hashSalt: string | undefined;
-  recaptchaSecret: string | undefined;
-  recaptchaRequired: boolean;
+  turnstileSecret: string | undefined;
+  turnstileRequired: boolean;
 }
 
 export interface SignupHandlerDeps {
@@ -77,53 +77,56 @@ function fail(
   };
 }
 
+/** Cloudflare Turnstile server-side verification endpoint. */
+export const TURNSTILE_SITEVERIFY_URL =
+  "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+
 /**
- * reCAPTCHA v3 verification against Google's siteverify. Dev mode: keys
- * unset → warn + skip, UNLESS LANDING_PAGES_RECAPTCHA_REQUIRED=1 (prod
+ * Cloudflare Turnstile verification against siteverify. Dev mode: keys
+ * unset → warn + skip, UNLESS LANDING_PAGES_TURNSTILE_REQUIRED=1 (prod
  * gate) in which case missing keys is a hard 500-shaped failure.
+ * (Flipped from reCAPTCHA v3 pre-merge on PR #667 — free, no Google
+ * dependency; unlike v3 there is no score, success is binary.)
  */
-export async function verifyRecaptcha(
+export async function verifyTurnstile(
   token: string | null,
   env: SignupHandlerEnv,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: boolean; reason?: string }> {
-  if (!env.recaptchaSecret) {
-    if (env.recaptchaRequired) {
-      return { ok: false, reason: "recaptcha_required_but_unconfigured" };
+  if (!env.turnstileSecret) {
+    if (env.turnstileRequired) {
+      return { ok: false, reason: "turnstile_required_but_unconfigured" };
     }
     console.warn(
-      "[landing-pages] RECAPTCHA_LANDING_PAGES_SECRET unset — skipping captcha check (dev mode)",
+      "[landing-pages] LANDING_PAGES_TURNSTILE_SECRET_KEY unset — skipping captcha check (dev mode)",
     );
     return { ok: true };
   }
   if (!token) return { ok: false, reason: "missing_captcha_token" };
 
   try {
-    const response = await fetchImpl(
-      "https://www.google.com/recaptcha/api/siteverify",
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          secret: env.recaptchaSecret,
-          response: token,
-        }).toString(),
-      },
-    );
+    const response = await fetchImpl(TURNSTILE_SITEVERIFY_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        secret: env.turnstileSecret,
+        response: token,
+      }).toString(),
+    });
     const payload = (await response.json()) as {
       success?: boolean;
-      score?: number;
+      "error-codes"?: string[];
     };
-    if (!payload.success) return { ok: false, reason: "captcha_rejected" };
-    // v3 score: 0 (bot) → 1 (human). 0.3 keeps false-positives rare on a
-    // low-stakes signup; tune upward if abuse shows up in ip_hash clusters.
-    if (typeof payload.score === "number" && payload.score < 0.3) {
-      return { ok: false, reason: "captcha_low_score" };
+    if (!payload.success) {
+      return {
+        ok: false,
+        reason: `captcha_rejected:${(payload["error-codes"] ?? []).join(",") || "unknown"}`,
+      };
     }
     return { ok: true };
   } catch (error) {
-    // Google unreachable: fail OPEN (a fan's signup beats bot paranoia) but
-    // loudly — sustained failures show in Vercel logs.
+    // Cloudflare unreachable: fail OPEN (a fan's signup beats bot paranoia)
+    // but loudly — sustained failures show in Vercel logs.
     console.error("[landing-pages] captcha verify errored, failing open:", error);
     return { ok: true };
   }

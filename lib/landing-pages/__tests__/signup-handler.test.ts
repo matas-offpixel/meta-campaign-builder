@@ -3,7 +3,8 @@ import { describe, it } from "node:test";
 
 import {
   processSignup,
-  verifyRecaptcha,
+  TURNSTILE_SITEVERIFY_URL,
+  verifyTurnstile,
   type SignupHandlerDeps,
   type SignupHandlerEnv,
 } from "../signup-handler.ts";
@@ -55,8 +56,8 @@ const validBody = {
 const baseEnv: SignupHandlerEnv = {
   tokenKey: "test-token-key-123",
   hashSalt: "test-salt-123456",
-  recaptchaSecret: undefined,
-  recaptchaRequired: false,
+  turnstileSecret: undefined,
+  turnstileRequired: false,
 };
 
 function makeDeps(overrides: Partial<SignupHandlerDeps> = {}): SignupHandlerDeps {
@@ -197,52 +198,78 @@ describe("processSignup — reject matrix", () => {
   });
 });
 
-describe("verifyRecaptcha", () => {
+describe("verifyTurnstile", () => {
   const withSecret: SignupHandlerEnv = {
     ...baseEnv,
-    recaptchaSecret: "secret-abc",
+    turnstileSecret: "secret-abc",
   };
 
   it("keys unset + not required → skip (dev mode)", async () => {
-    const result = await verifyRecaptcha("tok", baseEnv);
+    const result = await verifyTurnstile("tok", baseEnv);
     assert.equal(result.ok, true);
   });
 
-  it("keys unset + LANDING_PAGES_RECAPTCHA_REQUIRED=1 → hard failure", async () => {
-    const result = await verifyRecaptcha("tok", {
+  it("keys unset + LANDING_PAGES_TURNSTILE_REQUIRED=1 → hard failure", async () => {
+    const result = await verifyTurnstile("tok", {
       ...baseEnv,
-      recaptchaRequired: true,
+      turnstileRequired: true,
     });
     assert.equal(result.ok, false);
-    assert.equal(result.reason, "recaptcha_required_but_unconfigured");
+    assert.equal(result.reason, "turnstile_required_but_unconfigured");
   });
 
   it("secret set + missing token → failure", async () => {
-    const result = await verifyRecaptcha(null, withSecret);
+    const result = await verifyTurnstile(null, withSecret);
     assert.equal(result.ok, false);
   });
 
-  it("google success/score paths", async () => {
-    const fetchOk = (async () => ({
-      json: async () => ({ success: true, score: 0.9 }),
-    })) as unknown as typeof fetch;
-    assert.equal((await verifyRecaptcha("tok", withSecret, fetchOk)).ok, true);
+  it("posts secret+response to Cloudflare's siteverify endpoint", async () => {
+    let calledUrl = "";
+    let calledBody = "";
+    const fetchSpy = (async (url: unknown, init: { body?: unknown }) => {
+      calledUrl = String(url);
+      calledBody = String(init?.body ?? "");
+      return { json: async () => ({ success: true }) };
+    }) as unknown as typeof fetch;
 
-    const fetchLow = (async () => ({
-      json: async () => ({ success: true, score: 0.1 }),
-    })) as unknown as typeof fetch;
-    assert.equal((await verifyRecaptcha("tok", withSecret, fetchLow)).ok, false);
-
-    const fetchReject = (async () => ({
-      json: async () => ({ success: false }),
-    })) as unknown as typeof fetch;
-    assert.equal((await verifyRecaptcha("tok", withSecret, fetchReject)).ok, false);
+    const result = await verifyTurnstile("tok-123", withSecret, fetchSpy);
+    assert.equal(result.ok, true);
+    assert.equal(
+      calledUrl,
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+    );
+    assert.equal(calledUrl, TURNSTILE_SITEVERIFY_URL);
+    const params = new URLSearchParams(calledBody);
+    assert.equal(params.get("secret"), "secret-abc");
+    assert.equal(params.get("response"), "tok-123");
   });
 
-  it("google unreachable → fail OPEN (fan beats bot paranoia), loudly", async () => {
+  it("cloudflare rejection → failure carrying error-codes (no score in Turnstile)", async () => {
+    const fetchReject = (async () => ({
+      json: async () => ({
+        success: false,
+        "error-codes": ["invalid-input-response", "timeout-or-duplicate"],
+      }),
+    })) as unknown as typeof fetch;
+    const result = await verifyTurnstile("tok", withSecret, fetchReject);
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.reason,
+      "captcha_rejected:invalid-input-response,timeout-or-duplicate",
+    );
+
+    const fetchRejectBare = (async () => ({
+      json: async () => ({ success: false }),
+    })) as unknown as typeof fetch;
+    const bare = await verifyTurnstile("tok", withSecret, fetchRejectBare);
+    assert.equal(bare.ok, false);
+    assert.equal(bare.reason, "captcha_rejected:unknown");
+  });
+
+  it("cloudflare unreachable → fail OPEN (fan beats bot paranoia), loudly", async () => {
     const fetchBoom = (async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
-    assert.equal((await verifyRecaptcha("tok", withSecret, fetchBoom)).ok, true);
+    assert.equal((await verifyTurnstile("tok", withSecret, fetchBoom)).ok, true);
   });
 });

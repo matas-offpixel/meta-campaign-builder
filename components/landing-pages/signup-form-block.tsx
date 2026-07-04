@@ -30,20 +30,33 @@ import styles from "./landing-page.module.css";
  * around before submitting still carries the ad attribution they landed
  * with.
  *
- * reCAPTCHA v3 (invisible): loaded only when a site key is configured
- * (passed down from the server component — the env var stays server-side).
- * When absent the form submits without a token; the server decides whether
- * that is acceptable (dev) or fatal (LANDING_PAGES_RECAPTCHA_REQUIRED=1).
+ * Cloudflare Turnstile (appearance: interaction-only — invisible unless a
+ * challenge is needed): loaded only when a site key is configured (passed
+ * down from the server component — the env var stays server-side). The
+ * widget's callback stores the token; tokens are SINGLE-USE and expire in
+ * ~300s, so the widget is reset after any failed submit to mint a fresh
+ * one. When no key is set the form submits without a token; the server
+ * decides whether that is acceptable (dev) or fatal
+ * (LANDING_PAGES_TURNSTILE_REQUIRED=1).
  */
 
-interface GrecaptchaLike {
-  ready(cb: () => void): void;
-  execute(siteKey: string, opts: { action: string }): Promise<string>;
+interface TurnstileLike {
+  render(
+    element: HTMLElement,
+    options: {
+      sitekey: string;
+      callback: (token: string) => void;
+      "expired-callback"?: () => void;
+      "error-callback"?: () => void;
+      appearance?: "always" | "execute" | "interaction-only";
+    },
+  ): string;
+  reset(widgetId: string): void;
 }
 
 declare global {
   interface Window {
-    grecaptcha?: GrecaptchaLike;
+    turnstile?: TurnstileLike;
   }
 }
 
@@ -57,12 +70,12 @@ export function SignupFormBlock({
   clientSlug,
   eventSlug,
   thankYouMessage,
-  recaptchaSiteKey,
+  turnstileSiteKey,
 }: {
   clientSlug: string;
   eventSlug: string;
   thankYouMessage: string;
-  recaptchaSiteKey: string | null;
+  turnstileSiteKey: string | null;
 }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -94,22 +107,57 @@ export function SignupFormBlock({
     }
   }, []);
 
-  useEffect(() => {
-    if (!recaptchaSiteKey || window.grecaptcha) return;
-    const script = document.createElement("script");
-    script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey)}`;
-    script.async = true;
-    document.head.appendChild(script);
-  }, [recaptchaSiteKey]);
+  const turnstileContainerRef = useRef<HTMLDivElement | null>(null);
+  const turnstileWidgetIdRef = useRef<string | null>(null);
+  const turnstileTokenRef = useRef<string | null>(null);
 
-  async function captchaToken(): Promise<string | null> {
-    if (!recaptchaSiteKey || !window.grecaptcha) return null;
-    const grecaptcha = window.grecaptcha;
-    try {
-      await new Promise<void>((resolve) => grecaptcha.ready(resolve));
-      return await grecaptcha.execute(recaptchaSiteKey, { action: "lp_signup" });
-    } catch {
-      return null;
+  useEffect(() => {
+    if (!turnstileSiteKey) return;
+
+    function renderWidget() {
+      const container = turnstileContainerRef.current;
+      if (!container || !window.turnstile || turnstileWidgetIdRef.current) return;
+      try {
+        turnstileWidgetIdRef.current = window.turnstile.render(container, {
+          sitekey: turnstileSiteKey as string,
+          appearance: "interaction-only",
+          callback: (token) => {
+            turnstileTokenRef.current = token;
+          },
+          "expired-callback": () => {
+            turnstileTokenRef.current = null;
+          },
+          "error-callback": () => {
+            turnstileTokenRef.current = null;
+          },
+        });
+      } catch {
+        // Widget failure must never block the form — the server's
+        // TURNSTILE_REQUIRED gate decides whether a missing token is fatal.
+      }
+    }
+
+    if (window.turnstile) {
+      renderWidget();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src =
+      "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.onload = renderWidget;
+    document.head.appendChild(script);
+  }, [turnstileSiteKey]);
+
+  /** Tokens are single-use — mint a fresh one after a failed submit. */
+  function resetTurnstile() {
+    turnstileTokenRef.current = null;
+    if (window.turnstile && turnstileWidgetIdRef.current) {
+      try {
+        window.turnstile.reset(turnstileWidgetIdRef.current);
+      } catch {
+        // Best-effort.
+      }
     }
   }
 
@@ -147,7 +195,10 @@ export function SignupFormBlock({
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ ...values, captcha_token: await captchaToken() }),
+          body: JSON.stringify({
+            ...values,
+            captcha_token: turnstileTokenRef.current,
+          }),
         },
       );
       const result = (await response.json()) as SubmitSignupResult;
@@ -155,12 +206,14 @@ export function SignupFormBlock({
         setState({ phase: "success", deduplicated: result.deduplicated });
         return;
       }
+      resetTurnstile();
       if (result.field_errors) setFieldErrors(result.field_errors);
       setState({
         phase: "error",
         message: result.error || "Something went wrong — please try again.",
       });
     } catch {
+      resetTurnstile();
       setState({
         phase: "error",
         message: "Couldn't reach the server — check your connection and try again.",
@@ -335,6 +388,10 @@ export function SignupFormBlock({
           {state.message}
         </p>
       ) : null}
+
+      {/* Turnstile mounts here; interaction-only stays invisible unless a
+          challenge is required. */}
+      {turnstileSiteKey ? <div ref={turnstileContainerRef} /> : null}
 
       <button
         type="submit"

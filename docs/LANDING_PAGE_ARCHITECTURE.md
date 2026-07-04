@@ -184,7 +184,7 @@ plus captcha — see §9.
 **Signup endpoint (PR 2):** `POST /api/l/{clientSlug}/{eventSlug}/signup`
 (`"/api/l/"` in PUBLIC_PREFIXES — trailing slash, same /login-adjacency
 rule). GET returns 405. Pipeline (cheapest-first):
-rate limit → shared-schema validation → reCAPTCHA → slug-chain tenant
+rate limit → shared-schema validation → Turnstile → slug-chain tenant
 resolution (404 unknown; **409 when `provider='evntree'`** — the rollback
 gate covers the API surface, not just the render) → hash + encrypt +
 store. Same authorisation-by-resolution model as the page; the handler
@@ -217,7 +217,7 @@ gospel — but the boundaries are.
 
 | PR | Owns | Must not |
 |---|---|---|
-| **2 — theming + signup form ✅ DONE** | Theme jsonb schema + merge semantics; block renderer (`hero`/`event_card`/`signup_form`/`footer`); `template_key` promotion (migration 134); `event_signups` + encrypted PII storage; write-path rate limit + reCAPTCHA; UTM/attribution capture | No pixel firing, no CAPI, no CRM push (scope pulled the signup form forward from PR 3 per the PR-2 prompt — PR 3 is now pixel-only) |
+| **2 — theming + signup form ✅ DONE** | Theme jsonb schema + merge semantics; block renderer (`hero`/`event_card`/`signup_form`/`footer`); `template_key` promotion (migration 134); `event_signups` + encrypted PII storage; write-path rate limit + Turnstile; UTM/attribution capture | No pixel firing, no CAPI, no CRM push (scope pulled the signup form forward from PR 3 per the PR-2 prompt — PR 3 is now pixel-only) |
 | **3 — Pixel client-side** | Loads the CLIENT's pixel from context (add `meta_pixel_id` to the view model — PR 2 deliberately excludes it, see §2); consent/cookie posture; fires PageView + Lead with an `event_id` for PR-4 dedup | No CAPI; no CRM push beyond storage |
 | **4 — CAPI server-side** | `set/get` accessor RPCs for `meta_capi_token_encrypted` (schema-qualified pgcrypto! §6); server-side event push to the client's pixel; dedup with client-side fires via event_id | Never log tokens; never batch across clients |
 | **5 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
@@ -303,8 +303,8 @@ conversion spends against — which is exactly the job these pages take over).
    rows = unique fans. Do not "fix" the NULL PII columns on repeat rows —
    they are intentional (the contactable CHECK exempts them by design).
 11. **What PRs 3/4/5 must NOT assume from this doc alone:**
-   - The reCAPTCHA env vars are LANDING-PAGE-SPECIFIC
-     (`RECAPTCHA_LANDING_PAGES_*`) — do not reuse for other surfaces, and
+   - The Turnstile env vars are LANDING-PAGE-SPECIFIC
+     (`LANDING_PAGES_TURNSTILE_*`) — do not reuse for other surfaces, and
      the site key reaches the client as a server-component PROP, not a
      `NEXT_PUBLIC_` var. Copy that pattern for the PR-3 pixel id (it is
      already in the context, NOT an env var).
@@ -376,7 +376,7 @@ store re-reads the canonical row and records the repeat
 **ip_hash never raw:** GDPR data minimisation. Abuse analysis needs
 "same submitter" grouping, not the address itself.
 
-## 9. Rate limit + reCAPTCHA layered defence (PR 2)
+## 9. Rate limit + Turnstile layered defence (PR 2)
 
 A public POST that triggers crypto RPCs and encrypted-PII writes is the
 arc's most attackable surface. Layers, cheapest first — each exists
@@ -389,12 +389,16 @@ because the previous one has a hole:
    XFF, many-IP botnets.
 2. **Shared-schema validation before any IO** — malformed floods cost only
    CPU. Hole: valid-shaped garbage.
-3. **reCAPTCHA v3 (invisible)** — server-verified via siteverify, score
-   threshold 0.3, action `lp_signup`. Keys unset → warn + skip (dev);
-   `LANDING_PAGES_RECAPTCHA_REQUIRED=1` makes unset keys a hard failure
-   (set it in prod). Google unreachable → **fail open, loudly** (a fan's
-   signup beats bot paranoia; sustained failures are visible in logs).
-   Hole: captcha farms.
+3. **Cloudflare Turnstile (`appearance: interaction-only` — invisible
+   unless a challenge is needed)** — server-verified against
+   `https://challenges.cloudflare.com/turnstile/v0/siteverify`
+   (form-encoded `secret` + `response`; success is binary, no v3-style
+   score; rejection reasons carry Cloudflare's `error-codes`). Tokens are
+   single-use with ~300s TTL — the widget resets after any failed submit.
+   Keys unset → warn + skip (dev); `LANDING_PAGES_TURNSTILE_REQUIRED=1`
+   makes unset keys a hard failure (set it in prod). Cloudflare
+   unreachable → **fail open, loudly** (a fan's signup beats bot paranoia;
+   sustained failures are visible in logs). Hole: captcha farms.
 4. **Tenant resolution + provider gate** — unknown pages 404 before any
    write; evntree-rolled-back pages 409.
 5. **DB-level backstops** — partial unique indexes cap per-fan row growth;
@@ -404,17 +408,16 @@ because the previous one has a hole:
    do not rebuild in-process (same posture as the meta-click endpoint).
 
 Not implemented (documented trade-offs): honeypot field and
-min-time-to-submit (PR-1 doc floated them; reCAPTCHA v3's score subsumes
-both and the form stays friction-free), Upstash/Postgres shared counter
-(revisit only if logs show real cross-worker abuse — the PR-1 "required"
-wording is downgraded to "when evidenced").
+min-time-to-submit (PR-1 doc floated them; Turnstile's challenge model
+subsumes both and the form stays friction-free), Upstash/Postgres shared
+counter (revisit only if logs show real cross-worker abuse — the PR-1
+"required" wording is downgraded to "when evidenced").
 
-**Turnstile note (flagged preference):** Cloudflare Turnstile is free, has
-no Google dependency, and is a drop-in at this architecture's seam (the
-`verifyCaptcha` DI + a different script tag). reCAPTCHA v3 ships in PR 2
-because the prompt specified its env contract; if C+O prefers Turnstile,
-it is a ~30-line follow-up confined to `signup-handler.ts` +
-`signup-form-block.tsx`.
+**Provider history:** PR 2 initially shipped reCAPTCHA v3 per the prompt's
+env contract; C+O approved the flagged Turnstile preference pre-merge and
+the flip landed on the same PR (#667) — free, no Google dependency,
+confined to the `verifyCaptcha` DI seam (`signup-handler.ts`) + the widget
+in `signup-form-block.tsx`, exactly as the seam was designed for.
 
 ## 10. Env vars (PR 2)
 
@@ -422,9 +425,9 @@ it is a ~30-line follow-up confined to `signup-handler.ts` +
 |---|---|
 | `LANDING_PAGES_TOKEN_KEY` | pgcrypto key for `event_signups` PII (and PR-4 CAPI tokens). ≥8 chars. Never log. |
 | `LANDING_PAGES_HASH_SALT` | Dedupe-hash salt. ≥8 chars. **Immutable** (landmine 8). |
-| `RECAPTCHA_LANDING_PAGES_SITE_KEY` | reCAPTCHA v3 site key — server-read, passed to the form as a prop. |
-| `RECAPTCHA_LANDING_PAGES_SECRET` | reCAPTCHA v3 secret for siteverify. |
-| `LANDING_PAGES_RECAPTCHA_REQUIRED` | `"1"` = unset keys are a hard failure (set in prod once keys exist). |
+| `LANDING_PAGES_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key — server-read, passed to the form as a prop. |
+| `LANDING_PAGES_TURNSTILE_SECRET_KEY` | Turnstile secret for Cloudflare's siteverify. |
+| `LANDING_PAGES_TURNSTILE_REQUIRED` | `"1"` = unset keys are a hard failure (set in prod once keys exist). |
 | `LANDING_PAGES_SIGNUP_RATE_MAX` / `LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES` | Signup limiter tuning (defaults 5 / 10). |
 
 ## 11. Design reference appendix (PR 2, C+O non-negotiable B)
@@ -449,7 +452,7 @@ surface cannot drift when the app shell restyles.
    naming which schema pgcrypto was found in).
 2. Set env vars locally: `LANDING_PAGES_TOKEN_KEY`,
    `LANDING_PAGES_HASH_SALT` (any ≥8-char strings for the trial); leave
-   reCAPTCHA unset (dev-mode skip).
+   Turnstile unset (dev-mode skip).
 3. `npm run dev` → open
    `/l/gmc-worldwide-productions/jackies-open-air-house-music-festival-mallorca-wlf8br`
    → themed page renders (defaults; seed a `theme` on the GMC

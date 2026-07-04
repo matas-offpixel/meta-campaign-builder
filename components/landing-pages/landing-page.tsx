@@ -22,10 +22,10 @@ import { SignupFormBlock } from "./signup-form-block";
 
 export function LandingPage({
   context,
-  recaptchaSiteKey,
+  turnstileSiteKey,
 }: {
   context: LandingPageContext;
-  recaptchaSiteKey: string | null;
+  turnstileSiteKey: string | null;
 }) {
   const view = buildLandingPageView(context);
 
@@ -38,7 +38,7 @@ export function LandingPage({
           clientSlug={view.clientSlug}
           eventSlug={view.eventSlug}
           thankYouMessage={view.thankYouMessage}
-          recaptchaSiteKey={recaptchaSiteKey}
+          turnstileSiteKey={turnstileSiteKey}
         />
         <FooterBlock view={view} />
       </div>

@@ -65,13 +65,13 @@ export default async function EventLandingPage({
     throw new Error(`[/l ${clientSlug}/${eventSlug}] ${outcome.reason}`);
   }
 
-  // reCAPTCHA site key is read server-side and handed to the client island
+  // Turnstile site key is read server-side and handed to the client island
   // as a prop — keeps the env var un-prefixed (no NEXT_PUBLIC_) per the
   // agreed env contract.
   return (
     <LandingPage
       context={outcome.context}
-      recaptchaSiteKey={process.env.RECAPTCHA_LANDING_PAGES_SITE_KEY ?? null}
+      turnstileSiteKey={process.env.LANDING_PAGES_TURNSTILE_SITE_KEY ?? null}
     />
   );
 }
