@@ -13,10 +13,7 @@ import {
   getOrCreateEventBase,
   runPixelCommand,
 } from "@/lib/landing-pages/pixel-events";
-import {
-  parseSignupSubmission,
-  SIGNUP_PHONE_COUNTRIES,
-} from "@/lib/landing-pages/signup-schema";
+import { parseSignupSubmission } from "@/lib/landing-pages/signup-schema";
 import type {
   SignupFormValues,
   SubmitSignupResult,
@@ -25,25 +22,23 @@ import type {
 import styles from "./landing-page.module.css";
 
 /**
- * components/landing-pages/signup-form-block.tsx
+ * components/landing-pages/signup-form.tsx
  *
- * The signup form (client island). Validation runs the SAME shared schema
- * as the API route (lib/landing-pages/signup-schema.ts) so client and
- * server can never drift; the server remains authoritative.
+ * PR-6 Supreme signup form (replaces signup-form-block.tsx). Minimal
+ * fields: email, phone, ONE social handle behind a segmented
+ * Instagram/TikTok toggle, one consent checkbox. The write-defence
+ * plumbing from PR 2/3 is unchanged: shared schema validation,
+ * Cloudflare Turnstile (interaction-only), first-touch attribution, and
+ * the shared browser/CAPI CompleteRegistration event id.
  *
- * Attribution: utm_* / click-ids + referrer are captured on mount with
- * first-touch-wins sessionStorage persistence, so a fan who navigates
- * around before submitting still carries the ad attribution they landed
- * with.
+ * Social mutex: the active pill decides which of ig_handle / tt_handle
+ * is sent — the other is ALWAYS null (the server rejects both-set).
+ * Handles are @-stripped + lowercased by the shared schema module.
  *
- * Cloudflare Turnstile (appearance: interaction-only — invisible unless a
- * challenge is needed): loaded only when a site key is configured (passed
- * down from the server component — the env var stays server-side). The
- * widget's callback stores the token; tokens are SINGLE-USE and expire in
- * ~300s, so the widget is reset after any failed submit to mint a fresh
- * one. When no key is set the form submits without a token; the server
- * decides whether that is acceptable (dev) or fatal
- * (LANDING_PAGES_TURNSTILE_REQUIRED=1).
+ * Phone: the country cell renders a static "uk +44" (text only — Supreme
+ * discipline, no flag emoji) and parsing defaults to GB; international
+ * fans can still type a full +XX number, which E.164 parsing honours
+ * over the default country.
  */
 
 interface TurnstileLike {
@@ -72,16 +67,25 @@ type SubmitState =
   | { phase: "success"; deduplicated: boolean }
   | { phase: "error"; message: string };
 
-export function SignupFormBlock({
+type SocialPlatform = "instagram" | "tiktok";
+
+export function SignupForm({
   clientSlug,
   eventSlug,
+  clientName,
+  eventName,
   thankYouMessage,
+  privacyPolicyUrl,
   turnstileSiteKey,
   metaPixelId,
 }: {
   clientSlug: string;
   eventSlug: string;
+  clientName: string;
+  eventName: string;
   thankYouMessage: string;
+  /** client_landing_pages.privacy_policy_url — null renders plain text. */
+  privacyPolicyUrl: string | null;
   turnstileSiteKey: string | null;
   /**
    * Tenant pixel from the view-model seam — CompleteRegistration fires
@@ -89,19 +93,15 @@ export function SignupFormBlock({
    */
   metaPixelId: string | null;
 }) {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [phoneCountry, setPhoneCountry] = useState("GB");
-  const [city, setCity] = useState("");
-  const [igHandle, setIgHandle] = useState("");
-  const [ttHandle, setTtHandle] = useState("");
-  const [consentGdpr, setConsentGdpr] = useState(false);
-  const [consentWa, setConsentWa] = useState(false);
-  const [socialsOpen, setSocialsOpen] = useState(false);
+  const [socialPlatform, setSocialPlatform] =
+    useState<SocialPlatform>("instagram");
+  const [socialHandle, setSocialHandle] = useState("");
+  const [consent, setConsent] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [state, setState] = useState<SubmitState>({ phase: "idle" });
+  const [shareState, setShareState] = useState<"idle" | "copied">("idle");
 
   const attributionRef = useRef<CapturedAttribution>({
     utm: {},
@@ -177,17 +177,15 @@ export function SignupFormBlock({
     e.preventDefault();
     if (state.phase === "submitting") return;
 
+    // The toggle enforces the social mutex client-side: only the active
+    // platform's field is populated, the other is always null.
     const values: SignupFormValues = {
-      first_name: firstName,
-      last_name: lastName,
       email,
       phone,
-      phone_country: phoneCountry,
-      city,
-      ig_handle: igHandle,
-      tt_handle: ttHandle,
-      consent_gdpr: consentGdpr,
-      consent_wa_opt_in: consentWa,
+      phone_country: "GB",
+      ig_handle: socialPlatform === "instagram" ? socialHandle : null,
+      tt_handle: socialPlatform === "tiktok" ? socialHandle : null,
+      consent_gdpr: consent,
       utm: attributionRef.current.utm,
       referrer_url: attributionRef.current.referrer_url,
     };
@@ -250,14 +248,29 @@ export function SignupFormBlock({
     }
   }
 
+  async function handleShare() {
+    const url = window.location.href;
+    try {
+      await navigator.share({ title: eventName, url });
+    } catch {
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareState("copied");
+        setTimeout(() => setShareState("idle"), 2_000);
+      } catch {
+        // Neither share nor clipboard available — nothing sensible to do.
+      }
+    }
+  }
+
   if (state.phase === "success") {
     return (
       <section className={styles.success} aria-live="polite">
-        <h2 className={styles.successTitle}>You're on the list 🎉</h2>
+        <h2 className={styles.successTitle}>you&apos;re on the list</h2>
         <p className={styles.successBody}>{thankYouMessage}</p>
         {state.deduplicated ? (
           <p className={styles.successBody}>
-            (Looks like you'd already signed up — you're all set.)
+            (looks like you&apos;d already signed up — you&apos;re all set.)
           </p>
         ) : null}
       </section>
@@ -273,38 +286,13 @@ export function SignupFormBlock({
 
   return (
     <form className={styles.form} onSubmit={handleSubmit} noValidate>
-      <h2 className={styles.formTitle}>Sign up for updates</h2>
-      <p className={styles.formIntro}>
-        Be first to hear about tickets, line-ups and presale access.
-      </p>
-
-      <div className={styles.fieldRow}>
-        <div className={styles.field}>
-          <label htmlFor="lp-first-name">First name *</label>
-          <input
-            id="lp-first-name"
-            autoComplete="given-name"
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-          />
-          {err("first_name")}
-        </div>
-        <div className={styles.field}>
-          <label htmlFor="lp-last-name">Last name *</label>
-          <input
-            id="lp-last-name"
-            autoComplete="family-name"
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-          />
-          {err("last_name")}
-        </div>
-      </div>
-
-      <div className={styles.field}>
-        <label htmlFor="lp-email">Email</label>
+      <div>
+        <label className={styles.fieldLabel} htmlFor="lp-email">
+          email address
+        </label>
         <input
           id="lp-email"
+          className={styles.input}
           type="email"
           autoComplete="email"
           inputMode="email"
@@ -314,22 +302,17 @@ export function SignupFormBlock({
         {err("email")}
       </div>
 
-      <div className={styles.field}>
-        <label htmlFor="lp-phone">Phone</label>
-        <div className={styles.phoneRow}>
-          <select
-            aria-label="Phone country"
-            value={phoneCountry}
-            onChange={(e) => setPhoneCountry(e.target.value)}
-          >
-            {SIGNUP_PHONE_COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} {c.dial}
-              </option>
-            ))}
-          </select>
+      <div>
+        <label className={styles.fieldLabel} htmlFor="lp-phone">
+          phone number
+        </label>
+        <div className={styles.phoneGrid}>
+          <span className={styles.phoneCountry} aria-hidden="true">
+            uk +44
+          </span>
           <input
             id="lp-phone"
+            className={styles.input}
             type="tel"
             autoComplete="tel"
             inputMode="tel"
@@ -341,76 +324,80 @@ export function SignupFormBlock({
         {err("contact")}
       </div>
 
-      <div className={styles.field}>
-        <label htmlFor="lp-city">City</label>
+      <div>
+        <div
+          className={styles.socialToggle}
+          role="radiogroup"
+          aria-label="Social platform"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={socialPlatform === "instagram"}
+            className={`${styles.socialPill} ${
+              socialPlatform === "instagram" ? styles.socialPillActive : ""
+            }`}
+            onClick={() => setSocialPlatform("instagram")}
+          >
+            instagram
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={socialPlatform === "tiktok"}
+            className={`${styles.socialPill} ${
+              socialPlatform === "tiktok" ? styles.socialPillActive : ""
+            }`}
+            onClick={() => setSocialPlatform("tiktok")}
+          >
+            tiktok
+          </button>
+        </div>
+        <label className={styles.fieldLabel} htmlFor="lp-social">
+          {socialPlatform === "instagram" ? "instagram" : "tiktok"}{" "}
+          <span className={styles.fieldLabelMuted}>(optional)</span>
+        </label>
         <input
-          id="lp-city"
-          autoComplete="address-level2"
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
+          id="lp-social"
+          className={styles.input}
+          autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          value={socialHandle}
+          onChange={(e) => setSocialHandle(e.target.value)}
         />
-        {err("city")}
+        {err("ig_handle")}
+        {err("tt_handle")}
+        {err("social")}
       </div>
 
-      <button
-        type="button"
-        className={styles.socialsToggle}
-        onClick={() => setSocialsOpen((open) => !open)}
-        aria-expanded={socialsOpen}
-      >
-        {socialsOpen ? "▾" : "▸"} Add socials for early access perks?
-      </button>
-
-      {socialsOpen ? (
-        <div className={styles.fieldRow}>
-          <div className={styles.field}>
-            <label htmlFor="lp-ig">Instagram</label>
-            <input
-              id="lp-ig"
-              placeholder="@yourhandle"
-              autoComplete="off"
-              value={igHandle}
-              onChange={(e) => setIgHandle(e.target.value)}
-            />
-            {err("ig_handle")}
-          </div>
-          <div className={styles.field}>
-            <label htmlFor="lp-tt">TikTok</label>
-            <input
-              id="lp-tt"
-              placeholder="@yourhandle"
-              autoComplete="off"
-              value={ttHandle}
-              onChange={(e) => setTtHandle(e.target.value)}
-            />
-            {err("tt_handle")}
-          </div>
-        </div>
-      ) : null}
-
-      <label className={`${styles.consent} ${styles.consentProminent}`}>
-        <input
-          type="checkbox"
-          checked={consentGdpr}
-          onChange={(e) => setConsentGdpr(e.target.checked)}
-        />
-        <span>
-          I agree to receive updates about this event and understand my data
-          will be handled per the privacy policy. *
-        </span>
-      </label>
-      {err("consent_gdpr")}
-
-      {phone.trim().length > 0 ? (
-        <label className={styles.consent}>
+      <div>
+        <label className={styles.consentRow}>
           <input
             type="checkbox"
-            checked={consentWa}
-            onChange={(e) => setConsentWa(e.target.checked)}
+            className={styles.consentCheckbox}
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
           />
-          <span>Also send me updates on WhatsApp.</span>
+          <span className={styles.consentText}>
+            add me to {clientName}&apos;s mailing list. see{" "}
+            {privacyPolicyUrl ? (
+              <a href={privacyPolicyUrl} target="_blank" rel="noreferrer">
+                privacy policy
+              </a>
+            ) : (
+              "privacy policy"
+            )}
+            .
+          </span>
         </label>
-      ) : null}
+        {err("consent_gdpr")}
+      </div>
+
+      <p className={styles.legalNote}>
+        by signing up, you consent to receive marketing and communications
+        regarding {eventName}. you can unsubscribe at any time.
+      </p>
 
       {state.phase === "error" ? (
         <p className={styles.formError} role="alert">
@@ -424,10 +411,17 @@ export function SignupFormBlock({
 
       <button
         type="submit"
-        className={styles.submit}
+        className={styles.ctaPrimary}
         disabled={state.phase === "submitting"}
       >
-        {state.phase === "submitting" ? "Signing you up…" : "Sign up"}
+        {state.phase === "submitting" ? "signing you up" : "sign up"}
+      </button>
+      <button
+        type="button"
+        className={styles.ctaSecondary}
+        onClick={handleShare}
+      >
+        {shareState === "copied" ? "link copied" : "share"}
       </button>
     </form>
   );

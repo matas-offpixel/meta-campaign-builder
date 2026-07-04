@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 
 import { resolveLandingPageOutcome } from "../resolve.ts";
 import type { LandingPageContext, PageEventRow } from "../types.ts";
+import {
+  LANDING_PAGE_PRESENTATION_DEFAULTS,
+  PAGE_EVENT_PRESENTATION_DEFAULTS,
+} from "./_fixtures.ts";
 
 /**
  * Outcome decision layer for the public /l route (PR 1 of the landing-page
@@ -22,6 +26,7 @@ function makePageEvent(overrides: Partial<PageEventRow> = {}): PageEventRow {
     status: "draft",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
+    ...PAGE_EVENT_PRESENTATION_DEFAULTS,
     ...overrides,
   };
 }
@@ -39,6 +44,7 @@ function makeContext(
       venue_name: "Open Air",
       venue_city: "Mallorca",
       ticket_url: null,
+      capacity: null,
     },
     pageEvent: makePageEvent(pageEvent),
     landingPage: {
@@ -47,6 +53,7 @@ function makeContext(
       theme: {},
       meta_pixel_id: "111111111111111",
       default_provider: "internal",
+      ...LANDING_PAGE_PRESENTATION_DEFAULTS,
     },
     template: {
       id: "tpl-1",

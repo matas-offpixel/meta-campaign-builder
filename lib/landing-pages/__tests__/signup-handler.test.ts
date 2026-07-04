@@ -10,6 +10,7 @@ import {
 } from "../signup-handler.ts";
 import type { LandingPageContext } from "../types.ts";
 import { makeFakeSignupDb } from "./_fake-signup-db.ts";
+import { PAGE_EVENT_PRESENTATION_DEFAULTS } from "./_fixtures.ts";
 
 /**
  * Full accept/reject matrix for the signup pipeline — this drives the SAME
@@ -28,6 +29,7 @@ function makeContext(provider: "internal" | "evntree" = "internal"): LandingPage
       venue_name: null,
       venue_city: null,
       ticket_url: null,
+      capacity: null,
     },
     pageEvent: {
       id: "pe-1",
@@ -39,6 +41,7 @@ function makeContext(provider: "internal" | "evntree" = "internal"): LandingPage
       status: "live",
       created_at: "",
       updated_at: "",
+      ...PAGE_EVENT_PRESENTATION_DEFAULTS,
     },
     landingPage: null,
     template: null,
@@ -46,8 +49,6 @@ function makeContext(provider: "internal" | "evntree" = "internal"): LandingPage
 }
 
 const validBody = {
-  first_name: "Amelia",
-  last_name: "Stone",
   email: "amelia@example.com",
   phone: "",
   consent_gdpr: true,
@@ -80,6 +81,7 @@ function makeInput(body: unknown = validBody) {
     body,
     xForwardedFor: "203.0.113.7",
     userAgent: "node-test",
+    geo: { country: "GB", region: "ENG", city: "London" },
   };
 }
 
@@ -104,6 +106,58 @@ describe("processSignup — accept", () => {
     if (first.json.ok && second.json.ok) {
       assert.equal(second.json.signup_id, first.json.signup_id);
     }
+  });
+
+  it("PR 6: legacy first_name/last_name/city in the body are IGNORED — accepted, never stored", async () => {
+    const db = makeFakeSignupDb();
+    const result = await processSignup(
+      makeDeps({ db }),
+      makeInput({
+        ...validBody,
+        first_name: "Amelia",
+        last_name: "Stone",
+        city: "London",
+      }),
+    );
+    assert.equal(result.status, 200, "stale cached bundles must not 400");
+    const row = db.rows[0];
+    assert.ok(!("first_name" in row), "first_name must not be written");
+    assert.ok(!("last_name" in row), "last_name must not be written");
+    assert.ok(!("city" in row), "city must not be written");
+    assert.ok(!JSON.stringify(row).includes("Amelia"));
+    assert.ok(!JSON.stringify(row).includes("Stone"));
+  });
+
+  it("PR 6: server-derived geo is captured onto the row (never from the body)", async () => {
+    const db = makeFakeSignupDb();
+    await processSignup(makeDeps({ db }), makeInput());
+    const row = db.rows[0];
+    assert.equal(row.geo_country, "GB");
+    assert.equal(row.geo_region, "ENG");
+    assert.equal(row.geo_city, "London");
+  });
+
+  it("PR 6: missing geo input degrades to nulls (no crash, no undefined)", async () => {
+    const db = makeFakeSignupDb();
+    const input = makeInput();
+    // Simulate a runtime without Vercel geo headers.
+    const withoutGeo = { ...input };
+    delete (withoutGeo as { geo?: unknown }).geo;
+    const result = await processSignup(makeDeps({ db }), withoutGeo);
+    assert.equal(result.status, 200);
+    assert.equal(db.rows[0].geo_country, null);
+    assert.equal(db.rows[0].geo_region, null);
+    assert.equal(db.rows[0].geo_city, null);
+  });
+
+  it("PR 6: social handle is @-stripped + lowercased on the stored row", async () => {
+    const db = makeFakeSignupDb();
+    await processSignup(
+      makeDeps({ db }),
+      makeInput({ ...validBody, ig_handle: "@GMC.Fan_01" }),
+    );
+    assert.equal(db.rows[0].ig_handle, "gmc.fan_01");
+    assert.equal(db.rows[0].tt_handle, null);
   });
 
   it("hashes the caller IP — raw IP never reaches the stored row", async () => {
@@ -163,6 +217,15 @@ describe("processSignup — reject matrix", () => {
       makeInput({ ...validBody, email: "", phone: "" }),
     );
     assert.equal(result.status, 400);
+  });
+
+  it("PR 6: 400 when BOTH ig_handle and tt_handle are set (social mutex)", async () => {
+    const result = await processSignup(
+      makeDeps(),
+      makeInput({ ...validBody, ig_handle: "one", tt_handle: "two" }),
+    );
+    assert.equal(result.status, 400);
+    if (!result.json.ok) assert.ok(result.json.field_errors?.social);
   });
 
   it("403 when captcha verification fails", async () => {

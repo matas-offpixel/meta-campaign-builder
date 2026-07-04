@@ -103,7 +103,7 @@ describe("pixel commands — trackSingle invariant", () => {
     const sources = [
       path.join(root, "lib", "landing-pages", "pixel-events.ts"),
       path.join(root, "components", "landing-pages", "meta-pixel.tsx"),
-      path.join(root, "components", "landing-pages", "signup-form-block.tsx"),
+      path.join(root, "components", "landing-pages", "signup-form.tsx"),
     ].map((p) => ({
       p,
       // Comments legitimately DISCUSS plain 'track'; the code must not

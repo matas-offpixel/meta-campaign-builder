@@ -20,6 +20,9 @@ export const LANDING_PAGE_PROVIDERS: readonly LandingPageProvider[] = [
 
 export type PageEventStatus = "draft" | "live" | "archived";
 
+/** client_landing_pages.logo_style (migration 136). */
+export type LandingPageLogoStyle = "box_logo" | "wordmark";
+
 /** `client_landing_pages` row — per-CLIENT landing-page config. */
 export interface ClientLandingPageRow {
   id: string;
@@ -43,6 +46,18 @@ export interface ClientLandingPageRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // ── PR 6 (migration 136) presentation + consent config ──
+  /** Linked from the signup consent line (target _blank). */
+  privacy_policy_url: string | null;
+  logo_style: LandingPageLogoStyle;
+  /** Text inside the accent-colored box logo (logo_style='box_logo'). */
+  box_logo_text: string | null;
+  /** When true the footer renders the off/pixel attribution block. */
+  show_off_pixel_attribution: boolean;
+  /** Schema-only in PR 6 — no renderer reads these yet. */
+  partner_consent_enabled: boolean;
+  partner_name: string | null;
+  partner_privacy_policy_url: string | null;
 }
 
 /** `page_events` row — per-EVENT landing page (provider toggle lives here). */
@@ -61,6 +76,18 @@ export interface PageEventRow {
   status: PageEventStatus;
   created_at: string;
   updated_at: string;
+  // ── PR 6 (migration 136) per-event presentation ──
+  /** Server-extracted ["#RRGGBB", …] (primary first) or null = not yet run. */
+  artwork_palette: unknown | null;
+  /** Ordered hero-carousel URLs; empty → fall back to content.artwork_url. */
+  hero_images: unknown;
+  /** Countdown target ISO timestamp. Null (or past) hides the block. */
+  countdown_target_at: string | null;
+  countdown_label: string | null;
+  /** YouTube watch/short/embed URL for the bottom lite-embed. */
+  youtube_url: string | null;
+  /** Bottom image-grid URLs; empty hides the grid. */
+  bottom_images: unknown;
 }
 
 /** `page_templates` row — workspace-global template registry. */
@@ -99,6 +126,8 @@ export interface LandingPageContext {
     venue_name: string | null;
     venue_city: string | null;
     ticket_url: string | null;
+    /** PR 6: shown in the details line when present. */
+    capacity: number | null;
   };
   pageEvent: PageEventRow;
   /**
@@ -107,7 +136,15 @@ export interface LandingPageContext {
    */
   landingPage: Pick<
     ClientLandingPageRow,
-    "id" | "client_id" | "theme" | "meta_pixel_id" | "default_provider"
+    | "id"
+    | "client_id"
+    | "theme"
+    | "meta_pixel_id"
+    | "default_provider"
+    | "privacy_policy_url"
+    | "logo_style"
+    | "box_logo_text"
+    | "show_off_pixel_attribution"
   > | null;
   /** Null when content.template_key names a template that does not exist. */
   template: PageTemplateRow | null;
@@ -135,15 +172,19 @@ export interface LandingPageTheme {
 
 // ─── PR 2: signup form ──────────────────────────────────────────────────────
 
-/** Raw (untrusted) form values as posted by the client. */
+/**
+ * Raw (untrusted) form values as posted by the client.
+ *
+ * PR 6 dropped first_name / last_name / city (Supreme-minimal fields).
+ * Legacy payloads that still carry them are IGNORED, not rejected — a
+ * stale cached bundle mid-deploy must not 400 a fan's signup.
+ */
 export interface SignupFormValues {
-  first_name?: unknown;
-  last_name?: unknown;
   email?: unknown;
   phone?: unknown;
   /** ISO 3166-1 alpha-2, e.g. 'GB' — drives E.164 parsing. */
   phone_country?: unknown;
-  city?: unknown;
+  /** PR 6 mutex: at most ONE of ig_handle / tt_handle may be set. */
   ig_handle?: unknown;
   tt_handle?: unknown;
   consent_gdpr?: unknown;
@@ -164,14 +205,11 @@ export interface SignupFormValues {
 
 /** Validated + normalised submission (output of parseSignupSubmission). */
 export interface SignupSubmission {
-  first_name: string;
-  last_name: string;
   /** Lowercased, trimmed. At least one of email / phone_e164 is non-null. */
   email: string | null;
   phone_e164: string | null;
   phone_country_code: string | null;
-  city: string | null;
-  /** Lowercased, @ stripped. */
+  /** Lowercased, @ stripped. At most one of ig/tt is non-null (PR-6 mutex). */
   ig_handle: string | null;
   tt_handle: string | null;
   consent_wa_opt_in: boolean;
@@ -180,6 +218,21 @@ export interface SignupSubmission {
   source: string | null;
   /** PR 3: validated Meta event id ([A-Za-z0-9._:-]{8,64}) or null. */
   capi_event_id: string | null;
+}
+
+/**
+ * Coarse request geo, derived SERVER-SIDE from Vercel's IP-geo headers
+ * (x-vercel-ip-country / -country-region / -city) — never from the form
+ * body. Stored plaintext on event_signups (aggregate analytics) and fed
+ * hashed into Meta CAPI user_data.country / .st.
+ */
+export interface SignupGeo {
+  /** ISO 3166-1 alpha-2, uppercased ("GB"). */
+  country: string | null;
+  /** Region code ("ENG", "TX"). */
+  region: string | null;
+  /** Decoded city name. */
+  city: string | null;
 }
 
 /**

@@ -5,7 +5,7 @@ import {
   sendCapiEvent,
   type SendCapiOptions,
 } from "./meta-capi.ts";
-import type { SignupSubmission } from "./types.ts";
+import type { SignupGeo, SignupSubmission } from "./types.ts";
 
 /**
  * lib/landing-pages/capi-fire.ts
@@ -40,6 +40,8 @@ export interface FireCapiArgs {
   eventSourceUrl: string;
   clientIp: string | null;
   userAgent: string | null;
+  /** Server-derived coarse geo (PR 6) — hashed into country/st. */
+  geo: SignupGeo;
   tokenKey: string;
 }
 
@@ -118,6 +120,8 @@ export async function fireCompleteRegistrationCapi(
       phoneE164: args.submission.phone_e164,
       clientIp: args.clientIp,
       clientUserAgent: args.userAgent,
+      geoCountry: args.geo.country,
+      geoRegion: args.geo.region,
       source: args.submission.source,
     },
     testEventCode,

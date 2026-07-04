@@ -31,6 +31,32 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Coarse request geo from Vercel's IP-geo headers (PR 6). Server-derived
+ * only — never read from the body. x-vercel-ip-city arrives URL-encoded
+ * (non-ASCII city names); decode best-effort.
+ */
+function geoFromHeaders(headers: Headers) {
+  const decode = (value: string | null): string | null => {
+    if (!value) return null;
+    try {
+      const decoded = decodeURIComponent(value).trim();
+      return decoded.length > 0 ? decoded.slice(0, 80) : null;
+    } catch {
+      return value.trim().slice(0, 80) || null;
+    }
+  };
+  const country = headers.get("x-vercel-ip-country");
+  return {
+    country:
+      country && /^[A-Za-z]{2}$/.test(country.trim())
+        ? country.trim().toUpperCase()
+        : null,
+    region: decode(headers.get("x-vercel-ip-country-region")),
+    city: decode(headers.get("x-vercel-ip-city")),
+  };
+}
+
 function handlerEnv(): SignupHandlerEnv {
   return {
     tokenKey: process.env.LANDING_PAGES_TOKEN_KEY,
@@ -88,6 +114,7 @@ export async function POST(
       xForwardedFor: request.headers.get("x-forwarded-for"),
       userAgent: request.headers.get("user-agent"),
       pageUrl,
+      geo: geoFromHeaders(request.headers),
     },
   );
 

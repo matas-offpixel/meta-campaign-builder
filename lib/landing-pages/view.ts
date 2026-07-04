@@ -1,5 +1,7 @@
-import { buildThemeStyle, resolveTheme } from "./theme.ts";
+import { parseStoredPalette } from "./palette.ts";
+import { buildThemeStyle, resolveAccent, resolveTheme } from "./theme.ts";
 import type { LandingPageContext, LandingPageTheme } from "./types.ts";
+import { parseYouTubeId } from "./youtube.ts";
 
 /**
  * lib/landing-pages/view.ts
@@ -10,13 +12,14 @@ import type { LandingPageContext, LandingPageTheme } from "./types.ts";
  * `buildLandingPageView(contextA)` must contain nothing of tenant B — see
  * lib/landing-pages/__tests__/theme-isolation.test.ts.
  *
- * PR 3: `metaPixelId` now flows through this seam (the explicit, tested
- * field PR 2 reserved). It is STILL the only pixel-shaped value the
- * renderer can see, and it comes exclusively from
- * `context.landingPage.meta_pixel_id` — the row resolved through the
- * clientSlug → client_id chain. Never from clients.meta_pixel_id
- * (Off/Pixel's operational pixel — design doc landmine 3), never from an
- * env var, never from a module-level default.
+ * PR 3: `metaPixelId` flows through this seam (the explicit, tested field
+ * PR 2 reserved). It is STILL the only pixel-shaped value the renderer can
+ * see, and it comes exclusively from `context.landingPage.meta_pixel_id`.
+ *
+ * PR 6 (Supreme UX): the seam grows accent / carousel / countdown / media /
+ * logo / footer fields. Same rule as ever — every value resolves strictly
+ * from the single context passed in; URL-shaped values are sanitised here
+ * so components never validate.
  */
 
 export interface LandingPageView {
@@ -41,6 +44,32 @@ export interface LandingPageView {
   /** CSS custom properties for the LP root element (scoped inheritance). */
   themeStyle: Record<string, string>;
   thankYouMessage: string;
+
+  // ── PR 6: Supreme renderer fields ──
+  /** Sanitised accent hex — artwork palette → client primary → default. */
+  accent: string;
+  /** Hero carousel URLs; falls back to [artworkUrl] when unset. */
+  heroImages: string[];
+  /** Null hides the countdown block (unset target or already past — the
+   *  component re-checks client-side so an SSR-cached page still hides). */
+  countdown: { targetAt: string; label: string } | null;
+  /** Parsed YouTube video id (null hides the embed). */
+  youtubeVideoId: string | null;
+  /** Bottom image-grid URLs (empty hides the grid). */
+  bottomImages: string[];
+  logoStyle: "box_logo" | "wordmark";
+  /** Box-logo text; falls back to the client name. */
+  boxLogoText: string;
+  /** Consent-line privacy policy link (null → no link rendered). */
+  privacyPolicyUrl: string | null;
+  /** Footer attribution toggle (client_landing_pages.show_off_pixel_attribution). */
+  showOffPixelAttribution: boolean;
+  /** Long-form description (content.description), mono body block. */
+  description: string | null;
+  /** Footer social links — only present entries render. */
+  socialLinks: Array<{ label: string; url: string }>;
+  /** Event capacity for the details line. */
+  capacity: number | null;
 }
 
 function contentString(
@@ -53,24 +82,60 @@ function contentString(
     : null;
 }
 
-function safeArtworkUrl(raw: string | null): string | null {
-  if (!raw) return null;
+function safeHttpUrl(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.trim().length === 0) return null;
+  const trimmed = raw.trim();
+  if (trimmed.length > 2000) return null;
   try {
-    const url = new URL(raw);
-    return url.protocol === "https:" || url.protocol === "http:" ? raw : null;
+    const url = new URL(trimmed);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? trimmed
+      : null;
   } catch {
     return null;
   }
 }
 
+/** jsonb URL array → sanitised string[] (order preserved, junk dropped). */
+function safeUrlArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => safeHttpUrl(entry))
+    .filter((url): url is string => url !== null);
+}
+
 export function buildLandingPageView(
   context: LandingPageContext,
+  /** Injectable clock (tests) — the countdown gate compares against it. */
+  nowMs: number = Date.now(),
 ): LandingPageView {
   const theme = resolveTheme(
     context.landingPage?.theme ?? null,
     context.pageEvent.theme_overrides ?? null,
   );
   const content = context.pageEvent.content ?? {};
+  const pageEvent = context.pageEvent;
+
+  // events has no artwork column (audited 2026-07-04) — content is the
+  // only source; PR 6 falls back to it when hero_images is empty.
+  const artworkUrl = safeHttpUrl(contentString(content, "artwork_url"));
+  const heroFromColumn = safeUrlArray(pageEvent.hero_images);
+  const heroImages =
+    heroFromColumn.length > 0
+      ? heroFromColumn
+      : artworkUrl
+        ? [artworkUrl]
+        : [];
+
+  const palette = parseStoredPalette(pageEvent.artwork_palette);
+  const accent = resolveAccent(palette, context.landingPage?.theme ?? null);
+
+  const countdownTarget =
+    typeof pageEvent.countdown_target_at === "string" &&
+    !Number.isNaN(Date.parse(pageEvent.countdown_target_at)) &&
+    Date.parse(pageEvent.countdown_target_at) > nowMs
+      ? pageEvent.countdown_target_at
+      : null;
 
   return {
     clientName: context.client.name,
@@ -78,9 +143,7 @@ export function buildLandingPageView(
     eventSlug: context.event.slug,
     headline: contentString(content, "headline") ?? context.event.name,
     subtitle: contentString(content, "subtitle"),
-    // events has no artwork column (audited 2026-07-04) — content is the
-    // only source; the hero renders a styled placeholder when null.
-    artworkUrl: safeArtworkUrl(contentString(content, "artwork_url")),
+    artworkUrl,
     venueName: contentString(content, "venue_name") ?? context.event.venue_name,
     venueCity: contentString(content, "venue_city") ?? context.event.venue_city,
     eventDate: contentString(content, "event_date") ?? context.event.event_date,
@@ -91,5 +154,44 @@ export function buildLandingPageView(
     theme,
     themeStyle: buildThemeStyle(theme),
     thankYouMessage: theme.thank_you_message,
+
+    accent,
+    heroImages,
+    countdown: countdownTarget
+      ? {
+          targetAt: countdownTarget,
+          label:
+            (pageEvent.countdown_label ?? "").trim() || "tickets on sale in",
+        }
+      : null,
+    youtubeVideoId: parseYouTubeId(pageEvent.youtube_url),
+    bottomImages: safeUrlArray(pageEvent.bottom_images),
+    logoStyle: context.landingPage?.logo_style ?? "box_logo",
+    boxLogoText:
+      context.landingPage?.box_logo_text?.trim() || context.client.name,
+    privacyPolicyUrl: safeHttpUrl(context.landingPage?.privacy_policy_url),
+    showOffPixelAttribution:
+      context.landingPage?.show_off_pixel_attribution ?? true,
+    description: contentString(content, "description"),
+    socialLinks: buildSocialLinks(content, context.event.ticket_url),
+    capacity: context.event.capacity ?? null,
   };
+}
+
+/**
+ * Footer link row: instagram / tiktok from page content, tickets from the
+ * event row. Only entries with a valid http(s) URL render.
+ */
+function buildSocialLinks(
+  content: Record<string, unknown>,
+  ticketUrl: string | null,
+): Array<{ label: string; url: string }> {
+  const links: Array<{ label: string; url: string }> = [];
+  const instagram = safeHttpUrl(contentString(content, "instagram_url"));
+  if (instagram) links.push({ label: "instagram", url: instagram });
+  const tiktok = safeHttpUrl(contentString(content, "tiktok_url"));
+  if (tiktok) links.push({ label: "tiktok", url: tiktok });
+  const tickets = safeHttpUrl(ticketUrl);
+  if (tickets) links.push({ label: "tickets", url: tickets });
+  return links;
 }

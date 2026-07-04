@@ -117,6 +117,38 @@ export function resolveTheme(
   };
 }
 
+/** Supreme red — the PR-6 accent of last resort. */
+export const DEFAULT_ACCENT = "#E5322D";
+
+/**
+ * PR 6: the single accent color driving the Supreme renderer (box logo,
+ * countdown numbers, primary CTA). Precedence:
+ *
+ *   1. artwork_palette[0]           — server-extracted from the hero art
+ *   2. client theme primary_color   — the RAW jsonb value, only when the
+ *      client actually configured one (the resolved-theme default would
+ *      otherwise always win and DEFAULT_ACCENT would be unreachable)
+ *   3. DEFAULT_ACCENT
+ *
+ * (The brief referenced clientLP.brand_color — that column doesn't exist;
+ * theme.primary_color is the client's configured brand color here.)
+ * All candidates pass the same COLOR_RE sanitiser as the theme system.
+ */
+export function resolveAccent(
+  artworkPalette: readonly string[] | null | undefined,
+  clientTheme: Record<string, unknown> | null | undefined,
+): string {
+  const paletteCandidate = artworkPalette?.[0];
+  if (typeof paletteCandidate === "string" && COLOR_RE.test(paletteCandidate.trim())) {
+    return paletteCandidate.trim();
+  }
+  const themeCandidate = clientTheme?.["primary_color"];
+  if (typeof themeCandidate === "string" && COLOR_RE.test(themeCandidate.trim())) {
+    return themeCandidate.trim();
+  }
+  return DEFAULT_ACCENT;
+}
+
 /**
  * CSS custom properties for the LP container. Applied as an inline style on
  * the LandingPage ROOT element only — CSS variables inherit down the

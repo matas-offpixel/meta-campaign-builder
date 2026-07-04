@@ -14,6 +14,11 @@ import {
 import type { LandingPageContext } from "../types.ts";
 import { buildLandingPageView } from "../view.ts";
 import { makeFakeCapiDb, type FakeCapiClientRow } from "./_fake-capi-db.ts";
+import {
+  LANDING_PAGE_PRESENTATION_DEFAULTS,
+  PAGE_EVENT_PRESENTATION_DEFAULTS,
+  makeSubmission,
+} from "./_fixtures.ts";
 
 /**
  * CROSS-TENANT PIXEL + CAPI ISOLATION — the PR-3 counterpart of PR 1's
@@ -68,6 +73,7 @@ function makeContext(
       venue_name: null,
       venue_city: null,
       ticket_url: null,
+      capacity: null,
     },
     pageEvent: {
       id: `pe-${name}`,
@@ -79,6 +85,7 @@ function makeContext(
       status: "live",
       created_at: "",
       updated_at: "",
+      ...PAGE_EVENT_PRESENTATION_DEFAULTS,
     },
     landingPage: {
       id: `lp-${name}`,
@@ -86,6 +93,7 @@ function makeContext(
       theme: {},
       meta_pixel_id: tenant.pixel,
       default_provider: "internal",
+      ...LANDING_PAGE_PRESENTATION_DEFAULTS,
     },
     template: null,
   };
@@ -160,6 +168,8 @@ function makeInput(
     clientSlug: `client-${tenant}`,
     eventSlug: `event-${tenant}`,
     body: {
+      // Legacy PR-2 fields deliberately kept in the body — PR 6 must
+      // IGNORE them (stale cached bundles), never 400 on them.
       first_name: "Fan",
       last_name: "Person",
       email,
@@ -280,17 +290,13 @@ describe("CAPI handler flows", () => {
     const outcome = await fireCompleteRegistrationCapi(db, {
       clientId: TENANT_A.clientId,
       pixelId: TENANT_A.pixel,
-      submission: {
-        first_name: "F", last_name: "P", email: "x@example.com", phone_e164: null,
-        phone_country_code: null, city: null, ig_handle: null, tt_handle: null,
-        consent_wa_opt_in: false, utm: {}, referrer_url: null, source: null,
-        capi_event_id: null,
-      },
+      submission: makeSubmission({ email: "x@example.com" }),
       eventId: "evt-x-cr-123",
       eventTime: 1_751_630_000,
       eventSourceUrl: "https://app.example.com/l/a/b",
       clientIp: null,
       userAgent: null,
+      geo: { country: null, region: null, city: null },
       tokenKey: TOKEN_KEY,
     });
     assert.deepEqual(outcome, { ok: false, skipped: "not_configured" });
@@ -301,17 +307,13 @@ describe("CAPI handler flows", () => {
     const outcome = await fireCompleteRegistrationCapi(db, {
       clientId: TENANT_A.clientId,
       pixelId: TENANT_A.pixel,
-      submission: {
-        first_name: "F", last_name: "P", email: "x@example.com", phone_e164: null,
-        phone_country_code: null, city: null, ig_handle: null, tt_handle: null,
-        consent_wa_opt_in: false, utm: {}, referrer_url: null, source: null,
-        capi_event_id: null,
-      },
+      submission: makeSubmission({ email: "x@example.com" }),
       eventId: "evt-x-cr-456",
       eventTime: 1_751_630_000,
       eventSourceUrl: "https://app.example.com/l/a/b",
       clientIp: null,
       userAgent: null,
+      geo: { country: null, region: null, city: null },
       tokenKey: "a-different-key-entirely",
     });
     assert.equal(outcome.ok, false);
@@ -375,17 +377,13 @@ describe("CAPI handler flows", () => {
       {
         clientId: TENANT_A.clientId,
         pixelId: TENANT_A.pixel,
-        submission: {
-          first_name: "F", last_name: "P", email: "tec@example.com", phone_e164: null,
-          phone_country_code: null, city: null, ig_handle: null, tt_handle: null,
-          consent_wa_opt_in: false, utm: {}, referrer_url: null, source: null,
-          capi_event_id: null,
-        },
+        submission: makeSubmission({ email: "tec@example.com" }),
         eventId: "evt-tec-cr-1",
         eventTime: 1_751_630_000,
         eventSourceUrl: "https://app.example.com/l/a/b",
         clientIp: null,
         userAgent: null,
+        geo: { country: null, region: null, city: null },
         tokenKey: TOKEN_KEY,
       },
       {

@@ -16,8 +16,6 @@ import type { SignupFormValues, SignupSubmission } from "./types.ts";
  * future swap is mechanical. See the PR-2 judgment-call notes.
  */
 
-export const SIGNUP_MAX_NAME_LENGTH = 80;
-export const SIGNUP_MAX_CITY_LENGTH = 80;
 export const SIGNUP_MAX_HANDLE_LENGTH = 30;
 
 /** Countries offered by the phone dropdown (extend freely). */
@@ -69,19 +67,9 @@ export function parseSignupSubmission(
 ): ParseSignupResult {
   const errors: Record<string, string> = {};
 
-  const firstName = asTrimmedString(values.first_name);
-  if (firstName.length === 0) {
-    errors.first_name = "First name is required.";
-  } else if (firstName.length > SIGNUP_MAX_NAME_LENGTH) {
-    errors.first_name = `First name must be ${SIGNUP_MAX_NAME_LENGTH} characters or fewer.`;
-  }
-
-  const lastName = asTrimmedString(values.last_name);
-  if (lastName.length === 0) {
-    errors.last_name = "Last name is required.";
-  } else if (lastName.length > SIGNUP_MAX_NAME_LENGTH) {
-    errors.last_name = `Last name must be ${SIGNUP_MAX_NAME_LENGTH} characters or fewer.`;
-  }
+  // PR 6: first_name / last_name / city no longer exist. Legacy payloads
+  // still carrying them are IGNORED (never rejected) — a stale cached
+  // bundle mid-deploy must not 400 a fan's signup.
 
   const email = normalizeEmail(values.email);
   if (email !== null && (!EMAIL_RE.test(email) || email.length > 254)) {
@@ -111,11 +99,6 @@ export function parseSignupSubmission(
     errors.contact = "Provide an email address or a phone number.";
   }
 
-  const city = asTrimmedString(values.city) || null;
-  if (city && city.length > SIGNUP_MAX_CITY_LENGTH) {
-    errors.city = `City must be ${SIGNUP_MAX_CITY_LENGTH} characters or fewer.`;
-  }
-
   const igHandle = normalizeHandle(values.ig_handle);
   if (igHandle !== null && !HANDLE_RE.test(igHandle)) {
     errors.ig_handle =
@@ -125,6 +108,13 @@ export function parseSignupSubmission(
   if (ttHandle !== null && !HANDLE_RE.test(ttHandle)) {
     errors.tt_handle =
       "TikTok handle: letters, numbers, dots and underscores only (max 30).";
+  }
+
+  // PR 6 mutex: the form's segmented toggle sends exactly one platform;
+  // both set means a bypassed/broken client → reject rather than guess
+  // which identity the fan meant.
+  if (igHandle !== null && ttHandle !== null) {
+    errors.social = "Provide an Instagram or a TikTok handle, not both.";
   }
 
   if (values.consent_gdpr !== true) {
@@ -164,12 +154,9 @@ export function parseSignupSubmission(
   return {
     ok: true,
     data: {
-      first_name: firstName,
-      last_name: lastName,
       email,
       phone_e164: phoneE164,
       phone_country_code: phoneCountryCode,
-      city,
       ig_handle: igHandle,
       tt_handle: ttHandle,
       consent_wa_opt_in: consentWaOptIn,
