@@ -200,6 +200,11 @@ export async function processSignup(
   if (!context) {
     return fail(404, "Unknown landing page.");
   }
+  if (context.pageEvent.status !== "live") {
+    // Draft/archived pages 404 on the public route (OP909 Phase 3) — the
+    // signup API must match, or an archived page keeps collecting PII.
+    return fail(404, "Unknown landing page.");
+  }
   if (context.pageEvent.provider !== "internal") {
     // Rollback gate: a page flipped back to Evntr.ee must not silently keep
     // collecting internal signups through the API.

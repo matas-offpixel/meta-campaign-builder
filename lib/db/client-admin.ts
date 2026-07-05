@@ -122,3 +122,144 @@ export async function countClientSignups(clientId: string): Promise<number> {
   }
   return count ?? 0;
 }
+
+// ─── Phase 3: landing page CRUD reads ────────────────────────────────────────
+
+export interface EventOption {
+  eventId: string;
+  eventName: string;
+  eventSlug: string;
+  eventStartAt: string | null;
+}
+
+/** Client events that do NOT have a page_events row yet (create flow a). */
+export async function listEventsWithoutPage(
+  clientId: string,
+): Promise<EventOption[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("events")
+    .select("id, name, slug, event_start_at, page_events (id)")
+    .eq("client_id", clientId);
+  if (error) {
+    throw new Error(`[client-admin] events lookup failed: ${error.message}`);
+  }
+  const options: EventOption[] = [];
+  for (const row of (data ?? []) as unknown as Array<{
+    id: string;
+    name: string;
+    slug: string;
+    event_start_at: string | null;
+    page_events: unknown;
+  }>) {
+    const pe = row.page_events;
+    const hasPage = Array.isArray(pe) ? pe.length > 0 : pe != null;
+    if (hasPage) continue;
+    options.push({
+      eventId: row.id,
+      eventName: row.name,
+      eventSlug: row.slug,
+      eventStartAt: row.event_start_at,
+    });
+  }
+  options.sort((a, b) =>
+    (b.eventStartAt ?? "").localeCompare(a.eventStartAt ?? ""),
+  );
+  return options;
+}
+
+export interface PageEventEditView {
+  pageEventId: string;
+  eventId: string;
+  eventName: string;
+  eventSlug: string;
+  presaleAt: string | null;
+  generalSaleAt: string | null;
+  eventStartAt: string | null;
+  status: string;
+  content: Record<string, unknown>;
+  heroImages: string[];
+  bottomImages: string[];
+  countdownTargetAt: string | null;
+  countdownLabel: string | null;
+  youtubeUrl: string | null;
+}
+
+/**
+ * Full editor view for one page. Session client — the RLS join through
+ * events.client_id means asking for another tenant's page id returns
+ * null (→ notFound), identical to a nonexistent id.
+ */
+export async function getPageEventForEdit(
+  clientId: string,
+  pageEventId: string,
+): Promise<PageEventEditView | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("page_events")
+    .select(
+      "id, event_id, status, content, hero_images, bottom_images, " +
+        "countdown_target_at, countdown_label, youtube_url, " +
+        "events!inner (id, name, slug, client_id, presale_at, general_sale_at, event_start_at)",
+    )
+    .eq("id", pageEventId)
+    .eq("events.client_id", clientId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`[client-admin] page edit lookup failed: ${error.message}`);
+  }
+  if (!data) return null;
+
+  const row = data as unknown as {
+    id: string;
+    event_id: string;
+    status: string;
+    content: Record<string, unknown> | null;
+    hero_images: unknown;
+    bottom_images: unknown;
+    countdown_target_at: string | null;
+    countdown_label: string | null;
+    youtube_url: string | null;
+    events:
+      | {
+          id: string;
+          name: string;
+          slug: string;
+          presale_at: string | null;
+          general_sale_at: string | null;
+          event_start_at: string | null;
+        }
+      | Array<{
+          id: string;
+          name: string;
+          slug: string;
+          presale_at: string | null;
+          general_sale_at: string | null;
+          event_start_at: string | null;
+        }>;
+  };
+  const event = Array.isArray(row.events) ? row.events[0] : row.events;
+  if (!event) return null;
+
+  const toList = (raw: unknown): string[] =>
+    Array.isArray(raw)
+      ? raw.filter((u): u is string => typeof u === "string" && u.length > 0)
+      : [];
+
+  return {
+    pageEventId: row.id,
+    eventId: event.id,
+    eventName: event.name,
+    eventSlug: event.slug,
+    presaleAt: event.presale_at,
+    generalSaleAt: event.general_sale_at,
+    eventStartAt: event.event_start_at,
+    status: row.status,
+    content: row.content ?? {},
+    heroImages: toList(row.hero_images),
+    bottomImages: toList(row.bottom_images),
+    countdownTargetAt: row.countdown_target_at,
+    countdownLabel: row.countdown_label,
+    youtubeUrl: row.youtube_url,
+  };
+}
