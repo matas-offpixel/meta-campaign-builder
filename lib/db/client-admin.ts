@@ -186,6 +186,49 @@ export async function countClientSignups(clientId: string): Promise<number> {
   return count ?? 0;
 }
 
+/** One row in the dashboard "recent signups" feed — no PII crosses. */
+export interface RecentSignup {
+  createdAt: string;
+  eventName: string;
+  country: string | null;
+}
+
+/**
+ * The most recent non-deleted signups for the dashboard feed (default 10).
+ * Session client + client-member RLS; selects only the timestamp, event name
+ * (join) and coarse country — never an encrypted column.
+ */
+export async function listRecentSignups(
+  clientId: string,
+  limit = 10,
+): Promise<RecentSignup[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("event_signups")
+    .select("created_at, geo_country, events!inner (name)")
+    .eq("client_id", clientId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    throw new Error(
+      `[client-admin] recent signups lookup failed: ${error.message}`,
+    );
+  }
+  return ((data ?? []) as Array<{
+    created_at: string;
+    geo_country: string | null;
+    events: { name: string } | Array<{ name: string }> | null;
+  }>).map((row) => {
+    const e = Array.isArray(row.events) ? row.events[0] : row.events;
+    return {
+      createdAt: row.created_at,
+      eventName: e?.name ?? "—",
+      country: row.geo_country,
+    };
+  });
+}
+
 // ─── Phase 6: insights reads ─────────────────────────────────────────────────
 
 import type { InsightSignupRow } from "@/lib/admin/insights";
