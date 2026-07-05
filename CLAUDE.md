@@ -53,6 +53,9 @@ npm run lint     # ESLint
 | `/auth/logout` | Sign out |
 | `/d2c/brief-ingest` | Upload a PDF (or paste text) brief → background parse into a scheduled D2C campaign |
 | `/d2c/event/[id]` | D2C orchestration: resolved artwork, WhatsApp community URL paste, per-send Matas approval |
+| `/l/[clientSlug]/[eventSlug]` | Public fan-facing event landing page (Supreme renderer) |
+| `/admin/login` + `/admin/auth/callback` | CLIENT dashboard magic-link login (OP909 — distinct from operator `/login`) |
+| `/admin/[clientSlug]/*` | Client self-service dashboard: pages, fans, insights, integrations, settings. Auth = session + `client_users` membership + slug match (403 on mismatch). See `docs/ADMIN_DASHBOARD_ARCHITECTURE.md` |
 
 ### Wizard (8 steps, indices 0–7)
 
@@ -228,7 +231,18 @@ LANDING_PAGES_META_API_VERSION=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `136_landing_page_supreme_ux.sql`.
+**Latest migration:** `137_client_admin_dashboard.sql`.
+
+- Client admin dashboard (July 2026, OP909 arc): `client_users` maps one
+  auth user → one client (the /admin authorisation pivot; `role` =
+  `'owner'` only for MVP). Additive SELECT-only RLS policies grant client
+  members read access to their own `clients` / `events` / `page_events` /
+  `client_landing_pages` / `event_signups` rows; admin writes are
+  service-role server actions gated by `requireClientContext()`.
+  Also: `client_landing_pages.brand_instagram_url_default` /
+  `brand_tiktok_url_default`, `event_signups.deleted_at` (soft delete),
+  and the `landing-page-assets` storage bucket (public read).
+  See `docs/ADMIN_DASHBOARD_ARCHITECTURE.md`.
 
 - Landing pages Supreme UX (July 2026, LP PR 6): `event_signups` DROPPED
   `first_name`/`last_name`/`city` and gained `geo_country`/`geo_region`/
