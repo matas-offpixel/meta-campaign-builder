@@ -13,13 +13,23 @@ import {
   listFanSignups,
   type FanRow,
 } from "@/lib/db/fan-signups";
+import { getClientBranding } from "@/lib/db/client-admin";
+import { AdminLinkButton } from "@/components/admin/ui/button";
+import {
+  AdminStatusPill,
+  AdminTable,
+  AdminTd,
+  AdminTh,
+  AdminTr,
+} from "@/components/admin/ui/table";
 
 /**
- * app/admin/[clientSlug]/fans/page.tsx — fan data table (OP909 Phase 5).
- * Filters travel in the query string (shareable, refresh-safe); the
- * filter bar is a plain GET form so the whole page stays a server
- * component. Decrypted PII renders server-side only — nothing sensitive
- * crosses into client-component props.
+ * app/admin/[clientSlug]/fans/page.tsx — fan data table (OP909 Phase 5,
+ * Supreme aesthetic in Sprint 1 Goal 8). Filters travel in the query string
+ * (shareable, refresh-safe); the filter bar is a plain GET form so the whole
+ * page stays a server component. Decrypted PII renders server-side only —
+ * nothing sensitive crosses into client-component props. Table chrome comes
+ * from the shared admin Table primitive (hairline rows, mono cells).
  */
 export default async function FansPage({
   params,
@@ -32,9 +42,10 @@ export default async function FansPage({
   const membership = await requireClientContext(clientSlug);
   const filters = parseFanFilters(await searchParams);
 
-  const [{ rows, total, perPage }, options] = await Promise.all([
+  const [{ rows, total, perPage }, options, branding] = await Promise.all([
     listFanSignups(membership.clientId, filters),
     getFanFilterOptions(membership.clientId),
+    getClientBranding(membership.clientId, membership.clientName),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
@@ -47,39 +58,36 @@ export default async function FansPage({
     filters.to !== null ||
     filters.search !== null;
 
+  const labelCls =
+    "mb-1 block font-[family-name:var(--admin-mono)] text-[10px] uppercase tracking-[1.5px] text-[#666]";
+
   return (
-    <div className="mx-auto max-w-7xl px-6 py-8">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-7xl px-8 py-10">
+      <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-heading text-2xl tracking-wide">Fans</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="admin-heading text-[28px] leading-none">Fans</h1>
+          <p className="mt-2 font-[family-name:var(--admin-mono)] text-[12px] text-[#666]">
             {total.toLocaleString("en-GB")} signup{total === 1 ? "" : "s"}
             {hasFilters ? " matching your filters" : ""}.
           </p>
         </div>
-        <a
+        <AdminLinkButton
           href={`${base}/export${fanFiltersToQueryString(filters, { page: 1 })}`}
-          className="flex h-10 items-center gap-2 rounded-md bg-foreground px-4 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
+          accentFill={branding.accent}
         >
-          <Download className="h-4 w-4" />
-          Export CSV
-        </a>
+          <Download className="h-3.5 w-3.5" />
+          export csv
+        </AdminLinkButton>
       </div>
 
       {/* ── Filter bar (GET form — server-rendered, no client JS) ────── */}
       <form
         method="get"
-        className="mt-6 grid grid-cols-2 gap-3 rounded-md border border-border bg-card p-4 md:grid-cols-3 lg:grid-cols-6"
+        className="mt-8 grid grid-cols-2 gap-3 border-[0.5px] border-black p-4 md:grid-cols-3 lg:grid-cols-6"
       >
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            Page
-          </span>
-          <select
-            name="event"
-            defaultValue={filters.eventId ?? ""}
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-          >
+          <span className={labelCls}>Page</span>
+          <select name="event" defaultValue={filters.eventId ?? ""} className="h-9 w-full text-[12px]">
             <option value="">All pages</option>
             {options.events.map((event) => (
               <option key={event.eventId} value={event.eventId}>
@@ -89,14 +97,8 @@ export default async function FansPage({
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            Country
-          </span>
-          <select
-            name="country"
-            defaultValue={filters.country ?? ""}
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-          >
+          <span className={labelCls}>Country</span>
+          <select name="country" defaultValue={filters.country ?? ""} className="h-9 w-full text-[12px]">
             <option value="">All countries</option>
             {options.countries.map((country) => (
               <option key={country} value={country}>
@@ -106,129 +108,107 @@ export default async function FansPage({
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            WhatsApp opt-in
-          </span>
-          <select
-            name="consent"
-            defaultValue={filters.consent}
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-          >
+          <span className={labelCls}>WhatsApp opt-in</span>
+          <select name="consent" defaultValue={filters.consent} className="h-9 w-full text-[12px]">
             <option value="all">All</option>
             <option value="wa-opted-in">Opted in</option>
             <option value="no-wa">Not opted in</option>
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            From
-          </span>
-          <input
-            type="date"
-            name="from"
-            defaultValue={filters.from ?? ""}
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-          />
+          <span className={labelCls}>From</span>
+          <input type="date" name="from" defaultValue={filters.from ?? ""} className="h-9 w-full text-[12px]" />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            To
-          </span>
-          <input
-            type="date"
-            name="to"
-            defaultValue={filters.to ?? ""}
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-          />
+          <span className={labelCls}>To</span>
+          <input type="date" name="to" defaultValue={filters.to ?? ""} className="h-9 w-full text-[12px]" />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">
-            Search
-          </span>
+          <span className={labelCls}>Search</span>
           <input
             type="text"
             name="q"
             defaultValue={filters.search ?? ""}
             placeholder="email or @handle"
-            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            className="h-9 w-full text-[12px]"
           />
         </label>
-        <div className="col-span-2 flex items-end gap-3 md:col-span-3 lg:col-span-6">
+        <div className="col-span-2 flex items-end gap-4 md:col-span-3 lg:col-span-6">
           <button
             type="submit"
-            className="h-9 rounded-md border border-border bg-background px-4 text-sm font-medium hover:bg-muted"
+            className="h-9 border-[0.5px] border-black px-4 font-[family-name:var(--admin-mono)] text-[12px] lowercase tracking-[0.02em] hover:bg-[#f5f5f5]"
           >
-            Apply filters
+            apply filters
           </button>
           {hasFilters && (
             <Link
               href={base}
-              className="text-xs text-muted-foreground underline hover:text-foreground"
+              className="font-[family-name:var(--admin-mono)] text-[11px] text-[#666] underline hover:text-black"
             >
-              Clear all
+              clear all
             </Link>
           )}
-          <p className="ml-auto text-xs text-muted-foreground">
-            Email search is exact-match; handle search matches partially.
-            Phone search isn&apos;t supported (numbers are stored encrypted).
+          <p className="ml-auto font-[family-name:var(--admin-mono)] text-[10px] text-[#999]">
+            Email search is exact-match; handle search matches partially. Phone
+            search isn&apos;t supported (numbers are stored encrypted).
           </p>
         </div>
       </form>
 
       {/* ── Table ─────────────────────────────────────────────────────── */}
       {rows.length === 0 ? (
-        <div className="mt-6 rounded-md border border-dashed border-border bg-card px-6 py-14 text-center">
-          <p className="text-sm text-muted-foreground">
+        <div className="mt-8 border-[0.5px] border-black px-6 py-16 text-center">
+          <p className="font-[family-name:var(--admin-mono)] text-[12px] text-[#666]">
             {hasFilters
               ? "No signups match these filters."
               : "No signups yet — they'll appear here as fans register on your landing pages."}
           </p>
         </div>
       ) : (
-        <div className="mt-6 overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-sm">
+        <div className="mt-8">
+          <AdminTable>
             <thead>
-              <tr className="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-2.5 font-medium">Email</th>
-                <th className="px-4 py-2.5 font-medium">Phone</th>
-                <th className="px-4 py-2.5 font-medium">Social</th>
-                <th className="px-4 py-2.5 font-medium">Country</th>
-                <th className="px-4 py-2.5 font-medium">WA opt-in</th>
-                <th className="px-4 py-2.5 font-medium">Signed up</th>
-                <th className="px-4 py-2.5 font-medium">Page</th>
-                <th className="px-4 py-2.5 font-medium text-right">Actions</th>
-              </tr>
+              <AdminTr>
+                <AdminTh>Email</AdminTh>
+                <AdminTh>Phone</AdminTh>
+                <AdminTh>Social</AdminTh>
+                <AdminTh>Country</AdminTh>
+                <AdminTh>WA opt-in</AdminTh>
+                <AdminTh>Signed up</AdminTh>
+                <AdminTh>Page</AdminTh>
+                <AdminTh align="right">Actions</AdminTh>
+              </AdminTr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <FanTableRow key={row.id} row={row} filters={filters} base={base} />
               ))}
             </tbody>
-          </table>
+          </AdminTable>
         </div>
       )}
 
       {/* ── Pagination ───────────────────────────────────────────────── */}
       {totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm">
-          <p className="text-muted-foreground">
+        <div className="mt-4 flex items-center justify-between font-[family-name:var(--admin-mono)] text-[11px] text-[#666]">
+          <p>
             Page {filters.page} of {totalPages}
           </p>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
             {filters.page > 1 && (
               <Link
                 href={`${base}${fanFiltersToQueryString(filters, { page: filters.page - 1 })}`}
-                className="rounded-md border border-border px-3 py-1.5 hover:bg-muted"
+                className="px-2 py-1 hover:text-black"
               >
-                Previous
+                prev
               </Link>
             )}
             {filters.page < totalPages && (
               <Link
                 href={`${base}${fanFiltersToQueryString(filters, { page: filters.page + 1 })}`}
-                className="rounded-md border border-border px-3 py-1.5 hover:bg-muted"
+                className="px-2 py-1 hover:text-black"
               >
-                Next
+                next
               </Link>
             )}
           </div>
@@ -282,53 +262,51 @@ function FanTableRow({
       ? { label: `@${row.ttHandle}`, kind: "TT" }
       : null;
   return (
-    <tr className="border-b border-border last:border-b-0">
-      <td className="px-4 py-3 font-medium">{row.email ?? "—"}</td>
-      <td className="px-4 py-3 tabular-nums">{row.phone ?? "—"}</td>
-      <td className="px-4 py-3 text-muted-foreground">
+    <AdminTr>
+      <AdminTd className="text-black">{row.email ?? "—"}</AdminTd>
+      <AdminTd className="tabular-nums">{row.phone ?? "—"}</AdminTd>
+      <AdminTd className="text-[#666]">
         {social ? (
           <span>
             {social.label}{" "}
-            <span className="text-xs uppercase text-muted-foreground/70">
+            <span className="text-[10px] uppercase text-[#999]">
               {social.kind}
             </span>
           </span>
         ) : (
           "—"
         )}
-      </td>
-      <td className="px-4 py-3">{row.country ?? "—"}</td>
-      <td className="px-4 py-3">
+      </AdminTd>
+      <AdminTd>{row.country ?? "—"}</AdminTd>
+      <AdminTd>
         {row.waOptInAt ? (
-          <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-            yes
-          </span>
+          <AdminStatusPill tone="positive">yes</AdminStatusPill>
         ) : (
-          <span className="text-xs text-muted-foreground">no</span>
+          <span className="text-[10px] uppercase tracking-[0.5px] text-[#999]">no</span>
         )}
-      </td>
-      <td className="px-4 py-3 text-muted-foreground" title={absoluteTime(row.createdAt)}>
+      </AdminTd>
+      <AdminTd className="text-[#666]" title={absoluteTime(row.createdAt)}>
         {relativeTime(row.createdAt)}
-      </td>
-      <td className="px-4 py-3">
+      </AdminTd>
+      <AdminTd>
         <Link
           href={`${base}${fanFiltersToQueryString(filters, { eventId: row.eventId, page: 1 })}`}
-          className="text-xs underline text-muted-foreground hover:text-foreground"
+          className="text-[#666] underline hover:text-black"
         >
           {row.eventName}
         </Link>
-      </td>
-      <td className="px-4 py-3">
+      </AdminTd>
+      <AdminTd align="right">
         <form action={softDeleteFanSignup} className="flex justify-end">
           <input type="hidden" name="signup_id" value={row.id} />
           <button
             type="submit"
-            className="text-xs underline text-destructive/80 hover:text-destructive"
+            className="text-[#666] underline hover:text-[#d33]"
           >
-            Delete
+            delete
           </button>
         </form>
-      </td>
-    </tr>
+      </AdminTd>
+    </AdminTr>
   );
 }
