@@ -1,5 +1,6 @@
 import { AdminShell } from "@/components/admin/admin-shell";
 import { requireClientContext } from "@/lib/auth/get-client-context";
+import { getClientBranding } from "@/lib/db/client-admin";
 
 /**
  * app/admin/[clientSlug]/layout.tsx
@@ -24,11 +25,16 @@ export default async function ClientAdminLayout({
 }) {
   const { clientSlug } = await params;
   const membership = await requireClientContext(clientSlug);
+  const branding = await getClientBranding(
+    membership.clientId,
+    membership.clientName,
+  );
 
   return (
     <AdminShell
       clientSlug={membership.clientSlug}
       clientName={membership.clientName}
+      accent={branding.accent}
     >
       {children}
     </AdminShell>

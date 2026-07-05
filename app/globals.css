@@ -100,3 +100,118 @@ textarea {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(400%); }
 }
+
+/*
+ * ─── OP909 admin dashboard design system (Sprint 1 aesthetic pivot) ──────
+ *
+ * Scoped under .op909-admin so the shared beige operator/share theme
+ * (:root tokens above) is NEVER touched. The admin dashboard adopts the
+ * fan-facing LP language: pure white shell, mono body, Futura Bold Italic
+ * headings, zero radius, 0.5px black hairlines. The client's brand accent
+ * arrives as --admin-accent on the shell root (resolveAccent — artwork
+ * palette → client primary → #E5322D), inheriting down the subtree exactly
+ * like the LP's --accent, so it can't leak to the operator surfaces.
+ *
+ * The sidebar keeps a dark bg as the visual anchor; everything else is
+ * white-on-black-hairlines.
+ */
+.op909-admin {
+  --admin-bg: #ffffff;
+  --admin-text: #000000;
+  --admin-text-muted: #666666;
+  --admin-text-hint: #999999;
+  --admin-hairline: rgba(0, 0, 0, 1);
+  --admin-accent: #e5322d;
+  --admin-mono:
+    ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  --admin-futura:
+    Futura, "Futura PT", "Century Gothic", "Helvetica Neue", Arial, sans-serif;
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  font-family: var(--admin-mono);
+  -webkit-font-smoothing: antialiased;
+
+  /*
+   * Re-map the shared semantic tokens WITHIN this subtree only. Tailwind
+   * v4 utilities resolve through these custom properties, so overriding
+   * them here instantly re-themes every legacy admin page (fans/insights/
+   * settings/integrations) that still uses bg-card / border-border /
+   * text-muted-foreground — white shell, black hairlines, muted greys —
+   * without touching each file. Cannot leak to the operator surfaces:
+   * custom properties cascade downward only.
+   */
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --surface: #ffffff;
+  --border: rgba(0, 0, 0, 1);
+  --border-strong: rgba(0, 0, 0, 1);
+  --muted: #f5f5f5;
+  --muted-foreground: #666666;
+  --primary-light: #f5f5f5;
+  --radius: 0px;
+}
+
+/* Zero radius on every admin component (scoped — never the operator UI). */
+.op909-admin [class*="rounded"] {
+  border-radius: 0 !important;
+}
+
+/* Futura Bold Italic heading — matches the LP box logo + countdown numbers. */
+.op909-admin .admin-heading {
+  font-family: var(--admin-futura);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+/* Section eyebrow — uppercase mono, sits above a hairline. */
+.op909-admin .admin-eyebrow {
+  font-family: var(--admin-mono);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: var(--admin-text);
+}
+
+/* Zero radius on every admin control; hairline inputs matching the LP form. */
+.op909-admin input,
+.op909-admin select,
+.op909-admin textarea,
+.op909-admin button {
+  border-radius: 0;
+  font-family: var(--admin-mono);
+}
+
+.op909-admin input[type="text"],
+.op909-admin input[type="email"],
+.op909-admin input[type="url"],
+.op909-admin input[type="search"],
+.op909-admin input[type="datetime-local"],
+.op909-admin input[type="number"],
+.op909-admin select,
+.op909-admin textarea {
+  border: 0.5px solid var(--admin-hairline);
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.op909-admin input:focus,
+.op909-admin select:focus,
+.op909-admin textarea:focus {
+  outline: 1px solid var(--admin-accent);
+  outline-offset: -1px;
+}
+
+.op909-admin input::placeholder,
+.op909-admin textarea::placeholder {
+  color: var(--admin-text-hint);
+}
+
+.op909-admin ::selection {
+  background: color-mix(in srgb, var(--admin-accent) 25%, transparent);
+}
