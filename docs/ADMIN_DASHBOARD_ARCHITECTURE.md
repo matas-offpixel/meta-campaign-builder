@@ -262,6 +262,33 @@ Phase 6 details worth knowing:
   single indexed select ((client_id, created_at) index from migration
   134). Revisit if a client crosses ~50k signups.
 
+Phase 7 (`/integrations/meta-pixel`): self-service Pixel + CAPI setup,
+replacing the operator SQL flow (`select set_landing_page_capi_token`).
+Pure validation in `lib/admin/meta-pixel-schema.ts` (15–16 digit pixel
+id, TEST\d+ code, short-token truncation guard, keep/set/clear token
+tri-state) + `lib/actions/meta-pixel.ts`.
+
+Phase 7 details worth knowing:
+
+- **Token hygiene** — the raw token exists only in the action scope on
+  its way into `set_landing_page_capi_token` (in) or out of
+  `get_landing_page_capi_token` into the Graph URL (out). Never logged,
+  never in action state, never a defaultValue; the UI shows a
+  configured/not-configured badge only. Blank input = keep; explicit
+  checkbox = clear.
+- **"Send test event"** reuses the REAL signup pipeline
+  (`buildCapiEventPayload` + `sendCapiEvent`) with event id
+  `test-{uuid}`, `source: admin-test-event`, and the logged-in client
+  user's email hashed into user_data. Success stamps
+  `meta_pixel_id_verified_at`; failure surfaces Meta's error + fbtrace
+  inline and does NOT stamp.
+- **Changing/clearing the pixel id nulls `meta_pixel_id_verified_at`**
+  — verification belongs to a (pixel, token) pair.
+- **Key locality landmine** — `LANDING_PAGES_TOKEN_KEY` in a local
+  `.env.local` differs from prod's, so prod-encrypted token blobs fail
+  local decryption with "Wrong key or corrupt data". Expected; prod
+  encrypt/decrypt both use the prod key.
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |
@@ -271,8 +298,8 @@ Phase 6 details worth knowing:
 | 3 (P0) | Landing page CRUD | #677 | shipped |
 | 4 (P1) | Confirmation card editor + renderer | #678 | shipped |
 | 5 (P1) | Fan data table + CSV export | #679 | shipped |
-| 6 (P1) | Analytics dashboard | | this PR |
-| 7 (P2) | Meta Pixel + CAPI self-service | | pending |
+| 6 (P1) | Analytics dashboard | #680 | shipped |
+| 7 (P2) | Meta Pixel + CAPI self-service | | this PR |
 | 8 (P2) | Bird + Mailchimp integrations UI | | pending |
 | 9 (P2) | Turnstile invisible-mode audit | | pending |
 | 10 (P2) | LP editor preview mode | | pending |
