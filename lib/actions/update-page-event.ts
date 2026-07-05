@@ -17,6 +17,32 @@ import {
   type AssetKind,
   type PageEventActionState,
 } from "@/lib/admin/page-event-schema";
+import { rebuildModulesFromLegacy } from "@/lib/admin/page-modules-sync";
+
+/**
+ * Regenerate the modules array from the (post-mutation) legacy values so the
+ * /l renderer — which reads page_events.modules after migration 139 — always
+ * reflects the editor. Brand socials + YouTube come from the row's content /
+ * youtube_url; hero/bottom lists are passed in already-updated.
+ */
+function modulesFor(
+  content: Record<string, unknown>,
+  youtubeUrl: string | null,
+  heroImages: string[],
+  bottomImages: string[],
+): Record<string, unknown> {
+  const asStr = (v: unknown): string | null =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+  return {
+    modules: rebuildModulesFromLegacy({
+      heroImages,
+      youtubeUrl,
+      bottomImages,
+      brandInstagramUrl: asStr(content.brand_instagram_url),
+      brandTiktokUrl: asStr(content.brand_tiktok_url),
+    }),
+  };
+}
 
 /**
  * lib/actions/update-page-event.ts
@@ -44,6 +70,7 @@ interface OwnedPage {
   content: Record<string, unknown>;
   heroImages: string[];
   bottomImages: string[];
+  youtubeUrl: string | null;
 }
 
 /**
@@ -58,7 +85,9 @@ async function resolveOwnedPage(
 ): Promise<OwnedPage | null> {
   const { data, error } = await db
     .from("page_events")
-    .select("id, event_id, content, hero_images, bottom_images, events!inner (client_id)")
+    .select(
+      "id, event_id, content, hero_images, bottom_images, youtube_url, events!inner (client_id)",
+    )
     .eq("id", pageEventId)
     .eq("events.client_id", clientId)
     .maybeSingle();
@@ -72,6 +101,7 @@ async function resolveOwnedPage(
     content: Record<string, unknown> | null;
     hero_images: unknown;
     bottom_images: unknown;
+    youtube_url: string | null;
   };
   return {
     pageEventId: row.id,
@@ -79,6 +109,7 @@ async function resolveOwnedPage(
     content: row.content ?? {},
     heroImages: parseImageList(row.hero_images),
     bottomImages: parseImageList(row.bottom_images),
+    youtubeUrl: row.youtube_url,
   };
 }
 
@@ -261,6 +292,12 @@ export async function savePageEvent(
     countdown_enabled: formData.get("countdown_enabled"),
     countdown_target_at: formData.get("countdown_target_at"),
     countdown_label: formData.get("countdown_label"),
+    show_event_date: formData.get("show_event_date"),
+    show_venue: formData.get("show_venue"),
+    show_description: formData.get("show_description"),
+    primary_button_bg: formData.get("primary_button_bg"),
+    primary_button_text: formData.get("primary_button_text"),
+    description_align: formData.get("description_align"),
     status: formData.get("status"),
   });
   if (!parsed.ok) return { status: "error", errors: parsed.errors };
@@ -282,9 +319,25 @@ export async function savePageEvent(
     };
   }
 
+  // The form owns youtube_url + brand socials; hero/bottom lists are managed
+  // by the image actions, so rebuild modules from the form's new
+  // youtube/brand values merged into the row's unchanged content + images.
+  const pageUpdate = buildPageEventUpdate(owned.content, parsed.value);
+  const mergedContent = (pageUpdate.content ?? owned.content) as Record<
+    string,
+    unknown
+  >;
   const { error: pageError } = await db
     .from("page_events")
-    .update(buildPageEventUpdate(owned.content, parsed.value))
+    .update({
+      ...pageUpdate,
+      ...modulesFor(
+        mergedContent,
+        parsed.value.youtube_url,
+        owned.heroImages,
+        owned.bottomImages,
+      ),
+    })
     .eq("id", owned.pageEventId);
   if (pageError) {
     return {
@@ -377,17 +430,27 @@ export async function uploadPageImage(
     data: { publicUrl },
   } = db.storage.from(BUCKET).getPublicUrl(pathResult.path);
 
+  let heroImages = owned.heroImages;
+  let bottomImages = owned.bottomImages;
+  let content = owned.content;
   let update: Record<string, unknown>;
   if (kind === "artwork") {
+    content = { ...owned.content, artwork_url: publicUrl };
     update = {
-      content: { ...owned.content, artwork_url: publicUrl },
+      content,
       artwork_palette: null, // lazy pipeline re-extracts on next /l render
     };
   } else if (kind === "hero") {
-    update = { hero_images: [...owned.heroImages, publicUrl] };
+    heroImages = [...owned.heroImages, publicUrl];
+    update = { hero_images: heroImages };
   } else {
-    update = { bottom_images: [...owned.bottomImages, publicUrl] };
+    bottomImages = [...owned.bottomImages, publicUrl];
+    update = { bottom_images: bottomImages };
   }
+  update = {
+    ...update,
+    ...modulesFor(content, owned.youtubeUrl, heroImages, bottomImages),
+  };
 
   const { error: writeError } = await db
     .from("page_events")
@@ -417,18 +480,27 @@ export async function removePageImage(formData: FormData): Promise<void> {
   const owned = await resolveOwnedPage(db, membership.clientId, pageEventId);
   if (!owned) return;
 
+  let heroImages = owned.heroImages;
+  let bottomImages = owned.bottomImages;
+  let content = owned.content;
   let update: Record<string, unknown>;
   if (kind === "artwork") {
-    const content = { ...owned.content };
+    content = { ...owned.content };
     delete content.artwork_url;
     update = { content, artwork_palette: null };
   } else if (kind === "hero") {
-    update = { hero_images: owned.heroImages.filter((u) => u !== url) };
+    heroImages = owned.heroImages.filter((u) => u !== url);
+    update = { hero_images: heroImages };
   } else if (kind === "bottom") {
-    update = { bottom_images: owned.bottomImages.filter((u) => u !== url) };
+    bottomImages = owned.bottomImages.filter((u) => u !== url);
+    update = { bottom_images: bottomImages };
   } else {
     return;
   }
+  update = {
+    ...update,
+    ...modulesFor(content, owned.youtubeUrl, heroImages, bottomImages),
+  };
 
   const { error } = await db
     .from("page_events")
@@ -457,8 +529,12 @@ export async function reorderPageImage(formData: FormData): Promise<void> {
 
   const list = kind === "hero" ? owned.heroImages : owned.bottomImages;
   const next = moveImage(list, url, direction);
-  const update =
-    kind === "hero" ? { hero_images: next } : { bottom_images: next };
+  const heroImages = kind === "hero" ? next : owned.heroImages;
+  const bottomImages = kind === "bottom" ? next : owned.bottomImages;
+  const update = {
+    ...(kind === "hero" ? { hero_images: next } : { bottom_images: next }),
+    ...modulesFor(owned.content, owned.youtubeUrl, heroImages, bottomImages),
+  };
 
   const { error } = await db
     .from("page_events")
