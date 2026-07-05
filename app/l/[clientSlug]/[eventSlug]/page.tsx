@@ -14,7 +14,8 @@ import {
 } from "@/lib/landing-pages/rate-limit";
 import { resolveLandingPageOutcome } from "@/lib/landing-pages/resolve";
 import type { LandingPageContext } from "@/lib/landing-pages/types";
-import { createServiceRoleClient } from "@/lib/supabase/server";
+import { resolveClientMembership, type MembershipDb } from "@/lib/auth/client-context";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * app/l/[clientSlug]/[eventSlug]/page.tsx
@@ -38,12 +39,15 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 
 export default async function EventLandingPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ clientSlug: string; eventSlug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [{ clientSlug, eventSlug }, headerList] = await Promise.all([
+  const [{ clientSlug, eventSlug }, headerList, query] = await Promise.all([
     params,
     headers(),
+    searchParams,
   ]);
 
   // In-process per-IP budget (60 req/min) so a looped URL can't turn every
@@ -59,7 +63,16 @@ export default async function EventLandingPage({
   }
 
   const context = await getLandingPageContext(clientSlug, eventSlug);
-  const outcome = resolveLandingPageOutcome(context);
+
+  // OP909 Phase 10: ?preview=1 lets the page's OWN client admin see
+  // draft/archived state. The flag is only honoured after verifying the
+  // session cookie maps (via client_users) to this page's client —
+  // anonymous fans and other clients fall through to normal behaviour
+  // (draft → 404), so the param leaks nothing.
+  const preview =
+    query.preview === "1" && (await isOwnClientAdmin(context));
+
+  const outcome = resolveLandingPageOutcome(context, { preview });
 
   if (!outcome) notFound();
 
@@ -83,11 +96,59 @@ export default async function EventLandingPage({
   // as a prop — keeps the env var un-prefixed (no NEXT_PUBLIC_) per the
   // agreed env contract.
   return (
-    <LandingPage
-      context={outcome.context}
-      turnstileSiteKey={process.env.LANDING_PAGES_TURNSTILE_SITE_KEY ?? null}
-    />
+    <>
+      {preview && (
+        <div
+          style={{
+            position: "fixed",
+            top: 12,
+            right: 12,
+            zIndex: 50,
+            fontFamily: "var(--font-mono, ui-monospace, monospace)",
+            fontSize: 10,
+            letterSpacing: "0.08em",
+            color: "#666",
+            background: "rgba(255,255,255,0.85)",
+            border: "1px solid #ddd",
+            padding: "3px 8px",
+            pointerEvents: "none",
+          }}
+        >
+          PREVIEW{outcome.context.pageEvent.status !== "live" ? ` — ${outcome.context.pageEvent.status.toUpperCase()}` : ""}
+        </div>
+      )}
+      <LandingPage
+        context={outcome.context}
+        turnstileSiteKey={process.env.LANDING_PAGES_TURNSTILE_SITE_KEY ?? null}
+      />
+    </>
   );
+}
+
+/**
+ * True only when the current session belongs to a client_users row whose
+ * client owns this landing page. Uses the SESSION-bound client (RLS
+ * self-read policy from migration 137) — never service-role.
+ */
+async function isOwnClientAdmin(
+  context: LandingPageContext | null,
+): Promise<boolean> {
+  if (!context) return false;
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return false;
+    const membership = await resolveClientMembership(
+      supabase as unknown as MembershipDb,
+      user.id,
+    );
+    return membership?.clientId === context.client.id;
+  } catch {
+    // A broken session must degrade to the public (non-preview) view.
+    return false;
+  }
 }
 
 function schedulePaletteExtraction(context: LandingPageContext): void {

@@ -325,6 +325,32 @@ Phase 8 details worth knowing:
   `approved_by_matas` (+ `FEATURE_D2C_LIVE`) stay operator-controlled;
   the status panel shows them read-only.
 
+Phase 10 (`/l/{clientSlug}/{eventSlug}?preview=1`): verified draft
+preview for client admins.
+
+Phase 10 details worth knowing:
+
+- **Session cookie IS the preview token.** The original spec floated
+  `?draft=1&preview_token={jwt}`, but its own verification rule was "the
+  Supabase session cookie must belong to a client_users row matching the
+  LP's client" — the cookie already flows on same-origin navigation, so
+  a separate JWT adds surface without adding proof. Implemented as
+  `?preview=1` + a session-bound membership check
+  (`isOwnClientAdmin` in `app/l/[clientSlug]/[eventSlug]/page.tsx`,
+  using the migration-137 self-read RLS policies — never service-role).
+- **Fail-closed.** Anonymous visitors, other clients' admins, and
+  broken sessions all fall through to the normal public behaviour
+  (draft/archived → 404) — the param leaks nothing. Pinned in
+  `resolve.test.ts`.
+- **Renderer stays locked.** The mono 10px "PREVIEW" badge (plus
+  "— DRAFT"/"— ARCHIVED" when applicable) is a fixed-position div in
+  the route wrapper; `components/landing-pages/*` untouched.
+- **Signups on previewed non-live pages still 404** — the
+  signup-handler status gate is independent and unchanged. Preview is a
+  read-only look, not a live form.
+- Admin "Preview" links (pages list + editor top bar) now append
+  `?preview=1`, so drafts are previewable where they previously 404'd.
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |
@@ -337,5 +363,5 @@ Phase 8 details worth knowing:
 | 6 (P1) | Analytics dashboard | #680 | shipped |
 | 7 (P2) | Meta Pixel + CAPI self-service | #681 | shipped |
 | 8 (P2) | Bird + Mailchimp integrations UI | #682 | shipped |
-| 9 (P2) | Turnstile invisible-mode audit | | this PR (docs-only — `docs/TURNSTILE_INVISIBLE_MODE_AUDIT.md`; the fix itself is a Cloudflare dashboard toggle for Matas) |
-| 10 (P2) | LP editor preview mode | | pending |
+| 9 (P2) | Turnstile invisible-mode audit | #683 | shipped (docs-only — `docs/TURNSTILE_INVISIBLE_MODE_AUDIT.md`; the fix itself is a Cloudflare dashboard toggle for Matas) |
+| 10 (P2) | LP editor preview mode | | this PR |

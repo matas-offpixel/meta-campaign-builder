@@ -159,7 +159,7 @@ function PagesTable({
                     Edit
                   </Link>
                   <Link
-                    href={`/l/${clientSlug}/${page.eventSlug}`}
+                    href={`/l/${clientSlug}/${page.eventSlug}?preview=1`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs underline text-muted-foreground hover:text-foreground"

@@ -90,7 +90,7 @@ export function PageEditor({
             ← All pages
           </Link>
           <Link
-            href={`/l/${clientSlug}/${view.eventSlug}`}
+            href={`/l/${clientSlug}/${view.eventSlug}?preview=1`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 text-xs text-muted-foreground underline hover:text-foreground"
