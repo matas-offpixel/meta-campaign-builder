@@ -120,12 +120,34 @@ Shell: `components/admin/admin-shell.tsx` — left sidebar (Dashboard /
 Pages / Fans / Insights / Integrations / Settings), client name header,
 logout, mobile top bar.
 
-## 6. Phase log
+## 6. Server-action pattern (established in Phase 2)
+
+Every admin write follows the same three-layer shape:
+
+1. **Pure validation + payload builder** in `lib/admin/*-schema.ts` — no
+   Next/Supabase imports, exhaustively unit-tested (including hostile
+   inputs: CSS injection into theme values, `javascript:` URLs, http
+   where https is required).
+2. **Server action** in `lib/actions/*` — `"use server"`, calls
+   `requireClientContext()` FIRST, targets ONLY the caller's own
+   `client_id` (never an id from the form payload), writes via the
+   service-role client (member RLS is SELECT-only).
+3. **Client form component** in `components/admin/*` — `useActionState`,
+   inline per-field errors, pending/saved states.
+
+Phase 2 (`/settings`): `parseBrandingForm` / `buildBrandingUpdate` in
+`lib/admin/branding-schema.ts` + `updateClientBranding` action. The
+brand color is the ONE theme key the client surface owns —
+`buildBrandingUpdate` merges it into the existing `theme` jsonb without
+flattening operator-authored keys, and clearing it deletes the key so
+the renderer's `DEFAULT_ACCENT` chain applies.
+
+## 7. Phase log
 
 | Phase | Scope | PR | Status |
 |---|---|---|---|
 | 1 (P0) | Auth + route scaffold + migration 137 | #675 | shipped |
-| 2 (P0) | Org/brand settings editor | | pending |
+| 2 (P0) | Org/brand settings editor | #676 | shipped |
 | 3 (P0) | Landing page CRUD | | pending |
 | 4 (P1) | Confirmation card editor + renderer | | pending |
 | 5 (P1) | Fan data table + CSV export | | pending |
