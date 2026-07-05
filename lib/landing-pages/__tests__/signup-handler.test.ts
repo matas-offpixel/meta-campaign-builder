@@ -251,6 +251,18 @@ describe("processSignup — reject matrix", () => {
     assert.equal(result.status, 409);
   });
 
+  it("404 when the page is draft or archived — non-live pages must not collect PII (OP909 Phase 3)", async () => {
+    for (const status of ["draft", "archived"] as const) {
+      const context = makeContext();
+      context.pageEvent.status = status;
+      const db = makeFakeSignupDb();
+      const deps = makeDeps({ db, resolveContext: async () => context });
+      const result = await processSignup(deps, makeInput());
+      assert.equal(result.status, 404, `status=${status} must 404`);
+      assert.equal(db.rows.length, 0, `status=${status} must write nothing`);
+    }
+  });
+
   it("500 (loud, no PII written) when LANDING_PAGES_TOKEN_KEY or HASH_SALT missing", async () => {
     for (const env of [
       { ...baseEnv, tokenKey: undefined },

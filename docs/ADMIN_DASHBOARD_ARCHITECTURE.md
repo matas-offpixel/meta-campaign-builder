@@ -142,6 +142,39 @@ brand color is the ONE theme key the client surface owns —
 flattening operator-authored keys, and clearing it deletes the key so
 the renderer's `DEFAULT_ACCENT` chain applies.
 
+Phase 3 (`/pages`): `lib/admin/page-event-schema.ts` (validation,
+London-wall-time ↔ UTC conversion, content-jsonb merge that preserves
+keys the form doesn't own, storage path builder) +
+`lib/actions/update-page-event.ts` (create both flows / save / archive /
+image upload / remove / reorder — every action resolves the target page
+through `resolveOwnedPage`, a single join proving `events.client_id`
+matches the session's client, so a forged pageId 404s identically to a
+missing one). Reads for the list/editor live in `lib/db/client-admin.ts`
+(session client + member RLS).
+
+Phase 3 details worth knowing:
+
+- **Status lifecycle** — `draft` / `live` / `archived` (select in the
+  editor; Delete in the list = archive). Phase 3 also added the PUBLIC
+  gate: `resolveLandingPageOutcome` returns null (404) for non-live
+  pages, and `processSignup` 404s before writing, so draft/archived
+  pages neither render nor collect PII. Before this, status was
+  schema-only and every page rendered regardless.
+- **Datetimes** are entered as UK wall time (`datetime-local`) and
+  stored UTC — `londonWallTimeToIso` / `isoToLondonWallTime` are
+  DST-correct via `Intl` (no date library).
+- **Images** upload through the server action to the
+  `landing-page-assets` bucket under
+  `{client_id}/{page_event_id}/{kind}-{ts}.{ext}`; jpeg/png/webp only,
+  8 MB cap. Artwork replace deletes the palette so the fan renderer's
+  lazy pipeline (PR #670) re-extracts on next view. Hero/bottom
+  reorder is up/down buttons (deliberate cut from the brief's
+  drag-and-drop — reliable overnight beats fancy).
+- **Autosave** — 800 ms debounce on text inputs, immediate flush on
+  select/checkbox changes, sticky saved/error bar. New-event create
+  auto-slugs from the name (collision → 6-char suffix retry, one
+  attempt, then a form error).
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |

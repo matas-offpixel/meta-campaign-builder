@@ -23,7 +23,7 @@ function makePageEvent(overrides: Partial<PageEventRow> = {}): PageEventRow {
     evntree_url: null,
     theme_overrides: {},
     content: { template_key: "mvp_v1" },
-    status: "draft",
+    status: "live",
     created_at: "2026-07-01T00:00:00Z",
     updated_at: "2026-07-01T00:00:00Z",
     ...PAGE_EVENT_PRESENTATION_DEFAULTS,
@@ -72,6 +72,33 @@ function makeContext(
 describe("resolveLandingPageOutcome", () => {
   it("null context → null (route 404s)", () => {
     assert.equal(resolveLandingPageOutcome(null), null);
+  });
+
+  it("draft page → null (not publicly visible — OP909 Phase 3 lifecycle)", () => {
+    assert.equal(
+      resolveLandingPageOutcome(makeContext({ status: "draft" })),
+      null,
+    );
+  });
+
+  it("archived page → null (soft-delete hides the public page)", () => {
+    assert.equal(
+      resolveLandingPageOutcome(makeContext({ status: "archived" })),
+      null,
+    );
+  });
+
+  it("non-live evntree page → null (status gate precedes the redirect)", () => {
+    assert.equal(
+      resolveLandingPageOutcome(
+        makeContext({
+          status: "draft",
+          provider: "evntree",
+          evntree_url: "https://evntr.ee/jackies-mallorca",
+        }),
+      ),
+      null,
+    );
   });
 
   it("provider internal → render with the same context", () => {

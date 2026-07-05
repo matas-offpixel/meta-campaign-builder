@@ -11,6 +11,10 @@ import type { LandingPageContext, LandingPageOutcome } from "./types";
  * Decide what the public /l route does with a resolved (or missing) context.
  *
  *   null context        → not found (page calls notFound())
+ *   status ≠ 'live'     → not found — draft/archived pages are only a
+ *                         concept once the admin dashboard exists (OP909
+ *                         Phase 3); fans must never see them. Archived =
+ *                         soft-delete, draft = "not publicly visible".
  *   provider 'evntree'  → redirect to evntree_url
  *   'evntree' + no url  → misconfigured (page THROWS → 500; the DB CHECK
  *                         should make this unreachable, but loud-fail beats
@@ -21,6 +25,8 @@ export function resolveLandingPageOutcome(
   context: LandingPageContext | null,
 ): LandingPageOutcome | null {
   if (!context) return null;
+
+  if (context.pageEvent.status !== "live") return null;
 
   if (context.pageEvent.provider === "evntree") {
     const url = context.pageEvent.evntree_url;
