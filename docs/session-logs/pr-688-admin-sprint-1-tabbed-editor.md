@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 688
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/688
 - **Branch:** `cursor/admin-sprint-1-tabbed-editor`
 
 ## Summary
