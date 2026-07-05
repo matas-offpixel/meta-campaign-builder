@@ -336,6 +336,6 @@ Phase 8 details worth knowing:
 | 5 (P1) | Fan data table + CSV export | #679 | shipped |
 | 6 (P1) | Analytics dashboard | #680 | shipped |
 | 7 (P2) | Meta Pixel + CAPI self-service | #681 | shipped |
-| 8 (P2) | Bird + Mailchimp integrations UI | | this PR |
-| 9 (P2) | Turnstile invisible-mode audit | | pending |
+| 8 (P2) | Bird + Mailchimp integrations UI | #682 | shipped |
+| 9 (P2) | Turnstile invisible-mode audit | | this PR (docs-only — `docs/TURNSTILE_INVISIBLE_MODE_AUDIT.md`; the fix itself is a Cloudflare dashboard toggle for Matas) |
 | 10 (P2) | LP editor preview mode | | pending |
