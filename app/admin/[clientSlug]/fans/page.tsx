@@ -13,8 +13,20 @@ import {
   listFanSignups,
   type FanRow,
 } from "@/lib/db/fan-signups";
-import { getClientBranding } from "@/lib/db/client-admin";
+import { getClientBranding, listInsightRows } from "@/lib/db/client-admin";
+import {
+  buildCountryBreakdown,
+  buildDailySeries,
+  computeMetrics,
+} from "@/lib/admin/insights";
+import { formatCountry } from "@/lib/admin/country-names";
 import { AdminLinkButton } from "@/components/admin/ui/button";
+import {
+  MetricGrid,
+  MetricStat,
+  Section,
+} from "@/components/admin/ui/section";
+import { FanGrowthChart, TopLocations } from "@/components/admin/fans-analytics";
 import {
   AdminStatusPill,
   AdminTable,
@@ -22,6 +34,17 @@ import {
   AdminTh,
   AdminTr,
 } from "@/components/admin/ui/table";
+
+const RANGE_OPTIONS = [7, 30, 90] as const;
+type RangeDays = (typeof RANGE_OPTIONS)[number];
+
+function parseRange(raw: string | string[] | undefined): RangeDays {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const n = Number(value);
+  return (RANGE_OPTIONS as readonly number[]).includes(n)
+    ? (n as RangeDays)
+    : 30;
+}
 
 /**
  * app/admin/[clientSlug]/fans/page.tsx — fan data table (OP909 Phase 5,
@@ -40,13 +63,25 @@ export default async function FansPage({
 }) {
   const { clientSlug } = await params;
   const membership = await requireClientContext(clientSlug);
-  const filters = parseFanFilters(await searchParams);
+  const rawSearchParams = await searchParams;
+  const filters = parseFanFilters(rawSearchParams);
+  const rangeDays = parseRange(rawSearchParams.range);
 
-  const [{ rows, total, perPage }, options, branding] = await Promise.all([
-    listFanSignups(membership.clientId, filters),
-    getFanFilterOptions(membership.clientId),
-    getClientBranding(membership.clientId, membership.clientName),
-  ]);
+  const [{ rows, total, perPage }, options, branding, insightRows] =
+    await Promise.all([
+      listFanSignups(membership.clientId, filters),
+      getFanFilterOptions(membership.clientId),
+      getClientBranding(membership.clientId, membership.clientName),
+      // Analytics band reflects the selected Page filter (if any); the row-level
+      // filters (country/consent/date/search) only scope the table below.
+      listInsightRows(membership.clientId, filters.eventId),
+    ]);
+
+  const now = new Date();
+  const metrics = computeMetrics(insightRows, now);
+  const series = buildDailySeries(insightRows, now, rangeDays);
+  const topLocations = buildCountryBreakdown(insightRows, 6);
+  const accent = branding.accent;
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const base = `/admin/${membership.clientSlug}/fans`;
@@ -73,11 +108,77 @@ export default async function FansPage({
         </div>
         <AdminLinkButton
           href={`${base}/export${fanFiltersToQueryString(filters, { page: 1 })}`}
-          accentFill={branding.accent}
+          accentFill={accent}
         >
           <Download className="h-3.5 w-3.5" />
           export csv
         </AdminLinkButton>
+      </div>
+
+      {/* ── Analytics band (reflects the selected Page filter) ────────── */}
+      <div className="mt-8">
+        <MetricGrid>
+          <MetricStat
+            label="Total signups"
+            value={metrics.total.toLocaleString("en-GB")}
+            accent={accent}
+          />
+          <MetricStat label="Today" value={metrics.today} accent={accent} />
+          <MetricStat
+            label="Last 7 days"
+            value={metrics.last7Days}
+            accent={accent}
+          />
+          <MetricStat
+            label="WhatsApp opt-in"
+            value={
+              metrics.waOptInRatePct === null
+                ? "—"
+                : `${metrics.waOptInRatePct}%`
+            }
+            accent={accent}
+          />
+        </MetricGrid>
+      </div>
+
+      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[3fr_2fr]">
+        <Section
+          title="Fan growth"
+          action={
+            <div className="flex items-center gap-1 font-[family-name:var(--admin-mono)] text-[11px]">
+              {RANGE_OPTIONS.map((days) => {
+                const active = days === rangeDays;
+                const qs = fanFiltersToQueryString(filters, { page: 1 });
+                const href = `${base}${qs}${qs ? "&" : "?"}range=${days}`;
+                return (
+                  <Link
+                    key={days}
+                    href={href}
+                    className={
+                      active
+                        ? "px-2 py-0.5 text-black underline"
+                        : "px-2 py-0.5 text-[#999] hover:text-black"
+                    }
+                  >
+                    {days}d
+                  </Link>
+                );
+              })}
+            </div>
+          }
+        >
+          {metrics.total === 0 ? (
+            <p className="font-[family-name:var(--admin-mono)] text-[12px] text-[#999]">
+              No signups yet.
+            </p>
+          ) : (
+            <FanGrowthChart series={series} accent={accent} />
+          )}
+        </Section>
+
+        <Section title="Top locations">
+          <TopLocations slices={topLocations} accent={accent} />
+        </Section>
       </div>
 
       {/* ── Filter bar (GET form — server-rendered, no client JS) ────── */}
@@ -102,7 +203,7 @@ export default async function FansPage({
             <option value="">All countries</option>
             {options.countries.map((country) => (
               <option key={country} value={country}>
-                {country}
+                {formatCountry(country)}
               </option>
             ))}
           </select>
@@ -277,7 +378,7 @@ function FanTableRow({
           "—"
         )}
       </AdminTd>
-      <AdminTd>{row.country ?? "—"}</AdminTd>
+      <AdminTd>{formatCountry(row.country)}</AdminTd>
       <AdminTd>
         {row.waOptInAt ? (
           <AdminStatusPill tone="positive">yes</AdminStatusPill>
