@@ -2,7 +2,7 @@
  * lib/landing-pages/format-datetime.ts
  *
  * Pure, testable date-formatting helpers for the Supreme renderer (PR 7,
- * extended PR 8). Extracted out of the component tree (unlike the
+ * extended PR 8/9). Extracted out of the component tree (unlike the
  * PR-6-era formatters still living inline in landing-page.tsx) specifically
  * because these strings are copy-sensitive — Matas's specs call out EXACT
  * formats that are easy to regress silently inside JSX. Always Europe/London
@@ -22,32 +22,31 @@ function londonParts(
   );
 }
 
-/** Shared "HH:mm EEE d MMMM" piece behind both header labels below. */
-function fullDateTimeLabel(iso: string): string {
-  const p = londonParts(iso, {
-    weekday: "short",
-    day: "numeric",
-    month: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-  return `${p.hour}:${p.minute} ${p.weekday} ${p.day} ${p.month}`;
-}
-
 /**
- * "Presale: HH:mm EEE d MMMM" — e.g. "Presale: 11:00 Wed 8 July". PR 8:
- * replaces the countdown block's old "PRESALE OPENS IN" + ticket-icon
- * header with this static line, formatted from the SAME `targetAt` the
- * ticker below counts down to (component-level concern — this module
- * only formats whatever ISO string it's given).
+ * "Presale: HH:mm EEEE d MMMM" — e.g. "Presale: 11:00 Wednesday 8 July".
+ * PR 8: replaces the countdown block's old "PRESALE OPENS IN" +
+ * ticket-icon header with this static line, formatted from the SAME
+ * `targetAt` the ticker below counts down to (component-level concern —
+ * this module only formats whatever ISO string it's given). PR 9: full
+ * weekday name (was 'short'/"Wed") — this is a prominent callout, unlike
+ * the header meta row below, which stays short-form on purpose (compact
+ * glance-info in a fixed-width corner; two different contexts, two
+ * different formats, DO NOT unify them).
  *
  * "Presale" is a literal capitalised label, not a page-wide Title Case
  * rule — matches the sentence-case spec (contrast the historical
  * PR-7 "On sale:" header label this superseded, which is now removed).
  */
 export function formatPresaleHeaderLabel(iso: string): string {
-  return `Presale: ${fullDateTimeLabel(iso)}`;
+  const p = londonParts(iso, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `Presale: ${p.hour}:${p.minute} ${p.weekday} ${p.day} ${p.month}`;
 }
 
 /**
