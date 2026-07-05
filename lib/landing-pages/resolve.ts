@@ -15,6 +15,11 @@ import type { LandingPageContext, LandingPageOutcome } from "./types";
  *                         concept once the admin dashboard exists (OP909
  *                         Phase 3); fans must never see them. Archived =
  *                         soft-delete, draft = "not publicly visible".
+ *                         EXCEPTION: `opts.preview` (OP909 Phase 10) skips
+ *                         the gate — the route only sets it after verifying
+ *                         the session belongs to a client_users row for the
+ *                         page's OWN client. Signups on non-live pages still
+ *                         404 (signup-handler has its own gate).
  *   provider 'evntree'  → redirect to evntree_url
  *   'evntree' + no url  → misconfigured (page THROWS → 500; the DB CHECK
  *                         should make this unreachable, but loud-fail beats
@@ -23,10 +28,11 @@ import type { LandingPageContext, LandingPageOutcome } from "./types";
  */
 export function resolveLandingPageOutcome(
   context: LandingPageContext | null,
+  opts?: { preview?: boolean },
 ): LandingPageOutcome | null {
   if (!context) return null;
 
-  if (context.pageEvent.status !== "live") return null;
+  if (context.pageEvent.status !== "live" && !opts?.preview) return null;
 
   if (context.pageEvent.provider === "evntree") {
     const url = context.pageEvent.evntree_url;

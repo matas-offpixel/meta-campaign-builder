@@ -136,4 +136,40 @@ describe("resolveLandingPageOutcome", () => {
     );
     assert.ok(outcome && outcome.kind === "misconfigured");
   });
+
+  // ── OP909 Phase 10: verified-preview bypass of the status gate ────────
+  it("draft page + preview → render (verified client admin preview)", () => {
+    const context = makeContext({ status: "draft" });
+    const outcome = resolveLandingPageOutcome(context, { preview: true });
+    assert.ok(outcome && outcome.kind === "render");
+    assert.equal(outcome.context, context);
+  });
+
+  it("archived page + preview → render (preview shows soft-deleted state)", () => {
+    const outcome = resolveLandingPageOutcome(
+      makeContext({ status: "archived" }),
+      { preview: true },
+    );
+    assert.ok(outcome && outcome.kind === "render");
+  });
+
+  it("draft page + preview:false → still null (explicit false is not a bypass)", () => {
+    assert.equal(
+      resolveLandingPageOutcome(makeContext({ status: "draft" }), {
+        preview: false,
+      }),
+      null,
+    );
+  });
+
+  it("null context + preview → still null (preview never resurrects a 404)", () => {
+    assert.equal(resolveLandingPageOutcome(null, { preview: true }), null);
+  });
+
+  it("live page + preview → renders the same as without", () => {
+    const context = makeContext();
+    const outcome = resolveLandingPageOutcome(context, { preview: true });
+    assert.ok(outcome && outcome.kind === "render");
+    assert.equal(outcome.context, context);
+  });
 });
