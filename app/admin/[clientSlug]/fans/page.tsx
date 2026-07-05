@@ -398,15 +398,23 @@ function FanTableRow({
         </Link>
       </AdminTd>
       <AdminTd align="right">
-        <form action={softDeleteFanSignup} className="flex justify-end">
-          <input type="hidden" name="signup_id" value={row.id} />
-          <button
-            type="submit"
-            className="text-[#666] underline hover:text-[#d33]"
+        <div className="flex items-center justify-end gap-3">
+          <Link
+            href={`${base}/${row.id}`}
+            className="text-[#666] underline hover:text-black"
           >
-            delete
-          </button>
-        </form>
+            view
+          </Link>
+          <form action={softDeleteFanSignup} className="flex">
+            <input type="hidden" name="signup_id" value={row.id} />
+            <button
+              type="submit"
+              className="text-[#666] underline hover:text-[#d33]"
+            >
+              delete
+            </button>
+          </form>
+        </div>
       </AdminTd>
     </AdminTr>
   );

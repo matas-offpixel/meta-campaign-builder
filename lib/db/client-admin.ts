@@ -265,6 +265,36 @@ export async function getPixelHealth(
   };
 }
 
+/** Partner-consent configuration — drives the fan detail consent panel. */
+export interface ClientConsentConfig {
+  partnerConsentEnabled: boolean;
+  partnerName: string | null;
+}
+
+export async function getClientConsentConfig(
+  clientId: string,
+): Promise<ClientConsentConfig> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("client_landing_pages")
+    .select("partner_consent_enabled, partner_name")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(
+      `[client-admin] consent config lookup failed: ${error.message}`,
+    );
+  }
+  const row = (data ?? null) as {
+    partner_consent_enabled: boolean | null;
+    partner_name: string | null;
+  } | null;
+  return {
+    partnerConsentEnabled: row?.partner_consent_enabled ?? false,
+    partnerName: row?.partner_name ?? null,
+  };
+}
+
 // ─── Phase 3: landing page CRUD reads ────────────────────────────────────────
 
 export interface EventOption {
