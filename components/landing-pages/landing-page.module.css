@@ -139,15 +139,21 @@
    PR 8: the old "PRESALE OPENS IN" + ticket-icon header row is replaced
    by a single static "Presale: HH:mm EEE d MMMM" text line (no icon —
    cleaner minimalism), formatted from the same targetAt the ticker below
-   counts down to. */
+   counts down to.
+   PR 9: shrunk to a compact inline strip (~60-70px total vs the previous
+   ~140px) and moved below the event block — it no longer reads as its
+   own heavy section. Cell labels go to 8px, an EXPLICIT exception to the
+   ≥10px floor this repo otherwise holds (contrast the PR-8 footer/label
+   clamps, which kept the floor) — the brief called this out by name as
+   acceptable for ancillary unit labels. */
 
 .countdown {
-  background: #ffffff;
-  padding: 14px 12px;
+  background: none;
+  padding: 8px 14px 12px;
 }
 
 .countdownPresale {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   color: #000000;
   font-family: var(--lp-mono);
   font-size: 12px;
@@ -157,13 +163,13 @@
 .countdownGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 
 .countdownCell {
   background: #ffffff;
   border: 0.5px solid #000000;
-  padding: 12px 6px;
+  padding: 4px 6px;
   text-align: center;
 }
 
@@ -172,18 +178,19 @@
   font-family: var(--lp-futura);
   font-style: italic;
   font-weight: 700;
-  font-size: 26px;
+  font-size: 17px;
   line-height: 1;
   color: var(--accent);
 }
 
 .countdownLabel {
   display: block;
-  margin-top: 5px;
+  margin-top: 3px;
   font-family: var(--lp-mono);
-  /* Brief asked for 9px; clamped to the repo's ≥10px floor (see the PR-6
-     footer precedent — same trade-off, same reasoning). */
-  font-size: 10px;
+  /* PR 9: explicit exception to the repo's ≥10px floor, called out by
+     name in the brief for these ancillary unit labels — contrast the
+     PR-8 footer/label clamps, which kept the floor at 10px. */
+  font-size: 8px;
   color: #666666;
   text-transform: uppercase;
 }

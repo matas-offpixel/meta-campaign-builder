@@ -20,9 +20,13 @@ import styles from "./landing-page.module.css";
  * (pure, node:test); this component only ticks.
  *
  * PR 8: the old "PRESALE OPENS IN" + ticket-icon header row is replaced
- * by a static "Presale: HH:mm EEE d MMMM" text line, formatted from the
+ * by a static "Presale: HH:mm EEEE d MMMM" text line, formatted from the
  * SAME targetAt the ticker below counts down to (no separate resolver —
- * one source of truth for both).
+ * one source of truth for both). PR 9: moved below the event block
+ * (was above the title) and shrunk to a compact inline strip — smaller
+ * cells/numbers/labels, tighter gaps, no container background. Ticking,
+ * cleanup, and past-target gating are all unchanged; only dimensions
+ * moved.
  *
  * The server shell already gates on targetAt > now, but the client
  * re-computes every second and returns null once the target passes — an

@@ -235,6 +235,7 @@ gospel — but the boundaries are.
 | **6 — Supreme UX rewrite ✅ DONE** | Full visual rewrite (Supreme-inspired mono/zero-radius system); minimal form fields (names/city DROPPED, social-handle mutex); hero carousel, countdown, YouTube lite-embed + image grid; server-side artwork palette extraction (sharp) + accent resolution; server-derived geo capture → hashed `country`/`st` in CAPI user_data (migration 136). See §15 | Landed OUT of the arc's original order (before 4/5 — C+O prioritised the fan-facing surface). No CRM push, no admin UI. Presentation columns on `page_events`, never `events` |
 | **6b — Supreme polish pass ✅ DONE** | 7 post-review UI/copy tweaks: countdown de-emphasised (white/bordered); header meta row swapped from "current LDN time" to on-sale timestamp (`events.presale_at`/`general_sale_at`, read-only); `@` prefix baked into the social input; post-signup confirmation card (Share + "sign up another" reset) replaces the old always-visible Share button. See §16 | No schema changes at all (pure UI/copy PR — this is why it's "6b", not "7": the arc's numbered PR 7 below is unrelated and still pending) |
 | **6c — Layout tidy ✅ DONE** | 6 more post-review UI/copy tweaks: killed the redundant auto-rendered venue+date line; header meta row swapped AGAIN, this time to `events.event_start_at` + `content.venue_short` (superseding 6b's on-sale header — on-sale info now lives ONLY in the countdown's static line); countdown header text swapped for a static "Presale: …" line (icon dropped); new Instagram/TikTok brand-socials row; footer reduced to one mono attribution line. See §17 | No schema changes (same "letter suffix" rule as 6b — this is why it's "6c", not "8": the arc's numbered PR 8 below is unrelated and still pending) |
+| **6d — Countdown reorder + compact ticker ✅ DONE** | 3 more post-review tweaks: moved the countdown block down the render tree (below the event block, above the signup form — was above the title); shrunk the ticker to a compact ~85px inline strip (smaller cells, 17px numbers, 8px labels — an explicit, brief-authorised exception to the repo's ≥10px label floor); presale line's weekday goes 'short'→'long' ("Wed"→"Wednesday"). See §18 | No schema changes, no header-meta-row change (that stays short-form, deliberately un-touched) — same "letter suffix" rule as 6b/6c |
 | **7 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
 | **8 — analytics** | Page-view/section tracking, internal reporting | |
 | **9+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
@@ -919,3 +920,44 @@ unrelated, still pending).
   fully unreachable from `/l`. Nobody asked for a replacement CTA and
   the page is presale-signup-first by design, so none was added; flag
   to Matas if a direct ticket-buy path turns out to be wanted here.
+
+## 18. Countdown reorder + compact ticker (PR 6d)
+
+Three more post-review tweaks against the live GMC Mallorca page — Matas's
+third review pass after 6c landed. Zero schema changes; no new fields
+read. Called "6d" for the same reason 6b/6c were: avoids colliding with
+the arc's own numbered "PR 9" (unrelated, still pending — see the plan
+table above).
+
+- **Countdown moved down the render tree**: `<CountdownBlock>` was
+  sandwiched between the hero carousel and `<EventBlock>` (i.e. ABOVE
+  the title) since PR 6. It now renders AFTER `<EventBlock>` and BEFORE
+  `<SignupForm>` — reads as a lead-in nudge toward the form rather than
+  its own mid-page section competing with the hero for attention. Pure
+  JSX reorder in `landing-page.tsx`; no prop changes, no new gating
+  logic (still `view.countdown ? … : null`).
+- **Compact ticker**: the 4-cell grid shrank from a ~140px boxed section
+  to a ~85px inline strip — container background dropped (`#fff` →
+  `none`, since it no longer needs to visually separate itself from a
+  taller layout), padding `14px 12px` → `8px 14px 12px`, grid gap
+  `8px` → `6px`, cell padding `12px 6px` → `4px 6px`, number size `26px`
+  → `17px`, label size `10px` → **`8px`**. That label size is a
+  deliberate, brief-authorised exception to this repo's usual ≥10px
+  floor (contrast the 6c footer, which was clamped UP to 10px against a
+  9px ask) — the PR 6d brief named the exception explicitly for these
+  ancillary DAYS/HOURS/MINS/SECS unit labels, so it's honoured verbatim
+  here rather than re-clamped. All 4 cells still fit one row without
+  wrap at 375px (verified in-browser) — the grid was already
+  `repeat(4, 1fr)` full-width, so shrinking cell padding/font sizes was
+  sufficient without a fixed pixel width per cell.
+- **Presale line: full weekday**: `formatPresaleHeaderLabel` swaps
+  `weekday: 'short'` → `weekday: 'long'` ("Presale: 11:00 Wed 8 July" →
+  "Presale: 11:00 Wednesday 8 July"). The shared `fullDateTimeLabel`
+  helper this function used to delegate to (introduced in 6c, when it
+  also backed the now-retired `formatOnSaleHeaderLabel`) had exactly one
+  remaining caller after 6c, so it's inlined directly into
+  `formatPresaleHeaderLabel` rather than kept as a single-use
+  indirection. **`formatEventDateShort`** (the top-right header meta
+  row's formatter) is untouched and still `weekday: 'short'` — the brief
+  was explicit that the two contexts (compact glance-info corner vs.
+  prominent countdown callout) must NOT be unified onto the same format.

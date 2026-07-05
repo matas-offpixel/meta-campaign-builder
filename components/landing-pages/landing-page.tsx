@@ -24,10 +24,10 @@ import { SignupForm } from "./signup-form";
  * Layout (mobile-first, desktop max-width 480px centered):
  *   header (box logo | wordmark + event date · venue meta, PR 8)
  *   hero carousel (falls back to single artwork image)
- *   countdown (only when a future target is set; static "Presale: …"
- *     line above the ticker, PR 8)
  *   event block (title + subtitle tagline only — no auto-rendered
  *     venue/date line, PR 8 Goal 1)
+ *   countdown (only when a future target is set; static "Presale: …"
+ *     line above a compact ticker, PR 8, reordered + shrunk PR 9)
  *   signup form
  *   description
  *   bottom media (YouTube lite-embed + image grid)
@@ -69,6 +69,11 @@ export function LandingPage({
           </div>
         )}
 
+        <EventBlock view={view} />
+
+        {/* PR 9: moved below the event block (was between the hero and
+            the title) — reads as a lead-in to the form now, not its own
+            heavy mid-page section. */}
         {view.countdown ? (
           <CountdownBlock
             targetAt={view.countdown.targetAt}
@@ -76,8 +81,6 @@ export function LandingPage({
             accent={view.accent}
           />
         ) : null}
-
-        <EventBlock view={view} />
 
         <SignupForm
           clientSlug={view.clientSlug}

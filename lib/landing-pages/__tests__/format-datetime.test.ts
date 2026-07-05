@@ -8,27 +8,33 @@ import {
 } from "../format-datetime.ts";
 
 /**
- * PR 7 (extended PR 8): copy-sensitive date formatters extracted from the
- * component tree specifically so the exact strings Matas specified are
- * pinned here rather than eyeballed in JSX. All three are always
+ * PR 7 (extended PR 8/9): copy-sensitive date formatters extracted from
+ * the component tree specifically so the exact strings Matas specified
+ * are pinned here rather than eyeballed in JSX. All three are always
  * Europe/London.
  */
 
 describe("formatPresaleHeaderLabel", () => {
-  it('"Presale: HH:mm EEE d MMMM" in BST (summer, +1h vs UTC)', () => {
+  it('"Presale: HH:mm EEEE d MMMM" in BST (summer, +1h vs UTC) — full weekday, PR 9', () => {
     // 2026-07-08 10:00 UTC → 11:00 BST, Wednesday — the Jackies Mallorca
     // seed data's real presale_at/countdown_target_at value.
     assert.equal(
       formatPresaleHeaderLabel("2026-07-08T10:00:00Z"),
-      "Presale: 11:00 Wed 8 July",
+      "Presale: 11:00 Wednesday 8 July",
     );
   });
 
   it("in GMT (winter, no offset)", () => {
     assert.equal(
       formatPresaleHeaderLabel("2026-01-10T12:00:00Z"),
-      "Presale: 12:00 Sat 10 January",
+      "Presale: 12:00 Saturday 10 January",
     );
+  });
+
+  it("full weekday name, not the header meta row's short form (two different contexts)", () => {
+    const label = formatPresaleHeaderLabel("2026-07-08T10:00:00Z");
+    assert.ok(label.includes("Wednesday"));
+    assert.ok(!label.includes("Wed 8"));
   });
 });
 
