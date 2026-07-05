@@ -11,6 +11,14 @@ landing pages, replacing Evntr.ee. Trial client: GMC Worldwide Productions
 (Jackies + Throwback + Petardeo umbrella). Evntr.ee stays live as redundancy
 until GMC's first 2 events pass live validation on the internal renderer.
 
+**Client self-service:** the CLIENT-facing admin dashboard over this
+product (login, page CRUD, fan table, integrations — the OP909 arc,
+July 2026) is documented separately in
+`docs/ADMIN_DASHBOARD_ARCHITECTURE.md`. That surface reads/writes the
+same tables described here via `client_users`-scoped RLS + service-role
+server actions; the fan-facing renderer contract in this document is
+unchanged by it.
+
 ---
 
 ## 1. Data model
