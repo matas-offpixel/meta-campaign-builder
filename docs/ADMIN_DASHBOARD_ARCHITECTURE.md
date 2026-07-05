@@ -199,6 +199,44 @@ CTA label then pausing before the URL triggers a validation error state
 until the URL lands — harmless (nothing saves), but the inline error is
 why both fields should be pasted together.
 
+Phase 5 (`/fans`): the fan data table + CSV export. Pure logic in
+`lib/admin/fans-query.ts` — query-string → validated `FanFilters`, a
+serialisable QUERY PLAN (`buildFanQueryPlan`) the db layer replays onto
+the PostgREST builder (tests byte-diff the plan with no client), and
+RFC-4180 CSV generation with a spreadsheet formula-injection guard.
+Data layer `lib/db/fan-signups.ts` is the ONE client-admin read module
+on the SERVICE-ROLE client, because decryption is service_role-only by
+design; compensating contract: clientId comes from
+`requireClientContext()` and `.eq("client_id", clientId)` is pinned
+before any user-controlled filter.
+
+Phase 5 details worth knowing:
+
+- **Batch decryption** — migration 138 adds
+  `landing_page_decrypt_batch(bytea[], text)` (order- and
+  null-preserving), so a 50-row page costs 2 RPCs (emails + phones)
+  instead of 100. Same posture as 134: SECURITY DEFINER,
+  `search_path = public, extensions`, service_role execute only.
+- **Search semantics** — PII is encrypted, so no SQL LIKE over
+  email/phone. `@`-bearing input → exact match via the salted
+  `hashEmail` (same normalisation as the write path); anything else →
+  ilike over `ig_handle`/`tt_handle` (plaintext by design). Phone
+  search is unsupported and the UI says so.
+- **Consent filter targets the WhatsApp opt-in**
+  (`consent_wa_opt_in_at`), not the brief's "opted-in/declined" —
+  marketing consent (`consent_gdpr_at`) is REQUIRED at signup, so every
+  canonical row has it and filtering on it is meaningless.
+- **Canonical rows only** — repeat signups
+  (`deduplicated_signup_id` not null) are attribution-only rows with no
+  PII and are excluded from the table and CSV.
+- **Delete is a soft delete** (`deleted_at`, column from migration 137);
+  every read filters `deleted_at is null`.
+- **CSV export** is a route handler
+  (`/admin/{slug}/fans/export?same-filters`) rather than a server
+  action — downloads need real response headers. Auth contract is
+  identical (proxy + `requireClientContext` + client-pinned query).
+  Export cap: 10k rows.
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |
@@ -206,8 +244,8 @@ why both fields should be pasted together.
 | 1 (P0) | Auth + route scaffold + migration 137 | #675 | shipped |
 | 2 (P0) | Org/brand settings editor | #676 | shipped |
 | 3 (P0) | Landing page CRUD | #677 | shipped |
-| 4 (P1) | Confirmation card editor + renderer | | this PR |
-| 5 (P1) | Fan data table + CSV export | | pending |
+| 4 (P1) | Confirmation card editor + renderer | #678 | shipped |
+| 5 (P1) | Fan data table + CSV export | | this PR |
 | 6 (P1) | Analytics dashboard | | pending |
 | 7 (P2) | Meta Pixel + CAPI self-service | | pending |
 | 8 (P2) | Bird + Mailchimp integrations UI | | pending |

@@ -231,7 +231,7 @@ LANDING_PAGES_META_API_VERSION=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `137_client_admin_dashboard.sql`.
+**Latest migration:** `138_landing_page_decrypt_batch.sql`.
 
 - Client admin dashboard (July 2026, OP909 arc): `client_users` maps one
   auth user → one client (the /admin authorisation pivot; `role` =
