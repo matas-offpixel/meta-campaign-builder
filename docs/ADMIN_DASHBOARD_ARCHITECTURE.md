@@ -237,6 +237,31 @@ Phase 5 details worth knowing:
   identical (proxy + `requireClientContext` + client-pinned query).
   Export cap: 10k rows.
 
+Phase 6 (`/insights`): signup analytics. Pure aggregation in
+`lib/admin/insights.ts` (metrics cards, zero-filled 30-day series,
+country breakdown with Other bucket, IG/TT split — all bucketed by
+EUROPE/LONDON days, `now` injected for tests); non-PII rows fetched on
+the session client (`listInsightRows` in `lib/db/client-admin.ts`,
+canonical + non-deleted only). Charts are hand-rolled server-component
+SVG (`components/admin/insight-charts.tsx`) — recharts is NOT in this
+repo's deps (same call as the dashboard's ticket-pacing card) and the
+no-new-deps rule holds. `?event={id}` scopes every panel to one page.
+
+Phase 6 details worth knowing:
+
+- **Opt-in rate is the WhatsApp opt-in** (same reasoning as the Phase 5
+  consent filter — marketing consent is required at signup, so its
+  "rate" is always 100%).
+- **Meta Pixel health** shows config state only (pixel id, CAPI token
+  presence, test/live mode, `meta_pixel_id_verified_at`): CAPI outcomes
+  are not persisted anywhere (fire-and-forget, fbtrace ids only in
+  logs), so "last successful event / errors last 24h" from the brief
+  has no data source yet. A `capi_event_log` table is the follow-up if
+  Matas wants it.
+- **No rollup table, no cache** — aggregation is in-memory over a
+  single indexed select ((client_id, created_at) index from migration
+  134). Revisit if a client crosses ~50k signups.
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |
@@ -245,8 +270,8 @@ Phase 5 details worth knowing:
 | 2 (P0) | Org/brand settings editor | #676 | shipped |
 | 3 (P0) | Landing page CRUD | #677 | shipped |
 | 4 (P1) | Confirmation card editor + renderer | #678 | shipped |
-| 5 (P1) | Fan data table + CSV export | | this PR |
-| 6 (P1) | Analytics dashboard | | pending |
+| 5 (P1) | Fan data table + CSV export | #679 | shipped |
+| 6 (P1) | Analytics dashboard | | this PR |
 | 7 (P2) | Meta Pixel + CAPI self-service | | pending |
 | 8 (P2) | Bird + Mailchimp integrations UI | | pending |
 | 9 (P2) | Turnstile invisible-mode audit | | pending |

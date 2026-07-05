@@ -123,6 +123,85 @@ export async function countClientSignups(clientId: string): Promise<number> {
   return count ?? 0;
 }
 
+// ─── Phase 6: insights reads ─────────────────────────────────────────────────
+
+import type { InsightSignupRow } from "@/lib/admin/insights";
+
+/**
+ * Lightweight non-PII rows for the analytics aggregations — canonical
+ * (non-repeat), non-deleted signups only, optionally scoped to one
+ * event. Session client; no encrypted column ever crosses this
+ * boundary.
+ */
+export async function listInsightRows(
+  clientId: string,
+  eventId: string | null,
+): Promise<InsightSignupRow[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("event_signups")
+    .select("created_at, geo_country, ig_handle, tt_handle, consent_wa_opt_in_at")
+    .eq("client_id", clientId)
+    .is("deduplicated_signup_id", null)
+    .is("deleted_at", null);
+  if (eventId) query = query.eq("event_id", eventId);
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`[client-admin] insight rows lookup failed: ${error.message}`);
+  }
+  return ((data ?? []) as Array<{
+    created_at: string;
+    geo_country: string | null;
+    ig_handle: string | null;
+    tt_handle: string | null;
+    consent_wa_opt_in_at: string | null;
+  }>).map((row) => ({
+    createdAt: row.created_at,
+    country: row.geo_country,
+    igHandle: row.ig_handle,
+    ttHandle: row.tt_handle,
+    waOptInAt: row.consent_wa_opt_in_at,
+  }));
+}
+
+/** Pixel config state for the health panel — no secrets cross here. */
+export interface PixelHealth {
+  pixelId: string | null;
+  capiTokenConfigured: boolean;
+  testEventCode: string | null;
+  verifiedAt: string | null;
+}
+
+export async function getPixelHealth(
+  clientId: string,
+): Promise<PixelHealth | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("client_landing_pages")
+    .select(
+      "meta_pixel_id, meta_capi_token_encrypted, meta_test_event_code, meta_pixel_id_verified_at",
+    )
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`[client-admin] pixel health lookup failed: ${error.message}`);
+  }
+  if (!data) return null;
+  const row = data as unknown as {
+    meta_pixel_id: string | null;
+    meta_capi_token_encrypted: unknown;
+    meta_test_event_code: string | null;
+    meta_pixel_id_verified_at: string | null;
+  };
+  return {
+    pixelId: row.meta_pixel_id,
+    // Presence only — the blob itself never leaves this function.
+    capiTokenConfigured: row.meta_capi_token_encrypted != null,
+    testEventCode: row.meta_test_event_code,
+    verifiedAt: row.meta_pixel_id_verified_at,
+  };
+}
+
 // ─── Phase 3: landing page CRUD reads ────────────────────────────────────────
 
 export interface EventOption {
