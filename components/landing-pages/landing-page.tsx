@@ -52,6 +52,15 @@ export function LandingPage({
   const rootStyle = {
     ...view.themeStyle,
     "--accent": view.accent,
+    // Sprint 1 PR 2 customisation: the CSS reads var(--lp-btn-bg,
+    // var(--accent)) / var(--lp-btn-text, #ffffff), so setting these only
+    // when authored keeps unset pages byte-identical to pre-139.
+    ...(view.customisation.primaryButtonBg
+      ? { "--lp-btn-bg": view.customisation.primaryButtonBg }
+      : {}),
+    ...(view.customisation.primaryButtonText
+      ? { "--lp-btn-text": view.customisation.primaryButtonText }
+      : {}),
   } as CSSProperties;
 
   return (
@@ -74,7 +83,7 @@ export function LandingPage({
         {/* PR 9: moved below the event block (was between the hero and
             the title) — reads as a lead-in to the form now, not its own
             heavy mid-page section. */}
-        {view.countdown ? (
+        {view.countdown && view.visibility.showCountdown ? (
           <CountdownBlock
             targetAt={view.countdown.targetAt}
             label={view.countdown.label}
@@ -95,8 +104,17 @@ export function LandingPage({
           confirmation={view.confirmation}
         />
 
-        {view.description ? (
-          <p className={styles.description}>{view.description}</p>
+        {view.description && view.visibility.showDescription ? (
+          <p
+            className={styles.description}
+            style={
+              view.customisation.descriptionAlign === "center"
+                ? { textAlign: "center" }
+                : undefined
+            }
+          >
+            {view.description}
+          </p>
         ) : null}
 
         <BottomMedia
@@ -125,8 +143,12 @@ export function LandingPage({
  */
 function HeaderMeta({ view }: { view: LandingPageView }) {
   const parts: string[] = [];
-  if (view.eventStartAt) parts.push(formatEventDateShort(view.eventStartAt));
-  if (view.venueShort) parts.push(view.venueShort);
+  if (view.eventStartAt && view.visibility.showEventDate) {
+    parts.push(formatEventDateShort(view.eventStartAt));
+  }
+  if (view.venueShort && view.visibility.showVenue) {
+    parts.push(view.venueShort);
+  }
   if (parts.length === 0) return null;
   return (
     <span className={styles.timestamp}>{parts.join(" \u00b7 ")}</span>

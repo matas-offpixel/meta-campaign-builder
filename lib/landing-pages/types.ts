@@ -88,6 +88,17 @@ export interface PageEventRow {
   youtube_url: string | null;
   /** Bottom image-grid URLs; empty hides the grid. */
   bottom_images: unknown;
+  // ── Sprint 1 PR 2 (migration 139) modules foundation ──
+  /**
+   * Ordered module instances (see lib/landing-pages/modules.ts). Optional
+   * so pre-139 fixtures/rows type-check; the resolver treats undefined and
+   * an empty array identically (→ legacy-column fallback, byte-identical).
+   */
+  modules?: unknown;
+  /** Per-page visibility toggles; unset flags default true (show). */
+  visibility?: unknown;
+  /** Per-page visual overrides (button colour, description align). */
+  customisation?: unknown;
 }
 
 /** `page_templates` row — workspace-global template registry. */
