@@ -175,14 +175,38 @@ Phase 3 details worth knowing:
   auto-slugs from the name (collision → 6-char suffix retry, one
   attempt, then a form error).
 
+Phase 4 (confirmation card): the ONE sanctioned fan-renderer change.
+`lib/landing-pages/confirmation.ts` is the pure resolver —
+`getConfirmationCardConfig(content)` reads `confirmation_body` /
+`confirmation_cta_label` / `confirmation_cta_url` from the content
+jsonb, clamps to 200 / 24 chars, requires http(s) on the URL, and
+requires BOTH label+URL for a CTA (half-configured → no button). The
+view model (`lib/landing-pages/view.ts`) carries the resolved config to
+`SignupForm`, whose success card now branches:
+
+- custom body present → replaces the "you're in." heading + presale
+  notify line; `\n` renders as paragraph breaks (mono 12px / 1.6).
+- CTA present → palette-accent primary button (casing preserved, opens
+  new tab), Share demotes to the secondary outlined slot.
+- neither → pre-Phase-4 card, byte-identical behaviour.
+
+Admin side: three fields in the editor's "Confirmation message" section
+(between Countdown and Brand socials). `parsePageEventForm` enforces the
+same limits server-side and rejects half-CTAs with a per-field error;
+blank fields delete the content keys so the renderer falls back to
+default. One editor gotcha: because autosave fires per-field, typing a
+CTA label then pausing before the URL triggers a validation error state
+until the URL lands — harmless (nothing saves), but the inline error is
+why both fields should be pasted together.
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |
 |---|---|---|---|
 | 1 (P0) | Auth + route scaffold + migration 137 | #675 | shipped |
 | 2 (P0) | Org/brand settings editor | #676 | shipped |
-| 3 (P0) | Landing page CRUD | | pending |
-| 4 (P1) | Confirmation card editor + renderer | | pending |
+| 3 (P0) | Landing page CRUD | #677 | shipped |
+| 4 (P1) | Confirmation card editor + renderer | | this PR |
 | 5 (P1) | Fan data table + CSV export | | pending |
 | 6 (P1) | Analytics dashboard | | pending |
 | 7 (P2) | Meta Pixel + CAPI self-service | | pending |

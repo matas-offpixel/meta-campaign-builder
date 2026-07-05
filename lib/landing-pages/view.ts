@@ -1,3 +1,7 @@
+import {
+  getConfirmationCardConfig,
+  type ConfirmationCardConfig,
+} from "./confirmation.ts";
 import { parseStoredPalette } from "./palette.ts";
 import { buildThemeStyle, resolveAccent, resolveTheme } from "./theme.ts";
 import type { LandingPageContext, LandingPageTheme } from "./types.ts";
@@ -103,6 +107,13 @@ export interface LandingPageView {
    *  hides the icon; the row itself hides when both are null. */
   brandInstagramUrl: string | null;
   brandTiktokUrl: string | null;
+  /**
+   * OP909 Phase 4: per-page post-signup confirmation copy + CTA,
+   * resolved from content.confirmation_* (see
+   * lib/landing-pages/confirmation.ts). defaultUsed=true → the
+   * pre-Phase-4 card renders unchanged.
+   */
+  confirmation: ConfirmationCardConfig;
 }
 
 function contentString(
@@ -233,6 +244,7 @@ export function buildLandingPageView(
       firstCommaSegment(contentString(content, "venue")),
     brandInstagramUrl: safeHttpUrl(contentString(content, "brand_instagram_url")),
     brandTiktokUrl: safeHttpUrl(contentString(content, "brand_tiktok_url")),
+    confirmation: getConfirmationCardConfig(content),
   };
 }
 

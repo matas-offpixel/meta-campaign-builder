@@ -92,6 +92,7 @@ export function LandingPage({
           turnstileSiteKey={turnstileSiteKey}
           metaPixelId={view.metaPixelId}
           onSaleAt={view.onSaleAt}
+          confirmation={view.confirmation}
         />
 
         {view.description ? (

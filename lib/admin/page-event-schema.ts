@@ -14,6 +14,10 @@
  * offset probe, not a hardcoded offset.
  */
 
+import {
+  CONFIRMATION_BODY_MAX,
+  CONFIRMATION_CTA_LABEL_MAX,
+} from "../landing-pages/confirmation.ts";
 import { parseYouTubeId } from "../landing-pages/youtube.ts";
 
 /**
@@ -123,6 +127,10 @@ export interface PageEventFormValues {
   youtube_url: string | null;
   brand_instagram_url: string | null;
   brand_tiktok_url: string | null;
+  // Confirmation card (content jsonb — OP909 Phase 4)
+  confirmation_body: string | null;
+  confirmation_cta_label: string | null;
+  confirmation_cta_url: string | null;
   // Countdown (page_events columns)
   countdown_enabled: boolean;
   countdown_target_at: string | null;
@@ -212,6 +220,31 @@ export function parsePageEventForm(
   if (ttUrl && !validHttpUrl(ttUrl))
     errors.brand_tiktok_url = "Must be a valid http(s) URL.";
 
+  const confirmationBody = emptyToNull(input.confirmation_body);
+  if (confirmationBody && confirmationBody.length > CONFIRMATION_BODY_MAX) {
+    errors.confirmation_body = `Keep it under ${CONFIRMATION_BODY_MAX} characters.`;
+  }
+
+  const confirmationCtaLabel = emptyToNull(input.confirmation_cta_label);
+  if (
+    confirmationCtaLabel &&
+    confirmationCtaLabel.length > CONFIRMATION_CTA_LABEL_MAX
+  ) {
+    errors.confirmation_cta_label = `Keep it under ${CONFIRMATION_CTA_LABEL_MAX} characters.`;
+  }
+
+  const confirmationCtaUrl = emptyToNull(input.confirmation_cta_url);
+  if (confirmationCtaUrl && !validHttpUrl(confirmationCtaUrl)) {
+    errors.confirmation_cta_url = "Must be a valid http(s) URL.";
+  }
+  // The button needs both halves — flag whichever is missing.
+  if (confirmationCtaLabel && !confirmationCtaUrl && !errors.confirmation_cta_url) {
+    errors.confirmation_cta_url = "Add a URL for the button (or clear the label).";
+  }
+  if (confirmationCtaUrl && !confirmationCtaLabel && !errors.confirmation_cta_label) {
+    errors.confirmation_cta_label = "Add button text (or clear the URL).";
+  }
+
   const countdownEnabled =
     input.countdown_enabled === true ||
     input.countdown_enabled === "true" ||
@@ -255,6 +288,9 @@ export function parsePageEventForm(
       youtube_url: youtubeUrl,
       brand_instagram_url: igUrl,
       brand_tiktok_url: ttUrl,
+      confirmation_body: confirmationBody,
+      confirmation_cta_label: confirmationCtaLabel,
+      confirmation_cta_url: confirmationCtaUrl,
       countdown_enabled: countdownEnabled,
       countdown_target_at: countdownEnabled ? countdownIso : null,
       countdown_label: countdownLabel,
@@ -280,9 +316,9 @@ export function buildEventUpdate(
 
 /**
  * page_events UPDATE payload. `content` merges over the CURRENT jsonb so
- * keys this form doesn't own (template_key, confirmation_* from Phase 4,
- * operator-authored extras) survive verbatim. Cleared fields DELETE their
- * key (renderer treats missing as unset).
+ * keys this form doesn't own (template_key, operator-authored extras)
+ * survive verbatim. Cleared fields DELETE their key (renderer treats
+ * missing as unset). confirmation_* became form-owned in Phase 4.
  */
 export function buildPageEventUpdate(
   currentContent: Record<string, unknown> | null | undefined,
@@ -301,6 +337,9 @@ export function buildPageEventUpdate(
   setOrDelete("venue_short", values.venue_short);
   setOrDelete("brand_instagram_url", values.brand_instagram_url);
   setOrDelete("brand_tiktok_url", values.brand_tiktok_url);
+  setOrDelete("confirmation_body", values.confirmation_body);
+  setOrDelete("confirmation_cta_label", values.confirmation_cta_label);
+  setOrDelete("confirmation_cta_url", values.confirmation_cta_url);
 
   return {
     content,

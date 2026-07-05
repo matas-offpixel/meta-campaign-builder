@@ -7,6 +7,7 @@ import {
   persistAttribution,
   type CapturedAttribution,
 } from "@/lib/landing-pages/attribution";
+import type { ConfirmationCardConfig } from "@/lib/landing-pages/confirmation";
 import { formatPresaleNotifyDate } from "@/lib/landing-pages/format-datetime";
 import {
   buildCompleteRegistrationCommand,
@@ -90,6 +91,7 @@ export function SignupForm({
   turnstileSiteKey,
   metaPixelId,
   onSaleAt,
+  confirmation,
 }: {
   clientSlug: string;
   eventSlug: string;
@@ -110,6 +112,11 @@ export function SignupForm({
    * falling back to thankYouMessage when null.
    */
   onSaleAt: string | null;
+  /**
+   * OP909 Phase 4: per-page confirmation copy + CTA from the view seam.
+   * defaultUsed=true renders the pre-Phase-4 card unchanged.
+   */
+  confirmation: ConfirmationCardConfig;
 }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -321,20 +328,48 @@ export function SignupForm({
   }
 
   if (state.phase === "success") {
+    // OP909 Phase 4: custom body replaces the "you're in." title + notify
+    // copy entirely; \n renders as paragraph breaks. A configured CTA is
+    // the PRIMARY action (accent button, new tab) and Share demotes to
+    // the secondary outlined slot. Neither set → pre-Phase-4 card.
     return (
       <section className={styles.success} aria-live="polite">
-        <h2 className={styles.successTitle}>you&apos;re in.</h2>
-        <p className={styles.successBody}>
-          {onSaleAt
-            ? `we'll notify you when presale opens on ${formatPresaleNotifyDate(onSaleAt)} uk.`
-            : thankYouMessage}
-        </p>
+        {confirmation.body !== null ? (
+          confirmation.body
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line, index) => (
+              <p key={index} className={styles.confirmationBody}>
+                {line}
+              </p>
+            ))
+        ) : (
+          <>
+            <h2 className={styles.successTitle}>you&apos;re in.</h2>
+            <p className={styles.successBody}>
+              {onSaleAt
+                ? `we'll notify you when presale opens on ${formatPresaleNotifyDate(onSaleAt)} uk.`
+                : thankYouMessage}
+            </p>
+          </>
+        )}
         {state.deduplicated ? (
           <p className={styles.successBody}>
             (looks like you&apos;d already signed up — you&apos;re all set.)
           </p>
         ) : null}
         <div className={styles.successActions}>
+          {confirmation.cta ? (
+            <a
+              className={`${styles.ctaPrimary} ${styles.confirmationCta}`}
+              href={confirmation.cta.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {confirmation.cta.label}
+            </a>
+          ) : null}
           <button
             type="button"
             className={styles.ctaSecondary}
