@@ -379,8 +379,10 @@
   padding: 11px;
   border: none;
   border-radius: 0;
-  background: var(--accent);
-  color: #ffffff;
+  /* Sprint 1 PR 2: per-page override via --lp-btn-* (set on .root only when
+     authored); unset falls back to the accent/white pre-139 look. */
+  background: var(--lp-btn-bg, var(--accent));
+  color: var(--lp-btn-text, #ffffff);
   font-family: var(--lp-mono);
   font-size: 13px;
   text-transform: lowercase;

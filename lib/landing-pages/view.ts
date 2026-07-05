@@ -2,6 +2,13 @@ import {
   getConfirmationCardConfig,
   type ConfirmationCardConfig,
 } from "./confirmation.ts";
+import {
+  resolveCustomisation,
+  resolveModuleSources,
+  resolveVisibility,
+  type ResolvedCustomisation,
+  type ResolvedVisibility,
+} from "./modules.ts";
 import { parseStoredPalette } from "./palette.ts";
 import { buildThemeStyle, resolveAccent, resolveTheme } from "./theme.ts";
 import type { LandingPageContext, LandingPageTheme } from "./types.ts";
@@ -114,6 +121,17 @@ export interface LandingPageView {
    * pre-Phase-4 card renders unchanged.
    */
   confirmation: ConfirmationCardConfig;
+  /**
+   * Sprint 1 PR 2 (migration 139): per-page visibility toggles. Every flag
+   * defaults true, so a page without a `visibility` column renders exactly
+   * as before — the renderer ANDs these onto its existing presence checks.
+   */
+  visibility: ResolvedVisibility;
+  /**
+   * Sprint 1 PR 2: per-page visual overrides (button colour, description
+   * alignment). Null/"left" defaults reproduce the pre-139 look.
+   */
+  customisation: ResolvedCustomisation;
 }
 
 function contentString(
@@ -176,10 +194,17 @@ export function buildLandingPageView(
   const content = context.pageEvent.content ?? {};
   const pageEvent = context.pageEvent;
 
+  // Sprint 1 PR 2: hero / youtube / grid / brand-social content now routes
+  // through the modules resolver. With an empty `modules` column it returns
+  // the legacy columns verbatim, so the sanitising below is byte-identical
+  // to pre-139. The artwork single-image fallback stays here (it reads
+  // content.artwork_url, which is not a module).
+  const sources = resolveModuleSources(pageEvent);
+
   // events has no artwork column (audited 2026-07-04) — content is the
   // only source; PR 6 falls back to it when hero_images is empty.
   const artworkUrl = safeHttpUrl(contentString(content, "artwork_url"));
-  const heroFromColumn = safeUrlArray(pageEvent.hero_images);
+  const heroFromColumn = safeUrlArray(sources.heroImagesRaw);
   const heroImages =
     heroFromColumn.length > 0
       ? heroFromColumn
@@ -224,8 +249,8 @@ export function buildLandingPageView(
             (pageEvent.countdown_label ?? "").trim() || "tickets on sale in",
         }
       : null,
-    youtubeVideoId: parseYouTubeId(pageEvent.youtube_url),
-    bottomImages: safeUrlArray(pageEvent.bottom_images),
+    youtubeVideoId: parseYouTubeId(sources.youtubeUrlRaw),
+    bottomImages: safeUrlArray(sources.gridImagesRaw),
     logoStyle: context.landingPage?.logo_style ?? "box_logo",
     boxLogoText:
       context.landingPage?.box_logo_text?.trim() || context.client.name,
@@ -242,9 +267,11 @@ export function buildLandingPageView(
     venueShort:
       contentString(content, "venue_short") ??
       firstCommaSegment(contentString(content, "venue")),
-    brandInstagramUrl: safeHttpUrl(contentString(content, "brand_instagram_url")),
-    brandTiktokUrl: safeHttpUrl(contentString(content, "brand_tiktok_url")),
+    brandInstagramUrl: safeHttpUrl(sources.brandInstagramRaw),
+    brandTiktokUrl: safeHttpUrl(sources.brandTiktokRaw),
     confirmation: getConfirmationCardConfig(content),
+    visibility: resolveVisibility(pageEvent),
+    customisation: resolveCustomisation(pageEvent),
   };
 }
 

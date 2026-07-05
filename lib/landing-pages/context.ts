@@ -131,7 +131,8 @@ export async function resolveLandingPageContext(
     db,
     "page_events",
     "id, event_id, provider, evntree_url, theme_overrides, content, status, created_at, updated_at, " +
-      "artwork_palette, hero_images, countdown_target_at, countdown_label, youtube_url, bottom_images",
+      "artwork_palette, hero_images, countdown_target_at, countdown_label, youtube_url, bottom_images, " +
+      "modules, visibility, customisation",
     [["event_id", eventRow.id]],
   )) as PageEventRow[];
   if (pageEvents.length === 0) return null;
