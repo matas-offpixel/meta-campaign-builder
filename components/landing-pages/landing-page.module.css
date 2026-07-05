@@ -466,6 +466,27 @@
   margin-top: 16px;
 }
 
+/* OP909 Phase 4 — custom confirmation copy (admin-authored). Mono 12px,
+   black, multi-paragraph; replaces successTitle + successBody. */
+.confirmationBody {
+  font-family: var(--lp-mono);
+  font-size: 12px;
+  color: #000000;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.confirmationBody + .confirmationBody {
+  margin-top: 10px;
+}
+
+/* The CTA is an <a> styled as the primary button — keep the uppercase
+   the client authored (ctaPrimary lowercases button text). */
+.confirmationCta {
+  text-transform: none;
+  text-decoration: none;
+}
+
 /* ── Description ────────────────────────────────────────────────────── */
 
 .description {

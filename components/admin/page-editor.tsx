@@ -291,6 +291,48 @@ export function PageEditor({
           )}
         </Section>
 
+        {/* ── 4b. Confirmation message (OP909 Phase 4) ────────────── */}
+        <Section
+          title="Confirmation message"
+          hint="Shown to fans after they successfully sign up. Leave blank to use the default."
+        >
+          <Field label="Message" error={err.confirmation_body}>
+            <textarea
+              name="confirmation_body"
+              rows={3}
+              maxLength={200}
+              defaultValue={str("confirmation_body")}
+              placeholder="Your registration has been confirmed. Join the WhatsApp community group to access tickets 30 minutes early."
+              className={`${inputCls} h-auto py-2`}
+            />
+          </Field>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Button text"
+              error={err.confirmation_cta_label}
+              hint="Keep it action-oriented — max 24 characters"
+            >
+              <input
+                name="confirmation_cta_label"
+                type="text"
+                maxLength={24}
+                defaultValue={str("confirmation_cta_label")}
+                placeholder="JOIN WHATSAPP COMMUNITY"
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Button URL" error={err.confirmation_cta_url}>
+              <input
+                name="confirmation_cta_url"
+                type="url"
+                defaultValue={str("confirmation_cta_url")}
+                placeholder="https://chat.whatsapp.com/…"
+                className={inputCls}
+              />
+            </Field>
+          </div>
+        </Section>
+
         {/* ── 5. Brand socials override ───────────────────────────── */}
         <Section
           title="Brand socials (this page)"

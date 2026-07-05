@@ -135,6 +135,65 @@ describe("parsePageEventForm", () => {
     const result = parsePageEventForm({ ...VALID_FORM, status: "published" });
     assert.equal(result.ok, false);
   });
+
+  // ── Confirmation card (Phase 4) ──
+
+  it("accepts full confirmation config and carries it through", () => {
+    const result = parsePageEventForm({
+      ...VALID_FORM,
+      confirmation_body: "You're confirmed.\nJoin the community.",
+      confirmation_cta_label: "JOIN WHATSAPP",
+      confirmation_cta_url: "https://chat.whatsapp.com/abc",
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.confirmation_body, "You're confirmed.\nJoin the community.");
+    assert.equal(result.value.confirmation_cta_label, "JOIN WHATSAPP");
+    assert.equal(result.value.confirmation_cta_url, "https://chat.whatsapp.com/abc");
+  });
+
+  it("enforces confirmation length caps (200 body / 24 label)", () => {
+    const overBody = parsePageEventForm({
+      ...VALID_FORM,
+      confirmation_body: "x".repeat(201),
+    });
+    assert.equal(overBody.ok, false);
+    if (!overBody.ok) assert.ok(overBody.errors.confirmation_body);
+
+    const overLabel = parsePageEventForm({
+      ...VALID_FORM,
+      confirmation_cta_label: "y".repeat(25),
+      confirmation_cta_url: "https://example.com",
+    });
+    assert.equal(overLabel.ok, false);
+    if (!overLabel.ok) assert.ok(overLabel.errors.confirmation_cta_label);
+  });
+
+  it("rejects a half-configured CTA (label without url and vice versa)", () => {
+    const labelOnly = parsePageEventForm({
+      ...VALID_FORM,
+      confirmation_cta_label: "GO",
+    });
+    assert.equal(labelOnly.ok, false);
+    if (!labelOnly.ok) assert.ok(labelOnly.errors.confirmation_cta_url);
+
+    const urlOnly = parsePageEventForm({
+      ...VALID_FORM,
+      confirmation_cta_url: "https://example.com",
+    });
+    assert.equal(urlOnly.ok, false);
+    if (!urlOnly.ok) assert.ok(urlOnly.errors.confirmation_cta_label);
+  });
+
+  it("rejects non-http(s) CTA urls", () => {
+    const result = parsePageEventForm({
+      ...VALID_FORM,
+      confirmation_cta_label: "GO",
+      confirmation_cta_url: "javascript:alert(1)",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.ok(result.errors.confirmation_cta_url);
+  });
 });
 
 describe("buildEventUpdate / buildPageEventUpdate", () => {
@@ -158,18 +217,19 @@ describe("buildEventUpdate / buildPageEventUpdate", () => {
     const current = {
       template_key: "mvp_v1",
       artwork_url: "https://cdn.example.com/art.jpg",
-      confirmation_body: "custom copy from phase 4",
+      confirmation_body: "old phase-4 copy",
       subtitle: "OLD SUBTITLE",
     };
     const update = buildPageEventUpdate(current, parsed.value);
     const content = update.content as Record<string, unknown>;
     assert.equal(content.template_key, "mvp_v1");
     assert.equal(content.artwork_url, "https://cdn.example.com/art.jpg");
-    assert.equal(content.confirmation_body, "custom copy from phase 4");
     assert.equal(content.subtitle, "Open air house music");
     assert.equal(content.brand_instagram_url, "https://instagram.com/jackies");
-    // Cleared fields delete their key.
+    // Cleared fields delete their key — including confirmation_body,
+    // which became form-owned in Phase 4 (blank textarea = clear).
     assert.equal("brand_tiktok_url" in content, false);
+    assert.equal("confirmation_body" in content, false);
   });
 
   it("disabled countdown writes null target", () => {
