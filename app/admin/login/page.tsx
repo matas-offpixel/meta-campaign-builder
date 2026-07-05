@@ -1,22 +1,30 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { CheckCircle2, Loader2, Mail } from "lucide-react";
+import {
+  type LoginFormMode,
+  mapMagicLinkError,
+  signInWithPasswordBoundary,
+  toggleLoginFormMode,
+} from "@/lib/auth/login-form";
+import { CheckCircle2, KeyRound, Loader2, Mail } from "lucide-react";
 
-type Status = "idle" | "sending" | "sent" | "error";
+type Status = "idle" | "sending" | "signing-in" | "sent" | "error";
 
 /**
- * Client admin sign-in (OP909 self-service dashboard). Magic link ONLY —
- * clients never hold passwords for this surface. Mirrors /login's
- * invite-only posture: shouldCreateUser: false means unknown emails can't
- * self-register, and access additionally requires a client_users row
- * (migration 137) — a provisioned Supabase user without one bounces back
- * here with ?error=no-client.
+ * Client admin sign-in (OP909 self-service dashboard).
  *
- * No Turnstile here — Supabase's own OTP rate limits cover the login
- * surface; Turnstile is a fan-facing /l concern only.
+ * Primary: email + password (signInWithPassword) — reliable across mobile
+ * browser contexts where magic-link callbacks can drop session cookies.
+ * Fallback: magic link (signInWithOtp) via "Forgot password? Email me a
+ * sign-in link" for first-time users or password recovery.
+ *
+ * Access additionally requires a client_users row (migration 137) — a
+ * provisioned Supabase user without one bounces back with ?error=no-client.
+ *
+ * No Turnstile here — Supabase's own rate limits cover the login surface.
  */
 export default function AdminLoginPage() {
   return (
@@ -27,12 +35,17 @@ export default function AdminLoginPage() {
 }
 
 function AdminLoginForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const errorParam = searchParams.get("error");
 
+  const [mode, setMode] = useState<LoginFormMode>("password");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+
+  const isBusy = status === "sending" || status === "signing-in";
 
   // Strip ?error=... after showing it once so a refresh doesn't replay it.
   useEffect(() => {
@@ -42,6 +55,31 @@ function AdminLoginForm() {
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }, [errorParam]);
 
+  const handlePasswordSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+
+    setStatus("signing-in");
+    setErrorMsg("");
+
+    const supabase = createClient();
+    const result = await signInWithPasswordBoundary(
+      (addr, pass) =>
+        supabase.auth.signInWithPassword({ email: addr, password: pass }),
+      email,
+      password,
+    );
+
+    if (!result.ok) {
+      setStatus("error");
+      setErrorMsg(result.message);
+      return;
+    }
+
+    // Middleware routes /admin → /admin/{member-slug} once session is set.
+    router.push("/admin");
+  };
+
   const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
@@ -49,8 +87,6 @@ function AdminLoginForm() {
     setStatus("sending");
     setErrorMsg("");
 
-    // Land on /admin/auth/callback; on success it redirects to /admin and
-    // the proxy routes to the member's own /admin/{slug}.
     const emailRedirectTo = `${window.location.origin}/admin/auth/callback?next=/admin`;
 
     const supabase = createClient();
@@ -58,21 +94,29 @@ function AdminLoginForm() {
       email: email.trim(),
       options: {
         emailRedirectTo,
-        // Invite-only: unknown emails must not self-provision.
         shouldCreateUser: false,
       },
     });
 
     if (error) {
       setStatus("error");
-      setErrorMsg(
-        /signups not allowed|user not found/i.test(error.message)
-          ? "This email isn't registered. Contact Off/Pixel to get access."
-          : error.message,
-      );
+      setErrorMsg(mapMagicLinkError(error.message, "admin"));
     } else {
       setStatus("sent");
     }
+  };
+
+  const switchToMagicLink = () => {
+    setMode(toggleLoginFormMode(mode));
+    setStatus("idle");
+    setErrorMsg("");
+    setPassword("");
+  };
+
+  const switchToPassword = () => {
+    setMode(toggleLoginFormMode(mode));
+    setStatus("idle");
+    setErrorMsg("");
   };
 
   return (
@@ -115,15 +159,17 @@ function AdminLoginForm() {
                 onClick={() => {
                   setStatus("idle");
                   setEmail("");
+                  setPassword("");
                   setErrorMsg("");
+                  setMode("password");
                 }}
                 className="mt-4 text-xs text-muted-foreground hover:text-foreground underline"
               >
                 Try a different email
               </button>
             </div>
-          ) : (
-            <form onSubmit={handleMagicLink} className="space-y-4">
+          ) : mode === "password" ? (
+            <form onSubmit={handlePasswordSignIn} className="space-y-4">
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="email"
@@ -145,6 +191,25 @@ function AdminLoginForm() {
                 />
               </div>
 
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="password"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete="current-password"
+                  className="h-10 w-full rounded-md border border-border-strong bg-background px-3 text-sm text-foreground
+                    placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
               {status === "error" && (
                 <p className="text-xs text-destructive">
                   {errorMsg || "Something went wrong. Please try again."}
@@ -153,7 +218,66 @@ function AdminLoginForm() {
 
               <button
                 type="submit"
-                disabled={status === "sending" || !email.trim()}
+                disabled={isBusy || !email.trim() || !password}
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-foreground text-background text-sm font-medium
+                  transition-colors hover:bg-foreground/90 disabled:opacity-40 disabled:pointer-events-none"
+              >
+                {status === "signing-in" ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    <KeyRound className="h-4 w-4" />
+                    Sign in
+                  </>
+                )}
+              </button>
+
+              <p className="text-center">
+                <button
+                  type="button"
+                  onClick={switchToMagicLink}
+                  disabled={isBusy}
+                  className="text-xs text-muted-foreground hover:text-foreground underline disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Forgot password? Email me a sign-in link
+                </button>
+              </p>
+            </form>
+          ) : (
+            <form onSubmit={handleMagicLink} className="space-y-4">
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="magic-email"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Email address
+                </label>
+                <input
+                  id="magic-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@yourcompany.com"
+                  required
+                  autoFocus
+                  autoComplete="email"
+                  className="h-10 w-full rounded-md border border-border-strong bg-background px-3 text-sm text-foreground
+                    placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
+              {status === "error" && (
+                <p className="text-xs text-destructive">
+                  {errorMsg || "Something went wrong. Please try again."}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={isBusy || !email.trim()}
                 className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-foreground text-background text-sm font-medium
                   transition-colors hover:bg-foreground/90 disabled:opacity-40 disabled:pointer-events-none"
               >
@@ -169,6 +293,17 @@ function AdminLoginForm() {
                   </>
                 )}
               </button>
+
+              <p className="text-center">
+                <button
+                  type="button"
+                  onClick={switchToPassword}
+                  disabled={isBusy}
+                  className="text-xs text-muted-foreground hover:text-foreground underline disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  Back to password sign-in
+                </button>
+              </p>
             </form>
           )}
         </div>
