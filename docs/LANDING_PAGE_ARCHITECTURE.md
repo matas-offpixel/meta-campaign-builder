@@ -475,6 +475,11 @@ because the previous one has a hole:
    makes unset keys a hard failure (set it in prod). Cloudflare
    unreachable → **fail open, loudly** (a fan's signup beats bot paranoia;
    sustained failures are visible in logs). Hole: captcha farms.
+   **Widget visibility:** some fans still see the checkbox because the
+   sitekey's Widget Mode at Cloudflare is Managed — `interaction-only`
+   only hides the widget until Cloudflare escalates. Fix is a dashboard
+   toggle (Widget Mode → Invisible), no code change: see
+   `docs/TURNSTILE_INVISIBLE_MODE_AUDIT.md` (OP909 Phase 9).
 4. **Tenant resolution + provider gate** — unknown pages 404 before any
    write; evntree-rolled-back pages 409.
 5. **DB-level backstops** — partial unique indexes cap per-fan row growth;
