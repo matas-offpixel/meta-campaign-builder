@@ -26,7 +26,9 @@ import styles from "./landing-page.module.css";
  * (was above the title) and shrunk to a compact inline strip — smaller
  * cells/numbers/labels, tighter gaps, no container background. Ticking,
  * cleanup, and past-target gating are all unchanged; only dimensions
- * moved.
+ * moved. PR 10: the presale text line above the ticker is left-aligned
+ * to match the page content baseline (title, form labels) — the 4-cell
+ * row layout is unchanged.
  *
  * The server shell already gates on targetAt > now, but the client
  * re-computes every second and returns null once the target passes — an

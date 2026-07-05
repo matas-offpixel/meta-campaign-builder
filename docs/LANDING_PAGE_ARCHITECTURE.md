@@ -236,6 +236,7 @@ gospel — but the boundaries are.
 | **6b — Supreme polish pass ✅ DONE** | 7 post-review UI/copy tweaks: countdown de-emphasised (white/bordered); header meta row swapped from "current LDN time" to on-sale timestamp (`events.presale_at`/`general_sale_at`, read-only); `@` prefix baked into the social input; post-signup confirmation card (Share + "sign up another" reset) replaces the old always-visible Share button. See §16 | No schema changes at all (pure UI/copy PR — this is why it's "6b", not "7": the arc's numbered PR 7 below is unrelated and still pending) |
 | **6c — Layout tidy ✅ DONE** | 6 more post-review UI/copy tweaks: killed the redundant auto-rendered venue+date line; header meta row swapped AGAIN, this time to `events.event_start_at` + `content.venue_short` (superseding 6b's on-sale header — on-sale info now lives ONLY in the countdown's static line); countdown header text swapped for a static "Presale: …" line (icon dropped); new Instagram/TikTok brand-socials row; footer reduced to one mono attribution line. See §17 | No schema changes (same "letter suffix" rule as 6b — this is why it's "6c", not "8": the arc's numbered PR 8 below is unrelated and still pending) |
 | **6d — Countdown reorder + compact ticker ✅ DONE** | 3 more post-review tweaks: moved the countdown block down the render tree (below the event block, above the signup form — was above the title); shrunk the ticker to a compact ~85px inline strip (smaller cells, 17px numbers, 8px labels — an explicit, brief-authorised exception to the repo's ≥10px label floor); presale line's weekday goes 'short'→'long' ("Wed"→"Wednesday"). See §18 | No schema changes, no header-meta-row change (that stays short-form, deliberately un-touched) — same "letter suffix" rule as 6b/6c |
+| **6e — Presale line left-align ✅ DONE** | One-line alignment fix: the static "Presale: …" text above the countdown ticker goes `text-align: center` → `left`, matching the event title / form-label baseline (container already shared the 14px horizontal padding). The 4-cell ticker row is unchanged. See §19 | No schema changes — same "letter suffix" rule as 6b/6c/6d |
 | **7 — brief-parser extension** | D2C brief ingest also provisions `page_events` (+ `client_landing_pages` if missing) honouring `default_provider` | Do not touch d2c_* schemas beyond reading |
 | **8 — analytics** | Page-view/section tracking, internal reporting | |
 | **9+ — per-client add-ons** | TikTok pixel, Google Ads tag columns (per-client, same isolation contract), vanity slugs, multi-city layout | |
@@ -961,3 +962,22 @@ table above).
   row's formatter) is untouched and still `weekday: 'short'` — the brief
   was explicit that the two contexts (compact glance-info corner vs.
   prominent countdown callout) must NOT be unified onto the same format.
+
+## 19. Presale line left-align (PR 6e)
+
+One-line alignment fix after 6d landed — Matas's fourth review pass.
+Zero schema changes; no new fields read. Called "6e" for the same reason
+6b/6c/6d were.
+
+- **Presale text line left-aligned**: `.countdownPresale` swaps
+  `text-align: center` → `left`. Every other text block on the page
+  (event title, subtitle, form labels, description) was already
+  left-aligned; the centered presale line was the odd outlier. The
+  `.countdown` container already used `padding: 8px 14px 12px` — the
+  same `14px` horizontal inset as `.eventBlock` (`16px 14px 12px`) and
+  `.form` (`4px 14px 16px`) — so only the text-align property needed
+  to change; no padding tweak required for the "P" of "Presale" to line
+  up with the "J" of the title and the "e" of "email address".
+- **4-cell ticker unchanged**: only the static presale line above the
+  grid changed; `.countdownGrid` / `.countdownCell` dimensions and the
+  full-width `repeat(4, 1fr)` layout are byte-for-byte the same as 6d.
