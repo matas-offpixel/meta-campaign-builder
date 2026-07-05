@@ -6,6 +6,7 @@ import {
   listClientPages,
   type ClientPageSummary,
 } from "@/lib/db/client-admin";
+import { MetricGrid, MetricStat, Section } from "@/components/admin/ui/section";
 
 /**
  * app/admin/[clientSlug]/page.tsx — client dashboard home (OP909 Phase 1).
@@ -29,75 +30,45 @@ export default async function ClientDashboardHome({
   const livePages = pages.filter((p) => p.status === "live").length;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-8">
-      <h1 className="font-heading text-2xl tracking-wide">Dashboard</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
+    <div className="mx-auto max-w-5xl px-8 py-10">
+      <h1 className="admin-heading text-[28px] leading-none">Dashboard</h1>
+      <p className="mt-2 font-[family-name:var(--admin-mono)] text-[12px] text-[#666]">
         Your landing pages and fan signups at a glance.
       </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricCard label="Landing pages" value={String(pages.length)} />
-        <MetricCard label="Live pages" value={String(livePages)} />
-        <MetricCard label="Total fan signups" value={String(totalSignups)} />
+      <div className="mt-8">
+        <MetricGrid>
+          <MetricStat label="Landing pages" value={pages.length} />
+          <MetricStat label="Live pages" value={livePages} />
+          <MetricStat label="Total fan signups" value={totalSignups} />
+        </MetricGrid>
       </div>
 
-      <div className="mt-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            Landing pages
-          </h2>
-        </div>
-
+      <Section title="Landing pages">
         {pages.length === 0 ? (
-          <div className="mt-3 rounded-md border border-dashed border-border bg-card px-6 py-10 text-center">
-            <p className="text-sm text-muted-foreground">
-              No landing pages yet. Page management arrives in the Pages tab.
-            </p>
-          </div>
+          <p className="font-[family-name:var(--admin-mono)] text-[12px] text-[#666]">
+            No landing pages yet. Create one in the Pages tab.
+          </p>
         ) : (
-          <div className="mt-3 overflow-hidden rounded-md border border-border">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-2.5 font-medium">Event</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                  <th className="px-4 py-2.5 font-medium text-right">Signups</th>
-                  <th className="px-4 py-2.5 font-medium">Presale</th>
-                  <th className="px-4 py-2.5 font-medium">Page</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pages.map((page) => (
-                  <PageRow
-                    key={page.pageEventId}
-                    page={page}
-                    clientSlug={membership.clientSlug}
-                  />
-                ))}
-              </tbody>
-            </table>
+          <div>
+            {pages.map((page) => (
+              <PageRow
+                key={page.pageEventId}
+                page={page}
+                clientSlug={membership.clientSlug}
+              />
+            ))}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-border bg-card px-4 py-4">
-      <p className="text-xs uppercase tracking-wider text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1.5 font-heading text-3xl tracking-wide">{value}</p>
+      </Section>
     </div>
   );
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  live: "bg-green-100 text-green-800",
-  draft: "bg-amber-100 text-amber-800",
-  archived: "bg-gray-100 text-gray-600",
+  live: "bg-[#e8f5e9] text-[#1b5e20]",
+  draft: "bg-[#fff8e1] text-[#8d6e00]",
+  archived: "bg-[#f0f0f0] text-[#666]",
 };
 
 function PageRow({
@@ -116,33 +87,39 @@ function PageRow({
       }).format(new Date(page.presaleAt))
     : "—";
   return (
-    <tr className="border-b border-border last:border-b-0">
-      <td className="px-4 py-3 font-medium">{page.eventName}</td>
-      <td className="px-4 py-3">
-        <span
-          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-            STATUS_STYLES[page.status] ?? STATUS_STYLES.draft
-          }`}
-        >
-          {page.status}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-right tabular-nums">{page.signupCount}</td>
-      <td className="px-4 py-3 text-muted-foreground">{presale}</td>
-      <td className="px-4 py-3">
+    <div className="flex items-center gap-4 border-b-[0.5px] border-black py-3.5">
+      <span className="admin-heading min-w-0 flex-1 truncate text-[14px]">
+        {page.eventName}
+      </span>
+      <span
+        className={`shrink-0 px-1.5 py-0.5 font-[family-name:var(--admin-mono)] text-[10px] uppercase tracking-[0.5px] ${
+          STATUS_STYLES[page.status] ?? STATUS_STYLES.draft
+        }`}
+      >
+        {page.status}
+      </span>
+      <span className="w-20 shrink-0 text-right font-[family-name:var(--admin-mono)] text-[12px] tabular-nums">
+        {page.signupCount}
+      </span>
+      <span className="w-24 shrink-0 text-right font-[family-name:var(--admin-mono)] text-[11px] text-[#666]">
+        {presale}
+      </span>
+      <span className="w-20 shrink-0 text-right">
         {page.status === "live" ? (
           <Link
             href={`/l/${clientSlug}/${page.eventSlug}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-muted-foreground underline hover:text-foreground"
+            className="font-[family-name:var(--admin-mono)] text-[11px] text-[#666] underline hover:text-black"
           >
-            View live
+            view
           </Link>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="font-[family-name:var(--admin-mono)] text-[11px] text-[#999]">
+            —
+          </span>
         )}
-      </td>
-    </tr>
+      </span>
+    </div>
   );
 }

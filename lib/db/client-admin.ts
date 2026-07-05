@@ -20,8 +20,19 @@ export interface ClientPageSummary {
   eventSlug: string;
   status: string;
   presaleAt: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
   signupCount: number;
+  /** content.artwork_url when present — powers the Pages-list thumbnail. */
+  artworkUrl: string | null;
+}
+
+interface EmbeddedPageRow {
+  id: string;
+  status: string;
+  updated_at: string | null;
+  created_at: string | null;
+  content: Record<string, unknown> | null;
 }
 
 interface EventRowWithPage {
@@ -29,10 +40,7 @@ interface EventRowWithPage {
   name: string;
   slug: string;
   presale_at: string | null;
-  page_events:
-    | { id: string; status: string; updated_at: string | null }
-    | Array<{ id: string; status: string; updated_at: string | null }>
-    | null;
+  page_events: EmbeddedPageRow | Array<EmbeddedPageRow> | null;
 }
 
 /** page_events embeds as object or 1-element array — normalise both. */
@@ -55,7 +63,9 @@ export async function listClientPages(
     await Promise.all([
       supabase
         .from("events")
-        .select("id, name, slug, presale_at, page_events (id, status, updated_at)")
+        .select(
+          "id, name, slug, presale_at, page_events (id, status, updated_at, created_at, content)",
+        )
         .eq("client_id", clientId),
       countSignupsByEvent(clientId),
     ]);
@@ -67,6 +77,7 @@ export async function listClientPages(
   for (const row of (events ?? []) as unknown as EventRowWithPage[]) {
     const page = embeddedPage(row);
     if (!page) continue; // event without a landing page
+    const artwork = page.content?.["artwork_url"];
     pages.push({
       pageEventId: page.id,
       eventId: row.id,
@@ -74,8 +85,13 @@ export async function listClientPages(
       eventSlug: row.slug,
       status: page.status,
       presaleAt: row.presale_at,
+      createdAt: page.created_at,
       updatedAt: page.updated_at,
       signupCount: signupCounts.get(row.id) ?? 0,
+      artworkUrl:
+        typeof artwork === "string" && artwork.trim().length > 0
+          ? artwork.trim()
+          : null,
     });
   }
   pages.sort((a, b) => (b.presaleAt ?? "").localeCompare(a.presaleAt ?? ""));
@@ -105,6 +121,47 @@ async function countSignupsByEvent(
     counts.set(row.event_id, (counts.get(row.event_id) ?? 0) + 1);
   }
   return counts;
+}
+
+import { resolveAccent } from "@/lib/landing-pages/theme";
+
+export interface ClientBranding {
+  /** Sanitised brand accent — client theme primary → #E5322D. */
+  accent: string;
+  /** Box-logo text; falls back to the client name. */
+  boxLogoText: string;
+  logoStyle: "box_logo" | "wordmark";
+}
+
+/**
+ * Client-level branding for the admin shell + Pages thumbnails. Uses the
+ * SAME resolveAccent() precedence as the fan-facing LP (client theme
+ * primary_color → default red) — there is no per-page artwork palette at
+ * the shell level, so palette is null here.
+ */
+export async function getClientBranding(
+  clientId: string,
+  clientName: string,
+): Promise<ClientBranding> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("client_landing_pages")
+    .select("theme, logo_style, box_logo_text")
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`[client-admin] branding lookup failed: ${error.message}`);
+  }
+  const row = (data ?? null) as {
+    theme: Record<string, unknown> | null;
+    logo_style: "box_logo" | "wordmark" | null;
+    box_logo_text: string | null;
+  } | null;
+  return {
+    accent: resolveAccent(null, row?.theme ?? null),
+    boxLogoText: row?.box_logo_text?.trim() || clientName,
+    logoStyle: row?.logo_style ?? "box_logo",
+  };
 }
 
 /** Total (non-deleted) signups across the whole client. */

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   LayoutDashboard,
-  LogOut,
+  LayoutList,
   Plug,
   Settings as SettingsIcon,
   Users,
@@ -14,40 +14,51 @@ import {
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * components/admin/admin-shell.tsx
+ * components/admin/admin-shell.tsx — OP909 dashboard chrome.
  *
- * Chrome for the client admin dashboard (OP909): left sidebar nav +
- * sticky top bar + content area. FUNCTIONAL aesthetic — follows the
- * internal dashboard patterns (Tailwind tokens, rounded corners,
- * lucide icons), deliberately NOT the Supreme fan-facing system.
+ * Sprint 1 aesthetic pivot: the dashboard now speaks the fan-facing LP's
+ * language — mono lowercase nav, Futura Bold Italic product wordmark in a
+ * brand-accent box (mirrors the LP box logo), zero radius, 0.5px black
+ * hairlines, pure white. The whole tree is wrapped in `.op909-admin` with
+ * the client accent set as `--admin-accent` so it inherits down (and never
+ * leaks to the operator surfaces).
  *
- * Client component (usePathname for active states + client-side logout),
- * receives the resolved membership as props from the server layout.
+ * NOTE (resolved spec conflict): the brief's Goal 1 says "sidebar keeps its
+ * dark bg" but Goal 3 defines the active item as BLACK text with hover =
+ * "text darken only" — only coherent on a LIGHT sidebar. Shipped light
+ * (matches the all-white Supreme target + the accent box-logo pop). Flip to
+ * a dark rail later if desired — it's a single bg + text-color swap here.
+ *
+ * "OP909" is the working product name; swap the PRODUCT_WORDMARK string once
+ * Commercial+Ops locks the final name.
  */
 
+const PRODUCT_WORDMARK = "OP909";
+
 type NavItem = {
-  /** Path segment under /admin/{clientSlug} ("" = dashboard home). */
   segment: string;
   label: string;
   icon: React.ElementType;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { segment: "", label: "Dashboard", icon: LayoutDashboard },
-  { segment: "pages", label: "Pages", icon: LayoutDashboard },
-  { segment: "fans", label: "Fans", icon: Users },
-  { segment: "insights", label: "Insights", icon: BarChart3 },
-  { segment: "integrations", label: "Integrations", icon: Plug },
-  { segment: "settings", label: "Settings", icon: SettingsIcon },
+  { segment: "", label: "dashboard", icon: LayoutDashboard },
+  { segment: "pages", label: "pages", icon: LayoutList },
+  { segment: "fans", label: "fans", icon: Users },
+  { segment: "insights", label: "insights", icon: BarChart3 },
+  { segment: "integrations", label: "integrations", icon: Plug },
+  { segment: "settings", label: "settings", icon: SettingsIcon },
 ];
 
 export function AdminShell({
   clientSlug,
   clientName,
+  accent,
   children,
 }: {
   clientSlug: string;
   clientName: string;
+  accent: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname() ?? "";
@@ -61,18 +72,24 @@ export function AdminShell({
   };
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="hidden md:flex w-56 shrink-0 flex-col border-r border-border bg-card">
-        <div className="px-5 py-5 border-b border-border">
-          <p className="font-heading text-lg tracking-wide leading-none truncate">
-            {clientName}
-          </p>
-          <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-            Landing pages &amp; fans
+    <div
+      className="op909-admin flex min-h-screen"
+      style={{ ["--admin-accent" as string]: accent }}
+    >
+      <aside className="hidden w-60 shrink-0 flex-col border-r-[0.5px] border-black bg-white md:flex">
+        <div className="px-6 py-6">
+          <span
+            className="admin-heading inline-block px-2.5 py-1 text-[16px] text-white"
+            style={{ backgroundColor: accent }}
+          >
+            {PRODUCT_WORDMARK}
+          </span>
+          <p className="mt-2 font-[family-name:var(--admin-mono)] text-[10px] leading-snug text-[#999]">
+            for {clientName}
           </p>
         </div>
 
-        <nav className="flex-1 px-2 py-3">
+        <nav className="flex-1 px-3 py-2">
           <ul className="space-y-0.5">
             {NAV_ITEMS.map((item) => {
               const href = item.segment ? `${base}/${item.segment}` : base;
@@ -85,15 +102,15 @@ export function AdminShell({
                   <Link
                     href={href}
                     prefetch
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors
-                      ${
-                        active
-                          ? "bg-primary-light text-foreground font-medium"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                      }`}
+                    className={`flex items-center gap-2.5 py-2 pl-3 font-[family-name:var(--admin-mono)] text-[12px] lowercase transition-colors ${
+                      active
+                        ? "border-l-2 font-medium text-black"
+                        : "border-l-2 border-transparent text-[#999] hover:text-black"
+                    }`}
+                    style={active ? { borderColor: accent } : undefined}
                   >
-                    <Icon className="h-4 w-4" />
-                    <span className="flex-1">{item.label}</span>
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{item.label}</span>
                   </Link>
                 </li>
               );
@@ -101,32 +118,29 @@ export function AdminShell({
           </ul>
         </nav>
 
-        <div className="px-2 py-3 border-t border-border">
+        <div className="px-3 py-4">
           <button
             type="button"
             onClick={handleLogout}
-            className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground
-              hover:text-foreground hover:bg-muted transition-colors"
+            className="py-2 pl-3 font-[family-name:var(--admin-mono)] text-[11px] uppercase tracking-[1px] text-[#999] transition-colors hover:text-black"
           >
-            <LogOut className="h-4 w-4" />
             Log out
           </button>
         </div>
-
-        <div className="px-5 pb-4">
-          <p className="text-[10px] text-muted-foreground">
-            Powered by Off/Pixel
-          </p>
-        </div>
       </aside>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-10 flex h-12 items-center justify-between border-b border-border bg-card px-4 md:hidden">
-          <span className="text-sm font-medium truncate">{clientName}</span>
+      <div className="flex min-w-0 flex-1 flex-col bg-white">
+        <header className="sticky top-0 z-10 flex h-12 items-center justify-between border-b-[0.5px] border-black bg-white px-4 md:hidden">
+          <span
+            className="admin-heading inline-block px-2 py-0.5 text-[13px] text-white"
+            style={{ backgroundColor: accent }}
+          >
+            {PRODUCT_WORDMARK}
+          </span>
           <button
             type="button"
             onClick={handleLogout}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className="font-[family-name:var(--admin-mono)] text-[11px] uppercase tracking-[1px] text-[#999] hover:text-black"
           >
             Log out
           </button>
