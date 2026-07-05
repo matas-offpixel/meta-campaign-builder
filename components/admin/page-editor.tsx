@@ -24,17 +24,41 @@ import {
 import type { PageEventEditView } from "@/lib/db/client-admin";
 
 /**
- * components/admin/page-editor.tsx — the full LP content editor (OP909
- * Phase 3). One main form (event basics / content / countdown / socials
- * / status) with 800ms debounced auto-save on text fields + immediate
- * save on selects, plus PHYSICALLY SEPARATE upload/remove/reorder forms
- * for images (forms can't nest). Reorder is up/down buttons — brief
- * asked for drag, buttons are the reliable overnight cut (deviation
- * noted in the session log).
+ * components/admin/page-editor.tsx — the full LP content editor.
+ *
+ * Sprint 1 PR 3: reorganised into TABS (details / dates / media / form /
+ * countdown / visibility / customisation / status). All non-image fields
+ * live in ONE autosave form (tab panels toggle `hidden`, so inputs in
+ * inactive tabs still post); the image upload/reorder/remove forms are
+ * physically separate (forms can't nest) and surface under the Media tab.
+ * Visibility + customisation are new (page_events.visibility /
+ * .customisation, migration 139). 800ms debounced auto-save on text fields,
+ * immediate on selects/checkboxes; reorder stays up/down buttons.
  */
 
 const IDLE: PageEventActionState = { status: "idle", errors: {} };
 const AUTOSAVE_DELAY_MS = 800;
+
+type TabId =
+  | "details"
+  | "dates"
+  | "media"
+  | "form"
+  | "countdown"
+  | "visibility"
+  | "customisation"
+  | "status";
+
+const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
+  { id: "details", label: "details" },
+  { id: "dates", label: "dates" },
+  { id: "media", label: "media" },
+  { id: "form", label: "form" },
+  { id: "countdown", label: "countdown" },
+  { id: "visibility", label: "visibility" },
+  { id: "customisation", label: "customisation" },
+  { id: "status", label: "status" },
+];
 
 export function PageEditor({
   view,
@@ -47,9 +71,18 @@ export function PageEditor({
   const formRef = useRef<HTMLFormElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [tab, setTab] = useState<TabId>("details");
   const [countdownEnabled, setCountdownEnabled] = useState(
     view.countdownTargetAt != null,
   );
+  // Visibility checkboxes are CONTROLLED (not defaultChecked): the debounced
+  // autosave + revalidatePath re-render would otherwise drop an uncontrolled
+  // checkbox's live state before it serialises, saving it as unchecked.
+  const [visibility, setVisibility] = useState({
+    show_event_date: view.visibility.showEventDate,
+    show_venue: view.visibility.showVenue,
+    show_description: view.visibility.showDescription,
+  });
 
   // Debounced autosave: any input/change inside the main form schedules a
   // save; selects and checkboxes flush immediately.
@@ -80,7 +113,7 @@ export function PageEditor({
 
   return (
     <div className="space-y-6">
-      {/* ── Sticky status bar ─────────────────────────────────────── */}
+      {/* ── Status bar ────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
@@ -115,6 +148,24 @@ export function PageEditor({
         </div>
       </div>
 
+      {/* ── Tab bar ───────────────────────────────────────────────── */}
+      <div className="flex gap-1 overflow-x-auto border-b border-border">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`-mb-px whitespace-nowrap px-3 py-2 text-xs lowercase ${
+              tab === t.id
+                ? "border-b-2 border-[color:var(--admin-accent)] font-medium text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <form
         ref={formRef}
         action={formAction}
@@ -123,119 +174,130 @@ export function PageEditor({
       >
         <input type="hidden" name="page_event_id" value={view.pageEventId} />
 
-        {/* ── 1. Event basics ─────────────────────────────────────── */}
-        <Section title="Event basics">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Event name" error={err.name}>
-              <input
-                name="name"
-                type="text"
-                defaultValue={view.eventName}
-                required
-                className={inputCls}
-              />
-            </Field>
-            <Field
-              label="URL slug"
-              error={err.slug}
-              hint={`/l/${clientSlug}/{slug}`}
-            >
-              <input
-                name="slug"
-                type="text"
-                defaultValue={view.eventSlug}
-                className={`${inputCls} font-mono`}
-              />
-            </Field>
-          </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <Field label="Presale opens (UK)" error={err.presale_at}>
-              <input
-                name="presale_at"
-                type="datetime-local"
-                defaultValue={isoToLondonWallTime(view.presaleAt)}
-                className={inputCls}
-              />
-            </Field>
-            <Field label="General sale (UK)" error={err.general_sale_at}>
-              <input
-                name="general_sale_at"
-                type="datetime-local"
-                defaultValue={isoToLondonWallTime(view.generalSaleAt)}
-                className={inputCls}
-              />
-            </Field>
-            <Field label="Event start (UK)" error={err.event_start_at}>
-              <input
-                name="event_start_at"
-                type="datetime-local"
-                defaultValue={isoToLondonWallTime(view.eventStartAt)}
-                className={inputCls}
-              />
-            </Field>
-          </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Venue" error={err.venue}>
-              <input
-                name="venue"
-                type="text"
-                defaultValue={str("venue")}
-                className={inputCls}
-              />
-            </Field>
-            <Field
-              label="Venue (short)"
-              hint="Header label — defaults to the part before the first comma"
-            >
-              <input
-                name="venue_short"
-                type="text"
-                defaultValue={str("venue_short")}
-                className={inputCls}
-              />
-            </Field>
-          </div>
-        </Section>
+        {/* ── Details ─────────────────────────────────────────────── */}
+        <TabPanel active={tab === "details"}>
+          <Section title="Event basics">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Event name" error={err.name}>
+                <input
+                  name="name"
+                  type="text"
+                  defaultValue={view.eventName}
+                  required
+                  className={inputCls}
+                />
+              </Field>
+              <Field
+                label="URL slug"
+                error={err.slug}
+                hint={`/l/${clientSlug}/{slug}`}
+              >
+                <input
+                  name="slug"
+                  type="text"
+                  defaultValue={view.eventSlug}
+                  className={`${inputCls} font-mono`}
+                />
+              </Field>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Venue" error={err.venue}>
+                <input
+                  name="venue"
+                  type="text"
+                  defaultValue={str("venue")}
+                  className={inputCls}
+                />
+              </Field>
+              <Field
+                label="Venue (short)"
+                hint="Header label — defaults to the part before the first comma"
+              >
+                <input
+                  name="venue_short"
+                  type="text"
+                  defaultValue={str("venue_short")}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+          </Section>
 
-        {/* ── 2. Content ──────────────────────────────────────────── */}
-        <Section title="Content">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Title"
-              error={err.title}
-              hint="Defaults to the event name when empty"
-            >
-              <input
-                name="title"
-                type="text"
-                defaultValue={str("title")}
-                className={inputCls}
-              />
-            </Field>
-            <Field
-              label="Subtitle"
-              error={err.subtitle}
-              hint="Marketing tagline — keep date info out of it"
-            >
-              <input
-                name="subtitle"
-                type="text"
-                defaultValue={str("subtitle")}
-                className={inputCls}
-              />
-            </Field>
-          </div>
-          <div className="mt-4">
-            <Field label="Description" error={err.description}>
-              <textarea
-                name="description"
-                rows={5}
-                defaultValue={str("description")}
-                className={`${inputCls} h-auto py-2`}
-              />
-            </Field>
-          </div>
-          <div className="mt-4">
+          <Section title="Content">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Title"
+                error={err.title}
+                hint="Defaults to the event name when empty"
+              >
+                <input
+                  name="title"
+                  type="text"
+                  defaultValue={str("title")}
+                  className={inputCls}
+                />
+              </Field>
+              <Field
+                label="Subtitle"
+                error={err.subtitle}
+                hint="Marketing tagline — keep date info out of it"
+              >
+                <input
+                  name="subtitle"
+                  type="text"
+                  defaultValue={str("subtitle")}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <div className="mt-4">
+              <Field label="Description" error={err.description}>
+                <textarea
+                  name="description"
+                  rows={5}
+                  defaultValue={str("description")}
+                  className={`${inputCls} h-auto py-2`}
+                />
+              </Field>
+            </div>
+          </Section>
+        </TabPanel>
+
+        {/* ── Dates ───────────────────────────────────────────────── */}
+        <TabPanel active={tab === "dates"}>
+          <Section title="Key dates" hint="All times are Europe/London.">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Presale opens (UK)" error={err.presale_at}>
+                <input
+                  name="presale_at"
+                  type="datetime-local"
+                  defaultValue={isoToLondonWallTime(view.presaleAt)}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="General sale (UK)" error={err.general_sale_at}>
+                <input
+                  name="general_sale_at"
+                  type="datetime-local"
+                  defaultValue={isoToLondonWallTime(view.generalSaleAt)}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Event start (UK)" error={err.event_start_at}>
+                <input
+                  name="event_start_at"
+                  type="datetime-local"
+                  defaultValue={isoToLondonWallTime(view.eventStartAt)}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+          </Section>
+        </TabPanel>
+
+        {/* ── Media (youtube here; images are separate forms below) ── */}
+        <TabPanel active={tab === "media"}>
+          <Section title="Video">
             <Field
               label="YouTube URL"
               error={err.youtube_url}
@@ -249,136 +311,230 @@ export function PageEditor({
                 className={inputCls}
               />
             </Field>
-          </div>
-        </Section>
+          </Section>
+        </TabPanel>
 
-        {/* ── 4. Countdown ────────────────────────────────────────── */}
-        <Section title="Countdown">
-          <label className="flex items-center gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              name="countdown_enabled"
-              checked={countdownEnabled}
-              onChange={(e) => {
-                setCountdownEnabled(e.target.checked);
-                scheduleSave(true);
-              }}
-            />
-            Show a countdown on the page
-          </label>
-          {countdownEnabled && (
+        {/* ── Form (confirmation + brand socials) ─────────────────── */}
+        <TabPanel active={tab === "form"}>
+          <Section
+            title="Confirmation message"
+            hint="Shown to fans after they successfully sign up. Leave blank to use the default."
+          >
+            <Field label="Message" error={err.confirmation_body}>
+              <textarea
+                name="confirmation_body"
+                rows={3}
+                maxLength={200}
+                defaultValue={str("confirmation_body")}
+                placeholder="Your registration has been confirmed. Join the WhatsApp community group to access tickets 30 minutes early."
+                className={`${inputCls} h-auto py-2`}
+              />
+            </Field>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label="Counts down to (UK)" error={err.countdown_target_at}>
+              <Field
+                label="Button text"
+                error={err.confirmation_cta_label}
+                hint="Keep it action-oriented — max 24 characters"
+              >
                 <input
-                  name="countdown_target_at"
-                  type="datetime-local"
-                  defaultValue={
-                    isoToLondonWallTime(view.countdownTargetAt) ||
-                    isoToLondonWallTime(view.presaleAt)
-                  }
+                  name="confirmation_cta_label"
+                  type="text"
+                  maxLength={24}
+                  defaultValue={str("confirmation_cta_label")}
+                  placeholder="JOIN WHATSAPP COMMUNITY"
                   className={inputCls}
                 />
               </Field>
-              <Field label="Label" error={err.countdown_label}>
+              <Field label="Button URL" error={err.confirmation_cta_url}>
                 <input
-                  name="countdown_label"
-                  type="text"
-                  defaultValue={view.countdownLabel ?? "presale opens in"}
+                  name="confirmation_cta_url"
+                  type="url"
+                  defaultValue={str("confirmation_cta_url")}
+                  placeholder="https://chat.whatsapp.com/…"
                   className={inputCls}
                 />
               </Field>
             </div>
-          )}
-        </Section>
+          </Section>
 
-        {/* ── 4b. Confirmation message (OP909 Phase 4) ────────────── */}
-        <Section
-          title="Confirmation message"
-          hint="Shown to fans after they successfully sign up. Leave blank to use the default."
-        >
-          <Field label="Message" error={err.confirmation_body}>
-            <textarea
-              name="confirmation_body"
-              rows={3}
-              maxLength={200}
-              defaultValue={str("confirmation_body")}
-              placeholder="Your registration has been confirmed. Join the WhatsApp community group to access tickets 30 minutes early."
-              className={`${inputCls} h-auto py-2`}
-            />
-          </Field>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Button text"
-              error={err.confirmation_cta_label}
-              hint="Keep it action-oriented — max 24 characters"
-            >
-              <input
-                name="confirmation_cta_label"
-                type="text"
-                maxLength={24}
-                defaultValue={str("confirmation_cta_label")}
-                placeholder="JOIN WHATSAPP COMMUNITY"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="Button URL" error={err.confirmation_cta_url}>
-              <input
-                name="confirmation_cta_url"
-                type="url"
-                defaultValue={str("confirmation_cta_url")}
-                placeholder="https://chat.whatsapp.com/…"
-                className={inputCls}
-              />
-            </Field>
-          </div>
-        </Section>
+          <Section
+            title="Brand socials (this page)"
+            hint="Overrides the client-level defaults from Settings for this page only."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Instagram URL" error={err.brand_instagram_url}>
+                <input
+                  name="brand_instagram_url"
+                  type="url"
+                  defaultValue={str("brand_instagram_url")}
+                  placeholder="https://instagram.com/…"
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="TikTok URL" error={err.brand_tiktok_url}>
+                <input
+                  name="brand_tiktok_url"
+                  type="url"
+                  defaultValue={str("brand_tiktok_url")}
+                  placeholder="https://tiktok.com/@…"
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+          </Section>
+        </TabPanel>
 
-        {/* ── 5. Brand socials override ───────────────────────────── */}
-        <Section
-          title="Brand socials (this page)"
-          hint="Overrides the client-level defaults from Settings for this page only."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Instagram URL" error={err.brand_instagram_url}>
+        {/* ── Countdown ───────────────────────────────────────────── */}
+        <TabPanel active={tab === "countdown"}>
+          <Section title="Countdown">
+            <label className="flex items-center gap-2.5 text-sm">
               <input
-                name="brand_instagram_url"
-                type="url"
-                defaultValue={str("brand_instagram_url")}
-                placeholder="https://instagram.com/…"
-                className={inputCls}
+                type="checkbox"
+                name="countdown_enabled"
+                checked={countdownEnabled}
+                onChange={(e) => {
+                  setCountdownEnabled(e.target.checked);
+                  scheduleSave(true);
+                }}
               />
-            </Field>
-            <Field label="TikTok URL" error={err.brand_tiktok_url}>
-              <input
-                name="brand_tiktok_url"
-                type="url"
-                defaultValue={str("brand_tiktok_url")}
-                placeholder="https://tiktok.com/@…"
-                className={inputCls}
+              Show a countdown on the page
+            </label>
+            {countdownEnabled && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Counts down to (UK)"
+                  error={err.countdown_target_at}
+                >
+                  <input
+                    name="countdown_target_at"
+                    type="datetime-local"
+                    defaultValue={
+                      isoToLondonWallTime(view.countdownTargetAt) ||
+                      isoToLondonWallTime(view.presaleAt)
+                    }
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Label" error={err.countdown_label}>
+                  <input
+                    name="countdown_label"
+                    type="text"
+                    defaultValue={view.countdownLabel ?? "presale opens in"}
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
+            )}
+          </Section>
+        </TabPanel>
+
+        {/* ── Visibility ──────────────────────────────────────────── */}
+        <TabPanel active={tab === "visibility"}>
+          <Section
+            title="Section visibility"
+            hint="Hide individual sections of the page without deleting their content."
+          >
+            <div className="space-y-3">
+              <ToggleRow
+                name="show_event_date"
+                label="Event date (header)"
+                checked={visibility.show_event_date}
+                onToggle={(v) => {
+                  setVisibility((s) => ({ ...s, show_event_date: v }));
+                  scheduleSave(true);
+                }}
               />
+              <ToggleRow
+                name="show_venue"
+                label="Venue (header)"
+                checked={visibility.show_venue}
+                onToggle={(v) => {
+                  setVisibility((s) => ({ ...s, show_venue: v }));
+                  scheduleSave(true);
+                }}
+              />
+              <ToggleRow
+                name="show_description"
+                label="Description block"
+                checked={visibility.show_description}
+                onToggle={(v) => {
+                  setVisibility((s) => ({ ...s, show_description: v }));
+                  scheduleSave(true);
+                }}
+              />
+            </div>
+          </Section>
+        </TabPanel>
+
+        {/* ── Customisation ───────────────────────────────────────── */}
+        <TabPanel active={tab === "customisation"}>
+          <Section
+            title="Appearance"
+            hint="Leave the colours blank to use the page's accent (from the artwork)."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field
+                label="Primary button colour"
+                error={err.primary_button_bg}
+                hint="Hex, e.g. #E5322D"
+              >
+                <input
+                  name="primary_button_bg"
+                  type="text"
+                  defaultValue={view.customisation.primaryButtonBg ?? ""}
+                  placeholder="#E5322D"
+                  className={`${inputCls} font-mono`}
+                />
+              </Field>
+              <Field
+                label="Primary button text colour"
+                error={err.primary_button_text}
+                hint="Hex, e.g. #FFFFFF"
+              >
+                <input
+                  name="primary_button_text"
+                  type="text"
+                  defaultValue={view.customisation.primaryButtonText ?? ""}
+                  placeholder="#FFFFFF"
+                  className={`${inputCls} font-mono`}
+                />
+              </Field>
+            </div>
+            <div className="mt-4">
+              <Field label="Description alignment">
+                <select
+                  name="description_align"
+                  defaultValue={view.customisation.descriptionAlign}
+                  onChange={() => scheduleSave(true)}
+                  className={`${inputCls} max-w-xs`}
+                >
+                  <option value="left">Left</option>
+                  <option value="center">Centre</option>
+                </select>
+              </Field>
+            </div>
+          </Section>
+        </TabPanel>
+
+        {/* ── Status ──────────────────────────────────────────────── */}
+        <TabPanel active={tab === "status"}>
+          <Section title="Status">
+            <Field label="Page status" error={err.status}>
+              <select
+                name="status"
+                defaultValue={view.status}
+                onChange={() => scheduleSave(true)}
+                className={`${inputCls} max-w-xs`}
+              >
+                <option value="draft">Draft — not publicly visible</option>
+                <option value="live">Live — fans can sign up</option>
+                <option value="archived">Archived</option>
+              </select>
             </Field>
-          </div>
-        </Section>
+          </Section>
+        </TabPanel>
 
-        {/* ── 6. Status ───────────────────────────────────────────── */}
-        <Section title="Status">
-          <Field label="Page status" error={err.status}>
-            <select
-              name="status"
-              defaultValue={view.status}
-              onChange={() => scheduleSave(true)}
-              className={`${inputCls} max-w-xs`}
-            >
-              <option value="draft">Draft — not publicly visible</option>
-              <option value="live">Live — fans can sign up</option>
-              <option value="archived">Archived</option>
-            </select>
-          </Field>
-        </Section>
-
-        {err._form && (
-          <p className="text-sm text-destructive">{err._form}</p>
-        )}
+        {err._form && <p className="text-sm text-destructive">{err._form}</p>}
 
         <button
           type="submit"
@@ -390,56 +546,104 @@ export function PageEditor({
         </button>
       </form>
 
-      {/* ── 3. Images — separate forms (cannot nest inside the main form) */}
-      <Section title="Artwork">
-        <p className="text-xs text-muted-foreground">
-          The main image — drives the page&apos;s accent color (re-extracted
-          automatically after upload).
-        </p>
-        {artworkUrl ? (
-          <div className="mt-3 flex items-start gap-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={artworkUrl}
-              alt="Artwork"
-              className="h-32 w-32 rounded-md border border-border object-cover"
-            />
-            <RemoveImageButton
-              pageEventId={view.pageEventId}
-              kind="artwork"
-              url={artworkUrl}
-            />
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">No artwork yet.</p>
-        )}
-        <UploadForm
-          pageEventId={view.pageEventId}
-          kind="artwork"
-          label={artworkUrl ? "Replace artwork" : "Upload artwork"}
-        />
-      </Section>
+      {/* ── Media images — separate forms (cannot nest in the main form) */}
+      <div hidden={tab !== "media"} className="space-y-6">
+        <Section title="Artwork">
+          <p className="text-xs text-muted-foreground">
+            The main image — drives the page&apos;s accent color (re-extracted
+            automatically after upload).
+          </p>
+          {artworkUrl ? (
+            <div className="mt-3 flex items-start gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={artworkUrl}
+                alt="Artwork"
+                className="h-32 w-32 rounded-md border border-border object-cover"
+              />
+              <RemoveImageButton
+                pageEventId={view.pageEventId}
+                kind="artwork"
+                url={artworkUrl}
+              />
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-muted-foreground">No artwork yet.</p>
+          )}
+          <UploadForm
+            pageEventId={view.pageEventId}
+            kind="artwork"
+            label={artworkUrl ? "Replace artwork" : "Upload artwork"}
+          />
+        </Section>
 
-      <Section title="Hero carousel">
-        <ImageList
-          pageEventId={view.pageEventId}
-          kind="hero"
-          images={view.heroImages}
-          emptyLabel="No hero images — the artwork is shown instead."
-        />
-        <UploadForm pageEventId={view.pageEventId} kind="hero" label="Add hero image" />
-      </Section>
+        <Section title="Hero carousel">
+          <ImageList
+            pageEventId={view.pageEventId}
+            kind="hero"
+            images={view.heroImages}
+            emptyLabel="No hero images — the artwork is shown instead."
+          />
+          <UploadForm
+            pageEventId={view.pageEventId}
+            kind="hero"
+            label="Add hero image"
+          />
+        </Section>
 
-      <Section title="Bottom image grid">
-        <ImageList
-          pageEventId={view.pageEventId}
-          kind="bottom"
-          images={view.bottomImages}
-          emptyLabel="No bottom images — the grid is hidden."
-        />
-        <UploadForm pageEventId={view.pageEventId} kind="bottom" label="Add bottom image" />
-      </Section>
+        <Section title="Bottom image grid">
+          <ImageList
+            pageEventId={view.pageEventId}
+            kind="bottom"
+            images={view.bottomImages}
+            emptyLabel="No bottom images — the grid is hidden."
+          />
+          <UploadForm
+            pageEventId={view.pageEventId}
+            kind="bottom"
+            label="Add bottom image"
+          />
+        </Section>
+      </div>
     </div>
+  );
+}
+
+function TabPanel({
+  active,
+  children,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div hidden={!active} className="space-y-6">
+      {children}
+    </div>
+  );
+}
+
+function ToggleRow({
+  name,
+  label,
+  checked,
+  onToggle,
+}: {
+  name: string;
+  label: string;
+  checked: boolean;
+  onToggle: (value: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2.5 text-sm">
+      <input
+        type="checkbox"
+        name={name}
+        checked={checked}
+        onChange={(e) => onToggle(e.target.checked)}
+      />
+      {label}
+    </label>
   );
 }
 

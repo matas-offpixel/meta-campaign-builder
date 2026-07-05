@@ -1,6 +1,12 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import {
+  resolveCustomisation,
+  resolveVisibility,
+  type ResolvedCustomisation,
+  type ResolvedVisibility,
+} from "@/lib/landing-pages/modules";
 
 /**
  * lib/db/client-admin.ts
@@ -319,6 +325,9 @@ export interface PageEventEditView {
   countdownTargetAt: string | null;
   countdownLabel: string | null;
   youtubeUrl: string | null;
+  // Sprint 1 PR 3: resolved visibility toggles + customisation for the editor.
+  visibility: ResolvedVisibility;
+  customisation: ResolvedCustomisation;
 }
 
 /**
@@ -335,7 +344,7 @@ export async function getPageEventForEdit(
     .from("page_events")
     .select(
       "id, event_id, status, content, hero_images, bottom_images, " +
-        "countdown_target_at, countdown_label, youtube_url, " +
+        "countdown_target_at, countdown_label, youtube_url, visibility, customisation, " +
         "events!inner (id, name, slug, client_id, presale_at, general_sale_at, event_start_at)",
     )
     .eq("id", pageEventId)
@@ -356,6 +365,8 @@ export async function getPageEventForEdit(
     countdown_target_at: string | null;
     countdown_label: string | null;
     youtube_url: string | null;
+    visibility: unknown;
+    customisation: unknown;
     events:
       | {
           id: string;
@@ -397,5 +408,7 @@ export async function getPageEventForEdit(
     countdownTargetAt: row.countdown_target_at,
     countdownLabel: row.countdown_label,
     youtubeUrl: row.youtube_url,
+    visibility: resolveVisibility({ visibility: row.visibility }),
+    customisation: resolveCustomisation({ customisation: row.customisation }),
   };
 }

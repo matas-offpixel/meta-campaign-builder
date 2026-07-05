@@ -45,6 +45,9 @@ export function slugifyEventName(raw: string): string {
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/** #rgb or #rrggbb — mirrors lib/landing-pages/modules.ts safeHexColor. */
+const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
 // ─── London wall time ↔ ISO ─────────────────────────────────────────────────
 
 const LONDON_OFFSET_PROBE = new Intl.DateTimeFormat("en-GB", {
@@ -135,6 +138,14 @@ export interface PageEventFormValues {
   countdown_enabled: boolean;
   countdown_target_at: string | null;
   countdown_label: string | null;
+  // Visibility toggles (page_events.visibility jsonb — Sprint 1 PR 3)
+  show_event_date: boolean;
+  show_venue: boolean;
+  show_description: boolean;
+  // Customisation (page_events.customisation jsonb — Sprint 1 PR 3)
+  primary_button_bg: string | null;
+  primary_button_text: string | null;
+  description_align: "left" | "center";
   // Status (page_events column)
   status: "draft" | "live" | "archived";
 }
@@ -265,6 +276,27 @@ export function parsePageEventForm(
     errors.countdown_label = "Keep the label under 60 characters.";
   }
 
+  // Visibility checkboxes: an HTML checkbox only posts when checked, so an
+  // absent value means "unchecked → hidden". New pages hydrate all three
+  // checked (see the edit view defaults), so the first save posts them true.
+  const asBool = (raw: unknown): boolean =>
+    raw === true || raw === "true" || raw === "on";
+  const showEventDate = asBool(input.show_event_date);
+  const showVenue = asBool(input.show_venue);
+  const showDescription = asBool(input.show_description);
+
+  // Customisation colours: empty → null (default look); junk → error.
+  const bgRaw = emptyToNull(input.primary_button_bg);
+  if (bgRaw && !HEX_COLOR_RE.test(bgRaw)) {
+    errors.primary_button_bg = "Use a hex colour like #E5322D.";
+  }
+  const textRaw = emptyToNull(input.primary_button_text);
+  if (textRaw && !HEX_COLOR_RE.test(textRaw)) {
+    errors.primary_button_text = "Use a hex colour like #FFFFFF.";
+  }
+  const descriptionAlign =
+    input.description_align === "center" ? "center" : "left";
+
   const status = input.status;
   if (status !== "draft" && status !== "live" && status !== "archived") {
     errors.status = "Choose draft, live, or archived.";
@@ -294,6 +326,12 @@ export function parsePageEventForm(
       countdown_enabled: countdownEnabled,
       countdown_target_at: countdownEnabled ? countdownIso : null,
       countdown_label: countdownLabel,
+      show_event_date: showEventDate,
+      show_venue: showVenue,
+      show_description: showDescription,
+      primary_button_bg: bgRaw,
+      primary_button_text: textRaw,
+      description_align: descriptionAlign,
       status: status as "draft" | "live" | "archived",
     },
   };
@@ -341,6 +379,16 @@ export function buildPageEventUpdate(
   setOrDelete("confirmation_cta_label", values.confirmation_cta_label);
   setOrDelete("confirmation_cta_url", values.confirmation_cta_url);
 
+  // Customisation: only store non-default keys so an all-default page keeps
+  // an empty {} (resolveCustomisation reproduces the pre-139 look from it).
+  const customisation: Record<string, unknown> = {};
+  if (values.primary_button_bg)
+    customisation.primary_button_bg = values.primary_button_bg;
+  if (values.primary_button_text)
+    customisation.primary_button_text = values.primary_button_text;
+  if (values.description_align === "center")
+    customisation.description_align = "center";
+
   return {
     content,
     youtube_url: values.youtube_url,
@@ -349,6 +397,19 @@ export function buildPageEventUpdate(
       : null,
     countdown_label: values.countdown_label,
     status: values.status,
+    // Sprint 1 PR 3: persist visibility + customisation alongside the page.
+    visibility: {
+      show_event_date: values.show_event_date,
+      show_venue: values.show_venue,
+      show_description: values.show_description,
+      // Not editor-controlled yet; kept true so the renderer's presale line
+      // (deferred to a later PR) stays visible by default.
+      show_presale: true,
+      // Countdown visibility tracks the countdown enable toggle — there is
+      // no separate "hide countdown" control.
+      show_countdown: values.countdown_enabled,
+    },
+    customisation,
   };
 }
 

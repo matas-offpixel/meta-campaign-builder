@@ -136,6 +136,44 @@ describe("parsePageEventForm", () => {
     assert.equal(result.ok, false);
   });
 
+  // ── Visibility + customisation (Sprint 1 PR 3) ──
+
+  it("visibility checkboxes: present='on' → true, absent → false", () => {
+    const result = parsePageEventForm({
+      ...VALID_FORM,
+      show_event_date: "on",
+      show_venue: "on",
+      // show_description absent (unchecked)
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.show_event_date, true);
+    assert.equal(result.value.show_venue, true);
+    assert.equal(result.value.show_description, false);
+  });
+
+  it("accepts valid hex button colours; rejects junk", () => {
+    const ok = parsePageEventForm({
+      ...VALID_FORM,
+      primary_button_bg: "#E5322D",
+      primary_button_text: "#fff",
+      description_align: "center",
+    });
+    assert.equal(ok.ok, true);
+    if (!ok.ok) return;
+    assert.equal(ok.value.primary_button_bg, "#E5322D");
+    assert.equal(ok.value.primary_button_text, "#fff");
+    assert.equal(ok.value.description_align, "center");
+
+    const bad = parsePageEventForm({
+      ...VALID_FORM,
+      primary_button_bg: "red; url(x)",
+    });
+    assert.equal(bad.ok, false);
+    if (bad.ok) return;
+    assert.ok(bad.errors.primary_button_bg);
+  });
+
   // ── Confirmation card (Phase 4) ──
 
   it("accepts full confirmation config and carries it through", () => {
@@ -241,6 +279,42 @@ describe("buildEventUpdate / buildPageEventUpdate", () => {
     if (!parsed.ok) return;
     const update = buildPageEventUpdate({}, parsed.value);
     assert.equal(update.countdown_target_at, null);
+  });
+
+  it("emits visibility + customisation; defaults keep customisation empty", () => {
+    const parsed = parsePageEventForm({
+      ...VALID_FORM,
+      show_event_date: "on",
+      show_venue: "on",
+      show_description: "on",
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    const update = buildPageEventUpdate({}, parsed.value);
+    assert.deepEqual(update.visibility, {
+      show_event_date: true,
+      show_venue: true,
+      show_description: true,
+      show_presale: true,
+      show_countdown: true, // VALID_FORM has countdown_enabled='on'
+    });
+    // All-default appearance → empty customisation (reproduces pre-139 look).
+    assert.deepEqual(update.customisation, {});
+  });
+
+  it("customisation carries non-default overrides only", () => {
+    const parsed = parsePageEventForm({
+      ...VALID_FORM,
+      primary_button_bg: "#000000",
+      description_align: "center",
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    const update = buildPageEventUpdate({}, parsed.value);
+    assert.deepEqual(update.customisation, {
+      primary_button_bg: "#000000",
+      description_align: "center",
+    });
   });
 });
 
