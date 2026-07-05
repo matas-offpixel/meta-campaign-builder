@@ -289,6 +289,42 @@ Phase 7 details worth knowing:
   local decryption with "Wrong key or corrupt data". Expected; prod
   encrypt/decrypt both use the prod key.
 
+Phase 8 (`/integrations/bird`, `/integrations/mailchimp`): self-service
+CRM credential entry over the EXISTING `d2c_connections` table +
+`set_d2c_credentials` / `get_d2c_credentials` RPCs (migrations 030/042)
+— no new schema. Pure validation in `lib/admin/crm-schema.ts`, DB access
+in `lib/db/crm-connections.ts`, actions in
+`lib/actions/crm-connections.ts`.
+
+Phase 8 details worth knowing:
+
+- **Credential blob shapes are provider contracts** — Bird `{ api_key,
+  workspace_id, channel_id, template_project_id?, template_version_id? }`,
+  Mailchimp `{ api_key, server_prefix, audience_id? }`. These are exactly
+  what `lib/d2c/{bird,mailchimp}/provider.ts` read at send time; the
+  byte-shape is pinned in `crm-schema.test.ts`. The Mailchimp server
+  prefix is derived from the key's `-dc` suffix, never typed by hand.
+- **API keys are write-only tri-state** (blank = keep, paste = replace)
+  like the Phase 7 CAPI token. `set_d2c_credentials` REPLACES the blob,
+  so a keep-save decrypts the existing blob server-side and carries the
+  old key into the new blob. Reads return only `toPublicConfig` (key →
+  boolean).
+- **RLS asymmetry** — `d2c_connections` policies key on the OPERATOR's
+  user_id (migration 030), so client-admin sessions can't see the rows.
+  All access goes through the service-role client after
+  `requireClientContext()`, with the client_id filter applied in
+  `lib/db/crm-connections.ts` (same pattern as fan-signups). Existing
+  rows keep their operator user_id on update; only brand-new connections
+  are owned by the client user.
+- **"Test connection" is read-only** — Bird `GET
+  /workspaces/{id}/channels`, Mailchimp `GET /3.0/ping` via each
+  provider's `validateCredentials`. A real HTTP round trip that proves
+  decrypt → auth header → API, without any message send. Outcome is
+  recorded on the row (`status`/`last_error`/`last_synced_at`).
+- **Clients cannot go live from here.** `live_enabled` +
+  `approved_by_matas` (+ `FEATURE_D2C_LIVE`) stay operator-controlled;
+  the status panel shows them read-only.
+
 ## 7. Phase log
 
 | Phase | Scope | PR | Status |
@@ -299,7 +335,7 @@ Phase 7 details worth knowing:
 | 4 (P1) | Confirmation card editor + renderer | #678 | shipped |
 | 5 (P1) | Fan data table + CSV export | #679 | shipped |
 | 6 (P1) | Analytics dashboard | #680 | shipped |
-| 7 (P2) | Meta Pixel + CAPI self-service | | this PR |
-| 8 (P2) | Bird + Mailchimp integrations UI | | pending |
+| 7 (P2) | Meta Pixel + CAPI self-service | #681 | shipped |
+| 8 (P2) | Bird + Mailchimp integrations UI | | this PR |
 | 9 (P2) | Turnstile invisible-mode audit | | pending |
 | 10 (P2) | LP editor preview mode | | pending |

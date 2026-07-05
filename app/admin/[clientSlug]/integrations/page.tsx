@@ -3,11 +3,12 @@ import { ArrowRight } from "lucide-react";
 
 import { requireClientContext } from "@/lib/auth/get-client-context";
 import { getPixelHealth } from "@/lib/db/client-admin";
+import { getCrmConnectionSummary } from "@/lib/db/crm-connections";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
- * app/admin/[clientSlug]/integrations/page.tsx — integrations hub
- * (OP909 Phase 7). Meta Pixel is live; Bird + Mailchimp cards land in
- * Phase 8.
+ * app/admin/[clientSlug]/integrations/page.tsx — integrations hub.
+ * Meta Pixel (Phase 7) + Bird & Mailchimp (Phase 8).
  */
 export default async function IntegrationsPage({
   params,
@@ -16,7 +17,12 @@ export default async function IntegrationsPage({
 }) {
   const { clientSlug } = await params;
   const membership = await requireClientContext(clientSlug);
-  const pixel = await getPixelHealth(membership.clientId);
+  const db = createServiceRoleClient();
+  const [pixel, bird, mailchimp] = await Promise.all([
+    getPixelHealth(membership.clientId),
+    getCrmConnectionSummary(db, membership.clientId, "bird"),
+    getCrmConnectionSummary(db, membership.clientId, "mailchimp"),
+  ]);
   const pixelReady = Boolean(pixel?.pixelId && pixel.capiTokenConfigured);
 
   return (
@@ -56,19 +62,73 @@ export default async function IntegrationsPage({
           </span>
         </Link>
 
-        <div className="rounded-md border border-dashed border-border bg-card p-5 opacity-70">
+        <Link
+          href={`/admin/${membership.clientSlug}/integrations/bird`}
+          className="group rounded-md border border-border bg-card p-5 transition-colors hover:border-foreground/30"
+        >
           <div className="flex items-center justify-between">
-            <h2 className="font-medium">WhatsApp (Bird) &amp; Mailchimp</h2>
-            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-              coming soon
-            </span>
+            <h2 className="font-medium">WhatsApp (Bird)</h2>
+            <CrmBadge
+              status={bird?.status ?? null}
+              configured={bird?.config.apiKeyConfigured ?? false}
+            />
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
-            Route fan signups into your WhatsApp community and email
-            audience automatically.
+            Route fan signups into your WhatsApp community — announcements,
+            presale reminders and the welcome autoresponder.
           </p>
-        </div>
+          <span className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground">
+            Configure <ArrowRight className="h-3 w-3" />
+          </span>
+        </Link>
+
+        <Link
+          href={`/admin/${membership.clientSlug}/integrations/mailchimp`}
+          className="group rounded-md border border-border bg-card p-5 transition-colors hover:border-foreground/30"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Mailchimp</h2>
+            <CrmBadge
+              status={mailchimp?.status ?? null}
+              configured={mailchimp?.config.apiKeyConfigured ?? false}
+            />
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Route fan signups into your email audience and event campaigns.
+          </p>
+          <span className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground group-hover:text-foreground">
+            Configure <ArrowRight className="h-3 w-3" />
+          </span>
+        </Link>
       </div>
     </div>
+  );
+}
+
+function CrmBadge({
+  status,
+  configured,
+}: {
+  status: string | null;
+  configured: boolean;
+}) {
+  if (status === "error") {
+    return (
+      <span className="inline-flex rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+        error
+      </span>
+    );
+  }
+  if (configured) {
+    return (
+      <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+        connected
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+      not set up
+    </span>
   );
 }
