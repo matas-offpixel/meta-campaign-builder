@@ -107,7 +107,17 @@ export class BirdProvider implements D2CProvider {
         : {};
     const apiKey = readString(creds, "api_key");
     const workspaceId = readString(creds, "workspace_id");
-    const channelId = readString(creds, "channel_id");
+    // Per-send override for multi-brand-per-client setups (e.g. Throwback +
+    // Hop on the Top share one d2c_connections row — UNIQUE(user_id,
+    // client_id, provider) forbids a second Bird row per client — but each
+    // brand's sends carry their own WhatsApp channel in audience.channel_id).
+    // Falls back to the connection-level credential for legacy single-brand
+    // clients that never set a per-send channel_id.
+    const channelId =
+      readString(
+        (message.audience ?? {}) as Record<string, unknown>,
+        "channel_id",
+      ) ?? readString(creds, "channel_id");
     if (!apiKey || !workspaceId || !channelId) {
       return {
         ok: false,
