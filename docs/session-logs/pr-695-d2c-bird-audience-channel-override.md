@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 695
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/695
 - **Branch:** `cursor/d2c-bird-audience-channel-override`
 
 ## Summary
