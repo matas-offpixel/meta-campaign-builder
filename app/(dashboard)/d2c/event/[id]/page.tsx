@@ -1,20 +1,24 @@
 import { notFound, redirect } from "next/navigation";
+import { headers } from "next/headers";
 
-import { PageHeader } from "@/components/dashboard/page-header";
-import { EventApprovalPanel } from "@/components/dashboard/d2c/event-approval-panel";
-import { createClient } from "@/lib/supabase/server";
-import { getEventByIdServer } from "@/lib/db/events-server";
-import { getD2CEventCopy, listScheduledSendsForEvent } from "@/lib/db/d2c";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { isD2CApprover } from "@/lib/auth/operator-allowlist";
+import { loadD2CEventDashboard } from "@/lib/db/d2c-dashboard";
+import { getActiveShareForEvent } from "@/lib/db/d2c-shares";
+import { getEventSignupStats, type EventSignupStats } from "@/lib/d2c/stats";
+import { buildD2CShareUrl } from "@/lib/d2c/dashboard-view";
+import { EventDashboard } from "@/components/dashboard/d2c/event-dashboard";
 
 interface Props {
   params: Promise<{ id: string }>;
 }
 
 /**
- * D2C event orchestration page — shows the parsed event, resolved artwork, and
- * the brief-generated scheduled sends with their approval state. Matas sets the
- * WhatsApp community URL and approves each send (or bulk-approves).
+ * D2C event dashboard (operator). Reads via the service-role client so an
+ * approver can view an event created by another operator — the previous
+ * `getEventByIdServer` ran under the viewer's RLS session and 404'd for any
+ * non-owner (root cause of the Throwback 404). Authorisation is enforced here:
+ * the viewer must be the event owner OR a D2C approver.
  */
 export default async function D2CEventPage({ params }: Props) {
   const { id } = await params;
@@ -25,44 +29,49 @@ export default async function D2CEventPage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const event = await getEventByIdServer(id);
-  if (!event) notFound();
+  let admin: ReturnType<typeof createServiceRoleClient>;
+  try {
+    admin = createServiceRoleClient();
+  } catch {
+    notFound();
+  }
 
-  const [copy, sends] = await Promise.all([
-    getD2CEventCopy(supabase, id),
-    listScheduledSendsForEvent(supabase, id),
-  ]);
+  const data = await loadD2CEventDashboard(admin, id);
+  if (!data) notFound();
 
-  const canApprove = isD2CApprover(user.id);
-  const draftsAwaitingReview = sends.filter((s) => s.status === "draft_ready").length;
+  // Owner OR approver may view. Anyone else gets the same generic 404 so the
+  // dashboard doesn't leak the existence of another operator's event.
+  const isApprover = isD2CApprover(user.id);
+  if (!isApprover && data.event.user_id !== user.id) notFound();
+
+  let stats: EventSignupStats | null = null;
+  try {
+    stats = await getEventSignupStats(admin, id);
+  } catch (e) {
+    console.warn(
+      "[d2c/event] stats failed:",
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
+  const activeShare = await getActiveShareForEvent(admin, id);
+  const h = await headers();
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const origin = host ? `${proto}://${host}` : "";
+  const shareUrl = activeShare ? buildD2CShareUrl(origin, activeShare.token) : null;
 
   return (
-    <>
-      <PageHeader
-        title={`${event.name} — D2C orchestration`}
-        description="Review the brief-generated campaign, set the community URL, and approve each send."
-        actions={
-          draftsAwaitingReview > 0 ? (
-            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-800">
-              {draftsAwaitingReview} draft
-              {draftsAwaitingReview === 1 ? "" : "s"} awaiting review
-            </span>
-          ) : undefined
-        }
-      />
-      <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-3xl">
-          <EventApprovalPanel
-            eventId={id}
-            eventName={event.name}
-            artworkUrl={copy?.artwork_url ?? null}
-            initialCommunityUrl={copy?.whatsapp_community_url ?? null}
-            initialSends={sends}
-            copyBundle={copy?.copy_jsonb ?? {}}
-            canApprove={canApprove}
-          />
-        </div>
-      </main>
-    </>
+    <main className="flex-1 px-6 py-6">
+      <div className="mx-auto max-w-4xl">
+        <EventDashboard
+          data={data}
+          stats={stats}
+          readOnly={false}
+          canApprove={isApprover}
+          share={{ url: shareUrl, id: activeShare?.id ?? null }}
+        />
+      </div>
+    </main>
   );
 }
