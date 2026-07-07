@@ -305,6 +305,74 @@ export async function getAudienceSegments(
 }
 
 /**
+ * One entry from the Mailchimp list-level tag-search endpoint. This is the
+ * account's actual Tags UI (distinct from `MailchimpSegment` — tags created
+ * via the newer Tags panel do NOT always surface promptly in a bulk
+ * `type=static` segments listing, unlike older UI-created tags — see
+ * `getAudienceSegments`).
+ *
+ * NOTE: despite what Mailchimp's own examples imply, the live tag-search
+ * response does NOT include `member_count` — only `id` + `name` (verified
+ * against a real Throwback tag, and matches the public API reference, which
+ * lists no `member_count` field). Every Mailchimp tag is internally a static
+ * segment sharing the tag's numeric id, so the member count must be read via
+ * a follow-up `getSegmentById(tagId)` call.
+ */
+export interface MailchimpTagSearchEntry {
+  id: number;
+  name: string;
+}
+
+export interface MailchimpTagSearchResponse {
+  tags: MailchimpTagSearchEntry[];
+  total_items: number;
+}
+
+/**
+ * Searches an audience's tags by name via
+ * `GET /lists/{audienceId}/tag-search?name={name}`. This is the canonical
+ * lookup for Mailchimp Tags (Contacts → Tags filter) — the Segments endpoint
+ * only reliably covers UI-created tags on older accounts (see
+ * `getAudienceSegments`). Returns tag identity only — pair with
+ * `getSegmentById` for the live member count.
+ */
+export async function searchListTags(
+  dc: string,
+  audienceId: string,
+  apiKey: string,
+  name: string,
+): Promise<MailchimpTagSearchResponse> {
+  return mailchimpGet<MailchimpTagSearchResponse>(
+    dc,
+    `/lists/${audienceId}/tag-search`,
+    { name },
+    apiKey,
+  );
+}
+
+/**
+ * Fetches a single segment by id via `GET /lists/{audienceId}/segments/{id}`.
+ * Every Mailchimp tag is internally represented as a static segment with the
+ * SAME numeric id as the tag, so this doubles as "get a tag's live member
+ * count" given the id from `searchListTags` — and, notably, answers
+ * correctly even for brand-new tags that haven't yet appeared in a bulk
+ * `getAudienceSegments` listing (observed lag on a same-day-created tag).
+ */
+export async function getSegmentById(
+  dc: string,
+  audienceId: string,
+  segmentId: number,
+  apiKey: string,
+): Promise<MailchimpSegment> {
+  return mailchimpGet<MailchimpSegment>(
+    dc,
+    `/lists/${audienceId}/segments/${segmentId}`,
+    {},
+    apiKey,
+  );
+}
+
+/**
  * One tag entry from the Mailchimp member-level tags array.
  * `date_added` is when the tag was applied to this specific member (ISO 8601).
  */

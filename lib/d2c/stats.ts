@@ -4,10 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   getAudienceSegments,
+  getSegmentById,
+  searchListTags,
   MailchimpApiError,
-} from "@/lib/mailchimp/client";
+} from "../mailchimp/client.ts";
 import { birdJson, BirdHttpError } from "./bird/client.ts";
-import { getD2CConnectionCredentials } from "@/lib/db/d2c";
+import { getD2CConnectionCredentials } from "../db/d2c.ts";
 import { parseMailchimpApiKey } from "./mailchimp/credentials.ts";
 import type { D2CConnection } from "./types";
 
@@ -39,10 +41,20 @@ export function isCountOk(r: CountResult): r is CountOk {
 // ─── Mailchimp ───────────────────────────────────────────────────────────────
 
 /**
- * Count Mailchimp members carrying `tagName` in `audienceId`. Mailchimp tags
- * created in the UI surface as `type="static"` segments, and each segment row
- * already carries a live `member_count` — so a single segments GET answers the
- * question without paginating members.
+ * Count Mailchimp members carrying `tagName` in `audienceId`.
+ *
+ * Preferred path: the list-level Tags API (`GET /lists/{id}/tag-search`) —
+ * this is the account's actual Tags panel (Contacts → Tags filter), which is
+ * where Throwback-style tags (e.g. `T26-ALGARVE`) live. Tag-search returns
+ * tag identity only (id + name, NO member_count — verified against a live
+ * Throwback tag; the Mailchimp docs' example response agrees), so a matched
+ * tag needs a follow-up `getSegmentById` call: every tag is internally a
+ * static segment sharing the tag's numeric id, and reading it directly by id
+ * also sidesteps an observed lag where a same-day-created tag hadn't yet
+ * appeared in a bulk `type=static` segments listing.
+ *
+ * Falls back to the bulk Segments listing (matched by name) for older
+ * accounts where a UI-created tag never got a tag-search entry at all.
  *
  * Credentials are resolved from the connection's encrypted blob (the
  * `D2CConnection.credentials` field is intentionally empty on public reads).
@@ -64,17 +76,29 @@ export async function countMailchimpMembersByTag(
         : "") || parseMailchimpApiKey(apiKey)?.serverPrefix || "";
     if (!dc) return { error: "Mailchimp data-centre could not be derived" };
 
+    const wanted = tagName.trim().toLowerCase();
+    const asOf = new Date().toISOString();
+
+    const tagSearch = await searchListTags(dc, audienceId, apiKey, tagName);
+    const tagMatch = (tagSearch.tags ?? []).find(
+      (t) => (t.name ?? "").trim().toLowerCase() === wanted,
+    );
+    if (tagMatch) {
+      const seg = await getSegmentById(dc, audienceId, tagMatch.id, apiKey);
+      return { count: seg.member_count ?? 0, asOf };
+    }
+
     const segs = await getAudienceSegments(dc, audienceId, apiKey, {
       type: "static",
     });
-    const wanted = tagName.trim().toLowerCase();
-    const match = segs.segments.find(
+    const segMatch = segs.segments.find(
       (s) => (s.name ?? "").trim().toLowerCase() === wanted,
     );
-    if (!match) {
-      return { error: `Tag "${tagName}" not found in audience` };
+    if (segMatch) {
+      return { count: segMatch.member_count ?? 0, asOf };
     }
-    return { count: match.member_count ?? 0, asOf: new Date().toISOString() };
+
+    return { error: `Tag "${tagName}" not found in audience` };
   } catch (e) {
     const msg =
       e instanceof MailchimpApiError

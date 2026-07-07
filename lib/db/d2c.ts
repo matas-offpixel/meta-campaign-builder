@@ -18,7 +18,7 @@ import type {
   D2CScheduledSendStatus,
   D2CTemplate,
 } from "@/lib/d2c/types";
-import { getD2CTokenKey } from "@/lib/d2c/secrets";
+import { getD2CTokenKey } from "../d2c/secrets.ts";
 
 /**
  * lib/db/d2c.ts
