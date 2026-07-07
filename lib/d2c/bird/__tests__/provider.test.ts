@@ -206,3 +206,99 @@ test("validateCredentials fails without api_key/workspace_id", async () => {
   const v = await new BirdProvider().validateCredentials({ api_key: "ak" });
   assert.equal(v.ok, false);
 });
+
+// ── audience.channel_id override (multi-brand-per-client) ──────────────────
+//
+// Throwback + Hop on the Top share one d2c_connections row (UNIQUE(user_id,
+// client_id, provider) forbids a second Bird row per client) but route to
+// DIFFERENT WhatsApp channels — so the per-send audience.channel_id must win
+// over the connection-level credential, which remains the fallback for
+// legacy single-brand clients (Louder, 4theFans, Puzzle, etc.).
+
+test("audience.channel_id present → send goes to that channel, not the credential's", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  const urls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ id: "msg-hop" }), { status: 200 });
+  };
+
+  const hopMessage: D2CMessage = {
+    ...sampleMessage(),
+    audience: {
+      ...sampleMessage().audience,
+      channel_id: "61ad0713-8fa4-5f6c-aabf-fcf3316462fc",
+    },
+  };
+  // baseConnection's credential channel_id is "ch-1" — must NOT be used.
+  const r = await new BirdProvider().send(baseConnection(), hopMessage);
+  assert.equal(r.ok, true);
+  assert.equal(urls.length, 1);
+  assert.equal(
+    urls[0],
+    "https://api.bird.com/workspaces/ws-1/channels/61ad0713-8fa4-5f6c-aabf-fcf3316462fc/messages",
+  );
+});
+
+test("audience.channel_id absent → falls back to creds.channel_id (legacy single-brand clients)", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  const urls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ id: "msg-legacy" }), { status: 200 });
+  };
+
+  // sampleMessage's audience carries no channel_id.
+  const r = await new BirdProvider().send(baseConnection(), sampleMessage());
+  assert.equal(r.ok, true);
+  assert.equal(urls.length, 1);
+  assert.equal(
+    urls[0],
+    "https://api.bird.com/workspaces/ws-1/channels/ch-1/messages",
+  );
+});
+
+test("both audience.channel_id and creds.channel_id absent → graceful error, no fetch", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("{}");
+  };
+
+  const connNoChannel: D2CConnection = {
+    ...baseConnection(),
+    credentials: { api_key: "ak-live", workspace_id: "ws-1" },
+  };
+  const r = await new BirdProvider().send(connNoChannel, sampleMessage());
+  assert.equal(r.ok, false);
+  assert.equal(r.dryRun, false);
+  assert.equal(
+    r.error,
+    "Missing Bird api_key, workspace_id or channel_id on connection.",
+  );
+  assert.equal(calls, 0, "should fail fast before any HTTP call");
+});
+
+test("byte-diffs the messages URL: audience.channel_id override vs credential fallback", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  let capturedUrl = "";
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    capturedUrl = String(input);
+    return new Response(JSON.stringify({ id: "msg-diff" }), { status: 200 });
+  };
+
+  const overrideMessage: D2CMessage = {
+    ...sampleMessage(),
+    audience: { ...sampleMessage().audience, channel_id: "61ad0713-8fa4-5f6c-aabf-fcf3316462fc" },
+  };
+  await new BirdProvider().send(baseConnection(), overrideMessage);
+  const expectedOverrideUrl =
+    "https://api.bird.com/workspaces/ws-1/channels/61ad0713-8fa4-5f6c-aabf-fcf3316462fc/messages";
+  assert.equal(capturedUrl, expectedOverrideUrl, "override URL must byte-match exactly");
+
+  capturedUrl = "";
+  await new BirdProvider().send(baseConnection(), sampleMessage());
+  const expectedFallbackUrl = "https://api.bird.com/workspaces/ws-1/channels/ch-1/messages";
+  assert.equal(capturedUrl, expectedFallbackUrl, "fallback URL must byte-match exactly");
+});
