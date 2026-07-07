@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 694
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/694
 - **Branch:** `cursor/d2c-mailchimp-tags-api`
 
 ## Summary
