@@ -16,6 +16,7 @@ import {
 import { resolveEventVariables } from "../event-variables.ts";
 import { mailchimpProvider } from "../mailchimp/provider.ts";
 import { birdProvider } from "../bird/provider.ts";
+import { resolveBirdTemplateVariables } from "../bird/template-variables.ts";
 import {
   createMemberSegment,
   deleteSegment,
@@ -130,6 +131,33 @@ export async function resolveAutorespContext(
   for (const [k, v] of Object.entries(send.variables ?? {})) {
     variables[k] = v == null ? "" : String(v);
   }
+
+  // Bird template variables (2026-07-08 fix): d2c_scheduled_sends.variables
+  // never carries the Bird-template-shaped keys (event_date, presale_day,
+  // presale_time, event_artwork_url, wa_community_invite, event_url_suffix —
+  // see lib/d2c/bird/template-variables.ts's doc for the full union across
+  // every registered template) — only locale/artwork_url/bird_template_*.
+  // Resolved fresh from source-of-truth (event + event_copy) and merged LAST
+  // so it wins over any stale/partial value on the send row — recommended +
+  // documented choice from the ask; a manual override belongs on the event/
+  // copy row, not the scheduled_send. No-op for the email channel (distinct
+  // key names from the {{token}} set resolveEventVariables produces above).
+  Object.assign(
+    variables,
+    resolveBirdTemplateVariables({
+      event: {
+        name: (eventRow.name as string) ?? "",
+        event_start_at: (eventRow.event_start_at as string | null) ?? null,
+        presale_at: (eventRow.presale_at as string | null) ?? null,
+        ticket_url: (eventRow.ticket_url as string | null) ?? null,
+      },
+      copy: {
+        artwork_url: copy?.artwork_url ?? null,
+        whatsapp_community_url: copy?.whatsapp_community_url ?? null,
+      },
+      timezone: (eventRow.event_timezone as string | null) ?? "Europe/London",
+    }),
+  );
 
   // Prefer the per-milestone rendered copy, then the send's own template.
   const copyBlock = copy?.copy_jsonb?.autoresp_setup ?? null;

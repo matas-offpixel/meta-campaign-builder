@@ -18,6 +18,7 @@ import {
   releaseAutorespFire,
 } from "@/lib/db/d2c-autoresp";
 import { resolveBirdTemplateInfo } from "@/lib/d2c/bird/provider";
+import { resolveBirdTemplateVariables } from "@/lib/d2c/bird/template-variables";
 import { getD2CProvider } from "@/lib/d2c/registry";
 import { resolveEventVariables } from "@/lib/d2c/event-variables";
 import {
@@ -59,6 +60,13 @@ import type { D2CConnection, D2CMessage } from "@/lib/d2c/types";
  *     empty body via a `result_jsonb.bodyMarkdown` field that never existed.
  *     Bird template identity (Bug B) is resolved from both `audience` and
  *     `variables` via `resolveBirdTemplateInfo`, matching the provider.
+ *     Bird template VALUES (2026-07-08 fix, following the Bug B fix) are
+ *     resolved fresh from the event + event_copy rows via
+ *     `resolveBirdTemplateVariables` — the send row's stored `variables`
+ *     never carried the template-shaped keys (event_date, presale_day,
+ *     event_artwork_url, wa_community_invite, …), so every approved-template
+ *     send 422'd with "missing value for variable" once Bug B correctly
+ *     routed it onto the template path.
  * Bypasses the per-send dry_run column + list/tag filters (targets self only).
  *
  * Every fire (live or failed) is audited in `d2c_autoresp_fires` with
@@ -305,9 +313,10 @@ export async function POST(
   // (WA scheduled_sends don't populate result_jsonb until after they fire) —
   // every WA test always sent an empty body, and Bird's body-text fallback
   // path rejects that with a 422 "minimum string length is 1".
-  const [waCopy, waTemplate] = await Promise.all([
+  const [waCopy, waTemplate, waEventRow] = await Promise.all([
     getD2CEventCopy(admin, send.event_id),
     getD2CTemplateById(admin, send.template_id),
+    getEventVariablesSource(admin, send.event_id),
   ]);
   const waContent = resolveTestSendContent({
     jobType: send.job_type,
@@ -325,7 +334,28 @@ export async function POST(
   // Reuse the send's audience descriptor (channel_id, locale, community_url)
   // but override the recipients to self and drop the list target so the
   // provider takes the single-recipient path — bypassing list/tag filters.
-  const waVariables = (send.variables ?? {}) as Record<string, unknown>;
+  const waVariables: Record<string, unknown> = { ...(send.variables ?? {}) };
+  // Bird template variable VALUES (2026-07-08 fix): resolved fresh from the
+  // event + event_copy rows and merged LAST so it wins over whatever's
+  // stored on the send row — see resolveBirdTemplateVariables's doc for why
+  // (source-of-truth always fresh; a manual override belongs on the event/
+  // copy row, not the scheduled_send).
+  Object.assign(
+    waVariables,
+    resolveBirdTemplateVariables({
+      event: {
+        name: waEventRow?.name ?? "",
+        event_start_at: waEventRow?.event_start_at ?? null,
+        presale_at: waEventRow?.presale_at ?? null,
+        ticket_url: waEventRow?.ticket_url ?? null,
+      },
+      copy: {
+        artwork_url: waCopy?.artwork_url ?? null,
+        whatsapp_community_url: waCopy?.whatsapp_community_url ?? null,
+      },
+      timezone: waEventRow?.event_timezone ?? "Europe/London",
+    }),
+  );
   const audience: Record<string, unknown> = {
     ...(send.audience ?? {}),
     recipients: [number],

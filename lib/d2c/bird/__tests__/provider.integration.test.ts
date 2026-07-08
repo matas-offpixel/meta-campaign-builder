@@ -3,6 +3,7 @@ import { afterEach, beforeEach, test } from "node:test";
 
 import type { D2CConnection, D2CMessage } from "../../types.ts";
 import { BirdProvider, BIRD_RUNTIME_SEND_VERIFIED } from "../provider.ts";
+import { resolveBirdTemplateVariables } from "../template-variables.ts";
 
 /**
  * lib/d2c/bird/__tests__/provider.integration.test.ts
@@ -193,4 +194,117 @@ test("template body matches captured shape verbatim (excluding volatile values)"
       value: "IPCpHTE8JMu9JT5DenZglv",
     },
   ]);
+});
+
+// ── resolveBirdTemplateVariables → provider byte-diff (2026-07-08 fix) ─────
+//
+// Closes the exact gap the live 422 exposed: `template.parameters` must
+// carry the resolver's fresh values, and the resolver's values must WIN over
+// whatever stale/partial variables already sat on the scheduled_send row
+// (the documented "resolver wins" precedence — see template-variables.ts +
+// fire.ts's wiring comment). Fixture mirrors the Throwback Algarve row from
+// the bug report.
+
+test("resolveBirdTemplateVariables output, merged last, reaches Bird byte-verbatim and wins over stale send-row variables", async () => {
+  const staleSendRowVariables: Record<string, unknown> = {
+    // What a real d2c_scheduled_sends.variables row carries today (locale +
+    // artwork bookkeeping + Bug B's bird_template_* identity) — NONE of
+    // these are template-declared variables, so they pass through
+    // unchanged. `event_date` below simulates a STALE/wrong cached value
+    // that a prior partial fix might have left behind — the resolver's
+    // fresh value must clobber it.
+    locale: "es-ES",
+    artwork_source: "gdrive",
+    artwork_gdrive_id: "1AbCdEfGhIjK",
+    bird_template_name: "throwback_autoresp",
+    bird_template_status: "active",
+    bird_template_project_id: CAPTURE_PROJECT_ID,
+    bird_template_version_id: CAPTURE_VERSION_ID,
+    event_date: "STALE-DO-NOT-SEND",
+  };
+
+  const resolved = resolveBirdTemplateVariables({
+    event: {
+      name: "Throwback Algarve",
+      event_start_at: "2026-08-08T21:00:00Z",
+      presale_at: "2026-07-15T11:00:00Z",
+      ticket_url: "https://ra.co/events/2123456",
+    },
+    copy: {
+      artwork_url: "https://cdn.example.com/algarve.jpg",
+      whatsapp_community_url: "https://chat.whatsapp.com/BEkbaKi9HUS3Tjl1ULBbe1",
+    },
+    timezone: "Europe/Lisbon",
+  });
+
+  // Mirrors fire.ts / test-send route's merge: resolver output applied LAST.
+  const mergedVariables = { ...staleSendRowVariables, ...resolved };
+
+  const message: D2CMessage = {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "n/a",
+    audience: {
+      recipients: [CAPTURE_PROOF_PHONE],
+      project_id: CAPTURE_PROJECT_ID,
+      template_id: CAPTURE_VERSION_ID,
+      locale: "es-ES",
+    },
+    variables: mergedVariables,
+    correlationId: "send-resolved-template",
+  };
+  const r = await new BirdProvider().send(captureConnection(), message);
+  assert.equal(r.ok, true, r.error);
+
+  const template = (capturedBody as Record<string, unknown>).template as Record<
+    string,
+    unknown
+  >;
+  const parameters = template.parameters as { type: string; key: string; value: string }[];
+  const byKey = new Map(parameters.map((p) => [p.key, p]));
+
+  // The 7 resolver-owned keys reach Bird with the resolver's fresh values —
+  // NOT the stale cached "STALE-DO-NOT-SEND" — byte-verbatim per key.
+  assert.deepEqual(byKey.get("event_name"), {
+    type: "string",
+    key: "event_name",
+    value: "Throwback Algarve",
+  });
+  assert.deepEqual(byKey.get("event_date"), {
+    type: "string",
+    key: "event_date",
+    value: "Saturday 8th August",
+  });
+  assert.deepEqual(byKey.get("presale_day"), {
+    type: "string",
+    key: "presale_day",
+    value: "Wednesday 15th July",
+  });
+  assert.deepEqual(byKey.get("presale_time"), {
+    type: "string",
+    key: "presale_time",
+    value: "12:00",
+  });
+  assert.deepEqual(byKey.get("event_artwork_url"), {
+    type: "string",
+    key: "event_artwork_url",
+    value: "https://cdn.example.com/algarve.jpg",
+  });
+  assert.deepEqual(byKey.get("wa_community_invite"), {
+    type: "string",
+    key: "wa_community_invite",
+    value: "BEkbaKi9HUS3Tjl1ULBbe1",
+  });
+  assert.deepEqual(byKey.get("event_url_suffix"), {
+    type: "string",
+    key: "event_url_suffix",
+    value: "2123456",
+  });
+  // Never the full WhatsApp community URL (would double the domain in the
+  // button link) and never the stale cached value.
+  assert.notEqual(byKey.get("wa_community_invite")?.value, "STALE-DO-NOT-SEND");
+  for (const p of parameters) {
+    assert.doesNotMatch(p.value, /chat\.whatsapp\.com/);
+    assert.notEqual(p.value, "STALE-DO-NOT-SEND");
+  }
 });
