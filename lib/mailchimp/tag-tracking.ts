@@ -2,8 +2,9 @@ import "server-only";
 
 import crypto from "node:crypto";
 
-import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
-import { getMemberTags } from "@/lib/mailchimp/client";
+import { getMailchimpCredentials } from "./credentials.ts";
+import { getMailchimpCredsFromD2CConnection } from "./d2c-credentials-adapter.ts";
+import { getMemberTags } from "./client.ts";
 import type { createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
@@ -140,13 +141,25 @@ export async function recomputeDaySnapshot(
  * "added" row (using Mailchimp's real `date_added`); a tag absent in Mailchimp
  * whose last log row is "added" → synthesise a "removed" row. Self-correcting
  * even if the Customer Journey webhook misfires.
+ *
+ * Credential resolution tries the legacy `clients.mailchimp_account_id` route
+ * first, then falls back to the client's `d2c_connections` row (2026-07-08 fix
+ * — D2C-only clients like Throwback never get a `mailchimp_account_id`, so the
+ * webhook silently bailed with `no_account_id` and neither logged tag events
+ * nor fired autoresponders). See {@link getMailchimpCredsFromD2CConnection}.
+ *
+ * `addedEventIds` in the return value lists every event that just gained a
+ * fresh "added" reconciliation this call — the caller (the webhook route) uses
+ * it to fire the armed autoresp_setup send, mirroring the tag_added webhook
+ * path in `processTagEvent`. Without this, the profile-update path would keep
+ * tag counts accurate but never trigger the autoresponder.
  */
 export async function handleProfileUpdate(
   supabase: ReturnType<typeof createServiceRoleClient>,
   clientId: string,
   audienceId: string,
   email: string,
-): Promise<{ ok: boolean; reconciled: number; error?: string }> {
+): Promise<{ ok: boolean; reconciled: number; addedEventIds: string[]; error?: string }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
   const memberHash = md5Email(email);
@@ -160,7 +173,7 @@ export async function handleProfileUpdate(
     .not("mailchimp_tag", "is", null);
 
   if (!events || events.length === 0) {
-    return { ok: true, reconciled: 0 };
+    return { ok: true, reconciled: 0, addedEventIds: [] };
   }
 
   // Resolve credentials once (all events on this audience share the account).
@@ -168,15 +181,17 @@ export async function handleProfileUpdate(
   const first = events[0] as any;
   const clientRow = Array.isArray(first.client) ? first.client[0] : first.client;
   const accountId = clientRow?.mailchimp_account_id ?? null;
-  if (!accountId) return { ok: false, reconciled: 0, error: "no_account_id" };
 
-  const creds = await getMailchimpCredentials(supabase, accountId);
-  if (!creds) return { ok: false, reconciled: 0, error: "no_credentials" };
+  const legacyCreds = accountId ? await getMailchimpCredentials(supabase, accountId) : null;
+  const creds =
+    legacyCreds ?? (await getMailchimpCredsFromD2CConnection(supabase, clientId, audienceId));
+  if (!creds) return { ok: false, reconciled: 0, addedEventIds: [], error: "no_credentials" };
 
   const memberTags = await getMemberTags(creds.dc, audienceId, memberHash, creds.apiKey);
   const tagByName = new Map(memberTags.map((t) => [t.name, t]));
 
   let reconciled = 0;
+  const addedEventIds: string[] = [];
   const affectedDays = new Map<string, Set<string>>(); // eventId → set of days
 
   for (const event of events) {
@@ -227,6 +242,7 @@ export async function handleProfileUpdate(
     if (insErr) continue;
 
     reconciled += 1;
+    if (newAction === "added") addedEventIds.push(ev.id);
     const day = eventTimestamp.slice(0, 10);
     if (!affectedDays.has(ev.id)) affectedDays.set(ev.id, new Set());
     affectedDays.get(ev.id)!.add(day);
@@ -239,7 +255,7 @@ export async function handleProfileUpdate(
     }
   }
 
-  return { ok: true, reconciled };
+  return { ok: true, reconciled, addedEventIds };
 }
 
 /**
