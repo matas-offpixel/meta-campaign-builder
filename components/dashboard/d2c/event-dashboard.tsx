@@ -1,12 +1,14 @@
 import { resolveEventVariables } from "@/lib/d2c/event-variables";
 import { buildTimelineBars } from "@/lib/d2c/dashboard-view";
-import { isCountOk, type CountResult, type EventSignupStats } from "@/lib/d2c/stats";
+import { type EventSignupStats } from "@/lib/d2c/stats";
 import type { D2CScheduledSend } from "@/lib/d2c/types";
 import type { D2CEventDashboardData } from "@/lib/db/d2c-dashboard";
 import { SendPreview } from "./send-preview";
 import { SendActions } from "./send-actions";
 import { TimelineStrip } from "./timeline-strip";
 import { SharePanel } from "./share-panel";
+import { SignupStatsBand } from "./signup-stats-band";
+import { PreviewSurface } from "./preview-surface";
 
 /**
  * components/dashboard/d2c/event-dashboard.tsx
@@ -23,6 +25,8 @@ export interface EventDashboardProps {
   canApprove: boolean;
   /** Operator-only share state (ignored when readOnly). */
   share?: { url: string | null; id: string | null };
+  /** Poll endpoint for the live signup band (operator vs share differ). */
+  signupStatsEndpoint: string;
 }
 
 function formatEventDate(iso: string | null): string | null {
@@ -32,48 +36,13 @@ function formatEventDate(iso: string | null): string | null {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "full" }).format(d);
 }
 
-function StatCard({
-  label,
-  result,
-  asOfLabel,
-}: {
-  label: string;
-  result: CountResult | { count: number; asOf: string } | null;
-  asOfLabel?: boolean;
-}) {
-  let value: string;
-  let sub: string | null = null;
-  if (!result) {
-    value = "—";
-  } else if (isCountOk(result)) {
-    value = result.count.toLocaleString();
-    if (asOfLabel) {
-      const d = new Date(result.asOf);
-      sub = Number.isNaN(d.getTime())
-        ? null
-        : `as of ${new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(d)}`;
-    }
-  } else {
-    value = "—";
-    sub = result.error;
-  }
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </p>
-      <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
-      {sub && <p className="mt-1 text-[11px] text-muted-foreground">{sub}</p>}
-    </div>
-  );
-}
-
 export function EventDashboard({
   data,
   stats,
   readOnly,
   canApprove,
   share,
+  signupStatsEndpoint,
 }: EventDashboardProps) {
   const { event, copy, sends, templates, copyBundle } = data;
   const clientName = event.client?.name ?? "—";
@@ -102,7 +71,6 @@ export function EventDashboard({
   }
 
   const bars = buildTimelineBars(sends);
-  const showLp = Boolean(stats?.landing_page && stats.landing_page.count > 0);
 
   return (
     <div className="space-y-8">
@@ -132,20 +100,8 @@ export function EventDashboard({
         )}
       </header>
 
-      {/* ── Stats band ─────────────────────────────────────────── */}
-      <section className={`grid grid-cols-2 gap-3 ${showLp ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
-        <StatCard
-          label="Total signups"
-          result={
-            stats ? { count: stats.total_unique_estimate, asOf: new Date().toISOString() } : null
-          }
-        />
-        <StatCard label="Mailchimp members" result={stats?.mailchimp ?? null} asOfLabel />
-        <StatCard label="Bird contacts" result={stats?.bird ?? null} asOfLabel />
-        {showLp && (
-          <StatCard label="Landing-page signups" result={stats?.landing_page ?? null} />
-        )}
-      </section>
+      {/* ── Stats band (live 30s poll) ─────────────────────────── */}
+      <SignupStatsBand initial={stats} endpoint={signupStatsEndpoint} />
 
       {/* ── Timeline ───────────────────────────────────────────── */}
       {bars.length > 0 && (
@@ -163,24 +119,29 @@ export function EventDashboard({
         {sends.length === 0 ? (
           <p className="text-sm text-muted-foreground">No scheduled sends yet.</p>
         ) : (
-          sends.map((send) => (
-            <div key={send.id} id={`send-${send.id}`} className="scroll-mt-24">
-              <SendPreview
-                send={send}
-                template={templates[send.template_id]}
-                copyBlock={send.job_type ? copyBundle[send.job_type] ?? null : null}
-                artworkUrl={copy?.artwork_url ?? null}
-                eventName={event.name}
-                communityUrl={copy?.whatsapp_community_url ?? null}
-                variables={varsFor(send)}
-                actions={
-                  !readOnly && canApprove ? (
-                    <SendActions send={send} eventId={event.id} />
-                  ) : undefined
-                }
-              />
+          <PreviewSurface>
+            <div className="space-y-8">
+              {sends.map((send) => (
+                <div key={send.id} id={`send-${send.id}`} className="scroll-mt-24">
+                  <SendPreview
+                    send={send}
+                    template={templates[send.template_id]}
+                    copyBlock={send.job_type ? copyBundle[send.job_type] ?? null : null}
+                    artworkUrl={copy?.artwork_url ?? null}
+                    eventName={event.name}
+                    communityUrl={copy?.whatsapp_community_url ?? null}
+                    variables={varsFor(send)}
+                    readOnly={readOnly}
+                    actions={
+                      !readOnly && canApprove ? (
+                        <SendActions send={send} eventId={event.id} />
+                      ) : undefined
+                    }
+                  />
+                </div>
+              ))}
             </div>
-          ))
+          </PreviewSurface>
         )}
       </section>
     </div>

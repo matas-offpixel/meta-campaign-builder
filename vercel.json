@@ -38,6 +38,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/d2c-metrics-refresh",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/funnel-pacing-refresh",
       "schedule": "0 3 * * *"
     },

@@ -393,6 +393,46 @@ export interface InsertD2CScheduledSendInput {
   idempotencyKey?: string | null;
 }
 
+export async function updateScheduledSendAudience(
+  supabase: AnySupabaseClient,
+  id: string,
+  audience: Record<string, unknown>,
+): Promise<D2CScheduledSend | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_scheduled_sends")
+    .update({ audience, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c updateScheduledSendAudience]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CScheduledSend(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+export async function getScheduledSendById(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<D2CScheduledSend | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_scheduled_sends")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c getScheduledSendById]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CScheduledSend(data as unknown as Record<string, unknown>)
+    : null;
+}
+
 export async function listScheduledSendsForEvent(
   supabase: AnySupabaseClient,
   eventId: string,

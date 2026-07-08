@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ExternalLink, RefreshCw, Send } from "lucide-react";
 
 import {
   markdownToBasicHtml,
@@ -8,14 +9,26 @@ import {
 } from "@/lib/d2c/event-variables";
 import {
   approvalPill,
+  buildBirdBroadcastUrl,
+  buildMailchimpCampaignUrl,
   channelVisual,
   isIntroParagraph,
   jobTypeLabel,
+  resolveCta,
   splitMarkdownParagraphs,
   statusPill,
 } from "@/lib/d2c/dashboard-view";
+import {
+  formatMetricsSummary,
+  readMailchimpCampaignId,
+  readMailchimpServerPrefix,
+  readSendMetrics,
+} from "@/lib/d2c/metrics/types";
 import type { D2CScheduledSend } from "@/lib/d2c/types";
 import type { D2CPreviewTemplate } from "@/lib/db/d2c-dashboard";
+import { AudiencePicker } from "./audience-picker";
+
+const WHATSAPP_BLUE = "#00a5f4";
 
 /**
  * components/dashboard/d2c/send-preview.tsx
@@ -44,6 +57,13 @@ export interface SendPreviewProps {
   actions?: React.ReactNode;
   /** Scroll anchor id (timeline strip jumps here). */
   anchorId?: string;
+  /**
+   * Public share view = true → no operator-only controls (Refresh, test send).
+   * Metrics + link-outs still render (read-only).
+   */
+  readOnly?: boolean;
+  /** Mailchimp DC prefix (e.g. "us7") for the campaign link-out, if known. */
+  mailchimpServerPrefix?: string | null;
 }
 
 function formatWhen(iso: string): string {
@@ -84,12 +104,14 @@ function ArtworkBlock({
   const [failed, setFailed] = useState(false);
   if (url && !failed) {
     return (
+      // Natural aspect ratio — portrait 4:5 artwork must not be centre-cropped
+      // (Goal 2). `h-auto` + `object-contain` lets the image size to its own
+      // ratio within the preview column width.
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={url}
         alt={`${eventName} artwork`}
-        className={`w-full object-cover ${rounded ?? ""}`}
-        style={{ maxHeight: 320 }}
+        className={`h-auto w-full object-contain ${rounded ?? ""}`}
         onError={() => setFailed(true)}
       />
     );
@@ -117,6 +139,8 @@ export function SendPreview({
   themeColor = DEFAULT_THEME,
   actions,
   anchorId,
+  readOnly = false,
+  mailchimpServerPrefix = null,
 }: SendPreviewProps) {
   const isEmail = send.channel === "email";
   const status = statusPill(send.status);
@@ -131,10 +155,8 @@ export function SendPreview({
   const rawBody = copyBlock?.body_markdown || template?.body_markdown || "";
   const substitutedBody = substituteTemplateVariables(rawBody, variables);
 
-  const buttonLabel = template?.button_label ?? null;
-  const buttonUrl = template?.button_url
-    ? substituteTemplateVariables(template.button_url, variables)
-    : null;
+  const cta = resolveCta(template);
+  const ctaUrl = cta ? substituteTemplateVariables(cta.url, variables) : null;
 
   const isCommunityBroadcast =
     Boolean(communityUrl) ||
@@ -169,6 +191,22 @@ export function SendPreview({
         </span>
       </div>
 
+      {/* ── Metrics + link-outs (Goals 4 + 6) ─────────────────── */}
+      <SendMetricsRow
+        send={send}
+        readOnly={readOnly}
+        serverPrefix={mailchimpServerPrefix}
+      />
+
+      {/* ── Multi-tag audience picker (Goal 5) ────────────────── */}
+      {!readOnly &&
+        isEmail &&
+        (send.job_type === "announce" || send.job_type === "gen_sale") && (
+          <div className="mb-3">
+            <AudiencePicker sendId={send.id} />
+          </div>
+        )}
+
       {/* ── Preview mockup ────────────────────────────────────── */}
       {isEmail ? (
         <div className="overflow-hidden rounded-xl border border-border">
@@ -187,16 +225,16 @@ export function SendPreview({
                   __html: markdownToBasicHtml(withIntroBold(substitutedBody)),
                 }}
               />
-              {buttonLabel && buttonUrl && (
+              {cta && ctaUrl && (
                 <div className="pt-2">
                   <a
-                    href={buttonUrl}
+                    href={ctaUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-block rounded px-6 py-3 text-sm font-bold uppercase tracking-wide text-white no-underline"
                     style={{ backgroundColor: themeColor }}
                   >
-                    {buttonLabel}
+                    {cta.label}
                   </a>
                 </div>
               )}
@@ -225,12 +263,195 @@ export function SendPreview({
               <div className="whitespace-pre-wrap px-3 py-2 font-mono text-[13px] leading-relaxed text-neutral-800">
                 {substitutedBody}
               </div>
+              {cta && ctaUrl && (
+                <a
+                  href={ctaUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 border-t border-black/10 bg-white py-3 text-xs font-semibold uppercase tracking-wide no-underline"
+                  style={{ color: WHATSAPP_BLUE }}
+                >
+                  <ExternalLink size={14} aria-hidden />
+                  {cta.label}
+                </a>
+              )}
             </div>
           </div>
         </div>
       )}
 
+      {!readOnly && <TestSendButton sendId={send.id} channel={send.channel} />}
+
       {actions && <div className="mt-3">{actions}</div>}
     </section>
+  );
+}
+
+function formatWhenShort(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(d);
+}
+
+/**
+ * Metrics summary line + provider link-outs. Metrics render read-only on both
+ * surfaces; the Refresh button is operator-only (60s cooldown, matches the
+ * server-side rate limit).
+ */
+function SendMetricsRow({
+  send,
+  readOnly,
+  serverPrefix,
+}: {
+  send: D2CScheduledSend;
+  readOnly: boolean;
+  serverPrefix: string | null;
+}) {
+  const [metrics, setMetrics] = useState(() => readSendMetrics(send.result_jsonb));
+  const [refreshing, setRefreshing] = useState(false);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const dc = serverPrefix ?? readMailchimpServerPrefix(send.result_jsonb);
+  const campaignId = readMailchimpCampaignId(send.result_jsonb);
+  const isSent = send.status === "sent";
+  const mailchimpUrl =
+    send.channel === "email"
+      ? buildMailchimpCampaignUrl(dc, campaignId, { sent: isSent })
+      : null;
+  const birdUrl =
+    send.channel !== "email"
+      ? buildBirdBroadcastUrl(send.bird_broadcast_id, send.bird_campaign_edit_url)
+      : null;
+
+  const onRefresh = async () => {
+    if (refreshing || Date.now() < cooldownUntil) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/d2c/scheduled-sends/${send.id}/metrics`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json.ok && json.metrics) {
+        setMetrics(json.metrics);
+        setCooldownUntil(Date.now() + 60_000);
+      } else {
+        setError(json.error ?? "Refresh failed");
+      }
+    } catch {
+      setError("Refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const hasMetrics = Boolean(metrics);
+  const showRow = isSent || hasMetrics || send.status === "scheduled";
+  if (!showRow && !mailchimpUrl && !birdUrl) return null;
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+      {hasMetrics ? (
+        <span className="text-foreground">{formatMetricsSummary(metrics!)}</span>
+      ) : send.status === "scheduled" ? (
+        <span className="text-muted-foreground">
+          No data yet — scheduled for {formatWhenShort(send.scheduled_for)}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">No metrics yet</span>
+      )}
+
+      {!readOnly && (isSent || hasMetrics) && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={refreshing || Date.now() < cooldownUntil}
+          className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
+          title={Date.now() < cooldownUntil ? "Cooling down (60s)" : "Refresh metrics"}
+        >
+          <RefreshCw size={12} className={refreshing ? "animate-spin" : ""} aria-hidden />
+          Refresh
+        </button>
+      )}
+
+      {mailchimpUrl && (
+        <a
+          href={mailchimpUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+        >
+          <ExternalLink size={12} aria-hidden />
+          {isSent ? "Mailchimp report" : "Mailchimp campaign"}
+        </a>
+      )}
+      {birdUrl && (
+        <a
+          href={birdUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+        >
+          <ExternalLink size={12} aria-hidden />
+          View broadcast in Bird
+        </a>
+      )}
+      {error && <span className="text-red-600">{error}</span>}
+    </div>
+  );
+}
+
+/** Operator-only "Send test to me" — the single live-fire path. */
+function TestSendButton({
+  sendId,
+  channel,
+}: {
+  sendId: string;
+  channel: D2CScheduledSend["channel"];
+}) {
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const onClick = async () => {
+    if (sending) return;
+    setSending(true);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/d2c/scheduled-sends/${sendId}/test-send`, {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (json.ok) {
+        const live = json.live === false ? " (dry-run — live gate off)" : "";
+        setResult({ ok: true, msg: `Sent to ${json.target}${live}` });
+      } else {
+        setResult({ ok: false, msg: json.error ?? "Failed" });
+      }
+    } catch {
+      setResult({ ok: false, msg: "Failed" });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={sending}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+      >
+        <Send size={13} className={sending ? "animate-pulse" : ""} aria-hidden />
+        {channel === "email" ? "Send test to me" : "Send test to my WhatsApp"}
+      </button>
+      {result && (
+        <span className={`text-xs ${result.ok ? "text-emerald-700" : "text-red-600"}`}>
+          {result.ok ? "✓ " : "✗ "}
+          {result.msg}
+        </span>
+      )}
+    </div>
   );
 }

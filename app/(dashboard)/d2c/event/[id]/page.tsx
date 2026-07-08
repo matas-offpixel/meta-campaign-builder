@@ -70,6 +70,7 @@ export default async function D2CEventPage({ params }: Props) {
           readOnly={false}
           canApprove={isApprover}
           share={{ url: shareUrl, id: activeShare?.id ?? null }}
+          signupStatsEndpoint={`/api/d2c/event/${id}/signup-stats`}
         />
       </div>
     </main>

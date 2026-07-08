@@ -170,3 +170,87 @@ export function buildD2CShareUrl(origin: string, token: string): string {
   const trimmed = origin.replace(/\/+$/, "");
   return `${trimmed}/share/d2c/${token}`;
 }
+
+// ─── Goal 1: CTA resolution ──────────────────────────────────────────────────
+
+/** Minimal structural shape a CTA can be resolved from (template or copy). */
+export interface CtaSource {
+  button_label?: string | null;
+  button_url?: string | null;
+}
+
+export interface ResolvedCta {
+  label: string;
+  url: string;
+}
+
+/**
+ * Resolve a preview CTA button from a template. Returns null unless BOTH a
+ * non-empty label and url are present — button-less templates (community
+ * reminders) must render cleanly with no button. Pure; the caller applies
+ * `{{token}}` substitution to the returned url.
+ */
+export function resolveCta(source: CtaSource | null | undefined): ResolvedCta | null {
+  if (!source) return null;
+  const label = typeof source.button_label === "string" ? source.button_label.trim() : "";
+  const url = typeof source.button_url === "string" ? source.button_url.trim() : "";
+  if (!label || !url) return null;
+  return { label, url };
+}
+
+// ─── Goal 3: viewport toggle ─────────────────────────────────────────────────
+
+export type PreviewViewport = "desktop" | "phone";
+
+export const D2C_PREVIEW_VIEWPORT_STORAGE_KEY = "d2c-preview-viewport";
+
+/**
+ * Map a viewport mode to the CSS max-width for the preview column. Desktop
+ * clamps to an email-safe 640px; phone to an iPhone-ish 375px. Unknown values
+ * fall back to desktop (the default).
+ */
+export function viewportClamp(mode: PreviewViewport): string {
+  return mode === "phone" ? "375px" : "640px";
+}
+
+/** Narrow an arbitrary persisted string to a valid viewport (default desktop). */
+export function normaliseViewport(value: string | null | undefined): PreviewViewport {
+  return value === "phone" ? "phone" : "desktop";
+}
+
+// ─── Goal 6: external provider link-outs ─────────────────────────────────────
+
+/**
+ * Mailchimp admin deep-link for a campaign. Sent campaigns link to the report
+ * summary; unsent to the campaign editor. `serverPrefix` is the DC suffix
+ * (e.g. "us7"). Returns null when either id is missing.
+ */
+export function buildMailchimpCampaignUrl(
+  serverPrefix: string | null | undefined,
+  campaignId: string | null | undefined,
+  opts: { sent: boolean },
+): string | null {
+  const dc = (serverPrefix ?? "").trim();
+  const id = (campaignId ?? "").trim();
+  if (!dc || !id) return null;
+  const path = opts.sent
+    ? `reports/summary?id=${encodeURIComponent(id)}`
+    : `campaigns/edit?id=${encodeURIComponent(id)}`;
+  return `https://${dc}.admin.mailchimp.com/${path}`;
+}
+
+/**
+ * Bird broadcast deep-link. Prefers an explicit stored edit url; otherwise
+ * builds the canonical broadcasts URL from the broadcast id. Returns null when
+ * neither is available.
+ */
+export function buildBirdBroadcastUrl(
+  broadcastId: string | null | undefined,
+  editUrl?: string | null | undefined,
+): string | null {
+  const explicit = (editUrl ?? "").trim();
+  if (explicit) return explicit;
+  const id = (broadcastId ?? "").trim();
+  if (!id) return null;
+  return `https://app.bird.com/broadcasts/${encodeURIComponent(id)}`;
+}

@@ -83,7 +83,13 @@ export default async function D2CSharePage({ params }: Props) {
         <p className="mb-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Off Pixel · Campaign dashboard
         </p>
-        <EventDashboard data={data} stats={stats} readOnly canApprove={false} />
+        <EventDashboard
+          data={data}
+          stats={stats}
+          readOnly
+          canApprove={false}
+          signupStatsEndpoint={`/api/share/d2c/${token}/signup-stats`}
+        />
       </div>
     </main>
   );
