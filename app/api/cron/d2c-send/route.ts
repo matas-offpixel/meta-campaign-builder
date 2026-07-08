@@ -149,6 +149,16 @@ export async function GET(req: NextRequest) {
   for (const row of batch ?? []) {
     const sendId = row.id as string;
     const userId = row.user_id as string;
+
+    // autoresp_setup is no longer time-fired (PR: webhook-driven autoresponder).
+    // Approval arms a persistent trigger (result_jsonb.autoresp_config); the
+    // Mailchimp webhook + Bird poll cron fire per new signup. Leave the row
+    // scheduled+approved and skip it here — never fire a one-off broadcast.
+    if ((row.job_type as string | null) === "autoresp_setup") {
+      results.push({ id: sendId, outcome: "skipped_autoresp_armed" });
+      continue;
+    }
+
     try {
       const event = await fetchEventForCron(supabase, row.event_id as string);
       if (!event || event.user_id !== userId) {

@@ -3,6 +3,9 @@ import crypto from "node:crypto";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { handleProfileUpdate, md5Email, recomputeDaySnapshot } from "@/lib/mailchimp/tag-tracking";
+import { getAutorespSendForEvent } from "@/lib/db/d2c";
+import { resolveAutorespContext, fireAutorespToMember } from "@/lib/d2c/autoresp/fire";
+import { isAutorespArmed } from "@/lib/d2c/autoresp/helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -212,5 +215,64 @@ async function processTagEvent(
     await recomputeDaySnapshot(sb, event.id, eventDay);
   }
 
-  return NextResponse.json({ ok: true, eventsAffected: events.length, action: evt.action });
+  // Webhook-driven autoresponder (Goal 2): a NEW tagged member fires the event's
+  // armed autoresp_setup email — one single-recipient send, deduped. Removals
+  // never fire. Synchronous with the webhook (Mailchimp retries on 5xx), but a
+  // fire failure must not fail the tag-tracking write, so it's best-effort.
+  let autoresp: { fired: number; skipped: number } | undefined;
+  if (evt.action === "added") {
+    autoresp = await fireAutorespForTagAdd(
+      supabase,
+      (events as Array<{ id: string }>).map((e) => e.id),
+      evt.email,
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    eventsAffected: events.length,
+    action: evt.action,
+    ...(autoresp ? { autoresp } : {}),
+  });
+}
+
+/**
+ * Fire the armed email autoresponder for each event the newly-tagged member
+ * qualifies for. Best-effort: any per-event error is logged, never thrown, so
+ * the tag-tracking write always succeeds.
+ */
+async function fireAutorespForTagAdd(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  eventIds: string[],
+  email: string,
+): Promise<{ fired: number; skipped: number }> {
+  let fired = 0;
+  let skipped = 0;
+  for (const eventId of eventIds) {
+    try {
+      const send = await getAutorespSendForEvent(supabase, eventId, "email");
+      if (!send || !isAutorespArmed(send.result_jsonb)) {
+        skipped += 1;
+        continue;
+      }
+      const ctx = await resolveAutorespContext(supabase, send);
+      if (!ctx) {
+        skipped += 1;
+        continue;
+      }
+      const res = await fireAutorespToMember(supabase, ctx, email.trim().toLowerCase());
+      if (res.outcome === "fired") fired += 1;
+      else skipped += 1;
+      if (res.outcome === "error") {
+        console.error(`[mailchimp-webhook] autoresp fire error event=${eventId}: ${res.error}`);
+      }
+    } catch (e) {
+      skipped += 1;
+      console.error(
+        `[mailchimp-webhook] autoresp fire threw event=${eventId}:`,
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+  }
+  return { fired, skipped };
 }

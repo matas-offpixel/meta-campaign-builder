@@ -70,6 +70,14 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/d2c-autoresp-poll-bird",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/d2c-autoresp-backfill-tick",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/refresh-client-portal-snapshots",
       "schedule": "*/15 * * * *"
     },

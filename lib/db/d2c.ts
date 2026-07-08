@@ -433,6 +433,54 @@ export async function getScheduledSendById(
     : null;
 }
 
+/**
+ * Fetch the (single) autoresp_setup send for an event on a channel. Used by the
+ * autoresponder fire paths (Mailchimp webhook = email, Bird poll = whatsapp).
+ */
+export async function getAutorespSendForEvent(
+  supabase: AnySupabaseClient,
+  eventId: string,
+  channel: D2CChannel,
+): Promise<D2CScheduledSend | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_scheduled_sends")
+    .select("*")
+    .eq("event_id", eventId)
+    .eq("job_type", "autoresp_setup")
+    .eq("channel", channel)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c getAutorespSendForEvent]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CScheduledSend(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+/** All armed-or-not autoresp_setup sends on a channel (Bird poll cron scan). */
+export async function listAutorespSendsByChannel(
+  supabase: AnySupabaseClient,
+  channel: D2CChannel,
+): Promise<D2CScheduledSend[]> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_scheduled_sends")
+    .select("*")
+    .eq("job_type", "autoresp_setup")
+    .eq("channel", channel);
+  if (error) {
+    console.warn("[d2c listAutorespSendsByChannel]", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) =>
+    mapD2CScheduledSend(row as unknown as Record<string, unknown>),
+  );
+}
+
 export async function listScheduledSendsForEvent(
   supabase: AnySupabaseClient,
   eventId: string,
