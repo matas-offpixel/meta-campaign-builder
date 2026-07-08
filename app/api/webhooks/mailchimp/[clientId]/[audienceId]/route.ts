@@ -3,6 +3,11 @@ import crypto from "node:crypto";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { handleProfileUpdate, md5Email, recomputeDaySnapshot } from "@/lib/mailchimp/tag-tracking";
+import {
+  extractProfileFallbackEmail,
+  isProfileFallbackEventType,
+  runProfileFallback,
+} from "@/lib/mailchimp/profile-fallback";
 import { getAutorespSendForEvent } from "@/lib/db/d2c";
 import { resolveAutorespContext, fireAutorespToMember } from "@/lib/d2c/autoresp/fire";
 import { isAutorespArmed } from "@/lib/d2c/autoresp/helpers";
@@ -84,8 +89,12 @@ export async function GET(_req: NextRequest, { params }: Context) {
  * Real-time receiver for Mailchimp tag changes. Accepts two payload shapes:
  *   - JSON (Customer Journey "Make API call"): `{ email, tag, action, fired_at }`
  *   - form-encoded (classic webhook): `type=tag_added|tag_removed` with
- *     `data[email]` / `data[tag]`, OR a profile-update event
- *     (`profile`/`upemail`/`cleaned`) which triggers a tag re-fetch + diff.
+ *     `data[email]` / `data[tag]`, OR a profile-update-fallback event
+ *     (`profile`/`upemail`/`cleaned`/`subscribe`/`unsubscribe`) which
+ *     triggers a tag re-fetch + diff instead of trusting the payload's own
+ *     tag/action (Mailchimp's `subscribe`/`unsubscribe` payloads don't carry
+ *     a tag at all — e.g. Evntree pushing a new member with a tag already
+ *     applied via the API fires `subscribe`, never `tag_added`).
  *
  * Tag events are logged to mailchimp_tag_event_log (deduped) and the affected
  * events' deterministic per-day snapshots are recomputed.
@@ -143,27 +152,25 @@ export async function POST(req: NextRequest, { params }: Context) {
         tag,
         firedAt: body.get("fired_at") ?? new Date().toISOString(),
       };
-    } else if (type === "profile" || type === "upemail" || type === "cleaned") {
-      // Profile-update fallback — re-fetch member tags and reconcile.
-      const email = body.get("data[new_email]") || body.get("data[email]") || "";
+    } else if (isProfileFallbackEventType(type)) {
+      // Profile-update fallback — re-fetch member tags and reconcile. Also
+      // covers subscribe/unsubscribe (2026-07-08 fix): Evntree pushes a new
+      // member with the event's tag already applied via the Mailchimp API,
+      // which fires `subscribe` (not `tag_added`) — that fell into the
+      // catch-all "ignored" branch below and never logged a row.
+      // handleProfileUpdate's tag-diff produces the correct action either
+      // way: a subscribe with the tag pre-applied diffs to "added" (fires
+      // autoresp via addedEventIds); an unsubscribe diffs to "removed"
+      // (never fires — the autoresp path only triggers on addedEventIds).
+      const email = extractProfileFallbackEmail((key) => body.get(key));
       if (!email) {
         return NextResponse.json({ ok: false, error: "Missing email" }, { status: 400 });
       }
-      const result = await handleProfileUpdate(supabase, clientId, audienceId, email);
-      // Mirror the tag_added branch below: a fresh "added" reconciliation is
-      // exactly the signal processTagEvent fires the autoresponder on, but
-      // handleProfileUpdate only writes the tag-tracking log — without this,
-      // the profile-update webhook path would keep tag counts accurate but
-      // never trigger autoresp_setup sends for D2C clients (2026-07-08 fix).
-      let autoresp: { fired: number; skipped: number } | undefined;
-      if (result.ok && result.addedEventIds.length > 0) {
-        autoresp = await fireAutorespForTagAdd(supabase, result.addedEventIds, email);
-      }
-      return NextResponse.json({
-        mode: "profile_update",
-        ...result,
-        ...(autoresp ? { autoresp } : {}),
+      const payload = await runProfileFallback(supabase, clientId, audienceId, email, {
+        handleProfileUpdate,
+        fireAutorespForTagAdd,
       });
+      return NextResponse.json(payload);
     } else {
       return NextResponse.json({ ok: true, ignored: true, reason: `type=${type ?? "none"}` });
     }
