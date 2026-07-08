@@ -11,12 +11,10 @@ import {
   buildSegmentOpts,
   getAudienceTags,
   resolveAudienceTags,
+  resolveMailchimpListId,
   type SegmentOpts,
 } from "../audience/tag-registry.ts";
-import {
-  markdownToBasicHtml,
-  substituteTemplateVariables,
-} from "../event-variables.ts";
+import { renderD2CEmailHtml } from "../render/email-html.ts";
 import {
   isD2CLiveEnabled,
   type D2CConnection,
@@ -111,8 +109,11 @@ export async function sendMailchimpCampaignLive(
   }
 
   const audience = message.audience ?? {};
-  const listId =
-    typeof audience.list_id === "string" ? audience.list_id.trim() : "";
+  // Bug C fix (2026-07-08): read both key conventions in use across the
+  // codebase — historical rows carry audience_id, PR #696's tag picker and
+  // its PATCH route write list_id. See FLAG note in the PR body re:
+  // canonicalising the WRITE path (tracked as a separate follow-up).
+  const listId = resolveMailchimpListId(audience) ?? "";
   const fromName =
     typeof audience.from_name === "string" && audience.from_name.trim()
       ? audience.from_name.trim()
@@ -141,16 +142,31 @@ export async function sendMailchimpCampaignLive(
       ? message.subject.trim()
       : "(no subject)";
 
-  const bodyMd = substituteTemplateVariables(
-    message.bodyMarkdown,
-    Object.fromEntries(
-      Object.entries(message.variables ?? {}).map(([k, v]) => [
-        k,
-        v === null || v === undefined ? "" : String(v),
-      ]),
-    ),
+  // Bug D fix (2026-07-08): render the SAME branded chassis (hero artwork,
+  // dark background, CTA button) the dashboard preview shows — this
+  // previously shipped bare markdownToBasicHtml(bodyMd), which stripped
+  // every visual element, so every real/test send arrived as a plain-ish
+  // email regardless of what the preview showed. `subject` here is the
+  // IN-BODY eyebrow line (substituted internally, matches the preview);
+  // Mailchimp's own `settings.subject_line` above stays the raw template
+  // subject — substituting THAT is a separate, pre-existing gap outside
+  // this fix's scope (see PR body).
+  const variablesMap = Object.fromEntries(
+    Object.entries(message.variables ?? {}).map(([k, v]) => [
+      k,
+      v === null || v === undefined ? "" : String(v),
+    ]),
   );
-  const html = markdownToBasicHtml(bodyMd);
+  const html = renderD2CEmailHtml({
+    subject: message.subject ?? null,
+    bodyMarkdown: message.bodyMarkdown,
+    variables: variablesMap,
+    artworkUrl: message.artworkUrl ?? null,
+    eventName: message.eventName ?? "",
+    buttonLabel: message.buttonLabel ?? null,
+    buttonUrl: message.buttonUrl ?? null,
+    themeColor: message.themeColor ?? undefined,
+  });
 
   const title =
     (typeof audience.campaign_title === "string" &&

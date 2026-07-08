@@ -3,21 +3,17 @@
 import { useState } from "react";
 import { ExternalLink, RefreshCw, Send } from "lucide-react";
 
-import {
-  markdownToBasicHtml,
-  substituteTemplateVariables,
-} from "@/lib/d2c/event-variables";
+import { substituteTemplateVariables } from "@/lib/d2c/event-variables";
 import {
   approvalPill,
   buildBirdBroadcastUrl,
   buildMailchimpCampaignUrl,
   channelVisual,
-  isIntroParagraph,
   jobTypeLabel,
   resolveCta,
-  splitMarkdownParagraphs,
   statusPill,
 } from "@/lib/d2c/dashboard-view";
+import { renderD2CEmailHtml } from "@/lib/d2c/render/email-html";
 import {
   formatMetricsSummary,
   readMailchimpCampaignId,
@@ -83,21 +79,6 @@ function formatWhen(iso: string): string {
   }).format(d);
 }
 
-/** Auto-bold a single-line intro paragraph (Throwback London reference). */
-function withIntroBold(body: string): string {
-  const paras = splitMarkdownParagraphs(body);
-  if (
-    paras.length > 0 &&
-    isIntroParagraph(paras[0]!) &&
-    !paras[0]!.includes("\n") &&
-    !paras[0]!.startsWith("**")
-  ) {
-    paras[0] = `**${paras[0]}**`;
-    return paras.join("\n\n");
-  }
-  return body;
-}
-
 function ArtworkBlock({
   url,
   eventName,
@@ -160,9 +141,6 @@ export function SendPreview({
   const visual = channelVisual(send.channel);
 
   const rawSubject = copyBlock?.subject ?? template?.subject ?? null;
-  const subject = rawSubject
-    ? substituteTemplateVariables(rawSubject, variables)
-    : null;
 
   const rawBody = copyBlock?.body_markdown || template?.body_markdown || "";
   const substitutedBody = substituteTemplateVariables(rawBody, variables);
@@ -235,41 +213,26 @@ export function SendPreview({
 
       {/* ── Preview mockup ────────────────────────────────────── */}
       {isEmail ? (
-        <div className="overflow-hidden rounded-xl border border-border">
-          <div style={{ backgroundColor: "#1a1a1a" }} className="p-0">
-            <ArtworkBlock url={artworkUrl} eventName={eventName} theme={themeColor} />
-            <div className="space-y-4 px-6 py-6">
-              {subject && (
-                <p className="text-sm font-bold" style={{ color: "#9ca3af" }}>
-                  {subject}
-                </p>
-              )}
-              <div
-                className="space-y-3 text-sm leading-relaxed [&_a]:underline [&_p]:m-0 [&_strong]:font-bold"
-                style={{ color: "#e5e5e5" }}
-                dangerouslySetInnerHTML={{
-                  __html: markdownToBasicHtml(withIntroBold(substitutedBody)),
-                }}
-              />
-              {cta && ctaUrl && (
-                <div className="pt-2">
-                  <a
-                    href={ctaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block rounded px-6 py-3 text-sm font-bold uppercase tracking-wide text-white no-underline"
-                    style={{ backgroundColor: themeColor }}
-                  >
-                    {cta.label}
-                  </a>
-                </div>
-              )}
-              <p className="pt-4 text-xs" style={{ color: "#6b7280" }}>
-                Síguenos para saber más…
-              </p>
-            </div>
-          </div>
-        </div>
+        // Bug D fix (2026-07-08): renders via the SAME renderD2CEmailHtml
+        // the real/test Mailchimp send uses (lib/d2c/mailchimp/provider.ts,
+        // the test-send route) — preview and inbox are now byte-identical,
+        // instead of the previous bespoke Tailwind mockup that never matched
+        // what fans actually received (no artwork/CTA/chassis in the email).
+        <div
+          className="overflow-hidden rounded-xl border border-border"
+          dangerouslySetInnerHTML={{
+            __html: renderD2CEmailHtml({
+              subject: rawSubject,
+              bodyMarkdown: rawBody,
+              variables,
+              artworkUrl,
+              eventName,
+              buttonLabel: cta?.label ?? null,
+              buttonUrl: cta?.url ?? null,
+              themeColor,
+            }),
+          }}
+        />
       ) : (
         <div className="rounded-xl border border-border bg-[#e5ddd5] p-4">
           <div className="mb-2 flex justify-end">

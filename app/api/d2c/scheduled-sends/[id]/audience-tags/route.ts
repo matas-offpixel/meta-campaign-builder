@@ -11,6 +11,7 @@ import {
   getAudienceTags,
   recommendTagsForEvent,
   resolveAudienceTags,
+  resolveMailchimpListId,
 } from "@/lib/d2c/audience/tag-registry";
 
 /**
@@ -77,7 +78,9 @@ export async function GET(
   }
 
   const audience = (send.audience ?? {}) as Record<string, unknown>;
-  const listId = typeof audience.list_id === "string" ? audience.list_id.trim() : "";
+  // Bug C fix (2026-07-08): normalise to both key conventions (list_id /
+  // audience_id) — see resolveMailchimpListId's own doc for the history.
+  const listId = resolveMailchimpListId(audience) ?? "";
   if (!listId) {
     return NextResponse.json(
       { ok: false, error: "Send audience has no list_id" },

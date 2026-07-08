@@ -1,14 +1,18 @@
 /**
  * Unit tests for lib/d2c/audience/tag-registry.ts pure seams:
- *   recommendTagsForEvent, buildSegmentOpts, resolveAudienceTags.
+ *   recommendTagsForEvent, buildSegmentOpts, resolveAudienceTags,
+ *   resolveMailchimpListId, getAudienceTags (Bug C, 2026-07-08).
  */
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
+  __clearTagCacheForTests,
   buildSegmentOpts,
+  getAudienceTags,
   recommendTagsForEvent,
   resolveAudienceTags,
+  resolveMailchimpListId,
   type AudienceTag,
 } from "../tag-registry.ts";
 
@@ -93,5 +97,102 @@ describe("resolveAudienceTags (back-compat)", () => {
   });
   it("returns [] when neither present", () => {
     assert.deepEqual(resolveAudienceTags({}), []);
+  });
+});
+
+// ── Bug C (2026-07-08): list_id vs audience_id key drift ───────────────────
+
+describe("resolveMailchimpListId", () => {
+  it("prefers list_id when both keys are present", () => {
+    assert.equal(
+      resolveMailchimpListId({ list_id: "c2b4d77acb", audience_id: "old-id" }),
+      "c2b4d77acb",
+    );
+  });
+  it("falls back to audience_id (historical rows)", () => {
+    assert.equal(resolveMailchimpListId({ audience_id: "c2b4d77acb" }), "c2b4d77acb");
+  });
+  it("trims whitespace", () => {
+    assert.equal(resolveMailchimpListId({ list_id: "  c2b4d77acb  " }), "c2b4d77acb");
+  });
+  it("returns null when neither key is a non-empty string", () => {
+    assert.equal(resolveMailchimpListId({}), null);
+    assert.equal(resolveMailchimpListId({ list_id: "" }), null);
+    assert.equal(resolveMailchimpListId({ list_id: 123 as unknown as string }), null);
+  });
+});
+
+// ── Bug C (2026-07-08): tags 404 → correct segments endpoint ───────────────
+
+describe("getAudienceTags", () => {
+  let origFetch: typeof fetch;
+
+  beforeEach(() => {
+    origFetch = globalThis.fetch;
+    __clearTagCacheForTests();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  it("hits GET /lists/{id}/segments?type=static (NOT /tags, which 404s)", async () => {
+    let requestedUrl = "";
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({ segments: [] }), { status: 200 });
+    };
+    await getAudienceTags("us7", "ak", "c2b4d77acb");
+    assert.match(requestedUrl, /\/3\.0\/lists\/c2b4d77acb\/segments\?type=static/);
+    assert.doesNotMatch(requestedUrl, /\/tags\b/);
+  });
+
+  it("maps segments[] to AudienceTag[] with member_count, filtering malformed entries", async () => {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          segments: [
+            { id: 1, name: "T26-ALGARVE", member_count: 500 },
+            { id: 2, name: "  T26-PORTO  ", member_count: 800 },
+            { id: 3, name: "NO-COUNT" },
+            { name: "missing-id" },
+            { id: 4 },
+          ],
+        }),
+        { status: 200 },
+      );
+    const tags = await getAudienceTags("us7", "ak", "c2b4d77acb");
+    const expected: AudienceTag[] = [
+      { id: 1, name: "T26-ALGARVE", member_count: 500 },
+      { id: 2, name: "T26-PORTO", member_count: 800 },
+      { id: 3, name: "NO-COUNT", member_count: 0 },
+    ];
+    assert.deepEqual(tags, expected);
+  });
+
+  it("caches per (serverPrefix, listId) for 5 minutes, skipping a second fetch", async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response(JSON.stringify({ segments: [{ id: 1, name: "A", member_count: 1 }] }), {
+        status: 200,
+      });
+    };
+    const t0 = 1_000_000;
+    await getAudienceTags("us7", "ak", "list-a", { nowMs: t0 });
+    await getAudienceTags("us7", "ak", "list-a", { nowMs: t0 + 60_000 });
+    assert.equal(calls, 1, "second call within TTL must be served from cache");
+
+    await getAudienceTags("us7", "ak", "list-a", { nowMs: t0 + 6 * 60_000 });
+    assert.equal(calls, 2, "call past the 5-minute TTL must re-fetch");
+  });
+
+  it("propagates a 404 as a MailchimpHttpError (regression guard for the original bug)", async () => {
+    globalThis.fetch = async () =>
+      new Response("Resource Not Found", { status: 404 });
+    await assert.rejects(
+      () => getAudienceTags("us7", "ak", "bad-list", { nowMs: 2_000_000 }),
+      /Mailchimp HTTP 404/,
+    );
   });
 });

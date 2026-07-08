@@ -137,19 +137,57 @@ export function resolveAudienceTags(audience: {
   return [];
 }
 
+/**
+ * Resolve a Mailchimp list id from an audience descriptor, checking BOTH key
+ * conventions in use across the codebase: `list_id` (Mailchimp's own naming
+ * — canonical going forward, per PR #696's tag picker + PATCH route) and
+ * `audience_id` (the older key some historical `d2c_scheduled_sends` rows
+ * still carry — those rows were patched to carry both, but new code should
+ * not assume that). `list_id` wins when both are present. Returns null when
+ * neither is set. Pure.
+ */
+export function resolveMailchimpListId(audience: {
+  list_id?: unknown;
+  audience_id?: unknown;
+}): string | null {
+  if (typeof audience.list_id === "string" && audience.list_id.trim()) {
+    return audience.list_id.trim();
+  }
+  if (typeof audience.audience_id === "string" && audience.audience_id.trim()) {
+    return audience.audience_id.trim();
+  }
+  return null;
+}
+
 // ─── Network seam ────────────────────────────────────────────────────────────
 
-interface MailchimpTagsResponse {
-  tags?: Array<{ id?: number; name?: string; member_count?: number }>;
+/**
+ * Bug C fix (2026-07-08): `GET /lists/{id}/tags` does NOT exist in
+ * Mailchimp's v3 Marketing API — confirmed live (404 "Resource Not Found")
+ * against the Throwback Algarve list, which is why the multi-tag picker's
+ * "Audience tags unavailable: Mailchimp HTTP 404" banner fired even with a
+ * verified-correct list id. Root cause was the endpoint, not `listId`
+ * resolution (the announce send's `audience.list_id` was already valid).
+ *
+ * Mailchimp exposes "tags" to the UI as static segments — a tag IS a static
+ * segment sharing the same id space (see resolveSegmentOpts above). There
+ * IS a dedicated `GET /lists/{id}/tag-search` endpoint, but it omits
+ * `member_count` entirely. `GET /lists/{id}/segments?type=static` returns
+ * the byte-identical set of ids/names (verified live: both endpoints report
+ * `total_items: 23` for the same 23 ids on this list) WITH `member_count`
+ * included, in a single call — so segments is used instead of tag-search +
+ * a per-tag member_count lookup.
+ */
+interface MailchimpStaticSegmentsResponse {
+  segments?: Array<{ id?: number; name?: string; member_count?: number }>;
 }
 
 const TAG_CACHE_TTL_MS = 5 * 60 * 1000;
 const tagCache = new Map<string, { at: number; tags: AudienceTag[] }>();
 
 /**
- * List all tags in a Mailchimp audience with member counts, cached in-memory
- * for 5 minutes per (serverPrefix, listId). The `/lists/{id}/tags` endpoint
- * returns tag id + name + member_count directly.
+ * List all tags (static segments) in a Mailchimp audience with member
+ * counts, cached in-memory for 5 minutes per (serverPrefix, listId).
  */
 export async function getAudienceTags(
   serverPrefix: string,
@@ -162,13 +200,13 @@ export async function getAudienceTags(
   const hit = tagCache.get(key);
   if (hit && now - hit.at < TAG_CACHE_TTL_MS) return hit.tags;
 
-  const res = await mailchimpJson<MailchimpTagsResponse>(
+  const res = await mailchimpJson<MailchimpStaticSegmentsResponse>(
     serverPrefix,
     apiKey,
-    `/3.0/lists/${encodeURIComponent(listId)}/tags?count=1000`,
+    `/3.0/lists/${encodeURIComponent(listId)}/segments?type=static&count=1000`,
     { method: "GET" },
   );
-  const tags: AudienceTag[] = (res.tags ?? [])
+  const tags: AudienceTag[] = (res.segments ?? [])
     .filter((t) => typeof t.id === "number" && typeof t.name === "string")
     .map((t) => ({
       id: t.id as number,

@@ -394,6 +394,39 @@ export async function getD2CTemplateById(
     : null;
 }
 
+/**
+ * Bug D support (2026-07-08): `variables_jsonb` is a dual-purpose column —
+ * `mapD2CTemplate` above only reads the string[] "variable key names" shape
+ * (dropping anything else), but `lib/db/d2c-dashboard.ts`'s `mapPreviewTemplate`
+ * shows some templates instead store an OBJECT there carrying
+ * `{ button_label, button_url }` (the dashboard preview's CTA source —
+ * `resolveCta` in lib/d2c/dashboard-view.ts). The email test-send route needs
+ * this same button info so its "[TEST]" email's CTA matches the preview
+ * exactly; re-reading here rather than changing `D2CTemplate`'s shape (used
+ * broadly) or duplicating `mapPreviewTemplate`'s parsing inline.
+ */
+export async function getD2CTemplateButtonInfo(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<{ button_label: string | null; button_url: string | null }> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_templates")
+    .select("variables_jsonb")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return { button_label: null, button_url: null };
+  const raw = (data as Record<string, unknown>).variables_jsonb;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { button_label: null, button_url: null };
+  }
+  const v = raw as Record<string, unknown>;
+  return {
+    button_label: typeof v.button_label === "string" ? v.button_label : null,
+    button_url: typeof v.button_url === "string" ? v.button_url : null,
+  };
+}
+
 // ─── events (read-only helpers for send-content resolution) ────────────────
 
 export interface D2CEventVariablesRow extends EventVariablesSource {

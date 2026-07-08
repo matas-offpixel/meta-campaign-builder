@@ -151,6 +151,75 @@ test("live path calls Mailchimp campaigns endpoints (fetch mocked)", async () =>
   assert.ok(urls.some((u) => u.includes("/content")));
 });
 
+test("live path renders the branded email chassis (Bug D) in the content PUT body", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  let capturedContentHtml = "";
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/3.0/campaigns") && !url.includes("actions")) {
+      return new Response(JSON.stringify({ id: "cmp-chassis" }), { status: 200 });
+    }
+    if (url.includes("/3.0/campaigns/cmp-chassis/content")) {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      capturedContentHtml = body.html ?? "";
+      return new Response("{}", { status: 200 });
+    }
+    if (url.includes("/3.0/campaigns/cmp-chassis/actions/schedule")) {
+      return new Response("{}", { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  };
+
+  const message: D2CMessage = {
+    ...sampleMessage(),
+    eventName: "Throwback Algarve",
+    artworkUrl: "https://cdn.example.com/algarve.jpg",
+    buttonLabel: "Sign up here",
+    buttonUrl: "https://tickets.example.com",
+  };
+  const provider = new MailchimpProvider();
+  const r = await provider.send(baseConnection(), message);
+  assert.equal(r.ok, true);
+  // Regression guard: previously this was bare markdownToBasicHtml(bodyMd)
+  // with none of the branded chassis (artwork, CTA, footer) — see Bug D.
+  assert.match(capturedContentHtml, /<img src="https:\/\/cdn\.example\.com\/algarve\.jpg"/);
+  assert.match(capturedContentHtml, /Sign up here<\/a>/);
+  assert.match(capturedContentHtml, /Síguenos para saber más…/);
+  assert.match(capturedContentHtml, /<strong>there<\/strong>/);
+});
+
+test("live path resolves audience.audience_id (historical rows) when list_id is absent (Bug C)", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  const urls: string[] = [];
+  const bodies: Record<string, unknown> = {};
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.endsWith("/3.0/campaigns") && !url.includes("actions")) {
+      bodies.campaign = init?.body ? JSON.parse(String(init.body)) : null;
+      return new Response(JSON.stringify({ id: "cmp-legacy" }), { status: 200 });
+    }
+    if (url.includes("/content")) return new Response("{}", { status: 200 });
+    if (url.includes("/actions/schedule")) return new Response("{}", { status: 200 });
+    return new Response("not found", { status: 404 });
+  };
+
+  const legacyMessage: D2CMessage = {
+    ...sampleMessage(),
+    audience: {
+      audience_id: "c2b4d77acb",
+      reply_to: "a@b.com",
+      from_name: "Test",
+    },
+  };
+  const provider = new MailchimpProvider();
+  const r = await provider.send(baseConnection(), legacyMessage);
+  assert.equal(r.ok, true);
+  const campaignBody = bodies.campaign as Record<string, unknown>;
+  const recipients = campaignBody.recipients as Record<string, unknown>;
+  assert.equal(recipients.list_id, "c2b4d77acb");
+});
+
 test("validateCredentials pings Mailchimp", async () => {
   process.env.FEATURE_D2C_LIVE = "true";
   let pinged = false;
