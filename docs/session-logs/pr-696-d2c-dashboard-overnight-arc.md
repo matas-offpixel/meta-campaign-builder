@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 696
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/696
 - **Branch:** `cursor/d2c-dashboard-overnight-arc`
 
 ## Summary
