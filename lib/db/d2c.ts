@@ -18,6 +18,7 @@ import type {
   D2CScheduledSendStatus,
   D2CTemplate,
 } from "@/lib/d2c/types";
+import type { EventVariablesSource } from "@/lib/d2c/event-variables";
 import { getD2CTokenKey } from "../d2c/secrets.ts";
 
 /**
@@ -372,6 +373,82 @@ export async function deleteD2CTemplate(
   const sb = asAny(supabase);
   const { error } = await sb.from("d2c_templates").delete().eq("id", id);
   if (error) console.warn("[d2c deleteTemplate]", error.message);
+}
+
+export async function getD2CTemplateById(
+  supabase: AnySupabaseClient,
+  id: string,
+): Promise<D2CTemplate | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("d2c_templates")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c getTemplateById]", error.message);
+    return null;
+  }
+  return data
+    ? mapD2CTemplate(data as unknown as Record<string, unknown>)
+    : null;
+}
+
+// ─── events (read-only helpers for send-content resolution) ────────────────
+
+export interface D2CEventVariablesRow extends EventVariablesSource {
+  user_id: string;
+}
+
+/**
+ * The event columns `resolveEventVariables` (lib/d2c/event-variables.ts)
+ * needs, plus `user_id` for ownership checks. Mirrors the cron's own
+ * `fetchEventForCron` — shared here so the test-send route (and any other
+ * caller that needs to preview/resend a send's real content) doesn't
+ * duplicate the query.
+ */
+export async function getEventVariablesSource(
+  supabase: AnySupabaseClient,
+  eventId: string,
+): Promise<D2CEventVariablesRow | null> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("events")
+    .select(
+      "name, event_date, event_start_at, event_timezone, ticket_url, presale_at, general_sale_at, venue_name, venue_city, user_id",
+    )
+    .eq("id", eventId)
+    .maybeSingle();
+  if (error) {
+    console.warn("[d2c getEventVariablesSource]", error.message);
+    return null;
+  }
+  return data as D2CEventVariablesRow | null;
+}
+
+/** Headliner artist names for `{{artist_headliners}}`. Mirrors the cron's `listHeadlinerNamesForCron`. */
+export async function listEventHeadlinerNames(
+  supabase: AnySupabaseClient,
+  eventId: string,
+): Promise<string[]> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("event_artists")
+    .select("is_headliner, artist:artists ( name )")
+    .eq("event_id", eventId)
+    .order("billing_order", { ascending: true });
+  if (error || !data) return [];
+  const names: string[] = [];
+  for (const row of data as {
+    is_headliner: boolean;
+    artist: { name: string } | { name: string }[] | null;
+  }[]) {
+    if (!row.is_headliner) continue;
+    const rel = row.artist;
+    const a = Array.isArray(rel) ? rel[0] : rel;
+    if (a?.name) names.push(a.name);
+  }
+  return names;
 }
 
 // ─── d2c_scheduled_sends ─────────────────────────────────────────────────

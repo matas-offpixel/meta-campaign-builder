@@ -25,6 +25,14 @@ export interface AutorespFireRow {
   member_identifier: string;
   fired_at: string;
   dry_run: boolean;
+  /**
+   * true for an operator "Send test to me" fire (migration 144). Test fires
+   * are audited here but excluded from the dedup unique index (a partial
+   * index scoped to `is_test = false`) and from every aggregate below, so
+   * testing a send never blocks or pollutes real per-member autoresponder
+   * fires.
+   */
+  is_test: boolean;
   error: string | null;
 }
 
@@ -46,6 +54,12 @@ export interface ClaimResult {
  * two concurrent fires can't both proceed. Returns `alreadyFired` on a unique
  * conflict. The row starts with `dry_run` as passed and no response yet;
  * finalise it after the provider call.
+ *
+ * `isTest` (migration 144) marks an operator "Send test to me" fire. The
+ * dedup unique index is a partial index scoped to `is_test = false`, so test
+ * claims never conflict — `claimed` is effectively always true for them, by
+ * design (every test click is an intentional fresh fire, not a duplicate to
+ * guard against).
  */
 export async function claimAutorespFire(
   supabase: AnySupabaseClient,
@@ -55,6 +69,7 @@ export async function claimAutorespFire(
     provider: AutorespFireProvider;
     memberIdentifier: string;
     dryRun: boolean;
+    isTest?: boolean;
   },
 ): Promise<ClaimResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,6 +82,7 @@ export async function claimAutorespFire(
       provider: input.provider,
       member_identifier: input.memberIdentifier,
       dry_run: input.dryRun,
+      is_test: input.isTest ?? false,
     })
     .select("id")
     .maybeSingle();
@@ -130,6 +146,7 @@ function mapFireRow(raw: Record<string, unknown>): AutorespFireRow {
     member_identifier: raw.member_identifier as string,
     fired_at: raw.fired_at as string,
     dry_run: Boolean(raw.dry_run),
+    is_test: Boolean(raw.is_test),
     error: (raw.error as string | null) ?? null,
   };
 }
@@ -137,7 +154,9 @@ function mapFireRow(raw: Record<string, unknown>): AutorespFireRow {
 /**
  * Load a per-send fire summary (counts + recent N) for the dashboard. `provider`
  * counts split email (mailchimp) vs whatsapp (bird); `dryRun` counts fires that
- * were logged under the dry-run gate.
+ * were logged under the dry-run gate. Test fires (`is_test = true`, migration
+ * 144 — "Send test to me") are always excluded so a test click never inflates
+ * the real autoresponder fire stats or recent-fires timeline.
  */
 export async function getAutorespFiresForSend(
   supabase: AnySupabaseClient,
@@ -149,8 +168,9 @@ export async function getAutorespFiresForSend(
   const limit = opts?.recentLimit ?? 20;
   const { data, error } = await sb
     .from("d2c_autoresp_fires")
-    .select("id, event_id, send_id, provider, member_identifier, fired_at, dry_run, error")
+    .select("id, event_id, send_id, provider, member_identifier, fired_at, dry_run, is_test, error")
     .eq("send_id", sendId)
+    .eq("is_test", false)
     .order("fired_at", { ascending: false });
   if (error) {
     console.warn("[d2c-autoresp getForSend]", error.message);
@@ -168,7 +188,10 @@ export async function getAutorespFiresForSend(
   return { email, whatsapp, dryRun, total: rows.length, recent: rows.slice(0, limit) };
 }
 
-/** Fires for many sends at once (dashboard loader). Keyed by send_id. */
+/**
+ * Fires for many sends at once (dashboard loader). Keyed by send_id. Test
+ * fires are excluded — see `getAutorespFiresForSend`.
+ */
 export async function getAutorespFiresForSends(
   supabase: AnySupabaseClient,
   sendIds: string[],
@@ -181,8 +204,9 @@ export async function getAutorespFiresForSends(
   const limit = opts?.recentLimit ?? 20;
   const { data, error } = await sb
     .from("d2c_autoresp_fires")
-    .select("id, event_id, send_id, provider, member_identifier, fired_at, dry_run, error")
+    .select("id, event_id, send_id, provider, member_identifier, fired_at, dry_run, is_test, error")
     .in("send_id", sendIds)
+    .eq("is_test", false)
     .order("fired_at", { ascending: false });
   if (error) {
     console.warn("[d2c-autoresp getForSends]", error.message);
