@@ -5,27 +5,60 @@ import { isD2CApprover } from "@/lib/auth/operator-allowlist";
 import {
   getD2CConnectionById,
   getD2CConnectionCredentials,
+  getD2CEventCopy,
+  getD2CTemplateById,
+  getEventVariablesSource,
   getScheduledSendById,
+  listEventHeadlinerNames,
 } from "@/lib/db/d2c";
+import {
+  claimAutorespFire,
+  finalizeAutorespFire,
+  releaseAutorespFire,
+} from "@/lib/db/d2c-autoresp";
 import { getD2CProvider } from "@/lib/d2c/registry";
-import { mailchimpJson } from "@/lib/d2c/mailchimp/client";
-import { readMailchimpCampaignId } from "@/lib/d2c/metrics/types";
+import { resolveEventVariables } from "@/lib/d2c/event-variables";
+import {
+  createMemberSegment,
+  deleteSegment,
+} from "@/lib/d2c/mailchimp/ephemeral-segment";
+import { sendMailchimpCampaignLive } from "@/lib/d2c/mailchimp/provider";
+import {
+  buildTestEmailAudience,
+  resolveTestSendContent,
+} from "@/lib/d2c/test-send/resolve";
 import type { D2CConnection, D2CMessage } from "@/lib/d2c/types";
 
 /**
  * POST /api/d2c/scheduled-sends/{id}/test-send
  *
- * "Send test to me" (Goal 7) — the ONLY live-fire path from this dashboard.
+ * "Send test to me" — the ONLY live-fire path from this dashboard.
  * Operator-only (session owner or D2C approver); MUST NOT be reachable from
  * the public share view (no session there → 401). Sends a single copy of the
  * send to the operator's OWN address:
- *   - email → session user's email (via Mailchimp campaign test-email action,
- *     which requires an already-created campaign on this send)
- *   - whatsapp/sms → MATAS_TEST_WHATSAPP_NUMBER (E164); disabled if unset
+ *   - email → session user's email. Creates a FRESH Mailchimp campaign
+ *     targeting an ephemeral member-of-1 static segment (same pattern as the
+ *     webhook autoresponder — lib/d2c/mailchimp/ephemeral-segment.ts), using
+ *     the send's REAL subject/body (prefixed "[TEST] "), then deletes the
+ *     segment. Bypasses the 3-of-3 live gate — a test always fires live to
+ *     self, regardless of FEATURE_D2C_LIVE / connection flags — via
+ *     `sendMailchimpCampaignLive`, which skips the dry-run check
+ *     `MailchimpProvider.send` applies to every other caller.
+ *
+ *     Fix for: prior implementation cloned an already-created Mailchimp
+ *     campaign off `result_jsonb` via `/actions/test`, which only exists
+ *     AFTER a real send — so testing any not-yet-fired send 422'd with
+ *     "Email test requires an already-created Mailchimp campaign…".
+ *   - whatsapp/sms → MATAS_TEST_WHATSAPP_NUMBER (E164); disabled if unset.
+ *     Unaffected by the above — Bird has no create-campaign-upfront model, so
+ *     this branch is untouched and still honours the live gate (deliberate
+ *     asymmetry: WhatsApp test was never blocked by the campaign-clone bug).
  * Bypasses the per-send dry_run column + list/tag filters (targets self only).
- * The FEATURE_D2C_LIVE master kill-switch is still honoured by the provider —
- * a deliberate safety carve-out (see PR notes), so with the flag off this
- * returns a dry-run result rather than firing.
+ *
+ * Every fire (live or failed) is audited in `d2c_autoresp_fires` with
+ * `is_test = true` (migration 144) — visible for ops but excluded from the
+ * dedup lock and from the AutorespFireSummary the dashboard shows, so testing
+ * never blocks or pollutes a real per-member autoresponder fire.
  *
  * Rate limit: 1 test / send / 60s / session (in-memory).
  */
@@ -33,9 +66,12 @@ import type { D2CConnection, D2CMessage } from "@/lib/d2c/types";
 const RATE_LIMIT_MS = 60_000;
 const lastTestByKey = new Map<string, number>();
 
-function readString(obj: Record<string, unknown>, key: string): string | null {
-  const v = obj[key];
-  return typeof v === "string" && v.trim() ? v.trim() : null;
+function readStr(obj: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
 }
 
 export async function POST(
@@ -97,47 +133,146 @@ export async function POST(
 
   const idempotencyKey = `test:${send.id}:${Math.floor(now / 1000)}`;
 
-  // ── Email → Mailchimp campaign test-email action ──────────────────────────
+  // ── Email → fresh Mailchimp campaign → ephemeral member-of-1 segment ──────
   if (send.channel === "email") {
     const email = user.email;
     if (!email) {
       return NextResponse.json({ ok: false, error: "No email on your account" }, { status: 400 });
     }
-    const serverPrefix = readString(creds, "server_prefix");
-    const apiKey = readString(creds, "api_key");
-    const campaignId = readMailchimpCampaignId(send.result_jsonb);
+    const serverPrefix = readStr(creds, "server_prefix");
+    const apiKey = readStr(creds, "api_key");
     if (!serverPrefix || !apiKey) {
       return NextResponse.json({ ok: false, error: "Mailchimp credentials unavailable" }, { status: 502 });
     }
-    if (!campaignId) {
+
+    const audience = (send.audience ?? {}) as Record<string, unknown>;
+    const listId = readStr(audience, "list_id", "audience_id");
+    if (!listId) {
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Email test requires an already-created Mailchimp campaign for this send (none yet — the campaign is created at real send time).",
-        },
+        { ok: false, error: "Send audience has no Mailchimp list — configure the audience before testing." },
         { status: 422 },
       );
     }
-    try {
-      await mailchimpJson<unknown>(
-        serverPrefix,
-        apiKey,
-        `/3.0/campaigns/${encodeURIComponent(campaignId)}/actions/test`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ test_emails: [email], send_type: "html" }),
-        },
-      );
-      lastTestByKey.set(rlKey, now);
-      return NextResponse.json({ ok: true, target: email, live: true });
-    } catch (e) {
+
+    // Content: prefer the rendered per-milestone copy (matches what the
+    // dashboard preview shows), fall back to the send's template.
+    const [copy, template] = await Promise.all([
+      getD2CEventCopy(admin, send.event_id),
+      getD2CTemplateById(admin, send.template_id),
+    ]);
+    const content = resolveTestSendContent({
+      jobType: send.job_type,
+      copyBundle: copy?.copy_jsonb,
+      templateSubject: template?.subject ?? null,
+      templateBodyMarkdown: template?.body_markdown ?? null,
+    });
+    if (!content) {
       return NextResponse.json(
-        { ok: false, error: e instanceof Error ? e.message : "Mailchimp test failed" },
+        { ok: false, error: "This send has no content to test (template and copy are both empty)." },
+        { status: 422 },
+      );
+    }
+
+    // Variables: mirror the real cron's resolution (event fields + headliners
+    // + community/artwork copy vars + the send's own variables override).
+    const [eventRow, headliners] = await Promise.all([
+      getEventVariablesSource(admin, send.event_id),
+      listEventHeadlinerNames(admin, send.event_id),
+    ]);
+    const known = resolveEventVariables(
+      {
+        name: eventRow?.name ?? "",
+        event_date: eventRow?.event_date ?? null,
+        event_start_at: eventRow?.event_start_at ?? null,
+        event_timezone: eventRow?.event_timezone ?? null,
+        ticket_url: eventRow?.ticket_url ?? null,
+        presale_at: eventRow?.presale_at ?? null,
+        general_sale_at: eventRow?.general_sale_at ?? null,
+        venue_name: eventRow?.venue_name ?? null,
+        venue_city: eventRow?.venue_city ?? null,
+      },
+      { artistHeadliners: headliners.length ? headliners : undefined },
+    );
+    const variables: Record<string, string> = {
+      ...Object.fromEntries(Object.entries(known).map(([k, v]) => [k, String(v)])),
+    };
+    if (copy?.whatsapp_community_url) variables.community_url = copy.whatsapp_community_url;
+    if (copy?.artwork_url) variables.artwork_url = copy.artwork_url;
+    for (const [k, v] of Object.entries(send.variables ?? {})) {
+      variables[k] = v == null ? "" : String(v);
+    }
+
+    // Audit claim (best-effort, migration 144: is_test = true — excluded from
+    // the dedup lock and from every real-fire aggregate). Never blocks the
+    // send itself on an audit-write hiccup.
+    const claim = await claimAutorespFire(admin, {
+      eventId: send.event_id,
+      sendId: send.id,
+      provider: "mailchimp",
+      memberIdentifier: email,
+      dryRun: false,
+      isTest: true,
+    });
+    if (claim.error) {
+      console.warn("[d2c test-send] audit claim failed:", claim.error);
+    }
+    const fireId = claim.id;
+
+    let segment: { id: number } | null = null;
+    try {
+      segment = await createMemberSegment(serverPrefix, apiKey, listId, email, {
+        namePrefix: "d2c-test",
+        nowMs: now,
+      });
+    } catch (e) {
+      if (fireId) await releaseAutorespFire(admin, fireId);
+      return NextResponse.json(
+        { ok: false, error: e instanceof Error ? `Could not prepare test segment: ${e.message}` : "Could not prepare test segment" },
         { status: 502 },
       );
     }
+
+    const liveConnection: D2CConnection = { ...connection, credentials: creds };
+    const message: D2CMessage = {
+      channel: "email",
+      subject: content.subject,
+      bodyMarkdown: content.bodyMarkdown,
+      audience: buildTestEmailAudience(audience, {
+        listId,
+        savedSegmentId: segment.id,
+        sendId: send.id,
+        nowMs: now,
+      }),
+      variables,
+      correlationId: idempotencyKey,
+    };
+
+    let result;
+    try {
+      result = await sendMailchimpCampaignLive(liveConnection, message);
+    } catch (e) {
+      if (fireId) await releaseAutorespFire(admin, fireId);
+      await deleteSegment(serverPrefix, apiKey, listId, segment.id);
+      return NextResponse.json(
+        { ok: false, error: e instanceof Error ? e.message : "Mailchimp test send failed" },
+        { status: 502 },
+      );
+    }
+    await deleteSegment(serverPrefix, apiKey, listId, segment.id);
+
+    if (!result.ok) {
+      if (fireId) await releaseAutorespFire(admin, fireId);
+      return NextResponse.json({ ok: false, error: result.error ?? "Mailchimp test send failed" }, { status: 502 });
+    }
+    if (fireId) {
+      await finalizeAutorespFire(admin, fireId, {
+        dryRun: false,
+        providerResponse: result.details ?? null,
+        error: null,
+      });
+    }
+    lastTestByKey.set(rlKey, now);
+    return NextResponse.json({ ok: true, target: email, live: true });
   }
 
   // ── WhatsApp / SMS → Bird direct message to the test number ───────────────
