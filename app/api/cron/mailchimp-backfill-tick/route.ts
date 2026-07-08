@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
+import { getMailchimpCredsFromD2CConnection } from "@/lib/mailchimp/d2c-credentials-adapter";
 import {
   getAudienceSegments,
   getSegmentMemberIdsPage,
@@ -74,9 +75,18 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     const clientRow = Array.isArray(event?.client) ? event.client[0] : event?.client;
     const accountId = clientRow?.mailchimp_account_id ?? null;
-    if (!accountId) throw new Error("event client has no mailchimp_account_id");
 
-    const creds = await getMailchimpCredentials(supabase, accountId);
+    // Falls back to d2c_connections for D2C-only clients (no
+    // clients.mailchimp_account_id) — same gap + fix as the profile-update
+    // webhook (2026-07-08).
+    const legacyCreds = accountId ? await getMailchimpCredentials(supabase, accountId) : null;
+    const creds =
+      legacyCreds ??
+      (await getMailchimpCredsFromD2CConnection(
+        supabase,
+        event?.client_id ?? null,
+        job.mailchimp_audience_id,
+      ));
     if (!creds) throw new Error("no Mailchimp credentials");
 
     const segmentsResp = await getAudienceSegments(creds.dc, job.mailchimp_audience_id, creds.apiKey, {

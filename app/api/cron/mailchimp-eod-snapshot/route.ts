@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
+import { getMailchimpCredsFromD2CConnection } from "@/lib/mailchimp/d2c-credentials-adapter";
 import { getAudienceSegments } from "@/lib/mailchimp/client";
 import { daySnapshotAt, isCronAuthorized, todayUtc } from "@/lib/mailchimp/tag-tracking";
 
@@ -74,12 +75,14 @@ export async function GET(req: NextRequest) {
     try {
       const clientRow = Array.isArray(ev.client) ? ev.client[0] : ev.client;
       const accountId = clientRow?.mailchimp_account_id ?? null;
-      if (!accountId) {
-        results.push({ eventId: ev.id, action: "skip", reason: "no_account" });
-        continue;
-      }
 
-      const creds = await getMailchimpCredentials(supabase, accountId);
+      // Falls back to d2c_connections for D2C-only clients (no
+      // clients.mailchimp_account_id) — same gap + fix as the profile-update
+      // webhook (2026-07-08).
+      const legacyCreds = accountId ? await getMailchimpCredentials(supabase, accountId) : null;
+      const creds =
+        legacyCreds ??
+        (await getMailchimpCredsFromD2CConnection(supabase, ev.client_id, ev.mailchimp_audience_id));
       if (!creds) {
         results.push({ eventId: ev.id, action: "skip", reason: "no_credentials" });
         continue;

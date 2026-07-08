@@ -150,7 +150,20 @@ export async function POST(req: NextRequest, { params }: Context) {
         return NextResponse.json({ ok: false, error: "Missing email" }, { status: 400 });
       }
       const result = await handleProfileUpdate(supabase, clientId, audienceId, email);
-      return NextResponse.json({ mode: "profile_update", ...result });
+      // Mirror the tag_added branch below: a fresh "added" reconciliation is
+      // exactly the signal processTagEvent fires the autoresponder on, but
+      // handleProfileUpdate only writes the tag-tracking log — without this,
+      // the profile-update webhook path would keep tag counts accurate but
+      // never trigger autoresp_setup sends for D2C clients (2026-07-08 fix).
+      let autoresp: { fired: number; skipped: number } | undefined;
+      if (result.ok && result.addedEventIds.length > 0) {
+        autoresp = await fireAutorespForTagAdd(supabase, result.addedEventIds, email);
+      }
+      return NextResponse.json({
+        mode: "profile_update",
+        ...result,
+        ...(autoresp ? { autoresp } : {}),
+      });
     } else {
       return NextResponse.json({ ok: true, ignored: true, reason: `type=${type ?? "none"}` });
     }
