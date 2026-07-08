@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 702
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/702
 - **Branch:** `cursor/mailchimp-webhook-subscribe-fallback`
 
 ## Summary
