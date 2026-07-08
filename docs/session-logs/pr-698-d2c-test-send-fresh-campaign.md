@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 698
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/698
 - **Branch:** `cursor/d2c-test-send-fresh-campaign`
 
 ## Summary
