@@ -31,6 +31,45 @@ function readString(obj: Record<string, unknown>, key: string): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+export interface BirdTemplateInfo {
+  projectId: string;
+  versionId: string;
+  locale: string;
+}
+
+/**
+ * Bug B fix (2026-07-08): resolve WhatsApp template identity from BOTH
+ * conventions live in this codebase — `audience.project_id`/`template_id`
+ * (what this provider originally assumed, and what `fire.ts`'s real
+ * webhook/poll autoresp path still spreads `send.audience` into) and
+ * `variables.bird_template_project_id`/`bird_template_version_id` (what WA
+ * `d2c_scheduled_sends` rows actually persist for announce/reminder/
+ * presale_live/gen_sale/autoresp_setup — verified live against the
+ * Throwback Algarve event). Audience wins when both are present (explicit
+ * per-send override, e.g. a future test-send that deliberately swaps
+ * templates). Without this, `isTemplateSend` was ALWAYS false for every
+ * real WA send in production — every fire silently downgraded to the empty
+ * body-text path (see Bug A) instead of firing the approved WhatsApp
+ * template. Exported so both this provider and the test-send route (which
+ * copies the resolved ids onto its ephemeral audience as defence-in-depth)
+ * share one resolution rule. Pure.
+ */
+export function resolveBirdTemplateInfo(
+  audience: Record<string, unknown>,
+  variables: Record<string, unknown>,
+): BirdTemplateInfo | null {
+  const projectId =
+    readString(audience, "project_id") ??
+    readString(variables, "bird_template_project_id");
+  const versionId =
+    readString(audience, "template_id") ??
+    readString(variables, "bird_template_version_id");
+  if (!projectId || !versionId) return null;
+  const locale =
+    readString(audience, "locale") ?? readString(variables, "locale") ?? "en";
+  return { projectId, versionId, locale };
+}
+
 /**
  * Layers 6 & 9 of the 2026-07-01 direct-fire incident — RECONCILED 2026-07-02
  * against `.scratch/bird-runtime-send-capture.txt`.
@@ -167,20 +206,19 @@ export class BirdProvider implements D2CProvider {
     // NOT by name. `template_id` here maps to Bird's `version` field — same
     // naming Cursor already uses for the draft-campaign flow
     // (OrchestrationInput.bird.projectId / .templateId, see orchestration/index.ts).
-    const templateProjectId =
-      readString(audience as Record<string, unknown>, "project_id") ?? null;
-    const templateVersionId =
-      readString(audience as Record<string, unknown>, "template_id") ?? null;
-    const locale =
-      readString(audience as Record<string, unknown>, "locale") ?? "en";
+    // See resolveBirdTemplateInfo's doc for why this checks both audience AND
+    // variables (Bug B, 2026-07-08).
+    const templateInfo = resolveBirdTemplateInfo(
+      audience as Record<string, unknown>,
+      message.variables ?? {},
+    );
 
     const renderedBody = substituteTemplateVariables(
       message.bodyMarkdown,
       variables,
     );
 
-    const isTemplateSend =
-      message.channel === "whatsapp" && !!templateProjectId && !!templateVersionId;
+    const isTemplateSend = message.channel === "whatsapp" && templateInfo !== null;
 
     // Bird's /messages endpoint shapes `receiver` identically for either send
     // type. `list_id`-targeted receiver shape is the one item NOT covered by
@@ -201,9 +239,9 @@ export class BirdProvider implements D2CProvider {
       ? {
           receiver,
           template: {
-            projectId: templateProjectId,
-            version: templateVersionId,
-            locale,
+            projectId: templateInfo!.projectId,
+            version: templateInfo!.versionId,
+            locale: templateInfo!.locale,
             // Flat parameter array — Bird's own abstraction over the
             // WhatsApp Cloud API's nested components[].parameters[] shape.
             parameters: Object.entries(variables).map(([key, value]) => ({

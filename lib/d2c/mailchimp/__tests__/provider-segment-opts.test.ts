@@ -38,9 +38,11 @@ function stubFetch() {
     requests.push({ url: u, method, body });
 
     let payload: unknown = {};
-    if (u.includes("/tags?count=1000")) {
+    if (u.includes("/segments?type=static")) {
+      // Bug C fix (2026-07-08): the real endpoint is /segments?type=static,
+      // not /tags — the latter 404s. See tag-registry.ts's getAudienceTags doc.
       payload = {
-        tags: [
+        segments: [
           { id: 101, name: "T26-ALGARVE", member_count: 500 },
           { id: 202, name: "H26-PORTO", member_count: 800 },
         ],

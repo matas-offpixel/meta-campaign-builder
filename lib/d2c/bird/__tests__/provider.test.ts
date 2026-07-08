@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 
 import type { D2CConnection, D2CMessage } from "../../types.ts";
-import { BirdProvider, birdDryRunGatesBlockLiveSend } from "../provider.ts";
+import {
+  BirdProvider,
+  birdDryRunGatesBlockLiveSend,
+  resolveBirdTemplateInfo,
+} from "../provider.ts";
 
 const baseConnection = (): D2CConnection => ({
   id: "c1",
@@ -278,6 +282,94 @@ test("both audience.channel_id and creds.channel_id absent → graceful error, n
     "Missing Bird api_key, workspace_id or channel_id on connection.",
   );
   assert.equal(calls, 0, "should fail fast before any HTTP call");
+});
+
+// ── Bug B (2026-07-08): template identity lives on `variables`, not just
+// `audience`, for real WA scheduled_sends rows ────────────────────────────
+
+test("resolveBirdTemplateInfo: reads project/version/locale from variables when absent from audience", () => {
+  const info = resolveBirdTemplateInfo(
+    {},
+    {
+      bird_template_project_id: "proj-var",
+      bird_template_version_id: "ver-var",
+      locale: "es",
+    },
+  );
+  assert.deepEqual(info, { projectId: "proj-var", versionId: "ver-var", locale: "es" });
+});
+
+test("resolveBirdTemplateInfo: audience wins over variables when both present", () => {
+  const info = resolveBirdTemplateInfo(
+    { project_id: "proj-aud", template_id: "ver-aud", locale: "en" },
+    {
+      bird_template_project_id: "proj-var",
+      bird_template_version_id: "ver-var",
+      locale: "es",
+    },
+  );
+  assert.deepEqual(info, { projectId: "proj-aud", versionId: "ver-aud", locale: "en" });
+});
+
+test("resolveBirdTemplateInfo: defaults locale to 'en' when neither source sets it", () => {
+  const info = resolveBirdTemplateInfo(
+    {},
+    { bird_template_project_id: "proj-var", bird_template_version_id: "ver-var" },
+  );
+  assert.deepEqual(info, { projectId: "proj-var", versionId: "ver-var", locale: "en" });
+});
+
+test("resolveBirdTemplateInfo: returns null when only one of project/version is present", () => {
+  assert.equal(
+    resolveBirdTemplateInfo({}, { bird_template_project_id: "proj-var" }),
+    null,
+  );
+  assert.equal(
+    resolveBirdTemplateInfo({}, { bird_template_version_id: "ver-var" }),
+    null,
+  );
+});
+
+test("live send: WA scheduled_send storing template info on variables (not audience) still fires as a template — regression for Bug B", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  let capturedBody: Record<string, unknown> | null = null;
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    capturedBody = init?.body ? JSON.parse(String(init.body)) : null;
+    return new Response(JSON.stringify({ id: "msg-varpath" }), { status: 200 });
+  };
+
+  // Mirrors the real shape persisted for announce/reminder/etc WA sends:
+  // audience only carries recipients, template identity is on variables.
+  const realShapeMessage: D2CMessage = {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "Hello {{event_name}}",
+    audience: { recipients: ["+447700900000"] },
+    variables: {
+      event_name: "Throwback Algarve",
+      bird_template_project_id: "proj-real",
+      bird_template_version_id: "ver-real",
+      bird_template_name: "throwback_announce",
+      bird_template_status: "approved",
+    },
+    correlationId: "send-real-shape",
+  };
+  const r = await new BirdProvider().send(baseConnection(), realShapeMessage);
+  assert.equal(r.ok, true);
+  const b = capturedBody as unknown as Record<string, unknown>;
+  assert.deepEqual(b.template, {
+    projectId: "proj-real",
+    version: "ver-real",
+    locale: "en",
+    parameters: [
+      { type: "string", key: "event_name", value: "Throwback Algarve" },
+      { type: "string", key: "bird_template_project_id", value: "proj-real" },
+      { type: "string", key: "bird_template_version_id", value: "ver-real" },
+      { type: "string", key: "bird_template_name", value: "throwback_announce" },
+      { type: "string", key: "bird_template_status", value: "approved" },
+    ],
+  });
+  assert.equal(b.body, undefined, "must fire the template path, not fall back to body text");
 });
 
 test("byte-diffs the messages URL: audience.channel_id override vs credential fallback", async () => {

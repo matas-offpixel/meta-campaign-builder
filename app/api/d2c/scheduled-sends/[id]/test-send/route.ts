@@ -6,6 +6,7 @@ import {
   getD2CConnectionById,
   getD2CConnectionCredentials,
   getD2CEventCopy,
+  getD2CTemplateButtonInfo,
   getD2CTemplateById,
   getEventVariablesSource,
   getScheduledSendById,
@@ -16,6 +17,7 @@ import {
   finalizeAutorespFire,
   releaseAutorespFire,
 } from "@/lib/db/d2c-autoresp";
+import { resolveBirdTemplateInfo } from "@/lib/d2c/bird/provider";
 import { getD2CProvider } from "@/lib/d2c/registry";
 import { resolveEventVariables } from "@/lib/d2c/event-variables";
 import {
@@ -50,9 +52,13 @@ import type { D2CConnection, D2CMessage } from "@/lib/d2c/types";
  *     AFTER a real send — so testing any not-yet-fired send 422'd with
  *     "Email test requires an already-created Mailchimp campaign…".
  *   - whatsapp/sms → MATAS_TEST_WHATSAPP_NUMBER (E164); disabled if unset.
- *     Unaffected by the above — Bird has no create-campaign-upfront model, so
- *     this branch is untouched and still honours the live gate (deliberate
- *     asymmetry: WhatsApp test was never blocked by the campaign-clone bug).
+ *     Unaffected by the email branch's campaign-clone bug (Bird has no
+ *     create-campaign-upfront model) and still honours the live gate. Content
+ *     resolution mirrors the email branch (copy_jsonb → template fallback) —
+ *     fixed 2026-07-08 (Bug A) after the prior implementation always sent an
+ *     empty body via a `result_jsonb.bodyMarkdown` field that never existed.
+ *     Bird template identity (Bug B) is resolved from both `audience` and
+ *     `variables` via `resolveBirdTemplateInfo`, matching the provider.
  * Bypasses the per-send dry_run column + list/tag filters (targets self only).
  *
  * Every fire (live or failed) is audited in `d2c_autoresp_fires` with
@@ -156,9 +162,10 @@ export async function POST(
 
     // Content: prefer the rendered per-milestone copy (matches what the
     // dashboard preview shows), fall back to the send's template.
-    const [copy, template] = await Promise.all([
+    const [copy, template, buttonInfo] = await Promise.all([
       getD2CEventCopy(admin, send.event_id),
       getD2CTemplateById(admin, send.template_id),
+      getD2CTemplateButtonInfo(admin, send.template_id),
     ]);
     const content = resolveTestSendContent({
       jobType: send.job_type,
@@ -245,6 +252,13 @@ export async function POST(
       }),
       variables,
       correlationId: idempotencyKey,
+      // Bug D fix (2026-07-08): test sends now render with the same branded
+      // chassis (hero artwork, dark background, CTA button) the dashboard
+      // preview shows, via sendMailchimpCampaignLive → renderD2CEmailHtml.
+      artworkUrl: copy?.artwork_url ?? null,
+      eventName: eventRow?.name ?? "",
+      buttonLabel: buttonInfo.button_label,
+      buttonUrl: buttonInfo.button_url,
     };
 
     let result;
@@ -284,24 +298,60 @@ export async function POST(
     );
   }
 
-  // Reuse the send's audience descriptor (template project/version, channel_id,
-  // locale) but override the recipients to self and drop the list target so the
+  // Content: same resolution as the email branch + the dashboard preview —
+  // prefer the rendered per-milestone copy, fall back to the send's template.
+  // Bug A fix (2026-07-08): the prior implementation read
+  // result_jsonb.bodyMarkdown, a field that has NEVER existed on this table
+  // (WA scheduled_sends don't populate result_jsonb until after they fire) —
+  // every WA test always sent an empty body, and Bird's body-text fallback
+  // path rejects that with a 422 "minimum string length is 1".
+  const [waCopy, waTemplate] = await Promise.all([
+    getD2CEventCopy(admin, send.event_id),
+    getD2CTemplateById(admin, send.template_id),
+  ]);
+  const waContent = resolveTestSendContent({
+    jobType: send.job_type,
+    copyBundle: waCopy?.copy_jsonb,
+    templateSubject: waTemplate?.subject ?? null,
+    templateBodyMarkdown: waTemplate?.body_markdown ?? null,
+  });
+  if (!waContent) {
+    return NextResponse.json(
+      { ok: false, error: "This send has no content to test (template and copy are both empty)." },
+      { status: 422 },
+    );
+  }
+
+  // Reuse the send's audience descriptor (channel_id, locale, community_url)
+  // but override the recipients to self and drop the list target so the
   // provider takes the single-recipient path — bypassing list/tag filters.
+  const waVariables = (send.variables ?? {}) as Record<string, unknown>;
   const audience: Record<string, unknown> = {
     ...(send.audience ?? {}),
     recipients: [number],
   };
   delete audience.list_id;
 
+  // Bug B fix (2026-07-08): WA scheduled_sends persist Bird template
+  // identity under variables.bird_template_project_id/version_id, not
+  // audience.project_id/template_id — resolveBirdTemplateInfo checks both
+  // conventions (BirdProvider does too, as defence-in-depth for the real
+  // webhook/poll fire path in lib/d2c/autoresp/fire.ts), but copy the
+  // resolved ids onto audience explicitly here so this route's own intent
+  // is legible without relying solely on the provider's fallback.
+  const templateInfo = resolveBirdTemplateInfo(audience, waVariables);
+  if (templateInfo) {
+    audience.project_id = templateInfo.projectId;
+    audience.template_id = templateInfo.versionId;
+    audience.locale = templateInfo.locale;
+  }
+
   const message: D2CMessage = {
     channel: send.channel,
     subject: null,
-    bodyMarkdown:
-      typeof (send.result_jsonb as Record<string, unknown>)?.bodyMarkdown === "string"
-        ? ((send.result_jsonb as Record<string, unknown>).bodyMarkdown as string)
-        : "",
+    bodyMarkdown: waContent.bodyMarkdown,
     audience,
-    variables: (send.variables ?? {}) as Record<string, unknown>,
+    variables: waVariables,
     correlationId: idempotencyKey,
   };
 

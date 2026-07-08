@@ -163,6 +163,17 @@ export interface D2CMessage {
    * idempotency key can use this to dedupe.
    */
   correlationId?: string | null;
+  /**
+   * Email-only render inputs for the branded HTML chassis (Bug D fix,
+   * 2026-07-08 — `renderD2CEmailHtml`). All optional: a caller that omits
+   * them still gets the dark chassis + body copy, just without hero artwork
+   * or a CTA button. Ignored by non-email providers.
+   */
+  artworkUrl?: string | null;
+  eventName?: string | null;
+  buttonLabel?: string | null;
+  buttonUrl?: string | null;
+  themeColor?: string | null;
 }
 
 export interface SendResult {
