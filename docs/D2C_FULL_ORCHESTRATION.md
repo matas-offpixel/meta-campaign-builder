@@ -145,3 +145,51 @@ Roll back by flipping any one of the three off; the fastest global kill is
   (Bird). Idempotent ship re-creates.
 - **Cron loop:** rows failing with `dry_run_invariant` are harmless — they just
   re-log the plan until gates flip.
+
+---
+
+## Event dashboard (`/d2c/event/[id]` + `/share/d2c/{token}`)
+
+Both surfaces render the same `components/dashboard/d2c/send-preview.tsx` card, so
+every preview change lands on both. The public share view is strictly read-only:
+`SendPreview` receives `readOnly` and omits every session-privileged control
+(test-send, multi-tag Save Bar, approver actions).
+
+### Multi-tag audience (`audience.tags`) — no migration
+
+`d2c_scheduled_sends.audience` is `jsonb`; multi-tag targeting adds an
+**optional `audience.tags: string[]`** of canonical Mailchimp tag **names**
+(e.g. `["T26-ALGARVE","H25-LISBON"]`). No schema change.
+
+- **Applies only** to `job_type IN ('announce','gen_sale')` and `channel='email'`.
+  All other job types stay single-tag pinned to the event's own tag (their whole
+  point is targeting only this event's signups).
+- **Provider back-compat** (`lib/d2c/mailchimp/provider.ts` → `resolveSegmentOpts`):
+  if `audience.tags[]` is set, each name is resolved to its numeric static-segment
+  id (`GET /lists/{id}/tag-search?name=…`) and sent as
+  `recipients.segment_opts = { match:"any", conditions:[{ field:"static_segment",
+  op:"static_is", value:<id> }, …] }`. If `tags` is absent it falls back to
+  `[audience.tag]`; a plain single tag emits `recipients:{ list_id }` unchanged.
+  An unresolvable tag **errors the send** (never silently drops).
+- **Edited via** `PATCH /api/d2c/scheduled-sends/{id}/audience-tags`
+  (`{ tags: string[] }`), validated to `scheduled` + non-`approved` rows only.
+- **Recommendation:** `lib/d2c/audience/tag-registry.ts` (`getAudienceTags`,
+  5-min cache; `recommendTagsForEvent` matches venue city/country/event_code).
+
+### Per-send metrics (`result_jsonb.metrics`)
+
+Delivery/engagement metrics are cached on `d2c_scheduled_sends.result_jsonb.metrics`
+(no table). Fetchers: `lib/d2c/metrics/mailchimp.ts` (`GET /3.0/reports/{campaign_id}`,
+opens/clicks) and `lib/d2c/metrics/bird.ts` (broadcast counters — **delivery only**;
+Bird's endpoint returns no opens/clicks, confirmed by live capture in
+`.scratch/`). `refreshSendMetrics(sendId)` (`lib/d2c/metrics/refresh.ts`) writes them
+with a 60s per-send rate limit; driven by `/api/cron/d2c-metrics-refresh` (15-min,
+last-14-days) and a manual per-card Refresh button.
+
+### Test-send-to-self (only live path from the dashboard)
+
+`POST /api/d2c/scheduled-sends/{id}/test-send` — **operator-only**, absent on the
+share view. Fires a single live copy to the session user's email or, for WhatsApp,
+`MATAS_TEST_WHATSAPP_NUMBER` (button disabled if unset). Bypasses list/tag filters,
+independent of `dry_run`, rate-limited to 1/template/60s/session,
+`idempotency_key = test:{sendId}:{unixSeconds}`.

@@ -8,6 +8,12 @@
 import { performDryRun } from "../dry-run.ts";
 import { mailchimpFetch, mailchimpJson } from "./client.ts";
 import {
+  buildSegmentOpts,
+  getAudienceTags,
+  resolveAudienceTags,
+  type SegmentOpts,
+} from "../audience/tag-registry.ts";
+import {
   markdownToBasicHtml,
   substituteTemplateVariables,
 } from "../event-variables.ts";
@@ -23,6 +29,42 @@ import {
 function readString(obj: Record<string, unknown>, key: string): string | null {
   const v = obj[key];
   return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+/**
+ * Resolve an audience's tag names → a Mailchimp `segment_opts` (match "any")
+ * for a multi-tag send (Goal 5). Back-compat: `audience.tags[]` if present,
+ * else `[audience.tag]`. A single tag still produces a one-condition
+ * segment_opts (Mailchimp accepts it, keeping the code path uniform). Returns
+ * null when there is no tag at all (send to the whole list). Throws an
+ * actionable error when a named tag can't be resolved to a segment id — never
+ * silently drops a tag (per spec).
+ */
+export async function resolveSegmentOpts(
+  serverPrefix: string,
+  apiKey: string,
+  listId: string,
+  audience: Record<string, unknown>,
+): Promise<SegmentOpts | null> {
+  const tags = resolveAudienceTags(audience);
+  if (tags.length === 0) return null;
+
+  const allTags = await getAudienceTags(serverPrefix, apiKey, listId);
+  const byExact: Record<string, number> = {};
+  const byLower: Record<string, number> = {};
+  for (const t of allTags) {
+    byExact[t.name] = t.id;
+    byLower[t.name.toLowerCase()] = t.id;
+  }
+  const idMap: Record<string, number> = {};
+  for (const tag of tags) {
+    const id = byExact[tag] ?? byLower[tag.toLowerCase()];
+    if (typeof id !== "number") {
+      throw new Error(`Tag "${tag}" not found in audience ${listId}`);
+    }
+    idMap[tag] = id;
+  }
+  return buildSegmentOpts(idMap, tags);
 }
 
 export function mailchimpDryRunGatesBlockLiveSend(connection: D2CConnection): {
@@ -134,6 +176,21 @@ export class MailchimpProvider implements D2CProvider {
         ? audience.campaign_title.trim()
         : null) ?? `d2c-${message.correlationId ?? "send"}`;
 
+    let segmentOpts: SegmentOpts | null;
+    try {
+      segmentOpts = await resolveSegmentOpts(serverPrefix, apiKey, listId, audience);
+    } catch (e) {
+      return {
+        ok: false,
+        dryRun: false,
+        error: e instanceof Error ? e.message : "Tag resolution failed",
+      };
+    }
+
+    const recipients: Record<string, unknown> = segmentOpts
+      ? { list_id: listId, segment_opts: segmentOpts }
+      : { list_id: listId };
+
     try {
       const created = await mailchimpJson<{ id: string }>(
         serverPrefix,
@@ -144,7 +201,7 @@ export class MailchimpProvider implements D2CProvider {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "regular",
-            recipients: { list_id: listId },
+            recipients,
             settings: {
               subject_line: subject,
               title,
