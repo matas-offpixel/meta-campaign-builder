@@ -26,7 +26,9 @@ import {
 } from "@/lib/d2c/metrics/types";
 import type { D2CScheduledSend } from "@/lib/d2c/types";
 import type { D2CPreviewTemplate } from "@/lib/db/d2c-dashboard";
+import type { AutorespFireSummary } from "@/lib/db/d2c-autoresp";
 import { AudiencePicker } from "./audience-picker";
+import { AutorespPanel } from "./autoresp-panel";
 
 const WHATSAPP_BLUE = "#00a5f4";
 
@@ -64,6 +66,12 @@ export interface SendPreviewProps {
   readOnly?: boolean;
   /** Mailchimp DC prefix (e.g. "us7") for the campaign link-out, if known. */
   mailchimpServerPrefix?: string | null;
+  /** Event id — needed by the autoresponder arm/disarm + backfill controls. */
+  eventId?: string;
+  /** Approver flag — gates the autoresponder controls. */
+  canApprove?: boolean;
+  /** Fire summary for autoresp_setup sends (badge / stats / recent timeline). */
+  autorespFires?: AutorespFireSummary | null;
 }
 
 function formatWhen(iso: string): string {
@@ -141,8 +149,12 @@ export function SendPreview({
   anchorId,
   readOnly = false,
   mailchimpServerPrefix = null,
+  eventId,
+  canApprove = false,
+  autorespFires = null,
 }: SendPreviewProps) {
   const isEmail = send.channel === "email";
+  const isAutoresp = send.job_type === "autoresp_setup";
   const status = statusPill(send.status);
   const approval = approvalPill(send.approval_status);
   const visual = channelVisual(send.channel);
@@ -191,12 +203,26 @@ export function SendPreview({
         </span>
       </div>
 
+      {/* ── Autoresponder panel (badge / fire-stats / recent / controls) ── */}
+      {isAutoresp && (
+        <AutorespPanel
+          sendId={send.id}
+          eventId={eventId ?? ""}
+          resultJsonb={send.result_jsonb}
+          fires={autorespFires}
+          readOnly={readOnly}
+          canApprove={canApprove}
+        />
+      )}
+
       {/* ── Metrics + link-outs (Goals 4 + 6) ─────────────────── */}
-      <SendMetricsRow
-        send={send}
-        readOnly={readOnly}
-        serverPrefix={mailchimpServerPrefix}
-      />
+      {!isAutoresp && (
+        <SendMetricsRow
+          send={send}
+          readOnly={readOnly}
+          serverPrefix={mailchimpServerPrefix}
+        />
+      )}
 
       {/* ── Multi-tag audience picker (Goal 5) ────────────────── */}
       {!readOnly &&

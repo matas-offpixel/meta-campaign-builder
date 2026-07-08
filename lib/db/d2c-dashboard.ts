@@ -10,6 +10,7 @@ import type {
   D2CScheduledSend,
 } from "@/lib/d2c/types";
 import { getD2CEventCopy, listScheduledSendsForEvent } from "./d2c";
+import { getAutorespFiresForSends, type AutorespFireSummary } from "./d2c-autoresp";
 
 /**
  * lib/db/d2c-dashboard.ts
@@ -50,6 +51,8 @@ export interface D2CEventDashboardData {
   /** template_id → preview template. */
   templates: Record<string, D2CPreviewTemplate>;
   copyBundle: D2CEventCopyBundle;
+  /** send_id → autoresponder fire summary (autoresp_setup sends only). */
+  autorespFires: Record<string, AutorespFireSummary>;
 }
 
 function mapPreviewTemplate(raw: Record<string, unknown>): D2CPreviewTemplate {
@@ -111,11 +114,20 @@ export async function loadD2CEventDashboard(
     }
   }
 
+  const autorespSendIds = sends
+    .filter((s) => s.job_type === "autoresp_setup")
+    .map((s) => s.id);
+  const autorespFires =
+    autorespSendIds.length > 0
+      ? await getAutorespFiresForSends(admin, autorespSendIds, { recentLimit: 20 })
+      : {};
+
   return {
     event,
     copy,
     sends,
     templates,
     copyBundle: copy?.copy_jsonb ?? {},
+    autorespFires,
   };
 }

@@ -44,7 +44,19 @@ export function EventDashboard({
   share,
   signupStatsEndpoint,
 }: EventDashboardProps) {
-  const { event, copy, sends, templates, copyBundle } = data;
+  const { event, copy, sends, templates, copyBundle, autorespFires } = data;
+
+  // The public share must never leak fan PII: strip the raw member identifiers
+  // from the recent-fires timeline before they reach the client bundle. The
+  // panel still shows counts + a masked placeholder.
+  function firesFor(sendId: string) {
+    const summary = autorespFires[sendId] ?? null;
+    if (!summary || !readOnly) return summary;
+    return {
+      ...summary,
+      recent: summary.recent.map((r) => ({ ...r, member_identifier: "" })),
+    };
+  }
   const clientName = event.client?.name ?? "—";
   const eventDate = formatEventDate(event.event_start_at ?? event.event_date);
   const venue = [event.venue_name, event.venue_city].filter(Boolean).join(", ");
@@ -132,8 +144,13 @@ export function EventDashboard({
                     communityUrl={copy?.whatsapp_community_url ?? null}
                     variables={varsFor(send)}
                     readOnly={readOnly}
+                    eventId={event.id}
+                    canApprove={canApprove}
+                    autorespFires={firesFor(send.id)}
                     actions={
-                      !readOnly && canApprove ? (
+                      // autoresp_setup sends carry their own arm/disarm + backfill
+                      // controls inside AutorespPanel — no generic approve/reject.
+                      !readOnly && canApprove && send.job_type !== "autoresp_setup" ? (
                         <SendActions send={send} eventId={event.id} />
                       ) : undefined
                     }

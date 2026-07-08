@@ -4,11 +4,13 @@ import { test } from "node:test";
 import {
   getFireType,
   isDirectFire,
+  isConfigureAutoresponder,
   batchContainsDirectFire,
   FIRE_TYPE_LABEL,
   FIRE_TYPE_BADGE_CLASS,
   DRAFT_REVIEW_JOB_TYPES,
   DIRECT_FIRE_JOB_TYPES,
+  CONFIGURE_AUTORESPONDER_JOB_TYPES,
 } from "../fire-type.ts";
 import {
   substituteTemplateVariables,
@@ -32,6 +34,18 @@ test("direct-fire job types get SENDS NOW label and amber/warning badge", () => 
     assert.equal(FIRE_TYPE_LABEL[getFireType(jt)], "SENDS NOW");
     assert.match(FIRE_TYPE_BADGE_CLASS["direct_fire"], /amber/);
   }
+});
+
+test("configure-autoresponder job types get AUTORESPONDER label and teal badge", () => {
+  for (const jt of CONFIGURE_AUTORESPONDER_JOB_TYPES) {
+    assert.equal(getFireType(jt), "configure_autoresponder", `${jt} → configure_autoresponder`);
+    assert.equal(isConfigureAutoresponder(jt), true);
+    assert.equal(isDirectFire(jt), false, `${jt} must NOT direct-fire (arms a trigger)`);
+    assert.equal(FIRE_TYPE_LABEL[getFireType(jt)], "AUTORESPONDER");
+    assert.match(FIRE_TYPE_BADGE_CLASS["configure_autoresponder"], /teal/);
+  }
+  // autoresp_setup specifically moved out of direct-fire.
+  assert.equal(getFireType("autoresp_setup"), "configure_autoresponder");
 });
 
 // ── 2. Preview modal renders email with substituted variables ──────────────
@@ -87,18 +101,19 @@ test("null/empty variable values are identified for yellow highlighting", () => 
 
 // ── 5. Direct-fire Approve button has 1-second delay before enable ─────────
 
-test("isDirectFire returns true for autoresp_setup and community_early only", () => {
-  const directFireJobs: D2CJobType[] = ["autoresp_setup", "community_early"];
-  const draftReviewJobs: D2CJobType[] = [
+test("isDirectFire returns true for community_early only (autoresp_setup now arms a trigger)", () => {
+  const directFireJobs: D2CJobType[] = ["community_early"];
+  const nonDirectFireJobs: D2CJobType[] = [
     "announce",
     "reminder",
     "presale_live",
     "gen_sale",
+    "autoresp_setup",
   ];
   for (const jt of directFireJobs) {
     assert.equal(isDirectFire(jt), true, `${jt} must be direct_fire`);
   }
-  for (const jt of draftReviewJobs) {
+  for (const jt of nonDirectFireJobs) {
     assert.equal(isDirectFire(jt), false, `${jt} must NOT be direct_fire`);
   }
   // null/undefined → draft_review (safe default)
@@ -117,11 +132,12 @@ test("batchContainsDirectFire: true when any send is direct-fire", () => {
   ];
   assert.equal(batchContainsDirectFire(allDraftReview), false);
 
-  const withDirectFire = [
+  // autoresp_setup no longer counts as direct-fire (it arms a trigger).
+  const withAutoresp = [
     ...allDraftReview,
     { job_type: "autoresp_setup" as D2CJobType },
   ];
-  assert.equal(batchContainsDirectFire(withDirectFire), true);
+  assert.equal(batchContainsDirectFire(withAutoresp), false);
 
   const onlyCommunityEarly = [{ job_type: "community_early" as D2CJobType }];
   assert.equal(batchContainsDirectFire(onlyCommunityEarly), true);

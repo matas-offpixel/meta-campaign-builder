@@ -176,20 +176,35 @@ export class MailchimpProvider implements D2CProvider {
         ? audience.campaign_title.trim()
         : null) ?? `d2c-${message.correlationId ?? "send"}`;
 
-    let segmentOpts: SegmentOpts | null;
-    try {
-      segmentOpts = await resolveSegmentOpts(serverPrefix, apiKey, listId, audience);
-    } catch (e) {
-      return {
-        ok: false,
-        dryRun: false,
-        error: e instanceof Error ? e.message : "Tag resolution failed",
-      };
-    }
+    // Single-member autoresponder path (webhook/poll fire): the caller has
+    // already resolved the member into an ephemeral static segment and passes
+    // its numeric id. Target it directly and skip tag resolution entirely.
+    const savedSegmentId =
+      typeof audience.saved_segment_id === "number"
+        ? audience.saved_segment_id
+        : null;
 
-    const recipients: Record<string, unknown> = segmentOpts
-      ? { list_id: listId, segment_opts: segmentOpts }
-      : { list_id: listId };
+    let recipients: Record<string, unknown>;
+    if (savedSegmentId != null) {
+      recipients = {
+        list_id: listId,
+        segment_opts: { saved_segment_id: savedSegmentId },
+      };
+    } else {
+      let segmentOpts: SegmentOpts | null;
+      try {
+        segmentOpts = await resolveSegmentOpts(serverPrefix, apiKey, listId, audience);
+      } catch (e) {
+        return {
+          ok: false,
+          dryRun: false,
+          error: e instanceof Error ? e.message : "Tag resolution failed",
+        };
+      }
+      recipients = segmentOpts
+        ? { list_id: listId, segment_opts: segmentOpts }
+        : { list_id: listId };
+    }
 
     try {
       const created = await mailchimpJson<{ id: string }>(
@@ -232,32 +247,49 @@ export class MailchimpProvider implements D2CProvider {
         },
       );
 
+      // Autoresponder fires (single member) send immediately — Mailchimp's
+      // schedule endpoint only accepts future 15-min increments, so an
+      // "immediate" schedule would 400. `audience.send_now` skips straight to
+      // the send action.
+      const sendNowRequested = audience.send_now === true;
       const scheduleIso =
         typeof audience.schedule_time === "string" && audience.schedule_time
           ? audience.schedule_time
           : new Date().toISOString();
 
       let schedulePayload: unknown;
-      try {
-        schedulePayload = await mailchimpJson<unknown>(
-          serverPrefix,
-          apiKey,
-          `/3.0/campaigns/${campaignId}/actions/schedule`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ schedule_time: scheduleIso }),
-          },
-        );
-      } catch (schedErr) {
-        const sendNow = await mailchimpJson<unknown>(
-          serverPrefix,
-          apiKey,
-          `/3.0/campaigns/${campaignId}/actions/send`,
-          { method: "POST" },
-        );
-        schedulePayload = { fallback: "send", sendNow, schedule_error:
-          schedErr instanceof Error ? schedErr.message : String(schedErr) };
+      if (sendNowRequested) {
+        schedulePayload = {
+          action: "send",
+          sendNow: await mailchimpJson<unknown>(
+            serverPrefix,
+            apiKey,
+            `/3.0/campaigns/${campaignId}/actions/send`,
+            { method: "POST" },
+          ),
+        };
+      } else {
+        try {
+          schedulePayload = await mailchimpJson<unknown>(
+            serverPrefix,
+            apiKey,
+            `/3.0/campaigns/${campaignId}/actions/schedule`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ schedule_time: scheduleIso }),
+            },
+          );
+        } catch (schedErr) {
+          const sendNow = await mailchimpJson<unknown>(
+            serverPrefix,
+            apiKey,
+            `/3.0/campaigns/${campaignId}/actions/send`,
+            { method: "POST" },
+          );
+          schedulePayload = { fallback: "send", sendNow, schedule_error:
+            schedErr instanceof Error ? schedErr.message : String(schedErr) };
+        }
       }
 
       return {
