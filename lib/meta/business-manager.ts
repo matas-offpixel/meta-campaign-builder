@@ -21,6 +21,12 @@ import {
 } from "./client.ts";
 import type { BMPageRole } from "@/lib/bm/types";
 import { buildGrantUserPagePermissionRequest } from "./business-manager-grant-request.ts";
+import {
+  pickBusinessScopedUserIdByName,
+  pickBusinessScopedUserIdFromMe,
+  type BusinessUserMember,
+  type MeBusinessUserAssociation,
+} from "./business-scoped-user-id.ts";
 
 const PAGE_LIMIT = "100";
 
@@ -120,13 +126,73 @@ export async function listUserAccessiblePages(
   );
 }
 
-/** GET /me?fields=id — the token owner's (app-scoped) Meta user id, for grants. */
+/**
+ * GET /me?fields=id — the token owner's Facebook-level user id.
+ *
+ * NOT usable as the `user` in a grant call (see `resolveBusinessScopedUserId`
+ * below) — kept for audit-log / debugging cross-reference only.
+ */
 export async function getMetaUserId(token: string): Promise<string> {
   const res = await graphGetWithToken<{ id?: string }>("/me", { fields: "id" }, token);
   if (!res.id) {
     throw new MetaApiError("Could not resolve Meta user id from /me");
   }
   return res.id;
+}
+
+/**
+ * In-memory cache: bizId → resolved business-scoped user id. Safe keyed only
+ * by bizId (not by token/user) because this app acts exclusively as Matas's
+ * personal OAuth token — there is only ever one identity to resolve per BM.
+ * Cleared implicitly on cold start; stable for the life of the instance.
+ */
+const businessScopedUserIdCache = new Map<string, string>();
+
+/**
+ * Resolves the BUSINESS-SCOPED user id Matas holds within a specific BM.
+ *
+ * Regression note (2026-07-09): `getMetaUserId`'s plain `/me` id is a
+ * Facebook-level user id. Meta's `POST /{page_id}/assigned_users` edge
+ * rejects that with subcode 1752100 "User is not business-scoped" — it
+ * needs the per-BM alias instead, which is distinct for every Business
+ * Manager the user belongs to.
+ *
+ * Tries Option B first — `GET /me?fields=business_users{id,business{id}}`
+ * — one call that covers every BM the token belongs to. Falls back to
+ * Option A — `GET /{bizId}/business_users?fields=id,name`, matched against
+ * the token owner's own `/me` name — if `business_users` isn't populated on
+ * `/me` for this token. Throws `MetaApiError` if neither resolves (e.g.
+ * Matas isn't actually a `business_users` member of this BM).
+ */
+export async function resolveBusinessScopedUserId(
+  bizId: string,
+  token: string,
+): Promise<string> {
+  const cached = businessScopedUserIdCache.get(bizId);
+  if (cached) return cached;
+
+  const meRes = await graphGetWithToken<{
+    business_users?: { data?: MeBusinessUserAssociation[] };
+  }>("/me", { fields: "business_users{id,business{id}}" }, token);
+
+  let resolved = pickBusinessScopedUserIdFromMe(meRes.business_users?.data, bizId);
+
+  if (!resolved) {
+    const [meName, members] = await Promise.all([
+      graphGetWithToken<{ name?: string }>("/me", { fields: "name" }, token),
+      paginateAll<BusinessUserMember>(`/${bizId}/business_users`, { fields: "id,name" }, token),
+    ]);
+    resolved = pickBusinessScopedUserIdByName(members, meName.name);
+  }
+
+  if (!resolved) {
+    throw new MetaApiError(
+      `Could not resolve a business-scoped user id for business ${bizId} — is Matas a business_users member of this BM?`,
+    );
+  }
+
+  businessScopedUserIdCache.set(bizId, resolved);
+  return resolved;
 }
 
 // ─── Grant (mutation — single-shot, no retry) ─────────────────────────────────

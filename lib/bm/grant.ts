@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getMetaUserId,
   grantUserPagePermission,
+  resolveBusinessScopedUserId,
 } from "@/lib/meta/business-manager";
 import {
   getBusinessManagerToken,
@@ -68,9 +69,15 @@ export async function grantPagesForBusinessManager(
     return result;
   }
 
+  // fbUserId is Matas's Facebook-level id (audit/debug cross-reference
+  // only). targetUserId is the BUSINESS-SCOPED id `assigned_users` actually
+  // requires — resolved once here, reused for every page in this BM below
+  // (resolveBusinessScopedUserId also caches per-bizId in-process).
+  let fbUserId: string;
   let targetUserId: string;
   try {
-    targetUserId = await getMetaUserId(token);
+    fbUserId = await getMetaUserId(token);
+    targetUserId = await resolveBusinessScopedUserId(bizId, token);
   } catch (err) {
     if (isTokenExpiredMetaError(err)) {
       await markBusinessManagerTokenExpired(supabase, bizId, "token_expired");
@@ -96,7 +103,11 @@ export async function grantPagesForBusinessManager(
           pageId,
           userId: opts.actorUserId,
           action: "granted",
-          detail: { role: DEFAULT_GRANT_ROLE, target_user_id: targetUserId },
+          detail: {
+            role: DEFAULT_GRANT_ROLE,
+            target_user_id: targetUserId,
+            fb_user_id: fbUserId,
+          },
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
