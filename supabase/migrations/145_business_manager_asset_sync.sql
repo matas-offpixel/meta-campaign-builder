@@ -1,7 +1,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Migration 145 — Business Manager Asset Sync (V1: Pages only)
 --
--- Backs the /admin/business-managers operator tool. Matas is Admin on ~10+
+-- Backs the /business-managers operator tool. Matas is Admin on ~10+
 -- client Business Managers but Meta does not grant BM Admins per-page asset-user
 -- access implicitly. This schema lets the tool:
 --   (a) enumerate every page across the BMs he is connected to,

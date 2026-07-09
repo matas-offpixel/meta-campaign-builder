@@ -104,7 +104,7 @@ export function BusinessManagersDashboard({
               Scans and grants for the affected Business Manager will fail until
               you reconnect.{" "}
               <a
-                href="/api/auth/facebook-start?next=/admin/business-managers"
+                href="/api/auth/facebook-start?next=/business-managers"
                 className="font-medium underline"
               >
                 Reconnect Facebook

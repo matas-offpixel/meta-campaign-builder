@@ -9,7 +9,7 @@ import {
 import { BusinessManagersDashboard } from "@/components/admin/business-managers/bm-dashboard";
 
 /**
- * /admin/business-managers — operator tool for keeping page asset-user access in
+ * /business-managers — operator tool for keeping page asset-user access in
  * sync across the Business Managers Matas is an Admin on.
  *
  * Section 1: pages detected in the last 7 days (one-click grant).

@@ -148,10 +148,10 @@ const NAV_SECTIONS: NavSection[] = [
     heading: "Ops",
     items: [
       {
-        href: "/admin/business-managers",
+        href: "/business-managers",
         label: "Business Managers",
         icon: Building2,
-        match: (p) => p.startsWith("/admin/business-managers"),
+        match: (p) => p.startsWith("/business-managers"),
       },
     ],
   },
