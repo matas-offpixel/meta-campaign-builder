@@ -9,13 +9,21 @@
  * property class declaration (strip-only mode rejects those). Same rationale
  * as `error-classify.ts`.
  *
- * Regression note (2026-07-09): grants were originally posted to
+ * Regression note (2026-07-09, PR #708): grants were originally posted to
  * `/{bizId}/pages/{pageId}/user_permissions` with a `role` field. That
  * three-segment path is not a real Graph API edge (Meta deprecated the old
  * `{business-id}/userpermissions` scheme in v2.11) — every live grant
- * against it failed with "Unknown path components". The correct, current
- * edge is `POST /{pageId}/assigned_users` with `user` + a `tasks` array —
- * no business id in the path.
+ * against it failed with "Unknown path components". PR #708 moved to the
+ * current edge, `POST /{pageId}/assigned_users`, but only sent `user` +
+ * `tasks`.
+ *
+ * Regression note 2 (2026-07-09, this fix): that edge actually requires
+ * THREE body params, not two — `business` (the BM id) is required
+ * alongside `user` and `tasks` (see
+ * developers.facebook.com/docs/graph-api/reference/page/assigned_users).
+ * Omitting it isn't a 404/path error — Meta accepts the path fine and
+ * rejects the call with code 100 "Invalid parameter" instead, which is why
+ * live grants against LWE's BM (741799859254067) still failed after #708.
  */
 
 import type { BMPageRole } from "@/lib/bm/types";
@@ -36,19 +44,25 @@ export const ROLE_TO_META_TASKS: Record<BMPageRole, string[]> = {
 };
 
 export interface GrantUserPagePermissionRequest {
-  /** Graph API path — deliberately has NO business id segment. */
+  /** Graph API path — deliberately has NO business id segment (business goes in the body). */
   path: string;
-  body: { user: string; tasks: string[] };
+  body: { business: string; user: string; tasks: string[] };
 }
 
-/** Builds the `POST /{pageId}/assigned_users` path + body for a grant call. */
+/**
+ * Builds the `POST /{pageId}/assigned_users` path + body for a grant call.
+ * `businessId` is REQUIRED in the body (Meta rejects the call with code 100
+ * "Invalid parameter" without it) even though the path itself has no
+ * business id segment.
+ */
 export function buildGrantUserPagePermissionRequest(
   pageId: string,
+  businessId: string,
   targetUserId: string,
   role: BMPageRole,
 ): GrantUserPagePermissionRequest {
   return {
     path: `/${pageId}/assigned_users`,
-    body: { user: targetUserId, tasks: ROLE_TO_META_TASKS[role] },
+    body: { business: businessId, user: targetUserId, tasks: ROLE_TO_META_TASKS[role] },
   };
 }

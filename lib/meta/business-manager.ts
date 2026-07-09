@@ -136,12 +136,13 @@ export async function getMetaUserId(token: string): Promise<string> {
  * V1 always passes role = ADVERTISER (→ tasks: ["ADVERTISE"]). See
  * `business-manager-grant-request.ts` for the request-building logic (kept
  * pure + separate so it's unit-testable without pulling in client.ts) and
- * for the 2026-07-09 regression note on why this is NOT
+ * for the regression notes on why this is NOT
  * `/{bizId}/pages/{pageId}/user_permissions`.
  *
- * `bizId` is kept as a parameter — used only for logging here — so callers
- * retain BM context for audit/log correlation; Meta's assigned_users edge
- * itself takes no business id in the path.
+ * `bizId` is REQUIRED — Meta's assigned_users edge rejects the call with
+ * code 100 "Invalid parameter" without a `business` field in the body, even
+ * though the path itself has no business id segment (see the 2026-07-09
+ * regression note in `business-manager-grant-request.ts`).
  *
  * Single-shot (graphPostWithToken) on purpose — mutations must not retry.
  * Throws MetaApiError on failure; the caller inspects `.subcode === 190` to flag
@@ -154,7 +155,7 @@ export async function grantUserPagePermission(
   role: BMPageRole,
   token: string,
 ): Promise<{ success?: boolean; id?: string }> {
-  const { path, body } = buildGrantUserPagePermissionRequest(pageId, targetUserId, role);
+  const { path, body } = buildGrantUserPagePermissionRequest(pageId, bizId, targetUserId, role);
   console.log(
     `[bm grant] biz=${bizId} page=${pageId} user=${targetUserId} tasks=${body.tasks.join(",")}`,
   );
