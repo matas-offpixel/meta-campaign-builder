@@ -39,6 +39,23 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: false, error: "Not an autoresponder send" }, { status: 400 });
   }
 
+  // Email backfill is retired (2026-07-09 pivot, PR #704): the email autoresp
+  // is a Mailchimp Customer Journey now, so firing per-member campaigns for
+  // existing members would re-introduce campaigns-list pollution + double-send
+  // against the Journey. To reach already-tagged members once, send a single
+  // regular campaign to the tag segment in the Mailchimp UI. WhatsApp backfill
+  // (Bird) is unaffected.
+  if (send.channel === "email") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Email autoresponder is delivered by a Mailchimp Customer Journey. Backfill existing members with a one-time campaign to the tag segment in Mailchimp — not per-fire.",
+      },
+      { status: 400 },
+    );
+  }
+
   // Authorise: event owner OR D2C approver.
   const { data: ev } = await admin
     .from("events")

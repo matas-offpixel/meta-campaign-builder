@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { Mail, MessageCircle, Radio, Zap } from "lucide-react";
+import { ExternalLink, Mail, MessageCircle, Radio, Zap } from "lucide-react";
 
 import { armAutoresponder, disarmAutoresponder } from "@/lib/actions/d2c-sends";
-import { readAutorespConfig } from "@/lib/d2c/autoresp/helpers";
+import {
+  buildCustomerJourneyChecklist,
+  readAutorespConfig,
+} from "@/lib/d2c/autoresp/helpers";
 import type { AutorespFireSummary } from "@/lib/db/d2c-autoresp";
 
 /**
@@ -15,8 +18,15 @@ import type { AutorespFireSummary } from "@/lib/db/d2c-autoresp";
  *   - armed/inactive badge (teal / grey) with the armed-since date,
  *   - a fire-stats row (X email · Y WhatsApp · Z dry-run),
  *   - a collapsible recent-fires timeline (last 20),
- *   - operator-only Arm / Disarm actions + a resumable "fire for existing
- *     tagged members" backfill (never shown on the public share).
+ *   - operator-only Arm / Disarm actions.
+ *
+ * 2026-07-09 pivot (PR #704): the EMAIL autoresp is delivered by a Mailchimp
+ * Customer Journey (`tag-added` trigger), NOT by our per-fire sends. So for the
+ * email channel, arming just gates an operator checklist ("confirm the Journey
+ * exists") — no backfill button, and the fire-stats reflect audit history only
+ * (they no longer grow). The WhatsApp channel is unchanged: Bird poll cron
+ * still fires per new contact, and the "fire for existing tagged members"
+ * backfill still applies.
  */
 
 function fmt(iso: string | null): string {
@@ -34,6 +44,12 @@ export interface AutorespPanelProps {
   fires: AutorespFireSummary | null;
   readOnly: boolean;
   canApprove: boolean;
+  /** Send channel — email uses the Customer Journey model, whatsapp the Bird poll. */
+  channel?: "email" | "whatsapp";
+  /** Signup tag (the Journey's tag-added trigger) — used in the email checklist. */
+  signupTag?: string | null;
+  /** Mailchimp DC prefix (e.g. "us7") for the Customer Journeys deep link. */
+  serverPrefix?: string | null;
 }
 
 export function AutorespPanel({
@@ -43,10 +59,14 @@ export function AutorespPanel({
   fires,
   readOnly,
   canApprove,
+  channel = "email",
+  signupTag = null,
+  serverPrefix = null,
 }: AutorespPanelProps) {
   const config = readAutorespConfig(resultJsonb);
   const armed = config?.enabled === true;
   const summary = fires ?? { email: 0, whatsapp: 0, dryRun: 0, total: 0, recent: [] };
+  const isEmail = channel === "email";
 
   return (
     <div className="mb-3 rounded-lg border border-teal-200 bg-teal-50/40 p-3">
@@ -54,6 +74,9 @@ export function AutorespPanel({
         <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white" style={{ backgroundColor: armed ? "#0d9488" : "#9ca3af" }}>
           <Radio size={11} aria-hidden />
           Autoresponder
+        </span>
+        <span className="rounded bg-white/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-teal-700">
+          {isEmail ? "Email · Customer Journey" : "WhatsApp · Bird"}
         </span>
         {armed ? (
           <span className="text-xs font-medium text-teal-800">
@@ -68,7 +91,16 @@ export function AutorespPanel({
         <span className="text-foreground">
           Fires: {summary.email} email · {summary.whatsapp} WhatsApp · {summary.dryRun} dry-run
         </span>
+        {isEmail && (
+          <span className="text-[11px] text-muted-foreground">
+            (email fires are historical — the Customer Journey sends new ones now)
+          </span>
+        )}
       </div>
+
+      {isEmail && armed && (
+        <CustomerJourneyChecklist signupTag={signupTag} serverPrefix={serverPrefix} />
+      )}
 
       {summary.recent.length > 0 && (
         <RecentFires recent={summary.recent} readOnly={readOnly} />
@@ -79,7 +111,66 @@ export function AutorespPanel({
           sendId={sendId}
           eventId={eventId}
           armed={armed}
+          isEmail={isEmail}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Operator checklist shown when an EMAIL autoresp is armed. Our system no
+ * longer sends the email — a Mailchimp Customer Journey does — so this confirms
+ * the Journey is set up and warns against double-sending.
+ */
+function CustomerJourneyChecklist({
+  signupTag,
+  serverPrefix,
+}: {
+  signupTag: string | null;
+  serverPrefix: string | null;
+}) {
+  const { tag, suggestedJourneyName, journeysUrl } = buildCustomerJourneyChecklist(
+    signupTag,
+    serverPrefix,
+  );
+  return (
+    <div className="mt-2 rounded-md border border-teal-300/70 bg-white/70 p-2.5 text-xs text-teal-900">
+      <p className="font-semibold">Email is sent by a Mailchimp Customer Journey</p>
+      <ol className="mt-1.5 list-decimal space-y-1 pl-4">
+        <li>
+          In Mailchimp → Customer Journeys, confirm a Journey exists named{" "}
+          <span className="font-mono font-medium">
+            {suggestedJourneyName ?? "T26-{CITY}-AUTO"}
+          </span>{" "}
+          with a <span className="font-medium">tag-added</span> trigger on{" "}
+          {tag ? (
+            <span className="font-mono font-medium">{tag}</span>
+          ) : (
+            <span className="italic">this event&apos;s signup tag</span>
+          )}
+          .
+        </li>
+        <li>Confirm the Journey status is <span className="font-medium">Sending / On</span>.</li>
+        <li className="font-medium text-amber-800">
+          Confirm no double-send: EITHER the Journey sends the email OR our
+          system does — never both. (Our per-fire email send is now disabled, so
+          the Journey is the single sender.)
+        </li>
+      </ol>
+      <a
+        href={journeysUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-2 inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+      >
+        Open Customer Journeys
+        <ExternalLink size={11} aria-hidden />
+      </a>
+      {tag && (
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Filter/search the Journeys list for <span className="font-mono">{tag}</span>.
+        </p>
       )}
     </div>
   );
@@ -152,10 +243,12 @@ function AutorespControls({
   sendId,
   eventId,
   armed,
+  isEmail,
 }: {
   sendId: string;
   eventId: string;
   armed: boolean;
+  isEmail: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -192,7 +285,7 @@ function AutorespControls({
           Disarm
         </button>
       )}
-      {armed && <BackfillButton sendId={sendId} />}
+      {armed && !isEmail && <BackfillButton sendId={sendId} />}
       {message && (
         <span className="text-xs text-muted-foreground" role="status">
           {message}

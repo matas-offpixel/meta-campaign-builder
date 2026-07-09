@@ -57,7 +57,7 @@ records the plan in `result_jsonb` and marks the row `failed`/`dry_run_invariant
 | job_type | email (Mailchimp) | whatsapp (Bird) | send time |
 |---|---|---|---|
 | `announce` | campaign | – | `signup_launch_at` |
-| `autoresp_setup` | classic automation | (journey / scheduled) | on tag apply |
+| `autoresp_setup` | Customer Journey (UI-created) | Bird poll per new contact | on tag apply |
 | `reminder` | campaign | template message | `scheduled_for` |
 | `presale_live` | campaign | template message | `presale_at` |
 | `gen_sale` | campaign | – | `gen_sale_at` |
@@ -87,7 +87,19 @@ Helpers: `buildEventTag(brand, eventCode)` / `parseEventTag(tag)` in
 
 - **campaign:** `findTemplateByName` → `createCampaign` (recipients = tag
   segment) → `setCampaignContent({template:{id}})` → `scheduleCampaign`.
-- **autoresp_setup:** `createClassicAutomation` on the audience.
+- **autoresp_setup (email):** delivered by a Mailchimp **Customer Journey**
+  (`tag-added` trigger on the signup tag), created in the Mailchimp UI. There
+  is **no API to create a Journey** (create is UI-only; only a step *trigger*
+  endpoint exists) and Classic Automations were retired June 2025 — so our
+  system does **not** create or fire the email autoresp. Arming an
+  `autoresp_setup` email send just gates an operator checklist confirming the
+  Journey exists. The old per-fire path (one throwaway campaign per fan on each
+  tag-add / backfill) was removed in PR #704: it polluted the campaigns list
+  and double-sent against the Journey. See
+  `docs/D2C_MAILCHIMP_AUTORESP_JOURNEY.md`.
+- **autoresp_setup (WhatsApp):** unchanged — the Bird poll cron
+  (`/api/cron/d2c-autoresp-poll-bird`) fires a single-recipient template
+  message per new contact (deduped via `d2c_autoresp_fires`).
 
 ### Bird (`bird-runner.ts`) — **blocked pending capture**
 
