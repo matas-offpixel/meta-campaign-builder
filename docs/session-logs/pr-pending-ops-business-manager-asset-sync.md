@@ -9,7 +9,7 @@
 ## Summary
 
 Ships an operator-only **Business Manager Asset Sync** tool at
-`/admin/business-managers`. Matas is Admin on ~10+ client Business Managers, but
+`/business-managers`. Matas is Admin on ~10+ client Business Managers, but
 Meta doesn't grant BM Admins per-page asset-user access implicitly — every new
 page a client adds requires a manual self-grant before he can boost posts or run
 ads. This tool enumerates every page across the BMs his Facebook account belongs
@@ -61,7 +61,7 @@ deliberately out of scope (future extensions on the same shape).
   prefix, detection-only — never grants) + `vercel.json` entry `"0 8 * * *"`.
 
 **UI**
-- `app/(dashboard)/admin/business-managers/page.tsx` (operator-gated server page)
+- `app/(dashboard)/business-managers/page.tsx` (operator-gated server page)
   + `components/admin/business-managers/bm-dashboard.tsx` (inbox of new pages,
   connected-BM table, Sync now / Grant all, reconnect banner, empty state).
 - `components/dashboard/dashboard-nav.tsx` — new "Ops → Business Managers" link.

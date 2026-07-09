@@ -54,6 +54,7 @@ npm run lint     # ESLint
 | `/d2c/brief-ingest` | Upload a PDF (or paste text) brief → background parse into a scheduled D2C campaign |
 | `/d2c/event/[id]` | D2C orchestration: resolved artwork, WhatsApp community URL paste, per-send Matas approval |
 | `/l/[clientSlug]/[eventSlug]` | Public fan-facing event landing page (Supreme renderer) |
+| `/business-managers` | Operator BM Asset Sync tool: enumerate client Business Manager pages, flag missing access, one-click ADVERTISER grants. Auth = operator session + allowlist (NOT the client `/admin/*` namespace). See migration 145 |
 | `/admin/login` + `/admin/auth/callback` | CLIENT dashboard magic-link login (OP909 — distinct from operator `/login`) |
 | `/admin/[clientSlug]/*` | Client self-service dashboard: pages, fans, insights, integrations, settings. Auth = session + `client_users` membership + slug match (403 on mismatch). See `docs/ADMIN_DASHBOARD_ARCHITECTURE.md` |
 
@@ -143,7 +144,7 @@ BM_TOKEN_KEY=
 > `POST /api/business-managers/connect` and the `bm-page-scan` cron fail fast. The
 > BM tool acts EXCLUSIVELY as Matas's personal OAuth token (from
 > `user_facebook_tokens`) — it never falls back to `META_ACCESS_TOKEN`. See
-> `/admin/business-managers` + `docs/session-logs/pr-pending-ops-business-manager-asset-sync.md`.
+> `/business-managers` + `docs/session-logs/pr-pending-ops-business-manager-asset-sync.md`.
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII
