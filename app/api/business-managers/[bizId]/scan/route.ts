@@ -14,7 +14,12 @@ import { scanBusinessManager } from "@/lib/bm/sync";
  */
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// Bumped 120 -> 800 (Vercel Pro ceiling, same pattern as grant-all and the
+// other slow BM/backfill routes below): a scan on a ~1000+ page BM (e.g.
+// Columbo Group, 527693220707294) hit the 120s default and 504'd even
+// though the scan itself made real progress (see scanBusinessManager's
+// per-chunk checkpointing in lib/bm/sync.ts for the other half of this fix).
+export const maxDuration = 800;
 
 export async function POST(
   _req: NextRequest,

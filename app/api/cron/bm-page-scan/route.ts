@@ -17,9 +17,12 @@ import { scanBusinessManager } from "@/lib/bm/sync";
  */
 
 export const dynamic = "force-dynamic";
-// Up to ~10+ BMs × (owned + client + accessible page fetches). Well under the
-// Vercel Pro 800s cron ceiling; give it generous headroom.
-export const maxDuration = 300;
+// Bumped 300 -> 800 (Vercel Pro ceiling): this loop calls the same
+// scanBusinessManager helper as the "Sync now" route, sequentially, across
+// every connected BM. A single ~1000+ page BM (e.g. Columbo Group,
+// 527693220707294) alone can approach the old 300s budget, so with 10+ BMs
+// in the sequential loop 300s was no longer generous headroom.
+export const maxDuration = 800;
 
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;

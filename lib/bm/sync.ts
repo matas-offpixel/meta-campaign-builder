@@ -12,12 +12,25 @@ import {
 import {
   getBusinessManagerToken,
   logAccessEvent,
+  logAccessEventsBulk,
   markBusinessManagerTokenExpired,
   updateBusinessManagerScanState,
   upsertBMPages,
   type UpsertPageInput,
 } from "@/lib/db/business-managers";
 import type { BusinessManager, ScanResult } from "@/lib/bm/types";
+import { chunk } from "@/lib/bm/chunk";
+
+/**
+ * Checkpoint boundary for the detected_new event-logging phase: after every
+ * chunk of this many pages, bulk-insert their events in ONE round trip and
+ * bump `last_scanned_at`. On a large BM (Columbo Group, ~1060 pages / 700+
+ * newly-detected), this replaced 700+ sequential single-row inserts — the
+ * actual cause of the 120s timeout, not the Meta API fetch — and means a
+ * mid-loop timeout still leaves `last_scanned_at` reflecting real progress
+ * instead of going silently stale (2026-07-09 scan-timeout fix).
+ */
+const DETECTED_NEW_CHECKPOINT_BOUNDARY = 100;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabaseClient = SupabaseClient<any, any, any, any, any>;
@@ -122,18 +135,43 @@ export async function scanBusinessManager(
 
   const { newPageIds } = await upsertBMPages(supabase, bizId, pages);
 
-  for (const pageId of newPageIds) {
-    const page = merged.get(pageId);
-    await logAccessEvent(supabase, {
-      businessId: bizId,
-      pageId,
-      userId: actorUserId,
-      action: "detected_new",
-      detail: {
-        page_name: page?.page_name ?? null,
-        user_has_access: page?.user_has_access ?? false,
-      },
-    });
+  // bm_pages itself is now fully written (the missing_access_count the UI
+  // shows is always computed live from bm_pages — see
+  // listBusinessManagerSummaries — so it's already correct at this point
+  // even if everything below times out). Checkpoint immediately: this is
+  // the boundary between the fast bulk-fetch/upsert phase and the
+  // historically-slow per-page event-logging phase below.
+  await updateBusinessManagerScanState(supabase, bizId, { lastError: null });
+
+  try {
+    for (const idsChunk of chunk(newPageIds, DETECTED_NEW_CHECKPOINT_BOUNDARY)) {
+      await logAccessEventsBulk(
+        supabase,
+        idsChunk.map((pageId) => {
+          const page = merged.get(pageId);
+          return {
+            businessId: bizId,
+            pageId,
+            userId: actorUserId,
+            action: "detected_new" as const,
+            detail: {
+              page_name: page?.page_name ?? null,
+              user_has_access: page?.user_has_access ?? false,
+            },
+          };
+        }),
+      );
+      // Checkpoint after every chunk so a mid-loop timeout still leaves
+      // last_scanned_at reflecting real forward progress, not the start.
+      await updateBusinessManagerScanState(supabase, bizId, { lastError: null });
+    }
+  } catch (err) {
+    // bm_pages is already correct (upserted above); only the audit trail
+    // of *which* pages were newly detected this run is incomplete. Record
+    // the failure but don't fail the whole scan over it.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[bm-page-scan] biz=${bizId} detected_new event logging failed: ${msg}`);
+    await updateBusinessManagerScanState(supabase, bizId, { lastError: msg });
   }
 
   const missingAccess = pages.filter((p) => !p.user_has_access).length;
