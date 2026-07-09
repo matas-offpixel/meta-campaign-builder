@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 708
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/708
 - **Branch:** `cc/ops/bm-grant-endpoint-fix`
 
 ## Summary
