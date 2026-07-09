@@ -68,3 +68,7 @@ Images/
 CC_PROMPT_*.md
 CURSOR_PROMPT_*.md
 WC26_funnel_xref_*.xlsx
+
+# Off/Pixel accounting — personal, must never be committed
+offpixel_vat_*.xlsx
+offpixel_xero_*.xlsx
