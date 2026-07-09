@@ -20,6 +20,7 @@ import {
   Image as ImageIcon,
   MapPin,
   Mic2,
+  Building2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
@@ -140,6 +141,17 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Artists",
         icon: Mic2,
         match: (p) => p === "/artists" || p.startsWith("/artists/"),
+      },
+    ],
+  },
+  {
+    heading: "Ops",
+    items: [
+      {
+        href: "/admin/business-managers",
+        label: "Business Managers",
+        icon: Building2,
+        match: (p) => p.startsWith("/admin/business-managers"),
       },
     ],
   },

@@ -132,7 +132,18 @@ LANDING_PAGES_TURNSTILE_REQUIRED=
 LANDING_PAGES_SIGNUP_RATE_MAX=
 LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 LANDING_PAGES_META_API_VERSION=
+BM_TOKEN_KEY=
 ```
+
+> **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
+> symmetric key for `client_business_managers.access_token_encrypted` (the
+> operator's per-BM Facebook OAuth token). DEDICATED key — deliberately NOT
+> `D2C_TOKEN_KEY` / `LANDING_PAGES_TOKEN_KEY` (blast-radius isolation). Passed into
+> `set_bm_access_token` / `get_bm_access_token` RPCs, never stored. Without it,
+> `POST /api/business-managers/connect` and the `bm-page-scan` cron fail fast. The
+> BM tool acts EXCLUSIVELY as Matas's personal OAuth token (from
+> `user_facebook_tokens`) — it never falls back to `META_ACCESS_TOKEN`. See
+> `/admin/business-managers` + `docs/session-logs/pr-pending-ops-business-manager-asset-sync.md`.
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII
@@ -231,7 +242,7 @@ LANDING_PAGES_META_API_VERSION=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `138_landing_page_decrypt_batch.sql`.
+**Latest migration:** `145_business_manager_asset_sync.sql`.
 
 - Client admin dashboard (July 2026, OP909 arc): `client_users` maps one
   auth user → one client (the /admin authorisation pivot; `role` =
