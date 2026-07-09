@@ -82,3 +82,36 @@ export interface GrantResult {
   failures: { pageId: string; error: string }[];
   tokenExpired?: boolean;
 }
+
+/**
+ * True only when every attempted grant actually succeeded. Used by the API
+ * routes to compute their `ok` response field and by the dashboard to
+ * decide whether to show a success or a partial-failure notice.
+ *
+ * Regression note (2026-07-09): `grant-all/route.ts` used to compute
+ * `ok: !result.tokenExpired`, which is true even when every single grant
+ * failed (e.g. the "Unknown path components" bug) — the UI showed a false
+ * "Missing access resolved" toast while `missing_access_count` never
+ * budged. `result.failed` must be part of the success signal.
+ */
+export function isFullGrantSuccess(result: GrantResult): boolean {
+  return !result.tokenExpired && result.failed === 0;
+}
+
+/** Human-readable summary of a grant run, for API responses + UI notices. */
+export function describeGrantResult(result: GrantResult): string {
+  if (result.tokenExpired) {
+    return "Facebook token expired — reconnect required.";
+  }
+  if (result.attempted === 0) {
+    return "Nothing to grant — already up to date.";
+  }
+  if (result.failed === 0) {
+    return `Granted access on ${result.granted}/${result.attempted} page(s).`;
+  }
+  const firstError = result.failures[0]?.error;
+  return (
+    `Granted ${result.granted}/${result.attempted}. ${result.failed} failed` +
+    (firstError ? `: ${firstError}` : ".")
+  );
+}
