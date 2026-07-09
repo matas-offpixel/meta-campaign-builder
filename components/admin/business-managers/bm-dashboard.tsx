@@ -11,7 +11,7 @@ import {
   type DetectedNewPage,
   type GrantResult,
 } from "@/lib/bm/types";
-import type { AppUsageSnapshot } from "@/lib/meta/app-usage";
+import { appUsageBadgePercent, type AppUsageSnapshot } from "@/lib/meta/app-usage";
 
 function isGrantResult(value: unknown): value is GrantResult {
   return (
@@ -71,6 +71,7 @@ export function BusinessManagersDashboard({
   const businessManagers = initialBusinessManagers;
   const newPages = initialNewPages;
   const hasExpiredToken = businessManagers.some((b) => b.token_expired);
+  const quotaPct = metaAppUsage ? appUsageBadgePercent(metaAppUsage.snapshot) : null;
 
   const run = async (key: string, url: string, successText: string) => {
     setBusyKey(key);
@@ -108,12 +109,12 @@ export function BusinessManagersDashboard({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {metaAppUsage ? (
+          {metaAppUsage && quotaPct != null ? (
             <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${quotaBadgeClass(metaAppUsage.snapshot.maxPercent)}`}
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${quotaBadgeClass(quotaPct)}`}
               title={`Meta app quota as of ${formatTimestamp(metaAppUsage.capturedAt)} (this server instance only)`}
             >
-              App quota: {Math.round(metaAppUsage.snapshot.maxPercent)}%
+              App quota: {Math.round(quotaPct)}%
             </span>
           ) : null}
           <Button
