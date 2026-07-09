@@ -55,3 +55,8 @@ References/
 
 # supabase CLI scratch (linked-project metadata, gen-types cache)
 supabase/.temp/
+
+# Personal accounting — must never be committed
+vat_q*_2026_receipts/
+vat_q*_2027_receipts/
+*_receipts/Q*_reference_only/
