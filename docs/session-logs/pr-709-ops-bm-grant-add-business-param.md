@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 709
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/709
 - **Branch:** `cc/ops/bm-grant-add-business-param`
 
 ## Summary
