@@ -84,6 +84,10 @@
     {
       "path": "/api/cron/cron-health-check",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/bm-page-scan",
+      "schedule": "0 8 * * *"
     }
   ]
 }

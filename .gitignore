@@ -55,3 +55,20 @@ References/
 
 # supabase CLI scratch (linked-project metadata, gen-types cache)
 supabase/.temp/
+
+# Personal accounting — must never be committed
+vat_q*_2026_receipts/
+vat_q*_2027_receipts/
+*_receipts/Q*_reference_only/
+
+# Local scratchpad — not part of the repo
+Crowd photos/
+Images/
+*_ticket_audit_*.md
+CC_PROMPT_*.md
+CURSOR_PROMPT_*.md
+WC26_funnel_xref_*.xlsx
+
+# Off/Pixel accounting — personal, must never be committed
+offpixel_vat_*.xlsx
+offpixel_xero_*.xlsx
