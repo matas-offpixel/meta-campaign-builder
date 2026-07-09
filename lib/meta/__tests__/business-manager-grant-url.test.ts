@@ -9,13 +9,18 @@
  *    old `{business-id}/userpermissions` scheme in v2.11) — every live
  *    grant against LWE's Business Manager failed with "Unknown path
  *    components". Fixed by moving to `POST /{pageId}/assigned_users`.
- * 2. (2026-07-09, this fix) that edge REQUIRES a `business` field in the
+ * 2. (2026-07-09, PR #709) that edge REQUIRES a `business` field in the
  *    body alongside `user` + `tasks` — omitting it doesn't 404, it fails
  *    live with Meta code 100 "Invalid parameter". `business` must be a
  *    param the builder always includes, for every role.
  *
  * This test byte-diffs the built path + JSON body so neither mistake can
- * silently recur.
+ * silently recur. It does NOT cover a third bug found after #709 — Meta
+ * subcode 1752100 "User is not business-scoped" — because that's about
+ * WHICH id gets passed in as `targetUserId` (a business-scoped id, resolved
+ * by `resolveBusinessScopedUserId`), not the shape this builder produces.
+ * `TARGET_USER_ID` below stands in for that resolved business-scoped id;
+ * see `business-scoped-user-id.test.ts` for the resolution-logic coverage.
  *
  * Imports the PURE builder from `business-manager-grant-request.ts` (not
  * `business-manager.ts`, which imports `client.ts` and its TypeScript-
@@ -31,6 +36,9 @@ import { buildGrantUserPagePermissionRequest } from "../business-manager-grant-r
 
 const PAGE_ID = "202868440480679";
 const BIZ_ID = "741799859254067"; // LWE Business Manager (from the live test report)
+// Stands in for a resolved BUSINESS-SCOPED user id (resolveBusinessScopedUserId's
+// output) — NOT the Facebook-level id getMetaUserId returns. This builder is
+// id-source-agnostic; it just needs a string in the `user` slot.
 const TARGET_USER_ID = "10222222222222222";
 
 describe("buildGrantUserPagePermissionRequest — grant URL regression guard", () => {
