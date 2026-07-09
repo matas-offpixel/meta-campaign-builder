@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 703
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/703
 - **Branch:** `cursor/d2c-mailchimp-static-segment-cleanup`
 
 ## Summary
