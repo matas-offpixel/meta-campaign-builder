@@ -80,7 +80,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   }
 
   const nowIso = new Date().toISOString();
-  const state = initialBackfillState(send.channel === "email" ? "mailchimp" : "bird", nowIso);
+  // Email is already rejected above (Mailchimp Journey handles it), so any send
+  // reaching here is WhatsApp/Bird. The old `email ? "mailchimp" : "bird"`
+  // ternary was dead code that broke the type-check (channel is now sms|whatsapp).
+  const state = initialBackfillState("bird", nowIso);
   const updated = await updateScheduledSendStatus(admin, sendId, {
     resultJsonb: mergeAutorespResultJsonb(send.result_jsonb, { backfill: state }),
   });
