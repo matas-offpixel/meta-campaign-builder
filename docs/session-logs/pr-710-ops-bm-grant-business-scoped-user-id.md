@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 710
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/710
 - **Branch:** `cc/ops/bm-grant-business-scoped-user-id`
 
 ## Summary
