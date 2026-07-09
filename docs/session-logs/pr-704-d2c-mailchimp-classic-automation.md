@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 704
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/704
 - **Branch:** `cursor/d2c-mailchimp-classic-automation`
 
 ## Summary
