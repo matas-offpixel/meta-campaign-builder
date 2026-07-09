@@ -60,3 +60,11 @@ supabase/.temp/
 vat_q*_2026_receipts/
 vat_q*_2027_receipts/
 *_receipts/Q*_reference_only/
+
+# Local scratchpad — not part of the repo
+Crowd photos/
+Images/
+*_ticket_audit_*.md
+CC_PROMPT_*.md
+CURSOR_PROMPT_*.md
+WC26_funnel_xref_*.xlsx
