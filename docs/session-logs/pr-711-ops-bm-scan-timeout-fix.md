@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** {GitHub PR URL when known}
+- **Number:** 711
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/711
 - **Branch:** `cc/ops/bm-scan-timeout-fix`
 
 ## Summary
