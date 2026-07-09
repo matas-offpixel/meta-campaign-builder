@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { requireOperator } from "@/lib/bm/route-auth";
 import { getBusinessManagerByBizId } from "@/lib/db/business-managers";
 import { grantPagesForBusinessManager } from "@/lib/bm/grant";
+import { describeGrantResult, isFullGrantSuccess } from "@/lib/bm/types";
 
 /**
  * POST /api/business-managers/[bizId]/pages/[pageId]/grant
@@ -41,5 +42,6 @@ export async function POST(
     actorUserId: user.id,
   });
 
-  return NextResponse.json({ ok: result.granted > 0 && !result.tokenExpired, result });
+  const ok = isFullGrantSuccess(result);
+  return NextResponse.json({ ok, error: ok ? undefined : describeGrantResult(result), result });
 }

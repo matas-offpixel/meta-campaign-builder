@@ -20,6 +20,7 @@ import {
   MetaApiError,
 } from "./client.ts";
 import type { BMPageRole } from "@/lib/bm/types";
+import { buildGrantUserPagePermissionRequest } from "./business-manager-grant-request.ts";
 
 const PAGE_LIMIT = "100";
 
@@ -131,8 +132,16 @@ export async function getMetaUserId(token: string): Promise<string> {
 // ─── Grant (mutation — single-shot, no retry) ─────────────────────────────────
 
 /**
- * POST /{bizId}/pages/{pageId}/user_permissions — grant `targetUserId` a role on
- * the page within the BM. V1 always passes role = ADVERTISER.
+ * POST /{pageId}/assigned_users — grant `targetUserId` a role on the page.
+ * V1 always passes role = ADVERTISER (→ tasks: ["ADVERTISE"]). See
+ * `business-manager-grant-request.ts` for the request-building logic (kept
+ * pure + separate so it's unit-testable without pulling in client.ts) and
+ * for the 2026-07-09 regression note on why this is NOT
+ * `/{bizId}/pages/{pageId}/user_permissions`.
+ *
+ * `bizId` is kept as a parameter — used only for logging here — so callers
+ * retain BM context for audit/log correlation; Meta's assigned_users edge
+ * itself takes no business id in the path.
  *
  * Single-shot (graphPostWithToken) on purpose — mutations must not retry.
  * Throws MetaApiError on failure; the caller inspects `.subcode === 190` to flag
@@ -145,9 +154,9 @@ export async function grantUserPagePermission(
   role: BMPageRole,
   token: string,
 ): Promise<{ success?: boolean; id?: string }> {
-  return graphPostWithToken<{ success?: boolean; id?: string }>(
-    `/${bizId}/pages/${pageId}/user_permissions`,
-    { user: targetUserId, role },
-    token,
+  const { path, body } = buildGrantUserPagePermissionRequest(pageId, targetUserId, role);
+  console.log(
+    `[bm grant] biz=${bizId} page=${pageId} user=${targetUserId} tasks=${body.tasks.join(",")}`,
   );
+  return graphPostWithToken<{ success?: boolean; id?: string }>(path, body, token);
 }

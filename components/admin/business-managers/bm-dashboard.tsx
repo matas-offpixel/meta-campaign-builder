@@ -5,7 +5,22 @@ import { useRouter } from "next/navigation";
 import { Building2, RefreshCw, ShieldCheck, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { BusinessManagerSummary, DetectedNewPage } from "@/lib/bm/types";
+import {
+  describeGrantResult,
+  type BusinessManagerSummary,
+  type DetectedNewPage,
+  type GrantResult,
+} from "@/lib/bm/types";
+
+function isGrantResult(value: unknown): value is GrantResult {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "attempted" in value &&
+    "granted" in value &&
+    "failed" in value
+  );
+}
 
 interface Props {
   initialBusinessManagers: BusinessManagerSummary[];
@@ -56,7 +71,14 @@ export function BusinessManagersDashboard({
       setBusyKey(null);
       return;
     }
-    setNotice({ kind: "ok", text: successText });
+    // Grant endpoints return a GrantResult — prefer its real granted/failed
+    // counts over the static successText so a partial failure (or a run
+    // that granted 0/N) is never reported as a flat success.
+    const text = isGrantResult(res.result) ? describeGrantResult(res.result) : successText;
+    setNotice({ kind: "ok", text });
+    // router.refresh() re-fetches the server component tree (page.tsx is
+    // force-dynamic) so businessManagers/newPages below reflect the fresh
+    // missing_access_count immediately after a grant/scan.
     startTransition(() => router.refresh());
     setBusyKey(null);
   };
