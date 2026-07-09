@@ -25,11 +25,38 @@ import type {
 import type { UploadAssetResult } from "./upload";
 import { withActPrefix } from "./ad-account-id.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
+import { parseAppUsageHeader, type AppUsageSnapshot } from "./app-usage.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
+
+// ─── App usage tracking (best-effort, in-memory) ────────────────────────────
+//
+// Meta stamps `X-App-Usage` on (most) Graph responses — success or error —
+// as an early warning before the hard #4/#17/#80004 rate-limit codes fire.
+// We snapshot the most recent value here so any server-rendered surface
+// (currently the /business-managers quota indicator) can read "what did we
+// last see" without adding a header-returning variant of every call site.
+// Per-instance only — resets on cold start / new Lambda invocation; that's
+// an acceptable tradeoff for a "roughly how hot is the app-level budget
+// right now" indicator, not a source of truth for rate-limit decisions
+// (those read the header directly off the failing call, see grantPagesForBusinessManager).
+let lastAppUsage: { snapshot: AppUsageSnapshot; capturedAt: string } | null = null;
+
+function recordAppUsage(headers: Headers): AppUsageSnapshot | null {
+  const snapshot = parseAppUsageHeader(headers.get("x-app-usage"));
+  if (snapshot) {
+    lastAppUsage = { snapshot, capturedAt: new Date().toISOString() };
+  }
+  return snapshot;
+}
+
+/** Best-effort last-observed Meta app-level quota usage. Null if no call has landed yet on this instance. */
+export function getLastKnownMetaAppUsage(): { snapshot: AppUsageSnapshot; capturedAt: string } | null {
+  return lastAppUsage;
+}
 
 // ─── Error class ─────────────────────────────────────────────────────────────
 
@@ -228,12 +255,14 @@ async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
     // Always parse the body — even on success Meta sometimes returns a
     // top-level `error` object alongside data.
     const json = (await response.json()) as Record<string, unknown>;
+    const appUsage = recordAppUsage(response.headers);
 
     if (response.ok && !json.error) {
       return json as T;
     }
 
     const parsed = parseMetaError(json, response.status);
+    if (appUsage) parsed.rawErrorData = { ...parsed.rawErrorData, __appUsage: appUsage };
     const budget = getRetryBudget(response.status, parsed.code);
     const remaining = MAX_GET_ATTEMPTS - attempt - 1;
     const isRateLimit =
@@ -408,6 +437,7 @@ export async function graphPostWithToken<T>(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  const appUsage = recordAppUsage(response.headers);
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
@@ -429,7 +459,7 @@ export async function graphPostWithToken<T>(
       e.fbtrace_id as string | undefined,
       e.error_subcode as number | undefined,
       (e.error_user_msg ?? e.error_user_title) as string | undefined,
-      e as Record<string, unknown>,
+      appUsage ? { ...e, __appUsage: appUsage } : (e as Record<string, unknown>),
     );
   }
 

@@ -15,9 +15,12 @@ import { describeGrantResult, isFullGrantSuccess } from "@/lib/bm/types";
  */
 
 export const dynamic = "force-dynamic";
-// Bulk grants can span many batches (50 pages + 2s pause). Vercel Pro allows
-// long durations; this stays well under the 800s cron ceiling.
-export const maxDuration = 300;
+// Bulk grants can span many batches (50 pages + 2s pause + a 500ms
+// per-request throttle — see lib/bm/grant.ts). A large BM (Columbo Group:
+// ~1000+ missing-access pages) can approach this budget before a rate
+// limit halts it; 800s matches the Vercel Pro ceiling used by the scan
+// route (see PR #711) rather than risk another silent 504.
+export const maxDuration = 800;
 
 export async function POST(
   _req: NextRequest,

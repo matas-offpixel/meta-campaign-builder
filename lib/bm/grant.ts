@@ -16,6 +16,8 @@ import {
 } from "@/lib/db/business-managers";
 import { isTokenExpiredMetaError } from "@/lib/bm/sync";
 import { DEFAULT_GRANT_ROLE, type BusinessManager, type GrantResult } from "@/lib/bm/types";
+import { isMetaAdAccountRateLimitError } from "@/lib/audiences/meta-rate-limit";
+import { estimateRetryAfterMinutes, type AppUsageSnapshot } from "@/lib/meta/app-usage";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabaseClient = SupabaseClient<any, any, any, any, any>;
@@ -24,8 +26,31 @@ type AnySupabaseClient = SupabaseClient<any, any, any, any, any>;
 const BATCH_SIZE = 50;
 const BATCH_SLEEP_MS = 2_000;
 
+/**
+ * Per-request pause between individual grant calls (on top of the
+ * between-batch pause above) so grant-all proactively stays under ~2
+ * req/s to Meta rather than only reacting once a rate limit is already
+ * hit. Tunable — see the 2026-07-09 Columbo Group incident.
+ */
+const GRANT_REQUEST_DELAY_MS = 500;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Pulls the `__appUsage` snapshot client.ts stashes onto `MetaApiError.rawErrorData`
+ * when the failing response carried an `X-App-Usage` header (see lib/meta/client.ts
+ * `recordAppUsage`). Duck-typed on purpose — same pattern as
+ * `isMetaAdAccountRateLimitError` — so this stays independent of importing the
+ * MetaApiError class directly.
+ */
+function extractAppUsage(err: unknown): AppUsageSnapshot | null {
+  if (!err || typeof err !== "object") return null;
+  const rawErrorData = (err as { rawErrorData?: unknown }).rawErrorData;
+  if (!rawErrorData || typeof rawErrorData !== "object") return null;
+  const usage = (rawErrorData as Record<string, unknown>).__appUsage;
+  return usage ? (usage as AppUsageSnapshot) : null;
 }
 
 /**
@@ -61,6 +86,7 @@ export async function grantPagesForBusinessManager(
     pageIds = pages.filter((p) => !p.user_has_access).map((p) => p.page_id);
   }
   if (pageIds.length === 0) return result;
+  result.totalTargeted = pageIds.length;
 
   const token = await getBusinessManagerToken(supabase, bm.id);
   if (!token) {
@@ -92,7 +118,8 @@ export async function grantPagesForBusinessManager(
     const batch = pageIds.slice(i, i + BATCH_SIZE);
     result.batches += 1;
 
-    for (const pageId of batch) {
+    for (let b = 0; b < batch.length; b += 1) {
+      const pageId = batch[b];
       result.attempted += 1;
       try {
         await grantUserPagePermission(bizId, pageId, targetUserId, DEFAULT_GRANT_ROLE, token);
@@ -111,6 +138,37 @@ export async function grantPagesForBusinessManager(
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
+        // Meta's app/user/ad-account quota (#4/#17/#80004) — HALT the
+        // whole run immediately rather than continuing through the batch.
+        // Continuing just deepens the same rejected quota window (2026-07-09
+        // Columbo Group incident: 200+ sync_error rows for one rate limit).
+        if (isMetaAdAccountRateLimitError(err)) {
+          const appUsage = extractAppUsage(err);
+          const retryAfterMinutes = estimateRetryAfterMinutes(appUsage);
+          result.rateLimited = true;
+          result.retryAfterMinutes = retryAfterMinutes;
+          console.warn(
+            `[bm grant] biz=${bizId} HALT on Meta rate limit at page=${pageId} ` +
+              `(${result.granted}/${result.totalTargeted} granted so far): ${msg}`,
+          );
+          await logAccessEvent(supabase, {
+            businessId: bizId,
+            pageId,
+            userId: opts.actorUserId,
+            action: "rate_limited",
+            detail: {
+              phase: "grant",
+              message: msg,
+              granted_so_far: result.granted,
+              total_targeted: result.totalTargeted,
+              retry_after_minutes: retryAfterMinutes,
+              app_usage: appUsage,
+            },
+          });
+          return result;
+        }
+
         result.failed += 1;
         result.failures.push({ pageId, error: msg });
         await logAccessEvent(supabase, {
@@ -126,6 +184,13 @@ export async function grantPagesForBusinessManager(
           result.tokenExpired = true;
           return result;
         }
+      }
+
+      // Proactive per-request throttle — keeps grant-all well under Meta's
+      // app-level budget instead of only reacting once it's already hit.
+      const isLastPageOverall = i + b === pageIds.length - 1;
+      if (!isLastPageOverall) {
+        await sleep(GRANT_REQUEST_DELAY_MS);
       }
     }
 
