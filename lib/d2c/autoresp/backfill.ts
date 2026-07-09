@@ -3,8 +3,6 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { updateScheduledSendStatus } from "../../db/d2c.ts";
-import { mailchimpJson } from "../mailchimp/client.ts";
-import { searchListTags, getSegmentById } from "../../mailchimp/client.ts";
 import { birdJson } from "../bird/client.ts";
 import {
   resolveAutorespContext,
@@ -24,10 +22,19 @@ import type { D2CScheduledSend } from "../types.ts";
  * cron ticks without a long-running request. Dedup (d2c_autoresp_fires) makes
  * every chunk idempotent — re-running never double-fires.
  *
- * Email backfill (Mailchimp) pages the tag's segment members by email and fires
- * each through the shared fire path (member-of-1 ephemeral segment). WhatsApp
- * backfill (Bird) reads the list contacts in one page and fires each; Bird
- * pagination is unverified for this PR so a single large page is used (flagged).
+ * WhatsApp backfill (Bird) reads the list contacts in one page and fires each;
+ * Bird pagination is unverified for this PR so a single large page is used
+ * (flagged).
+ *
+ * 2026-07-09 pivot (PR #704): the EMAIL backfill is DISABLED. It used to page
+ * the tag's segment members and fire a throwaway member-of-1 campaign each —
+ * the exact per-fire anti-pattern this PR removes (campaigns-list pollution +
+ * double-send against the Mailchimp Customer Journey now handling the email
+ * autoresp). Existing tagged members are reached by the Journey (for new
+ * adds) or, for a genuine one-off blast to already-tagged members, a single
+ * regular campaign to the tag segment in the Mailchimp UI — never per-fire.
+ * `runBackfillChunk` short-circuits email sends to `done` so no email campaign
+ * is ever minted here again.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,7 +55,6 @@ export interface BackfillState {
   error?: string;
 }
 
-const MAILCHIMP_CHUNK = 100;
 const BIRD_PAGE = 1000;
 
 export function initialBackfillState(
@@ -116,8 +122,26 @@ export async function runBackfillChunk(
 ): Promise<BackfillState> {
   const prev = readBackfillState(send.result_jsonb);
   const nowIso = new Date().toISOString();
+
+  // Email backfill is retired (2026-07-09 pivot, PR #704). The Mailchimp
+  // Customer Journey owns the email autoresp; firing per-member campaigns for
+  // existing members would re-introduce the pollution + double-send. Mark any
+  // email backfill immediately done (never fires) so an in-flight job from
+  // before the deploy also stops cleanly.
+  if (send.channel === "email") {
+    const done: BackfillState = {
+      ...(prev ?? initialBackfillState("mailchimp", nowIso)),
+      status: "done",
+      total: prev?.total ?? 0,
+      error: "email_backfill_retired_use_customer_journey",
+      updated_at: nowIso,
+    };
+    await persist(admin, send, done);
+    return done;
+  }
+
   if (!prev) {
-    const seeded = initialBackfillState(send.channel === "email" ? "mailchimp" : "bird", nowIso);
+    const seeded = initialBackfillState("bird", nowIso);
     await persist(admin, send, seeded);
     return seeded;
   }
@@ -131,10 +155,8 @@ export async function runBackfillChunk(
   }
 
   try {
-    const next =
-      ctx.provider === "mailchimp"
-        ? await mailchimpChunk(admin, ctx, prev, nowIso)
-        : await birdChunk(admin, ctx, prev, nowIso);
+    // Only WhatsApp (Bird) reaches here — email short-circuits above.
+    const next = await birdChunk(admin, ctx, prev, nowIso);
     await persist(admin, send, next);
     return next;
   } catch (e) {
@@ -147,69 +169,6 @@ export async function runBackfillChunk(
     await persist(admin, send, failed);
     return failed;
   }
-}
-
-interface MembersPage {
-  members?: Array<{ email_address?: string }>;
-  total_items?: number;
-}
-
-async function mailchimpChunk(
-  admin: AnySupabaseClient,
-  ctx: AutorespContext,
-  prev: BackfillState,
-  nowIso: string,
-): Promise<BackfillState> {
-  const creds = ctx.connection.credentials as Record<string, unknown>;
-  const apiKey = typeof creds.api_key === "string" ? creds.api_key.trim() : "";
-  const serverPrefix = typeof creds.server_prefix === "string" ? creds.server_prefix.trim() : "";
-  const listId = ctx.listId;
-  const tag = typeof ctx.audience.tag === "string" ? ctx.audience.tag.trim() : "";
-  if (!apiKey || !serverPrefix || !listId || !tag) {
-    return { ...prev, status: "failed", error: "missing_creds_list_or_tag", updated_at: nowIso };
-  }
-
-  // Resolve the tag → segment id once (segment id === tag id in Mailchimp).
-  const search = await searchListTags(serverPrefix, listId, apiKey, tag);
-  const wanted = tag.toLowerCase();
-  const tagMatch = (search.tags ?? []).find((t) => (t.name ?? "").trim().toLowerCase() === wanted);
-  if (!tagMatch) {
-    return { ...prev, status: "failed", error: `tag_not_found:${tag}`, updated_at: nowIso };
-  }
-  const seg = await getSegmentById(serverPrefix, listId, tagMatch.id, apiKey);
-  const total = seg.member_count ?? 0;
-
-  const page = await mailchimpJson<MembersPage>(
-    serverPrefix,
-    apiKey,
-    `/3.0/lists/${listId}/segments/${tagMatch.id}/members?fields=members.email_address,total_items&count=${MAILCHIMP_CHUNK}&offset=${prev.cursor}`,
-    { method: "GET" },
-  );
-  const emails = (page.members ?? [])
-    .map((m) => (m.email_address ?? "").trim().toLowerCase())
-    .filter((e) => e.length > 0);
-
-  let fired = prev.fired;
-  let skipped = prev.skipped;
-  for (const email of emails) {
-    const res = await fireAutorespToMember(admin, ctx, email);
-    if (res.outcome === "fired") fired += 1;
-    else skipped += 1;
-  }
-
-  const cursor = prev.cursor + emails.length;
-  const processed = prev.processed + emails.length;
-  const done = emails.length < MAILCHIMP_CHUNK || cursor >= total;
-  return {
-    ...prev,
-    status: done ? "done" : "running",
-    cursor,
-    processed,
-    total,
-    fired,
-    skipped,
-    updated_at: nowIso,
-  };
 }
 
 async function birdChunk(

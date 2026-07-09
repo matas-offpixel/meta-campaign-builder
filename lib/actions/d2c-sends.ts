@@ -96,12 +96,17 @@ export async function cancelSend(
 }
 
 /**
- * Arm the autoresponder on an `autoresp_setup` send (Goal 4). Replaces the old
- * "approve → fire a one-off broadcast" behaviour: this flips
+ * Arm the autoresponder on an `autoresp_setup` send (Goal 4). Flips
  * `result_jsonb.autoresp_config.enabled = true` (preserving every other key) and
- * marks the send approved. From this point the Mailchimp webhook + Bird poll
- * cron fire a single-recipient send per qualifying tag/list add. No broadcast
- * leaves here. The 3-of-3 live gate still governs each individual fire.
+ * marks the send approved.
+ *
+ * What "armed" means depends on the channel (2026-07-09 pivot, PR #704):
+ *   - **Email:** Mailchimp delivers the autoresp via a Customer Journey
+ *     (`tag-added` trigger) — our system never sends the email. Arming just
+ *     gates the operator checklist in the dashboard ("confirm the Journey
+ *     exists"); no send leaves here and the old per-fire campaign path is gone.
+ *   - **WhatsApp:** unchanged — the Bird poll cron fires a single-recipient
+ *     template message per new contact, deduped, under the 3-of-3 live gate.
  */
 export async function armAutoresponder(
   sendId: string,
@@ -137,7 +142,11 @@ export async function armAutoresponder(
 
 /**
  * Disarm an armed autoresponder. Flips `autoresp_config.enabled = false` and
- * preserves the fire history in d2c_autoresp_fires. New signups stop firing.
+ * preserves the fire history in d2c_autoresp_fires. For WhatsApp, new signups
+ * stop firing. For email, this removes the dashboard checklist state — but note
+ * the Mailchimp Customer Journey keeps sending until it's paused/turned off in
+ * Mailchimp itself (disarming here does NOT touch the Journey — there's no
+ * Journey pause API; PR #704).
  */
 export async function disarmAutoresponder(
   sendId: string,

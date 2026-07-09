@@ -8,9 +8,6 @@ import {
   isProfileFallbackEventType,
   runProfileFallback,
 } from "@/lib/mailchimp/profile-fallback";
-import { getAutorespSendForEvent } from "@/lib/db/d2c";
-import { resolveAutorespContext, fireAutorespToMember } from "@/lib/d2c/autoresp/fire";
-import { isAutorespArmed } from "@/lib/d2c/autoresp/helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -159,16 +156,15 @@ export async function POST(req: NextRequest, { params }: Context) {
       // which fires `subscribe` (not `tag_added`) — that fell into the
       // catch-all "ignored" branch below and never logged a row.
       // handleProfileUpdate's tag-diff produces the correct action either
-      // way: a subscribe with the tag pre-applied diffs to "added" (fires
-      // autoresp via addedEventIds); an unsubscribe diffs to "removed"
-      // (never fires — the autoresp path only triggers on addedEventIds).
+      // way. This path is now tag-tracking ONLY — the email autoresponder
+      // fires from a Mailchimp Customer Journey (tag-added trigger), NOT from
+      // this webhook (2026-07-09 pivot, PR #704 — see processTagEvent).
       const email = extractProfileFallbackEmail((key) => body.get(key));
       if (!email) {
         return NextResponse.json({ ok: false, error: "Missing email" }, { status: 400 });
       }
       const payload = await runProfileFallback(supabase, clientId, audienceId, email, {
         handleProfileUpdate,
-        fireAutorespForTagAdd,
       });
       return NextResponse.json(payload);
     } else {
@@ -235,64 +231,19 @@ async function processTagEvent(
     await recomputeDaySnapshot(sb, event.id, eventDay);
   }
 
-  // Webhook-driven autoresponder (Goal 2): a NEW tagged member fires the event's
-  // armed autoresp_setup email — one single-recipient send, deduped. Removals
-  // never fire. Synchronous with the webhook (Mailchimp retries on 5xx), but a
-  // fire failure must not fail the tag-tracking write, so it's best-effort.
-  let autoresp: { fired: number; skipped: number } | undefined;
-  if (evt.action === "added") {
-    autoresp = await fireAutorespForTagAdd(
-      supabase,
-      (events as Array<{ id: string }>).map((e) => e.id),
-      evt.email,
-    );
-  }
-
+  // NO email autoresponder fire here (2026-07-09 pivot, PR #704). The email
+  // autoresp is now delivered by a Mailchimp Customer Journey with a
+  // `trigger-tag_added` step on the event's signup tag — Mailchimp sends
+  // per-member itself, with native tracking + retry. The old per-fire path
+  // (one throwaway campaign per fan) polluted the campaigns list AND
+  // double-sent for every event that also had a Journey armed, so it was
+  // removed. This webhook is tag-tracking only for the email side; the
+  // WhatsApp autoresp still fires from the Bird poll cron
+  // (/api/cron/d2c-autoresp-poll-bird), whose design has no campaigns-list
+  // pollution equivalent.
   return NextResponse.json({
     ok: true,
     eventsAffected: events.length,
     action: evt.action,
-    ...(autoresp ? { autoresp } : {}),
   });
-}
-
-/**
- * Fire the armed email autoresponder for each event the newly-tagged member
- * qualifies for. Best-effort: any per-event error is logged, never thrown, so
- * the tag-tracking write always succeeds.
- */
-async function fireAutorespForTagAdd(
-  supabase: ReturnType<typeof createServiceRoleClient>,
-  eventIds: string[],
-  email: string,
-): Promise<{ fired: number; skipped: number }> {
-  let fired = 0;
-  let skipped = 0;
-  for (const eventId of eventIds) {
-    try {
-      const send = await getAutorespSendForEvent(supabase, eventId, "email");
-      if (!send || !isAutorespArmed(send.result_jsonb)) {
-        skipped += 1;
-        continue;
-      }
-      const ctx = await resolveAutorespContext(supabase, send);
-      if (!ctx) {
-        skipped += 1;
-        continue;
-      }
-      const res = await fireAutorespToMember(supabase, ctx, email.trim().toLowerCase());
-      if (res.outcome === "fired") fired += 1;
-      else skipped += 1;
-      if (res.outcome === "error") {
-        console.error(`[mailchimp-webhook] autoresp fire error event=${eventId}: ${res.error}`);
-      }
-    } catch (e) {
-      skipped += 1;
-      console.error(
-        `[mailchimp-webhook] autoresp fire threw event=${eventId}:`,
-        e instanceof Error ? e.message : String(e),
-      );
-    }
-  }
-  return { fired, skipped };
 }

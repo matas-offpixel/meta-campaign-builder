@@ -79,6 +79,22 @@ function formatWhen(iso: string): string {
   }).format(d);
 }
 
+/**
+ * Resolve the signup tag off a send's audience descriptor for the email
+ * autoresp Customer Journey checklist. Prefers the singular `tag`, then the
+ * first entry of a `tags` array (both key conventions seen in the wild).
+ */
+function autorespSignupTag(audience: unknown): string | null {
+  if (!audience || typeof audience !== "object") return null;
+  const a = audience as Record<string, unknown>;
+  if (typeof a.tag === "string" && a.tag.trim()) return a.tag.trim();
+  if (Array.isArray(a.tags)) {
+    const first = a.tags.find((t) => typeof t === "string" && t.trim());
+    if (typeof first === "string") return first.trim();
+  }
+  return null;
+}
+
 function ArtworkBlock({
   url,
   eventName,
@@ -190,6 +206,9 @@ export function SendPreview({
           fires={autorespFires}
           readOnly={readOnly}
           canApprove={canApprove}
+          channel={send.channel === "whatsapp" ? "whatsapp" : "email"}
+          signupTag={autorespSignupTag(send.audience)}
+          serverPrefix={mailchimpServerPrefix}
         />
       )}
 

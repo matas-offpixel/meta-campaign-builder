@@ -14,6 +14,13 @@
  * "ignored" branch. All five event types carry the member's email under
  * `data[email]` (`data[new_email]` for `upemail`) — verified against
  * Mailchimp's webhook payload docs, not `data[merges][EMAIL]`.
+ *
+ * 2026-07-09 pivot (PR #704): this path is now **tag-tracking only**. The
+ * email autoresponder is delivered by a Mailchimp Customer Journey
+ * (`trigger-tag_added` step), not by a per-fire send from this webhook — so
+ * `runProfileFallback` no longer fires anything. It re-fetches + reconciles
+ * the member's tags (keeping `mailchimp_tag_event_log` accurate for signup
+ * counting) and returns the diff result verbatim.
  */
 
 const PROFILE_FALLBACK_EVENT_TYPES = new Set([
@@ -47,15 +54,8 @@ export type HandleProfileUpdateFn<TSupabase> = (
   email: string,
 ) => Promise<HandleProfileUpdateResult>;
 
-export type FireAutorespForTagAddFn<TSupabase> = (
-  supabase: TSupabase,
-  eventIds: string[],
-  email: string,
-) => Promise<{ fired: number; skipped: number }>;
-
 export interface ProfileFallbackDeps<TSupabase> {
   handleProfileUpdate: HandleProfileUpdateFn<TSupabase>;
-  fireAutorespForTagAdd: FireAutorespForTagAddFn<TSupabase>;
 }
 
 export interface ProfileFallbackResponse {
@@ -64,14 +64,15 @@ export interface ProfileFallbackResponse {
   reconciled: number;
   addedEventIds: string[];
   error?: string;
-  autoresp?: { fired: number; skipped: number };
 }
 
 /**
  * Runs the profile-update fallback: re-fetch + diff the member's tags via
- * `handleProfileUpdate`, then fire the autoresponder for any event that just
- * gained a fresh "added" reconciliation (mirrors the `tag_added` webhook
- * branch — PR #701's `addedEventIds` wiring).
+ * `handleProfileUpdate` and return the result verbatim. Tag-tracking only —
+ * no autoresponder fire (2026-07-09 pivot, PR #704: the email autoresp is a
+ * Mailchimp Customer Journey now). `addedEventIds` is still surfaced so the
+ * response shape is stable for anything reading it, but nothing acts on it
+ * here.
  */
 export async function runProfileFallback<TSupabase>(
   supabase: TSupabase,
@@ -82,14 +83,8 @@ export async function runProfileFallback<TSupabase>(
 ): Promise<ProfileFallbackResponse> {
   const result = await deps.handleProfileUpdate(supabase, clientId, audienceId, email);
 
-  let autoresp: { fired: number; skipped: number } | undefined;
-  if (result.ok && result.addedEventIds.length > 0) {
-    autoresp = await deps.fireAutorespForTagAdd(supabase, result.addedEventIds, email);
-  }
-
   return {
     mode: "profile_update",
     ...result,
-    ...(autoresp ? { autoresp } : {}),
   };
 }

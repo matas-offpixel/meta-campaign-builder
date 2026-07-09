@@ -76,6 +76,36 @@ export function shouldFireAutoresp(input: {
   return input.config?.enabled === true && !input.alreadyFired;
 }
 
+export interface CustomerJourneyChecklist {
+  /** The signup tag the Journey's `tag-added` trigger must fire on. */
+  tag: string | null;
+  /** Suggested Journey name following the `T26-{CITY}-AUTO` convention. */
+  suggestedJourneyName: string | null;
+  /** Deep link to the account-level Customer Journeys list. */
+  journeysUrl: string;
+}
+
+/**
+ * Build the operator checklist shown when an EMAIL autoresponder is armed
+ * (2026-07-09 pivot, PR #704). Our system no longer fires the email autoresp —
+ * a Mailchimp Customer Journey does — so arming just gates this checklist:
+ * confirm a Journey exists with a `tag-added` trigger on the signup tag.
+ * Pure + dependency-free so it's unit-testable and client-safe.
+ */
+export function buildCustomerJourneyChecklist(
+  signupTag: string | null | undefined,
+  serverPrefix: string | null | undefined,
+): CustomerJourneyChecklist {
+  const tag = signupTag && signupTag.trim() ? signupTag.trim() : null;
+  const dc = serverPrefix && serverPrefix.trim() ? serverPrefix.trim() : null;
+  // dc-prefixed admin host is stable per account (e.g. us7 → us7.admin…).
+  const journeysUrl = dc
+    ? `https://${dc}.admin.mailchimp.com/journeys/`
+    : "https://admin.mailchimp.com/journeys/";
+  const suggestedJourneyName = tag ? `${tag}-AUTO` : null;
+  return { tag, suggestedJourneyName, journeysUrl };
+}
+
 export type AutorespProvider = "mailchimp" | "bird";
 
 /**

@@ -9,6 +9,7 @@ import {
   shouldFireAutoresp,
   resolveAutorespRecipient,
   normaliseE164,
+  buildCustomerJourneyChecklist,
 } from "../helpers.ts";
 
 test("readAutorespConfig parses a well-formed config", () => {
@@ -89,4 +90,31 @@ test("normaliseE164 rejects out-of-range lengths", () => {
   assert.equal(normaliseE164("1234567"), null); // 7 digits — too short
   assert.equal(normaliseE164("1234567890123456"), null); // 16 digits — too long
   assert.equal(normaliseE164("+1 (415) 555-2671"), "+14155552671");
+});
+
+test("buildCustomerJourneyChecklist echoes the tag, suggests a name, dc-prefixes the URL", () => {
+  const c = buildCustomerJourneyChecklist("T26-ALGARVE", "us7");
+  assert.deepEqual(c, {
+    tag: "T26-ALGARVE",
+    suggestedJourneyName: "T26-ALGARVE-AUTO",
+    journeysUrl: "https://us7.admin.mailchimp.com/journeys/",
+  });
+});
+
+test("buildCustomerJourneyChecklist trims inputs and tolerates missing tag / dc", () => {
+  assert.deepEqual(buildCustomerJourneyChecklist("  T26-MADRID  ", "  us7 "), {
+    tag: "T26-MADRID",
+    suggestedJourneyName: "T26-MADRID-AUTO",
+    journeysUrl: "https://us7.admin.mailchimp.com/journeys/",
+  });
+  assert.deepEqual(buildCustomerJourneyChecklist(null, null), {
+    tag: null,
+    suggestedJourneyName: null,
+    journeysUrl: "https://admin.mailchimp.com/journeys/",
+  });
+  assert.deepEqual(buildCustomerJourneyChecklist("", "  "), {
+    tag: null,
+    suggestedJourneyName: null,
+    journeysUrl: "https://admin.mailchimp.com/journeys/",
+  });
 });

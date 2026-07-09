@@ -1,12 +1,17 @@
 /**
- * Unit tests for lib/mailchimp/profile-fallback.ts (2026-07-08 fix).
+ * Unit tests for lib/mailchimp/profile-fallback.ts.
  *
- * Root cause under test: the Mailchimp webhook route only routed
- * `profile`/`upemail`/`cleaned` through the tag re-fetch + diff fallback.
- * Mailchimp fires `subscribe` — never `tag_added` — when a member is
- * created with a tag already applied via the API (e.g. Evntree pushing a
- * fresh signup), so `subscribe` (and `unsubscribe`) fell into the route's
- * catch-all "ignored" branch and never reached `handleProfileUpdate`.
+ * Root cause originally under test (2026-07-08 fix): the Mailchimp webhook
+ * route only routed `profile`/`upemail`/`cleaned` through the tag re-fetch +
+ * diff fallback. Mailchimp fires `subscribe` — never `tag_added` — when a
+ * member is created with a tag already applied via the API (e.g. Evntree
+ * pushing a fresh signup), so `subscribe` (and `unsubscribe`) fell into the
+ * route's catch-all "ignored" branch and never reached `handleProfileUpdate`.
+ *
+ * 2026-07-09 pivot (PR #704): the fallback is now tag-tracking ONLY — the
+ * email autoresponder moved to a Mailchimp Customer Journey, so
+ * `runProfileFallback` must NOT fire anything. These tests assert the
+ * reconcile still runs and the response no longer carries an `autoresp` key.
  */
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
@@ -67,13 +72,12 @@ describe("extractProfileFallbackEmail", () => {
 });
 
 describe("runProfileFallback", () => {
-  it("subscribe branch: calls handleProfileUpdate, and fires the autoresponder for a fresh tag-add", async () => {
+  it("subscribe branch: reconciles tags but NEVER fires (Customer Journey owns the email autoresp)", async () => {
     const handleProfileUpdate = mock.fn(async () => ({
       ok: true,
       reconciled: 1,
       addedEventIds: ["event-algarve"],
     }));
-    const fireAutorespForTagAdd = mock.fn(async () => ({ fired: 1, skipped: 0 }));
 
     const supabase = { marker: "fake-supabase-client" };
     const payload = await runProfileFallback(
@@ -81,12 +85,12 @@ describe("runProfileFallback", () => {
       "client-throwback",
       "c2b4d77acb",
       "hello+finalproof@offpixel.co.uk",
-      { handleProfileUpdate, fireAutorespForTagAdd },
+      { handleProfileUpdate },
     );
 
     // Simulates a Mailchimp `subscribe` event for a member that already has
-    // the event's tag applied (Evntree's API-driven signup flow) — the
-    // exact scenario that previously fell into the route's "ignored" branch.
+    // the event's tag applied (Evntree's API-driven signup flow). The tag
+    // re-fetch + diff still runs (keeps mailchimp_tag_event_log accurate)...
     assert.equal(handleProfileUpdate.mock.callCount(), 1);
     assert.deepEqual(handleProfileUpdate.mock.calls[0]!.arguments, [
       supabase,
@@ -95,44 +99,34 @@ describe("runProfileFallback", () => {
       "hello+finalproof@offpixel.co.uk",
     ]);
 
-    assert.equal(fireAutorespForTagAdd.mock.callCount(), 1);
-    assert.deepEqual(fireAutorespForTagAdd.mock.calls[0]!.arguments, [
-      supabase,
-      ["event-algarve"],
-      "hello+finalproof@offpixel.co.uk",
-    ]);
-
+    // ...but the response carries NO `autoresp` key: the per-fire email send
+    // was removed in the 2026-07-09 pivot (PR #704). A fresh tag-add now
+    // enters the account's Customer Journey, which sends the email itself.
     assert.deepEqual(payload, {
       mode: "profile_update",
       ok: true,
       reconciled: 1,
       addedEventIds: ["event-algarve"],
-      autoresp: { fired: 1, skipped: 0 },
     });
+    assert.equal("autoresp" in payload, false);
   });
 
-  it("unsubscribe branch: calls handleProfileUpdate but never fires the autoresponder on a tag removal", async () => {
+  it("unsubscribe branch: reconciles a tag removal, no fire, stable shape", async () => {
     const handleProfileUpdate = mock.fn(async () => ({
       ok: true,
       reconciled: 1,
       addedEventIds: [],
     }));
-    const fireAutorespForTagAdd = mock.fn(async () => ({ fired: 0, skipped: 0 }));
 
     const payload = await runProfileFallback(
       { marker: "fake-supabase-client" },
       "client-throwback",
       "c2b4d77acb",
       "fan@example.com",
-      { handleProfileUpdate, fireAutorespForTagAdd },
+      { handleProfileUpdate },
     );
 
     assert.equal(handleProfileUpdate.mock.callCount(), 1);
-    assert.equal(fireAutorespForTagAdd.mock.callCount(), 0);
-
-    // Byte-diff against the exact response shape the route JSON-serializes —
-    // no `autoresp` key at all when nothing fired (matches the tag_added
-    // branch's `...(autoresp ? { autoresp } : {})` spread).
     assert.deepEqual(payload, {
       mode: "profile_update",
       ok: true,
@@ -141,24 +135,22 @@ describe("runProfileFallback", () => {
     });
   });
 
-  it("propagates a no_credentials failure without calling the autoresponder", async () => {
+  it("propagates a no_credentials failure verbatim", async () => {
     const handleProfileUpdate = mock.fn(async () => ({
       ok: false,
       reconciled: 0,
       addedEventIds: [],
       error: "no_credentials",
     }));
-    const fireAutorespForTagAdd = mock.fn(async () => ({ fired: 0, skipped: 0 }));
 
     const payload = await runProfileFallback(
       { marker: "fake-supabase-client" },
       "client-orphan",
       "aud-1",
       "someone@example.com",
-      { handleProfileUpdate, fireAutorespForTagAdd },
+      { handleProfileUpdate },
     );
 
-    assert.equal(fireAutorespForTagAdd.mock.callCount(), 0);
     assert.deepEqual(payload, {
       mode: "profile_update",
       ok: false,
