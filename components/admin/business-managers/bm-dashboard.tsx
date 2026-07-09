@@ -11,6 +11,7 @@ import {
   type DetectedNewPage,
   type GrantResult,
 } from "@/lib/bm/types";
+import type { AppUsageSnapshot } from "@/lib/meta/app-usage";
 
 function isGrantResult(value: unknown): value is GrantResult {
   return (
@@ -25,6 +26,14 @@ function isGrantResult(value: unknown): value is GrantResult {
 interface Props {
   initialBusinessManagers: BusinessManagerSummary[];
   initialNewPages: DetectedNewPage[];
+  /** Best-effort last-observed Meta app-level quota usage. Null until a call lands on this instance. */
+  metaAppUsage: { snapshot: AppUsageSnapshot; capturedAt: string } | null;
+}
+
+function quotaBadgeClass(percent: number): string {
+  if (percent >= 90) return "bg-red-100 text-red-800";
+  if (percent >= 70) return "bg-amber-100 text-amber-800";
+  return "bg-muted text-muted-foreground";
 }
 
 function formatTimestamp(iso: string | null): string {
@@ -52,6 +61,7 @@ async function postJson(url: string): Promise<{ ok: boolean; error?: string; res
 export function BusinessManagersDashboard({
   initialBusinessManagers,
   initialNewPages,
+  metaAppUsage,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -97,12 +107,22 @@ export function BusinessManagersDashboard({
             role — enough to boost posts and run ads, no owner-level actions.
           </p>
         </div>
-        <Button
-          onClick={() => run("connect", "/api/business-managers/connect", "Business Managers refreshed.")}
-          disabled={busyKey === "connect" || isPending}
-        >
-          {busyKey === "connect" ? "Connecting…" : "Connect / refresh BMs"}
-        </Button>
+        <div className="flex items-center gap-3">
+          {metaAppUsage ? (
+            <span
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${quotaBadgeClass(metaAppUsage.snapshot.maxPercent)}`}
+              title={`Meta app quota as of ${formatTimestamp(metaAppUsage.capturedAt)} (this server instance only)`}
+            >
+              App quota: {Math.round(metaAppUsage.snapshot.maxPercent)}%
+            </span>
+          ) : null}
+          <Button
+            onClick={() => run("connect", "/api/business-managers/connect", "Business Managers refreshed.")}
+            disabled={busyKey === "connect" || isPending}
+          >
+            {busyKey === "connect" ? "Connecting…" : "Connect / refresh BMs"}
+          </Button>
+        </div>
       </div>
 
       {notice ? (

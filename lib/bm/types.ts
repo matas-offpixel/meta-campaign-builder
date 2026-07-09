@@ -10,7 +10,12 @@ export type BMPageRole = "ADVERTISER" | "ANALYST" | "EDITOR" | "ADMIN";
 
 export const DEFAULT_GRANT_ROLE: BMPageRole = "ADVERTISER";
 
-export type BMAccessAction = "granted" | "revoked" | "detected_new" | "sync_error";
+export type BMAccessAction =
+  | "granted"
+  | "revoked"
+  | "detected_new"
+  | "sync_error"
+  | "rate_limited";
 
 /** Row of client_business_managers (never carries the encrypted token). */
 export interface BusinessManager {
@@ -81,12 +86,29 @@ export interface GrantResult {
   batches: number;
   failures: { pageId: string; error: string }[];
   tokenExpired?: boolean;
+  /**
+   * Total pages this run set out to grant (before any halt). Differs from
+   * `attempted` only when the run halted early (rate limit) — `attempted`
+   * counts pages actually tried, `totalTargeted` is the full intended set.
+   */
+  totalTargeted?: number;
+  /**
+   * True when the run halted because Meta's app-level (or user/ad-account)
+   * request quota was hit (code #4/#17/#80004 — "Application request
+   * limit reached" and friends). The run stops immediately rather than
+   * continuing to hammer an already-rejected quota window — see
+   * lib/bm/grant.ts and the 2026-07-09 Columbo Group incident.
+   */
+  rateLimited?: boolean;
+  /** Best-effort estimate of when it's safe to retry, when `rateLimited` is true. */
+  retryAfterMinutes?: number;
 }
 
 /**
- * True only when every attempted grant actually succeeded. Used by the API
- * routes to compute their `ok` response field and by the dashboard to
- * decide whether to show a success or a partial-failure notice.
+ * True only when every attempted grant actually succeeded and the run
+ * wasn't halted by a Meta rate limit. Used by the API routes to compute
+ * their `ok` response field and by the dashboard to decide whether to show
+ * a success or a partial-failure notice.
  *
  * Regression note (2026-07-09): `grant-all/route.ts` used to compute
  * `ok: !result.tokenExpired`, which is true even when every single grant
@@ -95,13 +117,20 @@ export interface GrantResult {
  * budged. `result.failed` must be part of the success signal.
  */
 export function isFullGrantSuccess(result: GrantResult): boolean {
-  return !result.tokenExpired && result.failed === 0;
+  return !result.tokenExpired && !result.rateLimited && result.failed === 0;
 }
 
 /** Human-readable summary of a grant run, for API responses + UI notices. */
 export function describeGrantResult(result: GrantResult): string {
   if (result.tokenExpired) {
     return "Facebook token expired — reconnect required.";
+  }
+  if (result.rateLimited) {
+    const total = result.totalTargeted ?? result.attempted;
+    return (
+      `Granted ${result.granted} of ${total} — Meta rate limit hit, ` +
+      `retry in ~${result.retryAfterMinutes ?? 45} minutes.`
+    );
   }
   if (result.attempted === 0) {
     return "Nothing to grant — already up to date.";

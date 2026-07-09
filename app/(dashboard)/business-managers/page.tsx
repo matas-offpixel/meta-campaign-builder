@@ -6,6 +6,7 @@ import {
   listBusinessManagerSummaries,
   listDetectedNewPages,
 } from "@/lib/db/business-managers";
+import { getLastKnownMetaAppUsage } from "@/lib/meta/client";
 import { BusinessManagersDashboard } from "@/components/admin/business-managers/bm-dashboard";
 
 /**
@@ -44,10 +45,16 @@ export default async function BusinessManagersPage() {
     listDetectedNewPages(supabase, 7),
   ]);
 
+  // Best-effort, per-instance only — see getLastKnownMetaAppUsage's docstring.
+  // Null on a cold start until the next scan/grant call lands on this
+  // instance; the indicator simply doesn't render in that case.
+  const metaAppUsage = getLastKnownMetaAppUsage();
+
   return (
     <BusinessManagersDashboard
       initialBusinessManagers={businessManagers}
       initialNewPages={newPages}
+      metaAppUsage={metaAppUsage}
     />
   );
 }
