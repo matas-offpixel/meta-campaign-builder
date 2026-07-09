@@ -368,6 +368,40 @@ export async function logAccessEvent(
   if (error) console.error("[bm logAccessEvent]", error.message);
 }
 
+/**
+ * Bulk-insert several `bm_page_access_events` rows in ONE round trip.
+ *
+ * Added for the 2026-07-09 scan-timeout fix: `scanBusinessManager` used to
+ * call `logAccessEvent` once per newly-detected page — 700+ sequential
+ * awaited inserts on a large BM (Columbo Group, ~1060 pages) was the actual
+ * time sink behind the 120s timeout, not the Meta API fetch. Callers should
+ * chunk large batches (e.g. 100 rows) themselves so a single insert stays
+ * fast and so progress can be checkpointed between chunks.
+ */
+export async function logAccessEventsBulk(
+  supabase: AnySupabaseClient,
+  events: {
+    businessId: string;
+    pageId: string;
+    userId: string | null;
+    action: BMAccessAction;
+    detail?: Record<string, unknown>;
+  }[],
+): Promise<void> {
+  if (events.length === 0) return;
+  const sb = asAny(supabase);
+  const { error } = await sb.from("bm_page_access_events").insert(
+    events.map((e) => ({
+      business_id: e.businessId,
+      page_id: e.pageId,
+      user_id: e.userId,
+      action: e.action,
+      detail: e.detail ?? {},
+    })),
+  );
+  if (error) console.error("[bm logAccessEventsBulk]", error.message);
+}
+
 /** New-page inbox: detected_new events in the last `days`, joined to BM + client. */
 export async function listDetectedNewPages(
   supabase: AnySupabaseClient,
