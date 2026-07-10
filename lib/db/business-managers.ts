@@ -329,6 +329,38 @@ export async function upsertBMPages(
   return { newPageIds };
 }
 
+/** Minimal `bm_pages` projection consumed by the audience-builder page source union. */
+export interface BMPageForAudienceSource {
+  page_id: string;
+  page_name: string | null;
+  category: string | null;
+}
+
+/**
+ * Pages under a Business Manager the operator has confirmed access to
+ * (`user_has_access = true`), regardless of `is_owned_by_bm` — this is the
+ * backfill source for pages shared into the BM by a different Business
+ * Manager (e.g. client-shared pages), which Meta's `/me/accounts` +
+ * `owned_pages` + `client_pages` audience-source query can miss. See
+ * lib/audiences/page-source-union.ts.
+ */
+export async function getBMPagesWithUserAccess(
+  supabase: AnySupabaseClient,
+  businessId: string,
+): Promise<BMPageForAudienceSource[]> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("bm_pages")
+    .select("page_id, page_name, category")
+    .eq("business_id", businessId)
+    .eq("user_has_access", true);
+  if (error) {
+    console.error("[bm getBMPagesWithUserAccess]", error.message);
+    return [];
+  }
+  return (data ?? []) as BMPageForAudienceSource[];
+}
+
 /** Flip a single page's access flag (after a successful grant). */
 export async function setPageAccessFlag(
   supabase: AnySupabaseClient,
