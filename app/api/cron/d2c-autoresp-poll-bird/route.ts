@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { birdJson } from "@/lib/d2c/bird/client";
+import { findGroupByName } from "@/lib/d2c/bird/groups/client";
 import {
   listAutorespSendsByChannel,
   updateScheduledSendStatus,
@@ -45,15 +46,6 @@ function isAuthorized(req: NextRequest): boolean {
   return header.trim() === expected.trim();
 }
 
-interface BirdListRow {
-  id?: string;
-  name?: string;
-}
-interface BirdListEnvelope {
-  results?: BirdListRow[];
-  data?: BirdListRow[];
-}
-
 export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -93,15 +85,10 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // Resolve the Bird list by name (== signup tag), same as the stats reader.
-      const listEnv = await birdJson<BirdListEnvelope>(
-        apiKey,
-        `/workspaces/${wsId}/lists?limit=100&include_total=true`,
-        { method: "GET" },
-      );
-      const lists = listEnv.results ?? listEnv.data ?? [];
-      const wanted = tag.toLowerCase();
-      const match = lists.find((l) => (l.name ?? "").trim().toLowerCase() === wanted);
+      // Resolve the Bird group/list by name (== signup tag). Shared with the
+      // Journey trigger-group resolver (lib/d2c/bird/groups/client.ts) — one
+      // impl, both callers, per the groups===lists resource-duality finding.
+      const match = await findGroupByName({ apiKey, workspaceId: wsId }, tag);
       if (!match?.id) {
         results.push({ sendId: send.id, outcome: "list_not_found" });
         continue;
