@@ -538,5 +538,27 @@ code.
 read-only (no probe #3 was run by this agent; a real leftover
 `zz-capture-test-2026-07-09` journey from Matas's own capture session was
 found live, inspected read-only, and deleted + verified back to baseline —
-see the investigation doc). Steps 2-4 remain TBD. Scaffolding per preference
-#1 has **not** started yet — pending explicit greenlight.
+see the investigation doc). Steps 2-4 remain TBD.
+
+**Scaffolding shipped (2026-07-10), greenlit by Matas:**
+
+- **PR A** — [#714](https://github.com/matas-offpixel/meta-campaign-builder/pull/714)
+  `lib/d2c/bird/journeys/client.ts`. `createJourneyShell` + read helpers
+  CONFIRMED and live; `writeJourneyVersion`/`publishVersion` dead code behind
+  `JOURNEY_CREATE_VERIFIED = false`. Merged.
+- **PR B** — [#715](https://github.com/matas-offpixel/meta-campaign-builder/pull/715)
+  `lib/d2c/bird/groups/client.ts`, refactored the poll cron
+  (`app/api/cron/d2c-autoresp-poll-bird/route.ts`) onto the shared resolver.
+  Live-verified read-only against `T26-ALGARVE`. Merged.
+- **PR C** — [#716](https://github.com/matas-offpixel/meta-campaign-builder/pull/716)
+  `lib/d2c/bird/journeys/definition.ts`, pure trigger + step-graph builders,
+  byte-diffed against the `C26-Barcelona` live capture. Merged.
+
+All three self-merged per Matas's explicit rollout instruction (small,
+independently green, zero live-behaviour change — nothing calls into any of
+this yet). **HOLD, unchanged:** arm/disarm wiring (§4), the 3-of-3 gate +
+`FEATURE_D2C_BIRD_JOURNEY` flag (§5), and the poll-cron subtractive dedup
+(§6) all still wait on the DevTools capture confirming
+`writeJourneyVersion`/`publishVersion` and flipping
+`JOURNEY_CREATE_VERIFIED = true`. Memory `reference_bird_journey_create_via_api.md`
+still not written — sequence still provisional.
