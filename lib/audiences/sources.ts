@@ -27,6 +27,10 @@ export interface AudienceSourceContext {
   clientId: string;
   clientName: string;
   metaAdAccountId: string;
+  /** Business Portfolio ID (`clients.meta_business_id`) — used to look up `bm_pages` shared-page backfill. Null if unset. */
+  metaBusinessId: string | null;
+  /** Curated page allow-list (`clients.default_page_ids`) — backfill source for the page picker. */
+  defaultPageIds: string[];
 }
 
 export interface AudiencePageSource {
@@ -40,6 +44,8 @@ export interface AudiencePageSource {
     name?: string;
     thumbnailUrl?: string;
   } | null;
+  /** Set on pages backfilled from `bm_pages` rather than the live Meta query — see lib/audiences/page-source-union.ts. */
+  source?: "bm-shared";
 }
 
 export interface AudiencePixelSource {
@@ -111,7 +117,7 @@ export async function resolveAudienceSourceContext(
 ): Promise<AudienceSourceContext | null> {
   const { data, error } = await supabase
     .from("clients")
-    .select("id, name, meta_ad_account_id")
+    .select("id, name, meta_ad_account_id, meta_business_id, default_page_ids")
     .eq("id", clientId)
     .eq("user_id", userId)
     .maybeSingle();
@@ -121,6 +127,8 @@ export async function resolveAudienceSourceContext(
     id: string;
     name: string;
     meta_ad_account_id: string | null;
+    meta_business_id: string | null;
+    default_page_ids: string[] | null;
   } | null;
   if (!client) return null;
   if (!client.meta_ad_account_id) {
@@ -132,6 +140,8 @@ export async function resolveAudienceSourceContext(
     clientId: client.id,
     clientName: client.name,
     metaAdAccountId: client.meta_ad_account_id,
+    metaBusinessId: client.meta_business_id?.trim() || null,
+    defaultPageIds: (client.default_page_ids ?? []).filter(Boolean),
   };
 }
 
@@ -199,6 +209,70 @@ export async function fetchAudiencePageSources(
     }
   }
   return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Resolve page metadata for an explicit list of page IDs via Meta's batched
+ * `GET /?ids=...` endpoint. Used for `clients.default_page_ids` entries that
+ * the live `fetchAudiencePageSources` query didn't already return (e.g. the
+ * operator only has Partial access, or the page is shared into the client's
+ * BM by a different Business Manager).
+ *
+ * Falls back to id-only entries (`{ id, name: id }`) — for the whole batch on
+ * a request failure, or per-id when Meta simply has no data for that id — so
+ * a curated allow-list page always renders in the picker even when Meta
+ * metadata can't be resolved.
+ */
+export async function fetchPagesByIds(
+  pageIds: readonly string[],
+  token: string,
+): Promise<AudiencePageSource[]> {
+  if (pageIds.length === 0) return [];
+  const fields = [
+    "id",
+    "name",
+    "username",
+    "link",
+    "picture{url}",
+    "instagram_business_account{id,username,name,profile_picture_url}",
+    "connected_instagram_account{id,username,name,profile_picture_url}",
+  ].join(",");
+
+  let response: Record<string, RawPage>;
+  try {
+    response = await graphGetWithToken<Record<string, RawPage>>(
+      "",
+      { ids: pageIds.join(","), fields },
+      token,
+    );
+  } catch {
+    return pageIds.map((id) => ({ id, name: id }));
+  }
+
+  return pageIds.map((id) => {
+    const page = response[id];
+    if (!page) return { id, name: id };
+    const ig =
+      page.instagram_business_account?.id
+        ? page.instagram_business_account
+        : page.connected_instagram_account?.id
+          ? page.connected_instagram_account
+          : null;
+    return {
+      id: page.id,
+      name: page.name ?? id,
+      slug: page.username ?? slugFromLink(page.link),
+      thumbnailUrl: page.picture?.data?.url,
+      instagramBusinessAccount: ig?.id
+        ? {
+            id: ig.id,
+            username: ig.username,
+            name: ig.name,
+            thumbnailUrl: ig.profile_picture_url,
+          }
+        : null,
+    };
+  });
 }
 
 export async function fetchAudiencePixels(
