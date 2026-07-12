@@ -843,6 +843,76 @@ export async function fetchAdSetById(
   }
 }
 
+// ─── Ad-set Dynamic-Creative guard info (bulk-attach relaunch) ─────────────
+
+export interface AdSetGuardInfo {
+  id: string;
+  /** Ground-truth `is_dynamic_creative` flag — immutable once an ad set is created. */
+  isDynamicCreative: boolean;
+  /** Total ad count currently on the ad set (any status). */
+  adCount: number;
+}
+
+interface RawAdSetGuardRow {
+  id: string;
+  is_dynamic_creative?: boolean;
+  ads?: { summary?: { total_count?: number } };
+}
+
+/**
+ * Batch-fetches the live `is_dynamic_creative` flag + current ad count for a
+ * set of ad set IDs via the multi-object Graph API endpoint (`GET
+ * /?ids=a,b,c`) — one request regardless of how many IDs are passed.
+ *
+ * Used to enforce Meta's "a Dynamic Creative ad set can hold at most ONE ad"
+ * rule before attaching MORE ads to ad sets that already exist (bulk-attach
+ * "add to ad set" path). This mirrors the create-time equivalent guard added
+ * in `app/api/meta/launch-campaign/route.ts` for PR #666, except here the ad
+ * set already exists so we read its current state instead of planning it.
+ *
+ * Best-effort: on fetch failure, returns an empty map rather than throwing —
+ * callers should treat a missing entry as "unknown" (Meta itself will still
+ * reject an invalid attach attempt at ad-creation time).
+ *
+ * Requires: ads_read permission.
+ */
+export async function fetchAdSetGuardInfo(
+  adSetIds: string[],
+  token?: string,
+): Promise<Map<string, AdSetGuardInfo>> {
+  const map = new Map<string, AdSetGuardInfo>();
+  const uniqueIds = [...new Set(adSetIds)].filter(Boolean);
+  if (uniqueIds.length === 0) return map;
+
+  const params: Record<string, string> = {
+    ids: uniqueIds.join(","),
+    fields: "id,is_dynamic_creative,ads.limit(0).summary(true)",
+  };
+
+  try {
+    const res = token
+      ? await graphGetWithToken<Record<string, RawAdSetGuardRow>>("/", params, token)
+      : await graphGet<Record<string, RawAdSetGuardRow>>("/", params);
+
+    for (const id of uniqueIds) {
+      const row = res[id];
+      if (!row) continue;
+      map.set(id, {
+        id,
+        isDynamicCreative: !!row.is_dynamic_creative,
+        adCount: row.ads?.summary?.total_count ?? 0,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      "[fetchAdSetGuardInfo] failed — proceeding without guard data:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return map;
+}
+
 /**
  * Cursor-paginated personal pages from /me/accounts.
  * Designed for the "Load more" flow — call repeatedly with the cursor returned

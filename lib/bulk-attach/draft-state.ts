@@ -31,6 +31,14 @@ export interface BulkAttachDraftState {
   campaignAdSets: Array<[string, string[]]>;
   /** Wizard creative drafts — already JSON-serialisable (Asset.videoId etc. are strings). */
   creatives: AdCreativeDraft[];
+  /**
+   * Running count of variations (creatives) successfully shipped to the
+   * current selectedCampaigns + campaignAdSets. Optional — absent on drafts
+   * saved before the "Launch another variation" relaunch flow shipped;
+   * treated as 0. Lets a resumed session pick up the relaunch indicator at
+   * variation N+1 instead of restarting the count.
+   */
+  shippedVariationsCount?: number;
 }
 
 /** Live React state shape used by the page component. */
@@ -40,6 +48,7 @@ export interface LiveBulkAttachState {
   selectedCampaigns: Map<string, MetaCampaignSummary>;
   campaignAdSets: Map<string, Set<string>>;
   creatives: AdCreativeDraft[];
+  shippedVariationsCount: number;
 }
 
 // ─── Serialise ────────────────────────────────────────────────────────────────
@@ -55,6 +64,7 @@ export function serialiseDraftState(live: LiveBulkAttachState): BulkAttachDraftS
       Array.from(set),
     ]),
     creatives: live.creatives,
+    shippedVariationsCount: live.shippedVariationsCount,
   };
 }
 
@@ -94,7 +104,19 @@ export function deserialiseDraftState(raw: unknown): LiveBulkAttachState | null 
       ? (obj.creatives as AdCreativeDraft[])
       : [];
 
-    return { adAccountId, step, selectedCampaigns, campaignAdSets, creatives };
+    const shippedVariationsCount =
+      typeof obj.shippedVariationsCount === "number" && obj.shippedVariationsCount >= 0
+        ? obj.shippedVariationsCount
+        : 0;
+
+    return {
+      adAccountId,
+      step,
+      selectedCampaigns,
+      campaignAdSets,
+      creatives,
+      shippedVariationsCount,
+    };
   } catch {
     return null;
   }

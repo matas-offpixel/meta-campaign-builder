@@ -55,12 +55,15 @@ import { buildMetaAdsManagerAdsUrl } from "@/lib/bulk-attach/meta-ads-manager-ur
 import {
   assessCreativeLaunchReadiness,
   parseLaunchValidationResponse,
+  summariseRelaunchGuard,
 } from "@/lib/bulk-attach/launch-validation";
 import {
   validateAllCreativesAssetCompleteness,
   formatAssetCompletenessIssues,
 } from "@/lib/validation/asset-completeness";
 import { useFetchPages } from "@/lib/hooks/useMeta";
+import type { AdSetGuardInfo } from "@/lib/meta/client";
+import type { AdSetGuardResponse } from "@/app/api/meta/bulk-attach-ads/adset-guard/route";
 import { parseAspectFromFilename } from "@/lib/clients/asset-queue/aspect-detect";
 import { resolveOrganiserDestinationUrl, resolveUniversalClientUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
@@ -529,6 +532,19 @@ export function ClientBulkAttachWizard({
   // ── Active template match pattern (from applied template, step 1) ────────────
   const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
 
+  // ── "Launch another variation to these ad sets" relaunch flow ────────────
+  // Preserves selectedCampaigns + campaignAdSets, resets Configure creatives,
+  // and re-enters step 2. shippedVariationsCount persists through drafts /
+  // localStorage so a resumed session picks up the indicator at variation N+1.
+  const [shippedVariationsCount, setShippedVariationsCount] = useState(0);
+  const [showRelaunchPanel, setShowRelaunchPanel] = useState(false);
+  const [relaunchKeepCreatives, setRelaunchKeepCreatives] = useState(false);
+  const [relaunchGuardChecking, setRelaunchGuardChecking] = useState(false);
+  const [relaunchAdSetGuardInfo, setRelaunchAdSetGuardInfo] = useState<AdSetGuardInfo[] | null>(
+    null,
+  );
+  const [relaunchGuardFetchError, setRelaunchGuardFetchError] = useState<string | null>(null);
+
   // ── Draft save state ─────────────────────────────────────────────────────────
   const [draftId, setDraftId] = useState<string | null>(null);
   const [showDraftNameInput, setShowDraftNameInput] = useState(false);
@@ -589,12 +605,21 @@ export function ClientBulkAttachWizard({
         selectedCampaigns,
         campaignAdSets,
         creatives,
+        shippedVariationsCount,
       });
       localStorage.setItem(lsKey, JSON.stringify(serialised));
     } catch {
       // localStorage may be full or disabled
     }
-  }, [step, selectedCampaigns, campaignAdSets, creatives, adAccountId, lsKey]);
+  }, [
+    step,
+    selectedCampaigns,
+    campaignAdSets,
+    creatives,
+    adAccountId,
+    lsKey,
+    shippedVariationsCount,
+  ]);
 
   // ── Queue auto-upload (step 2, once per mount) ───────────────────────────────
   useEffect(() => {
@@ -724,6 +749,7 @@ export function ClientBulkAttachWizard({
       setSelectedCampaigns(live.selectedCampaigns);
       setCampaignAdSets(live.campaignAdSets);
       setCreatives(live.creatives);
+      setShippedVariationsCount(live.shippedVariationsCount);
     } catch {
       // ignore
     } finally {
@@ -749,6 +775,7 @@ export function ClientBulkAttachWizard({
         selectedCampaigns,
         campaignAdSets,
         creatives,
+        shippedVariationsCount,
       });
       const res = await fetch("/api/bulk-attach-drafts", {
         method: "POST",
@@ -807,6 +834,7 @@ export function ClientBulkAttachWizard({
       setSelectedCampaigns(live.selectedCampaigns);
       setCampaignAdSets(live.campaignAdSets);
       setCreatives(live.creatives);
+      setShippedVariationsCount(live.shippedVariationsCount);
       setShowDraftModal(false);
       setShowUnsavedBanner(false);
     } catch {
@@ -1021,6 +1049,12 @@ export function ClientBulkAttachWizard({
       }
       const result = data as BulkAttachResult;
       setLaunchResult(result);
+      if (result.totalAdsCreated > 0) {
+        // Best-effort — counts every creative in the batch as "shipped" once
+        // at least one ad from this launch succeeded. Only drives the step 2
+        // relaunch indicator, not the Dynamic Creative guard.
+        setShippedVariationsCount((prev) => prev + creatives.length);
+      }
 
       if (queueContext && result.totalAdsCreated > 0) {
         const metaAdIds = extractAdIdsFromResult(result);
@@ -1048,11 +1082,71 @@ export function ClientBulkAttachWizard({
     );
     setDraftId(null);
     setAdSetMatchPattern([]);
+    setShippedVariationsCount(0);
+    setShowRelaunchPanel(false);
+    setRelaunchAdSetGuardInfo(null);
+    setRelaunchGuardFetchError(null);
     try {
       localStorage.removeItem(lsKey);
     } catch {
       /**/
     }
+  };
+
+  // ── Launch another variation to these ad sets ─────────────────────────────
+  const checkRelaunchGuard = useCallback(async () => {
+    const allAdSetIds = Array.from(campaignAdSets.values()).flatMap((s) => Array.from(s));
+    if (allAdSetIds.length === 0) return;
+    setRelaunchGuardChecking(true);
+    setRelaunchGuardFetchError(null);
+    try {
+      const res = await fetch(
+        `/api/meta/bulk-attach-ads/adset-guard?adSetIds=${encodeURIComponent(allAdSetIds.join(","))}`,
+      );
+      const data = (await res.json()) as AdSetGuardResponse & { error?: string };
+      if (!res.ok) {
+        setRelaunchGuardFetchError(data.error ?? "Could not verify ad set state.");
+        setRelaunchAdSetGuardInfo(null);
+        return;
+      }
+      setRelaunchAdSetGuardInfo(data.adSets ?? []);
+      if (data.degraded) {
+        setRelaunchGuardFetchError(
+          "Could not fully verify ad set state with Meta — proceeding without the Dynamic Creative guard.",
+        );
+      }
+    } catch (err) {
+      setRelaunchGuardFetchError(err instanceof Error ? err.message : "Network error checking ad sets");
+      setRelaunchAdSetGuardInfo(null);
+    } finally {
+      setRelaunchGuardChecking(false);
+    }
+  }, [campaignAdSets]);
+
+  const openRelaunchPanel = () => {
+    setShowRelaunchPanel(true);
+    setRelaunchAdSetGuardInfo(null);
+    setRelaunchGuardFetchError(null);
+    void checkRelaunchGuard();
+  };
+
+  // Recomputed live as `creatives` changes — powers both the relaunch panel
+  // and the step 2 header indicator (see RELAUNCH_AD_COUNT_WARNING_THRESHOLD).
+  const relaunchGuardSummary = relaunchAdSetGuardInfo
+    ? summariseRelaunchGuard(relaunchAdSetGuardInfo, creatives.length)
+    : null;
+
+  const confirmLaunchAnotherVariation = () => {
+    if (relaunchGuardSummary?.blockedMessage) return;
+    setLaunchResult(null);
+    clearLaunchErrors();
+    if (!relaunchKeepCreatives) {
+      setCreatives(
+        queueContext ? buildCreativesFromQueueContext(queueContext, clientSlug) : [createDefaultCreative()],
+      );
+    }
+    setShowRelaunchPanel(false);
+    setStep(2);
   };
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1429,6 +1523,22 @@ export function ClientBulkAttachWizard({
                 <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back
               </Button>
             </div>
+            {shippedVariationsCount > 0 && (
+              <div className="mb-4 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+                <p className="font-medium">
+                  Launching variation {shippedVariationsCount + 1}/
+                  {shippedVariationsCount + Math.max(creatives.length, 1)} to{" "}
+                  {totalSelectedAdSets} ad set{totalSelectedAdSets !== 1 ? "s" : ""} — previous:{" "}
+                  {shippedVariationsCount} variation{shippedVariationsCount !== 1 ? "s" : ""}{" "}
+                  shipped.
+                </p>
+                {relaunchGuardSummary?.warningMessage && (
+                  <p className="mt-1 text-amber-700 dark:text-amber-400">
+                    {relaunchGuardSummary.warningMessage}
+                  </p>
+                )}
+              </div>
+            )}
             <p className="mb-4 text-xs text-muted-foreground">
               Assets are uploaded once. No audiences, budget, or scheduling —
               those come from the existing ad sets.
@@ -1708,10 +1818,77 @@ export function ClientBulkAttachWizard({
             </ul>
           </div>
 
+          {showRelaunchPanel && (
+            <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
+              <div className="flex items-center justify-between">
+                <p className="font-medium">
+                  Launch another variation to these {totalSelectedAdSets} ad set
+                  {totalSelectedAdSets !== 1 ? "s" : ""}
+                </p>
+                <Button variant="ghost" size="sm" onClick={() => setShowRelaunchPanel(false)}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+
+              {relaunchGuardChecking && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking ad set state with
+                  Meta…
+                </div>
+              )}
+
+              {relaunchGuardFetchError && (
+                <p className="text-xs text-warning">{relaunchGuardFetchError}</p>
+              )}
+
+              {!relaunchGuardChecking && relaunchGuardSummary?.blockedMessage && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  {relaunchGuardSummary.blockedMessage}
+                </div>
+              )}
+
+              {!relaunchGuardChecking && !relaunchGuardSummary?.blockedMessage && (
+                <>
+                  {relaunchGuardSummary?.warningMessage && (
+                    <div className="rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+                      {relaunchGuardSummary.warningMessage}
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={relaunchKeepCreatives}
+                      onChange={(e) => setRelaunchKeepCreatives(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-border accent-primary"
+                    />
+                    Start from the creative config I just launched (otherwise resets to blank)
+                  </label>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowRelaunchPanel(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={confirmLaunchAnotherVariation}>
+                      Continue to Configure creatives
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={handleReset}>
               Start another batch
             </Button>
+            {launchResult.totalAdsCreated > 0 && !showRelaunchPanel && (
+              <Button variant="outline" size="sm" onClick={openRelaunchPanel}>
+                Launch another variation to these ad sets
+              </Button>
+            )}
             <Button
               size="sm"
               onClick={() => router.push(backHref)}
