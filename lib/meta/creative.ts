@@ -807,6 +807,39 @@ export function creativeTriggersVariationRotation(creative: AdCreativeDraft): bo
   return true;
 }
 
+/**
+ * Detect the BOOK_NOW + multi-placement conflict Meta blocks in
+ * `asset_feed_spec.call_to_action_types` (subcode 1885396, PR #574/#575):
+ * CTA is BOOK_NOW, `assetMode` is Dual or Full (not Single), and at least
+ * one asset variation has BOTH a Feed (4:5/1:1) asset AND a vertical (9:16)
+ * asset uploaded.
+ *
+ * When this fires, {@link buildCreativePayload} silently falls back to a
+ * single 9:16 asset cross-published to every placement — the 4:5 Feed asset
+ * is never used (live incident: WC26 Bournemouth, 2026-07-10, 10 ads shipped
+ * 9:16 to Feed placements). Used to hard-block launch in the bulk-attach
+ * Configure Creatives step rather than only warn.
+ *
+ * Broader than {@link detectMultiPlacement} on purpose: that helper only
+ * inspects `assetVariations[0]` (it mirrors the builder's actual launch
+ * scope), whereas this checks every variation so the UI block catches the
+ * conflict regardless of which variation ends up primary.
+ */
+export function creativeHasBookNowMultiPlacementConflict(creative: AdCreativeDraft): boolean {
+  if (mapCTAToMeta(creative.cta) !== "BOOK_NOW") return false;
+  if (creative.assetMode === "single") return false;
+  return (creative.assetVariations ?? []).some((variation) => {
+    const assets = variation.assets ?? [];
+    const hasVertical = assets.some(
+      (a) => a.aspectRatio === "9:16" && (a.videoId || a.assetHash),
+    );
+    const hasFeed = FEED_RATIOS.some((r) =>
+      assets.some((a) => a.aspectRatio === r && (a.videoId || a.assetHash)),
+    );
+    return hasVertical && hasFeed;
+  });
+}
+
 function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePayload {
   const source = creative.existingPost?.source ?? "facebook";
   const postId = creative.existingPost?.postId ?? "";

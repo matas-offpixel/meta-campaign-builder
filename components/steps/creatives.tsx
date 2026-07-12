@@ -56,6 +56,7 @@ import {
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
+import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
@@ -1114,9 +1115,9 @@ export function Creatives({
                           options={CTA_OPTIONS}
                         />
                       </div>
-                      {active.cta === "book_now" && (active.assetMode === "dual" || active.assetMode === "full") && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          <strong>Book Now + multi-placement assets:</strong> Meta does not support this combination in the API. The ad will use the 9:16 vertical asset for all placements — the 4:5 feed asset will not be used. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to preserve per-placement asset routing.
+                      {creativeHasBookNowMultiPlacementConflict(active) && (
+                        <p className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
+                          Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
                         </p>
                       )}
                       {active.cta === "book_now" && active.assetMode === "single" && (active.assetVariations ?? []).length >= 2 && (
