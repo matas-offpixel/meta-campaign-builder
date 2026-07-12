@@ -37,6 +37,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   createMetaCreative,
   createMetaAd,
+  fetchAdSetGuardInfo,
   MetaApiError,
 } from "@/lib/meta/client";
 import {
@@ -50,6 +51,7 @@ import {
   classifyLaunchMetaCode,
   mapLaunchTokenError,
 } from "@/lib/meta/launch-error-classify";
+import { summariseRelaunchGuard } from "@/lib/bulk-attach/launch-validation";
 import type { AdCreativeDraft } from "@/lib/types";
 
 export const maxDuration = 600;
@@ -229,6 +231,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `[bulk-attach-ads] start: adAccountId=${adAccountId} campaigns=${campaignIds.length} ` +
       `totalAdSets=${totalAdSets} creatives=${newCreatives.length} totalAds=${totalAds}`,
   );
+
+  // ── Dynamic Creative guard (relaunch / "add to ad set" safety) ───────────
+  // Ad sets targeted here already exist — bulk-attach never creates them —
+  // so we read their LIVE is_dynamic_creative + ad-count state and refuse to
+  // add more ads to any that already qualify as "one ad, Dynamic Creative"
+  // (Meta hard constraint, see lib/bulk-attach/launch-validation.ts). This
+  // is the server-side enforcement layer; the wizard's "Launch another
+  // variation to these ad sets" flow pre-checks the same thing client-side
+  // via GET /api/meta/bulk-attach-ads/adset-guard for faster feedback.
+  const allTargetAdSetIds = [...new Set(campaignIds.flatMap((cid) => campaignAdSets[cid]))];
+  const guardInfoMap = await fetchAdSetGuardInfo(allTargetAdSetIds, token);
+  const { blockedMessage } = summariseRelaunchGuard(Array.from(guardInfoMap.values()), 0);
+  if (blockedMessage) {
+    console.error(`[bulk-attach-ads] ✗ Dynamic Creative guard blocked launch: ${blockedMessage}`);
+    return NextResponse.json({ error: blockedMessage }, { status: 400 });
+  }
 
   // One validator per launch — fetches /instagram_accounts at most once.
   const igValidator = createIgActorValidator(adAccountId, token);
