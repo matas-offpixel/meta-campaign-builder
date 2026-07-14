@@ -15,6 +15,7 @@
 
 import { performDryRun } from "../dry-run.ts";
 import { birdJson } from "./client.ts";
+import { findGroupByName, type BirdGroupClientConfig } from "./groups/client.ts";
 import { substituteTemplateVariables } from "../event-variables.ts";
 import {
   shouldD2CDryRun,
@@ -35,6 +36,40 @@ export interface BirdTemplateInfo {
   projectId: string;
   versionId: string;
   locale: string;
+}
+
+export interface ResolvedBirdListId {
+  listId: string | null;
+  /** True when `listId` came from resolving `audience.tag` via `findGroupByName` (not a direct `audience.list_id`). */
+  resolvedFromTag: boolean;
+}
+
+/**
+ * 2026-07-14 bug: `d2c_scheduled_sends.audience` rows built from the tag
+ * picker persist `{ tag }` (the human-facing selection) but never `list_id`
+ * — Bird's actual send-time identifier. Live-verified failure: the
+ * T26-ALGARVE WA DM reminder 422'd with "Bird sends require
+ * audience.recipients[] or audience.list_id" even though `audience.tag` was
+ * present throughout. `audience.list_id` still wins when both are present
+ * (an explicit override, e.g. a future send that targets a different Bird
+ * group than its own tag name). Pure network call, no DB access — the
+ * resolved id is NOT written back to the row from here (this module has no
+ * supabase handle, matches the layer 7/8 helpers' separation of concerns);
+ * callers that want write-back should read `resolvedFromTag` off
+ * `SendResult.details.resolvedAudiencePatch` (see `send()` below) and
+ * persist it themselves, same pattern as `resolveEventArtwork`'s write-back
+ * being the resolver's job, not the provider's.
+ */
+export async function resolveBirdListId(
+  cfg: BirdGroupClientConfig,
+  audience: Record<string, unknown>,
+): Promise<ResolvedBirdListId> {
+  const direct = readString(audience, "list_id");
+  if (direct) return { listId: direct, resolvedFromTag: false };
+  const tag = readString(audience, "tag");
+  if (!tag) return { listId: null, resolvedFromTag: false };
+  const group = await findGroupByName(cfg, tag);
+  return { listId: group?.id ?? null, resolvedFromTag: true };
 }
 
 /**
@@ -191,13 +226,28 @@ export class BirdProvider implements D2CProvider {
     const recipients = Array.isArray(audience.recipients)
       ? (audience.recipients as unknown[]).map((r) => String(r))
       : [];
-    const listId =
-      typeof audience.list_id === "string" ? audience.list_id.trim() : null;
+
+    // Bug (2026-07-14): tag-scoped sends (built by the tag picker) persist
+    // `audience.tag` but never `audience.list_id`. Resolve at send time via
+    // Bird's group lookup when no explicit list_id/recipients were given.
+    let listId: string | null = null;
+    let listIdResolvedFromTag = false;
+    if (recipients.length === 0) {
+      const resolved = await resolveBirdListId(
+        { apiKey, workspaceId },
+        audience as Record<string, unknown>,
+      );
+      listId = resolved.listId;
+      listIdResolvedFromTag = resolved.resolvedFromTag;
+    }
     if (recipients.length === 0 && !listId) {
+      const tag = readString(audience as Record<string, unknown>, "tag");
       return {
         ok: false,
         dryRun: false,
-        error: "Bird sends require audience.recipients[] or audience.list_id.",
+        error: tag
+          ? `Bird sends require audience.recipients[] or audience.list_id — no Bird group named "${tag}" was found in the workspace to resolve audience.tag against.`
+          : "Bird sends require audience.recipients[] or audience.list_id.",
       };
     }
 
@@ -273,7 +323,15 @@ export class BirdProvider implements D2CProvider {
         ok: true,
         dryRun: false,
         providerJobId: res.id ?? null,
-        details: res,
+        // `resolvedAudiencePatch` lets a DB-aware caller (e.g. the cron
+        // route, which already owns the supabase client + send row id) cache
+        // the resolved list_id back onto `d2c_scheduled_sends.audience` for
+        // audit + so a retry skips the Bird group lookup. Omitted when the
+        // send already carried an explicit list_id/recipients — nothing new
+        // to cache.
+        details: listIdResolvedFromTag && listId
+          ? { ...res, resolvedAudiencePatch: { list_id: listId } }
+          : res,
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Bird send failed.";
