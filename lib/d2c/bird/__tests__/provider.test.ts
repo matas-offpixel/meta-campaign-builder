@@ -5,6 +5,7 @@ import type { D2CConnection, D2CMessage } from "../../types.ts";
 import {
   BirdProvider,
   birdDryRunGatesBlockLiveSend,
+  resolveBirdListId,
   resolveBirdTemplateInfo,
 } from "../provider.ts";
 
@@ -370,6 +371,158 @@ test("live send: WA scheduled_send storing template info on variables (not audie
     ],
   });
   assert.equal(b.body, undefined, "must fire the template path, not fall back to body text");
+});
+
+// ── 2026-07-14 bug: tag-only audience (no list_id) 422'd live for the
+// T26-ALGARVE WA DM reminder ────────────────────────────────────────────────
+
+test("resolveBirdListId: audience.list_id present → returned directly, no group lookup", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response(JSON.stringify({ results: [] }), { status: 200 });
+  };
+  const result = await resolveBirdListId(
+    { apiKey: "ak", workspaceId: "ws-1" },
+    { list_id: "list-explicit", tag: "SHOULD-BE-IGNORED" },
+  );
+  assert.deepEqual(result, { listId: "list-explicit", resolvedFromTag: false });
+  assert.equal(calls, 0, "must not call Bird's groups API when list_id is already present");
+});
+
+test("resolveBirdListId: audience.tag only → resolves via findGroupByName", async () => {
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    assert.match(String(input), /\/workspaces\/ws-1\/groups\?limit=100$/);
+    return new Response(
+      JSON.stringify({ results: [{ id: "grp-algarve", name: "T26-ALGARVE" }] }),
+      { status: 200 },
+    );
+  };
+  const result = await resolveBirdListId(
+    { apiKey: "ak", workspaceId: "ws-1" },
+    { tag: "T26-ALGARVE" },
+  );
+  assert.deepEqual(result, { listId: "grp-algarve", resolvedFromTag: true });
+});
+
+test("resolveBirdListId: no list_id, no tag, no recipients → null, not an error itself", async () => {
+  const result = await resolveBirdListId({ apiKey: "ak", workspaceId: "ws-1" }, {});
+  assert.deepEqual(result, { listId: null, resolvedFromTag: false });
+});
+
+test("resolveBirdListId: tag with no matching Bird group → null (caller surfaces the error)", async () => {
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ results: [] }), { status: 200 });
+  const result = await resolveBirdListId(
+    { apiKey: "ak", workspaceId: "ws-1" },
+    { tag: "NO-SUCH-GROUP" },
+  );
+  assert.deepEqual(result, { listId: null, resolvedFromTag: true });
+});
+
+test("live send: audience.tag only (no list_id, no recipients) resolves list_id and includes it in the receiver payload", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  const calls: { url: string; body: unknown }[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/groups")) {
+      calls.push({ url, body: null });
+      return new Response(
+        JSON.stringify({ results: [{ id: "grp-algarve", name: "T26-ALGARVE" }] }),
+        { status: 200 },
+      );
+    }
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ url, body });
+    return new Response(JSON.stringify({ id: "msg-tag-resolved" }), { status: 200 });
+  };
+
+  // Exact shape of the live T26-ALGARVE WA DM reminder row: audience carries
+  // `tag`, never `list_id` — this is what 422'd with "Bird sends require
+  // audience.recipients[] or audience.list_id."
+  const tagOnlyMessage: D2CMessage = {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "Hello",
+    audience: {
+      tag: "T26-ALGARVE",
+      channel_id: "04dcc60a-39df-51db-bcb0-6aab68de54b1",
+    },
+    variables: {
+      bird_template_project_id: "proj-1",
+      bird_template_version_id: "ver-1",
+    },
+    correlationId: "send-tag-only",
+  };
+  const r = await new BirdProvider().send(baseConnection(), tagOnlyMessage);
+  assert.equal(r.ok, true, r.error);
+
+  const groupsCall = calls.find((c) => c.url.includes("/groups"));
+  assert.ok(groupsCall, "expected a Bird group lookup for the tag");
+
+  const messagesCall = calls.find((c) => c.url.includes("/messages"));
+  assert.ok(messagesCall, "expected a POST to the messages endpoint");
+  const body = messagesCall!.body as Record<string, unknown>;
+  assert.deepEqual(body.receiver, { contacts: [{ listId: "grp-algarve" }] });
+
+  // Cache-back payload for the caller (cron route) to persist onto
+  // d2c_scheduled_sends.audience for retry idempotence + audit.
+  const details = r.details as Record<string, unknown>;
+  assert.deepEqual(details.resolvedAudiencePatch, { list_id: "grp-algarve" });
+});
+
+test("live send: audience.tag with no matching Bird group → graceful error naming the tag, no messages POST", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  const calls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("/groups")) {
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ id: "should-not-happen" }), { status: 200 });
+  };
+
+  const tagOnlyMessage: D2CMessage = {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "Hello",
+    audience: { tag: "NO-SUCH-GROUP" },
+    variables: {},
+    correlationId: "send-tag-missing",
+  };
+  const r = await new BirdProvider().send(baseConnection(), tagOnlyMessage);
+  assert.equal(r.ok, false);
+  assert.equal(r.dryRun, false);
+  assert.match(r.error ?? "", /no Bird group named "NO-SUCH-GROUP" was found/);
+  assert.equal(
+    calls.some((u) => u.includes("/messages")),
+    false,
+    "must not POST to /messages once list_id resolution fails",
+  );
+});
+
+test("live send: audience.list_id present alongside audience.tag → list_id wins, no group lookup, no resolvedAudiencePatch", async () => {
+  process.env.FEATURE_D2C_LIVE = "true";
+  const calls: string[] = [];
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return new Response(JSON.stringify({ id: "msg-explicit" }), { status: 200 });
+  };
+
+  const explicitMessage: D2CMessage = {
+    channel: "whatsapp",
+    subject: null,
+    bodyMarkdown: "Hello",
+    audience: { list_id: "list-explicit", tag: "T26-ALGARVE" },
+    variables: {},
+    correlationId: "send-explicit",
+  };
+  const r = await new BirdProvider().send(baseConnection(), explicitMessage);
+  assert.equal(r.ok, true, r.error);
+  assert.equal(calls.some((u) => u.includes("/groups")), false);
+  const details = r.details as Record<string, unknown>;
+  assert.equal(details.resolvedAudiencePatch, undefined);
 });
 
 test("byte-diffs the messages URL: audience.channel_id override vs credential fallback", async () => {

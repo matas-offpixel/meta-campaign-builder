@@ -699,6 +699,14 @@ export async function updateScheduledSendStatus(
     birdCampaignId?: string | null;
     birdBroadcastId?: string | null;
     birdCampaignEditUrl?: string | null;
+    /**
+     * Merge-patch onto `audience` (2026-07-14 tag→list_id/segment_opts
+     * cache-back fix). Shallow-merged onto the row's existing `audience`
+     * jsonb so a resolved identifier persists for retry idempotence + audit,
+     * without callers needing to read-modify-write the full column
+     * themselves. Undefined/omitted = no change (existing behaviour).
+     */
+    audiencePatch?: Record<string, unknown>;
   },
 ): Promise<D2CScheduledSend | null> {
   const sb = asAny(supabase);
@@ -718,6 +726,18 @@ export async function updateScheduledSendStatus(
     update.bird_broadcast_id = patch.birdBroadcastId;
   if (patch.birdCampaignEditUrl !== undefined)
     update.bird_campaign_edit_url = patch.birdCampaignEditUrl;
+  if (patch.audiencePatch !== undefined) {
+    const { data: current } = await sb
+      .from("d2c_scheduled_sends")
+      .select("audience")
+      .eq("id", id)
+      .maybeSingle();
+    const existing =
+      current?.audience && typeof current.audience === "object"
+        ? (current.audience as Record<string, unknown>)
+        : {};
+    update.audience = { ...existing, ...patch.audiencePatch };
+  }
   const { data, error } = await sb
     .from("d2c_scheduled_sends")
     .update(update)

@@ -434,10 +434,27 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      // 2026-07-14 tag→list_id fix: BirdProvider (and any future provider
+      // following the same convention) surfaces a resolved-from-tag
+      // identifier as `details.resolvedAudiencePatch` when the row's
+      // `audience` lacked one. Cache it back onto the row so a future
+      // resend/retry of this send doesn't repeat the group lookup, and so
+      // it's visible on the row for audit (not just buried in result_jsonb).
+      const resolvedAudiencePatch =
+        providerResult.details &&
+        typeof providerResult.details === "object" &&
+        "resolvedAudiencePatch" in providerResult.details &&
+        typeof (providerResult.details as Record<string, unknown>)
+          .resolvedAudiencePatch === "object"
+          ? ((providerResult.details as Record<string, unknown>)
+              .resolvedAudiencePatch as Record<string, unknown>)
+          : undefined;
+
       await updateScheduledSendStatus(supabase, sendId, {
         status: "sent",
         resultJsonb: providerResult,
         dryRun: false,
+        ...(resolvedAudiencePatch ? { audiencePatch: resolvedAudiencePatch } : {}),
       });
       results.push({ id: sendId, outcome: "sent" });
     } catch (e) {
