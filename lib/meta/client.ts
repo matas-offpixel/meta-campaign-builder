@@ -26,6 +26,7 @@ import type { UploadAssetResult } from "./upload";
 import { withActPrefix } from "./ad-account-id.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 import { parseAppUsageHeader, type AppUsageSnapshot } from "./app-usage.ts";
+import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -739,9 +740,10 @@ export async function fetchAdSetsForCampaign(params: {
   campaignId: string;
   /**
    * Status filter:
-   *   - "relevant" → ACTIVE + PAUSED (default)
-   *   - "active"   → ACTIVE only
-   *   - "paused"   → PAUSED only
+   *   - "relevant" → ACTIVE + PAUSED + CAMPAIGN_PAUSED + ADSET_PAUSED +
+   *                  WITH_ISSUES (default — see rationale below)
+   *   - "active"   → ACTIVE + CAMPAIGN_PAUSED + ADSET_PAUSED + WITH_ISSUES
+   *   - "paused"   → PAUSED only (the ad set's own toggle is off)
    *   - "all"      → no status filter (still capped & paged)
    */
   filter?: "relevant" | "active" | "paused" | "all";
@@ -783,12 +785,12 @@ export async function fetchAdSetsForCampaign(params: {
     limit: String(Math.min(Math.max(1, limit), 50)),
   };
 
-  if (filter === "relevant") {
-    queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
-  } else if (filter === "active") {
-    queryParams.effective_status = JSON.stringify(["ACTIVE"]);
-  } else if (filter === "paused") {
-    queryParams.effective_status = JSON.stringify(["PAUSED"]);
+  // See adset-effective-status-filter.ts for the full rationale (Meta's
+  // ad-set effective_status cascades from the parent campaign — this fixes
+  // the 2026-07-15 "only paused ad sets show up" live bug).
+  const statusAllowList = effectiveStatusAllowListFor(filter);
+  if (statusAllowList) {
+    queryParams.effective_status = JSON.stringify(statusAllowList);
   }
 
   if (nameContains?.trim()) {
