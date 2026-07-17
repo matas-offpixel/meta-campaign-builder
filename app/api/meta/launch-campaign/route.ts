@@ -2265,6 +2265,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // GOAL 2: fetch all active/paused ad sets for each selected campaign and
   // seed adSetMetaIds with synthetic keys. We skip ad-set creation entirely;
   // Phase 4 will create ads under every fetched ad set.
+  // `filter: "relevant"` now also pulls CAMPAIGN_PAUSED / ADSET_PAUSED /
+  // WITH_ISSUES ad sets (see fetchAdSetsForCampaign) so a paused campaign in
+  // the selection no longer contributes zero ad sets here.
   if (isAttachAllAdSets) {
     console.log(
       `[launch-campaign] Phase 2 (attach_all_adsets) — fetching all active/paused ad sets for ${verifiedCampaigns.length} campaign(s)`,
