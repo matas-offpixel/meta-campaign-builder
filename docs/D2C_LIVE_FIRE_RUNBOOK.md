@@ -8,6 +8,18 @@ Layers 7 & 8 shipped in PR #661. Layers 6 & 9 are now **fixed and verified** —
 built" below for provenance and the one residual risk flagged for the
 post-merge smoke test.
 
+**UPDATE (2026-07-14, branch `fix/d2c-bird-list-fanout`): Layer 6's
+`{ contacts: [{ listId }] }` best-guess was LIVE-REJECTED.** The reset
+T26-ALGARVE WA DM reminder smoke test 422'd with
+`property "listId" is unsupported` — Bird's channels `/messages` endpoint has
+**no list-targeting field at all** (its docs only ever show phone-identifier
+receivers because that is the only receiver shape that exists). Layer 6 is now
+resolved via the runbook's own fallback #2: preflight `GET /lists/{id}/contacts`
+→ resolve members to individual phone identifiers → fan out one message each.
+See the updated Layer 6 detail below. The tag→list_id resolution (PR #720) was
+NOT implicated and remains correct; this was one layer deeper (the wire-shape
+of the list-targeted send itself).
+
 **Incident:** The DIRECT-FIRE Bird path (`autoresp_setup`, `community_early`)
 was fired live for the first time against a real Jackies Mallorca event
 (`160fbb1c-a4be-4435-a53d-a690c9edf895`) via `/api/cron/d2c-send`. It had only
@@ -24,7 +36,7 @@ not implicated.
 3. **Credentials missing `channel_id`** — provider aborted on the missing field; fixed by ops repopulating the blob.
 4. **pgcrypto in `extensions` schema, code called unqualified `pgp_sym_decrypt`** — decrypt failed; fixed by ops `ALTER EXTENSION pgcrypto SET SCHEMA public` (22:47 UTC).
 5. **`D2C_TOKEN_KEY` mismatch (Vercel vs Supabase)** — decrypt produced garbage; fixed by ops aligning the Vercel env var to the Supabase key.
-6. **`receiver: { contacts: { listId } }` (object, not array)** — Bird returned 422 "value must be an array"; **CODE, FIXED** — `{ contacts: [{ listId }] }`.
+6. **list-targeted receiver shape** — `{ contacts: { listId } }` (422 "value must be an array") → `{ contacts: [{ listId }] }` (422 "property listId is unsupported", 2026-07-14) → **fan-out to `identifierValue` receivers**; **CODE, FIXED** (2026-07-14).
 7. **Dispatcher never hydrated `variables`** — send reached Bird with `variables: {}`, all 6 required template params unbound; **CODE, FIXED** — `hydrateSendVariables` added (PR #661).
 8. **`d2c_event_copy.artwork_url` null in prod** — required `event_artwork_url` had no value; **CODE, FIXED** — per-client fallback (migration 133) + resolver write-back (PR #661).
 9. **Template body shape wrong** (nested `body.template` + `name` + keyed Meta-style `components[]`, vs Bird's top-level `template` + `projectId`/`version` + flat `parameters[]`) — **CODE, FIXED**.
@@ -51,30 +63,52 @@ pgcrypto change.
 
 ### Layers 6–9 — CODE
 
-#### Layer 6 — receiver shape (FIXED 2026-07-02)
+#### Layer 6 — receiver shape (SUPERSEDED twice; FIXED via fan-out 2026-07-14)
 
-- **Error:** Bird `422 { "value must be an array" }` on POST
-  `/workspaces/{wid}/channels/{cid}/messages`.
-- **Root cause:** `lib/d2c/bird/provider.ts` built
+- **Error (original, 2026-07-01):** Bird `422 { "value must be an array" }` on
+  POST `/workspaces/{wid}/channels/{cid}/messages`.
+- **Root cause (original):** `lib/d2c/bird/provider.ts` built
   `receiver: { contacts: { listId } }` — an object where Bird expects an array.
-- **Fix:** `receiver: { contacts: [{ listId }] }` for list-targeted sends;
-  `receiver: { contacts: [{ identifierValue }] }` (unchanged, already correct)
-  for explicit recipient sends.
-- **⚠️ Residual risk — flagged for the post-merge smoke test:** Bird's public
-  docs (the source for this fix — see "How the verified path was built" below)
-  only show the phone-identifier (`identifierValue`) receiver form. The
-  `list_id` array-wrapping fix above is the capture document's own **best-guess
-  recommendation**, not a docs-confirmed shape. If the smoke test 422s
-  specifically on the list-targeted send, iterate in this order before
-  re-opening a fix-forward PR:
-  1. `{ contacts: [{ listType: "list", listId }] }`
-  2. Preflight `GET` on the list to resolve individual contacts, then send
-     with an `identifierValue` array (cache the resolved contacts on
-     `result_jsonb.preflight` for auditability — this was flagged as an
-     acceptable fallback as far back as PR #661's original brief).
-- **Prevention:** `provider.integration.test.ts` now asserts the outgoing
-  request body verbatim for both receiver shapes — dry-run tests never
-  inspected the bytes that leave the process (see post-mortem).
+- **First fix (2026-07-02, docs-derived best-guess):**
+  `receiver: { contacts: [{ listId }] }`. **This was never live-tested** — see
+  the residual-risk note that shipped with it.
+- **Error (2026-07-14 live smoke test):** Bird `422 {"code":"InvalidPayload",
+  "message":"One or more fields provided in the request body are malformed",
+  "details":{".receiver.contacts[0]":["property \"listId\" is unsupported"]}}`.
+  No message id, no send — rejected before dispatch.
+- **Root cause (real):** Bird's channels `/messages` endpoint has **no
+  list-targeting field**. `receiver.contacts[]` only accepts per-contact
+  `identifierValue` (a phone/email). Confirmed against the endpoint's own API
+  reference — every documented receiver example is a phone identifier because
+  that is the only shape that exists. Handing it a `listId` (or `listType`)
+  cannot work; there was never a list-targeted receiver to reconcile.
+- **Fix (2026-07-14, fan-out — this runbook's own fallback #2):** for a
+  list-targeted send, preflight `GET /workspaces/{ws}/lists/{listId}/contacts`
+  (endpoint + contact shape verified against Bird's Contacts API docs), resolve
+  each member's `phonenumber` identifier, dedupe, then send **one message per
+  identifier** with the already-correct `{ contacts: [{ identifierValue }] }`
+  receiver. Implemented in `lib/d2c/bird/groups/client.ts::listContactsInList` /
+  `contactPhoneIdentifiers` and the fan-out branch of
+  `lib/d2c/bird/provider.ts::send`. Resolved members are cached on
+  `result_jsonb.details.preflight` for auditability, as flagged. The
+  explicit-`recipients[]` path is unchanged (its `identifierValue` shape was
+  always correct).
+- **Partial-failure semantics:** the fan-out reports `ok:false` if ANY
+  per-recipient POST fails, so the cron marks the row `failed` with the full
+  per-recipient breakdown in `result_jsonb` for manual review — no silent
+  partial success, no auto-retry.
+- **⚠️ Still to confirm on the next live smoke test (GET-only, no send risk):**
+  (a) the list-contacts **pagination cursor field name** — page size + the
+  `results` envelope are docs-confirmed, but the next-page token field is not,
+  so `listContactsInList` degrades to "first 100 members only" rather than
+  looping if the guessed field is wrong; (b) that `phonenumber` is the exact
+  attribute/identifier key Bird returns for phone contacts. Both are read-path
+  guesses that fail safe (a wrong GET cannot send a message).
+- **Prevention:** `provider.integration.test.ts` now asserts the fan-out makes
+  a preflight GET then one `identifierValue` POST per member, and that **no
+  outgoing body ever contains `listId`**; `groups/__tests__/client.test.ts`
+  covers pagination + phone extraction. Dry-run tests never inspected the bytes
+  that leave the process (see post-mortem).
 
 #### Layer 7 — variable hydration (FIXED)
 
@@ -146,13 +180,19 @@ is what caused the original 422.
 **What is docs-confirmed (high confidence):**
 - Endpoint + method (matches what was already in code).
 - Auth scheme (matches what was already in code).
-- `recipients[]` → `identifierValue` receiver shape (was already correct).
+- `recipients[]` → `identifierValue` receiver shape (was already correct, and
+  is now the ONLY receiver shape used — see Layer 6 fan-out).
 - `template` as a top-level field, keyed by `projectId` + `version`, with a
   flat `parameters` array.
+- `GET /workspaces/{ws}/lists/{listId}/contacts` endpoint + `results[]` /
+  `featuredIdentifiers[{key,value}]` / `attributes` contact shape
+  (2026-07-14, Bird Contacts API docs).
 
 **What is NOT docs-confirmed (residual risk, called out per-layer above):**
-- The `list_id`-targeted receiver shape — docs only cover phone-identifier
-  receivers. Shipped as the capture document's own recommended best-guess.
+- ~~The `list_id`-targeted receiver shape~~ — RESOLVED 2026-07-14: no such shape
+  exists; list sends fan out to `identifierValue` receivers instead.
+- The list-contacts pagination cursor field name and the exact phone
+  identifier/attribute key (Layer 6 read-path — both fail safe; GET-only).
 - The success response envelope shape (`{ id }` is an inference).
 
 **Why `BIRD_RUNTIME_SEND_VERIFIED` was flipped to `true` anyway:** the
@@ -176,6 +216,10 @@ queried before writing code, not assumed:**
   test primarily exercises the layer-6 `list_id` receiver fix, not the
   layer-9 template-parameters shape. This is a pre-existing data/routing
   characteristic of that row, not something this PR changes.
+  **(2026-07-14 note:** the fan-out now turns this single list-targeted send
+  into N per-member text sends — re-run the smoke test against a list with
+  ONE or TWO test contacts first, since it will now actually message every
+  resolved member.)**
 
 `lib/d2c/orchestration/bird-runner.ts::executeBirdJob` (the orchestration-path
 executor for rows that DO have `brand`+`event_code`) still throws

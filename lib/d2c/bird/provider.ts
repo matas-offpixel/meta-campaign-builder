@@ -15,7 +15,12 @@
 
 import { performDryRun } from "../dry-run.ts";
 import { birdJson } from "./client.ts";
-import { findGroupByName, type BirdGroupClientConfig } from "./groups/client.ts";
+import {
+  contactPhoneIdentifiers,
+  findGroupByName,
+  listContactsInList,
+  type BirdGroupClientConfig,
+} from "./groups/client.ts";
 import { substituteTemplateVariables } from "../event-variables.ts";
 import {
   shouldD2CDryRun,
@@ -107,20 +112,25 @@ export function resolveBirdTemplateInfo(
 
 /**
  * Layers 6 & 9 of the 2026-07-01 direct-fire incident — RECONCILED 2026-07-02
- * against `.scratch/bird-runtime-send-capture.txt`.
+ * against `.scratch/bird-runtime-send-capture.txt`, then Layer 6 SUPERSEDED
+ * 2026-07-14 (see below).
  *
  * Provenance note: that file is NOT a DevTools capture. Bird's own UI test-send
  * flow does not surface the payload in the Network panel (suspected server
  * action / batched dispatch), so the shape below is sourced from Bird's public
  * API docs (channels-api/message-types/template, send-batch-messages) instead.
  * That is real, official-source evidence — not a derived-from-conventions
- * guess — but ONE piece remains genuinely unverified: the `list_id`-targeted
- * receiver shape (docs only show the phone-identifier form). See the
- * `list_id` branch below and docs/D2C_LIVE_FIRE_RUNBOOK.md for the fallback
- * chain to try if Bird 422s on it.
+ * guess.
  *
  * What was wrong (layer 6): `receiver: { contacts: { listId } }` sent contacts
- * as an OBJECT; Bird requires an array — `422 "value must be an array"`.
+ * as an OBJECT; Bird requires an array — `422 "value must be an array"`. The
+ * 2026-07-02 follow-up fix (`{ contacts: [{ listId }] }`) was itself a
+ * docs-derived best-guess that was NEVER live-tested. On the 2026-07-14 live
+ * smoke test it 422'd again — `property "listId" is unsupported`: Bird's
+ * channels /messages endpoint has NO list-targeting field at all (its docs
+ * only ever show phone-identifier receivers because that is the only shape
+ * that exists). List-targeted sends are now fanned out to individual
+ * `identifierValue` receivers via a preflight GET on the list — see `send()`.
  *
  * What was wrong (layer 9): the template body was nested under `body.template`
  * with `{ name, locale, components: [...] }` — the WhatsApp Cloud API (Meta
@@ -130,6 +140,34 @@ export function resolveBirdTemplateInfo(
  * (`{ type, key, value }`) — no `components` wrapper.
  */
 export const BIRD_RUNTIME_SEND_VERIFIED = true;
+
+/** Pacing/backoff (ms) for the single 429 retry added around fan-out sends. */
+const BIRD_FANOUT_RETRY_DELAY_MS = 2_000;
+
+/** Best-effort read of an HTTP status off a thrown Bird client error (BirdHttpError carries `status`). */
+function birdErrorStatus(e: unknown): number | null {
+  if (e && typeof e === "object" && "status" in e) {
+    const s = (e as { status?: unknown }).status;
+    if (typeof s === "number") return s;
+  }
+  return null;
+}
+
+/**
+ * The base client (client.ts) already retries 5xx once but NOT 429. Add a
+ * single rate-limit retry here for the fan-out, which can burst N sends.
+ */
+async function sendWithRateLimitRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (birdErrorStatus(e) === 429) {
+      await new Promise((r) => setTimeout(r, BIRD_FANOUT_RETRY_DELAY_MS));
+      return await fn();
+    }
+    throw e;
+  }
+}
 
 /** Exposed for tests + the connections UI — mirrors the Mailchimp helper. */
 export function birdDryRunGatesBlockLiveSend(connection: D2CConnection): {
@@ -270,73 +308,163 @@ export class BirdProvider implements D2CProvider {
 
     const isTemplateSend = message.channel === "whatsapp" && templateInfo !== null;
 
-    // Bird's /messages endpoint shapes `receiver` identically for either send
-    // type. `list_id`-targeted receiver shape is the one item NOT covered by
-    // Bird's public docs (only phone-identifier receivers are documented) —
-    // this is the single residual guess in this payload. If Bird 422s on it,
-    // try (in order): `{ contacts: [{ listType: "list", listId }] }`, then
-    // fall back to a preflight GET on the list to resolve individual
-    // identifierValue contacts. See docs/D2C_LIVE_FIRE_RUNBOOK.md.
-    const receiver = listId
-      ? { contacts: [{ listId }] }
-      : { contacts: recipients.map((id) => ({ identifierValue: id })) };
+    // Build the Bird `/messages` body for a given receiver. Template sends and
+    // plain-text sends are mutually exclusive top-level shapes: template sends
+    // carry `template` (no `body` field); non-template sends carry `body` (no
+    // `template` field). Never both. (Layer 9.)
+    const makeBody = (
+      receiver: Record<string, unknown>,
+    ): Record<string, unknown> =>
+      isTemplateSend
+        ? {
+            receiver,
+            template: {
+              projectId: templateInfo!.projectId,
+              version: templateInfo!.versionId,
+              locale: templateInfo!.locale,
+              // Flat parameter array — Bird's own abstraction over the
+              // WhatsApp Cloud API's nested components[].parameters[] shape.
+              parameters: Object.entries(variables).map(([key, value]) => ({
+                type: "string",
+                key,
+                value,
+              })),
+            },
+          }
+        : {
+            receiver,
+            body: { type: "text", text: { text: renderedBody } },
+          };
 
-    // Template sends and plain-text sends are mutually exclusive top-level
-    // shapes on Bird's /messages endpoint: template sends carry `template`
-    // (no `body` field); non-template sends carry `body` (no `template`
-    // field). Never both.
-    const body: Record<string, unknown> = isTemplateSend
-      ? {
-          receiver,
-          template: {
-            projectId: templateInfo!.projectId,
-            version: templateInfo!.versionId,
-            locale: templateInfo!.locale,
-            // Flat parameter array — Bird's own abstraction over the
-            // WhatsApp Cloud API's nested components[].parameters[] shape.
-            parameters: Object.entries(variables).map(([key, value]) => ({
-              type: "string",
-              key,
-              value,
-            })),
-          },
-        }
-      : {
-          receiver,
-          body: { type: "text", text: { text: renderedBody } },
+    const messagesPath = `/workspaces/${workspaceId}/channels/${channelId}/messages`;
+    const postMessage = (receiver: Record<string, unknown>) =>
+      birdJson<{ id?: string }>(apiKey, messagesPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeBody(receiver)),
+      });
+
+    // ── Explicit-recipients path (unchanged, docs-verified shape) ───────────
+    // A caller-supplied identifier list sends as a single message whose
+    // receiver carries every identifier — the shape byte-verified by
+    // provider.integration.test.ts against Bird's capture example.
+    if (recipients.length > 0) {
+      try {
+        const res = await postMessage({
+          contacts: recipients.map((id) => ({ identifierValue: id })),
+        });
+        return {
+          ok: true,
+          dryRun: false,
+          providerJobId: res.id ?? null,
+          details: res,
         };
-
-    try {
-      // Response envelope is inferred (Bird's docs don't show a success
-      // sample) as `{ id: "<message_uuid>", … }` — unconfirmed until a real
-      // send. `res.id` degrades to `null` harmlessly if the field differs.
-      const res = await birdJson<{ id?: string }>(
-        apiKey,
-        `/workspaces/${workspaceId}/channels/${channelId}/messages`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      return {
-        ok: true,
-        dryRun: false,
-        providerJobId: res.id ?? null,
-        // `resolvedAudiencePatch` lets a DB-aware caller (e.g. the cron
-        // route, which already owns the supabase client + send row id) cache
-        // the resolved list_id back onto `d2c_scheduled_sends.audience` for
-        // audit + so a retry skips the Bird group lookup. Omitted when the
-        // send already carried an explicit list_id/recipients — nothing new
-        // to cache.
-        details: listIdResolvedFromTag && listId
-          ? { ...res, resolvedAudiencePatch: { list_id: listId } }
-          : res,
-      };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Bird send failed.";
-      return { ok: false, dryRun: false, error: msg };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Bird send failed.";
+        return { ok: false, dryRun: false, error: msg };
+      }
     }
+
+    // ── List-targeted path: fan-out (2026-07-14) ────────────────────────────
+    // Bird's channels /messages endpoint has NO list-targeting field: a
+    // `receiver.contacts[].listId` is rejected 422 "property listId is
+    // unsupported" (live-verified 2026-07-14, T26-ALGARVE). Replaces the prior
+    // docs-derived, never-live-tested `{ contacts: [{ listId }] }` receiver.
+    // Preflight GET on the list resolves members to individual phone
+    // identifiers; then one message per identifier. `listId` is guaranteed
+    // non-null here (the early return above covers no-recipients + no-listId).
+    let contacts;
+    try {
+      contacts = await listContactsInList({ apiKey, workspaceId }, listId!);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "unknown error";
+      return {
+        ok: false,
+        dryRun: false,
+        error: `Bird list-contacts preflight failed for list ${listId}: ${msg}`,
+      };
+    }
+
+    const seenPhones = new Set<string>();
+    const targetPhones: string[] = [];
+    for (const c of contacts) {
+      for (const phone of contactPhoneIdentifiers(c)) {
+        if (!seenPhones.has(phone)) {
+          seenPhones.add(phone);
+          targetPhones.push(phone);
+        }
+      }
+    }
+
+    if (targetPhones.length === 0) {
+      return {
+        ok: false,
+        dryRun: false,
+        error: `Bird list ${listId} resolved to 0 phone-reachable contacts (${contacts.length} member(s) fetched, none with a phone identifier).`,
+      };
+    }
+
+    const perRecipient: {
+      identifierValue: string;
+      ok: boolean;
+      providerJobId?: string | null;
+      error?: string;
+    }[] = [];
+    for (const phone of targetPhones) {
+      try {
+        const res = await sendWithRateLimitRetry(() =>
+          postMessage({ contacts: [{ identifierValue: phone }] }),
+        );
+        perRecipient.push({
+          identifierValue: phone,
+          ok: true,
+          providerJobId: res.id ?? null,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Bird send failed.";
+        perRecipient.push({ identifierValue: phone, ok: false, error: msg });
+      }
+    }
+
+    const sent = perRecipient.filter((r) => r.ok);
+    const failed = perRecipient.filter((r) => !r.ok);
+    // Conservative: a partial fan-out reports ok:false so the cron marks the
+    // row `failed` (with the full per-recipient breakdown in result_jsonb) for
+    // manual review rather than silently declaring success. No auto-retry.
+    const allOk = failed.length === 0 && sent.length > 0;
+
+    const details: Record<string, unknown> = {
+      mode: "list_fanout",
+      listId,
+      // Runbook: cache resolved members on the result for auditability.
+      preflight: {
+        membersFetched: contacts.length,
+        phoneReachable: targetPhones.length,
+      },
+      attempted: perRecipient.length,
+      sent: sent.length,
+      failed: failed.length,
+      results: perRecipient,
+    };
+    // Cache the tag→list_id resolution back for audit + retry skip (same
+    // channel as the pre-fan-out single-send path used).
+    if (listIdResolvedFromTag && listId) {
+      details.resolvedAudiencePatch = { list_id: listId };
+    }
+
+    return {
+      ok: allOk,
+      dryRun: false,
+      providerJobId: sent[0]?.providerJobId ?? null,
+      details,
+      ...(allOk
+        ? {}
+        : {
+            error: `Bird list fan-out incomplete: ${sent.length}/${perRecipient.length} sent, ${failed.length} failed${
+              failed[0]?.error ? ` — first error: ${failed[0].error}` : ""
+            }.`,
+          }),
+    };
   }
 }
 
