@@ -6,8 +6,10 @@ import {
   AI_AUTOTAG_MODEL_VERSION,
   autoTagDeduped,
   type AutoTagResult,
+  type AutoTagUsage,
   type DedupAutoTagInput,
 } from "@/lib/intelligence/auto-tagger";
+import { createSupabaseAutoTagThumbnailCache } from "@/lib/intelligence/auto-tag-thumbnail-cache";
 import {
   lastAiTagAt,
   shouldRunDailyAutoTagPass,
@@ -15,6 +17,7 @@ import {
 import {
   bulkUpsertCreativeTagAssignments,
   listCreativeTagAssignments,
+  listCreativeTagAssignmentsByThumbnailHashes,
   listCreativeTags,
   type CreativeTagAssignmentRow,
   type MotionCreativeTagRow,
@@ -33,7 +36,7 @@ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-cr
  * GET /api/cron/refresh-active-creatives
  *
  * Vercel Cron entry point. Walks every event with an active
- * ticketing connection AND `general_sale_at` within ±60 days, and
+ * ticketing connection AND `general_sale_at` within ±30 days, and
  * pre-populates `active_creatives_snapshots` for the share-page
  * presets (`maximum`, `last_30d`, `last_14d`, `last_7d`).
  *
@@ -73,12 +76,27 @@ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-cr
  * The runner writes snapshot rows under each event's OWNING
  * `user_id`, never under a synthetic system user, so the table's
  * `user_id` column stays meaningful for ops queries.
+ *
+ * Auto-tag thumbnail cache: `runAutoTagForSnapshot` resolves every
+ * candidate creative's thumbnail through a Supabase Storage-backed,
+ * content-hash-addressed cache (`lib/intelligence/auto-tag-thumbnail-cache.ts`)
+ * before falling back to a live Meta/CDN fetch. A cache outage degrades
+ * silently to "fetch from Meta every time" — never a tagging failure.
  */
 
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
 const AI_AUTOTAG_CONCURRENCY = 3;
+
+/**
+ * Recency cutoff for the cross-event thumbnail-hash lookup (see
+ * `resolveKnownTagsByHash` below). Bounded rather than unbounded so a future
+ * taxonomy/model change's stale tags don't get reused forever — 30 days
+ * comfortably covers the auto-tag cadence gate's daily-per-event pass while
+ * still capping the blast radius of any bad classification.
+ */
+const CROSS_EVENT_HASH_LOOKBACK_DAYS = 30;
 
 interface EventToRefresh {
   id: string;
@@ -129,12 +147,35 @@ interface AutoTagCronSummary {
   creativesTagged: number;
   /** Creatives tagged by reusing another image's result — no extra Claude call. */
   creativesReusedThumbnail: number;
+  /** Of `creativesReusedThumbnail`, the subset reused via a DIFFERENT event's
+   * tags for the same content hash (cross-event dedup) rather than this
+   * batch's own run or this event's own prior-run history. */
+  creativesReusedCrossEvent: number;
   /** Distinct thumbnail content hashes seen across the pass. */
   uniqueThumbnails: number;
+  /** Thumbnail URLs resolved from `thumbnailCache` (Supabase Storage) instead
+   * of a live Meta/CDN fetch — Lever 5's direct cost/traffic signal. */
+  thumbnailCacheHits: number;
+  /** Thumbnail URLs that required a live Meta/CDN fetch (cache miss or no
+   * cache configured). */
+  thumbnailMetaFetches: number;
   /** Actual Anthropic classification calls — the cost driver. */
   claudeCalls: number;
+  /** Aggregate token usage across every Claude call this pass made — the
+   * cache_read/cache_creation split is the prompt-caching cost signal. */
+  usage: AutoTagUsage;
   assignmentsUpserted: number;
   errors: number;
+}
+
+/**
+ * Total creatives skipped an Anthropic call entirely this pass — cadence
+ * gate aside, this is `creativesSkippedExisting` (already tagged this event)
+ * plus every dedup outcome (same-batch, same-event-history, cross-event).
+ * Logged verbatim so ops can eyeball the cost-lever impact from cron output.
+ */
+function skipCount(summary: AutoTagCronSummary): number {
+  return summary.creativesSkippedExisting + summary.creativesReusedThumbnail;
 }
 
 function isAuthorized(req: NextRequest): boolean {
@@ -162,8 +203,17 @@ function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
     creativesSkippedNoThumbnail: 0,
     creativesTagged: 0,
     creativesReusedThumbnail: 0,
+    creativesReusedCrossEvent: 0,
     uniqueThumbnails: 0,
+    thumbnailCacheHits: 0,
+    thumbnailMetaFetches: 0,
     claudeCalls: 0,
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+    },
     assignmentsUpserted: 0,
     errors: 0,
   };
@@ -375,6 +425,37 @@ export async function GET(req: NextRequest) {
     `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed}`,
   );
 
+  if (autoTagEnabled) {
+    const totals = results.reduce(
+      (acc, r) => {
+        if (!r.aiAutoTag) return acc;
+        acc.claudeCalls += r.aiAutoTag.claudeCalls;
+        acc.skipCount += skipCount(r.aiAutoTag);
+        acc.reusedCrossEvent += r.aiAutoTag.creativesReusedCrossEvent;
+        acc.thumbnailCacheHits += r.aiAutoTag.thumbnailCacheHits;
+        acc.thumbnailMetaFetches += r.aiAutoTag.thumbnailMetaFetches;
+        acc.cacheReadInputTokens += r.aiAutoTag.usage.cacheReadInputTokens;
+        acc.cacheCreationInputTokens +=
+          r.aiAutoTag.usage.cacheCreationInputTokens;
+        acc.inputTokens += r.aiAutoTag.usage.inputTokens;
+        return acc;
+      },
+      {
+        claudeCalls: 0,
+        skipCount: 0,
+        reusedCrossEvent: 0,
+        thumbnailCacheHits: 0,
+        thumbnailMetaFetches: 0,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 0,
+        inputTokens: 0,
+      },
+    );
+    console.log(
+      `[cron refresh-active-creatives] ai autotag totals claude_calls=${totals.claudeCalls} skip_count=${totals.skipCount} reused_cross_event=${totals.reusedCrossEvent} thumbnail_cache_hits=${totals.thumbnailCacheHits} thumbnail_meta_fetches=${totals.thumbnailMetaFetches} cache_read_input_tokens=${totals.cacheReadInputTokens} cache_creation_input_tokens=${totals.cacheCreationInputTokens} input_tokens=${totals.inputTokens}`,
+    );
+  }
+
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }
 
@@ -456,7 +537,39 @@ async function runAutoTagForSnapshot(args: {
     taxonomy,
     anthropic: args.anthropic,
     modelVersion: AI_AUTOTAG_MODEL_VERSION,
+    // Storage-backed byte cache (Lever 5): the same underlying image often
+    // recurs across a creative's lifetime, and this event's own creatives
+    // may share bytes with ones already resolved (this run or a prior one).
+    // Reuses the existing `creative-thumbnails` bucket under an `auto-tag/`
+    // prefix — see auto-tag-thumbnail-cache.ts for why no new bucket/
+    // migration was needed.
+    thumbnailCache: createSupabaseAutoTagThumbnailCache(args.supabase),
+    onThumbnailFetch: ({ source }) => {
+      if (source === "cache") {
+        args.summary.thumbnailCacheHits += 1;
+      } else {
+        args.summary.thumbnailMetaFetches += 1;
+      }
+    },
     knownTagsByHash,
+    // Cross-event dedup: recurring creative assets (templated designs, reused
+    // artwork) commonly repeat across different events/clients, not just
+    // within one event's own history. Only fires for hashes `knownTagsByHash`
+    // didn't already resolve, and only costs a DB round trip (the thumbnail
+    // bytes are already fetched by the time this runs).
+    resolveKnownTagsByHash: async (hashes) => {
+      const rows = await listCreativeTagAssignmentsByThumbnailHashes(
+        args.supabase,
+        hashes,
+        {
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          sinceISO: new Date(
+            Date.now() - CROSS_EVENT_HASH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+          ).toISOString(),
+        },
+      );
+      return buildKnownTagsByHash(rows);
+    },
     concurrency: AI_AUTOTAG_CONCURRENCY,
     onClassifyError: (creativeName, error) => {
       args.summary.errors += 1;
@@ -472,6 +585,11 @@ async function runAutoTagForSnapshot(args: {
   const toUpsert: UpsertCreativeTagAssignmentArgs[] = [];
   for (const result of results) {
     if (result.thumbnailHash) uniqueHashes.add(result.thumbnailHash);
+    args.summary.usage.inputTokens += result.usage.inputTokens;
+    args.summary.usage.outputTokens += result.usage.outputTokens;
+    args.summary.usage.cacheCreationInputTokens +=
+      result.usage.cacheCreationInputTokens;
+    args.summary.usage.cacheReadInputTokens += result.usage.cacheReadInputTokens;
 
     if (
       result.outcome === "no_thumbnail" ||
@@ -488,8 +606,13 @@ async function runAutoTagForSnapshot(args: {
       // A fresh Anthropic call was made for this image's hash group.
       args.summary.claudeCalls += 1;
     } else {
-      // reused_run | reused_persisted — tags came from another creative's call.
+      // reused_run | reused_persisted | reused_global — tags came from
+      // another creative's call, this event's own history, or a different
+      // event's tags for the same content hash. No Claude call either way.
       args.summary.creativesReusedThumbnail += 1;
+      if (result.outcome === "reused_global") {
+        args.summary.creativesReusedCrossEvent += 1;
+      }
     }
 
     if (result.tags.length === 0) continue;
@@ -516,6 +639,10 @@ async function runAutoTagForSnapshot(args: {
     args.summary.creativesTagged += 1;
   }
   args.summary.uniqueThumbnails += uniqueHashes.size;
+
+  console.log(
+    `[cron refresh-active-creatives] ai autotag event=${args.eventId} claude_calls=${args.summary.claudeCalls} skip_count=${skipCount(args.summary)} reused_cross_event=${args.summary.creativesReusedCrossEvent} thumbnail_cache_hits=${args.summary.thumbnailCacheHits} thumbnail_meta_fetches=${args.summary.thumbnailMetaFetches} cache_read_input_tokens=${args.summary.usage.cacheReadInputTokens} cache_creation_input_tokens=${args.summary.usage.cacheCreationInputTokens} input_tokens=${args.summary.usage.inputTokens}`,
+  );
 
   if (toUpsert.length === 0) return;
   try {

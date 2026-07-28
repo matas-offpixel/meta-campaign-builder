@@ -146,7 +146,8 @@ describe("mergeActiveCreativesEligibilityIds", () => {
   });
 
   it("ticketing-only events (no sale date) are NOT eligible via linkedAndDated", () => {
-    // Events with ticketing but outside the ±60-day sale window
+    // Events with ticketing but outside the ±30-day active-creatives sale
+    // window (tightened from ±60 in cursor/creator/autotag-cost-reduction)
     // must still qualify via codeMatch to be eligible.
     const ids = mergeActiveCreativesEligibilityIds({
       ticketingIds: ["evt-ticketing-only"],

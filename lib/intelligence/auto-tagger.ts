@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 
 import type Anthropic from "@anthropic-ai/sdk";
-import type { Tool, ToolUseBlock } from "@anthropic-ai/sdk/resources/messages";
+import type {
+  Tool,
+  ToolUseBlock,
+  Usage,
+} from "@anthropic-ai/sdk/resources/messages";
 
 import {
   CREATIVE_TAG_DIMENSIONS,
@@ -43,25 +47,74 @@ export interface AutoTagResult {
   confidence: number;
 }
 
+/** Token usage for a single classification call. Zeroed out for hits that
+ * never reached Anthropic (empty image, hash-reuse short-circuit, etc). */
+export interface AutoTagUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+}
+
 export interface AutoTagDiagnostics {
   tags: AutoTagResult[];
   rawTagCount: number;
   hallucinatedTagCount: number;
+  /** Only set when these diagnostics came from a live Anthropic call —
+   * `validateAutoTagResponseWithDiagnostics` (pure validation, no call) omits
+   * it. */
+  usage?: AutoTagUsage;
+  /** Content hash of the resolved thumbnail. Only set on a live call (see
+   * `usage` above) — same value that would be persisted as
+   * `creative_tag_assignments.thumbnail_hash`. */
+  thumbnailHash?: string | null;
+  /** Where the thumbnail bytes came from — `"cache"` when `thumbnailCache`
+   * (see `AutoTaggerDeps`) served a prior Meta download, `"meta"` otherwise. */
+  thumbnailSource?: AutoTagThumbnailSource;
 }
+
+/**
+ * Content-addressed byte cache for Meta thumbnails, keyed by the SHA256 of
+ * the decoded image bytes (see `hashAutoTagImage`) — not by URL, since
+ * Meta's CDN URLs carry rotating signature/expiry params.
+ *
+ * `get` is looked up by URL because the caller doesn't know the content
+ * hash until bytes are in hand; a real implementation resolves this via an
+ * internal url → hash index (see `createSupabaseAutoTagThumbnailCache`).
+ * Both methods MUST NOT throw — implementations should swallow their own
+ * errors and return `null` / resolve, so a cache outage never blocks
+ * tagging. Callers still wrap calls defensively as a second line of
+ * defence.
+ */
+export interface AutoTagThumbnailCache {
+  get(url: string): Promise<(AutoTagImage & { hash: string }) | null>;
+  put(url: string, hash: string, image: AutoTagImage): Promise<void>;
+}
+
+export type AutoTagThumbnailSource = "cache" | "meta";
 
 export interface AutoTaggerDeps {
   taxonomy: MotionCreativeTagRow[];
   anthropic: Pick<Anthropic, "messages">;
   modelVersion: string;
+  /**
+   * Optional Storage-backed cache for the raw thumbnail bytes fetched from
+   * Meta. Cuts duplicate Meta/CDN traffic when the exact same URL is
+   * resolved more than once — e.g. `scripts/validate-ai-tagging.ts` running
+   * the same snapshot's creatives through two `--model` values back to
+   * back. Purely a cost/traffic optimisation: a miss or a cache error always
+   * falls back to a live Meta fetch (see `resolveAutoTagImage`).
+   */
+  thumbnailCache?: AutoTagThumbnailCache;
 }
 
-type AutoTagImageMediaType =
+export type AutoTagImageMediaType =
   | "image/jpeg"
   | "image/png"
   | "image/gif"
   | "image/webp";
 
-interface AutoTagImage {
+export interface AutoTagImage {
   base64: string;
   mediaType: AutoTagImageMediaType;
 }
@@ -78,7 +131,10 @@ export interface DedupAutoTagInput {
  * Provenance of a creative's tags within a deduplicated batch:
  * - `tagged` — this creative's image triggered the (single) Claude call.
  * - `reused_run` — another creative in this batch shares the image; reused, no call.
- * - `reused_persisted` — the image hash matched `knownTagsByHash` (a prior run); no call.
+ * - `reused_persisted` — the image hash matched `knownTagsByHash` (this event's
+ *   own prior run); no call.
+ * - `reused_global` — the image hash matched `resolveKnownTagsByHash` (a
+ *   DIFFERENT event's tags for the same content hash); no call.
  * - `no_thumbnail` — input had no thumbnail URL; nothing to tag.
  * - `fetch_failed` — the thumbnail fetch failed; could not hash or tag.
  * - `empty` — Claude returned no usable tags for the image.
@@ -88,6 +144,7 @@ export type DedupAutoTagOutcome =
   | "tagged"
   | "reused_run"
   | "reused_persisted"
+  | "reused_global"
   | "no_thumbnail"
   | "fetch_failed"
   | "empty"
@@ -98,15 +155,35 @@ export interface DedupAutoTagResult {
   thumbnailHash: string | null;
   tags: AutoTagResult[];
   outcome: DedupAutoTagOutcome;
+  /** Only non-zero for the representative call that actually hit Anthropic. */
+  usage: AutoTagUsage;
 }
 
 export interface DedupAutoTaggerDeps extends AutoTaggerDeps {
-  /** Tags already persisted for a given image hash (e.g. from prior cron runs). */
+  /** Tags already persisted for a given image hash (e.g. from prior cron runs
+   * of THIS event). Checked before `resolveKnownTagsByHash`. */
   knownTagsByHash?: ReadonlyMap<string, AutoTagResult[]>;
+  /**
+   * Optional global lookup, called once per batch with every unique hash from
+   * Phase 1 that `knownTagsByHash` didn't already cover. Lets a caller do a
+   * cross-event DB query (recurring creative assets are frequently reused
+   * across different events/clients) without a second thumbnail fetch — the
+   * bytes are already in memory by the time this fires. Hashes the resolver
+   * doesn't return proceed to classification as normal.
+   */
+  resolveKnownTagsByHash?: (
+    hashes: string[],
+  ) => Promise<ReadonlyMap<string, AutoTagResult[]>>;
   /** Max concurrent thumbnail fetches / Claude calls. Defaults to 1. */
   concurrency?: number;
   /** Per-image error hook (the batch swallows the throw and continues). */
   onClassifyError?: (creativeName: string, error: unknown) => void;
+  /** Fires once per resolvable thumbnail URL in Phase 1 — lets the caller
+   * tally `thumbnailCache` hit/miss counts for cron logging. */
+  onThumbnailFetch?: (info: {
+    url: string;
+    source: AutoTagThumbnailSource;
+  }) => void;
 }
 
 interface RawAutoTagResponse {
@@ -139,6 +216,34 @@ export function buildAutoTagSystemPrompt(
     "Closed taxonomy:",
     blocks.join("\n\n"),
   ].join("\n");
+}
+
+/**
+ * System prompt wrapped as a single cached content block. The taxonomy is
+ * ~5-15K tokens and identical across every creative in a cron run (and across
+ * runs, until the taxonomy itself changes), so it's the highest-value prompt-
+ * caching target: Anthropic caches the prefix (tools + this system block) for
+ * 5 minutes and subsequent calls within that window pay the ~10%-of-base
+ * "cache read" rate instead of full input-token price. See
+ * https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching.
+ * `classifyAutoTagImage` is the only caller — kept separate from
+ * `buildAutoTagSystemPrompt` so tests/scripts that just want the raw string
+ * (e.g. asserting taxonomy content) don't have to unwrap the block shape.
+ */
+export function buildAutoTagSystemBlocks(
+  taxonomy: MotionCreativeTagRow[],
+): Array<{
+  type: "text";
+  text: string;
+  cache_control: { type: "ephemeral" };
+}> {
+  return [
+    {
+      type: "text",
+      text: buildAutoTagSystemPrompt(taxonomy),
+      cache_control: { type: "ephemeral" },
+    },
+  ];
 }
 
 export function buildAutoTagTool(taxonomy: MotionCreativeTagRow[]): Tool {
@@ -201,16 +306,41 @@ export async function autoTagWithDiagnostics(
   input: AutoTagInput,
   deps: AutoTaggerDeps,
 ): Promise<AutoTagDiagnostics> {
-  const image = await fetchAutoTagImage(input.thumbnailUrl);
-  if (!image) return EMPTY_DIAGNOSTICS;
-  return classifyAutoTagImage(image, input, deps);
+  const resolved = await resolveAutoTagImage(
+    input.thumbnailUrl,
+    deps.thumbnailCache,
+  );
+  if (!resolved) return EMPTY_DIAGNOSTICS;
+  const diagnostics = await classifyAutoTagImage(resolved.image, input, deps);
+  return {
+    ...diagnostics,
+    thumbnailHash: resolved.hash,
+    thumbnailSource: resolved.source,
+  };
 }
+
+const ZERO_USAGE: AutoTagUsage = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationInputTokens: 0,
+  cacheReadInputTokens: 0,
+};
 
 const EMPTY_DIAGNOSTICS: AutoTagDiagnostics = {
   tags: [],
   rawTagCount: 0,
   hallucinatedTagCount: 0,
+  usage: ZERO_USAGE,
 };
+
+function usageFromResponse(usage: Usage | undefined): AutoTagUsage {
+  return {
+    inputTokens: usage?.input_tokens ?? 0,
+    outputTokens: usage?.output_tokens ?? 0,
+    cacheCreationInputTokens: usage?.cache_creation_input_tokens ?? 0,
+    cacheReadInputTokens: usage?.cache_read_input_tokens ?? 0,
+  };
+}
 
 /**
  * Fetch a thumbnail and return it as inline base64 + media type, or null when
@@ -238,7 +368,11 @@ async function classifyAutoTagImage(
     model: deps.modelVersion,
     max_tokens: 1024,
     temperature: 0,
-    system: buildAutoTagSystemPrompt(deps.taxonomy),
+    // Cached as one breakpoint (see buildAutoTagSystemBlocks) — Anthropic
+    // caches the tools+system prefix for 5m so repeat calls in a cron run
+    // pay the cache-read rate on the ~5-15K taxonomy tokens instead of full
+    // input price.
+    system: buildAutoTagSystemBlocks(deps.taxonomy),
     tools: [buildAutoTagTool(deps.taxonomy)],
     tool_choice: {
       type: "tool",
@@ -263,13 +397,18 @@ async function classifyAutoTagImage(
     ],
   });
 
+  const usage = usageFromResponse(message.usage);
   const toolUse = message.content.find(
     (block): block is ToolUseBlock =>
       block.type === "tool_use" && block.name === AUTO_TAG_TOOL_NAME,
   );
-  if (!toolUse) return EMPTY_DIAGNOSTICS;
+  if (!toolUse) return { ...EMPTY_DIAGNOSTICS, usage };
 
-  return validateAutoTagResponseWithDiagnostics(toolUse.input, deps.taxonomy);
+  const diagnostics = validateAutoTagResponseWithDiagnostics(
+    toolUse.input,
+    deps.taxonomy,
+  );
+  return { ...diagnostics, usage };
 }
 
 /**
@@ -282,6 +421,50 @@ async function classifyAutoTagImage(
  */
 export function hashAutoTagImage(base64: string): string {
   return createHash("sha256").update(base64).digest("hex");
+}
+
+/**
+ * Resolve a thumbnail's bytes + content hash, preferring `cache` over a live
+ * Meta fetch. This is the one call site both `autoTagWithDiagnostics` and
+ * `autoTagDeduped`'s Phase 1 route through, so every consumer of
+ * `AutoTaggerDeps.thumbnailCache` benefits identically.
+ *
+ * Cache errors (read OR write) are swallowed here — `thumbnailCache` is a
+ * pure cost optimisation and must never turn a cache outage into a tagging
+ * outage. A `get` miss (including a thrown error) always falls through to
+ * `fetchAutoTagImage`.
+ */
+async function resolveAutoTagImage(
+  url: string,
+  cache?: AutoTagThumbnailCache,
+): Promise<
+  { image: AutoTagImage; hash: string; source: AutoTagThumbnailSource } | null
+> {
+  if (cache) {
+    try {
+      const cached = await cache.get(url);
+      if (cached) {
+        return { image: cached, hash: cached.hash, source: "cache" };
+      }
+    } catch {
+      // Best-effort cache — fall through to a live Meta fetch below.
+    }
+  }
+
+  const image = await fetchAutoTagImage(url);
+  if (!image) return null;
+  const hash = hashAutoTagImage(image.base64);
+
+  if (cache) {
+    try {
+      await cache.put(url, hash, image);
+    } catch {
+      // A write failure must never fail tagging — the next run just
+      // re-fetches from Meta and tries the write again.
+    }
+  }
+
+  return { image, hash, source: "meta" };
 }
 
 /**
@@ -299,31 +482,63 @@ export async function autoTagDeduped(
   inputs: DedupAutoTagInput[],
   deps: DedupAutoTaggerDeps,
 ): Promise<DedupAutoTagResult[]> {
-  const known = deps.knownTagsByHash ?? new Map<string, AutoTagResult[]>();
+  // Copied (not aliased) since Phase 1.5 below may add global-lookup hits.
+  const known = new Map<string, AutoTagResult[]>(deps.knownTagsByHash ?? []);
   const concurrency = Math.max(1, deps.concurrency ?? 1);
 
-  // Phase 1 — fetch + hash each thumbnail (concurrently).
+  // Phase 1 — resolve (cache or Meta) + hash each thumbnail (concurrently).
   const prepared = await mapWithConcurrency(inputs, concurrency, async (input) => {
     if (!input.thumbnailUrl) {
       return { input, hash: null, image: null, fetchFailed: false };
     }
-    const image = await fetchAutoTagImage(input.thumbnailUrl);
-    if (!image) {
+    const resolved = await resolveAutoTagImage(
+      input.thumbnailUrl,
+      deps.thumbnailCache,
+    );
+    if (!resolved) {
       return { input, hash: null, image: null, fetchFailed: true };
     }
+    deps.onThumbnailFetch?.({
+      url: input.thumbnailUrl,
+      source: resolved.source,
+    });
     return {
       input,
-      hash: hashAutoTagImage(image.base64),
-      image,
+      hash: resolved.hash,
+      image: resolved.image,
       fetchFailed: false,
     };
   });
+
+  // Phase 1.5 — optional global (cross-event) lookup for hashes the caller's
+  // own `knownTagsByHash` didn't already cover. Runs once for the whole
+  // batch, keyed off hashes we already have in memory from Phase 1 — no
+  // extra thumbnail fetches.
+  const globallyKnown = new Set<string>();
+  if (deps.resolveKnownTagsByHash) {
+    const uncovered = [
+      ...new Set(
+        prepared
+          .map((item) => item.hash)
+          .filter((hash): hash is string => hash !== null && !known.has(hash)),
+      ),
+    ];
+    if (uncovered.length > 0) {
+      const resolved = await deps.resolveKnownTagsByHash(uncovered);
+      for (const [hash, tags] of resolved) {
+        if (known.has(hash)) continue;
+        known.set(hash, tags);
+        globallyKnown.add(hash);
+      }
+    }
+  }
 
   // Phase 2 — resolve tags once per unique hash. Reuse persisted tags when we
   // can; otherwise call Claude on the first member's image.
   const reusedPersisted = new Set<string>();
   const errored = new Set<string>();
   const tagsByHash = new Map<string, AutoTagResult[]>();
+  const usageByHash = new Map<string, AutoTagUsage>();
   const hashesToClassify: string[] = [];
   const representativeByHash = new Map<string, (typeof prepared)[number]>();
 
@@ -351,6 +566,7 @@ export async function autoTagDeduped(
     try {
       const diagnostics = await classifyAutoTagImage(rep.image, rep.input, deps);
       tagsByHash.set(hash, diagnostics.tags);
+      if (diagnostics.usage) usageByHash.set(hash, diagnostics.usage);
     } catch (err) {
       errored.add(hash);
       tagsByHash.set(hash, []);
@@ -367,6 +583,7 @@ export async function autoTagDeduped(
         thumbnailHash: null,
         tags: [],
         outcome: item.fetchFailed ? "fetch_failed" : "no_thumbnail",
+        usage: ZERO_USAGE,
       };
     }
     const tags = tagsByHash.get(item.hash) ?? [];
@@ -376,6 +593,8 @@ export async function autoTagDeduped(
     let outcome: DedupAutoTagOutcome;
     if (errored.has(item.hash)) {
       outcome = "error";
+    } else if (globallyKnown.has(item.hash)) {
+      outcome = "reused_global";
     } else if (reusedPersisted.has(item.hash)) {
       outcome = "reused_persisted";
     } else if (isRepresentative) {
@@ -389,6 +608,9 @@ export async function autoTagDeduped(
       thumbnailHash: item.hash,
       tags,
       outcome,
+      usage: isRepresentative
+        ? (usageByHash.get(item.hash) ?? ZERO_USAGE)
+        : ZERO_USAGE,
     };
   });
 }
@@ -484,9 +706,9 @@ function groupTaxonomyByDimension(
   return grouped;
 }
 
-function mediaTypeFromContentType(
+export function mediaTypeFromContentType(
   contentType: string | null,
-): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
+): AutoTagImageMediaType {
   const normalized = contentType?.toLowerCase() ?? "";
   if (normalized.includes("png")) return "image/png";
   if (normalized.includes("gif")) return "image/gif";

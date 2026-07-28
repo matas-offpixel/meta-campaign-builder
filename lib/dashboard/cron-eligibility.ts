@@ -2,7 +2,29 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type DbClient = Pick<SupabaseClient, "from">;
 
-const WINDOW_DAYS = 60;
+/**
+ * Sale-date eligibility window, in days either side of `now`. Split into two
+ * constants (previously a single shared `WINDOW_DAYS = 60`) because the two
+ * crons that read it have very different cost/staleness tradeoffs:
+ *
+ * - `ROLLUP_SYNC_WINDOW_DAYS` — the rollup-sync-events cron's window is
+ *   LOAD-BEARING at 60 days (PR #479 Edinburgh pagination fix; see
+ *   `LIVE_CRON_WINDOW_DAYS` in app/api/admin/event-legacy-spend-backfill/
+ *   route.ts, which deliberately computes its historical backfill range as
+ *   disjoint from this live window). Do NOT change this without also
+ *   updating that backfill route's assumption.
+ * - `ACTIVE_CREATIVES_WINDOW_DAYS` — the refresh-active-creatives cron's
+ *   window drives which events get Meta creative-snapshot refreshes AND
+ *   (when `ENABLE_AI_AUTOTAG=1`) the Anthropic auto-tag pass. Tightened from
+ *   60 to 30 days (autotag cost reduction, cursor/creator/autotag-cost-
+ *   reduction) — fewer far-out-from-sale events considered per run means
+ *   fewer creatives tagged. Independent of the rollup-sync window: spend/
+ *   ticket syncing and creative refresh have different freshness needs, and
+ *   narrowing this one does not touch the rollup-sync load-bearing invariant
+ *   above since they're no longer the same constant.
+ */
+const ACTIVE_CREATIVES_WINDOW_DAYS = 30;
+const ROLLUP_SYNC_WINDOW_DAYS = 60;
 const CODE_MATCH_EVENT_DATE_LOOKBACK_DAYS = 180;
 // "upcoming" is included so events whose ticket sale has not yet
 // opened (but whose Meta campaigns ARE already running for waitlist
@@ -81,6 +103,7 @@ export async function loadActiveCreativesCronEligibility(
   now: Date = new Date(),
 ): Promise<CronEligibilityResult> {
   const sets = await loadEligibilitySets(supabase, now, {
+    windowDays: ACTIVE_CREATIVES_WINDOW_DAYS,
     includeGoogleAds: false,
     includeBrandCampaigns: false,
   });
@@ -95,6 +118,7 @@ export async function loadRollupSyncCronEligibility(
   now: Date = new Date(),
 ): Promise<CronEligibilityResult> {
   const sets = await loadEligibilitySets(supabase, now, {
+    windowDays: ROLLUP_SYNC_WINDOW_DAYS,
     includeGoogleAds: true,
     includeBrandCampaigns: true,
   });
@@ -104,15 +128,30 @@ export async function loadRollupSyncCronEligibility(
   };
 }
 
+/** Pure sale-date window computation, split out so the ±N-day boundary is
+ * unit-testable without a DB. */
+export function computeSaleDateWindow(
+  now: Date,
+  windowDays: number,
+): { sinceISO: string; untilISO: string } {
+  const sinceMs = now.getTime() - windowDays * 24 * 60 * 60 * 1000;
+  const untilMs = now.getTime() + windowDays * 24 * 60 * 60 * 1000;
+  return {
+    sinceISO: new Date(sinceMs).toISOString(),
+    untilISO: new Date(untilMs).toISOString(),
+  };
+}
+
 async function loadEligibilitySets(
   supabase: DbClient,
   now: Date,
-  options: { includeGoogleAds: boolean; includeBrandCampaigns: boolean },
+  options: {
+    windowDays: number;
+    includeGoogleAds: boolean;
+    includeBrandCampaigns: boolean;
+  },
 ): Promise<Omit<CronEligibilityResult, "eligibleIds">> {
-  const sinceMs = now.getTime() - WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const untilMs = now.getTime() + WINDOW_DAYS * 24 * 60 * 60 * 1000;
-  const sinceISO = new Date(sinceMs).toISOString();
-  const untilISO = new Date(untilMs).toISOString();
+  const { sinceISO, untilISO } = computeSaleDateWindow(now, options.windowDays);
   const codeMatchSinceDate = ymdDaysAgo(
     now,
     CODE_MATCH_EVENT_DATE_LOOKBACK_DAYS,

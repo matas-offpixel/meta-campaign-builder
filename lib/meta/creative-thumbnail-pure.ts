@@ -16,7 +16,7 @@ const EXT_FOR_TYPE: Record<string, string> = {
   "image/gif": "gif",
 };
 
-function extFromContentType(ct: string): string {
+export function extFromContentType(ct: string): string {
   const base = ct.split(";")[0]?.trim().toLowerCase() ?? "image/jpeg";
   return EXT_FOR_TYPE[base] ?? "jpg";
 }

@@ -6,6 +6,7 @@ import {
   AI_AUTOTAG_MODEL_VERSION,
   autoTagWithDiagnostics,
 } from "../lib/intelligence/auto-tagger.ts";
+import { createSupabaseAutoTagThumbnailCache } from "../lib/intelligence/auto-tag-thumbnail-cache.ts";
 import {
   CREATIVE_TAG_DIMENSIONS,
   listCreativeTags,
@@ -30,28 +31,50 @@ if (!supabaseUrl || !serviceRoleKey) {
 if (!userId) throw new Error("Missing SEED_USER_ID.");
 if (!anthropicApiKey) throw new Error("Missing ANTHROPIC_API_KEY.");
 
-// ── Configuration (env-driven so the script stays argument-free) ────────────
+// ── Configuration (env-driven, with CLI flag overrides) ──────────────────────
 //
 // Ground truth defaults to manually-applied tags (the original behaviour). To
 // compare a candidate model against the current Sonnet tags, set:
+//   --model=<candidate-model>  or  VALIDATE_PREDICT_MODEL=<candidate-model>
 //   VALIDATE_GROUND_TRUTH=ai
 //   VALIDATE_GROUND_TRUTH_MODEL=claude-sonnet-4-6   (the incumbent tags)
-//   VALIDATE_PREDICT_MODEL=<candidate-model>        (defaults to current model)
 //   VALIDATE_LIMIT=200                              (optional sample cap)
 // Then `precision` = % of candidate tags that match Sonnet, `recall` = % of
 // Sonnet tags the candidate reproduced, and `agreement` (F1) summarises the
 // two per dimension. This is the harness used to validate (and reject) the
 // Haiku 4.5 swap on PR #457.
+//
+// `--model` is a thin CLI convenience over VALIDATE_PREDICT_MODEL so a
+// side-by-side re-run doesn't require exporting an env var first, e.g.:
+//   npx tsx scripts/validate-ai-tagging.ts --model=claude-haiku-4-5-20251001
+// The flag takes precedence over the env var when both are set.
+const cliArgs = parseCliArgs(process.argv.slice(2));
 const groundTruthSource = (process.env.VALIDATE_GROUND_TRUTH ?? "manual") as
   | "manual"
   | "ai";
 const groundTruthModel =
   process.env.VALIDATE_GROUND_TRUTH_MODEL ?? "claude-sonnet-4-6";
 const predictModel =
-  process.env.VALIDATE_PREDICT_MODEL ?? AI_AUTOTAG_MODEL_VERSION;
+  cliArgs.model ?? process.env.VALIDATE_PREDICT_MODEL ?? AI_AUTOTAG_MODEL_VERSION;
 const sampleLimit = process.env.VALIDATE_LIMIT
   ? Math.max(1, Number(process.env.VALIDATE_LIMIT))
   : null;
+
+/** Minimal `--key=value` / `--key value` parser — no dependency needed for
+ * the one flag this script accepts. */
+function parseCliArgs(argv: string[]): { model?: string } {
+  const out: { model?: string } = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg.startsWith("--model=")) {
+      out.model = arg.slice("--model=".length);
+    } else if (arg === "--model" && argv[i + 1]) {
+      out.model = argv[i + 1];
+      i += 1;
+    }
+  }
+  return out;
+}
 
 interface ManualAssignmentRow {
   event_id: string;
@@ -82,6 +105,12 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+// Lever 5: a --model side-by-side run (e.g. Sonnet then Haiku, per the CLI
+// flag above) re-tags the exact same creative set twice. Without this, that
+// means fetching every thumbnail from Meta/CDN twice for identical bytes.
+const thumbnailCache = createSupabaseAutoTagThumbnailCache(supabase);
+let thumbnailCacheHits = 0;
+let thumbnailMetaFetches = 0;
 
 async function main() {
   const taxonomy = (await listCreativeTags(supabase)).filter(
@@ -144,8 +173,10 @@ async function main() {
         headline: group.representative_headline,
         body: group.representative_body_preview,
       },
-      { taxonomy, anthropic, modelVersion: predictModel },
+      { taxonomy, anthropic, modelVersion: predictModel, thumbnailCache },
     );
+    if (predicted.thumbnailSource === "cache") thumbnailCacheHits += 1;
+    else if (predicted.thumbnailSource === "meta") thumbnailMetaFetches += 1;
     rawTagCount += predicted.rawTagCount;
     hallucinatedTagCount += predicted.hallucinatedTagCount;
     const predictedByDimension = groupPredictions(predicted.tags);
@@ -194,6 +225,10 @@ async function main() {
       missing_concept_group: missingGroup,
       missing_thumbnail: missingThumbnail,
     },
+    thumbnail_fetches: {
+      cache_hits: thumbnailCacheHits,
+      meta_fetches: thumbnailMetaFetches,
+    },
     // For an AI ground truth this is the candidate-vs-Sonnet agreement:
     // precision = share of predicted tags that the ground truth also has,
     // recall = share of ground-truth tags reproduced, agreement (= f1) the
@@ -231,7 +266,7 @@ async function main() {
       groundTruthSource === "ai" ? `:${groundTruthModel}` : ""
     } creatives=${totalCreatives} estimated_ai_cost_usd=${(
       totalCreatives * ESTIMATED_USD_PER_CREATIVE
-    ).toFixed(2)}`,
+    ).toFixed(2)} thumbnail_cache_hits=${thumbnailCacheHits} thumbnail_meta_fetches=${thumbnailMetaFetches}`,
   );
 }
 
