@@ -50,10 +50,34 @@ export interface GrantUserPagePermissionRequest {
 }
 
 /**
- * Builds the `POST /{pageId}/assigned_users` path + body for a grant call.
+ * Builds the `POST /{pageId}/assigned_users` path + body for an arbitrary task
+ * set — the primitive both the role-based v1 grant and the migration-148
+ * audience grant are expressed in terms of.
+ *
  * `businessId` is REQUIRED in the body (Meta rejects the call with code 100
- * "Invalid parameter" without it) even though the path itself has no
- * business id segment.
+ * "Invalid parameter" without it) even though the path itself has no business
+ * id segment. `tasks` is sent as a JSON array: verified live on 2026-07-28 that
+ * a JSON body works uniformly across every asset type's assigned_users edge,
+ * whereas form encoding requires the indexed `tasks[0]=…` form (see
+ * docs/session-logs/pr-726-ops-bm-asset-sync-v2.md).
+ */
+export function buildGrantUserPageTasksRequest(
+  pageId: string,
+  businessId: string,
+  targetUserId: string,
+  tasks: string[],
+): GrantUserPagePermissionRequest {
+  return {
+    path: `/${pageId}/assigned_users`,
+    body: { business: businessId, user: targetUserId, tasks },
+  };
+}
+
+/**
+ * Builds the `POST /{pageId}/assigned_users` path + body for a ROLE-based grant
+ * (v1's ADVERTISER path). Thin wrapper over
+ * `buildGrantUserPageTasksRequest` — the role→tasks mapping is the only
+ * difference.
  */
 export function buildGrantUserPagePermissionRequest(
   pageId: string,
@@ -61,8 +85,10 @@ export function buildGrantUserPagePermissionRequest(
   targetUserId: string,
   role: BMPageRole,
 ): GrantUserPagePermissionRequest {
-  return {
-    path: `/${pageId}/assigned_users`,
-    body: { business: businessId, user: targetUserId, tasks: ROLE_TO_META_TASKS[role] },
-  };
+  return buildGrantUserPageTasksRequest(
+    pageId,
+    businessId,
+    targetUserId,
+    ROLE_TO_META_TASKS[role],
+  );
 }

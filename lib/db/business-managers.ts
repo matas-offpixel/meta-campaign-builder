@@ -62,6 +62,8 @@ function mapPage(raw: Record<string, unknown>): BMPage {
     category: (raw.category as string | null) ?? null,
     is_owned_by_bm: Boolean(raw.is_owned_by_bm),
     user_has_access: Boolean(raw.user_has_access),
+    user_has_audience_access: Boolean(raw.user_has_audience_access),
+    user_tasks: (raw.user_tasks as string[] | null) ?? [],
     followers: (raw.followers as number | null) ?? null,
     avatar_url: (raw.avatar_url as string | null) ?? null,
     first_seen_at: raw.first_seen_at as string,
@@ -214,14 +216,19 @@ export async function listBusinessManagerSummaries(
   // Page counts — fetch minimal columns and aggregate in JS.
   const { data: pageRows, error: pageErr } = await sb
     .from("bm_pages")
-    .select("business_id, user_has_access");
+    .select("business_id, user_has_access, user_has_audience_access");
   if (pageErr) console.error("[bm summaries pages]", pageErr.message);
 
-  const totals = new Map<string, { total: number; missing: number }>();
-  for (const r of (pageRows ?? []) as { business_id: string; user_has_access: boolean }[]) {
-    const t = totals.get(r.business_id) ?? { total: 0, missing: 0 };
+  const totals = new Map<string, { total: number; missing: number; missingAudience: number }>();
+  for (const r of (pageRows ?? []) as {
+    business_id: string;
+    user_has_access: boolean;
+    user_has_audience_access: boolean;
+  }[]) {
+    const t = totals.get(r.business_id) ?? { total: 0, missing: 0, missingAudience: 0 };
     t.total += 1;
     if (!r.user_has_access) t.missing += 1;
+    if (!r.user_has_audience_access) t.missingAudience += 1;
     totals.set(r.business_id, t);
   }
 
@@ -241,12 +248,13 @@ export async function listBusinessManagerSummaries(
   }
 
   return bms.map((b) => {
-    const t = totals.get(b.business_id) ?? { total: 0, missing: 0 };
+    const t = totals.get(b.business_id) ?? { total: 0, missing: 0, missingAudience: 0 };
     return {
       ...b,
       client_name: b.client_id ? clientNames.get(b.client_id) ?? null : null,
       total_pages: t.total,
       missing_access_count: t.missing,
+      missing_audience_access_count: t.missingAudience,
     };
   });
 }
@@ -277,6 +285,10 @@ export interface UpsertPageInput {
   category: string | null;
   is_owned_by_bm: boolean;
   user_has_access: boolean;
+  /** Audience-seed task present — migration 148. */
+  user_has_audience_access: boolean;
+  /** The operator's real page tasks from Meta; evidence for both booleans. */
+  user_tasks: string[];
   followers: number | null;
   avatar_url: string | null;
 }
@@ -310,6 +322,8 @@ export async function upsertBMPages(
     category: p.category,
     is_owned_by_bm: p.is_owned_by_bm,
     user_has_access: p.user_has_access,
+    user_has_audience_access: p.user_has_audience_access,
+    user_tasks: p.user_tasks,
     followers: p.followers,
     avatar_url: p.avatar_url,
     last_seen_at: now,
@@ -375,6 +389,56 @@ export async function setPageAccessFlag(
     .eq("business_id", bizId)
     .eq("page_id", pageId);
   if (error) console.error("[bm setPageAccessFlag]", error.message);
+}
+
+/**
+ * Write one page's observed task state after a read-back (migration 148).
+ *
+ * Deliberately an UPDATE, not an upsert: an upsert would have to supply every
+ * column and would reset `is_owned_by_bm` to its default, silently reclassifying
+ * client-shared pages as BM-owned. Callers only ever reconcile pages a scan has
+ * already inserted.
+ */
+export async function setPageTaskState(
+  supabase: AnySupabaseClient,
+  bizId: string,
+  pageId: string,
+  state: { userHasAccess: boolean; userHasAudienceAccess: boolean; userTasks: string[] },
+): Promise<void> {
+  const sb = asAny(supabase);
+  const { error } = await sb
+    .from("bm_pages")
+    .update({
+      user_has_access: state.userHasAccess,
+      user_has_audience_access: state.userHasAudienceAccess,
+      user_tasks: state.userTasks,
+      last_seen_at: new Date().toISOString(),
+    })
+    .eq("business_id", bizId)
+    .eq("page_id", pageId);
+  if (error) console.error("[bm setPageTaskState]", error.message);
+}
+
+/**
+ * Page ids under a BM that lack the audience task — the target set for
+ * "Grant audience access to all". Independent of `user_has_access`: a page can
+ * already run ads and still need this.
+ */
+export async function getMissingAudienceAccessPageIds(
+  supabase: AnySupabaseClient,
+  bizId: string,
+): Promise<string[]> {
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("bm_pages")
+    .select("page_id")
+    .eq("business_id", bizId)
+    .eq("user_has_audience_access", false);
+  if (error) {
+    console.error("[bm getMissingAudienceAccessPageIds]", error.message);
+    return [];
+  }
+  return ((data ?? []) as { page_id: string }[]).map((r) => r.page_id);
 }
 
 // ─── bm_page_access_events ────────────────────────────────────────────────────

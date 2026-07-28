@@ -20,7 +20,10 @@ import {
   MetaApiError,
 } from "./client.ts";
 import type { BMPageRole } from "@/lib/bm/types";
-import { buildGrantUserPagePermissionRequest } from "./business-manager-grant-request.ts";
+import {
+  buildGrantUserPagePermissionRequest,
+  buildGrantUserPageTasksRequest,
+} from "./business-manager-grant-request.ts";
 import {
   pickBusinessScopedUserIdByName,
   pickBusinessScopedUserIdFromMe,
@@ -225,6 +228,30 @@ export async function grantUserPagePermission(
   token: string,
 ): Promise<{ success?: boolean; id?: string }> {
   const { path, body } = buildGrantUserPagePermissionRequest(pageId, bizId, targetUserId, role);
+  console.log(
+    `[bm grant] biz=${bizId} page=${pageId} user=${targetUserId} tasks=${body.tasks.join(",")}`,
+  );
+  return graphPostWithToken<{ success?: boolean; id?: string }>(path, body, token);
+}
+
+/**
+ * POST /{pageId}/assigned_users with an EXPLICIT task set — the migration-148
+ * audience-access path, where the grant is a task list rather than one of our
+ * `BMPageRole` presets.
+ *
+ * Same edge, same required `business` body param and same single-shot policy as
+ * `grantUserPagePermission` above; only the tasks differ. Callers are
+ * responsible for passing a task set that preserves whatever the operator
+ * already had — see `buildAudienceGrantTasks` in `lib/bm/page-tasks.ts`.
+ */
+export async function grantUserPageTasks(
+  bizId: string,
+  pageId: string,
+  targetUserId: string,
+  tasks: string[],
+  token: string,
+): Promise<{ success?: boolean; id?: string }> {
+  const { path, body } = buildGrantUserPageTasksRequest(pageId, bizId, targetUserId, tasks);
   console.log(
     `[bm grant] biz=${bizId} page=${pageId} user=${targetUserId} tasks=${body.tasks.join(",")}`,
   );
