@@ -86,6 +86,18 @@ carries **no `X-App-Usage` header**, so no retry estimate can be derived from it
 window cleared, the probe was run as a single targeted call rather than the
 four-stage script, to spend as little quota as possible.
 
+**Not captured: the read side.** A parallel attempt to read
+`GET /me/accounts?fields=id,name,tasks` and record the union of tasks the
+operator actually holds never got through — two waiters retried for 10 and 17
+minutes respectively and every attempt returned `#4`. That is a gap worth being
+explicit about, because `user_tasks` is populated from that exact field: the
+first post-deploy scan is therefore the first real observation of the read-side
+vocabulary. The enum finding above does not depend on it (a rejected write is
+schema validation and is not token- or quota-sensitive in what it enumerates),
+but if the read side ever returns a task string outside
+`PAGE_PERMITTED_TASKS`, the validator would reject re-granting it — so the
+post-deploy check below is a genuine verification step, not a formality.
+
 ### Meta Ads MCP
 
 `user-meta-ads` has **no business-asset tools** — same finding as PR A. Its
@@ -265,6 +277,10 @@ request-builder refactor changed nothing.
 - [ ] Post-deploy smoke: expand a BM's Pages row, confirm real task lists render
       from a fresh scan, and confirm a `["ANALYZE"]` grant on one LWE page reads
       back confirmed
+- [ ] Post-deploy: check the scanned `user_tasks` union contains no string absent
+      from `PAGE_PERMITTED_TASKS` (the read side was never reachable in-session —
+      see the note above). A stray value means the validator needs widening:
+      `select distinct unnest(user_tasks) from bm_pages order by 1;`
 - [ ] Post-deploy negative check: a `["AUDIENCE_MANAGE"]` POST to the grant route
       returns 400 with the enum in the message, without reaching Meta
 
