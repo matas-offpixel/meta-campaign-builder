@@ -62,6 +62,9 @@ function mapPage(raw: Record<string, unknown>): BMPage {
     category: (raw.category as string | null) ?? null,
     is_owned_by_bm: Boolean(raw.is_owned_by_bm),
     user_has_access: Boolean(raw.user_has_access),
+    user_tasks: (raw.user_tasks as string[] | null) ?? [],
+    last_grant_requested_tasks: (raw.last_grant_requested_tasks as string[] | null) ?? null,
+    last_grant_at: (raw.last_grant_at as string | null) ?? null,
     followers: (raw.followers as number | null) ?? null,
     avatar_url: (raw.avatar_url as string | null) ?? null,
     first_seen_at: raw.first_seen_at as string,
@@ -277,6 +280,8 @@ export interface UpsertPageInput {
   category: string | null;
   is_owned_by_bm: boolean;
   user_has_access: boolean;
+  /** The operator's real page tasks from Meta (migration 149) — evidence, not a verdict. */
+  user_tasks: string[];
   followers: number | null;
   avatar_url: string | null;
 }
@@ -310,6 +315,7 @@ export async function upsertBMPages(
     category: p.category,
     is_owned_by_bm: p.is_owned_by_bm,
     user_has_access: p.user_has_access,
+    user_tasks: p.user_tasks,
     followers: p.followers,
     avatar_url: p.avatar_url,
     last_seen_at: now,
@@ -375,6 +381,59 @@ export async function setPageAccessFlag(
     .eq("business_id", bizId)
     .eq("page_id", pageId);
   if (error) console.error("[bm setPageAccessFlag]", error.message);
+}
+
+/**
+ * Write one page's observed task state after a read-back (migration 149).
+ *
+ * Deliberately an UPDATE, not an upsert: an upsert would have to supply every
+ * column and would reset `is_owned_by_bm` to its default, silently reclassifying
+ * client-shared pages as BM-owned. Callers only ever reconcile pages a scan has
+ * already inserted.
+ */
+export async function setPageTaskState(
+  supabase: AnySupabaseClient,
+  bizId: string,
+  pageId: string,
+  state: { userHasAccess: boolean; userTasks: string[] },
+): Promise<void> {
+  const sb = asAny(supabase);
+  const { error } = await sb
+    .from("bm_pages")
+    .update({
+      user_has_access: state.userHasAccess,
+      user_tasks: state.userTasks,
+      last_seen_at: new Date().toISOString(),
+    })
+    .eq("business_id", bizId)
+    .eq("page_id", pageId);
+  if (error) console.error("[bm setPageTaskState]", error.message);
+}
+
+/**
+ * Record what a grant ASKED Meta for (migration 149).
+ *
+ * Stored separately from `user_tasks`, which holds what Meta subsequently
+ * reported. The delta between the two is the only reliable record of what Meta
+ * actually did with a request — it expands some tasks and can quietly ignore
+ * others — and it is the evidence the subcode-1713140 investigation needs.
+ */
+export async function recordPageGrantRequest(
+  supabase: AnySupabaseClient,
+  bizId: string,
+  pageId: string,
+  requestedTasks: string[],
+): Promise<void> {
+  const sb = asAny(supabase);
+  const { error } = await sb
+    .from("bm_pages")
+    .update({
+      last_grant_requested_tasks: requestedTasks,
+      last_grant_at: new Date().toISOString(),
+    })
+    .eq("business_id", bizId)
+    .eq("page_id", pageId);
+  if (error) console.error("[bm recordPageGrantRequest]", error.message);
 }
 
 // ─── bm_page_access_events ────────────────────────────────────────────────────

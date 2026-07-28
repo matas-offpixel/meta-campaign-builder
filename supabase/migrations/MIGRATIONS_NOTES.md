@@ -24,6 +24,13 @@ schema and has no repo file. Do not reuse the number.
 > EITHER placement (`set search_path = public, extensions` + unqualified
 > calls — the migration 134 pattern). Never single-schema-qualify.
 
+Migration **149** (`149_bm_page_task_audit.sql`) is recorded in the prod ledger
+under the name **`148_bm_page_task_audit`** (timestamp `20260728205821`). Two
+threads claimed 148 on the same evening — a thumbnail-hash index at 20:30 and
+this one at 20:58 — and the file was renumbered to 149 afterwards so this folder
+stays ordered. The ledger entry was left as applied, per the convention above
+that the numeric prefix carries no execution meaning.
+
 ## 068a–e collision resolution (May 2026)
 
 Five migration files previously had numeric collisions at prefixes `068` and `069`.

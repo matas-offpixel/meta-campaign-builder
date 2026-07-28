@@ -14,9 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   describeGrantResult,
+  describeTaskGrantResult,
   type BusinessManagerSummary,
   type DetectedNewPage,
   type GrantRunOutcome,
+  type TaskGrantOutcome,
 } from "@/lib/bm/types";
 import {
   BM_ASSET_DESCRIPTORS,
@@ -26,6 +28,16 @@ import {
 } from "@/lib/bm/asset-kinds";
 import { appUsageBadgePercent, type AppUsageSnapshot } from "@/lib/meta/app-usage";
 import { BMAssetList } from "./bm-asset-list";
+import { BMPageList } from "./bm-page-list";
+
+/**
+ * Task-set grant runs carry a read-back `confirmed` count; the v1 ADVERTISE
+ * grant paths do not. The distinction matters in the notice text: only a
+ * confirmed count can honestly claim Meta reported the capability.
+ */
+function isTaskGrantResult(value: unknown): value is TaskGrantOutcome {
+  return isGrantResult(value) && "confirmed" in value;
+}
 
 function isGrantResult(value: unknown): value is GrantRunOutcome {
   return (
@@ -70,9 +82,17 @@ function formatTimestamp(iso: string | null): string {
   return `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-async function postJson(url: string): Promise<{ ok: boolean; error?: string; result?: unknown }> {
+async function postJson(
+  url: string,
+  payload?: unknown,
+): Promise<{ ok: boolean; error?: string; result?: unknown }> {
   try {
-    const res = await fetch(url, { method: "POST" });
+    const res = await fetch(url, {
+      method: "POST",
+      ...(payload === undefined
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    });
     const body = (await res.json().catch(() => null)) as
       | { ok?: boolean; error?: string; result?: unknown; needsReconnect?: boolean }
       | null;
@@ -119,10 +139,15 @@ export function BusinessManagersDashboard({
     return assetCounts[activeKind]?.[bizId] ?? { total: 0, missingAccess: 0 };
   };
 
-  const run = async (key: string, url: string, successText: string): Promise<boolean> => {
+  const run = async (
+    key: string,
+    url: string,
+    successText: string,
+    body?: unknown,
+  ): Promise<boolean> => {
     setBusyKey(key);
     setNotice(null);
-    const res = await postJson(url);
+    const res = await postJson(url, body);
     if (!res.ok) {
       setNotice({ kind: "error", text: res.error ?? "Action failed" });
       setBusyKey(null);
@@ -131,9 +156,11 @@ export function BusinessManagersDashboard({
     // Grant endpoints return a grant outcome — prefer its real granted/failed
     // counts over the static successText so a partial failure (or a run
     // that granted 0/N) is never reported as a flat success.
-    const text = isGrantResult(res.result)
-      ? describeGrantResult(res.result, activeDescriptor.label.toLowerCase())
-      : successText;
+    const text = isTaskGrantResult(res.result)
+      ? describeTaskGrantResult(res.result)
+      : isGrantResult(res.result)
+        ? describeGrantResult(res.result, activeDescriptor.label.toLowerCase())
+        : successText;
     setNotice({ kind: "ok", text });
     // router.refresh() re-fetches the server component tree (page.tsx is
     // force-dynamic) so the counts below reflect the fresh missing-access
@@ -431,11 +458,14 @@ export function BusinessManagersDashboard({
                           <tr className="bg-muted/20">
                             <td colSpan={5} className="p-0">
                               {activeKind === "page" ? (
-                                <p className="px-4 py-3 text-xs text-muted-foreground">
-                                  Per-page detail lives in the new-pages inbox above. Use{" "}
-                                  <span className="font-medium">Grant all missing</span> to
-                                  resolve pages in bulk.
-                                </p>
+                                <BMPageList
+                                  businessId={bm.business_id}
+                                  onGrant={(key, url, body) =>
+                                    run(key, url, "Access granted.", body)
+                                  }
+                                  busyKey={busyKey}
+                                  disabled={isPending}
+                                />
                               ) : (
                                 <BMAssetList
                                   businessId={bm.business_id}

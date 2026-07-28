@@ -7,6 +7,7 @@ import {
   listClientPages,
   listOwnedPages,
   listUserAccessiblePages,
+  type MetaAccessiblePage,
   type MetaBMPage,
 } from "@/lib/meta/business-manager";
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/lib/db/business-managers";
 import type { BusinessManager, ScanResult } from "@/lib/bm/types";
 import { chunk } from "@/lib/bm/chunk";
+import { derivePageAccessState } from "@/lib/bm/page-tasks";
 
 /**
  * Checkpoint boundary for the detected_new event-logging phase: after every
@@ -44,13 +46,35 @@ export function isTokenExpiredMetaError(err: unknown): boolean {
   return err instanceof MetaApiError && (err.code === 190 || err.subcode === 190);
 }
 
-function toUpsertInput(p: MetaBMPage, ownedByBm: boolean, accessible: Set<string>): UpsertPageInput {
+/**
+ * @param accessible page id → the operator's real tasks on it, from
+ *   `/me/accounts`. Absent from the map = the operator has no role at all.
+ */
+/** A scan that never got as far as reading pages. */
+function failedScan(bizId: string, error: string): ScanResult {
+  return {
+    businessId: bizId,
+    scannedPages: 0,
+    newPages: 0,
+    missingAccess: 0,
+    ok: false,
+    error,
+  };
+}
+
+function toUpsertInput(
+  p: MetaBMPage,
+  ownedByBm: boolean,
+  accessible: Map<string, string[]>,
+): UpsertPageInput {
+  const state = derivePageAccessState(accessible.get(p.id));
   return {
     page_id: p.id,
     page_name: p.name ?? null,
     category: p.category ?? null,
     is_owned_by_bm: ownedByBm,
-    user_has_access: accessible.has(p.id),
+    user_has_access: state.userHasAccess,
+    user_tasks: state.userTasks,
     followers: typeof p.fan_count === "number" ? p.fan_count : null,
     avatar_url: p.picture?.data?.url ?? null,
   };
@@ -81,18 +105,18 @@ export async function scanBusinessManager(
     const msg = err instanceof Error ? err.message : "decrypt_failed";
     console.error(`[bm-page-scan] biz=${bizId} token decrypt failed: ${msg}`);
     await updateBusinessManagerScanState(supabase, bizId, { lastError: msg });
-    return { businessId: bizId, scannedPages: 0, newPages: 0, missingAccess: 0, ok: false, error: msg };
+    return failedScan(bizId, msg);
   }
   if (!token) {
     const msg = "no_token_stored";
     console.error(`[bm-page-scan] biz=${bizId} ${msg}`);
     await updateBusinessManagerScanState(supabase, bizId, { lastError: msg });
-    return { businessId: bizId, scannedPages: 0, newPages: 0, missingAccess: 0, ok: false, error: msg };
+    return failedScan(bizId, msg);
   }
 
   let owned: MetaBMPage[];
   let clientPages: MetaBMPage[];
-  let accessiblePages: { id: string }[];
+  let accessiblePages: MetaAccessiblePage[];
   try {
     [owned, clientPages, accessiblePages] = await Promise.all([
       listOwnedPages(bizId, token),
@@ -111,7 +135,7 @@ export async function scanBusinessManager(
         action: "sync_error",
         detail: { error: "token_expired", message: msg },
       });
-      return { businessId: bizId, scannedPages: 0, newPages: 0, missingAccess: 0, ok: false, error: "token_expired" };
+      return failedScan(bizId, "token_expired");
     }
     console.error(`[bm-page-scan] biz=${bizId} fetch failed: ${msg}`);
     await updateBusinessManagerScanState(supabase, bizId, { lastError: msg });
@@ -122,10 +146,14 @@ export async function scanBusinessManager(
       action: "sync_error",
       detail: { message: msg },
     });
-    return { businessId: bizId, scannedPages: 0, newPages: 0, missingAccess: 0, ok: false, error: msg };
+    return failedScan(bizId, msg);
   }
 
-  const accessible = new Set(accessiblePages.map((p) => p.id));
+  // page id -> the operator's real tasks. A Map (not the Set v1 used) because
+  // migration 149 stores the task list itself, and `/me/accounts` was already
+  // returning it — v1 fetched `tasks` and threw it away, so capturing it costs
+  // zero extra Graph calls.
+  const accessible = new Map(accessiblePages.map((p) => [p.id, p.tasks ?? []]));
 
   // Merge owned + client pages; owned wins the ownership flag on collision.
   const merged = new Map<string, UpsertPageInput>();
@@ -178,7 +206,8 @@ export async function scanBusinessManager(
   await updateBusinessManagerScanState(supabase, bizId, { lastError: null });
 
   console.error(
-    `[bm-page-scan] biz=${bizId} scanned=${pages.length} new=${newPageIds.length} missing_access=${missingAccess}`,
+    `[bm-page-scan] biz=${bizId} scanned=${pages.length} new=${newPageIds.length} ` +
+      `missing_access=${missingAccess}`,
   );
 
   return {

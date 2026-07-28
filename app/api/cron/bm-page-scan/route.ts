@@ -99,7 +99,8 @@ export async function GET(req: NextRequest) {
   );
 
   console.error(
-    `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} pages=${totals.pages} new=${totals.newPages} missing_access=${totals.missing} errors=${totals.errors} | ` +
+    `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} pages=${totals.pages} new=${totals.newPages} ` +
+      `missing_access=${totals.missing} errors=${totals.errors} | ` +
       `assets=${assetTotals.assets} new=${assetTotals.newAssets} missing_access=${assetTotals.missing} errors=${assetTotals.errors}`,
   );
 

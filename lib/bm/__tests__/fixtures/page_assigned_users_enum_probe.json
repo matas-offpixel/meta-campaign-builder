@@ -1,0 +1,8 @@
+{
+  "error": {
+    "message": "Your request has violated JSON schema constraint 'enum' for the JSON field 'tasks.0', please check the JSON schema for the JSON field 'tasks.0' and make sure your request is valid for expected : '[FULL_CONTROL, CONTENT, MESSAGES, COMMUNITY_ACTIVITY, ADVERTISE, ANALYZE, IG_APP_ADMIN, IG_APP, SPARK_INSIGHTS, SPARK_PUBLISH, SPARK_EVERYTHING, CREATOR_MANAGEMENT, CREATIVE_MANAGEMENT]' but got '__ENUM_PROBE__'",
+    "code": 100,
+    "type": "OAuthException",
+    "fbtrace_id": "AUqmfr2_VjuA6BLk7LTFfxw"
+  }
+}

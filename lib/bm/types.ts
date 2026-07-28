@@ -10,6 +10,7 @@ export type BMPageRole = "ADVERTISER" | "ANALYST" | "EDITOR" | "ADMIN";
 
 export const DEFAULT_GRANT_ROLE: BMPageRole = "ADVERTISER";
 
+
 export type BMAccessAction =
   | "granted"
   | "revoked"
@@ -41,6 +42,15 @@ export interface BMPage {
   category: string | null;
   is_owned_by_bm: boolean;
   user_has_access: boolean;
+  /**
+   * The operator's real page tasks as read back from Meta (migration 149).
+   * Evidence, not a verdict — `user_has_access` is only "holds some role", so
+   * this is the field that says WHICH capabilities exist.
+   */
+  user_tasks: string[];
+  /** Tasks the most recent grant asked for; compare against user_tasks to see what Meta did. */
+  last_grant_requested_tasks: string[] | null;
+  last_grant_at: string | null;
   followers: number | null;
   avatar_url: string | null;
   first_seen_at: string;
@@ -113,6 +123,19 @@ export interface GrantResult extends GrantRunOutcome {
 }
 
 /**
+ * A grant run whose success is established by READ-BACK rather than by the POST
+ * returning 200 (migration 149). `granted` counts accepted POSTs; `confirmed`
+ * counts assets where Meta subsequently reported the requested tasks.
+ */
+export interface TaskGrantOutcome extends GrantRunOutcome {
+  confirmed: number;
+  /** The verification call failed. Grants may have landed; nothing was confirmed. */
+  readBackFailed?: boolean;
+  /** The task set that was requested, for the operator-facing message. */
+  requestedTasks?: string[];
+}
+
+/**
  * True only when every attempted grant actually succeeded and the run
  * wasn't halted by a Meta rate limit. Used by the API routes to compute
  * their `ok` response field and by the dashboard to decide whether to show
@@ -154,5 +177,61 @@ export function describeGrantResult(result: GrantRunOutcome, noun = "page"): str
   return (
     `Granted ${result.granted}/${result.attempted}. ${result.failed} failed` +
     (firstError ? `: ${firstError}` : ".")
+  );
+}
+
+/**
+ * Success for a task-grant run requires CONFIRMATION, not just accepted POSTs.
+ * A page that reports a successful grant but still lacks the task in Meta's own
+ * read-back is the exact silent-failure shape this arc keeps running into, and
+ * PR #726 verified that Meta both expands and quietly reshapes grants. An
+ * unverifiable run (read-back call failed) is therefore not a success either.
+ */
+export function isTaskGrantSuccess(result: TaskGrantOutcome): boolean {
+  return (
+    !result.tokenExpired &&
+    !result.rateLimited &&
+    !result.readBackFailed &&
+    result.failed === 0 &&
+    result.confirmed === result.attempted
+  );
+}
+
+/** Human-readable summary of a task-grant run, for API responses + UI notices. */
+export function describeTaskGrantResult(result: TaskGrantOutcome): string {
+  const what = result.requestedTasks?.length ? result.requestedTasks.join(" + ") : "tasks";
+
+  if (result.tokenExpired) {
+    return "Facebook token expired — reconnect required.";
+  }
+  if (result.rateLimited) {
+    const total = result.totalTargeted ?? result.attempted;
+    return (
+      `Granted ${what} on ${result.granted} of ${total} — Meta rate limit hit, ` +
+      `retry in ~${result.retryAfterMinutes ?? 45} minutes.`
+    );
+  }
+  if (result.attempted === 0) {
+    return `Nothing to grant — every page already holds ${what}.`;
+  }
+  if (result.readBackFailed) {
+    return (
+      `Sent ${result.granted}/${result.attempted} grants of ${what} but could not verify them. ` +
+      `Run Sync now to confirm before relying on these pages.`
+    );
+  }
+  if (result.failed === 0 && result.confirmed === result.attempted) {
+    return `${what} confirmed on ${result.confirmed}/${result.attempted} page(s).`;
+  }
+  // Accepted-but-unconfirmed is called out explicitly rather than folded into a
+  // generic partial-failure message: Meta returning 200 while the capability is
+  // still absent is a different problem from a call that errored, and it is the
+  // one that previously went unnoticed.
+  const firstError = result.failures[0]?.error;
+  return (
+    `Granted ${result.granted}/${result.attempted}, confirmed ${result.confirmed}.` +
+    (result.failed > 0
+      ? ` ${result.failed} failed${firstError ? `: ${firstError}` : "."}`
+      : " Meta accepted the rest but has not reported the tasks yet — rerun Sync now.")
   );
 }
