@@ -10,16 +10,6 @@ export type BMPageRole = "ADVERTISER" | "ANALYST" | "EDITOR" | "ADMIN";
 
 export const DEFAULT_GRANT_ROLE: BMPageRole = "ADVERTISER";
 
-/**
- * What a page grant is FOR.
- *
- * Pages carry two INDEPENDENT capabilities on the same assigned_users edge:
- * running ads (the ADVERTISE task, v1's only grant) and seeding audiences (the
- * audience task, migration 148). They are granted separately and tracked in
- * separate columns, so every page-grant call has to say which it means rather
- * than assuming ADVERTISE.
- */
-export type BMPageGrantIntent = "advertise" | "audience";
 
 export type BMAccessAction =
   | "granted"
@@ -53,13 +43,14 @@ export interface BMPage {
   is_owned_by_bm: boolean;
   user_has_access: boolean;
   /**
-   * Audience-seed access — a SEPARATE Meta task from ADVERTISE (migration 148).
-   * A page can be true for `user_has_access` and false here, which is exactly
-   * the state that makes the wizard's audience builder skip it (subcode 1713140).
+   * The operator's real page tasks as read back from Meta (migration 149).
+   * Evidence, not a verdict — `user_has_access` is only "holds some role", so
+   * this is the field that says WHICH capabilities exist.
    */
-  user_has_audience_access: boolean;
-  /** The operator's real page tasks, as read back from Meta. Evidence for both flags above. */
   user_tasks: string[];
+  /** Tasks the most recent grant asked for; compare against user_tasks to see what Meta did. */
+  last_grant_requested_tasks: string[] | null;
+  last_grant_at: string | null;
   followers: number | null;
   avatar_url: string | null;
   first_seen_at: string;
@@ -71,8 +62,6 @@ export interface BusinessManagerSummary extends BusinessManager {
   client_name: string | null;
   total_pages: number;
   missing_access_count: number;
-  /** Pages lacking the audience task — counted separately from missing_access_count. */
-  missing_audience_access_count: number;
 }
 
 /** A newly-detected page joined with its BM/client context for the inbox cards. */
@@ -94,8 +83,6 @@ export interface ScanResult {
   scannedPages: number;
   newPages: number;
   missingAccess: number;
-  /** Pages lacking the audience task (migration 148) — tracked alongside, never merged in. */
-  missingAudienceAccess: number;
   ok: boolean;
   error?: string;
 }
@@ -137,13 +124,15 @@ export interface GrantResult extends GrantRunOutcome {
 
 /**
  * A grant run whose success is established by READ-BACK rather than by the POST
- * returning 200 (the migration-148 audience grants). `granted` counts accepted
- * POSTs; `confirmed` counts pages where Meta subsequently reported the task.
+ * returning 200 (migration 149). `granted` counts accepted POSTs; `confirmed`
+ * counts assets where Meta subsequently reported the requested tasks.
  */
-export interface AudienceGrantOutcome extends GrantRunOutcome {
+export interface TaskGrantOutcome extends GrantRunOutcome {
   confirmed: number;
   /** The verification call failed. Grants may have landed; nothing was confirmed. */
   readBackFailed?: boolean;
+  /** The task set that was requested, for the operator-facing message. */
+  requestedTasks?: string[];
 }
 
 /**
@@ -192,12 +181,13 @@ export function describeGrantResult(result: GrantRunOutcome, noun = "page"): str
 }
 
 /**
- * Success for an audience-grant run requires CONFIRMATION, not just accepted
- * POSTs — a page that reports a successful grant but still lacks the task in
- * Meta's own read-back is precisely the silent failure this PR exists to stop.
- * An unverifiable run (read-back call failed) is therefore not a success either.
+ * Success for a task-grant run requires CONFIRMATION, not just accepted POSTs.
+ * A page that reports a successful grant but still lacks the task in Meta's own
+ * read-back is the exact silent-failure shape this arc keeps running into, and
+ * PR #726 verified that Meta both expands and quietly reshapes grants. An
+ * unverifiable run (read-back call failed) is therefore not a success either.
  */
-export function isAudienceGrantSuccess(result: AudienceGrantOutcome): boolean {
+export function isTaskGrantSuccess(result: TaskGrantOutcome): boolean {
   return (
     !result.tokenExpired &&
     !result.rateLimited &&
@@ -207,37 +197,41 @@ export function isAudienceGrantSuccess(result: AudienceGrantOutcome): boolean {
   );
 }
 
-/** Human-readable summary of an audience-grant run, for API responses + UI notices. */
-export function describeAudienceGrantResult(result: AudienceGrantOutcome): string {
+/** Human-readable summary of a task-grant run, for API responses + UI notices. */
+export function describeTaskGrantResult(result: TaskGrantOutcome): string {
+  const what = result.requestedTasks?.length ? result.requestedTasks.join(" + ") : "tasks";
+
   if (result.tokenExpired) {
     return "Facebook token expired — reconnect required.";
   }
   if (result.rateLimited) {
     const total = result.totalTargeted ?? result.attempted;
     return (
-      `Granted audience access on ${result.granted} of ${total} — Meta rate limit hit, ` +
+      `Granted ${what} on ${result.granted} of ${total} — Meta rate limit hit, ` +
       `retry in ~${result.retryAfterMinutes ?? 45} minutes.`
     );
   }
   if (result.attempted === 0) {
-    return "Nothing to grant — every page already has audience access.";
+    return `Nothing to grant — every page already holds ${what}.`;
   }
   if (result.readBackFailed) {
     return (
-      `Sent ${result.granted}/${result.attempted} audience grants but could not verify them. ` +
-      `Run Sync now to confirm before relying on these pages as audience seeds.`
+      `Sent ${result.granted}/${result.attempted} grants of ${what} but could not verify them. ` +
+      `Run Sync now to confirm before relying on these pages.`
     );
   }
   if (result.failed === 0 && result.confirmed === result.attempted) {
-    return `Audience access confirmed on ${result.confirmed}/${result.attempted} page(s).`;
+    return `${what} confirmed on ${result.confirmed}/${result.attempted} page(s).`;
   }
-  // Accepted-but-unconfirmed is called out explicitly: it is the shape of the
-  // original bug (Meta reports success, the audience call still gets refused).
+  // Accepted-but-unconfirmed is called out explicitly rather than folded into a
+  // generic partial-failure message: Meta returning 200 while the capability is
+  // still absent is a different problem from a call that errored, and it is the
+  // one that previously went unnoticed.
   const firstError = result.failures[0]?.error;
   return (
     `Granted ${result.granted}/${result.attempted}, confirmed ${result.confirmed}.` +
     (result.failed > 0
       ? ` ${result.failed} failed${firstError ? `: ${firstError}` : "."}`
-      : " Meta accepted the rest but has not reported the task yet — rerun Sync now.")
+      : " Meta accepted the rest but has not reported the tasks yet — rerun Sync now.")
   );
 }

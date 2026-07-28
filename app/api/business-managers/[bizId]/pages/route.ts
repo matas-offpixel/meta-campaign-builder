@@ -30,8 +30,5 @@ export async function GET(
     businessManager: bm,
     pages,
     missingAccessCount: pages.filter((p) => !p.user_has_access).length,
-    // Counted separately — a page can advertise and still be refused as an
-    // audience seed (migration 148).
-    missingAudienceAccessCount: pages.filter((p) => !p.user_has_audience_access).length,
   });
 }

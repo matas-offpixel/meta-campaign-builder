@@ -9,17 +9,16 @@ import {
   RefreshCw,
   ShieldCheck,
   AlertTriangle,
-  Users,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
-  describeAudienceGrantResult,
   describeGrantResult,
-  type AudienceGrantOutcome,
+  describeTaskGrantResult,
   type BusinessManagerSummary,
   type DetectedNewPage,
   type GrantRunOutcome,
+  type TaskGrantOutcome,
 } from "@/lib/bm/types";
 import {
   BM_ASSET_DESCRIPTORS,
@@ -31,8 +30,12 @@ import { appUsageBadgePercent, type AppUsageSnapshot } from "@/lib/meta/app-usag
 import { BMAssetList } from "./bm-asset-list";
 import { BMPageList } from "./bm-page-list";
 
-/** Audience runs carry a read-back `confirmed` count; page/asset runs do not. */
-function isAudienceGrantResult(value: unknown): value is AudienceGrantOutcome {
+/**
+ * Task-set grant runs carry a read-back `confirmed` count; the v1 ADVERTISE
+ * grant paths do not. The distinction matters in the notice text: only a
+ * confirmed count can honestly claim Meta reported the capability.
+ */
+function isTaskGrantResult(value: unknown): value is TaskGrantOutcome {
   return isGrantResult(value) && "confirmed" in value;
 }
 
@@ -79,9 +82,17 @@ function formatTimestamp(iso: string | null): string {
   return `${d.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-async function postJson(url: string): Promise<{ ok: boolean; error?: string; result?: unknown }> {
+async function postJson(
+  url: string,
+  payload?: unknown,
+): Promise<{ ok: boolean; error?: string; result?: unknown }> {
   try {
-    const res = await fetch(url, { method: "POST" });
+    const res = await fetch(url, {
+      method: "POST",
+      ...(payload === undefined
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    });
     const body = (await res.json().catch(() => null)) as
       | { ok?: boolean; error?: string; result?: unknown; needsReconnect?: boolean }
       | null;
@@ -128,10 +139,15 @@ export function BusinessManagersDashboard({
     return assetCounts[activeKind]?.[bizId] ?? { total: 0, missingAccess: 0 };
   };
 
-  const run = async (key: string, url: string, successText: string): Promise<boolean> => {
+  const run = async (
+    key: string,
+    url: string,
+    successText: string,
+    body?: unknown,
+  ): Promise<boolean> => {
     setBusyKey(key);
     setNotice(null);
-    const res = await postJson(url);
+    const res = await postJson(url, body);
     if (!res.ok) {
       setNotice({ kind: "error", text: res.error ?? "Action failed" });
       setBusyKey(null);
@@ -140,8 +156,8 @@ export function BusinessManagersDashboard({
     // Grant endpoints return a grant outcome — prefer its real granted/failed
     // counts over the static successText so a partial failure (or a run
     // that granted 0/N) is never reported as a flat success.
-    const text = isAudienceGrantResult(res.result)
-      ? describeAudienceGrantResult(res.result)
+    const text = isTaskGrantResult(res.result)
+      ? describeTaskGrantResult(res.result)
       : isGrantResult(res.result)
         ? describeGrantResult(res.result, activeDescriptor.label.toLowerCase())
         : successText;
@@ -343,10 +359,6 @@ export function BusinessManagersDashboard({
                     <th className="px-4 py-2.5 font-medium">Client / BM</th>
                     <th className="px-4 py-2.5 font-medium">{activeDescriptor.labelPlural}</th>
                     <th className="px-4 py-2.5 font-medium">Missing access</th>
-                    {/* Audience seeding is a page-only capability (migration 148). */}
-                    {activeKind === "page" ? (
-                      <th className="px-4 py-2.5 font-medium">Audience access</th>
-                    ) : null}
                     <th className="px-4 py-2.5 font-medium">Last scan</th>
                     <th className="px-4 py-2.5 font-medium text-right">Actions</th>
                   </tr>
@@ -355,7 +367,6 @@ export function BusinessManagersDashboard({
                   {businessManagers.map((bm) => {
                     const scanKey = `scan:${bm.business_id}`;
                     const grantKey = `grantall:${bm.business_id}:${activeKind}`;
-                    const audienceGrantKey = `grantaudall:${bm.business_id}`;
                     const counts = countsFor(bm.business_id);
                     const isExpanded = expandedBizId === bm.business_id;
                     // Pages keep their v1 endpoints so this PR cannot alter
@@ -407,22 +418,6 @@ export function BusinessManagersDashboard({
                               <span className="text-muted-foreground">0</span>
                             )}
                           </td>
-                          {activeKind === "page" ? (
-                            <td className="px-4 py-3 tabular-nums">
-                              {bm.missing_audience_access_count > 0 ? (
-                                <span
-                                  className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                                  title={`${bm.missing_audience_access_count} page(s) cannot be used as audience seeds until granted`}
-                                >
-                                  {bm.missing_audience_access_count} missing
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                  <ShieldCheck className="h-3.5 w-3.5" /> granted
-                                </span>
-                              )}
-                            </td>
-                          ) : null}
                           <td className="px-4 py-3 text-muted-foreground">
                             {formatTimestamp(bm.last_scanned_at)}
                           </td>
@@ -456,40 +451,18 @@ export function BusinessManagersDashboard({
                               >
                                 {busyKey === grantKey ? "Granting…" : "Grant all missing"}
                               </Button>
-                              {activeKind === "page" ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() =>
-                                    run(
-                                      audienceGrantKey,
-                                      `/api/business-managers/${bm.business_id}/pages/grant-audience-all`,
-                                      "Audience access granted.",
-                                    )
-                                  }
-                                  disabled={
-                                    busyKey === audienceGrantKey ||
-                                    isPending ||
-                                    bm.missing_audience_access_count === 0
-                                  }
-                                  title="Grant the audience-seed task on every page missing it"
-                                >
-                                  <Users className="h-3.5 w-3.5" />
-                                  {busyKey === audienceGrantKey
-                                    ? "Granting…"
-                                    : "Grant audience access to all"}
-                                </Button>
-                              ) : null}
                             </div>
                           </td>
                         </tr>
                         {isExpanded ? (
                           <tr className="bg-muted/20">
-                            <td colSpan={activeKind === "page" ? 6 : 5} className="p-0">
+                            <td colSpan={5} className="p-0">
                               {activeKind === "page" ? (
                                 <BMPageList
                                   businessId={bm.business_id}
-                                  onGrant={(key, url) => run(key, url, "Access granted.")}
+                                  onGrant={(key, url, body) =>
+                                    run(key, url, "Access granted.", body)
+                                  }
                                   busyKey={busyKey}
                                   disabled={isPending}
                                 />

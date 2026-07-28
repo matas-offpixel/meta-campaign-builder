@@ -21,7 +21,7 @@ import {
 } from "@/lib/db/business-managers";
 import type { BusinessManager, ScanResult } from "@/lib/bm/types";
 import { chunk } from "@/lib/bm/chunk";
-import { derivePageAccessFlags } from "@/lib/bm/page-tasks";
+import { derivePageAccessState } from "@/lib/bm/page-tasks";
 
 /**
  * Checkpoint boundary for the detected_new event-logging phase: after every
@@ -57,7 +57,6 @@ function failedScan(bizId: string, error: string): ScanResult {
     scannedPages: 0,
     newPages: 0,
     missingAccess: 0,
-    missingAudienceAccess: 0,
     ok: false,
     error,
   };
@@ -68,15 +67,14 @@ function toUpsertInput(
   ownedByBm: boolean,
   accessible: Map<string, string[]>,
 ): UpsertPageInput {
-  const flags = derivePageAccessFlags(accessible.get(p.id));
+  const state = derivePageAccessState(accessible.get(p.id));
   return {
     page_id: p.id,
     page_name: p.name ?? null,
     category: p.category ?? null,
     is_owned_by_bm: ownedByBm,
-    user_has_access: flags.userHasAccess,
-    user_has_audience_access: flags.userHasAudienceAccess,
-    user_tasks: flags.userTasks,
+    user_has_access: state.userHasAccess,
+    user_tasks: state.userTasks,
     followers: typeof p.fan_count === "number" ? p.fan_count : null,
     avatar_url: p.picture?.data?.url ?? null,
   };
@@ -151,8 +149,10 @@ export async function scanBusinessManager(
     return failedScan(bizId, msg);
   }
 
-  // page id -> the operator's real tasks. A Map (not a Set) because the
-  // audience flag is derived from the task list, not from mere presence.
+  // page id -> the operator's real tasks. A Map (not the Set v1 used) because
+  // migration 149 stores the task list itself, and `/me/accounts` was already
+  // returning it — v1 fetched `tasks` and threw it away, so capturing it costs
+  // zero extra Graph calls.
   const accessible = new Map(accessiblePages.map((p) => [p.id, p.tasks ?? []]));
 
   // Merge owned + client pages; owned wins the ownership flag on collision.
@@ -203,12 +203,11 @@ export async function scanBusinessManager(
   }
 
   const missingAccess = pages.filter((p) => !p.user_has_access).length;
-  const missingAudienceAccess = pages.filter((p) => !p.user_has_audience_access).length;
   await updateBusinessManagerScanState(supabase, bizId, { lastError: null });
 
   console.error(
     `[bm-page-scan] biz=${bizId} scanned=${pages.length} new=${newPageIds.length} ` +
-      `missing_access=${missingAccess} missing_audience_access=${missingAudienceAccess}`,
+      `missing_access=${missingAccess}`,
   );
 
   return {
@@ -216,7 +215,6 @@ export async function scanBusinessManager(
     scannedPages: pages.length,
     newPages: newPageIds.length,
     missingAccess,
-    missingAudienceAccess,
     ok: true,
   };
 }

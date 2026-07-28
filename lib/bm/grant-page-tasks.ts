@@ -11,30 +11,34 @@ import {
 import {
   getBMPages,
   getBusinessManagerToken,
-  getMissingAudienceAccessPageIds,
   logAccessEvent,
   markBusinessManagerTokenExpired,
+  recordPageGrantRequest,
   setPageTaskState,
 } from "@/lib/db/business-managers";
 import { isTokenExpiredMetaError } from "@/lib/bm/sync";
-import { buildAudienceGrantTasks, derivePageAccessFlags } from "@/lib/bm/page-tasks";
-import type { AudienceGrantOutcome, GrantResult } from "@/lib/bm/types";
+import {
+  buildAdditiveTaskGrant,
+  derivePageAccessState,
+  grantSatisfiedForPage,
+  validatePageTasks,
+} from "@/lib/bm/page-tasks";
+import type { GrantResult, TaskGrantOutcome } from "@/lib/bm/types";
 import { isMetaAdAccountRateLimitError } from "@/lib/audiences/meta-rate-limit";
 import { estimateRetryAfterMinutes, type AppUsageSnapshot } from "@/lib/meta/app-usage";
 
 /**
- * lib/bm/grant-page-audience.ts
+ * lib/bm/grant-page-tasks.ts
  *
- * Grants the operator the page task Meta requires for AUDIENCE creation
- * (migration 148) — the capability the wizard's Similar-Pages / engagement
- * audience seeds need, which v1's ADVERTISE-only grant does not confer.
+ * Grants an EXPLICIT, validated set of Meta page tasks to the operator, and
+ * verifies the result by reading Meta back rather than trusting the POST.
  *
  * Kept as a separate module from `lib/bm/grant.ts` on purpose: v1's
- * ADVERTISE grant path is load-bearing for every live launch, and this PR
+ * ADVERTISE-only grant path is load-bearing for every live launch, and this PR
  * must not be able to change its behaviour. The batching / throttling /
  * rate-limit-halt policy is copied deliberately (per the PR #712 constraint)
  * rather than refactored into a shared runner, which would have meant editing
- * the v1 path.
+ * that path.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,45 +63,54 @@ function extractAppUsage(err: unknown): AppUsageSnapshot | null {
 }
 
 /**
- * `confirmed` — not `granted` — is the number that matters here: `granted` only
- * means Meta accepted the POST, which is exactly the signal that proved
- * untrustworthy for audience seeding.
+ * `confirmed` — not `granted` — is the number that matters: `granted` only means
+ * Meta accepted the POST.
  *
- * Structurally satisfies `AudienceGrantOutcome` (so it can be passed to
- * `isAudienceGrantSuccess` / `describeAudienceGrantResult`) without extending it
- * — `GrantResult` narrows `failures` to carry `pageId`, which a declared
- * multiple-inheritance would reject.
+ * Structurally satisfies `TaskGrantOutcome` (so it can be passed to
+ * `isTaskGrantSuccess` / `describeTaskGrantResult`) without extending it —
+ * `GrantResult` narrows `failures` to carry `pageId`, which declared multiple
+ * inheritance would reject.
  */
-export interface PageAudienceGrantResult extends GrantResult {
+export interface PageTaskGrantResult extends GrantResult {
   confirmed: number;
-  /** The read-back call itself failed. Grants may have landed; nothing was confirmed. */
   readBackFailed?: boolean;
+  requestedTasks?: string[];
+  /** Set when the requested task set was rejected locally, before any Graph call. */
+  invalidRequest?: boolean;
 }
 
 /** Compile-time proof of the structural claim above. */
-const _satisfiesAudienceOutcome: (r: PageAudienceGrantResult) => AudienceGrantOutcome = (r) => r;
-void _satisfiesAudienceOutcome;
+const _satisfiesTaskOutcome: (r: PageTaskGrantResult) => TaskGrantOutcome = (r) => r;
+void _satisfiesTaskOutcome;
 
 /**
- * Grant audience-seed access on pages within a BM, then verify by read-back.
+ * Grant `tasks` on pages within a BM, additively, then verify by read-back.
  *
- * Why verify: this whole PR exists because a page that *looks* granted can
- * still be rejected as an audience seed. Trusting the POST response would
- * reproduce that class of bug at a different layer, so flags are written from
- * what Meta reports afterwards, never from the fact that the POST returned 200.
- * The read-back is ONE `/me/accounts` call for the whole run (page-level
- * `assigned_users` reads are not available to this token — they need
- * `pages_manage_metadata`), so verification costs O(1), not O(pages).
+ * Three things worth knowing:
  *
- * @param pageIds  When omitted, targets every page currently lacking the task.
+ * 1. The task set is validated LOCALLY first. This PR was originally scoped
+ *    around a task string that does not exist in Meta's enum; without this
+ *    check, nothing would have caught that until Meta rejected every grant with
+ *    code 100 part-way through a bulk run over ~50 BMs.
+ * 2. Each POST carries the UNION of the page's existing tasks and the requested
+ *    ones. `assigned_users` SETS a user's task list rather than appending, so
+ *    posting the new tasks alone would strip whatever the page already had —
+ *    including ADVERTISE, which would stop live ad delivery.
+ * 3. Verification is ONE `/me/accounts` call for the whole run, not one per
+ *    page (page-node `assigned_users` reads need `pages_manage_metadata`, which
+ *    this token lacks), so it costs O(1) and is always worth doing.
+ *
+ * @param pageIds  When omitted, targets every page that does not already hold
+ *                 all of the requested tasks.
  */
-export async function grantPageAudienceAccessForBusinessManager(
+export async function grantPageTasksForBusinessManager(
   supabase: AnySupabaseClient,
   bm: { id: string; business_id: string },
-  opts: { pageIds?: string[]; actorUserId: string | null },
-): Promise<PageAudienceGrantResult> {
+  opts: { tasks: string[]; pageIds?: string[]; actorUserId: string | null },
+): Promise<PageTaskGrantResult> {
   const bizId = bm.business_id;
-  const result: PageAudienceGrantResult = {
+  const tasks = opts.tasks;
+  const result: PageTaskGrantResult = {
     businessId: bizId,
     attempted: 0,
     granted: 0,
@@ -105,12 +118,25 @@ export async function grantPageAudienceAccessForBusinessManager(
     failed: 0,
     batches: 0,
     failures: [],
+    requestedTasks: tasks,
   };
 
-  let pageIds = opts.pageIds ?? null;
-  if (!pageIds) {
-    pageIds = await getMissingAudienceAccessPageIds(supabase, bizId);
+  const validation = validatePageTasks(tasks);
+  if (!validation.ok) {
+    result.invalidRequest = true;
+    result.failures.push({ pageId: "-", error: validation.error ?? "invalid task set" });
+    return result;
   }
+
+  // Existing tasks per page, so each grant can be built as a union.
+  const pages = await getBMPages(supabase, bizId);
+  const existingTasksByPage = new Map(pages.map((p) => [p.page_id, p.user_tasks]));
+
+  const pageIds =
+    opts.pageIds ??
+    pages
+      .filter((p) => !grantSatisfiedForPage(tasks, p.user_tasks))
+      .map((p) => p.page_id);
   if (pageIds.length === 0) return result;
   result.totalTargeted = pageIds.length;
 
@@ -119,14 +145,6 @@ export async function grantPageAudienceAccessForBusinessManager(
     result.tokenExpired = true;
     result.failures.push({ pageId: "-", error: "no_token_stored" });
     return result;
-  }
-
-  // Existing tasks per page — the audience grant is built as a UNION with
-  // these so it can never revoke a capability the page already had (see
-  // buildAudienceGrantTasks for the live-verified reason this matters).
-  const existingTasksByPage = new Map<string, string[]>();
-  for (const page of await getBMPages(supabase, bizId)) {
-    existingTasksByPage.set(page.page_id, page.user_tasks);
   }
 
   let fbUserId: string;
@@ -154,20 +172,21 @@ export async function grantPageAudienceAccessForBusinessManager(
 
     for (let b = 0; b < batch.length; b += 1) {
       const pageId = batch[b];
-      const tasks = buildAudienceGrantTasks(existingTasksByPage.get(pageId) ?? []);
+      const payloadTasks = buildAdditiveTaskGrant(existingTasksByPage.get(pageId) ?? [], tasks);
       result.attempted += 1;
       attemptedPageIds.push(pageId);
       try {
-        await grantUserPageTasks(bizId, pageId, targetUserId, tasks, token);
+        await grantUserPageTasks(bizId, pageId, targetUserId, payloadTasks, token);
         result.granted += 1;
+        await recordPageGrantRequest(supabase, bizId, pageId, payloadTasks);
         await logAccessEvent(supabase, {
           businessId: bizId,
           pageId,
           userId: opts.actorUserId,
           action: "granted",
           detail: {
-            intent: "audience",
-            requested_tasks: tasks,
+            added_tasks: tasks,
+            requested_tasks: payloadTasks,
             target_user_id: targetUserId,
             fb_user_id: fbUserId,
           },
@@ -183,7 +202,7 @@ export async function grantPageAudienceAccessForBusinessManager(
           result.rateLimited = true;
           result.retryAfterMinutes = retryAfterMinutes;
           console.warn(
-            `[bm audience-grant] biz=${bizId} HALT on Meta rate limit at page=${pageId} ` +
+            `[bm page-task-grant] biz=${bizId} HALT on Meta rate limit at page=${pageId} ` +
               `(${result.granted}/${result.totalTargeted} granted so far): ${msg}`,
           );
           await logAccessEvent(supabase, {
@@ -192,7 +211,7 @@ export async function grantPageAudienceAccessForBusinessManager(
             userId: opts.actorUserId,
             action: "rate_limited",
             detail: {
-              phase: "audience_grant",
+              phase: "page_task_grant",
               message: msg,
               granted_so_far: result.granted,
               total_targeted: result.totalTargeted,
@@ -200,7 +219,7 @@ export async function grantPageAudienceAccessForBusinessManager(
               app_usage: appUsage,
             },
           });
-          await reconcile(supabase, bizId, token, attemptedPageIds, result);
+          await reconcile(supabase, bizId, token, attemptedPageIds, tasks, result);
           return result;
         }
 
@@ -211,7 +230,7 @@ export async function grantPageAudienceAccessForBusinessManager(
           pageId,
           userId: opts.actorUserId,
           action: "sync_error",
-          detail: { phase: "audience_grant", message: msg },
+          detail: { phase: "page_task_grant", message: msg, requested_tasks: payloadTasks },
         });
         if (isTokenExpiredMetaError(err)) {
           await markBusinessManagerTokenExpired(supabase, bizId, msg);
@@ -227,22 +246,26 @@ export async function grantPageAudienceAccessForBusinessManager(
     if (i + BATCH_SIZE < pageIds.length) await sleep(BATCH_SLEEP_MS);
   }
 
-  await reconcile(supabase, bizId, token, attemptedPageIds, result);
+  await reconcile(supabase, bizId, token, attemptedPageIds, tasks, result);
   return result;
 }
 
 /**
  * Re-read the operator's real page tasks once and write the observed state for
- * every page this run touched. A page missing from `/me/accounts` afterwards
- * keeps its stored flags — Meta's read-your-writes on this edge is not
- * guaranteed to be immediate, and a lagging read must not clear a flag.
+ * every page this run touched.
+ *
+ * A page missing from `/me/accounts` afterwards keeps its stored state — Meta's
+ * read-your-writes on this edge is not guaranteed to be immediate, and a lagging
+ * read must never clear a flag. Confirmation is a SUPERSET test, never equality,
+ * because Meta expands grants (PR #726: one ADVERTISE became five tasks).
  */
 async function reconcile(
   supabase: AnySupabaseClient,
   bizId: string,
   token: string,
   attemptedPageIds: string[],
-  result: PageAudienceGrantResult,
+  requestedTasks: string[],
+  result: PageTaskGrantResult,
 ): Promise<void> {
   if (attemptedPageIds.length === 0) return;
 
@@ -253,7 +276,7 @@ async function reconcile(
   } catch (err) {
     result.readBackFailed = true;
     console.warn(
-      `[bm audience-grant] biz=${bizId} read-back failed: ` +
+      `[bm page-task-grant] biz=${bizId} read-back failed: ` +
         (err instanceof Error ? err.message : String(err)),
     );
     return;
@@ -262,13 +285,13 @@ async function reconcile(
   for (const pageId of attemptedPageIds) {
     const tasks = observed.get(pageId);
     if (!tasks) continue;
-    const flags = derivePageAccessFlags(tasks);
-    if (flags.userHasAudienceAccess) result.confirmed += 1;
-    await setPageTaskState(supabase, bizId, pageId, flags);
+    if (grantSatisfiedForPage(requestedTasks, tasks)) result.confirmed += 1;
+    await setPageTaskState(supabase, bizId, pageId, derivePageAccessState(tasks));
   }
 
   console.log(
-    `[bm audience-grant] biz=${bizId} granted=${result.granted} confirmed=${result.confirmed} ` +
+    `[bm page-task-grant] biz=${bizId} tasks=${requestedTasks.join(",")} ` +
+      `granted=${result.granted} confirmed=${result.confirmed} ` +
       `attempted=${result.attempted} failed=${result.failed}`,
   );
 }

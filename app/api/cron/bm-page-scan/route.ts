@@ -82,11 +82,10 @@ export async function GET(req: NextRequest) {
       acc.pages += r.scannedPages;
       acc.newPages += r.newPages;
       acc.missing += r.missingAccess;
-      acc.missingAudience += r.missingAudienceAccess;
       if (!r.ok) acc.errors += 1;
       return acc;
     },
-    { pages: 0, newPages: 0, missing: 0, missingAudience: 0, errors: 0 },
+    { pages: 0, newPages: 0, missing: 0, errors: 0 },
   );
   const assetTotals = assetResults.reduce(
     (acc, r) => {
@@ -101,7 +100,7 @@ export async function GET(req: NextRequest) {
 
   console.error(
     `[bm-page-scan] done in ${elapsedMs}ms — bms=${bms.length} pages=${totals.pages} new=${totals.newPages} ` +
-      `missing_access=${totals.missing} missing_audience_access=${totals.missingAudience} errors=${totals.errors} | ` +
+      `missing_access=${totals.missing} errors=${totals.errors} | ` +
       `assets=${assetTotals.assets} new=${assetTotals.newAssets} missing_access=${assetTotals.missing} errors=${assetTotals.errors}`,
   );
 
