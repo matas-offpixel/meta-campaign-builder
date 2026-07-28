@@ -358,6 +358,36 @@ export async function listCreativeTagAssignments(
   return normalizeAssignmentRows(data ?? []);
 }
 
+/**
+ * Global (cross-event) content-hash lookup for the auto-tag cron's dedup
+ * layer. Unlike `listCreativeTagAssignments` (scoped to one event),
+ * this backs "has ANY event already tagged this exact image with the
+ * current model" — recurring creative assets (templated designs, reused
+ * artwork) are common across different events/clients, not just within one
+ * event's own history. Scoped to `source = 'ai'` + `modelVersion` + a
+ * recency cutoff so a future model swap or stale tag doesn't leak forward
+ * indefinitely. Backed by the partial index from migration 148.
+ */
+export async function listCreativeTagAssignmentsByThumbnailHashes(
+  supabase: DbClient,
+  hashes: string[],
+  options: { modelVersion: string; sinceISO: string },
+): Promise<CreativeTagAssignmentRow[]> {
+  const uniqueHashes = [...new Set(hashes.filter(Boolean))];
+  if (uniqueHashes.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("creative_tag_assignments")
+    .select(ASSIGNMENT_SELECT)
+    .in("thumbnail_hash", uniqueHashes)
+    .eq("source", "ai")
+    .eq("model_version", options.modelVersion)
+    .gt("created_at", options.sinceISO);
+
+  if (error) throw new Error(error.message);
+  return normalizeAssignmentRows(data ?? []);
+}
+
 export async function listCreativeTagAssignmentsByEvents(
   supabase: DbClient,
   eventIds: string[],

@@ -6,6 +6,7 @@ import {
   AI_AUTOTAG_MODEL_VERSION,
   autoTag,
   autoTagDeduped,
+  autoTagWithDiagnostics,
   buildAutoTagSystemPrompt,
   buildAutoTagTool,
   hashAutoTagImage,
@@ -120,6 +121,12 @@ describe("autoTag", () => {
                 },
               },
             ],
+            usage: {
+              input_tokens: 8000,
+              output_tokens: 40,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 7900,
+            },
           });
         },
       },
@@ -151,6 +158,57 @@ describe("autoTag", () => {
       assert.match(requestJson, /"data":"AQID"/);
       assert.match(requestJson, /Final tickets/);
       assert.match(requestJson, /record_creative_tags/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("marks the system prompt as a prompt-caching breakpoint", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    let request: {
+      system?: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string };
+      }>;
+    } = {};
+    const anthropic = {
+      messages: {
+        create(args: unknown) {
+          request = args as typeof request;
+          return Promise.resolve({
+            content: [],
+            usage: {
+              input_tokens: 8000,
+              output_tokens: 10,
+              cache_creation_input_tokens: 8000,
+              cache_read_input_tokens: 0,
+            },
+          });
+        },
+      },
+    } as unknown as Anthropic;
+
+    try {
+      const diagnostics = await autoTagWithDiagnostics(
+        { ...INPUT, thumbnailUrl: "https://cdn/a?sig=1" },
+        { taxonomy: TAXONOMY, anthropic, modelVersion: AI_AUTOTAG_MODEL_VERSION },
+      );
+
+      assert.ok(Array.isArray(request.system));
+      assert.equal(request.system?.length, 1);
+      assert.equal(request.system?.[0].type, "text");
+      assert.equal(request.system?.[0].cache_control?.type, "ephemeral");
+      assert.match(request.system?.[0].text ?? "", /Closed taxonomy:/);
+
+      // First call in a 5-minute window writes to the cache.
+      assert.deepEqual(diagnostics.usage, {
+        inputTokens: 8000,
+        outputTokens: 10,
+        cacheCreationInputTokens: 8000,
+        cacheReadInputTokens: 0,
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -312,6 +370,57 @@ describe("autoTagDeduped", () => {
       assert.equal(results[0].outcome, "no_thumbnail");
       assert.equal(results[0].thumbnailHash, null);
       assert.deepEqual(results[0].tags, []);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("reuses tags from a cross-event hash lookup without calling Claude", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const counter = { calls: 0 };
+    const knownHash = hashAutoTagImage(
+      Buffer.from(new Uint8Array([9, 8, 7, 6])).toString("base64"),
+    );
+    const crossEventTags: AutoTagResult[] = [
+      { dimension: "offer_type", value_key: "offer_type_one", confidence: 0.7 },
+    ];
+    let resolverCalledWith: string[] = [];
+    try {
+      const results = await autoTagDeduped(
+        [
+          { creativeName: "ad-a", thumbnailUrl: "https://cdn/a?sig=1", headline: null, body: null },
+          { creativeName: "ad-c", thumbnailUrl: "https://cdn/c?sig=3", headline: null, body: null },
+        ],
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          concurrency: 2,
+          resolveKnownTagsByHash: async (hashes) => {
+            resolverCalledWith = hashes;
+            return new Map([[knownHash, crossEventTags]]);
+          },
+        },
+      );
+
+      // ad-c's hash was resolved globally (no call); ad-a's hash was not, so
+      // it still triggers exactly one Claude call.
+      assert.equal(counter.calls, 1);
+      assert.equal(resolverCalledWith.length, 2);
+
+      const byName = new Map(results.map((r) => [r.creativeName, r]));
+      const a = byName.get("ad-a")!;
+      const c = byName.get("ad-c")!;
+      assert.equal(a.outcome, "tagged");
+      assert.equal(c.outcome, "reused_global");
+      assert.deepEqual(c.tags, crossEventTags);
+      assert.deepEqual(c.usage, {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

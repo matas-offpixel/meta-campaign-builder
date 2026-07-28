@@ -2,10 +2,27 @@ import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
 import {
+  computeSaleDateWindow,
   filterCodeMatchEligibleIds,
   mergeActiveCreativesEligibilityIds,
   mergeRollupSyncEligibilityIds,
 } from "../cron-eligibility.ts";
+
+describe("computeSaleDateWindow", () => {
+  const now = new Date("2026-07-28T12:00:00.000Z");
+
+  it("computes a ±30-day window (active-creatives / autotag cron)", () => {
+    const { sinceISO, untilISO } = computeSaleDateWindow(now, 30);
+    assert.equal(sinceISO, "2026-06-28T12:00:00.000Z");
+    assert.equal(untilISO, "2026-08-27T12:00:00.000Z");
+  });
+
+  it("computes a ±60-day window (rollup-sync cron — load-bearing, do not change)", () => {
+    const { sinceISO, untilISO } = computeSaleDateWindow(now, 60);
+    assert.equal(sinceISO, "2026-05-29T12:00:00.000Z");
+    assert.equal(untilISO, "2026-09-26T12:00:00.000Z");
+  });
+});
 
 describe("cron eligibility merging", () => {
   it("keeps active-creatives on linked-and-dated plus code-match fallback", () => {

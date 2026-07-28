@@ -30,28 +30,50 @@ if (!supabaseUrl || !serviceRoleKey) {
 if (!userId) throw new Error("Missing SEED_USER_ID.");
 if (!anthropicApiKey) throw new Error("Missing ANTHROPIC_API_KEY.");
 
-// ── Configuration (env-driven so the script stays argument-free) ────────────
+// ── Configuration (env-driven, with CLI flag overrides) ──────────────────────
 //
 // Ground truth defaults to manually-applied tags (the original behaviour). To
 // compare a candidate model against the current Sonnet tags, set:
+//   --model=<candidate-model>  or  VALIDATE_PREDICT_MODEL=<candidate-model>
 //   VALIDATE_GROUND_TRUTH=ai
 //   VALIDATE_GROUND_TRUTH_MODEL=claude-sonnet-4-6   (the incumbent tags)
-//   VALIDATE_PREDICT_MODEL=<candidate-model>        (defaults to current model)
 //   VALIDATE_LIMIT=200                              (optional sample cap)
 // Then `precision` = % of candidate tags that match Sonnet, `recall` = % of
 // Sonnet tags the candidate reproduced, and `agreement` (F1) summarises the
 // two per dimension. This is the harness used to validate (and reject) the
 // Haiku 4.5 swap on PR #457.
+//
+// `--model` is a thin CLI convenience over VALIDATE_PREDICT_MODEL so a
+// side-by-side re-run doesn't require exporting an env var first, e.g.:
+//   npx tsx scripts/validate-ai-tagging.ts --model=claude-haiku-4-5-20251001
+// The flag takes precedence over the env var when both are set.
+const cliArgs = parseCliArgs(process.argv.slice(2));
 const groundTruthSource = (process.env.VALIDATE_GROUND_TRUTH ?? "manual") as
   | "manual"
   | "ai";
 const groundTruthModel =
   process.env.VALIDATE_GROUND_TRUTH_MODEL ?? "claude-sonnet-4-6";
 const predictModel =
-  process.env.VALIDATE_PREDICT_MODEL ?? AI_AUTOTAG_MODEL_VERSION;
+  cliArgs.model ?? process.env.VALIDATE_PREDICT_MODEL ?? AI_AUTOTAG_MODEL_VERSION;
 const sampleLimit = process.env.VALIDATE_LIMIT
   ? Math.max(1, Number(process.env.VALIDATE_LIMIT))
   : null;
+
+/** Minimal `--key=value` / `--key value` parser — no dependency needed for
+ * the one flag this script accepts. */
+function parseCliArgs(argv: string[]): { model?: string } {
+  const out: { model?: string } = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg.startsWith("--model=")) {
+      out.model = arg.slice("--model=".length);
+    } else if (arg === "--model" && argv[i + 1]) {
+      out.model = argv[i + 1];
+      i += 1;
+    }
+  }
+  return out;
+}
 
 interface ManualAssignmentRow {
   event_id: string;
