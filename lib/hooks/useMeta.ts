@@ -703,14 +703,21 @@ export interface PageIdentityIgAccount {
   igActorId: string;
   /**
    * How the actor id was resolved.
-   *   "ad_account_match"    — content id was found in /{adAccountId}/instagram_accounts ✓
-   *   "ad_account_first"    — ad account has actors but none match the content id — diff IDs!
-   *   "page_level"          — /{pageId}/instagram_accounts fallback (no adAccountId given)
-   *   "content_id_fallback" — nothing better; using content id (may still fail)
+   *   "ad_account_match"      — content id was found in /{adAccountId}/instagram_accounts ✓
+   *   "page_level"            — the page vouches for the same id (agency setups)
+   *   "content_id_fallback"   — no authoritative list; sending the picked id as-is
+   *   "unauthorised_mismatch" — ad account published a list and the pick isn't on
+   *                             it; NO substitution is made and the launch
+   *                             preflight blocks (task #96)
    */
   actorSource?: string;
   /** True when igActorId === id (same account for both post loading and ads). */
   actorMatchesContent?: boolean;
+  /**
+   * Accounts `/act_{id}/instagram_accounts` will accept. `null` when the lookup
+   * failed or was empty — absence of evidence, not "nothing is authorised".
+   */
+  authorisedActors?: { id: string; username?: string }[] | null;
   username?: string;
   name?: string;
   profilePictureUrl?: string;

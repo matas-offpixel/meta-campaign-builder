@@ -826,12 +826,24 @@ export function Creatives({
                               (ig) => ig.linkedPageId === selectedPageId,
                             )
                           : [];
-                        const mergedIG = identityIg
+                        const mergedIG: {
+                          id: string;
+                          username?: string;
+                          name?: string;
+                          isPagePrimary?: boolean;
+                        }[] = identityIg
                           ? [
                               {
                                 id: identityIg.id,
                                 username: identityIg.username,
                                 name: identityIg.name,
+                                // The page-identity resolver reads
+                                // instagram_business_account first, so that
+                                // source marks the Page's own IG.
+                                isPagePrimary:
+                                  identityIg.source === "instagram_business_account" ||
+                                  cacheIg.find((ig) => ig.id === identityIg.id)
+                                    ?.isPagePrimary,
                               },
                               ...cacheIg.filter((ig) => ig.id !== identityIg.id),
                             ]
@@ -883,17 +895,23 @@ export function Creatives({
                                 ...(mergedIG.length === 1
                                   ? []
                                   : [{ value: "", label: "— Select account —" }]),
-                                ...mergedIG.map((ig) => ({
-                                  value: ig.id,
-                                  label: ig.username
+                                ...mergedIG.map((ig) => {
+                                  const base = ig.username
                                     ? `@${ig.username.replace(/^@/, "")}`
-                                    : (ig.name ?? ig.id),
-                                })),
+                                    : (ig.name ?? ig.id);
+                                  return {
+                                    value: ig.id,
+                                    label:
+                                      mergedIG.length >= 2 && ig.isPagePrimary
+                                        ? `${base} — Recommended`
+                                        : base,
+                                  };
+                                }),
                               ]}
                             />
                             {selectedPageId && mergedIG.length >= 2 && !active.identity?.instagramAccountId && (
-                              <p className="mt-1 text-[11px] text-warning">
-                                This page has {mergedIG.length} linked Instagram accounts — pick the correct handle before continuing.
+                              <p className="mt-1 text-[11px] text-destructive">
+                                Required — this page has {mergedIG.length} linked Instagram accounts. Pick the correct handle before continuing.
                               </p>
                             )}
                             <FieldStatus

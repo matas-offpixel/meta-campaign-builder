@@ -110,6 +110,8 @@ export async function GET(req: NextRequest) {
   let igActorId: string = contentAccountId;
   let actorSource: string = "content_id_fallback";
   let actorMatchesContent = true;
+  /** Actors the ad account accepts — surfaced so the picker can warn early. */
+  let authorisedActors: { id: string; username?: string }[] | null = null;
 
   if (adAccountId) {
     // Primary path: ad-account-aware resolution (authoritative).
@@ -120,18 +122,29 @@ export async function GET(req: NextRequest) {
       identity.pageId,
       identity.pageAccessToken ?? undefined,
     );
+    // `actorId` is undefined on `unauthorised_mismatch`. Falling back to the
+    // content id keeps the wizard showing what the page actually links to —
+    // the resolver must never hand back a different account (task #96).
     igActorId = resolved.actorId ?? contentAccountId;
     actorSource = resolved.actorSource;
     actorMatchesContent = resolved.actorMatchesContent;
+    authorisedActors = resolved.adAccountActors;
 
-    if (!actorMatchesContent) {
+    if (actorSource === "unauthorised_mismatch") {
+      console.warn(
+        `[/api/meta/page-identity] ⚠ UNAUTHORISED IG` +
+          `\n  contentAccountId = ${contentAccountId}` +
+          `\n  adAccountId      = ${adAccountId}` +
+          `\n  authorised       = ${(authorisedActors ?? []).map((a) => a.id).join(",") || "(none)"}` +
+          `\n  → No substitution made; launch preflight will block until it is granted.`,
+      );
+    } else if (!actorMatchesContent) {
       console.warn(
         `[/api/meta/page-identity] ⚠ ACTOR MISMATCH` +
           `\n  contentAccountId = ${contentAccountId}  (used for loading posts)` +
           `\n  igActorId        = ${igActorId}          (will be used in creative payloads)` +
           `\n  actorSource      = ${actorSource}` +
-          `\n  adAccountId      = ${adAccountId}` +
-          `\n  → Creative payloads will use ${igActorId}, not ${contentAccountId}`,
+          `\n  adAccountId      = ${adAccountId}`,
       );
     } else {
       console.info(
@@ -187,6 +200,12 @@ export async function GET(req: NextRequest) {
         igActorId,
         actorSource,
         actorMatchesContent,
+        /**
+         * Accounts `/act_{id}/instagram_accounts` will accept. `null` when the
+         * lookup failed or returned nothing — absence of evidence, so the UI
+         * must not treat it as "nothing is authorised".
+         */
+        authorisedActors,
         username: identity.ig.account.username,
         name: identity.ig.account.name,
         profilePictureUrl: identity.ig.account.profilePictureUrl,

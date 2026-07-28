@@ -38,6 +38,7 @@ export async function GET() {
         username: ig.username.replace(/^@/, ""),
         name: ig.displayName,
         linkedPageId: page.pageId,
+        isPagePrimary: ig.isPagePrimary,
       })),
     );
     return Response.json({
