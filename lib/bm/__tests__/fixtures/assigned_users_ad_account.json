@@ -1,0 +1,39 @@
+{
+  "data": [
+    {
+      "id": "122121443048950557",
+      "tasks": [
+        "DRAFT",
+        "ANALYZE",
+        "ADVERTISE"
+      ],
+      "permitted_tasks": [
+        "MANAGE",
+        "ADVERTISE",
+        "ANALYZE",
+        "FB_EMPLOYEE_DSO_ADVERTISE",
+        "CREATIVE",
+        "DRAFT",
+        "AA_ANALYZE"
+      ]
+    },
+    {
+      "id": "122096945186778192",
+      "tasks": [
+        "DRAFT",
+        "ANALYZE",
+        "ADVERTISE",
+        "MANAGE"
+      ],
+      "permitted_tasks": [
+        "MANAGE",
+        "ADVERTISE",
+        "ANALYZE",
+        "FB_EMPLOYEE_DSO_ADVERTISE",
+        "CREATIVE",
+        "DRAFT",
+        "AA_ANALYZE"
+      ]
+    }
+  ]
+}

@@ -4,13 +4,14 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { requireOperator } from "@/lib/bm/route-auth";
 import { getBusinessManagerByBizId } from "@/lib/db/business-managers";
 import { scanBusinessManager } from "@/lib/bm/sync";
+import { scanBusinessManagerAllAssets } from "@/lib/bm/sync-assets";
 
 /**
  * POST /api/business-managers/[bizId]/scan
  *
- * On-demand "Sync now" for one BM — re-enumerates owned + client pages and
- * refreshes the access flags / new-page detections. Same detection-only logic
- * as the daily cron; never grants.
+ * On-demand "Sync now" for one BM — re-enumerates every asset type (pages, ad
+ * accounts, pixels, Instagram accounts) and refreshes the access flags / new-
+ * asset detections. Same detection-only logic as the daily cron; never grants.
  */
 
 export const dynamic = "force-dynamic";
@@ -43,5 +44,13 @@ export async function POST(
   }
 
   const result = await scanBusinessManager(service, bm, { actorUserId: user.id });
-  return NextResponse.json({ ok: result.ok, result });
+  const assetResults = await scanBusinessManagerAllAssets(service, bm, {
+    actorUserId: user.id,
+  });
+
+  // The page scan stays the primary `ok` signal so the existing UI contract is
+  // unchanged; asset failures surface per-kind in `assetResults` instead of
+  // failing the whole sync (a BM can legitimately expose pages but deny, say,
+  // pixel enumeration).
+  return NextResponse.json({ ok: result.ok, result, assetResults });
 }

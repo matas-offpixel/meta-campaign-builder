@@ -38,8 +38,11 @@ interface GraphPaged<T> {
 /**
  * Walk every page of a cursor-paginated edge, accumulating `data`.
  * Hard cap on iterations so a pathological `next` loop can't run forever.
+ *
+ * Exported for `business-manager-assets.ts` (the v2 multi-asset reader) so both
+ * modules share one pagination implementation rather than drifting apart.
  */
-async function paginateAll<T>(
+export async function paginateAll<T>(
   path: string,
   baseParams: Record<string, string>,
   token: string,

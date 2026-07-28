@@ -1,19 +1,33 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, RefreshCw, ShieldCheck, AlertTriangle } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  ShieldCheck,
+  AlertTriangle,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
   describeGrantResult,
   type BusinessManagerSummary,
   type DetectedNewPage,
-  type GrantResult,
+  type GrantRunOutcome,
 } from "@/lib/bm/types";
+import {
+  BM_ASSET_DESCRIPTORS,
+  BM_ASSET_KINDS,
+  SLUG_BY_KIND,
+  type BMAssetKind,
+} from "@/lib/bm/asset-kinds";
 import { appUsageBadgePercent, type AppUsageSnapshot } from "@/lib/meta/app-usage";
+import { BMAssetList } from "./bm-asset-list";
 
-function isGrantResult(value: unknown): value is GrantResult {
+function isGrantResult(value: unknown): value is GrantRunOutcome {
   return (
     !!value &&
     typeof value === "object" &&
@@ -23,9 +37,22 @@ function isGrantResult(value: unknown): value is GrantResult {
   );
 }
 
+export interface AssetKindCounts {
+  total: number;
+  missingAccess: number;
+}
+
+/**
+ * Per-kind, per-BM counts keyed `businessId`. Plain objects rather than Maps so
+ * they cross the server/client boundary without relying on Map serialisation.
+ * Pages are absent — their counts already live on BusinessManagerSummary.
+ */
+export type AssetCountsByKind = Partial<Record<BMAssetKind, Record<string, AssetKindCounts>>>;
+
 interface Props {
   initialBusinessManagers: BusinessManagerSummary[];
   initialNewPages: DetectedNewPage[];
+  assetCounts: AssetCountsByKind;
   /** Best-effort last-observed Meta app-level quota usage. Null until a call lands on this instance. */
   metaAppUsage: { snapshot: AppUsageSnapshot; capturedAt: string } | null;
 }
@@ -61,37 +88,59 @@ async function postJson(url: string): Promise<{ ok: boolean; error?: string; res
 export function BusinessManagersDashboard({
   initialBusinessManagers,
   initialNewPages,
+  assetCounts,
   metaAppUsage,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [activeKind, setActiveKind] = useState<BMAssetKind>("page");
+  const [expandedBizId, setExpandedBizId] = useState<string | null>(null);
 
   const businessManagers = initialBusinessManagers;
   const newPages = initialNewPages;
   const hasExpiredToken = businessManagers.some((b) => b.token_expired);
   const quotaPct = metaAppUsage ? appUsageBadgePercent(metaAppUsage.snapshot) : null;
+  const activeDescriptor = BM_ASSET_DESCRIPTORS[activeKind];
 
-  const run = async (key: string, url: string, successText: string) => {
+  /**
+   * Counts for the active tab. Pages read from the v1 summary columns; the
+   * three v2 kinds read from the migration-147 tables.
+   */
+  const countsFor = (bizId: string): AssetKindCounts => {
+    const bm = businessManagers.find((b) => b.business_id === bizId);
+    if (activeKind === "page") {
+      return {
+        total: bm?.total_pages ?? 0,
+        missingAccess: bm?.missing_access_count ?? 0,
+      };
+    }
+    return assetCounts[activeKind]?.[bizId] ?? { total: 0, missingAccess: 0 };
+  };
+
+  const run = async (key: string, url: string, successText: string): Promise<boolean> => {
     setBusyKey(key);
     setNotice(null);
     const res = await postJson(url);
     if (!res.ok) {
       setNotice({ kind: "error", text: res.error ?? "Action failed" });
       setBusyKey(null);
-      return;
+      return false;
     }
-    // Grant endpoints return a GrantResult — prefer its real granted/failed
+    // Grant endpoints return a grant outcome — prefer its real granted/failed
     // counts over the static successText so a partial failure (or a run
     // that granted 0/N) is never reported as a flat success.
-    const text = isGrantResult(res.result) ? describeGrantResult(res.result) : successText;
+    const text = isGrantResult(res.result)
+      ? describeGrantResult(res.result, activeDescriptor.label.toLowerCase())
+      : successText;
     setNotice({ kind: "ok", text });
     // router.refresh() re-fetches the server component tree (page.tsx is
-    // force-dynamic) so businessManagers/newPages below reflect the fresh
-    // missing_access_count immediately after a grant/scan.
+    // force-dynamic) so the counts below reflect the fresh missing-access
+    // numbers immediately after a grant/scan.
     startTransition(() => router.refresh());
     setBusyKey(null);
+    return true;
   };
 
   return (
@@ -103,9 +152,10 @@ export function BusinessManagersDashboard({
             Business Managers
           </h1>
           <p className="text-sm text-muted-foreground">
-            Keep your page asset-user access in sync across every client Business
-            Manager. Grants give you the <span className="font-medium">ADVERTISER</span>{" "}
-            role — enough to boost posts and run ads, no owner-level actions.
+            Keep your asset-user access in sync across every client Business
+            Manager — pages, ad accounts, pixels and Instagram accounts. Grants
+            give you the <span className="font-medium">ADVERTISER</span> role —
+            enough to run ads, no owner-level actions.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -229,17 +279,58 @@ export function BusinessManagersDashboard({
             )}
           </section>
 
-          {/* ── Section 2: Connected BMs ───────────────────────────────── */}
+          {/* ── Section 2: Connected BMs, per asset kind ───────────────── */}
           <section>
-            <h2 className="pb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Connected Business Managers
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Connected Business Managers
+              </h2>
+              <div
+                className="flex flex-wrap gap-1 rounded-lg bg-muted p-1"
+                role="tablist"
+                aria-label="Asset type"
+              >
+                {BM_ASSET_KINDS.map((kind) => {
+                  const descriptor = BM_ASSET_DESCRIPTORS[kind];
+                  const missing = businessManagers.reduce((sum, bm) => {
+                    if (kind === "page") return sum + bm.missing_access_count;
+                    return sum + (assetCounts[kind]?.[bm.business_id]?.missingAccess ?? 0);
+                  }, 0);
+                  const isActive = kind === activeKind;
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => {
+                        setActiveKind(kind);
+                        setExpandedBizId(null);
+                      }}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        isActive
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {descriptor.labelPlural}
+                      {missing > 0 ? (
+                        <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">
+                          {missing}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <tr>
                     <th className="px-4 py-2.5 font-medium">Client / BM</th>
-                    <th className="px-4 py-2.5 font-medium">Pages</th>
+                    <th className="px-4 py-2.5 font-medium">{activeDescriptor.labelPlural}</th>
                     <th className="px-4 py-2.5 font-medium">Missing access</th>
                     <th className="px-4 py-2.5 font-medium">Last scan</th>
                     <th className="px-4 py-2.5 font-medium text-right">Actions</th>
@@ -248,75 +339,116 @@ export function BusinessManagersDashboard({
                 <tbody className="divide-y divide-border">
                   {businessManagers.map((bm) => {
                     const scanKey = `scan:${bm.business_id}`;
-                    const grantKey = `grantall:${bm.business_id}`;
+                    const grantKey = `grantall:${bm.business_id}:${activeKind}`;
+                    const counts = countsFor(bm.business_id);
+                    const isExpanded = expandedBizId === bm.business_id;
+                    // Pages keep their v1 endpoints so this PR cannot alter
+                    // page-grant behaviour; the v2 kinds share the assets route.
+                    const grantAllUrl =
+                      activeKind === "page"
+                        ? `/api/business-managers/${bm.business_id}/pages/grant-all`
+                        : `/api/business-managers/${bm.business_id}/assets/${SLUG_BY_KIND[activeKind]}/grant-all`;
                     return (
-                      <tr key={bm.business_id}>
-                        <td className="px-4 py-3">
-                          <p className="font-medium">
-                            {bm.client_name ?? bm.business_name ?? bm.business_id}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {bm.business_name ? `${bm.business_name} · ` : ""}
-                            {bm.business_id}
-                          </p>
-                          {bm.token_expired ? (
-                            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-                              <AlertTriangle className="h-3 w-3" /> Token expired
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 tabular-nums">{bm.total_pages}</td>
-                        <td className="px-4 py-3 tabular-nums">
-                          {bm.missing_access_count > 0 ? (
-                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-                              {bm.missing_access_count}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">0</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {formatTimestamp(bm.last_scanned_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
+                      <Fragment key={bm.business_id}>
+                        <tr>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              className="flex items-start gap-1.5 text-left"
                               onClick={() =>
-                                run(
-                                  scanKey,
-                                  `/api/business-managers/${bm.business_id}/scan`,
-                                  "Scan complete.",
-                                )
+                                setExpandedBizId(isExpanded ? null : bm.business_id)
                               }
-                              disabled={busyKey === scanKey || isPending}
+                              aria-expanded={isExpanded}
                             >
-                              <RefreshCw
-                                className={`h-3.5 w-3.5 ${busyKey === scanKey ? "animate-spin" : ""}`}
-                              />
-                              {busyKey === scanKey ? "Syncing…" : "Sync now"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() =>
-                                run(
-                                  grantKey,
-                                  `/api/business-managers/${bm.business_id}/pages/grant-all`,
-                                  "Missing access resolved.",
-                                )
-                              }
-                              disabled={
-                                busyKey === grantKey ||
-                                isPending ||
-                                bm.missing_access_count === 0
-                              }
-                            >
-                              {busyKey === grantKey ? "Granting…" : "Grant all missing"}
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
+                              {isExpanded ? (
+                                <ChevronDown className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              )}
+                              <span>
+                                <span className="block font-medium">
+                                  {bm.client_name ?? bm.business_name ?? bm.business_id}
+                                </span>
+                                <span className="block text-xs text-muted-foreground">
+                                  {bm.business_name ? `${bm.business_name} · ` : ""}
+                                  {bm.business_id}
+                                </span>
+                              </span>
+                            </button>
+                            {bm.token_expired ? (
+                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                                <AlertTriangle className="h-3 w-3" /> Token expired
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3 tabular-nums">{counts.total}</td>
+                          <td className="px-4 py-3 tabular-nums">
+                            {counts.missingAccess > 0 ? (
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                                {counts.missingAccess}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">0</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {formatTimestamp(bm.last_scanned_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  run(
+                                    scanKey,
+                                    `/api/business-managers/${bm.business_id}/scan`,
+                                    "Scan complete.",
+                                  )
+                                }
+                                disabled={busyKey === scanKey || isPending}
+                              >
+                                <RefreshCw
+                                  className={`h-3.5 w-3.5 ${busyKey === scanKey ? "animate-spin" : ""}`}
+                                />
+                                {busyKey === scanKey ? "Syncing…" : "Sync now"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() =>
+                                  run(grantKey, grantAllUrl, "Missing access resolved.")
+                                }
+                                disabled={
+                                  busyKey === grantKey || isPending || counts.missingAccess === 0
+                                }
+                              >
+                                {busyKey === grantKey ? "Granting…" : "Grant all missing"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded ? (
+                          <tr className="bg-muted/20">
+                            <td colSpan={5} className="p-0">
+                              {activeKind === "page" ? (
+                                <p className="px-4 py-3 text-xs text-muted-foreground">
+                                  Per-page detail lives in the new-pages inbox above. Use{" "}
+                                  <span className="font-medium">Grant all missing</span> to
+                                  resolve pages in bulk.
+                                </p>
+                              ) : (
+                                <BMAssetList
+                                  businessId={bm.business_id}
+                                  kind={activeKind}
+                                  onGrant={(key, url) => run(key, url, "Access granted.")}
+                                  busyKey={busyKey}
+                                  disabled={isPending}
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
                     );
                   })}
                 </tbody>

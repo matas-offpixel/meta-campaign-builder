@@ -6,17 +6,26 @@ import {
   listBusinessManagerSummaries,
   listDetectedNewPages,
 } from "@/lib/db/business-managers";
+import { getBMAssetCountsByKind } from "@/lib/db/bm-assets";
+import { BM_V2_ASSET_KINDS } from "@/lib/bm/asset-kinds";
 import { getLastKnownMetaAppUsage } from "@/lib/meta/client";
-import { BusinessManagersDashboard } from "@/components/admin/business-managers/bm-dashboard";
+import {
+  BusinessManagersDashboard,
+  type AssetCountsByKind,
+} from "@/components/admin/business-managers/bm-dashboard";
 
 /**
- * /business-managers — operator tool for keeping page asset-user access in
- * sync across the Business Managers Matas is an Admin on.
+ * /business-managers — operator tool for keeping asset-user access in sync
+ * across the Business Managers Matas is an Admin on.
  *
  * Section 1: pages detected in the last 7 days (one-click grant).
- * Section 2: connected BMs with page counts + Sync now / Grant all missing.
+ * Section 2: connected BMs, tabbed by asset type (pages / ad accounts / pixels
+ * / Instagram accounts) with counts + Sync now / Grant all missing.
  *
- * Auth: cookie-bound session + operator allowlist. See migration 145 +
+ * Only per-BM COUNTS are loaded here — individual assets are fetched on demand
+ * when a row is expanded, because a BM can hold hundreds across four kinds.
+ *
+ * Auth: cookie-bound session + operator allowlist. See migrations 145 + 147 and
  * docs/BUSINESS_MANAGER_ASSET_SYNC.md.
  */
 
@@ -40,10 +49,17 @@ export default async function BusinessManagersPage() {
     );
   }
 
-  const [businessManagers, newPages] = await Promise.all([
+  const [businessManagers, newPages, ...kindCounts] = await Promise.all([
     listBusinessManagerSummaries(supabase),
     listDetectedNewPages(supabase, 7),
+    ...BM_V2_ASSET_KINDS.map((kind) => getBMAssetCountsByKind(supabase, kind)),
   ]);
+
+  // Maps → plain objects for the client boundary.
+  const assetCounts: AssetCountsByKind = {};
+  BM_V2_ASSET_KINDS.forEach((kind, index) => {
+    assetCounts[kind] = Object.fromEntries(kindCounts[index]);
+  });
 
   // Best-effort, per-instance only — see getLastKnownMetaAppUsage's docstring.
   // Null on a cold start until the next scan/grant call lands on this
@@ -54,6 +70,7 @@ export default async function BusinessManagersPage() {
     <BusinessManagersDashboard
       initialBusinessManagers={businessManagers}
       initialNewPages={newPages}
+      assetCounts={assetCounts}
       metaAppUsage={metaAppUsage}
     />
   );
