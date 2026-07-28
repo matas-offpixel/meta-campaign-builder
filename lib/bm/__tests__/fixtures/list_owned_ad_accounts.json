@@ -1,0 +1,148 @@
+{
+  "data": [
+    {
+      "id": "act_901661116878308",
+      "account_id": "901661116878308",
+      "name": "Junction 2 Festival",
+      "account_status": 1,
+      "currency": "GBP",
+      "timezone_name": "Europe/London",
+      "disable_reason": 0,
+      "assigned_users": {
+        "data": [
+          {
+            "id": "122182643924854191",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          },
+          {
+            "id": "122146078706996266",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE"
+            ]
+          },
+          {
+            "id": "122120246091259029",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          },
+          {
+            "id": "1572520317622050",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          },
+          {
+            "id": "122190543848829167",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          },
+          {
+            "id": "1058144250010154",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "act_566101953810588",
+      "account_id": "566101953810588",
+      "name": "ARCADIA",
+      "account_status": 1,
+      "currency": "GBP",
+      "timezone_name": "Europe/London",
+      "disable_reason": 0,
+      "assigned_users": {
+        "data": [
+          {
+            "id": "122146078706996266",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE"
+            ]
+          },
+          {
+            "id": "1058144250010154",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "act_10209001250583381",
+      "account_id": "10209001250583381",
+      "name": "AMAAD / LWE (BACKUP)",
+      "account_status": 1,
+      "currency": "GBP",
+      "timezone_name": "America/Los_Angeles",
+      "disable_reason": 0,
+      "assigned_users": {
+        "data": [
+          {
+            "id": "122146078706996266",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE"
+            ]
+          },
+          {
+            "id": "122120246091259029",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          },
+          {
+            "id": "122190543848829167",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          },
+          {
+            "id": "1058144250010154",
+            "tasks": [
+              "DRAFT",
+              "ANALYZE",
+              "ADVERTISE",
+              "MANAGE"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

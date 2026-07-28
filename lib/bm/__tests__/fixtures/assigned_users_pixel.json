@@ -1,0 +1,63 @@
+{
+  "data": [
+    {
+      "id": "122120312762883790",
+      "tasks": [
+        "ANALYZE"
+      ],
+      "permitted_tasks": [
+        "EDIT",
+        "ANALYZE",
+        "UPLOAD",
+        "ADVERTISE",
+        "AA_ANALYZE"
+      ]
+    },
+    {
+      "id": "122121443048950557",
+      "tasks": [
+        "ADVERTISE",
+        "ANALYZE"
+      ],
+      "permitted_tasks": [
+        "EDIT",
+        "ANALYZE",
+        "UPLOAD",
+        "ADVERTISE",
+        "AA_ANALYZE"
+      ]
+    },
+    {
+      "id": "122096945186778192",
+      "tasks": [
+        "ADVERTISE",
+        "UPLOAD",
+        "ANALYZE",
+        "EDIT"
+      ],
+      "permitted_tasks": [
+        "EDIT",
+        "ANALYZE",
+        "UPLOAD",
+        "ADVERTISE",
+        "AA_ANALYZE"
+      ]
+    },
+    {
+      "id": "122119095938847318",
+      "tasks": [
+        "ADVERTISE",
+        "UPLOAD",
+        "ANALYZE",
+        "EDIT"
+      ],
+      "permitted_tasks": [
+        "EDIT",
+        "ANALYZE",
+        "UPLOAD",
+        "ADVERTISE",
+        "AA_ANALYZE"
+      ]
+    }
+  ]
+}

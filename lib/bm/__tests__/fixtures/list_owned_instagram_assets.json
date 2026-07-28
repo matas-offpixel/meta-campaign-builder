@@ -1,0 +1,66 @@
+{
+  "data": [
+    {
+      "id": "1034857849720488",
+      "ig_user_id": "17841446090086018",
+      "ig_username": "ironworkslondon"
+    },
+    {
+      "id": "108060558604122",
+      "ig_user_id": "17841400485165463",
+      "ig_username": "l_w_e",
+      "assigned_users": {
+        "data": [
+          {
+            "id": "122146078706996266",
+            "tasks": [
+              "ANALYZE",
+              "ADVERTISE"
+            ]
+          },
+          {
+            "id": "122190543848829167",
+            "tasks": [
+              "ANALYZE",
+              "ADVERTISE",
+              "CONTENT",
+              "MESSAGES",
+              "COMMUNITY_ACTIVITY"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "109187851823078",
+      "ig_user_id": "17841400686217529",
+      "ig_username": "tickettannoy"
+    },
+    {
+      "id": "100112752748744",
+      "ig_user_id": "17841423356955640",
+      "ig_username": "ionfestival",
+      "assigned_users": {
+        "data": [
+          {
+            "id": "122146078706996266",
+            "tasks": [
+              "ANALYZE",
+              "ADVERTISE"
+            ]
+          },
+          {
+            "id": "122190543848829167",
+            "tasks": [
+              "ANALYZE",
+              "ADVERTISE",
+              "CONTENT",
+              "MESSAGES",
+              "COMMUNITY_ACTIVITY"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

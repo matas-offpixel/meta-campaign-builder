@@ -77,31 +77,39 @@ export interface ScanResult {
   error?: string;
 }
 
-/** Result of a bulk / single grant run. */
-export interface GrantResult {
-  businessId: string;
+/**
+ * The parts of a grant run that are identical whether the assets were pages
+ * (v1) or ad accounts / pixels / IG accounts (v2, migration 147). Extracted so
+ * `isFullGrantSuccess` and `describeGrantResult` serve both without either
+ * result type having to misuse the other's id field name.
+ */
+export interface GrantRunOutcome {
   attempted: number;
   granted: number;
   failed: number;
   batches: number;
-  failures: { pageId: string; error: string }[];
+  failures: { error: string }[];
   tokenExpired?: boolean;
-  /**
-   * Total pages this run set out to grant (before any halt). Differs from
-   * `attempted` only when the run halted early (rate limit) — `attempted`
-   * counts pages actually tried, `totalTargeted` is the full intended set.
-   */
   totalTargeted?: number;
-  /**
-   * True when the run halted because Meta's app-level (or user/ad-account)
-   * request quota was hit (code #4/#17/#80004 — "Application request
-   * limit reached" and friends). The run stops immediately rather than
-   * continuing to hammer an already-rejected quota window — see
-   * lib/bm/grant.ts and the 2026-07-09 Columbo Group incident.
-   */
   rateLimited?: boolean;
-  /** Best-effort estimate of when it's safe to retry, when `rateLimited` is true. */
   retryAfterMinutes?: number;
+}
+
+/**
+ * Result of a bulk / single grant run.
+ *
+ * Inherited from GrantRunOutcome and worth knowing about:
+ *   - `totalTargeted` — the full intended set, which differs from `attempted`
+ *     only when the run halted early. `attempted` counts what was actually tried.
+ *   - `rateLimited` — the run halted because Meta's app/user/ad-account request
+ *     quota was hit (#4/#17/#80004). It stops immediately rather than continuing
+ *     to hammer an already-rejected quota window; see lib/bm/grant.ts and the
+ *     2026-07-09 Columbo Group incident.
+ *   - `retryAfterMinutes` — best-effort safe-retry estimate when rate limited.
+ */
+export interface GrantResult extends GrantRunOutcome {
+  businessId: string;
+  failures: { pageId: string; error: string }[];
 }
 
 /**
@@ -116,12 +124,16 @@ export interface GrantResult {
  * "Missing access resolved" toast while `missing_access_count` never
  * budged. `result.failed` must be part of the success signal.
  */
-export function isFullGrantSuccess(result: GrantResult): boolean {
+export function isFullGrantSuccess(result: GrantRunOutcome): boolean {
   return !result.tokenExpired && !result.rateLimited && result.failed === 0;
 }
 
-/** Human-readable summary of a grant run, for API responses + UI notices. */
-export function describeGrantResult(result: GrantResult): string {
+/**
+ * Human-readable summary of a grant run, for API responses + UI notices.
+ * `noun` names the asset type so v2 runs read "3/3 pixel(s)" rather than
+ * claiming pages were granted.
+ */
+export function describeGrantResult(result: GrantRunOutcome, noun = "page"): string {
   if (result.tokenExpired) {
     return "Facebook token expired — reconnect required.";
   }
@@ -136,7 +148,7 @@ export function describeGrantResult(result: GrantResult): string {
     return "Nothing to grant — already up to date.";
   }
   if (result.failed === 0) {
-    return `Granted access on ${result.granted}/${result.attempted} page(s).`;
+    return `Granted access on ${result.granted}/${result.attempted} ${noun}(s).`;
   }
   const firstError = result.failures[0]?.error;
   return (
