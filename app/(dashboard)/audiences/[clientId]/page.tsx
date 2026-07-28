@@ -202,10 +202,26 @@ function AudienceTable({
                   {sourceDescription(audience)}
                 </td>
                 <td className="px-4 py-3">{audience.retentionDays}d</td>
-                <td className="px-4 py-3">
+                <td className="max-w-xs px-4 py-3 align-top">
                   <Badge variant={statusVariant(audience.status)}>
                     {AUDIENCE_STATUS_LABELS[audience.status]}
                   </Badge>
+                  {/* Until now this text was written to the row and never shown,
+                      so a failure looked like a bare red "Failed" badge and the
+                      operator had to guess. On a `ready` row the same field holds
+                      a non-fatal note (sources dropped, or access granted to
+                      complete the create), so it is styled as a warning. */}
+                  {audience.statusError && (
+                    <p
+                      className={`mt-1.5 text-xs leading-snug ${
+                        audience.status === "failed"
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      {audience.statusError}
+                    </p>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {audience.metaAudienceId ? (

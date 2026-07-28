@@ -1,0 +1,22 @@
+{
+  "_provenance": {
+    "captured_at": "2026-07-28T22:20:00Z",
+    "graph_version": "v23.0",
+    "endpoint": "POST /act_1073273492854557/customaudiences",
+    "token_identity": "operator OAuth token from user_facebook_tokens (Matas Liebus, FB user 10243038239677083) — the same identity resolveServerMetaToken() gives the audience-write path",
+    "payload": {
+      "name": "ZZ_PRC_PROBE_TREAT",
+      "prefill": "1",
+      "rule": "{\"inclusions\":{\"operator\":\"or\",\"rules\":[{\"event_sources\":[{\"type\":\"page\",\"id\":\"260956420427418\"}],\"retention_seconds\":0,\"filter\":{\"operator\":\"and\",\"filters\":[{\"field\":\"event\",\"operator\":\"eq\",\"value\":\"page_liked\"}]}}]}}"
+    },
+    "seed_page": "260956420427418 (DJ Heartstring) — bm_pages.user_has_access = false, i.e. absent from /me/accounts",
+    "note": "Byte-identical in message and subcode to the production failure recorded on 2026-07-27 in meta_custom_audiences.status_error for two Electric Brixton audiences (page_followers_fb and page_engagement_fb). Meta names the offending event source inside the message, which is what makes the drop-and-retry fallback possible."
+  },
+  "error": {
+    "message": "(#2654) No permission for event source: Audience creation permission is missing for one or more event sources (ID: 260956420427418).",
+    "type": "OAuthException",
+    "code": 2654,
+    "error_subcode": 1713140,
+    "fbtrace_id": "AAu3Cju4ul4PJWJbwD7JblO"
+  }
+}

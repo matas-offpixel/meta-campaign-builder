@@ -33,6 +33,31 @@ export interface UnionPageSource {
   } | null;
   /** Set on pages that only came from the BM Asset Sync `bm_pages` table (shared/non-owned pages). */
   source?: "bm-shared";
+  /**
+   * True when a scan has positively established the operator holds NO role on
+   * this page, which is what makes Meta refuse an audience built from it (code
+   * 2654 / subcode 1713140 — see lib/audiences/event-source-permission.ts).
+   * Absent means "no evidence either way", never "fine".
+   */
+  noOperatorRole?: boolean;
+}
+
+/**
+ * Mark offered pages the operator verifiably holds no role on.
+ *
+ * Kept as a separate pass over the union rather than folded into it: the union is
+ * about WHICH pages exist, this is about whether one will be usable, and the
+ * evidence arrives from a different query. Pages not mentioned in
+ * `pageIdsWithoutRole` are left untouched.
+ */
+export function annotateOperatorRole(
+  pages: readonly UnionPageSource[],
+  pageIdsWithoutRole: ReadonlySet<string>,
+): UnionPageSource[] {
+  if (pageIdsWithoutRole.size === 0) return [...pages];
+  return pages.map((page) =>
+    pageIdsWithoutRole.has(page.id) ? { ...page, noOperatorRole: true } : page,
+  );
 }
 
 /** Minimal shape read from `bm_pages` for a client's Business Manager. */

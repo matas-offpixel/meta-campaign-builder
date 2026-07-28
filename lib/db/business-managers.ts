@@ -367,6 +367,138 @@ export async function getBMPagesWithUserAccess(
   return (data ?? []) as BMPageForAudienceSource[];
 }
 
+/**
+ * Pages we have POSITIVE evidence the operator holds no role on — the condition
+ * that makes Meta refuse an audience with subcode 1713140.
+ *
+ * Asymmetric on purpose, the same rule PR #725 settled on for IG identities: a
+ * page is only reported when a scanned `bm_pages` row says `user_has_access =
+ * false` and NO row says otherwise. A page with no row at all is unknown, not
+ * bad — an unscanned Business Manager or a page held outside every connected BM
+ * would otherwise get warned about for no reason, and a warning that fires on
+ * absence of evidence trains operators to ignore it.
+ *
+ * Queried across all businesses rather than one, because `user_has_access` comes
+ * from `/me/accounts`, which is global: a role seen through ANY business is a
+ * role.
+ */
+export async function getPagesWithoutOperatorRole(
+  supabase: AnySupabaseClient,
+  pageIds: string[],
+): Promise<Set<string>> {
+  if (pageIds.length === 0) return new Set();
+  const sb = asAny(supabase);
+  const { data, error } = await sb
+    .from("bm_pages")
+    .select("page_id, user_has_access")
+    .in("page_id", pageIds);
+  if (error) {
+    console.error("[bm getPagesWithoutOperatorRole]", error.message);
+    return new Set();
+  }
+  const rows = (data ?? []) as { page_id: string; user_has_access: boolean }[];
+  const withRole = new Set(rows.filter((r) => r.user_has_access).map((r) => r.page_id));
+  return new Set(
+    rows.filter((r) => !r.user_has_access && !withRole.has(r.page_id)).map((r) => r.page_id),
+  );
+}
+
+/**
+ * Where an audience seed lives, and whether the operator holds a role on it.
+ *
+ * `grantAssetId` is the id to POST to `/{id}/assigned_users`, which is NOT always
+ * the id the audience rule used — see {@link findAudienceSeedLocations}.
+ */
+export interface AudienceSeedLocation {
+  /** The id exactly as it appeared in the audience rule's event_sources. */
+  sourceId: string;
+  kind: "page" | "ig";
+  businessId: string;
+  /** The id the grant edge expects. Differs from `sourceId` for IG. */
+  grantAssetId: string;
+  name: string | null;
+  userHasAccess: boolean;
+  userTasks: string[];
+}
+
+/**
+ * Locate audience seed ids across the BM asset tables.
+ *
+ * ── The IG id-space trap ────────────────────────────────────────────────────
+ * A `page_engagement_ig` audience rule carries Instagram **user** ids
+ * (`17841…`), because that is what `/{ad_account}/instagram_accounts` returns and
+ * what `object_story_spec.instagram_user_id` expects. The business-asset grant
+ * edge, however, is keyed by the Instagram **business asset** id — a different id
+ * space entirely. Migration 147 stores both columns precisely so this lookup can
+ * match on `ig_user_id` and return `ig_asset_id` for the grant. Feeding one space
+ * where the other is expected is the failure mode PR #725 was built to prevent,
+ * so the two ids are kept in separate fields here rather than one `id`.
+ *
+ * Pages have no such split: the audience rule id and the grant id are both the
+ * page id.
+ *
+ * A seed present in several BMs yields several rows; the caller decides which BM
+ * to act through (it needs a live token for that BM).
+ */
+export async function findAudienceSeedLocations(
+  supabase: AnySupabaseClient,
+  sourceIds: string[],
+): Promise<AudienceSeedLocation[]> {
+  if (sourceIds.length === 0) return [];
+  const sb = asAny(supabase);
+  const out: AudienceSeedLocation[] = [];
+
+  const { data: pageRows, error: pageErr } = await sb
+    .from("bm_pages")
+    .select("page_id, page_name, business_id, user_has_access, user_tasks")
+    .in("page_id", sourceIds);
+  if (pageErr) console.error("[bm findAudienceSeedLocations pages]", pageErr.message);
+  for (const r of (pageRows ?? []) as {
+    page_id: string;
+    page_name: string | null;
+    business_id: string;
+    user_has_access: boolean;
+    user_tasks: string[] | null;
+  }[]) {
+    out.push({
+      sourceId: r.page_id,
+      kind: "page",
+      businessId: r.business_id,
+      grantAssetId: r.page_id,
+      name: r.page_name,
+      userHasAccess: Boolean(r.user_has_access),
+      userTasks: r.user_tasks ?? [],
+    });
+  }
+
+  const { data: igRows, error: igErr } = await sb
+    .from("bm_ig_accounts")
+    .select("ig_user_id, ig_asset_id, ig_username, business_id, user_has_access, user_tasks")
+    .in("ig_user_id", sourceIds);
+  if (igErr) console.error("[bm findAudienceSeedLocations ig]", igErr.message);
+  for (const r of (igRows ?? []) as {
+    ig_user_id: string | null;
+    ig_asset_id: string;
+    ig_username: string | null;
+    business_id: string;
+    user_has_access: boolean;
+    user_tasks: string[] | null;
+  }[]) {
+    if (!r.ig_user_id) continue;
+    out.push({
+      sourceId: r.ig_user_id,
+      kind: "ig",
+      businessId: r.business_id,
+      grantAssetId: r.ig_asset_id,
+      name: r.ig_username,
+      userHasAccess: Boolean(r.user_has_access),
+      userTasks: r.user_tasks ?? [],
+    });
+  }
+
+  return out;
+}
+
 /** Flip a single page's access flag (after a successful grant). */
 export async function setPageAccessFlag(
   supabase: AnySupabaseClient,

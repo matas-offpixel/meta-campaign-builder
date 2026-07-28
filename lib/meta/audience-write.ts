@@ -31,6 +31,7 @@ import {
   resolvePageAccess,
   type PageAccessResult,
 } from "@/lib/meta/page-access";
+import { createWithEventSourceRecovery } from "@/lib/audiences/event-source-recovery";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -70,6 +71,39 @@ export type MetaAudiencePost = (
   body: Record<string, string>,
   token: string,
 ) => Promise<{ id: string }>;
+
+/**
+ * Grants the operator access to refused audience seeds, so a 1713140 refusal can
+ * be fixed rather than merely reported. Injectable so the recovery ladder is
+ * testable without Graph or a Business Manager.
+ *
+ * Returns which seeds it fixed and why it could not fix the rest; it never
+ * throws — remediation is opportunistic inside an already-failing write, and an
+ * error here would mask Meta's real diagnosis.
+ */
+export type SeedRemediator = (
+  // Structural client (see IdempotencyClient above): the full
+  // SupabaseClient<Database> crossing this boundary trips TS2589.
+  supabase: IdempotencyClient,
+  sourceIds: string[],
+  actorUserId: string,
+) => Promise<{ remediated: string[]; skipped: { sourceId: string; reason: string }[] }>;
+
+/**
+ * Live remediator. Lazily imported so this module keeps loading in environments
+ * without the BM layer, and so the recovery ladder's tests never pull in
+ * `server-only` BM code.
+ */
+const defaultSeedRemediator: SeedRemediator = async (supabase, sourceIds, actorUserId) => {
+  try {
+    const { remediateAudienceSeeds } = await import("@/lib/audiences/seed-remediation");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return await remediateAudienceSeeds(supabase as any, sourceIds, { actorUserId });
+  } catch (err) {
+    const reason = `remediation unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    return { remediated: [], skipped: sourceIds.map((sourceId) => ({ sourceId, reason })) };
+  }
+};
 
 /** Page-access resolver — injectable so the pre-filter is testable offline. */
 export type MetaPageAccessResolver = (
@@ -125,6 +159,8 @@ export async function createMetaCustomAudience(
     supabase?: TypedSupabaseClient;
     request?: MetaAudiencePost;
     pageAccess?: MetaPageAccessResolver;
+    /** Injectable seed remediation; defaults to the live BM ADVERTISE grant. */
+    remediateSeeds?: SeedRemediator;
   },
 ): Promise<MetaCustomAudience> {
   assertMetaAudienceWritesEnabled();
@@ -142,8 +178,11 @@ export async function createMetaCustomAudience(
 
   await updateAudience(audience.id, { status: "creating", statusError: null });
   try {
-    const { audience: audienceForWrite, warning } =
-      await prefilterPageEngagementAccess(audience, token, {
+    const {
+      audience: audienceForWrite,
+      warning,
+      names: seedNames,
+    } = await prefilterPageEngagementAccess(audience, token, {
         supabase,
         override: options.pageAccess,
       });
@@ -184,23 +223,25 @@ export async function createMetaCustomAudience(
       }
     }
 
-    const payload = buildMetaCustomAudiencePayload(audienceForWrite);
-    const metaAudienceId = await createOneMetaAudience({
-      payload,
+    const { metaAudienceId, recoveryNote } = await createAudienceWithSeedRecovery({
+      audience: audienceForWrite,
       adAccountId: audience.metaAdAccountId,
       token,
       post,
       supabase,
       idempotencyKey,
       userId: options.userId,
-      audienceId: audience.id,
+      audienceRowId: audience.id,
+      seedNames,
+      remediate: options.remediateSeeds,
     });
 
     const updated = await updateAudience(audience.id, {
       status: "ready",
       metaAudienceId,
-      // Non-fatal warning (dropped pages) recorded on a successful create.
-      statusError: warning,
+      // Non-fatal warnings (prefilter drops, and anything the 1713140 recovery
+      // had to do) recorded on a successful create.
+      statusError: [warning, recoveryNote].filter(Boolean).join(" ") || null,
     });
     if (!updated) throw new Error("Audience not found after Meta write");
     return updated;
@@ -242,14 +283,19 @@ async function prefilterPageEngagementAccess(
     /** Test/override hook — when set, bypasses BM resolution entirely. */
     override?: MetaPageAccessResolver;
   },
-): Promise<{ audience: MetaCustomAudience; warning: string | null }> {
+): Promise<{
+  audience: MetaCustomAudience;
+  warning: string | null;
+  /** Seed id → display name, for the recovery ladder's operator-facing messages. */
+  names: Record<string, string>;
+}> {
   if (!PAGE_ENGAGEMENT_SUBTYPES.has(audience.audienceSubtype)) {
-    return { audience, warning: null };
+    return { audience, warning: null, names: {} };
   }
 
   const requested = pageEngagementPageIds(audience);
   if (requested.length <= 1) {
-    return { audience, warning: null };
+    return { audience, warning: null, names: {} };
   }
 
   const resolve =
@@ -266,7 +312,7 @@ async function prefilterPageEngagementAccess(
   }
 
   if (dropped.length === 0) {
-    return { audience, warning: null };
+    return { audience, warning: null, names };
   }
 
   const droppedLabels = dropped.map((d) => pageLabel(d.pageId, names)).join(", ");
@@ -275,7 +321,7 @@ async function prefilterPageEngagementAccess(
     `Dropped (no token or BM access): ${droppedLabels}.`;
   console.warn(`[audience-write] ${audience.id}: ${warning}`);
 
-  return { audience: withPageIds(audience, accessiblePageIds), warning };
+  return { audience: withPageIds(audience, accessiblePageIds), warning, names };
 }
 
 /**
@@ -368,6 +414,51 @@ async function createOneMetaAudience(args: {
       return result.id;
     },
   );
+}
+
+/**
+ * Live wiring for the 1713140 recovery ladder (grant → salvage → explain). The
+ * decision logic itself lives in `lib/audiences/event-source-recovery.ts`, which
+ * is dependency-free and therefore unit-testable; this function only supplies the
+ * two callbacks and the seed names.
+ *
+ * Retries reuse the same idempotency key deliberately: the key caches only on
+ * SUCCESS, so a failed attempt re-runs while a first attempt that did somehow
+ * land can never be double-created.
+ */
+async function createAudienceWithSeedRecovery(args: {
+  audience: MetaCustomAudience;
+  adAccountId: string;
+  token: string;
+  post: MetaAudiencePost;
+  supabase: IdempotencyClient;
+  idempotencyKey: string;
+  userId: string;
+  audienceRowId: string;
+  seedNames?: Record<string, string>;
+  remediate?: SeedRemediator;
+}): Promise<{ metaAudienceId: string; recoveryNote: string | null }> {
+  const remediate = args.remediate ?? defaultSeedRemediator;
+  const { result, note } = await createWithEventSourceRecovery<string>({
+    requested: pageEngagementPageIds(args.audience),
+    names: args.seedNames,
+    create: (seeds) =>
+      createOneMetaAudience({
+        payload: buildMetaCustomAudiencePayload(
+          seeds === null ? args.audience : withPageIds(args.audience, seeds),
+        ),
+        adAccountId: args.adAccountId,
+        token: args.token,
+        post: args.post,
+        supabase: args.supabase,
+        idempotencyKey: args.idempotencyKey,
+        userId: args.userId,
+        audienceId: args.audienceRowId,
+      }),
+    remediate: (sourceIds) => remediate(args.supabase, sourceIds, args.userId),
+    onWarn: (m) => console.warn(`[audience-write] ${args.audienceRowId}: ${m}`),
+  });
+  return { metaAudienceId: result, recoveryNote: note };
 }
 
 /**

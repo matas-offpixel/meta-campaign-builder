@@ -64,6 +64,13 @@ interface PageSource {
     name?: string;
     thumbnailUrl?: string;
   } | null;
+  /**
+   * A scan has established the operator holds no role on this page, so Meta will
+   * refuse an audience built from it (subcode 1713140). Not a hard block: the
+   * write path can now grant access and retry, and the flag is only set on
+   * positive evidence, so it warns rather than disables.
+   */
+  noOperatorRole?: boolean;
 }
 
 interface PixelSource {
@@ -404,6 +411,12 @@ function PageSourcePicker({
                 <p className="text-xs text-muted-foreground">
                   {page.slug ? `/${page.slug}` : page.id}
                 </p>
+                {page.noOperatorRole && (
+                  <p className="mt-1 text-xs text-warning">
+                    You hold no role on this page — Meta refuses audiences built
+                    from it. Creating will try to grant you ADVERTISE first.
+                  </p>
+                )}
               </div>
             </label>
           );
