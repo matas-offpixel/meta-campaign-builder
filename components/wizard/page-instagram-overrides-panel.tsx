@@ -3,9 +3,16 @@
 import { useMemo } from "react";
 import { AlertCircle } from "lucide-react";
 import { Select } from "@/components/ui/select";
-import type { MetaInstagramAccount, PageIgOption } from "@/lib/types";
+import {
+  groupIgsByPage,
+  formatIgOptionLabel,
+  type IgWithPage,
+} from "@/lib/meta/ig-picker-options";
 
-type IGWithPage = MetaInstagramAccount & { linkedPageId: string };
+// Re-exported so existing wizard-step imports keep their single source.
+export { deriveMultiIgPageIds } from "@/lib/meta/ig-picker-options";
+
+type IGWithPage = IgWithPage;
 
 interface PageInstagramOverridesPanelProps {
   /** Page IDs that need an explicit IG pick (subset of multi-IG pages in use). */
@@ -20,29 +27,6 @@ interface PageInstagramOverridesPanelProps {
   error?: string | null;
   /** Shown above the per-page dropdowns. */
   title?: string;
-}
-
-function groupIgsByPage(igAccounts: IGWithPage[]): Map<string, PageIgOption[]> {
-  const map = new Map<string, PageIgOption[]>();
-  for (const ig of igAccounts) {
-    if (!ig.linkedPageId || !ig.id) continue;
-    const list = map.get(ig.linkedPageId) ?? [];
-    if (!list.some((entry) => entry.igId === ig.id)) {
-      list.push({
-        igId: ig.id,
-        username: ig.username ? `@${ig.username.replace(/^@/, "")}` : ig.id,
-        displayName: ig.name,
-      });
-    }
-    map.set(ig.linkedPageId, list);
-  }
-  for (const [pageId, list] of map) {
-    map.set(
-      pageId,
-      list.sort((a, b) => a.username.localeCompare(b.username)),
-    );
-  }
-  return map;
 }
 
 export function PageInstagramOverridesPanel({
@@ -80,28 +64,35 @@ export function PageInstagramOverridesPanel({
         const pageLabel = pageNames?.[pageId] ?? pageId;
         const selected = overrides[pageId] ?? "";
 
+        const recommended = options.find((ig) => ig.isPagePrimary);
+
         return (
           <div key={pageId}>
             <Select
-              label={`Instagram for ${pageLabel}`}
+              label={`Instagram for ${pageLabel} *`}
               value={selected}
               onChange={(e) => onOverrideChange(pageId, e.target.value)}
               placeholder={loading ? "Loading…" : "Select Instagram account…"}
               disabled={loading}
+              // Red border + red helper text while unset — the launch is blocked
+              // until this is answered, so it reads as an error, not a hint.
+              error={
+                !selected && !loading
+                  ? "Required — pick the Instagram account to advertise as."
+                  : undefined
+              }
               options={[
                 { value: "", label: "— Select account —" },
                 ...options.map((ig) => ({
                   value: ig.igId,
-                  label: ig.displayName
-                    ? `${ig.username} (${ig.displayName})`
-                    : ig.username,
+                  label: formatIgOptionLabel(ig),
                 })),
               ]}
             />
-            {!selected && !loading && (
-              <p className="mt-1 flex items-center gap-1 text-[11px] text-warning">
-                <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                Required — Meta will pick the wrong IG if you skip this.
+            {!selected && !loading && recommended && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {recommended.username} is this Page&apos;s own Instagram business
+                account — usually the right choice.
               </p>
             )}
           </div>
@@ -117,13 +108,3 @@ export function PageInstagramOverridesPanel({
   );
 }
 
-/** Derive page IDs with 2+ linked IGs from a flat IG account list. */
-export function deriveMultiIgPageIds(igAccounts: IGWithPage[]): string[] {
-  const counts = new Map<string, number>();
-  for (const ig of igAccounts) {
-    counts.set(ig.linkedPageId, (counts.get(ig.linkedPageId) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .filter(([, count]) => count >= 2)
-    .map(([pageId]) => pageId);
-}

@@ -983,6 +983,8 @@ export async function fetchPageInstagramOptions(
     pageName: string | undefined,
     ig: IgEntry,
     pageToken?: string,
+    /** True for `instagram_business_account` — drives the "Recommended" badge. */
+    isPagePrimary = false,
   ) => {
     if (!pageId || !ig.id) return;
     let entry = pageMap.get(pageId);
@@ -995,12 +997,18 @@ export async function fetchPageInstagramOptions(
     if (pageToken && !entry.pageToken) {
       entry.pageToken = pageToken;
     }
-    if (!entry.igs.has(ig.id)) {
+    const existing = entry.igs.get(ig.id);
+    if (!existing) {
       entry.igs.set(ig.id, {
         igId: ig.id,
         username: formatUsername(ig.username, ig.id),
         displayName: ig.name,
+        isPagePrimary,
       });
+    } else if (isPagePrimary && !existing.isPagePrimary) {
+      // Page-fields ingest runs before /{pageId}/instagram_accounts, but don't
+      // rely on ordering to keep the flag.
+      existing.isPagePrimary = true;
     }
   };
 
@@ -1014,7 +1022,7 @@ export async function fetchPageInstagramOptions(
         | undefined;
 
       if (business?.id) {
-        addIg(page.id, page.name, business, page.access_token);
+        addIg(page.id, page.name, business, page.access_token, true);
       }
       if (connected?.id && connected.id !== business?.id) {
         addIg(page.id, page.name, connected, page.access_token);
@@ -1129,6 +1137,7 @@ export async function fetchInstagramAccounts(
         username: ig.username.replace(/^@/, ""),
         name: ig.displayName,
         linkedPageId: page.pageId,
+        isPagePrimary: ig.isPagePrimary,
       });
     }
   }

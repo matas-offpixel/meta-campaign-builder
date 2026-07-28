@@ -36,6 +36,12 @@ import {
   resolvePageIgActor,
   resolveIgActorForAdAccount,
 } from "@/lib/meta/page-token";
+import {
+  evaluateIgIdentity,
+  describeIgMismatches,
+  formatIgResolutionAudit,
+  type IgMismatchEntry,
+} from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
 import { mapLaunchTokenError } from "@/lib/meta/launch-error-classify";
 import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
@@ -873,6 +879,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ` actorId=${resolved.actorId} source=${resolved.actorSource}`,
           );
         }
+      } else if (resolved.actorSource === "unauthorised_mismatch") {
+        console.warn(
+          `[launch-campaign] Preflight 0e ⚠ page ${pageId}: picked IG` +
+            ` ${resolved.contentAccountId ?? "(none)"} is not authorised on ${adAccountId}` +
+            ` (authorised: ${(resolved.adAccountActors ?? []).map((a) => a.id).join(",") || "none"})` +
+            ` — leaving the creative untouched; the Phase 1.5 IG preflight will block the launch`,
+        );
       } else {
         console.warn(
           `[launch-campaign] Preflight 0e ⚠ page ${pageId}: all actor resolution paths failed` +
@@ -1393,6 +1406,92 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         error: "Launch preflight failed — Instagram account required for multi-IG pages",
         details: multiIgPreflightErrors,
+      },
+      { status: 400 },
+    );
+  }
+
+  // ── Preflight: the picked IG must be authorised on this ad account ─────────
+  //
+  // task #96: the resolver used to swap in the ad account's first actor when
+  // the pick wasn't in its list, so an ad built for one client shipped under
+  // another client's handle. Nothing substitutes silently any more, which means
+  // an unauthorised pick has to be caught here — before Phase 3 creates any
+  // creative — and handed back to the operator with the remediation link.
+  //
+  // Blocks ONLY on positive evidence: the ad account returned a non-empty actor
+  // list and the pick is in neither it nor the page's linked-IG list. An empty
+  // or unfetchable list means the app token can't see the assets, not that the
+  // pick is wrong — blocking on that would break agency setups (PR #567) and
+  // re-break PR #602.
+  const adAccountIgActors = await fetchAdAccountIgActors(adAccountId, userFbToken ?? undefined);
+  const pageIgIdsByPage = new Map<string, string[]>(
+    pageIgOptions.map((p) => [p.pageId, p.igs.map((ig) => ig.igId)]),
+  );
+  const igHandleById = new Map<string, string>();
+  for (const page of pageIgOptions) {
+    for (const ig of page.igs) igHandleById.set(ig.igId, ig.username);
+  }
+  for (const actor of adAccountIgActors) {
+    if (actor.username && !igHandleById.has(actor.id)) {
+      igHandleById.set(actor.id, actor.username);
+    }
+  }
+  const pageNameById = new Map(
+    pageIgOptions.map((p) => [p.pageId, p.pageName ?? p.pageId]),
+  );
+
+  const igMismatches: IgMismatchEntry[] = [];
+  for (const c of launchCreatives) {
+    const pageIdForIg = c.identity?.pageId ?? "";
+    const pickedIgId =
+      c.identity?.instagramActorId || c.identity?.instagramAccountId || "";
+    if (!pickedIgId) continue;
+
+    const verdict = evaluateIgIdentity({
+      pickedIgId,
+      adAccountActors: adAccountIgActors.length > 0 ? adAccountIgActors : null,
+      pageIgIds: pageIgIdsByPage.get(pageIdForIg) ?? null,
+    });
+
+    console.log(
+      formatIgResolutionAudit({
+        stage: "launch-preflight",
+        pageId: pageIdForIg || undefined,
+        adAccountId,
+        pickedIgId,
+        resolvedIgId: verdict.status === "mismatch" ? undefined : pickedIgId,
+        source: verdict.status === "authorised" ? `authorised:${verdict.via}` : verdict.status,
+        adAccountAvailable: adAccountIgActors.length > 0 ? adAccountIgActors : null,
+      }),
+    );
+
+    if (verdict.status === "mismatch") {
+      igMismatches.push({
+        creativeName: c.name,
+        pageId: pageIdForIg || undefined,
+        pageName: pageNameById.get(pageIdForIg),
+        pickedIgId,
+        pickedUsername: igHandleById.get(pickedIgId),
+        adAccountActors: verdict.adAccountActors,
+      });
+    }
+  }
+
+  if (igMismatches.length > 0) {
+    const details = describeIgMismatches(igMismatches);
+    console.error(
+      `[launch-campaign] Phase 1.5 ✗ BLOCKED — ${igMismatches.length} creative(s) ` +
+        `reference an Instagram account this ad account will not accept:\n  ${details.join("\n  ")}`,
+    );
+    return NextResponse.json(
+      {
+        error: "Launch preflight failed — Instagram account not authorised on this ad account",
+        details,
+        hint:
+          "Meta only accepts Instagram accounts registered on the ad account. " +
+          "Grant the account to the Off/Pixel Ad Tool app on the client's Business Manager, " +
+          "then relaunch — or pick one of the authorised handles in Step 4 → Creatives.",
       },
       { status: 400 },
     );

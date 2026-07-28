@@ -110,6 +110,8 @@ export interface MetaInstagramAccount {
   username?: string;
   name?: string;
   profile_picture_url?: string;
+  /** See {@link PageIgOption.isPagePrimary}. */
+  isPagePrimary?: boolean;
 }
 
 /** One linked Instagram account option for a Facebook Page. */
@@ -118,6 +120,18 @@ export interface PageIgOption {
   /** Display handle, e.g. "@l_w_e" */
   username: string;
   displayName?: string;
+  /**
+   * True when this is the Page's `instagram_business_account` — the professional
+   * account officially connected to the Page, as opposed to a personal/creator
+   * account that merely appears in `/{pageId}/instagram_accounts` because it
+   * shares an admin.
+   *
+   * This is the discriminator the picker needs: Junction 2's Page lists both
+   * `@junction_2` (its business account) and `@__mastery` (a creator account),
+   * and only the former should be recommended. Surfaced as a "Recommended"
+   * badge — never auto-selected, because the operator must make the call.
+   */
+  isPagePrimary?: boolean;
 }
 
 /** All linked Instagram accounts for a single Facebook Page (0..N). */
