@@ -10,8 +10,10 @@ import {
   buildAutoTagSystemPrompt,
   buildAutoTagTool,
   hashAutoTagImage,
+  type AutoTagImage,
   type AutoTagInput,
   type AutoTagResult,
+  type AutoTagThumbnailCache,
 } from "../auto-tagger.ts";
 import {
   CREATIVE_TAG_DIMENSIONS,
@@ -241,6 +243,42 @@ function dedupFetchStub(): typeof fetch {
   }) as typeof fetch;
 }
 
+/** In-memory `AutoTagThumbnailCache` keyed by URL — mirrors the real
+ * Storage-backed cache's url→bytes contract without any Supabase dep. */
+function memoryThumbnailCache(): AutoTagThumbnailCache & {
+  store: Map<string, AutoTagImage & { hash: string }>;
+  getCalls: string[];
+  putCalls: string[];
+} {
+  const store = new Map<string, AutoTagImage & { hash: string }>();
+  const getCalls: string[] = [];
+  const putCalls: string[] = [];
+  return {
+    store,
+    getCalls,
+    putCalls,
+    async get(url) {
+      getCalls.push(url);
+      return store.get(url) ?? null;
+    },
+    async put(url, hash, image) {
+      putCalls.push(url);
+      store.set(url, { ...image, hash });
+    },
+  };
+}
+
+function throwingThumbnailCache(): AutoTagThumbnailCache {
+  return {
+    async get() {
+      throw new Error("cache read exploded");
+    },
+    async put() {
+      throw new Error("cache write exploded");
+    },
+  };
+}
+
 function singleTagAnthropic(counter: { calls: number }): Anthropic {
   return {
     messages: {
@@ -421,6 +459,136 @@ describe("autoTagDeduped", () => {
         cacheCreationInputTokens: 0,
         cacheReadInputTokens: 0,
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe("thumbnailCache (Lever 5)", () => {
+  it("autoTagWithDiagnostics fetches from Meta and populates the cache on a miss", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const cache = memoryThumbnailCache();
+    const counter = { calls: 0 };
+    try {
+      const diagnostics = await autoTagWithDiagnostics(
+        { ...INPUT, thumbnailUrl: "https://cdn/a?sig=1" },
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          thumbnailCache: cache,
+        },
+      );
+
+      assert.equal(counter.calls, 1);
+      assert.equal(diagnostics.thumbnailSource, "meta");
+      assert.equal(
+        diagnostics.thumbnailHash,
+        hashAutoTagImage(Buffer.from([1, 2, 3, 4]).toString("base64")),
+      );
+      assert.deepEqual(cache.putCalls, ["https://cdn/a?sig=1"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("autoTagWithDiagnostics serves a cache hit without touching Meta", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error("Meta must not be called on a cache hit");
+    }) as typeof fetch;
+    const cache = memoryThumbnailCache();
+    const knownHash = hashAutoTagImage(
+      Buffer.from([1, 2, 3, 4]).toString("base64"),
+    );
+    cache.store.set("https://cdn/a?sig=1", {
+      base64: Buffer.from([1, 2, 3, 4]).toString("base64"),
+      mediaType: "image/png",
+      hash: knownHash,
+    });
+    const counter = { calls: 0 };
+    try {
+      const diagnostics = await autoTagWithDiagnostics(
+        { ...INPUT, thumbnailUrl: "https://cdn/a?sig=1" },
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          thumbnailCache: cache,
+        },
+      );
+
+      assert.equal(counter.calls, 1); // Claude still runs — only the fetch is skipped.
+      assert.equal(diagnostics.thumbnailSource, "cache");
+      assert.equal(diagnostics.thumbnailHash, knownHash);
+      assert.deepEqual(cache.putCalls, []); // Already cached — no redundant write.
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("falls back to a live Meta fetch when the cache throws on read or write", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const cache = throwingThumbnailCache();
+    const counter = { calls: 0 };
+    try {
+      const diagnostics = await autoTagWithDiagnostics(
+        { ...INPUT, thumbnailUrl: "https://cdn/a?sig=1" },
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          thumbnailCache: cache,
+        },
+      );
+
+      // A broken cache degrades to "always fetch from Meta" — never a failure.
+      assert.equal(counter.calls, 1);
+      assert.equal(diagnostics.thumbnailSource, "meta");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("autoTagDeduped reports per-URL cache hit/miss via onThumbnailFetch", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = dedupFetchStub();
+    const cache = memoryThumbnailCache();
+    // Pre-seed a hit for ad-a; ad-c is a genuine miss.
+    const hashA = hashAutoTagImage(
+      Buffer.from([1, 2, 3, 4]).toString("base64"),
+    );
+    cache.store.set("https://cdn/a?sig=1", {
+      base64: Buffer.from([1, 2, 3, 4]).toString("base64"),
+      mediaType: "image/png",
+      hash: hashA,
+    });
+    const counter = { calls: 0 };
+    const fetches: Array<{ url: string; source: string }> = [];
+    try {
+      await autoTagDeduped(
+        [
+          { creativeName: "ad-a", thumbnailUrl: "https://cdn/a?sig=1", headline: null, body: null },
+          { creativeName: "ad-c", thumbnailUrl: "https://cdn/c?sig=3", headline: null, body: null },
+        ],
+        {
+          taxonomy: TAXONOMY,
+          anthropic: singleTagAnthropic(counter),
+          modelVersion: AI_AUTOTAG_MODEL_VERSION,
+          concurrency: 2,
+          thumbnailCache: cache,
+          onThumbnailFetch: (info) => fetches.push(info),
+        },
+      );
+
+      const byUrl = new Map(fetches.map((f) => [f.url, f.source]));
+      assert.equal(byUrl.get("https://cdn/a?sig=1"), "cache");
+      assert.equal(byUrl.get("https://cdn/c?sig=3"), "meta");
+      // ad-c's fetch populated the cache for next time.
+      assert.deepEqual(cache.putCalls, ["https://cdn/c?sig=3"]);
     } finally {
       globalThis.fetch = originalFetch;
     }

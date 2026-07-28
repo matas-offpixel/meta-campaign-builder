@@ -6,6 +6,7 @@ import {
   AI_AUTOTAG_MODEL_VERSION,
   autoTagWithDiagnostics,
 } from "../lib/intelligence/auto-tagger.ts";
+import { createSupabaseAutoTagThumbnailCache } from "../lib/intelligence/auto-tag-thumbnail-cache.ts";
 import {
   CREATIVE_TAG_DIMENSIONS,
   listCreativeTags,
@@ -104,6 +105,12 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+// Lever 5: a --model side-by-side run (e.g. Sonnet then Haiku, per the CLI
+// flag above) re-tags the exact same creative set twice. Without this, that
+// means fetching every thumbnail from Meta/CDN twice for identical bytes.
+const thumbnailCache = createSupabaseAutoTagThumbnailCache(supabase);
+let thumbnailCacheHits = 0;
+let thumbnailMetaFetches = 0;
 
 async function main() {
   const taxonomy = (await listCreativeTags(supabase)).filter(
@@ -166,8 +173,10 @@ async function main() {
         headline: group.representative_headline,
         body: group.representative_body_preview,
       },
-      { taxonomy, anthropic, modelVersion: predictModel },
+      { taxonomy, anthropic, modelVersion: predictModel, thumbnailCache },
     );
+    if (predicted.thumbnailSource === "cache") thumbnailCacheHits += 1;
+    else if (predicted.thumbnailSource === "meta") thumbnailMetaFetches += 1;
     rawTagCount += predicted.rawTagCount;
     hallucinatedTagCount += predicted.hallucinatedTagCount;
     const predictedByDimension = groupPredictions(predicted.tags);
@@ -216,6 +225,10 @@ async function main() {
       missing_concept_group: missingGroup,
       missing_thumbnail: missingThumbnail,
     },
+    thumbnail_fetches: {
+      cache_hits: thumbnailCacheHits,
+      meta_fetches: thumbnailMetaFetches,
+    },
     // For an AI ground truth this is the candidate-vs-Sonnet agreement:
     // precision = share of predicted tags that the ground truth also has,
     // recall = share of ground-truth tags reproduced, agreement (= f1) the
@@ -253,7 +266,7 @@ async function main() {
       groundTruthSource === "ai" ? `:${groundTruthModel}` : ""
     } creatives=${totalCreatives} estimated_ai_cost_usd=${(
       totalCreatives * ESTIMATED_USD_PER_CREATIVE
-    ).toFixed(2)}`,
+    ).toFixed(2)} thumbnail_cache_hits=${thumbnailCacheHits} thumbnail_meta_fetches=${thumbnailMetaFetches}`,
   );
 }
 

@@ -9,6 +9,7 @@ import {
   type AutoTagUsage,
   type DedupAutoTagInput,
 } from "@/lib/intelligence/auto-tagger";
+import { createSupabaseAutoTagThumbnailCache } from "@/lib/intelligence/auto-tag-thumbnail-cache";
 import {
   lastAiTagAt,
   shouldRunDailyAutoTagPass,
@@ -75,6 +76,12 @@ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-cr
  * The runner writes snapshot rows under each event's OWNING
  * `user_id`, never under a synthetic system user, so the table's
  * `user_id` column stays meaningful for ops queries.
+ *
+ * Auto-tag thumbnail cache: `runAutoTagForSnapshot` resolves every
+ * candidate creative's thumbnail through a Supabase Storage-backed,
+ * content-hash-addressed cache (`lib/intelligence/auto-tag-thumbnail-cache.ts`)
+ * before falling back to a live Meta/CDN fetch. A cache outage degrades
+ * silently to "fetch from Meta every time" — never a tagging failure.
  */
 
 export const maxDuration = 800;
@@ -146,6 +153,12 @@ interface AutoTagCronSummary {
   creativesReusedCrossEvent: number;
   /** Distinct thumbnail content hashes seen across the pass. */
   uniqueThumbnails: number;
+  /** Thumbnail URLs resolved from `thumbnailCache` (Supabase Storage) instead
+   * of a live Meta/CDN fetch — Lever 5's direct cost/traffic signal. */
+  thumbnailCacheHits: number;
+  /** Thumbnail URLs that required a live Meta/CDN fetch (cache miss or no
+   * cache configured). */
+  thumbnailMetaFetches: number;
   /** Actual Anthropic classification calls — the cost driver. */
   claudeCalls: number;
   /** Aggregate token usage across every Claude call this pass made — the
@@ -192,6 +205,8 @@ function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
     creativesReusedThumbnail: 0,
     creativesReusedCrossEvent: 0,
     uniqueThumbnails: 0,
+    thumbnailCacheHits: 0,
+    thumbnailMetaFetches: 0,
     claudeCalls: 0,
     usage: {
       inputTokens: 0,
@@ -417,6 +432,8 @@ export async function GET(req: NextRequest) {
         acc.claudeCalls += r.aiAutoTag.claudeCalls;
         acc.skipCount += skipCount(r.aiAutoTag);
         acc.reusedCrossEvent += r.aiAutoTag.creativesReusedCrossEvent;
+        acc.thumbnailCacheHits += r.aiAutoTag.thumbnailCacheHits;
+        acc.thumbnailMetaFetches += r.aiAutoTag.thumbnailMetaFetches;
         acc.cacheReadInputTokens += r.aiAutoTag.usage.cacheReadInputTokens;
         acc.cacheCreationInputTokens +=
           r.aiAutoTag.usage.cacheCreationInputTokens;
@@ -427,13 +444,15 @@ export async function GET(req: NextRequest) {
         claudeCalls: 0,
         skipCount: 0,
         reusedCrossEvent: 0,
+        thumbnailCacheHits: 0,
+        thumbnailMetaFetches: 0,
         cacheReadInputTokens: 0,
         cacheCreationInputTokens: 0,
         inputTokens: 0,
       },
     );
     console.log(
-      `[cron refresh-active-creatives] ai autotag totals claude_calls=${totals.claudeCalls} skip_count=${totals.skipCount} reused_cross_event=${totals.reusedCrossEvent} cache_read_input_tokens=${totals.cacheReadInputTokens} cache_creation_input_tokens=${totals.cacheCreationInputTokens} input_tokens=${totals.inputTokens}`,
+      `[cron refresh-active-creatives] ai autotag totals claude_calls=${totals.claudeCalls} skip_count=${totals.skipCount} reused_cross_event=${totals.reusedCrossEvent} thumbnail_cache_hits=${totals.thumbnailCacheHits} thumbnail_meta_fetches=${totals.thumbnailMetaFetches} cache_read_input_tokens=${totals.cacheReadInputTokens} cache_creation_input_tokens=${totals.cacheCreationInputTokens} input_tokens=${totals.inputTokens}`,
     );
   }
 
@@ -518,6 +537,20 @@ async function runAutoTagForSnapshot(args: {
     taxonomy,
     anthropic: args.anthropic,
     modelVersion: AI_AUTOTAG_MODEL_VERSION,
+    // Storage-backed byte cache (Lever 5): the same underlying image often
+    // recurs across a creative's lifetime, and this event's own creatives
+    // may share bytes with ones already resolved (this run or a prior one).
+    // Reuses the existing `creative-thumbnails` bucket under an `auto-tag/`
+    // prefix — see auto-tag-thumbnail-cache.ts for why no new bucket/
+    // migration was needed.
+    thumbnailCache: createSupabaseAutoTagThumbnailCache(args.supabase),
+    onThumbnailFetch: ({ source }) => {
+      if (source === "cache") {
+        args.summary.thumbnailCacheHits += 1;
+      } else {
+        args.summary.thumbnailMetaFetches += 1;
+      }
+    },
     knownTagsByHash,
     // Cross-event dedup: recurring creative assets (templated designs, reused
     // artwork) commonly repeat across different events/clients, not just
@@ -608,7 +641,7 @@ async function runAutoTagForSnapshot(args: {
   args.summary.uniqueThumbnails += uniqueHashes.size;
 
   console.log(
-    `[cron refresh-active-creatives] ai autotag event=${args.eventId} claude_calls=${args.summary.claudeCalls} skip_count=${skipCount(args.summary)} reused_cross_event=${args.summary.creativesReusedCrossEvent} cache_read_input_tokens=${args.summary.usage.cacheReadInputTokens} cache_creation_input_tokens=${args.summary.usage.cacheCreationInputTokens} input_tokens=${args.summary.usage.inputTokens}`,
+    `[cron refresh-active-creatives] ai autotag event=${args.eventId} claude_calls=${args.summary.claudeCalls} skip_count=${skipCount(args.summary)} reused_cross_event=${args.summary.creativesReusedCrossEvent} thumbnail_cache_hits=${args.summary.thumbnailCacheHits} thumbnail_meta_fetches=${args.summary.thumbnailMetaFetches} cache_read_input_tokens=${args.summary.usage.cacheReadInputTokens} cache_creation_input_tokens=${args.summary.usage.cacheCreationInputTokens} input_tokens=${args.summary.usage.inputTokens}`,
   );
 
   if (toUpsert.length === 0) return;

@@ -64,21 +64,57 @@ export interface AutoTagDiagnostics {
    * `validateAutoTagResponseWithDiagnostics` (pure validation, no call) omits
    * it. */
   usage?: AutoTagUsage;
+  /** Content hash of the resolved thumbnail. Only set on a live call (see
+   * `usage` above) — same value that would be persisted as
+   * `creative_tag_assignments.thumbnail_hash`. */
+  thumbnailHash?: string | null;
+  /** Where the thumbnail bytes came from — `"cache"` when `thumbnailCache`
+   * (see `AutoTaggerDeps`) served a prior Meta download, `"meta"` otherwise. */
+  thumbnailSource?: AutoTagThumbnailSource;
 }
+
+/**
+ * Content-addressed byte cache for Meta thumbnails, keyed by the SHA256 of
+ * the decoded image bytes (see `hashAutoTagImage`) — not by URL, since
+ * Meta's CDN URLs carry rotating signature/expiry params.
+ *
+ * `get` is looked up by URL because the caller doesn't know the content
+ * hash until bytes are in hand; a real implementation resolves this via an
+ * internal url → hash index (see `createSupabaseAutoTagThumbnailCache`).
+ * Both methods MUST NOT throw — implementations should swallow their own
+ * errors and return `null` / resolve, so a cache outage never blocks
+ * tagging. Callers still wrap calls defensively as a second line of
+ * defence.
+ */
+export interface AutoTagThumbnailCache {
+  get(url: string): Promise<(AutoTagImage & { hash: string }) | null>;
+  put(url: string, hash: string, image: AutoTagImage): Promise<void>;
+}
+
+export type AutoTagThumbnailSource = "cache" | "meta";
 
 export interface AutoTaggerDeps {
   taxonomy: MotionCreativeTagRow[];
   anthropic: Pick<Anthropic, "messages">;
   modelVersion: string;
+  /**
+   * Optional Storage-backed cache for the raw thumbnail bytes fetched from
+   * Meta. Cuts duplicate Meta/CDN traffic when the exact same URL is
+   * resolved more than once — e.g. `scripts/validate-ai-tagging.ts` running
+   * the same snapshot's creatives through two `--model` values back to
+   * back. Purely a cost/traffic optimisation: a miss or a cache error always
+   * falls back to a live Meta fetch (see `resolveAutoTagImage`).
+   */
+  thumbnailCache?: AutoTagThumbnailCache;
 }
 
-type AutoTagImageMediaType =
+export type AutoTagImageMediaType =
   | "image/jpeg"
   | "image/png"
   | "image/gif"
   | "image/webp";
 
-interface AutoTagImage {
+export interface AutoTagImage {
   base64: string;
   mediaType: AutoTagImageMediaType;
 }
@@ -142,6 +178,12 @@ export interface DedupAutoTaggerDeps extends AutoTaggerDeps {
   concurrency?: number;
   /** Per-image error hook (the batch swallows the throw and continues). */
   onClassifyError?: (creativeName: string, error: unknown) => void;
+  /** Fires once per resolvable thumbnail URL in Phase 1 — lets the caller
+   * tally `thumbnailCache` hit/miss counts for cron logging. */
+  onThumbnailFetch?: (info: {
+    url: string;
+    source: AutoTagThumbnailSource;
+  }) => void;
 }
 
 interface RawAutoTagResponse {
@@ -264,9 +306,17 @@ export async function autoTagWithDiagnostics(
   input: AutoTagInput,
   deps: AutoTaggerDeps,
 ): Promise<AutoTagDiagnostics> {
-  const image = await fetchAutoTagImage(input.thumbnailUrl);
-  if (!image) return EMPTY_DIAGNOSTICS;
-  return classifyAutoTagImage(image, input, deps);
+  const resolved = await resolveAutoTagImage(
+    input.thumbnailUrl,
+    deps.thumbnailCache,
+  );
+  if (!resolved) return EMPTY_DIAGNOSTICS;
+  const diagnostics = await classifyAutoTagImage(resolved.image, input, deps);
+  return {
+    ...diagnostics,
+    thumbnailHash: resolved.hash,
+    thumbnailSource: resolved.source,
+  };
 }
 
 const ZERO_USAGE: AutoTagUsage = {
@@ -374,6 +424,50 @@ export function hashAutoTagImage(base64: string): string {
 }
 
 /**
+ * Resolve a thumbnail's bytes + content hash, preferring `cache` over a live
+ * Meta fetch. This is the one call site both `autoTagWithDiagnostics` and
+ * `autoTagDeduped`'s Phase 1 route through, so every consumer of
+ * `AutoTaggerDeps.thumbnailCache` benefits identically.
+ *
+ * Cache errors (read OR write) are swallowed here — `thumbnailCache` is a
+ * pure cost optimisation and must never turn a cache outage into a tagging
+ * outage. A `get` miss (including a thrown error) always falls through to
+ * `fetchAutoTagImage`.
+ */
+async function resolveAutoTagImage(
+  url: string,
+  cache?: AutoTagThumbnailCache,
+): Promise<
+  { image: AutoTagImage; hash: string; source: AutoTagThumbnailSource } | null
+> {
+  if (cache) {
+    try {
+      const cached = await cache.get(url);
+      if (cached) {
+        return { image: cached, hash: cached.hash, source: "cache" };
+      }
+    } catch {
+      // Best-effort cache — fall through to a live Meta fetch below.
+    }
+  }
+
+  const image = await fetchAutoTagImage(url);
+  if (!image) return null;
+  const hash = hashAutoTagImage(image.base64);
+
+  if (cache) {
+    try {
+      await cache.put(url, hash, image);
+    } catch {
+      // A write failure must never fail tagging — the next run just
+      // re-fetches from Meta and tries the write again.
+    }
+  }
+
+  return { image, hash, source: "meta" };
+}
+
+/**
  * Content-hash deduplicated tagging. Fetches every input's thumbnail once,
  * groups inputs by image content hash, and calls Claude at most once per unique
  * image — reusing the result across every creative_name that shares the image.
@@ -392,19 +486,26 @@ export async function autoTagDeduped(
   const known = new Map<string, AutoTagResult[]>(deps.knownTagsByHash ?? []);
   const concurrency = Math.max(1, deps.concurrency ?? 1);
 
-  // Phase 1 — fetch + hash each thumbnail (concurrently).
+  // Phase 1 — resolve (cache or Meta) + hash each thumbnail (concurrently).
   const prepared = await mapWithConcurrency(inputs, concurrency, async (input) => {
     if (!input.thumbnailUrl) {
       return { input, hash: null, image: null, fetchFailed: false };
     }
-    const image = await fetchAutoTagImage(input.thumbnailUrl);
-    if (!image) {
+    const resolved = await resolveAutoTagImage(
+      input.thumbnailUrl,
+      deps.thumbnailCache,
+    );
+    if (!resolved) {
       return { input, hash: null, image: null, fetchFailed: true };
     }
+    deps.onThumbnailFetch?.({
+      url: input.thumbnailUrl,
+      source: resolved.source,
+    });
     return {
       input,
-      hash: hashAutoTagImage(image.base64),
-      image,
+      hash: resolved.hash,
+      image: resolved.image,
       fetchFailed: false,
     };
   });
@@ -605,9 +706,9 @@ function groupTaxonomyByDimension(
   return grouped;
 }
 
-function mediaTypeFromContentType(
+export function mediaTypeFromContentType(
   contentType: string | null,
-): "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
+): AutoTagImageMediaType {
   const normalized = contentType?.toLowerCase() ?? "";
   if (normalized.includes("png")) return "image/png";
   if (normalized.includes("gif")) return "image/gif";
