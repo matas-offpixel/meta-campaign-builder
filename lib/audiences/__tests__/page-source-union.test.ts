@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { unionAudiencePageSources } from "../page-source-union.ts";
+import {
+  annotateOperatorRole,
+  unionAudiencePageSources,
+} from "../page-source-union.ts";
 
 // Fixture from the Columbo Group incident this PR fixes: Mungo's Hi Fi
 // (page_id 158498877502759) is a page shared into Columbo Group's BM
@@ -70,6 +73,34 @@ describe("unionAudiencePageSources", () => {
   });
 });
 
+describe("annotateOperatorRole", () => {
+  const pages = [
+    { id: "1", name: "Has role" },
+    { id: "2", name: "No role" },
+    { id: "3", name: "Unknown" },
+  ];
+
+  it("flags only pages with positive evidence of no operator role", () => {
+    const out = annotateOperatorRole(pages, new Set(["2"]));
+    assert.equal(out[0].noOperatorRole, undefined);
+    assert.equal(out[1].noOperatorRole, true);
+    // Not in the set = no evidence either way. Warning on absence of evidence
+    // would fire for every page in an unscanned BM and train operators to ignore
+    // the warning entirely.
+    assert.equal(out[2].noOperatorRole, undefined);
+  });
+
+  it("leaves the list untouched when there is nothing to flag", () => {
+    const out = annotateOperatorRole(pages, new Set());
+    assert.deepEqual(out, pages);
+  });
+
+  it("does not mutate the input", () => {
+    annotateOperatorRole(pages, new Set(["2"]));
+    assert.equal("noOperatorRole" in pages[1], false);
+  });
+});
+
 describe("pages source route wiring", () => {
   it("unions the Meta live query with bm_pages + default_page_ids backfill", () => {
     const route = readFileSync("app/api/audiences/sources/pages/route.ts", "utf8");
@@ -78,6 +109,12 @@ describe("pages source route wiring", () => {
     assert.match(route, /fetchPagesByIds/);
     assert.match(route, /metaBusinessId/);
     assert.match(route, /defaultPageIds/);
+  });
+
+  it("flags pages the operator holds no role on, so 1713140 is predicted not discovered", () => {
+    const route = readFileSync("app/api/audiences/sources/pages/route.ts", "utf8");
+    assert.match(route, /getPagesWithoutOperatorRole/);
+    assert.match(route, /annotateOperatorRole/);
   });
 
   it("reads bm_pages via the service-role client, not the cookie-bound one", () => {

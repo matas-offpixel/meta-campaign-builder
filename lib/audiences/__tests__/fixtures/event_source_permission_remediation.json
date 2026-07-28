@@ -1,0 +1,58 @@
+{
+  "_provenance": {
+    "captured_at": "2026-07-28T22:24:00Z",
+    "graph_version": "v23.0",
+    "purpose": "Proves that granting the operator ADVERTISE on a seed page clears subcode 1713140. Nothing in the database could answer this: there is zero overlap between pages the BM tool has granted (bm_page_access_events action='granted') and pages used as audience seeds (meta_custom_audiences.source_meta.pageIds), so the remediation feature had to be tested live before being built.",
+    "setup": {
+      "seed_page": "260956420427418 (DJ Heartstring)",
+      "page_home_business": "527693220707294 (The Columbo Group) — the page is a CLIENT page there, is_owned_by_bm = false",
+      "ad_account": "1073273492854557 (Electric Brixton)",
+      "ad_account_business": "1927009767586803 (Electric Brixton) — deliberately a DIFFERENT business from the page's, since the control run already showed cross-business seeds create fine",
+      "business_scoped_user_id": "122102828505388478 (\"Matas Off/Pixel\", ADMIN) — resolved by EMAIL, not name: /me reports \"Matas Liebus\" while the business-scoped identity is named \"Matas Off/Pixel\""
+    },
+    "reversibility": "The grant was revoked immediately after the retry and the created audience deleted, restoring the prior state. Verified afterwards that no ZZ_PRC* audience remains on the ad account."
+  },
+  "steps": [
+    {
+      "step": 1,
+      "action": "POST /act_1073273492854557/customaudiences (page_followers_fb rule on the seed page)",
+      "result": "FAILED",
+      "error": {
+        "message": "(#2654) No permission for event source: Audience creation permission is missing for one or more event sources (ID: 260956420427418).",
+        "type": "OAuthException",
+        "code": 2654,
+        "error_subcode": 1713140,
+        "fbtrace_id": "AsAjaCkZ7tZo3xfeMEdXmTe"
+      }
+    },
+    {
+      "step": 2,
+      "action": "POST /260956420427418/assigned_users",
+      "body": {
+        "business": "527693220707294",
+        "user": "122102828505388478",
+        "tasks": ["ADVERTISE"]
+      },
+      "result": { "success": true }
+    },
+    {
+      "step": 3,
+      "action": "POST /act_1073273492854557/customaudiences — identical payload to step 1",
+      "result": "SUCCESS",
+      "response": { "id": "120249388714350239" },
+      "conclusion": "ADVERTISE alone is sufficient. FULL_CONTROL is NOT required."
+    },
+    {
+      "step": 4,
+      "action": "DELETE /260956420427418/assigned_users?business=527693220707294&user=122102828505388478",
+      "result": { "success": true },
+      "note": "State restored; the created audience was deleted in the same run."
+    }
+  ],
+  "control_run": {
+    "seed_page": "506935682808859 (Interplanetary Criminal) — bm_pages.user_has_access = true",
+    "action": "identical POST, same token, same ad account",
+    "result": "SUCCESS (audience 120249388695890239, deleted immediately)",
+    "conclusion": "Same token succeeds on one page and fails on another, so the cause is per-page authorisation and NOT a missing token scope."
+  }
+}

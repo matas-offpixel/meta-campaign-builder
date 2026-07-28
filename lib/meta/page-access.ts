@@ -23,6 +23,22 @@ import "server-only";
  *
  * The BM page list is injected by the caller (it needs the resolved business id);
  * when unavailable we fall back to the per-page probe alone.
+ *
+ * ── Rule 2 is a WEAK signal, and knowingly so ───────────────────────────────
+ * Presence in a Business Manager's page list does NOT imply the operator's own
+ * token may build an audience from that page. Proven live on 2026-07-28: a page
+ * sitting in a connected BM's `client_pages` was still refused with code 2654 /
+ * subcode 1713140 until the operator was granted a page role directly, at which
+ * point the identical create succeeded. Rule 2 is therefore kept only because
+ * removing it would re-break the PR #425 partner-share case, where rule 1 cannot
+ * see BM-mediated grants — it buys a create ATTEMPT, not a guarantee.
+ *
+ * What closes the gap is downstream, not here: when rule 2 lets a page through
+ * and Meta refuses it anyway, the 1713140 recovery ladder grants the operator
+ * ADVERTISE and retries, or drops just that page (see
+ * lib/audiences/event-source-recovery.ts). Tightening rule 2 into a hard block
+ * instead would trade a recoverable failure for a silent false drop, which is
+ * strictly worse — a dropped page produces an audience quietly missing a source.
  */
 
 /**
@@ -33,6 +49,10 @@ import "server-only";
  * "Ads and Insights" partner-share tier grants ADVERTISE + ANALYZE, which is
  * enough to read engagement into a Custom Audience. Only MESSAGING (inbox-only)
  * is excluded, as it grants no ad/insight access.
+ *
+ * Confirmed live on 2026-07-28 that plain `ADVERTISE` is genuinely sufficient:
+ * granting it on a page that had been failing made the identical audience create
+ * succeed. See lib/audiences/event-source-permission.ts.
  */
 const SUFFICIENT_PAGE_TASKS = new Set([
   "MANAGE",

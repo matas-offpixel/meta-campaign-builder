@@ -5,6 +5,7 @@ import {
   isMetaAdAccountRateLimitError,
 } from "@/lib/audiences/meta-rate-limit";
 import {
+  annotateOperatorRole,
   unionAudiencePageSources,
   type BMSharedPageInput,
   type DefaultListPageInput,
@@ -16,7 +17,10 @@ import {
   resolveAudienceSourceContext,
   type AudienceSourceContext,
 } from "@/lib/audiences/sources";
-import { getBMPagesWithUserAccess } from "@/lib/db/business-managers";
+import {
+  getBMPagesWithUserAccess,
+  getPagesWithoutOperatorRole,
+} from "@/lib/db/business-managers";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -85,7 +89,17 @@ export async function GET(req: NextRequest) {
           fetchAudiencePageSources(context.metaAdAccountId, token),
           fetchBackfillPageSources(context, token),
         ]);
-        return unionAudiencePageSources(metaPages, bmSharedPages, defaultListPages);
+        const union = unionAudiencePageSources(metaPages, bmSharedPages, defaultListPages);
+        // Meta's live query offers pages the operator holds no role on (they sit
+        // in a client's Business Manager, which is not the same thing), and an
+        // audience built from one is refused outright. Flag them here so the
+        // choice is informed instead of discovered at create time. Best-effort:
+        // the picker is still correct without the annotation.
+        const withoutRole = await getPagesWithoutOperatorRole(
+          createServiceRoleClient(),
+          union.map((p) => p.id),
+        ).catch(() => new Set<string>());
+        return annotateOperatorRole(union, withoutRole);
       },
     );
     return Response.json({ ok: true, pages, tokenSource: source });
