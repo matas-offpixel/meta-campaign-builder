@@ -134,6 +134,7 @@ LANDING_PAGES_SIGNUP_RATE_MAX=
 LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 LANDING_PAGES_META_API_VERSION=
 BM_TOKEN_KEY=
+ENABLE_META_THUMBNAIL_FETCH=
 ```
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
@@ -221,6 +222,25 @@ BM_TOKEN_KEY=
 > until their next refresh/relaunch. Only NEW launches with the flag ON serve
 > correct per-placement creative. Background + root-cause: see
 > `docs/AUDIT_DUAL_PLACEMENT_ASSET_2026-06-05.md` (PR #560).
+
+> **`ENABLE_META_THUMBNAIL_FETCH`** (default `"1"` when unset) gates the ONE
+> place in the app allowed to call Meta's `/{video_id}/thumbnails` edge —
+> `lib/meta/video-thumbnail-cache.ts`'s `fetchThumbnailUrl`. That endpoint was
+> the #1 hit on the app's Meta rate-limit budget (1343 calls/24h): the
+> `refresh-active-creatives` cron, the ad_id thumbnail proxy's video fallback,
+> and the audience-builder video source picker each independently re-resolved
+> the same `video_id`s on every run. `fetchThumbnailUrl` now checks the
+> `creative-thumbnails` Storage bucket (migration 068e, `video-thumb/` prefix)
+> first and only calls Meta on a genuine miss, deduped both cross-run (Storage)
+> and same-run/concurrent (in-process in-flight map) — a given `video_id` can
+> never trigger two Meta calls. Set to `"0"` to stop calling Meta entirely: a
+> cache hit still serves, a miss returns `null` (callers already degrade to a
+> placeholder) — use this as an emergency quota killswitch without touching
+> other Meta-write flags. Every caller of the old raw endpoint (`lib/audiences/sources.ts`,
+> `lib/reporting/active-creatives-fetch.ts` + `active-creatives-thumbnail-enrichment.ts`,
+> `lib/meta/thumbnail-proxy-server.ts`) now routes through this helper; a
+> regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
+> greps the tree to keep it that way.
 
 > **D2C orchestration env vars** (brief→campaign automation, PR #647):
 > - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C

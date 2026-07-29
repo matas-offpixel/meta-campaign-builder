@@ -14,6 +14,7 @@ import {
   graphGetWithToken,
   type RawMetaCampaign,
 } from "../meta/client.ts";
+import { fetchThumbnailUrl } from "../meta/video-thumbnail-cache.ts";
 import type { Database } from "../db/database.types.ts";
 
 type TypedSupabaseClient = SupabaseClient<Database>;
@@ -105,10 +106,6 @@ interface RawAd {
 
 /** Alias for the shared video-metadata shape from batch-fetch-video-metadata.ts. */
 type RawVideo = RawVideoMetadata;
-
-interface RawThumbnail {
-  uri?: string;
-}
 
 export async function resolveAudienceSourceContext(
   supabase: TypedSupabaseClient,
@@ -384,6 +381,13 @@ export async function fetchAudienceCampaignVideos(
   adAccountId: string,
   campaignId: string,
   token: string,
+  /**
+   * Service-role client for the video-id-keyed thumbnail cache
+   * (lib/meta/video-thumbnail-cache.ts). Optional so existing callers /
+   * tests that don't thread it through keep working — the `picture`-less
+   * fallback below just resolves to `undefined` instead of caching.
+   */
+  admin?: TypedSupabaseClient,
 ): Promise<{ campaignName: string; videos: AudienceVideoSource[]; contextPageId?: string; skippedCount: number }> {
   const campaign = await graphGetWithToken<{
     id: string;
@@ -508,18 +512,17 @@ export async function fetchAudienceCampaignVideos(
 
       let thumbnailUrl: string | undefined = video.picture ?? undefined;
 
-      // Fallback: try /{id}/thumbnails when picture is absent (common for
-      // archived / age-out videos where Meta strips the stored asset).
+      // Fallback: video-id-keyed thumbnail cache when picture is absent
+      // (common for archived / age-out videos where Meta strips the
+      // stored asset) — see lib/meta/video-thumbnail-cache.ts. Storage-
+      // cache-first; only calls Meta's /{video_id}/thumbnails edge on a
+      // genuine miss, and only when an admin client was threaded through.
       // Rate-limited to THUMBNAIL_FALLBACK_CONCURRENCY=3 concurrent calls.
-      if (!thumbnailUrl) {
+      if (!thumbnailUrl && admin) {
         thumbnailUrl = await thumbnailSem(() =>
-          graphGetWithToken<{ data?: RawThumbnail[] }>(
-            `/${videoId}/thumbnails`,
-            { limit: "1" },
-            token,
-          )
-            .then((r) => r.data?.[0]?.uri ?? undefined)
-            .catch(() => undefined),
+          fetchThumbnailUrl({ videoId, token, admin }).then(
+            (url) => url ?? undefined,
+          ),
         );
       }
 
@@ -681,6 +684,8 @@ export async function fetchAudienceMultiCampaignVideos(
   adAccountId: string,
   campaignIds: string[],
   token: string,
+  /** See {@link fetchAudienceCampaignVideos}'s `admin` param. */
+  admin?: TypedSupabaseClient,
 ): Promise<AudienceMultiCampaignVideosResult> {
   if (campaignIds.length === 0) {
     return {
@@ -735,15 +740,11 @@ export async function fetchAudienceMultiCampaignVideos(
       );
 
       let thumbnailUrl: string | undefined = video.picture ?? undefined;
-      if (!thumbnailUrl) {
+      if (!thumbnailUrl && admin) {
         thumbnailUrl = await thumbnailSem(() =>
-          graphGetWithToken<{ data?: RawThumbnail[] }>(
-            `/${videoId}/thumbnails`,
-            { limit: "1" },
-            token,
-          )
-            .then((r) => r.data?.[0]?.uri ?? undefined)
-            .catch(() => undefined),
+          fetchThumbnailUrl({ videoId, token, admin }).then(
+            (url) => url ?? undefined,
+          ),
         );
       }
 

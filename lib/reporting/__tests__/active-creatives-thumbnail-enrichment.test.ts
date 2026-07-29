@@ -73,44 +73,39 @@ function payload(g: ConceptGroupRow) {
   };
 }
 
-test("video creative stores the preferred thumbnail uri", async () => {
+// `admin` is only used by the default `fetchThumbnailUrl` implementation
+// (dynamically imported). Every test here injects `fetchThumbnailUrl`
+// directly, so a stub is enough to satisfy the required input field.
+const stubAdmin = {} as never;
+
+test("video creative stores the url from fetchThumbnailUrl (Lever: central video-thumbnail cache)", async () => {
   const out = await enrichActiveCreativesSnapshotThumbnails({
     payload: payload(group(source({ video_id: "video-1" }))),
     adAccountId: "act_1",
     token: "token",
-    graphGet: async (path, params) => {
-      assert.equal(path, "/video-1/thumbnails");
-      assert.equal(params.fields, "uri,width,is_preferred");
-      return {
-        data: [
-          { uri: "https://cdn.example/wide.jpg", width: 1920 },
-          {
-            uri: "https://cdn.example/preferred.jpg",
-            width: 640,
-            is_preferred: true,
-          },
-        ],
-      };
+    admin: stubAdmin,
+    fetchThumbnailUrl: async (videoId) => {
+      assert.equal(videoId, "video-1");
+      return "https://cdn.example/preferred.jpg";
     },
   });
 
   assert.equal(out.groups[0].representative_thumbnail, "https://cdn.example/preferred.jpg");
 });
 
-test("video creative without preferred thumbnail stores the highest-width uri", async () => {
+test("video creative with no thumbnail cache result falls back to original thumbnail", async () => {
   const out = await enrichActiveCreativesSnapshotThumbnails({
     payload: payload(group(source({ video_id: "video-2" }))),
     adAccountId: "act_1",
     token: "token",
-    graphGet: async () => ({
-      data: [
-        { uri: "https://cdn.example/640.jpg", width: 640 },
-        { uri: "https://cdn.example/1280.jpg", width: 1280 },
-      ],
-    }),
+    admin: stubAdmin,
+    fetchThumbnailUrl: async () => null,
   });
 
-  assert.equal(out.groups[0].representative_thumbnail, "https://cdn.example/1280.jpg");
+  assert.equal(
+    out.groups[0].representative_thumbnail,
+    "https://cdn.example/original-160.jpg",
+  );
 });
 
 test("static creative with image_hash stores adimages permalink_url", async () => {
@@ -118,6 +113,7 @@ test("static creative with image_hash stores adimages permalink_url", async () =
     payload: payload(group(source({ image_hash: "hash-1" }))),
     adAccountId: "act_1",
     token: "token",
+    admin: stubAdmin,
     graphGet: async (path, params) => {
       assert.equal(path, "/act_1/adimages");
       assert.equal(params.hashes, JSON.stringify(["hash-1"]));
@@ -136,12 +132,13 @@ test("static creative with image_hash stores adimages permalink_url", async () =
   assert.equal(out.groups[0].representative_thumbnail, "https://cdn.example/full-res.jpg");
 });
 
-test("enrichment API failure falls back to original thumbnail", async () => {
+test("enrichment failure (fetchThumbnailUrl throws) falls back to original thumbnail", async () => {
   const out = await enrichActiveCreativesSnapshotThumbnails({
     payload: payload(group(source({ video_id: "deleted-video" }))),
     adAccountId: "act_1",
     token: "token",
-    graphGet: async () => {
+    admin: stubAdmin,
+    fetchThumbnailUrl: async () => {
       throw new Error("Meta deleted this video");
     },
   });
