@@ -27,6 +27,12 @@
  *     duplicating.
  *  4. **Nothing is ever deleted.** Bird deletes are global — a contact delete
  *     once removed a person from all 17 lists. There is no delete path here.
+ *  5. **Audience attachment stays human.** The pipeline resolves and validates
+ *     the brief's lists and records their ids, but never attaches recipients.
+ *     Attaching is the irreversible step: with a fixed timezone Bird forces
+ *     `timeInPastBehavior: "send-immediately"`, so attaching an audience to a
+ *     past-dated broadcast fires it instantly to everyone on the list. That
+ *     must never be a side effect of re-running a brief.
  */
 
 import {
@@ -44,6 +50,12 @@ import {
   type WhatsappMilestone,
 } from "./templates/from-event.ts";
 import { shipTemplateDefinitions, type TemplateResult } from "./templates/runner.ts";
+import {
+  resolveAudienceRouting,
+  type BriefAudienceRouting,
+  type ResolvedAudienceRouting,
+  type ResolveRoutingDeps,
+} from "../audience/brief-routing.ts";
 
 /** Venue-local wall-clock send time for one milestone. */
 export interface MilestoneSchedule {
@@ -73,6 +85,16 @@ export interface EventPipelineInput {
   milestones?: readonly WhatsappMilestone[];
   /** Plan only — no writes at all. */
   dryRun?: boolean;
+  /**
+   * Audience routing declared by the brief. When supplied it is resolved
+   * against the live APIs BEFORE anything is created, and an unresolved name
+   * aborts the run. Resolution only — recipients are never attached (see
+   * invariant 2 and `resolvedAudience` on the report).
+   */
+  audience?: {
+    routing: BriefAudienceRouting;
+    deps: ResolveRoutingDeps;
+  };
 }
 
 export interface MilestoneOutcome {
@@ -87,6 +109,13 @@ export interface MilestoneOutcome {
 export interface EventPipelineReport {
   dryRun: boolean;
   outcomes: MilestoneOutcome[];
+  /**
+   * Resolved audience ids, when the brief declared routing. Recorded for the
+   * human who attaches the audience, and for the journey trigger
+   * (`birdGroupId` is exactly the `groupId` `contact-added-to-group` needs).
+   * Present ≠ attached — nothing here is wired to a broadcast.
+   */
+  resolvedAudience: ResolvedAudienceRouting | null;
 }
 
 /** Deterministic campaign name: template name + the send date it carries. */
@@ -121,6 +150,13 @@ export async function runEventWhatsappPipeline(
 ): Promise<EventPipelineReport> {
   const milestones = input.milestones ?? WHATSAPP_MILESTONES;
   const dryRun = input.dryRun ?? false;
+
+  // Resolve audience routing FIRST. An unresolvable list means the brief is
+  // wrong, and it is far better to abort before creating templates and
+  // campaigns than to leave half an event's worth of drafts behind.
+  const resolvedAudience = input.audience
+    ? await resolveAudienceRouting(input.audience.deps, input.audience.routing)
+    : null;
 
   const definitions = buildEventTemplateDefinitions(input.event, milestones);
 
@@ -206,5 +242,5 @@ export async function runEventWhatsappPipeline(
     outcomes.push({ milestone, templateName, template, campaign: { ...campaign, name } });
   }
 
-  return { dryRun, outcomes };
+  return { dryRun, outcomes, resolvedAudience };
 }
