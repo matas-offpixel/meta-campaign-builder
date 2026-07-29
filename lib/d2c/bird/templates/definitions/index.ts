@@ -9,6 +9,7 @@
 
 import type { BrandTemplateDefinition } from "../types.ts";
 import { throwbackTemplates } from "./throwback.ts";
+import { throwbackMonsantosTemplates } from "./throwback-monsantos.ts";
 import { jackiesTemplates } from "./jackies.ts";
 
 export interface BrandConfig {
@@ -29,6 +30,14 @@ export const BRANDS: Record<string, BrandConfig> = {
     channelGroupId: "6ae0be5c-2d1e-4b8b-ab6e-4362e60354a6",
     templates: throwbackTemplates,
   },
+  // Single-event Lisboa @ Monsantos templates. Same Throwback WABA as the
+  // generic `throwback` brand; no master project (the runner creates one
+  // project per template name).
+  throwback_monsantos: {
+    key: "throwback_monsantos",
+    channelGroupId: "6ae0be5c-2d1e-4b8b-ab6e-4362e60354a6",
+    templates: throwbackMonsantosTemplates,
+  },
   jackies: {
     key: "jackies",
     // No dedicated master project yet — CLI will find/create `jackies_master`.
@@ -47,4 +56,4 @@ export function getBrandConfig(brand: string): BrandConfig {
   return cfg;
 }
 
-export { throwbackTemplates, jackiesTemplates };
+export { throwbackTemplates, throwbackMonsantosTemplates, jackiesTemplates };

@@ -168,6 +168,14 @@ export interface BrandTemplateDefinition {
    */
   headerImageVar?: string | null;
   /**
+   * Literal header image URL, for single-event templates whose artwork is
+   * fixed at authoring time rather than bound per send. Mutually exclusive
+   * with `headerImageVar`; when set, the header carries the URL verbatim and
+   * declares no variable. (Bird stores literal `mediaUrl`s natively — several
+   * live templates already do this.)
+   */
+  headerImageUrl?: string;
+  /**
    * Example values per variable key, per locale — required for every `{{var}}`
    * referenced anywhere (body, button url, header image var).
    */
@@ -213,8 +221,21 @@ export function validateDefinition(def: BrandTemplateDefinition): string[] {
   if (!Array.isArray(def.locales) || def.locales.length === 0) {
     throw new TemplateDefinitionError(`${def.name}: at least one locale is required.`);
   }
-  const headerVar =
-    def.headerImageVar === null ? null : def.headerImageVar ?? "event_artwork_url";
+  if (def.headerImageUrl !== undefined) {
+    if (!def.headerImageUrl.trim()) {
+      throw new TemplateDefinitionError(`${def.name}: headerImageUrl is empty.`);
+    }
+    if (def.headerImageVar) {
+      throw new TemplateDefinitionError(
+        `${def.name}: headerImageUrl and headerImageVar are mutually exclusive.`,
+      );
+    }
+  }
+  const headerVar = def.headerImageUrl
+    ? null
+    : def.headerImageVar === null
+      ? null
+      : def.headerImageVar ?? "event_artwork_url";
 
   const referenced = new Set<string>();
   if (headerVar) referenced.add(headerVar);
