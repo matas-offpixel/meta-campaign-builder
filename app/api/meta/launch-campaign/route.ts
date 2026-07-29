@@ -1422,6 +1422,62 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (c.identity?.pageId) allGroupPageIds.add(c.identity.pageId);
   }
 
+  // Source 4 (fallback): direct per-page IG lookup for any page still missing.
+  // fetchPageInstagramOptions (source 3) only iterates /me/accounts +
+  // META_BUSINESS_ID/owned_pages, which misses partner-hosted client_pages
+  // (owned by external BM, shared into operator's BM as client_page — e.g.
+  // Enzo Siragusa, Max Dean, Modern Funktion in Electric Brixton). Their
+  // igId is undefined at line ~1676, engagement audience creation skips
+  // with "no linked Instagram account found for this page" — but the IG
+  // exists and Meta returns it via /{pageId}?fields=instagram_business_account
+  // with any token that has read access, including BM-scoped access.
+  // PR #733 fixed the same class of bug at the preflight guard; this
+  // populates pageToIg upstream so the fix reaches every downstream loop
+  // (engagement audiences, SPLAL, creative payloads).
+  if (userFbToken) {
+    const { graphGetWithToken: gget } = await import("@/lib/meta/client");
+    const missingPageIds = Array.from(allGroupPageIds).filter(
+      (pid) => pid && !pageToIg.has(pid),
+    );
+    let directAdded = 0;
+    await Promise.all(
+      missingPageIds.map(async (pid) => {
+        try {
+          const direct = await gget<{
+            instagram_business_account?: { id: string; username?: string };
+            connected_instagram_account?: { id: string; username?: string };
+          }>(
+            `/${pid}`,
+            {
+              fields:
+                "instagram_business_account{id,username},connected_instagram_account{id,username}",
+            },
+            userFbToken,
+          );
+          const igId =
+            direct.instagram_business_account?.id ??
+            direct.connected_instagram_account?.id;
+          if (igId && !pageToIg.has(pid)) {
+            pageToIg.set(pid, igId);
+            overrideSources.set(pid, "server-fetch");
+            directAdded++;
+          }
+        } catch (err) {
+          console.warn(
+            `[launch-campaign] Phase 1.5 source 4 direct lookup for ${pid} failed:`,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+      }),
+    );
+    console.log(
+      `[launch-campaign] Phase 1.5 — direct per-page IG lookup (source 4):` +
+        ` ${directAdded} pages recovered from ${missingPageIds.length} missing.` +
+        ` Total: ${pageToIg.size}` +
+        ` (handles partner-hosted client_pages not visible to /me/accounts)`,
+    );
+  }
+
   const multiIgPreflightErrors: string[] = [];
   for (const page of pageIgOptions) {
     if (page.igs.length < 2) continue;
