@@ -32,6 +32,7 @@
 import "server-only";
 
 import { mailchimpJson } from "./client.ts";
+import { resolveBrandSender, type BrandSender } from "./brand-senders.ts";
 import {
   buildEmailCopy,
   buildSegmentOpts,
@@ -90,6 +91,8 @@ export interface CampaignOutcome {
 export interface MailchimpEventReport {
   listId: string;
   listName: string;
+  /** Resolved per-brand sender identity actually written to every campaign. */
+  sender: BrandSender;
   eventSegmentId: number;
   eventSegmentName: string;
   languageSegmentId: number | null;
@@ -209,7 +212,8 @@ export interface RunMailchimpAdapterInput {
   /** Optional language segment NAME, applied to the announcement. */
   languageSegmentName?: string;
   applyLanguageToTagStages?: boolean;
-  settings: CampaignSettingsInput;
+  /** @deprecated ignored — the sender is resolved from brand-senders.ts. */
+  settings?: CampaignSettingsInput;
   /** Intended (unapplied) send times per milestone. */
   intendedSends?: Partial<Record<MailchimpMilestone, IntendedSend>>;
   milestones?: readonly MailchimpMilestone[];
@@ -231,6 +235,10 @@ export async function runMailchimpEventAdapter(
   const list = byId.length === 1 ? byId[0] : findExact(lists, input.mailchimpList, "mailchimp_list");
   const audienceTotal = list.stats?.member_count ?? 0;
 
+  // Resolve the sender BEFORE any write: an unmapped brand must abort the run
+  // rather than create campaigns that would go out from the wrong address.
+  const sender: BrandSender = resolveBrandSender(list.id);
+
   const segments = await listStaticSegments(cfg, list.id);
   const segById = new Map(segments.map((s) => [s.id, s]));
   const eventSeg = findExact(segments, input.mailchimpTag, "mailchimp_tag");
@@ -247,6 +255,7 @@ export async function runMailchimpEventAdapter(
   const report: MailchimpEventReport = {
     listId: list.id,
     listName: list.name,
+    sender,
     eventSegmentId: eventSeg.id,
     eventSegmentName: eventSeg.name,
     languageSegmentId: langSeg?.id ?? null,
@@ -304,8 +313,11 @@ export async function runMailchimpEventAdapter(
         title: copy.title,
         subject_line: copy.subject,
         preview_text: copy.preview,
-        from_name: input.settings.fromName,
-        reply_to: input.settings.replyTo,
+        // Sender comes from the per-brand map, NEVER from a caller default.
+        // See brand-senders.ts: an unmapped brand throws rather than shipping
+        // a client email from the agency address.
+        from_name: sender.fromName,
+        reply_to: sender.replyTo,
         auto_footer: false,
       };
 
