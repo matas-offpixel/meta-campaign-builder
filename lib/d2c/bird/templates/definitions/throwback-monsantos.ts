@@ -17,9 +17,12 @@
  * public-read `landing-page-assets` Supabase bucket. Meta only requires a
  * fetchable URL, not Bird-hosted media.
  *
- * Button: `app.offpixel.co.uk/j/...`, NOT a raw `chat.whatsapp.com` link — the
- * Meta 2388081 approved-domain redirect (see `app/j/[invite]/route.ts`). The
- * two legacy Throwback templates carrying raw invite links are both `inactive`.
+ * Buttons: the two community templates use `app.offpixel.co.uk/j/...`, NOT a
+ * raw `chat.whatsapp.com` link — the Meta 2388081 approved-domain redirect
+ * (see `app/j/[invite]/route.ts`). The two legacy Throwback templates carrying
+ * raw invite links are both `inactive`, which is the practical evidence that
+ * raw invite links do not get approved. The redirect applies ONLY to WhatsApp
+ * invites; `presale_live`'s RA ticket link is a plain URL.
  */
 
 import type { BrandTemplateDefinition } from "../types.ts";
@@ -69,16 +72,34 @@ const presale_reminder: BrandTemplateDefinition = {
   variableExamples: {},
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NOT YET DEFINED — `throwback_monsantos_presale_live_en` (fires Wed 5 Aug
-// 12:00 Europe/Lisbon). The brief names it and gives its category (Marketing)
-// and language (English) but stops before the body copy, footer, and button.
-// Its ticket button also needs the RA event id, which is still unknown. Both
-// are outstanding; the template is deliberately NOT authored here rather than
-// invented. Add it as a third entry once the copy + RA id land.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Fires Wed 5 Aug 12:00 Europe/Lisbon.
+ *
+ * Unlike the other two, this button is a plain RA ticket link, so it does NOT
+ * go through the `app.offpixel.co.uk/j/` redirect — that exists solely to keep
+ * `chat.whatsapp.com` invite links on an approved domain (Meta 2388081).
+ * The RA event id is fixed for this event rather than bound per send.
+ */
+const presale_live: BrandTemplateDefinition = {
+  name: "throwback_monsantos_presale_live_en",
+  category: "MARKETING",
+  locales: ["en"],
+  headerImageUrl: ARTWORK_URL,
+  body: {
+    en:
+      "Presale is now live for Throwback Lisboa at Monsantos Open Air.\n\n" +
+      "First tier at the best price — secure yours before it moves up.",
+  },
+  // Footer intentionally omitted — the brief specifies a blank footer.
+  button: {
+    text: { en: "GET YOUR TICKET" },
+    url: "https://ra.co/events/2486798",
+  },
+  variableExamples: {},
+};
 
 export const throwbackMonsantosTemplates: BrandTemplateDefinition[] = [
   signup_confirmation,
   presale_reminder,
+  presale_live,
 ];
