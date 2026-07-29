@@ -347,10 +347,26 @@ export interface BriefScheduledSendInsert {
   body_markdown: string;
 }
 
+/**
+ * Audience routing declared by a brief. VERBATIM live identifiers — see
+ * `lib/d2c/audience/brief-routing.ts` for why these must never be normalised,
+ * case-folded, spell-corrected, or derived from the event name.
+ */
+export interface BriefAudienceRoutingInsert {
+  /** Mailchimp audience name, e.g. "Throwback". */
+  mailchimp_list: string;
+  /** Mailchimp tag == static segment name, e.g. "T26-LISBOA-MONSTANTOS" (sic). */
+  mailchimp_tag: string;
+  /** Bird list name; Bird lists and groups are one resource. */
+  bird_list: string;
+}
+
 export interface BriefParseResult {
   event: BriefEventInsert;
   copy: D2CEventCopyInsert;
   scheduled_sends: BriefScheduledSendInsert[];
+  /** Null when the brief does not state routing — never guessed. */
+  audience_routing?: BriefAudienceRoutingInsert | null;
 }
 
 export class BriefValidationError extends Error {

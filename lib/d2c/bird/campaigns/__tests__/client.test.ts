@@ -105,10 +105,17 @@ test("createDraftCampaign: idempotency — existing campaign returned, no create
 
 // ── PATCH payload shape vs the captured configured broadcast (capture §4) ─────
 
-/** Capture §4 (configured broadcast) minus server-computed fields. */
+/**
+ * Capture §4 (configured broadcast) minus server-computed fields.
+ *
+ * `type` is deliberately ABSENT. The capture is a GET response, which does
+ * echo `type: "channel"` — but sending it back on the PATCH is rejected live
+ * with `property "type" is unsupported` (verified 2026-07-29). `type` is set
+ * once on the broadcast POST and is read-only thereafter. This test previously
+ * asserted the GET shape and so encoded a body Bird will not accept.
+ */
 const CAPTURED_CONFIGURED_MINUS_COMPUTED = {
   status: "draft",
-  type: "channel",
   audience: {
     type: "group",
     group: { groupId: "9386300f-2c97-4d75-ad41-2c87aeedcb2c" },

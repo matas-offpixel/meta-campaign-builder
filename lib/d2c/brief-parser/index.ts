@@ -169,6 +169,23 @@ function buildTool() {
           ],
           additionalProperties: false,
         },
+        audience_routing: {
+          type: ["object", "null"],
+          description:
+            "Audience routing declared in the brief. Copy these EXACTLY as written, " +
+            "character for character. They are live identifiers, not descriptions: do not " +
+            "fix spelling, do not change case, and never derive them from the event name. " +
+            "Names like 'T26-LISBOA-MONSTANTOS' and 'T26-HALLOLWEEN' are misspelled on " +
+            "purpose because that is how they exist in Mailchimp and Bird. Emit null if " +
+            "the brief does not state them; never guess a value.",
+          properties: {
+            mailchimp_list: { type: "string", description: "Mailchimp audience name, e.g. 'Throwback'" },
+            mailchimp_tag: { type: "string", description: "Static segment / tag name, verbatim" },
+            bird_list: { type: "string", description: "Bird list (== group) name, verbatim" },
+          },
+          required: ["mailchimp_list", "mailchimp_tag", "bird_list"],
+          additionalProperties: false,
+        },
         copy: {
           type: "object",
           properties: {
