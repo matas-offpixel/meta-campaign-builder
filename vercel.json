@@ -79,7 +79,7 @@
     },
     {
       "path": "/api/cron/refresh-client-portal-snapshots",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 7,13,19 * * *"
     },
     {
       "path": "/api/cron/cron-health-check",
