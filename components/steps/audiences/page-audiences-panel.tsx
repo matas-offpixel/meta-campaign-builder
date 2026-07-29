@@ -706,15 +706,21 @@ export function PageAudiencesPanel({
     [allPages],
   );
 
-  // Filtered page lists (apply search + category filter within each section)
+  // Filtered page lists (apply search + category filter + genre filter).
+  // Genre filter is a union: pages matching ANY selected genre stay.
   const applyFilters = useCallback(
-    (pages: MetaApiPage[]) =>
-      pages.filter((p) => {
+    (pages: MetaApiPage[]) => {
+      let out = pages.filter((p) => {
         const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
         const matchCat = !activeCategory || p.category === activeCategory;
         return matchSearch && matchCat;
-      }),
-    [search, activeCategory],
+      });
+      if (activeGenreFilters.length > 0) {
+        out = filterPagesByGenres(out, activeGenreFilters, genreClassifications);
+      }
+      return out;
+    },
+    [search, activeCategory, activeGenreFilters, genreClassifications],
   );
 
   const filteredBusiness = useMemo(
@@ -1210,6 +1216,47 @@ export function PageAudiencesPanel({
                     onClear={() => setSearch("")}
                     placeholder="Search pages…"
                   />
+
+                  {/* Genre filter bar — applies to BM, Additional AND My FB Pages */}
+                  {activeGenreBuckets.length > 0 && (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-muted-foreground">Filter by genre</span>
+                        {activeGenreFilters.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveGenreFilters([])}
+                            className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                          >
+                            Clear filter
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {activeGenreBuckets.map((bucket) => {
+                          const isActive = activeGenreFilters.includes(bucket);
+                          const count = genrePageCounts[bucket] ?? 0;
+                          return (
+                            <button
+                              key={bucket}
+                              type="button"
+                              onClick={() => {
+                                setActiveGenreFilters((prev) =>
+                                  prev.includes(bucket)
+                                    ? prev.filter((b) => b !== bucket)
+                                    : [...prev, bucket],
+                                );
+                              }}
+                              className={`flex items-center gap-1 rounded-full text-[10px] font-medium px-2 py-0.5 leading-none transition-opacity ${GENRE_COLORS[bucket]} ${isActive ? "ring-1 ring-white/60 opacity-100" : "opacity-60 hover:opacity-90"}`}
+                            >
+                              {GENRE_LABELS[bucket]}
+                              <span className="rounded-full bg-black/20 px-1 py-px text-[9px] font-bold">{count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border">
                     {/* Business Manager section */}
