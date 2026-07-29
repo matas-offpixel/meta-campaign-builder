@@ -1174,7 +1174,18 @@ export interface LaunchSummary {
     severity?: "amber" | "red";
   }[];
   /** Engagement custom audiences created from page groups (Phase 1.5) */
-  engagementAudiencesCreated?: { name: string; id: string; type: string; durationMs?: number }[];
+  engagementAudiencesCreated?: {
+    name: string;
+    id: string;
+    type: string;
+    durationMs?: number;
+    /**
+     * Non-fatal note from the subcode-1713140 recovery ladder (grant then
+     * retry) — set only when Meta initially refused and an ADVERTISE grant
+     * fixed it. See lib/audiences/event-source-recovery.ts.
+     */
+    note?: string;
+  }[];
   engagementAudiencesFailed?: {
     name: string;
     type: string;

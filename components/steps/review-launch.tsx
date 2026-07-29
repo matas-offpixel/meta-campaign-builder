@@ -141,8 +141,12 @@ function buildLaunchEvents(
         id: uid("ea-ok"),
         stage: "audience",
         entity: a.name,
-        status: "success",
+        // Recovery had to grant access before this create succeeded — still a
+        // success, but flagged so the operator knows a permission was fixed on
+        // their behalf rather than assuming it was clean.
+        status: a.note ? "warning" : "success",
         label: `Engagement audience created (${a.type})`,
+        detail: a.note,
         metaId: a.id,
         durationMs: a.durationMs,
       });

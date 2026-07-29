@@ -44,7 +44,7 @@ import {
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
 import { mapLaunchTokenError } from "@/lib/meta/launch-error-classify";
-import type { EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
+import type { EngagementAudienceSpec, EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
   mapMetaObjectiveToInternal,
   validateCampaignPayload,
@@ -68,6 +68,8 @@ import {
 } from "@/lib/meta/creative";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
+import { createWithEventSourceRecovery } from "@/lib/audiences/event-source-recovery";
+import { remediateAudienceSeeds } from "@/lib/audiences/seed-remediation";
 import {
   resolveAdSetPlacementTargeting,
   validatePlacementSelection,
@@ -96,6 +98,39 @@ function elapsed(startMs: number): number {
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+// ─── Engagement audience creation, with subcode-1713140 recovery ──────────────
+//
+// Wired the same way lib/meta/audience-write.ts wires the audience-builder
+// write path (PR #729). Reproducer: Modern Funktion Newcastle on NX Promoter
+// (act_606252931141334), 2026-07-29 — every "Similar Pages" IG engagement
+// audience failed with 2654/1713140 because createEngagementAudience() was
+// called in a plain try/catch with no grant-and-retry, so a page the operator
+// held no role on killed that page's audience outright instead of being fixed.
+//
+// Engagement audiences here are always single-source (one page or one IG
+// asset per create), unlike the audience builder's multi-page sets. That means
+// the ladder's "salvage" stage (drop only the named seed, keep the rest) has
+// nothing to fall back to — dropping the one seed leaves zero — so it always
+// reduces to either "fix" (grant + retry) or "explain" (throw with the real
+// cause). The existing catch blocks at both call sites already turn a thrown
+// MetaApiError into an engagementAudiencesFailed entry, so explain needs no
+// new handling; this only adds the fix stage.
+async function createEngagementAudienceWithRecovery(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  adAccountId: string,
+  spec: EngagementAudienceSpec,
+): Promise<{ result: { id: string }; note: string | null }> {
+  return createWithEventSourceRecovery<{ id: string }>({
+    requested: [spec.sourceId],
+    names: spec.pageName ? { [spec.sourceId]: spec.pageName } : undefined,
+    create: () => createEngagementAudience(adAccountId, spec),
+    remediate: (sourceIds) =>
+      remediateAudienceSeeds(supabase, sourceIds, { actorUserId: userId }),
+    onWarn: (m) => console.warn(`[launch-campaign] engagement audience recovery: ${m}`),
+  });
+}
 
 // assertSameObjective is extracted into lib/meta/attach-objective.ts for
 // testability and reuse. Used in Phase 0 for attach_all_adsets only.
@@ -1710,17 +1745,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const eaStart = Date.now();
         try {
-          const result = await createEngagementAudience(adAccountId, {
-            type: et as EngagementAudienceType,
-            name: audienceName,
-            sourceId,
-            sourceType,
-            userToken: userFbToken ?? undefined,
-            pageId,
-            pageName,
-          });
+          const { result, note } = await createEngagementAudienceWithRecovery(
+            supabase,
+            user.id,
+            adAccountId,
+            {
+              type: et as EngagementAudienceType,
+              name: audienceName,
+              sourceId,
+              sourceType,
+              userToken: userFbToken ?? undefined,
+              pageId,
+              pageName,
+            },
+          );
+          if (note) {
+            console.log(`[launch-campaign] Phase 1.5 — recovered ${et} for page ${pageId}: ${note}`);
+          }
           createdIds.push(result.id);
-          engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
+          engagementAudiencesCreated.push({
+            name: audienceName,
+            id: result.id,
+            type: et,
+            durationMs: elapsed(eaStart),
+            ...(note ? { note } : {}),
+          });
 
           // Record new status for future runs
           group.engagementAudienceStatuses!.push({
@@ -1878,18 +1927,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const eaStart = Date.now();
         try {
-          const result = await createEngagementAudience(adAccountId, {
-            type: et as EngagementAudienceType,
-            name: audienceName,
-            sourceId,
-            sourceType,
-            userToken: userFbToken ?? undefined,
-            pageId,
-            pageName,
-          });
+          const { result, note } = await createEngagementAudienceWithRecovery(
+            supabase,
+            user.id,
+            adAccountId,
+            {
+              type: et as EngagementAudienceType,
+              name: audienceName,
+              sourceId,
+              sourceType,
+              userToken: userFbToken ?? undefined,
+              pageId,
+              pageName,
+            },
+          );
+          if (note) {
+            console.log(`[launch-campaign] Phase 1.5b SPLAL — recovered ${et} for page ${pageId}: ${note}`);
+          }
           pageEngIds.push(result.id);
           createdIds.push(result.id);
-          engagementAudiencesCreated.push({ name: audienceName, id: result.id, type: et, durationMs: elapsed(eaStart) });
+          engagementAudiencesCreated.push({
+            name: audienceName,
+            id: result.id,
+            type: et,
+            durationMs: elapsed(eaStart),
+            ...(note ? { note } : {}),
+          });
         } catch (err) {
           const message = formatMetaError(err);
           const isPermission =
