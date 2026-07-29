@@ -40,6 +40,24 @@
  *    `?query=` on collection endpoints return 200 with an UNFILTERED page 1.
  *    So we page through everything and compare names ourselves — never trust a
  *    filtered 200.
+ *
+ * ── Live verification (read-only, 2026-07-29) ──────────────────────────────
+ *
+ * Both halves verified against the real Throwback workspaces, zero writes:
+ *
+ *   bird_list      "T26-LISBOA-MONSTANTOS" → group e3c51596-95fa-462c-a939-6cf943604823
+ *                  (123 lists scanned — past one page)
+ *   mailchimp_list "Throwback"             → audience c2b4d77acb
+ *   mailchimp_tag  "T26-LISBOA-MONSTANTOS" → static segment 8800465, 9 members
+ *                  (175 tags scanned)
+ *
+ * The Bird group id is the same one already bound to that event's journey
+ * trigger, so the two independently agree.
+ *
+ * In both systems the "corrected" venue spelling (`…-MONSANTOS`) and the
+ * lowercase variant are REJECTED, with the near miss reported as diagnosis
+ * only. Live behaviour matched the unit-test mocks exactly — no assertion or
+ * mock needed adjusting.
  */
 
 import { listAllBirdPages } from "../bird/paginate.ts";
