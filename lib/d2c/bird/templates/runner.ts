@@ -91,11 +91,41 @@ export async function shipBrandTemplates(
   opts: ShipOptions = {},
 ): Promise<ShipReport> {
   const brandCfg = getBrandConfig(brand);
+  return shipTemplateDefinitions(cfg, brandCfg.templates, {
+    ...opts,
+    brand,
+    channelGroupId: brandCfg.channelGroupId ?? null,
+  });
+}
+
+export interface ShipDefinitionsOptions extends ShipOptions {
+  /** Label for the report only. */
+  brand: string;
+  /** WABA channel group to attach so drafts are submit-ready. */
+  channelGroupId: string | null;
+}
+
+/**
+ * Ship an arbitrary list of definitions — the brand registry is just one way
+ * to obtain them. The brief-driven pipeline generates definitions per event
+ * (see `templates/from-event.ts`) and has no registry entry, so it calls this
+ * directly.
+ *
+ * Identical semantics to `shipBrandTemplates`: one project per template,
+ * name-based idempotency, and a create always yields a DRAFT. Activation is
+ * only ever performed when the caller explicitly passes `submit`.
+ */
+export async function shipTemplateDefinitions(
+  cfg: BirdTemplateClientConfig,
+  definitions: BrandTemplateDefinition[],
+  opts: ShipDefinitionsOptions,
+): Promise<ShipReport> {
+  const brand = opts.brand;
   const dryRun = opts.dryRun ?? false;
   const attachChannelGroup = opts.attachChannelGroup ?? true;
-  const channelGroupId: string | null = brandCfg.channelGroupId ?? null;
+  const channelGroupId: string | null = opts.channelGroupId;
 
-  const selected = selectTemplates(brandCfg.templates, opts.templateNames);
+  const selected = selectTemplates(definitions, opts.templateNames);
   const results: TemplateResult[] = [];
 
   for (const def of selected) {

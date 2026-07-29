@@ -23,8 +23,18 @@
  */
 
 import { BirdHttpError, birdFetch, birdJson } from "../client.ts";
+import { listAllBirdPages, unwrapBirdList } from "../paginate.ts";
 
-/** Endpoint + payload shapes verified against the DevTools capture. */
+/**
+ * Endpoint + payload shapes verified against the DevTools capture AND, as of
+ * 2026-07-29, against live create calls.
+ *
+ * ⚠️ History worth keeping: the capture's own header says the POST bodies were
+ * "NOT CAPTURED but well-inferred" — only the GET responses were observed. The
+ * inferred campaign-create body (`{name}`) was wrong and 422'd on the first
+ * real call; it needs `type: "broadcast"`. Treat any remaining inferred shape
+ * here as unproven until a live call exercises it.
+ */
 export const DRAFT_CAMPAIGN_VERIFIED = true;
 
 const APP_BASE = process.env.BIRD_APP_BASE?.trim() || "https://app.bird.com";
@@ -81,6 +91,13 @@ export interface CreateDraftCampaignInput {
    * is NOT a valid Bird recipient id — only resolved group/list UUIDs go here.
    */
   recipients?: BroadcastRecipients;
+  /**
+   * Pre-filled send schedule. Omit to keep whatever the empty draft returned
+   * (Bird's `recipient-local` / `send-immediately` default). Build one with
+   * `scheduledBroadcastSchedule()` rather than by hand — it pins the
+   * conservative past-time behaviour.
+   */
+  schedule?: BroadcastSchedule;
   /** AccessKey; defaults to BIRD_API_KEY env. */
   apiKey?: string;
 }
@@ -110,17 +127,6 @@ function campaignsPath(workspaceId: string): string {
 
 function broadcastsPath(workspaceId: string, campaignId: string): string {
   return `${campaignsPath(workspaceId)}/${campaignId}/broadcasts`;
-}
-
-function unwrapList<T>(json: unknown): T[] {
-  if (Array.isArray(json)) return json as T[];
-  if (json && typeof json === "object") {
-    const o = json as Record<string, unknown>;
-    for (const k of ["results", "data", "campaigns", "broadcasts", "items"]) {
-      if (Array.isArray(o[k])) return o[k] as T[];
-    }
-  }
-  return [];
 }
 
 /** Top-level campaign edit URL for Matas manual review (capture §G). */
@@ -165,7 +171,11 @@ export function buildBroadcastPatch(input: BroadcastPatchInput): Record<string, 
 
   const patch: Record<string, unknown> = {
     status: "draft",
-    type: "channel",
+    // NO `type` here. It is set once on the broadcast POST (`{type:"channel"}`)
+    // and is read-only thereafter — including it 422s with
+    // `property "type" is unsupported`. The capture inferred this PATCH body
+    // from the broadcast GET response, which does echo `type`; live-corrected
+    // 2026-07-29.
     content: {
       type: "channel_template",
       channelTemplate,
@@ -207,17 +217,18 @@ export function buildBroadcastPatch(input: BroadcastPatchInput): Record<string, 
   return patch;
 }
 
+/**
+ * Every campaign in the workspace, across all pages. `maxItems` stops early.
+ *
+ * MUST paginate — a single-page read makes `findCampaignByName` miss existing
+ * campaigns and the caller then creates a duplicate. Same bug class that was
+ * fixed for projects; the workspace is already well past one page.
+ */
 export async function listCampaigns(
   cfg: BirdCampaignClientConfig,
-  limit = 100,
+  maxItems = Infinity,
 ): Promise<BirdCampaign[]> {
-  const capped = Math.min(limit, 100);
-  const json = await birdJson<unknown>(
-    cfg.apiKey,
-    `${campaignsPath(cfg.workspaceId)}?limit=${capped}`,
-    { method: "GET" },
-  );
-  return unwrapList<BirdCampaign>(json);
+  return listAllBirdPages<BirdCampaign>(cfg.apiKey, campaignsPath(cfg.workspaceId), maxItems);
 }
 
 export async function findCampaignByName(
@@ -240,7 +251,7 @@ async function firstBroadcastId(
       broadcastsPath(cfg.workspaceId, campaignId),
       { method: "GET" },
     );
-    return unwrapList<BirdBroadcast>(json)[0]?.id ?? null;
+    return unwrapBirdList<BirdBroadcast>(json)[0]?.id ?? null;
   } catch {
     return null;
   }
@@ -270,11 +281,15 @@ export async function createDraftCampaign(
     };
   }
 
-  // 1. Campaign envelope.
+  // 1. Campaign envelope. `type: "broadcast"` is REQUIRED — omitting it 422s
+  // with `property "type" is missing`. The capture inferred this POST body
+  // from the GET response and guessed `{name}` alone; live-corrected
+  // 2026-07-29 against the API, and confirmed against existing campaigns
+  // which all carry type="broadcast".
   const campaign = await birdJson<BirdCampaign>(apiKey, campaignsPath(input.workspaceId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: input.name }),
+    body: JSON.stringify({ name: input.name, type: "broadcast" }),
   });
   if (!campaign.id) throw new Error("Bird campaign create returned no id");
   const cid = campaign.id;
@@ -295,7 +310,7 @@ export async function createDraftCampaign(
     defaultLocale: input.defaultLocale,
     variables: input.variables,
     channelId: input.channelId,
-    schedule: broadcast.schedule ?? defaultBroadcastSchedule(),
+    schedule: input.schedule ?? broadcast.schedule ?? defaultBroadcastSchedule(),
     recipients: input.recipients,
   });
   const res = await birdFetch(apiKey, `${broadcastsPath(input.workspaceId, cid)}/${bid}`, {

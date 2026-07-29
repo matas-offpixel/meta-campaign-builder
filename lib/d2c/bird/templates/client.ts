@@ -10,6 +10,7 @@
  */
 
 import { BirdHttpError, birdFetch, birdJson } from "../client.ts";
+import { listAllBirdPages } from "../paginate.ts";
 import type {
   BirdProject,
   BirdTemplate,
@@ -21,73 +22,8 @@ export interface BirdTemplateClientConfig {
   workspaceId: string;
 }
 
-/** Bird list responses vary in envelope key; normalise to an array. */
-function unwrapList<T>(json: unknown): T[] {
-  if (Array.isArray(json)) return json as T[];
-  if (json && typeof json === "object") {
-    const o = json as Record<string, unknown>;
-    for (const k of ["results", "data", "channelTemplates", "projects"]) {
-      if (Array.isArray(o[k])) return o[k] as T[];
-    }
-  }
-  return [];
-}
-
 function ws(cfg: BirdTemplateClientConfig): string {
   return `/workspaces/${cfg.workspaceId}`;
-}
-
-/** Bird caps `limit` at 100 (>100 → 422) and cursors via `nextPageToken`. */
-const MAX_PAGE_SIZE = 100;
-/** Backstop so a repeating/looping cursor can never spin forever. */
-const MAX_PAGES = 100;
-
-/**
- * Follow Bird's `nextPageToken` cursor to completion.
- *
- * Bird returns `{results, nextPageToken}` and caps `limit` at 100. Passing the
- * cursor back requires the query param **`pageToken`** — `nextPageToken` is
- * silently ignored and re-serves page 1, which is an easy and dangerous
- * mistake to make here (see the callers below: a truncated list makes
- * `findProjectByName` report "not found" for a project that exists, and the
- * caller then creates a duplicate).
- *
- * `maxItems` stops early for callers that only need a few rows.
- */
-async function listAllPages<T>(
-  cfg: BirdTemplateClientConfig,
-  path: string,
-  maxItems = Infinity,
-): Promise<T[]> {
-  const out: T[] = [];
-  let pageToken: string | undefined;
-
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const remaining = maxItems - out.length;
-    if (remaining <= 0) break;
-    const params = new URLSearchParams({
-      limit: String(Math.min(MAX_PAGE_SIZE, remaining)),
-    });
-    if (pageToken) params.set("pageToken", pageToken);
-
-    const json = await birdJson<unknown>(cfg.apiKey, `${path}?${params}`, {
-      method: "GET",
-    });
-    const batch = unwrapList<T>(json);
-    out.push(...batch);
-
-    const next =
-      json && typeof json === "object"
-        ? (json as { nextPageToken?: unknown }).nextPageToken
-        : undefined;
-    // Stop on: no cursor, an empty page, or a cursor that did not advance.
-    if (typeof next !== "string" || !next || batch.length === 0 || next === pageToken) {
-      break;
-    }
-    pageToken = next;
-  }
-
-  return out.length > maxItems ? out.slice(0, maxItems) : out;
 }
 
 // ─── Projects ───────────────────────────────────────────────────────────────
@@ -102,7 +38,7 @@ export async function listProjects(
   cfg: BirdTemplateClientConfig,
   maxItems = Infinity,
 ): Promise<BirdProject[]> {
-  return listAllPages<BirdProject>(cfg, `${ws(cfg)}/projects`, maxItems);
+  return listAllBirdPages<BirdProject>(cfg.apiKey, `${ws(cfg)}/projects`, maxItems);
 }
 
 export async function getProject(
@@ -156,8 +92,8 @@ export async function listTemplates(
   projectId: string,
   maxItems = Infinity,
 ): Promise<BirdTemplate[]> {
-  return listAllPages<BirdTemplate>(
-    cfg,
+  return listAllBirdPages<BirdTemplate>(
+    cfg.apiKey,
     `${ws(cfg)}/projects/${projectId}/channel-templates`,
     maxItems,
   );
