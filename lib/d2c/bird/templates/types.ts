@@ -142,6 +142,19 @@ export type LocalizedExamples = Record<LocaleId, string | string[]>;
 export interface BrandTemplateDefinition {
   /** whatsappTemplateName (Meta-visible, snake_case). */
   name: string;
+  /**
+   * Display name for the Bird **project** holding this template. Defaults to
+   * `name`.
+   *
+   * These are two different things, and Bird's UI convention makes that easy
+   * to miss. Meta constrains `whatsappTemplateName` to `[a-z0-9_]+` — no
+   * spaces, no dots, no capitals — while Bird projects are free text and
+   * operators name them for humans. Every live template in this workspace
+   * follows the split: project `H26-HALLOWEEN-31.10.26` holds template
+   * `h26_halloween_31_10_26`. So an operator-supplied name like
+   * "h26-madrid-03.10.26 presale" is a PROJECT name, never a template name.
+   */
+  projectName?: string;
   category: WhatsAppCategory;
   /**
    * Bird template **project** id (stable). Resolved after creation; needed by
