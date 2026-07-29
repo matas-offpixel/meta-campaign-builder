@@ -635,14 +635,17 @@ export function PageAudiencesPanel({
     }
   }, [userPages.loadMode, userPages.loading]);
 
-  // Auto-classify pages whenever userPages data changes (after load/enrich)
+  // Auto-classify pages whenever ANY source's data changes. Previously only
+  // ran on userPages.data — meaning Business Manager pages (the primary source
+  // for client audiences like Electric Brixton) never got classified and the
+  // genre chip bar stayed empty. Now covers all three sources via allPages.
   useEffect(() => {
-    if (userPages.data.length === 0) return;
-    const updated = classifyPages(userPages.data, genreClassifications);
+    if (allPages.length === 0) return;
+    const updated = classifyPages(allPages, genreClassifications);
     setGenreClassifications(updated);
     writeGenreCache(updated);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userPages.data]);
+  }, [allPages]);
 
   // All pages available for selection (deduped across all sources)
   const allPages = useMemo(() => {
