@@ -605,6 +605,8 @@ export function PageAudiencesPanel({
   );
   const [activeGenreFilters, setActiveGenreFilters] = useState<(GenreBucket | "unclassified")[]>([]);
   const [editingPageGenre, setEditingPageGenre] = useState<string | null>(null);
+  // Collapsible "Other pages" fallback (non-artist Meta categories only).
+  const [otherPagesExpanded, setOtherPagesExpanded] = useState(false);
 
   const CONFIRM_THRESHOLD = 5;
 
@@ -663,6 +665,21 @@ export function PageAudiencesPanel({
     });
     return Array.from(cats).sort();
   }, [allPages]);
+
+  // Artist-type Meta page categories are noise once genre chips exist — hide them.
+  // Non-artist categories (venues, labels, festivals, radio, promoters) are still
+  // useful as a fallback subgroup for bulk-selecting orgs, so we keep them under
+  // an "Other pages" collapsible at the bottom of the picker.
+  const nonArtistCategories = useMemo(() => {
+    const ARTIST_NOISE = [
+      "musician", "artist", "dj", "band", "song", "album",
+      "public figure", "personal blog", "producer",
+    ];
+    return categories.filter((c) => {
+      const lower = c.toLowerCase();
+      return !ARTIST_NOISE.some((kw) => lower.includes(kw));
+    });
+  }, [categories]);
 
   // Category → page count mapping
   const categoryCounts = useMemo(() => {
@@ -1176,37 +1193,13 @@ export function PageAudiencesPanel({
                           Clear selected ({group.pageIds.length})
                         </button>
                       )}
-                      {categories.length > 0 && (
+                      {activeGenreBuckets.length > 0 && (
                         <span className="text-[11px] text-muted-foreground">
-                          Click a category to auto-select all
+                          Filter by genre below to bulk-select
                         </span>
                       )}
                     </div>
                   </div>
-
-                  {/* Category chips */}
-                  {categories.length > 0 && (
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      {categories.map((cat) => {
-                        const total = categoryCounts[cat] ?? 0;
-                        const selected = selectedByCategory[cat] ?? 0;
-                        const allSelected = selected >= total;
-                        return (
-                          <button
-                            key={cat}
-                            type="button"
-                            onClick={() => handleCategoryClick(cat, group.id)}
-                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors
-                              ${activeCategory === cat ? "bg-foreground text-background" : ""}
-                              ${allSelected && activeCategory !== cat ? "bg-success/15 text-success ring-1 ring-success/30" : ""}
-                              ${!allSelected && activeCategory !== cat ? "bg-muted text-muted-foreground hover:text-foreground" : ""}`}
-                          >
-                            {cat} {selected > 0 ? `(${selected}/${total})` : `(${total})`}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
 
                   <SearchInput
                     value={search}
@@ -1750,6 +1743,51 @@ export function PageAudiencesPanel({
                             onEditGenre={setEditingPageGenre}
                           />
                         ))}
+                      </div>
+                    )}
+
+                    {/* ── Other pages (non-artist Meta categories) ─────────── */}
+                    {nonArtistCategories.length > 0 && (
+                      <div className="mt-3 rounded-md border border-dashed border-border bg-muted/20">
+                        <button
+                          type="button"
+                          onClick={() => setOtherPagesExpanded((v) => !v)}
+                          className="flex w-full items-center justify-between px-3 py-1.5 text-left text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                        >
+                          <span>
+                            Other pages — venues, labels, promoters ({nonArtistCategories.length})
+                          </span>
+                          {otherPagesExpanded
+                            ? <ChevronUp className="h-3 w-3" />
+                            : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                        {otherPagesExpanded && (
+                          <div className="border-t border-border/50 px-3 py-2">
+                            <p className="mb-1.5 text-[10px] text-muted-foreground">
+                              Click a category to filter + bulk-select all pages from it.
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {nonArtistCategories.map((cat) => {
+                                const total = categoryCounts[cat] ?? 0;
+                                const selected = selectedByCategory[cat] ?? 0;
+                                const allSelected = selected >= total;
+                                return (
+                                  <button
+                                    key={cat}
+                                    type="button"
+                                    onClick={() => handleCategoryClick(cat, group.id)}
+                                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors
+                                      ${activeCategory === cat ? "bg-foreground text-background" : ""}
+                                      ${allSelected && activeCategory !== cat ? "bg-success/15 text-success ring-1 ring-success/30" : ""}
+                                      ${!allSelected && activeCategory !== cat ? "bg-muted text-muted-foreground hover:text-foreground" : ""}`}
+                                  >
+                                    {cat} {selected > 0 ? `(${selected}/${total})` : `(${total})`}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
