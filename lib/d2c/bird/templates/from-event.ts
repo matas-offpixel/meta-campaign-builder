@@ -67,13 +67,14 @@ export function communityRedirectUrl(inviteUrlOrCode: string | null | undefined)
 /** Milestones this module knows how to render as a WhatsApp template. */
 export type WhatsappMilestone = Extract<
   D2CJobType,
-  "autoresp_setup" | "reminder" | "presale_live"
+  "autoresp_setup" | "reminder" | "presale_live" | "gen_sale"
 >;
 
 export const WHATSAPP_MILESTONES: readonly WhatsappMilestone[] = [
   "autoresp_setup",
   "reminder",
   "presale_live",
+  "gen_sale",
 ] as const;
 
 /** Template-name suffix per milestone (stable — it keys idempotency). */
@@ -81,6 +82,7 @@ const MILESTONE_SLUG: Record<WhatsappMilestone, string> = {
   autoresp_setup: "signup_confirmation",
   reminder: "presale_reminder",
   presale_live: "presale_live",
+  gen_sale: "general_sale",
 };
 
 export interface EventTemplateInput {
@@ -106,6 +108,12 @@ export interface EventTemplateInput {
   communityInvite: string;
   /** Ticket URL for the presale-live button, e.g. an RA event link. */
   ticketUrl: string;
+  /**
+   * Optional human-facing Bird PROJECT name per milestone (e.g.
+   * "h26-madrid-03.10.26 presale"). Meta template names stay snake_case
+   * regardless — see BrandTemplateDefinition.projectName.
+   */
+  projectNames?: Partial<Record<WhatsappMilestone, string>>;
 }
 
 function requireNonEmpty(input: EventTemplateInput): void {
@@ -139,7 +147,56 @@ export function eventTemplateName(
   ].join("_");
 }
 
+/**
+ * Body copy per milestone, per language.
+ *
+ * Language is chosen by the PRIMARY SUBTAG of the locale ("es-ES" → "es"), so
+ * a regional variant does not silently fall through to English. An unsupported
+ * language throws rather than shipping English copy under a foreign locale —
+ * a template that reads correctly to us but wrongly to the recipient is worse
+ * than a loud failure at authoring time.
+ */
+type CopyLang = "en" | "es";
+
+const SUPPORTED_LANGS: readonly CopyLang[] = ["en", "es"] as const;
+
+export function copyLangFor(locale: string): CopyLang {
+  const primary = locale.trim().toLowerCase().split(/[-_]/)[0];
+  if ((SUPPORTED_LANGS as readonly string[]).includes(primary)) return primary as CopyLang;
+  throw new EventTemplateInputError(
+    `No template copy for locale ${JSON.stringify(locale)} (language "${primary}"). ` +
+      `Supported: ${SUPPORTED_LANGS.join(", ")}. Add copy rather than shipping another language.`,
+  );
+}
+
 function bodyFor(milestone: WhatsappMilestone, i: EventTemplateInput): string {
+  const lang = copyLangFor(i.locale);
+  if (lang === "es") {
+    switch (milestone) {
+      case "autoresp_setup":
+        return (
+          `Gracias por registrarte a ${i.eventName} en ${i.venueName}, ${i.eventDateText}.\n\n` +
+          `La preventa abre el ${i.presaleDayText} a las ${i.presaleTimeText}. Primer tramo al mejor precio.\n\n` +
+          "Únete a la comunidad de WhatsApp para recibir el enlace 30 minutos antes que el resto."
+        );
+      case "reminder":
+        return (
+          `La preventa de ${i.eventName} abre mañana, ${i.presaleDayText}, a las ${i.presaleTimeText}. ` +
+          "Primer tramo al mejor precio.\n\n" +
+          "Únete a la comunidad de WhatsApp para recibir el enlace 30 minutos antes."
+        );
+      case "presale_live":
+        return (
+          `La preventa de ${i.eventName} en ${i.venueName} ya está activa.\n\n` +
+          "Primer tramo al mejor precio — asegura tu entrada antes de que suba."
+        );
+      case "gen_sale":
+        return (
+          `Las entradas para ${i.eventName} en ${i.venueName} ya están a la venta.\n\n` +
+          "Consigue la tuya antes de que se agoten."
+        );
+    }
+  }
   switch (milestone) {
     case "autoresp_setup":
       return (
@@ -158,6 +215,11 @@ function bodyFor(milestone: WhatsappMilestone, i: EventTemplateInput): string {
         `Presale is now live for ${i.eventName} at ${i.venueName}.\n\n` +
         "First tier at the best price — secure yours before it moves up."
       );
+    case "gen_sale":
+      return (
+        `Tickets for ${i.eventName} at ${i.venueName} are now on general sale.\n\n` +
+        "Get yours before they go."
+      );
   }
 }
 
@@ -165,12 +227,16 @@ function buttonFor(
   milestone: WhatsappMilestone,
   i: EventTemplateInput,
 ): { text: Record<string, string>; url: string } {
+  const lang = copyLangFor(i.locale);
   // Ticket links are plain; community links MUST use the approved redirect.
-  if (milestone === "presale_live") {
-    return { text: { [i.locale]: "GET YOUR TICKET" }, url: i.ticketUrl };
+  if (milestone === "presale_live" || milestone === "gen_sale") {
+    return {
+      text: { [i.locale]: lang === "es" ? "CONSEGUIR ENTRADA" : "GET YOUR TICKET" },
+      url: i.ticketUrl,
+    };
   }
   return {
-    text: { [i.locale]: "JOIN WHATSAPP COMMUNITY" },
+    text: { [i.locale]: lang === "es" ? "UNIRTE A LA COMUNIDAD" : "JOIN WHATSAPP COMMUNITY" },
     url: communityRedirectUrl(i.communityInvite),
   };
 }
@@ -187,6 +253,7 @@ export function buildEventTemplateDefinitions(
   requireNonEmpty(input);
   return milestones.map((m) => ({
     name: eventTemplateName(input, m),
+    projectName: input.projectNames?.[m],
     category: "MARKETING" as const,
     locales: [input.locale],
     headerImageUrl: input.artworkUrl,
