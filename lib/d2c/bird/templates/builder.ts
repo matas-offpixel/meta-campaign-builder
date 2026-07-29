@@ -63,8 +63,14 @@ export function buildTemplatePayload(
   const referenced = validateDefinition(def);
   const genId = opts.idFactory ?? nanoid;
 
-  const headerVar =
-    def.headerImageVar === null ? null : def.headerImageVar ?? DEFAULT_HEADER_VAR;
+  // A literal `headerImageUrl` wins over the variable header and declares no
+  // variable (validateDefinition rejects setting both).
+  const headerVar = def.headerImageUrl
+    ? null
+    : def.headerImageVar === null
+      ? null
+      : def.headerImageVar ?? DEFAULT_HEADER_VAR;
+  const headerMediaUrl = def.headerImageUrl ?? (headerVar ? `{{${headerVar}}}` : null);
 
   // Locale selection (in defaultLocale-first order).
   const wanted = opts.onlyLocales?.map(normaliseLocale);
@@ -86,12 +92,12 @@ export function buildTemplatePayload(
   const platformContent: BirdPlatformContent[] = locales.map((rawLocale, idx) => {
     const locale = normaliseLocale(rawLocale);
     const blocks: BirdBlock[] = [];
-    if (headerVar) {
+    if (headerMediaUrl) {
       blocks.push({
         id: ids.header,
         type: "image",
         role: "header",
-        image: { mediaUrl: `{{${headerVar}}}`, altText: "" },
+        image: { mediaUrl: headerMediaUrl, altText: "" },
       });
     }
     blocks.push({
@@ -119,7 +125,7 @@ export function buildTemplatePayload(
       platform: "whatsapp",
       locale,
       // Only the first locale entry declares the header media kind.
-      type: idx === 0 ? (headerVar ? "image" : null) : null,
+      type: idx === 0 ? (headerMediaUrl ? "image" : null) : null,
       blocks,
     };
     if (opts.channelGroupIds?.length) entry.channelGroupIds = opts.channelGroupIds;

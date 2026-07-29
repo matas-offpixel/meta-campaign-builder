@@ -37,18 +37,72 @@ function ws(cfg: BirdTemplateClientConfig): string {
   return `/workspaces/${cfg.workspaceId}`;
 }
 
+/** Bird caps `limit` at 100 (>100 → 422) and cursors via `nextPageToken`. */
+const MAX_PAGE_SIZE = 100;
+/** Backstop so a repeating/looping cursor can never spin forever. */
+const MAX_PAGES = 100;
+
+/**
+ * Follow Bird's `nextPageToken` cursor to completion.
+ *
+ * Bird returns `{results, nextPageToken}` and caps `limit` at 100. Passing the
+ * cursor back requires the query param **`pageToken`** — `nextPageToken` is
+ * silently ignored and re-serves page 1, which is an easy and dangerous
+ * mistake to make here (see the callers below: a truncated list makes
+ * `findProjectByName` report "not found" for a project that exists, and the
+ * caller then creates a duplicate).
+ *
+ * `maxItems` stops early for callers that only need a few rows.
+ */
+async function listAllPages<T>(
+  cfg: BirdTemplateClientConfig,
+  path: string,
+  maxItems = Infinity,
+): Promise<T[]> {
+  const out: T[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const remaining = maxItems - out.length;
+    if (remaining <= 0) break;
+    const params = new URLSearchParams({
+      limit: String(Math.min(MAX_PAGE_SIZE, remaining)),
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const json = await birdJson<unknown>(cfg.apiKey, `${path}?${params}`, {
+      method: "GET",
+    });
+    const batch = unwrapList<T>(json);
+    out.push(...batch);
+
+    const next =
+      json && typeof json === "object"
+        ? (json as { nextPageToken?: unknown }).nextPageToken
+        : undefined;
+    // Stop on: no cursor, an empty page, or a cursor that did not advance.
+    if (typeof next !== "string" || !next || batch.length === 0 || next === pageToken) {
+      break;
+    }
+    pageToken = next;
+  }
+
+  return out.length > maxItems ? out.slice(0, maxItems) : out;
+}
+
 // ─── Projects ───────────────────────────────────────────────────────────────
 
+/**
+ * Every project in the workspace, across all pages. `maxItems` stops early.
+ *
+ * This MUST paginate: the workspace is already past 100 projects, and a
+ * single-page read silently truncates the list.
+ */
 export async function listProjects(
   cfg: BirdTemplateClientConfig,
-  limit = 100,
+  maxItems = Infinity,
 ): Promise<BirdProject[]> {
-  // limit > 100 → 422 (verified); cap it.
-  const capped = Math.min(limit, 100);
-  const json = await birdJson<unknown>(cfg.apiKey, `${ws(cfg)}/projects?limit=${capped}`, {
-    method: "GET",
-  });
-  return unwrapList<BirdProject>(json);
+  return listAllPages<BirdProject>(cfg, `${ws(cfg)}/projects`, maxItems);
 }
 
 export async function getProject(
@@ -96,18 +150,17 @@ export async function deleteProject(
 
 // ─── Templates ────────────────────────────────────────────────────────────
 
+/** Every template in a project, across all pages. `maxItems` stops early. */
 export async function listTemplates(
   cfg: BirdTemplateClientConfig,
   projectId: string,
-  limit = 100,
+  maxItems = Infinity,
 ): Promise<BirdTemplate[]> {
-  const capped = Math.min(limit, 100);
-  const json = await birdJson<unknown>(
-    cfg.apiKey,
-    `${ws(cfg)}/projects/${projectId}/channel-templates?limit=${capped}`,
-    { method: "GET" },
+  return listAllPages<BirdTemplate>(
+    cfg,
+    `${ws(cfg)}/projects/${projectId}/channel-templates`,
+    maxItems,
   );
-  return unwrapList<BirdTemplate>(json);
 }
 
 export async function getTemplate(

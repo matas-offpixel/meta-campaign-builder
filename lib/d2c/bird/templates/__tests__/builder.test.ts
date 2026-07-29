@@ -32,6 +32,46 @@ const sampleDef = (): BrandTemplateDefinition => ({
   },
 });
 
+test("headerImageUrl emits a literal mediaUrl and declares no header variable", () => {
+  resetIds();
+  const def: BrandTemplateDefinition = {
+    name: "single_event_tpl",
+    category: "MARKETING",
+    locales: ["en"],
+    headerImageUrl: "https://cdn.example/poster.jpg",
+    body: { en: "Hardcoded copy, no tokens." },
+    button: { text: { en: "JOIN" }, url: "https://app.offpixel.co.uk/j/ABC123" },
+    variableExamples: {},
+  };
+  const p = buildTemplatePayload(def, { idFactory: stableIds });
+  assert.deepEqual(p.variables, []);
+  assert.equal(p.platformContent[0].type, "image");
+  const header = p.platformContent[0].blocks[0];
+  assert.equal(header.type, "image");
+  assert.equal(
+    (header as { image: { mediaUrl: string } }).image.mediaUrl,
+    "https://cdn.example/poster.jpg",
+  );
+  // No footer block when `footer` is omitted.
+  assert.equal(p.platformContent[0].blocks.some((b) => "role" in b && b.role === "footer"), false);
+});
+
+test("headerImageUrl and headerImageVar together are rejected", () => {
+  assert.throws(
+    () =>
+      validateDefinition({
+        name: "bad_tpl",
+        category: "MARKETING",
+        locales: ["en"],
+        headerImageUrl: "https://cdn.example/poster.jpg",
+        headerImageVar: "event_artwork_url",
+        body: { en: "x" },
+        variableExamples: {},
+      }),
+    TemplateDefinitionError,
+  );
+});
+
 test("extractVariableKeys finds named tokens, deduped, in order", () => {
   assert.deepEqual(
     extractVariableKeys("{{a}} then {{b}} then {{a}} and {{ c }}"),
