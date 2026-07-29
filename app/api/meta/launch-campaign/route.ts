@@ -1448,10 +1448,79 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       c.identity?.instagramActorId || c.identity?.instagramAccountId || "";
     if (!pickedIgId) continue;
 
+    // Fallback: fetchPageInstagramOptions only iterates /me/accounts + our
+    // META_BUSINESS_ID/owned_pages. Partner-hosted pages (owned by an external
+    // BM, shared into the operator's BM as a client_page — e.g. Modern Funktion
+    // in Electric Brixton BM) are absent from both lists at preflight, so
+    // pageIgIdsByPage returns null and evaluateIgIdentity fires a spurious
+    // "mismatch" even though the operator has valid BM-scoped page access and
+    // Meta itself would accept the launch. Do ONE direct per-page lookup with
+    // the user token — Meta returns the page's linked IG for any page the
+    // token can read, including BM-shared client_pages.
+    let effectivePageIgIds = pageIgIdsByPage.get(pageIdForIg) ?? null;
+    if (
+      pageIdForIg &&
+      userFbToken &&
+      !effectivePageIgIds?.includes(pickedIgId)
+    ) {
+      try {
+        const { graphGetWithToken: gget } = await import("@/lib/meta/client");
+        const direct = await gget<{
+          instagram_business_account?: { id: string; username?: string };
+          connected_instagram_account?: { id: string; username?: string };
+        }>(
+          `/${pageIdForIg}`,
+          {
+            fields:
+              "instagram_business_account{id,username},connected_instagram_account{id,username}",
+          },
+          userFbToken,
+        );
+        const directIgs: string[] = [];
+        if (direct.instagram_business_account?.id) {
+          directIgs.push(direct.instagram_business_account.id);
+          if (direct.instagram_business_account.username) {
+            igHandleById.set(
+              direct.instagram_business_account.id,
+              direct.instagram_business_account.username,
+            );
+          }
+        }
+        if (
+          direct.connected_instagram_account?.id &&
+          direct.connected_instagram_account.id !==
+            direct.instagram_business_account?.id
+        ) {
+          directIgs.push(direct.connected_instagram_account.id);
+          if (direct.connected_instagram_account.username) {
+            igHandleById.set(
+              direct.connected_instagram_account.id,
+              direct.connected_instagram_account.username,
+            );
+          }
+        }
+        if (directIgs.length > 0) {
+          effectivePageIgIds = [...(effectivePageIgIds ?? []), ...directIgs];
+          pageIgIdsByPage.set(pageIdForIg, effectivePageIgIds);
+          console.log(
+            `[launch-campaign] Phase 1.5 fallback: direct lookup for page ` +
+              `${pageIdForIg} returned IGs [${directIgs.join(",")}] — ` +
+              `added to authorised list (handles partner-hosted client_pages)`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[launch-campaign] Phase 1.5 fallback: direct page lookup for ` +
+            `${pageIdForIg} failed:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
     const verdict = evaluateIgIdentity({
       pickedIgId,
       adAccountActors: adAccountIgActors.length > 0 ? adAccountIgActors : null,
-      pageIgIds: pageIgIdsByPage.get(pageIdForIg) ?? null,
+      pageIgIds: effectivePageIgIds,
     });
 
     console.log(
