@@ -23,7 +23,7 @@ test("every brand resolves to its own from-name and reply-to", () => {
   assert.deepEqual(resolveBrandSender(AUDIENCES.hop), { brand: "Hop on the Top", fromName: "Hop on the Top", replyTo: "info@hoponthetop.party" });
   assert.deepEqual(resolveBrandSender(AUDIENCES.throwback), { brand: "Throwback", fromName: "Throwback", replyTo: "hello@throwbackbcn.com" });
   assert.deepEqual(resolveBrandSender(AUDIENCES.jackies), { brand: "Jackies", fromName: "Jackies", replyTo: "info@jackiesmusic.com" });
-  assert.deepEqual(resolveBrandSender(AUDIENCES.kinyxx), { brand: "KINYXX", fromName: "KINYXX", replyTo: "hello@kinyxxmusic.com" });
+  assert.deepEqual(resolveBrandSender(AUDIENCES.kinyxx), { brand: "KINYXX", fromName: "KINYXX", replyTo: "info@kinyxx.com" });
   assert.deepEqual(resolveBrandSender(AUDIENCES.fury), { brand: "Fury", fromName: "Fury", replyTo: "hello@furybarcelona.com" });
   assert.deepEqual(resolveBrandSender(AUDIENCES.petardeo), { brand: "Petardeo", fromName: "Petardeo", replyTo: "hello@petardeobcn.com" });
 });

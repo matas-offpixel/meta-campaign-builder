@@ -47,7 +47,7 @@ export const MAILCHIMP_BRAND_SENDERS: Record<string, BrandSender> = {
   "27eb062177": { brand: "Hop on the Top", fromName: "Hop on the Top", replyTo: "info@hoponthetop.party" },
   "c2b4d77acb": { brand: "Throwback", fromName: "Throwback", replyTo: "hello@throwbackbcn.com" },
   "08fe70fa49": { brand: "Jackies", fromName: "Jackies", replyTo: "info@jackiesmusic.com" },
-  "3cbfdc697d": { brand: "KINYXX", fromName: "KINYXX", replyTo: "hello@kinyxxmusic.com" },
+  "3cbfdc697d": { brand: "KINYXX", fromName: "KINYXX", replyTo: "info@kinyxx.com" },
   "bf1b94dd15": { brand: "Fury", fromName: "Fury", replyTo: "hello@furybarcelona.com" },
   "7e381bfe81": { brand: "Petardeo", fromName: "Petardeo", replyTo: "hello@petardeobcn.com" },
   // "coffe" — one e. Verbatim, verified against the brief; do not correct.
