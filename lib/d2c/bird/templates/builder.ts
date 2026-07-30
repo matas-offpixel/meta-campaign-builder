@@ -14,6 +14,7 @@
 import { randomBytes } from "node:crypto";
 
 import {
+  allButtons,
   normaliseLocale,
   validateDefinition,
   type BirdBlock,
@@ -88,6 +89,8 @@ export function buildTemplatePayload(
     footer: genId(),
     button: genId(),
   };
+  // One stable id per button, reused across locales (Bird reuses ids per role).
+  const buttonIds = allButtons(def).map((_, i) => (i === 0 ? ids.button : genId()));
 
   const platformContent: BirdPlatformContent[] = locales.map((rawLocale, idx) => {
     const locale = normaliseLocale(rawLocale);
@@ -114,11 +117,11 @@ export function buildTemplatePayload(
         text: { text: def.footer[rawLocale] },
       });
     }
-    if (def.button) {
+    for (const [i, b] of allButtons(def).entries()) {
       blocks.push({
-        id: ids.button,
+        id: buttonIds[i],
         type: "link-action",
-        linkAction: { text: def.button.text[rawLocale], url: def.button.url },
+        linkAction: { text: b.text[rawLocale], url: b.url },
       });
     }
     const entry: BirdPlatformContent = {
