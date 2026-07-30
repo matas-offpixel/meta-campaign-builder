@@ -19,7 +19,10 @@
  *  4. **Refuses an unscoped send.** A campaign is never created without a
  *     non-empty `segment_opts`. An empty one silently means "the whole
  *     audience" — 15,611 people on the first live brief.
- *  5. **Reach is measured, not assumed.** Every campaign's resolved audience
+ *  5. **The signup autoresponder ships twice** — once as a saved template and
+ *     once as a Regular Email campaign draft, because only the latter feeds
+ *     Mailchimp's "Replicate to automation" flow. Neither is activated.
+ *  6. **Reach is measured, not assumed.** Every campaign's resolved audience
  *     size is computed and reported, so a targeting mistake that would reach
  *     zero (or everyone) is visible before anyone presses send.
  *
@@ -264,7 +267,12 @@ export async function runMailchimpEventAdapter(
   };
 
   // ── 1. saved template for the signup autoresponder ───────────────────────
-  const autoresp: EmailCopy = buildEmailCopy("autoresp", input.event);
+  // NB: the autoresponder ALSO ships as a Regular Email campaign draft in the
+  // milestone loop below. Mailchimp's "Replicate to automation" sources from a
+  // Regular Email campaign, not from a saved template, so the template alone
+  // would leave the operator retyping the content. Both are produced; neither
+  // replaces the other, and they share a title so they pair up in the UI.
+  const autoresp: EmailCopy = buildEmailCopy("autoresp_setup", input.event);
   if (!input.dryRun) {
     try {
       const existing = await mailchimpJson<{ templates?: { id: number; name: string }[] }>(

@@ -29,6 +29,23 @@ const MADRID: MailchimpEventInput = {
 const EVENT_SEG = 8800540;
 const LANG_SEG = 8800501;
 
+test("the signup autoresponder is a first-class campaign milestone", () => {
+  // It ships as BOTH a saved template and a Regular Email campaign draft:
+  // "Replicate to automation" sources from a campaign, not a template.
+  assert.ok(MAILCHIMP_MILESTONES.includes("autoresp_setup"));
+  assert.equal(campaignTitle(MADRID.baseName, "autoresp_setup"), "h26-madrid-03.10.26 signup autoresponder");
+  // campaign title and saved-template name must match so they pair in the UI
+  assert.equal(campaignTitle(MADRID.baseName, "autoresp_setup"), savedTemplateName(MADRID.baseName));
+});
+
+test("the autoresponder targets the event tag, and never excludes it", () => {
+  const o = buildSegmentOpts("autoresp_setup", { eventSegmentId: EVENT_SEG });
+  assert.deepEqual(o.conditions, [
+    { condition_type: "StaticSegment", field: "static_segment", op: "static_is", value: EVENT_SEG },
+  ]);
+  assert.ok(!o.conditions.some((c) => c.op === "static_not"));
+});
+
 test("names follow the Bird project-name convention", () => {
   assert.equal(campaignTitle(MADRID.baseName, "announce"), "h26-madrid-03.10.26 announcement");
   assert.equal(campaignTitle(MADRID.baseName, "reminder"), "h26-madrid-03.10.26 presale reminder");
@@ -100,11 +117,11 @@ test("Spanish locale yields Spanish copy in subject, preview and body", () => {
     assert.ok(!/Presale opens|on general sale|You're registered/i.test(c.subject + c.preview + c.html), m);
   }
   assert.match(buildEmailCopy("presale_live", MADRID).subject, /^Preventa activa/);
-  assert.match(buildEmailCopy("autoresp", MADRID).html, /Gracias por registrarte/);
+  assert.match(buildEmailCopy("autoresp_setup", MADRID).html, /Gracias por registrarte/);
 });
 
 test("the autoresponder carries the community link, not the ticket link", () => {
-  const c = buildEmailCopy("autoresp", MADRID);
+  const c = buildEmailCopy("autoresp_setup", MADRID);
   assert.ok(c.html.includes("https://app.offpixel.co.uk/j/GPHS1dVMJluLgJJaKc1CIv"));
 });
 

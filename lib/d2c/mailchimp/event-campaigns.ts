@@ -35,10 +35,18 @@ import type { D2CJobType } from "../types.ts";
 
 export type MailchimpMilestone = Extract<
   D2CJobType,
-  "announce" | "reminder" | "presale_live" | "gen_sale"
+  "autoresp_setup" | "announce" | "reminder" | "presale_live" | "gen_sale"
 >;
 
+/**
+ * `autoresp_setup` ships as BOTH a saved template and a Regular Email campaign
+ * draft. The campaign is the one that matters operationally: Mailchimp's
+ * "Replicate to automation" sources from a Regular Email campaign, not from a
+ * saved template, so a template alone leaves the human retyping the content.
+ * Both outputs are produced and neither replaces the other.
+ */
 export const MAILCHIMP_MILESTONES: readonly MailchimpMilestone[] = [
+  "autoresp_setup",
   "announce",
   "reminder",
   "presale_live",
@@ -47,6 +55,7 @@ export const MAILCHIMP_MILESTONES: readonly MailchimpMilestone[] = [
 
 /** Name suffix per milestone — extends the Bird project-name convention. */
 export const MILESTONE_SUFFIX: Record<MailchimpMilestone, string> = {
+  autoresp_setup: "signup autoresponder",
   announce: "announcement",
   reminder: "presale reminder",
   presale_live: "presale",
@@ -114,7 +123,7 @@ export function savedTemplateName(baseName: string): string {
 
 interface Block { heading: string; paras: string[]; cta: { label: string; url: string } }
 
-function blockFor(milestone: MailchimpMilestone | "autoresp", i: MailchimpEventInput): Block {
+function blockFor(milestone: MailchimpMilestone, i: MailchimpEventInput): Block {
   const lang = mailchimpCopyLang(i.locale);
   const community = i.communityUrl;
   if (lang === "es") {
@@ -156,7 +165,7 @@ function blockFor(milestone: MailchimpMilestone | "autoresp", i: MailchimpEventI
           ],
           cta: { label: "CONSEGUIR ENTRADA", url: i.ticketUrl },
         };
-      case "autoresp":
+      case "autoresp_setup":
         return {
           heading: "¡Registro confirmado!",
           paras: [
@@ -206,7 +215,7 @@ function blockFor(milestone: MailchimpMilestone | "autoresp", i: MailchimpEventI
         ],
         cta: { label: "GET YOUR TICKET", url: i.ticketUrl },
       };
-    case "autoresp":
+    case "autoresp_setup":
       return {
         heading: "You're registered",
         paras: [
@@ -219,7 +228,7 @@ function blockFor(milestone: MailchimpMilestone | "autoresp", i: MailchimpEventI
   }
 }
 
-function subjectFor(milestone: MailchimpMilestone | "autoresp", i: MailchimpEventInput): { subject: string; preview: string } {
+function subjectFor(milestone: MailchimpMilestone, i: MailchimpEventInput): { subject: string; preview: string } {
   const lang = mailchimpCopyLang(i.locale);
   const es = lang === "es";
   switch (milestone) {
@@ -239,7 +248,7 @@ function subjectFor(milestone: MailchimpMilestone | "autoresp", i: MailchimpEven
       return es
         ? { subject: `${i.eventName} ya a la venta`, preview: "Consigue tu entrada" }
         : { subject: `${i.eventName} on general sale`, preview: "Get your ticket" };
-    case "autoresp":
+    case "autoresp_setup":
       return es
         ? { subject: `Estás registrado: ${i.eventName}`, preview: `Preventa el ${i.presaleDayText} a las ${i.presaleTimeText}` }
         : { subject: `You're registered: ${i.eventName}`, preview: `Presale ${i.presaleDayText} at ${i.presaleTimeText}` };
@@ -293,17 +302,16 @@ function requireFacts(i: MailchimpEventInput): void {
 }
 
 export function buildEmailCopy(
-  milestone: MailchimpMilestone | "autoresp",
+  milestone: MailchimpMilestone,
   input: MailchimpEventInput,
 ): EmailCopy {
   requireFacts(input);
   const b = blockFor(milestone, input);
   const { subject, preview } = subjectFor(milestone, input);
   return {
-    title:
-      milestone === "autoresp"
-        ? savedTemplateName(input.baseName)
-        : campaignTitle(input.baseName, milestone),
+    // Both outputs share one title: the saved template and the Regular Email
+    // campaign are deliberately named identically so they pair up in the UI.
+    title: campaignTitle(input.baseName, milestone),
     subject,
     preview,
     html: renderHtml(b, input.artworkUrl, input.eventName),
@@ -355,6 +363,8 @@ export function buildSegmentOpts(
   input: TargetingInput,
 ): SegmentOpts {
   const conditions: SegmentCondition[] = [];
+  // Only the announcement excludes the tag; every other milestone (including
+  // the signup autoresponder) targets people who ARE tagged for this event.
   const isAnnounce = milestone === "announce";
   const useLanguage =
     input.languageSegmentId !== undefined &&
