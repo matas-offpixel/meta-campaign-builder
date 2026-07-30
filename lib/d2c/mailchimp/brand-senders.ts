@@ -52,6 +52,26 @@ export const MAILCHIMP_BRAND_SENDERS: Record<string, BrandSender> = {
   "7e381bfe81": { brand: "Petardeo", fromName: "Petardeo", replyTo: "hello@petardeobcn.com" },
   // "coffe" — one e. Verbatim, verified against the brief; do not correct.
   "89671d9d97": { brand: "Coffee Morning Dance", fromName: "Coffee Morning Dance", replyTo: "hello@coffemorningdance.com" },
+  "501fa6a14e": { brand: "Perreito", fromName: "Perreito", replyTo: "hello@perreito.party" },
+};
+
+/**
+ * Mailchimp brand SHELL template per audience — the Approach B clone source.
+ *
+ * Older brands have no purpose-built shell; their source is whichever
+ * drag-and-drop template a past campaign was built from, which is why
+ * `brand-clone.ts` has to derive structure rather than assume it. Perreito is
+ * the first brand with a shell authored to satisfy those rules up front:
+ * one CTA-linked poster, one unlinked portrait secondary, two mcnButtons, and
+ * the nested `<p>`/`<span>` colour pattern.
+ */
+export const MAILCHIMP_BRAND_SHELL_TEMPLATE: Record<string, number> = {
+  "501fa6a14e": 13699066, // Perreito Template — Reggaeton Tardeo
+  "3cbfdc697d": 13699033, // K26-HALLOWEEN V2 (KINYXX)
+  "08fe70fa49": 13699032, // j26-HALLOWEEN (Jackies)
+  "27eb062177": 13699029, // HOTT HALLOWEEN (Hop on the Top)
+  "c2b4d77acb": 13699030, // Throwback HALLOWEEN
+  "bf1b94dd15": 13699031, // Fury HALLOWEEN
 };
 
 /**

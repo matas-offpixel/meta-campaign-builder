@@ -10,6 +10,7 @@ import { test } from "node:test";
 
 import {
   MAILCHIMP_BRAND_SENDERS,
+  MAILCHIMP_BRAND_SHELL_TEMPLATE,
   resolveBrandSender,
   UnmappedBrandSenderError,
 } from "../brand-senders.ts";
@@ -26,6 +27,23 @@ test("every brand resolves to its own from-name and reply-to", () => {
   assert.deepEqual(resolveBrandSender(AUDIENCES.kinyxx), { brand: "KINYXX", fromName: "KINYXX", replyTo: "info@kinyxx.com" });
   assert.deepEqual(resolveBrandSender(AUDIENCES.fury), { brand: "Fury", fromName: "Fury", replyTo: "hello@furybarcelona.com" });
   assert.deepEqual(resolveBrandSender(AUDIENCES.petardeo), { brand: "Petardeo", fromName: "Petardeo", replyTo: "hello@petardeobcn.com" });
+});
+
+test("Perreito resolves to its own sender and shell template", () => {
+  assert.deepEqual(resolveBrandSender("501fa6a14e"), { brand: "Perreito", fromName: "Perreito", replyTo: "hello@perreito.party" });
+  assert.equal(MAILCHIMP_BRAND_SHELL_TEMPLATE["501fa6a14e"], 13699066);
+});
+
+test("every mapped sender audience also has a shell template", () => {
+  for (const id of Object.keys(MAILCHIMP_BRAND_SENDERS)) {
+    // Petardeo and Coffee Morning Dance have no shell yet — assert explicitly
+    // so adding one is a deliberate act rather than a silent gap.
+    if (id === "7e381bfe81" || id === "89671d9d97") {
+      assert.equal(MAILCHIMP_BRAND_SHELL_TEMPLATE[id], undefined, `${id} unexpectedly gained a shell`);
+      continue;
+    }
+    assert.ok(MAILCHIMP_BRAND_SHELL_TEMPLATE[id], `no shell template mapped for audience ${id}`);
+  }
 });
 
 test("Coffee Morning Dance keeps the one-e 'coffe' domain verbatim", () => {
