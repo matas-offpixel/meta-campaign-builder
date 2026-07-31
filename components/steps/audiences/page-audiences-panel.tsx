@@ -635,18 +635,6 @@ export function PageAudiencesPanel({
     }
   }, [userPages.loadMode, userPages.loading]);
 
-  // Auto-classify pages whenever ANY source's data changes. Previously only
-  // ran on userPages.data — meaning Business Manager pages (the primary source
-  // for client audiences like Electric Brixton) never got classified and the
-  // genre chip bar stayed empty. Now covers all three sources via allPages.
-  useEffect(() => {
-    if (allPages.length === 0) return;
-    const updated = classifyPages(allPages, genreClassifications);
-    setGenreClassifications(updated);
-    writeGenreCache(updated);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allPages]);
-
   // All pages available for selection (deduped across all sources)
   const allPages = useMemo(() => {
     const seen = new Set<string>();
@@ -659,6 +647,17 @@ export function PageAudiencesPanel({
     }
     return result;
   }, [businessPages.data, additionalPages.pages, userPages.data]);
+
+  // Auto-classify pages whenever ANY source's data changes. MUST be declared
+  // AFTER allPages (TS block-scoped variable rule — PR #742 shipped this in
+  // the wrong order and blocked the Vercel build for PR #732 + #740 + #743).
+  useEffect(() => {
+    if (allPages.length === 0) return;
+    const updated = classifyPages(allPages, genreClassifications);
+    setGenreClassifications(updated);
+    writeGenreCache(updated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPages]);
 
   // Dynamic categories from loaded pages
   const categories = useMemo(() => {
