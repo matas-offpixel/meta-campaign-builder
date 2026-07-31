@@ -6,7 +6,7 @@ import {
   resolveAudienceSourceContext,
 } from "@/lib/audiences/sources";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 /**
  * POST /api/audiences/sources/prewarm
@@ -145,6 +145,7 @@ export async function POST(req: NextRequest) {
             context.metaAdAccountId,
             campaignId,
             token,
+            createServiceRoleClient(),
           ),
       }).catch((err) => {
         console.warn("[audiences/prewarm] warm failed", {

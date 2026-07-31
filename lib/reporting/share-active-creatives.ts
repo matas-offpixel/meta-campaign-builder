@@ -278,5 +278,6 @@ export async function fetchShareActiveCreatives(
     payload,
     adAccountId: result.ad_account_id,
     token: ownerToken,
+    admin: input.admin,
   });
 }

@@ -1,5 +1,8 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import type { ConceptGroupRow } from "./group-creatives";
 import { withActPrefix } from "../meta/ad-account-id.ts";
+import type { VideoThumbnailCacheClient } from "../meta/video-thumbnail-cache.ts";
 
 type GraphGetter = (
   path: string,
@@ -7,17 +10,11 @@ type GraphGetter = (
   token: string,
 ) => Promise<unknown>;
 
+type VideoThumbnailUrlFetcher = (videoId: string) => Promise<string | null>;
+
 interface ThumbnailPayload {
   kind: string;
   groups?: ConceptGroupRow[];
-}
-
-interface VideoThumbnailResponse {
-  data?: Array<{
-    uri?: string;
-    width?: number;
-    is_preferred?: boolean;
-  }>;
 }
 
 interface AdImagesResponse {
@@ -31,7 +28,11 @@ export interface ThumbnailEnrichmentInput {
   payload: ThumbnailPayload;
   adAccountId: string;
   token: string;
+  /** Service-role client for the `fetchThumbnailUrl` Storage cache. */
+  admin: SupabaseClient | VideoThumbnailCacheClient;
   graphGet?: GraphGetter;
+  /** Injectable for tests; defaults to the real `fetchThumbnailUrl` helper. */
+  fetchThumbnailUrl?: VideoThumbnailUrlFetcher;
 }
 
 async function defaultGraphGet(
@@ -43,29 +44,14 @@ async function defaultGraphGet(
   return graphGetWithToken(path, params, token);
 }
 
-function pickVideoThumbnail(data: VideoThumbnailResponse["data"]): string | null {
-  if (!data?.length) return null;
-  const valid = data
-    .map((row, index) => ({
-      uri: row.uri?.trim() || null,
-      width:
-        typeof row.width === "number" && Number.isFinite(row.width)
-          ? row.width
-          : 0,
-      isPreferred: row.is_preferred === true,
-      index,
-    }))
-    .filter((row): row is {
-      uri: string;
-      width: number;
-      isPreferred: boolean;
-      index: number;
-    } => Boolean(row.uri));
-  if (valid.length === 0) return null;
-  return (
-    valid.find((row) => row.isPreferred) ??
-    [...valid].sort((a, b) => b.width - a.width || a.index - b.index)[0]
-  ).uri;
+function defaultFetchThumbnailUrlFactory(
+  admin: SupabaseClient | VideoThumbnailCacheClient,
+  token: string,
+): VideoThumbnailUrlFetcher {
+  return async (videoId) => {
+    const { fetchThumbnailUrl } = await import("../meta/video-thumbnail-cache.ts");
+    return fetchThumbnailUrl({ videoId, token, admin });
+  };
 }
 
 function pickAdImageUrl(data: AdImagesResponse["data"]): string | null {
@@ -82,18 +68,14 @@ async function enrichGroupThumbnail(input: {
   adAccountId: string;
   token: string;
   graphGet: GraphGetter;
+  fetchThumbnailUrl: VideoThumbnailUrlFetcher;
 }): Promise<ConceptGroupRow> {
   const source = input.group.representative_thumbnail_source;
   const fallback = input.group.representative_thumbnail;
   let enriched: string | null = null;
 
   if (source.video_id) {
-    const res = (await input.graphGet(
-      `/${source.video_id}/thumbnails`,
-      { fields: "uri,width,is_preferred" },
-      input.token,
-    )) as VideoThumbnailResponse;
-    enriched = pickVideoThumbnail(res.data);
+    enriched = await input.fetchThumbnailUrl(source.video_id);
   } else if (source.image_hash) {
     const res = (await input.graphGet(
       `/${withActPrefix(input.adAccountId)}/adimages`,
@@ -122,6 +104,9 @@ export async function enrichActiveCreativesSnapshotThumbnails<T extends Thumbnai
   }
 
   const graphGet = input.graphGet ?? defaultGraphGet;
+  const fetchThumbnailUrl =
+    input.fetchThumbnailUrl ??
+    defaultFetchThumbnailUrlFactory(input.admin, input.token);
   const groups = await Promise.all(
     input.payload.groups.map(async (group) => {
       try {
@@ -130,6 +115,7 @@ export async function enrichActiveCreativesSnapshotThumbnails<T extends Thumbnai
           adAccountId: input.adAccountId,
           token: input.token,
           graphGet,
+          fetchThumbnailUrl,
         });
       } catch (err) {
         console.warn(
@@ -149,6 +135,5 @@ export async function enrichActiveCreativesSnapshotThumbnails<T extends Thumbnai
 }
 
 export const __activeCreativesThumbnailEnrichmentTest = {
-  pickVideoThumbnail,
   pickAdImageUrl,
 };

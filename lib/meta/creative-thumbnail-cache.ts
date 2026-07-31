@@ -96,6 +96,7 @@ export async function fetchAndCacheThumbnail(
   const { buffer, contentType } = await fetchThumbnailImageBytes(
     args.adId,
     args.fbToken,
+    args.admin,
   );
   await uploadThumbnailToCache(args.admin, args.adId, buffer, contentType);
   return { buffer, contentType };

@@ -10,7 +10,7 @@ import {
   resolveAudienceSourceContext,
 } from "@/lib/audiences/sources";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 // Bumped from 60 to 120 (Vercel Pro ceiling 800). The concurrent campaign
 // walk (CAMPAIGN_WALK_CONCURRENCY=3) cuts typical wall-clock to 20-30s; 120s
@@ -77,6 +77,7 @@ export async function GET(req: NextRequest) {
           context.metaAdAccountId,
           campaignIds,
           token,
+          createServiceRoleClient(),
         ),
     });
 

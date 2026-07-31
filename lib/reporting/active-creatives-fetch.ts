@@ -2,9 +2,9 @@ import "server-only";
 
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
 import {
-  pickBestVideoThumbnail,
-  type VideoThumbnail,
-} from "@/lib/meta/video-thumbnails";
+  fetchThumbnailUrlsBatch,
+  type VideoThumbnailCacheClient,
+} from "@/lib/meta/video-thumbnail-cache";
 import {
   isReduceDataError,
   isTransientRateLimit,
@@ -152,12 +152,17 @@ export interface FetchActiveCreativesInput {
   /** Required when `datePreset === "custom"`. */
   customRange?: CustomDateRange;
   /**
-   * When true, batch-calls `/{video_id}/thumbnails` for Advantage+
-   * `afs_video_thumb` low-res fallbacks and upgrades poster URLs.
+   * When true, upgrades Advantage+ `afs_video_thumb` low-res fallback
+   * poster URLs via the video-id-keyed thumbnail cache
+   * (`lib/meta/video-thumbnail-cache.ts` — Storage-cache-first, only
+   * calls Meta's `/{video_id}/thumbnails` edge on a genuine miss).
    * Only for cron / internal snapshot refresh — the share RSC path
    * must leave this false (default) to avoid extra Graph round-trips.
+   * Requires `admin` — silently skipped (with a warning) if omitted.
    */
   enrichVideoThumbnails?: boolean;
+  /** Service-role client for `enrichVideoThumbnails`'s thumbnail cache. */
+  admin?: VideoThumbnailCacheClient;
 }
 
 export interface FetchActiveCreativesMeta {
@@ -941,65 +946,26 @@ async function fetchCreativeBatch(
   return out;
 }
 
-const VIDEO_THUMBNAIL_BATCH_FIELDS = [
-  "thumbnails{uri,height,width,scale,is_preferred}",
-].join(",");
-
-type GraphVideoThumbnailsNode = {
-  thumbnails?: { data?: ReadonlyArray<Record<string, unknown>> };
-  error?: { message?: string };
-};
-
 /**
- * Given a list of `video_id`s, fetch their native-resolution thumbnails
- * via Meta's Graph API batched endpoint (`GET /?ids=…&fields=thumbnails`).
- * Returns a Map keyed by `video_id` with the best-quality
- * {@link VideoThumbnail} for each. Missing / errored `video_id`s are
- * omitted (caller falls back to the `extractPreview` waterfall).
- *
- * Respects {@link CREATIVE_BATCH_SIZE} (25) to stay under Meta's
- * data-budget cap. Swallows per-batch errors — a failed batch does not
- * poison the whole enrichment pass.
+ * Given a list of `video_id`s, resolve their best-resolution thumbnail
+ * URL via the video-id-keyed thumbnail cache
+ * (`lib/meta/video-thumbnail-cache.ts`) — Storage-cache-first, so a
+ * `video_id` already resolved by ANY caller (this cron, the ad_id
+ * thumbnail proxy's video fallback, the audience-builder video picker)
+ * never re-hits Meta's `/{video_id}/thumbnails` edge here. Missing /
+ * errored `video_id`s are omitted (caller falls back to the
+ * `extractPreview` waterfall).
  */
 async function fetchVideoThumbnailsBatch(
   videoIds: string[],
   token: string,
-): Promise<Map<string, VideoThumbnail>> {
-  const out = new Map<string, VideoThumbnail>();
+  admin: VideoThumbnailCacheClient,
+): Promise<Map<string, { uri: string }>> {
+  const out = new Map<string, { uri: string }>();
   if (videoIds.length === 0) return out;
-  const unique = [...new Set(videoIds)];
-  const chunks: string[][] = [];
-  for (let i = 0; i < unique.length; i += CREATIVE_BATCH_SIZE) {
-    chunks.push(unique.slice(i, i + CREATIVE_BATCH_SIZE));
-  }
-  const results = await Promise.all(
-    chunks.map((batch, idx) =>
-      graphGetWithToken<Record<string, GraphVideoThumbnailsNode | undefined>>(
-        "",
-        { ids: batch.join(","), fields: VIDEO_THUMBNAIL_BATCH_FIELDS },
-        token,
-      ).catch((err) => {
-        const e = err as { code?: number; message?: string };
-        console.warn(
-          `[active-creatives] video_thumbnails_batch_failed batch=${idx + 1}/${chunks.length} ids=${batch.length} meta_code=${e.code ?? "n/a"} message=${JSON.stringify(e.message ?? String(err))}`,
-        );
-        return {} as Record<string, GraphVideoThumbnailsNode>;
-      }),
-    ),
-  );
-  for (const batchResult of results) {
-    for (const [id, node] of Object.entries(batchResult)) {
-      if (!id || !node || (node as GraphVideoThumbnailsNode).error) {
-        continue;
-      }
-      const n = (node as GraphVideoThumbnailsNode).thumbnails;
-      const data = n?.data;
-      if (!data?.length) continue;
-      const best = pickBestVideoThumbnail(data);
-      if (best) {
-        out.set(id, best);
-      }
-    }
+  const urls = await fetchThumbnailUrlsBatch(videoIds, { token, admin });
+  for (const [id, uri] of urls) {
+    out.set(id, { uri });
   }
   return out;
 }
@@ -1649,7 +1615,13 @@ export async function fetchActiveCreativesForEvent(
   console.info(
     `[active-creatives] enrichment_gate event=${eventCode} flag=${enrichVideoThumbnails} deduped_ads=${dedupedAds.length}`,
   );
-  if (enrichVideoThumbnails) {
+  if (enrichVideoThumbnails && !input.admin) {
+    console.warn(
+      `[active-creatives] enrichment_skip_no_admin event=${eventCode} — enrichVideoThumbnails requires input.admin`,
+    );
+  }
+  if (enrichVideoThumbnails && input.admin) {
+    const admin = input.admin;
     const videoIdsToUpgrade = new Set<string>();
     for (const ad of dedupedAds) {
       if (
@@ -1689,11 +1661,12 @@ export async function fetchActiveCreativesForEvent(
         const thumbnailsMap = await fetchVideoThumbnailsBatch(
           Array.from(videoIdsToUpgrade),
           token,
+          admin,
         );
         const sampleUpgrade = Array.from(thumbnailsMap.entries())[0];
         if (sampleUpgrade) {
           console.info(
-            `[active-creatives] enrichment_sample event=${eventCode} video_id=${sampleUpgrade[0]} uri_prefix=${JSON.stringify(sampleUpgrade[1].uri.slice(0, 100))} dims=${sampleUpgrade[1].width}x${sampleUpgrade[1].height}`,
+            `[active-creatives] enrichment_sample event=${eventCode} video_id=${sampleUpgrade[0]} uri_prefix=${JSON.stringify(sampleUpgrade[1].uri.slice(0, 100))}`,
           );
         }
         console.log(

@@ -2,6 +2,10 @@ import "server-only";
 
 import { graphGetWithToken } from "@/lib/meta/client";
 import { withActPrefix, withoutActPrefix } from "@/lib/meta/ad-account-id";
+import {
+  fetchThumbnailUrl,
+  type VideoThumbnailCacheClient,
+} from "@/lib/meta/video-thumbnail-cache";
 
 export function normalizeMetaAdAccountId(
   raw: string | null | undefined,
@@ -32,34 +36,10 @@ interface CreativeThumbnailFields {
   };
 }
 
-interface VideoThumbnailsResponse {
-  data?: Array<{ uri?: string; width?: number; is_preferred?: boolean }>;
-}
-
-function pickVideoThumbnailUri(
-  data: VideoThumbnailsResponse["data"],
-): string | null {
-  if (!data?.length) return null;
-  const valid = data
-    .map((row, index) => ({
-      uri: row.uri?.trim() || null,
-      width: typeof row.width === "number" && Number.isFinite(row.width) ? row.width : 0,
-      isPreferred: row.is_preferred === true,
-      index,
-    }))
-    .filter((row): row is { uri: string; width: number; isPreferred: boolean; index: number } =>
-      Boolean(row.uri),
-    );
-  if (valid.length === 0) return null;
-  return (
-    valid.find((row) => row.isPreferred) ??
-    [...valid].sort((a, b) => b.width - a.width || a.index - b.index)[0]
-  ).uri;
-}
-
 export async function fetchThumbnailImageBytes(
   adId: string,
   fbToken: string,
+  admin: VideoThumbnailCacheClient,
 ): Promise<{ buffer: Buffer; contentType: string }> {
   const row = await graphGetWithToken<CreativeThumbnailFields>(
     `/${adId}`,
@@ -72,16 +52,17 @@ export async function fetchThumbnailImageBytes(
     null;
 
   // For video creatives that don't expose thumbnail_url directly (e.g. some
-  // Reels-format ads), fall back to /{video_id}/thumbnails which returns a
-  // richer set of CDN URLs and always has at least one entry.
+  // Reels-format ads), fall back to the video_id-keyed thumbnail cache
+  // (lib/meta/video-thumbnail-cache.ts) — the ONLY path allowed to call
+  // Meta's /{video_id}/thumbnails edge. Storage-cache-first; only hits
+  // Meta on a genuine miss.
   if (!url && row.creative?.video_id) {
     try {
-      const thumbRes = await graphGetWithToken<VideoThumbnailsResponse>(
-        `/${row.creative.video_id}/thumbnails`,
-        { fields: "uri,width,is_preferred" },
-        fbToken,
-      );
-      url = pickVideoThumbnailUri(thumbRes.data);
+      url = await fetchThumbnailUrl({
+        videoId: row.creative.video_id,
+        token: fbToken,
+        admin,
+      });
     } catch {
       // non-fatal — fall through to the error below
     }

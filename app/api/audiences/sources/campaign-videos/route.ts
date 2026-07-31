@@ -10,7 +10,7 @@ import {
   resolveAudienceSourceContext,
 } from "@/lib/audiences/sources";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 // Vercel function timeout. Default is 10s; J2-scale campaigns
 // (~200 videos) push `fetchAudienceCampaignVideos` to 20–40s on cold
@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
           context.metaAdAccountId,
           campaignId,
           token,
+          createServiceRoleClient(),
         ),
     });
     return Response.json({ ok: true, ...result, tokenSource: source });
