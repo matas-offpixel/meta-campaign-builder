@@ -48,9 +48,10 @@ const PUBLIC_PREFIXES: readonly string[] = [
   // mismatch — the bypass here only stops the session check, it does
   // not stop the route's own auth.
   "/api/cron/",
-  // `/j/{invite}` — public WhatsApp community redirect clicked from Bird
-  // WhatsApp template buttons (Meta subcode 2388081 fix). Validates the
-  // invite code itself before redirecting; carries no user data.
+  // `/j/{invite|slug}` — public WhatsApp community redirect clicked from
+  // Bird WhatsApp template buttons (Meta subcode 2388081 fix). Looks up
+  // wa_community_aliases by slug first, else pass-through for raw invite
+  // codes. Validates the segment before redirecting; carries no user data.
   "/j/",
   // `/l/{clientSlug}/{eventSlug}` — public event landing pages (migration
   // 132, landing-page arc PR 1). The route resolves the slug chain via the
