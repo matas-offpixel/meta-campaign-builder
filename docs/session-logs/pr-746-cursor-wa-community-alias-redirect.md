@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 746
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/746
 - **Branch:** `cursor/wa-community-alias-redirect`
 
 ## Summary
@@ -37,7 +37,7 @@ works — the schema matches that practice.
 - [x] Fail-open alias lookup (table missing / throw → raw invite still passthroughs)
 - [x] Short non-hyphenated non-invite → 404
 - [x] `/wa-communities` NOT in PUBLIC_PREFIXES (negative auth test)
-- [ ] Apply migration 150 **before** merge (live `/j/*` critical path)
+- [x] Apply migration 150 **before** merge (live `/j/*` critical path)
 - [ ] Manual post-deploy: `/j/{alias}` + `/j/DHjPw1HRvipCu6S6ZT6d5P`
 
 ## Notes

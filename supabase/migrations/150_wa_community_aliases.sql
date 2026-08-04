@@ -24,8 +24,10 @@
 --   drop table if exists wa_community_alias_destinations;
 --   drop table if exists wa_community_aliases;
 --
--- Apply manually post-merge via the Supabase MCP `apply_migration`.
--- Idempotent: `if not exists` + catalog-checked DO blocks throughout.
+-- Apply BEFORE merge via the Supabase MCP `apply_migration`.
+-- /j/* is on the live critical path of already-approved WhatsApp templates:
+-- additive schema that new code reads must exist first. Idempotent:
+-- `if not exists` + catalog-checked DO blocks throughout.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── wa_community_aliases ─────────────────────────────────────────────────────
