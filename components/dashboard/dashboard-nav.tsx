@@ -21,6 +21,7 @@ import {
   MapPin,
   Mic2,
   Building2,
+  MessageCircle,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
@@ -152,6 +153,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Business Managers",
         icon: Building2,
         match: (p) => p.startsWith("/business-managers"),
+      },
+      {
+        href: "/wa-communities",
+        label: "WA Communities",
+        icon: MessageCircle,
+        match: (p) => p.startsWith("/wa-communities"),
       },
     ],
   },
