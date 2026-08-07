@@ -140,3 +140,54 @@ export function isReduceDataError(err: unknown): boolean {
 
   return false;
 }
+
+/**
+ * Meta (#100) subcodes for "this creative isn't valid for that objective".
+ * Surfaces when `attach_all_adsets` (task #114) attaches one shared creative
+ * set to ad sets across campaigns with different objectives and the
+ * creative's `call_to_action_type` (or format) isn't allowed under one of
+ * them — e.g. a BUY_TICKETS-CTA creative attached to a Traffic ad set.
+ *
+ *   1815159 — "Creative and objective mismatch" (error_user_title):
+ *             "Please make sure that an objective is selected, and choose a
+ *             creative type that matches the objective you've selected."
+ *   1487664 — "Missing Call To Action Type":
+ *             "call_to_action_type field in creative is required in this ad"
+ *
+ * Not exhaustive (Meta doesn't document the full 1487xxx/1815xxx family) —
+ * the phrase fallback below catches the common wording variants so a launch
+ * doesn't need a code update every time Meta ships a new subcode in this
+ * family.
+ */
+const OBJECTIVE_INCOMPATIBLE_SUBCODES: ReadonlySet<number> = new Set([
+  1815159, 1487664,
+]);
+
+/**
+ * True when a Phase-4 (ad creation) failure looks like an objective/creative
+ * mismatch rather than a generic Meta error. Used to prefix
+ * `formatMetaError` output in `launch-campaign/route.ts` so a partial-launch
+ * report (`creativesCreated[].adsFailed`) makes the fix obvious — pick a
+ * different CTA/creative for that ad set's campaign objective, or drop that
+ * campaign from the `attach_all_adsets` selection — instead of surfacing raw
+ * Meta jargon.
+ *
+ * Duck-typed against `{ code, subcode, message, userMsg }` (the shape
+ * `MetaApiError` exposes) so this stays importable without dragging in the
+ * full Meta client — same rationale as `isReduceDataError` above.
+ */
+export function isObjectiveIncompatibilityError(err: unknown): boolean {
+  if (err == null || typeof err !== "object") return false;
+  const e = err as { code?: unknown; subcode?: unknown; message?: unknown; userMsg?: unknown };
+
+  if (typeof e.subcode === "number" && OBJECTIVE_INCOMPATIBLE_SUBCODES.has(e.subcode)) {
+    return true;
+  }
+
+  if (e.code !== 100 && e.code !== undefined) return false;
+
+  const phrase = /creative type that matches the objective|objective mismatch|call_to_action_type field/i;
+  if (typeof e.message === "string" && phrase.test(e.message)) return true;
+  if (typeof e.userMsg === "string" && phrase.test(e.userMsg)) return true;
+  return false;
+}
