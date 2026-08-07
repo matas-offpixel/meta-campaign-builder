@@ -585,6 +585,69 @@ export interface ExistingPostSelection {
   placements?: ExistingPostPlacements;
 }
 
+// ─── Placement config (Step 5 — wizard-wide manual placements) ────────────
+//
+// Distinct from {@link ExistingPostPlacements} above: that type is a narrow,
+// platform-derived preset scoped to a single "boost existing post" creative.
+// `PlacementConfig` is the general-purpose control surface for EVERY ad set
+// in the wizard — it existed nowhere before task #117 (East End Dubs
+// Newcastle signup, 2026-08-07, 42 ads shipped to every Meta placement
+// including Audience Network / Marketplace / Search because nothing in the
+// wizard ever set `publisher_platforms`, so Meta defaulted to Advantage+
+// Placements = everything).
+//
+// Absent entirely (any draft created before this field existed) → identical
+// to `{ mode: "advantage_plus" }` → Meta's automatic placements → the exact
+// behavior every draft had before this feature shipped. Zero regression.
+
+export type PlacementPublisherPlatform =
+  | "facebook"
+  | "instagram"
+  | "audience_network"
+  | "messenger";
+
+/**
+ * Subset of Meta's `facebook_positions` enum exposed in the wizard UI.
+ * Reference: https://developers.facebook.com/docs/marketing-api/targeting-specs#placement
+ */
+export type FacebookPlacementPosition =
+  | "feed"
+  | "right_hand_column"
+  | "marketplace"
+  | "video_feeds"
+  | "story"
+  | "search"
+  | "instream_video"
+  | "facebook_reels"
+  | "reels";
+
+export type InstagramPlacementPosition =
+  | "stream" // IG Feed
+  | "story"
+  | "explore"
+  | "reels"
+  | "ig_search"
+  | "explore_home";
+
+export type AudienceNetworkPlacementPosition = "classic" | "rewarded_video";
+
+export type PlacementDevicePlatform = "mobile" | "desktop";
+
+export interface PlacementConfig {
+  /**
+   * `"advantage_plus"` (default when absent) omits every placement field
+   * from the Meta ad-set payload — Meta's automatic placement selection,
+   * i.e. today's pre-existing behavior. `"manual"` sends the fields below.
+   */
+  mode: "advantage_plus" | "manual";
+  publisherPlatforms?: PlacementPublisherPlatform[];
+  facebookPositions?: FacebookPlacementPosition[];
+  instagramPositions?: InstagramPlacementPosition[];
+  audienceNetworkPositions?: AudienceNetworkPlacementPosition[];
+  /** Omit (or select both) for Meta's default of serving both device types. */
+  devicePlatforms?: PlacementDevicePlatform[];
+}
+
 /**
  * A single item returned by `/api/meta/instagram-posts` for the IG existing-
  * post picker. Mirrors a thin slice of the IG Graph `/{ig-user-id}/media`
@@ -762,6 +825,13 @@ export interface AdSetSuggestion {
    * lookalike audience IDs from SelectedPagesLookalikeGroup.lookalikeAudienceIdsByRange.
    */
   lookalikeRange?: LookalikeRange;
+  /**
+   * Per-ad-set placement override (Step 5 "Advanced" link on the ad set
+   * card). Rare — most campaigns set placements once at
+   * {@link CampaignSettings.placementConfig} for every ad set. When present,
+   * takes precedence over the campaign-wide config for this ad set only.
+   */
+  placementConfig?: PlacementConfig;
   /**
    * @deprecated Do not use — this field is no longer stamped during launch.
    * Per-run Meta IDs are stored in LaunchSummary.adSetLaunchResults instead.
@@ -965,6 +1035,14 @@ export interface CampaignSettings {
    * All selected ad sets must belong to {@link existingMetaCampaign}.
    */
   existingMetaAdSets?: ExistingMetaAdSetSnapshot[];
+
+  /**
+   * Campaign-wide manual placement control (Step 5 "Placements" section).
+   * Applies to every ad set unless overridden per-ad-set via
+   * {@link AdSetSuggestion.placementConfig}. Absent → Meta's automatic
+   * Advantage+ Placements (unchanged pre-existing behavior — see task #117).
+   */
+  placementConfig?: PlacementConfig;
 }
 
 /**

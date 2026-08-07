@@ -609,8 +609,10 @@ export function WizardShell({ draftId }: WizardShellProps) {
             budgetSchedule={draft.budgetSchedule}
             adSetSuggestions={draft.adSetSuggestions}
             audiences={draft.audiences}
+            settings={draft.settings}
             onBudgetChange={updateBudgetSchedule}
             onSuggestionsChange={updateAdSetSuggestions}
+            onSettingsChange={updateSettings}
           />
         )}
         {step === 6 && (() => {

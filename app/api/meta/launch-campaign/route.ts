@@ -2727,6 +2727,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             phase2Objective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
+            draft.settings.placementConfig,
           );
 
           // ── Manual placement override for existing-post ad sets ─────────────
@@ -2883,6 +2884,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   draft.settings.optimisationGoal, phase2Objective,
                   draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                   dynamicAdSetIds.has(adSet.id),
+                  draft.settings.placementConfig,
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
                 // run the local sync sanitiser one more time so any other
@@ -3290,6 +3292,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           phase2Objective,
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           dynamicAdSetIds.has(adSet.id),
+          draft.settings.placementConfig,
         );
 
         // Targeting trace log
@@ -3535,6 +3538,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ciObjective,
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
               dynamicAdSetIds.has(adSet.id),
+              draft.settings.placementConfig,
             );
 
             // Placement override for existing-post ad sets.
@@ -3576,6 +3580,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     draft.settings.optimisationGoal, ciObjective,
                     draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                     dynamicAdSetIds.has(adSet.id),
+                    draft.settings.placementConfig,
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
                   if ((retryPayload.targeting.interests ?? []).length > 0) {
@@ -3627,6 +3632,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.optimisationGoal, ciObjective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
+            draft.settings.placementConfig,
           );
           if (!hasAudienceTargeting(adSetPayload.targeting)) {
             throw new Error(`No valid targeting for lookalike ad set "${adSet.name}"`);
