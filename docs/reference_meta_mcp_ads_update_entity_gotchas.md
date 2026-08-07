@@ -4,11 +4,24 @@ Running reference of Meta Graph API subcodes hit while creating or updating
 campaigns/ad sets/ads in this repo, and what actually fixed them (verified
 against this codebase or a live capture, not guessed from docs alone). Add an
 entry here whenever a new subcode gets a recovery ladder or a hard-won fix —
-this file did not exist in the repo before task #115/#116 (PR pending,
-`cursor/ad-set-launch-recovery-1359207-and-1870196`); if an earlier version
-existed elsewhere (e.g. a different tool's session memory), it wasn't
-findable from this workspace and this file was started fresh rather than
-reconstructed from memory.
+this file did not exist in the repo before task #115/#116 (PR #750,
+`cursor/ad-set-launch-recovery-1359207-and-1870196`); a workspace-wide search
+at the time couldn't find an earlier version.
+
+**Update (2026-08-07 follow-up review):** an earlier version *does* exist,
+outside this repo/workspace entirely — a Claude Code local-agent-mode session
+memory node named `reference_meta_mcp_ads_update_entity_gotchas`
+(`~/Library/Application Support/Claude/local-agent-mode-sessions/.../memory/
+reference_meta_mcp_ads_update_entity_gotchas.md`, not under version control,
+scoped to a specific past session/space). It already documented sibling
+subcodes 1487079 (deleted CA blocks ad-set *update*) and 1815290
+(`targeting_optimization` objective-gated) from earlier Junction 2 bulk-ops
+work (tasks #107–#109). 1359207 and 1870196 have now been added there too,
+next to their respective siblings, per the original task ask. The two files
+necessarily overlap (this one is git-tracked and Meta-campaign-builder-repo-
+scoped; that one is a cross-project operator memory) — this file remains the
+canonical in-repo reference for anyone working in this codebase; treat the
+memory node as the broader, tool-level record.
 
 ## 1359207 — custom audience no longer available
 

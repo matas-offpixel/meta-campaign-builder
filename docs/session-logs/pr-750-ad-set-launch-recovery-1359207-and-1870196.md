@@ -179,6 +179,35 @@ No migration.
       fails when that one file runs outside the full `npm test` invocation;
       unrelated to `lib/meta/client.ts`, which imports neither module).
 
+## Follow-up review (2026-08-07)
+
+The task was re-issued verbatim in a later session, unaware this PR already
+shipped. Reviewed the existing branch against the full acceptance criteria
+instead of opening a duplicate PR:
+
+- Recovery ladder shape, Phase 2 + Phase 2b wiring, tests, and fixtures all
+  matched the spec (fixture naming for 1870196 intentionally deviates from
+  the suggested `event_source_permission_1870196.json` — documented reason
+  above still holds).
+- Re-checked the "test via `ads_get_field_context` on Junction 2" diagnosis
+  step from the original brief: the `user-meta-ads` MCP server's
+  `create_ad_set` tool schema does **not** expose `targeting_automation` /
+  `advantage_audience` / `validate_only` at all (checked its `targeting`
+  object schema directly), so a live-probe correction genuinely wasn't
+  possible with the tools available in this environment — confirms the
+  original Diagnosis section's decision to ship the safe strip-and-retry
+  ladder rather than a speculative field-shape substitution.
+- The "Memory update after ship" step turned out to have a real gap: the
+  memory file this repo's `docs/reference_meta_mcp_ads_update_entity_gotchas.md`
+  couldn't find a prior version of actually exists — a Claude Code
+  local-agent-mode session memory node (not under version control, outside
+  this workspace) that already had 1487079 and 1815290. Added 1359207 and
+  1870196 there too, next to their respective siblings, and cross-referenced
+  both files from each other. See the updated intro paragraph of the in-repo
+  doc for the exact path.
+
+No code changes were needed — the implementation held up under review.
+
 ## Notes
 
 - The 1870196 fix is a retry-once salvage, not a verified field-shape
