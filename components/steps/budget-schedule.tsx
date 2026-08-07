@@ -7,7 +7,19 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DollarSign, Zap, Lightbulb, MapPin, Search, X, Loader2, Plus } from "lucide-react";
+import {
+  DollarSign,
+  Zap,
+  Lightbulb,
+  MapPin,
+  Search,
+  X,
+  Loader2,
+  Plus,
+  Layers,
+  Settings2,
+  RotateCcw,
+} from "lucide-react";
 import type {
   BudgetScheduleSettings,
   BudgetLevel,
@@ -18,12 +30,24 @@ import type {
   LocationTargetingGroup,
   LocationSelection,
   LookalikeRange,
+  CampaignSettings,
+  PlacementConfig,
+  PlacementPublisherPlatform,
+  PlacementDevicePlatform,
+  FacebookPlacementPosition,
+  InstagramPlacementPosition,
+  AudienceNetworkPlacementPosition,
 } from "@/lib/types";
 import { TIMEZONES } from "@/lib/mock-data";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { useLocationSearch, type LocationSearchResult } from "@/lib/hooks/useMeta";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import { CalendarClock } from "lucide-react";
+import {
+  DEFAULT_PLACEMENT_CONFIG,
+  buildPlacementConfigTargeting,
+  validatePlacementConfig,
+} from "@/lib/meta/placement-config";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
 // Presets are resolved at runtime via the same Meta location-search API
@@ -260,8 +284,10 @@ interface BudgetScheduleProps {
   budgetSchedule: BudgetScheduleSettings;
   adSetSuggestions: AdSetSuggestion[];
   audiences: AudienceSettings;
+  settings: CampaignSettings;
   onBudgetChange: (bs: BudgetScheduleSettings) => void;
   onSuggestionsChange: (suggestions: AdSetSuggestion[]) => void;
+  onSettingsChange: (settings: CampaignSettings) => void;
 }
 
 function generateSuggestions(
@@ -665,6 +691,295 @@ function LocationPicker({
   );
 }
 
+// ─── Placement picker (Step 5 "Placements", task #117) ──────────────────────
+//
+// Reproducer this section fixes: East End Dubs Newcastle signup launch
+// (2026-08-07) shipped 42 ads to EVERY Meta placement (Audience Network,
+// Marketplace, Search, …) because the wizard never collected a placement
+// choice at all — see lib/meta/placement-config.ts for the full writeup.
+//
+// Used both for the campaign-wide config (settings.placementConfig) and,
+// compactly, for a per-ad-set override (AdSetSuggestion.placementConfig).
+
+const FB_PRIMARY_POSITIONS: { value: FacebookPlacementPosition; label: string }[] = [
+  { value: "feed", label: "Feed" },
+  { value: "facebook_reels", label: "Reels" },
+  { value: "story", label: "Story" },
+];
+const FB_ADVANCED_POSITIONS: { value: FacebookPlacementPosition; label: string }[] = [
+  { value: "marketplace", label: "Marketplace" },
+  { value: "search", label: "Search results" },
+  { value: "instream_video", label: "Instream video" },
+  { value: "right_hand_column", label: "Right column" },
+  { value: "video_feeds", label: "Video feeds" },
+  { value: "reels", label: "Reels (legacy)" },
+];
+const IG_PRIMARY_POSITIONS: { value: InstagramPlacementPosition; label: string }[] = [
+  { value: "stream", label: "Feed" },
+  { value: "reels", label: "Reels" },
+  { value: "story", label: "Story" },
+  { value: "explore", label: "Explore" },
+];
+const IG_ADVANCED_POSITIONS: { value: InstagramPlacementPosition; label: string }[] = [
+  { value: "explore_home", label: "Explore Home" },
+  { value: "ig_search", label: "Search" },
+];
+const AN_POSITIONS: { value: AudienceNetworkPlacementPosition; label: string }[] = [
+  { value: "classic", label: "Classic" },
+  { value: "rewarded_video", label: "Rewarded video" },
+];
+
+/** Manual-mode starting point when the operator first switches away from Advantage+. */
+const MANUAL_PLACEMENT_DEFAULTS: PlacementConfig = {
+  mode: "manual",
+  publisherPlatforms: ["facebook", "instagram"],
+  facebookPositions: ["feed"],
+  instagramPositions: ["stream"],
+  devicePlatforms: ["mobile", "desktop"],
+};
+
+function PlacementPicker({
+  value,
+  onChange,
+  onClear,
+  compact,
+}: {
+  value: PlacementConfig | undefined;
+  onChange: (config: PlacementConfig) => void;
+  /** Only present for the per-ad-set override — clears back to the campaign default. */
+  onClear?: () => void;
+  compact?: boolean;
+}) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const effective = value ?? DEFAULT_PLACEMENT_CONFIG;
+  const mode = effective.mode;
+  const platforms = effective.publisherPlatforms ?? [];
+  const fbPositions = effective.facebookPositions ?? [];
+  const igPositions = effective.instagramPositions ?? [];
+  const anPositions = effective.audienceNetworkPositions ?? [];
+  const devices = effective.devicePlatforms ?? ["mobile", "desktop"];
+
+  const togglePlatform = (p: PlacementPublisherPlatform) => {
+    const next = platforms.includes(p) ? platforms.filter((x) => x !== p) : [...platforms, p];
+    onChange({ ...effective, mode: "manual", publisherPlatforms: next });
+  };
+  /** Generic toggle for a string[]-backed position field (FB / IG / AN each have their own enum). */
+  function togglePosition<T extends string>(
+    list: T[],
+    pos: T,
+    apply: (next: T[]) => void,
+  ) {
+    const next = list.includes(pos) ? list.filter((x) => x !== pos) : [...list, pos];
+    apply(next);
+  }
+  const toggleFbPosition = (pos: FacebookPlacementPosition) =>
+    togglePosition(fbPositions, pos, (next) =>
+      onChange({ ...effective, mode: "manual", facebookPositions: next }),
+    );
+  const toggleIgPosition = (pos: InstagramPlacementPosition) =>
+    togglePosition(igPositions, pos, (next) =>
+      onChange({ ...effective, mode: "manual", instagramPositions: next }),
+    );
+  const toggleAnPosition = (pos: AudienceNetworkPlacementPosition) =>
+    togglePosition(anPositions, pos, (next) =>
+      onChange({ ...effective, mode: "manual", audienceNetworkPositions: next }),
+    );
+  const toggleDevice = (d: PlacementDevicePlatform) => {
+    const next = devices.includes(d) ? devices.filter((x) => x !== d) : [...devices, d];
+    onChange({ ...effective, mode: "manual", devicePlatforms: next });
+  };
+
+  const validation = validatePlacementConfig(effective);
+  const targeting = buildPlacementConfigTargeting(effective);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onChange({ mode: "advantage_plus" })}
+          className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors
+            ${mode !== "manual" ? "border-foreground bg-foreground text-background" : "border-border-strong hover:bg-card"}`}
+        >
+          Advantage+ Placements {compact ? "" : "(Meta recommended)"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(mode === "manual" ? effective : MANUAL_PLACEMENT_DEFAULTS)}
+          className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors
+            ${mode === "manual" ? "border-foreground bg-foreground text-background" : "border-border-strong hover:bg-card"}`}
+        >
+          Manual placements
+        </button>
+        {onClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            title="Remove this ad set's override — use the campaign default instead"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Use campaign default
+          </button>
+        )}
+      </div>
+
+      {mode === "manual" && (
+        <div className="space-y-3 rounded-lg border border-border p-3">
+          {/* Facebook */}
+          <div>
+            <Checkbox
+              checked={platforms.includes("facebook")}
+              onChange={() => togglePlatform("facebook")}
+              label="Facebook"
+            />
+            {platforms.includes("facebook") && (
+              <div className="ml-6 mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
+                {FB_PRIMARY_POSITIONS.map((p) => (
+                  <Checkbox
+                    key={p.value}
+                    checked={fbPositions.includes(p.value)}
+                    onChange={() => toggleFbPosition(p.value)}
+                    label={p.label}
+                    className="text-xs"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Instagram */}
+          <div>
+            <Checkbox
+              checked={platforms.includes("instagram")}
+              onChange={() => togglePlatform("instagram")}
+              label="Instagram"
+            />
+            {platforms.includes("instagram") && (
+              <div className="ml-6 mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
+                {IG_PRIMARY_POSITIONS.map((p) => (
+                  <Checkbox
+                    key={p.value}
+                    checked={igPositions.includes(p.value)}
+                    onChange={() => toggleIgPosition(p.value)}
+                    label={p.label}
+                    className="text-xs"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Advanced positions (FB + IG), + Audience Network + Messenger + Devices */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((s) => !s)}
+            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <Settings2 className="h-3 w-3" />
+            {showAdvanced ? "Hide advanced placements" : "Show advanced placements"}
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-3 border-t border-border pt-3">
+              {platforms.includes("facebook") && (
+                <div>
+                  <span className="text-[11px] font-medium text-muted-foreground">More Facebook placements</span>
+                  <div className="ml-1 mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
+                    {FB_ADVANCED_POSITIONS.map((p) => (
+                      <Checkbox
+                        key={p.value}
+                        checked={fbPositions.includes(p.value)}
+                        onChange={() => toggleFbPosition(p.value)}
+                        label={p.label}
+                        className="text-xs"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {platforms.includes("instagram") && (
+                <div>
+                  <span className="text-[11px] font-medium text-muted-foreground">More Instagram placements</span>
+                  <div className="ml-1 mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
+                    {IG_ADVANCED_POSITIONS.map((p) => (
+                      <Checkbox
+                        key={p.value}
+                        checked={igPositions.includes(p.value)}
+                        onChange={() => toggleIgPosition(p.value)}
+                        label={p.label}
+                        className="text-xs"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Audience Network — OFF by default, own toggle */}
+              <div>
+                <Checkbox
+                  checked={platforms.includes("audience_network")}
+                  onChange={() => togglePlatform("audience_network")}
+                  label="Audience Network"
+                />
+                {platforms.includes("audience_network") && (
+                  <div className="ml-6 mt-1.5 flex flex-wrap gap-x-3 gap-y-1.5">
+                    {AN_POSITIONS.map((p) => (
+                      <Checkbox
+                        key={p.value}
+                        checked={anPositions.includes(p.value)}
+                        onChange={() => toggleAnPosition(p.value)}
+                        label={p.label}
+                        className="text-xs"
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Messenger — OFF by default */}
+              <Checkbox
+                checked={platforms.includes("messenger")}
+                onChange={() => togglePlatform("messenger")}
+                label="Messenger"
+              />
+            </div>
+          )}
+
+          {/* Devices — both ON by default */}
+          <div className="flex items-center gap-4 border-t border-border pt-3">
+            <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Devices
+            </span>
+            <Checkbox
+              checked={devices.includes("mobile")}
+              onChange={() => toggleDevice("mobile")}
+              label="Mobile"
+            />
+            <Checkbox
+              checked={devices.includes("desktop")}
+              onChange={() => toggleDevice("desktop")}
+              label="Desktop"
+            />
+          </div>
+
+          {validation.errors.length > 0 && (
+            <p className="text-xs text-destructive">{validation.errors[0]}</p>
+          )}
+          {validation.valid && validation.warnings.length > 0 && (
+            <p className="text-[11px] text-muted-foreground">{validation.warnings[0]}</p>
+          )}
+          {validation.valid && targeting && (
+            <p className="text-[11px] text-muted-foreground">
+              Sends to Meta as: <code className="text-foreground">publisher_platforms={JSON.stringify(targeting.publisher_platforms)}</code>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Schedule card (reads event context to surface "Use event date") ────────
 
 function ScheduleCard({
@@ -729,9 +1044,13 @@ export function BudgetSchedule({
   budgetSchedule: bs,
   adSetSuggestions,
   audiences,
+  settings,
   onBudgetChange,
   onSuggestionsChange,
+  onSettingsChange,
 }: BudgetScheduleProps) {
+  const [expandedPlacementAdSetId, setExpandedPlacementAdSetId] = useState<string | null>(null);
+
   const updateBs = (patch: Partial<BudgetScheduleSettings>) =>
     onBudgetChange({ ...bs, ...patch });
 
@@ -874,6 +1193,24 @@ export function BudgetSchedule({
         </div>
       </Card>
 
+      {/* Placements */}
+      <Card>
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-primary" />
+          <CardTitle>Placements</CardTitle>
+        </div>
+        <CardDescription className="mt-1">
+          Where these ads can appear. Applies to every ad set below unless a specific ad set has its
+          own override (see the &ldquo;Placements&rdquo; link on that ad set&apos;s row).
+        </CardDescription>
+        <div className="mt-4">
+          <PlacementPicker
+            value={settings.placementConfig}
+            onChange={(config) => onSettingsChange({ ...settings, placementConfig: config })}
+          />
+        </div>
+      </Card>
+
       {/* Ad Set Suggestions */}
       <Card>
         <div className="flex items-center justify-between">
@@ -984,6 +1321,24 @@ export function BudgetSchedule({
                       >
                         {s.advantagePlus ? "Advantage+ ON" : "Advantage+"}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedPlacementAdSetId(expandedPlacementAdSetId === s.id ? null : s.id)
+                        }
+                        title={
+                          s.placementConfig
+                            ? "This ad set has its own placement override"
+                            : "Uses the campaign-wide Placements config above"
+                        }
+                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors
+                          ${s.placementConfig
+                            ? "border-primary bg-primary-light text-primary"
+                            : "border-border text-muted-foreground hover:bg-muted"}`}
+                      >
+                        <Layers className="h-3 w-3" />
+                        Placements
+                      </button>
                     </div>
                   </div>
                   {/* ── Advantage+ age hint ──────────────────────────────── */}
@@ -993,6 +1348,25 @@ export function BudgetSchedule({
                       <span className="text-[11px] text-primary">
                         With Advantage+ audience, age is sent as a suggestion rather than a strict limit — Meta may expand beyond it.
                       </span>
+                    </div>
+                  )}
+                  {/* ── Per-ad-set placement override (task #117) ─────────── */}
+                  {expandedPlacementAdSetId === s.id && (
+                    <div className="border-t border-border bg-muted/30 px-4 py-3">
+                      <p className="mb-2 text-[11px] text-muted-foreground">
+                        Override placements for this ad set only — otherwise it uses the campaign-wide
+                        Placements config above.
+                      </p>
+                      <PlacementPicker
+                        compact
+                        value={s.placementConfig ?? settings.placementConfig}
+                        onChange={(config) => updateSuggestion(s.id, { placementConfig: config })}
+                        onClear={
+                          s.placementConfig
+                            ? () => updateSuggestion(s.id, { placementConfig: undefined })
+                            : undefined
+                        }
+                      />
                     </div>
                   )}
                 </div>

@@ -18,7 +18,13 @@ import type {
   AdSetSuggestion,
   AudienceSettings,
   BudgetScheduleSettings,
+  PlacementConfig,
 } from "@/lib/types";
+// Relative + explicit extension (not the "@/" alias): this is a VALUE import,
+// not type-only, so `--experimental-strip-types` does not erase it — plain
+// Node ESM resolution needs a real resolvable specifier, unlike the
+// type-only "@/lib/types" imports above which vanish entirely at runtime.
+import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
 //
@@ -128,16 +134,25 @@ export interface MetaTargeting {
   };
   /**
    * Manual placement control. When present, Meta uses ONLY the listed
-   * platforms / positions.  Omit entirely for automatic placements.
+   * platforms / positions. Omit ALL of these fields entirely for automatic
+   * (Advantage+) placements — Meta interprets their absence as "automatic",
+   * not an explicit empty automatic setting.
    *
-   * Values come from `buildPlacementTargeting()` in lib/meta/placements.ts.
-   *   publisher_platforms  → ["instagram"] | ["facebook"] | both
-   *   instagram_positions  → ["stream","story","reels"]
-   *   facebook_positions   → ["feed","reels"]
+   * Two independent sources populate these fields, applied in this order
+   * (each may override the previous):
+   *   1. `buildPlacementConfigTargeting()` in lib/meta/placement-config.ts —
+   *      the wizard-wide Step 5 "Placements" config (task #117).
+   *   2. `buildPlacementTargeting()` in lib/meta/placements.ts — a narrower,
+   *      platform-derived override applied ONLY when this ad set has an
+   *      existing-post creative assigned (the post can only render on the
+   *      platform it was published to).
    */
   publisher_platforms?: string[];
   instagram_positions?: string[];
   facebook_positions?: string[];
+  audience_network_positions?: string[];
+  /** Omitted = Meta serves both mobile and desktop. */
+  device_platforms?: string[];
 }
 
 export interface MetaPromotedObject {
@@ -636,6 +651,17 @@ export function buildAdSetPayload(
    * for normal ad sets — the field is then never added to the payload.
    */
   hasVariationRotationCreative?: boolean,
+  /**
+   * Campaign-wide placement config (`draft.settings.placementConfig`, task
+   * #117). Resolved against `adSet.placementConfig` (per-ad-set override
+   * takes precedence) via `resolveEffectivePlacementConfig`. Applied
+   * unconditionally — callers no longer need to gate placement targeting
+   * behind "does this ad set have an existing-post creative assigned".
+   * Existing-post-specific placement logic in the launch route still runs
+   * AFTER this and takes precedence for that ad set, since the post itself
+   * constrains which platform it can render on.
+   */
+  campaignPlacementConfig?: PlacementConfig,
 ): MetaAdSetPayload {
   // Resolve the effective goal BEFORE mapping — corrects stale draft values
   // that are incompatible with the campaign objective (see resolveOptimisationGoal).
@@ -663,6 +689,32 @@ export function buildAdSetPayload(
     // start_time and end_time are added below only when explicitly set —
     // sending null / 0 is rejected by Meta as "Invalid parameter".
   };
+
+  // ── Placement targeting (task #117) ────────────────────────────────────
+  // Applied unconditionally so every ad set — not just existing-post boosts
+  // — gets an explicit placement decision instead of silently falling
+  // through to Meta's Advantage+ Placements (see East End Dubs reproducer
+  // in lib/meta/placement-config.ts).
+  const effectivePlacementConfig = resolveEffectivePlacementConfig(
+    campaignPlacementConfig,
+    adSet.placementConfig,
+  );
+  const placementTargeting = buildPlacementConfigTargeting(effectivePlacementConfig);
+  if (placementTargeting) {
+    payload.targeting.publisher_platforms = placementTargeting.publisher_platforms;
+    if (placementTargeting.facebook_positions) {
+      payload.targeting.facebook_positions = placementTargeting.facebook_positions;
+    }
+    if (placementTargeting.instagram_positions) {
+      payload.targeting.instagram_positions = placementTargeting.instagram_positions;
+    }
+    if (placementTargeting.audience_network_positions) {
+      payload.targeting.audience_network_positions = placementTargeting.audience_network_positions;
+    }
+    if (placementTargeting.device_platforms) {
+      payload.targeting.device_platforms = placementTargeting.device_platforms;
+    }
+  }
 
   if (budgetSchedule.startDate) {
     payload.start_time = toUnixTs(budgetSchedule.startDate);
@@ -700,6 +752,7 @@ export function buildAdSetPayload(
     `\n  daily_budget:      ${payload.daily_budget} minor units (= ${adSet.budgetPerDay} major)`,
     `\n  age mode:          ${ageMode} (${adSet.ageMin}–${adSet.ageMax})`,
     `\n  location:          ${adSet.locationLabel ?? "default GB"}`,
+    `\n  placements:        ${placementTargeting ? JSON.stringify(placementTargeting) : "automatic (Advantage+ Placements)"}`,
     `\n  Full payload: ${JSON.stringify(payload, null, 2)}`,
   );
 
