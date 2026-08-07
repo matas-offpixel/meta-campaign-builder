@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** (after `gh pr create`)
+- **Number:** 749
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/749
 - **Branch:** `cursor/attach-all-adsets-fix-and-multicampaign`
 
 ## Summary
