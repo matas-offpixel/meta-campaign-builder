@@ -1147,7 +1147,14 @@ export type WizardMode =
 export interface CampaignAttachResult {
   campaignId: string;
   campaignName: string;
-  adSetsCreated: { name: string; metaAdSetId: string; ageMode: "strict" | "suggested"; durationMs?: number }[];
+  adSetsCreated: {
+    name: string;
+    metaAdSetId: string;
+    ageMode: "strict" | "suggested";
+    durationMs?: number;
+    /** Salvage note (e.g. audiences dropped/recreated) — see lib/audiences/adset-create-with-salvage.ts. */
+    note?: string;
+  }[];
   adSetsFailed: { name: string; error: string }[];
   adsCreated: number;
   adsFailed: number;
