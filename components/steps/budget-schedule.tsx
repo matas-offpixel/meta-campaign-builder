@@ -729,13 +729,27 @@ const AN_POSITIONS: { value: AudienceNetworkPlacementPosition; label: string }[]
   { value: "rewarded_video", label: "Rewarded video" },
 ];
 
-/** Manual-mode starting point when the operator first switches away from Advantage+. */
+/**
+ * Manual-mode starting point when the operator first switches away from
+ * Advantage+.
+ *
+ * Facebook: Feed ONLY. Instagram: ALL placements. Not symmetric on purpose —
+ * FB Reels/Story/Marketplace underperform for electronic music campaigns,
+ * while IG's Reels/Story/Explore are strong placements that shouldn't be
+ * excluded by default (2026-08-07 correction to the initial FB-Feed-only /
+ * IG-Feed-only seed shipped in PR #751 — that default was FB Feed + IG Feed
+ * ONLY, wrong per operator ask).
+ *
+ * Audience Network / Messenger stay OFF (operator opts in explicitly via
+ * "Show advanced placements"). devicePlatforms is left unset here —
+ * `PlacementPicker` and `buildPlacementConfigTargeting` both already treat
+ * an absent devicePlatforms as "both", so there's nothing to seed.
+ */
 const MANUAL_PLACEMENT_DEFAULTS: PlacementConfig = {
   mode: "manual",
   publisherPlatforms: ["facebook", "instagram"],
   facebookPositions: ["feed"],
-  instagramPositions: ["stream"],
-  devicePlatforms: ["mobile", "desktop"],
+  instagramPositions: ["stream", "story", "explore", "reels", "ig_search", "explore_home"],
 };
 
 function PlacementPicker({
