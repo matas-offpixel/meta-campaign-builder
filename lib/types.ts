@@ -806,7 +806,14 @@ export interface AdSetSuggestion {
     | "interest_group"
     | "lookalike_group"
     /** @deprecated Lookalike from My Facebook Pages (SelectedPagesLookalikeGroup) */
-    | "selected_pages_lookalike";
+    | "selected_pages_lookalike"
+    /**
+     * No audience source at all — pure Meta-driven prospecting. Always
+     * launches with Advantage+ Audience ON (Meta expands from location +
+     * demographics alone); `custom_audiences`/`interests` are never set.
+     * `sourceId` is `""` for this type. See Step 5 "+ Blank ad set".
+     */
+    | "blank";
   sourceId: string;
   sourceName: string;
   ageMin: number;

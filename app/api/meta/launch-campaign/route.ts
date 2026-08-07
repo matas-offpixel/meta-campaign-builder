@@ -2868,7 +2868,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           // ── Hard targeting validation ─────────────────────────────────────────
           // Do NOT create ad sets with empty targeting — this would result in
           // untargeted broad-audience spend across the entire country.
-          if (!hasAudienceTargeting(tgt)) {
+          if (!hasAudienceTargeting(tgt, adSet)) {
             const reason = buildEmptyTargetingReason(adSet, draft.audiences);
             console.error(
               `[launch-campaign] Phase 2 ✗ ABORTED "${adSet.name}" — empty targeting.` +
@@ -3439,7 +3439,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
 
         // Hard targeting validation
-        if (!hasAudienceTargeting(tgt2b)) {
+        if (!hasAudienceTargeting(tgt2b, adSet)) {
           const reason = buildEmptyTargetingReason(adSet, draft.audiences);
           throw new Error(`No valid targeting — ad set creation aborted. ${reason}`);
         }
@@ -3788,7 +3788,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             }
 
             // Hard targeting validation.
-            if (!hasAudienceTargeting(adSetPayload.targeting)) {
+            if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
               throw { adSet, err: new Error(`No valid targeting — ad set creation aborted (${adSet.name})`) };
             }
 
@@ -3861,7 +3861,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
           );
-          if (!hasAudienceTargeting(adSetPayload.targeting)) {
+          if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
             throw new Error(`No valid targeting for lookalike ad set "${adSet.name}"`);
           }
           const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);

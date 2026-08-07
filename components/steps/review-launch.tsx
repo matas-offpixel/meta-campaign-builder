@@ -756,6 +756,9 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
           detail = isRealId(s.sourceId) ? "Saved audience" : "Invalid saved audience ID";
           if (!isRealId(s.sourceId)) { audiencesOk = false; reason = "Invalid saved audience ID"; }
           break;
+        case "blank":
+          detail = "No audience source — Advantage+ Audience finds people from location + demographics alone";
+          break;
       }
 
       return { id: s.id, name: s.name, sourceType: s.sourceType, audiencesOk, reason, detail };

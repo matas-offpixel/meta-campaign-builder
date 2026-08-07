@@ -1,12 +1,20 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   DollarSign,
   Zap,
@@ -19,13 +27,16 @@ import {
   Layers,
   Settings2,
   RotateCcw,
+  Copy,
+  Trash2,
+  Users,
+  CalendarRange,
 } from "lucide-react";
 import type {
   BudgetScheduleSettings,
   BudgetLevel,
   BudgetType,
   AdSetSuggestion,
-  AdSetGeoLocations,
   AudienceSettings,
   LocationTargetingGroup,
   LocationSelection,
@@ -48,6 +59,14 @@ import {
   buildPlacementConfigTargeting,
   validatePlacementConfig,
 } from "@/lib/meta/placement-config";
+import { groupToGeo } from "@/lib/meta/location-targeting";
+import {
+  createBlankAdSetSuggestion,
+  duplicateAdSetSuggestion,
+  deleteAdSetSuggestion,
+  applyBulkAgeRange,
+  applyBulkDailyBudget,
+} from "@/lib/wizard/adset-suggestions";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
 // Presets are resolved at runtime via the same Meta location-search API
@@ -110,47 +129,6 @@ const FALLBACK_UK_NATIONWIDE: LocationTargetingGroup = {
     countryCode: "GB",
   }],
 };
-
-// ─── Convert LocationTargetingGroup → AdSetGeoLocations ──────────────────────
-
-function groupToGeo(group: LocationTargetingGroup): AdSetGeoLocations {
-  const geo: AdSetGeoLocations = {};
-  const excluded: AdSetGeoLocations = {};
-
-  for (const sel of group.selections) {
-    if (sel.mode === "include") {
-      if (sel.locationType === "country" && sel.countryCode) {
-        geo.countries = geo.countries ?? [];
-        geo.countries.push(sel.countryCode);
-      } else if (sel.locationType === "city" && sel.locationKey) {
-        geo.cities = geo.cities ?? [];
-        geo.cities.push({
-          key: sel.locationKey,
-          radius: sel.radius,
-          distance_unit: sel.distanceUnit,
-        });
-      } else if (sel.locationType === "region" && sel.locationKey) {
-        geo.regions = geo.regions ?? [];
-        geo.regions.push({ key: sel.locationKey });
-      }
-    } else {
-      if (sel.locationType === "city" && sel.locationKey) {
-        excluded.cities = excluded.cities ?? [];
-        excluded.cities.push({
-          key: sel.locationKey,
-          radius: sel.radius,
-          distance_unit: sel.distanceUnit,
-        });
-      }
-    }
-  }
-
-  if (excluded.cities?.length) {
-    geo.excluded_geo_locations = excluded;
-  }
-
-  return geo;
-}
 
 // ─── Build a LocationSelection from a Meta search result ─────────────────────
 // This single function is used by BOTH manual search and preset resolution,
@@ -1052,6 +1030,125 @@ function ScheduleCard({
   );
 }
 
+// ─── Bulk-edit modals ("Set all ages" / "Set all daily budgets") ────────────
+//
+// Both close by fully unmounting (Dialog returns null while !open), so each
+// re-open is a fresh mount that re-reads `initial*` — no useEffect needed to
+// resync stale local state from a previous edit.
+
+function BulkAgeModal({
+  open,
+  onClose,
+  onApply,
+  initialMin,
+  initialMax,
+  rowCount,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onApply: (ageMin: number, ageMax: number) => void;
+  initialMin: number;
+  initialMax: number;
+  rowCount: number;
+}) {
+  const [min, setMin] = useState(initialMin);
+  const [max, setMax] = useState(initialMax);
+  const invalid = min < 13 || max > 65 || min >= max;
+
+  return (
+    <Dialog open={open} onClose={onClose} ariaLabel="Set all ages">
+      <DialogContent>
+        <DialogHeader onClose={onClose}>
+          <DialogTitle>Set all ages</DialogTitle>
+          <DialogDescription>
+            Overwrites the age range on all {rowCount} ad set{rowCount !== 1 ? "s" : ""} below.
+            Reversible for 5 seconds via an undo toast.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex items-center gap-3">
+          <Input
+            label="Min age"
+            type="number"
+            value={min}
+            onChange={(e) => setMin(Number(e.target.value))}
+            min={13}
+            max={65}
+          />
+          <Input
+            label="Max age"
+            type="number"
+            value={max}
+            onChange={(e) => setMax(Number(e.target.value))}
+            min={13}
+            max={65}
+          />
+        </div>
+        {invalid && (
+          <p className="mt-2 text-xs text-destructive">
+            Min must be less than max, both between 13 and 65.
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={invalid} onClick={() => onApply(min, max)}>
+            Apply to {rowCount} ad set{rowCount !== 1 ? "s" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BulkBudgetModal({
+  open,
+  onClose,
+  onApply,
+  initialBudget,
+  currency,
+  rowCount,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onApply: (budgetPerDay: number) => void;
+  initialBudget: number;
+  currency: string;
+  rowCount: number;
+}) {
+  const [budget, setBudget] = useState(initialBudget);
+  const invalid = !(budget > 0);
+
+  return (
+    <Dialog open={open} onClose={onClose} ariaLabel="Set all daily budgets">
+      <DialogContent>
+        <DialogHeader onClose={onClose}>
+          <DialogTitle>Set all daily budgets</DialogTitle>
+          <DialogDescription>
+            Overwrites the daily budget on all {rowCount} ad set{rowCount !== 1 ? "s" : ""} below.
+            Reversible for 5 seconds via an undo toast.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          label={`Daily budget (${currency})`}
+          type="number"
+          value={budget}
+          onChange={(e) => setBudget(Number(e.target.value))}
+          min={0}
+          step={0.01}
+        />
+        {invalid && (
+          <p className="mt-2 text-xs text-destructive">Budget must be greater than 0.</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={invalid} onClick={() => onApply(budget)}>
+            Apply to {rowCount} ad set{rowCount !== 1 ? "s" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function BudgetSchedule({
@@ -1064,6 +1161,10 @@ export function BudgetSchedule({
   onSettingsChange,
 }: BudgetScheduleProps) {
   const [expandedPlacementAdSetId, setExpandedPlacementAdSetId] = useState<string | null>(null);
+  const [ageModalOpen, setAgeModalOpen] = useState(false);
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false);
+  const [undoState, setUndoState] = useState<{ label: string; previous: AdSetSuggestion[] } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateBs = (patch: Partial<BudgetScheduleSettings>) =>
     onBudgetChange({ ...bs, ...patch });
@@ -1071,7 +1172,7 @@ export function BudgetSchedule({
   const updateSuggestion = (id: string, patch: Partial<AdSetSuggestion>) =>
     onSuggestionsChange(adSetSuggestions.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
-  const locationGroups = bs.locationGroups ?? [];
+  const locationGroups = useMemo(() => bs.locationGroups ?? [], [bs.locationGroups]);
 
   const handleLocationGroupsChange = (groups: LocationTargetingGroup[]) => {
     onBudgetChange({ ...bs, locationGroups: groups });
@@ -1094,6 +1195,49 @@ export function BudgetSchedule({
     );
   };
 
+  // ── Blank ad set / duplicate / delete (refinement pack #1–2, polish) ──────
+  const addBlankAdSet = () => {
+    const blank = createBlankAdSetSuggestion(locationGroups, FALLBACK_UK_NATIONWIDE);
+    onSuggestionsChange([...adSetSuggestions, blank]);
+  };
+
+  const duplicateRow = (id: string) =>
+    onSuggestionsChange(duplicateAdSetSuggestion(adSetSuggestions, id));
+
+  const deleteRow = (id: string) =>
+    onSuggestionsChange(deleteAdSetSuggestion(adSetSuggestions, id));
+
+  // ── Bulk age / budget edits with a 5s undo window (refinement pack #3–4) ──
+  const applyWithUndo = (label: string, next: AdSetSuggestion[]) => {
+    setUndoState({ label, previous: adSetSuggestions });
+    onSuggestionsChange(next);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setUndoState(null), 5000);
+  };
+
+  const undoLastBulkEdit = () => {
+    if (!undoState) return;
+    onSuggestionsChange(undoState.previous);
+    setUndoState(null);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+  };
+
+  const applyBulkAges = (ageMin: number, ageMax: number) => {
+    applyWithUndo(
+      `Ages set to ${ageMin}–${ageMax} for ${adSetSuggestions.length} ad set${adSetSuggestions.length !== 1 ? "s" : ""}. `,
+      applyBulkAgeRange(adSetSuggestions, ageMin, ageMax),
+    );
+    setAgeModalOpen(false);
+  };
+
+  const applyBulkBudgets = (budgetPerDay: number) => {
+    applyWithUndo(
+      `Daily budget set to ${bs.currency} ${budgetPerDay.toFixed(2)} for ${adSetSuggestions.length} ad set${adSetSuggestions.length !== 1 ? "s" : ""}. `,
+      applyBulkDailyBudget(adSetSuggestions, budgetPerDay),
+    );
+    setBudgetModalOpen(false);
+  };
+
   const enabledCount = adSetSuggestions.filter((s) => s.enabled).length;
   const totalDaily = adSetSuggestions
     .filter((s) => s.enabled)
@@ -1111,6 +1255,7 @@ export function BudgetSchedule({
     custom_group: "custom",
     saved_audience: "saved",
     interest_group: "interest",
+    blank: "blank",
   };
 
   return (
@@ -1225,14 +1370,37 @@ export function BudgetSchedule({
         </div>
       </Card>
 
-      {/* Ad Set Suggestions */}
+      {/* Ad Sets — renamed from "Ad Set Suggestions": these are commitments, not
+          suggestions, once the operator has fine-tuned them below. */}
       <Card>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <CardTitle>Ad Set Suggestions</CardTitle>
+            <CardTitle>Ad Sets</CardTitle>
             <CardDescription>Generated from your audiences. Fine-tune each ad set.</CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={addBlankAdSet}>
+              <Plus className="h-3.5 w-3.5" />
+              Blank ad set
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAgeModalOpen(true)}
+              disabled={adSetSuggestions.length === 0}
+            >
+              <Users className="h-3.5 w-3.5" />
+              Set all ages
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBudgetModalOpen(true)}
+              disabled={adSetSuggestions.length === 0}
+            >
+              <CalendarRange className="h-3.5 w-3.5" />
+              Set all budgets
+            </Button>
             <Button variant="outline" size="sm" onClick={distributeBudget} disabled={enabledCount === 0}>
               <DollarSign className="h-3.5 w-3.5" />
               Distribute Budget
@@ -1244,10 +1412,25 @@ export function BudgetSchedule({
           </div>
         </div>
 
+        {/* Undo toast for the destructive bulk-edit actions above (5s window) */}
+        {undoState && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs">
+            <span className="text-foreground">{undoState.label}</span>
+            <button
+              type="button"
+              onClick={undoLastBulkEdit}
+              className="font-medium text-primary hover:underline"
+            >
+              Undo
+            </button>
+          </div>
+        )}
+
         {adSetSuggestions.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-border py-8 text-center">
             <p className="text-sm text-muted-foreground">
-              Click &quot;Generate Suggestions&quot; to create ad sets from your audiences.
+              Click &quot;Generate Suggestions&quot; to create ad sets from your audiences, or add a
+              &quot;Blank ad set&quot; for pure Advantage+ prospecting.
             </p>
           </div>
         ) : (
@@ -1261,134 +1444,186 @@ export function BudgetSchedule({
             </div>
 
             <div className="rounded-lg border border-border overflow-hidden">
-              {adSetSuggestions.map((s) => (
-                <div
-                  key={s.id}
-                  className={`border-b border-border last:border-b-0 ${s.enabled ? "" : "opacity-50"}`}
-                >
-                  {/* ── Main row ────────────────────────────────────────── */}
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <Checkbox
-                      checked={s.enabled}
-                      onChange={() => updateSuggestion(s.id, { enabled: !s.enabled })}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium truncate">{s.name}</span>
-                        <Badge variant="outline" className="text-[10px] shrink-0">
-                          {SOURCE_LABELS[s.sourceType] || s.sourceType}
-                        </Badge>
-                        {s.locationLabel && locationGroups.length > 1 && (
-                          <Badge variant="primary" className="text-[10px] shrink-0">
-                            {s.locationLabel}
-                          </Badge>
-                        )}
-                      </div>
-                      <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={s.ageMin}
-                          onChange={(e) => updateSuggestion(s.id, { ageMin: Number(e.target.value) })}
-                          className="w-12 rounded border border-border px-1.5 py-1 text-center text-xs"
-                          min={13}
-                          max={65}
-                          title={s.advantagePlus ? "Age suggestion (Advantage+)" : "Strict age min"}
-                        />
-                        <span className="text-xs text-muted-foreground">–</span>
-                        <input
-                          type="number"
-                          value={s.ageMax}
-                          onChange={(e) => updateSuggestion(s.id, { ageMax: Number(e.target.value) })}
-                          className="w-12 rounded border border-border px-1.5 py-1 text-center text-xs"
-                          min={13}
-                          max={65}
-                          title={s.advantagePlus ? "Age suggestion (Advantage+)" : "Strict age max"}
-                        />
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-xs text-muted-foreground">{bs.currency}</span>
-                        <input
-                          type="number"
-                          value={s.budgetPerDay}
-                          onChange={(e) => updateSuggestion(s.id, { budgetPerDay: Number(e.target.value) })}
-                          className="w-16 rounded border border-border px-1.5 py-1 text-center text-xs"
-                          min={0}
-                          step={0.01}
-                        />
-                        <span className="text-xs text-muted-foreground">/day</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => updateSuggestion(s.id, { advantagePlus: !s.advantagePlus })}
-                        title={
-                          s.advantagePlus
-                            ? "Advantage+ ON — age sent as suggestion. Click to switch to strict targeting."
-                            : "Advantage+ OFF — strict age targeting. Click to enable Advantage+ audience."
-                        }
-                        className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors
-                          ${s.advantagePlus
-                            ? "border-primary bg-primary-light text-primary"
-                            : "border-border text-muted-foreground hover:bg-muted"}`}
-                      >
-                        {s.advantagePlus ? "Advantage+ ON" : "Advantage+"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedPlacementAdSetId(expandedPlacementAdSetId === s.id ? null : s.id)
-                        }
-                        title={
-                          s.placementConfig
-                            ? "This ad set has its own placement override"
-                            : "Uses the campaign-wide Placements config above"
-                        }
-                        className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors
-                          ${s.placementConfig
-                            ? "border-primary bg-primary-light text-primary"
-                            : "border-border text-muted-foreground hover:bg-muted"}`}
-                      >
-                        <Layers className="h-3 w-3" />
-                        Placements
-                      </button>
-                    </div>
-                  </div>
-                  {/* ── Advantage+ age hint ──────────────────────────────── */}
-                  {s.advantagePlus && (
-                    <div className="flex items-center gap-1.5 border-t border-primary/10 bg-primary-light/50 px-4 py-1.5">
-                      <Lightbulb className="h-3 w-3 shrink-0 text-primary" />
-                      <span className="text-[11px] text-primary">
-                        With Advantage+ audience, age is sent as a suggestion rather than a strict limit — Meta may expand beyond it.
-                      </span>
-                    </div>
-                  )}
-                  {/* ── Per-ad-set placement override (task #117) ─────────── */}
-                  {expandedPlacementAdSetId === s.id && (
-                    <div className="border-t border-border bg-muted/30 px-4 py-3">
-                      <p className="mb-2 text-[11px] text-muted-foreground">
-                        Override placements for this ad set only — otherwise it uses the campaign-wide
-                        Placements config above.
-                      </p>
-                      <PlacementPicker
-                        compact
-                        value={s.placementConfig ?? settings.placementConfig}
-                        onChange={(config) => updateSuggestion(s.id, { placementConfig: config })}
-                        onClear={
-                          s.placementConfig
-                            ? () => updateSuggestion(s.id, { placementConfig: undefined })
-                            : undefined
-                        }
+              {adSetSuggestions.map((s) => {
+                const isBlank = s.sourceType === "blank";
+                return (
+                  <div
+                    key={s.id}
+                    className={`border-b border-border last:border-b-0 ${s.enabled ? "" : "opacity-50"}`}
+                  >
+                    {/* ── Main row ────────────────────────────────────────── */}
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <Checkbox
+                        checked={s.enabled}
+                        onChange={() => updateSuggestion(s.id, { enabled: !s.enabled })}
                       />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium truncate">{s.name}</span>
+                          <Badge variant="outline" className="text-[10px] shrink-0">
+                            {SOURCE_LABELS[s.sourceType] || s.sourceType}
+                          </Badge>
+                          {s.locationLabel && locationGroups.length > 1 && (
+                            <Badge variant="primary" className="text-[10px] shrink-0">
+                              {s.locationLabel}
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            value={s.ageMin}
+                            onChange={(e) => updateSuggestion(s.id, { ageMin: Number(e.target.value) })}
+                            className="w-12 rounded border border-border px-1.5 py-1 text-center text-xs"
+                            min={13}
+                            max={65}
+                            title={s.advantagePlus ? "Age suggestion (Advantage+)" : "Strict age min"}
+                          />
+                          <span className="text-xs text-muted-foreground">–</span>
+                          <input
+                            type="number"
+                            value={s.ageMax}
+                            onChange={(e) => updateSuggestion(s.id, { ageMax: Number(e.target.value) })}
+                            className="w-12 rounded border border-border px-1.5 py-1 text-center text-xs"
+                            min={13}
+                            max={65}
+                            title={s.advantagePlus ? "Age suggestion (Advantage+)" : "Strict age max"}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">{bs.currency}</span>
+                          <input
+                            type="number"
+                            value={s.budgetPerDay}
+                            onChange={(e) => updateSuggestion(s.id, { budgetPerDay: Number(e.target.value) })}
+                            className="w-16 rounded border border-border px-1.5 py-1 text-center text-xs"
+                            min={0}
+                            step={0.01}
+                          />
+                          <span className="text-xs text-muted-foreground">/day</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isBlank) return;
+                            updateSuggestion(s.id, { advantagePlus: !s.advantagePlus });
+                          }}
+                          disabled={isBlank}
+                          title={
+                            isBlank
+                              ? "Blank ad sets always run Advantage+ Audience — there's no audience to target strictly"
+                              : s.advantagePlus
+                              ? "Advantage+ ON — age sent as suggestion. Click to switch to strict targeting."
+                              : "Advantage+ OFF — strict age targeting. Click to enable Advantage+ audience."
+                          }
+                          className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors
+                            ${s.advantagePlus
+                              ? "border-primary bg-primary-light text-primary"
+                              : "border-border text-muted-foreground hover:bg-muted"}
+                            ${isBlank ? "cursor-not-allowed opacity-80" : ""}`}
+                        >
+                          {s.advantagePlus ? "Advantage+ ON" : "Advantage+"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedPlacementAdSetId(expandedPlacementAdSetId === s.id ? null : s.id)
+                          }
+                          title={
+                            s.placementConfig
+                              ? "This ad set has its own placement override"
+                              : "Uses the campaign-wide Placements config above"
+                          }
+                          className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors
+                            ${s.placementConfig
+                              ? "border-primary bg-primary-light text-primary"
+                              : "border-border text-muted-foreground hover:bg-muted"}`}
+                        >
+                          <Layers className="h-3 w-3" />
+                          Placements
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => duplicateRow(s.id)}
+                          title="Duplicate this ad set (inserted directly below)"
+                          className="rounded-md border border-border p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteRow(s.id)}
+                          title="Delete this ad set"
+                          className="rounded-md border border-border p-1.5 text-muted-foreground transition-colors hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {/* ── Blank ad set hint ─────────────────────────────────── */}
+                    {isBlank && (
+                      <div className="flex items-center gap-1.5 border-t border-primary/10 bg-primary-light/50 px-4 py-1.5">
+                        <Lightbulb className="h-3 w-3 shrink-0 text-primary" />
+                        <span className="text-[11px] text-primary">
+                          No audience source — pure Meta-driven prospecting from location + demographics. Advantage+ Audience is locked ON.
+                        </span>
+                      </div>
+                    )}
+                    {/* ── Advantage+ age hint ──────────────────────────────── */}
+                    {s.advantagePlus && !isBlank && (
+                      <div className="flex items-center gap-1.5 border-t border-primary/10 bg-primary-light/50 px-4 py-1.5">
+                        <Lightbulb className="h-3 w-3 shrink-0 text-primary" />
+                        <span className="text-[11px] text-primary">
+                          With Advantage+ audience, age is sent as a suggestion rather than a strict limit — Meta may expand beyond it.
+                        </span>
+                      </div>
+                    )}
+                    {/* ── Per-ad-set placement override (task #117) ─────────── */}
+                    {expandedPlacementAdSetId === s.id && (
+                      <div className="border-t border-border bg-muted/30 px-4 py-3">
+                        <p className="mb-2 text-[11px] text-muted-foreground">
+                          Override placements for this ad set only — otherwise it uses the campaign-wide
+                          Placements config above.
+                        </p>
+                        <PlacementPicker
+                          compact
+                          value={s.placementConfig ?? settings.placementConfig}
+                          onChange={(config) => updateSuggestion(s.id, { placementConfig: config })}
+                          onClear={
+                            s.placementConfig
+                              ? () => updateSuggestion(s.id, { placementConfig: undefined })
+                              : undefined
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
       </Card>
+
+      <BulkAgeModal
+        open={ageModalOpen}
+        onClose={() => setAgeModalOpen(false)}
+        onApply={applyBulkAges}
+        initialMin={adSetSuggestions[0]?.ageMin ?? 18}
+        initialMax={adSetSuggestions[0]?.ageMax ?? 65}
+        rowCount={adSetSuggestions.length}
+      />
+      <BulkBudgetModal
+        open={budgetModalOpen}
+        onClose={() => setBudgetModalOpen(false)}
+        onApply={applyBulkBudgets}
+        initialBudget={adSetSuggestions[0]?.budgetPerDay ?? 0}
+        currency={bs.currency}
+        rowCount={adSetSuggestions.length}
+      />
     </div>
   );
 }

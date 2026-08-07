@@ -1,0 +1,148 @@
+/**
+ * Tests for lib/wizard/adset-suggestions.ts — the Step 5 "Ad Sets"
+ * refinement pack (operator ask 2026-08-07): blank ad set creation,
+ * duplicate, delete, and bulk age/budget edits.
+ *
+ * Run: node --test lib/wizard/__tests__/adset-suggestions.test.ts
+ */
+
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
+import {
+  createBlankAdSetSuggestion,
+  duplicateAdSetSuggestion,
+  deleteAdSetSuggestion,
+  applyBulkAgeRange,
+  applyBulkDailyBudget,
+} from "../adset-suggestions.ts";
+import type { AdSetSuggestion, LocationTargetingGroup } from "../../types.ts";
+
+const FALLBACK_UK: LocationTargetingGroup = {
+  id: "preset_gb_nationwide",
+  label: "UK (nationwide)",
+  source: "preset",
+  selections: [{ id: "gb", source: "preset", label: "United Kingdom", mode: "include", locationType: "country", countryCode: "GB" }],
+};
+
+const NEWCASTLE: LocationTargetingGroup = {
+  id: "grp_newcastle",
+  label: "Newcastle +40km",
+  source: "manual",
+  selections: [{ id: "sel1", source: "search", label: "Newcastle", mode: "include", locationType: "city", locationKey: "111", radius: 40, distanceUnit: "kilometer" }],
+};
+
+const MANCHESTER: LocationTargetingGroup = {
+  id: "grp_manchester",
+  label: "Manchester +30km",
+  source: "manual",
+  selections: [{ id: "sel2", source: "search", label: "Manchester", mode: "include", locationType: "city", locationKey: "222", radius: 30, distanceUnit: "kilometer" }],
+};
+
+function makeSuggestion(overrides: Partial<AdSetSuggestion> = {}): AdSetSuggestion {
+  return {
+    id: "s1",
+    name: "Page Group",
+    sourceType: "page_group",
+    sourceId: "pg1",
+    sourceName: "Page Group (3 pages)",
+    ageMin: 21,
+    ageMax: 45,
+    budgetPerDay: 12.5,
+    advantagePlus: false,
+    enabled: true,
+    locationLabel: "Newcastle +40km",
+    placementConfig: { mode: "manual", publisherPlatforms: ["facebook"] },
+    ...overrides,
+  };
+}
+
+describe("createBlankAdSetSuggestion", () => {
+  it("has sourceType 'blank', empty sourceId, advantagePlus true, and no audience source", () => {
+    const blank = createBlankAdSetSuggestion([], FALLBACK_UK);
+    assert.equal(blank.sourceType, "blank");
+    assert.equal(blank.sourceId, "");
+    assert.equal(blank.advantagePlus, true);
+    assert.equal(blank.enabled, true);
+  });
+
+  it("defaults location to the first configured location group when present", () => {
+    const blank = createBlankAdSetSuggestion([NEWCASTLE, MANCHESTER], FALLBACK_UK);
+    assert.equal(blank.locationLabel, "Newcastle +40km");
+    assert.deepEqual(blank.geoLocations, {
+      cities: [{ key: "111", radius: 40, distance_unit: "kilometer" }],
+    });
+  });
+
+  it("falls back to the UK-nationwide fallback group when no location groups are configured", () => {
+    const blank = createBlankAdSetSuggestion([], FALLBACK_UK);
+    assert.equal(blank.locationLabel, "UK (nationwide)");
+    assert.deepEqual(blank.geoLocations?.countries, ["GB"]);
+  });
+});
+
+describe("duplicateAdSetSuggestion", () => {
+  it("clones every field and appends ' (copy)' to the name", () => {
+    const source = makeSuggestion();
+    const next = duplicateAdSetSuggestion([source], "s1");
+    assert.equal(next.length, 2);
+    const clone = next[1];
+    assert.equal(clone.name, "Page Group (copy)");
+    assert.notEqual(clone.id, source.id);
+    // Every other field copied verbatim.
+    assert.equal(clone.sourceType, source.sourceType);
+    assert.equal(clone.sourceId, source.sourceId);
+    assert.equal(clone.ageMin, source.ageMin);
+    assert.equal(clone.ageMax, source.ageMax);
+    assert.equal(clone.budgetPerDay, source.budgetPerDay);
+    assert.equal(clone.advantagePlus, source.advantagePlus);
+    assert.equal(clone.locationLabel, source.locationLabel);
+    assert.deepEqual(clone.placementConfig, source.placementConfig);
+  });
+
+  it("inserts the clone directly under the source row, not at the end", () => {
+    const rows = [makeSuggestion({ id: "a" }), makeSuggestion({ id: "b" }), makeSuggestion({ id: "c" })];
+    const next = duplicateAdSetSuggestion(rows, "a");
+    assert.equal(next.length, 4);
+    assert.equal(next[0].id, "a");
+    assert.match(next[1].id, /^a_copy_/);
+    assert.equal(next[2].id, "b");
+    assert.equal(next[3].id, "c");
+  });
+
+  it("returns the original array unchanged when the id isn't found", () => {
+    const rows = [makeSuggestion({ id: "a" })];
+    assert.equal(duplicateAdSetSuggestion(rows, "missing"), rows);
+  });
+});
+
+describe("deleteAdSetSuggestion", () => {
+  it("removes only the targeted row", () => {
+    const rows = [makeSuggestion({ id: "a" }), makeSuggestion({ id: "b" })];
+    const next = deleteAdSetSuggestion(rows, "a");
+    assert.equal(next.length, 1);
+    assert.equal(next[0].id, "b");
+  });
+});
+
+describe("applyBulkAgeRange / applyBulkDailyBudget", () => {
+  it("writes the same age range onto every row", () => {
+    const rows = [makeSuggestion({ id: "a", ageMin: 18, ageMax: 24 }), makeSuggestion({ id: "b", ageMin: 30, ageMax: 40 })];
+    const next = applyBulkAgeRange(rows, 25, 55);
+    assert.ok(next.every((s) => s.ageMin === 25 && s.ageMax === 55));
+    assert.equal(next.length, rows.length);
+  });
+
+  it("writes the same daily budget onto every row, including disabled ones", () => {
+    const rows = [makeSuggestion({ id: "a", enabled: true, budgetPerDay: 5 }), makeSuggestion({ id: "b", enabled: false, budgetPerDay: 0 })];
+    const next = applyBulkDailyBudget(rows, 20);
+    assert.ok(next.every((s) => s.budgetPerDay === 20));
+  });
+
+  it("does not mutate the original array (undo relies on the caller's snapshot staying intact)", () => {
+    const rows = [makeSuggestion({ id: "a", ageMin: 18, ageMax: 24 })];
+    const snapshot = JSON.parse(JSON.stringify(rows));
+    applyBulkAgeRange(rows, 99, 99);
+    assert.deepEqual(rows, snapshot);
+  });
+});
