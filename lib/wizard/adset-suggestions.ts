@@ -12,6 +12,7 @@
  *   - Delete ad set (icon)      → deleteAdSetSuggestion
  *   - Bulk "Set all ages"       → applyBulkAgeRange
  *   - Bulk "Set all budgets"    → applyBulkDailyBudget
+ *   - "Generate audience set × location" bonus → duplicateSuggestionsUnderLocationGroup
  */
 
 import type { AdSetSuggestion, LocationTargetingGroup } from "@/lib/types";
@@ -51,6 +52,7 @@ export function createBlankAdSetSuggestion(
     enabled: true,
     geoLocations: groupToGeo(effectiveGroup),
     locationLabel: effectiveGroup.label,
+    locationGroupId: primary?.id,
   };
 }
 
@@ -61,7 +63,7 @@ export function createBlankAdSetSuggestion(
  * landing at the end of the list).
  *
  * Every field is copied via spread, including `placementConfig`, `budgetPerDay`,
- * `geoLocations`/`locationLabel`, and the `advantagePlus` flag.
+ * `geoLocations`/`locationLabel`/`locationGroupId`, and the `advantagePlus` flag.
  * Returns the original array unchanged if `id` isn't found.
  */
 export function duplicateAdSetSuggestion(
@@ -104,4 +106,43 @@ export function applyBulkDailyBudget(
   budgetPerDay: number,
 ): AdSetSuggestion[] {
   return suggestions.map((s) => ({ ...s, budgetPerDay }));
+}
+
+/**
+ * Strip a trailing " — <label>" location suffix from an ad set name, if
+ * present. Used before re-appending a *different* location's suffix so
+ * repeated duplication doesn't chain suffixes ("Page Group — A — B — C").
+ */
+function stripLocationSuffix(name: string, label: string | undefined): string {
+  if (!label) return name;
+  const suffix = ` — ${label}`;
+  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
+}
+
+/**
+ * "Generate audience set × location" bonus (task #118): duplicate every
+ * currently-ENABLED ad set that isn't already assigned to `targetGroup`
+ * under that new location group — one new row per existing audience, same
+ * pattern as the audience × location cross-product `generateSuggestions`
+ * already does at first-generation time.
+ *
+ * Manual-confirm only — the caller renders a button/banner and calls this
+ * on click; it never runs automatically when a group is added. Returns ONLY
+ * the new rows; the caller appends them to the existing array.
+ */
+export function duplicateSuggestionsUnderLocationGroup(
+  suggestions: AdSetSuggestion[],
+  targetGroup: LocationTargetingGroup,
+): AdSetSuggestion[] {
+  const geo = groupToGeo(targetGroup);
+  return suggestions
+    .filter((s) => s.enabled && s.locationGroupId !== targetGroup.id)
+    .map((s) => ({
+      ...s,
+      id: `${s.id}_${targetGroup.id}_${Date.now()}`,
+      name: `${stripLocationSuffix(s.name, s.locationLabel)} — ${targetGroup.label}`,
+      geoLocations: geo,
+      locationLabel: targetGroup.label,
+      locationGroupId: targetGroup.id,
+    }));
 }

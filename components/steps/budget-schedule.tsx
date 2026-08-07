@@ -31,6 +31,7 @@ import {
   Trash2,
   Users,
   CalendarRange,
+  Wand2,
 } from "lucide-react";
 import type {
   BudgetScheduleSettings,
@@ -66,6 +67,7 @@ import {
   deleteAdSetSuggestion,
   applyBulkAgeRange,
   applyBulkDailyBudget,
+  duplicateSuggestionsUnderLocationGroup,
 } from "@/lib/wizard/adset-suggestions";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
@@ -419,6 +421,12 @@ function generateSuggestions(
         name: `${base.name}${suffix}`,
         geoLocations: geo,
         locationLabel: group.label,
+        // Only stamp a real FK when the group came from the operator's
+        // configured `locationGroups` — the synthetic UK-nationwide
+        // fallback isn't a real group, so per-row reassignment (the
+        // location dropdown) has nothing to look up and correctly falls
+        // back to the stamped `geoLocations` snapshot above.
+        locationGroupId: locationGroups.length > 0 ? group.id : undefined,
       });
     }
   }
@@ -1238,6 +1246,21 @@ export function BudgetSchedule({
     setBudgetModalOpen(false);
   };
 
+  // ── "Generate audience set × location" bonus (refinement pack #5) ────────
+  const unrepresentedLocationGroups = useMemo(() => {
+    if (locationGroups.length < 2 || adSetSuggestions.length === 0) return [];
+    const representedIds = new Set(
+      adSetSuggestions.map((s) => s.locationGroupId).filter((id): id is string => Boolean(id)),
+    );
+    return locationGroups.filter((g) => !representedIds.has(g.id));
+  }, [locationGroups, adSetSuggestions]);
+
+  const generateUnderLocationGroup = (group: LocationTargetingGroup) => {
+    const newRows = duplicateSuggestionsUnderLocationGroup(adSetSuggestions, group);
+    if (newRows.length === 0) return;
+    onSuggestionsChange([...adSetSuggestions, ...newRows]);
+  };
+
   const enabledCount = adSetSuggestions.filter((s) => s.enabled).length;
   const totalDaily = adSetSuggestions
     .filter((s) => s.enabled)
@@ -1350,6 +1373,33 @@ export function BudgetSchedule({
             onChange={handleLocationGroupsChange}
           />
         </div>
+
+        {/* "Generate audience set × location" bonus — a location group was
+            added after ad sets already existed. Manual confirm only; never
+            runs automatically. */}
+        {unrepresentedLocationGroups.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {unrepresentedLocationGroups.map((g) => (
+              <div
+                key={g.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary-light px-3 py-2"
+              >
+                <span className="flex items-center gap-1.5 text-xs text-foreground">
+                  <Wand2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  Duplicate every enabled ad set under <span className="font-semibold">{g.label}</span> too?
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => generateUnderLocationGroup(g)}
+                >
+                  Generate audience set × location
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Placements */}
@@ -1472,6 +1522,31 @@ export function BudgetSchedule({
                         <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        {/* Per-row location group assignment (refinement pack #5) —
+                            only shown once there's a real choice to make. */}
+                        {locationGroups.length > 1 && (
+                          <select
+                            value={s.locationGroupId ?? ""}
+                            onChange={(e) => {
+                              const group = locationGroups.find((g) => g.id === e.target.value);
+                              if (!group) return;
+                              updateSuggestion(s.id, {
+                                locationGroupId: group.id,
+                                locationLabel: group.label,
+                                geoLocations: groupToGeo(group),
+                              });
+                            }}
+                            title="Location group for this ad set"
+                            className="max-w-[8.5rem] rounded border border-border bg-card px-1.5 py-1 text-[11px]"
+                          >
+                            {!s.locationGroupId && (
+                              <option value="">{s.locationLabel ?? "Default location"}</option>
+                            )}
+                            {locationGroups.map((g) => (
+                              <option key={g.id} value={g.id}>{g.label}</option>
+                            ))}
+                          </select>
+                        )}
                         <div className="flex items-center gap-1">
                           <input
                             type="number"

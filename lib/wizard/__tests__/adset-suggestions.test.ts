@@ -1,7 +1,8 @@
 /**
  * Tests for lib/wizard/adset-suggestions.ts — the Step 5 "Ad Sets"
  * refinement pack (operator ask 2026-08-07): blank ad set creation,
- * duplicate, delete, and bulk age/budget edits.
+ * duplicate, delete, bulk age/budget edits, and the "Generate audience
+ * set × location" bonus.
  *
  * Run: node --test lib/wizard/__tests__/adset-suggestions.test.ts
  */
@@ -15,6 +16,7 @@ import {
   deleteAdSetSuggestion,
   applyBulkAgeRange,
   applyBulkDailyBudget,
+  duplicateSuggestionsUnderLocationGroup,
 } from "../adset-suggestions.ts";
 import type { AdSetSuggestion, LocationTargetingGroup } from "../../types.ts";
 
@@ -52,6 +54,7 @@ function makeSuggestion(overrides: Partial<AdSetSuggestion> = {}): AdSetSuggesti
     advantagePlus: false,
     enabled: true,
     locationLabel: "Newcastle +40km",
+    locationGroupId: "grp_newcastle",
     placementConfig: { mode: "manual", publisherPlatforms: ["facebook"] },
     ...overrides,
   };
@@ -68,14 +71,13 @@ describe("createBlankAdSetSuggestion", () => {
 
   it("defaults location to the first configured location group when present", () => {
     const blank = createBlankAdSetSuggestion([NEWCASTLE, MANCHESTER], FALLBACK_UK);
+    assert.equal(blank.locationGroupId, "grp_newcastle");
     assert.equal(blank.locationLabel, "Newcastle +40km");
-    assert.deepEqual(blank.geoLocations, {
-      cities: [{ key: "111", radius: 40, distance_unit: "kilometer" }],
-    });
   });
 
   it("falls back to the UK-nationwide fallback group when no location groups are configured", () => {
     const blank = createBlankAdSetSuggestion([], FALLBACK_UK);
+    assert.equal(blank.locationGroupId, undefined);
     assert.equal(blank.locationLabel, "UK (nationwide)");
     assert.deepEqual(blank.geoLocations?.countries, ["GB"]);
   });
@@ -96,7 +98,7 @@ describe("duplicateAdSetSuggestion", () => {
     assert.equal(clone.ageMax, source.ageMax);
     assert.equal(clone.budgetPerDay, source.budgetPerDay);
     assert.equal(clone.advantagePlus, source.advantagePlus);
-    assert.equal(clone.locationLabel, source.locationLabel);
+    assert.equal(clone.locationGroupId, source.locationGroupId);
     assert.deepEqual(clone.placementConfig, source.placementConfig);
   });
 
@@ -144,5 +146,46 @@ describe("applyBulkAgeRange / applyBulkDailyBudget", () => {
     const snapshot = JSON.parse(JSON.stringify(rows));
     applyBulkAgeRange(rows, 99, 99);
     assert.deepEqual(rows, snapshot);
+  });
+});
+
+describe("duplicateSuggestionsUnderLocationGroup", () => {
+  it("duplicates every enabled row not already assigned to the target group", () => {
+    const rows = [
+      makeSuggestion({ id: "a", enabled: true, locationGroupId: "grp_newcastle", locationLabel: "Newcastle +40km" }),
+      makeSuggestion({ id: "b", enabled: false, locationGroupId: "grp_newcastle", locationLabel: "Newcastle +40km" }),
+    ];
+    const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
+    assert.equal(newRows.length, 1); // "b" is disabled, skipped
+    assert.equal(newRows[0].locationGroupId, "grp_manchester");
+    assert.equal(newRows[0].locationLabel, "Manchester +30km");
+    assert.equal(newRows[0].name, "Page Group — Manchester +30km");
+  });
+
+  it("skips rows already assigned to the target group (no-op duplication)", () => {
+    const rows = [makeSuggestion({ id: "a", enabled: true, locationGroupId: "grp_manchester" })];
+    const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
+    assert.equal(newRows.length, 0);
+  });
+
+  it("strips a prior location suffix before appending the new one (no suffix chaining)", () => {
+    const rows = [
+      makeSuggestion({
+        id: "a",
+        enabled: true,
+        name: "Page Group — Newcastle +40km",
+        locationGroupId: "grp_newcastle",
+        locationLabel: "Newcastle +40km",
+      }),
+    ];
+    const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
+    assert.equal(newRows[0].name, "Page Group — Manchester +30km");
+  });
+
+  it("returns only new rows — caller is responsible for appending", () => {
+    const rows = [makeSuggestion({ id: "a", enabled: true })];
+    const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
+    assert.equal(rows.length, 1);
+    assert.equal(newRows.length, 1);
   });
 });

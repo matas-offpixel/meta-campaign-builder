@@ -827,6 +827,17 @@ export interface AdSetSuggestion {
   /** Human label for the location preset, e.g. "London +40km" */
   locationLabel?: string;
   /**
+   * FK into `BudgetScheduleSettings.locationGroups[].id` — the location group
+   * this ad set is currently assigned to (Step 5 per-row location dropdown).
+   * When present, `buildMetaTargeting` resolves `geo_locations` FRESH from
+   * that group every time (so reassigning a row's location, or editing the
+   * group itself, takes effect without needing to re-run "Generate
+   * Suggestions"). When absent — including every draft created before this
+   * field existed — falls back to the stamped `geoLocations` snapshot
+   * above, so old drafts behave identically to before.
+   */
+  locationGroupId?: string;
+  /**
    * For sourceType "selected_pages_lookalike" only — which percentage tier
    * this ad set targets. Used by buildMetaTargeting to look up the correct
    * lookalike audience IDs from SelectedPagesLookalikeGroup.lookalikeAudienceIdsByRange.

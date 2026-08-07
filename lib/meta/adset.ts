@@ -19,12 +19,14 @@ import type {
   AudienceSettings,
   BudgetScheduleSettings,
   PlacementConfig,
+  LocationTargetingGroup,
 } from "@/lib/types";
 // Relative + explicit extension (not the "@/" alias): this is a VALUE import,
 // not type-only, so `--experimental-strip-types` does not erase it — plain
 // Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
+import { resolveAdSetGeoLocations } from "./location-targeting.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
 //
@@ -292,8 +294,10 @@ function toUnixTs(dateStr: string): number {
  *                                    via custom_audiences when a real Meta ID exists)
  *
  * Geo-location note:
- *   AdSetSuggestion and BudgetScheduleSettings do not yet carry a location field.
- *   Defaulting to { countries: ["GB"] } until location targeting is wired in Phase 5.
+ *   Resolved via `resolveAdSetGeoLocations` — prefers a fresh lookup of
+ *   `adSet.locationGroupId` against `locationGroups` (task #118, multi-
+ *   location per campaign) over the stamped `adSet.geoLocations` snapshot.
+ *   Defaults to { countries: ["GB"] } when neither is present.
  *
  * Interest / custom-audience IDs:
  *   Mock IDs ("int1", "ca2") are filtered out. Only real numeric Meta IDs (10+ digits)
@@ -311,6 +315,7 @@ function toUnixTs(dateStr: string): number {
 export function buildMetaTargeting(
   adSet: AdSetSuggestion,
   audiences: AudienceSettings,
+  locationGroups?: LocationTargetingGroup[],
 ): MetaTargeting {
   // ── Advantage+ OFF: strict age enforcement ───────────────────────────────
   // age_min / age_max at targeting root = hard limits Meta enforces.
@@ -322,8 +327,8 @@ export function buildMetaTargeting(
   // Instead, pass the user's chosen range as individual_setting inside
   // targeting_automation; Meta treats these as audience *suggestions* and
   // may expand beyond them.
-  // Resolve geo: per-ad-set override → default GB
-  const rawGeo = adSet.geoLocations;
+  // Resolve geo: locationGroupId (fresh) → per-ad-set geoLocations snapshot → default GB
+  const rawGeo = resolveAdSetGeoLocations(adSet, locationGroups);
   const geoLocations: MetaGeoLocations = rawGeo
     ? { countries: rawGeo.countries, cities: rawGeo.cities, regions: rawGeo.regions }
     : { countries: ["GB"] };
@@ -711,7 +716,7 @@ export function buildAdSetPayload(
     // Always explicit — omitting causes Meta to pick a default that may require
     // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
     bid_strategy: mapBidStrategy(effectiveGoal),
-    targeting: buildMetaTargeting(adSet, audiences),
+    targeting: buildMetaTargeting(adSet, audiences, budgetSchedule.locationGroups),
     // Ad sets are created ACTIVE so spend begins immediately when the campaign
     // is also ACTIVE. A safety beacon log below records this at every launch so
     // there is always a Vercel log entry if anyone wonders why spending started.

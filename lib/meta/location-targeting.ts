@@ -4,15 +4,17 @@
  * Pure conversion between the wizard's `LocationTargetingGroup` model (Step 5
  * "Location Targeting") and Meta's ad-set `geo_locations` targeting shape.
  *
- * Extracted out of `components/steps/budget-schedule.tsx`, where `groupToGeo`
- * originally lived as a component-local helper only used at "Generate
- * Suggestions" time to stamp a snapshot onto each `AdSetSuggestion.geoLocations`.
- * Pulling it out here lets other pure, non-React code (e.g. the "+ Blank ad
- * set" default location in `lib/wizard/adset-suggestions.ts`) share the exact
- * same conversion instead of re-implementing it.
+ * Extracted out of `components/steps/budget-schedule.tsx` (where `groupToGeo`
+ * originally lived, only used at "Generate Suggestions" time to STAMP a
+ * snapshot onto each `AdSetSuggestion.geoLocations`) so the same conversion
+ * can also run at LAUNCH time in `lib/meta/adset.ts`, resolving a per-ad-set
+ * `AdSetSuggestion.locationGroupId` FK fresh against
+ * `BudgetScheduleSettings.locationGroups` (task #118, multi-location per
+ * campaign). One conversion, two call sites — no risk of UI and launch
+ * payload drifting apart on what a given location group actually means.
  */
 
-import type { AdSetGeoLocations, LocationTargetingGroup } from "@/lib/types";
+import type { AdSetGeoLocations, AdSetSuggestion, LocationTargetingGroup } from "@/lib/types";
 
 /** Convert a `LocationTargetingGroup` (UI model) into Meta's `geo_locations` shape. */
 export function groupToGeo(group: LocationTargetingGroup): AdSetGeoLocations {
@@ -52,4 +54,29 @@ export function groupToGeo(group: LocationTargetingGroup): AdSetGeoLocations {
   }
 
   return geo;
+}
+
+/**
+ * Resolve the effective geo-targeting for an ad set at launch time.
+ *
+ * Precedence:
+ *   1. `adSet.locationGroupId` resolved FRESH against `locationGroups` — the
+ *      source of truth once a campaign has multiple location groups (task
+ *      #118). Reassigning a row's location or editing the group's selections
+ *      after "Generate Suggestions" ran takes effect at launch without
+ *      needing to regenerate.
+ *   2. The stamped `adSet.geoLocations` snapshot — every draft created
+ *      before `locationGroupId` existed, or a row whose `locationGroupId`
+ *      points at a group that's since been removed. Zero regression.
+ *   3. `undefined` — caller (`buildMetaTargeting`) defaults to `{ countries: ["GB"] }`.
+ */
+export function resolveAdSetGeoLocations(
+  adSet: AdSetSuggestion,
+  locationGroups: LocationTargetingGroup[] | undefined,
+): AdSetGeoLocations | undefined {
+  if (adSet.locationGroupId) {
+    const group = locationGroups?.find((g) => g.id === adSet.locationGroupId);
+    if (group) return groupToGeo(group);
+  }
+  return adSet.geoLocations;
 }
