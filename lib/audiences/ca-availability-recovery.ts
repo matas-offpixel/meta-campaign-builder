@@ -35,6 +35,24 @@
  * `fetchCustomAudienceAvailability` in `lib/meta/client.ts`) and passes the
  * result in as `availabilityStatuses` — this module never calls Graph
  * itself, so that check is entirely up to the caller.
+ *
+ * ── task #123 — reactive salvage doesn't loop, and reveals in batches ────
+ * IPC Newcastle Signup v3 launch, 2026-08-07 21:11 UTC (campaign
+ * 120251198620030755, trace AV0qQKsugcBE0TibyVrynl2): the "Similar Pages"
+ * ad set (40 engagement audiences) was rejected with 1359207, the caller's
+ * `fetchCustomAudienceAvailability` check found 11 unavailable, the salvage
+ * retry dropped them and re-submitted the remaining 29 — which Meta ALSO
+ * rejected with 1359207 (a second, different batch of stale ids among the
+ * remaining 29). The single-pass caller had no second recovery attempt, so
+ * the ad set hard-failed instead of looping. `recoverFromDeletedCa` itself
+ * doesn't need to loop — it's a stateless one-shot decision function — but
+ * the CALLER (`launch-campaign/route.ts`) now wraps it in a bounded retry
+ * loop (max 4 passes), re-running the same availability check + this
+ * function against the shrinking `requestedIds` set each pass. See
+ * `preflightDropUnavailableAudiences` below for the complementary FIX: for
+ * ad sets with a large (≥20) REUSED custom-audience count, check
+ * availability proactively BEFORE the first `createMetaAdSet` call instead
+ * of paying for N reactive salvage passes.
  */
 
 /** Duck-typed so this module never imports MetaApiError (keeps it test-friendly). */
@@ -222,4 +240,96 @@ export function recoverFromDeletedCa(input: RecoverFromDeletedCaInput): RecoverF
 
 function labelList(ids: string[], names: Record<string, string> = {}): string {
   return ids.map((id) => (names[id] ? `${names[id]} (${id})` : id)).join(", ");
+}
+
+export interface PreflightAvailabilityDropInput {
+  /** Every custom-audience id currently in this ad set's targeting, in order. */
+  requestedIds: string[];
+  /**
+   * Availability for the ids actually worth checking — the caller decides
+   * WHICH ids to check (typically only "reused" ids, i.e. not created fresh
+   * this launch run — see `waitForAudienceReady` in `lib/meta/client.ts` for
+   * the fresh-audience race, a separate problem) and only bothers running
+   * the batched Graph GET (`fetchCustomAudienceAvailability`) at all above
+   * some size threshold where a wasted call is cheap insurance against a
+   * multi-pass reactive salvage loop. Ids NOT present in this array are
+   * assumed available (kept unconditionally) — this function never treats
+   * "not checked" as "unavailable".
+   */
+  availabilityStatuses: CustomAudienceAvailabilityStatus[];
+  /** id → display name for operator-facing messages. */
+  names?: Record<string, string>;
+}
+
+export interface PreflightAvailabilityDropResult {
+  /** Ids safe to submit on the FIRST `createMetaAdSet` attempt. */
+  keepIds: string[];
+  /** Ids proactively excluded because Meta already reports them unavailable. */
+  dropIds: string[];
+  /** Non-fatal operator-facing note for `adSetsCreated[].note` — null when nothing was dropped. */
+  note: string | null;
+}
+
+/**
+ * Proactively drop custom audiences Meta already reports as unavailable
+ * (`delivery_status.code !== 200` or `operation_status.code` 411/412 — see
+ * `fetchCustomAudienceAvailability`'s own doc comment for the exact rule)
+ * BEFORE the first `createMetaAdSet` attempt, instead of discovering them
+ * reactively through the `recoverFromDeletedCa` salvage loop above.
+ *
+ * Purely a keep/drop split on `availabilityStatuses` — no Meta error to
+ * classify (nothing has failed yet), so unlike `recoverFromDeletedCa` this
+ * never checks `isDeletedCustomAudienceError` or parses an error message.
+ * Kept as a separate function rather than a `recoverFromDeletedCa` mode
+ * switch because the two have genuinely different inputs (a real refusal
+ * to interpret vs. a plain availability snapshot) and call sites (before
+ * vs. after `createMetaAdSet`) — sharing only the trailing
+ * keep/drop/label bookkeeping, which both delegate to `labelList`.
+ *
+ * task #123 — this is the "ask Meta upfront" half of the fix for launches
+ * with a lot of REUSED engagement audiences (page_group ad sets built from
+ * a long-running page_group tend to accumulate dozens across many past
+ * launches): one batched Graph GET replaces what would otherwise cost
+ * several `recoverFromDeletedCa` round trips (one Meta rejection + one
+ * retry per newly-revealed batch of stale ids) on the first launch attempt
+ * after any of them age out.
+ */
+/**
+ * Below this many REUSED (non-fresh) custom audiences on one ad set, a
+ * preflight availability check isn't worth its own Graph GET — the common
+ * case (a handful of manually-picked audiences, or a page_group early in
+ * its life) should never pay this cost. Exported so the caller's "is this
+ * ad set big enough to bother" decision and this module's actual drop
+ * logic share one source of truth and can be tested together.
+ */
+export const REUSED_CA_PREFLIGHT_THRESHOLD = 20;
+
+/** Should the caller spend a batched availability GET before the first `createMetaAdSet` attempt? */
+export function shouldRunPreflightAvailabilityCheck(
+  reusedAudienceIds: string[],
+  threshold: number = REUSED_CA_PREFLIGHT_THRESHOLD,
+): boolean {
+  return reusedAudienceIds.length >= threshold;
+}
+
+export function preflightDropUnavailableAudiences(
+  input: PreflightAvailabilityDropInput,
+): PreflightAvailabilityDropResult {
+  const unavailableIds = new Set(
+    input.availabilityStatuses.filter((s) => !s.available).map((s) => s.id),
+  );
+  if (unavailableIds.size === 0) {
+    return { keepIds: input.requestedIds, dropIds: [], note: null };
+  }
+
+  const keepIds = input.requestedIds.filter((id) => !unavailableIds.has(id));
+  const dropIds = input.requestedIds.filter((id) => unavailableIds.has(id));
+
+  return {
+    keepIds,
+    dropIds,
+    note:
+      `Launched without ${dropIds.length} unavailable audience${dropIds.length === 1 ? "" : "s"} ` +
+      `(${labelList(dropIds, input.names)}) — dropped proactively before the first create attempt.`,
+  };
 }

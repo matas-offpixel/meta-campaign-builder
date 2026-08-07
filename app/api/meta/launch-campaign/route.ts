@@ -78,6 +78,9 @@ import {
   isDeletedCustomAudienceError,
   parseOffendingCustomAudienceIds,
   recoverFromDeletedCa,
+  preflightDropUnavailableAudiences,
+  shouldRunPreflightAvailabilityCheck,
+  REUSED_CA_PREFLIGHT_THRESHOLD,
 } from "@/lib/audiences/ca-availability-recovery";
 import {
   resolveAdSetPlacementTargeting,
@@ -2927,6 +2930,41 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             }
           }
 
+          // ── task #123 (FIX 2): preflight availability check for ad sets ─────
+          // with a lot of REUSED (not freshly-created-this-run) custom
+          // audiences. A page_group that's been relaunched many times over
+          // months accumulates dozens of engagement audiences, some of which
+          // will have aged out on Meta's side by the time of any given
+          // relaunch — cheaper to ask Meta upfront with ONE batched GET than
+          // to pay for the reactive CA-salvage loop above (which, per its own
+          // task #123 fix, can now take up to 4 Meta round trips as stale
+          // audiences are revealed in batches). Threshold of 20 keeps this a
+          // no-op for the common case (a handful of manually-picked custom
+          // audiences, or a page_group early in its life).
+          let preflightDroppedNote: string | undefined;
+          const reusedCaIds = customAudIds.filter((id) => !freshlyCreatedEngagementAudienceIds.has(id));
+          if (shouldRunPreflightAvailabilityCheck(reusedCaIds)) {
+            console.log(
+              `[launch-campaign] Phase 2 — "${adSet.name}" targets ${reusedCaIds.length} reused custom` +
+              ` audience(s) (≥ ${REUSED_CA_PREFLIGHT_THRESHOLD}) — running a preflight availability check` +
+              ` before the first create attempt`,
+            );
+            const preflightStatuses = await fetchCustomAudienceAvailability(reusedCaIds, launchToken ?? undefined);
+            const preflight = preflightDropUnavailableAudiences({
+              requestedIds: customAudIds,
+              availabilityStatuses: preflightStatuses,
+              names: engagementAudienceNameById.size > 0 ? Object.fromEntries(engagementAudienceNameById) : undefined,
+            });
+            if (preflight.dropIds.length > 0) {
+              console.log(
+                `[launch-campaign] Phase 2 — "${adSet.name}" — preflight dropped ${preflight.dropIds.length}` +
+                ` unavailable audience(s) before the first create attempt: ${preflight.dropIds.join(", ")}`,
+              );
+              adSetPayload.targeting.custom_audiences = preflight.keepIds.map((id) => ({ id }));
+              preflightDroppedNote = preflight.note ?? undefined;
+            }
+          }
+
           // ── Hard targeting validation ─────────────────────────────────────────
           // Do NOT create ad sets with empty targeting — this would result in
           // untargeted broad-audience spend across the entire country.
@@ -2965,7 +3003,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
             const dur = elapsed(asStart);
             console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
-            return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
+            return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: preflightDroppedNote, ageModeOverride: undefined };
           } catch (err) {
             // Auto-retry ONCE for deprecated-interest failures. Covers Meta
             // error subcode 1870247 ("interest is deprecated") plus any other
@@ -3028,64 +3066,134 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               }
             }
 
-            // task #115: Meta refuses the WHOLE ad set when any one of its
-            // targeted custom audiences has aged out on Meta's side (subcode
-            // 1359207). Drop the stale audience/audiences and retry ONCE —
-            // see lib/audiences/ca-availability-recovery.ts for the ladder.
+            // task #115 / #123: Meta refuses the WHOLE ad set when any one of
+            // its targeted custom audiences has aged out on Meta's side
+            // (subcode 1359207) — and can reveal stale audiences in BATCHES:
+            // dropping the first batch and retrying can surface a SECOND,
+            // different batch among the survivors. A single fixed retry
+            // isn't enough (task #123 — IPC Newcastle Signup v3,
+            // 2026-08-07 21:11 UTC, trace AV0qQKsugcBE0TibyVrynl2: "Similar
+            // Pages" was rejected, salvaged (11 dropped), retried, rejected
+            // AGAIN with 11 more stale ids among the remaining 29, and
+            // hard-failed for want of a second pass). Loop the salvage
+            // decision + retry up to MAX_CA_SALVAGE_PASSES times — see
+            // lib/audiences/ca-availability-recovery.ts's `recoverFromDeletedCa`
+            // for the (still stateless, one-shot-per-call) decision function
+            // this loops.
             if (err instanceof MetaApiError && isDeletedCustomAudienceError(err)) {
+              const MAX_CA_SALVAGE_PASSES = 4;
+              const allDroppedIds: string[] = [];
+              const allDroppedNames: Record<string, string> = {};
+              let currentPayload = adSetPayload;
+              let currentErr: MetaApiError = err;
+
               try {
-                const requestedCaIds = (adSetPayload.targeting.custom_audiences ?? []).map((a) => a.id);
-                const named = parseOffendingCustomAudienceIds(err);
-                let availabilityStatuses: CustomAudienceAvailability[] | undefined;
-                const recoveryNames: Record<string, string> = {};
-                if (named.length === 0 && requestedCaIds.length > 0) {
-                  const fetched = await fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined);
-                  const byId = new Map(fetched.map((s) => [s.id, s] as const));
-                  // task #122 (FIX 1) — overlay the pre-create readiness wait's
-                  // outcome. fetchCustomAudienceAvailability's delivery/operation
-                  // check only flags 411/412 (genuinely deleted) as unavailable;
-                  // a fresh audience STILL populating (441) after the 30s wait
-                  // above reads as "available" there, so without this overlay
-                  // recoverFromDeletedCa would return dropIds=[] (unrecoverable)
-                  // exactly like the IPC Newcastle v2 reproducer (task #122).
-                  for (const [id, waited] of freshReadinessResults) {
-                    if (!waited.ready) {
-                      byId.set(id, { id, available: false, operationStatusCode: waited.finalCode ?? undefined });
-                      const baseName = engagementAudienceNameById.get(id) ?? id;
-                      recoveryNames[id] = waited.timedOut
-                        ? `${baseName} — dropped: still populating after 30s`
-                        : `${baseName} — unavailable (code ${waited.finalCode ?? "unknown"})`;
+                for (let pass = 1; pass <= MAX_CA_SALVAGE_PASSES; pass++) {
+                  const requestedCaIds = (currentPayload.targeting.custom_audiences ?? []).map((a) => a.id);
+                  const named = parseOffendingCustomAudienceIds(currentErr);
+                  let availabilityStatuses: CustomAudienceAvailability[] | undefined;
+                  const recoveryNames: Record<string, string> = {};
+                  if (named.length === 0 && requestedCaIds.length > 0) {
+                    const fetched = await fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined);
+                    const byId = new Map(fetched.map((s) => [s.id, s] as const));
+                    // task #122 (FIX 1) — overlay the pre-create readiness
+                    // wait's outcome. fetchCustomAudienceAvailability's
+                    // delivery/operation check only flags 411/412 (genuinely
+                    // deleted) as unavailable; a fresh audience STILL
+                    // populating (441) after the 30s wait reads as
+                    // "available" there.
+                    for (const [id, waited] of freshReadinessResults) {
+                      if (!waited.ready) {
+                        byId.set(id, { id, available: false, operationStatusCode: waited.finalCode ?? undefined });
+                        const baseName = engagementAudienceNameById.get(id) ?? id;
+                        recoveryNames[id] = waited.timedOut
+                          ? `${baseName} — dropped: still populating after 30s`
+                          : `${baseName} — unavailable (code ${waited.finalCode ?? "unknown"})`;
+                      }
                     }
+                    availabilityStatuses = requestedCaIds.map((id) => byId.get(id) ?? { id, available: true });
                   }
-                  availabilityStatuses = requestedCaIds.map((id) => byId.get(id) ?? { id, available: true });
+
+                  const recovery = recoverFromDeletedCa({
+                    requestedIds: requestedCaIds,
+                    error: currentErr,
+                    availabilityStatuses,
+                    names: Object.keys(recoveryNames).length > 0 ? recoveryNames : undefined,
+                  });
+
+                  if (recovery.unrecoverable) {
+                    throw { adSet, err: new Error(
+                      `${currentErr.message} — ${recovery.unrecoverable}` +
+                      (allDroppedIds.length > 0
+                        ? ` (after ${pass - 1} prior CA-salvage pass(es) already dropped ${allDroppedIds.length}` +
+                          ` audience(s): ${allDroppedIds.join(", ")})`
+                        : ""),
+                    ) };
+                  }
+
+                  for (const id of recovery.dropIds) {
+                    if (!allDroppedIds.includes(id)) allDroppedIds.push(id);
+                    allDroppedNames[id] = recoveryNames[id] ?? engagementAudienceNameById.get(id) ?? id;
+                  }
+
+                  console.log(
+                    `[launch-campaign] Phase 2 — "${adSet.name}" — CA salvage pass ${pass}/${MAX_CA_SALVAGE_PASSES},` +
+                      ` dropping ${recovery.dropIds.length} audience(s): ${recovery.dropIds.join(", ") || "none"}`,
+                  );
+
+                  const retryPayload = {
+                    ...currentPayload,
+                    targeting: { ...currentPayload.targeting, custom_audiences: recovery.keepIds.map((id) => ({ id })) },
+                  };
+
+                  try {
+                    const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
+                    const dur = elapsed(asStart);
+                    console.log(
+                      `[launch-campaign] Phase 2 ✓  ad set (CA-salvage retry, pass ${pass}/${MAX_CA_SALVAGE_PASSES}):` +
+                        ` ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`,
+                    );
+                    return {
+                      adSet,
+                      metaAdSetId: retryRes.id,
+                      durationMs: dur,
+                      note:
+                        `Launched without ${allDroppedIds.length} unavailable audience` +
+                        `${allDroppedIds.length === 1 ? "" : "s"} across ${pass} salvage pass` +
+                        `${pass === 1 ? "" : "es"} (` +
+                        allDroppedIds.map((id) => (allDroppedNames[id] ? `${allDroppedNames[id]} (${id})` : id)).join(", ") +
+                        `).`,
+                      ageModeOverride: undefined,
+                    };
+                  } catch (retryErr) {
+                    const isAnotherBatch = retryErr instanceof MetaApiError && isDeletedCustomAudienceError(retryErr);
+                    if (isAnotherBatch && pass < MAX_CA_SALVAGE_PASSES) {
+                      console.log(
+                        `[launch-campaign] Phase 2 ✗  "${adSet.name}" — CA salvage pass ${pass}/${MAX_CA_SALVAGE_PASSES}` +
+                          ` retry STILL rejected (subcode 1359207) — another batch of stale audiences was` +
+                          ` revealed; looping to pass ${pass + 1}/${MAX_CA_SALVAGE_PASSES}`,
+                      );
+                      currentPayload = retryPayload;
+                      currentErr = retryErr;
+                      continue;
+                    }
+                    if (isAnotherBatch) {
+                      throw { adSet, err: new Error(
+                        `${retryErr.message} — hit the ${MAX_CA_SALVAGE_PASSES}-pass CA-salvage cap after` +
+                        ` dropping ${allDroppedIds.length} audience(s) total: ${allDroppedIds.join(", ")}.` +
+                        ` Meta is still revealing more unavailable audiences than this launch will loop` +
+                        ` through automatically — remove and re-add this ad set's audiences manually.`,
+                      ) };
+                    }
+                    console.error(
+                      `[launch-campaign] Phase 2 ✗  "${adSet.name}" (CA-salvage retry, pass ${pass}/${MAX_CA_SALVAGE_PASSES}):`,
+                      formatMetaError(retryErr),
+                    );
+                    throw { adSet, err: retryErr };
+                  }
                 }
-                const recovery = recoverFromDeletedCa({
-                  requestedIds: requestedCaIds,
-                  error: err,
-                  availabilityStatuses,
-                  names: Object.keys(recoveryNames).length > 0 ? recoveryNames : undefined,
-                });
-                if (recovery.unrecoverable) {
-                  throw { adSet, err: new Error(`${err.message} — ${recovery.unrecoverable}`) };
-                }
-                console.log(
-                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" — Meta subcode 1359207 (unavailable custom` +
-                    ` audience) — retrying without ${recovery.dropIds.length} audience(s): ${recovery.dropIds.join(", ")}`,
-                );
-                const retryPayload = {
-                  ...adSetPayload,
-                  targeting: { ...adSetPayload.targeting, custom_audiences: recovery.keepIds.map((id) => ({ id })) },
-                };
-                const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
-                const dur = elapsed(asStart);
-                console.log(`[launch-campaign] Phase 2 ✓  ad set (CA-salvage retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
-                return {
-                  adSet,
-                  metaAdSetId: retryRes.id,
-                  durationMs: dur,
-                  note: recovery.note ?? undefined,
-                  ageModeOverride: undefined,
-                };
+                // Unreachable — every loop iteration above returns or throws.
+                throw { adSet, err: currentErr };
               } catch (recoveryErr) {
                 if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
                 throw { adSet, err: recoveryErr };
@@ -3121,6 +3229,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   ageModeOverride: "strict" as const,
                 };
               } catch (recoveryErr) {
+                // task #123 (FIX 3) — log a failed RETRY distinctly from a
+                // failed FIRST attempt; previously this rethrew silently,
+                // making it indistinguishable in logs from "classifier never
+                // matched" (see isMissingAdvantageAudienceFlagError's sibling
+                // handler below for the same gap/fix).
+                console.error(
+                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" (Advantage+-stripped retry):`,
+                  formatMetaError(recoveryErr),
+                );
                 if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
                 throw { adSet, err: recoveryErr };
               }
@@ -3157,9 +3274,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   ageModeOverride: undefined,
                 };
               } catch (recoveryErr) {
+                // task #123 (FIX 3) — IPC Newcastle Signup v3's "Wide" ad set
+                // failed outright and prod logs alone couldn't distinguish
+                // "classifier never matched 1870227" from "it matched, retried,
+                // and the retry ALSO failed" (this branch used to rethrow
+                // silently). Log the retry's own error explicitly so the two
+                // cases are distinguishable without re-deriving them from a
+                // truncated log excerpt next time.
+                console.error(
+                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" (advantage_audience retry):`,
+                  formatMetaError(recoveryErr),
+                );
                 if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
                 throw { adSet, err: recoveryErr };
               }
+            }
+
+            // task #123 (FIX 3) — nothing above recognised this error. Log its
+            // code/subcode/message explicitly before falling through, so a
+            // FUTURE unrecognised Meta refusal (or a classifier that stops
+            // matching because Meta changed error wording/shape) is visible
+            // directly in prod logs — no reconstructing it from the raw
+            // request/response dump, which the runtime-log viewer can
+            // truncate away entirely for a large multi-ad-set launch.
+            if (err instanceof MetaApiError) {
+              console.warn(
+                `[launch-campaign] Phase 2 ⚠  "${adSet.name}" — unrecognised Meta error (no salvage/retry` +
+                ` matched): code=${err.code ?? "n/a"} subcode=${err.subcode ?? "n/a"} message=${err.message}`,
+              );
             }
 
             throw { adSet, err };
