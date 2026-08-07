@@ -1396,6 +1396,15 @@ export interface LaunchSummary {
     /** "strict" when Advantage+ was OFF, "suggested" when Advantage+ was ON */
     ageMode: "strict" | "suggested";
     durationMs?: number;
+    /**
+     * Non-fatal note from a Phase 2 create-retry ladder — set only when Meta
+     * initially refused and a salvage retry (dropping a stale/unavailable
+     * custom audience, subcode 1359207; or stripping an objective-incompatible
+     * Advantage+ Audience automation, subcode 1870196) fixed it. See
+     * `lib/audiences/ca-availability-recovery.ts` and
+     * `isInvalidTargetingAutomationError` in `lib/meta/error-classify.ts`.
+     */
+    note?: string;
   }[];
   adSetsFailed: { name: string; error: string; skippedReason?: string }[];
   creativesCreated: {
