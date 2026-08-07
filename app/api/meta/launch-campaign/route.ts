@@ -34,7 +34,7 @@ import {
   uploadImageFromUrl,
   MetaApiError,
 } from "@/lib/meta/client";
-import type { AudienceReadinessWaitResult, CustomAudienceAvailability } from "@/lib/meta/client";
+import type { AudienceReadinessWaitResult } from "@/lib/meta/client";
 import {
   resolvePageIdentity,
   resolvePageIgActor,
@@ -75,19 +75,17 @@ import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-in
 import { createWithEventSourceRecovery } from "@/lib/audiences/event-source-recovery";
 import { remediateAudienceSeeds } from "@/lib/audiences/seed-remediation";
 import {
-  isDeletedCustomAudienceError,
-  parseOffendingCustomAudienceIds,
-  recoverFromDeletedCa,
-  preflightDropUnavailableAudiences,
-  shouldRunPreflightAvailabilityCheck,
-  REUSED_CA_PREFLIGHT_THRESHOLD,
-} from "@/lib/audiences/ca-availability-recovery";
-import {
   resolveAdSetPlacementTargeting,
   validatePlacementSelection,
   summarisePlacements,
   resolveExistingPostPlacements,
 } from "@/lib/meta/placements";
+import {
+  prepareAdSetPayloadForCreate,
+  createAdSetWithSalvage,
+  type CreateAdSetWithSalvageDeps,
+  type PrepareAdSetPayloadResult,
+} from "@/lib/audiences/adset-create-with-salvage";
 import type {
   CampaignDraft,
   LaunchSummary,
@@ -105,11 +103,7 @@ import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/
 import { assertSameObjective } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
-import {
-  isObjectiveIncompatibilityError,
-  isInvalidTargetingAutomationError,
-  isMissingAdvantageAudienceFlagError,
-} from "@/lib/meta/error-classify";
+import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -2839,6 +2833,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         )
       : draft.settings.objective;
 
+  // task #125 — single source-of-truth dependency bundle for the shared
+  // ad-set-create salvage ladder (lib/audiences/adset-create-with-salvage.ts),
+  // shared by standard Phase 2/2b AND the multi-campaign MC[ci] Phase 2/2b
+  // loop below. `recreateEngagementAudiencesForGroup`'s own context
+  // (adAccountId, userFbToken, pageToIg, pageNameMap, ENGAGEMENT_LABELS)
+  // doesn't vary per campaign in the multi-campaign attach path — every
+  // attached campaign shares one ad account and one operator token — so one
+  // closure built once per launch covers every call site.
+  const salvageDeps: CreateAdSetWithSalvageDeps = {
+    createMetaAdSet,
+    fetchCustomAudienceAvailability,
+    recreateEngagementAudiencesForGroup: (group) =>
+      recreateEngagementAudiencesForGroup(group, {
+        supabase,
+        userId: user.id,
+        adAccountId,
+        userFbToken: userFbToken ?? undefined,
+        pageToIg,
+        pageNameMap,
+        engagementLabels: ENGAGEMENT_LABELS,
+      }),
+    formatError: formatMetaError,
+  };
+
+  // task #122 (FIX 1) — id → display name for engagement audiences created
+  // THIS run, used only to make the readiness-wait log lines and the
+  // eventual salvage note (if the wait times out) legible. Hoisted to outer
+  // scope (task #125) so standard Phase 2b shares it, not just Phase 2.
+  const engagementAudienceNameById = new Map(
+    engagementAudiencesCreated.map((ea) => [ea.id, ea.name] as const),
+  );
+
+  // task #122 (FIX 1) — shared cache so concurrent ad sets in the same
+  // batch that reference the SAME freshly-created custom audience (e.g.
+  // several ad sets built from the same page_group) share one poll rather
+  // than each burning their own 30s budget on identical Graph calls.
+  // Hoisted to outer scope (task #125) so standard Phase 2b shares it too.
+  const audienceReadinessCache = new Map<string, Promise<AudienceReadinessWaitResult>>();
+  function getOrWaitAudienceReady(audienceId: string): Promise<AudienceReadinessWaitResult> {
+    const cached = audienceReadinessCache.get(audienceId);
+    if (cached) return cached;
+    const promise = waitForAudienceReady(audienceId, userFbToken ?? undefined);
+    audienceReadinessCache.set(audienceId, promise);
+    return promise;
+  }
+
   const adSetCreationPromise = (async () => {
     if (skipAdSetCreation) {
       // Synthetic keys already seeded above (attach_adset: from the picker;
@@ -2863,26 +2903,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           adSetToCreativeMap.set(asId, creative);
         }
       }
-    }
-
-    // task #122 (FIX 1) — id → display name for engagement audiences created
-    // THIS run, used only to make the readiness-wait log lines and the
-    // eventual salvage note (if the wait times out) legible.
-    const engagementAudienceNameById = new Map(
-      engagementAudiencesCreated.map((ea) => [ea.id, ea.name] as const),
-    );
-
-    // task #122 (FIX 1) — shared cache so concurrent ad sets in the same
-    // batch that reference the SAME freshly-created custom audience (e.g.
-    // several ad sets built from the same page_group) share one poll rather
-    // than each burning their own 30s budget on identical Graph calls.
-    const audienceReadinessCache = new Map<string, Promise<AudienceReadinessWaitResult>>();
-    function getOrWaitAudienceReady(audienceId: string): Promise<AudienceReadinessWaitResult> {
-      const cached = audienceReadinessCache.get(audienceId);
-      if (cached) return cached;
-      const promise = waitForAudienceReady(audienceId, userFbToken ?? undefined);
-      audienceReadinessCache.set(audienceId, promise);
-      return promise;
     }
 
     // Create standard ad sets concurrently in batches of 5
@@ -2990,86 +3010,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             `\n  full_targeting:   ${JSON.stringify(tgt)}`,
           );
 
-          // ── task #122 (FIX 1): wait out the freshly-created-audience race ────
-          // Custom audiences created THIS run (Phase 1.5/1.5b) can still be
-          // Meta operation_status.code=441 ("populating") seconds later, which
-          // makes createMetaAdSet fail with subcode 1359207 even though the
-          // audience is not deleted — see waitForAudienceReady's doc comment.
-          // Bounded 30s/3s-interval wait per referenced fresh id, shared across
-          // concurrently-created ad sets via audienceReadinessCache. Ids not
-          // created this run (already-stable audiences) are never waited on.
-          const freshReadinessResults = new Map<string, AudienceReadinessWaitResult>();
-          const freshIdsToWaitOn = customAudIds.filter((id) => freshlyCreatedEngagementAudienceIds.has(id));
-          if (freshIdsToWaitOn.length > 0) {
-            console.log(
-              `[launch-campaign] Phase 2 — "${adSet.name}" references ${freshIdsToWaitOn.length}` +
-              ` freshly-created audience(s); waiting up to 30s for readiness: ` +
-              freshIdsToWaitOn.map((id) => `${id} (${engagementAudienceNameById.get(id) ?? "?"})`).join(", "),
-            );
-            const waited = await Promise.all(freshIdsToWaitOn.map((id) => getOrWaitAudienceReady(id)));
-            for (const w of waited) {
-              freshReadinessResults.set(w.id, w);
-              console.log(
-                `[launch-campaign] Phase 2 — readiness wait for ${w.id}:` +
-                ` ready=${w.ready} timedOut=${w.timedOut} code=${w.finalCode ?? "n/a"} (${w.finalDescription ?? "n/a"})`,
-              );
-            }
-          }
-
-          // ── task #123 (FIX 2): preflight availability check for ad sets ─────
-          // with a lot of REUSED (not freshly-created-this-run) custom
-          // audiences. A page_group that's been relaunched many times over
-          // months accumulates dozens of engagement audiences, some of which
-          // will have aged out on Meta's side by the time of any given
-          // relaunch — cheaper to ask Meta upfront with ONE batched GET than
-          // to pay for the reactive CA-salvage loop above (which, per its own
-          // task #123 fix, can now take up to 4 Meta round trips as stale
-          // audiences are revealed in batches). Threshold of 20 keeps this a
-          // no-op for the common case (a handful of manually-picked custom
-          // audiences, or a page_group early in its life).
-          let preflightDroppedNote: string | undefined;
-          // task #124 — tracked separately from the CA-salvage loop's own
-          // `allDroppedIds` (below) so the "meta lies" recreate fallback can
-          // tell whether the availability API was ALREADY trusted-and-wrong
-          // once for this ad set (preflight) even when the loop itself gives
-          // up on pass 1 with zero drops of its own — see that fallback's
-          // trigger condition for why this matters.
-          let preflightDroppedCount = 0;
-          const reusedCaIds = customAudIds.filter((id) => !freshlyCreatedEngagementAudienceIds.has(id));
-          if (shouldRunPreflightAvailabilityCheck(reusedCaIds)) {
-            console.log(
-              `[launch-campaign] Phase 2 — "${adSet.name}" targets ${reusedCaIds.length} reused custom` +
-              ` audience(s) (≥ ${REUSED_CA_PREFLIGHT_THRESHOLD}) — running a preflight availability check` +
-              ` before the first create attempt`,
-            );
-            const preflightStatuses = await fetchCustomAudienceAvailability(reusedCaIds, launchToken ?? undefined);
-            const preflight = preflightDropUnavailableAudiences({
-              requestedIds: customAudIds,
-              availabilityStatuses: preflightStatuses,
-              names: engagementAudienceNameById.size > 0 ? Object.fromEntries(engagementAudienceNameById) : undefined,
-            });
-            if (preflight.dropIds.length > 0) {
-              console.log(
-                `[launch-campaign] Phase 2 — "${adSet.name}" — preflight dropped ${preflight.dropIds.length}` +
-                ` unavailable audience(s) before the first create attempt: ${preflight.dropIds.join(", ")}`,
-              );
-              adSetPayload.targeting.custom_audiences = preflight.keepIds.map((id) => ({ id }));
-              preflightDroppedNote = preflight.note ?? undefined;
-              preflightDroppedCount = preflight.dropIds.length;
-            }
-          }
-
-          // task #124 — idempotency guard for the recreate-from-scratch
-          // fallback inside the CA-salvage loop below: structurally it can
-          // only be reached once anyway (the loop throws immediately after
-          // attempting it, success or failure), but this makes that
-          // guarantee explicit rather than implicit in control flow.
-          let hasAttemptedRecreateFallback = false;
+          // ── task #125: shared prepare step ──────────────────────────────────
+          // Readiness-wait for freshly-created audiences (task #122), the
+          // preflight availability check for large reused-audience ad sets
+          // (task #123), and the hard 0-budget guard (task #122 FIX 3) all
+          // now live in the shared salvage module so Phase 2b and the
+          // multi-campaign MC[ci] Phase 2/2b loop below run the exact same
+          // logic — see lib/audiences/adset-create-with-salvage.ts.
+          const prep = await prepareAdSetPayloadForCreate(
+            {
+              adSet,
+              payload: adSetPayload,
+              freshlyCreatedEngagementAudienceIds,
+              audienceNameById: engagementAudienceNameById,
+              getOrWaitAudienceReady,
+              launchToken: launchToken ?? undefined,
+              logPrefix: "Phase 2",
+            },
+            salvageDeps,
+          );
 
           // ── Hard targeting validation ─────────────────────────────────────────
           // Do NOT create ad sets with empty targeting — this would result in
           // untargeted broad-audience spend across the entire country.
-          if (!hasAudienceTargeting(tgt, adSet)) {
+          if (!hasAudienceTargeting(prep.payload.targeting, adSet)) {
             const reason = buildEmptyTargetingReason(adSet, draft.audiences);
             console.error(
               `[launch-campaign] Phase 2 ✗ ABORTED "${adSet.name}" — empty targeting.` +
@@ -3087,24 +3051,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             )};
           }
 
-          // ── task #122 (FIX 3): hard budget validation ────────────────────────
-          // Meta rejects ad set creation outright (subcode 1885272) when
-          // daily_budget is 0 — this used to only surface as a raw Meta error
-          // at launch time for the "+ Blank ad set" row (which hardcoded
-          // budgetPerDay: 0 before the fix in lib/wizard/adset-suggestions.ts).
-          // Belt-and-braces server-side guard: catch a 0/negative budget
-          // BEFORE calling Meta, regardless of how it slipped through the UI.
-          if (!adSetPayload.daily_budget || adSetPayload.daily_budget <= 0) {
-            throw { adSet, err: new Error(
-              `Ad set "${adSet.name}" has no budget — set a daily budget in Step 5.`,
-            )};
-          }
-
           try {
-            const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
+            const adSetRes = await createMetaAdSet(adAccountId, prep.payload, launchToken);
             const dur = elapsed(asStart);
             console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
-            return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: preflightDroppedNote, ageModeOverride: undefined };
+            return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
           } catch (err) {
             // Auto-retry ONCE for deprecated-interest failures. Covers Meta
             // error subcode 1870247 ("interest is deprecated") plus any other
@@ -3167,389 +3118,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               }
             }
 
-            // task #115 / #123: Meta refuses the WHOLE ad set when any one of
-            // its targeted custom audiences has aged out on Meta's side
-            // (subcode 1359207) — and can reveal stale audiences in BATCHES:
-            // dropping the first batch and retrying can surface a SECOND,
-            // different batch among the survivors. A single fixed retry
-            // isn't enough (task #123 — IPC Newcastle Signup v3,
-            // 2026-08-07 21:11 UTC, trace AV0qQKsugcBE0TibyVrynl2: "Similar
-            // Pages" was rejected, salvaged (11 dropped), retried, rejected
-            // AGAIN with 11 more stale ids among the remaining 29, and
-            // hard-failed for want of a second pass). Loop the salvage
-            // decision + retry up to MAX_CA_SALVAGE_PASSES times — see
-            // lib/audiences/ca-availability-recovery.ts's `recoverFromDeletedCa`
-            // for the (still stateless, one-shot-per-call) decision function
-            // this loops.
-            if (err instanceof MetaApiError && isDeletedCustomAudienceError(err)) {
-              const MAX_CA_SALVAGE_PASSES = 4;
-              const allDroppedIds: string[] = [];
-              const allDroppedNames: Record<string, string> = {};
-              let currentPayload = adSetPayload;
-              let currentErr: MetaApiError = err;
-
-              try {
-                for (let pass = 1; pass <= MAX_CA_SALVAGE_PASSES; pass++) {
-                  const requestedCaIds = (currentPayload.targeting.custom_audiences ?? []).map((a) => a.id);
-                  const named = parseOffendingCustomAudienceIds(currentErr);
-                  let availabilityStatuses: CustomAudienceAvailability[] | undefined;
-                  const recoveryNames: Record<string, string> = {};
-                  if (named.length === 0 && requestedCaIds.length > 0) {
-                    const fetched = await fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined);
-                    const byId = new Map(fetched.map((s) => [s.id, s] as const));
-                    // task #122 (FIX 1) — overlay the pre-create readiness
-                    // wait's outcome. fetchCustomAudienceAvailability's
-                    // delivery/operation check only flags 411/412 (genuinely
-                    // deleted) as unavailable; a fresh audience STILL
-                    // populating (441) after the 30s wait reads as
-                    // "available" there.
-                    for (const [id, waited] of freshReadinessResults) {
-                      if (!waited.ready) {
-                        byId.set(id, { id, available: false, operationStatusCode: waited.finalCode ?? undefined });
-                        const baseName = engagementAudienceNameById.get(id) ?? id;
-                        recoveryNames[id] = waited.timedOut
-                          ? `${baseName} — dropped: still populating after 30s`
-                          : `${baseName} — unavailable (code ${waited.finalCode ?? "unknown"})`;
-                      }
-                    }
-                    availabilityStatuses = requestedCaIds.map((id) => byId.get(id) ?? { id, available: true });
-                  }
-
-                  const recovery = recoverFromDeletedCa({
-                    requestedIds: requestedCaIds,
-                    error: currentErr,
-                    availabilityStatuses,
-                    names: Object.keys(recoveryNames).length > 0 ? recoveryNames : undefined,
-                  });
-
-                  if (recovery.unrecoverable) {
-                    // task #124 (Similar Pages "meta lies" tier) —
-                    // recoverFromDeletedCa correctly gives up here (nothing
-                    // it can point at and drop), but ONLY once availability
-                    // has ALREADY been trusted-and-wrong once for this ad set
-                    // (a prior preflight or loop-pass drop) does that mean
-                    // "Meta's create-time validator disagrees with its own
-                    // read endpoint" rather than e.g. a non-CA error that
-                    // was wrongly routed into this branch. See
-                    // recreateEngagementAudiencesForGroup's doc comment.
-                    const priorDropCount = preflightDroppedCount + allDroppedIds.length;
-                    if (
-                      !hasAttemptedRecreateFallback &&
-                      requestedCaIds.length > 0 &&
-                      priorDropCount > 0 &&
-                      adSet.sourceType === "page_group"
-                    ) {
-                      hasAttemptedRecreateFallback = true;
-                      const group = draft.audiences.pageGroups.find((g) => g.id === adSet.sourceId);
-                      if (group && group.pageIds.length > 0 && group.engagementTypes.length > 0) {
-                        console.log(
-                          `[launch-campaign] Phase 2 — "${adSet.name}" — availability-API salvage exhausted` +
-                            ` (${priorDropCount} audience(s) already dropped via preflight/prior passes,` +
-                            ` ${requestedCaIds.length} "availability-clean" survivor(s) still refused by Meta` +
-                            ` at create time) — recreating engagement audiences for page group` +
-                            ` "${group.name}" from scratch`,
-                        );
-                        const recreated = await recreateEngagementAudiencesForGroup(group, {
-                          supabase,
-                          userId: user.id,
-                          adAccountId,
-                          userFbToken: userFbToken ?? undefined,
-                          pageToIg,
-                          pageNameMap,
-                          engagementLabels: ENGAGEMENT_LABELS,
-                        });
-                        console.log(
-                          `[launch-campaign] Phase 2 — "${adSet.name}" — recreated ${recreated.ids.length}/` +
-                            `${recreated.ids.length + recreated.failed.length} engagement audience(s) for` +
-                            ` "${group.name}"` +
-                            (recreated.failed.length > 0
-                              ? ` (${recreated.failed.length} failed: ` +
-                                recreated.failed.map((f) => `${f.name}: ${f.error}`).join("; ") + ")"
-                              : ""),
-                        );
-                        if (recreated.ids.length > 0) {
-                          // Bookkeeping for future runs — replace stale
-                          // (pageId, type) statuses with the fresh ones so a
-                          // future relaunch's "reuse existing" branch in
-                          // Phase 1.5 picks these up instead of the ids Meta
-                          // just refused, and reset the group's merged id
-                          // list to the fresh set only ("from scratch" means
-                          // a full reset here, not a union with the refused ids).
-                          const now = new Date().toISOString();
-                          const recreatedKeys = new Set(
-                            recreated.created.map((c) => `${c.pageId}:${c.type}`),
-                          );
-                          group.engagementAudienceStatuses = (group.engagementAudienceStatuses ?? []).filter(
-                            (s) => !recreatedKeys.has(`${s.pageId}:${s.type}`),
-                          );
-                          for (const c of recreated.created) {
-                            group.engagementAudienceStatuses.push({
-                              id: c.id,
-                              type: c.type,
-                              pageId: c.pageId,
-                              pageName: c.pageName,
-                              createdAt: now,
-                              readyForLookalike: false,
-                              populating: false,
-                            });
-                          }
-                          const byType: Partial<Record<EngagementType, string>> = {
-                            ...(group.engagementAudiencesByType ?? {}),
-                          };
-                          for (const c of recreated.created) byType[c.type] = c.id;
-                          group.engagementAudiencesByType = byType;
-                          group.engagementAudienceIds = recreated.ids.slice();
-
-                          const finalPayload = {
-                            ...currentPayload,
-                            targeting: {
-                              ...currentPayload.targeting,
-                              custom_audiences: recreated.ids.map((id) => ({ id })),
-                            },
-                          };
-                          try {
-                            const finalRes = await createMetaAdSet(adAccountId, finalPayload, launchToken);
-                            const dur = elapsed(asStart);
-                            console.log(
-                              `[launch-campaign] Phase 2 ✓  "${adSet.name}" (recreated audiences retry) → ` +
-                                `${finalRes.id} (${dur}ms) tokenSource=${launchTokenSource}`,
-                            );
-                            return {
-                              adSet,
-                              metaAdSetId: finalRes.id,
-                              durationMs: dur,
-                              note:
-                                `Recreated ${recreated.ids.length} engagement audience(s) after Meta refused` +
-                                ` all availability-clean custom audiences (subcode 1359207 naming no` +
-                                ` offending ids, after ${priorDropCount} audience(s) already dropped via` +
-                                ` preflight/prior salvage passes).`,
-                              ageModeOverride: undefined,
-                            };
-                          } catch (finalErr) {
-                            console.error(
-                              `[launch-campaign] Phase 2 ✗  "${adSet.name}" (recreated audiences retry):`,
-                              formatMetaError(finalErr),
-                            );
-                            throw { adSet, err: finalErr };
-                          }
-                        }
-                        console.warn(
-                          `[launch-campaign] Phase 2 ⚠  "${adSet.name}" — recreate-from-scratch fallback` +
-                            ` produced zero usable audiences for "${group.name}" — falling through to the` +
-                            ` original unrecoverable error`,
-                        );
-                      }
-                    }
-
-                    throw { adSet, err: new Error(
-                      `${currentErr.message} — ${recovery.unrecoverable}` +
-                      (allDroppedIds.length > 0
-                        ? ` (after ${pass - 1} prior CA-salvage pass(es) already dropped ${allDroppedIds.length}` +
-                          ` audience(s): ${allDroppedIds.join(", ")})`
-                        : ""),
-                    ) };
-                  }
-
-                  for (const id of recovery.dropIds) {
-                    if (!allDroppedIds.includes(id)) allDroppedIds.push(id);
-                    allDroppedNames[id] = recoveryNames[id] ?? engagementAudienceNameById.get(id) ?? id;
-                  }
-
-                  console.log(
-                    `[launch-campaign] Phase 2 — "${adSet.name}" — CA salvage pass ${pass}/${MAX_CA_SALVAGE_PASSES},` +
-                      ` dropping ${recovery.dropIds.length} audience(s): ${recovery.dropIds.join(", ") || "none"}`,
-                  );
-
-                  const retryPayload = {
-                    ...currentPayload,
-                    targeting: { ...currentPayload.targeting, custom_audiences: recovery.keepIds.map((id) => ({ id })) },
-                  };
-
-                  try {
-                    const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
-                    const dur = elapsed(asStart);
-                    console.log(
-                      `[launch-campaign] Phase 2 ✓  ad set (CA-salvage retry, pass ${pass}/${MAX_CA_SALVAGE_PASSES}):` +
-                        ` ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`,
-                    );
-                    return {
-                      adSet,
-                      metaAdSetId: retryRes.id,
-                      durationMs: dur,
-                      note:
-                        `Launched without ${allDroppedIds.length} unavailable audience` +
-                        `${allDroppedIds.length === 1 ? "" : "s"} across ${pass} salvage pass` +
-                        `${pass === 1 ? "" : "es"} (` +
-                        allDroppedIds.map((id) => (allDroppedNames[id] ? `${allDroppedNames[id]} (${id})` : id)).join(", ") +
-                        `).`,
-                      ageModeOverride: undefined,
-                    };
-                  } catch (retryErr) {
-                    const isAnotherBatch = retryErr instanceof MetaApiError && isDeletedCustomAudienceError(retryErr);
-                    if (isAnotherBatch && pass < MAX_CA_SALVAGE_PASSES) {
-                      console.log(
-                        `[launch-campaign] Phase 2 ✗  "${adSet.name}" — CA salvage pass ${pass}/${MAX_CA_SALVAGE_PASSES}` +
-                          ` retry STILL rejected (subcode 1359207) — another batch of stale audiences was` +
-                          ` revealed; looping to pass ${pass + 1}/${MAX_CA_SALVAGE_PASSES}`,
-                      );
-                      currentPayload = retryPayload;
-                      currentErr = retryErr;
-                      continue;
-                    }
-                    if (isAnotherBatch) {
-                      throw { adSet, err: new Error(
-                        `${retryErr.message} — hit the ${MAX_CA_SALVAGE_PASSES}-pass CA-salvage cap after` +
-                        ` dropping ${allDroppedIds.length} audience(s) total: ${allDroppedIds.join(", ")}.` +
-                        ` Meta is still revealing more unavailable audiences than this launch will loop` +
-                        ` through automatically — remove and re-add this ad set's audiences manually.`,
-                      ) };
-                    }
-                    console.error(
-                      `[launch-campaign] Phase 2 ✗  "${adSet.name}" (CA-salvage retry, pass ${pass}/${MAX_CA_SALVAGE_PASSES}):`,
-                      formatMetaError(retryErr),
-                    );
-                    throw { adSet, err: retryErr };
-                  }
-                }
-                // Unreachable — every loop iteration above returns or throws.
-                throw { adSet, err: currentErr };
-              } catch (recoveryErr) {
-                if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
-                throw { adSet, err: recoveryErr };
-              }
-            }
-
-            // task #116: Meta rejects Advantage+ Audience's targeting_automation
-            // for this ad set's campaign objective (subcode 1870196). Strip it
-            // and retry ONCE with the exact manual age range the operator
-            // configured — see isInvalidTargetingAutomationError.
-            if (err instanceof MetaApiError && isInvalidTargetingAutomationError(err)) {
-              try {
-                // task #124 — this retry downgrades the ad set from
-                // "Advantage+ suggested age" to strict manual age_min/age_max
-                // (see buildMetaTargeting's own "Advantage+ OFF" branch in
-                // lib/meta/adset.ts, which ALWAYS pairs strict top-level ages
-                // with an explicit `advantage_audience: 0`). The previous fix
-                // here `delete`d targeting_automation entirely instead of
-                // replacing it — Meta's Marketing API v23.0+ requires
-                // `targeting_automation.advantage_audience` to be explicitly
-                // 0 or 1 on EVERY ad-set-create call, so an omitted field is
-                // rejected just as hard as the original invalid value (subcode
-                // 1870227 "missing advantage_audience flag" — see
-                // isMissingAdvantageAudienceFlagError's sibling handler
-                // below). That meant this retry's OWN retry failed with
-                // 1870227, was caught by THIS same try/catch, and rethrown —
-                // the 1870227 handler below never got a chance to run
-                // (reproducer: IPC Newcastle Signup v3 "Wide" ad set,
-                // 2026-08-07 21:45 UTC, trace AwXXdOKyQMbDh8sbLfrquGg).
-                // Sending `advantage_audience: 1` here instead would reproduce
-                // the ORIGINAL 1870196 rejection: Meta rejects a top-level
-                // age_max under 65 combined with advantage_audience: 1 (see
-                // buildMetaTargeting's doc comment) — 0 is the only value
-                // consistent with the strict-age shape this branch commits to.
-                const retryPayload = {
-                  ...adSetPayload,
-                  targeting: {
-                    ...adSetPayload.targeting,
-                    age_min: adSet.ageMin,
-                    age_max: adSet.ageMax,
-                    targeting_automation: { advantage_audience: 0 as const },
-                  },
-                };
-                console.log(
-                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" — Meta subcode 1870196 (invalid targeting` +
-                    ` automation) — retrying without Advantage+ Audience (advantage_audience explicitly 0)`,
-                );
-                const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
-                const dur = elapsed(asStart);
-                console.log(`[launch-campaign] Phase 2 ✓  ad set (Advantage+ stripped retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
-                return {
+            // task #125 — everything else (the looped CA-availability
+            // salvage incl. its "meta lies" recreate-from-scratch fallback,
+            // subcode 1870196, subcode 1870227, and the fallthrough
+            // diagnostic) now lives in the shared salvage ladder so the
+            // multi-campaign MC[ci] Phase 2 loop can run the exact same
+            // logic — see lib/audiences/adset-create-with-salvage.ts.
+            try {
+              const salvaged = await createAdSetWithSalvage(
+                {
                   adSet,
-                  metaAdSetId: retryRes.id,
-                  durationMs: dur,
-                  note:
-                    `Launched without Advantage+ Audience — Meta rejected the automated targeting type for ` +
-                    `this campaign's objective; targeted ages ${adSet.ageMin}–${adSet.ageMax} manually instead, ` +
-                    `with advantage_audience explicitly set to 0 (required by Meta API v23.0+ on every ad-set-create call).`,
-                  ageModeOverride: "strict" as const,
-                };
-              } catch (recoveryErr) {
-                // task #123 (FIX 3) — log a failed RETRY distinctly from a
-                // failed FIRST attempt; previously this rethrew silently,
-                // making it indistinguishable in logs from "classifier never
-                // matched" (see isMissingAdvantageAudienceFlagError's sibling
-                // handler below for the same gap/fix).
-                console.error(
-                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" (Advantage+-stripped retry):`,
-                  formatMetaError(recoveryErr),
-                );
-                if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
-                throw { adSet, err: recoveryErr };
-              }
-            }
-
-            // task #122 (FIX 2): Meta subcode 1870227 — the objective this ad
-            // set fell under requires targeting.targeting_automation.advantage_audience
-            // to be explicitly 0 or 1 (distinct from subcode 1870196 above,
-            // which rejects the VALUE 1 outright rather than its absence).
-            // Retry ONCE with the flag forced explicitly per adSet.advantagePlus
-            // — see isMissingAdvantageAudienceFlagError.
-            if (err instanceof MetaApiError && isMissingAdvantageAudienceFlagError(err)) {
-              try {
-                const advantageAudience = adSet.advantagePlus ? 1 : 0;
-                const retryPayload = {
-                  ...adSetPayload,
-                  targeting: {
-                    ...adSetPayload.targeting,
-                    targeting_automation: { advantage_audience: advantageAudience as 0 | 1 },
-                  },
-                };
-                console.log(
-                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" — Meta subcode 1870227 (missing` +
-                    ` advantage_audience flag) — retrying with advantage_audience=${advantageAudience} explicit`,
-                );
-                const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
-                const dur = elapsed(asStart);
-                console.log(`[launch-campaign] Phase 2 ✓  ad set (advantage_audience retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
-                return {
-                  adSet,
-                  metaAdSetId: retryRes.id,
-                  durationMs: dur,
-                  note: `Set advantage_audience=${advantageAudience} explicitly per Meta requirement.`,
-                  ageModeOverride: undefined,
-                };
-              } catch (recoveryErr) {
-                // task #123 (FIX 3) — IPC Newcastle Signup v3's "Wide" ad set
-                // failed outright and prod logs alone couldn't distinguish
-                // "classifier never matched 1870227" from "it matched, retried,
-                // and the retry ALSO failed" (this branch used to rethrow
-                // silently). Log the retry's own error explicitly so the two
-                // cases are distinguishable without re-deriving them from a
-                // truncated log excerpt next time.
-                console.error(
-                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" (advantage_audience retry):`,
-                  formatMetaError(recoveryErr),
-                );
-                if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
-                throw { adSet, err: recoveryErr };
-              }
-            }
-
-            // task #123 (FIX 3) — nothing above recognised this error. Log its
-            // code/subcode/message explicitly before falling through, so a
-            // FUTURE unrecognised Meta refusal (or a classifier that stops
-            // matching because Meta changed error wording/shape) is visible
-            // directly in prod logs — no reconstructing it from the raw
-            // request/response dump, which the runtime-log viewer can
-            // truncate away entirely for a large multi-ad-set launch.
-            if (err instanceof MetaApiError) {
-              console.warn(
-                `[launch-campaign] Phase 2 ⚠  "${adSet.name}" — unrecognised Meta error (no salvage/retry` +
-                ` matched): code=${err.code ?? "n/a"} subcode=${err.subcode ?? "n/a"} message=${err.message}`,
+                  initialPayload: prep.payload,
+                  initialError: err,
+                  adAccountId,
+                  launchToken: launchToken ?? undefined,
+                  logPrefix: "Phase 2",
+                  asStart,
+                  freshReadinessResults: prep.freshReadinessResults,
+                  preflightDroppedCount: prep.preflightDroppedCount,
+                  audienceNameById: engagementAudienceNameById,
+                  pageGroups: draft.audiences.pageGroups,
+                },
+                salvageDeps,
               );
+              return {
+                adSet,
+                metaAdSetId: salvaged.metaAdSetId,
+                durationMs: salvaged.durationMs,
+                note: salvaged.note,
+                ageModeOverride: salvaged.ageModeOverride,
+              };
+            } catch (salvageErr) {
+              throw { adSet, err: salvageErr };
             }
-
-            throw { adSet, err };
           }
         }),
       );
@@ -3933,6 +3534,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       const asStart = Date.now();
+      let prep2b: PrepareAdSetPayloadResult | undefined;
       try {
         const adSetPayload = buildAdSetPayload(
           adSet,
@@ -3956,13 +3558,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           `\n  full_targeting:   ${JSON.stringify(tgt2b)}`,
         );
 
+        // task #125 — same shared prepare step as Phase 2 (readiness-wait,
+        // preflight, hard budget guard) — see
+        // lib/audiences/adset-create-with-salvage.ts.
+        prep2b = await prepareAdSetPayloadForCreate(
+          {
+            adSet,
+            payload: adSetPayload,
+            freshlyCreatedEngagementAudienceIds,
+            audienceNameById: engagementAudienceNameById,
+            getOrWaitAudienceReady,
+            launchToken: launchToken ?? undefined,
+            logPrefix: "Phase 2b",
+          },
+          salvageDeps,
+        );
+
         // Hard targeting validation
-        if (!hasAudienceTargeting(tgt2b, adSet)) {
+        if (!hasAudienceTargeting(prep2b.payload.targeting, adSet)) {
           const reason = buildEmptyTargetingReason(adSet, draft.audiences);
           throw new Error(`No valid targeting — ad set creation aborted. ${reason}`);
         }
 
-        const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
+        const adSetRes = await createMetaAdSet(adAccountId, prep2b.payload, launchToken);
         const dur = elapsed(asStart);
         console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
         adSetsCreated.push({
@@ -3970,115 +3588,56 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           metaAdSetId: adSetRes.id,
           ageMode: adSet.advantagePlus ? "suggested" : "strict",
           durationMs: dur,
+          ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
         });
         adSetMetaIds.set(adSet.id, adSetRes.id);
         adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: adSetRes.id };
       } catch (err) {
-        // task #115: same CA-salvage ladder as Phase 2 — a lookalike ad set's
-        // targeting also lands in `custom_audiences` (Meta represents
-        // lookalikes as a custom-audience subtype), so it can hit the same
-        // "no longer available" refusal (subcode 1359207) as a stale source
-        // audience ages out.
-        if (err instanceof MetaApiError && isDeletedCustomAudienceError(err)) {
-          try {
-            const adSetPayload = buildAdSetPayload(
-              adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
-              draft.settings.optimisationGoal, phase2Objective,
-              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
-              dynamicAdSetIds.has(adSet.id),
-            );
-            const requestedCaIds = (adSetPayload.targeting.custom_audiences ?? []).map((a) => a.id);
-            const named = parseOffendingCustomAudienceIds(err);
-            const availabilityStatuses =
-              named.length === 0 && requestedCaIds.length > 0
-                ? await fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined)
-                : undefined;
-            const recovery = recoverFromDeletedCa({ requestedIds: requestedCaIds, error: err, availabilityStatuses });
-            if (recovery.unrecoverable) throw new Error(`${err.message} — ${recovery.unrecoverable}`);
-            console.log(
-              `[launch-campaign] Phase 2b ✗  "${adSet.name}" — Meta subcode 1359207 (unavailable custom` +
-                ` audience) — retrying without ${recovery.dropIds.length} audience(s): ${recovery.dropIds.join(", ")}`,
-            );
-            const retryPayload = {
-              ...adSetPayload,
-              targeting: { ...adSetPayload.targeting, custom_audiences: recovery.keepIds.map((id) => ({ id })) },
-            };
-            const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
-            const dur = elapsed(asStart);
-            console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set (CA-salvage retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
-            adSetsCreated.push({
-              name: adSet.name,
-              metaAdSetId: retryRes.id,
-              ageMode: adSet.advantagePlus ? "suggested" : "strict",
-              durationMs: dur,
-              ...(recovery.note ? { note: recovery.note } : {}),
-            });
-            adSetMetaIds.set(adSet.id, retryRes.id);
-            adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: retryRes.id };
-            continue;
-          } catch (recoveryErr) {
-            const message = formatMetaError(recoveryErr);
-            console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed (CA-salvage retry):", adSet.name, ":", message);
-            adSetsFailed.push({ name: adSet.name, error: message });
-            adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
-            continue;
-          }
+        // task #125 — the full salvage ladder (CA-availability salvage
+        // loop + "meta lies" recreate fallback, subcode 1870196, subcode
+        // 1870227, fallthrough diagnostic) is now shared with Phase 2 — see
+        // lib/audiences/adset-create-with-salvage.ts. Phase 2b previously
+        // only had a single-pass 1359207 retry and the 1870196 fix; this
+        // brings it to full parity.
+        try {
+          const adSetPayload = buildAdSetPayload(
+            adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
+            draft.settings.optimisationGoal, phase2Objective,
+            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            dynamicAdSetIds.has(adSet.id),
+            draft.settings.placementConfig,
+          );
+          const salvaged = await createAdSetWithSalvage(
+            {
+              adSet,
+              initialPayload: prep2b?.payload ?? adSetPayload,
+              initialError: err,
+              adAccountId,
+              launchToken: launchToken ?? undefined,
+              logPrefix: "Phase 2b",
+              asStart,
+              freshReadinessResults: prep2b?.freshReadinessResults ?? new Map(),
+              preflightDroppedCount: prep2b?.preflightDroppedCount ?? 0,
+              audienceNameById: engagementAudienceNameById,
+              pageGroups: draft.audiences.pageGroups,
+            },
+            salvageDeps,
+          );
+          adSetsCreated.push({
+            name: adSet.name,
+            metaAdSetId: salvaged.metaAdSetId,
+            ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+            durationMs: salvaged.durationMs,
+            ...(salvaged.note ? { note: salvaged.note } : {}),
+          });
+          adSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
+          adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: salvaged.metaAdSetId };
+        } catch (salvageErr) {
+          const message = formatMetaError(salvageErr);
+          console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSet.name, ":", message);
+          adSetsFailed.push({ name: adSet.name, error: message });
+          adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
         }
-
-        // task #116: same Advantage+ Audience salvage as Phase 2 (subcode 1870196).
-        if (err instanceof MetaApiError && isInvalidTargetingAutomationError(err)) {
-          try {
-            const adSetPayload = buildAdSetPayload(
-              adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
-              draft.settings.optimisationGoal, phase2Objective,
-              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
-              dynamicAdSetIds.has(adSet.id),
-            );
-            // task #124 — same delete-vs-replace bug as Phase 2's identical
-            // handler above; see that handler's comment for the full
-            // explanation (chained 1870196 → 1870227 failure).
-            const retryPayload = {
-              ...adSetPayload,
-              targeting: {
-                ...adSetPayload.targeting,
-                age_min: adSet.ageMin,
-                age_max: adSet.ageMax,
-                targeting_automation: { advantage_audience: 0 as const },
-              },
-            };
-            console.log(
-              `[launch-campaign] Phase 2b ✗  "${adSet.name}" — Meta subcode 1870196 (invalid targeting` +
-                ` automation) — retrying without Advantage+ Audience (advantage_audience explicitly 0)`,
-            );
-            const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
-            const dur = elapsed(asStart);
-            console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set (Advantage+ stripped retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
-            adSetsCreated.push({
-              name: adSet.name,
-              metaAdSetId: retryRes.id,
-              ageMode: "strict",
-              durationMs: dur,
-              note:
-                `Launched without Advantage+ Audience — Meta rejected the automated targeting type for ` +
-                `this campaign's objective; targeted ages ${adSet.ageMin}–${adSet.ageMax} manually instead, ` +
-                `with advantage_audience explicitly set to 0 (required by Meta API v23.0+ on every ad-set-create call).`,
-            });
-            adSetMetaIds.set(adSet.id, retryRes.id);
-            adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: retryRes.id };
-            continue;
-          } catch (recoveryErr) {
-            const message = formatMetaError(recoveryErr);
-            console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed (Advantage+ stripped retry):", adSet.name, ":", message);
-            adSetsFailed.push({ name: adSet.name, error: message });
-            adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
-            continue;
-          }
-        }
-
-        const message = formatMetaError(err);
-        console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSet.name, ":", message);
-        adSetsFailed.push({ name: adSet.name, error: message });
-        adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
       }
     }
   }
@@ -4258,6 +3817,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const ciAdSetsCreated: CampaignAttachResult["adSetsCreated"] = [];
       const ciAdSetsFailed: CampaignAttachResult["adSetsFailed"] = [];
 
+      // task #125 — per-campaign clone of the base "freshly created this
+      // launch" set (populated once in Phase 1.5, before this loop starts).
+      // Not mutated by this campaign's own salvage attempts (the recreate-
+      // from-scratch fallback below never adds to it), but cloning here
+      // keeps the per-campaign boundary explicit per task #125's design
+      // guidance — a later change to that fallback's bookkeeping can't
+      // silently leak campaign ci's recreated ids into campaign ci+1's
+      // readiness-wait decision.
+      const ciFreshlyCreatedEngagementAudienceIds = new Set(freshlyCreatedEngagementAudienceIds);
+
       // Build adSet → existing-post creative map for placement override logic.
       const ciAdSetToCreativeMap = new Map<string, AdCreativeDraft>();
       for (const [creativeId, adSetIds] of Object.entries(draft.creativeAssignments ?? {})) {
@@ -4317,13 +3886,37 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               throw { adSet, err: new Error(`No valid targeting — ad set creation aborted (${adSet.name})`) };
             }
 
+            // task #125 — same shared prepare step as standard Phase 2
+            // (readiness-wait for freshly-created audiences, preflight
+            // availability check for large reused-audience ad sets, hard
+            // 0-budget guard) — see lib/audiences/adset-create-with-salvage.ts.
+            let prep: PrepareAdSetPayloadResult;
             try {
-              const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
+              prep = await prepareAdSetPayloadForCreate(
+                {
+                  adSet,
+                  payload: adSetPayload,
+                  freshlyCreatedEngagementAudienceIds: ciFreshlyCreatedEngagementAudienceIds,
+                  audienceNameById: engagementAudienceNameById,
+                  getOrWaitAudienceReady,
+                  launchToken: launchToken ?? undefined,
+                  logPrefix: `MC[${ci}] Phase 2`,
+                },
+                salvageDeps,
+              );
+            } catch (prepErr) {
+              throw { adSet, err: prepErr };
+            }
+
+            try {
+              const adSetRes = await createMetaAdSet(adAccountId, prep.payload, launchToken);
               const dur = elapsed(asStart);
               console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
-              return { adSet, metaAdSetId: adSetRes.id, durationMs: dur };
+              return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
             } catch (err) {
-              // Retry once for deprecated-interest failures.
+              // Retry once for deprecated-interest failures — stays outside
+              // the shared salvage ladder (same reasoning as standard
+              // Phase 2 — see the module doc on "Deliberately NOT covered").
               if (adSet.sourceType === "interest_group" && err instanceof MetaApiError) {
                 const replacements = extractDeprecatedReplacements(err.rawErrorData, err.message);
                 if (replacements.length > 0) {
@@ -4342,18 +3935,55 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
                   const dur = elapsed(asStart);
                   console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
-                  return { adSet, metaAdSetId: retryRes.id, durationMs: dur };
+                  return { adSet, metaAdSetId: retryRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
                 }
               }
-              throw { adSet, err };
+
+              // task #125 — the shared salvage ladder (looped CA-availability
+              // salvage + "meta lies" recreate fallback, subcode 1870196,
+              // subcode 1870227, fallthrough diagnostic) — exact same logic
+              // as standard Phase 2, see lib/audiences/adset-create-with-salvage.ts.
+              try {
+                const salvaged = await createAdSetWithSalvage(
+                  {
+                    adSet,
+                    initialPayload: prep.payload,
+                    initialError: err,
+                    adAccountId,
+                    launchToken: launchToken ?? undefined,
+                    logPrefix: `MC[${ci}] Phase 2`,
+                    asStart,
+                    freshReadinessResults: prep.freshReadinessResults,
+                    preflightDroppedCount: prep.preflightDroppedCount,
+                    audienceNameById: engagementAudienceNameById,
+                    pageGroups: draft.audiences.pageGroups,
+                  },
+                  salvageDeps,
+                );
+                return {
+                  adSet,
+                  metaAdSetId: salvaged.metaAdSetId,
+                  durationMs: salvaged.durationMs,
+                  note: salvaged.note,
+                  ageModeOverride: salvaged.ageModeOverride,
+                };
+              } catch (salvageErr) {
+                throw { adSet, err: salvageErr };
+              }
             }
           }),
         );
 
         for (const r of batchResults) {
           if (r.status === "fulfilled") {
-            const { adSet, metaAdSetId, durationMs } = r.value;
-            ciAdSetsCreated.push({ name: adSet.name, metaAdSetId, ageMode: adSet.advantagePlus ? "suggested" : "strict", durationMs });
+            const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
+            ciAdSetsCreated.push({
+              name: adSet.name,
+              metaAdSetId,
+              ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+              durationMs,
+              ...(note ? { note } : {}),
+            });
             ciAdSetMetaIds.set(adSet.id, metaAdSetId);
           } else {
             const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
@@ -4378,6 +4008,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           ciAdSetsFailed.push({ name: adSet.name, error: "Skipped — no lookalike audiences ready for this group" });
           continue;
         }
+        const asStart = Date.now();
+        let prep2b: PrepareAdSetPayloadResult | undefined;
         try {
           const adSetPayload = buildAdSetPayload(
             adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
@@ -4389,14 +4021,71 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
             throw new Error(`No valid targeting for lookalike ad set "${adSet.name}"`);
           }
-          const adSetRes = await createMetaAdSet(adAccountId, adSetPayload, launchToken);
-          ciAdSetsCreated.push({ name: adSet.name, metaAdSetId: adSetRes.id, ageMode: adSet.advantagePlus ? "suggested" : "strict" });
+
+          // task #125 — same shared prepare step as standard Phase 2b.
+          prep2b = await prepareAdSetPayloadForCreate(
+            {
+              adSet,
+              payload: adSetPayload,
+              freshlyCreatedEngagementAudienceIds: ciFreshlyCreatedEngagementAudienceIds,
+              audienceNameById: engagementAudienceNameById,
+              getOrWaitAudienceReady,
+              launchToken: launchToken ?? undefined,
+              logPrefix: `MC[${ci}] Phase 2b`,
+            },
+            salvageDeps,
+          );
+
+          const adSetRes = await createMetaAdSet(adAccountId, prep2b.payload, launchToken);
+          const dur = elapsed(asStart);
+          ciAdSetsCreated.push({
+            name: adSet.name,
+            metaAdSetId: adSetRes.id,
+            ageMode: adSet.advantagePlus ? "suggested" : "strict",
+            durationMs: dur,
+            ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
+          });
           ciAdSetMetaIds.set(adSet.id, adSetRes.id);
-          console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id}`);
+          console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
         } catch (err) {
-          const message = formatMetaError(err);
-          console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
-          ciAdSetsFailed.push({ name: adSet.name, error: message });
+          // task #125 — same shared salvage ladder as standard Phase 2b.
+          try {
+            const adSetPayload = buildAdSetPayload(
+              adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
+              draft.settings.optimisationGoal, ciObjective,
+              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+              dynamicAdSetIds.has(adSet.id),
+              draft.settings.placementConfig,
+            );
+            const salvaged = await createAdSetWithSalvage(
+              {
+                adSet,
+                initialPayload: prep2b?.payload ?? adSetPayload,
+                initialError: err,
+                adAccountId,
+                launchToken: launchToken ?? undefined,
+                logPrefix: `MC[${ci}] Phase 2b`,
+                asStart,
+                freshReadinessResults: prep2b?.freshReadinessResults ?? new Map(),
+                preflightDroppedCount: prep2b?.preflightDroppedCount ?? 0,
+                audienceNameById: engagementAudienceNameById,
+                pageGroups: draft.audiences.pageGroups,
+              },
+              salvageDeps,
+            );
+            ciAdSetsCreated.push({
+              name: adSet.name,
+              metaAdSetId: salvaged.metaAdSetId,
+              ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
+              durationMs: salvaged.durationMs,
+              ...(salvaged.note ? { note: salvaged.note } : {}),
+            });
+            ciAdSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
+          } catch (salvageErr) {
+            const message = formatMetaError(salvageErr);
+            console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
+            ciAdSetsFailed.push({ name: adSet.name, error: message });
+          }
         }
       }
 
