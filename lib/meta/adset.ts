@@ -19,12 +19,14 @@ import type {
   AudienceSettings,
   BudgetScheduleSettings,
   PlacementConfig,
+  LocationTargetingGroup,
 } from "@/lib/types";
 // Relative + explicit extension (not the "@/" alias): this is a VALUE import,
 // not type-only, so `--experimental-strip-types` does not erase it — plain
 // Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
+import { resolveAdSetGeoLocations } from "./location-targeting.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
 //
@@ -292,17 +294,28 @@ function toUnixTs(dateStr: string): number {
  *                                    via custom_audiences when a real Meta ID exists)
  *
  * Geo-location note:
- *   AdSetSuggestion and BudgetScheduleSettings do not yet carry a location field.
- *   Defaulting to { countries: ["GB"] } until location targeting is wired in Phase 5.
+ *   Resolved via `resolveAdSetGeoLocations` — prefers a fresh lookup of
+ *   `adSet.locationGroupId` against `locationGroups` (task #118, multi-
+ *   location per campaign) over the stamped `adSet.geoLocations` snapshot.
+ *   Defaults to { countries: ["GB"] } when neither is present.
  *
  * Interest / custom-audience IDs:
  *   Mock IDs ("int1", "ca2") are filtered out. Only real numeric Meta IDs (10+ digits)
  *   are included. Until real IDs are fetched via the Meta /search API, the ad set
  *   will be created with broad targeting only.
+ *
+ * sourceType "blank" ("+ Blank ad set" refinement pack):
+ *   Deliberately no audience — pure Advantage+ prospecting from location +
+ *   demographics alone. Forces Advantage+ Audience ON regardless of
+ *   `adSet.advantagePlus` (belt-and-braces: the UI also sets it true and
+ *   disables the toggle for this row, but the payload builder never trusts
+ *   that alone) and never assigns `custom_audiences`/`interests` — the
+ *   switch below has no case for it, so audience resolution is a no-op.
  */
 export function buildMetaTargeting(
   adSet: AdSetSuggestion,
   audiences: AudienceSettings,
+  locationGroups?: LocationTargetingGroup[],
 ): MetaTargeting {
   // ── Advantage+ OFF: strict age enforcement ───────────────────────────────
   // age_min / age_max at targeting root = hard limits Meta enforces.
@@ -314,13 +327,18 @@ export function buildMetaTargeting(
   // Instead, pass the user's chosen range as individual_setting inside
   // targeting_automation; Meta treats these as audience *suggestions* and
   // may expand beyond them.
-  // Resolve geo: per-ad-set override → default GB
-  const rawGeo = adSet.geoLocations;
+  // Resolve geo: locationGroupId (fresh) → per-ad-set geoLocations snapshot → default GB
+  const rawGeo = resolveAdSetGeoLocations(adSet, locationGroups);
   const geoLocations: MetaGeoLocations = rawGeo
     ? { countries: rawGeo.countries, cities: rawGeo.cities, regions: rawGeo.regions }
     : { countries: ["GB"] };
 
-  const targeting: MetaTargeting = adSet.advantagePlus
+  // Blank ad sets always run Advantage+ Audience — there's no manual
+  // audience to target strictly against, so age can only ever be a
+  // suggestion Meta expands beyond, never a hard limit.
+  const advantagePlusActive = adSet.sourceType === "blank" || adSet.advantagePlus;
+
+  const targeting: MetaTargeting = advantagePlusActive
     ? {
         geo_locations: geoLocations,
         targeting_automation: {
@@ -473,6 +491,10 @@ export function buildMetaTargeting(
       }
       break;
     }
+
+    case "blank":
+      // Deliberately no audience resolution — see the function doc comment.
+      break;
   }
 
   return targeting;
@@ -489,8 +511,16 @@ export function buildMetaTargeting(
  *
  * Saved audiences and lookalike audiences both land in custom_audiences so they
  * are covered by the first check.
+ *
+ * Exception: `adSet.sourceType === "blank"` is *deliberately* audience-free
+ * (task #118, "+ Blank ad set" — pure Advantage+ prospecting from location +
+ * demographics alone) and always passes, regardless of the targeting spec's
+ * contents. Pass `adSet` at every call site that might see a blank ad set —
+ * omitting it treats a blank ad set the same as an accidentally-empty one
+ * and aborts it at launch.
  */
-export function hasAudienceTargeting(targeting: MetaTargeting): boolean {
+export function hasAudienceTargeting(targeting: MetaTargeting, adSet?: AdSetSuggestion): boolean {
+  if (adSet?.sourceType === "blank") return true;
   if ((targeting.custom_audiences?.length ?? 0) > 0) return true;
   if ((targeting.interests?.length ?? 0) > 0) return true;
   return false;
@@ -534,6 +564,11 @@ export function buildEmptyTargetingReason(
     }
     case "saved_audience":
       return `saved audience ID "${adSet.sourceId}" is not a real Meta numeric ID`;
+    case "blank":
+      // Unreachable in practice — hasAudienceTargeting(targeting, adSet)
+      // short-circuits true for "blank" before any caller reaches this
+      // explainer. Kept for defensive completeness.
+      return "ad set is intentionally blank (no audience source) — relies entirely on Advantage+ Audience";
     default:
       return "no audience targeting sources configured";
   }
@@ -681,7 +716,7 @@ export function buildAdSetPayload(
     // Always explicit — omitting causes Meta to pick a default that may require
     // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
     bid_strategy: mapBidStrategy(effectiveGoal),
-    targeting: buildMetaTargeting(adSet, audiences),
+    targeting: buildMetaTargeting(adSet, audiences, budgetSchedule.locationGroups),
     // Ad sets are created ACTIVE so spend begins immediately when the campaign
     // is also ACTIVE. A safety beacon log below records this at every launch so
     // there is always a Vercel log entry if anyone wonders why spending started.

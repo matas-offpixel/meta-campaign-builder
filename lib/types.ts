@@ -806,7 +806,14 @@ export interface AdSetSuggestion {
     | "interest_group"
     | "lookalike_group"
     /** @deprecated Lookalike from My Facebook Pages (SelectedPagesLookalikeGroup) */
-    | "selected_pages_lookalike";
+    | "selected_pages_lookalike"
+    /**
+     * No audience source at all — pure Meta-driven prospecting. Always
+     * launches with Advantage+ Audience ON (Meta expands from location +
+     * demographics alone); `custom_audiences`/`interests` are never set.
+     * `sourceId` is `""` for this type. See Step 5 "+ Blank ad set".
+     */
+    | "blank";
   sourceId: string;
   sourceName: string;
   ageMin: number;
@@ -819,6 +826,17 @@ export interface AdSetSuggestion {
   geoLocations?: AdSetGeoLocations;
   /** Human label for the location preset, e.g. "London +40km" */
   locationLabel?: string;
+  /**
+   * FK into `BudgetScheduleSettings.locationGroups[].id` — the location group
+   * this ad set is currently assigned to (Step 5 per-row location dropdown).
+   * When present, `buildMetaTargeting` resolves `geo_locations` FRESH from
+   * that group every time (so reassigning a row's location, or editing the
+   * group itself, takes effect without needing to re-run "Generate
+   * Suggestions"). When absent — including every draft created before this
+   * field existed — falls back to the stamped `geoLocations` snapshot
+   * above, so old drafts behave identically to before.
+   */
+  locationGroupId?: string;
   /**
    * For sourceType "selected_pages_lookalike" only — which percentage tier
    * this ad set targets. Used by buildMetaTargeting to look up the correct
