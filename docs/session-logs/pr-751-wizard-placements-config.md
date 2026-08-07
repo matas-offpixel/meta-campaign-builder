@@ -1,5 +1,20 @@
 # Session log template
 
+## Correction 2026-08-07
+
+The manual-mode seed (`MANUAL_PLACEMENT_DEFAULTS` in
+`components/steps/budget-schedule.tsx`) shipped in this PR as `FB Feed + IG
+Feed only` — wrong per the operator's actual intent. Corrected in a
+follow-up PR (branch `cursor/wizard-placements-default-fix`) to **FB Feed
+only + ALL Instagram placements** (FB Reels/Story/Marketplace underperform
+for electronic music campaigns; IG's Reels/Story/Explore are strong and
+shouldn't be excluded by default). See
+`docs/session-logs/pr-752-wizard-placements-default-fix.md` (PR #752) for the
+follow-up's full log. No backend/Meta-payload logic changed — the resolver
+in `lib/meta/placement-config.ts` already handled arbitrary
+`instagramPositions` arrays correctly; only the UI's initial seed value
+was wrong.
+
 ## PR
 
 - **Number:** 751
