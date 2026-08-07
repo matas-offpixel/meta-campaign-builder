@@ -164,6 +164,40 @@ describe("recoverFromDeletedCa", () => {
     assert.match(out.unrecoverable ?? "", /Similar Pages — engagement 40/);
   });
 
+  /**
+   * task #122 (FIX 1) — the launch route now overlays a pre-create
+   * readiness-wait outcome (`waitForAudienceReady` in `lib/meta/client.ts`)
+   * onto `availabilityStatuses` for custom audiences created earlier in the
+   * SAME launch run. A fresh audience still `operation_status.code=441`
+   * ("populating") after the 30s wait is marked `available: false` there —
+   * this pins that `recoverFromDeletedCa` drops it exactly like a genuinely
+   * deleted (411/412) audience, and that the caller-supplied name (carrying
+   * the "still populating after 30s" context) surfaces in the note. Before
+   * this fix, `fetchCustomAudienceAvailability` alone never flagged 441 as
+   * unavailable, so this exact shape returned `dropIds=[]` (unrecoverable) —
+   * the IPC Newcastle signup v2 reproducer.
+   */
+  it("drops a still-populating (op=441) fresh audience marked unavailable by the readiness wait", () => {
+    const out = recoverFromDeletedCa({
+      requestedIds: [A, BAD, C],
+      error: thrownLikeMetaApiError,
+      availabilityStatuses: [
+        { id: A, available: true },
+        // Not deleted (no 411/412) — still populating after the bounded wait
+        // timed out. The route marks this available:false itself; this
+        // module doesn't need to know WHY, only that it's false.
+        { id: BAD, available: false },
+        { id: C, available: true },
+      ],
+      names: { [BAD]: "Similar Pages — engagement 40 — dropped: still populating after 30s" },
+    });
+    assert.equal(out.recognised, true);
+    assert.deepEqual(out.keepIds, [A, C]);
+    assert.deepEqual(out.dropIds, [BAD]);
+    assert.equal(out.unrecoverable, undefined);
+    assert.match(out.note ?? "", /still populating after 30s/);
+  });
+
   it("de-duplicates named ids and preserves requested order", () => {
     const out = recoverFromDeletedCa({
       requestedIds: [A, BAD, C],

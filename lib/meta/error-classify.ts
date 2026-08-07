@@ -232,3 +232,42 @@ export function isInvalidTargetingAutomationError(err: unknown): boolean {
   if (typeof e.userMsg === "string" && phrase.test(e.userMsg)) return true;
   return false;
 }
+
+/**
+ * Meta (#100) subcode 1870227: Meta requires
+ * `targeting.targeting_automation.advantage_audience` to be explicitly `0`
+ * or `1` for the ad set's campaign objective — a different refusal from
+ * subcode 1870196 above (which rejects the VALUE `1`/Advantage+ Audience
+ * outright for the objective). 1870227 instead rejects the field being
+ * absent/unset, so the fix is the opposite of 1870196's "strip it": send
+ * the flag explicitly rather than removing it.
+ *
+ * Reproducer (task #122): IPC Newcastle signup v2 launch, 2026-08-07 —
+ * the "Wide" ad set was rejected with this subcode even though
+ * `buildMetaTargeting` (`lib/meta/adset.ts`) already sets
+ * `targeting_automation.advantage_audience` on every payload; the retry in
+ * `launch-campaign/route.ts` re-sends it as a standalone
+ * `{ advantage_audience: 0 | 1 }` object (no `individual_setting`) per
+ * Meta's exact ask, in case some other payload mutation upstream ever
+ * drops or restructures the field before this ad set reaches Meta.
+ *
+ * Duck-typed against `{ code, subcode, message, userMsg }`, same rationale
+ * as the sibling classifiers above.
+ */
+const MISSING_ADVANTAGE_AUDIENCE_FLAG_SUBCODES: ReadonlySet<number> = new Set([1870227]);
+
+export function isMissingAdvantageAudienceFlagError(err: unknown): boolean {
+  if (err == null || typeof err !== "object") return false;
+  const e = err as { code?: unknown; subcode?: unknown; message?: unknown; userMsg?: unknown };
+
+  if (typeof e.subcode === "number" && MISSING_ADVANTAGE_AUDIENCE_FLAG_SUBCODES.has(e.subcode)) {
+    return true;
+  }
+
+  if (e.code !== 100 && e.code !== undefined) return false;
+
+  const phrase = /advantage_audience/i;
+  if (typeof e.message === "string" && phrase.test(e.message)) return true;
+  if (typeof e.userMsg === "string" && phrase.test(e.userMsg)) return true;
+  return false;
+}

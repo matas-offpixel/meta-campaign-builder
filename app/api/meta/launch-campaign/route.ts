@@ -29,10 +29,12 @@ import {
   fetchAdSetsForCampaign,
   fetchCustomAudienceAvailability,
   checkAudienceReadiness,
+  waitForAudienceReady,
   rankSeedsByPreference,
   uploadImageFromUrl,
   MetaApiError,
 } from "@/lib/meta/client";
+import type { AudienceReadinessWaitResult, CustomAudienceAvailability } from "@/lib/meta/client";
 import {
   resolvePageIdentity,
   resolvePageIgActor,
@@ -99,7 +101,11 @@ import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/
 import { assertSameObjective } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
-import { isObjectiveIncompatibilityError, isInvalidTargetingAutomationError } from "@/lib/meta/error-classify";
+import {
+  isObjectiveIncompatibilityError,
+  isInvalidTargetingAutomationError,
+  isMissingAdvantageAudienceFlagError,
+} from "@/lib/meta/error-classify";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -1780,6 +1786,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const engagementAudiencesCreated: NonNullable<LaunchSummary["engagementAudiencesCreated"]> = [];
   const engagementAudiencesFailed: NonNullable<LaunchSummary["engagementAudiencesFailed"]> = [];
   const pageGroupAudienceIds = new Map<string, string[]>();
+  // task #122 (FIX 1) — ids created BRAND NEW in this launch run (Phase 1.5 /
+  // 1.5b below), as opposed to reused from a prior run's
+  // `engagementAudienceStatuses` (those are already checked for readiness a
+  // few lines below and are almost certainly past Meta's populating window).
+  // Phase 2 uses this set to decide which custom-audience ids are worth a
+  // bounded readiness wait before/around ad set creation — see
+  // `waitForAudienceReady` in `lib/meta/client.ts`.
+  const freshlyCreatedEngagementAudienceIds = new Set<string>();
   // Typed seeds for Phase 1.75 — same data as pageGroupAudienceIds but with
   // engagement type attached so we can rank by preference before trying lookalikes.
   const pageGroupTypedSeeds = new Map<string, TypedSeed[]>();
@@ -1901,6 +1915,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             console.log(`[launch-campaign] Phase 1.5 — recovered ${et} for page ${pageId}: ${note}`);
           }
           createdIds.push(result.id);
+          freshlyCreatedEngagementAudienceIds.add(result.id);
           engagementAudiencesCreated.push({
             name: audienceName,
             id: result.id,
@@ -2084,6 +2099,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           }
           pageEngIds.push(result.id);
           createdIds.push(result.id);
+          freshlyCreatedEngagementAudienceIds.add(result.id);
           engagementAudiencesCreated.push({
             name: audienceName,
             id: result.id,
@@ -2760,6 +2776,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // task #122 (FIX 1) — id → display name for engagement audiences created
+    // THIS run, used only to make the readiness-wait log lines and the
+    // eventual salvage note (if the wait times out) legible.
+    const engagementAudienceNameById = new Map(
+      engagementAudiencesCreated.map((ea) => [ea.id, ea.name] as const),
+    );
+
+    // task #122 (FIX 1) — shared cache so concurrent ad sets in the same
+    // batch that reference the SAME freshly-created custom audience (e.g.
+    // several ad sets built from the same page_group) share one poll rather
+    // than each burning their own 30s budget on identical Graph calls.
+    const audienceReadinessCache = new Map<string, Promise<AudienceReadinessWaitResult>>();
+    function getOrWaitAudienceReady(audienceId: string): Promise<AudienceReadinessWaitResult> {
+      const cached = audienceReadinessCache.get(audienceId);
+      if (cached) return cached;
+      const promise = waitForAudienceReady(audienceId, userFbToken ?? undefined);
+      audienceReadinessCache.set(audienceId, promise);
+      return promise;
+    }
+
     // Create standard ad sets concurrently in batches of 5
     const BATCH_SIZE = 5;
     for (let i = 0; i < standardSets.length; i += BATCH_SIZE) {
@@ -2865,6 +2901,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             `\n  full_targeting:   ${JSON.stringify(tgt)}`,
           );
 
+          // ── task #122 (FIX 1): wait out the freshly-created-audience race ────
+          // Custom audiences created THIS run (Phase 1.5/1.5b) can still be
+          // Meta operation_status.code=441 ("populating") seconds later, which
+          // makes createMetaAdSet fail with subcode 1359207 even though the
+          // audience is not deleted — see waitForAudienceReady's doc comment.
+          // Bounded 30s/3s-interval wait per referenced fresh id, shared across
+          // concurrently-created ad sets via audienceReadinessCache. Ids not
+          // created this run (already-stable audiences) are never waited on.
+          const freshReadinessResults = new Map<string, AudienceReadinessWaitResult>();
+          const freshIdsToWaitOn = customAudIds.filter((id) => freshlyCreatedEngagementAudienceIds.has(id));
+          if (freshIdsToWaitOn.length > 0) {
+            console.log(
+              `[launch-campaign] Phase 2 — "${adSet.name}" references ${freshIdsToWaitOn.length}` +
+              ` freshly-created audience(s); waiting up to 30s for readiness: ` +
+              freshIdsToWaitOn.map((id) => `${id} (${engagementAudienceNameById.get(id) ?? "?"})`).join(", "),
+            );
+            const waited = await Promise.all(freshIdsToWaitOn.map((id) => getOrWaitAudienceReady(id)));
+            for (const w of waited) {
+              freshReadinessResults.set(w.id, w);
+              console.log(
+                `[launch-campaign] Phase 2 — readiness wait for ${w.id}:` +
+                ` ready=${w.ready} timedOut=${w.timedOut} code=${w.finalCode ?? "n/a"} (${w.finalDescription ?? "n/a"})`,
+              );
+            }
+          }
+
           // ── Hard targeting validation ─────────────────────────────────────────
           // Do NOT create ad sets with empty targeting — this would result in
           // untargeted broad-audience spend across the entire country.
@@ -2883,6 +2945,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             );
             throw { adSet, err: new Error(
               `No valid targeting — ad set creation aborted. ${reason}`
+            )};
+          }
+
+          // ── task #122 (FIX 3): hard budget validation ────────────────────────
+          // Meta rejects ad set creation outright (subcode 1885272) when
+          // daily_budget is 0 — this used to only surface as a raw Meta error
+          // at launch time for the "+ Blank ad set" row (which hardcoded
+          // budgetPerDay: 0 before the fix in lib/wizard/adset-suggestions.ts).
+          // Belt-and-braces server-side guard: catch a 0/negative budget
+          // BEFORE calling Meta, regardless of how it slipped through the UI.
+          if (!adSetPayload.daily_budget || adSetPayload.daily_budget <= 0) {
+            throw { adSet, err: new Error(
+              `Ad set "${adSet.name}" has no budget — set a daily budget in Step 5.`,
             )};
           }
 
@@ -2961,14 +3036,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               try {
                 const requestedCaIds = (adSetPayload.targeting.custom_audiences ?? []).map((a) => a.id);
                 const named = parseOffendingCustomAudienceIds(err);
-                const availabilityStatuses =
-                  named.length === 0 && requestedCaIds.length > 0
-                    ? await fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined)
-                    : undefined;
+                let availabilityStatuses: CustomAudienceAvailability[] | undefined;
+                const recoveryNames: Record<string, string> = {};
+                if (named.length === 0 && requestedCaIds.length > 0) {
+                  const fetched = await fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined);
+                  const byId = new Map(fetched.map((s) => [s.id, s] as const));
+                  // task #122 (FIX 1) — overlay the pre-create readiness wait's
+                  // outcome. fetchCustomAudienceAvailability's delivery/operation
+                  // check only flags 411/412 (genuinely deleted) as unavailable;
+                  // a fresh audience STILL populating (441) after the 30s wait
+                  // above reads as "available" there, so without this overlay
+                  // recoverFromDeletedCa would return dropIds=[] (unrecoverable)
+                  // exactly like the IPC Newcastle v2 reproducer (task #122).
+                  for (const [id, waited] of freshReadinessResults) {
+                    if (!waited.ready) {
+                      byId.set(id, { id, available: false, operationStatusCode: waited.finalCode ?? undefined });
+                      const baseName = engagementAudienceNameById.get(id) ?? id;
+                      recoveryNames[id] = waited.timedOut
+                        ? `${baseName} — dropped: still populating after 30s`
+                        : `${baseName} — unavailable (code ${waited.finalCode ?? "unknown"})`;
+                    }
+                  }
+                  availabilityStatuses = requestedCaIds.map((id) => byId.get(id) ?? { id, available: true });
+                }
                 const recovery = recoverFromDeletedCa({
                   requestedIds: requestedCaIds,
                   error: err,
                   availabilityStatuses,
+                  names: Object.keys(recoveryNames).length > 0 ? recoveryNames : undefined,
                 });
                 if (recovery.unrecoverable) {
                   throw { adSet, err: new Error(`${err.message} — ${recovery.unrecoverable}`) };
@@ -3024,6 +3119,42 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     `Launched without Advantage+ Audience — Meta rejected the automated targeting type for ` +
                     `this campaign's objective; targeted ages ${adSet.ageMin}–${adSet.ageMax} manually instead.`,
                   ageModeOverride: "strict" as const,
+                };
+              } catch (recoveryErr) {
+                if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;
+                throw { adSet, err: recoveryErr };
+              }
+            }
+
+            // task #122 (FIX 2): Meta subcode 1870227 — the objective this ad
+            // set fell under requires targeting.targeting_automation.advantage_audience
+            // to be explicitly 0 or 1 (distinct from subcode 1870196 above,
+            // which rejects the VALUE 1 outright rather than its absence).
+            // Retry ONCE with the flag forced explicitly per adSet.advantagePlus
+            // — see isMissingAdvantageAudienceFlagError.
+            if (err instanceof MetaApiError && isMissingAdvantageAudienceFlagError(err)) {
+              try {
+                const advantageAudience = adSet.advantagePlus ? 1 : 0;
+                const retryPayload = {
+                  ...adSetPayload,
+                  targeting: {
+                    ...adSetPayload.targeting,
+                    targeting_automation: { advantage_audience: advantageAudience as 0 | 1 },
+                  },
+                };
+                console.log(
+                  `[launch-campaign] Phase 2 ✗  "${adSet.name}" — Meta subcode 1870227 (missing` +
+                    ` advantage_audience flag) — retrying with advantage_audience=${advantageAudience} explicit`,
+                );
+                const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
+                const dur = elapsed(asStart);
+                console.log(`[launch-campaign] Phase 2 ✓  ad set (advantage_audience retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+                return {
+                  adSet,
+                  metaAdSetId: retryRes.id,
+                  durationMs: dur,
+                  note: `Set advantage_audience=${advantageAudience} explicitly per Meta requirement.`,
+                  ageModeOverride: undefined,
                 };
               } catch (recoveryErr) {
                 if (recoveryErr && typeof recoveryErr === "object" && "adSet" in recoveryErr) throw recoveryErr;

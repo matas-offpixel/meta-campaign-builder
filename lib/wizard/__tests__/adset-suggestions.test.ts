@@ -12,6 +12,7 @@ import { describe, it } from "node:test";
 
 import {
   createBlankAdSetSuggestion,
+  defaultBlankAdSetBudget,
   duplicateAdSetSuggestion,
   deleteAdSetSuggestion,
   applyBulkAgeRange,
@@ -80,6 +81,73 @@ describe("createBlankAdSetSuggestion", () => {
     assert.equal(blank.locationGroupId, undefined);
     assert.equal(blank.locationLabel, "UK (nationwide)");
     assert.deepEqual(blank.geoLocations?.countries, ["GB"]);
+  });
+
+  // task #122 (FIX 3) — Meta rejects ad set creation outright (subcode
+  // 1885272) when daily_budget is 0. createBlankAdSetSuggestion used to
+  // hardcode budgetPerDay: 0 (reproducer: IPC Newcastle signup v2 launch,
+  // 2026-08-07).
+  it("never defaults budgetPerDay to 0 — falls back to 100 when no default is passed", () => {
+    const blank = createBlankAdSetSuggestion([], FALLBACK_UK);
+    assert.equal(blank.budgetPerDay, 100);
+  });
+
+  it("uses the explicit defaultBudgetPerDay argument when passed", () => {
+    const blank = createBlankAdSetSuggestion([], FALLBACK_UK, 42.5);
+    assert.equal(blank.budgetPerDay, 42.5);
+  });
+
+  it("clamps a passed-in 0/negative defaultBudgetPerDay up to 100 (belt-and-braces)", () => {
+    assert.equal(createBlankAdSetSuggestion([], FALLBACK_UK, 0).budgetPerDay, 100);
+    assert.equal(createBlankAdSetSuggestion([], FALLBACK_UK, -5).budgetPerDay, 100);
+  });
+});
+
+describe("defaultBlankAdSetBudget", () => {
+  it("returns the hard floor of 100 when there are no existing suggestions and no campaign default", () => {
+    assert.equal(defaultBlankAdSetBudget([], 0), 100);
+  });
+
+  it("uses the median of existing suggestions' budgetPerDay when it exceeds 100 and the campaign default", () => {
+    const suggestions = [
+      makeSuggestion({ id: "s1", budgetPerDay: 150 }),
+      makeSuggestion({ id: "s2", budgetPerDay: 200 }),
+      makeSuggestion({ id: "s3", budgetPerDay: 250 }),
+    ];
+    assert.equal(defaultBlankAdSetBudget(suggestions, 20), 200);
+  });
+
+  it("uses the campaign default when it exceeds the median and the floor", () => {
+    const suggestions = [
+      makeSuggestion({ id: "s1", budgetPerDay: 10 }),
+      makeSuggestion({ id: "s2", budgetPerDay: 20 }),
+    ];
+    assert.equal(defaultBlankAdSetBudget(suggestions, 500), 500);
+  });
+
+  it("falls back to the 100 floor when both median and campaign default are 0 (e.g. every existing suggestion is a prior 0-budget blank row)", () => {
+    const suggestions = [
+      makeSuggestion({ id: "s1", budgetPerDay: 0 }),
+      makeSuggestion({ id: "s2", budgetPerDay: 0 }),
+    ];
+    assert.equal(defaultBlankAdSetBudget(suggestions, 0), 100);
+  });
+
+  it("computes an even-count median as the average of the two middle values", () => {
+    const suggestions = [
+      makeSuggestion({ id: "s1", budgetPerDay: 100 }),
+      makeSuggestion({ id: "s2", budgetPerDay: 300 }),
+    ];
+    // median of [100, 300] = 200, which beats the 100 floor and a 0 campaign default.
+    assert.equal(defaultBlankAdSetBudget(suggestions, 0), 200);
+  });
+
+  it("ignores non-finite budgetPerDay values defensively", () => {
+    const suggestions = [
+      makeSuggestion({ id: "s1", budgetPerDay: Number.NaN }),
+      makeSuggestion({ id: "s2", budgetPerDay: 150 }),
+    ];
+    assert.equal(defaultBlankAdSetBudget(suggestions, 0), 150);
   });
 });
 

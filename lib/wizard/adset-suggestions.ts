@@ -22,6 +22,43 @@ import type { AdSetSuggestion, LocationTargetingGroup } from "@/lib/types";
 // type-only "@/lib/types" import above which vanishes entirely at runtime.
 import { groupToGeo } from "../meta/location-targeting.ts";
 
+/** Hard floor for `defaultBlankAdSetBudget` — never let a blank ad set default to 0 or near-0. */
+const MIN_BLANK_AD_SET_BUDGET = 100;
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/**
+ * Default daily budget for a newly-added "Blank ad set" row (task #122,
+ * FIX 3) — deliberately never 0. Meta rejects ad set creation outright with
+ * subcode 1885272 ("your budget is too low") when `daily_budget` is 0;
+ * `createBlankAdSetSuggestion` used to hardcode `budgetPerDay: 0`, which
+ * Meta only caught at launch time (reproducer: IPC Newcastle signup v2
+ * launch, 2026-08-07).
+ *
+ * Picks the highest of:
+ *   - the median `budgetPerDay` across the ad sets already on this campaign
+ *     (matches the campaign's existing budget shape rather than an
+ *     arbitrary constant)
+ *   - `campaignDefaultBudget` (Step 5's top-level budget amount field —
+ *     `BudgetScheduleSettings.budgetAmount`)
+ *   - a hard floor of {@link MIN_BLANK_AD_SET_BUDGET}
+ */
+export function defaultBlankAdSetBudget(
+  existingSuggestions: AdSetSuggestion[],
+  campaignDefaultBudget: number,
+): number {
+  const values = existingSuggestions
+    .map((s) => s.budgetPerDay)
+    .filter((v): v is number => Number.isFinite(v));
+  const safeCampaignDefault = Number.isFinite(campaignDefaultBudget) ? campaignDefaultBudget : 0;
+  return Math.max(median(values), safeCampaignDefault, MIN_BLANK_AD_SET_BUDGET);
+}
+
 /**
  * Build a new "blank" ad set: no page/custom/interest/lookalike source,
  * Advantage+ Audience always ON (`advantagePlus: true`, and the UI disables
@@ -32,10 +69,17 @@ import { groupToGeo } from "../meta/location-targeting.ts";
  * Defaults its location to the first configured location group (matching
  * every other newly-generated ad set); falls back to `fallbackGroup`
  * (UK nationwide) when no location group is configured yet.
+ *
+ * `defaultBudgetPerDay` defaults to {@link MIN_BLANK_AD_SET_BUDGET} so even a
+ * caller that skips `defaultBlankAdSetBudget` entirely can never produce a
+ * 0-budget ad set (task #122, FIX 3) — pass the result of
+ * `defaultBlankAdSetBudget` explicitly for the real "existing campaign
+ * shape" default.
  */
 export function createBlankAdSetSuggestion(
   locationGroups: LocationTargetingGroup[],
   fallbackGroup: LocationTargetingGroup,
+  defaultBudgetPerDay: number = MIN_BLANK_AD_SET_BUDGET,
 ): AdSetSuggestion {
   const primary = locationGroups[0];
   const effectiveGroup = primary ?? fallbackGroup;
@@ -47,7 +91,7 @@ export function createBlankAdSetSuggestion(
     sourceName: "No audience source — Advantage+ Audience only",
     ageMin: 18,
     ageMax: 65,
-    budgetPerDay: 0,
+    budgetPerDay: defaultBudgetPerDay > 0 ? defaultBudgetPerDay : MIN_BLANK_AD_SET_BUDGET,
     advantagePlus: true,
     enabled: true,
     geoLocations: groupToGeo(effectiveGroup),
