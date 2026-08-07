@@ -168,7 +168,7 @@ describe("Historical case: Junction 2 with __mastery + junction_2", () => {
 // ── Test 3: explicit pick propagates byte-for-byte into object_story_spec ────
 
 describe("Explicit pick propagates into the creative payload", () => {
-  it("the picked IG id is the id sent as object_story_spec.instagram_user_id", () => {
+  it("the picked IG id is the id sent as object_story_spec.instagram_user_id", async () => {
     const picked = applyPageInstagramOverrideToCreative(junction2Creative(), {
       [JUNCTION_2_PAGE]: IG_JUNCTION_2,
     });
@@ -176,7 +176,7 @@ describe("Explicit pick propagates into the creative payload", () => {
     assert.equal(picked.identity.instagramAccountId, IG_JUNCTION_2);
     assert.equal(picked.identity.instagramActorId, IG_JUNCTION_2);
 
-    const payload = buildCreativePayload(picked, {
+    const payload = await buildCreativePayload(picked, {
       validatedIgActorId: picked.identity.instagramActorId,
     });
 

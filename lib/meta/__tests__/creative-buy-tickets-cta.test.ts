@@ -80,7 +80,7 @@ describe("CTA plumbing — buy_tickets", () => {
 // ─── Single mode + N variations + BUY_TICKETS → rotation path (NOT fallback) ──
 
 describe("Single mode + N variations + BUY_TICKETS → variation-rotation path fires (no fallback)", () => {
-  it("4 variations + BUY_TICKETS → asset_feed_spec.call_to_action_types: [BUY_TICKETS], all 4 hashes present", () => {
+  it("4 variations + BUY_TICKETS → asset_feed_spec.call_to_action_types: [BUY_TICKETS], all 4 hashes present", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [
@@ -90,7 +90,7 @@ describe("Single mode + N variations + BUY_TICKETS → variation-rotation path f
         imageVariation("v4", "Variation 4", "hash_4"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BUY_TICKETS"]);
     const images = payload.asset_feed_spec?.images ?? [];
@@ -109,7 +109,7 @@ describe("Single mode + N variations + BUY_TICKETS → variation-rotation path f
 // ─── Dual mode + BUY_TICKETS → multi-placement path fires (NOT BOOK_NOW fallback) ─
 
 describe("Dual mode + BUY_TICKETS → multi-placement path fires (NOT the BOOK_NOW single-asset fallback)", () => {
-  it("4:5 + 9:16 assets + BUY_TICKETS → asset_feed_spec with per-placement rules, both assets present", () => {
+  it("4:5 + 9:16 assets + BUY_TICKETS → asset_feed_spec with per-placement rules, both assets present", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetMode: "dual",
@@ -124,7 +124,7 @@ describe("Dual mode + BUY_TICKETS → multi-placement path fires (NOT the BOOK_N
         },
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BUY_TICKETS"]);
     const images = payload.asset_feed_spec?.images ?? [];
@@ -139,7 +139,7 @@ describe("Dual mode + BUY_TICKETS → multi-placement path fires (NOT the BOOK_N
 // ─── Regression: BOOK_NOW behaviour is completely unaffected ─────────────────
 
 describe("Regression — existing BOOK_NOW + Dual fallback still fires exactly as before", () => {
-  it("BOOK_NOW + dual assets → still falls back to single-asset 9:16 (PR #575 behaviour preserved)", () => {
+  it("BOOK_NOW + dual assets → still falls back to single-asset 9:16 (PR #575 behaviour preserved)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetMode: "dual",
@@ -155,13 +155,13 @@ describe("Regression — existing BOOK_NOW + Dual fallback still fires exactly a
         },
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined, "BOOK_NOW still blocked from AFS — unchanged");
     assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_916");
     assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW");
   });
 
-  it("BUY_TICKETS does NOT accidentally trigger the BOOK_NOW single-asset fallback branch", () => {
+  it("BUY_TICKETS does NOT accidentally trigger the BOOK_NOW single-asset fallback branch", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetMode: "dual",
@@ -177,7 +177,7 @@ describe("Regression — existing BOOK_NOW + Dual fallback still fires exactly a
         },
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     // If BUY_TICKETS were mis-routed into the BOOK_NOW fallback, asset_feed_spec
     // would be undefined here — assert it is NOT.
     assert.ok(payload.asset_feed_spec, "BUY_TICKETS uses AFS, not the BOOK_NOW fallback");

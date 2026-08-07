@@ -105,7 +105,7 @@ afterEach(() => {
 // ─── Single mode + N variations (images) ──────────────────────────────────────
 
 describe("buildVariationRotationCreative — image (Single mode, flag ON)", () => {
-  it("4 variations → asset_feed_spec.images with ONLY {hash}, NO adlabels, NO customization_rules", () => {
+  it("4 variations → asset_feed_spec.images with ONLY {hash}, NO adlabels, NO customization_rules", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [
@@ -115,7 +115,7 @@ describe("buildVariationRotationCreative — image (Single mode, flag ON)", () =
         imageVariation("v4", "Variation 4", "hash_4"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     const images = payload.asset_feed_spec?.images ?? [];
     assert.equal(images.length, 4, "all 4 variation hashes present");
@@ -147,7 +147,7 @@ describe("buildVariationRotationCreative — image (Single mode, flag ON)", () =
     assert.equal(payload.object_story_spec?.link_data, undefined);
   });
 
-  it("carries caption/headline/link/CTA in the feed spec", () => {
+  it("carries caption/headline/link/CTA in the feed spec", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       cta: "sign_up",
@@ -156,7 +156,7 @@ describe("buildVariationRotationCreative — image (Single mode, flag ON)", () =
         imageVariation("v2", "Variation 2", "hash_2"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     const afs = payload.asset_feed_spec!;
     assert.equal(afs.bodies?.[0].text, "Come see us live");
     assert.equal(afs.titles?.[0].text, "Buy tickets now");
@@ -169,7 +169,7 @@ describe("buildVariationRotationCreative — image (Single mode, flag ON)", () =
 // ─── Single mode + N variations (videos) ──────────────────────────────────────
 
 describe("buildVariationRotationCreative — video (Single mode, flag ON)", () => {
-  it("3 variations → asset_feed_spec.videos with {video_id}(+thumbnail), NO adlabels, NO customization_rules", () => {
+  it("3 variations → asset_feed_spec.videos with {video_id}(+thumbnail), NO adlabels, NO customization_rules", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -179,7 +179,7 @@ describe("buildVariationRotationCreative — video (Single mode, flag ON)", () =
         videoVariation("v3", "Variation 3", "vid_3"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     const videos = payload.asset_feed_spec?.videos ?? [];
     assert.equal(videos.length, 3);
@@ -209,7 +209,7 @@ describe("buildVariationRotationCreative — video (Single mode, flag ON)", () =
 // ─── CTA = BOOK_NOW + N variations → single-asset fallback ────────────────────
 
 describe("Single mode + N variations + BOOK_NOW → single-asset fallback (constraint 1885396)", () => {
-  it("falls back to variation[0] via link_data, no asset_feed_spec", () => {
+  it("falls back to variation[0] via link_data, no asset_feed_spec", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       cta: "book_now",
@@ -220,14 +220,14 @@ describe("Single mode + N variations + BOOK_NOW → single-asset fallback (const
         imageVariation("v4", "Variation 4", "hash_4"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped for BOOK_NOW");
     assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_1", "uses variation[0] only");
     assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW", "CTA preserved");
   });
 
-  it("video variant: falls back to variation[0] via video_data, no asset_feed_spec", () => {
+  it("video variant: falls back to variation[0] via video_data, no asset_feed_spec", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -237,7 +237,7 @@ describe("Single mode + N variations + BOOK_NOW → single-asset fallback (const
         videoVariation("v2", "Variation 2", "vid_2", "https://cdn/t2.jpg"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     assert.equal(payload.asset_feed_spec, undefined);
     assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_1");
@@ -248,12 +248,12 @@ describe("Single mode + N variations + BOOK_NOW → single-asset fallback (const
 // ─── Regression: 1 variation → identical to today ─────────────────────────────
 
 describe("Single mode + 1 variation → unchanged (no asset_feed_spec)", () => {
-  it("single variation never triggers rotation, even with flag ON", () => {
+  it("single variation never triggers rotation, even with flag ON", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [imageVariation("v1", "Variation 1", "hash_1")],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined);
     assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_1");
   });
@@ -262,7 +262,7 @@ describe("Single mode + 1 variation → unchanged (no asset_feed_spec)", () => {
 // ─── Regression: Dual/Full mode is OUT OF SCOPE — falls back to variation[0] ──
 
 describe("Dual mode + N variations — out of scope, falls back to variation[0]", () => {
-  it("2 variations, dual mode → existing multi-placement path using variation[0] only", () => {
+  it("2 variations, dual mode → existing multi-placement path using variation[0] only", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const dualVar1: AssetVariation = {
       id: "v1",
@@ -284,7 +284,7 @@ describe("Dual mode + N variations — out of scope, falls back to variation[0]"
       assetMode: "dual",
       assetVariations: [dualVar1, dualVar2],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
 
     // Existing multi-placement path fires (uses variation[0] assets only).
     const images = payload.asset_feed_spec?.images ?? [];
@@ -299,7 +299,7 @@ describe("Dual mode + N variations — out of scope, falls back to variation[0]"
     );
   });
 
-  it("BOOK_NOW + dual mode + 1 variation → existing vertical fallback unchanged", () => {
+  it("BOOK_NOW + dual mode + 1 variation → existing vertical fallback unchanged", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetMode: "dual",
@@ -315,7 +315,7 @@ describe("Dual mode + N variations — out of scope, falls back to variation[0]"
         },
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — BOOK_NOW vertical fallback");
     assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_916", "uses 9:16 hash, NOT 4:5");
     assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW");
@@ -325,7 +325,7 @@ describe("Dual mode + N variations — out of scope, falls back to variation[0]"
 // ─── Mixed media across variations → falls through (no rotation) ─────────────
 
 describe("Mixed media across variations → detectVariationRotation returns null", () => {
-  it("video variation[0] + image variation[1] → falls back to legacy single-asset (variation[0]) path", () => {
+  it("video variation[0] + image variation[1] → falls back to legacy single-asset (variation[0]) path", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     // variation[0] is video so the legacy hasVideoId/pickPrimaryVideoAsset path
     // (which only ever reads variation[0]) still resolves cleanly — isolating
@@ -338,7 +338,7 @@ describe("Mixed media across variations → detectVariationRotation returns null
         imageVariation("v2", "Variation 2", "hash_2"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined, "mixed media across variations → no rotation");
     assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_1", "legacy path uses variation[0]");
   });
@@ -347,7 +347,7 @@ describe("Mixed media across variations → detectVariationRotation returns null
 // ─── Feature flag OFF → legacy path regardless of variation count ─────────────
 
 describe("Flag OFF → variation rotation never fires", () => {
-  it("4 variations, flag off → legacy single-asset path (variation[0] only)", () => {
+  it("4 variations, flag off → legacy single-asset path (variation[0] only)", async () => {
     delete process.env.ENABLE_MULTI_PLACEMENT_ASSETS;
     const creative = baseCreative({
       assetVariations: [
@@ -357,7 +357,7 @@ describe("Flag OFF → variation rotation never fires", () => {
         imageVariation("v4", "Variation 4", "hash_4"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined);
     assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_1");
   });
@@ -366,7 +366,7 @@ describe("Flag OFF → variation rotation never fires", () => {
 // ─── Sanitizer discrimination — variation rotation is PRESERVED, not stripped ─
 
 describe("sanitizeCreativeForStrictMode — variation-rotation asset_feed_spec is preserved", () => {
-  it("preserves the built variation-rotation payload (≥2 images, NO rules) and keeps it rules/adlabel-free", () => {
+  it("preserves the built variation-rotation payload (≥2 images, NO rules) and keeps it rules/adlabel-free", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [
@@ -376,7 +376,7 @@ describe("sanitizeCreativeForStrictMode — variation-rotation asset_feed_spec i
         imageVariation("v4", "Variation 4", "hash_4"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     const report = sanitizeCreativeForStrictMode(payload);
     assert.equal(report.assetFeedSpec, "preserved");
     assert.equal(payload.asset_feed_spec?.images?.length, 4, "all 4 images kept");
@@ -407,7 +407,7 @@ describe("sanitizeCreativeForStrictMode — variation-rotation asset_feed_spec i
 // ─── Regression guard — PR #665's shared-label / rules pattern must not return ─
 
 describe("Regression: rotation payload never contains a ROTATION_LABEL or asset_customization_rules", () => {
-  it("serialized rotation payload has no adlabels, no 'rotation' label, no customization rules (image)", () => {
+  it("serialized rotation payload has no adlabels, no 'rotation' label, no customization rules (image)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetVariations: [
@@ -415,7 +415,7 @@ describe("Regression: rotation payload never contains a ROTATION_LABEL or asset_
         imageVariation("v2", "Variation 2", "hash_2"),
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     const json = JSON.stringify(payload);
     assert.ok(!json.includes("adlabels"), "no adlabels anywhere in the rotation payload");
     assert.ok(!json.includes("asset_customization_rules"), "no asset_customization_rules");
@@ -423,7 +423,7 @@ describe("Regression: rotation payload never contains a ROTATION_LABEL or asset_
     assert.ok(!json.includes("optimization_type"), "no optimization_type");
   });
 
-  it("serialized rotation payload has no adlabels/rules (video)", () => {
+  it("serialized rotation payload has no adlabels/rules (video)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -432,7 +432,7 @@ describe("Regression: rotation payload never contains a ROTATION_LABEL or asset_
         videoVariation("v2", "Variation 2", "vid_2"),
       ],
     });
-    const json = JSON.stringify(buildCreativePayload(creative));
+    const json = JSON.stringify(await buildCreativePayload(creative));
     assert.ok(!json.includes("adlabels"));
     assert.ok(!json.includes("asset_customization_rules"));
     assert.ok(!json.includes("optimization_type"));
