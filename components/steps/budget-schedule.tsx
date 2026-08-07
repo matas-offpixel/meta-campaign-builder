@@ -63,6 +63,7 @@ import {
 import { groupToGeo } from "@/lib/meta/location-targeting";
 import {
   createBlankAdSetSuggestion,
+  defaultBlankAdSetBudget,
   duplicateAdSetSuggestion,
   deleteAdSetSuggestion,
   applyBulkAgeRange,
@@ -1205,7 +1206,11 @@ export function BudgetSchedule({
 
   // ── Blank ad set / duplicate / delete (refinement pack #1–2, polish) ──────
   const addBlankAdSet = () => {
-    const blank = createBlankAdSetSuggestion(locationGroups, FALLBACK_UK_NATIONWIDE);
+    // task #122 (FIX 3) — never let a blank ad set default to a 0 daily
+    // budget; Meta rejects ad set creation outright (subcode 1885272) if it
+    // does. See defaultBlankAdSetBudget's doc comment.
+    const defaultBudget = defaultBlankAdSetBudget(adSetSuggestions, bs.budgetAmount);
+    const blank = createBlankAdSetSuggestion(locationGroups, FALLBACK_UK_NATIONWIDE, defaultBudget);
     onSuggestionsChange([...adSetSuggestions, blank]);
   };
 

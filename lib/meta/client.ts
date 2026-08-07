@@ -1413,6 +1413,84 @@ export async function checkAudienceReadiness(
   }
 }
 
+/**
+ * Result of `waitForAudienceReady`'s bounded poll for one audience.
+ */
+export interface AudienceReadinessWaitResult {
+  id: string;
+  ready: boolean;
+  /** True only when the poll exhausted `maxWaitMs` while still 441/400 — never set for a fast terminal (200/error/not-found). */
+  timedOut: boolean;
+  finalCode: number | null;
+  finalDescription: string | null;
+}
+
+/**
+ * Bounded poll for one custom audience to leave Meta's "processing"/
+ * "populating" window before an ad set that targets it is created.
+ *
+ * Distinct from Phase 1.75's inline `pollUntilReady` in `launch-campaign/route.ts`
+ * (lookalike seeding, which defers immediately on code 441 since lookalikes
+ * cannot wait minutes/hours for a large audience to populate): here the
+ * observed populating window for a freshly-created ENGAGEMENT audience
+ * (e.g. a page_group's "Similar Pages" custom audience) clears within
+ * seconds, so a short bounded wait (default 30s total / 3s interval) lets
+ * the first `createMetaAdSet` attempt succeed with full targeting intact
+ * instead of immediately failing with subcode 1359207 ("this ad set is
+ * using one or more custom audiences, which are no longer available") and
+ * falling back to the salvage ladder in `lib/audiences/ca-availability-recovery.ts`.
+ *
+ * Reproducer (task #122): IPC Newcastle signup v2 launch, 2026-08-07 —
+ * the "Similar Pages" ad set referenced an engagement audience created
+ * seconds earlier in Phase 1.5, still `operation_status.code=441` when
+ * Phase 2 tried to create the ad set. `fetchCustomAudienceAvailability`
+ * only flags 411/412 (genuinely deleted) as unavailable, so the existing
+ * reactive salvage ladder saw the audience as "available" and returned
+ * `dropIds=[]` — unrecoverable.
+ *
+ * Polling continues only while the audience is 441 (populating) or 400
+ * (processing) — every other outcome is terminal and returned immediately,
+ * without consuming the wait budget:
+ *   - code 200            → ready
+ *   - code 401 (error) or any other non-441/400 code → not ready, not worth waiting on
+ *   - `checkAudienceReadiness` returns `null` (fetch error / not found)   → not ready, not worth waiting on
+ * Callers should treat a `null`/non-441/400 terminal result exactly like a
+ * fast-failing 411/412 check — "pass straight to the existing salvage
+ * ladder" rather than retrying here.
+ */
+export async function waitForAudienceReady(
+  audienceId: string,
+  token: string | undefined,
+  opts: { maxWaitMs?: number; intervalMs?: number } = {},
+): Promise<AudienceReadinessWaitResult> {
+  const maxWaitMs = opts.maxWaitMs ?? 30_000;
+  const intervalMs = opts.intervalMs ?? 3_000;
+  const deadline = Date.now() + maxWaitMs;
+
+  let lastCode: number | null = null;
+  let lastDescription: string | null = null;
+
+  for (;;) {
+    const status = await checkAudienceReadiness(audienceId, token);
+    if (!status) {
+      return { id: audienceId, ready: false, timedOut: false, finalCode: null, finalDescription: null };
+    }
+    lastCode = status.code;
+    lastDescription = status.description;
+    if (status.ready) {
+      return { id: audienceId, ready: true, timedOut: false, finalCode: status.code, finalDescription: status.description };
+    }
+    if (!status.populating && status.code !== 400) {
+      // Error (401) or any other terminal code — waiting cannot help.
+      return { id: audienceId, ready: false, timedOut: false, finalCode: status.code, finalDescription: status.description };
+    }
+    if (Date.now() + intervalMs > deadline) {
+      return { id: audienceId, ready: false, timedOut: true, finalCode: lastCode, finalDescription: lastDescription };
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 export interface EngagementAudienceSpec {
   type: EngagementAudienceType;
   name: string;
