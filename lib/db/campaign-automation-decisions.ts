@@ -1,0 +1,136 @@
+/**
+ * lib/db/campaign-automation-decisions.ts
+ *
+ * Supabase glue for task #120 PR A (dry-run Optimisation Strategy
+ * automation). Kept separate from the pure `lib/optimisation/tick-runner.ts`
+ * orchestration so that module stays `node --test`-friendly (no `@/`
+ * imports, no live Supabase client) — this file is the thin, untested-by-design
+ * adapter the cron route wires the pure runner up to, same split as
+ * `lib/reporting/cron-health-monitor.ts`'s `runCronHealthCheck` /
+ * `writeCronHealthReport`.
+ *
+ * `campaign_automation_decisions` and `campaign_drafts.optimisation_automation_enabled`
+ * are new as of migration 151 and may not yet be in the generated Supabase
+ * types on a fresh checkout — same `as unknown as any` cast used by every
+ * other freshly-migrated-table writer in this codebase (see
+ * `writeCronHealthReport`).
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { migrateDraft } from "@/lib/autosave";
+import type { CampaignAutomationInput, DecisionToInsert } from "@/lib/optimisation/tick-runner";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any;
+
+function anySb(supabase: SupabaseClient): AnySupabase {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return supabase as unknown as any;
+}
+
+interface OptedInDraftRow {
+  id: string;
+  ad_account_id: string | null;
+  draft_json: Record<string, unknown>;
+}
+
+/**
+ * Campaigns opted into the automation loop: `status = 'published' AND
+ * optimisation_automation_enabled = true`. Draft rows that fail to migrate
+ * or have no `metaCampaignId` yet (launched-but-not-yet-published edge case)
+ * are skipped with a console warning rather than thrown — one malformed
+ * draft should never abort the whole tick.
+ */
+export async function loadOptedInCampaignsForAutomation(
+  supabase: SupabaseClient,
+): Promise<CampaignAutomationInput[]> {
+  const sb = anySb(supabase);
+  const { data, error } = await sb
+    .from("campaign_drafts")
+    .select("id, ad_account_id, draft_json")
+    .eq("status", "published")
+    .eq("optimisation_automation_enabled", true);
+
+  if (error) {
+    throw new Error(`loadOptedInCampaignsForAutomation: query failed: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as OptedInDraftRow[];
+  const campaigns: CampaignAutomationInput[] = [];
+  for (const row of rows) {
+    try {
+      const draft = migrateDraft(row.draft_json);
+      if (!draft.metaCampaignId) {
+        console.warn(
+          `[campaign-automation-decisions] draft=${row.id} opted in but has no metaCampaignId — skipping`,
+        );
+        continue;
+      }
+      campaigns.push({
+        draftId: draft.id,
+        campaignId: draft.metaCampaignId,
+        adAccountId: row.ad_account_id ?? draft.settings.adAccountId,
+        objective: draft.settings.objective,
+        optimisationStrategy: draft.optimisationStrategy,
+      });
+    } catch (err) {
+      console.warn(
+        `[campaign-automation-decisions] draft=${row.id} failed to migrate — skipping`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return campaigns;
+}
+
+/** True if `adsetId` has any decision row with `decided_at` newer than `sinceISO` — the 24h loop-prevention check. */
+export async function hasRecentDecisionForAdSet(
+  supabase: SupabaseClient,
+  adsetId: string,
+  sinceISO: string,
+): Promise<boolean> {
+  const sb = anySb(supabase);
+  const { data, error } = await sb
+    .from("campaign_automation_decisions")
+    .select("id")
+    .eq("adset_id", adsetId)
+    .gt("decided_at", sinceISO)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`hasRecentDecisionForAdSet: query failed: ${error.message}`);
+  }
+  return Boolean(data);
+}
+
+/** Insert one dry-run decision row. `dry_run` / `applied` are hard-coded per PR A scope — see migration 151. */
+export async function insertAutomationDecision(
+  supabase: SupabaseClient,
+  decision: DecisionToInsert,
+): Promise<void> {
+  const sb = anySb(supabase);
+  const { error } = await sb.from("campaign_automation_decisions").insert({
+    campaign_id: decision.campaignId,
+    adset_id: decision.adsetId,
+    ad_account_id: decision.adAccountId,
+    draft_id: decision.draftId,
+    metric: decision.metric,
+    metric_value: decision.metricValue,
+    metric_window: decision.metricWindow,
+    rule_matched: decision.ruleMatched,
+    action_recommended: decision.actionRecommended,
+    action_delta: decision.actionDelta,
+    budget_before_pence: decision.budgetBeforePence,
+    budget_after_pence: decision.budgetAfterPence,
+    guardrail_note: decision.guardrailNote,
+    reason_text: decision.reasonText,
+    dry_run: true,
+    applied: false,
+  });
+
+  if (error) {
+    throw new Error(`insertAutomationDecision: insert failed: ${error.message}`);
+  }
+}

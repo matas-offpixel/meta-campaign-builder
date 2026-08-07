@@ -135,6 +135,7 @@ LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 LANDING_PAGES_META_API_VERSION=
 BM_TOKEN_KEY=
 ENABLE_META_THUMBNAIL_FETCH=
+ENABLE_OPTIMISATION_AUTOMATION=
 ```
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
@@ -242,6 +243,27 @@ ENABLE_META_THUMBNAIL_FETCH=
 > regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
 > greps the tree to keep it that way.
 
+> **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120, PR A — shadow mode only)
+> must be set to `"1"` in Vercel prod env vars to activate
+> `/api/cron/optimisation-tick` (every 4h). Unset/anything else = fully
+> disabled, the route responds 200 with `skippedReason: "killswitch"` rather
+> than a cron failure. Even when ON, this PR makes **zero Meta write calls**
+> — it only reads insights and writes recommendation rows to
+> `campaign_automation_decisions` (migration 151) for the operator to sanity
+> check for a week before PR B (real Meta writes) or PR C (UI) ship. Also
+> requires a per-campaign opt-in: `campaign_drafts.optimisation_automation_enabled`
+> defaults `false` and is currently only settable via Supabase directly (`update
+> campaign_drafts set optimisation_automation_enabled = true where id =
+> '<draft id>'`) — PR C adds the campaign-detail-page toggle. Decision logic
+> (rule matching + `hardBudgetCeiling`/`maxExpansionPercent`/`ceilingBehaviour`
+> guardrails) lives in `lib/optimisation/evaluate.ts`; PR B will call the exact
+> same function before issuing a real budget update, so shadow-mode
+> recommendations and eventual live actions can never drift apart. Known gap:
+> `BudgetGuardrails.maxSingleAdSetBudget` / `maxDailyIncreasePercent` (both
+> already configurable in the Step 6 UI) are **not yet wired into the
+> evaluator** — flagged as a PR B follow-up, not silently ignored. See
+> `docs/session-logs/pr-pending-optimisation-automation-phase-a-dry-run.md`.
+
 > **D2C orchestration env vars** (brief→campaign automation, PR #647):
 > - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C
 >   provider credentials (`get_d2c_credentials` / `set_d2c_credentials`, migration
@@ -263,7 +285,7 @@ ENABLE_META_THUMBNAIL_FETCH=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `145_business_manager_asset_sync.sql`.
+**Latest migration:** `151_campaign_automation_decisions.sql`.
 
 - Client admin dashboard (July 2026, OP909 arc): `client_users` maps one
   auth user → one client (the /admin authorisation pivot; `role` =
@@ -367,6 +389,11 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   every send is logged as a dry run.
 - `/api/cron/cron-health-check` — silent-failure monitor (migration 124),
   surfaced at `/admin/cron-health`.
+- `/api/cron/optimisation-tick` (every 4h) — task #120 PR A, Step 6
+  "Optimisation Strategy" automation loop, SHADOW MODE ONLY (see
+  `ENABLE_OPTIMISATION_AUTOMATION` above). Evaluates opted-in published
+  campaigns' ad sets and writes recommendations to
+  `campaign_automation_decisions` (migration 151) — zero Meta writes in PR A.
 
 ### Canonical spec
 
