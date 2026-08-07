@@ -1869,6 +1869,84 @@ export async function uploadImageAsset(
 }
 
 /**
+ * Upload an image to a Meta ad account's image library **by URL** — Meta
+ * fetches the bytes server-side, so no download+re-upload round trip is
+ * needed. Used to convert a Meta-CDN video thumbnail URL into a stable
+ * `image_hash` for `video_data` (task #112 — sending Meta's own CDN
+ * `image_url` back in `video_data` causes Meta to store BOTH `image_url`
+ * AND an internally-generated `image_hash` on the creative; when the
+ * operator uses Meta UI Duplicate, both fields get copied into the new
+ * creative and Meta's stricter write-side validator rejects with
+ * subcode=1443051 "ObjectStorySpecRedundant"). Uploading ourselves and
+ * sending only `image_hash` avoids the ambiguity entirely.
+ *
+ * Same form-body pattern as {@link uploadImageAsset} — `access_token` in the
+ * body, not the query string.
+ *
+ * Requires: ads_management permission.
+ *
+ * POST /{adAccountId}/adimages  (body: `url=<imageUrl>`)
+ */
+export async function uploadImageFromUrl(
+  adAccountId: string,
+  imageUrl: string,
+  token?: string,
+): Promise<Pick<UploadAssetResult, "url" | "hash">> {
+  const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+
+  console.log("[uploadImageFromUrl] pre-upload:", {
+    imageUrl,
+    adAccountId,
+    tokenSource: token ? "explicit" : "META_ACCESS_TOKEN (env)",
+    token_present: !!effectiveToken,
+  });
+
+  if (!effectiveToken) {
+    throw new MetaApiError(
+      "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
+    );
+  }
+
+  const formData = new FormData();
+  formData.append("access_token", effectiveToken);
+  formData.append("url", imageUrl);
+
+  const accountPath = withActPrefix(adAccountId);
+  const endpoint = `${BASE}/${accountPath}/adimages`;
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: "POST", body: formData });
+  } catch (err) {
+    throw new Error(`Network error uploading image-by-URL to Meta: ${String(err)}`);
+  }
+
+  const json = (await response.json()) as Record<string, unknown>;
+  console.log("[uploadImageFromUrl] Meta response:", JSON.stringify(json, null, 2));
+
+  if (!response.ok || json.error) {
+    const e = (json.error ?? {}) as Record<string, unknown>;
+    throw new MetaApiError(
+      (e.message as string) ?? `HTTP ${response.status}`,
+      e.code as number | undefined,
+      e.type as string | undefined,
+      e.fbtrace_id as string | undefined,
+    );
+  }
+
+  // Response shape: { images: { "<url-derived-key>": { hash, url, ... } } }
+  const images = json.images as Record<string, { hash: string; url: string }>;
+  const imageData = Object.values(images)[0];
+  if (!imageData) {
+    console.error("[uploadImageFromUrl] Unexpected response — no images key:", json);
+    throw new MetaApiError("Meta returned an empty images response");
+  }
+
+  console.log("[uploadImageFromUrl] success — hash:", imageData.hash);
+  return { hash: imageData.hash, url: imageData.url };
+}
+
+/**
  * Upload a video file to a Meta ad account's video library.
  * Uses multipart/form-data with field name `video_data`.
  * Requires: ads_management permission.

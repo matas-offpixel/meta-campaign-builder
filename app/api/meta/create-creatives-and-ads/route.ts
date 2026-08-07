@@ -4,6 +4,7 @@ import {
   createMetaCreative,
   createMetaAd,
   fetchAdAccountIgActors,
+  uploadImageFromUrl,
   MetaApiError,
 } from "@/lib/meta/client";
 import {
@@ -165,7 +166,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // 1. Build + validate Meta creative payload
     let payload;
     try {
-      payload = buildCreativePayload(creative);
+      payload = await buildCreativePayload(creative, {
+        metaAdAccountId,
+        metaAccessToken: userFbToken ?? undefined,
+        uploadThumbnailAsImage: uploadImageFromUrl,
+      });
       if (strictMode) {
         const report = sanitizeCreativeForStrictMode(payload);
         console.log(
@@ -244,7 +249,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ...creative,
               identity: { ...creative.identity, instagramActorId: recoveryIds[0] },
             };
-            const retryPayload = buildCreativePayload(retryCrv);
+            const retryPayload = await buildCreativePayload(retryCrv, {
+              metaAdAccountId,
+              metaAccessToken: userFbToken ?? undefined,
+              uploadThumbnailAsImage: uploadImageFromUrl,
+            });
             if (strictMode) sanitizeCreativeForStrictMode(retryPayload);
             const retryRes = await createMetaCreative(metaAdAccountId, retryPayload);
             metaCreativeId = retryRes.id;

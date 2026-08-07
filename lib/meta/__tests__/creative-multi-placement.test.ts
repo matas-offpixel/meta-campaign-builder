@@ -122,9 +122,9 @@ afterEach(() => {
 // ─── Multi-ratio video ────────────────────────────────────────────────────────
 
 describe("buildMultiPlacementCreative — video (flag ON)", () => {
-  it("emits asset_feed_spec.videos with both ids and distinct adlabels", () => {
+  it("emits asset_feed_spec.videos with both ids and distinct adlabels", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualVideoCreative());
+    const payload = await buildCreativePayload(dualVideoCreative());
 
     const videos = payload.asset_feed_spec?.videos ?? [];
     assert.equal(videos.length, 2, "both video assets present");
@@ -142,9 +142,9 @@ describe("buildMultiPlacementCreative — video (flag ON)", () => {
     assert.equal(payload.object_story_spec?.link_data, undefined);
   });
 
-  it("9:16 rule maps to story/reels; 4:5 rule is the empty-spec default", () => {
+  it("9:16 rule maps to story/reels; 4:5 rule is the empty-spec default", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualVideoCreative());
+    const payload = await buildCreativePayload(dualVideoCreative());
 
     const rules = payload.asset_feed_spec?.asset_customization_rules ?? [];
     assert.ok(rules.length >= 2, "Meta requires at least two rules");
@@ -170,9 +170,9 @@ describe("buildMultiPlacementCreative — video (flag ON)", () => {
     );
   });
 
-  it("attaches the correct thumbnail to each video asset", () => {
+  it("attaches the correct thumbnail to each video asset", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualVideoCreative());
+    const payload = await buildCreativePayload(dualVideoCreative());
     const videos = payload.asset_feed_spec?.videos ?? [];
     const feedVid = videos.find((v) => (v.adlabels ?? []).some((l) => l.name === "feed_asset"));
     const storyVid = videos.find((v) => (v.adlabels ?? []).some((l) => l.name === "story_asset"));
@@ -186,9 +186,9 @@ describe("buildMultiPlacementCreative — video (flag ON)", () => {
 // ─── Multi-ratio image ────────────────────────────────────────────────────────
 
 describe("buildMultiPlacementCreative — image (flag ON)", () => {
-  it("emits asset_feed_spec.images with both hashes and distinct adlabels", () => {
+  it("emits asset_feed_spec.images with both hashes and distinct adlabels", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualImageCreative());
+    const payload = await buildCreativePayload(dualImageCreative());
 
     const images = payload.asset_feed_spec?.images ?? [];
     assert.equal(images.length, 2);
@@ -201,9 +201,9 @@ describe("buildMultiPlacementCreative — image (flag ON)", () => {
     assert.deepEqual(feedRule?.customization_spec, {});
   });
 
-  it("carries caption/headline/link in the feed spec (no per-placement copy)", () => {
+  it("carries caption/headline/link in the feed spec (no per-placement copy)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualImageCreative());
+    const payload = await buildCreativePayload(dualImageCreative());
     const afs = payload.asset_feed_spec!;
     assert.equal(afs.bodies?.[0].text, "Come see us live");
     assert.equal(afs.titles?.[0].text, "Buy tickets now");
@@ -217,7 +217,7 @@ describe("buildMultiPlacementCreative — image (flag ON)", () => {
 // ─── No-regression: single aspect & mixed media & flag off ────────────────────
 
 describe("single-asset / fallthrough cases produce NO asset_feed_spec", () => {
-  it("single 9:16 video → legacy video_data path", () => {
+  it("single 9:16 video → legacy video_data path", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -238,12 +238,12 @@ describe("single-asset / fallthrough cases produce NO asset_feed_spec", () => {
         },
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec for single asset");
     assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_only");
   });
 
-  it("mixed media (4:5 image + 9:16 video) falls through to single-asset path", () => {
+  it("mixed media (4:5 image + 9:16 video) falls through to single-asset path", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -264,15 +264,15 @@ describe("single-asset / fallthrough cases produce NO asset_feed_spec", () => {
         },
       ],
     });
-    const payload = buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative);
     assert.equal(payload.asset_feed_spec, undefined, "mixed media → no asset_feed_spec");
     // hasVideoId true → video path picks 9:16
     assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_916");
   });
 
-  it("flag OFF → multi-ratio video still uses legacy single-asset path", () => {
+  it("flag OFF → multi-ratio video still uses legacy single-asset path", async () => {
     delete process.env.ENABLE_MULTI_PLACEMENT_ASSETS;
-    const payload = buildCreativePayload(dualVideoCreative());
+    const payload = await buildCreativePayload(dualVideoCreative());
     assert.equal(payload.asset_feed_spec, undefined, "flag off → no asset_feed_spec");
     // VIDEO_PRIORITY picks 9:16 first
     assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_916");
@@ -282,9 +282,9 @@ describe("single-asset / fallthrough cases produce NO asset_feed_spec", () => {
 // ─── Sanitizer discrimination ─────────────────────────────────────────────────
 
 describe("sanitizeCreativeForStrictMode — asset_feed_spec discrimination", () => {
-  it("preserves user-configured asset_feed_spec (has customization rules)", () => {
+  it("preserves user-configured asset_feed_spec (has customization rules)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualVideoCreative());
+    const payload = await buildCreativePayload(dualVideoCreative());
     const report = sanitizeCreativeForStrictMode(payload);
     assert.equal(report.assetFeedSpec, "preserved");
     assert.ok(payload.asset_feed_spec, "asset_feed_spec kept");
@@ -341,9 +341,9 @@ describe("sanitizeCreativeForStrictMode — asset_feed_spec discrimination", () 
 // the CTA in link_data / video_data.
 
 describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
-  it("dual image + BOOK_NOW → no asset_feed_spec, link_data uses 9:16 hash", () => {
+  it("dual image + BOOK_NOW → no asset_feed_spec, link_data uses 9:16 hash", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualImageCreative("book_now"));
+    const payload = await buildCreativePayload(dualImageCreative("book_now"));
 
     assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
 
@@ -353,9 +353,11 @@ describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
     assert.equal(ld!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
   });
 
-  it("dual video + BOOK_NOW → no asset_feed_spec, video_data uses 9:16 video", () => {
+  it("dual video + BOOK_NOW → no asset_feed_spec, video_data uses 9:16 video", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualVideoCreative("book_now"));
+    // No metaAdAccountId in opts → thumbnail-upload is skipped and video_data
+    // falls back to image_url (see BuildCreativePayloadOpts docstring, task #112).
+    const payload = await buildCreativePayload(dualVideoCreative("book_now"));
 
     assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
 
@@ -363,23 +365,24 @@ describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
     assert.ok(vd, "video_data present");
     assert.equal(vd!.video_id, "vid_916", "uses 9:16 video_id, NOT 4:5");
     assert.equal(vd!.image_url, "https://cdn/thumb_916.jpg", "uses 9:16 thumbnail");
+    assert.equal(vd!.image_hash, undefined, "no ad account provided — no hash upload attempted");
     assert.equal(vd!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
   });
 
-  it("dual image + BOOK_NOW + AWARENESS → same vertical fallback (constraint is universal)", () => {
+  it("dual image + BOOK_NOW + AWARENESS → same vertical fallback (constraint is universal)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     // Objective is not encoded on the creative draft itself — the same payload
     // builder is used regardless of objective.  This test confirms the fallback
     // fires based solely on CTA + dual assets, independent of objective context.
-    const payload = buildCreativePayload(dualImageCreative("book_now"));
+    const payload = await buildCreativePayload(dualImageCreative("book_now"));
     assert.equal(payload.asset_feed_spec, undefined);
     assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_916");
     assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW");
   });
 
-  it("dual image + LEARN_MORE → asset_feed_spec PRESENT (LEARN_MORE not affected)", () => {
+  it("dual image + LEARN_MORE → asset_feed_spec PRESENT (LEARN_MORE not affected)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualImageCreative("learn_more"));
+    const payload = await buildCreativePayload(dualImageCreative("learn_more"));
 
     assert.ok(payload.asset_feed_spec, "asset_feed_spec present for non-BOOK_NOW CTA");
     assert.deepEqual(
@@ -393,9 +396,9 @@ describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
     );
   });
 
-  it("dual video + LEARN_MORE → asset_feed_spec PRESENT (regression: LEARN_MORE path unchanged)", () => {
+  it("dual video + LEARN_MORE → asset_feed_spec PRESENT (regression: LEARN_MORE path unchanged)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    const payload = buildCreativePayload(dualVideoCreative("learn_more"));
+    const payload = await buildCreativePayload(dualVideoCreative("learn_more"));
 
     assert.ok(payload.asset_feed_spec, "asset_feed_spec present for LEARN_MORE");
     const videos = payload.asset_feed_spec?.videos ?? [];
@@ -406,9 +409,9 @@ describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
     );
   });
 
-  it("dual image + BOOK_NOW + flag OFF → single-asset path (4:5 HASH_PRIORITY, flag unrelated)", () => {
+  it("dual image + BOOK_NOW + flag OFF → single-asset path (4:5 HASH_PRIORITY, flag unrelated)", async () => {
     delete process.env.ENABLE_MULTI_PLACEMENT_ASSETS;
-    const payload = buildCreativePayload(dualImageCreative("book_now"));
+    const payload = await buildCreativePayload(dualImageCreative("book_now"));
     assert.equal(payload.asset_feed_spec, undefined, "flag off → no AFS");
     // flag off → legacy pickPrimaryImageHash picks 4:5 (HASH_PRIORITY order)
     assert.equal(

@@ -97,8 +97,8 @@ function creativeNoIgActor(): AdCreativeDraft {
 // ── Case A: validated IG id → instagram_user_id present ──────────────────────
 
 describe("Case A — validated IG id: instagram_user_id present in payload", () => {
-  it("image creative with validated id includes instagram_user_id in object_story_spec", () => {
-    const payload = buildCreativePayload(imageCreative(), {
+  it("image creative with validated id includes instagram_user_id in object_story_spec", async () => {
+    const payload = await buildCreativePayload(imageCreative(), {
       validatedIgActorId: "17841407313865620",
     });
     assert.equal(
@@ -109,8 +109,8 @@ describe("Case A — validated IG id: instagram_user_id present in payload", () 
     );
   });
 
-  it("video creative with validated id includes instagram_user_id in object_story_spec", () => {
-    const payload = buildCreativePayload(videoCreative(), {
+  it("video creative with validated id includes instagram_user_id in object_story_spec", async () => {
+    const payload = await buildCreativePayload(videoCreative(), {
       validatedIgActorId: "17841407313865620",
     });
     assert.equal(
@@ -124,8 +124,8 @@ describe("Case A — validated IG id: instagram_user_id present in payload", () 
 // ── Case B: unvalidated IG id → field omitted (b57a98e protection) ───────────
 
 describe("Case B — unvalidated IG id: instagram_user_id omitted", () => {
-  it("image creative falls back to page-only when validatedIgActorId is undefined", () => {
-    const payload = buildCreativePayload(imageCreative(), {
+  it("image creative falls back to page-only when validatedIgActorId is undefined", async () => {
+    const payload = await buildCreativePayload(imageCreative(), {
       validatedIgActorId: undefined,
     });
     assert.equal(
@@ -137,8 +137,8 @@ describe("Case B — unvalidated IG id: instagram_user_id omitted", () => {
     assert.ok(payload.object_story_spec?.page_id, "page_id must still be present");
   });
 
-  it("video creative falls back to page-only when validatedIgActorId is undefined", () => {
-    const payload = buildCreativePayload(videoCreative(), {
+  it("video creative falls back to page-only when validatedIgActorId is undefined", async () => {
+    const payload = await buildCreativePayload(videoCreative(), {
       validatedIgActorId: undefined,
     });
     assert.equal(payload.object_story_spec?.instagram_user_id, undefined);
@@ -149,8 +149,8 @@ describe("Case B — unvalidated IG id: instagram_user_id omitted", () => {
 // ── Case C: no IG account on draft → field omitted ───────────────────────────
 
 describe("Case C — no IG account: instagram_user_id omitted without error", () => {
-  it("creative with no instagramActorId omits instagram_user_id", () => {
-    const payload = buildCreativePayload(creativeNoIgActor());
+  it("creative with no instagramActorId omits instagram_user_id", async () => {
+    const payload = await buildCreativePayload(creativeNoIgActor());
     assert.equal(payload.object_story_spec?.instagram_user_id, undefined);
     assert.ok(payload.object_story_spec?.page_id);
   });
@@ -163,8 +163,8 @@ describe("Case C — no IG account: instagram_user_id omitted without error", ()
 // This test prevents any regression back to the wrong field name (PR #569).
 
 describe("Case D — field-name guard: instagram_actor_id must not appear in payload", () => {
-  it("image creative with validated id uses instagram_user_id, NOT instagram_actor_id", () => {
-    const payload = buildCreativePayload(imageCreative(), {
+  it("image creative with validated id uses instagram_user_id, NOT instagram_actor_id", async () => {
+    const payload = await buildCreativePayload(imageCreative(), {
       validatedIgActorId: "17841407313865620",
     });
     const raw = JSON.stringify(payload);
@@ -180,8 +180,8 @@ describe("Case D — field-name guard: instagram_actor_id must not appear in pay
     );
   });
 
-  it("video creative with validated id uses instagram_user_id, NOT instagram_actor_id", () => {
-    const payload = buildCreativePayload(videoCreative(), {
+  it("video creative with validated id uses instagram_user_id, NOT instagram_actor_id", async () => {
+    const payload = await buildCreativePayload(videoCreative(), {
       validatedIgActorId: "17841407313865620",
     });
     const raw = JSON.stringify(payload);
@@ -191,8 +191,8 @@ describe("Case D — field-name guard: instagram_actor_id must not appear in pay
     );
   });
 
-  it("image creative without validated id also omits instagram_actor_id", () => {
-    const payload = buildCreativePayload(imageCreative());
+  it("image creative without validated id also omits instagram_actor_id", async () => {
+    const payload = await buildCreativePayload(imageCreative());
     const raw = JSON.stringify(payload);
     assert.ok(
       !raw.includes("instagram_actor_id"),

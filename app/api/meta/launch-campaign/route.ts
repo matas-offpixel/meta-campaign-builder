@@ -29,6 +29,7 @@ import {
   fetchAdSetsForCampaign,
   checkAudienceReadiness,
   rankSeedsByPreference,
+  uploadImageFromUrl,
   MetaApiError,
 } from "@/lib/meta/client";
 import {
@@ -2982,8 +2983,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       let creativePayload;
       try {
-        creativePayload = buildCreativePayload(creative, {
+        creativePayload = await buildCreativePayload(creative, {
           validatedIgActorId: validatedIgActorId ?? undefined,
+          metaAdAccountId: adAccountId,
+          metaAccessToken: launchToken,
+          uploadThumbnailAsImage: uploadImageFromUrl,
         });
 
         // ── Creative Integrity Mode (strict sanitizer) ─────────────────────

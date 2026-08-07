@@ -7,7 +7,20 @@
  *   - Ad payload building
  *   - Validation
  *
- * No API calls here — import createMetaCreative / createMetaAd from lib/meta/client.ts.
+ * No API calls here — import createMetaCreative / createMetaAd from
+ * lib/meta/client.ts. Deliberately NOT a value-import from lib/meta/client.ts
+ * (that module uses TS parameter-property syntax the test runner's
+ * strip-only mode can't parse — importing it here would break every test
+ * file that transitively imports this one).
+ *
+ * {@link buildVideoCreative} (and its BOOK_NOW-fallback sibling in
+ * {@link buildSingleAssetFromVertical}) need to upload a video's Meta-CDN
+ * thumbnail URL as an ad image (POST /adimages) to get an `image_hash` for
+ * `video_data` — see the docstring on {@link MetaVideoData.image_url} for
+ * why (task #112). Callers MUST inject `uploadThumbnailAsImage` (see
+ * {@link BuildCreativePayloadOpts}) — pass `uploadImageFromUrl` from
+ * lib/meta/client.ts. Without it, the video path falls back to `image_url`
+ * (pre-#112 behaviour, still valid — just not Duplicate-safe).
  *
  * Reference: https://developers.facebook.com/docs/marketing-api/reference/ad-creative/
  */
@@ -49,15 +62,44 @@ interface MetaVideoData {
   message: string;
   title?: string;
   /**
-   * Thumbnail image URL for the video creative. Meta requires either
-   * image_url OR image_hash in video_data (code=100, subcode=1443226 when
-   * absent). Populated from the asset's thumbnailUrl (set by uploadVideoAsset
-   * via POST /act_X/advideos → previewUrl).
+   * Thumbnail for the video creative. Meta requires either `image_url` OR
+   * `image_hash` in `video_data` (code=100, subcode=1443226 when both are
+   * absent) — but **never both** (code=100, subcode=1443051
+   * "ObjectStorySpecRedundant", task #112).
+   *
+   * `image_url` is a **fallback only**, used when no ad account/token was
+   * available to upload the thumbnail (see {@link BuildCreativePayloadOpts}).
+   * Prefer {@link image_hash} — `buildVideoCreative` uploads the thumbnail
+   * (via `uploadImageFromUrl` → POST /adimages) and sets the hash instead
+   * whenever possible.
+   *
+   * Root cause this avoids: sending Meta's own CDN thumbnail URL back as
+   * `image_url` is accepted at create time (write validator is permissive),
+   * but Meta then uploads that URL itself and stores BOTH `image_url` AND
+   * an internally-generated `image_hash` on the creative. When the operator
+   * uses Meta UI's Duplicate flow, Meta copies both fields into the new
+   * creative's payload, and Meta's *stricter* write-side validator on the
+   * Duplicate rejects with subcode=1443051.
    */
   image_url?: string;
+  /** Preferred over {@link image_url} — see its docstring. */
+  image_hash?: string;
   // description is NOT a valid field inside video_data — Meta rejects it
   call_to_action: MetaCallToAction;
 }
+
+/**
+ * Signature of `uploadImageFromUrl` (lib/meta/client.ts) — narrowed to just
+ * what {@link buildVideoCreative} needs, so tests can inject a stub without
+ * hitting the network. `hash` is optional so `uploadImageFromUrl`'s real
+ * return type (`Pick<UploadAssetResult, "hash" | "url">`, where `hash` is
+ * optional) satisfies this without a cast.
+ */
+type ThumbnailUploader = (
+  adAccountId: string,
+  imageUrl: string,
+  token?: string,
+) => Promise<{ hash?: string }>;
 
 interface MetaObjectStorySpec {
   page_id: string;
@@ -393,10 +435,45 @@ function buildLinkCreative(
   };
 }
 
-function buildVideoCreative(
+/**
+ * Resolve a video's Meta-CDN thumbnail URL into an ad-image hash, so the
+ * caller can set `video_data.image_hash` instead of `image_url` (task #112 —
+ * see {@link MetaVideoData.image_url} for the full root-cause writeup).
+ *
+ * Returns `undefined` (never throws) when the hash can't be resolved — the
+ * caller falls back to `image_url` so `video_data` still carries a thumbnail
+ * either way (never regresses subcode=1443226, "missing both fields").
+ */
+async function resolveVideoThumbnailHash(
+  creativeName: string,
+  thumbnailUrl: string,
+  opts: Pick<BuildCreativePayloadOpts, "metaAdAccountId" | "metaAccessToken" | "uploadThumbnailAsImage"> = {},
+): Promise<string | undefined> {
+  const { metaAdAccountId, metaAccessToken, uploadThumbnailAsImage } = opts;
+  if (!metaAdAccountId || !uploadThumbnailAsImage) {
+    console.error(
+      `[buildVideoCreative] "${creativeName}": no metaAdAccountId/uploadThumbnailAsImage provided — ` +
+        `cannot upload thumbnail to get image_hash; falling back to image_url ` +
+        `(may hit subcode=1443051 on Meta UI Duplicate, task #112).`,
+    );
+    return undefined;
+  }
+  try {
+    const { hash } = await uploadThumbnailAsImage(metaAdAccountId, thumbnailUrl, metaAccessToken);
+    return hash;
+  } catch (err) {
+    console.error(
+      `[buildVideoCreative] "${creativeName}": thumbnail upload failed (${String(err)}) — ` +
+        `falling back to image_url (may hit subcode=1443051 on Meta UI Duplicate, task #112).`,
+    );
+    return undefined;
+  }
+}
+
+async function buildVideoCreative(
   creative: AdCreativeDraft,
-  validatedIgActorId?: string,
-): MetaCreativePayload {
+  opts?: BuildCreativePayloadOpts,
+): Promise<MetaCreativePayload> {
   const videoAsset = pickPrimaryVideoAsset(creative);
   if (!videoAsset) {
     throw new Error(
@@ -406,6 +483,7 @@ function buildVideoCreative(
   }
 
   const { videoId, thumbnailUrl } = videoAsset;
+  const { validatedIgActorId } = opts ?? {};
   const caption = pickPrimaryCaption(creative);
   const cta = mapCTAToMeta(creative.cta);
 
@@ -424,12 +502,20 @@ function buildVideoCreative(
   }
 
   // Meta requires image_url OR image_hash in video_data (code=100, subcode=1443226
-  // when absent). thumbnailUrl comes from uploadVideoAsset → POST /advideos →
-  // previewUrl, stored on Asset.thumbnailUrl. For drafts created before this fix,
-  // thumbnailUrl may be undefined — in that case omit the field and let Meta
-  // auto-generate a thumbnail rather than throwing.
+  // when absent), but rejects BOTH being set on Meta UI's Duplicate flow
+  // (code=100, subcode=1443051, task #112). Prefer image_hash — upload the
+  // thumbnail ourselves so we control exactly one field. thumbnailUrl comes
+  // from uploadVideoAsset → POST /advideos → previewUrl, stored on
+  // Asset.thumbnailUrl. For drafts created before this fix, thumbnailUrl may
+  // be undefined — in that case omit both fields and let Meta auto-generate
+  // a thumbnail rather than throwing.
   if (thumbnailUrl) {
-    videoData.image_url = thumbnailUrl;
+    const hash = await resolveVideoThumbnailHash(creative.name, thumbnailUrl, opts);
+    if (hash) {
+      videoData.image_hash = hash;
+    } else {
+      videoData.image_url = thumbnailUrl;
+    }
   }
 
   // page_id + video_data. instagram_user_id added when caller has pre-validated
@@ -443,13 +529,16 @@ function buildVideoCreative(
     spec.instagram_user_id = validatedIgActorId;
   }
 
-  const hasThumbnail = Boolean(videoData.image_url);
+  const hasThumbnail = Boolean(videoData.image_hash || videoData.image_url);
   console.error(
-    `[buildVideoCreative] "${creative.name}": videoId=${videoId} thumbnail=${thumbnailUrl ?? "(none — Meta will auto-generate)"} instagram_user_id=${validatedIgActorId ? "SET (validated)" : "OMITTED"}`,
+    `[buildVideoCreative] "${creative.name}": videoId=${videoId}` +
+      ` thumbnailSource=${thumbnailUrl ?? "(none — Meta will auto-generate)"}` +
+      ` sentAs=${videoData.image_hash ? "image_hash" : videoData.image_url ? "image_url" : "(none)"}` +
+      ` instagram_user_id=${validatedIgActorId ? "SET (validated)" : "OMITTED"}`,
   );
   if (!hasThumbnail) {
     console.error(
-      `[buildVideoCreative] WARNING: no image_url set for "${creative.name}" — ` +
+      `[buildVideoCreative] WARNING: no image_hash/image_url set for "${creative.name}" — ` +
         `Meta may reject with code=100 subcode=1443226. ` +
         `Re-upload the video asset to capture thumbnailUrl.`,
     );
@@ -924,11 +1013,12 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
  *
  * The CTA is preserved exactly as configured — no silent substitution.
  */
-function buildSingleAssetFromVertical(
+async function buildSingleAssetFromVertical(
   creative: AdCreativeDraft,
   plan: MultiPlacementPlan,
-  validatedIgActorId?: string,
-): MetaCreativePayload {
+  opts?: BuildCreativePayloadOpts,
+): Promise<MetaCreativePayload> {
+  const { validatedIgActorId } = opts ?? {};
   if (plan.mediaKind === "video") {
     // Build a video creative but force the vertical video id + thumbnail.
     // We construct a minimal proxy creative whose only asset is the 9:16 video
@@ -941,7 +1031,15 @@ function buildSingleAssetFromVertical(
       call_to_action: { type: cta, value: { link: creative.destinationUrl } },
     };
     if (creative.headline) videoData.title = creative.headline;
-    if (plan.vertical.thumbnailUrl) videoData.image_url = plan.vertical.thumbnailUrl;
+    // Same image_hash-preferred treatment as buildVideoCreative (task #112).
+    if (plan.vertical.thumbnailUrl) {
+      const hash = await resolveVideoThumbnailHash(creative.name, plan.vertical.thumbnailUrl, opts);
+      if (hash) {
+        videoData.image_hash = hash;
+      } else {
+        videoData.image_url = plan.vertical.thumbnailUrl;
+      }
+    }
     const spec: MetaObjectStorySpec = { page_id: creative.identity.pageId, video_data: videoData };
     if (validatedIgActorId) spec.instagram_user_id = validatedIgActorId;
     return { name: creative.name || "Ad Creative", object_story_spec: spec };
@@ -996,12 +1094,34 @@ function buildSingleAssetFromVertical(
  */
 export interface BuildCreativePayloadOpts {
   validatedIgActorId?: string;
+  /**
+   * Ad account + token used to upload a video's thumbnail as an ad image
+   * (POST /adimages) so `video_data` carries `image_hash` instead of
+   * `image_url` — fixes Meta UI Duplicate (subcode=1443051, task #112). Only
+   * consulted by the video creative path.
+   *
+   * When `metaAdAccountId` (or {@link uploadThumbnailAsImage}) is omitted,
+   * the upload is skipped and `video_data` falls back to `image_url`
+   * (pre-#112 behaviour) rather than throwing — callers without an ad
+   * account handy still get a valid payload, just without the
+   * Duplicate-flow fix applied.
+   */
+  metaAdAccountId?: string;
+  metaAccessToken?: string;
+  /**
+   * The thumbnail-upload call — **required** for the video path to produce
+   * an `image_hash` (this module deliberately never imports
+   * lib/meta/client.ts directly; see the file header). Real callers pass
+   * `uploadImageFromUrl` from lib/meta/client.ts; tests pass a stub to avoid
+   * a live Meta API call.
+   */
+  uploadThumbnailAsImage?: ThumbnailUploader;
 }
 
-export function buildCreativePayload(
+export async function buildCreativePayload(
   creative: AdCreativeDraft,
   opts?: BuildCreativePayloadOpts,
-): MetaCreativePayload {
+): Promise<MetaCreativePayload> {
   if (creative.sourceType === "existing_post") {
     return buildExistingPostCreative(creative);
   }
@@ -1089,7 +1209,7 @@ export function buildCreativePayload(
             ` (BOOK_NOW blocked in AFS per Meta API constraint 1885396;` +
             ` using ${plan.mediaKind} vertical 9:16 asset for all placements)`,
         );
-        return buildSingleAssetFromVertical(creative, plan, validatedIgActorId);
+        return buildSingleAssetFromVertical(creative, plan, opts);
       }
       // Dual/Full mode + N variations — OUT OF SCOPE for this PR. The
       // multi-placement path below only ever reads variation[0] (see
@@ -1132,7 +1252,7 @@ export function buildCreativePayload(
   }
 
   return hasVideoId
-    ? buildVideoCreative(creative, validatedIgActorId)
+    ? buildVideoCreative(creative, opts)
     : buildLinkCreative(creative, validatedIgActorId);
 }
 
