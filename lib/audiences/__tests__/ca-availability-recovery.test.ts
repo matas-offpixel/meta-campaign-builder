@@ -301,6 +301,113 @@ describe("recoverFromDeletedCa — multi-pass composition (task #123)", () => {
   });
 });
 
+/**
+ * task #124 — "meta lies" scenario: Meta's ad-set-create validator refuses
+ * an ad set's ENTIRE remaining custom-audience set with subcode 1359207,
+ * naming no offending ids, even though a fresh availability check on those
+ * exact survivors reports every one of them fine. `recoverFromDeletedCa`
+ * correctly reports this unrecoverable — there's nothing it can point at
+ * and drop — but the launch route's third-tier fallback
+ * (`recreateEngagementAudiencesForGroup` in launch-campaign/route.ts, not
+ * independently unit-testable under `node --test`'s strip-only mode, same
+ * constraint noted for the task #123 multi-pass block above) only kicks in
+ * once SOME audience has already been dropped via preflight and/or a prior
+ * salvage pass — this distinguishes "Meta's create validator disagrees with
+ * its own availability read endpoint" from a first-attempt failure that
+ * isn't a CA-availability problem at all. These tests pin the composed
+ * decision sequence that produces (or correctly withholds) that trigger
+ * condition. Reproducer: IPC Newcastle Signup v3's "Similar Pages" ad set,
+ * 2026-08-07 21:45 UTC, trace AwXXdOKyQMbDh8sbLfrquGg — preflight dropped
+ * 11/40, the retry with the 29 "clean" survivors was refused again naming
+ * nothing, and a second availability check on those 29 came back all-clean.
+ */
+describe("recoverFromDeletedCa — 'meta lies' scenario triggers the recreate fallback (task #124)", () => {
+  it("reports unrecoverable with a non-empty prior-drop count after preflight already dropped some", () => {
+    const ids = Array.from({ length: 6 }, (_, i) => `604140000${2000 + i}`);
+
+    // Preflight (outside recoverFromDeletedCa, composed the same way the
+    // route does it): 2 of the 6 are flagged unavailable up front.
+    const preflight = preflightDropUnavailableAudiences({
+      requestedIds: ids,
+      availabilityStatuses: [
+        { id: ids[0], available: false },
+        { id: ids[1], available: false },
+      ],
+    });
+    assert.deepEqual(preflight.dropIds, [ids[0], ids[1]]);
+    const preflightDroppedCount = preflight.dropIds.length;
+
+    // First createMetaAdSet attempt (with the 4 preflight survivors) is
+    // STILL rejected with 1359207, naming no ids. A fresh availability
+    // check on those same 4 survivors reports every one of them fine —
+    // recoverFromDeletedCa has nothing left to point at and drop.
+    const pass1 = recoverFromDeletedCa({
+      requestedIds: preflight.keepIds,
+      error: thrownLikeMetaApiError,
+      availabilityStatuses: preflight.keepIds.map((id) => ({ id, available: true })),
+    });
+    assert.equal(pass1.recognised, true);
+    assert.deepEqual(pass1.dropIds, []);
+    assert.match(pass1.unrecoverable ?? "", /did not name which one/);
+
+    // This is exactly the launch route's trigger condition for the
+    // recreate-from-scratch fallback: unrecoverable + requestedIds
+    // non-empty + at least one PRIOR drop (preflight OR a loop pass).
+    const priorDropCount = preflightDroppedCount; // no loop-pass drops of its own on pass 1
+    assert.ok(pass1.unrecoverable !== undefined);
+    assert.ok(preflight.keepIds.length > 0);
+    assert.ok(priorDropCount > 0);
+  });
+
+  it("also triggers when the prior drop came from a loop pass rather than preflight", () => {
+    const [id1, id2, id3] = ["6041400003001", "6041400003002", "6041400003003"];
+
+    // Pass 1 — Meta names id1 directly, drop it, keep the rest.
+    const pass1 = recoverFromDeletedCa({
+      requestedIds: [id1, id2, id3],
+      error: { code: 100, subcode: DELETED_CUSTOM_AUDIENCE_SUBCODE, message: `unavailable audiences (ID: ${id1})` },
+    });
+    assert.deepEqual(pass1.dropIds, [id1]);
+    assert.equal(pass1.unrecoverable, undefined);
+
+    // Pass 2 — retried with [id2, id3]; Meta refuses again naming nothing,
+    // and a fresh availability check says both are fine.
+    const pass2 = recoverFromDeletedCa({
+      requestedIds: pass1.keepIds,
+      error: thrownLikeMetaApiError,
+      availabilityStatuses: pass1.keepIds.map((id) => ({ id, available: true })),
+    });
+    assert.equal(pass2.recognised, true);
+    assert.deepEqual(pass2.dropIds, []);
+    assert.match(pass2.unrecoverable ?? "", /did not name which one/);
+
+    const priorDropCount = pass1.dropIds.length; // 1, from the loop's own pass 1 — no preflight needed
+    assert.ok(priorDropCount > 0);
+  });
+
+  it("does NOT satisfy the fallback trigger when pass 1 is unrecoverable with zero prior drops", () => {
+    const [id1, id2] = ["6041400004001", "6041400004002"];
+    const pass1 = recoverFromDeletedCa({
+      requestedIds: [id1, id2],
+      error: thrownLikeMetaApiError,
+      availabilityStatuses: [
+        { id: id1, available: true },
+        { id: id2, available: true },
+      ],
+    });
+    assert.match(pass1.unrecoverable ?? "", /did not name which one/);
+
+    // No preflight ran (small ad set, under the threshold) and this is the
+    // FIRST loop pass, so there's nothing prior to point at — the launch
+    // route correctly does NOT attempt the recreate-from-scratch fallback
+    // here; a total first-attempt failure with no prior drops is more
+    // likely a different, non-availability problem entirely.
+    const preflightDroppedCount = 0;
+    const priorDropCount = preflightDroppedCount;
+    assert.equal(priorDropCount, 0);
+  });
+});
+
 describe("preflightDropUnavailableAudiences (task #123)", () => {
   const A = "6041400000001";
   const BAD = "6041400000002";

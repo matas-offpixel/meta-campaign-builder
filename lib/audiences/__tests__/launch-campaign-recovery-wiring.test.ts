@@ -50,12 +50,14 @@ describe("launch-campaign route: 1713140 recovery wiring", () => {
     assert.match(helper, /requested:\s*\[spec\.sourceId\]/);
   });
 
-  it("both Phase 1.5 and Phase 1.5b (SPLAL / \"Similar Pages\") call sites use the wrapped helper", () => {
+  it("Phase 1.5, Phase 1.5b (SPLAL), and the task #124 recreate-from-scratch fallback all use the wrapped helper", () => {
     const calls = ROUTE.match(/await createEngagementAudienceWithRecovery\(/g);
     assert.equal(
       calls?.length,
-      2,
-      "expected both the page-group loop and the SPLAL loop to call the recovery-wrapped helper",
+      3,
+      "expected the page-group loop, the SPLAL loop, AND recreateEngagementAudiencesForGroup's forced-fresh " +
+        "loop (task #124 — the 'Similar Pages' third-tier fallback when Meta's ad-set-create validator " +
+        "disagrees with its own availability read endpoint) to all call the recovery-wrapped helper",
     );
     // The raw function must no longer be awaited directly from inside either
     // try-block — that was the bug: no auto-grant, no salvage. The only
