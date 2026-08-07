@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 755
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/755
 - **Branch:** `cursor/slack-notify-phase-1-and-2`
 
 ## Summary
