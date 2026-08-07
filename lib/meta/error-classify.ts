@@ -191,3 +191,44 @@ export function isObjectiveIncompatibilityError(err: unknown): boolean {
   if (typeof e.userMsg === "string" && phrase.test(e.userMsg)) return true;
   return false;
 }
+
+/**
+ * Meta (#100) subcode 1870196: "The targeting automation type passed is
+ * invalid. Please pass the correct one." Surfaces on `createMetaAdSet` when
+ * `targeting.targeting_automation.advantage_audience: 1` (Advantage+
+ * Audience — see `buildMetaTargeting` in `lib/meta/adset.ts`) is not a
+ * supported automation type for the ad set's campaign objective.
+ *
+ * Reproducer (task #116): East End Dubs Newcastle signup campaign, "Wide"
+ * ad set (`advantagePlus: true`) under a Registration campaign
+ * (`OUTCOME_LEADS` / `LEAD_GENERATION` optimisation goal) — rejected outright.
+ * Other ad sets in the same launch with `advantagePlus: true` under
+ * non-LEADS objectives succeeded with the identical field shape, so this is
+ * an objective-specific rejection of the VALUE, not a structurally malformed
+ * request (the field is correctly nested inside `targeting`, matching
+ * Meta's documented shape for the sibling `targeting_optimization` /
+ * Advantage Detailed Targeting flag — see the session log for the research
+ * trail). The exact objective/automation-type support matrix isn't
+ * published, so this classifier drives a retry-without-Advantage+ rather
+ * than a guessed field substitution.
+ *
+ * Duck-typed against `{ code, subcode, message, userMsg }`, same rationale
+ * as `isObjectiveIncompatibilityError` above.
+ */
+const INVALID_TARGETING_AUTOMATION_SUBCODES: ReadonlySet<number> = new Set([1870196]);
+
+export function isInvalidTargetingAutomationError(err: unknown): boolean {
+  if (err == null || typeof err !== "object") return false;
+  const e = err as { code?: unknown; subcode?: unknown; message?: unknown; userMsg?: unknown };
+
+  if (typeof e.subcode === "number" && INVALID_TARGETING_AUTOMATION_SUBCODES.has(e.subcode)) {
+    return true;
+  }
+
+  if (e.code !== 100 && e.code !== undefined) return false;
+
+  const phrase = /targeting automation type.*invalid/i;
+  if (typeof e.message === "string" && phrase.test(e.message)) return true;
+  if (typeof e.userMsg === "string" && phrase.test(e.userMsg)) return true;
+  return false;
+}

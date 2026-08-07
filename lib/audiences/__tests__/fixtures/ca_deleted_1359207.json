@@ -1,0 +1,17 @@
+{
+  "_provenance": {
+    "reported_at": "2026-08-07",
+    "source": "Operator-reported failure text from the East End Dubs Newcastle signup launch (task #115) — not a byte-for-byte capture we took ourselves, unlike the 1713140 fixture. The message text below is quoted verbatim from the operator's report.",
+    "ad_account": "act_606252931141334",
+    "campaign_id": "120251192078210755",
+    "ad_set": "Similar Pages — page_group with a 10-page seed and 40+ engagement custom audiences. Meta builds ad-set targeting atomically, so one stale custom audience among the 40+ rejects the whole ad set.",
+    "note": "Unlike the 1713140 refusal, this message does NOT name the offending audience id(s) verbatim — the recovery ladder falls back to a batch delivery_status/operation_status check (see fetchCustomAudienceAvailability in lib/meta/client.ts) rather than parsing an id out of the text."
+  },
+  "error": {
+    "message": "This ad set is using one or more custom audiences, which are no longer available. You'll need to remove these unavailable audiences to publish this ad set.",
+    "type": "OAuthException",
+    "code": 100,
+    "error_subcode": 1359207,
+    "fbtrace_id": "AAeeEndDubs1359207xx"
+  }
+}

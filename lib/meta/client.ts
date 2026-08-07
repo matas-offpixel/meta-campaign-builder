@@ -915,6 +915,84 @@ export async function fetchAdSetGuardInfo(
   return map;
 }
 
+// ─── Custom-audience availability (deleted-CA salvage, task #115) ─────────
+
+export interface CustomAudienceAvailability {
+  id: string;
+  /**
+   * True when this audience is safe to keep targeting. False when Meta's
+   * `delivery_status.code !== 200`, `operation_status.code` is 411
+   * (deleted) or 412 (unavailable), or the id is absent entirely from the
+   * batch response (an object Meta will not return at all is treated the
+   * same as one it explicitly flags — both mean "cannot be targeted").
+   */
+  available: boolean;
+  deliveryStatusCode?: number;
+  operationStatusCode?: number;
+}
+
+interface RawCustomAudienceStatusRow {
+  id: string;
+  delivery_status?: { code: number; description?: string };
+  operation_status?: { code: number; description?: string };
+}
+
+/**
+ * Batch-fetches `delivery_status` / `operation_status` for a set of custom
+ * audience IDs via the multi-object Graph API endpoint (`GET /?ids=a,b,c`) —
+ * one request regardless of how many IDs are passed.
+ *
+ * Used by the launch-campaign salvage ladder (subcode 1359207, "this ad set
+ * is using one or more custom audiences, which are no longer available")
+ * when Meta's error message doesn't name the offending audience(s) verbatim
+ * — see `recoverFromDeletedCa` in `lib/audiences/ca-availability-recovery.ts`.
+ *
+ * Best-effort: on total fetch failure, returns `[]` rather than throwing or
+ * guessing every id is fine — the pure recovery function treats an empty
+ * result the same as "no availability data", which correctly falls through
+ * to failing the ad set with an honest explanation instead of silently
+ * keeping a dead audience.
+ *
+ * Requires: ads_read (or equivalent audience read) permission.
+ */
+export async function fetchCustomAudienceAvailability(
+  audienceIds: string[],
+  token?: string,
+): Promise<CustomAudienceAvailability[]> {
+  const uniqueIds = [...new Set(audienceIds)].filter(Boolean);
+  if (uniqueIds.length === 0) return [];
+
+  const params: Record<string, string> = {
+    ids: uniqueIds.join(","),
+    fields: "id,delivery_status,operation_status",
+  };
+
+  try {
+    const res = token
+      ? await graphGetWithToken<Record<string, RawCustomAudienceStatusRow>>("/", params, token)
+      : await graphGet<Record<string, RawCustomAudienceStatusRow>>("/", params);
+
+    return uniqueIds.map((id) => {
+      const row = res[id];
+      if (!row) {
+        // Missing entirely from the batch response — Meta can't return an
+        // object it considers gone. Treat the same as an explicit refusal.
+        return { id, available: false };
+      }
+      const deliveryCode = row.delivery_status?.code;
+      const opCode = row.operation_status?.code;
+      const available = deliveryCode !== undefined && deliveryCode !== 200 ? false : opCode !== 411 && opCode !== 412;
+      return { id, available, deliveryStatusCode: deliveryCode, operationStatusCode: opCode };
+    });
+  } catch (err) {
+    console.warn(
+      "[fetchCustomAudienceAvailability] failed — proceeding without availability data:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return [];
+  }
+}
+
 /**
  * Cursor-paginated personal pages from /me/accounts.
  * Designed for the "Load more" flow — call repeatedly with the cursor returned

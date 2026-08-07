@@ -1,0 +1,17 @@
+{
+  "_provenance": {
+    "reported_at": "2026-08-07",
+    "source": "Operator-reported failure text from the East End Dubs Newcastle signup launch (task #116) — not a byte-for-byte capture we took ourselves.",
+    "ad_account": "act_606252931141334",
+    "campaign_id": "120251192078210755",
+    "ad_set": "\"Wide\" — advantagePlus:true (targeting.targeting_automation.advantage_audience: 1) under a Registration campaign (OUTCOME_LEADS objective, LEAD_GENERATION optimisation goal).",
+    "note": "The user asked us to consider whether this fixture belonged under the 'event_source_permission_*' naming pattern used for the 1713140 refusal. It's unrelated to event-source permissions (a completely different Meta feature — audience seed page roles vs ad-set targeting automation), so it's named for what it actually is instead."
+  },
+  "error": {
+    "message": "The targeting automation type passed is invalid. Please pass the correct one.",
+    "type": "OAuthException",
+    "code": 100,
+    "error_subcode": 1870196,
+    "fbtrace_id": "AAeeEndDubs1870196xx"
+  }
+}

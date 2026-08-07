@@ -254,8 +254,15 @@ function buildLaunchEvents(
       id: uid("as-ok"),
       stage: "adset",
       entity: s.name,
-      status: "success",
+      // A note means a create-retry ladder had to salvage this ad set
+      // (dropped a stale custom audience, or stripped an objective-
+      // incompatible Advantage+ Audience automation) — still a success,
+      // but flagged so the operator knows something was adjusted on their
+      // behalf. See lib/audiences/ca-availability-recovery.ts and
+      // isInvalidTargetingAutomationError in lib/meta/error-classify.ts.
+      status: s.note ? "warning" : "success",
       label: `Ad set created · ${ageLabel} age`,
+      detail: s.note,
       metaId: s.metaAdSetId,
       durationMs: s.durationMs,
     });
