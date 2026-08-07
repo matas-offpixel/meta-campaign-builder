@@ -933,9 +933,15 @@ export interface CampaignSettings {
    *
    * - `"attach_campaign"`: creates one new ad set + ads under each campaign.
    * - `"attach_adset"`: user-selects specific ad sets; cross-campaign (>1
-   *   campaigns) is allowed when all share the same objective.
+   *   campaigns, any mix of objectives) is allowed.
    * - `"attach_all_adsets"`: automatically fetches ALL active/paused ad sets
-   *   across these campaigns at launch and attaches new ads to each.
+   *   across these campaigns at launch and attaches new ads to each. Mixed
+   *   objectives across campaigns are allowed (task #114) — each ad set
+   *   keeps its own parent campaign's objective; a mixed selection surfaces
+   *   a non-blocking `preflightWarning` at launch instead of a hard block,
+   *   and any resulting per-ad creative/objective mismatch is caught
+   *   individually in Phase 4 (`isObjectiveIncompatibilityError`) rather
+   *   than failing the whole launch.
    */
   existingMetaCampaigns?: ExistingMetaCampaignSnapshot[];
 

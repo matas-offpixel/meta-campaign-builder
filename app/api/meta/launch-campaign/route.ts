@@ -91,6 +91,9 @@ import type {
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
 import { assertSameObjective } from "@/lib/meta/attach-objective";
+import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
+import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
+import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -159,6 +162,18 @@ function formatMetaError(err: unknown): string {
     if (err.subcode) parts.push(`subcode=${err.subcode}`);
     if (err.userMsg) parts.push(`detail: "${err.userMsg}"`);
     if (err.fbtraceId) parts.push(`trace=${err.fbtraceId}`);
+    // task #114: attach_all_adsets attaches one shared creative set across
+    // campaigns that may have different objectives — a creative valid under
+    // one objective can be rejected under another. Prefix with a plain-
+    // English hint so this doesn't read as generic Meta jargon in the
+    // per-ad partial-launch report (creativesCreated[].adsFailed).
+    if (isObjectiveIncompatibilityError(err)) {
+      parts.unshift(
+        "This creative's call-to-action/format isn't valid for this ad set's campaign objective " +
+          "(likely a mixed-objective attach_all_adsets launch) — pick a different creative variant " +
+          "for this ad set's objective, or exclude this campaign from the selection.",
+      );
+    }
     return parts.join(" · ");
   }
   return err instanceof Error ? err.message : String(err);
@@ -601,21 +616,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 400 },
       );
     }
-    // attach_all_adsets distributes one creative-set across all ad sets of N
-    // campaigns — mixed objectives would map creative → optimization wrong.
+    // task #114: attach_all_adsets used to HARD-BLOCK mixed-objective
+    // campaign selections here (409) because it distributes one shared
+    // creative-set across every fetched ad set, and a creative built for one
+    // objective (e.g. a BUY_TICKETS-CTA Sales creative) can be rejected by
+    // Meta under a different-objective ad set (e.g. Traffic) — see
+    // isObjectiveIncompatibilityError. The operator explicitly wants to
+    // attach the SAME ads across Traffic + Sales + Awareness + Registration
+    // campaigns in one launch, so this is now a non-blocking preflight
+    // warning instead: the launch proceeds, each ad set keeps its own
+    // campaign's objective (no ad-set/campaign mutation happens here either
+    // way — see the Phase 2 short-circuit below), and any per-ad-set
+    // creative/objective mismatch is caught individually in Phase 4 and
+    // reported in `creativesCreated[].adsFailed` rather than aborting the
+    // whole launch.
     if (isAttachAllAdSets && attachCampaignSnapshots.length > 1) {
       const objCheck = assertSameObjective(attachCampaignSnapshots);
       if (!objCheck.ok) {
-        return NextResponse.json(
-          {
-            error:
-              `Selected campaigns have incompatible objectives. ` +
-              `"${objCheck.campaignA}" is ${objCheck.objA} ` +
-              `while "${objCheck.campaignB}" is ${objCheck.objB}. ` +
-              `Pick campaigns with the same objective and re-try.`,
-          },
-          { status: 409 },
+        console.warn(
+          `[launch-campaign] Phase 0 (attach_all_adsets) — mixed objectives across selected campaigns: ` +
+            `"${objCheck.campaignA}" is ${objCheck.objA} while "${objCheck.campaignB}" is ${objCheck.objB}. ` +
+            `Proceeding — each ad set keeps its own campaign's objective.`,
         );
+        preflightWarnings.push({
+          stage: "attach_all_adsets_objective",
+          message:
+            `Selected campaigns have different objectives ("${objCheck.campaignA}": ${objCheck.objA}, ` +
+            `"${objCheck.campaignB}": ${objCheck.objB}). The same ads will be attached to every ad set — ` +
+            `each ad set keeps its own campaign's objective. If a creative's call-to-action isn't valid ` +
+            `for one of those objectives, only the affected ads will fail (see the launch report below) ` +
+            `while the rest launch normally.`,
+          severity: "amber",
+        });
       }
     }
   } else if (wizardMode === "attach_adset") {
@@ -2560,40 +2592,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.log(
       `[launch-campaign] Phase 2 (attach_all_adsets) — fetching all active/paused ad sets for ${verifiedCampaigns.length} campaign(s)`,
     );
-    let totalFetched = 0;
-    for (const vc of verifiedCampaigns) {
-      if (totalFetched >= ATTACH_ALL_ADSETS_CAP) {
-        console.log(
-          `[launch-campaign] Phase 2 (attach_all_adsets) — reached cap of ${ATTACH_ALL_ADSETS_CAP}, skipping remaining campaigns`,
-        );
-        break;
-      }
-      try {
-        const fetchResult = await fetchAdSetsForCampaign({
-          campaignId: vc.id,
+    const pooled = await buildAttachAllAdSetsMap(
+      verifiedCampaigns,
+      (campaignId) =>
+        fetchAdSetsForCampaign({
+          campaignId,
           filter: "relevant",
           limit: ATTACH_ALL_ADSETS_CAP,
           token: launchToken ?? undefined,
-        });
-        for (const liveAdSet of fetchResult.data) {
-          if (totalFetched >= ATTACH_ALL_ADSETS_CAP) break;
-          const blocked = new Set(["ARCHIVED", "DELETED"]);
-          if (liveAdSet.effective_status && blocked.has(liveAdSet.effective_status)) continue;
-          const synthKey = attachedAdSetKey(liveAdSet.id);
-          adSetMetaIds.set(synthKey, liveAdSet.id);
-          adSetLaunchResults[synthKey] = { launchStatus: "created", metaAdSetId: liveAdSet.id };
-          totalFetched++;
-          console.log(
-            `[launch-campaign] Phase 2 (attach_all_adsets) — registered ad set ${liveAdSet.id}` +
-              ` ("${liveAdSet.name}") from campaign "${vc.name}"`,
-          );
-        }
-      } catch (err) {
-        console.error(
-          `[launch-campaign] Phase 2 (attach_all_adsets) — failed to fetch ad sets for campaign "${vc.name}":`,
-          err,
-        );
-      }
+        }),
+      ATTACH_ALL_ADSETS_CAP,
+    );
+    for (const [synthKey, metaAdSetId] of pooled.adSetMetaIds) {
+      adSetMetaIds.set(synthKey, metaAdSetId);
+      adSetLaunchResults[synthKey] = { launchStatus: "created", metaAdSetId };
+    }
+    for (const r of pooled.registered) {
+      console.log(
+        `[launch-campaign] Phase 2 (attach_all_adsets) — registered ad set ${r.metaAdSetId}` +
+          ` ("${r.name}") from campaign "${r.campaignName}"`,
+      );
+    }
+    for (const e of pooled.fetchErrors) {
+      console.error(
+        `[launch-campaign] Phase 2 (attach_all_adsets) — failed to fetch ad sets for campaign "${e.campaignName}":`,
+        e.error,
+      );
     }
     if (adSetMetaIds.size === 0) {
       return NextResponse.json(
@@ -2637,13 +2661,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // Split ad sets: standard ones can proceed now, lookalike ones must wait.
-  // In attach_adset mode both are empty — ad sets already exist; only Phase 4
-  // needs to run (routing ads to the synthetic keys seeded above).
+  // In attach_adset OR attach_all_adsets mode both are empty — ad sets
+  // already exist (either explicitly picked, or all fetched in the
+  // short-circuit above); only Phase 4 needs to run (routing ads to the
+  // synthetic keys seeded above). task #113: attach_all_adsets used to fall
+  // through here and create the wizard's own draft.adSetSuggestions ON TOP
+  // of the live ad sets it just fetched — see shouldSkipAdSetCreation.
   const LOOKALIKE_TYPES = new Set(["lookalike_group", "selected_pages_lookalike", "custom_group_lookalike"]);
-  const standardSets = wizardMode === "attach_adset"
+  const skipAdSetCreation = shouldSkipAdSetCreation(wizardMode);
+  const standardSets = skipAdSetCreation
     ? ([] as typeof enabledSets)
     : enabledSets.filter((s) => !LOOKALIKE_TYPES.has(s.sourceType));
-  const lookalikeSets = wizardMode === "attach_adset"
+  const lookalikeSets = skipAdSetCreation
     ? ([] as typeof enabledSets)
     : enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
@@ -2657,10 +2686,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       : draft.settings.objective;
 
   const adSetCreationPromise = (async () => {
-    if (wizardMode === "attach_adset") {
-      // Synthetic keys already seeded above; no ad sets to create.
+    if (skipAdSetCreation) {
+      // Synthetic keys already seeded above (attach_adset: from the picker;
+      // attach_all_adsets: from the live fetch above); no ad sets to create.
       console.log(
-        `[launch-campaign] Phase 2 (attach_adset) ✓  seeded ${adSetMetaIds.size}` +
+        `[launch-campaign] Phase 2 (${wizardMode}) ✓  seeded ${adSetMetaIds.size}` +
           ` synthetic key(s); skipping ad set creation entirely`,
       );
       return;
@@ -3428,11 +3458,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // campaign we create the same ad sets under that campaign (Phase 2 lite),
   // then link the same creatives to those ad sets (Phase 4 lite).
   // Serialised with a 1-second gap between campaigns for rate-limit safety.
+  //
+  // attach_all_adsets is deliberately EXCLUDED even though
+  // `isMultiCampaignAttach` is true for it too (task #113/#114 audit): Phase
+  // 2 above already pooled every live ad set across ALL selected campaigns
+  // into one flat `adSetMetaIds` map, and the main Phase 4 above already
+  // attached every ad to every one of them (`isAttachAllAdSets` bypass).
+  // Running this loop for attach_all_adsets would (a) waste a 1s sleep per
+  // extra campaign for zero effect today (`standardSets`/`lookalikeSets` are
+  // empty — see shouldSkipAdSetCreation), and (b) push a misleading
+  // `campaignAttachResults` entry showing 0 ad sets / 0 ads for campaigns
+  // 2..N even though their ad sets DID receive ads (counted in the flat
+  // Phase 4 totals instead) — review-launch.tsx renders those per-campaign
+  // entries verbatim, so a future re-wire of this loop for attach_all_adsets
+  // must not reintroduce that double-bookkeeping.
   // ═══════════════════════════════════════════════════════════════════════════
 
   const campaignAttachResults: CampaignAttachResult[] = [];
 
-  if (isMultiCampaignAttach) {
+  if (isMultiCampaignAttach && !isAttachAllAdSets) {
     // Record the first campaign's result from the main Phase 2+4 above.
     campaignAttachResults.push({
       campaignId: verifiedCampaigns[0]?.id ?? metaCampaignId,

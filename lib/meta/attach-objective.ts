@@ -1,8 +1,15 @@
 /**
  * Objective-compatibility helpers for the multi-campaign attach flows.
  *
- * `assertSameObjective` guards attach_all_adsets launches (Phase 0) where one
- * creative-set is distributed across N campaigns.
+ * `assertSameObjective` detects mixed objectives across attach_all_adsets
+ * launches (Phase 0) where one creative-set is distributed across N
+ * campaigns. As of task #114 this is informational, not a hard block: the
+ * caller in `launch-campaign/route.ts` turns a non-ok result into a
+ * non-blocking `preflightWarning` (mixed objectives are an explicitly
+ * supported use case — e.g. attaching the same ads across Traffic + Sales +
+ * Awareness campaigns) rather than a 409. Any resulting per-ad
+ * creative/objective mismatch is caught individually in Phase 4 — see
+ * `isObjectiveIncompatibilityError` in `lib/meta/error-classify.ts`.
  */
 
 import type { ExistingMetaCampaignSnapshot } from "@/lib/types";
