@@ -136,6 +136,14 @@ LANDING_PAGES_META_API_VERSION=
 BM_TOKEN_KEY=
 ENABLE_META_THUMBNAIL_FETCH=
 ENABLE_OPTIMISATION_AUTOMATION=
+ENABLE_SLACK_NOTIFICATIONS=
+SLACK_CHANNEL_ADS_OPS_ENABLED=
+SLACK_CHANNEL_ADS_URGENT_ENABLED=
+SLACK_CHANNEL_ADS_AUTOMATION_ENABLED=
+SLACK_WEBHOOK_ADS_OPS=
+SLACK_WEBHOOK_ADS_URGENT=
+SLACK_WEBHOOK_ADS_AUTOMATION=
+ENABLE_BUDGET_PACING_ALERTS=
 ```
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
@@ -264,6 +272,48 @@ ENABLE_OPTIMISATION_AUTOMATION=
 > evaluator** — flagged as a PR B follow-up, not silently ignored. See
 > `docs/session-logs/pr-pending-optimisation-automation-phase-a-dry-run.md`.
 
+> **Slack notification service env vars** (task #121, Phase 1 + 2 — first
+> proactive alerting the app has ever had):
+> - `ENABLE_SLACK_NOTIFICATIONS` — master killswitch for `lib/notify/slack.ts`'s
+>   `notify()`. Must be exactly `"1"`; unset (the default) or any other value
+>   means every `notify()` call returns `{sent: false, reason: "killswitch_off"}`
+>   without posting anywhere. Independent of any calling cron's own killswitch
+>   (e.g. `ENABLE_BUDGET_PACING_ALERTS` below) — both must be on for a real
+>   Slack message.
+> - `SLACK_CHANNEL_ADS_OPS_ENABLED` / `SLACK_CHANNEL_ADS_URGENT_ENABLED` /
+>   `SLACK_CHANNEL_ADS_AUTOMATION_ENABLED` — per-channel override, default
+>   enabled (unset = on). Set to `"0"` or `"false"` to silence one channel
+>   without touching the master switch above.
+> - `SLACK_WEBHOOK_ADS_OPS` / `SLACK_WEBHOOK_ADS_URGENT` /
+>   `SLACK_WEBHOOK_ADS_AUTOMATION` — the incoming-webhook URL Slack gives you
+>   per channel (Slack App → Incoming Webhooks). Missing webhook for the
+>   channel a caller targets = `{sent: false, reason: "no_webhook_configured"}`,
+>   logged as an error (not a silent drop). Webhooks only for MVP — no Slack
+>   OAuth/interactive components yet.
+> - Business hours (10:00–20:00 Mon–Fri `Europe/London`, `lib/notify/business-hours.ts`)
+>   gate `ads_ops`/`ads_automation` by default; `ads_urgent` always fires
+>   regardless of the time of day. Every `notify()` call can override this
+>   per-call via `respectBusinessHours`.
+> - Dedupe/mute state lives in `notification_dedupe_state` (migration 152) —
+>   see `lib/db/notification-dedupe.ts`. A caller-chosen `dedupeKey` +
+>   `dedupeWindowMs` decides whether a repeat alert re-fires; a `muted` row
+>   always skips regardless of the window. The click-through UI to flip
+>   `muted` is a later phase — for now, flip it directly in Supabase.
+
+> **`ENABLE_BUDGET_PACING_ALERTS`** (task #121 Phase 2) must be set to `"1"`
+> in Vercel prod env vars to activate `/api/cron/budget-pacing-check` (hourly).
+> Unset/anything else = fully disabled, the route responds 200 with
+> `skippedReason: "killswitch"` rather than a cron failure. Evaluates every
+> `status = 'published'` campaign's lifetime Meta spend against its planned
+> budget (the SUM of its enabled ad sets' daily budgets × scheduled days —
+> see `lib/budget-pacing/plan.ts`'s doc comment for why that, and not
+> `budgetSchedule.budgetAmount`, is the correct denominator) and posts an
+> `ads_ops` Slack message the first time each of 25/50/60/70/80/90/100% is
+> crossed. Each threshold fires at most once per campaign ever
+> (`dedupeWindowMs: Number.MAX_SAFE_INTEGER`) so a campaign that dips back
+> below a threshold and crosses it again later does not re-alert. Zero Meta
+> write calls.
+
 > **D2C orchestration env vars** (brief→campaign automation, PR #647):
 > - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C
 >   provider credentials (`get_d2c_credentials` / `set_d2c_credentials`, migration
@@ -285,7 +335,14 @@ ENABLE_OPTIMISATION_AUTOMATION=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `151_campaign_automation_decisions.sql`.
+**Latest migration:** `152_notification_dedupe_state.sql`.
+
+- Slack notifications (task #121 Phase 1, August 2026): `notification_dedupe_state`
+  (migration 152) — dedupe/mute state for `lib/notify/slack.ts`'s `notify()`,
+  keyed by a caller-defined `dedupe_key` (e.g. `budget_threshold:<campaignId>:<threshold>`
+  from Phase 2's budget-pacing cron). `data` jsonb holds the last fired
+  payload for debugging; `muted`/`muted_at` support a future "mute this
+  alert" click-through not yet built.
 
 - Client admin dashboard (July 2026, OP909 arc): `client_users` maps one
   auth user → one client (the /admin authorisation pivot; `role` =
@@ -394,6 +451,11 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   `ENABLE_OPTIMISATION_AUTOMATION` above). Evaluates opted-in published
   campaigns' ad sets and writes recommendations to
   `campaign_automation_decisions` (migration 151) — zero Meta writes in PR A.
+- `/api/cron/budget-pacing-check` (hourly) — task #121 Phase 2, the first
+  consumer of the Phase 1 Slack service. Evaluates every published
+  campaign's lifetime Meta spend against its planned budget and posts an
+  `ads_ops` Slack alert on each 25/50/60/70/80/90/100% threshold crossed
+  (see `ENABLE_BUDGET_PACING_ALERTS` above). Zero Meta writes.
 
 ### Canonical spec
 

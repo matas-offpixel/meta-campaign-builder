@@ -92,6 +92,10 @@
     {
       "path": "/api/cron/optimisation-tick",
       "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/budget-pacing-check",
+      "schedule": "0 */1 * * *"
     }
   ]
 }
