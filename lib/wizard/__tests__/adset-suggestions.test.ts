@@ -15,6 +15,7 @@ import {
   defaultBlankAdSetBudget,
   duplicateAdSetSuggestion,
   resolveDuplicateAdSetName,
+  clearUnsupportedAdvantagePlus,
   deleteAdSetSuggestion,
   applyBulkAgeRange,
   applyBulkDailyBudget,
@@ -233,6 +234,41 @@ describe("resolveDuplicateAdSetName", () => {
     assert.ok(result.length <= MAX_ADSET_NAME_LENGTH, `expected length <= ${MAX_ADSET_NAME_LENGTH}, got ${result.length}`);
     assert.ok(result.endsWith(" – Adv+"));
     assert.ok(result.includes("…"));
+  });
+});
+
+describe("clearUnsupportedAdvantagePlus", () => {
+  it("clears advantagePlus on every row that has it set, leaving others untouched", () => {
+    const rows = [
+      makeSuggestion({ id: "a", advantagePlus: true }),
+      makeSuggestion({ id: "b", advantagePlus: false }),
+      makeSuggestion({ id: "c", advantagePlus: true }),
+    ];
+    const { suggestions, clearedCount } = clearUnsupportedAdvantagePlus(rows);
+    assert.equal(clearedCount, 2);
+    assert.equal(suggestions.find((s) => s.id === "a")?.advantagePlus, false);
+    assert.equal(suggestions.find((s) => s.id === "b")?.advantagePlus, false);
+    assert.equal(suggestions.find((s) => s.id === "c")?.advantagePlus, false);
+  });
+
+  it("clears blank ad sets too — they'd otherwise be permanently stuck (no UI control to turn the toggle off)", () => {
+    const rows = [makeSuggestion({ id: "blank1", sourceType: "blank", advantagePlus: true })];
+    const { suggestions, clearedCount } = clearUnsupportedAdvantagePlus(rows);
+    assert.equal(clearedCount, 1);
+    assert.equal(suggestions[0].advantagePlus, false);
+  });
+
+  it("is a no-op (clearedCount 0) when nothing has advantagePlus set", () => {
+    const rows = [makeSuggestion({ id: "a", advantagePlus: false }), makeSuggestion({ id: "b", advantagePlus: false })];
+    const { suggestions, clearedCount } = clearUnsupportedAdvantagePlus(rows);
+    assert.equal(clearedCount, 0);
+    assert.deepEqual(suggestions, rows);
+  });
+
+  it("does not mutate the original array", () => {
+    const rows = [makeSuggestion({ id: "a", advantagePlus: true })];
+    clearUnsupportedAdvantagePlus(rows);
+    assert.equal(rows[0].advantagePlus, true);
   });
 });
 

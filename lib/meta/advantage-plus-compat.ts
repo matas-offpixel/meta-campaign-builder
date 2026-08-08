@@ -76,6 +76,18 @@ export function objectiveDisplayName(objective: CampaignObjective): string {
  * handler (`lib/audiences/adset-create-with-salvage.ts`), which still
  * succeeds but produces an ad set indistinguishable from a strict-mode
  * sibling with no warning to the operator.
+ *
+ * task #127 — this should be rare in practice: Step 5 now auto-clears
+ * `advantagePlus` on every ad set as soon as it detects the objective
+ * doesn't support it (`clearUnsupportedAdvantagePlus` in
+ * `lib/wizard/adset-suggestions.ts`, wired into
+ * `components/steps/budget-schedule.tsx`'s mount/objective-change effect).
+ * The only way to still hit this at launch time is if the operator changed
+ * the objective (Step 2) and launched without ever opening Step 5 again —
+ * so the message points them back to Step 5 to let it self-heal, NOT at a
+ * manual toggle they may not be able to find or operate (the per-row
+ * control is disabled for unsupported objectives, and blank ad sets never
+ * exposed a toggle at all).
  */
 export function advantageAudienceObjectiveMismatchMessage(
   adSetName: string,
@@ -83,7 +95,7 @@ export function advantageAudienceObjectiveMismatchMessage(
 ): string {
   return (
     `"${adSetName}" has Advantage+ Audience enabled, but Meta doesn't support Advantage+ Audience for ` +
-    `${objectiveDisplayName(objective)} campaigns (Meta error subcode 1870196). Turn off Advantage+ Audience for ` +
-    `this ad set in Step 5 — Budget & Schedule (or duplicate it and keep the duplicate strict) before launching.`
+    `${objectiveDisplayName(objective)} campaigns (Meta error subcode 1870196). Reopen Step 5 — Budget & ` +
+    `Schedule — it automatically clears Advantage+ Audience from ad sets that don't support it — then re-launch.`
   );
 }

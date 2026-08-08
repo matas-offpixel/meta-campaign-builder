@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useRef } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -32,6 +32,7 @@ import {
   Users,
   CalendarRange,
   Wand2,
+  AlertTriangle,
 } from "lucide-react";
 import type {
   BudgetScheduleSettings,
@@ -69,6 +70,7 @@ import {
   applyBulkAgeRange,
   applyBulkDailyBudget,
   duplicateSuggestionsUnderLocationGroup,
+  clearUnsupportedAdvantagePlus,
   MAX_ADSET_NAME_LENGTH,
 } from "@/lib/wizard/adset-suggestions";
 import {
@@ -1228,6 +1230,53 @@ export function BudgetSchedule({
     settings.optimisationGoal,
   );
 
+  // task #127 — PR #760 disabled the toggle for unsupported objectives but
+  // gave operators no way to fix an ad set that ALREADY has advantagePlus:
+  // true (duplicated before #760 landed, or the objective was switched away
+  // from a supported one in Step 2 after Step 5 was configured) — the
+  // launch-time preflight would reject it and there was no control left to
+  // clear it from. Auto-normalise instead: on mount, and whenever the
+  // objective/goal or the ad set list changes, force `advantagePlus: false`
+  // on every ad set (including "blank" ones, whose toggle is locked and can
+  // never be turned off manually) once the objective stops supporting it.
+  // No operator click required — they already expressed intent by picking
+  // the objective.
+  //
+  // This effect only touches the external system (`onSuggestionsChange`,
+  // i.e. the parent's draft state) — no local setState here, per
+  // react-hooks/set-state-in-effect.
+  useEffect(() => {
+    if (advantagePlusSupported) return;
+    const { suggestions: cleared, clearedCount } = clearUnsupportedAdvantagePlus(adSetSuggestions);
+    if (clearedCount === 0) return;
+    onSuggestionsChange(cleared);
+  }, [advantagePlusSupported, adSetSuggestions, onSuggestionsChange]);
+
+  // The "cleared N ad sets" notice is derived separately, entirely during
+  // render (React's documented "adjust state while rendering" escape hatch —
+  // no refs, no effect): compare the incoming `adSetSuggestions` prop against
+  // the previous render's snapshot and count rows whose `advantagePlus` flag
+  // just flipped true → false. That transition only happens via the effect
+  // above (the per-row toggle is disabled whenever unsupported), so this
+  // reliably fires exactly once per auto-clear, on the render that receives
+  // the already-cleared suggestions back down as a prop.
+  const [prevSuggestionsForNotice, setPrevSuggestionsForNotice] = useState(adSetSuggestions);
+  const [autoClearedNotice, setAutoClearedNotice] = useState<string | null>(null);
+  if (adSetSuggestions !== prevSuggestionsForNotice) {
+    const justCleared = prevSuggestionsForNotice.filter((prev) => {
+      if (!prev.advantagePlus) return false;
+      const current = adSetSuggestions.find((s) => s.id === prev.id);
+      return current !== undefined && !current.advantagePlus;
+    }).length;
+    setPrevSuggestionsForNotice(adSetSuggestions);
+    if (justCleared > 0 && !advantagePlusSupported) {
+      setAutoClearedNotice(
+        `Cleared Advantage+ Audience from ${justCleared} ad set${justCleared !== 1 ? "s" : ""} — Meta doesn't ` +
+          `support it for ${objectiveDisplayName(settings.objective)} campaigns.`,
+      );
+    }
+  }
+
   const duplicateRow = (id: string) =>
     onSuggestionsChange(duplicateAdSetSuggestion(adSetSuggestions, id, advantagePlusSupported));
 
@@ -1505,6 +1554,27 @@ export function BudgetSchedule({
           </div>
         )}
 
+        {/* task #127 — one-time confirmation that the auto-normaliser above just
+            acted, so an operator returning to a campaign whose objective was
+            switched away from a supported one isn't left wondering why their
+            previously-Advantage+ ad sets are suddenly strict. */}
+        {autoClearedNotice && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+            <div className="flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
+              <span className="text-xs text-warning">{autoClearedNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAutoClearedNotice(null)}
+              className="shrink-0 text-warning hover:opacity-70"
+              title="Dismiss"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         {adSetSuggestions.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-border py-8 text-center">
             <p className="text-sm text-muted-foreground">
@@ -1627,10 +1697,10 @@ export function BudgetSchedule({
                           }}
                           disabled={isBlank || !advantagePlusSupported}
                           title={
-                            isBlank
+                            !advantagePlusSupported
+                              ? `Meta doesn't support Advantage+ Audience for ${objectiveDisplayName(settings.objective)} campaigns — automatically cleared for this ad set.`
+                              : isBlank
                               ? "Blank ad sets always run Advantage+ Audience — there's no audience to target strictly"
-                              : !advantagePlusSupported
-                              ? `Meta doesn't support Advantage+ Audience for ${objectiveDisplayName(settings.objective)} campaigns. Toggle disabled.`
                               : s.advantagePlus
                               ? "Advantage+ ON — age sent as suggestion. Click to switch to strict targeting."
                               : "Advantage+ OFF — strict age targeting. Click to enable Advantage+ audience."
@@ -1680,11 +1750,24 @@ export function BudgetSchedule({
                       </div>
                     </div>
                     {/* ── Blank ad set hint ─────────────────────────────────── */}
-                    {isBlank && (
+                    {isBlank && advantagePlusSupported && (
                       <div className="flex items-center gap-1.5 border-t border-primary/10 bg-primary-light/50 px-4 py-1.5">
                         <Lightbulb className="h-3 w-3 shrink-0 text-primary" />
                         <span className="text-[11px] text-primary">
                           No audience source — pure Meta-driven prospecting from location + demographics. Advantage+ Audience is locked ON.
+                        </span>
+                      </div>
+                    )}
+                    {/* task #127 — Advantage+ can't be locked ON here anymore once the
+                        objective doesn't support it; the auto-normaliser above clears
+                        it, so this ad set runs as plain broad targeting instead. */}
+                    {isBlank && !advantagePlusSupported && (
+                      <div className="flex items-center gap-1.5 border-t border-warning/20 bg-warning/10 px-4 py-1.5">
+                        <AlertTriangle className="h-3 w-3 shrink-0 text-warning" />
+                        <span className="text-[11px] text-warning">
+                          No audience source, and Advantage+ Audience isn&apos;t available for{" "}
+                          {objectiveDisplayName(settings.objective)} campaigns — this ad set runs as plain broad
+                          targeting (age + location only) instead.
                         </span>
                       </div>
                     )}

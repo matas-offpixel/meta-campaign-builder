@@ -186,6 +186,40 @@ export function duplicateAdSetSuggestion(
   return next;
 }
 
+/**
+ * Force `advantagePlus: false` on every ad set that currently has it set
+ * (task #127). The caller is responsible for only invoking this when the
+ * campaign's objective/optimisation goal doesn't support Advantage+ Audience
+ * at all (`!isAdvantageAudienceSupportedForObjective(...)` in
+ * `lib/meta/advantage-plus-compat.ts`) — this function itself has no
+ * objective awareness, it just performs the clear.
+ *
+ * Deliberately applies to EVERY ad set, including "blank" ones (which
+ * `createBlankAdSetSuggestion` otherwise always creates with
+ * `advantagePlus: true`, and whose row toggle the UI locks so an operator
+ * can never turn it off manually). Without this, a blank ad set on an
+ * incompatible objective would be permanently unlaunchable — the same
+ * "stuck, no way to fix it from the UI" bug this task exists to close, just
+ * for the one row type the per-row toggle can't reach. A cleared blank ad
+ * set still targets by age/location; it just runs as plain broad targeting
+ * instead of Advantage+ prospecting, which Meta accepts under any objective.
+ *
+ * Returns the (possibly identical) array plus how many rows were changed, so
+ * the caller can skip a no-op `onSuggestionsChange` and decide whether to
+ * show a "cleared N ad sets" notice.
+ */
+export function clearUnsupportedAdvantagePlus(
+  suggestions: AdSetSuggestion[],
+): { suggestions: AdSetSuggestion[]; clearedCount: number } {
+  let clearedCount = 0;
+  const next = suggestions.map((s) => {
+    if (!s.advantagePlus) return s;
+    clearedCount += 1;
+    return { ...s, advantagePlus: false };
+  });
+  return { suggestions: next, clearedCount };
+}
+
 /** Delete the ad set with id `id`. Distinct from the `enabled` checkbox toggle. */
 export function deleteAdSetSuggestion(
   suggestions: AdSetSuggestion[],
