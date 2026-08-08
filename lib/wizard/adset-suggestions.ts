@@ -25,6 +25,13 @@ import { groupToGeo } from "../meta/location-targeting.ts";
 /** Hard floor for `defaultBlankAdSetBudget` — never let a blank ad set default to 0 or near-0. */
 const MIN_BLANK_AD_SET_BUDGET = 100;
 
+/**
+ * Ad set name length cap for the Step 5 inline name input (task #126).
+ * Meta's actual ad set name limit is ~400 chars, but the UI stays tight so
+ * names remain scannable in the row list.
+ */
+export const MAX_ADSET_NAME_LENGTH = 40;
+
 function median(values: number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -101,26 +108,78 @@ export function createBlankAdSetSuggestion(
 }
 
 /**
- * Clone the ad set with id `id`, appending " (copy)" to its name, and insert
- * the clone directly after the source row (so A/B pairs — e.g. Advantage+ on
- * vs off, or two age bands, on the same audience — stay adjacent instead of
- * landing at the end of the list).
+ * Truncate `name` to fit within {@link MAX_ADSET_NAME_LENGTH} once `suffix`
+ * is appended, using an ellipsis rather than a hard cut so it's clear the
+ * name was shortened.
+ */
+function truncateForSuffix(name: string, suffix: string): string {
+  const maxBaseLength = Math.max(0, MAX_ADSET_NAME_LENGTH - suffix.length);
+  if (name.length <= maxBaseLength) return name;
+  return maxBaseLength <= 1 ? name.slice(0, maxBaseLength) : `${name.slice(0, maxBaseLength - 1)}…`;
+}
+
+/**
+ * Default name for a duplicated ad set (task #126). When the duplicate's
+ * `advantagePlus` differs from the source's (see `duplicateAdSetSuggestion`
+ * below — it flips the copy's targeting mode whenever the campaign objective
+ * supports both), name the copy after the mode it's actually about to run
+ * with (" – Strict" / " – Adv+") so the pair reads as an intentional A/B
+ * instead of two identically-named, identically-configured rows (the East
+ * End Dubs Newcastle "Similar Pages" / "Similar Pages (copy)" bug — both
+ * silently published strict with no way to tell them apart). Falls back to
+ * the plain " (copy)" suffix when the mode is unchanged (blank ad sets,
+ * objectives where Advantage+ isn't available at all, or an already-mixed
+ * source/copy pair).
+ */
+export function resolveDuplicateAdSetName(
+  original: Pick<AdSetSuggestion, "name" | "advantagePlus">,
+  copyAdvantagePlus: boolean,
+): string {
+  let suffix = " (copy)";
+  if (original.advantagePlus && !copyAdvantagePlus) suffix = " – Strict";
+  else if (!original.advantagePlus && copyAdvantagePlus) suffix = " – Adv+";
+  return `${truncateForSuffix(original.name, suffix)}${suffix}`;
+}
+
+/**
+ * Clone the ad set with id `id` and insert the clone directly after the
+ * source row (so A/B pairs — e.g. Advantage+ on vs off, or two age bands, on
+ * the same audience — stay adjacent instead of landing at the end of the
+ * list).
  *
- * Every field is copied via spread, including `placementConfig`, `budgetPerDay`,
- * `geoLocations`/`locationLabel`/`locationGroupId`, and the `advantagePlus` flag.
+ * Every field is copied via spread, including `placementConfig`,
+ * `budgetPerDay`, and `geoLocations`/`locationLabel`/`locationGroupId`.
+ *
+ * `advantagePlus` and `name` are the two exceptions (task #126): when
+ * `advantagePlusSupported` is true and the source isn't a "blank" ad set
+ * (which always forces Advantage+ ON), the copy's `advantagePlus` is
+ * flipped from the source's so duplicating instantly produces a useful A/B
+ * differentiator rather than an identical sibling — see
+ * `resolveDuplicateAdSetName` for the matching name suffix. Pass
+ * `advantagePlusSupported: false` when the campaign's objective/optimisation
+ * goal doesn't support Advantage+ Audience at all (see
+ * `isAdvantageAudienceSupportedForObjective` in
+ * `lib/meta/advantage-plus-compat.ts`) to keep the copy identical to the
+ * source instead — flipping it there would just get silently stripped by
+ * Meta (subcode 1870196).
+ *
  * Returns the original array unchanged if `id` isn't found.
  */
 export function duplicateAdSetSuggestion(
   suggestions: AdSetSuggestion[],
   id: string,
+  advantagePlusSupported: boolean = true,
 ): AdSetSuggestion[] {
   const idx = suggestions.findIndex((s) => s.id === id);
   if (idx === -1) return suggestions;
   const source = suggestions[idx];
+  const isBlank = source.sourceType === "blank";
+  const copyAdvantagePlus = isBlank || !advantagePlusSupported ? source.advantagePlus : !source.advantagePlus;
   const clone: AdSetSuggestion = {
     ...source,
     id: `${source.id}_copy_${Date.now()}`,
-    name: `${source.name} (copy)`,
+    name: resolveDuplicateAdSetName(source, copyAdvantagePlus),
+    advantagePlus: copyAdvantagePlus,
   };
   const next = [...suggestions];
   next.splice(idx + 1, 0, clone);

@@ -86,6 +86,10 @@ import {
   type CreateAdSetWithSalvageDeps,
   type PrepareAdSetPayloadResult,
 } from "@/lib/audiences/adset-create-with-salvage";
+import {
+  isAdvantageAudienceSupportedForObjective,
+  advantageAudienceObjectiveMismatchMessage,
+} from "@/lib/meta/advantage-plus-compat";
 import type {
   CampaignDraft,
   LaunchSummary,
@@ -2912,6 +2916,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const results = await Promise.allSettled(
         batch.map(async (adSet) => {
           const asStart = Date.now();
+
+          // task #126 — objective-gated preflight: fail fast, before ever
+          // calling Meta, instead of letting the create fail (subcode
+          // 1870196) and get silently "fixed" by the salvage ladder's
+          // 1870196 handler — see lib/meta/advantage-plus-compat.ts.
+          if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
+            throw { adSet, err: new Error(advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective)) };
+          }
+
           const adSetPayload = buildAdSetPayload(
             adSet,
             metaCampaignId,
@@ -3533,6 +3546,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue;
       }
 
+      // task #126 — objective-gated preflight (same reasoning as standard
+      // Phase 2 above): fail fast instead of relying on the salvage ladder's
+      // 1870196 handler to silently strip the flag.
+      if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
+        const message = advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective);
+        console.error(`[launch-campaign] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
+        adSetsFailed.push({ name: adSet.name, error: message });
+        adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
+        continue;
+      }
+
       const asStart = Date.now();
       let prep2b: PrepareAdSetPayloadResult | undefined;
       try {
@@ -3850,6 +3874,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const batchResults = await Promise.allSettled(
           batch.map(async (adSet) => {
             const asStart = Date.now();
+
+            // task #126 — objective-gated preflight (same reasoning as
+            // standard Phase 2 above).
+            if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
+              throw { adSet, err: new Error(advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective)) };
+            }
+
             const adSetPayload = buildAdSetPayload(
               adSet,
               nextCampaign.id,
@@ -4008,6 +4039,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           ciAdSetsFailed.push({ name: adSet.name, error: "Skipped — no lookalike audiences ready for this group" });
           continue;
         }
+
+        // task #126 — objective-gated preflight (same reasoning as standard
+        // Phase 2 above).
+        if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
+          ciAdSetsFailed.push({
+            name: adSet.name,
+            error: advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective),
+          });
+          continue;
+        }
+
         const asStart = Date.now();
         let prep2b: PrepareAdSetPayloadResult | undefined;
         try {

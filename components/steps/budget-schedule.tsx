@@ -69,7 +69,12 @@ import {
   applyBulkAgeRange,
   applyBulkDailyBudget,
   duplicateSuggestionsUnderLocationGroup,
+  MAX_ADSET_NAME_LENGTH,
 } from "@/lib/wizard/adset-suggestions";
+import {
+  isAdvantageAudienceSupportedForObjective,
+  objectiveDisplayName,
+} from "@/lib/meta/advantage-plus-compat";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
 // Presets are resolved at runtime via the same Meta location-search API
@@ -1214,8 +1219,17 @@ export function BudgetSchedule({
     onSuggestionsChange([...adSetSuggestions, blank]);
   };
 
+  // task #126 — objective-gated: registration/awareness campaigns can't run
+  // Advantage+ Audience at all (Meta rejects it, subcode 1870196), so the
+  // per-row toggle is disabled below and a duplicate never flips into a mode
+  // Meta would just reject.
+  const advantagePlusSupported = isAdvantageAudienceSupportedForObjective(
+    settings.objective,
+    settings.optimisationGoal,
+  );
+
   const duplicateRow = (id: string) =>
-    onSuggestionsChange(duplicateAdSetSuggestion(adSetSuggestions, id));
+    onSuggestionsChange(duplicateAdSetSuggestion(adSetSuggestions, id, advantagePlusSupported));
 
   const deleteRow = (id: string) =>
     onSuggestionsChange(deleteAdSetSuggestion(adSetSuggestions, id));
@@ -1481,6 +1495,16 @@ export function BudgetSchedule({
           </div>
         )}
 
+        {!advantagePlusSupported && adSetSuggestions.length > 0 && (
+          <div className="mt-3 flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-3 py-2">
+            <Lightbulb className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">
+              Meta doesn&apos;t support Advantage+ Audience for {objectiveDisplayName(settings.objective)} campaigns
+              — the toggle below is disabled for every ad set in this campaign.
+            </span>
+          </div>
+        )}
+
         {adSetSuggestions.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-border py-8 text-center">
             <p className="text-sm text-muted-foreground">
@@ -1514,7 +1538,17 @@ export function BudgetSchedule({
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium truncate">{s.name}</span>
+                          <input
+                            type="text"
+                            value={s.name}
+                            onChange={(e) =>
+                              updateSuggestion(s.id, { name: e.target.value.slice(0, MAX_ADSET_NAME_LENGTH) })
+                            }
+                            maxLength={MAX_ADSET_NAME_LENGTH}
+                            title="Click to rename this ad set"
+                            placeholder="Ad set name"
+                            className="min-w-0 flex-1 truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none"
+                          />
                           <Badge variant="outline" className="text-[10px] shrink-0">
                             {SOURCE_LABELS[s.sourceType] || s.sourceType}
                           </Badge>
@@ -1588,13 +1622,15 @@ export function BudgetSchedule({
                         <button
                           type="button"
                           onClick={() => {
-                            if (isBlank) return;
+                            if (isBlank || !advantagePlusSupported) return;
                             updateSuggestion(s.id, { advantagePlus: !s.advantagePlus });
                           }}
-                          disabled={isBlank}
+                          disabled={isBlank || !advantagePlusSupported}
                           title={
                             isBlank
                               ? "Blank ad sets always run Advantage+ Audience — there's no audience to target strictly"
+                              : !advantagePlusSupported
+                              ? `Meta doesn't support Advantage+ Audience for ${objectiveDisplayName(settings.objective)} campaigns. Toggle disabled.`
                               : s.advantagePlus
                               ? "Advantage+ ON — age sent as suggestion. Click to switch to strict targeting."
                               : "Advantage+ OFF — strict age targeting. Click to enable Advantage+ audience."
@@ -1603,7 +1639,7 @@ export function BudgetSchedule({
                             ${s.advantagePlus
                               ? "border-primary bg-primary-light text-primary"
                               : "border-border text-muted-foreground hover:bg-muted"}
-                            ${isBlank ? "cursor-not-allowed opacity-80" : ""}`}
+                            ${isBlank || !advantagePlusSupported ? "cursor-not-allowed opacity-80" : ""}`}
                         >
                           {s.advantagePlus ? "Advantage+ ON" : "Advantage+"}
                         </button>
