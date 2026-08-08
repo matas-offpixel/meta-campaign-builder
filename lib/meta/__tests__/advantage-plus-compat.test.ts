@@ -98,6 +98,18 @@ describe("advantageAudienceObjectiveMismatchMessage", () => {
     assert.match(message, /Registration/);
     assert.match(message, /1870196/);
   });
+
+  it("points the operator at Step 5's auto-clear, not a manual toggle they may not be able to operate (task #127)", () => {
+    const message = advantageAudienceObjectiveMismatchMessage("Blank (no audience)", "awareness");
+    assert.match(message, /Step 5/);
+    assert.match(message, /automatically clears/i);
+    // Must NOT tell the operator to manually "turn off"/"disable" the toggle —
+    // the per-row control is disabled for unsupported objectives, and blank
+    // ad sets never exposed a toggle at all, so that instruction is
+    // unactionable (the exact bug task #127 exists to close).
+    assert.doesNotMatch(message, /turn off/i);
+    assert.doesNotMatch(message, /disable Advantage\+/i);
+  });
 });
 
 describe("objectiveDisplayName", () => {
