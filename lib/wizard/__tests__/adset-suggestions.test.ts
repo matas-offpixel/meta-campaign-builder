@@ -14,10 +14,12 @@ import {
   createBlankAdSetSuggestion,
   defaultBlankAdSetBudget,
   duplicateAdSetSuggestion,
+  resolveDuplicateAdSetName,
   deleteAdSetSuggestion,
   applyBulkAgeRange,
   applyBulkDailyBudget,
   duplicateSuggestionsUnderLocationGroup,
+  MAX_ADSET_NAME_LENGTH,
 } from "../adset-suggestions.ts";
 import type { AdSetSuggestion, LocationTargetingGroup } from "../../types.ts";
 
@@ -152,12 +154,14 @@ describe("defaultBlankAdSetBudget", () => {
 });
 
 describe("duplicateAdSetSuggestion", () => {
-  it("clones every field and appends ' (copy)' to the name", () => {
-    const source = makeSuggestion();
+  it("clones every field verbatim except name + advantagePlus, which flip to differentiate the A/B pair", () => {
+    const source = makeSuggestion({ advantagePlus: false });
     const next = duplicateAdSetSuggestion([source], "s1");
     assert.equal(next.length, 2);
     const clone = next[1];
-    assert.equal(clone.name, "Page Group (copy)");
+    // Source was strict; default (advantagePlusSupported: true) flips the copy to Adv+.
+    assert.equal(clone.advantagePlus, true);
+    assert.equal(clone.name, "Page Group – Adv+");
     assert.notEqual(clone.id, source.id);
     // Every other field copied verbatim.
     assert.equal(clone.sourceType, source.sourceType);
@@ -165,9 +169,29 @@ describe("duplicateAdSetSuggestion", () => {
     assert.equal(clone.ageMin, source.ageMin);
     assert.equal(clone.ageMax, source.ageMax);
     assert.equal(clone.budgetPerDay, source.budgetPerDay);
-    assert.equal(clone.advantagePlus, source.advantagePlus);
     assert.equal(clone.locationGroupId, source.locationGroupId);
     assert.deepEqual(clone.placementConfig, source.placementConfig);
+  });
+
+  it("flips an Advantage+ source to a strict copy, named '... – Strict'", () => {
+    const source = makeSuggestion({ advantagePlus: true });
+    const next = duplicateAdSetSuggestion([source], "s1");
+    assert.equal(next[1].advantagePlus, false);
+    assert.equal(next[1].name, "Page Group – Strict");
+  });
+
+  it("keeps the copy identical (name + advantagePlus) when advantagePlusSupported is false", () => {
+    const source = makeSuggestion({ advantagePlus: false });
+    const next = duplicateAdSetSuggestion([source], "s1", false);
+    assert.equal(next[1].advantagePlus, false);
+    assert.equal(next[1].name, "Page Group (copy)");
+  });
+
+  it("never flips advantagePlus for a blank ad set (always locked ON)", () => {
+    const source = makeSuggestion({ sourceType: "blank", advantagePlus: true, name: "Blank (no audience)" });
+    const next = duplicateAdSetSuggestion([source], "s1", true);
+    assert.equal(next[1].advantagePlus, true);
+    assert.equal(next[1].name, "Blank (no audience) (copy)");
   });
 
   it("inserts the clone directly under the source row, not at the end", () => {
@@ -183,6 +207,32 @@ describe("duplicateAdSetSuggestion", () => {
   it("returns the original array unchanged when the id isn't found", () => {
     const rows = [makeSuggestion({ id: "a" })];
     assert.equal(duplicateAdSetSuggestion(rows, "missing"), rows);
+  });
+});
+
+describe("resolveDuplicateAdSetName", () => {
+  it("appends ' – Strict' when the source is Advantage+ and the copy is strict", () => {
+    assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: true }, false), "Similar Pages – Strict");
+  });
+
+  it("appends ' – Adv+' when the source is strict and the copy is Advantage+", () => {
+    assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: false }, true), "Similar Pages – Adv+");
+  });
+
+  it("falls back to ' (copy)' when the mode is unchanged (both strict)", () => {
+    assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: false }, false), "Similar Pages (copy)");
+  });
+
+  it("falls back to ' (copy)' when the mode is unchanged (both Advantage+)", () => {
+    assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: true }, true), "Similar Pages (copy)");
+  });
+
+  it("truncates a long name with an ellipsis so the result stays within MAX_ADSET_NAME_LENGTH", () => {
+    const longName = "A".repeat(50);
+    const result = resolveDuplicateAdSetName({ name: longName, advantagePlus: false }, true);
+    assert.ok(result.length <= MAX_ADSET_NAME_LENGTH, `expected length <= ${MAX_ADSET_NAME_LENGTH}, got ${result.length}`);
+    assert.ok(result.endsWith(" – Adv+"));
+    assert.ok(result.includes("…"));
   });
 });
 
