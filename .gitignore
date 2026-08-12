@@ -56,6 +56,10 @@ References/
 # supabase CLI scratch (linked-project metadata, gen-types cache)
 supabase/.temp/
 
+# scripts/repair-video-thumbnails.mjs resumability checkpoint (task #128) —
+# local run state, never shared across machines/operators.
+scripts/.repair-video-thumbnails-checkpoint.json
+
 # Personal accounting — must never be committed
 vat_q*_2026_receipts/
 vat_q*_2027_receipts/

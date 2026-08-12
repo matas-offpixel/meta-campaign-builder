@@ -2177,9 +2177,12 @@ export async function uploadVideoAsset(
   // ── Post-upload thumbnail fetch ────────────────────────────────────────
   // Meta's POST /advideos response does NOT include `picture` or
   // `preview_image_url` — the video is still ENCODING. We poll the video
-  // node directly to get the auto-generated thumbnail.
-  // Two attempts × 3 s apart = 6 s max extra latency (well within the
-  // route's maxDuration=300). Failure falls through to empty previewUrl.
+  // node directly to get the auto-generated thumbnail, rejecting Meta's
+  // "still encoding" placeholder spinner rather than accepting it as a real
+  // frame (task #128). Bounded backoff, 5 attempts / 48 s max extra latency
+  // (well within the route's maxDuration=300) — see
+  // lib/meta/video-thumbnail-poll.ts's doc comment for why 48s. Failure
+  // falls through to empty previewUrl.
   const previewUrl = await fetchVideoThumbnailWithRetry(videoId, effectiveToken);
 
   return { videoId, previewUrl };
