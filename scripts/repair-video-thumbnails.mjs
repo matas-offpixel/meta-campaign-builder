@@ -15,7 +15,33 @@
 // scripts/backfill-key-moments.mjs mirroring lib/db/event-key-moments.ts) so
 // this plain .mjs script doesn't need a TS loader to import it.
 //
-// What it does, per broken creative found:
+// task #128 follow-up (this revision) — DISCOVERY PIVOT: the first version
+// of this script scanned campaign_drafts.draft_json for
+// `creative.metaCreativeId` + `asset.thumbnailUrl` and found ZERO broken
+// creatives, because `metaCreativeId` is never written back to the draft
+// after launch (confirmed via SQL — draft faf11b6f / creative 6e168e8b has
+// no metaCreativeId key even though the ad is live on Meta with a
+// spinner-hash creative). draft_json is a point-in-time autosave snapshot;
+// it was never designed to be re-synced with what Meta actually created.
+//
+// Fix: query Meta directly instead of trusting the draft snapshot.
+// campaign_drafts is used ONLY to discover which metaCampaignId(s) exist for
+// which adAccountId — everything about the actual live ad/creative/thumbnail
+// state comes straight from the Graph API:
+//   1. GET /{campaignId}/ads?fields=id,name,creative{id,object_story_spec}
+//      (paginated) enumerates every ad + its creative's video_data in one
+//      call per page — no draft_json involved.
+//   2. If an ad's nested creative expansion came back empty (rare), fall
+//      back to a direct GET /{creativeId}?fields=object_story_spec.
+//   3. GET /{adAccountId}/adimages?hashes=["<hash>"] resolves the CDN URL
+//      Meta is CURRENTLY serving for that image_hash.
+//   4. isMetaPlaceholderThumbnailUrl flags that URL as broken.
+// The canonical, unit-tested version of this pipeline lives in
+// lib/meta/video-thumbnail-repair-scan.ts (see its doc comment for the same
+// story) — this script's discovery functions below are a deliberate inline
+// mirror, same convention as isMetaPlaceholderThumbnailUrl.
+//
+// What it does, per broken ad/creative found:
 //   1. Re-fetch GET /{videoId}?fields=picture — by now (the video was
 //      uploaded at least hours/days ago) Meta should have the real frame.
 //   2. Upload that URL as an ad image (POST /{adAccountId}/adimages) to get
@@ -23,17 +49,21 @@
 //   3. GET the creative's current object_story_spec, splice in the new
 //      image_hash (preserving every other field — title/message/cta/page_id/
 //      instagram_user_id/etc.), and POST it back to /{creativeId}.
-//   4. Best-effort: also patch the matching asset's thumbnailUrl/assetHash
-//      in our own campaign_drafts.draft_json, so future re-reads of the
-//      draft (duplicate, template, etc.) don't resurrect the placeholder.
+//   4. Best-effort: also patch every draft asset that references the same
+//      videoId in our own campaign_drafts.draft_json (matched by videoId,
+//      NOT by asset.id/metaCreativeId — those aren't reliably present), so
+//      future re-reads of the draft (duplicate, template, etc.) don't
+//      resurrect the placeholder.
 //
 // Dedupes by Meta creative id — if the same creative backs multiple ads
 // (shared across ad sets), it's repaired exactly once.
 //
 // Safety: DRY RUN by default (reports what it would do, makes zero writes).
-// Pass --live to actually call Meta + Supabase writes. Rate-limited to
-// 1 creative/sec. Resumable via a local JSON checkpoint file — re-running
-// after a crash / Ctrl-C skips creatives already marked "fixed".
+// Pass --live to actually call Meta + Supabase writes. Rate-limited:
+// 1 ad/sec during the discovery/fetch pass (per ad's creative resolution,
+// and per unique image_hash resolved), 1 creative/sec during the repair
+// pass. Resumable via a local JSON checkpoint file — re-running after a
+// crash / Ctrl-C skips creatives already marked "fixed".
 //
 // Usage:
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs                 # dry run, last 90 days
@@ -114,22 +144,6 @@ function priorityRank(draftName) {
   return idx === -1 ? PRIORITY_NAME_FRAGMENTS.length : idx;
 }
 
-// ─── Meta asset-priority (mirrors VIDEO_PRIORITY in lib/meta/creative.ts) ────
-// Only the FIRST asset variation's assets are ever sent to Meta as the
-// creative's video_data (pickPrimaryVideoAsset) — repairing any other
-// variation's thumbnail wouldn't change what's actually live.
-
-const VIDEO_PRIORITY = ["9:16", "4:5", "1:1"];
-
-function pickPrimaryVideoAsset(creative) {
-  const assets = creative.assetVariations?.[0]?.assets ?? [];
-  for (const ratio of VIDEO_PRIORITY) {
-    const asset = assets.find((a) => a.aspectRatio === ratio && a.videoId);
-    if (asset) return asset;
-  }
-  return undefined;
-}
-
 // ─── Checkpoint ───────────────────────────────────────────────────────────────
 
 async function loadCheckpoint() {
@@ -145,7 +159,13 @@ async function saveCheckpoint(checkpoint) {
   await writeFile(CHECKPOINT_PATH, JSON.stringify(checkpoint, null, 2));
 }
 
-// ─── Supabase: candidate drafts ───────────────────────────────────────────────
+// ─── Supabase: candidate drafts (used ONLY to discover metaCampaignId(s)) ────
+//
+// draft_json.launchSummary.metaCampaignId is the PRIMARY campaign for a
+// launch; draft_json.launchSummary.campaignAttachResults[].campaignId
+// (task #125 — multi-campaign bulk-attach) covers any additional campaigns
+// the same draft attached ad sets to. All actual ad/creative/thumbnail state
+// is read straight from Meta below — draft_json is never trusted for that.
 
 async function loadCandidateDrafts() {
   const sinceIso = new Date(Date.now() - DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -162,41 +182,33 @@ async function loadCandidateDrafts() {
   return data ?? [];
 }
 
-// ─── Collect broken creatives across candidate drafts (deduped by creative id) ─
+// ─── Collect distinct (adAccountId, campaignId) targets to scan on Meta ──────
 
-function collectBrokenCreatives(rows) {
-  const byCreativeId = new Map();
+function collectCampaignTargets(rows) {
+  const byKey = new Map();
 
   for (const row of rows) {
     const draft = row.draft_json;
-    const creatives = draft?.creatives ?? [];
-    for (const creative of creatives) {
-      if (creative.mediaType !== "video" || !creative.metaCreativeId) continue;
-      const asset = pickPrimaryVideoAsset(creative);
-      if (!asset?.videoId) continue;
-      if (!isMetaPlaceholderThumbnailUrl(asset.thumbnailUrl)) continue;
+    const adAccountId = draft?.settings?.adAccountId;
+    const draftName = draft?.settings?.campaignName ?? row.name ?? "(untitled)";
+    const launchSummary = draft?.launchSummary;
+    if (!adAccountId || !launchSummary) continue;
 
-      const creativeId = creative.metaCreativeId;
-      const usedByAdSets =
-        draft.launchSummary?.creativesCreated?.find((c) => c.metaCreativeId === creativeId)?.ads?.length ?? 0;
+    const campaignIds = new Set();
+    if (launchSummary.metaCampaignId) campaignIds.add(launchSummary.metaCampaignId);
+    for (const attach of launchSummary.campaignAttachResults ?? []) {
+      if (attach?.campaignId) campaignIds.add(attach.campaignId);
+    }
 
-      if (!byCreativeId.has(creativeId)) {
-        byCreativeId.set(creativeId, {
-          creativeId,
-          creativeName: creative.name,
-          videoId: asset.videoId,
-          placeholderUrl: asset.thumbnailUrl,
-          draftId: draft.id,
-          draftName: draft.settings?.campaignName ?? row.name ?? "(untitled)",
-          adAccountId: draft.settings?.adAccountId,
-          usedByAdSets,
-          assetId: asset.id,
-        });
+    for (const campaignId of campaignIds) {
+      const key = `${adAccountId}:${campaignId}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { adAccountId, campaignId, draftId: row.id, draftName });
       }
     }
   }
 
-  const targets = [...byCreativeId.values()];
+  const targets = [...byKey.values()];
   targets.sort((a, b) => priorityRank(a.draftName) - priorityRank(b.draftName));
   return targets;
 }
@@ -207,6 +219,141 @@ function withActPrefix(adAccountId) {
   if (!adAccountId) return adAccountId;
   return adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
 }
+
+// ─── Discovery pass — mirrors lib/meta/video-thumbnail-repair-scan.ts ───────
+
+async function fetchCampaignAds(campaignId) {
+  const ads = [];
+  let after;
+
+  for (;;) {
+    const url = new URL(`${GRAPH_BASE}/${campaignId}/ads`);
+    url.searchParams.set("fields", "id,name,creative{id,object_story_spec}");
+    url.searchParams.set("limit", "100");
+    url.searchParams.set("access_token", metaToken);
+    if (after) url.searchParams.set("after", after);
+
+    const res = await fetch(url.toString());
+    const json = await res.json();
+    if (!res.ok || json.error) {
+      throw new Error(`GET /${campaignId}/ads failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+    }
+    ads.push(...(json.data ?? []));
+
+    const nextAfter = json.paging?.cursors?.after;
+    if (!json.paging?.next || !nextAfter || nextAfter === after) break;
+    after = nextAfter;
+  }
+
+  return ads;
+}
+
+async function fetchCreativeObjectStorySpecForAd(creativeId) {
+  const url = `${GRAPH_BASE}/${creativeId}?fields=object_story_spec&access_token=${encodeURIComponent(metaToken)}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if (!res.ok || json.error) {
+    throw new Error(`GET /${creativeId}?fields=object_story_spec failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+  }
+  return json.object_story_spec;
+}
+
+async function resolveImageHashUrl(adAccountId, hash) {
+  const url = new URL(`${GRAPH_BASE}/${withActPrefix(adAccountId)}/adimages`);
+  url.searchParams.set("hashes", JSON.stringify([hash]));
+  url.searchParams.set("fields", "hash,url");
+  url.searchParams.set("access_token", metaToken);
+
+  const res = await fetch(url.toString());
+  const json = await res.json();
+  if (!res.ok || json.error) {
+    throw new Error(
+      `GET /${withActPrefix(adAccountId)}/adimages?hashes=["${hash}"] failed: ${json.error?.message ?? `HTTP ${res.status}`}`,
+    );
+  }
+  return json.data?.find((d) => d.hash === hash)?.url ?? json.data?.[0]?.url;
+}
+
+function extractVideoCreativeInfo(ad, spec) {
+  if (!ad.creative?.id) return null;
+  const videoData = spec?.video_data;
+  if (!videoData?.video_id || !videoData?.image_hash) return null;
+  return {
+    adId: ad.id,
+    adName: ad.name,
+    creativeId: ad.creative.id,
+    videoId: videoData.video_id,
+    imageHash: videoData.image_hash,
+  };
+}
+
+/**
+ * Scans one Meta campaign for ads whose live video creative is currently
+ * serving a placeholder/spinner thumbnail. Rate-limited: 1 ad/sec while
+ * resolving each ad's creative info, 1/sec per UNIQUE image_hash resolved.
+ */
+async function scanCampaignForBrokenVideoAds(campaignTarget) {
+  const { campaignId, adAccountId, draftId, draftName } = campaignTarget;
+  const ads = await fetchCampaignAds(campaignId);
+  console.log(`  campaign ${campaignId} ("${draftName}"): ${ads.length} ad(s)`);
+
+  const infos = [];
+  for (const ad of ads) {
+    await sleep(1000); // 1 ad/sec — rate-limit-friendly
+    try {
+      let spec = ad.creative?.object_story_spec;
+      if (ad.creative?.id && !spec?.video_data) {
+        spec = await fetchCreativeObjectStorySpecForAd(ad.creative.id);
+      }
+      const info = extractVideoCreativeInfo(ad, spec);
+      if (info) infos.push(info);
+    } catch (err) {
+      console.warn(`    ad ${ad.id}: failed to resolve creative — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  const uniqueHashes = [...new Set(infos.map((i) => i.imageHash))];
+  const hashToUrl = new Map();
+  for (const hash of uniqueHashes) {
+    await sleep(1000); // 1 hash/sec — rate-limit-friendly
+    try {
+      const url = await resolveImageHashUrl(adAccountId, hash);
+      if (url) hashToUrl.set(hash, url);
+    } catch (err) {
+      console.warn(`    image_hash ${hash}: failed to resolve URL — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  const broken = [];
+  for (const info of infos) {
+    const url = hashToUrl.get(info.imageHash);
+    if (url && isMetaPlaceholderThumbnailUrl(url)) {
+      broken.push({ ...info, placeholderUrl: url, campaignId, adAccountId, draftId, draftName });
+    }
+  }
+  return broken;
+}
+
+// ─── Collect broken creatives across every candidate campaign (deduped by creative id) ─
+
+async function collectBrokenCreatives(campaignTargets) {
+  const byCreativeId = new Map();
+
+  for (const target of campaignTargets) {
+    const broken = await scanCampaignForBrokenVideoAds(target);
+    for (const b of broken) {
+      if (!byCreativeId.has(b.creativeId)) {
+        byCreativeId.set(b.creativeId, b);
+      }
+    }
+  }
+
+  const targets = [...byCreativeId.values()];
+  targets.sort((a, b) => priorityRank(a.draftName) - priorityRank(b.draftName));
+  return targets;
+}
+
+// ─── Meta calls (repair pass) ─────────────────────────────────────────────────
 
 async function fetchCurrentPicture(videoId) {
   const url = `${GRAPH_BASE}/${videoId}?fields=picture&access_token=${encodeURIComponent(metaToken)}`;
@@ -275,52 +422,90 @@ async function patchCreativeImageHash(creativeId, currentSpec, newImageHash) {
 }
 
 // ─── Supabase: best-effort local draft repair ────────────────────────────────
+//
+// Matches by `asset.videoId` (NOT `asset.id`/`metaCreativeId` — those aren't
+// reliably present post-launch, see the discovery-pivot doc comment at the
+// top of this file) across every candidate draft loaded for this run. A
+// video asset can be duplicated across drafts (templates, "duplicate
+// campaign", multi-campaign attach reusing the same creative) — all of them
+// get patched, not just the one draft whose campaign happened to surface the
+// broken ad on Meta.
 
-async function patchDraftAssetThumbnail(draftId, assetId, newThumbnailUrl, newHash) {
-  const { data, error: readError } = await supabase
-    .from("campaign_drafts")
-    .select("draft_json")
-    .eq("id", draftId)
-    .maybeSingle();
-  if (readError || !data) {
-    console.warn(`  [draft-repair] could not re-read draft ${draftId}: ${readError?.message ?? "not found"} — skipping local repair`);
+function findRowIdsReferencingVideoId(rows, videoId) {
+  const ids = [];
+  for (const row of rows) {
+    const creatives = row.draft_json?.creatives ?? [];
+    const hasMatch = creatives.some((creative) =>
+      (creative.assetVariations ?? []).some((variation) =>
+        (variation.assets ?? []).some((asset) => asset.videoId === videoId),
+      ),
+    );
+    if (hasMatch) ids.push(row.id);
+  }
+  return ids;
+}
+
+async function patchDraftAssetThumbnailsByVideoId(rows, videoId, newThumbnailUrl, newHash) {
+  const candidateIds = findRowIdsReferencingVideoId(rows, videoId);
+  if (candidateIds.length === 0) {
+    console.warn(`  [draft-repair] no draft assets found referencing videoId=${videoId} — skipping local repair`);
     return;
   }
 
-  const draft = data.draft_json;
-  let touched = false;
-  for (const creative of draft.creatives ?? []) {
-    for (const variation of creative.assetVariations ?? []) {
-      for (const asset of variation.assets ?? []) {
-        if (asset.id === assetId) {
-          asset.thumbnailUrl = newThumbnailUrl;
-          asset.assetHash = newHash;
-          touched = true;
+  let patchedDrafts = 0;
+  let patchedAssets = 0;
+
+  for (const draftId of candidateIds) {
+    // Re-read immediately before writing (rather than trusting the possibly
+    // stale in-memory copy from the initial candidate load) to avoid
+    // clobbering unrelated edits made to the draft mid-run.
+    const { data, error: readError } = await supabase
+      .from("campaign_drafts")
+      .select("draft_json")
+      .eq("id", draftId)
+      .maybeSingle();
+    if (readError || !data) {
+      console.warn(`  [draft-repair] could not re-read draft ${draftId}: ${readError?.message ?? "not found"} — skipping`);
+      continue;
+    }
+
+    const draft = data.draft_json;
+    let touchedHere = 0;
+    for (const creative of draft.creatives ?? []) {
+      for (const variation of creative.assetVariations ?? []) {
+        for (const asset of variation.assets ?? []) {
+          if (asset.videoId === videoId) {
+            asset.thumbnailUrl = newThumbnailUrl;
+            asset.assetHash = newHash;
+            touchedHere++;
+          }
         }
       }
     }
-  }
-  if (!touched) {
-    console.warn(`  [draft-repair] asset ${assetId} not found in re-read draft ${draftId} — skipping local repair`);
-    return;
+    if (touchedHere === 0) continue;
+
+    draft.updatedAt = new Date().toISOString();
+    const { error: writeError } = await supabase
+      .from("campaign_drafts")
+      .update({ draft_json: draft, updated_at: draft.updatedAt })
+      .eq("id", draftId);
+    if (writeError) {
+      console.warn(`  [draft-repair] failed to write repaired draft_json for ${draftId}: ${writeError.message}`);
+      continue;
+    }
+    patchedDrafts++;
+    patchedAssets += touchedHere;
   }
 
-  draft.updatedAt = new Date().toISOString();
-  const { error: writeError } = await supabase
-    .from("campaign_drafts")
-    .update({ draft_json: draft, updated_at: draft.updatedAt })
-    .eq("id", draftId);
-  if (writeError) {
-    console.warn(`  [draft-repair] failed to write repaired draft_json for ${draftId}: ${writeError.message}`);
-  }
+  console.log(`  [draft-repair] patched ${patchedAssets} asset(s) across ${patchedDrafts} draft(s) referencing videoId=${videoId}`);
 }
 
 // ─── Repair one creative ──────────────────────────────────────────────────────
 
-async function repairOne(target) {
+async function repairOne(target, rows) {
   console.log(
-    `\n→ "${target.draftName}" / creative "${target.creativeName}" (${target.creativeId}), ` +
-      `videoId=${target.videoId}, ${target.usedByAdSets} ad(s), placeholder=${target.placeholderUrl}`,
+    `\n→ "${target.draftName}" / ad "${target.adName ?? target.adId}" / creative ${target.creativeId}, ` +
+      `campaign=${target.campaignId}, videoId=${target.videoId}, placeholder=${target.placeholderUrl}`,
   );
 
   const picture = await fetchCurrentPicture(target.videoId);
@@ -338,7 +523,7 @@ async function repairOne(target) {
   }
 
   if (!target.adAccountId) {
-    throw new Error("draft.settings.adAccountId missing — cannot upload replacement image");
+    throw new Error("adAccountId missing for this campaign target — cannot upload replacement image");
   }
 
   const { hash } = await uploadImageFromUrl(target.adAccountId, picture);
@@ -348,8 +533,7 @@ async function repairOne(target) {
   await patchCreativeImageHash(target.creativeId, currentSpec, hash);
   console.log(`  patched creative ${target.creativeId} → image_hash=${hash}`);
 
-  await patchDraftAssetThumbnail(target.draftId, target.assetId, picture, hash);
-  console.log(`  patched local draft_json for asset ${target.assetId}`);
+  await patchDraftAssetThumbnailsByVideoId(rows, target.videoId, picture, hash);
 
   return { status: "fixed", picture, hash };
 }
@@ -368,8 +552,16 @@ async function main() {
   const rows = await loadCandidateDrafts();
   console.log(`Loaded ${rows.length} published draft(s) from the last ${DAYS} days.`);
 
-  const targets = collectBrokenCreatives(rows);
-  console.log(`Found ${targets.length} broken video creative(s) (deduped by Meta creative id).`);
+  const campaignTargets = collectCampaignTargets(rows);
+  console.log(`Discovered ${campaignTargets.length} distinct Meta campaign(s) to scan.`);
+  if (campaignTargets.length === 0) {
+    console.log("No launched campaigns found in this window. Exiting.");
+    return;
+  }
+
+  console.log("\n─── Discovery pass (querying Meta directly) ───────────");
+  const targets = await collectBrokenCreatives(campaignTargets);
+  console.log(`\nFound ${targets.length} broken video ad(s) (deduped by Meta creative id).`);
   if (targets.length === 0) {
     console.log("Nothing to repair. Exiting.");
     return;
@@ -381,20 +573,22 @@ async function main() {
   let failed = 0;
   let wouldFix = 0;
 
+  console.log("\n─── Repair pass ────────────────────────────────────────");
   for (const target of targets) {
     const prior = checkpoint[target.creativeId];
     if (prior?.status === "fixed") {
       alreadyFixed++;
-      console.log(`\n→ "${target.draftName}" / creative "${target.creativeName}" — already fixed (checkpoint), skipping`);
+      console.log(`\n→ "${target.draftName}" / ad "${target.adName ?? target.adId}" — already fixed (checkpoint), skipping`);
       continue;
     }
 
     try {
-      const result = await repairOne(target);
+      const result = await repairOne(target, rows);
       checkpoint[target.creativeId] = {
         status: result.status,
         draftName: target.draftName,
-        creativeName: target.creativeName,
+        adName: target.adName,
+        adId: target.adId,
         picture: result.picture,
         hash: result.hash,
         checkedAt: new Date().toISOString(),
@@ -408,7 +602,8 @@ async function main() {
       checkpoint[target.creativeId] = {
         status: "failed",
         draftName: target.draftName,
-        creativeName: target.creativeName,
+        adName: target.adName,
+        adId: target.adId,
         error: message,
         checkedAt: new Date().toISOString(),
       };
