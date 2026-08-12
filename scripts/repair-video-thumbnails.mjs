@@ -58,18 +58,40 @@
 // Dedupes by Meta creative id — if the same creative backs multiple ads
 // (shared across ad sets), it's repaired exactly once.
 //
+// task #128 follow-up (this revision) — OVER-SCAN GUARD: the spinner bug can
+// only exist on ads created on/after BUG_INTRODUCED_AT (PR #748's merge
+// date). Legacy campaigns (observed: 16 discovered on IPC/EED/Mall Grab
+// draft targets, one with 835 ads) use the old `image_url` thumbnail path
+// and can't be affected — scanning them anyway means rate-limit-sleeping
+// through hundreds of ads for nothing. Two guards now run BEFORE any
+// per-ad/per-hash Meta calls:
+//   1. Every ad's `created_time` is checked against BUG_INTRODUCED_AT; ads
+//      older than that are dropped, logged as "N/M ads too old to be
+//      affected — skipping".
+//   2. If a campaign still has more than MAX_ADS_PER_CAMPAIGN ads after that
+//      filter, the campaign is skipped entirely with a warning — re-run with
+//      `--campaign-ids=<id>,<id>` to explicitly opt in (this also skips
+//      draft discovery entirely: the given campaign IDs are scanned
+//      directly, ad-account resolved via GET /{campaignId}?fields=account_id).
+// Also new: the discovery pass itself is now checkpointed per campaign (not
+// just the repair pass) — a re-run skips campaigns already scanned unless
+// `--force-rescan` is passed.
+//
 // Safety: DRY RUN by default (reports what it would do, makes zero writes).
 // Pass --live to actually call Meta + Supabase writes. Rate-limited:
 // 1 ad/sec during the discovery/fetch pass (per ad's creative resolution,
 // and per unique image_hash resolved), 1 creative/sec during the repair
 // pass. Resumable via a local JSON checkpoint file — re-running after a
-// crash / Ctrl-C skips creatives already marked "fixed".
+// crash / Ctrl-C skips campaigns already scanned and creatives already
+// marked "fixed".
 //
 // Usage:
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs                 # dry run, last 90 days
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --live          # actually repair
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --live --days=30
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --live --checkpoint=/tmp/my-checkpoint.json
+//   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --campaign-ids=123,456 --live   # skip draft discovery, target campaigns directly
+//   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --force-rescan     # ignore the discovery checkpoint, re-scan every campaign
 //
 // Requires env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
 // META_ACCESS_TOKEN (same system-token convention as the optimisation-tick /
@@ -86,12 +108,31 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const args = process.argv.slice(2);
 const LIVE = args.includes("--live");
+const FORCE_RESCAN = args.includes("--force-rescan");
 const daysArg = args.find((a) => a.startsWith("--days="));
 const DAYS = daysArg ? Number(daysArg.slice("--days=".length)) : 90;
 const checkpointArg = args.find((a) => a.startsWith("--checkpoint="));
 const CHECKPOINT_PATH = checkpointArg
   ? resolve(process.cwd(), checkpointArg.slice("--checkpoint=".length))
   : resolve(__dirname, ".repair-video-thumbnails-checkpoint.json");
+const campaignIdsArg = args.find((a) => a.startsWith("--campaign-ids="));
+const TARGET_CAMPAIGN_IDS = campaignIdsArg
+  ? campaignIdsArg
+      .slice("--campaign-ids=".length)
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+  : null;
+
+// ─── Over-scan guard constants ────────────────────────────────────────────────
+//
+// The spinner bug can only exist on ads created on/after PR #748's merge
+// date — anything older used a different (image_url) thumbnail path and is
+// out of scope for this repair. Mirrors lib/meta/video-thumbnail-repair-scan.ts's
+// DEFAULT_BUG_INTRODUCED_AT / DEFAULT_MAX_ADS_PER_CAMPAIGN.
+
+const BUG_INTRODUCED_AT = "2026-08-07T00:00:00+00:00";
+const MAX_ADS_PER_CAMPAIGN = 200;
 
 // ─── Env ──────────────────────────────────────────────────────────────────────
 
@@ -145,18 +186,29 @@ function priorityRank(draftName) {
 }
 
 // ─── Checkpoint ───────────────────────────────────────────────────────────────
+//
+// Two independent sections: `discovery` (per-campaign scan results — new in
+// this revision, see FIX 3) and `repair` (per-creative repair outcomes,
+// unchanged shape from the original script). Both survive a crash/Ctrl-C;
+// re-running skips anything already recorded unless explicitly overridden
+// (`--force-rescan` for discovery, checkpoint status "fixed" for repair).
 
 async function loadCheckpoint() {
   try {
     const raw = await readFile(CHECKPOINT_PATH, "utf8");
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return { discovery: parsed.discovery ?? {}, repair: parsed.repair ?? {} };
   } catch {
-    return {};
+    return { discovery: {}, repair: {} };
   }
 }
 
 async function saveCheckpoint(checkpoint) {
   await writeFile(CHECKPOINT_PATH, JSON.stringify(checkpoint, null, 2));
+}
+
+function campaignKey(adAccountId, campaignId) {
+  return `${adAccountId}:${campaignId}`;
 }
 
 // ─── Supabase: candidate drafts (used ONLY to discover metaCampaignId(s)) ────
@@ -228,7 +280,7 @@ async function fetchCampaignAds(campaignId) {
 
   for (;;) {
     const url = new URL(`${GRAPH_BASE}/${campaignId}/ads`);
-    url.searchParams.set("fields", "id,name,creative{id,object_story_spec}");
+    url.searchParams.set("fields", "id,name,created_time,creative{id,object_story_spec}");
     url.searchParams.set("limit", "100");
     url.searchParams.set("access_token", metaToken);
     if (after) url.searchParams.set("after", after);
@@ -246,6 +298,42 @@ async function fetchCampaignAds(campaignId) {
   }
 
   return ads;
+}
+
+/**
+ * Drops ads created strictly before `bugIntroducedAt` — mirrors
+ * lib/meta/video-thumbnail-repair-scan.ts's filterAdsByCreatedTime. Ads with
+ * a missing/unparseable created_time are conservatively KEPT.
+ */
+function filterAdsByCreatedTime(ads, bugIntroducedAt = BUG_INTRODUCED_AT) {
+  const cutoff = new Date(bugIntroducedAt).getTime();
+  const kept = [];
+  let skippedCount = 0;
+
+  for (const ad of ads) {
+    const createdAt = ad.created_time ? new Date(ad.created_time).getTime() : NaN;
+    if (Number.isFinite(createdAt) && createdAt < cutoff) {
+      skippedCount++;
+      continue;
+    }
+    kept.push(ad);
+  }
+
+  return { kept, skippedCount };
+}
+
+/** GET /{campaignId}?fields=account_id,name — used by --campaign-ids targeted mode, which skips draft discovery entirely. */
+async function fetchCampaignAccountId(campaignId) {
+  const url = `${GRAPH_BASE}/${campaignId}?fields=account_id,name&access_token=${encodeURIComponent(metaToken)}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if (!res.ok || json.error) {
+    throw new Error(`GET /${campaignId}?fields=account_id,name failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+  }
+  if (!json.account_id) {
+    throw new Error(`/${campaignId} response had no account_id`);
+  }
+  return { adAccountId: json.account_id, campaignName: json.name };
 }
 
 async function fetchCreativeObjectStorySpecForAd(creativeId) {
@@ -291,11 +379,35 @@ function extractVideoCreativeInfo(ad, spec) {
  * Scans one Meta campaign for ads whose live video creative is currently
  * serving a placeholder/spinner thumbnail. Rate-limited: 1 ad/sec while
  * resolving each ad's creative info, 1/sec per UNIQUE image_hash resolved.
+ *
+ * Over-scan guard (FIX 1 + FIX 2): ads older than BUG_INTRODUCED_AT are
+ * dropped BEFORE any per-ad/per-hash calls; if more than
+ * MAX_ADS_PER_CAMPAIGN ads remain, the campaign is skipped entirely
+ * (`sizeCapExceeded: true`, zero further Meta calls) unless
+ * `bypassSizeCap` is set (the --campaign-ids explicit opt-in).
  */
 async function scanCampaignForBrokenVideoAds(campaignTarget) {
-  const { campaignId, adAccountId, draftId, draftName } = campaignTarget;
-  const ads = await fetchCampaignAds(campaignId);
-  console.log(`  campaign ${campaignId} ("${draftName}"): ${ads.length} ad(s)`);
+  const { campaignId, adAccountId, draftId, draftName, bypassSizeCap } = campaignTarget;
+  const allAds = await fetchCampaignAds(campaignId);
+  const { kept: ads, skippedCount: skippedOldAdCount } = filterAdsByCreatedTime(allAds);
+  console.log(
+    `  campaign ${campaignId} ("${draftName}"): ${allAds.length} ad(s) — ` +
+      `${skippedOldAdCount}/${allAds.length} too old to be affected (before ${BUG_INTRODUCED_AT}) — skipping`,
+  );
+
+  if (!bypassSizeCap && ads.length > MAX_ADS_PER_CAMPAIGN) {
+    console.warn(
+      `  campaign ${campaignId} has ${ads.length} ad(s) after the date filter (> ${MAX_ADS_PER_CAMPAIGN} cap) — ` +
+        `SKIPPING. Re-run with --campaign-ids=${campaignId} to explicitly opt in.`,
+    );
+    return {
+      broken: [],
+      totalAdCount: allAds.length,
+      skippedOldAdCount,
+      scannedAdCount: ads.length,
+      sizeCapExceeded: true,
+    };
+  }
 
   const infos = [];
   for (const ad of ads) {
@@ -331,21 +443,62 @@ async function scanCampaignForBrokenVideoAds(campaignTarget) {
       broken.push({ ...info, placeholderUrl: url, campaignId, adAccountId, draftId, draftName });
     }
   }
-  return broken;
+  return { broken, totalAdCount: allAds.length, skippedOldAdCount, scannedAdCount: ads.length, sizeCapExceeded: false };
 }
 
 // ─── Collect broken creatives across every candidate campaign (deduped by creative id) ─
+//
+// FIX 3: the discovery pass is now checkpointed per campaign
+// (checkpoint.discovery[adAccountId:campaignId]) — a campaign already
+// scanned (status "scanned") is skipped on re-run unless --force-rescan.
+// A campaign previously skipped for being too large (status
+// "skipped_too_large") is always re-attempted, since a subsequent run might
+// target it explicitly via --campaign-ids (bypassSizeCap) or a different cap.
 
-async function collectBrokenCreatives(campaignTargets) {
+async function collectBrokenCreatives(campaignTargets, checkpoint) {
   const byCreativeId = new Map();
 
   for (const target of campaignTargets) {
-    const broken = await scanCampaignForBrokenVideoAds(target);
-    for (const b of broken) {
-      if (!byCreativeId.has(b.creativeId)) {
-        byCreativeId.set(b.creativeId, b);
+    const key = campaignKey(target.adAccountId, target.campaignId);
+    const prior = checkpoint.discovery[key];
+
+    if (prior?.status === "scanned" && !FORCE_RESCAN) {
+      console.log(`  campaign ${target.campaignId} ("${target.draftName}"): using cached discovery result (${prior.brokenTargets.length} broken) — pass --force-rescan to re-scan`);
+      for (const b of prior.brokenTargets) {
+        if (!byCreativeId.has(b.creativeId)) byCreativeId.set(b.creativeId, b);
+      }
+      continue;
+    }
+
+    const result = await scanCampaignForBrokenVideoAds(target);
+    if (result.sizeCapExceeded) {
+      checkpoint.discovery[key] = {
+        status: "skipped_too_large",
+        campaignId: target.campaignId,
+        adAccountId: target.adAccountId,
+        draftName: target.draftName,
+        totalAdCount: result.totalAdCount,
+        skippedOldAdCount: result.skippedOldAdCount,
+        scannedAdCount: result.scannedAdCount,
+        scannedAt: new Date().toISOString(),
+      };
+    } else {
+      checkpoint.discovery[key] = {
+        status: "scanned",
+        campaignId: target.campaignId,
+        adAccountId: target.adAccountId,
+        draftName: target.draftName,
+        totalAdCount: result.totalAdCount,
+        skippedOldAdCount: result.skippedOldAdCount,
+        scannedAdCount: result.scannedAdCount,
+        brokenTargets: result.broken,
+        scannedAt: new Date().toISOString(),
+      };
+      for (const b of result.broken) {
+        if (!byCreativeId.has(b.creativeId)) byCreativeId.set(b.creativeId, b);
       }
     }
+    await saveCheckpoint(checkpoint);
   }
 
   const targets = [...byCreativeId.values()];
@@ -544,30 +697,68 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ─── Campaign target resolution ──────────────────────────────────────────────
+
+/**
+ * --campaign-ids mode: skips draft discovery entirely, resolving each given
+ * campaign ID's ad account directly from Meta. `bypassSizeCap: true` — this
+ * is the operator's explicit opt-in past the size cap (FIX 2).
+ */
+async function resolveExplicitCampaignTargets(campaignIds) {
+  const targets = [];
+  for (const campaignId of campaignIds) {
+    const { adAccountId, campaignName } = await fetchCampaignAccountId(campaignId);
+    targets.push({
+      adAccountId,
+      campaignId,
+      draftId: undefined,
+      draftName: campaignName ?? `(campaign ${campaignId})`,
+      bypassSizeCap: true,
+    });
+  }
+  return targets;
+}
+
 async function main() {
   console.log(
-    `[repair-video-thumbnails] mode=${LIVE ? "LIVE" : "DRY RUN"} days=${DAYS} checkpoint=${CHECKPOINT_PATH}`,
+    `[repair-video-thumbnails] mode=${LIVE ? "LIVE" : "DRY RUN"} days=${DAYS} checkpoint=${CHECKPOINT_PATH} ` +
+      `bugIntroducedAt=${BUG_INTRODUCED_AT} maxAdsPerCampaign=${MAX_ADS_PER_CAMPAIGN} forceRescan=${FORCE_RESCAN}`,
+  );
+  console.log(
+    `Only ads created on/after ${BUG_INTRODUCED_AT} (PR #748) can have the spinner-thumbnail bug — ` +
+      `anything older is skipped as out of scope for this repair.`,
   );
 
+  // Draft rows are always loaded — even in --campaign-ids mode — because the
+  // repair pass's best-effort local draft patching (patchDraftAssetThumbnailsByVideoId)
+  // still needs them. Only CAMPAIGN SELECTION skips draft discovery when
+  // --campaign-ids is given (per FIX 2).
   const rows = await loadCandidateDrafts();
-  console.log(`Loaded ${rows.length} published draft(s) from the last ${DAYS} days.`);
+  console.log(`Loaded ${rows.length} published draft(s) from the last ${DAYS} days (for best-effort local repair matching).`);
 
-  const campaignTargets = collectCampaignTargets(rows);
-  console.log(`Discovered ${campaignTargets.length} distinct Meta campaign(s) to scan.`);
+  let campaignTargets;
+  if (TARGET_CAMPAIGN_IDS) {
+    console.log(`\n--campaign-ids given (${TARGET_CAMPAIGN_IDS.join(", ")}) — skipping draft-based campaign discovery entirely.`);
+    campaignTargets = await resolveExplicitCampaignTargets(TARGET_CAMPAIGN_IDS);
+  } else {
+    campaignTargets = collectCampaignTargets(rows);
+    console.log(`Discovered ${campaignTargets.length} distinct Meta campaign(s) to scan.`);
+  }
   if (campaignTargets.length === 0) {
-    console.log("No launched campaigns found in this window. Exiting.");
+    console.log("No campaigns to scan. Exiting.");
     return;
   }
 
+  const checkpoint = await loadCheckpoint();
+
   console.log("\n─── Discovery pass (querying Meta directly) ───────────");
-  const targets = await collectBrokenCreatives(campaignTargets);
+  const targets = await collectBrokenCreatives(campaignTargets, checkpoint);
   console.log(`\nFound ${targets.length} broken video ad(s) (deduped by Meta creative id).`);
   if (targets.length === 0) {
     console.log("Nothing to repair. Exiting.");
     return;
   }
 
-  const checkpoint = await loadCheckpoint();
   let fixed = 0;
   let alreadyFixed = 0;
   let failed = 0;
@@ -575,7 +766,7 @@ async function main() {
 
   console.log("\n─── Repair pass ────────────────────────────────────────");
   for (const target of targets) {
-    const prior = checkpoint[target.creativeId];
+    const prior = checkpoint.repair[target.creativeId];
     if (prior?.status === "fixed") {
       alreadyFixed++;
       console.log(`\n→ "${target.draftName}" / ad "${target.adName ?? target.adId}" — already fixed (checkpoint), skipping`);
@@ -584,7 +775,7 @@ async function main() {
 
     try {
       const result = await repairOne(target, rows);
-      checkpoint[target.creativeId] = {
+      checkpoint.repair[target.creativeId] = {
         status: result.status,
         draftName: target.draftName,
         adName: target.adName,
@@ -599,7 +790,7 @@ async function main() {
       failed++;
       const message = err instanceof Error ? err.message : String(err);
       console.error(`  FAILED: ${message}`);
-      checkpoint[target.creativeId] = {
+      checkpoint.repair[target.creativeId] = {
         status: "failed",
         draftName: target.draftName,
         adName: target.adName,
