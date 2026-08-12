@@ -49,6 +49,32 @@
  *        omits both `image_hash`/`image_url` in that case and lets Meta
  *        auto-generate a thumbnail at ad-creation time, rather than ever
  *        shipping the spinner.
+ *
+ * task #128 continued — a SECOND, distinct detection gap surfaced once
+ * `scripts/repair-video-thumbnails.mjs` (PR #763/#764) started running
+ * against live campaigns: {@link isMetaPlaceholderThumbnailUrl} never fired
+ * on any already-repaired-or-broken creative it scanned, even ones
+ * demonstrably shipping the spinner (e.g. draft `faf11b6f` / creative
+ * `6e168e8b`, "IPC Motion 1"). Root cause: PR #748 uploads the spinner GIF
+ * via `POST /{adAccountId}/adimages` to mint an `image_hash`, and that hash
+ * points to an image in the AD ACCOUNT's own image library from then on.
+ * `GET /{adAccountId}/adimages?hashes=[h]&fields=url` therefore resolves to
+ * an ad-account-scoped `scontent*.fbcdn.net` URL — NOT the original
+ * `static.xx.fbcdn.net/rsrc.php/AAqMW82PqGg.gif` URL the spinner came from.
+ * `isMetaPlaceholderThumbnailUrl`'s CDN-host/filename check is correct for
+ * its actual job (rejecting Meta's LIVE `/{videoId}?fields=picture` response
+ * during upload, which is still the pre-upload spinner URL at that point)
+ * but structurally cannot catch the placeholder once it's been re-hosted as
+ * an ad image.
+ *
+ * Fix: {@link isMetaPlaceholderThumbnailImage} classifies the RESOLVED IMAGE
+ * ITSELF (post-upload metadata from `/adimages`), using the fingerprint that
+ * survives the upload → hash → resolve roundtrip even though the URL
+ * doesn't: the spinner is a tiny (~1 KB) 16×16 GIF, whereas a real video
+ * thumbnail is a 15–50 KB JPG at a video aspect ratio (e.g. 720×1280,
+ * 1080×1080). See `lib/meta/video-thumbnail-repair-scan.ts` for the caller
+ * that resolves this metadata (`resolveImageHashMetadata` +
+ * `fetchContentLength`).
  */
 
 const META_API_BASE = `https://graph.facebook.com/v21.0`;
@@ -84,6 +110,69 @@ export function isMetaPlaceholderThumbnailUrl(url: string): boolean {
   if (!url) return false;
   if (PLACEHOLDER_CDN_PATTERN.test(url)) return true;
   if (url.includes(KNOWN_SPINNER_FILENAME_FRAGMENT)) return true;
+  return false;
+}
+
+// ─── Post-upload image fingerprinting (task #128 continued) ─────────────────
+//
+// Once the spinner has been uploaded as an ad image, its URL/host no longer
+// carries any placeholder signal (see the module doc comment above) — but
+// its file-level fingerprint does. A real video thumbnail from Meta's
+// auto-generation is a 15–50 KB JPG at a video aspect ratio; the spinner is
+// a ~1 KB 16×16 GIF. Any one of these signals alone is enough to flag it;
+// they're deliberately redundant (belt-and-braces) because different Meta
+// API responses populate different subsets of these fields.
+
+/** Ad images with both dimensions at or below this are almost certainly a UI icon/spinner, never a video frame. */
+export const SPINNER_MAX_DIMENSION_PX = 32;
+
+/** Ad images smaller than this on disk are almost certainly a UI icon/spinner — real thumbnails run 15–50 KB. */
+export const SPINNER_MAX_CONTENT_LENGTH_BYTES = 5000;
+
+/**
+ * Metadata about an already-uploaded ad image, as resolved via
+ * `GET /{adAccountId}/adimages?hashes=[...]&fields=hash,url,width,height,name`
+ * (optionally enriched with a HEAD-derived `contentLengthBytes`). All fields
+ * are optional because different Meta responses/repair-script code paths
+ * populate different subsets.
+ */
+export interface MetaAdImageFingerprint {
+  url?: string;
+  width?: number;
+  height?: number;
+  name?: string;
+  contentLengthBytes?: number;
+}
+
+/**
+ * Classifies an already-uploaded ad image (post `/adimages` roundtrip) as
+ * Meta's placeholder/spinner rather than a real video thumbnail. Unlike
+ * {@link isMetaPlaceholderThumbnailUrl} (which inspects the URL's CDN
+ * host/path — only valid for the LIVE pre-upload `/{videoId}?fields=picture`
+ * response), this inspects the image's own dimensions/format/size, which
+ * survive the upload → hash → resolve roundtrip.
+ */
+export function isMetaPlaceholderThumbnailImage(image: MetaAdImageFingerprint): boolean {
+  if (
+    typeof image.width === "number" &&
+    typeof image.height === "number" &&
+    image.width <= SPINNER_MAX_DIMENSION_PX &&
+    image.height <= SPINNER_MAX_DIMENSION_PX
+  ) {
+    return true;
+  }
+
+  const name = image.name ?? "";
+  const url = image.url ?? "";
+
+  if (/\.gif(\?|$)/i.test(name) || /\.gif(\?|$)/i.test(url)) return true;
+  if (name.includes(KNOWN_SPINNER_FILENAME_FRAGMENT) || url.includes(KNOWN_SPINNER_FILENAME_FRAGMENT)) return true;
+  if (name.toLowerCase().includes("rsrc")) return true;
+
+  if (typeof image.contentLengthBytes === "number" && image.contentLengthBytes < SPINNER_MAX_CONTENT_LENGTH_BYTES) {
+    return true;
+  }
+
   return false;
 }
 
