@@ -103,6 +103,36 @@
 // fingerprint for one hash so operators can sanity-check a known-broken
 // creative against the classifier before trusting a full scan.
 //
+// task #128 follow-up (this revision) — WRITE-AUTH FIX: the first --live run
+// against 42 real targets failed EVERY SINGLE ONE with Meta error code=3
+// "Application does not have the capability to make this API call" on the
+// POST /adimages upload. Root cause: this script used META_ACCESS_TOKEN (the
+// system app token — an app still in App Review, task #90) for every call,
+// including writes. The wizard's own launch-campaign/route.ts never hits
+// this: EVERY write there resolves the operator's personal Facebook OAuth
+// token from Supabase `user_facebook_tokens` first (see
+// `resolveServerMetaToken` in lib/meta/server-token.ts) and only falls back
+// to the env token as a last resort. Discovery READS are unaffected — Meta
+// only gates WRITE capabilities during App Review, so GET calls succeed on
+// either token.
+//
+// Fix: resolveWriteToken (mirrors the canonical, unit-tested
+// lib/meta/repair-write-token.ts — same inline-mirror convention as the
+// detection helpers above) resolves a SEPARATE token for writes only, in
+// priority order: `--token=<override>` CLI arg > freshest
+// `user_facebook_tokens.provider_token` row (single-operator setup, no
+// per-user filter needed) > META_ACCESS_TOKEN env fallback. The chosen
+// source is logged at startup; if it falls all the way through to `env`
+// AND `--live` is set, the script prompts for explicit confirmation before
+// proceeding (aborts on "n" — dev-mode writes on the system token will very
+// likely repeat the code=3 failure). Discovery calls (fetchCampaignAds,
+// resolveImageHashMetadata, etc.) and the repair pass's own re-fetch
+// (fetchCurrentPicture, fetchCurrentObjectStorySpec — both GETs) stay on
+// the unchanged `metaToken`; only `uploadImageFromUrl` and
+// `patchCreativeImageHash` take the resolved write token. The repair loop
+// also now detects a code=3 failure specifically (isMetaMissingCapabilityError)
+// and prints a remediation hint instead of just the raw Meta error message.
+//
 // Safety: DRY RUN by default (reports what it would do, makes zero writes).
 // Pass --live to actually call Meta + Supabase writes. Rate-limited:
 // 1 ad/sec during the discovery/fetch pass (per ad's creative resolution,
@@ -119,10 +149,12 @@
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --campaign-ids=123,456 --live   # skip draft discovery, target campaigns directly
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --force-rescan     # ignore the discovery checkpoint, re-scan every campaign
 //   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --diagnose-hash=abc123 --ad-account=999888777   # print one hash's resolved fingerprint, no writes/discovery
+//   node --env-file=.env.local scripts/repair-video-thumbnails.mjs --live --token=EAAB...   # one-off: force a specific user OAuth token for writes, skip the Supabase lookup
 //
 // Requires env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
-// META_ACCESS_TOKEN (same system-token convention as the optimisation-tick /
-// budget-pacing-check crons — see lib/meta/server-token.ts).
+// META_ACCESS_TOKEN (used for discovery READS and as the last-resort write
+// fallback — see the WRITE-AUTH FIX note above for why writes prefer the
+// operator's own `user_facebook_tokens` row instead).
 
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -154,6 +186,8 @@ const diagnoseHashArg = args.find((a) => a.startsWith("--diagnose-hash="));
 const DIAGNOSE_HASH = diagnoseHashArg ? diagnoseHashArg.slice("--diagnose-hash=".length).trim() : null;
 const adAccountArg = args.find((a) => a.startsWith("--ad-account="));
 const DIAGNOSE_AD_ACCOUNT = adAccountArg ? adAccountArg.slice("--ad-account=".length).trim() : null;
+const tokenArg = args.find((a) => a.startsWith("--token="));
+const TOKEN_OVERRIDE = tokenArg ? tokenArg.slice("--token=".length).trim() : undefined;
 
 // ─── Over-scan guard constants ────────────────────────────────────────────────
 //
@@ -183,6 +217,79 @@ if (!metaToken) {
 const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
+
+// ─── Write-token resolution (mirrors lib/meta/repair-write-token.ts) ────────
+//
+// See the WRITE-AUTH FIX doc comment at the top of this file for the full
+// story. `metaToken` (META_ACCESS_TOKEN, above) still backs every DISCOVERY
+// read — Meta doesn't gate reads during App Review. Only the two WRITE
+// calls (uploadImageFromUrl, patchCreativeImageHash) use the token resolved
+// here.
+
+const MISSING_CAPABILITY_HINT =
+  "Meta app not authorised for /adimages write — check META_ACCESS_TOKEN scope or run with --token=<user OAuth token>.";
+
+/**
+ * Resolves the token that should back Meta WRITE calls, in priority order:
+ * --token override > freshest user_facebook_tokens.provider_token row
+ * (single-operator setup, no per-user filter) > META_ACCESS_TOKEN env
+ * fallback. Mirrors lib/meta/repair-write-token.ts's resolveWriteToken.
+ */
+async function resolveWriteToken(overrideToken) {
+  if (overrideToken) {
+    return { token: overrideToken, source: "override", expiresAt: null };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("user_facebook_tokens")
+      .select("user_id, provider_token, updated_at, expires_at")
+      .not("provider_token", "is", null)
+      .order("expires_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data?.provider_token) {
+      return { token: data.provider_token, source: "user_facebook_token", expiresAt: data.expires_at ?? null };
+    }
+  } catch {
+    // Fall through to the env fallback below — a DB hiccup shouldn't hard-fail the script.
+  }
+
+  if (metaToken) {
+    return { token: metaToken, source: "env", expiresAt: null };
+  }
+
+  throw new Error(
+    "No Meta write token available: no user_facebook_tokens row with a provider_token, " +
+      "and META_ACCESS_TOKEN is not set. Connect Facebook in Account Setup, or pass --token=<user OAuth token>.",
+  );
+}
+
+function describeWriteTokenSource(resolved) {
+  if (resolved.source === "override") return "source=override (--token flag)";
+  if (resolved.source === "user_facebook_token") return `source=user_facebook_token (expires ${resolved.expiresAt ?? "unknown"})`;
+  return "source=env META_ACCESS_TOKEN (dev-mode risk)";
+}
+
+/** Duck-types a Meta write failure as error code=3 ("does not have the capability"). */
+function isMetaMissingCapabilityError(err) {
+  const code = err?.code;
+  if (code === 3) return true;
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /\(#3\)/.test(message) || /does not have the capability/i.test(message);
+}
+
+async function promptYesNo(question) {
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(question);
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
+}
 
 // ─── Placeholder detection (mirrors lib/meta/video-thumbnail-poll.ts) ────────
 //
@@ -629,16 +736,25 @@ async function fetchCurrentPicture(videoId) {
   return typeof json.picture === "string" ? json.picture : "";
 }
 
-async function uploadImageFromUrl(adAccountId, imageUrl) {
+/** Attaches Meta's error code/subcode to the thrown Error so callers (the repair loop) can classify failures like code=3. */
+function throwMetaWriteError(context, json, res) {
+  const err = new Error(`${context} failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+  err.code = json.error?.code;
+  err.subcode = json.error?.error_subcode;
+  throw err;
+}
+
+/** WRITE call — uses `writeToken` (resolved by resolveWriteToken), NOT the discovery `metaToken`. See the WRITE-AUTH FIX note. */
+async function uploadImageFromUrl(adAccountId, imageUrl, writeToken) {
   const formData = new FormData();
-  formData.append("access_token", metaToken);
+  formData.append("access_token", writeToken);
   formData.append("url", imageUrl);
 
   const endpoint = `${GRAPH_BASE}/${withActPrefix(adAccountId)}/adimages`;
   const res = await fetch(endpoint, { method: "POST", body: formData });
   const json = await res.json();
   if (!res.ok || json.error) {
-    throw new Error(`POST /${withActPrefix(adAccountId)}/adimages failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+    throwMetaWriteError(`POST /${withActPrefix(adAccountId)}/adimages`, json, res);
   }
   const imageData = Object.values(json.images ?? {})[0];
   if (!imageData?.hash) {
@@ -660,7 +776,8 @@ async function fetchCurrentObjectStorySpec(creativeId) {
   return json.object_story_spec;
 }
 
-async function patchCreativeImageHash(creativeId, currentSpec, newImageHash) {
+/** WRITE call — uses `writeToken` (resolved by resolveWriteToken), NOT the discovery `metaToken`. See the WRITE-AUTH FIX note. */
+async function patchCreativeImageHash(creativeId, currentSpec, newImageHash, writeToken) {
   const updatedSpec = {
     ...currentSpec,
     video_data: {
@@ -674,13 +791,13 @@ async function patchCreativeImageHash(creativeId, currentSpec, newImageHash) {
 
   const url = `${GRAPH_BASE}/${creativeId}`;
   const body = new URLSearchParams({
-    access_token: metaToken,
+    access_token: writeToken,
     object_story_spec: JSON.stringify(updatedSpec),
   });
   const res = await fetch(url, { method: "POST", body });
   const json = await res.json();
   if (!res.ok || json.error) {
-    throw new Error(`POST /${creativeId} (object_story_spec update) failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+    throwMetaWriteError(`POST /${creativeId} (object_story_spec update)`, json, res);
   }
   return json;
 }
@@ -766,7 +883,7 @@ async function patchDraftAssetThumbnailsByVideoId(rows, videoId, newThumbnailUrl
 
 // ─── Repair one creative ──────────────────────────────────────────────────────
 
-async function repairOne(target, rows) {
+async function repairOne(target, rows, writeToken) {
   console.log(
     `\n→ "${target.draftName}" / ad "${target.adName ?? target.adId}" / creative ${target.creativeId}, ` +
       `campaign=${target.campaignId}, videoId=${target.videoId}, placeholder=${target.placeholderUrl}`,
@@ -790,11 +907,11 @@ async function repairOne(target, rows) {
     throw new Error("adAccountId missing for this campaign target — cannot upload replacement image");
   }
 
-  const { hash } = await uploadImageFromUrl(target.adAccountId, picture);
+  const { hash } = await uploadImageFromUrl(target.adAccountId, picture, writeToken);
   console.log(`  uploaded as image_hash=${hash}`);
 
   const currentSpec = await fetchCurrentObjectStorySpec(target.creativeId);
-  await patchCreativeImageHash(target.creativeId, currentSpec, hash);
+  await patchCreativeImageHash(target.creativeId, currentSpec, hash, writeToken);
   console.log(`  patched creative ${target.creativeId} → image_hash=${hash}`);
 
   await patchDraftAssetThumbnailsByVideoId(rows, target.videoId, picture, hash);
@@ -883,6 +1000,22 @@ async function main() {
       `anything older is skipped as out of scope for this repair.`,
   );
 
+  const writeToken = await resolveWriteToken(TOKEN_OVERRIDE);
+  console.log(`[repair-video-thumbnails] write-token ${describeWriteTokenSource(writeToken)}`);
+  if (LIVE && writeToken.source === "env") {
+    const proceed = await promptYesNo(
+      "\n⚠️  Using the system token (META_ACCESS_TOKEN) for writes — under App Review dev mode, " +
+        "writes will very likely fail with Meta error code=3 'Application does not have the capability'. " +
+        "Connect Facebook in Account Setup (populates user_facebook_tokens) or pass --token=<user OAuth token> instead.\n" +
+        "Continue anyway? (y/n) ",
+    );
+    if (!proceed) {
+      console.log("Aborted by operator.");
+      process.exitCode = 1;
+      return;
+    }
+  }
+
   // Draft rows are always loaded — even in --campaign-ids mode — because the
   // repair pass's best-effort local draft patching (patchDraftAssetThumbnailsByVideoId)
   // still needs them. Only CAMPAIGN SELECTION skips draft discovery when
@@ -928,7 +1061,7 @@ async function main() {
     }
 
     try {
-      const result = await repairOne(target, rows);
+      const result = await repairOne(target, rows, writeToken.token);
       checkpoint.repair[target.creativeId] = {
         status: result.status,
         draftName: target.draftName,
@@ -944,6 +1077,9 @@ async function main() {
       failed++;
       const message = err instanceof Error ? err.message : String(err);
       console.error(`  FAILED: ${message}`);
+      if (isMetaMissingCapabilityError(err)) {
+        console.error(`  HINT: ${MISSING_CAPABILITY_HINT}`);
+      }
       checkpoint.repair[target.creativeId] = {
         status: "failed",
         draftName: target.draftName,
