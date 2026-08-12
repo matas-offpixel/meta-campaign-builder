@@ -5,15 +5,23 @@ import { describe, it } from "node:test";
 
 /**
  * Regression guard for the video-thumbnail cost-reduction PR: the ONLY
- * place allowed to call Meta's `/{video_id}/thumbnails` Graph edge is
- * `lib/meta/video-thumbnail-cache.ts` (`fetchThumbnailUrl` /
- * `fetchThumbnailUrlsBatch`). Every other consumer (active-creatives
- * enrichment, the ad_id thumbnail proxy's video fallback, the audience
- * builder video picker) must route through it so a `video_id` is never
- * re-fetched from Meta once cached in Storage.
+ * place allowed to call Meta's `GET /{video_id}/thumbnails` Graph edge to
+ * READ/list existing thumbnails is `lib/meta/video-thumbnail-cache.ts`
+ * (`fetchThumbnailUrl` / `fetchThumbnailUrlsBatch`). Every other read
+ * consumer (active-creatives enrichment, the ad_id thumbnail proxy's video
+ * fallback, the audience builder video picker) must route through it so a
+ * `video_id` is never re-fetched from Meta once cached in Storage.
+ *
+ * `lib/meta/video-upload-request.ts` is also allowed — task #90's FIX 2
+ * (operator-picked thumbnail override) needs `POST /{video_id}/thumbnails`
+ * to WRITE a new preferred frame, a completely different operation
+ * (different HTTP method, no read/cache concern — it's a rare, explicit,
+ * user-initiated action, not an automatic re-resolve that could pile up
+ * against the rate-limit budget this guard protects) that happens to share
+ * the same Graph edge path shape.
  *
  * Scans every `.ts`/`.tsx` source file under `lib/` and `app/` (excluding
- * tests, docs, and the allowed helper itself) for the interpolated-path
+ * tests, docs, and the allowed helpers themselves) for the interpolated-path
  * call shape `` `/${...}/thumbnails` `` or the nested batched-field shape
  * `"thumbnails{"` — both indicate a raw, uncached Graph call.
  */
@@ -22,6 +30,7 @@ const REPO_ROOT = process.cwd();
 const SCAN_DIRS = ["lib", "app"];
 const ALLOWED_FILES = new Set([
   join(REPO_ROOT, "lib", "meta", "video-thumbnail-cache.ts"),
+  join(REPO_ROOT, "lib", "meta", "video-upload-request.ts"),
 ]);
 const VIOLATION_PATTERNS = [
   /\$\{[^}]+\}\/thumbnails[`'"]/,

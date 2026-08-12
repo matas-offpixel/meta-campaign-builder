@@ -31,6 +31,7 @@ import {
   type AssetVariationUpdater,
 } from "@/lib/creatives/asset-variation-updater";
 import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/meta/upload";
+import { extractVideoFrameFromUrl } from "@/lib/meta/video-frame-extract";
 import { CTA_OPTIONS } from "@/lib/mock-data";
 import {
   useFetchPages,
@@ -1878,6 +1879,62 @@ function AssetSlot({
     () => blobUrlRegistry.get(asset.id) ?? null,
   );
 
+  // ── FIX 2 (task #90 follow-up) — custom thumbnail-frame picker ──────────
+  // Fallback for edge cases: overrides the primary thumb_offset auto-pick
+  // (see lib/meta/video-upload-request.ts) via POST /{videoId}/thumbnails.
+  // Never blocks the main flow — a failure here (e.g. if this write edge
+  // is ALSO App-Review-blocked) just surfaces an inline error; the
+  // thumb_offset thumbnail already renders correctly either way.
+  const framePickerVideoRef = useRef<HTMLVideoElement>(null);
+  const [framePickerOpen, setFramePickerOpen] = useState(false);
+  const [framePickerSaving, setFramePickerSaving] = useState(false);
+  const [framePickerError, setFramePickerError] = useState<string | null>(null);
+  const [customThumbnailUrl, setCustomThumbnailUrl] = useState<string | null>(null);
+  const customThumbnailUrlRef = useRef<string | null>(null);
+  customThumbnailUrlRef.current = customThumbnailUrl;
+
+  // Revoke the custom-thumbnail preview blob URL on unmount — unlike
+  // localPreviewUrl (blobUrlRegistry-backed, deliberately kept alive across
+  // remounts), this one is purely a short-lived success-confirmation and
+  // isn't re-derivable from a registry, so there's nothing to restore. The
+  // ref (kept in sync above, every render) is read inside the cleanup so it
+  // always sees the latest value rather than the one from this effect's
+  // first (and only) run.
+  useEffect(() => {
+    return () => {
+      if (customThumbnailUrlRef.current) URL.revokeObjectURL(customThumbnailUrlRef.current);
+    };
+  }, []);
+
+  async function handleUseThisFrame() {
+    const videoEl = framePickerVideoRef.current;
+    if (!videoEl || !asset.videoId || !localPreviewUrl) return;
+
+    setFramePickerSaving(true);
+    setFramePickerError(null);
+    try {
+      const { blob } = await extractVideoFrameFromUrl(localPreviewUrl, videoEl.currentTime);
+      const form = new FormData();
+      form.append("videoId", asset.videoId);
+      form.append("frame", blob, "thumbnail.jpg");
+
+      const res = await fetch("/api/meta/upload-video-thumbnail", { method: "POST", body: form });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+
+      // Revoke any previous custom-thumbnail preview before replacing it.
+      if (customThumbnailUrl) URL.revokeObjectURL(customThumbnailUrl);
+      setCustomThumbnailUrl(URL.createObjectURL(blob));
+      setFramePickerOpen(false);
+    } catch (err) {
+      setFramePickerError(err instanceof Error ? err.message : "Couldn't set custom thumbnail.");
+    } finally {
+      setFramePickerSaving(false);
+    }
+  }
+
   const ratioInfo = RATIO_LABELS[asset.aspectRatio];
   const aspectClass = SLOT_ASPECT[asset.aspectRatio] ?? "aspect-[4/5]";
 
@@ -1969,6 +2026,10 @@ function AssetSlot({
       blobUrlRegistry.delete(asset.id);
     }
     setLocalPreviewUrl(null);
+    if (customThumbnailUrl) URL.revokeObjectURL(customThumbnailUrl);
+    setCustomThumbnailUrl(null);
+    setFramePickerOpen(false);
+    setFramePickerError(null);
     onUpdate({
       uploadedUrl: undefined,
       thumbnailUrl: undefined,
@@ -2012,8 +2073,48 @@ function AssetSlot({
           </div>
         )}
 
+        {/* ── FIX 2 (task #90 follow-up) — custom thumbnail-frame picker ──────
+            Fallback UI: scrub the real local video to an exact frame, then
+            override Meta's thumb_offset auto-pick via POST /{videoId}/thumbnails.
+            Never blocks launch — a failure here just shows an inline error.  ── */}
+        {isUploaded && isVideo && framePickerOpen && localPreviewUrl && (
+          <div className="absolute inset-0 z-30 flex flex-col gap-2 bg-black/85 p-2.5">
+            <video
+              ref={framePickerVideoRef}
+              src={localPreviewUrl}
+              className="min-h-0 flex-1 rounded-lg object-contain"
+              controls
+              playsInline
+              preload="auto"
+            />
+            {framePickerError && (
+              <p className="text-[10px] leading-snug text-red-300">{framePickerError}</p>
+            )}
+            <div className="flex gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                className="flex-1"
+                disabled={framePickerSaving}
+                onClick={handleUseThisFrame}
+              >
+                {framePickerSaving ? "Saving…" : "Use this frame"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={framePickerSaving}
+                onClick={() => { setFramePickerOpen(false); setFramePickerError(null); }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* ── Uploaded: unified preview with expand-on-hover ── */}
-        {isUploaded && (
+        {isUploaded && !framePickerOpen && (
           <div
             role="button"
             tabIndex={0}
@@ -2165,12 +2266,27 @@ function AssetSlot({
         )}
       </div>
 
-      {/* ── Footer: type badge only (remove is now the X overlay above) ── */}
+      {/* ── Footer: type badge + (video only) thumbnail-frame picker ── */}
       {isUploaded && (
-        <div className="px-0.5">
-          <Badge variant="success" className="text-[10px]">
-            {isVideo ? "Video" : "Uploaded"}
-          </Badge>
+        <div className="flex items-center justify-between gap-1.5 px-0.5">
+          <div className="flex items-center gap-1.5">
+            <Badge variant="success" className="text-[10px]">
+              {isVideo ? "Video" : "Uploaded"}
+            </Badge>
+            {customThumbnailUrl && (
+              <span className="text-[10px] text-muted-foreground">Custom thumbnail set</span>
+            )}
+          </div>
+          {isVideo && asset.videoId && localPreviewUrl && !framePickerOpen && (
+            <button
+              type="button"
+              onClick={() => setFramePickerOpen(true)}
+              className="flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+            >
+              <RefreshCw className="h-2.5 w-2.5" />
+              {customThumbnailUrl ? "Change thumbnail" : "Pick thumbnail frame"}
+            </button>
+          )}
         </div>
       )}
 

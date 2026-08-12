@@ -27,6 +27,10 @@ import { withActPrefix } from "./ad-account-id.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 import { parseAppUsageHeader, type AppUsageSnapshot } from "./app-usage.ts";
 import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
+import {
+  buildVideoUploadFields,
+  buildVideoThumbnailOverrideRequest,
+} from "./video-upload-request.ts";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -2102,10 +2106,30 @@ export async function uploadImageFromUrl(
   return { hash: imageData.hash, url: imageData.url };
 }
 
+export interface UploadVideoAssetOptions {
+  /**
+   * Millisecond offset from the start of the video for Meta's own
+   * canonical thumbnail (`thumb_offset` on `POST /advideos`) — see
+   * `video-upload-request.ts`'s doc comment for the full task #90
+   * App-Review-bypass story. Defaults to
+   * {@link import("./video-upload-request.ts").DEFAULT_THUMB_OFFSET_MS}
+   * (1000ms) when omitted. Pass `0` to explicitly opt out and let Meta
+   * pick its own default frame.
+   */
+  thumbOffsetMs?: number;
+}
+
 /**
  * Upload a video file to a Meta ad account's video library.
  * Uses multipart/form-data with field name `video_data`.
  * Requires: ads_management permission.
+ *
+ * Always sends `thumb_offset` (task #90 follow-up — see
+ * `video-upload-request.ts`'s doc comment): this is what lets
+ * `buildVideoCreative` skip the App-Review-blocked `POST /adimages`
+ * entirely and never set `video_data.image_hash`/`image_url` — Meta
+ * serves the thumb_offset frame as the video's own thumbnail at
+ * ad-serving time.
  *
  * POST /{adAccountId}/advideos
  */
@@ -2114,8 +2138,10 @@ export async function uploadVideoAsset(
   file: Blob,
   filename: string,
   token?: string,
+  options?: UploadVideoAssetOptions,
 ): Promise<Pick<UploadAssetResult, "videoId" | "previewUrl">> {
   const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+  const { safeFilename, title, thumbOffsetMs } = buildVideoUploadFields(filename, options?.thumbOffsetMs);
 
   // ── Debug logging ───────────────────────────────────────────────────────
   const fileTyped = file as { type?: string; name?: string };
@@ -2125,6 +2151,7 @@ export async function uploadVideoAsset(
     sizeBytes: file.size,
     sizeMB: (file.size / 1024 / 1024).toFixed(2),
     adAccountId,
+    thumbOffsetMs: thumbOffsetMs ?? "(none — Meta default frame)",
     tokenSource: token ? "explicit" : "META_ACCESS_TOKEN (env)",
     token_present: !!effectiveToken,
     token_prefix: effectiveToken ? effectiveToken.slice(0, 12) : "(missing)",
@@ -2136,17 +2163,19 @@ export async function uploadVideoAsset(
     );
   }
 
-  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_") || "upload.mp4";
-
   // ── Build multipart payload ────────────────────────────────────────────
   // Meta /advideos expects:
   //   - access_token in the form body (same pattern as /adimages)
-  //   - source      as the video file field (NOT "video_data")
-  //   - title       optional display name
+  //   - source       as the video file field (NOT "video_data")
+  //   - title        optional display name
+  //   - thumb_offset optional ms-from-start for Meta's auto-thumbnail (task #90 follow-up)
   const formData = new FormData();
   formData.append("access_token", effectiveToken);
   formData.append("source", file, safeFilename);
-  formData.append("title", safeFilename.replace(/\.[^.]+$/, ""));
+  formData.append("title", title);
+  if (thumbOffsetMs !== undefined) {
+    formData.append("thumb_offset", String(thumbOffsetMs));
+  }
 
   const accountPath = withActPrefix(adAccountId);
   const endpoint = `${BASE}/${accountPath}/advideos`;
@@ -2186,6 +2215,69 @@ export async function uploadVideoAsset(
   const previewUrl = await fetchVideoThumbnailWithRetry(videoId, effectiveToken);
 
   return { videoId, previewUrl };
+}
+
+/**
+ * FIX 2 (fallback for edge cases, task #90 follow-up) — override a video's
+ * auto-picked thumbnail with an operator-chosen frame, entirely bypassing
+ * `/adimages`. `POST /{videoId}/thumbnails` is a video-OBJECT write, a
+ * different edge (and, per Meta's docs, a different capability grant) from
+ * the ad-ACCOUNT `/adimages` write that's blocked under this app's current
+ * App Review status — unconfirmed against live traffic, hence this is the
+ * fallback path, not the primary fix (see `uploadVideoAsset`'s
+ * `thumb_offset` for that). `is_preferred=true` tells Meta to serve this
+ * frame over its own thumb_offset/auto-pick going forward.
+ *
+ * Callers should treat a failure here as non-fatal — the primary
+ * thumb_offset fix already gives every video a real (if not
+ * operator-hand-picked) thumbnail, so this is best-effort polish, never a
+ * blocker for creative launch.
+ *
+ * POST /{videoId}/thumbnails
+ */
+export async function uploadVideoThumbnail(
+  videoId: string,
+  frameBlob: Blob,
+  token?: string,
+): Promise<{ success: boolean }> {
+  const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+
+  if (!effectiveToken) {
+    throw new MetaApiError(
+      "META_ACCESS_TOKEN is not configured. Add it to .env.local.",
+    );
+  }
+
+  const { path, isPreferred } = buildVideoThumbnailOverrideRequest(videoId);
+
+  const formData = new FormData();
+  formData.append("access_token", effectiveToken);
+  formData.append("source", frameBlob, "thumbnail.jpg");
+  formData.append("is_preferred", String(isPreferred));
+
+  const endpoint = `${BASE}${path}`;
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: "POST", body: formData });
+  } catch (err) {
+    throw new Error(`Network error uploading video thumbnail override to Meta: ${String(err)}`);
+  }
+
+  const json = (await response.json()) as Record<string, unknown>;
+  console.log("[uploadVideoThumbnail] Meta response:", JSON.stringify(json, null, 2));
+
+  if (!response.ok || json.error) {
+    const e = (json.error ?? {}) as Record<string, unknown>;
+    throw new MetaApiError(
+      (e.message as string) ?? `HTTP ${response.status}`,
+      e.code as number | undefined,
+      e.type as string | undefined,
+      e.fbtrace_id as string | undefined,
+    );
+  }
+
+  return { success: Boolean(json.success ?? true) };
 }
 
 /**
