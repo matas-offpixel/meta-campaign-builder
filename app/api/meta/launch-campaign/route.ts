@@ -31,7 +31,6 @@ import {
   checkAudienceReadiness,
   waitForAudienceReady,
   rankSeedsByPreference,
-  uploadImageFromUrl,
   MetaApiError,
 } from "@/lib/meta/client";
 import type { AudienceReadinessWaitResult } from "@/lib/meta/client";
@@ -3282,9 +3281,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try {
         creativePayload = await buildCreativePayload(creative, {
           validatedIgActorId: validatedIgActorId ?? undefined,
-          metaAdAccountId: adAccountId,
-          metaAccessToken: launchToken,
-          uploadThumbnailAsImage: uploadImageFromUrl,
         });
 
         // ── Creative Integrity Mode (strict sanitizer) ─────────────────────

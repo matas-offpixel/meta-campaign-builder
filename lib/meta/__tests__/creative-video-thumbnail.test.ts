@@ -1,5 +1,5 @@
 /**
- * Regression tests for the video creative thumbnail fix (task #68, then #112).
+ * Regression tests for the video creative thumbnail fix, across three tasks:
  *
  * Task #68 root cause: buildVideoCreative was building video_data without
  * image_url or image_hash, causing Meta to reject every video creative with:
@@ -19,14 +19,27 @@
  * specified in the field video_data."
  * Fix (#112): upload the thumbnail ourselves (POST /adimages via
  * `uploadImageFromUrl`) and send ONLY `image_hash` — never both fields.
- * `buildCreativePayload` accepts an injectable `uploadThumbnailAsImage` so
- * these tests never hit the network.
+ *
+ * Task #90 follow-up (this fix) root cause: `POST /adimages` — including
+ * task #112's own upload call — is unconditionally blocked under this app's
+ * App Review status (code=3 "Application does not have the capability"),
+ * regardless of which token is used (PR #766 ruled out "wrong token" as the
+ * cause). Escaping App Review is a weeks-long unblock.
+ * Fix (#90 follow-up): stop calling `/adimages` entirely.
+ * `lib/meta/client.ts`'s `uploadVideoAsset` now always passes `thumb_offset`
+ * at `POST /advideos` upload time, so Meta already has a real frame
+ * attached to the video OBJECT itself — `video_data` is sent WITHOUT
+ * `image_hash` AND WITHOUT `image_url`; Meta renders the thumb_offset frame
+ * at ad-serving time. This never regresses #68 (Meta doesn't need either
+ * field once thumb_offset is set) and makes #112's Duplicate-flow bug
+ * structurally impossible (neither field is ever set, so there's nothing
+ * for Duplicate to copy).
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildCreativePayload, type BuildCreativePayloadOpts } from "../creative.ts";
+import { buildCreativePayload } from "../creative.ts";
 import type { AdCreativeDraft } from "../../types.ts";
 
 // ─── Fixture helpers ──────────────────────────────────────────────────────────
@@ -73,160 +86,62 @@ function makeVideoCreative(overrides?: {
   };
 }
 
-/**
- * A stub uploader standing in for `uploadImageFromUrl` (lib/meta/client.ts) —
- * deterministic, no network. Records every call so tests can assert on
- * exactly what was uploaded.
- */
-function stubUploader(prefix = "hash_for") {
-  const calls: { adAccountId: string; imageUrl: string; token?: string }[] = [];
-  const uploader: NonNullable<BuildCreativePayloadOpts["uploadThumbnailAsImage"]> = async (
-    adAccountId,
-    imageUrl,
-    token,
-  ) => {
-    calls.push({ adAccountId, imageUrl, token });
-    return { hash: `${prefix}:${imageUrl}` };
-  };
-  return { uploader, calls };
-}
-
-const AD_ACCOUNT_ID = "act_999";
-
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("buildVideoCreative — image_hash, not image_url (task #112)", () => {
-  it("uploads the thumbnail and sets image_hash on video_data — image_url is NOT set", async () => {
-    const { uploader, calls } = stubUploader();
+describe("buildVideoCreative — never sends image_hash/image_url (task #90 follow-up)", () => {
+  it("omits both image_hash and image_url even when the asset has a real thumbnailUrl", async () => {
     const creative = makeVideoCreative({
-      thumbnailUrl: "https://cdn.meta.com/preview/vid_abc123.jpg",
+      thumbnailUrl: "https://scontent.xx.fbcdn.net/preview/vid_abc123.jpg",
     });
 
-    const payload = await buildCreativePayload(creative, {
-      metaAdAccountId: AD_ACCOUNT_ID,
-      uploadThumbnailAsImage: uploader,
-    });
+    const payload = await buildCreativePayload(creative);
 
     const videoData = payload.object_story_spec?.video_data;
     assert.ok(videoData, "video_data must be present");
-    assert.equal(
-      videoData.image_hash,
-      "hash_for:https://cdn.meta.com/preview/vid_abc123.jpg",
-      "image_hash must be the uploaded hash for the thumbnail URL",
-    );
-    assert.equal(
-      videoData.image_url,
-      undefined,
-      "image_url must NOT be set alongside image_hash — Meta rejects both being present " +
-        "on Duplicate (subcode=1443051)",
-    );
-    assert.equal(calls.length, 1, "exactly one upload call");
-    assert.deepEqual(calls[0], {
-      adAccountId: AD_ACCOUNT_ID,
-      imageUrl: "https://cdn.meta.com/preview/vid_abc123.jpg",
-      token: undefined,
-    });
+    assert.equal(videoData.image_hash, undefined, "image_hash must never be set — /adimages is App-Review-blocked");
+    assert.equal(videoData.image_url, undefined, "image_url must never be set either — relies on thumb_offset instead");
   });
 
-  it("passes the access token through to the uploader when provided", async () => {
-    const { uploader, calls } = stubUploader();
-    const creative = makeVideoCreative({
-      thumbnailUrl: "https://cdn.meta.com/preview/vid_abc123.jpg",
-    });
-
-    await buildCreativePayload(creative, {
-      metaAdAccountId: AD_ACCOUNT_ID,
-      metaAccessToken: "tok_live_123",
-      uploadThumbnailAsImage: uploader,
-    });
-
-    assert.equal(calls[0].token, "tok_live_123");
-  });
-
-  it("omits image_hash (no throw) when thumbnailUrl is missing — old drafts", async () => {
-    const { uploader, calls } = stubUploader();
+  it("omits both fields when thumbnailUrl is missing entirely (old drafts) — never throws", async () => {
     const creative = makeVideoCreative({ thumbnailUrl: undefined });
 
     let payload: Awaited<ReturnType<typeof buildCreativePayload>>;
     await assert.doesNotReject(async () => {
-      payload = await buildCreativePayload(creative, {
-        metaAdAccountId: AD_ACCOUNT_ID,
-        uploadThumbnailAsImage: uploader,
-      });
+      payload = await buildCreativePayload(creative);
     });
     const videoData = payload!.object_story_spec?.video_data;
     assert.ok(videoData, "video_data must be present");
-    assert.equal(videoData.image_hash, undefined, "no thumbnailUrl → no hash");
-    assert.equal(videoData.image_url, undefined, "no thumbnailUrl → no url either");
-    assert.equal(calls.length, 0, "uploader must not be called with no thumbnailUrl");
+    assert.equal(videoData.image_hash, undefined);
+    assert.equal(videoData.image_url, undefined);
   });
 
-  it("falls back to image_url (never both) when no metaAdAccountId is provided", async () => {
-    const { uploader, calls } = stubUploader();
+  it("never touches Meta's write API — buildCreativePayload takes no upload/token options for video", async () => {
+    // BuildCreativePayloadOpts only carries validatedIgActorId as of this
+    // fix; passing metaAdAccountId/metaAccessToken/uploadThumbnailAsImage
+    // is now a TypeScript error (see the removed fields' history in git),
+    // so there is nothing left for a test to inject — this test instead
+    // asserts the payload builds correctly with zero opts at all.
     const creative = makeVideoCreative({
-      thumbnailUrl: "https://cdn.meta.com/preview/vid_abc123.jpg",
+      thumbnailUrl: "https://scontent.xx.fbcdn.net/preview/vid_abc123.jpg",
     });
-
-    // No metaAdAccountId → upload is skipped entirely, so the uploader must
-    // never be invoked, and video_data falls back to image_url so a
-    // thumbnail is still sent (never regresses #68's subcode=1443226).
-    const payload = await buildCreativePayload(creative, {
-      uploadThumbnailAsImage: uploader,
-    });
-
-    const videoData = payload.object_story_spec?.video_data;
-    assert.equal(calls.length, 0, "uploader must not be called without an ad account");
-    assert.equal(
-      videoData?.image_url,
-      "https://cdn.meta.com/preview/vid_abc123.jpg",
-      "falls back to image_url so a thumbnail is still present",
-    );
-    assert.equal(videoData?.image_hash, undefined);
+    const payload = await buildCreativePayload(creative, {});
+    assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_abc123");
   });
 
-  it("falls back to image_url (never both) when the upload call fails", async () => {
-    const failingUploader: NonNullable<BuildCreativePayloadOpts["uploadThumbnailAsImage"]> = async () => {
-      throw new Error("Meta API error: rate limited");
-    };
+  it("still sets video_id correctly with no thumbnail fields alongside it", async () => {
     const creative = makeVideoCreative({
-      thumbnailUrl: "https://cdn.meta.com/preview/vid_abc123.jpg",
+      thumbnailUrl: "https://scontent.xx.fbcdn.net/preview/vid_abc123.jpg",
     });
-
-    const payload = await buildCreativePayload(creative, {
-      metaAdAccountId: AD_ACCOUNT_ID,
-      uploadThumbnailAsImage: failingUploader,
-    });
-
-    const videoData = payload.object_story_spec?.video_data;
-    assert.equal(
-      videoData?.image_url,
-      "https://cdn.meta.com/preview/vid_abc123.jpg",
-      "upload failure falls back to image_url rather than throwing",
-    );
-    assert.equal(videoData?.image_hash, undefined);
-  });
-
-  it("still sets video_id correctly alongside image_hash", async () => {
-    const { uploader } = stubUploader();
-    const creative = makeVideoCreative({
-      thumbnailUrl: "https://cdn.meta.com/preview/vid_abc123.jpg",
-    });
-    const payload = await buildCreativePayload(creative, {
-      metaAdAccountId: AD_ACCOUNT_ID,
-      uploadThumbnailAsImage: uploader,
-    });
+    const payload = await buildCreativePayload(creative);
     const videoData = payload.object_story_spec?.video_data;
     assert.equal(videoData?.video_id, "vid_abc123");
-    assert.equal(
-      videoData?.image_hash,
-      "hash_for:https://cdn.meta.com/preview/vid_abc123.jpg",
-    );
+    assert.equal(videoData?.image_hash, undefined);
+    assert.equal(videoData?.image_url, undefined);
   });
 
-  it("multi-ratio draft: uploads the thumbnail from the same asset as the chosen videoId", async () => {
+  it("multi-ratio draft: still picks the 9:16 videoId first, with no thumbnail fields", async () => {
     // 4:5 and 9:16 slots, each with different videoIds and thumbnails.
     // Priority order is 9:16 → 4:5 → 1:1, so 9:16 should win.
-    const { uploader, calls } = stubUploader();
     const creative: AdCreativeDraft = {
       ...makeVideoCreative(),
       assetVariations: [
@@ -239,37 +154,26 @@ describe("buildVideoCreative — image_hash, not image_url (task #112)", () => {
               aspectRatio: "4:5",
               uploadStatus: "uploaded",
               videoId: "vid_45",
-              thumbnailUrl: "https://cdn.meta.com/thumb_45.jpg",
+              thumbnailUrl: "https://scontent.xx.fbcdn.net/thumb_45.jpg",
             },
             {
               id: "asset_916",
               aspectRatio: "9:16",
               uploadStatus: "uploaded",
               videoId: "vid_916",
-              thumbnailUrl: "https://cdn.meta.com/thumb_916.jpg",
+              thumbnailUrl: "https://scontent.xx.fbcdn.net/thumb_916.jpg",
             },
           ],
         },
       ],
     };
 
-    const payload = await buildCreativePayload(creative, {
-      metaAdAccountId: AD_ACCOUNT_ID,
-      uploadThumbnailAsImage: uploader,
-    });
+    const payload = await buildCreativePayload(creative);
     const videoData = payload.object_story_spec?.video_data;
 
     // 9:16 wins per VIDEO_PRIORITY
     assert.equal(videoData?.video_id, "vid_916", "should pick 9:16 videoId first");
-    assert.equal(calls.length, 1);
-    assert.equal(
-      calls[0].imageUrl,
-      "https://cdn.meta.com/thumb_916.jpg",
-      "uploaded thumbnail must match the chosen video asset (9:16), not the 4:5 slot",
-    );
-    assert.equal(
-      videoData?.image_hash,
-      "hash_for:https://cdn.meta.com/thumb_916.jpg",
-    );
+    assert.equal(videoData?.image_hash, undefined);
+    assert.equal(videoData?.image_url, undefined);
   });
 });

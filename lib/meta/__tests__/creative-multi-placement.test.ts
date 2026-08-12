@@ -355,8 +355,8 @@ describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
 
   it("dual video + BOOK_NOW → no asset_feed_spec, video_data uses 9:16 video", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    // No metaAdAccountId in opts → thumbnail-upload is skipped and video_data
-    // falls back to image_url (see BuildCreativePayloadOpts docstring, task #112).
+    // Neither image_hash nor image_url is set for video_data (task #90
+    // follow-up) — Meta serves the advideos thumb_offset frame instead.
     const payload = await buildCreativePayload(dualVideoCreative("book_now"));
 
     assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
@@ -364,8 +364,8 @@ describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
     const vd = payload.object_story_spec?.video_data;
     assert.ok(vd, "video_data present");
     assert.equal(vd!.video_id, "vid_916", "uses 9:16 video_id, NOT 4:5");
-    assert.equal(vd!.image_url, "https://cdn/thumb_916.jpg", "uses 9:16 thumbnail");
-    assert.equal(vd!.image_hash, undefined, "no ad account provided — no hash upload attempted");
+    assert.equal(vd!.image_url, undefined, "no image_url — relies on thumb_offset instead (task #90)");
+    assert.equal(vd!.image_hash, undefined, "no image_hash — /adimages is App-Review-blocked (task #90)");
     assert.equal(vd!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
   });
 

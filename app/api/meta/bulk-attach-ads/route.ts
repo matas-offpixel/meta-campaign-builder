@@ -38,7 +38,6 @@ import {
   createMetaCreative,
   createMetaAd,
   fetchAdSetGuardInfo,
-  uploadImageFromUrl,
   MetaApiError,
 } from "@/lib/meta/client";
 import {
@@ -317,9 +316,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try {
         metaPayload = await buildCreativePayload(creative, {
           validatedIgActorId: validatedIgActorId ?? undefined,
-          metaAdAccountId: adAccountId,
-          metaAccessToken: token,
-          uploadThumbnailAsImage: uploadImageFromUrl,
         });
       } catch (err) {
         result.creativesFailed.push({
