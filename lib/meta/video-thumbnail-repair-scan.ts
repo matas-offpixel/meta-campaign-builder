@@ -40,12 +40,37 @@
  * `scanCampaignForBrokenVideoAds` wires all four together with a
  * rate-limit-friendly sleep between calls (1/sec by default, overridable —
  * pass `sleepMs: 0` in tests).
+ *
+ * Follow-up fix (over-scan guard): the spinner-thumbnail bug can only exist
+ * on ads created on/after {@link DEFAULT_BUG_INTRODUCED_AT} (the date PR
+ * #748 — the change that started uploading `picture` as `image_hash` —
+ * merged). Legacy campaigns can have hundreds of pre-#748 ads using the
+ * `image_url` path, which this repair does not apply to and which would
+ * otherwise be scanned (and rate-limited-slept through) for nothing.
+ * `fetchCampaignAds` now also requests `created_time`; `filterAdsByCreatedTime`
+ * drops anything older BEFORE the expensive per-ad/per-hash resolution
+ * calls. `scanCampaignForBrokenVideoAds` additionally refuses to scan a
+ * campaign whose filtered ad count still exceeds
+ * {@link DEFAULT_MAX_ADS_PER_CAMPAIGN} unless the caller passes
+ * `bypassSizeCap: true` (the script's `--campaign-ids` explicit-opt-in mode).
  */
 
 import { isMetaPlaceholderThumbnailUrl } from "./video-thumbnail-poll.ts";
 import { withActPrefix } from "./ad-account-id.ts";
 
 const META_API_BASE = "https://graph.facebook.com/v21.0";
+
+/**
+ * The date PR #748 merged (the change that started uploading Meta's
+ * `picture` response straight into `video_data.image_hash`, which is what
+ * let the placeholder/spinner get baked into a creative). Ads created
+ * before this can't have the bug — they either predate `image_hash` upload
+ * entirely or used a different thumbnail path.
+ */
+export const DEFAULT_BUG_INTRODUCED_AT = "2026-08-07T00:00:00+00:00";
+
+/** Campaigns with more affected-window ads than this require an explicit `bypassSizeCap` opt-in. */
+export const DEFAULT_MAX_ADS_PER_CAMPAIGN = 200;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,6 +96,8 @@ export interface MetaAdCreativeSummary {
 export interface MetaAdSummary {
   id: string;
   name?: string;
+  /** ISO 8601 (Meta's ad-level `created_time` format, e.g. "2026-08-10T12:34:56+0000"). */
+  created_time?: string;
   creative?: MetaAdCreativeSummary;
 }
 
@@ -119,14 +146,14 @@ interface MetaAdsPageResponse {
   error?: { message?: string };
 }
 
-/** GET /{campaignId}/ads?fields=id,name,creative{id,object_story_spec} — paginated. */
+/** GET /{campaignId}/ads?fields=id,name,created_time,creative{id,object_story_spec} — paginated. */
 export async function fetchCampaignAds(campaignId: string, token: string): Promise<MetaAdSummary[]> {
   const ads: MetaAdSummary[] = [];
   let after: string | undefined;
 
   for (;;) {
     const url = new URL(`${META_API_BASE}/${campaignId}/ads`);
-    url.searchParams.set("fields", "id,name,creative{id,object_story_spec}");
+    url.searchParams.set("fields", "id,name,created_time,creative{id,object_story_spec}");
     url.searchParams.set("limit", "100");
     url.searchParams.set("access_token", token);
     if (after) url.searchParams.set("after", after);
@@ -145,6 +172,61 @@ export async function fetchCampaignAds(campaignId: string, token: string): Promi
   }
 
   return ads;
+}
+
+export interface FilterAdsByCreatedTimeResult {
+  kept: MetaAdSummary[];
+  skippedCount: number;
+}
+
+/**
+ * Drops ads created strictly before `bugIntroducedAt` (default
+ * {@link DEFAULT_BUG_INTRODUCED_AT}) — they predate PR #748 and cannot have
+ * the spinner-thumbnail bug. Ads with a missing/unparseable `created_time`
+ * are conservatively KEPT (we'd rather scan an extra ad than silently miss
+ * a genuinely broken one because Meta omitted a field).
+ */
+export function filterAdsByCreatedTime(
+  ads: MetaAdSummary[],
+  bugIntroducedAt: string = DEFAULT_BUG_INTRODUCED_AT,
+): FilterAdsByCreatedTimeResult {
+  const cutoff = new Date(bugIntroducedAt).getTime();
+  const kept: MetaAdSummary[] = [];
+  let skippedCount = 0;
+
+  for (const ad of ads) {
+    const createdAt = ad.created_time ? new Date(ad.created_time).getTime() : NaN;
+    if (Number.isFinite(createdAt) && createdAt < cutoff) {
+      skippedCount++;
+      continue;
+    }
+    kept.push(ad);
+  }
+
+  return { kept, skippedCount };
+}
+
+interface CampaignAccountResponse {
+  account_id?: string;
+  name?: string;
+  error?: { message?: string };
+}
+
+/** GET /{campaignId}?fields=account_id,name — used by `--campaign-ids` targeted mode, which skips draft discovery entirely. */
+export async function fetchCampaignAccountId(
+  campaignId: string,
+  token: string,
+): Promise<{ adAccountId: string; campaignName?: string }> {
+  const url = `${META_API_BASE}/${campaignId}?fields=account_id,name&access_token=${encodeURIComponent(token)}`;
+  const res = await fetch(url);
+  const json = (await res.json()) as CampaignAccountResponse;
+  if (!res.ok || json.error) {
+    throw new Error(`GET /${campaignId}?fields=account_id,name failed: ${json.error?.message ?? `HTTP ${res.status}`}`);
+  }
+  if (!json.account_id) {
+    throw new Error(`/${campaignId} response had no account_id`);
+  }
+  return { adAccountId: json.account_id, campaignName: json.name };
 }
 
 interface CreativeResponse {
@@ -218,28 +300,70 @@ export interface ScanCampaignOptions {
   sleepMs?: number;
   /** Injected so tests/scripts can observe progress without real network latency. */
   onProgress?: (message: string) => void;
+  /** Ads created before this are dropped before any creative/hash resolution. Defaults to {@link DEFAULT_BUG_INTRODUCED_AT}. */
+  bugIntroducedAt?: string;
+  /** Refuse to scan (see `sizeCapExceeded`) once the post-date-filter ad count exceeds this. Defaults to {@link DEFAULT_MAX_ADS_PER_CAMPAIGN}. */
+  maxAdsPerCampaign?: number;
+  /** Explicit operator opt-in (the script's `--campaign-ids` mode) to scan a campaign regardless of `maxAdsPerCampaign`. */
+  bypassSizeCap?: boolean;
+}
+
+export interface ScanCampaignResult {
+  broken: BrokenVideoAdTarget[];
+  /** Total ads returned by Meta before any filtering. */
+  totalAdCount: number;
+  /** Ads dropped by the created_time filter (predate the bug). */
+  skippedOldAdCount: number;
+  /** Ads actually eligible for creative/hash resolution (totalAdCount - skippedOldAdCount). */
+  scannedAdCount: number;
+  /**
+   * True when `scannedAdCount > maxAdsPerCampaign` and `bypassSizeCap` was
+   * not set — in this case NO creative/hash resolution calls were made
+   * (`broken` is always `[]`) and the caller should surface a warning
+   * asking the operator to re-run with `--campaign-ids=<id>` to opt in.
+   */
+  sizeCapExceeded: boolean;
 }
 
 /**
- * Scans every ad in one Meta campaign and returns the ones whose live
- * creative is currently serving Meta's placeholder/spinner thumbnail.
+ * Scans every (bug-window-eligible) ad in one Meta campaign and returns the
+ * ones whose live creative is currently serving Meta's placeholder/spinner
+ * thumbnail.
  *
  * Rate-limit-friendly: sleeps `sleepMs` before each ad's creative resolution
  * and before each unique image_hash's URL resolution (hashes are deduped
  * first, so a campaign where many ads share one creative/hash only resolves
- * it once).
+ * it once). Ads older than `bugIntroducedAt` are dropped before any of
+ * those calls; campaigns whose remaining ad count exceeds
+ * `maxAdsPerCampaign` are skipped entirely unless `bypassSizeCap` is set —
+ * both guard against accidentally rate-limit-sleeping through hundreds of
+ * legacy ads that can't be affected.
  */
 export async function scanCampaignForBrokenVideoAds(
   campaignId: string,
   adAccountId: string,
   token: string,
   opts: ScanCampaignOptions = {},
-): Promise<BrokenVideoAdTarget[]> {
+): Promise<ScanCampaignResult> {
   const sleepMs = opts.sleepMs ?? 1000;
   const log = opts.onProgress ?? (() => {});
+  const bugIntroducedAt = opts.bugIntroducedAt ?? DEFAULT_BUG_INTRODUCED_AT;
+  const maxAdsPerCampaign = opts.maxAdsPerCampaign ?? DEFAULT_MAX_ADS_PER_CAMPAIGN;
 
-  const ads = await fetchCampaignAds(campaignId, token);
-  log(`fetched ${ads.length} ad(s) for campaign ${campaignId}`);
+  const allAds = await fetchCampaignAds(campaignId, token);
+  const { kept: ads, skippedCount: skippedOldAdCount } = filterAdsByCreatedTime(allAds, bugIntroducedAt);
+  log(
+    `fetched ${allAds.length} ad(s) for campaign ${campaignId} — ` +
+      `${skippedOldAdCount}/${allAds.length} too old to be affected (before ${bugIntroducedAt}) — skipping`,
+  );
+
+  if (!opts.bypassSizeCap && ads.length > maxAdsPerCampaign) {
+    log(
+      `campaign ${campaignId} has ${ads.length} ad(s) after the date filter (> ${maxAdsPerCampaign} cap) — ` +
+        `skipping. Re-run with --campaign-ids=${campaignId} to explicitly opt in.`,
+    );
+    return { broken: [], totalAdCount: allAds.length, skippedOldAdCount, scannedAdCount: ads.length, sizeCapExceeded: true };
+  }
 
   const infos: VideoCreativeInfo[] = [];
   for (const ad of ads) {
@@ -272,7 +396,7 @@ export async function scanCampaignForBrokenVideoAds(
       broken.push({ ...info, placeholderUrl: url });
     }
   }
-  return broken;
+  return { broken, totalAdCount: allAds.length, skippedOldAdCount, scannedAdCount: ads.length, sizeCapExceeded: false };
 }
 
 /**

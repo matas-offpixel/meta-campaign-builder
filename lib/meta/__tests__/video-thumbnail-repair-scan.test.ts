@@ -20,11 +20,15 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import {
   extractVideoCreativeInfoFromSpec,
   fetchCampaignAds,
+  fetchCampaignAccountId,
   fetchCreativeObjectStorySpec,
+  filterAdsByCreatedTime,
   resolveImageHashUrl,
   resolveVideoCreativeInfo,
   scanCampaignForBrokenVideoAds,
   findBrokenVideoAds,
+  DEFAULT_BUG_INTRODUCED_AT,
+  DEFAULT_MAX_ADS_PER_CAMPAIGN,
   type MetaAdSummary,
   type VideoCreativeInfo,
 } from "../video-thumbnail-repair-scan.ts";
@@ -187,6 +191,73 @@ describe("fetchCampaignAds", () => {
   });
 });
 
+// ─── filterAdsByCreatedTime (pure — over-scan guard) ─────────────────────────
+
+describe("filterAdsByCreatedTime", () => {
+  it("drops ads created before the bug-introduced date and keeps ones on/after it", () => {
+    const ads: MetaAdSummary[] = [
+      { id: "ad_old", created_time: "2026-07-15T10:00:00+0000" },
+      { id: "ad_new", created_time: "2026-08-10T10:00:00+0000" },
+      { id: "ad_exact_cutoff", created_time: DEFAULT_BUG_INTRODUCED_AT },
+    ];
+    const { kept, skippedCount } = filterAdsByCreatedTime(ads);
+    assert.equal(skippedCount, 1);
+    assert.deepEqual(kept.map((a) => a.id), ["ad_new", "ad_exact_cutoff"]);
+  });
+
+  it("uses DEFAULT_BUG_INTRODUCED_AT (2026-08-07) as the default cutoff", () => {
+    assert.equal(DEFAULT_BUG_INTRODUCED_AT, "2026-08-07T00:00:00+00:00");
+  });
+
+  it("respects a custom bugIntroducedAt cutoff", () => {
+    const ads: MetaAdSummary[] = [
+      { id: "ad_1", created_time: "2026-01-01T00:00:00+0000" },
+      { id: "ad_2", created_time: "2026-06-01T00:00:00+0000" },
+    ];
+    const { kept, skippedCount } = filterAdsByCreatedTime(ads, "2026-03-01T00:00:00+00:00");
+    assert.equal(skippedCount, 1);
+    assert.deepEqual(kept.map((a) => a.id), ["ad_2"]);
+  });
+
+  it("conservatively keeps ads with a missing created_time (doesn't silently drop them)", () => {
+    const ads: MetaAdSummary[] = [{ id: "ad_no_date" }];
+    const { kept, skippedCount } = filterAdsByCreatedTime(ads);
+    assert.equal(skippedCount, 0);
+    assert.deepEqual(kept.map((a) => a.id), ["ad_no_date"]);
+  });
+
+  it("returns skippedCount=0 and kept=[] for an empty input", () => {
+    assert.deepEqual(filterAdsByCreatedTime([]), { kept: [], skippedCount: 0 });
+  });
+});
+
+// ─── fetchCampaignAccountId (--campaign-ids targeted mode) ───────────────────
+
+describe("fetchCampaignAccountId", () => {
+  it("GETs /{campaignId}?fields=account_id,name and returns both", async () => {
+    let capturedUrl = "";
+    globalThis.fetch = async (input) => {
+      capturedUrl = urlOf(input);
+      return jsonResponse({ account_id: "999888777", name: "IPC Newcastle v3" });
+    };
+
+    const result = await fetchCampaignAccountId("cmp_123", "tok");
+    assert.ok(capturedUrl.includes("/cmp_123"));
+    assert.ok(capturedUrl.includes("fields=account_id%2Cname") || capturedUrl.includes("fields=account_id,name"));
+    assert.deepEqual(result, { adAccountId: "999888777", campaignName: "IPC Newcastle v3" });
+  });
+
+  it("throws on a Meta error response", async () => {
+    globalThis.fetch = async () => jsonResponse({ error: { message: "Unsupported get request" } }, 400);
+    await assert.rejects(() => fetchCampaignAccountId("cmp_bad", "tok"), /Unsupported get request/);
+  });
+
+  it("throws when the response has no account_id", async () => {
+    globalThis.fetch = async () => jsonResponse({ name: "No account" });
+    await assert.rejects(() => fetchCampaignAccountId("cmp_weird", "tok"), /no account_id/);
+  });
+});
+
 // ─── fetchCreativeObjectStorySpec (fallback) ─────────────────────────────────
 
 describe("fetchCreativeObjectStorySpec", () => {
@@ -321,15 +392,17 @@ describe("scanCampaignForBrokenVideoAds", () => {
       throw new Error(`unexpected fetch: ${url}`);
     };
 
-    const broken = await scanCampaignForBrokenVideoAds("cmp_1", "999", "tok", { sleepMs: 0 });
-    assert.equal(broken.length, 1);
-    assert.equal(broken[0].adId, "ad_broken");
-    assert.equal(broken[0].creativeId, "creative_broken");
-    assert.equal(broken[0].videoId, "vid_broken");
-    assert.equal(broken[0].placeholderUrl, SPINNER_URL);
+    const result = await scanCampaignForBrokenVideoAds("cmp_1", "999", "tok", { sleepMs: 0 });
+    assert.equal(result.broken.length, 1);
+    assert.equal(result.broken[0].adId, "ad_broken");
+    assert.equal(result.broken[0].creativeId, "creative_broken");
+    assert.equal(result.broken[0].videoId, "vid_broken");
+    assert.equal(result.broken[0].placeholderUrl, SPINNER_URL);
+    assert.equal(result.sizeCapExceeded, false);
+    assert.equal(result.totalAdCount, 3);
   });
 
-  it("returns an empty array when every video ad's thumbnail resolves to real content", async () => {
+  it("returns an empty broken list when every video ad's thumbnail resolves to real content", async () => {
     globalThis.fetch = async (input) => {
       const url = urlOf(input);
       if (url.includes("/ads")) {
@@ -340,8 +413,8 @@ describe("scanCampaignForBrokenVideoAds", () => {
       return jsonResponse({ data: [{ hash: "h_1", url: REAL_THUMB_URL }] });
     };
 
-    const broken = await scanCampaignForBrokenVideoAds("cmp_2", "999", "tok", { sleepMs: 0 });
-    assert.deepEqual(broken, []);
+    const result = await scanCampaignForBrokenVideoAds("cmp_2", "999", "tok", { sleepMs: 0 });
+    assert.deepEqual(result.broken, []);
   });
 
   it("dedupes hash resolution when multiple ads share the same image_hash", async () => {
@@ -360,9 +433,9 @@ describe("scanCampaignForBrokenVideoAds", () => {
       return jsonResponse({ data: [{ hash: "shared_hash", url: SPINNER_URL }] });
     };
 
-    const broken = await scanCampaignForBrokenVideoAds("cmp_3", "999", "tok", { sleepMs: 0 });
+    const result = await scanCampaignForBrokenVideoAds("cmp_3", "999", "tok", { sleepMs: 0 });
     assert.equal(adimagesCalls, 1, "should resolve the shared hash exactly once");
-    assert.equal(broken.length, 2, "both ads sharing the broken hash should be flagged");
+    assert.equal(result.broken.length, 2, "both ads sharing the broken hash should be flagged");
   });
 
   it("does not throw when one ad's creative fetch fails — continues scanning the rest", async () => {
@@ -381,8 +454,119 @@ describe("scanCampaignForBrokenVideoAds", () => {
       throw new Error(`unexpected fetch: ${url}`);
     };
 
-    const broken = await scanCampaignForBrokenVideoAds("cmp_4", "999", "tok", { sleepMs: 0 });
-    assert.equal(broken.length, 1);
-    assert.equal(broken[0].adId, "ad_ok");
+    const result = await scanCampaignForBrokenVideoAds("cmp_4", "999", "tok", { sleepMs: 0 });
+    assert.equal(result.broken.length, 1);
+    assert.equal(result.broken[0].adId, "ad_ok");
+  });
+
+  // ── over-scan guard: created_time date filter ──────────────────────────
+
+  it("drops ads created before the bug-introduced date and never resolves their creative/hash", async () => {
+    let creativeOrImageCalls = 0;
+    globalThis.fetch = async (input) => {
+      const url = urlOf(input);
+      if (url.includes("/ads")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "ad_legacy",
+              created_time: "2026-05-01T00:00:00+0000", // predates PR #748
+              creative: { id: "c_legacy", object_story_spec: { video_data: { video_id: "v_legacy", image_hash: "h_legacy" } } },
+            },
+            {
+              id: "ad_new",
+              created_time: "2026-08-10T00:00:00+0000",
+              creative: { id: "c_new", object_story_spec: { video_data: { video_id: "v_new", image_hash: "h_new" } } },
+            },
+          ],
+        });
+      }
+      creativeOrImageCalls++;
+      if (url.includes("h_legacy")) throw new Error("should never resolve a pre-cutoff ad's hash");
+      return jsonResponse({ data: [{ hash: "h_new", url: SPINNER_URL }] });
+    };
+
+    const result = await scanCampaignForBrokenVideoAds("cmp_dates", "999", "tok", { sleepMs: 0 });
+    assert.equal(result.totalAdCount, 2);
+    assert.equal(result.skippedOldAdCount, 1);
+    assert.equal(result.scannedAdCount, 1);
+    assert.equal(result.broken.length, 1);
+    assert.equal(result.broken[0].adId, "ad_new");
+    assert.equal(creativeOrImageCalls, 1, "only the post-cutoff ad's hash should ever be resolved");
+  });
+
+  it("logs the skip count via onProgress", async () => {
+    globalThis.fetch = async (input) => {
+      const url = urlOf(input);
+      if (url.includes("/ads")) {
+        return jsonResponse({
+          data: [
+            { id: "ad_old", created_time: "2026-01-01T00:00:00+0000" },
+            { id: "ad_old_2", created_time: "2026-02-01T00:00:00+0000" },
+          ],
+        });
+      }
+      return jsonResponse({ data: [] });
+    };
+
+    const messages: string[] = [];
+    await scanCampaignForBrokenVideoAds("cmp_logs", "999", "tok", { sleepMs: 0, onProgress: (m) => messages.push(m) });
+    assert.ok(
+      messages.some((m) => m.includes("2/2") && m.includes("too old to be affected") && m.includes("skipping")),
+      `expected a skip-count log line — got: ${JSON.stringify(messages)}`,
+    );
+  });
+
+  // ── over-scan guard: per-campaign size cap ─────────────────────────────
+
+  it("refuses to scan (sizeCapExceeded) when the filtered ad count exceeds maxAdsPerCampaign, and makes zero further Meta calls", async () => {
+    const manyAds = Array.from({ length: 5 }, (_, i) => ({
+      id: `ad_${i}`,
+      created_time: "2026-08-10T00:00:00+0000",
+      creative: { id: `c_${i}`, object_story_spec: { video_data: { video_id: `v_${i}`, image_hash: `h_${i}` } } },
+    }));
+    let adsFetchCount = 0;
+    let otherCallCount = 0;
+    globalThis.fetch = async (input) => {
+      const url = urlOf(input);
+      if (url.includes("/ads")) {
+        adsFetchCount++;
+        return jsonResponse({ data: manyAds });
+      }
+      otherCallCount++;
+      throw new Error(`should not call ${url} once the size cap is exceeded`);
+    };
+
+    const result = await scanCampaignForBrokenVideoAds("cmp_huge", "999", "tok", { sleepMs: 0, maxAdsPerCampaign: 3 });
+    assert.equal(result.sizeCapExceeded, true);
+    assert.deepEqual(result.broken, []);
+    assert.equal(result.scannedAdCount, 5);
+    assert.equal(adsFetchCount, 1, "the /ads listing call itself is cheap and still happens");
+    assert.equal(otherCallCount, 0, "no creative/hash resolution calls once the cap is exceeded");
+  });
+
+  it("scans anyway when bypassSizeCap is set, even over the cap", async () => {
+    const manyAds = Array.from({ length: 5 }, (_, i) => ({
+      id: `ad_${i}`,
+      created_time: "2026-08-10T00:00:00+0000",
+      creative: { id: `c_${i}`, object_story_spec: { video_data: { video_id: `v_${i}`, image_hash: `h_${i}` } } },
+    }));
+    globalThis.fetch = async (input) => {
+      const url = urlOf(input);
+      if (url.includes("/ads")) return jsonResponse({ data: manyAds });
+      return jsonResponse({ data: [] });
+    };
+
+    const result = await scanCampaignForBrokenVideoAds("cmp_huge_bypass", "999", "tok", {
+      sleepMs: 0,
+      maxAdsPerCampaign: 3,
+      bypassSizeCap: true,
+    });
+    assert.equal(result.sizeCapExceeded, false);
+    assert.equal(result.scannedAdCount, 5);
+  });
+
+  it("uses DEFAULT_MAX_ADS_PER_CAMPAIGN (200) when maxAdsPerCampaign is not overridden", () => {
+    assert.equal(DEFAULT_MAX_ADS_PER_CAMPAIGN, 200);
   });
 });
