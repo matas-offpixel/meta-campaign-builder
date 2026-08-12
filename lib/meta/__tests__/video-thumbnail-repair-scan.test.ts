@@ -9,9 +9,13 @@
  * module instead queries Meta directly:
  *   GET /{campaignId}/ads?fields=id,name,creative{id,object_story_spec}
  *   GET /{creativeId}?fields=object_story_spec        (fallback only)
- *   GET /{adAccountId}/adimages?hashes=["<hash>"]
- * and flags an ad as broken when the resolved image_hash URL is Meta's
- * placeholder/spinner (isMetaPlaceholderThumbnailUrl).
+ *   GET /{adAccountId}/adimages?hashes=["<hash>"]&fields=hash,url,width,height,name
+ * and flags an ad as broken by fingerprinting the RESOLVED IMAGE (dimensions/
+ * format/size via isMetaPlaceholderThumbnailImage), not its URL — task #128
+ * continued found that isMetaPlaceholderThumbnailUrl (a URL/host classifier)
+ * never fires post-upload, because /adimages resolves the spinner to an
+ * ad-account-scoped scontent*.fbcdn.net URL indistinguishable by host/path
+ * from a real thumbnail. See the module doc comment for the full story.
  */
 
 import assert from "node:assert/strict";
@@ -21,15 +25,17 @@ import {
   extractVideoCreativeInfoFromSpec,
   fetchCampaignAds,
   fetchCampaignAccountId,
+  fetchContentLength,
   fetchCreativeObjectStorySpec,
   filterAdsByCreatedTime,
-  resolveImageHashUrl,
+  resolveImageHashMetadata,
   resolveVideoCreativeInfo,
   scanCampaignForBrokenVideoAds,
   findBrokenVideoAds,
   DEFAULT_BUG_INTRODUCED_AT,
   DEFAULT_MAX_ADS_PER_CAMPAIGN,
   type MetaAdSummary,
+  type MetaAdImageFingerprint,
   type VideoCreativeInfo,
 } from "../video-thumbnail-repair-scan.ts";
 
@@ -53,12 +59,35 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
+function headResponse(contentLength: number | undefined, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get: (name: string) => (name.toLowerCase() === "content-length" && contentLength !== undefined ? String(contentLength) : null),
+    },
+    json: async () => ({}),
+  } as unknown as Response;
+}
+
 function urlOf(input: Parameters<typeof fetch>[0]): string {
   return input instanceof Request ? input.url : String(input);
 }
 
-const SPINNER_URL = "https://static.xx.fbcdn.net/rsrc.php/v4/yN/r/AAqMW82PqGg.gif";
+function isHead(init: Parameters<typeof fetch>[1] | undefined): boolean {
+  return (init as RequestInit | undefined)?.method === "HEAD";
+}
+
+// Task #128 continued reproducer: the spinner survives upload as a tiny GIF;
+// a real thumbnail is a large JPG at video dimensions. `REAL_IMAGE_METADATA`
+// deliberately omits contentLengthBytes (Meta's /adimages response doesn't
+// carry it) so tests exercise the fetchContentLength HEAD fallback the same
+// way scanCampaignForBrokenVideoAds does in production.
+const BROKEN_IMAGE_URL = "https://scontent.xx.fbcdn.net/v/t45.1600-4/ADXYZ_spinner.gif";
 const REAL_THUMB_URL = "https://scontent.xx.fbcdn.net/v/t15.5256-10/thumb_real_frame.jpg";
+const BROKEN_IMAGE_METADATA: MetaAdImageFingerprint = { url: BROKEN_IMAGE_URL, width: 16, height: 16, name: "AAqMW82PqGg.gif" };
+const REAL_IMAGE_METADATA: MetaAdImageFingerprint = { url: REAL_THUMB_URL, width: 1080, height: 1080, name: "real-thumbnail.jpg" };
+const REAL_CONTENT_LENGTH = 32000;
 
 // ─── extractVideoCreativeInfoFromSpec (pure) ─────────────────────────────────
 
@@ -104,22 +133,23 @@ describe("extractVideoCreativeInfoFromSpec", () => {
 // ─── findBrokenVideoAds (pure) ────────────────────────────────────────────────
 
 describe("findBrokenVideoAds", () => {
-  it("flags only the info whose resolved URL is a placeholder", () => {
+  it("flags only the info whose resolved image fingerprint is the placeholder (task #128 continued classifier)", () => {
     const infos: VideoCreativeInfo[] = [
       { adId: "ad_1", creativeId: "c_1", videoId: "v_1", imageHash: "h_broken" },
       { adId: "ad_2", creativeId: "c_2", videoId: "v_2", imageHash: "h_ok" },
     ];
-    const hashToUrl = new Map([
-      ["h_broken", SPINNER_URL],
-      ["h_ok", REAL_THUMB_URL],
+    const hashToFingerprint = new Map([
+      ["h_broken", BROKEN_IMAGE_METADATA],
+      ["h_ok", REAL_IMAGE_METADATA],
     ]);
-    const broken = findBrokenVideoAds(infos, hashToUrl);
+    const broken = findBrokenVideoAds(infos, hashToFingerprint);
     assert.equal(broken.length, 1);
     assert.equal(broken[0].adId, "ad_1");
-    assert.equal(broken[0].placeholderUrl, SPINNER_URL);
+    assert.equal(broken[0].placeholderUrl, BROKEN_IMAGE_URL);
+    assert.deepEqual(broken[0].fingerprint, BROKEN_IMAGE_METADATA);
   });
 
-  it("skips infos whose hash never resolved to a URL", () => {
+  it("skips infos whose hash never resolved to a fingerprint", () => {
     const infos: VideoCreativeInfo[] = [{ adId: "ad_1", creativeId: "c_1", videoId: "v_1", imageHash: "h_unresolved" }];
     assert.deepEqual(findBrokenVideoAds(infos, new Map()), []);
   });
@@ -280,20 +310,24 @@ describe("fetchCreativeObjectStorySpec", () => {
   });
 });
 
-// ─── resolveImageHashUrl ──────────────────────────────────────────────────────
+// ─── resolveImageHashMetadata ─────────────────────────────────────────────────
 
-describe("resolveImageHashUrl", () => {
-  it("GETs /{adAccountId}/adimages?hashes=[hash] with the act_ prefix and returns the URL", async () => {
+describe("resolveImageHashMetadata", () => {
+  it("GETs /{adAccountId}/adimages?hashes=[hash] with the act_ prefix and the expanded fields, returning the full fingerprint", async () => {
     let capturedUrl = "";
     globalThis.fetch = async (input) => {
       capturedUrl = urlOf(input);
-      return jsonResponse({ data: [{ hash: "h_1", url: REAL_THUMB_URL }] });
+      return jsonResponse({ data: [{ hash: "h_1", url: REAL_THUMB_URL, width: 1080, height: 1080, name: "real-thumbnail.jpg" }] });
     };
 
-    const url = await resolveImageHashUrl("123456", "h_1", "tok");
+    const metadata = await resolveImageHashMetadata("123456", "h_1", "tok");
     assert.ok(capturedUrl.includes("/act_123456/adimages"), `expected act_ prefix — got ${capturedUrl}`);
     assert.ok(capturedUrl.includes("h_1"));
-    assert.equal(url, REAL_THUMB_URL);
+    assert.ok(
+      capturedUrl.includes("fields=hash%2Curl%2Cwidth%2Cheight%2Cname") || capturedUrl.includes("fields=hash,url,width,height,name"),
+      `expected the expanded fields list — got ${capturedUrl}`,
+    );
+    assert.deepEqual(metadata, { url: REAL_THUMB_URL, width: 1080, height: 1080, name: "real-thumbnail.jpg" });
   });
 
   it("does not double-prefix an adAccountId that already has act_", async () => {
@@ -302,20 +336,53 @@ describe("resolveImageHashUrl", () => {
       capturedUrl = urlOf(input);
       return jsonResponse({ data: [{ hash: "h_1", url: REAL_THUMB_URL }] });
     };
-    await resolveImageHashUrl("act_123456", "h_1", "tok");
+    await resolveImageHashMetadata("act_123456", "h_1", "tok");
     assert.ok(capturedUrl.includes("/act_123456/adimages"));
     assert.ok(!capturedUrl.includes("act_act_"));
   });
 
   it("returns undefined when the hash isn't found in the response", async () => {
     globalThis.fetch = async () => jsonResponse({ data: [] });
-    const url = await resolveImageHashUrl("123456", "h_missing", "tok");
-    assert.equal(url, undefined);
+    const metadata = await resolveImageHashMetadata("123456", "h_missing", "tok");
+    assert.equal(metadata, undefined);
   });
 
   it("throws on a Meta error response", async () => {
     globalThis.fetch = async () => jsonResponse({ error: { message: "Invalid parameter" } }, 400);
-    await assert.rejects(() => resolveImageHashUrl("123456", "h_1", "tok"), /Invalid parameter/);
+    await assert.rejects(() => resolveImageHashMetadata("123456", "h_1", "tok"), /Invalid parameter/);
+  });
+});
+
+// ─── fetchContentLength (task #128 continued — HEAD fallback signal) ────────
+
+describe("fetchContentLength", () => {
+  it("HEADs the url and returns the parsed content-length header", async () => {
+    let capturedMethod: string | undefined;
+    globalThis.fetch = async (_input, init) => {
+      capturedMethod = (init as RequestInit | undefined)?.method;
+      return headResponse(32000);
+    };
+
+    const length = await fetchContentLength(REAL_THUMB_URL);
+    assert.equal(capturedMethod, "HEAD");
+    assert.equal(length, 32000);
+  });
+
+  it("returns undefined when the content-length header is missing", async () => {
+    globalThis.fetch = async () => headResponse(undefined);
+    assert.equal(await fetchContentLength(REAL_THUMB_URL), undefined);
+  });
+
+  it("returns undefined on a non-ok response rather than throwing", async () => {
+    globalThis.fetch = async () => headResponse(1000, 404);
+    assert.equal(await fetchContentLength(REAL_THUMB_URL), undefined);
+  });
+
+  it("returns undefined (no throw) when fetch itself throws", async () => {
+    globalThis.fetch = async () => {
+      throw new Error("network error");
+    };
+    assert.equal(await fetchContentLength(REAL_THUMB_URL), undefined);
   });
 });
 
@@ -360,9 +427,15 @@ describe("resolveVideoCreativeInfo", () => {
 // ─── scanCampaignForBrokenVideoAds (end-to-end) ──────────────────────────────
 
 describe("scanCampaignForBrokenVideoAds", () => {
-  it("identifies broken ads across a full mocked GET /ads → GET /adimages pipeline", async () => {
-    globalThis.fetch = async (input) => {
+  it("identifies broken ads across a full mocked GET /ads → GET /adimages pipeline (task #128 continued: image-fingerprint classification, not URL)", async () => {
+    globalThis.fetch = async (input, init) => {
       const url = urlOf(input);
+      if (isHead(init)) {
+        // Only the "fine" hash's URL should ever be HEAD-checked — the broken
+        // hash is already conclusively classified by width/height/name.
+        assert.equal(url, REAL_THUMB_URL, `unexpected HEAD request to ${url}`);
+        return headResponse(REAL_CONTENT_LENGTH);
+      }
       if (url.includes("/cmp_1/ads")) {
         return jsonResponse({
           data: [
@@ -385,8 +458,8 @@ describe("scanCampaignForBrokenVideoAds", () => {
         });
       }
       if (url.includes("/adimages")) {
-        if (url.includes("hash_broken")) return jsonResponse({ data: [{ hash: "hash_broken", url: SPINNER_URL }] });
-        if (url.includes("hash_ok")) return jsonResponse({ data: [{ hash: "hash_ok", url: REAL_THUMB_URL }] });
+        if (url.includes("hash_broken")) return jsonResponse({ data: [{ hash: "hash_broken", ...BROKEN_IMAGE_METADATA }] });
+        if (url.includes("hash_ok")) return jsonResponse({ data: [{ hash: "hash_ok", ...REAL_IMAGE_METADATA }] });
         return jsonResponse({ data: [] });
       }
       throw new Error(`unexpected fetch: ${url}`);
@@ -397,30 +470,50 @@ describe("scanCampaignForBrokenVideoAds", () => {
     assert.equal(result.broken[0].adId, "ad_broken");
     assert.equal(result.broken[0].creativeId, "creative_broken");
     assert.equal(result.broken[0].videoId, "vid_broken");
-    assert.equal(result.broken[0].placeholderUrl, SPINNER_URL);
+    assert.equal(result.broken[0].placeholderUrl, BROKEN_IMAGE_URL);
     assert.equal(result.sizeCapExceeded, false);
     assert.equal(result.totalAdCount, 3);
   });
 
-  it("returns an empty broken list when every video ad's thumbnail resolves to real content", async () => {
-    globalThis.fetch = async (input) => {
+  it("returns an empty broken list when every video ad's thumbnail resolves to real content (confirmed via the HEAD content-length fallback)", async () => {
+    globalThis.fetch = async (input, init) => {
       const url = urlOf(input);
+      if (isHead(init)) return headResponse(REAL_CONTENT_LENGTH);
       if (url.includes("/ads")) {
         return jsonResponse({
           data: [{ id: "ad_1", creative: { id: "c_1", object_story_spec: { video_data: { video_id: "v_1", image_hash: "h_1" } } } }],
         });
       }
-      return jsonResponse({ data: [{ hash: "h_1", url: REAL_THUMB_URL }] });
+      return jsonResponse({ data: [{ hash: "h_1", ...REAL_IMAGE_METADATA }] });
     };
 
     const result = await scanCampaignForBrokenVideoAds("cmp_2", "999", "tok", { sleepMs: 0 });
     assert.deepEqual(result.broken, []);
   });
 
+  it("flags a real-looking image as broken when its HEAD content-length comes back tiny (belt-and-braces signal)", async () => {
+    globalThis.fetch = async (input, init) => {
+      const url = urlOf(input);
+      if (isHead(init)) return headResponse(900); // suspiciously small despite "real" dimensions/name
+      if (url.includes("/ads")) {
+        return jsonResponse({
+          data: [{ id: "ad_1", creative: { id: "c_1", object_story_spec: { video_data: { video_id: "v_1", image_hash: "h_1" } } } }],
+        });
+      }
+      // Metadata alone looks fine (1080x1080 jpg) — only the HEAD check catches this one.
+      return jsonResponse({ data: [{ hash: "h_1", ...REAL_IMAGE_METADATA }] });
+    };
+
+    const result = await scanCampaignForBrokenVideoAds("cmp_tiny", "999", "tok", { sleepMs: 0 });
+    assert.equal(result.broken.length, 1);
+    assert.equal(result.broken[0].fingerprint.contentLengthBytes, 900);
+  });
+
   it("dedupes hash resolution when multiple ads share the same image_hash", async () => {
     let adimagesCalls = 0;
-    globalThis.fetch = async (input) => {
+    globalThis.fetch = async (input, init) => {
       const url = urlOf(input);
+      if (isHead(init)) throw new Error("should not HEAD an already-conclusive broken image");
       if (url.includes("/ads")) {
         return jsonResponse({
           data: [
@@ -430,7 +523,7 @@ describe("scanCampaignForBrokenVideoAds", () => {
         });
       }
       adimagesCalls++;
-      return jsonResponse({ data: [{ hash: "shared_hash", url: SPINNER_URL }] });
+      return jsonResponse({ data: [{ hash: "shared_hash", ...BROKEN_IMAGE_METADATA }] });
     };
 
     const result = await scanCampaignForBrokenVideoAds("cmp_3", "999", "tok", { sleepMs: 0 });
@@ -450,7 +543,7 @@ describe("scanCampaignForBrokenVideoAds", () => {
         });
       }
       if (url.includes("/c_fail")) return jsonResponse({ error: { message: "temporary failure" } }, 500);
-      if (url.includes("/adimages")) return jsonResponse({ data: [{ hash: "h_ok", url: SPINNER_URL }] });
+      if (url.includes("/adimages")) return jsonResponse({ data: [{ hash: "h_ok", ...BROKEN_IMAGE_METADATA }] });
       throw new Error(`unexpected fetch: ${url}`);
     };
 
@@ -483,7 +576,7 @@ describe("scanCampaignForBrokenVideoAds", () => {
       }
       creativeOrImageCalls++;
       if (url.includes("h_legacy")) throw new Error("should never resolve a pre-cutoff ad's hash");
-      return jsonResponse({ data: [{ hash: "h_new", url: SPINNER_URL }] });
+      return jsonResponse({ data: [{ hash: "h_new", ...BROKEN_IMAGE_METADATA }] });
     };
 
     const result = await scanCampaignForBrokenVideoAds("cmp_dates", "999", "tok", { sleepMs: 0 });

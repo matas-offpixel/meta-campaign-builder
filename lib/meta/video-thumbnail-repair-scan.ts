@@ -32,10 +32,12 @@
  *      ad's (already-expanded) object_story_spec.video_data; falls back to
  *      `fetchCreativeObjectStorySpec` (a direct GET /{creativeId}) on the
  *      rare ad where Meta didn't expand the nested field.
- *   3. `resolveImageHashUrl` — GET /{adAccountId}/adimages?hashes=["<hash>"]
- *      resolves what CDN URL Meta actually serves for that image_hash today.
- *   4. `isMetaPlaceholderThumbnailUrl` (imported from video-thumbnail-poll.ts)
- *      flags that URL as the spinner/placeholder → broken.
+ *   3. `resolveImageHashMetadata` — GET /{adAccountId}/adimages?hashes=["<hash>"]
+ *      resolves the ad image Meta actually serves for that image_hash today
+ *      (url + width/height/name — see the detection-gap fix below for why
+ *      more than just `url` is needed).
+ *   4. `isMetaPlaceholderThumbnailImage` (imported from video-thumbnail-poll.ts)
+ *      flags that image as the spinner/placeholder → broken.
  *
  * `scanCampaignForBrokenVideoAds` wires all four together with a
  * rate-limit-friendly sleep between calls (1/sec by default, overridable —
@@ -53,10 +55,32 @@
  * campaign whose filtered ad count still exceeds
  * {@link DEFAULT_MAX_ADS_PER_CAMPAIGN} unless the caller passes
  * `bypassSizeCap: true` (the script's `--campaign-ids` explicit-opt-in mode).
+ *
+ * Follow-up fix (detection gap — task #128 continued): PR #764's dry run
+ * against 7 explicitly-targeted, known-affected campaigns (338+ post-#748
+ * ads) found ZERO broken creatives, even though "IPC Motion 1"
+ * (draft `faf11b6f` / creative `6e168e8b`) demonstrably has a spinner-GIF
+ * asset baked in. Root cause: once the spinner is uploaded via `/adimages`,
+ * `GET /{adAccountId}/adimages?hashes=[h]&fields=url` resolves to an
+ * ad-account-scoped `scontent*.fbcdn.net` URL — never the original
+ * `static.xx.fbcdn.net/rsrc.php/...` URL {@link isMetaPlaceholderThumbnailUrl}
+ * (a URL/host classifier) was built to catch. Detection now inspects the
+ * IMAGE ITSELF instead of its URL: `resolveImageHashMetadata` requests
+ * `width,height,name` alongside `url`, and — only when those don't already
+ * settle it — `fetchContentLength` HEADs the resolved URL for its on-disk
+ * size. {@link isMetaPlaceholderThumbnailImage} (video-thumbnail-poll.ts)
+ * classifies the combined fingerprint: the spinner is a ~1 KB 16×16 GIF;
+ * real thumbnails are 15–50 KB JPGs at video aspect ratios. See
+ * `scripts/repair-video-thumbnails.mjs --diagnose-hash=<hash> --ad-account=<id>`
+ * for the one-off operator tool that prints this resolved fingerprint for a
+ * single hash (used to confirm IPC Motion 1's hash lands under the new
+ * classifier before trusting a full scan).
  */
 
-import { isMetaPlaceholderThumbnailUrl } from "./video-thumbnail-poll.ts";
+import { isMetaPlaceholderThumbnailImage, type MetaAdImageFingerprint } from "./video-thumbnail-poll.ts";
 import { withActPrefix } from "./ad-account-id.ts";
+
+export type { MetaAdImageFingerprint } from "./video-thumbnail-poll.ts";
 
 const META_API_BASE = "https://graph.facebook.com/v21.0";
 
@@ -111,6 +135,8 @@ export interface VideoCreativeInfo {
 
 export interface BrokenVideoAdTarget extends VideoCreativeInfo {
   placeholderUrl: string;
+  /** The resolved image fingerprint that triggered the classification — useful for logging/diagnostics. */
+  fingerprint: MetaAdImageFingerprint;
 }
 
 // ─── Pure extraction (no network) ────────────────────────────────────────────
@@ -248,20 +274,33 @@ export async function fetchCreativeObjectStorySpec(
   return json.object_story_spec;
 }
 
+interface AdImageRecord {
+  hash?: string;
+  url?: string;
+  width?: number;
+  height?: number;
+  name?: string;
+}
+
 interface AdImagesResponse {
-  data?: { hash?: string; url?: string }[];
+  data?: AdImageRecord[];
   error?: { message?: string };
 }
 
-/** GET /{adAccountId}/adimages?hashes=["<hash>"] — resolves the CDN URL Meta currently serves for a single image_hash. */
-export async function resolveImageHashUrl(
+/**
+ * GET /{adAccountId}/adimages?hashes=["<hash>"]&fields=hash,url,width,height,name
+ * — resolves the full image metadata Meta currently has for a single
+ * image_hash (not just its URL — see the module doc comment's "detection
+ * gap" fix for why width/height/name matter).
+ */
+export async function resolveImageHashMetadata(
   adAccountId: string,
   hash: string,
   token: string,
-): Promise<string | undefined> {
+): Promise<MetaAdImageFingerprint | undefined> {
   const url = new URL(`${META_API_BASE}/${withActPrefix(adAccountId)}/adimages`);
   url.searchParams.set("hashes", JSON.stringify([hash]));
-  url.searchParams.set("fields", "hash,url");
+  url.searchParams.set("fields", "hash,url,width,height,name");
   url.searchParams.set("access_token", token);
 
   const res = await fetch(url.toString());
@@ -271,7 +310,30 @@ export async function resolveImageHashUrl(
       `GET /${withActPrefix(adAccountId)}/adimages?hashes=["${hash}"] failed: ${json.error?.message ?? `HTTP ${res.status}`}`,
     );
   }
-  return json.data?.find((d) => d.hash === hash)?.url ?? json.data?.[0]?.url;
+  const record = json.data?.find((d) => d.hash === hash) ?? json.data?.[0];
+  if (!record) return undefined;
+  return { url: record.url, width: record.width, height: record.height, name: record.name };
+}
+
+/**
+ * HEAD the resolved image URL to read its on-disk size from the
+ * `content-length` response header. Used as a fallback signal when
+ * width/height/name/gif-extension checks alone don't settle the
+ * classification (real thumbnails always clear this; the spinner never
+ * does). Returns `undefined` on any failure — callers should tolerate a
+ * missing content length rather than treat it as broken OR as safe.
+ */
+export async function fetchContentLength(url: string): Promise<number | undefined> {
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    if (!res.ok) return undefined;
+    const header = res.headers?.get?.("content-length");
+    if (!header) return undefined;
+    const parsed = Number(header);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -378,41 +440,46 @@ export async function scanCampaignForBrokenVideoAds(
   log(`${infos.length} video ad(s) with an image_hash to check`);
 
   const uniqueHashes = [...new Set(infos.map((i) => i.imageHash))];
-  const hashToUrl = new Map<string, string>();
+  const hashToFingerprint = new Map<string, MetaAdImageFingerprint>();
   for (const hash of uniqueHashes) {
     if (sleepMs > 0) await sleep(sleepMs);
     try {
-      const url = await resolveImageHashUrl(adAccountId, hash, token);
-      if (url) hashToUrl.set(hash, url);
+      const metadata = await resolveImageHashMetadata(adAccountId, hash, token);
+      if (!metadata) continue;
+
+      // Only pay for the extra CDN round-trip when width/height/name/gif
+      // checks didn't already settle it — most real thumbnails land here.
+      let fingerprint = metadata;
+      if (!isMetaPlaceholderThumbnailImage(metadata) && metadata.url) {
+        if (sleepMs > 0) await sleep(sleepMs);
+        const contentLengthBytes = await fetchContentLength(metadata.url);
+        fingerprint = { ...metadata, contentLengthBytes };
+      }
+      hashToFingerprint.set(hash, fingerprint);
     } catch (err) {
-      log(`  image_hash ${hash}: failed to resolve URL — ${err instanceof Error ? err.message : String(err)}`);
+      log(`  image_hash ${hash}: failed to resolve metadata — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  const broken: BrokenVideoAdTarget[] = [];
-  for (const info of infos) {
-    const url = hashToUrl.get(info.imageHash);
-    if (url && isMetaPlaceholderThumbnailUrl(url)) {
-      broken.push({ ...info, placeholderUrl: url });
-    }
-  }
+  const broken = findBrokenVideoAds(infos, hashToFingerprint);
   return { broken, totalAdCount: allAds.length, skippedOldAdCount, scannedAdCount: ads.length, sizeCapExceeded: false };
 }
 
 /**
  * Pure variant of the broken-ad filter for callers that have already
- * resolved every ad's video info + hash→URL map themselves (used directly
- * by unit tests to isolate the detection logic from the network pipeline).
+ * resolved every ad's video info + hash→fingerprint map themselves (used
+ * directly by unit tests to isolate the detection logic from the network
+ * pipeline).
  */
 export function findBrokenVideoAds(
   infos: VideoCreativeInfo[],
-  hashToUrl: Map<string, string>,
+  hashToFingerprint: Map<string, MetaAdImageFingerprint>,
 ): BrokenVideoAdTarget[] {
   const broken: BrokenVideoAdTarget[] = [];
   for (const info of infos) {
-    const url = hashToUrl.get(info.imageHash);
-    if (url && isMetaPlaceholderThumbnailUrl(url)) {
-      broken.push({ ...info, placeholderUrl: url });
+    const fingerprint = hashToFingerprint.get(info.imageHash);
+    if (fingerprint && isMetaPlaceholderThumbnailImage(fingerprint)) {
+      broken.push({ ...info, placeholderUrl: fingerprint.url ?? "", fingerprint });
     }
   }
   return broken;

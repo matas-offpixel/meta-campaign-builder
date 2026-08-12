@@ -40,7 +40,11 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import {
   fetchVideoThumbnailWithRetry,
   isMetaPlaceholderThumbnailUrl,
+  isMetaPlaceholderThumbnailImage,
   DEFAULT_POLL_DELAYS_MS,
+  SPINNER_MAX_DIMENSION_PX,
+  SPINNER_MAX_CONTENT_LENGTH_BYTES,
+  type MetaAdImageFingerprint,
 } from "../video-thumbnail-poll.ts";
 
 // ─── fetch mock helpers ───────────────────────────────────────────────────────
@@ -108,6 +112,90 @@ describe("isMetaPlaceholderThumbnailUrl", () => {
 
   it("returns false for an empty string", () => {
     assert.equal(isMetaPlaceholderThumbnailUrl(""), false);
+  });
+});
+
+// ─── isMetaPlaceholderThumbnailImage (task #128 continued — detection gap) ───
+//
+// isMetaPlaceholderThumbnailUrl above only catches the placeholder while it's
+// still served from Meta's static UI CDN — the LIVE pre-upload
+// /{videoId}?fields=picture response. Once scripts/repair-video-thumbnails.mjs
+// uploads that URL via /adimages to resolve a creative's CURRENT image_hash,
+// Meta returns an ad-account-scoped scontent*.fbcdn.net URL that no longer
+// carries any placeholder signal in its host/path. This classifier instead
+// fingerprints the image itself (dimensions/format/size), which survives
+// that upload → hash → resolve roundtrip.
+
+describe("isMetaPlaceholderThumbnailImage", () => {
+  const BROKEN_IMAGE: MetaAdImageFingerprint = {
+    url: "https://scontent.xx.fbcdn.net/v/t45.1600-4/ADXYZ_spinner.gif",
+    width: 16,
+    height: 16,
+    name: "AAqMW82PqGg.gif",
+  };
+  const REAL_IMAGE: MetaAdImageFingerprint = {
+    url: "https://scontent.xx.fbcdn.net/v/t45.1600-4/real-thumbnail.jpg",
+    width: 1080,
+    height: 1080,
+    name: "real-thumbnail.jpg",
+  };
+
+  it("flags the exact task-#128-continued reproducer (tiny GIF, spinner filename fragment)", () => {
+    assert.equal(isMetaPlaceholderThumbnailImage(BROKEN_IMAGE), true);
+  });
+
+  it("does NOT flag a real, full-size JPG video thumbnail", () => {
+    assert.equal(isMetaPlaceholderThumbnailImage(REAL_IMAGE), false);
+  });
+
+  it(`flags any image with both dimensions <= ${SPINNER_MAX_DIMENSION_PX}px, regardless of name/url`, () => {
+    assert.equal(
+      isMetaPlaceholderThumbnailImage({ url: "https://scontent.xx.fbcdn.net/x.jpg", width: 32, height: 20, name: "anything.jpg" }),
+      true,
+    );
+  });
+
+  it("does NOT flag an image with only one dimension small (must be both)", () => {
+    assert.equal(
+      isMetaPlaceholderThumbnailImage({ url: "https://scontent.xx.fbcdn.net/x.jpg", width: 16, height: 1280, name: "tall.jpg" }),
+      false,
+    );
+  });
+
+  it("flags a .gif url even with real-looking dimensions (real video thumbnails are always JPG)", () => {
+    assert.equal(
+      isMetaPlaceholderThumbnailImage({ url: "https://scontent.xx.fbcdn.net/x.gif", width: 1080, height: 1080 }),
+      true,
+    );
+  });
+
+  it("flags a .gif name even without a matching url extension", () => {
+    assert.equal(isMetaPlaceholderThumbnailImage({ name: "weird.gif", url: "https://scontent.xx.fbcdn.net/x" }), true);
+  });
+
+  it("flags the known spinner filename fragment in `name` even with real dimensions", () => {
+    assert.equal(
+      isMetaPlaceholderThumbnailImage({ name: "AAqMW82PqGg.png", url: "https://scontent.xx.fbcdn.net/x.jpg", width: 1080, height: 1080 }),
+      true,
+    );
+  });
+
+  it(`flags contentLengthBytes below ${SPINNER_MAX_CONTENT_LENGTH_BYTES} even when other fields look fine`, () => {
+    assert.equal(
+      isMetaPlaceholderThumbnailImage({ url: "https://scontent.xx.fbcdn.net/x.jpg", width: 1080, height: 1080, contentLengthBytes: 900 }),
+      true,
+    );
+  });
+
+  it("does NOT flag a real image with a comfortably large contentLengthBytes", () => {
+    assert.equal(
+      isMetaPlaceholderThumbnailImage({ url: "https://scontent.xx.fbcdn.net/x.jpg", width: 1080, height: 1080, contentLengthBytes: 32000 }),
+      false,
+    );
+  });
+
+  it("returns false for a bare empty object (no signal at all)", () => {
+    assert.equal(isMetaPlaceholderThumbnailImage({}), false);
   });
 });
 
