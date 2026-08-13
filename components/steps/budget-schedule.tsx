@@ -65,6 +65,7 @@ import { groupToGeo } from "@/lib/meta/location-targeting";
 import {
   createBlankAdSetSuggestion,
   defaultBlankAdSetBudget,
+  findAdSetsExceedingBudgetShare,
   duplicateAdSetSuggestion,
   deleteAdSetSuggestion,
   applyBulkAgeRange,
@@ -72,6 +73,7 @@ import {
   duplicateSuggestionsUnderLocationGroup,
   clearUnsupportedAdvantagePlus,
   MAX_ADSET_NAME_LENGTH,
+  AD_SET_BUDGET_SHARE_WARNING_THRESHOLD,
 } from "@/lib/wizard/adset-suggestions";
 import {
   isAdvantageAudienceSupportedForObjective,
@@ -1333,6 +1335,14 @@ export function BudgetSchedule({
   const totalDaily = adSetSuggestions
     .filter((s) => s.enabled)
     .reduce((sum, s) => sum + s.budgetPerDay, 0);
+  // Soft warning (Puzzle Southampton 2026-08-13): blank/Wide defaults used
+  // to land at £100 on small campaigns. Flag any enabled ad set whose daily
+  // budget is >30% of the campaign total so the operator catches it before
+  // launch — does not block.
+  const oversizedBudgetAdSets = findAdSetsExceedingBudgetShare(
+    adSetSuggestions,
+    bs.budgetAmount,
+  );
 
   const days = useMemo(() => {
     if (!bs.startDate || !bs.endDate) return 0;
@@ -1591,6 +1601,42 @@ export function BudgetSchedule({
                 {days > 0 && <> · Total Spend ({days}d): <span className="font-medium text-foreground">{bs.currency} {(totalDaily * days).toFixed(2)}</span></>}
               </span>
             </div>
+
+            {oversizedBudgetAdSets.length > 0 && (
+              <div className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <div className="text-xs text-warning">
+                  <p>
+                    {oversizedBudgetAdSets.length === 1 ? (
+                      <>
+                        <span className="font-medium">{oversizedBudgetAdSets[0].name}</span>
+                        {" "}has a daily budget of {bs.currency}{" "}
+                        {oversizedBudgetAdSets[0].budgetPerDay.toFixed(2)} (
+                        {Math.round(oversizedBudgetAdSets[0].shareOfCampaign * 100)}% of the{" "}
+                        {bs.currency} {bs.budgetAmount.toFixed(2)} campaign total) — over the{" "}
+                        {Math.round(AD_SET_BUDGET_SHARE_WARNING_THRESHOLD * 100)}% review threshold.
+                      </>
+                    ) : (
+                      <>
+                        {oversizedBudgetAdSets.length} ad sets have a daily budget over{" "}
+                        {Math.round(AD_SET_BUDGET_SHARE_WARNING_THRESHOLD * 100)}% of the{" "}
+                        {bs.currency} {bs.budgetAmount.toFixed(2)} campaign total:{" "}
+                        {oversizedBudgetAdSets
+                          .map(
+                            (s) =>
+                              `${s.name} (${bs.currency} ${s.budgetPerDay.toFixed(2)}, ${Math.round(s.shareOfCampaign * 100)}%)`,
+                          )
+                          .join("; ")}
+                        .
+                      </>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-warning/80">
+                    Review before launch — a single oversized blank/Wide set can outspend the rest of the campaign.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-lg border border-border overflow-hidden">
               {adSetSuggestions.map((s) => {

@@ -22,8 +22,21 @@ import type { AdSetSuggestion, LocationTargetingGroup } from "@/lib/types";
 // type-only "@/lib/types" import above which vanishes entirely at runtime.
 import { groupToGeo } from "../meta/location-targeting.ts";
 
-/** Hard floor for `defaultBlankAdSetBudget` — never let a blank ad set default to 0 or near-0. */
-const MIN_BLANK_AD_SET_BUDGET = 100;
+/**
+ * Meta's practical minimum daily budget in major currency units. Used as the
+ * only hard floor for blank ad sets — never 0 (subcode 1885272), but never a
+ * fixed £100 either (PR #756's floor launched Wide/blank sets at 4–40× the
+ * campaign budget; reproducer: Puzzle Southampton 2026-08-13, £25 campaign →
+ * Wide defaulted to £100/day).
+ */
+export const MIN_BLANK_AD_SET_BUDGET = 1;
+
+/**
+ * Step 5 warning threshold: flag any enabled ad set whose `budgetPerDay` is
+ * more than this share of the campaign daily budget (Soft warning only —
+ * does not block launch).
+ */
+export const AD_SET_BUDGET_SHARE_WARNING_THRESHOLD = 0.3;
 
 /**
  * Ad set name length cap for the Step 5 inline name input (task #126).
@@ -39,31 +52,84 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 /**
  * Default daily budget for a newly-added "Blank ad set" row (task #122,
- * FIX 3) — deliberately never 0. Meta rejects ad set creation outright with
- * subcode 1885272 ("your budget is too low") when `daily_budget` is 0;
- * `createBlankAdSetSuggestion` used to hardcode `budgetPerDay: 0`, which
- * Meta only caught at launch time (reproducer: IPC Newcastle signup v2
- * launch, 2026-08-07).
+ * FIX 3 + Puzzle Southampton scale fix). Deliberately never 0 — Meta rejects
+ * ad set creation with subcode 1885272 when `daily_budget` is 0 — but also
+ * never a fixed £100 floor that ignores campaign scale.
  *
- * Picks the highest of:
- *   - the median `budgetPerDay` across the ad sets already on this campaign
- *     (matches the campaign's existing budget shape rather than an
- *     arbitrary constant)
- *   - `campaignDefaultBudget` (Step 5's top-level budget amount field —
- *     `BudgetScheduleSettings.budgetAmount`)
- *   - a hard floor of {@link MIN_BLANK_AD_SET_BUDGET}
+ * Formula:
+ *   candidate = max(
+ *     median(enabled ad sets' budgetPerDay),
+ *     campaignDefault / (enabledCount + 1),
+ *     £1
+ *   )
+ * then, when `campaignDefault > 0`, cap at `campaignDefault / (enabledCount + 1)`
+ * so a blank/Wide row can never claim more than an equal share of the
+ * campaign daily budget post-add.
+ *
+ * With no campaign budget set, falls back to `max(median, £1)`.
  */
 export function defaultBlankAdSetBudget(
   existingSuggestions: AdSetSuggestion[],
   campaignDefaultBudget: number,
 ): number {
-  const values = existingSuggestions
+  const enabled = existingSuggestions.filter((s) => s.enabled);
+  const values = enabled
     .map((s) => s.budgetPerDay)
-    .filter((v): v is number => Number.isFinite(v));
-  const safeCampaignDefault = Number.isFinite(campaignDefaultBudget) ? campaignDefaultBudget : 0;
-  return Math.max(median(values), safeCampaignDefault, MIN_BLANK_AD_SET_BUDGET);
+    .filter((v): v is number => Number.isFinite(v) && v > 0);
+  const medianBudget = median(values);
+  const safeCampaignDefault =
+    Number.isFinite(campaignDefaultBudget) && campaignDefaultBudget > 0
+      ? campaignDefaultBudget
+      : 0;
+  const equalShare =
+    safeCampaignDefault > 0
+      ? roundMoney(safeCampaignDefault / (enabled.length + 1))
+      : 0;
+
+  const candidate = Math.max(medianBudget, equalShare, MIN_BLANK_AD_SET_BUDGET);
+  if (equalShare > 0) {
+    // Cap at equal share so median can't pull a blank set above the
+    // campaign-scale per-set allotment (Puzzle Southampton: median £3.13
+    // on a £25/8 campaign must not win over £25/9).
+    return Math.max(Math.min(candidate, equalShare), MIN_BLANK_AD_SET_BUDGET);
+  }
+  return candidate;
+}
+
+export interface OversizedBudgetAdSet {
+  id: string;
+  name: string;
+  budgetPerDay: number;
+  /** `budgetPerDay / campaignDailyBudget` — greater than the warning threshold. */
+  shareOfCampaign: number;
+}
+
+/**
+ * Enabled ad sets whose daily budget exceeds {@link AD_SET_BUDGET_SHARE_WARNING_THRESHOLD}
+ * of the campaign daily budget. Pure helper for the Step 5 soft warning —
+ * empty when the campaign budget is unset/non-positive.
+ */
+export function findAdSetsExceedingBudgetShare(
+  suggestions: AdSetSuggestion[],
+  campaignDailyBudget: number,
+  threshold: number = AD_SET_BUDGET_SHARE_WARNING_THRESHOLD,
+): OversizedBudgetAdSet[] {
+  if (!(campaignDailyBudget > 0) || !(threshold > 0)) return [];
+  return suggestions
+    .filter((s) => s.enabled && Number.isFinite(s.budgetPerDay) && s.budgetPerDay > 0)
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      budgetPerDay: s.budgetPerDay,
+      shareOfCampaign: s.budgetPerDay / campaignDailyBudget,
+    }))
+    .filter((s) => s.shareOfCampaign > threshold);
 }
 
 /**
@@ -77,9 +143,9 @@ export function defaultBlankAdSetBudget(
  * every other newly-generated ad set); falls back to `fallbackGroup`
  * (UK nationwide) when no location group is configured yet.
  *
- * `defaultBudgetPerDay` defaults to {@link MIN_BLANK_AD_SET_BUDGET} so even a
- * caller that skips `defaultBlankAdSetBudget` entirely can never produce a
- * 0-budget ad set (task #122, FIX 3) — pass the result of
+ * `defaultBudgetPerDay` defaults to {@link MIN_BLANK_AD_SET_BUDGET} (£1) so
+ * even a caller that skips `defaultBlankAdSetBudget` entirely can never
+ * produce a 0-budget ad set (task #122, FIX 3) — pass the result of
  * `defaultBlankAdSetBudget` explicitly for the real "existing campaign
  * shape" default.
  */
