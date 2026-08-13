@@ -13,6 +13,7 @@ import { describe, it } from "node:test";
 import {
   createBlankAdSetSuggestion,
   defaultBlankAdSetBudget,
+  findAdSetsExceedingBudgetShare,
   duplicateAdSetSuggestion,
   resolveDuplicateAdSetName,
   clearUnsupportedAdvantagePlus,
@@ -21,6 +22,8 @@ import {
   applyBulkDailyBudget,
   duplicateSuggestionsUnderLocationGroup,
   MAX_ADSET_NAME_LENGTH,
+  MIN_BLANK_AD_SET_BUDGET,
+  AD_SET_BUDGET_SHARE_WARNING_THRESHOLD,
 } from "../adset-suggestions.ts";
 import type { AdSetSuggestion, LocationTargetingGroup } from "../../types.ts";
 
@@ -87,12 +90,12 @@ describe("createBlankAdSetSuggestion", () => {
   });
 
   // task #122 (FIX 3) — Meta rejects ad set creation outright (subcode
-  // 1885272) when daily_budget is 0. createBlankAdSetSuggestion used to
-  // hardcode budgetPerDay: 0 (reproducer: IPC Newcastle signup v2 launch,
-  // 2026-08-07).
-  it("never defaults budgetPerDay to 0 — falls back to 100 when no default is passed", () => {
+  // 1885272) when daily_budget is 0. Floor is now £1 (Meta minimum), not
+  // the PR #756 £100 constant that overshot small campaigns.
+  it("never defaults budgetPerDay to 0 — falls back to £1 when no default is passed", () => {
     const blank = createBlankAdSetSuggestion([], FALLBACK_UK);
-    assert.equal(blank.budgetPerDay, 100);
+    assert.equal(blank.budgetPerDay, MIN_BLANK_AD_SET_BUDGET);
+    assert.equal(blank.budgetPerDay, 1);
   });
 
   it("uses the explicit defaultBudgetPerDay argument when passed", () => {
@@ -100,57 +103,120 @@ describe("createBlankAdSetSuggestion", () => {
     assert.equal(blank.budgetPerDay, 42.5);
   });
 
-  it("clamps a passed-in 0/negative defaultBudgetPerDay up to 100 (belt-and-braces)", () => {
-    assert.equal(createBlankAdSetSuggestion([], FALLBACK_UK, 0).budgetPerDay, 100);
-    assert.equal(createBlankAdSetSuggestion([], FALLBACK_UK, -5).budgetPerDay, 100);
+  it("clamps a passed-in 0/negative defaultBudgetPerDay up to £1 (belt-and-braces)", () => {
+    assert.equal(createBlankAdSetSuggestion([], FALLBACK_UK, 0).budgetPerDay, 1);
+    assert.equal(createBlankAdSetSuggestion([], FALLBACK_UK, -5).budgetPerDay, 1);
   });
 });
 
 describe("defaultBlankAdSetBudget", () => {
-  it("returns the hard floor of 100 when there are no existing suggestions and no campaign default", () => {
-    assert.equal(defaultBlankAdSetBudget([], 0), 100);
+  it("returns the £1 Meta floor when there are no existing suggestions and no campaign default", () => {
+    assert.equal(defaultBlankAdSetBudget([], 0), 1);
   });
 
-  it("uses the median of existing suggestions' budgetPerDay when it exceeds 100 and the campaign default", () => {
+  it("Puzzle Southampton reproducer: 8×£3.13 on a £25 campaign → blank defaults to £25/9, not £100", () => {
+    // Reproducer 2026-08-13: PR #756's max(median, campaignDefault, 100)
+    // floor launched Wide at £100/day on a £25 campaign (spent £29.72
+    // before the operator caught it). Equal-share cap must win over median.
+    const suggestions = Array.from({ length: 8 }, (_, i) =>
+      makeSuggestion({ id: `s${i}`, budgetPerDay: 3.13 }),
+    );
+    const result = defaultBlankAdSetBudget(suggestions, 25);
+    assert.equal(result, Math.round((25 / 9) * 100) / 100); // 2.78
+    assert.ok(result < 3.13, "must not exceed the existing per-set median");
+    assert.ok(result < 100, "must not use the old £100 floor");
+  });
+
+  it("caps at equal share even when the median is much larger than the campaign budget", () => {
     const suggestions = [
       makeSuggestion({ id: "s1", budgetPerDay: 150 }),
       makeSuggestion({ id: "s2", budgetPerDay: 200 }),
       makeSuggestion({ id: "s3", budgetPerDay: 250 }),
     ];
-    assert.equal(defaultBlankAdSetBudget(suggestions, 20), 200);
+    // max(200, 20/4, 1) = 200, then cap at 20/4 = 5.
+    assert.equal(defaultBlankAdSetBudget(suggestions, 20), 5);
   });
 
-  it("uses the campaign default when it exceeds the median and the floor", () => {
+  it("uses equal share of a large campaign budget when it exceeds the median", () => {
     const suggestions = [
       makeSuggestion({ id: "s1", budgetPerDay: 10 }),
       makeSuggestion({ id: "s2", budgetPerDay: 20 }),
     ];
-    assert.equal(defaultBlankAdSetBudget(suggestions, 500), 500);
+    // equal share = 500/3 ≈ 166.67 beats median 15.
+    assert.equal(defaultBlankAdSetBudget(suggestions, 500), Math.round((500 / 3) * 100) / 100);
   });
 
-  it("falls back to the 100 floor when both median and campaign default are 0 (e.g. every existing suggestion is a prior 0-budget blank row)", () => {
+  it("falls back to the £1 floor when both median and campaign default are 0", () => {
     const suggestions = [
       makeSuggestion({ id: "s1", budgetPerDay: 0 }),
       makeSuggestion({ id: "s2", budgetPerDay: 0 }),
     ];
-    assert.equal(defaultBlankAdSetBudget(suggestions, 0), 100);
+    assert.equal(defaultBlankAdSetBudget(suggestions, 0), 1);
   });
 
-  it("computes an even-count median as the average of the two middle values", () => {
+  it("uses median when no campaign budget is set (no equal-share cap)", () => {
     const suggestions = [
       makeSuggestion({ id: "s1", budgetPerDay: 100 }),
       makeSuggestion({ id: "s2", budgetPerDay: 300 }),
     ];
-    // median of [100, 300] = 200, which beats the 100 floor and a 0 campaign default.
+    // median of [100, 300] = 200; no campaign budget → no equal-share cap.
     assert.equal(defaultBlankAdSetBudget(suggestions, 0), 200);
   });
 
-  it("ignores non-finite budgetPerDay values defensively", () => {
+  it("ignores disabled ad sets when computing median and equal-share denominator", () => {
+    const suggestions = [
+      makeSuggestion({ id: "s1", budgetPerDay: 10, enabled: true }),
+      makeSuggestion({ id: "s2", budgetPerDay: 999, enabled: false }),
+    ];
+    // Only 1 enabled → equal share = 30/2 = 15; median of [10] = 10 → capped at 15.
+    assert.equal(defaultBlankAdSetBudget(suggestions, 30), 15);
+  });
+
+  it("ignores non-finite / non-positive budgetPerDay values defensively", () => {
     const suggestions = [
       makeSuggestion({ id: "s1", budgetPerDay: Number.NaN }),
       makeSuggestion({ id: "s2", budgetPerDay: 150 }),
     ];
+    // No campaign budget → median of [150] = 150.
     assert.equal(defaultBlankAdSetBudget(suggestions, 0), 150);
+  });
+});
+
+describe("findAdSetsExceedingBudgetShare", () => {
+  it("flags enabled ad sets whose daily budget is >30% of the campaign total", () => {
+    const suggestions = [
+      makeSuggestion({ id: "ok", name: "Audience A", budgetPerDay: 3 }),
+      makeSuggestion({ id: "wide", name: "Wide", budgetPerDay: 100 }),
+    ];
+    const flagged = findAdSetsExceedingBudgetShare(suggestions, 25);
+    assert.equal(AD_SET_BUDGET_SHARE_WARNING_THRESHOLD, 0.3);
+    assert.equal(flagged.length, 1);
+    assert.equal(flagged[0].id, "wide");
+    assert.equal(flagged[0].shareOfCampaign, 100 / 25);
+  });
+
+  it("ignores disabled ad sets and returns empty when campaign budget is unset", () => {
+    const suggestions = [
+      makeSuggestion({ id: "wide", name: "Wide", budgetPerDay: 100, enabled: false }),
+    ];
+    assert.deepEqual(findAdSetsExceedingBudgetShare(suggestions, 25), []);
+    assert.deepEqual(
+      findAdSetsExceedingBudgetShare(
+        [makeSuggestion({ id: "wide", budgetPerDay: 100 })],
+        0,
+      ),
+      [],
+    );
+  });
+
+  it("does not flag ad sets at or under the 30% threshold", () => {
+    // Exactly 30% of £25 = £7.50 — threshold is strict ">" .
+    const suggestions = [makeSuggestion({ id: "edge", budgetPerDay: 7.5 })];
+    assert.deepEqual(findAdSetsExceedingBudgetShare(suggestions, 25), []);
+    assert.equal(findAdSetsExceedingBudgetShare(
+      [makeSuggestion({ id: "over", budgetPerDay: 7.51 })],
+      25,
+    ).length, 1);
   });
 });
 
