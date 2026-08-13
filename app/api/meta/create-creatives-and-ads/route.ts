@@ -165,7 +165,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // 1. Build + validate Meta creative payload
     let payload;
     try {
-      payload = await buildCreativePayload(creative);
+      payload = await buildCreativePayload(creative, {
+        metaAccessToken: userFbToken ?? process.env.META_ACCESS_TOKEN ?? undefined,
+      });
       if (strictMode) {
         const report = sanitizeCreativeForStrictMode(payload);
         console.log(
@@ -244,7 +246,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ...creative,
               identity: { ...creative.identity, instagramActorId: recoveryIds[0] },
             };
-            const retryPayload = await buildCreativePayload(retryCrv);
+            const retryPayload = await buildCreativePayload(retryCrv, {
+              metaAccessToken: userFbToken ?? process.env.META_ACCESS_TOKEN ?? undefined,
+            });
             if (strictMode) sanitizeCreativeForStrictMode(retryPayload);
             const retryRes = await createMetaCreative(metaAdAccountId, retryPayload);
             metaCreativeId = retryRes.id;

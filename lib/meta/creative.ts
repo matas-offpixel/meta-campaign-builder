@@ -7,40 +7,39 @@
  *   - Ad payload building
  *   - Validation
  *
- * No API calls here — import createMetaCreative / createMetaAd from
- * lib/meta/client.ts. Deliberately NOT a value-import from lib/meta/client.ts
- * (that module uses TS parameter-property syntax the test runner's
- * strip-only mode can't parse — importing it here would break every test
- * file that transitively imports this one).
+ * Deliberately NOT a value-import from lib/meta/client.ts (that module uses
+ * TS parameter-property syntax the test runner's strip-only mode can't parse
+ * — importing it here would break every test file that transitively imports
+ * this one). Thumbnail READs go through `video-thumbnail-poll.ts` instead.
  *
- * ─── Video thumbnails: task #112 → task #90 follow-up ────────────────────
+ * ─── Video thumbnails: task #112 → #90 → #128 regression fix ─────────────
  *
- * Task #112 had {@link buildVideoCreative} (and its BOOK_NOW-fallback
- * sibling {@link buildSingleAssetFromVertical}) upload a video's Meta-CDN
- * thumbnail URL as an ad image (`POST /adimages`, via an injected
- * `uploadThumbnailAsImage`) to get a `video_data.image_hash`, avoiding a
- * Meta UI Duplicate-flow rejection (subcode=1443051).
+ * Meta's WRITE validator requires `video_data.image_url` OR `image_hash`
+ * at creative-create time (subcode=1443226 when both are absent — task #68 /
+ * #603). PR #767's assumption that `thumb_offset` alone removes that
+ * requirement was false: `thumb_offset` only chooses WHICH frame becomes
+ * the video object's canonical `picture`; it does not satisfy the
+ * creative write validator. Colyn V2 relaunch 2026-08-12 failed all 9
+ * motion creatives with "Invalid parameter" as a result.
  *
- * That write edge is now unconditionally blocked under this app's App
- * Review status (task #90): every `/adimages` call fails with code=3
- * "Application does not have the capability", regardless of token (see
- * PR #766, which ruled out "wrong token" as the cause). Escaping App
- * Review is a weeks-long unblock, so as of this fix, `buildVideoCreative`
- * / `buildSingleAssetFromVertical` **never call `/adimages` at all** —
- * `video_data` is sent WITHOUT `image_hash` AND WITHOUT `image_url`.
- * `lib/meta/client.ts`'s `uploadVideoAsset` now always passes
- * `thumb_offset` at `POST /advideos` upload time instead, so Meta already
- * has a real frame attached to the video OBJECT itself; it serves that
- * frame at ad-render time with no per-creative write needed. This also
- * fixes task #603 (bulk-attach video creatives failing with
- * subcode=1443226 "missing image_hash/image_url") — neither field is
- * required in the first place once thumb_offset is set. See
- * `lib/meta/video-upload-request.ts`'s doc comment for the full story.
+ * `POST /adimages` (task #112's preferred path — mint an `image_hash`) is
+ * still blocked under App Review (task #90, code=3). So we:
+ *   1. Keep `thumb_offset` on `POST /advideos` (real frame on the video object).
+ *   2. At creative-build time, `GET /{videoId}?fields=picture` via
+ *      {@link fetchVideoThumbnailWithRetry} (PR #762 — waits past the
+ *      spinner window) and set `video_data.image_url` to that URL.
+ *   3. Never set `image_hash` and never call `/adimages`.
+ *
+ * Trade-off (accepted): Meta may internally store BOTH `image_url` and an
+ * auto-generated `image_hash`, so Meta UI Duplicate can fail with
+ * subcode=1443051 (task #112). Motion-ad launches are the critical path;
+ * operators can use our bulk-attach flow for duplication.
  *
  * Reference: https://developers.facebook.com/docs/marketing-api/reference/ad-creative/
  */
 
 import type { AdCreativeDraft, CTAType, AdSetSuggestion } from "@/lib/types";
+import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 
 // ─── CTA mapping ──────────────────────────────────────────────────────────────
 
@@ -77,29 +76,33 @@ interface MetaVideoData {
   message: string;
   title?: string;
   /**
-   * Historically required — Meta needs either `image_url` OR `image_hash`
+   * Required at create time — Meta needs either `image_url` OR `image_hash`
    * in `video_data` (code=100, subcode=1443226 when both are absent), but
-   * rejects BOTH being set (code=100, subcode=1443051
-   * "ObjectStorySpecRedundant", task #112).
+   * rejects BOTH being set on Meta UI Duplicate (code=100, subcode=1443051,
+   * task #112).
    *
-   * As of the task #90 follow-up, `buildVideoCreative` /
-   * `buildSingleAssetFromVertical` never populate either field: the
-   * `uploadImageFromUrl` → `POST /adimages` write they used to make is
-   * unconditionally blocked under this app's App Review status (code=3),
-   * and is no longer needed anyway — `lib/meta/client.ts`'s
-   * `uploadVideoAsset` now always passes `thumb_offset` at video-upload
-   * time, so Meta already has a real frame attached to the video object
-   * and serves it with neither field set (see
-   * `lib/meta/video-upload-request.ts`'s doc comment). Left optional/typed
-   * here for API-shape completeness only — e.g. a future caller that still
-   * wants to force a specific static override.
+   * We always send `image_url` (the video's own `picture` from
+   * `GET /{videoId}?fields=picture`, which reflects `thumb_offset` and any
+   * operator FIX 2 preferred-frame override) and NEVER `image_hash`:
+   * `POST /adimages` is App-Review-blocked (task #90, code=3). Acceptable
+   * trade: Meta UI Duplicate may hit 1443051; launches must succeed.
    */
   image_url?: string;
-  /** See {@link image_url}'s docstring — same "no longer populated" status. */
+  /** Never set by our builders — `/adimages` is App-Review-blocked (task #90). */
   image_hash?: string;
   // description is NOT a valid field inside video_data — Meta rejects it
   call_to_action: MetaCallToAction;
 }
+
+/**
+ * Signature of {@link fetchVideoThumbnailWithRetry} — narrowed so tests can
+ * inject a stub without hitting the network. Returns `""` when no real
+ * (non-spinner) picture is available after the poll window.
+ */
+export type VideoThumbnailFetcher = (
+  videoId: string,
+  token: string,
+) => Promise<string>;
 
 interface MetaObjectStorySpec {
   page_id: string;
@@ -435,6 +438,50 @@ function buildLinkCreative(
   };
 }
 
+/**
+ * Resolve the URL to put on `video_data.image_url`.
+ *
+ * Prefers a live `GET /{videoId}?fields=picture` via the injected (or
+ * default PR #762) poller — that URL reflects `thumb_offset` AND any
+ * operator-picked preferred frame from FIX 2 (`POST /{videoId}/thumbnails`).
+ * Falls back to the Asset's stored `thumbnailUrl` (upload-time preview)
+ * when the live fetch is unavailable, so we still satisfy subcode=1443226
+ * rather than launching with neither field. Never throws — returns
+ * `undefined` only when both sources are empty (caller warns + omits).
+ */
+async function resolveVideoThumbnailImageUrl(
+  creativeName: string,
+  videoId: string,
+  fallbackThumbnailUrl: string | undefined,
+  opts: Pick<BuildCreativePayloadOpts, "metaAccessToken" | "fetchVideoThumbnail"> = {},
+): Promise<string | undefined> {
+  const { metaAccessToken, fetchVideoThumbnail } = opts;
+  const fetchFn = fetchVideoThumbnail ?? fetchVideoThumbnailWithRetry;
+
+  if (metaAccessToken) {
+    try {
+      const url = await fetchFn(videoId, metaAccessToken);
+      if (url) return url;
+      console.error(
+        `[buildVideoCreative] "${creativeName}": fetchVideoThumbnail returned empty for videoId=${videoId}` +
+          (fallbackThumbnailUrl ? " — falling back to Asset.thumbnailUrl" : ""),
+      );
+    } catch (err) {
+      console.error(
+        `[buildVideoCreative] "${creativeName}": fetchVideoThumbnail failed (${String(err)})` +
+          (fallbackThumbnailUrl ? " — falling back to Asset.thumbnailUrl" : ""),
+      );
+    }
+  } else {
+    console.error(
+      `[buildVideoCreative] "${creativeName}": no metaAccessToken — cannot re-fetch /{videoId}?fields=picture` +
+        (fallbackThumbnailUrl ? "; falling back to Asset.thumbnailUrl" : ""),
+    );
+  }
+
+  return fallbackThumbnailUrl || undefined;
+}
+
 async function buildVideoCreative(
   creative: AdCreativeDraft,
   opts?: BuildCreativePayloadOpts,
@@ -447,7 +494,7 @@ async function buildVideoCreative(
     );
   }
 
-  const { videoId } = videoAsset;
+  const { videoId, thumbnailUrl } = videoAsset;
   const { validatedIgActorId } = opts ?? {};
   const caption = pickPrimaryCaption(creative);
   const cta = mapCTAToMeta(creative.cta);
@@ -466,11 +513,18 @@ async function buildVideoCreative(
     videoData.title = creative.headline;
   }
 
-  // Deliberately no image_hash/image_url (task #90 follow-up — see this
-  // file's header doc comment). uploadVideoAsset's thumb_offset already
-  // gives Meta a real frame attached to the video object itself; setting
-  // either field here would require the App-Review-blocked
-  // POST /adimages (code=3).
+  // Meta requires image_url OR image_hash (subcode=1443226). We send
+  // image_url only — never image_hash (/adimages is App-Review-blocked).
+  // See this file's header doc comment for the full trade-off vs task #112.
+  const imageUrl = await resolveVideoThumbnailImageUrl(
+    creative.name,
+    videoId,
+    thumbnailUrl,
+    opts,
+  );
+  if (imageUrl) {
+    videoData.image_url = imageUrl;
+  }
 
   // page_id + video_data. instagram_user_id added when caller has pre-validated
   // via createIgActorValidator — same logic as buildLinkCreative.
@@ -485,9 +539,17 @@ async function buildVideoCreative(
 
   console.log(
     `[buildVideoCreative] "${creative.name}": videoId=${videoId}` +
-      ` thumbnail=relies on advideos thumb_offset (no image_hash/image_url sent, task #90)` +
+      ` image_url=${videoData.image_url ? "SET" : "(none — Meta may reject with 1443226)"}` +
+      ` image_hash=never` +
       ` instagram_user_id=${validatedIgActorId ? "SET (validated)" : "OMITTED"}`,
   );
+  if (!videoData.image_url) {
+    console.error(
+      `[buildVideoCreative] WARNING: no image_url set for "${creative.name}" — ` +
+        `Meta will reject with code=100 subcode=1443226. ` +
+        `Re-upload the video (or ensure metaAccessToken is passed) so picture can be fetched.`,
+    );
+  }
 
   return {
     name: creative.name || "Ad Creative",
@@ -976,9 +1038,14 @@ async function buildSingleAssetFromVertical(
       call_to_action: { type: cta, value: { link: creative.destinationUrl } },
     };
     if (creative.headline) videoData.title = creative.headline;
-    // No image_hash/image_url — same task #90 bypass as buildVideoCreative;
-    // uploadVideoAsset's thumb_offset already gives Meta a real thumbnail
-    // for plan.vertical's video object.
+    // Same image_url-only treatment as buildVideoCreative (PR #767 regression fix).
+    const imageUrl = await resolveVideoThumbnailImageUrl(
+      creative.name,
+      plan.vertical.videoId!,
+      plan.vertical.thumbnailUrl,
+      opts,
+    );
+    if (imageUrl) videoData.image_url = imageUrl;
     const spec: MetaObjectStorySpec = { page_id: creative.identity.pageId, video_data: videoData };
     if (validatedIgActorId) spec.instagram_user_id = validatedIgActorId;
     return { name: creative.name || "Ad Creative", object_story_spec: spec };
@@ -1033,6 +1100,18 @@ async function buildSingleAssetFromVertical(
  */
 export interface BuildCreativePayloadOpts {
   validatedIgActorId?: string;
+  /**
+   * Token used to `GET /{videoId}?fields=picture` at creative-build time so
+   * `video_data.image_url` carries the video's current canonical thumbnail
+   * (`thumb_offset` frame, or an operator FIX 2 preferred override). Required
+   * for the live fetch; without it we fall back to `Asset.thumbnailUrl`.
+   */
+  metaAccessToken?: string;
+  /**
+   * Injectable for unit tests. Defaults to {@link fetchVideoThumbnailWithRetry}
+   * (PR #762 — rejects spinner placeholders, 48s poll window).
+   */
+  fetchVideoThumbnail?: VideoThumbnailFetcher;
 }
 
 export async function buildCreativePayload(

@@ -45,10 +45,9 @@
  *        {@link DEFAULT_POLL_DELAYS_MS} — 5 attempts / 48 s total — to catch
  *        the ~90% of encodes that finish inside Meta's documented 45 s p95
  *        for HD. The remaining tail still returns "" (unchanged contract);
- *        {@link resolveVideoThumbnailHash} in `lib/meta/creative.ts` already
- *        omits both `image_hash`/`image_url` in that case and lets Meta
- *        auto-generate a thumbnail at ad-creation time, rather than ever
- *        shipping the spinner.
+ *        `buildVideoCreative` then falls back to `Asset.thumbnailUrl` or
+ *        omits `image_url` (with a loud warning) rather than ever shipping
+ *        the spinner.
  *
  * task #128 continued — a SECOND, distinct detection gap surfaced once
  * `scripts/repair-video-thumbnails.mjs` (PR #763/#764) started running

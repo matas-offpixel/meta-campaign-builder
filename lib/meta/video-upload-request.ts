@@ -23,13 +23,11 @@
  * different edge with its own — currently working — capability) accepts a
  * `thumb_offset` parameter: the millisecond offset from the start of the
  * video Meta should use as the video's OWN canonical thumbnail. Once set,
- * `GET /{videoId}?fields=picture` serves that exact frame forever after —
- * no per-creative `image_hash`/`image_url` write required. `video_data` in
- * the creative payload can simply omit both fields; Meta renders the
- * thumb_offset frame at ad-serving time. This also fixes task #603 (bulk-
- * attach video creatives failing with subcode=1443226 "missing
- * image_hash/image_url") — with thumb_offset, neither field is needed in
- * the first place.
+ * `GET /{videoId}?fields=picture` serves that exact frame forever after.
+ * Creative create still REQUIRES `video_data.image_url` OR `image_hash`
+ * (PR #767's "omit both" assumption was false — Colyn V2 relaunch hit
+ * subcode=1443226 on every motion creative). So builders set
+ * `image_url` to that `picture` URL and never `image_hash`.
  */
 
 /** 1 second in — avoids Meta's first-frame-often-black default auto-pick. */

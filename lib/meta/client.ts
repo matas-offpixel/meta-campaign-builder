@@ -2125,11 +2125,10 @@ export interface UploadVideoAssetOptions {
  * Requires: ads_management permission.
  *
  * Always sends `thumb_offset` (task #90 follow-up — see
- * `video-upload-request.ts`'s doc comment): this is what lets
- * `buildVideoCreative` skip the App-Review-blocked `POST /adimages`
- * entirely and never set `video_data.image_hash`/`image_url` — Meta
- * serves the thumb_offset frame as the video's own thumbnail at
- * ad-serving time.
+ * `video-upload-request.ts`'s doc comment): chooses which frame becomes
+ * the video object's canonical `picture`. Creative create still needs
+ * `video_data.image_url` (set from that picture at build time); we never
+ * call the App-Review-blocked `POST /adimages` for an `image_hash`.
  *
  * POST /{adAccountId}/advideos
  */
