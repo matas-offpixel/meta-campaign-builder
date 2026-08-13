@@ -316,6 +316,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try {
         metaPayload = await buildCreativePayload(creative, {
           validatedIgActorId: validatedIgActorId ?? undefined,
+          metaAccessToken: token,
         });
       } catch (err) {
         result.creativesFailed.push({

@@ -1,46 +1,35 @@
 /**
- * Regression tests for the video creative thumbnail fix, across three tasks:
+ * Regression tests for the video creative thumbnail fix, across four tasks:
  *
  * Task #68 root cause: buildVideoCreative was building video_data without
  * image_url or image_hash, causing Meta to reject every video creative with:
  *   code=100 · subcode=1443226
  *   "Please specify one of image_hash or image_url in the video_data field
  *    of object_story_spec."
- * Fix (#68): plumb thumbnailUrl (from Asset, populated by uploadVideoAsset →
- * previewUrl) into videoData.image_url.
  *
- * Task #112 root cause: sending Meta's own CDN thumbnail URL back as
- * `image_url` is accepted at create time, but Meta then uploads that URL
- * itself and stores BOTH `image_url` AND an internally-generated
- * `image_hash` on the creative. When the operator uses Meta UI's Duplicate
- * flow, both fields get copied into the new creative and Meta's stricter
- * write-side validator rejects with code=100 · subcode=1443051
- * "ObjectStorySpecRedundant: Only one of image_url and image_hash should be
- * specified in the field video_data."
- * Fix (#112): upload the thumbnail ourselves (POST /adimages via
- * `uploadImageFromUrl`) and send ONLY `image_hash` — never both fields.
+ * Task #112: preferred image_hash via POST /adimages to avoid Meta UI
+ * Duplicate subcode=1443051 (ObjectStorySpecRedundant when both fields are
+ * stored). That write is now App-Review-blocked (task #90, code=3).
  *
- * Task #90 follow-up (this fix) root cause: `POST /adimages` — including
- * task #112's own upload call — is unconditionally blocked under this app's
- * App Review status (code=3 "Application does not have the capability"),
- * regardless of which token is used (PR #766 ruled out "wrong token" as the
- * cause). Escaping App Review is a weeks-long unblock.
- * Fix (#90 follow-up): stop calling `/adimages` entirely.
- * `lib/meta/client.ts`'s `uploadVideoAsset` now always passes `thumb_offset`
- * at `POST /advideos` upload time, so Meta already has a real frame
- * attached to the video OBJECT itself — `video_data` is sent WITHOUT
- * `image_hash` AND WITHOUT `image_url`; Meta renders the thumb_offset frame
- * at ad-serving time. This never regresses #68 (Meta doesn't need either
- * field once thumb_offset is set) and makes #112's Duplicate-flow bug
- * structurally impossible (neither field is ever set, so there's nothing
- * for Duplicate to copy).
+ * PR #767 (task #90 follow-up) incorrectly assumed thumb_offset alone lets
+ * us omit BOTH image_url and image_hash. Meta's WRITE validator still
+ * requires one field at create time — Colyn V2 relaunch 2026-08-12 failed
+ * all 9 motion creatives with 1443226.
+ *
+ * This fix: call fetchVideoThumbnailWithRetry (PR #762 poll — spinner-
+ * rejecting, 48s window) at creative-build time, set video_data.image_url
+ * to that picture URL, never set image_hash, never call /adimages.
+ * Acceptable trade: Meta UI Duplicate may hit 1443051 again.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { buildCreativePayload } from "../creative.ts";
 import type { AdCreativeDraft } from "../../types.ts";
+import { DEFAULT_POLL_DELAYS_MS } from "../video-thumbnail-poll.ts";
 
 // ─── Fixture helpers ──────────────────────────────────────────────────────────
 
@@ -86,62 +75,72 @@ function makeVideoCreative(overrides?: {
   };
 }
 
+const LIVE_PICTURE = "https://scontent.xx.fbcdn.net/v/picture_from_poll.jpg";
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("buildVideoCreative — never sends image_hash/image_url (task #90 follow-up)", () => {
-  it("omits both image_hash and image_url even when the asset has a real thumbnailUrl", async () => {
+describe("buildVideoCreative — image_url from picture poll (PR #767 regression)", () => {
+  it("calls fetchVideoThumbnail, sets image_url, never image_hash", async () => {
+    const calls: Array<{ videoId: string; token: string }> = [];
     const creative = makeVideoCreative({
-      thumbnailUrl: "https://scontent.xx.fbcdn.net/preview/vid_abc123.jpg",
+      thumbnailUrl: "https://scontent.xx.fbcdn.net/stale_asset_thumb.jpg",
     });
 
-    const payload = await buildCreativePayload(creative);
+    const payload = await buildCreativePayload(creative, {
+      metaAccessToken: "tok_live",
+      fetchVideoThumbnail: async (videoId, token) => {
+        calls.push({ videoId, token });
+        return LIVE_PICTURE;
+      },
+    });
 
     const videoData = payload.object_story_spec?.video_data;
     assert.ok(videoData, "video_data must be present");
+    assert.deepEqual(calls, [{ videoId: "vid_abc123", token: "tok_live" }]);
+    assert.equal(videoData.image_url, LIVE_PICTURE);
     assert.equal(videoData.image_hash, undefined, "image_hash must never be set — /adimages is App-Review-blocked");
-    assert.equal(videoData.image_url, undefined, "image_url must never be set either — relies on thumb_offset instead");
   });
 
-  it("omits both fields when thumbnailUrl is missing entirely (old drafts) — never throws", async () => {
+  it("falls back to Asset.thumbnailUrl when the live poll returns empty", async () => {
+    const fallback = "https://scontent.xx.fbcdn.net/upload_time_thumb.jpg";
+    const creative = makeVideoCreative({ thumbnailUrl: fallback });
+
+    const payload = await buildCreativePayload(creative, {
+      metaAccessToken: "tok_live",
+      fetchVideoThumbnail: async () => "",
+    });
+
+    assert.equal(payload.object_story_spec?.video_data?.image_url, fallback);
+    assert.equal(payload.object_story_spec?.video_data?.image_hash, undefined);
+  });
+
+  it("falls back to Asset.thumbnailUrl when metaAccessToken is missing", async () => {
+    const fallback = "https://scontent.xx.fbcdn.net/upload_time_thumb.jpg";
+    const creative = makeVideoCreative({ thumbnailUrl: fallback });
+
+    const payload = await buildCreativePayload(creative);
+
+    assert.equal(payload.object_story_spec?.video_data?.image_url, fallback);
+    assert.equal(payload.object_story_spec?.video_data?.image_hash, undefined);
+  });
+
+  it("omits both fields (with warning path) when poll empty and no Asset.thumbnailUrl", async () => {
     const creative = makeVideoCreative({ thumbnailUrl: undefined });
 
     let payload: Awaited<ReturnType<typeof buildCreativePayload>>;
     await assert.doesNotReject(async () => {
-      payload = await buildCreativePayload(creative);
+      payload = await buildCreativePayload(creative, {
+        metaAccessToken: "tok_live",
+        fetchVideoThumbnail: async () => "",
+      });
     });
     const videoData = payload!.object_story_spec?.video_data;
-    assert.ok(videoData, "video_data must be present");
-    assert.equal(videoData.image_hash, undefined);
+    assert.ok(videoData);
     assert.equal(videoData.image_url, undefined);
+    assert.equal(videoData.image_hash, undefined);
   });
 
-  it("never touches Meta's write API — buildCreativePayload takes no upload/token options for video", async () => {
-    // BuildCreativePayloadOpts only carries validatedIgActorId as of this
-    // fix; passing metaAdAccountId/metaAccessToken/uploadThumbnailAsImage
-    // is now a TypeScript error (see the removed fields' history in git),
-    // so there is nothing left for a test to inject — this test instead
-    // asserts the payload builds correctly with zero opts at all.
-    const creative = makeVideoCreative({
-      thumbnailUrl: "https://scontent.xx.fbcdn.net/preview/vid_abc123.jpg",
-    });
-    const payload = await buildCreativePayload(creative, {});
-    assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_abc123");
-  });
-
-  it("still sets video_id correctly with no thumbnail fields alongside it", async () => {
-    const creative = makeVideoCreative({
-      thumbnailUrl: "https://scontent.xx.fbcdn.net/preview/vid_abc123.jpg",
-    });
-    const payload = await buildCreativePayload(creative);
-    const videoData = payload.object_story_spec?.video_data;
-    assert.equal(videoData?.video_id, "vid_abc123");
-    assert.equal(videoData?.image_hash, undefined);
-    assert.equal(videoData?.image_url, undefined);
-  });
-
-  it("multi-ratio draft: still picks the 9:16 videoId first, with no thumbnail fields", async () => {
-    // 4:5 and 9:16 slots, each with different videoIds and thumbnails.
-    // Priority order is 9:16 → 4:5 → 1:1, so 9:16 should win.
+  it("multi-ratio draft: polls the 9:16 videoId and sets its picture as image_url", async () => {
     const creative: AdCreativeDraft = {
       ...makeVideoCreative(),
       assetVariations: [
@@ -168,12 +167,44 @@ describe("buildVideoCreative — never sends image_hash/image_url (task #90 foll
       ],
     };
 
-    const payload = await buildCreativePayload(creative);
-    const videoData = payload.object_story_spec?.video_data;
+    const polled: string[] = [];
+    const payload = await buildCreativePayload(creative, {
+      metaAccessToken: "tok_live",
+      fetchVideoThumbnail: async (videoId) => {
+        polled.push(videoId);
+        return `https://scontent.xx.fbcdn.net/picture_${videoId}.jpg`;
+      },
+    });
 
-    // 9:16 wins per VIDEO_PRIORITY
+    const videoData = payload.object_story_spec?.video_data;
     assert.equal(videoData?.video_id, "vid_916", "should pick 9:16 videoId first");
+    assert.deepEqual(polled, ["vid_916"]);
+    assert.equal(videoData?.image_url, "https://scontent.xx.fbcdn.net/picture_vid_916.jpg");
     assert.equal(videoData?.image_hash, undefined);
-    assert.equal(videoData?.image_url, undefined);
+  });
+});
+
+describe("PR #762 poll fix still on the creative-build path", () => {
+  it("creative.ts defaults to fetchVideoThumbnailWithRetry (not a raw picture GET)", () => {
+    const src = readFileSync(join(process.cwd(), "lib/meta/creative.ts"), "utf8");
+    assert.match(
+      src,
+      /import\s*\{\s*fetchVideoThumbnailWithRetry\s*\}\s*from\s*["']\.\/video-thumbnail-poll/,
+      "build path must import PR #762's spinner-rejecting poller",
+    );
+    assert.match(
+      src,
+      /fetchVideoThumbnail\s*\?\?\s*fetchVideoThumbnailWithRetry/,
+      "default fetcher must be fetchVideoThumbnailWithRetry",
+    );
+    assert.doesNotMatch(
+      src,
+      /uploadImageFromUrl|uploadThumbnailAsImage/,
+      "must not reintroduce the App-Review-blocked /adimages path",
+    );
+  });
+
+  it("DEFAULT_POLL_DELAYS_MS is still the 48s spinner-rejecting schedule", () => {
+    assert.deepEqual([...DEFAULT_POLL_DELAYS_MS], [3000, 5000, 8000, 12000, 20000]);
   });
 });

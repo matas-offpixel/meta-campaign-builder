@@ -3281,6 +3281,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       try {
         creativePayload = await buildCreativePayload(creative, {
           validatedIgActorId: validatedIgActorId ?? undefined,
+          metaAccessToken: launchToken,
         });
 
         // ── Creative Integrity Mode (strict sanitizer) ─────────────────────
