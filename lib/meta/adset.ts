@@ -163,6 +163,20 @@ export interface MetaPromotedObject {
   page_id?: string;
 }
 
+/**
+ * Meta `ad_object_destination_type` enum values we may send on an ad set.
+ * Reference: https://developers.facebook.com/docs/marketing-api/reference/ad-campaign/
+ */
+export type MetaAdSetDestinationType =
+  | "WEBSITE"
+  | "APP"
+  | "MESSENGER"
+  | "INSTAGRAM_DIRECT"
+  | "PHONE_CALL"
+  | "FACEBOOK_EVENT"
+  | "LEAD"
+  | "WHATSAPP";
+
 // ─── Ad set payload sent to Meta ─────────────────────────────────────────────
 
 export interface MetaAdSetPayload {
@@ -196,6 +210,19 @@ export interface MetaAdSetPayload {
   end_time?: number;
   status: "PAUSED" | "ACTIVE";
   promoted_object?: MetaPromotedObject;
+  /**
+   * Where the ad set sends people. Required for OUTCOME_TRAFFIC /
+   * OUTCOME_LEADS website campaigns — omitting it lets Meta's newer Ads
+   * Manager Edit UI default the destination radio to "Facebook event" when
+   * the associated Page has upcoming events (Modern Funktion Traffic
+   * reproducer, draft campaign 120251191631740755). Delivery still works
+   * via `link_data.link`, but an operator saving the Edit view would nuke
+   * the website destination. See {@link resolveAdSetDestinationType}.
+   *
+   * Meta enum: WEBSITE | APP | MESSENGER | INSTAGRAM_DIRECT | PHONE_CALL |
+   * FACEBOOK_EVENT | LEAD | WHATSAPP.
+   */
+  destination_type?: MetaAdSetDestinationType;
   /**
    * Opts the ad set into **Dynamic Creative**. Set to `true` ONLY when a
    * variation-rotation creative (asset_feed_spec with N assets, no customization
@@ -670,6 +697,36 @@ export function mapBidStrategy(_goal: OptimisationGoal): string {
   return "LOWEST_COST_WITHOUT_CAP";
 }
 
+/**
+ * Resolve Meta ad set `destination_type` for wizard website-bound objectives.
+ *
+ * OUTCOME_TRAFFIC / OUTCOME_LEADS (registration) creatives always carry a
+ * website `destinationUrl` (Sign Up / Learn More / etc.). Omitting
+ * `destination_type` lets Meta's newer Ads Manager Edit UI default the
+ * destination radio to "Facebook event" whenever the associated Page has
+ * upcoming events — delivery still works via `link_data.link`, but an
+ * operator opening Edit sees a broken-looking config and risks saving it
+ * (which would nuke website delivery). Reproducer: Modern Funktion —
+ * Traffic (campaign 120251191631740755), all 13 creatives correct in DB.
+ *
+ * Returns `"WEBSITE"` for:
+ *   - `traffic` — LANDING_PAGE_VIEWS / LINK_CLICKS / (stale) OFFSITE_CONVERSIONS
+ *     and any other traffic-compatible goal we still allow (reach/impressions)
+ *   - `registration` — website Sign Up CTA path (NOT Instant Forms / `LEAD`)
+ *
+ * Returns `undefined` for awareness / engagement / purchase so Meta keeps
+ * its own default (those Edit UIs don't mis-default to Facebook event).
+ */
+export function resolveAdSetDestinationType(
+  objective: CampaignObjective,
+  _optimisationGoal: OptimisationGoal,
+): MetaAdSetDestinationType | undefined {
+  if (objective === "traffic" || objective === "registration") {
+    return "WEBSITE";
+  }
+  return undefined;
+}
+
 // ─── Full payload builder ─────────────────────────────────────────────────────
 
 export function buildAdSetPayload(
@@ -762,6 +819,13 @@ export function buildAdSetPayload(
   const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);
   if (promotedObject) payload.promoted_object = promotedObject;
 
+  // Explicit website destination for Traffic / registration — see
+  // resolveAdSetDestinationType. Omitted for awareness/engagement/purchase.
+  const destinationType = resolveAdSetDestinationType(objective, effectiveGoal);
+  if (destinationType) {
+    payload.destination_type = destinationType;
+  }
+
   // Dynamic Creative opt-in — only set when a variation-rotation creative is
   // attached. Never set `false` (Meta may treat an explicit false differently,
   // and the flag is immutable once the ad set is created).
@@ -784,6 +848,7 @@ export function buildAdSetPayload(
     `\n  optimization_goal: ${payload.optimization_goal}`,
     `\n  billing_event:     ${payload.billing_event}`,
     `\n  bid_strategy:      ${payload.bid_strategy}`,
+    `\n  destination_type:  ${payload.destination_type ?? "(omitted)"}`,
     `\n  daily_budget:      ${payload.daily_budget} minor units (= ${adSet.budgetPerDay} major)`,
     `\n  age mode:          ${ageMode} (${adSet.ageMin}–${adSet.ageMax})`,
     `\n  location:          ${adSet.locationLabel ?? "default GB"}`,
