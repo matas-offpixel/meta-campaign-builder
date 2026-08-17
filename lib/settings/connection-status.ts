@@ -6,14 +6,13 @@ import type { Database } from "@/lib/db/database.types";
 import { GOOGLE_ADS_OAUTH_SCOPE } from "@/lib/google-ads/oauth";
 import { TIKTOK_OAUTH_SCOPE } from "@/lib/tiktok/oauth";
 
-const FACEBOOK_SCOPES = [
-  "pages_show_list",
-  "pages_read_engagement",
-  "ads_management",
-  "ads_read",
-  "instagram_basic",
-  "business_management",
-];
+const FACEBOOK_SCOPES = (
+  process.env.FACEBOOK_OAUTH_SCOPES?.trim() ||
+  "pages_show_list,pages_read_engagement,ads_management,ads_read,instagram_basic,business_management"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 export type ConnectionBadgeStatus =
   | "connected"

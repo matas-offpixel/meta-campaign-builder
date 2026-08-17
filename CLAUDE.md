@@ -134,6 +134,7 @@ LANDING_PAGES_SIGNUP_RATE_MAX=
 LANDING_PAGES_SIGNUP_RATE_WINDOW_MINUTES=
 LANDING_PAGES_META_API_VERSION=
 BM_TOKEN_KEY=
+FACEBOOK_OAUTH_SCOPES=
 ENABLE_META_THUMBNAIL_FETCH=
 ENABLE_OPTIMISATION_AUTOMATION=
 ENABLE_SLACK_NOTIFICATIONS=
@@ -155,6 +156,8 @@ ENABLE_BUDGET_PACING_ALERTS=
 > BM tool acts EXCLUSIVELY as Matas's personal OAuth token (from
 > `user_facebook_tokens`) — it never falls back to `META_ACCESS_TOKEN`. See
 > `/business-managers` + `docs/session-logs/pr-pending-ops-business-manager-asset-sync.md`.
+
+> **`FACEBOOK_OAUTH_SCOPES`** — optional comma-separated override for the Facebook OAuth dialog scope list (and the settings UI missing-permissions check); set on deployments whose Meta app cannot request `instagram_basic`.
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII
