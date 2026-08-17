@@ -5,6 +5,7 @@ import {
   fetchVenueDailyBudget,
   type VenueDailyBudgetResult,
 } from "@/lib/insights/meta";
+import { resolveVenueAdAccountId } from "@/lib/meta/ad-account";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -82,20 +83,15 @@ async function loadFreshDailyBudget(args: {
     .select("id, meta_ad_account_id")
     .eq("id", args.clientId)
     .maybeSingle();
-  const adAccountId =
-    (client as { meta_ad_account_id?: string | null } | null)
-      ?.meta_ad_account_id ?? null;
-  if (!adAccountId) {
-    console.info("[venue-daily-budget] unavailable: no ad account", {
-      clientId: args.clientId,
-      eventCode: args.eventCode,
-    });
-    return emptyBudgetResult("No Meta ad account");
-  }
 
+  // Resolve the event BEFORE the ad account: a client can run venues out
+  // of separate ad accounts, and events.meta_ad_account_id overrides the
+  // client default. Resolving client-first is what made this panel report
+  // "No campaigns matched [CODE]" for a venue whose campaigns live in a
+  // different account entirely.
   const { data: event } = await admin
     .from("events")
-    .select("id")
+    .select("id, meta_ad_account_id")
     .eq("client_id", args.clientId)
     .eq("event_code", args.eventCode)
     .limit(1)
@@ -106,6 +102,19 @@ async function loadFreshDailyBudget(args: {
       eventCode: args.eventCode,
     });
     return emptyBudgetResult("No matching venue");
+  }
+
+  const adAccountId = resolveVenueAdAccountId(
+    [event as { meta_ad_account_id?: string | null }],
+    (client as { meta_ad_account_id?: string | null } | null)
+      ?.meta_ad_account_id ?? null,
+  );
+  if (!adAccountId) {
+    console.info("[venue-daily-budget] unavailable: no ad account", {
+      clientId: args.clientId,
+      eventCode: args.eventCode,
+    });
+    return emptyBudgetResult("No Meta ad account");
   }
 
   let metaToken: string;
