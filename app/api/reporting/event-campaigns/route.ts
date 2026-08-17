@@ -13,6 +13,7 @@ import {
   fetchEventCampaignInsights,
   normaliseAdAccountId,
 } from "@/lib/reporting/event-insights";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * GET /api/reporting/event-campaigns?eventId=…&since=…&until=…&platform=meta
@@ -126,8 +127,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const adAccountIdRaw =
-    (event.client?.meta_ad_account_id as string | null | undefined) ?? null;
+  const adAccountIdRaw = resolveEventAdAccountId(event);
 
   if (!eventCode) {
     return NextResponse.json({
