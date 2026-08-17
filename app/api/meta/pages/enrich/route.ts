@@ -20,6 +20,11 @@
 
 import { type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  buildMultiGetBatch,
+  collectMultiGetResponses,
+  type GraphBatchSubResponse,
+} from "@/lib/meta/graph-multi-get-parse";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
 const BASE = `https://graph.facebook.com/${API_VERSION}`;
@@ -112,16 +117,24 @@ async function fetchEnrichment(
   token: string,
   fields: string,
 ): Promise<{ ok: true; map: Record<string, RawEnrichedPage> } | { ok: false; error: string; rawError?: unknown }> {
-  const params = new URLSearchParams({
-    ids: ids.join(","),
-    fields,
-    access_token: token,
-  });
+  // Was `GET /?ids=<csv>&fields=…`. Meta removed the `ids` query
+  // parameter in v26.0, so this now POSTs a Batch API request and
+  // collapses the sub-responses back into the same id-keyed map this
+  // function has always returned. See lib/meta/graph-multi-get-parse.ts.
+  const params = new URLSearchParams({ access_token: token });
   const url = `${BASE}/?${params.toString()}`;
 
   let res: Response;
   try {
-    res = await fetch(url, { cache: "no-store" });
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        batch: buildMultiGetBatch(ids, fields),
+        include_headers: false,
+      }),
+      cache: "no-store",
+    });
   } catch (e) {
     return { ok: false, error: "Network error reaching Graph API", rawError: e };
   }
@@ -134,12 +147,22 @@ async function fetchEnrichment(
     return { ok: false, error: "Non-JSON response from Meta", rawError: text.slice(0, 200) };
   }
 
-  if (!res.ok || (json && typeof json === "object" && "error" in json)) {
+  // Envelope-level failure (auth, rate limit, malformed batch). Individual
+  // sub-request failures ride inside a 200 and are filtered out by
+  // collectMultiGetResponses instead.
+  if (!res.ok || (json && typeof json === "object" && !Array.isArray(json) && "error" in json)) {
     const err = (json as Record<string, unknown>).error ?? {};
     return { ok: false, error: String((err as Record<string, unknown>).message ?? `HTTP ${res.status}`), rawError: err };
   }
 
-  return { ok: true, map: json as Record<string, RawEnrichedPage> };
+  if (!Array.isArray(json)) {
+    return { ok: false, error: "Unexpected batch response shape from Meta", rawError: text.slice(0, 200) };
+  }
+
+  return {
+    ok: true,
+    map: collectMultiGetResponses<RawEnrichedPage>(json as GraphBatchSubResponse[]),
+  };
 }
 
 export async function POST(req: NextRequest): Promise<Response> {

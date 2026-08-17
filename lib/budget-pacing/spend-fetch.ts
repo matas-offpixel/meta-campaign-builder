@@ -35,7 +35,22 @@ interface RawBatchedNode {
   insights?: { data?: { spend?: string }[] };
 }
 
-/** Injected Graph fetcher — the production wrapper supplies `graphGetWithToken`. */
+/**
+ * Injected Graph fetcher.
+ *
+ * TWO distinct call shapes go through this type, and since v26.0 they
+ * need two different production implementations:
+ *
+ *   - the ≤20 path issues a real GET on `/{campaignId}/insights` and
+ *     is still served by `graphGetWithToken`;
+ *   - the >20 path reads many campaign nodes at once, which used to be
+ *     `GET /?ids=…` — removed by Meta in v26.0 — and is now served by
+ *     `graphMultiGetByIds` (see lib/meta/graph-multi-get-parse.ts).
+ *
+ * Hence the separate `multiGetFetcher` parameter on
+ * `fetchCampaignSpendPence`. It defaults to the single-GET fetcher so
+ * existing callers and tests that stub one function keep working.
+ */
 export type BudgetPacingGraphFetcher = <T>(
   path: string,
   params: Record<string, string>,
@@ -99,10 +114,17 @@ export async function fetchCampaignSpendPence(
   fetcher: BudgetPacingGraphFetcher,
   campaignIds: string[],
   token: string,
+  /**
+   * Fetcher for the >20 multi-node path. Defaults to `fetcher` for
+   * backwards compatibility; production MUST pass `graphMultiGetByIds`
+   * or every hourly tick over 20 campaigns reads spend as £0 and the
+   * pacing alerts silently never fire.
+   */
+  multiGetFetcher: BudgetPacingGraphFetcher = fetcher,
 ): Promise<Record<string, number>> {
   if (campaignIds.length === 0) return {};
   if (campaignIds.length <= SINGLE_CALL_THRESHOLD) {
     return fetchSpendIndividually(fetcher, campaignIds, token);
   }
-  return fetchSpendBatched(fetcher, campaignIds, token);
+  return fetchSpendBatched(multiGetFetcher, campaignIds, token);
 }

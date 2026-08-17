@@ -23,10 +23,10 @@ import {
 } from "@/lib/reporting/active-creatives-group";
 import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
 import {
-  buildCreativeBatchRequest,
-  parseCreativeBatchSubResponse,
+  buildMultiGetBatch,
+  parseMultiGetSubResponse,
   type GraphBatchSubResponse,
-} from "@/lib/reporting/creative-batch-response";
+} from "@/lib/meta/graph-multi-get-parse";
 import { buildTimeParams } from "@/lib/insights/meta";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -977,7 +977,7 @@ async function fetchCreativeBatch(
           graphPostWithToken<GraphBatchSubResponse[]>(
             "",
             {
-              batch: buildCreativeBatchRequest(batch, CREATIVE_BATCH_FIELDS),
+              batch: buildMultiGetBatch(batch, CREATIVE_BATCH_FIELDS),
               include_headers: false,
             },
             token,
@@ -996,7 +996,7 @@ async function fetchCreativeBatch(
   let subFailures = 0;
   for (const batchResult of results) {
     for (const sub of Array.isArray(batchResult) ? batchResult : []) {
-      const parsed = parseCreativeBatchSubResponse(sub);
+      const parsed = parseMultiGetSubResponse(sub);
       if (parsed) out.set(parsed.id as string, parsed as RawCreative);
       else subFailures += 1;
     }
