@@ -10,6 +10,7 @@ import {
   type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * Authenticated GET — lazy creative previews for an event the current
@@ -73,7 +74,7 @@ export async function GET(
   // the intent obvious to a future reader auditing the route.
   const { data: event, error: evErr } = await supabase
     .from("events")
-    .select("id, event_code, client:clients ( meta_ad_account_id )")
+    .select("id, event_code, meta_ad_account_id, client:clients ( meta_ad_account_id )")
     .eq("id", eventId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -84,13 +85,8 @@ export async function GET(
     );
   }
 
-  const clientRel = event.client as
-    | { meta_ad_account_id: string | null }
-    | { meta_ad_account_id: string | null }[]
-    | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second.
+  const adAccountId = resolveEventAdAccountId(event);
   const eventCode = event.event_code as string | null;
 
   if (!eventCode) {

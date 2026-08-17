@@ -11,6 +11,7 @@ import {
   type DatePreset,
 } from "@/lib/insights/types";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { resolveVenueAdAccountId } from "@/lib/meta/ad-account";
 
 export const revalidate = 300;
 
@@ -55,7 +56,7 @@ export async function GET(
 
   const { data: events, error: eventErr } = await admin
     .from("events")
-    .select("id")
+    .select("id, meta_ad_account_id")
     .eq("client_id", share.client_id)
     .eq("event_code", share.event_code);
   if (eventErr) {
@@ -74,7 +75,12 @@ export async function GET(
   if (clientErr) {
     return NextResponse.json({ error: clientErr.message }, { status: 500 });
   }
-  const adAccountId = (client?.meta_ad_account_id as string | null) ?? null;
+  // Per-event override on any event under this code wins over the
+  // client default — venues can sit in separate ad accounts.
+  const adAccountId = resolveVenueAdAccountId(
+    events ?? [],
+    (client?.meta_ad_account_id as string | null) ?? null,
+  );
   if (!adAccountId) {
     return NextResponse.json({
       ok: false,

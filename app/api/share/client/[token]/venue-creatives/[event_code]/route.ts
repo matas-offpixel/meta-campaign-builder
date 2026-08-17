@@ -16,6 +16,7 @@ import {
   type DatePreset,
 } from "@/lib/insights/types";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { resolveVenueAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * app/api/share/client/[token]/venue-creatives/[event_code]/route.ts
@@ -127,7 +128,7 @@ export async function GET(
   // — we only need existence.
   const { data: eventExists, error: eventErr } = await admin
     .from("events")
-    .select("id")
+    .select("id, meta_ad_account_id")
     .eq("client_id", share.client_id)
     .eq("event_code", eventCodeRaw)
     .limit(1)
@@ -156,7 +157,11 @@ export async function GET(
       { status: 500 },
     );
   }
-  const adAccountId = clientRow?.meta_ad_account_id ?? null;
+  // Per-event override wins over the client default.
+  const adAccountId = resolveVenueAdAccountId(
+    [eventExists],
+    clientRow?.meta_ad_account_id ?? null,
+  );
   if (!adAccountId) {
     // Client has no Meta ad account configured — surfaced as "no data"
     // on the front end rather than a hard error.

@@ -59,3 +59,74 @@ export function adAccountDigitsOnly(
   if (!normalized) return null;
   return normalized.slice(4);
 }
+
+/**
+ * Resolve the ad account an EVENT's Meta data lives in.
+ *
+ * `clients.meta_ad_account_id` is one account per client, which breaks
+ * as soon as a client runs venues out of separate ad accounts. Electric
+ * Brixton was the first: Mall Grab runs in ELECTRIC STUDIOS SHEFFIELD
+ * while the four NX Newcastle shows run in NX Promoter. Every Newcastle
+ * event reported zero spend — correctly named campaigns, queried against
+ * an account they were never in.
+ *
+ * `events.meta_ad_account_id` is the per-event override. NULL means
+ * "inherit from the client", so existing rows keep their current
+ * behaviour and only deliberately-overridden events diverge.
+ *
+ * Returns the RAW stored value (bare digits), not the `act_` form —
+ * callers already normalise. Null when neither level has an account.
+ */
+export function resolveEventAdAccountId(
+  event:
+    | {
+        meta_ad_account_id?: string | null;
+        client?:
+          | { meta_ad_account_id?: string | null }
+          | { meta_ad_account_id?: string | null }[]
+          | null;
+      }
+    | null
+    | undefined,
+  clientFallback?: string | null,
+): string | null {
+  if (!event) return clientFallback?.trim() || null;
+
+  const own = event.meta_ad_account_id?.trim();
+  if (own) return own;
+
+  const rel = Array.isArray(event.client) ? event.client[0] : event.client;
+  const inherited = rel?.meta_ad_account_id?.trim();
+  if (inherited) return inherited;
+
+  return clientFallback?.trim() || null;
+}
+
+/**
+ * Venue-scoped variant. The venue surfaces (`/insights/venue/...`,
+ * `/share/venue/...`, the venue-creatives routes) key on
+ * `(client_id, event_code)` rather than a single event id, so there can
+ * be several event rows behind one request — a repeated residency, or
+ * the same code reused across dates.
+ *
+ * Rule: the first event carrying an override wins; otherwise fall back
+ * to the client default. Events sharing an event_code are by definition
+ * the same venue and therefore the same ad account, so "first override
+ * wins" and "all overrides agree" are the same answer in practice. If
+ * they ever disagree the data is wrong upstream, and picking the first
+ * is at least deterministic rather than silently querying the client
+ * account and reporting zero.
+ */
+export function resolveVenueAdAccountId(
+  events:
+    | ReadonlyArray<{ meta_ad_account_id?: string | null } | null | undefined>
+    | null
+    | undefined,
+  clientFallback?: string | null,
+): string | null {
+  for (const event of events ?? []) {
+    const own = event?.meta_ad_account_id?.trim();
+    if (own) return own;
+  }
+  return clientFallback?.trim() || null;
+}

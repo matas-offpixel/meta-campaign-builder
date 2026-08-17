@@ -31,6 +31,7 @@ import {
 import { loadActiveCreativesCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * GET /api/cron/refresh-active-creatives
@@ -103,6 +104,8 @@ interface EventToRefresh {
   user_id: string;
   event_code: string | null;
   event_date: string | null;
+  /** Per-event ad account override. NULL = inherit from the client. */
+  meta_ad_account_id: string | null;
   client: { meta_ad_account_id: string | null } | null;
 }
 
@@ -297,7 +300,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_date, client:clients ( meta_ad_account_id )",
+      "id, user_id, event_code, event_date, meta_ad_account_id, client:clients ( meta_ad_account_id )",
     )
     .in("id", eligibility.eligibleIds);
   if (eventErr) {
@@ -337,9 +340,8 @@ export async function GET(req: NextRequest) {
         | { meta_ad_account_id: string | null }
         | { meta_ad_account_id: string | null }[]
         | null;
-      const adAccountId = Array.isArray(clientRel)
-        ? (clientRel[0]?.meta_ad_account_id ?? null)
-        : (clientRel?.meta_ad_account_id ?? null);
+      // Per-event override first, client default second.
+      const adAccountId = resolveEventAdAccountId(event);
 
       const eventDate = event.event_date
         ? new Date(event.event_date)
