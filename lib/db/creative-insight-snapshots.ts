@@ -432,6 +432,22 @@ export async function listEligibleAccountPairs(
     .select("user_id, meta_ad_account_id")
     .not("meta_ad_account_id", "is", null);
 
+  // Per-event ad account overrides (events.meta_ad_account_id) are a
+  // second source of eligible accounts. A client whose default account
+  // is Sheffield can still have Newcastle events pointing elsewhere;
+  // without this union those accounts never get pre-warmed and the
+  // creative-insights panel falls back to a slow live load every time.
+  const { data: eventData, error: eventError } = await sb
+    .from("events")
+    .select("user_id, meta_ad_account_id")
+    .not("meta_ad_account_id", "is", null);
+  if (eventError) {
+    console.warn(
+      "[creative-insight-snapshots listEligibleAccountPairs] event override query failed:",
+      eventError.message,
+    );
+  }
+
   if (error) {
     console.warn(
       "[creative-insight-snapshots listEligibleAccountPairs] error:",
@@ -442,10 +458,17 @@ export async function listEligibleAccountPairs(
 
   const seen = new Set<string>();
   const out: { userId: string; adAccountId: string }[] = [];
-  for (const row of (data ?? []) as {
-    user_id: string;
-    meta_ad_account_id: string | null;
-  }[]) {
+  const rows = [
+    ...((data ?? []) as {
+      user_id: string;
+      meta_ad_account_id: string | null;
+    }[]),
+    ...((eventData ?? []) as {
+      user_id: string;
+      meta_ad_account_id: string | null;
+    }[]),
+  ];
+  for (const row of rows) {
     const raw = (row.meta_ad_account_id ?? "").trim();
     if (!raw) continue;
     // Normalise to Meta's canonical `act_<numeric>` form. The client

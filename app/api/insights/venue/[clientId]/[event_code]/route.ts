@@ -10,6 +10,7 @@ import {
 } from "@/lib/insights/types";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
+import { resolveVenueAdAccountId } from "@/lib/meta/ad-account";
 
 export const revalidate = 300;
 
@@ -80,7 +81,7 @@ export async function GET(
 
   const eventQuery = supabase
     .from("events")
-    .select("id")
+    .select("id, meta_ad_account_id")
     .eq("client_id", clientId)
     .eq("event_code", eventCode);
   const eventDate = sp.get("event_date");
@@ -97,7 +98,12 @@ export async function GET(
     );
   }
 
-  const adAccountId = client.meta_ad_account_id as string | null;
+  // Per-event override on any event under this code wins over the
+  // client default — venues can sit in separate ad accounts.
+  const adAccountId = resolveVenueAdAccountId(
+    events ?? [],
+    client.meta_ad_account_id as string | null,
+  );
   if (!adAccountId) {
     return NextResponse.json({
       ok: false,

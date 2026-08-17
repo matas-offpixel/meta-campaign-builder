@@ -101,3 +101,32 @@ export function resolveEventAdAccountId(
 
   return clientFallback?.trim() || null;
 }
+
+/**
+ * Venue-scoped variant. The venue surfaces (`/insights/venue/...`,
+ * `/share/venue/...`, the venue-creatives routes) key on
+ * `(client_id, event_code)` rather than a single event id, so there can
+ * be several event rows behind one request — a repeated residency, or
+ * the same code reused across dates.
+ *
+ * Rule: the first event carrying an override wins; otherwise fall back
+ * to the client default. Events sharing an event_code are by definition
+ * the same venue and therefore the same ad account, so "first override
+ * wins" and "all overrides agree" are the same answer in practice. If
+ * they ever disagree the data is wrong upstream, and picking the first
+ * is at least deterministic rather than silently querying the client
+ * account and reporting zero.
+ */
+export function resolveVenueAdAccountId(
+  events:
+    | ReadonlyArray<{ meta_ad_account_id?: string | null } | null | undefined>
+    | null
+    | undefined,
+  clientFallback?: string | null,
+): string | null {
+  for (const event of events ?? []) {
+    const own = event?.meta_ad_account_id?.trim();
+    if (own) return own;
+  }
+  return clientFallback?.trim() || null;
+}

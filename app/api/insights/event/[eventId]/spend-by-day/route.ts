@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { fetchEventSpendByDay } from "@/lib/insights/meta";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * Per-day Meta spend for a plan window. Drives the plan tab's
@@ -48,7 +49,7 @@ export async function GET(
   // RLS-scoped read returns the event_code + linked client's ad account.
   const { data: event, error: evErr } = await supabase
     .from("events")
-    .select("id, event_code, client:clients ( meta_ad_account_id )")
+    .select("id, event_code, meta_ad_account_id, client:clients ( meta_ad_account_id )")
     .eq("id", eventId)
     .eq("user_id", user.id)
     .maybeSingle();
@@ -59,13 +60,8 @@ export async function GET(
     );
   }
 
-  const clientRel = event.client as
-    | { meta_ad_account_id: string | null }
-    | { meta_ad_account_id: string | null }[]
-    | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second.
+  const adAccountId = resolveEventAdAccountId(event);
   const eventCode = event.event_code as string | null;
 
   if (!eventCode) {

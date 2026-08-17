@@ -13,6 +13,7 @@ import {
   type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * Public GET — lazy-loaded creative previews for the report share.
@@ -91,7 +92,7 @@ export async function GET(
   const [eventRes, providerToken] = await Promise.all([
     admin
       .from("events")
-      .select("event_code, client:clients ( meta_ad_account_id )")
+      .select("event_code, meta_ad_account_id, client:clients ( meta_ad_account_id )")
       .eq("id", event_id)
       .maybeSingle(),
     getOwnerFacebookToken(user_id, admin),
@@ -109,15 +110,10 @@ export async function GET(
   }
 
   const eventCode = eventRes.data.event_code as string | null;
-  // Supabase typing surfaces the joined client as a possibly-array shape
-  // depending on cardinality inference — narrow defensively.
-  const clientRel = eventRes.data.client as
-    | { meta_ad_account_id: string | null }
-    | { meta_ad_account_id: string | null }[]
-    | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second. The helper also
+  // narrows the joined client, which Supabase types as a possibly-array
+  // shape depending on cardinality inference.
+  const adAccountId = resolveEventAdAccountId(eventRes.data);
 
   if (!eventCode || !adAccountId) {
     return NextResponse.json(
