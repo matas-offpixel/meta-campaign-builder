@@ -5,6 +5,7 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import { warmCreativeThumbnailsAfterRollupSync } from "@/lib/meta/creative-thumbnail-after-rollup-sync";
 import { shouldQueueThumbnailWarmAfterRollupSync } from "@/lib/meta/thumbnail-warm-after-rollup-sync";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * POST /api/ticketing/rollup-sync?eventId=X
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -102,9 +103,11 @@ export async function POST(req: NextRequest) {
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
     | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second. This route is what
+  // the dashboard's "Sync now" button calls, so a client whose venues sit
+  // in different ad accounts silently synced every event against the
+  // client default and wrote zero spend.
+  const adAccountId = resolveEventAdAccountId(event);
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
