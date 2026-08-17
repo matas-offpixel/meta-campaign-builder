@@ -59,3 +59,45 @@ export function adAccountDigitsOnly(
   if (!normalized) return null;
   return normalized.slice(4);
 }
+
+/**
+ * Resolve the ad account an EVENT's Meta data lives in.
+ *
+ * `clients.meta_ad_account_id` is one account per client, which breaks
+ * as soon as a client runs venues out of separate ad accounts. Electric
+ * Brixton was the first: Mall Grab runs in ELECTRIC STUDIOS SHEFFIELD
+ * while the four NX Newcastle shows run in NX Promoter. Every Newcastle
+ * event reported zero spend — correctly named campaigns, queried against
+ * an account they were never in.
+ *
+ * `events.meta_ad_account_id` is the per-event override. NULL means
+ * "inherit from the client", so existing rows keep their current
+ * behaviour and only deliberately-overridden events diverge.
+ *
+ * Returns the RAW stored value (bare digits), not the `act_` form —
+ * callers already normalise. Null when neither level has an account.
+ */
+export function resolveEventAdAccountId(
+  event:
+    | {
+        meta_ad_account_id?: string | null;
+        client?:
+          | { meta_ad_account_id?: string | null }
+          | { meta_ad_account_id?: string | null }[]
+          | null;
+      }
+    | null
+    | undefined,
+  clientFallback?: string | null,
+): string | null {
+  if (!event) return clientFallback?.trim() || null;
+
+  const own = event.meta_ad_account_id?.trim();
+  if (own) return own;
+
+  const rel = Array.isArray(event.client) ? event.client[0] : event.client;
+  const inherited = rel?.meta_ad_account_id?.trim();
+  if (inherited) return inherited;
+
+  return clientFallback?.trim() || null;
+}

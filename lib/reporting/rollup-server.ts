@@ -10,6 +10,7 @@ import {
 } from "@/lib/reporting/event-insights";
 import { aggregate, type Aggregate } from "@/lib/reporting/aggregate";
 import { computeBenchmarks } from "@/lib/reporting/ad-account-benchmarks";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * lib/reporting/rollup-server.ts
@@ -243,8 +244,10 @@ export async function loadCrossEventRollup(
 
   for (const event of candidates) {
     const eventCode = event.event_code?.trim() ?? "";
-    const adAccountRaw =
-      (event.client?.meta_ad_account_id as string | null | undefined) ?? null;
+    // Per-event override first, client default second. See
+    // resolveEventAdAccountId — a client can run venues out of
+    // different ad accounts.
+    const adAccountRaw = resolveEventAdAccountId(event);
     const linkedCampaignsCount = draftCounts.get(event.id) ?? 0;
 
     if (!eventCode) {

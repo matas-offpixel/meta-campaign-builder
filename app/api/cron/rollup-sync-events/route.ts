@@ -61,6 +61,8 @@ interface EventToSync {
   tiktok_account_id: string | null;
   google_ads_account_id: string | null;
   meta_campaign_id: string | null;
+  /** Per-event ad account override. NULL = inherit from the client. */
+  meta_ad_account_id: string | null;
   client: {
     meta_ad_account_id: string | null;
     tiktok_account_id: string | null;
@@ -175,7 +177,7 @@ export async function GET(req: NextRequest) {
   const { data: rawEvents, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, client_id, kind, event_code, event_timezone, event_date, event_start_at, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, meta_campaign_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
+      "id, user_id, client_id, kind, event_code, event_timezone, event_date, event_start_at, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, meta_campaign_id, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .in("id", eligibility.eligibleIds);
   if (eventErr) {
@@ -209,9 +211,13 @@ export async function GET(req: NextRequest) {
             google_ads_account_id: string | null;
           }>
         | null;
-      const adAccountId = Array.isArray(clientRel)
+      // Per-event override wins over the client default — a client can
+      // run venues out of different ad accounts.
+      const clientAdAccount = Array.isArray(clientRel)
         ? (clientRel[0]?.meta_ad_account_id ?? null)
         : (clientRel?.meta_ad_account_id ?? null);
+      const adAccountId =
+        (event.meta_ad_account_id?.trim() || null) ?? clientAdAccount;
       const clientTikTokAccountId = Array.isArray(clientRel)
         ? (clientRel[0]?.tiktok_account_id ?? null)
         : (clientRel?.tiktok_account_id ?? null);
