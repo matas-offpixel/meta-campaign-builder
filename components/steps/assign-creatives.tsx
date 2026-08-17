@@ -11,6 +11,7 @@ import type {
   CreativeAssignmentMatrix,
 } from "@/lib/types";
 import { ATTACHED_AD_SET_KEY_PREFIX } from "@/lib/types";
+import { findAdSetsWithMixedBoostAndLinkCreatives } from "@/lib/meta/adset";
 
 interface AssignCreativesProps {
   adSets: AdSetSuggestion[];
@@ -122,6 +123,19 @@ export function AssignCreatives({
   const totalAds = useMemo(() => {
     return Object.values(assignments).reduce((sum, ids) => sum + ids.length, 0);
   }, [assignments]);
+
+  // task #132 — soft note when an ad set mixes a boost with link creatives.
+  // destination_type is omitted for boost compatibility, so Meta Edit UI may
+  // show "Facebook event" as destination (cosmetic; delivery still works).
+  const mixedBoostAdSets = useMemo(
+    () =>
+      findAdSetsWithMixedBoostAndLinkCreatives(
+        assignments,
+        creatives,
+        enabledSets,
+      ),
+    [assignments, creatives, enabledSets],
+  );
 
   if (enabledSets.length === 0 || creatives.length === 0) {
     return (
@@ -372,6 +386,27 @@ export function AssignCreatives({
           </tbody>
         </table>
       </Card>
+
+      {mixedBoostAdSets.length > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="text-muted-foreground">
+            {mixedBoostAdSets.length === 1 ? (
+              <>
+                <span className="font-medium text-foreground">{mixedBoostAdSets[0].adSetName}</span>
+                {" "}has both a Use Existing Post creative and a new link creative.
+              </>
+            ) : (
+              <>
+                {mixedBoostAdSets.length} ad sets mix a Use Existing Post creative with new link creatives
+                ({mixedBoostAdSets.map((s) => s.adSetName).join(", ")}).
+              </>
+            )}{" "}
+            Meta&apos;s Edit UI may show &quot;Facebook event&quot; as the destination for those ad sets
+            (cosmetic — a known Meta default). Delivery still uses each creative&apos;s own link or post.
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between rounded-lg border border-border bg-muted/50 px-4 py-3">
         <span className="text-sm text-muted-foreground">

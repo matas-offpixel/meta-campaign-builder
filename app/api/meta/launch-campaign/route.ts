@@ -60,6 +60,7 @@ import {
   sanitizeTargetingInterestsBeforeLaunch,
   hasAudienceTargeting,
   buildEmptyTargetingReason,
+  adSetHasBoostCreative,
 } from "@/lib/meta/adset";
 import {
   buildCreativePayload,
@@ -620,6 +621,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (dynamicAdSetIds.size > 0) {
       console.log(
         `[launch-campaign] Dynamic Creative — ${dynamicAdSetIds.size} ad set(s) will be created with is_dynamic_creative:true`,
+      );
+    }
+  }
+
+  // task #132 — ad sets that have an existing-post (boost) creative assigned
+  // must NOT send destination_type=WEBSITE (subcode 1815676). Computed once
+  // from the draft's assignment matrix; never re-fetched from Meta.
+  // Uses draft.creatives (sourceType is stable; IG actor patching later does
+  // not change boost-vs-link classification).
+  const boostAdSetIds = new Set<string>();
+  {
+    for (const adSet of enabledSets) {
+      if (adSetHasBoostCreative(adSet.id, draft.creativeAssignments ?? {}, draft.creatives)) {
+        boostAdSetIds.add(adSet.id);
+      }
+    }
+    if (boostAdSetIds.size > 0) {
+      console.log(
+        `[launch-campaign] destination_type — omitting WEBSITE on ${boostAdSetIds.size} ad set(s) with existing-post boost creatives (task #132)`,
       );
     }
   }
@@ -2934,6 +2954,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
+            boostAdSetIds.has(adSet.id),
           );
 
           // ── Manual placement override for existing-post ad sets ─────────────
@@ -3111,6 +3132,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                   dynamicAdSetIds.has(adSet.id),
                   draft.settings.placementConfig,
+                  boostAdSetIds.has(adSet.id),
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
                 // run the local sync sanitiser one more time so any other
@@ -3567,6 +3589,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           dynamicAdSetIds.has(adSet.id),
           draft.settings.placementConfig,
+          boostAdSetIds.has(adSet.id),
         );
 
         // Targeting trace log
@@ -3627,6 +3650,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
+            boostAdSetIds.has(adSet.id),
           );
           const salvaged = await createAdSetWithSalvage(
             {
@@ -3888,6 +3912,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
+              boostAdSetIds.has(adSet.id),
             );
 
             // Placement override for existing-post ad sets.
@@ -3954,6 +3979,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                     dynamicAdSetIds.has(adSet.id),
                     draft.settings.placementConfig,
+                    boostAdSetIds.has(adSet.id),
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
                   if ((retryPayload.targeting.interests ?? []).length > 0) {
@@ -4056,6 +4082,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
+            boostAdSetIds.has(adSet.id),
           );
           if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
             throw new Error(`No valid targeting for lookalike ad set "${adSet.name}"`);
@@ -4095,6 +4122,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
+              boostAdSetIds.has(adSet.id),
             );
             const salvaged = await createAdSetWithSalvage(
               {

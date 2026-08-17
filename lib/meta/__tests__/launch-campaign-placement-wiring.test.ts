@@ -50,6 +50,17 @@ describe("launch-campaign route: placement config wiring (task #117)", () => {
     );
   });
 
+  it("every buildAdSetPayload(...) call forwards boostAdSetIds.has(adSet.id) (task #132)", () => {
+    const calls = ROUTE.match(/buildAdSetPayload\(([\s\S]*?)\);/g) ?? [];
+    const missing = calls.filter((c) => !/boostAdSetIds\.has\(adSet\.id\)/.test(c));
+    assert.equal(
+      missing.length,
+      0,
+      `every buildAdSetPayload call must pass boostAdSetIds.has(adSet.id) so existing-post boosts omit destination_type — ` +
+        `found ${missing.length} call site(s) that don't:\n${missing.join("\n---\n")}`,
+    );
+  });
+
   it("the existing-post placement override still exists but no longer gates ALL placement handling", () => {
     // Regression guard for the actual bug: before the fix, a normal
     // (non-existing-post) ad set got zero placement handling of any kind —
