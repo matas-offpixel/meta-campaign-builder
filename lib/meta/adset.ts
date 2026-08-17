@@ -219,6 +219,9 @@ export interface MetaAdSetPayload {
    * via `link_data.link`, but an operator saving the Edit view would nuke
    * the website destination. See {@link resolveAdSetDestinationType}.
    *
+   * Omitted when the ad set has an existing-post (boost) creative assigned
+   * — Meta rejects boost ads under WEBSITE with subcode 1815676 (task #132).
+   *
    * Meta enum: WEBSITE | APP | MESSENGER | INSTAGRAM_DIRECT | PHONE_CALL |
    * FACEBOOK_EVENT | LEAD | WHATSAPP.
    */
@@ -700,31 +703,79 @@ export function mapBidStrategy(_goal: OptimisationGoal): string {
 /**
  * Resolve Meta ad set `destination_type` for wizard website-bound objectives.
  *
- * OUTCOME_TRAFFIC / OUTCOME_LEADS (registration) creatives always carry a
- * website `destinationUrl` (Sign Up / Learn More / etc.). Omitting
- * `destination_type` lets Meta's newer Ads Manager Edit UI default the
- * destination radio to "Facebook event" whenever the associated Page has
- * upcoming events — delivery still works via `link_data.link`, but an
- * operator opening Edit sees a broken-looking config and risks saving it
- * (which would nuke website delivery). Reproducer: Modern Funktion —
- * Traffic (campaign 120251191631740755), all 13 creatives correct in DB.
+ * OUTCOME_TRAFFIC / OUTCOME_LEADS (registration) website creatives need an
+ * explicit `destination_type: "WEBSITE"` — omitting it lets Meta's newer Ads
+ * Manager Edit UI default the destination radio to "Facebook event" whenever
+ * the associated Page has upcoming events (Modern Funktion Traffic
+ * reproducer, campaign 120251191631740755 — PR #770).
  *
- * Returns `"WEBSITE"` for:
- *   - `traffic` — LANDING_PAGE_VIEWS / LINK_CLICKS / (stale) OFFSITE_CONVERSIONS
- *     and any other traffic-compatible goal we still allow (reach/impressions)
- *   - `registration` — website Sign Up CTA path (NOT Instant Forms / `LEAD`)
+ * BUT: setting WEBSITE rejects existing-post (boost) ads with code=100
+ * subcode=1815676 "Non-website ads are not allowed in ad sets with website
+ * destination type" (task #132 / PR #770 regression). So when ANY assigned
+ * creative is an existing-post boost, we omit the field (pre-#770 behaviour)
+ * — link ads in that ad set still deliver via `link_data.link`, and the
+ * boost attaches.
  *
- * Returns `undefined` for awareness / engagement / purchase so Meta keeps
- * its own default (those Edit UIs don't mis-default to Facebook event).
+ * Returns `"WEBSITE"` for traffic / registration when `hasBoostCreative` is
+ * falsy. Returns `undefined` for awareness / engagement / purchase, and for
+ * traffic/registration ad sets that carry a boost creative.
  */
 export function resolveAdSetDestinationType(
   objective: CampaignObjective,
   _optimisationGoal: OptimisationGoal,
+  hasBoostCreative?: boolean,
 ): MetaAdSetDestinationType | undefined {
+  if (hasBoostCreative) return undefined;
   if (objective === "traffic" || objective === "registration") {
     return "WEBSITE";
   }
   return undefined;
+}
+
+/**
+ * True when `adSetId` has at least one `existing_post` creative assigned in
+ * the draft's assignment matrix (`adSetId → creativeId[]`, the Assign
+ * Creatives / {@link invertAssignments} convention).
+ *
+ * Pure — no Meta calls. Used to decide whether {@link buildAdSetPayload}
+ * may set `destination_type=WEBSITE` (task #132).
+ */
+export function adSetHasBoostCreative(
+  adSetId: string,
+  assignments: Record<string, string[]>,
+  creatives: ReadonlyArray<{ id: string; sourceType?: string }>,
+): boolean {
+  const assignedIds = assignments[adSetId] ?? [];
+  if (assignedIds.length === 0) return false;
+  const byId = new Map(creatives.map((c) => [c.id, c]));
+  return assignedIds.some((cid) => byId.get(cid)?.sourceType === "existing_post");
+}
+
+/**
+ * Ad set ids that have both an existing-post boost AND at least one
+ * non-boost (new / link) creative assigned. Powers the Step 6 soft info
+ * note (task #132) — Meta Edit UI may show "Facebook event" as destination
+ * because we omit `destination_type` for boost compatibility.
+ */
+export function findAdSetsWithMixedBoostAndLinkCreatives(
+  assignments: Record<string, string[]>,
+  creatives: ReadonlyArray<{ id: string; name?: string; sourceType?: string }>,
+  adSets: ReadonlyArray<{ id: string; name: string }>,
+): Array<{ adSetId: string; adSetName: string }> {
+  const byId = new Map(creatives.map((c) => [c.id, c]));
+  const mixed: Array<{ adSetId: string; adSetName: string }> = [];
+  for (const adSet of adSets) {
+    const assigned = (assignments[adSet.id] ?? [])
+      .map((cid) => byId.get(cid))
+      .filter((c): c is { id: string; name?: string; sourceType?: string } => Boolean(c));
+    if (assigned.length < 2) continue;
+    const hasBoost = assigned.some((c) => c.sourceType === "existing_post");
+    const hasLink = assigned.some((c) => c.sourceType !== "existing_post");
+    if (hasBoost && hasLink) {
+      mixed.push({ adSetId: adSet.id, adSetName: adSet.name });
+    }
+  }
+  return mixed;
 }
 
 // ─── Full payload builder ─────────────────────────────────────────────────────
@@ -754,6 +805,14 @@ export function buildAdSetPayload(
    * constrains which platform it can render on.
    */
   campaignPlacementConfig?: PlacementConfig,
+  /**
+   * When true, this ad set has an existing-post (boost) creative assigned —
+   * omit `destination_type` even for traffic/registration so Meta accepts
+   * the boost (subcode 1815676). Threaded from the draft's
+   * `creativeAssignments` via {@link adSetHasBoostCreative}; never inferred
+   * by re-fetching Meta.
+   */
+  hasBoostCreative?: boolean,
 ): MetaAdSetPayload {
   // Resolve the effective goal BEFORE mapping — corrects stale draft values
   // that are incompatible with the campaign objective (see resolveOptimisationGoal).
@@ -819,9 +878,14 @@ export function buildAdSetPayload(
   const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);
   if (promotedObject) payload.promoted_object = promotedObject;
 
-  // Explicit website destination for Traffic / registration — see
-  // resolveAdSetDestinationType. Omitted for awareness/engagement/purchase.
-  const destinationType = resolveAdSetDestinationType(objective, effectiveGoal);
+  // Explicit website destination for Traffic / registration — omitted when
+  // any assigned creative is an existing-post boost (task #132 / subcode
+  // 1815676). See resolveAdSetDestinationType.
+  const destinationType = resolveAdSetDestinationType(
+    objective,
+    effectiveGoal,
+    hasBoostCreative,
+  );
   if (destinationType) {
     payload.destination_type = destinationType;
   }

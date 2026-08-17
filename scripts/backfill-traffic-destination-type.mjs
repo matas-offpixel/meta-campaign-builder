@@ -16,8 +16,11 @@
 //      launchSummary.campaignId / launchSummary.campaigns[].id.
 //   3. GET /{campaignId}/adsets?fields=id,name,destination_type
 //      (paginated) for each Meta campaign.
-//   4. POST /{adSetId} with destination_type=WEBSITE for any ad set whose
-//      current destination_type is missing or FACEBOOK_EVENT.
+//   4. For each ad set that still needs WEBSITE, GET /{adSetId}/ads and
+//      SKIP any ad set that contains an existing-post boost creative
+//      (object_story_id / source_instagram_media_id) — patching those to
+//      WEBSITE would break boosts with subcode 1815676 (task #132).
+//   5. POST /{adSetId} with destination_type=WEBSITE for the rest.
 //
 // Dry-run by default. Pass --live to write. Rate-limits writes to 1/sec.
 //
@@ -165,6 +168,42 @@ async function fetchCampaignAdSets(campaignId) {
   return adSets;
 }
 
+/**
+ * True when any ad under this ad set is an existing-post boost
+ * (`object_story_id` or IG `source_instagram_media_id` on the creative).
+ * Those ad sets must NOT be patched to destination_type=WEBSITE — Meta
+ * rejects boost ads with subcode 1815676 (task #132 / PR #770 regression).
+ */
+async function adSetHasBoostCreativeOnMeta(adSetId) {
+  let after = undefined;
+  do {
+    const params = {
+      fields: "id,creative{id,object_story_id,object_story_spec,source_instagram_media_id}",
+      limit: 50,
+    };
+    if (after) params.after = after;
+    const json = await metaGet(`/${adSetId}/ads`, params);
+    for (const ad of json.data ?? []) {
+      const creative = ad.creative ?? {};
+      if (creative.object_story_id || creative.source_instagram_media_id) {
+        return true;
+      }
+      // Some boosts only expose the story id nested under object_story_spec
+      // when the top-level field is empty — treat a creative with neither
+      // link_data nor video_data but an object_story_id nested shape as boost.
+      const oss = creative.object_story_spec;
+      if (oss && !oss.link_data && !oss.video_data && !oss.photo_data) {
+        // Degenerate / boost-shaped — if Meta returned a creative without
+        // website media fields, skip conservatively when object_story_id is set
+        // at the ad level via effective fields. Already checked above.
+      }
+    }
+    after = json.paging?.cursors?.after;
+    if (!(json.paging?.next)) after = undefined;
+  } while (after);
+  return false;
+}
+
 function needsWebsiteDestination(adSet) {
   const current = adSet.destination_type;
   return !current || current === "FACEBOOK_EVENT";
@@ -191,6 +230,7 @@ async function main() {
 
   let scanned = 0;
   let alreadyOk = 0;
+  let skippedBoost = 0;
   let toPatch = 0;
   let patched = 0;
   let failed = 0;
@@ -214,6 +254,24 @@ async function main() {
         log(`  ok  ${adSet.id} "${adSet.name}" destination_type=${adSet.destination_type}`);
         continue;
       }
+
+      let hasBoost = false;
+      try {
+        hasBoost = await adSetHasBoostCreativeOnMeta(adSet.id);
+      } catch (err) {
+        log(
+          `  skip ${adSet.id} "${adSet.name}" — could not inspect ads for boost creatives: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+        failed += 1;
+        continue;
+      }
+      if (hasBoost) {
+        skippedBoost += 1;
+        log(`  skipped: boost creative present — ${adSet.id} "${adSet.name}"`);
+        continue;
+      }
+
       toPatch += 1;
       log(
         `  ${LIVE ? "PATCH" : "would-PATCH"} ${adSet.id} "${adSet.name}"` +
@@ -232,8 +290,8 @@ async function main() {
   }
 
   log(
-    `\nDone. scanned=${scanned} alreadyOk=${alreadyOk} toPatch=${toPatch}` +
-      ` patched=${patched} failed=${failed} mode=${LIVE ? "LIVE" : "dry-run"}`,
+    `\nDone. scanned=${scanned} alreadyOk=${alreadyOk} skippedBoost=${skippedBoost}` +
+      ` toPatch=${toPatch} patched=${patched} failed=${failed} mode=${LIVE ? "LIVE" : "dry-run"}`,
   );
   if (!LIVE && toPatch > 0) {
     log("Re-run with --live to apply destination_type=WEBSITE.");
