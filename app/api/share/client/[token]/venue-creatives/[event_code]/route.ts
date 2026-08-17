@@ -203,6 +203,11 @@ export async function GET(
       // would already fan six /ads requests; concurrency=1 keeps the
       // per-account rate budget predictable.
       concurrency: 1,
+      // Same as the internal twin: upgrade 64x64 asset-feed video
+      // posters via the Storage-cache-first thumbnail helper, so
+      // the client-facing strip matches what the operator sees.
+      enrichVideoThumbnails: true,
+      admin,
     });
 
     if (result.meta.campaigns_total === 0) {
