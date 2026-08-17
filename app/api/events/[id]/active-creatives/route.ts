@@ -13,6 +13,7 @@ import {
   type CustomDateRange,
   type DatePreset,
 } from "@/lib/insights/types";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * GET /api/events/[id]/active-creatives
@@ -183,8 +184,7 @@ export async function GET(
   }
 
   const eventCode = event.event_code?.trim() ?? "";
-  const adAccountIdRaw =
-    (event.client?.meta_ad_account_id as string | null | undefined) ?? null;
+  const adAccountIdRaw = resolveEventAdAccountId(event);
 
   if (!eventCode) {
     return NextResponse.json({
