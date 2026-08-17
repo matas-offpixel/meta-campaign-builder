@@ -1,6 +1,12 @@
 /**
- * Hydrate video metadata via Meta's batched `GET /?ids=...` endpoint.
+ * Hydrate video metadata for many video ids at once.
  * Cuts N video-metadata round-trips down to ceil(N / VIDEO_BATCH_SIZE) calls.
+ *
+ * The injected `fetcher` used to be `graphGetWithToken` against Meta's
+ * `GET /?ids=...` multi-read. Meta removed the `ids` query parameter in
+ * Graph API v26.0, so production now injects `graphMultiGetByIds`
+ * (Batch API under the hood, identical signature and identical
+ * id-keyed return shape). See lib/meta/graph-multi-get-parse.ts.
  * Falls back gracefully on per-batch errors so one bad video ID does not kill
  * the whole request — the parent caller receives undefined for those IDs.
  *

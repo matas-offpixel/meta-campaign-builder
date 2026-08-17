@@ -1,6 +1,10 @@
 import "server-only";
 
-import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
+import {
+  graphGetWithToken,
+  graphPostWithToken,
+  MetaApiError,
+} from "@/lib/meta/client";
 import {
   fetchThumbnailUrlsBatch,
   type VideoThumbnailCacheClient,
@@ -18,6 +22,11 @@ import {
   type CreativeRow,
 } from "@/lib/reporting/active-creatives-group";
 import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
+import {
+  buildMultiGetBatch,
+  parseMultiGetSubResponse,
+  type GraphBatchSubResponse,
+} from "@/lib/meta/graph-multi-get-parse";
 import { buildTimeParams } from "@/lib/insights/meta";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
@@ -835,6 +844,13 @@ const ADS_OUTER_RETRY_DELAY_MS = 500;
 const CREATIVE_BATCH_SIZE = 25;
 
 /**
+ * Pause before the single retry of a creative batch that came back
+ * with a transient rate-limit. Matches `ADS_OUTER_RETRY_DELAY_MS` —
+ * same "ride out the moment" posture at a different boundary.
+ */
+const CREATIVE_BATCH_RETRY_DELAY_MS = 500;
+
+/**
  * Field list pulled per creative in phase 2. Mirrors the bulky
  * subtree the old single-phase /ads call requested inline — same
  * fields, just reachable through the batched endpoint, which
@@ -901,12 +917,40 @@ const CREATIVE_BATCH_FIELDS = [
  * failure still surfaces because the very first batch throws and
  * the calling site's outer try/catch records it.
  *
+ * Transport: Meta's Batch API (`POST /` with a `batch` array),
+ * NOT the `GET /?ids=…&fields=…` multi-read this helper used
+ * until v26.0.
+ *
+ *   Meta removed the `ids` query parameter in Graph API v26.0.
+ *   Every batch started failing with
+ *   `meta_code=100 "The ids query parameter is deprecated in
+ *   v26.0+."`, which this helper's per-batch catch swallowed by
+ *   design — so hydration silently returned an EMPTY map on every
+ *   event. Downstream, each ad kept its phase-1 nulls, meaning no
+ *   `image_url`, no `video_id`, no `thumbnail_url`: the dashboard's
+ *   Top Creatives tiles rendered initials placeholders instead of
+ *   previews, and the `refresh-active-creatives` cron's AI
+ *   auto-tagger skipped every creative for want of a thumbnail
+ *   (`creativesSkippedNoThumbnail`). The failure looked like two
+ *   unrelated feature regressions; it was one dead transport.
+ *   Diagnosed from cron logs showing `creative_batch_done
+ *   hydrated=0 missing=44` on every event.
+ *
+ * The Batch API is the documented replacement and takes the same
+ * per-call ID budget, so `CREATIVE_BATCH_SIZE` chunking is
+ * unchanged. Its response is an ARRAY of sub-responses positionally
+ * matching the request array, each `{ code, body }` where `body` is
+ * a JSON *string* — so a sub-request can fail on its own (deleted
+ * creative, permissions) without failing the batch. We map by the
+ * `id` in each parsed body rather than by array position, so a
+ * sub-response for an ID Meta rewrote still lands on the right key.
+ *
  * Why a fresh helper rather than wrapping `graphGetWithToken`
- * directly: the batched endpoint returns an OBJECT keyed by ID
- * (not a paged array), so the existing `PagedResponse<T>` shape
- * doesn't fit. Keeping the deserialisation local makes the type
- * explicit and avoids leaking `Record<string, RawCreative>` into
- * the rest of the module.
+ * directly: the response shape is neither a paged array nor a
+ * keyed object, so the existing `PagedResponse<T>` shape doesn't
+ * fit. Keeping the deserialisation local makes the type explicit
+ * and avoids leaking the batch envelope into the rest of the
+ * module.
  */
 async function fetchCreativeBatch(
   creativeIds: readonly string[],
@@ -922,26 +966,45 @@ async function fetchCreativeBatch(
   for (let i = 0; i < unique.length; i += CREATIVE_BATCH_SIZE) {
     chunks.push(unique.slice(i, i + CREATIVE_BATCH_SIZE));
   }
-  type BatchResponse = Record<string, RawCreative>;
   const results = await Promise.all(
     chunks.map((batch, idx) =>
-      graphGetWithToken<BatchResponse>(
-        "",
-        { ids: batch.join(","), fields: CREATIVE_BATCH_FIELDS },
-        token,
+      // `graphPostWithToken` has no built-in retry, unlike the
+      // `graphGetWithToken` this call used to go through — so the
+      // transient-retry posture is restored explicitly here rather
+      // than silently dropped along with the old transport.
+      retryOnceOnTransient(
+        () =>
+          graphPostWithToken<GraphBatchSubResponse[]>(
+            "",
+            {
+              batch: buildMultiGetBatch(batch, CREATIVE_BATCH_FIELDS),
+              include_headers: false,
+            },
+            token,
+          ),
+        isTransientRateLimit,
+        CREATIVE_BATCH_RETRY_DELAY_MS,
       ).catch((err) => {
         const e = err as { code?: number; message?: string };
         console.warn(
           `[active-creatives] creative_batch_failed batch=${idx + 1}/${chunks.length} ids=${batch.length} meta_code=${e.code ?? "n/a"} message=${JSON.stringify(e.message ?? String(err))}`,
         );
-        return {} as BatchResponse;
+        return [] as GraphBatchSubResponse[];
       }),
     ),
   );
+  let subFailures = 0;
   for (const batchResult of results) {
-    for (const [id, creative] of Object.entries(batchResult)) {
-      if (id && creative) out.set(id, creative);
+    for (const sub of Array.isArray(batchResult) ? batchResult : []) {
+      const parsed = parseMultiGetSubResponse(sub);
+      if (parsed) out.set(parsed.id as string, parsed as RawCreative);
+      else subFailures += 1;
     }
+  }
+  if (subFailures > 0) {
+    console.warn(
+      `[active-creatives] creative_batch_sub_failures count=${subFailures} requested=${unique.length} hydrated=${out.size}`,
+    );
   }
   return out;
 }

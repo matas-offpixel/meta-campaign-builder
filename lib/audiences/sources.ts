@@ -14,6 +14,7 @@ import {
   graphGetWithToken,
   type RawMetaCampaign,
 } from "../meta/client.ts";
+import { graphMultiGetByIds } from "../meta/graph-multi-get.ts";
 import { fetchThumbnailUrl } from "../meta/video-thumbnail-cache.ts";
 import type { Database } from "../db/database.types.ts";
 
@@ -237,7 +238,8 @@ export async function fetchPagesByIds(
 
   let response: Record<string, RawPage>;
   try {
-    response = await graphGetWithToken<Record<string, RawPage>>(
+    // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
+    response = await graphMultiGetByIds<RawPage>(
       "",
       { ids: pageIds.join(","), fields },
       token,
@@ -359,8 +361,12 @@ function makeSemaphore(concurrency: number): <T>(fn: () => Promise<T>) => Promis
 
 /**
  * Bound wrapper around `batchFetchVideoMetadata` from the utility module,
- * supplying `graphGetWithToken` as the fetcher. Cuts N per-video Graph
+ * supplying `graphMultiGetByIds` as the fetcher. Cuts N per-video Graph
  * calls down to ceil(N/25) batched calls.
+ *
+ * Was `graphGetWithToken` until Meta removed the `ids=` multi-read in
+ * v26.0 — see lib/meta/graph-multi-get-parse.ts. The replacement is
+ * signature-compatible, so only this identifier changed.
  */
 async function batchFetchVideoMetadata(
   videoIds: readonly string[],
@@ -369,7 +375,7 @@ async function batchFetchVideoMetadata(
   return _batchFetchVideoMetadata(
     videoIds,
     token,
-    graphGetWithToken as (
+    graphMultiGetByIds as (
       path: string,
       params: Record<string, string>,
       token: string,
@@ -812,7 +818,8 @@ export async function hydrateVideoMetadataConcurrent(
 
   await runWithConcurrency(chunks, VIDEO_HYDRATE_CONCURRENCY, async (chunk): Promise<void> => {
     try {
-      const response = await graphGetWithToken<Record<string, RawVideo>>(
+      // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
+      const response = await graphMultiGetByIds<RawVideo>(
         "",
         { ids: chunk.join(","), fields: "id,picture,title,length,from" },
         token,

@@ -213,6 +213,14 @@ export async function GET(
       // single in-flight /ads call per card keeps us under Meta's
       // per-account rate budget even with four cards open.
       concurrency: 1,
+      // Upgrade the 64x64 asset-feed video posters to real
+      // thumbnails. `fetchThumbnailUrl` is Storage-cache-first
+      // (migration 068e, `video-thumb/` prefix), so on the warm
+      // path this costs one Storage read per video and zero Meta
+      // calls — the cron and the post-rollup-sync warm have
+      // usually already populated it.
+      enrichVideoThumbnails: true,
+      admin,
     });
 
     if (result.meta.campaigns_total === 0) {

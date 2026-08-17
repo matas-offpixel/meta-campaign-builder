@@ -9,6 +9,7 @@ import type {
   CampaignStatusReason,
 } from "@/lib/insights/campaign-status";
 import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
+import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
 import { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
 
@@ -224,8 +225,11 @@ export async function fetchEventCampaignInsights(
   const statuses = new Map<string, CampaignDisplayStatus>();
   if (matchedIds.length > 0) {
     try {
-      const res = await graphGetWithToken<{
-        data?: Array<{ id: string; effective_status?: string; status?: string }>;
+      // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
+      const res = await graphMultiGetByIds<{
+        id: string;
+        effective_status?: string;
+        status?: string;
       }>(
         `/`,
         {

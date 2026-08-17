@@ -896,9 +896,19 @@ export async function fetchAdSetGuardInfo(
   };
 
   try {
-    const res = token
-      ? await graphGetWithToken<Record<string, RawAdSetGuardRow>>("/", params, token)
-      : await graphGet<Record<string, RawAdSetGuardRow>>("/", params);
+    // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
+    // Dynamic import: graph-multi-get.ts imports this module, so a static
+    // import here would close a cycle.
+    const { graphMultiGetByIds } = await import("@/lib/meta/graph-multi-get");
+    const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+    if (!effectiveToken) {
+      throw new MetaApiError("META_ACCESS_TOKEN is not configured.");
+    }
+    const res = await graphMultiGetByIds<RawAdSetGuardRow>(
+      "/",
+      params,
+      effectiveToken,
+    );
 
     for (const id of uniqueIds) {
       const row = res[id];
@@ -972,9 +982,17 @@ export async function fetchCustomAudienceAvailability(
   };
 
   try {
-    const res = token
-      ? await graphGetWithToken<Record<string, RawCustomAudienceStatusRow>>("/", params, token)
-      : await graphGet<Record<string, RawCustomAudienceStatusRow>>("/", params);
+    // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
+    const { graphMultiGetByIds } = await import("@/lib/meta/graph-multi-get");
+    const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
+    if (!effectiveToken) {
+      throw new MetaApiError("META_ACCESS_TOKEN is not configured.");
+    }
+    const res = await graphMultiGetByIds<RawCustomAudienceStatusRow>(
+      "/",
+      params,
+      effectiveToken,
+    );
 
     return uniqueIds.map((id) => {
       const row = res[id];

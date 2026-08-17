@@ -29,6 +29,7 @@ import {
   type RefreshResult,
 } from "@/lib/reporting/active-creatives-refresh-runner";
 import { loadActiveCreativesCronEligibility } from "@/lib/dashboard/cron-eligibility";
+import { orderByStalestFirst } from "@/lib/dashboard/cron-rotation";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
 import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
@@ -88,6 +89,27 @@ import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
+/**
+ * Wall-clock budget for the whole run, in ms. Deliberately short of
+ * `maxDuration` so the route returns its own summary instead of
+ * being killed mid-event by the platform.
+ *
+ * Why this exists: the loop below walks every eligible event
+ * sequentially, ~4 Meta round trips each. At 131 eligible events
+ * that is far more than 800s of work, so every invocation was
+ * terminated with a 504 — no response body, no `cron_health` signal,
+ * and (because `active_creatives_snapshots` still looked fresh from
+ * manual dashboard refreshes) no staleness alarm either. The cron
+ * had been dead since late July before anyone noticed.
+ *
+ * A budget alone would just move the cliff, so it is paired with the
+ * least-recently-refreshed ordering in `orderByStalestFirst`: each
+ * run drains the oldest slice, so consecutive runs rotate through
+ * the whole eligible set instead of re-doing the same head of the
+ * list and never reaching the tail.
+ */
+const RUN_TIME_BUDGET_MS = 600_000;
+
 const AI_AUTOTAG_CONCURRENCY = 3;
 
 /**
@@ -132,6 +154,15 @@ interface CronResponse {
   cadence_tier: "base" | "burst";
   eventsConsidered: number;
   eventsProcessed: number;
+  /**
+   * Events that were eligible but never attempted because the run
+   * hit {@link RUN_TIME_BUDGET_MS}. Non-zero means the eligible set
+   * no longer fits one invocation — see the budget note above.
+   * NEVER omit this: a silently truncated run reads identically to
+   * a complete one, which is exactly how this cron 504'd unnoticed
+   * for three weeks.
+   */
+  eventsSkippedTimeBudget: number;
   totalPresetsRefreshed: number;
   results: EventRefreshSummary[];
 }
@@ -193,6 +224,42 @@ function isAuthorized(req: NextRequest): boolean {
 
 function isAutoTagEnabled(): boolean {
   return process.env.ENABLE_AI_AUTOTAG === "1";
+}
+
+/**
+ * Newest `fetched_at` per event across every preset. One row per
+ * (event, preset) exists, so we reduce to the max rather than
+ * assuming a single row.
+ */
+async function loadLastRefreshedAt(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  eventIds: readonly string[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (eventIds.length === 0) return out;
+  const { data, error } = await supabase
+    .from("active_creatives_snapshots")
+    .select("event_id, fetched_at")
+    .in("event_id", [...eventIds]);
+  if (error) {
+    // Non-fatal: without this the run still works, it just loses
+    // the rotation guarantee for this invocation.
+    console.warn(
+      `[cron refresh-active-creatives] stalest_first_lookup_failed: ${error.message}`,
+    );
+    return out;
+  }
+  for (const row of (data ?? []) as Array<{
+    event_id: string | null;
+    fetched_at: string | null;
+  }>) {
+    if (!row.event_id) continue;
+    const ms = row.fetched_at ? Date.parse(row.fetched_at) : NaN;
+    if (!Number.isFinite(ms)) continue;
+    const prev = out.get(row.event_id);
+    if (prev === undefined || ms > prev) out.set(row.event_id, ms);
+  }
+  return out;
 }
 
 function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
@@ -282,6 +349,7 @@ export async function GET(req: NextRequest) {
       cadence_tier: "base",
       eventsConsidered: 0,
       eventsProcessed: 0,
+      eventsSkippedTimeBudget: 0,
       totalPresetsRefreshed: 0,
       results: [],
     };
@@ -309,10 +377,17 @@ export async function GET(req: NextRequest) {
       { status: 500 },
     );
   }
-  const events = (rawEvents ?? []) as unknown as EventToRefresh[];
+  const unorderedEvents = (rawEvents ?? []) as unknown as EventToRefresh[];
+  const events = orderByStalestFirst(
+    unorderedEvents,
+    await loadLastRefreshedAt(
+      supabase,
+      unorderedEvents.map((e) => e.id),
+    ),
+  );
 
   console.log(
-    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO} time_budget_ms=${RUN_TIME_BUDGET_MS}`,
   );
 
   const results: EventRefreshSummary[] = [];
@@ -332,7 +407,17 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  for (const event of events) {
+  const runStartedMs = Date.now();
+  let eventsSkippedTimeBudget = 0;
+
+  for (const [index, event] of events.entries()) {
+    if (Date.now() - runStartedMs >= RUN_TIME_BUDGET_MS) {
+      eventsSkippedTimeBudget = events.length - index;
+      console.warn(
+        `[cron refresh-active-creatives] time_budget_reached processed=${index} skipped=${eventsSkippedTimeBudget} of=${events.length} — remaining events roll to the next run (stalest-first ordering means they lead it)`,
+      );
+      break;
+    }
     const t0 = Date.now();
     const aiAutoTag = createAutoTagSummary(autoTagEnabled);
     try {
@@ -419,12 +504,13 @@ export async function GET(req: NextRequest) {
     cadence_tier: "base",
     eventsConsidered: events.length,
     eventsProcessed: results.length,
+    eventsSkippedTimeBudget,
     totalPresetsRefreshed,
     results,
   };
 
   console.log(
-    `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed}`,
+    `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed} skipped_time_budget=${eventsSkippedTimeBudget} elapsed_ms=${Date.now() - runStartedMs}`,
   );
 
   if (autoTagEnabled) {
