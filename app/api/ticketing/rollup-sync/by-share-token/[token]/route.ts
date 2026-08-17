@@ -6,6 +6,7 @@ import {
   isEventScopedShare,
   resolveShareByToken,
 } from "@/lib/db/report-shares";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * POST /api/ticketing/rollup-sync/by-share-token/[token]
@@ -100,7 +101,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
+      "id, user_id, event_code, event_timezone, event_date, client_id, tiktok_account_id, google_ads_account_id, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -142,9 +143,11 @@ export async function POST(
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null }[]
     | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second. Shares the runner
+  // with /api/ticketing/rollup-sync, so without this a client hitting
+  // Refresh on a share link would re-sync an overridden venue against
+  // the client account and re-zero its rollups.
+  const adAccountId = resolveEventAdAccountId(event);
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
