@@ -27,18 +27,22 @@
  * Required env vars (server-only):
  *   FACEBOOK_APP_ID      — numeric Facebook app id
  *   FACEBOOK_APP_SECRET  — Facebook app secret (keep this server-only)
+ *
+ * Optional env vars (server-only):
+ *   FACEBOOK_OAUTH_SCOPES — comma-separated scope list; overrides the default.
+ *     Set on deployments whose Meta app cannot request instagram_basic
+ *     (newly-created apps; the legacy app is grandfathered).
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@/lib/supabase/server";
 
-// Single source of truth for the scopes we request.
-// Must match what is approved in the Meta app and what
-// /auth/facebook-callback and the rest of the app expect.
-const FB_SCOPES =
-  "pages_show_list,pages_read_engagement,ads_management,ads_read," +
-  "instagram_basic,business_management";
+// Default scopes for the legacy Meta app (grandfathered for instagram_basic).
+// Override via FACEBOOK_OAUTH_SCOPES on deployments whose Meta app rejects it.
+const DEFAULT_FB_SCOPES =
+  "pages_show_list,pages_read_engagement,ads_management,ads_read,instagram_basic,business_management";
+const FB_SCOPES = process.env.FACEBOOK_OAUTH_SCOPES?.trim() || DEFAULT_FB_SCOPES;
 
 const COOKIE_MAX_AGE = 10 * 60; // 10 minutes — enough for the round-trip
 
