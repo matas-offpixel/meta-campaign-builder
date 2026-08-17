@@ -16,6 +16,7 @@ import {
   createClient,
   createServiceRoleClient,
 } from "@/lib/supabase/server";
+import { resolveVenueAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * GET /api/internal/clients/[clientId]/venue-creatives/[event_code]
@@ -150,7 +151,7 @@ export async function GET(
   // scoped by ad account, but cheaper to fail here than round-trip).
   const { data: eventExists, error: eventErr } = await supabase
     .from("events")
-    .select("id")
+    .select("id, meta_ad_account_id")
     .eq("client_id", clientId)
     .eq("event_code", eventCodeRaw)
     .limit(1)
@@ -168,7 +169,11 @@ export async function GET(
     );
   }
 
-  const adAccountId = clientRow.meta_ad_account_id ?? null;
+  // Per-event override wins over the client default.
+  const adAccountId = resolveVenueAdAccountId(
+    [eventExists],
+    clientRow.meta_ad_account_id ?? null,
+  );
   if (!adAccountId) {
     return NextResponse.json(
       { ok: true, groups: [], meta: emptyMeta() },

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * POST /api/events/[id]/rollup/sync
@@ -56,7 +57,7 @@ export async function POST(
   const { data: rawEvent, error: eventErr } = await sb
     .from("events")
     .select(
-      "id, user_id, client_id, kind, event_code, event_timezone, event_date, event_start_at, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, meta_campaign_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
+      "id, user_id, client_id, kind, event_code, event_timezone, event_date, event_start_at, general_sale_at, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, meta_campaign_id, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -86,7 +87,8 @@ export async function POST(
 
   // Resolve client-level account IDs from the joined clients row.
   const clientRel = Array.isArray(ev.client) ? ev.client[0] : ev.client;
-  const adAccountId: string | null = clientRel?.meta_ad_account_id ?? null;
+  // Per-event override wins over the client default.
+  const adAccountId: string | null = resolveEventAdAccountId(ev);
   const clientTikTokAccountId: string | null =
     clientRel?.tiktok_account_id ?? null;
   const clientGoogleAdsAccountId: string | null =

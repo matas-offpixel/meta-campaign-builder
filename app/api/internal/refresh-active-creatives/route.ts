@@ -8,6 +8,7 @@ import {
 } from "@/lib/db/active-creatives-snapshots";
 import { refreshActiveCreativesForEvent } from "@/lib/reporting/active-creatives-refresh-runner";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * POST /api/internal/refresh-active-creatives
@@ -193,7 +194,7 @@ export async function POST(req: NextRequest) {
   const { data: rawEvent, error: eventErr } = await admin
     .from("events")
     .select(
-      "id, user_id, event_code, event_date, client:clients ( meta_ad_account_id )",
+      "id, user_id, event_code, event_date, meta_ad_account_id, client:clients ( meta_ad_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -285,9 +286,8 @@ export async function POST(req: NextRequest) {
   }
 
   const clientRel = event.client;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second.
+  const adAccountId = resolveEventAdAccountId(event);
 
   const eventDate = event.event_date ? new Date(event.event_date) : null;
 

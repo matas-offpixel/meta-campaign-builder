@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { listCampaignsForEvent } from "@/lib/insights/meta";
 import { withActPrefix } from "@/lib/meta/ad-account-id";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * POST /api/events/[id]/meta/resolve-campaign-id
@@ -60,7 +61,7 @@ export async function POST(
   const { data: eventRow, error: eventError } = await sb
     .from("events")
     .select(
-      "id, user_id, event_code, meta_campaign_id, client:clients ( meta_ad_account_id )",
+      "id, user_id, event_code, meta_campaign_id, meta_ad_account_id, client:clients ( meta_ad_account_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -96,8 +97,8 @@ export async function POST(
     );
   }
 
-  const clientRel = Array.isArray(ev.client) ? ev.client[0] : ev.client;
-  const adAccountId: string | null = clientRel?.meta_ad_account_id ?? null;
+  // Per-event override first, client default second.
+  const adAccountId: string | null = resolveEventAdAccountId(ev);
   if (!adAccountId?.trim()) {
     return NextResponse.json(
       { ok: false, error: "Client has no Meta ad account linked." },
