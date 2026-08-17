@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
 import { syncMailchimpAudienceDailyHistory } from "@/lib/mailchimp/sync";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 
 /**
  * POST /api/events/[id]/backfill-rollups
@@ -53,7 +54,7 @@ export async function POST(
   const { data: event, error: eventErr } = await supabase
     .from("events")
     .select(
-      "id, user_id, kind, event_code, event_timezone, event_date, event_start_at, client_id, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
+      "id, user_id, kind, event_code, event_timezone, event_date, event_start_at, client_id, mailchimp_audience_id, tiktok_account_id, google_ads_account_id, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_account_id, mailchimp_audience_id )",
     )
     .eq("id", eventId)
     .maybeSingle();
@@ -92,9 +93,8 @@ export async function POST(
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_account_id: string | null; mailchimp_audience_id: string | null }
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_account_id: string | null; mailchimp_audience_id: string | null }[]
     | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second.
+  const adAccountId = resolveEventAdAccountId(event);
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);

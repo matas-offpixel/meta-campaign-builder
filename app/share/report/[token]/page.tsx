@@ -78,6 +78,7 @@ import {
   fetchGoogleAdsShareExtras,
 } from "@/lib/google-ads/insights";
 import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
 import type { CampaignInsightsRow } from "@/lib/reporting/event-insights";
 import { listCreativeTagAssignments } from "@/lib/db/creative-tags";
 import {
@@ -275,7 +276,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, mailchimp_tag, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, mailchimp_tag, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -312,9 +313,8 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_audience_id?: string | null }
     | { meta_ad_account_id: string | null; tiktok_account_id: string | null; google_ads_account_id: string | null; mailchimp_audience_id?: string | null }[]
     | null;
-  const adAccountId = Array.isArray(clientRel)
-    ? (clientRel[0]?.meta_ad_account_id ?? null)
-    : (clientRel?.meta_ad_account_id ?? null);
+  // Per-event override first, client default second.
+  const adAccountId = resolveEventAdAccountId(eventRow.data);
   const clientTikTokAccountId = Array.isArray(clientRel)
     ? (clientRel[0]?.tiktok_account_id ?? null)
     : (clientRel?.tiktok_account_id ?? null);
