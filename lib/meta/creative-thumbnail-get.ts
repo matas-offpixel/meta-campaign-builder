@@ -156,6 +156,11 @@ export async function handleCreativeThumbnailGet(
       }
     }
     ownerUserId = share.user_id;
+    // Share with no client has no configured ad accounts — same placeholder
+    // path the old code hit via a null meta_ad_account_id.
+    if (share.client_id == null) {
+      return placeholderResponse(fallbackLabel);
+    }
     clientId = share.client_id;
   } else {
     if (!clientIdParam) {
