@@ -12,11 +12,12 @@ import type { PlacementConfig } from "../../types.ts";
  *
  * PR #751 shipped `FB Feed + IG Feed only` as that seed. Wrong per operator
  * ask (2026-08-07): FB Reels/Story/Marketplace underperform for electronic
- * music campaigns, while IG's Reels/Story/Explore are strong placements
- * that shouldn't be excluded by default. Corrected shape:
+ * music campaigns, while IG's Reels/Story/(ex-Explore)/Search are strong
+ * placements that shouldn't be excluded by default. Corrected shape:
  *   - Facebook: Feed ONLY
- *   - Instagram: ALL placements (stream, story, explore, reels, ig_search,
- *     explore_home)
+ *   - Instagram: ALL non-deprecated placements (stream, story, reels,
+ *     ig_search) — Explore / Explore Home removed 2026-08-18 after Meta
+ *     rejected them (code=100 subcode=2490589)
  *   - Audience Network / Messenger: still OFF (operator opts in explicitly)
  *   - Device: both mobile + desktop (unchanged — Meta's default when the
  *     field is omitted)
@@ -42,8 +43,10 @@ describe("Step 5 Placements: MANUAL_PLACEMENT_DEFAULTS seed (post-#751 correctio
     assert.match(body, /facebookPositions:\s*\["feed"\]/);
     assert.match(
       body,
-      /instagramPositions:\s*\["stream",\s*"story",\s*"explore",\s*"reels",\s*"ig_search",\s*"explore_home"\]/,
+      /instagramPositions:\s*\["stream",\s*"story",\s*"reels",\s*"ig_search"\]/,
     );
+    assert.doesNotMatch(body, /"explore"/);
+    assert.doesNotMatch(body, /"explore_home"/);
 
     // Audience Network / Messenger must stay opt-in: no audienceNetworkPositions
     // key, and "audience_network" / "messenger" absent from publisherPlatforms.
@@ -57,7 +60,7 @@ describe("Step 5 Placements: MANUAL_PLACEMENT_DEFAULTS seed (post-#751 correctio
       mode: "manual",
       publisherPlatforms: ["facebook", "instagram"],
       facebookPositions: ["feed"],
-      instagramPositions: ["stream", "story", "explore", "reels", "ig_search", "explore_home"],
+      instagramPositions: ["stream", "story", "reels", "ig_search"],
     };
 
     const targeting = buildPlacementConfigTargeting(manualDefault);
@@ -67,10 +70,8 @@ describe("Step 5 Placements: MANUAL_PLACEMENT_DEFAULTS seed (post-#751 correctio
     assert.deepEqual(targeting!.instagram_positions, [
       "stream",
       "story",
-      "explore",
       "reels",
       "ig_search",
-      "explore_home",
     ]);
     assert.equal(targeting!.audience_network_positions, undefined);
     // devicePlatforms is left unset in the seed on purpose — Meta already

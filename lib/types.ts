@@ -624,9 +624,11 @@ export type FacebookPlacementPosition =
 export type InstagramPlacementPosition =
   | "stream" // IG Feed
   | "story"
+  /** @deprecated Meta rejected for this API version as of 2026-08-18 (code=100 subcode=2490589). Kept so old drafts still parse; stripped at launch by `buildPlacementConfigTargeting`. */
   | "explore"
   | "reels"
   | "ig_search"
+  /** @deprecated See `explore` — same Meta deprecation. */
   | "explore_home";
 
 export type AudienceNetworkPlacementPosition = "classic" | "rewarded_video";

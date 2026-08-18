@@ -20,9 +20,21 @@
  * testable offline.
  */
 
-import type { PlacementConfig } from "@/lib/types";
+import type { InstagramPlacementPosition, PlacementConfig } from "@/lib/types";
 
 export const DEFAULT_PLACEMENT_CONFIG: PlacementConfig = { mode: "advantage_plus" };
+
+/**
+ * Instagram positions Meta rejects for this API version (2026-08-18,
+ * IRW0001 Jamie Jones launch — code=100 subcode=2490589
+ * "IG Explore placement is deprecated … and cannot be selected").
+ * Stripped in {@link buildPlacementConfigTargeting} so saved drafts /
+ * localStorage autosaves that still carry them cannot brick launches.
+ */
+const DEPRECATED_IG_POSITIONS = new Set<InstagramPlacementPosition>([
+  "explore",
+  "explore_home",
+]);
 
 /**
  * Resolve which `PlacementConfig` applies to a given ad set.
@@ -70,7 +82,14 @@ export function buildPlacementConfigTargeting(
     result.facebook_positions = [...effective.facebookPositions!];
   }
   if (platforms.includes("instagram") && (effective.instagramPositions?.length ?? 0) > 0) {
-    result.instagram_positions = [...effective.instagramPositions!];
+    const igPositions = effective.instagramPositions!.filter(
+      (p) => !DEPRECATED_IG_POSITIONS.has(p),
+    );
+    // Same empty-check semantics as before: if filtering leaves nothing,
+    // omit the field rather than send an empty array Meta would reject.
+    if (igPositions.length > 0) {
+      result.instagram_positions = igPositions;
+    }
   }
   if (
     platforms.includes("audience_network") &&

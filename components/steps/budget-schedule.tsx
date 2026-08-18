@@ -714,10 +714,8 @@ const IG_PRIMARY_POSITIONS: { value: InstagramPlacementPosition; label: string }
   { value: "stream", label: "Feed" },
   { value: "reels", label: "Reels" },
   { value: "story", label: "Story" },
-  { value: "explore", label: "Explore" },
 ];
 const IG_ADVANCED_POSITIONS: { value: InstagramPlacementPosition; label: string }[] = [
-  { value: "explore_home", label: "Explore Home" },
   { value: "ig_search", label: "Search" },
 ];
 const AN_POSITIONS: { value: AudienceNetworkPlacementPosition; label: string }[] = [
@@ -729,12 +727,18 @@ const AN_POSITIONS: { value: AudienceNetworkPlacementPosition; label: string }[]
  * Manual-mode starting point when the operator first switches away from
  * Advantage+.
  *
- * Facebook: Feed ONLY. Instagram: ALL placements. Not symmetric on purpose —
- * FB Reels/Story/Marketplace underperform for electronic music campaigns,
- * while IG's Reels/Story/Explore are strong placements that shouldn't be
- * excluded by default (2026-08-07 correction to the initial FB-Feed-only /
- * IG-Feed-only seed shipped in PR #751 — that default was FB Feed + IG Feed
- * ONLY, wrong per operator ask).
+ * Facebook: Feed ONLY. Instagram: ALL (non-deprecated) placements. Not
+ * symmetric on purpose — FB Reels/Story/Marketplace underperform for
+ * electronic music campaigns, while IG's Reels/Story/Search are strong
+ * placements that shouldn't be excluded by default (2026-08-07 correction
+ * to the initial FB-Feed-only / IG-Feed-only seed shipped in PR #751 —
+ * that default was FB Feed + IG Feed ONLY, wrong per operator ask).
+ *
+ * Explore / Explore Home were part of that "all IG" seed until Meta
+ * deprecated them for this API version (2026-08-18, IRW0001 Jamie Jones
+ * launch — code=100 subcode=2490589). Kept out of the seed here; the
+ * load-bearing strip for saved drafts still carrying them lives in
+ * `buildPlacementConfigTargeting`.
  *
  * Audience Network / Messenger stay OFF (operator opts in explicitly via
  * "Show advanced placements"). devicePlatforms is left unset here —
@@ -745,7 +749,7 @@ const MANUAL_PLACEMENT_DEFAULTS: PlacementConfig = {
   mode: "manual",
   publisherPlatforms: ["facebook", "instagram"],
   facebookPositions: ["feed"],
-  instagramPositions: ["stream", "story", "explore", "reels", "ig_search", "explore_home"],
+  instagramPositions: ["stream", "story", "reels", "ig_search"],
 };
 
 function PlacementPicker({
