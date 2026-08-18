@@ -39,6 +39,10 @@ export interface MetaFetchState<T> {
   data: T[];
   loading: boolean;
   error: string | null;
+  /** True when /api/meta/ad-accounts served last-known-good cache. */
+  stale?: boolean;
+  /** ISO timestamp of the cached row when `stale` is true. */
+  staleAsOf?: string | null;
 }
 
 type IGWithPage = MetaInstagramAccount & { linkedPageId: string };
@@ -166,25 +170,65 @@ export function useFetchAdAccounts(): MetaFetchState<MetaAdAccount> {
     data: cached ?? [],
     loading: cached === null,
     error: null,
+    stale: false,
+    staleAsOf: null,
   });
 
   useEffect(() => {
     let cancelled = false;
 
-    apiFetch<MetaAdAccount>("/api/meta/ad-accounts")
-      .then((data) => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/meta/ad-accounts");
+        const json = (await res.json()) as {
+          data?: MetaAdAccount[];
+          error?: string;
+          code?: number;
+          type?: string;
+          tokenSource?: string;
+          stale?: boolean;
+          staleAsOf?: string;
+        };
+
+        if (json.tokenSource) {
+          console.info(
+            `[apiFetch] /api/meta/ad-accounts tokenSource=${json.tokenSource}`,
+          );
+        }
+
+        if (!res.ok || json.error) {
+          const errMsg = json.error ?? `HTTP ${res.status}`;
+          if (isFacebookTokenExpiredError(errMsg) || json.code === 190) {
+            setFbTokenExpiredGlobal(true);
+          }
+          throw new Error(errMsg);
+        }
+
+        const data = json.data ?? [];
         if (!cancelled) {
           _adAccountsCache = data;
-          setState({ data, loading: false, error: null });
+          setState({
+            data,
+            loading: false,
+            error: null,
+            stale: json.stale === true,
+            staleAsOf: json.staleAsOf ?? null,
+          });
         }
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (!cancelled) {
           const msg =
             err instanceof Error ? err.message : "Failed to load ad accounts";
-          setState({ data: _adAccountsCache ?? [], loading: false, error: msg });
+          setState({
+            data: _adAccountsCache ?? [],
+            loading: false,
+            error: msg,
+            stale: false,
+            staleAsOf: null,
+          });
         }
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;

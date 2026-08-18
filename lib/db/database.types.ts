@@ -4993,6 +4993,24 @@ export type Database = {
           },
         ]
       }
+      user_ad_account_list_cache: {
+        Row: {
+          accounts: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accounts: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accounts?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_facebook_tokens: {
         Row: {
           expires_at: string | null

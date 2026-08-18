@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2, Info } from "lucide-react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -333,6 +333,19 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             error={facebookConnectionIssue ? null : accounts.error}
             count={facebookConnectionIssue ? 0 : accounts.data.length}
           />
+          {accounts.stale && !accounts.loading && accounts.data.length > 0 && (
+            <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Showing your last-loaded account list — Meta is rate-limiting
+                the live lookup
+                {accounts.staleAsOf
+                  ? ` (as of ${new Date(accounts.staleAsOf).toLocaleString()})`
+                  : ""}
+                .
+              </span>
+            </p>
+          )}
           {settings.metaAdAccountId && (
             <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
               {settings.metaAdAccountId}
