@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
+import { adAccountUnavailableLabel } from "@/lib/meta/fetch-ad-accounts";
 import { Sparkles } from "lucide-react";
 
 // ─── Inline spinner ───────────────────────────────────────────────────────────
@@ -117,14 +118,16 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
       "| Meta accounts loaded:", accounts.data.map((a) => a.id).join(", "),
     );
 
+    const selectableAccounts = accounts.data.filter((a) => !a.unavailableReason);
+
     const isStoredAccountValid = storedId
-      ? accounts.data.some((a) => a.id === storedId)
+      ? selectableAccounts.some((a) => a.id === storedId)
       : false;
 
     if (!isStoredAccountValid) {
-      if (accounts.data.length === 1) {
-        // Auto-select the only available account
-        const only = accounts.data[0];
+      if (selectableAccounts.length === 1) {
+        // Auto-select the only available (non-rate-limited) account
+        const only = selectableAccounts[0];
         console.log("[AccountSetup] Stale/missing account — auto-selecting:", only.id);
         update({
           adAccountId: only.id,
@@ -149,13 +152,18 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
-  // True only once accounts have loaded and the stored ID isn't in the list
+  // True once accounts have loaded and the stored ID isn't selectable
+  // (missing entirely, or present but rate-limited / enrich-failed).
   const storedId = settings.metaAdAccountId || settings.adAccountId;
+  const selectableAccounts = accounts.data.filter((a) => !a.unavailableReason);
+  const storedAccount = storedId
+    ? accounts.data.find((a) => a.id === storedId)
+    : undefined;
   const isStaleAccount =
     !accounts.loading &&
     accounts.data.length > 0 &&
     !!storedId &&
-    !accounts.data.some((a) => a.id === storedId);
+    (!storedAccount || !!storedAccount.unavailableReason);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -263,22 +271,27 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
           <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning-foreground">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <div className="flex-1 space-y-1">
-              <p className="font-medium">Stale ad account</p>
+              <p className="font-medium">
+                {storedAccount?.unavailableReason === "rate_limited"
+                  ? "Ad account rate-limited"
+                  : "Stale ad account"}
+              </p>
               <p className="text-xs text-muted-foreground">
                 This draft was saved with account{" "}
                 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                   {storedId}
                 </code>{" "}
-                which is not accessible under your current Meta token. Please
-                select the correct account below.
+                {storedAccount?.unavailableReason === "rate_limited"
+                  ? "which Meta is currently rate-limiting. Pick another account below, or try again later."
+                  : "which is not accessible under your current Meta token. Please select the correct account below."}
               </p>
             </div>
             <Button
               variant="outline"
               size="sm"
               className="shrink-0 gap-1.5"
-              onClick={() => handleAccountChange(accounts.data[0]?.id ?? "")}
-              disabled={accounts.data.length === 0}
+              onClick={() => handleAccountChange(selectableAccounts[0]?.id ?? "")}
+              disabled={selectableAccounts.length === 0}
             >
               <RefreshCw className="h-3 w-3" />
               Use first available
@@ -300,12 +313,18 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             loading={accounts.loading && accounts.data.length === 0}
             disabled={facebookConnectionIssue || (accounts.data.length === 0 && !accounts.loading)}
             emptyText="No ad accounts found"
-            options={accounts.data.map((a) => ({
-              value: a.id,
-              label: a.name,
-              sublabel: `${a.id} · ${a.currency} · ${accountStatusLabel(a.account_status)}`,
-              dimmed: a.account_status !== 1,
-            }))}
+            options={accounts.data.map((a) => {
+              const unavailable = adAccountUnavailableLabel(a);
+              return {
+                value: a.id,
+                label: a.name,
+                sublabel: unavailable
+                  ? unavailable
+                  : `${a.id} · ${a.currency} · ${accountStatusLabel(a.account_status)}`,
+                dimmed: a.account_status !== 1 || !!unavailable,
+                disabled: !!unavailable,
+              };
+            })}
           />
           <FieldStatus
             loading={accounts.loading && accounts.data.length === 0}

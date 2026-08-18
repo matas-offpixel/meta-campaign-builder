@@ -361,11 +361,21 @@ function CreativeHeatmapInner({
             disabled={adAccountsLoading}
             loading={adAccountsLoading}
             emptyText="No ad accounts match"
-            options={adAccounts.map((a) => ({
-              value: a.id,
-              label: `${a.name} (${a.currency})`,
-              sublabel: a.id,
-            }))}
+            options={adAccounts.map((a) => {
+              const unavailable =
+                a.unavailableReason === "rate_limited"
+                  ? "rate limited — try later"
+                  : a.unavailableReason
+                    ? "unavailable — try later"
+                    : null;
+              return {
+                value: a.id,
+                label: `${a.name} (${a.currency})`,
+                sublabel: unavailable ?? a.id,
+                disabled: !!unavailable,
+                dimmed: !!unavailable,
+              };
+            })}
           />
           <Select
             label="Status"
