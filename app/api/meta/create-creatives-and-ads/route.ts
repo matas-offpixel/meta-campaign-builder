@@ -23,6 +23,10 @@ import {
 } from "@/lib/meta/creative";
 import type { AdCreativeDraft, AdSetSuggestion } from "@/lib/types";
 
+// Same ceiling as /api/meta/launch-campaign — this route can create many
+// creatives × ad-set ads in one invocation. Pro + fluid compute allows 800s.
+export const maxDuration = 800;
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const supabase = await createClient();
