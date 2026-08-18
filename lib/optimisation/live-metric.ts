@@ -86,11 +86,20 @@ export function resolvePrimaryLiveMetric(
   return null;
 }
 
-/** Maps a rule's `RuleTimeWindow` to Meta's `date_preset` query param. */
-export function windowToDatePreset(window: RuleTimeWindow): "last_1d" | "last_3d" | "last_7d" {
+/**
+ * Maps a rule's `RuleTimeWindow` to Meta's `date_preset` query param.
+ *
+ * `"24h"` → `"yesterday"` (not `"last_1d"` — Meta rejects that; incident
+ * 2026-08-18, task #120 shadow cron silent failure). A complete prior day
+ * avoids partial-day noise that `"today"` would introduce on early-morning
+ * ticks.
+ */
+export function windowToDatePreset(
+  window: RuleTimeWindow,
+): "yesterday" | "last_3d" | "last_7d" {
   switch (window) {
     case "24h":
-      return "last_1d";
+      return "yesterday";
     case "3d":
       return "last_3d";
     case "7d":

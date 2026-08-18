@@ -38,6 +38,7 @@ import type {
   RuleTimeWindow,
 } from "../types.ts";
 import { OBJECTIVE_METRIC_PRIORITY } from "../optimisation-rules.ts";
+import { DEFAULT_DEDUPE_WINDOW_MS, type NotifyOptions, type NotifyResult } from "../notify/slack.ts";
 import { evaluateAdSet, type AutomationAction, type GuardrailNote } from "./evaluate.ts";
 import { resolvePrimaryLiveMetric } from "./live-metric.ts";
 import type { AdSetInsightRow } from "./insights-fetch.ts";
@@ -75,6 +76,13 @@ export interface OptimisationTickDeps {
   hasRecentDecision: (adsetId: string, sinceISO: string) => Promise<boolean>;
   insertDecision: (row: DecisionToInsert) => Promise<void>;
   fetchInsights: (campaignId: string, window: RuleTimeWindow) => Promise<AdSetInsightRow[]>;
+  /**
+   * Slack notify seam — fired when a single campaign evaluation throws so
+   * silent per-campaign failures (e.g. invalid Meta date_preset) surface in
+   * `#ads_automation` within 24h instead of only in Vercel logs. Killswitches
+   * inside `notify()` still gate delivery.
+   */
+  notify: (opts: NotifyOptions) => Promise<NotifyResult>;
   now?: Date;
   /** Recent-decision lookback in hours. Defaults to 24 (loop-prevention window). */
   lookbackHours?: number;
@@ -163,6 +171,15 @@ export async function runOptimisationTick(
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[optimisation-tick] campaign=${campaign.campaignId} threw: ${message}`);
       summary.campaignsErrored.push({ campaignId: campaign.campaignId, error: message });
+      // Visibility: don't let a repeating per-campaign throw run silent for
+      // days (2026-08-07→18 last_1d / date_preset incident). notify() fails
+      // open — a Slack/dedupe miss must never break the tick loop.
+      await deps.notify({
+        channel: "ads_automation",
+        text: `optimisation-tick campaign=${campaign.campaignId} (draft=${campaign.draftId}) threw: ${message}`,
+        dedupeKey: `optimisation_tick_error:${campaign.campaignId}`,
+        dedupeWindowMs: DEFAULT_DEDUPE_WINDOW_MS,
+      });
     }
   }
 
