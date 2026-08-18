@@ -139,6 +139,11 @@ export function isPublicPath(
   if (pathname === "/api/admin/event-presale-backfill") return true;
   // `/api/internal/scan-enhancement-flags` — Vercel Cron + Bearer CRON_SECRET only.
   if (pathname === "/api/internal/scan-enhancement-flags") return true;
+  // `/api/internal/refresh-active-creatives` — dual-auth (Bearer CRON_SECRET or
+  // session) enforced in the handler via isCronAuthorized. Without this carve-
+  // out the proxy 307s bearer-only curls to /login before the handler runs
+  // (same failure mode as PR #407/#470/#479).
+  if (pathname === "/api/internal/refresh-active-creatives") return true;
   // Per-venue Meta daily-budget reader. The route's own `authorizeRequest`
   // (app/api/clients/[id]/venues/[event_code]/daily-budget/route.ts) accepts
   // either a Supabase session OR a `client_token` query param that it
