@@ -128,6 +128,27 @@ describe("buildPlacementConfigTargeting", () => {
     result!.publisher_platforms.push("instagram");
     assert.deepEqual(config.publisherPlatforms, ["facebook"], "original config must be untouched");
   });
+
+  it("strips deprecated IG Explore / Explore Home so saved drafts cannot brick launches (2026-08-18)", () => {
+    const result = buildPlacementConfigTargeting({
+      mode: "manual",
+      publisherPlatforms: ["facebook", "instagram"],
+      facebookPositions: ["feed"],
+      instagramPositions: ["stream", "story", "explore", "reels", "ig_search", "explore_home"],
+    });
+    assert.deepEqual(result?.instagram_positions, ["stream", "story", "reels", "ig_search"]);
+  });
+
+  it("omits instagram_positions entirely when filtering leaves only deprecated Explore positions", () => {
+    const result = buildPlacementConfigTargeting({
+      mode: "manual",
+      publisherPlatforms: ["instagram"],
+      instagramPositions: ["explore", "explore_home"],
+    });
+    assert.ok(result);
+    assert.deepEqual(result!.publisher_platforms, ["instagram"]);
+    assert.ok(!("instagram_positions" in result!));
+  });
 });
 
 // ─── summarisePlacementConfig ──────────────────────────────────────────────
