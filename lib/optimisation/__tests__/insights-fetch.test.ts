@@ -56,7 +56,7 @@ describe("fetchCampaignAdSetInsights", () => {
     });
 
     assert.equal(calls[0].path, "/camp_1/adsets");
-    assert.match(calls[0].params.fields, /insights\.date_preset\(last_1d\)/);
+    assert.match(calls[0].params.fields, /insights\.date_preset\(yesterday\)/);
   });
 
   it("maps every RuleTimeWindow to the right date_preset", async () => {
@@ -69,7 +69,7 @@ describe("fetchCampaignAdSetInsights", () => {
     await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "24h");
     await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "3d");
     await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "7d");
-    assert.deepEqual(seenPresets, ["last_1d", "last_3d", "last_7d"]);
+    assert.deepEqual(seenPresets, ["yesterday", "last_3d", "last_7d"]);
   });
 
   it("handles an ad set with no daily_budget (CBO) as null, not 0", async () => {

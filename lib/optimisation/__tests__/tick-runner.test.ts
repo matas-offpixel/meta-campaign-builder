@@ -15,6 +15,8 @@ import { describe, it } from "node:test";
 import { runOptimisationTick, type CampaignAutomationInput, type DecisionToInsert, type OptimisationTickDeps } from "../tick-runner.ts";
 import type { AdSetInsightRow } from "../insights-fetch.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
+import type { NotifyOptions } from "../../notify/slack.ts";
+import { DEFAULT_DEDUPE_WINDOW_MS } from "../../notify/slack.ts";
 
 function tid(): string {
   return Math.random().toString(36).slice(2);
@@ -71,6 +73,7 @@ function makeDeps(overrides: Partial<OptimisationTickDeps> = {}): OptimisationTi
     hasRecentDecision: async () => false,
     insertDecision: async () => {},
     fetchInsights: async () => [insightRow()],
+    notify: async () => ({ sent: true }),
     now: new Date("2026-08-07T12:00:00Z"),
     ...overrides,
   };
@@ -200,6 +203,28 @@ describe("runOptimisationTick — dry-run decisions", () => {
     assert.equal(summary.campaignsErrored[0].campaignId, "camp_bad");
     assert.equal(inserted.length, 1);
     assert.equal(inserted[0].campaignId, "camp_good");
+  });
+
+  it("campaign evaluation throw notifies ads_automation with 24h dedupe (2026-08-18 visibility)", async () => {
+    const notifyCalls: NotifyOptions[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [campaign({ campaignId: "camp_bad", draftId: "draft-bad" })],
+      fetchInsights: async () => {
+        throw new Error("(#100) For field 'insights': date_preset must be one of: ...");
+      },
+      notify: async (opts) => {
+        notifyCalls.push(opts);
+        return { sent: true };
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(notifyCalls.length, 1);
+    assert.equal(notifyCalls[0].channel, "ads_automation");
+    assert.equal(notifyCalls[0].dedupeKey, "optimisation_tick_error:camp_bad");
+    assert.equal(notifyCalls[0].dedupeWindowMs, DEFAULT_DEDUPE_WINDOW_MS);
+    assert.match(notifyCalls[0].text, /camp_bad/);
+    assert.match(notifyCalls[0].text, /draft-bad/);
+    assert.match(notifyCalls[0].text, /date_preset/);
   });
 
   it("multiple ad sets in one campaign each get their own decision", async () => {

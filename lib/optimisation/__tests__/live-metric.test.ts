@@ -7,7 +7,43 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import type { RuleTimeWindow } from "../../types.ts";
 import { resolvePrimaryLiveMetric, windowToDatePreset, type AdSetInsightMetrics } from "../live-metric.ts";
+
+/**
+ * Meta Insights `date_preset` allow-list, copied from Graph error (#100)
+ * captured live at 2026-08-18 09:29 UTC when `windowToDatePreset("24h")`
+ * returned the invalid `"last_1d"` and the optimisation-tick shadow cron
+ * errored every run with zero decisions (task #120 / IPC v4). Keep this
+ * list in sync with Meta's error message — it is the source of truth that
+ * stops a future RuleTimeWindow addition from reintroducing an invalid
+ * preset.
+ */
+const META_VALID_DATE_PRESETS = new Set([
+  "today",
+  "yesterday",
+  "this_month",
+  "last_month",
+  "this_quarter",
+  "maximum",
+  "data_maximum",
+  "last_3d",
+  "last_7d",
+  "last_14d",
+  "last_28d",
+  "last_30d",
+  "last_90d",
+  "last_week_mon_sun",
+  "last_week_sun_sat",
+  "last_quarter",
+  "last_year",
+  "this_week_mon_today",
+  "this_week_sun_today",
+  "this_year",
+]);
+
+/** Exhaustive RuleTimeWindow list — TS fails if the union grows without an update. */
+const ALL_RULE_TIME_WINDOWS = ["24h", "3d", "7d"] as const satisfies readonly RuleTimeWindow[];
 
 function metrics(overrides: Partial<AdSetInsightMetrics> = {}): AdSetInsightMetrics {
   return {
@@ -79,8 +115,15 @@ describe("resolvePrimaryLiveMetric", () => {
 });
 
 describe("windowToDatePreset", () => {
-  it("maps every RuleTimeWindow to its Meta date_preset", () => {
-    assert.equal(windowToDatePreset("24h"), "last_1d");
+  it("maps every RuleTimeWindow to a Meta-valid date_preset (2026-08-18 last_1d incident)", () => {
+    for (const window of ALL_RULE_TIME_WINDOWS) {
+      const preset = windowToDatePreset(window);
+      assert.ok(
+        META_VALID_DATE_PRESETS.has(preset),
+        `windowToDatePreset(${JSON.stringify(window)}) → ${JSON.stringify(preset)} is not in Meta's date_preset allow-list`,
+      );
+    }
+    assert.equal(windowToDatePreset("24h"), "yesterday");
     assert.equal(windowToDatePreset("3d"), "last_3d");
     assert.equal(windowToDatePreset("7d"), "last_7d");
   });

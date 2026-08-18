@@ -10,6 +10,8 @@ import {
   insertAutomationDecision,
   loadOptedInCampaignsForAutomation,
 } from "@/lib/db/campaign-automation-decisions";
+import { notify } from "@/lib/notify/slack";
+import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 
 /**
  * GET /api/cron/optimisation-tick
@@ -26,9 +28,11 @@ import {
  * skips) lives in `lib/optimisation/evaluate.ts` + the pure orchestrator
  * `lib/optimisation/tick-runner.ts`, unit-tested in isolation. This route is
  * intentionally thin: auth → killswitch → quota check → wire the pure runner
- * to the real Supabase client + Meta token, same split as
- * `refresh-active-creatives` (`refreshActiveCreativesForEvent`) and
- * `cron-health-check` (`runCronHealthCheck`).
+ * to the real Supabase client + Meta token + Slack `notify()` deps, same
+ * split as `refresh-active-creatives` (`refreshActiveCreativesForEvent`),
+ * `cron-health-check` (`runCronHealthCheck`), and `budget-pacing-check`.
+ * Per-campaign evaluation throws fire an `ads_automation` Slack ping
+ * (deduped 24h) so silent Meta/insights failures cannot go unnoticed.
  *
  * Killswitch: `ENABLE_OPTIMISATION_AUTOMATION` must be exactly `"1"`. Unset
  * (the default) or any other value disables the whole route — it still
@@ -119,6 +123,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const notifyDeps = buildLiveNotifyDeps(supabase);
+
   let summary: OptimisationTickSummary;
   try {
     summary = await runOptimisationTick(enabled, quotaThrottled, {
@@ -132,6 +138,7 @@ export async function GET(req: NextRequest) {
           token as string,
           window,
         ),
+      notify: (opts) => notify(opts, notifyDeps),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
