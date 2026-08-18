@@ -489,11 +489,21 @@ function AccountPickerSection({
                 ? "No ad accounts available"
                 : "— Pick an ad account —"}
           </option>
-          {options.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name} · {a.id}
-            </option>
-          ))}
+          {options.map((a) => {
+            const unavailable =
+              a.unavailableReason === "rate_limited"
+                ? "rate limited — try later"
+                : a.unavailableReason
+                  ? "unavailable — try later"
+                  : null;
+            return (
+              <option key={a.id} value={a.id} disabled={!!unavailable}>
+                {unavailable
+                  ? `${a.name} · ${unavailable}`
+                  : `${a.name} · ${a.id}`}
+              </option>
+            );
+          })}
         </select>
         {disabled && disabledHint && (
           <p className="mt-1 text-xs text-muted-foreground">{disabledHint}</p>

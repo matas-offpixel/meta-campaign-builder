@@ -28,6 +28,12 @@ import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 import { parseAppUsageHeader, type AppUsageSnapshot } from "./app-usage.ts";
 import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
 import {
+  AD_ACCOUNT_BASE_FIELDS,
+  AD_ACCOUNT_ENRICH_FIELDS,
+  classifyEnrichError,
+  fetchAdAccountsResilient,
+} from "./fetch-ad-accounts.ts";
+import {
   buildVideoUploadFields,
   buildVideoThumbnailOverrideRequest,
 } from "./video-upload-request.ts";
@@ -135,13 +141,21 @@ export async function graphGetWithToken<T>(
   path: string,
   params: Record<string, string> = {},
   token: string,
+  options?: {
+    /**
+     * Cap GET attempts (default {@link MAX_GET_ATTEMPTS}). Pass `1` for
+     * per-account probes where a rate-limit retry would only burn more of
+     * a dormant account's tiny ads_management budget (Step-1 ad-account list).
+     */
+    maxAttempts?: number;
+  },
 ): Promise<T> {
   const url = new URL(`${BASE}${path}`);
   url.searchParams.set("access_token", token);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  return executeGetWithRetry<T>(url, path);
+  return executeGetWithRetry<T>(url, path, options?.maxAttempts ?? MAX_GET_ATTEMPTS);
 }
 
 // ─── GET retry internals ─────────────────────────────────────────────────────
@@ -233,9 +247,14 @@ interface ParsedMetaError {
   rawErrorData?: Record<string, unknown>;
 }
 
-async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
+async function executeGetWithRetry<T>(
+  url: URL,
+  path: string,
+  maxAttempts: number = MAX_GET_ATTEMPTS,
+): Promise<T> {
+  const attempts = Math.max(1, maxAttempts);
   let lastError: unknown;
-  for (let attempt = 0; attempt < MAX_GET_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     let response: Response | null = null;
     let networkError: unknown = null;
     try {
@@ -244,14 +263,14 @@ async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
       networkError = err;
     }
 
-    // Network failure — retryable up to MAX_GET_ATTEMPTS.
+    // Network failure — retryable up to `attempts`.
     if (!response) {
       lastError = new Error(`Network error calling Meta API: ${String(networkError)}`);
-      const remaining = MAX_GET_ATTEMPTS - attempt - 1;
+      const remaining = attempts - attempt - 1;
       if (remaining <= 0) throw lastError;
       const delay = jitter(BASE_BACKOFFS_MS[attempt] ?? 4000);
       console.warn(
-        `[graphGetWithToken] retry ${attempt + 1}/${MAX_GET_ATTEMPTS - 1} after ${delay}ms: ${path} (reason: network_error)`,
+        `[graphGetWithToken] retry ${attempt + 1}/${attempts - 1} after ${delay}ms: ${path} (reason: network_error)`,
       );
       await sleep(delay);
       continue;
@@ -269,12 +288,12 @@ async function executeGetWithRetry<T>(url: URL, path: string): Promise<T> {
     const parsed = parseMetaError(json, response.status);
     if (appUsage) parsed.rawErrorData = { ...parsed.rawErrorData, __appUsage: appUsage };
     const budget = getRetryBudget(response.status, parsed.code);
-    const remaining = MAX_GET_ATTEMPTS - attempt - 1;
+    const remaining = attempts - attempt - 1;
     const isRateLimit =
       parsed.code != null && RATE_LIMIT_META_CODES.has(parsed.code);
     // Respect whichever budget runs out first. Rate-limit errors cap
     // at `budget` (1) regardless of remaining; transient errors use
-    // the full `remaining` (up to MAX_GET_ATTEMPTS-1).
+    // the full `remaining` (up to attempts-1).
     const willRetry = budget > 0 && remaining > 0 && attempt < budget;
 
     if (!willRetry) {
@@ -497,17 +516,51 @@ async function graphPost<T>(
  * Fetch all ad accounts accessible to the token owner.
  * Requires: ads_read or ads_management permission.
  *
- * GET /me/adaccounts
+ * GET /me/adaccounts — base fields first, then per-account `business`
+ * enrichment. A single rate-limited dormant account must not fail the
+ * whole list (wizard Step-1 picker). See `fetch-ad-accounts.ts`.
  */
 export async function fetchAdAccounts(token?: string): Promise<MetaAdAccount[]> {
-  const params = {
-    fields: "id,name,account_id,currency,account_status,timezone_name,business",
-    limit: "100",
+  const listBase = async (): Promise<MetaAdAccount[]> => {
+    const params = {
+      fields: AD_ACCOUNT_BASE_FIELDS,
+      limit: "100",
+    };
+    const res = token
+      ? await graphGetWithToken<GraphPagedResponse<MetaAdAccount>>(
+          "/me/adaccounts",
+          params,
+          token,
+        )
+      : await graphGet<GraphPagedResponse<MetaAdAccount>>("/me/adaccounts", params);
+    return res.data ?? [];
   };
-  const res = token
-    ? await graphGetWithToken<GraphPagedResponse<MetaAdAccount>>("/me/adaccounts", params, token)
-    : await graphGet<GraphPagedResponse<MetaAdAccount>>("/me/adaccounts", params);
-  return res.data;
+
+  const enrichOne = async (accountId: string) => {
+    try {
+      const detail = token
+        ? await graphGetWithToken<{ business?: MetaAdAccount["business"] }>(
+            `/${accountId}`,
+            { fields: AD_ACCOUNT_ENRICH_FIELDS },
+            token,
+            // Single-shot: a code=17 retry only burns more of a dormant
+            // account's tiny ads_management budget and stalls the picker.
+            { maxAttempts: 1 },
+          )
+        : await graphGet<{ business?: MetaAdAccount["business"] }>(`/${accountId}`, {
+            fields: AD_ACCOUNT_ENRICH_FIELDS,
+          });
+      return { ok: true as const, business: detail.business };
+    } catch (err) {
+      return classifyEnrichError(err);
+    }
+  };
+
+  return fetchAdAccountsResilient({
+    listBase,
+    enrichOne,
+    log: (msg) => console.error(msg),
+  });
 }
 
 /**

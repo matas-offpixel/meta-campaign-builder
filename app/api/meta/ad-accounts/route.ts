@@ -31,10 +31,22 @@ export async function GET() {
   // ── 3. Fetch from Meta Graph API ──────────────────────────────────────────
   try {
     const accounts = await fetchAdAccounts(token);
+    const unavailable = accounts.filter((a) => a.unavailableReason);
+    if (unavailable.length > 0) {
+      console.warn(
+        `[/api/meta/ad-accounts] ${unavailable.length}/${accounts.length} account(s) unavailable after enrich:`,
+        unavailable.map((a) => ({
+          id: a.id,
+          reason: a.unavailableReason,
+          meta_code: a.unavailableMetaCode,
+        })),
+      );
+    }
 
     return Response.json({
       data: accounts,
       count: accounts.length,
+      unavailableCount: unavailable.length,
       tokenSource,
     });
   } catch (err) {

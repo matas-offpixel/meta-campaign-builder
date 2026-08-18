@@ -17,6 +17,16 @@ export interface MetaAdAccount {
   account_status: number;
   timezone_name: string;
   business?: { id: string; name: string };
+  /**
+   * Set when per-account enrichment failed (e.g. Meta rate-limited this
+   * dormant account). Account stays in the picker list but should be
+   * rendered disabled with {@link unavailableDetail} / UI copy.
+   */
+  unavailableReason?: "rate_limited" | "error";
+  /** Meta Graph `error.code` from the failed enrich call, when known. */
+  unavailableMetaCode?: number;
+  /** Raw Meta / network message for ops logs and optional UI detail. */
+  unavailableDetail?: string;
 }
 
 /**
