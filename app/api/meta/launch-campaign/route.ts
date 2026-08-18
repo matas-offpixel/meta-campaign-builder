@@ -317,6 +317,11 @@ export type LaunchCampaignResult = LaunchSummary;
 
 // ─── Route handler ───────────────────────────────────────────────────────────
 
+// Large launches (e.g. 9 ad sets × 10 creatives = 90 ads) exceed Vercel's
+// project default and 504 with FUNCTION_INVOCATION_TIMEOUT — live reproducer
+// 2026-08-18. Pro + fluid compute allows up to 800s.
+export const maxDuration = 800;
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const launchStart = Date.now();
   const phaseDurations: Record<string, number> = {};
