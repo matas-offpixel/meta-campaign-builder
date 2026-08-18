@@ -1,32 +1,20 @@
 import "server-only";
 
 import { graphGetWithToken } from "@/lib/meta/client";
-import { withActPrefix, withoutActPrefix } from "@/lib/meta/ad-account-id";
+import { withActPrefix } from "@/lib/meta/ad-account-id";
 import {
   fetchThumbnailUrl,
   type VideoThumbnailCacheClient,
 } from "@/lib/meta/video-thumbnail-cache";
+import {
+  adAccountMatchesAny,
+} from "@/lib/meta/thumbnail-ad-account-allowlist";
 
-export function normalizeMetaAdAccountId(
-  raw: string | null | undefined,
-): string | null {
-  if (raw == null || typeof raw !== "string") return null;
-  const t = raw.trim();
-  if (!t) return null;
-  return withoutActPrefix(t);
-}
-
-/** Compare Graph `account_id` (may be `act_…` or digits) to stored client id. */
-export function adAccountMatchesClient(
-  graphAccountId: string | null | undefined,
-  clientAdAccountId: string | null | undefined,
-): boolean {
-  if (!graphAccountId || !clientAdAccountId) return false;
-  return (
-    normalizeMetaAdAccountId(graphAccountId) ===
-    normalizeMetaAdAccountId(clientAdAccountId)
-  );
-}
+export {
+  adAccountMatchesAny,
+  adAccountMatchesClient,
+  normalizeMetaAdAccountId,
+} from "@/lib/meta/thumbnail-ad-account-allowlist";
 
 interface CreativeThumbnailFields {
   creative?: {
@@ -84,14 +72,26 @@ export async function fetchThumbnailImageBytes(
 export async function verifyAdAccountForThumbnail(
   adId: string,
   fbToken: string,
-  clientAdAccountId: string,
+  /**
+   * One or more allowed Meta ad account ids (client default and/or
+   * per-event overrides). Bare digits or `act_` — normalised before compare.
+   */
+  allowedAdAccountIds: string | readonly string[],
 ): Promise<boolean> {
+  const allowed = (
+    typeof allowedAdAccountIds === "string"
+      ? [allowedAdAccountIds]
+      : [...allowedAdAccountIds]
+  ).filter((id) => id.trim().length > 0);
+  if (allowed.length === 0) return false;
+
   const head = await graphGetWithToken<{ account_id?: string }>(
     `/${adId}`,
     { fields: "account_id" },
     fbToken,
   );
-  return adAccountMatchesClient(head.account_id, clientAdAccountId);
+  // Prefer set match; single-id callers (warm path) still work via the array wrap.
+  return adAccountMatchesAny(head.account_id, allowed);
 }
 
 export { withActPrefix };

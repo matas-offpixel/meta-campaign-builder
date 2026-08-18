@@ -13,6 +13,10 @@ import {
 import {
   verifyAdAccountForThumbnail,
 } from "@/lib/meta/thumbnail-proxy-server";
+import {
+  loadAllowedAdAccountIdsForClient,
+  type AllowedAdAccountsDb,
+} from "@/lib/meta/thumbnail-ad-account-allowlist";
 
 export const CREATIVE_THUMB_CACHE_CONTROL = `public, max-age=${CREATIVE_THUMB_CACHE_SEC}, s-maxage=${CREATIVE_THUMB_CACHE_SEC}, stale-while-revalidate=86400`;
 
@@ -48,6 +52,37 @@ function streamImageResponse(
       "Cache-Control": CREATIVE_THUMB_CACHE_CONTROL,
     },
   });
+}
+
+/**
+ * Client default ∪ DISTINCT non-null per-event ad-account overrides.
+ * Service-role — share-token and session paths both need the full set so
+ * ads in an override account (Electric Brixton NX → 606252931141334) are
+ * not 403'd against the client default alone.
+ */
+function serviceRoleAllowedAdAccountsDb(
+  admin: ReturnType<typeof createServiceRoleClient>,
+): AllowedAdAccountsDb {
+  return {
+    async getClientMetaAdAccountId(clientId) {
+      const { data, error } = await admin
+        .from("clients")
+        .select("meta_ad_account_id")
+        .eq("id", clientId)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return data?.meta_ad_account_id ?? null;
+    },
+    async listEventMetaAdAccountIds(clientId) {
+      const { data, error } = await admin
+        .from("events")
+        .select("meta_ad_account_id")
+        .eq("client_id", clientId)
+        .not("meta_ad_account_id", "is", null);
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((r) => r.meta_ad_account_id);
+    },
+  };
 }
 
 /**
@@ -103,7 +138,7 @@ export async function handleCreativeThumbnailGet(
   const clientIdParam = url.searchParams.get("client_id")?.trim();
 
   let ownerUserId: string;
-  let clientAdAccountId: string | null;
+  let clientId: string;
 
   if (shareToken) {
     const resolved = await resolveShareByToken(shareToken, admin);
@@ -120,20 +155,13 @@ export async function handleCreativeThumbnailGet(
         );
       }
     }
-
-    const { data: clientRow, error: clientErr } = await admin
-      .from("clients")
-      .select("meta_ad_account_id")
-      .eq("id", share.client_id)
-      .maybeSingle();
-    if (clientErr) {
-      return NextResponse.json(
-        { ok: false, error: clientErr.message },
-        { status: 500 },
-      );
-    }
     ownerUserId = share.user_id;
-    clientAdAccountId = clientRow?.meta_ad_account_id ?? null;
+    // Share with no client has no configured ad accounts — same placeholder
+    // path the old code hit via a null meta_ad_account_id.
+    if (share.client_id == null) {
+      return placeholderResponse(fallbackLabel);
+    }
+    clientId = share.client_id;
   } else {
     if (!clientIdParam) {
       return NextResponse.json(
@@ -151,7 +179,7 @@ export async function handleCreativeThumbnailGet(
 
     const { data: clientRow, error: clientErr } = await supabase
       .from("clients")
-      .select("id, user_id, meta_ad_account_id")
+      .select("id, user_id")
       .eq("id", clientIdParam)
       .maybeSingle();
     if (clientErr) {
@@ -167,10 +195,22 @@ export async function handleCreativeThumbnailGet(
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
     ownerUserId = user.id;
-    clientAdAccountId = clientRow.meta_ad_account_id ?? null;
+    clientId = clientRow.id;
   }
 
-  if (!clientAdAccountId) {
+  let allowedAdAccountIds: string[];
+  try {
+    allowedAdAccountIds = await loadAllowedAdAccountIdsForClient(
+      serviceRoleAllowedAdAccountsDb(admin),
+      clientId,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
+
+  // No configured accounts → placeholder (same as the old single-null path).
+  if (allowedAdAccountIds.length === 0) {
     return placeholderResponse(fallbackLabel);
   }
 
@@ -182,7 +222,7 @@ export async function handleCreativeThumbnailGet(
   const allowed = await verifyAdAccountForThumbnail(
     adId,
     fbToken,
-    clientAdAccountId,
+    allowedAdAccountIds,
   );
   if (!allowed) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
