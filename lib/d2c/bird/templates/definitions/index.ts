@@ -11,6 +11,7 @@ import type { BrandTemplateDefinition } from "../types.ts";
 import { throwbackTemplates } from "./throwback.ts";
 import { throwbackMonsantosTemplates } from "./throwback-monsantos.ts";
 import { jackiesTemplates } from "./jackies.ts";
+import { puzzleCircuitTemplates } from "./puzzle-circuit.ts";
 
 export interface BrandConfig {
   key: string;
@@ -44,6 +45,19 @@ export const BRANDS: Record<string, BrandConfig> = {
     channelGroupId: "5023d43f-5d40-494b-b024-1fad53e8338a",
     templates: jackiesTemplates,
   },
+  // Single-event Puzzle @ Circuit Southampton templates, on the PUZZLE
+  // workspace b506380f-f977-438f-be81-e8ef8027b3f7 (not Throwback's).
+  // No master project — one project per stage, per house convention.
+  //
+  // channelGroupId was recovered WITHOUT `/groups`, which 403s on this
+  // workspace: list `/projects` and read `approvedTemplateChannelGroupIds`
+  // off any existing project. Confirmed against an approved template
+  // carrying a real platformReference.
+  puzzle_circuit: {
+    key: "puzzle_circuit",
+    channelGroupId: "81675dc0-c9f0-4521-b207-47e15b897ede",
+    templates: puzzleCircuitTemplates,
+  },
 };
 
 export function getBrandConfig(brand: string): BrandConfig {
@@ -56,4 +70,9 @@ export function getBrandConfig(brand: string): BrandConfig {
   return cfg;
 }
 
-export { throwbackTemplates, throwbackMonsantosTemplates, jackiesTemplates };
+export {
+  throwbackTemplates,
+  throwbackMonsantosTemplates,
+  jackiesTemplates,
+  puzzleCircuitTemplates,
+};
