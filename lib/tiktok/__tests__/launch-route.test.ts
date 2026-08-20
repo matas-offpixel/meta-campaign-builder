@@ -107,4 +107,18 @@ describe("mapTikTokLaunchError", () => {
     assert.equal(other.kind, "other");
     assert.equal(other.status, 502);
   });
+
+  it("maps 40002 campaign-name collision to an actionable Step 2 message", () => {
+    const mapped = mapTikTokLaunchError({
+      code: 40002,
+      message: "Campaign name already exists. Please try another one.",
+      requestId: "20260821071348308F4888CBE8D17022B5",
+      campaignName: "[IRW0001] Jamie Jones -sig",
+    });
+    assert.equal(mapped.kind, "name_collision");
+    assert.equal(mapped.status, 400);
+    assert.match(mapped.message, /Step 2/);
+    assert.match(mapped.message, /\[IRW0001\] Jamie Jones -sig/);
+    assert.doesNotMatch(mapped.message, /TikTok connection is invalid/);
+  });
 });

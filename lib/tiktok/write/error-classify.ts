@@ -5,7 +5,17 @@
  * same shape as lib/meta/launch-error-classify.ts.
  */
 
-export type TikTokLaunchErrorKind = "rate_limit" | "auth" | "other";
+import {
+  isTikTokCampaignNameCollisionMessage,
+  TIKTOK_CAMPAIGN_NAME_COLLISION_STEP,
+  tikTokCampaignNameCollisionMessage,
+} from "./campaign-names.ts";
+
+export type TikTokLaunchErrorKind =
+  | "rate_limit"
+  | "auth"
+  | "name_collision"
+  | "other";
 
 export interface TikTokLaunchErrorMapping {
   kind: TikTokLaunchErrorKind;
@@ -29,10 +39,25 @@ export function mapTikTokLaunchError(input: {
   code?: number;
   message?: string;
   requestId?: string;
+  campaignName?: string;
 }): TikTokLaunchErrorMapping {
-  const kind = classifyTikTokLaunchCode(input.code);
   const requestSuffix = input.requestId ? ` (request_id ${input.requestId})` : "";
   const raw = input.message?.trim() || "TikTok write failed";
+
+  if (isTikTokCampaignNameCollisionMessage(input.message)) {
+    const name = input.campaignName?.trim();
+    return {
+      kind: "name_collision",
+      status: 400,
+      message: `${
+        name
+          ? tikTokCampaignNameCollisionMessage(name)
+          : `This campaign name is already used on this advertiser. ${TIKTOK_CAMPAIGN_NAME_COLLISION_STEP}. Keep the [EVENT_CODE] prefix — reporting uses it.`
+      }${requestSuffix}`,
+    };
+  }
+
+  const kind = classifyTikTokLaunchCode(input.code);
 
   if (kind === "rate_limit") {
     return {

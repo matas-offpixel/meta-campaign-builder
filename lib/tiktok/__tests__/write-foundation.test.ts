@@ -382,6 +382,28 @@ describe("launchTikTokDraftState", () => {
     assert.ok(mock.calls.length > 0);
   });
 
+  it("blocks a taken campaign name in preflight before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.campaignSetup.campaignName = "[IRW0001] Jamie Jones -sig";
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+          existingCampaignNames: ["[IRW0001] Jamie Jones -sig"],
+        },
+        draft,
+      ),
+      /Step 2/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
   it("blocks Smart+ in preflight before any TikTok write", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();

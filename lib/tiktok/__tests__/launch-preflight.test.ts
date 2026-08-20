@@ -55,6 +55,21 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.deepEqual(result.warnings, []);
   });
 
+  it("blocks when the campaign name is already used on the advertiser", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.campaignName = "[IRW0001] Jamie Jones -sig";
+    const result = collectTikTokLaunchPreflight(draft, {
+      existingCampaignNames: ["[IRW0001] Jamie Jones -sig"],
+    });
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.issues.some(
+        (issue) =>
+          issue.id === "campaign-name-taken" && issue.message.includes("Step 2"),
+      ),
+    );
+  });
+
   it("does not block BC_AUTH_TT once identity_authorized_bc_id is resolved", () => {
     const draft = launchableDraft();
     draft.accountSetup.identityType = "BC_AUTH_TT";

@@ -16,6 +16,7 @@ import type { TikTokLaunchEntity } from "./types.ts";
 export interface LaunchTikTokDraftArgs
   extends Omit<TikTokWriteContext, "draftId" | "advertiserId"> {
   draftId: string;
+  existingCampaignNames?: string[];
 }
 
 export interface LaunchTikTokDraftResult {
@@ -54,7 +55,9 @@ export async function launchTikTokDraftState(
   draft: TikTokCampaignDraft,
 ): Promise<LaunchTikTokDraftResult> {
   assertTikTokWritesEnabled();
-  const preflight = collectTikTokLaunchPreflight(draft);
+  const preflight = collectTikTokLaunchPreflight(draft, {
+    existingCampaignNames: args.existingCampaignNames,
+  });
   if (!preflight.ok) {
     throw new TikTokLaunchPreflightError(preflight.issues);
   }
@@ -146,9 +149,12 @@ async function cleanupTikTokCampaign(
       request: context.request,
       sleep: context.sleep,
     });
+    console.error(
+      `[tiktok-write] campaign cleanup campaign_id=${campaignId} outcome=deleted`,
+    );
   } catch (err) {
-    console.warn(
-      `[tiktok-write] failed to clean up campaign ${campaignId}: ${
+    console.error(
+      `[tiktok-write] campaign cleanup campaign_id=${campaignId} outcome=failed error=${
         err instanceof Error ? err.message : String(err)
       }`,
     );

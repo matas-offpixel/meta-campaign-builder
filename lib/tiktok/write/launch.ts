@@ -15,7 +15,9 @@ import {
   type LaunchTikTokDraftResult,
 } from "./orchestrator.ts";
 import { hydrateDraftIdentityBcId } from "../identity.ts";
+import { fetchAdvertiserCampaignNames } from "./campaign-names.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
+import { tiktokGet } from "../client.ts";
 import type { TikTokPost, Sleep } from "./idempotency.ts";
 
 export interface TikTokLaunchSuccessBody {
@@ -45,6 +47,7 @@ export async function handleTikTokLaunch(input: {
   session: SupabaseClient<Database>;
   admin: Pick<SupabaseClient, "from">;
   request?: TikTokPost;
+  requestGet?: typeof tiktokGet;
   sleep?: Sleep;
 }): Promise<TikTokLaunchResponse> {
   if (!input.userId) {
@@ -94,7 +97,23 @@ export async function handleTikTokLaunch(input: {
     token: credentials.accessToken,
   });
 
-  const preflight = collectTikTokLaunchPreflight(draft);
+  let existingCampaignNames: string[] = [];
+  try {
+    existingCampaignNames = await fetchAdvertiserCampaignNames({
+      advertiserId,
+      token: credentials.accessToken,
+      request: input.requestGet,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[tiktok/launch] campaign name preflight read failed advertiser=${advertiserId}: ${message}`,
+    );
+  }
+
+  const preflight = collectTikTokLaunchPreflight(draft, {
+    existingCampaignNames,
+  });
   if (!preflight.ok) {
     return {
       status: 400,
@@ -115,6 +134,7 @@ export async function handleTikTokLaunch(input: {
         draftId: draft.id,
         token: credentials.accessToken,
         request: input.request,
+        existingCampaignNames,
         sleep: input.sleep,
       },
       draft,
@@ -160,6 +180,7 @@ export async function handleTikTokLaunch(input: {
         code: err.code,
         message: err.message,
         requestId: err.requestId,
+        campaignName: draft.campaignSetup.campaignName,
       });
       return {
         status: mapped.status,
