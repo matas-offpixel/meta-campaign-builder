@@ -211,11 +211,18 @@ const presale_live: BrandTemplateDefinition = {
  * Copy is Matas's signed-off text, reproduced verbatim — four bold spans, at
  * the house maximum, none nested inside italic. Do not reword and do not
  * "correct" it.
+ *
+ * LIVE: submitted 2026-08-20 and APPROVED by Meta ~90s later,
+ * platformReference 1066122709714154. First template shipped end-to-end
+ * through the runner with the `shortLinks` opt-out — activation returned no
+ * 500, confirming the Phase 3 root cause in practice.
  */
 const lineup_first_look: BrandTemplateDefinition = {
   name: "puzzle_southampton_17_10_26_lineup_first_look",
   projectName: "Puzzle-Southampton-17.10.26 lineup first look (SINGLE USE - 20 Aug, expires 5pm)",
   category: "MARKETING",
+  projectId: "09a6d89f-446f-42dc-8426-1046713a39e8",
+  projectVersionId: "a527cf66-a33d-4759-a174-589cf4c20ef1",
   shortLinks: false,
   locales: ["en"],
   headerImageUrl: LINEUP_ARTWORK_URL,
