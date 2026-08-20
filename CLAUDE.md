@@ -137,6 +137,7 @@ BM_TOKEN_KEY=
 FACEBOOK_OAUTH_SCOPES=
 ENABLE_META_THUMBNAIL_FETCH=
 ENABLE_OPTIMISATION_AUTOMATION=
+ENABLE_OPTIMISATION_WRITES=
 ENABLE_SLACK_NOTIFICATIONS=
 SLACK_CHANNEL_ADS_OPS_ENABLED=
 SLACK_CHANNEL_ADS_URGENT_ENABLED=
@@ -254,26 +255,24 @@ ENABLE_BUDGET_PACING_ALERTS=
 > regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
 > greps the tree to keep it that way.
 
-> **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120, PR A — shadow mode only)
-> must be set to `"1"` in Vercel prod env vars to activate
-> `/api/cron/optimisation-tick` (every 4h). Unset/anything else = fully
-> disabled, the route responds 200 with `skippedReason: "killswitch"` rather
-> than a cron failure. Even when ON, this PR makes **zero Meta write calls**
-> — it only reads insights and writes recommendation rows to
-> `campaign_automation_decisions` (migration 151) for the operator to sanity
-> check for a week before PR B (real Meta writes) or PR C (UI) ship. Also
-> requires a per-campaign opt-in: `campaign_drafts.optimisation_automation_enabled`
-> defaults `false` and is currently only settable via Supabase directly (`update
-> campaign_drafts set optimisation_automation_enabled = true where id =
-> '<draft id>'`) — PR C adds the campaign-detail-page toggle. Decision logic
-> (rule matching + `hardBudgetCeiling`/`maxExpansionPercent`/`ceilingBehaviour`
-> guardrails) lives in `lib/optimisation/evaluate.ts`; PR B will call the exact
-> same function before issuing a real budget update, so shadow-mode
-> recommendations and eventual live actions can never drift apart. Known gap:
-> `BudgetGuardrails.maxSingleAdSetBudget` / `maxDailyIncreasePercent` (both
-> already configurable in the Step 6 UI) are **not yet wired into the
-> evaluator** — flagged as a PR B follow-up, not silently ignored. See
-> `docs/session-logs/pr-pending-optimisation-automation-phase-a-dry-run.md`.
+> **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120) must be set to `"1"` in
+> Vercel prod env vars to activate `/api/cron/optimisation-tick` (every 4h).
+> Unset/anything else = fully disabled, the route responds 200 with
+> `skippedReason: "killswitch"` rather than a cron failure.
+>
+> **`ENABLE_OPTIMISATION_WRITES`** (task #120, PR B) is a *separate* switch
+> for real Meta `daily_budget` writes. Must be exactly `"1"`. A write
+> happens only when all three gates are open (`optimisationDryRunGates` in
+> `lib/optimisation/gates.ts`, same shape as D2C `shouldD2CDryRun`):
+>   a) `ENABLE_OPTIMISATION_WRITES === "1"`
+>   b) `campaign_drafts.optimisation_automation_enabled = true`
+>   c) `campaign_drafts.optimisation_automation_live = true` (migration 154,
+>      default false — set via SQL until PR C ships the UI toggle)
+> Anything less → shadow insert (`dry_run=true`, `applied=false`), identical
+> to PR A. Pause is recommend-only (Slack `ads_urgent`, no Meta write).
+> Decision logic still lives only in `lib/optimisation/evaluate.ts`;
+> `lib/optimisation/apply.ts` executes the result. See
+> `docs/session-logs/pr-pending-optimisation-automation-phase-b-live-writes.md`.
 
 > **Slack notification service env vars** (task #121, Phase 1 + 2 — first
 > proactive alerting the app has ever had):
@@ -338,7 +337,12 @@ ENABLE_BUDGET_PACING_ALERTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `152_notification_dedupe_state.sql`.
+**Latest migration:** `154_optimisation_automation_live.sql`.
+
+- Optimisation automation live flag (task #120 PR B, August 2026):
+  `campaign_drafts.optimisation_automation_live` (migration 154) — default
+  false. Third leg of the write gate alongside `ENABLE_OPTIMISATION_WRITES`
+  and `optimisation_automation_enabled`. No UI in this PR.
 
 - Slack notifications (task #121 Phase 1, August 2026): `notification_dedupe_state`
   (migration 152) — dedupe/mute state for `lib/notify/slack.ts`'s `notify()`,
@@ -449,11 +453,12 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   every send is logged as a dry run.
 - `/api/cron/cron-health-check` — silent-failure monitor (migration 124),
   surfaced at `/admin/cron-health`.
-- `/api/cron/optimisation-tick` (every 4h) — task #120 PR A, Step 6
-  "Optimisation Strategy" automation loop, SHADOW MODE ONLY (see
-  `ENABLE_OPTIMISATION_AUTOMATION` above). Evaluates opted-in published
-  campaigns' ad sets and writes recommendations to
-  `campaign_automation_decisions` (migration 151) — zero Meta writes in PR A.
+- `/api/cron/optimisation-tick` (every 4h) — task #120, Step 6
+  "Optimisation Strategy" automation loop. Evaluates opted-in published
+  campaigns via `evaluate.ts` and, when the three-of-three write gate is
+  open (`ENABLE_OPTIMISATION_WRITES` + enabled + live), applies
+  `scale_up`/`scale_down` to Meta. Pause stays recommend-only. See
+  `ENABLE_OPTIMISATION_AUTOMATION` / `ENABLE_OPTIMISATION_WRITES` above.
 - `/api/cron/budget-pacing-check` (hourly) — task #121 Phase 2, the first
   consumer of the Phase 1 Slack service. Evaluates every published
   campaign's lifetime Meta spend against its planned budget and posts an

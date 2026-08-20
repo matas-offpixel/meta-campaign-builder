@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { evaluateAdSet, type EvaluateAdSetInput } from "../evaluate.ts";
+import { evaluateAdSet, resolveLastTouchedAt, type EvaluateAdSetInput } from "../evaluate.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
 
 function tid(): string {
@@ -165,6 +165,99 @@ describe("evaluateAdSet — guardrails", () => {
     assert.equal(result.action, "scale_down");
     assert.equal(result.guardrailNote, null);
   });
+
+  it("maxSingleAdSetBudget fixed clamps tighter than the campaign ceilings (partial)", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100, // £200
+      hardBudgetCeiling: 200,
+      ceilingBehaviour: "partial",
+      maxSingleAdSetBudget: 110, // £110 fixed — tightest
+      maxSingleAdSetBudgetType: "fixed",
+    };
+    // £100 +30% = £130 → clamp to £110
+    const result = evaluateAdSet(baseInput({ guardrails, currentBudgetPence: 10000 }));
+    assert.equal(result.action, "scale_up");
+    assert.equal(result.budgetAfterPence, 11000);
+    assert.equal(result.guardrailNote, "capped_by_max_single_adset_budget");
+  });
+
+  it("maxSingleAdSetBudget percent is of baseCampaignBudget, not of current", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "partial",
+      maxSingleAdSetBudget: 115, // 115% of £100 = £115
+      maxSingleAdSetBudgetType: "percent",
+    };
+    const result = evaluateAdSet(baseInput({ guardrails, currentBudgetPence: 10000 }));
+    assert.equal(result.action, "scale_up");
+    assert.equal(result.budgetAfterPence, 11500);
+    assert.equal(result.guardrailNote, "capped_by_max_single_adset_budget");
+  });
+
+  it("maxDailyIncreasePercent clamps the remaining increase after prior applied deltas", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "partial",
+      maxDailyIncreasePercent: 25,
+    };
+    // Already +20% applied today; remaining +5% of £100 = £105
+    const result = evaluateAdSet(
+      baseInput({ guardrails, currentBudgetPence: 10000, appliedIncreasePercentLast24h: 20 }),
+    );
+    assert.equal(result.action, "scale_up");
+    assert.equal(result.budgetAfterPence, 10500);
+    assert.equal(result.guardrailNote, "capped_by_max_daily_increase");
+  });
+
+  it("maxDailyIncreasePercent already exhausted → ceilingBehaviour=stop maintains", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "stop",
+      maxDailyIncreasePercent: 20,
+    };
+    const result = evaluateAdSet(
+      baseInput({ guardrails, currentBudgetPence: 10000, appliedIncreasePercentLast24h: 20 }),
+    );
+    assert.equal(result.action, "maintain");
+    assert.equal(result.budgetAfterPence, 10000);
+    assert.equal(result.guardrailNote, "capped_by_max_daily_increase");
+  });
+
+  it("hardBudgetCeiling still wins a tie with maxSingleAdSetBudget", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 110,
+      ceilingBehaviour: "partial",
+      maxSingleAdSetBudget: 110,
+      maxSingleAdSetBudgetType: "fixed",
+    };
+    const result = evaluateAdSet(baseInput({ guardrails, currentBudgetPence: 10000 }));
+    assert.equal(result.budgetAfterPence, 11000);
+    assert.equal(result.guardrailNote, "hit_hard_ceiling");
+  });
+
+  it("maxSingleAdSetBudget binds over a looser hard ceiling and expansion", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 50, // £150
+      hardBudgetCeiling: 150,
+      ceilingBehaviour: "partial",
+      maxSingleAdSetBudget: 120,
+      maxSingleAdSetBudgetType: "fixed",
+      maxDailyIncreasePercent: 80, // +80% of current = £180 — looser
+    };
+    const result = evaluateAdSet(baseInput({ guardrails, currentBudgetPence: 10000 }));
+    assert.equal(result.budgetAfterPence, 12000);
+    assert.equal(result.guardrailNote, "capped_by_max_single_adset_budget");
+  });
 });
 
 describe("evaluateAdSet — dormant / recent-touch skips", () => {
@@ -203,5 +296,17 @@ describe("evaluateAdSet — dormant / recent-touch skips", () => {
     const lastTouchedAt = new Date("2026-08-07T11:00:00Z"); // 1h ago — would also skip_recent_touch
     const result = evaluateAdSet(baseInput({ now, lastTouchedAt, impressions: 0 }));
     assert.equal(result.action, "skip_dormant");
+  });
+
+  it("resolveLastTouchedAt prefers applied_at over decided_at", () => {
+    const applied = new Date("2026-08-19T10:00:00Z");
+    const decided = new Date("2026-08-20T08:00:00Z");
+    assert.equal(resolveLastTouchedAt(applied, decided), applied);
+  });
+
+  it("resolveLastTouchedAt falls back to decided_at when never written", () => {
+    const decided = new Date("2026-08-20T08:00:00Z");
+    assert.equal(resolveLastTouchedAt(null, decided), decided);
+    assert.equal(resolveLastTouchedAt(null, null), null);
   });
 });

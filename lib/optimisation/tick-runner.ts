@@ -13,22 +13,19 @@
  * Per-ad-set flow (see also the module doc comments on `evaluate.ts` /
  * `insights-fetch.ts` / `live-metric.ts` for the reasoning behind each
  * design choice):
- *   1. Loop-prevention: skip (no DB write) if `hasRecentDecision` reports a
- *      decision row for this ad set within the lookback window (default
- *      24h). This is a HARD skip — no evaluation, no insert — so an ad set
- *      gets at most one decision row per lookback window even though the
- *      cron itself runs every 4h (6×/day). Matches the cadence PR B will
- *      actually run writes at, so the shadow log is a realistic preview.
+ *   1. Loop-prevention / cooldown: skip (no DB write) if `lastTouchedAt`
+ *      is inside `cooldownHours`. For shadow mode that is
+ *      `applied_at ?? decided_at`. For live writes it is `applied_at` only
+ *      — a shadow recommendation must not start the write cooldown.
  *   2. CBO ad sets (`dailyBudgetPence === null`, no per-adset daily budget)
  *      can't have a budget proposed — insert a `maintain` decision saying so
  *      rather than silently dropping the ad set from the audit trail.
  *   3. Metric resolution failure (e.g. no conversions yet this window) —
  *      same treatment: a `maintain` decision with an honest reason, not a
  *      silent skip.
- *   4. Otherwise, call `evaluateAdSet` (which independently re-derives
- *      skip_dormant from `impressions`, and would also skip_recent_touch if
- *      it were ever given a `lastTouchedAt` — always null here, since step 1
- *      already gates that) and insert its result verbatim.
+ *   4. Otherwise, call `evaluateAdSet` (single source of decision logic)
+ *      and hand the result to `applyOptimisationDecision`, which either
+ *      writes Meta or records a shadow / pause-recommend / underfoot abort.
  */
 
 import type {
@@ -39,9 +36,11 @@ import type {
 } from "../types.ts";
 import { OBJECTIVE_METRIC_PRIORITY } from "../optimisation-rules.ts";
 import { DEFAULT_DEDUPE_WINDOW_MS, type NotifyOptions, type NotifyResult } from "../notify/slack.ts";
-import { evaluateAdSet, type AutomationAction, type GuardrailNote } from "./evaluate.ts";
+import { evaluateAdSet, resolveLastTouchedAt, type AutomationAction, type GuardrailNote } from "./evaluate.ts";
 import { resolvePrimaryLiveMetric } from "./live-metric.ts";
 import type { AdSetInsightRow } from "./insights-fetch.ts";
+import { applyOptimisationDecision, MAX_WRITES_PER_RUN } from "./apply.ts";
+import { optimisationDryRunGates } from "./gates.ts";
 
 export interface CampaignAutomationInput {
   draftId: string;
@@ -51,6 +50,10 @@ export interface CampaignAutomationInput {
   adAccountId: string;
   objective: CampaignObjective;
   optimisationStrategy: OptimisationStrategySettings;
+  /** `campaign_drafts.optimisation_automation_live` — PR B gate (c). */
+  optimisationAutomationLive: boolean;
+  /** Display name for Slack (draft.settings.campaignName). */
+  campaignName: string;
 }
 
 export interface DecisionToInsert {
@@ -68,14 +71,26 @@ export interface DecisionToInsert {
   budgetAfterPence: number;
   guardrailNote: GuardrailNote;
   reasonText: string;
+  /** Persist flags — apply.ts always sets these before insert. */
+  dryRun?: boolean;
+  applied?: boolean;
+  appliedAt?: string | null;
+  metaResponseJson?: unknown;
+}
+
+export interface AdSetAutomationState {
+  lastAppliedAt: Date | null;
+  lastDecidedAt: Date | null;
+  appliedIncreasePercentLast24h: number;
 }
 
 export interface OptimisationTickDeps {
   loadOptedInCampaigns: () => Promise<CampaignAutomationInput[]>;
-  /** True if `adsetId` has a decision row with `decided_at` newer than `sinceISO`. */
-  hasRecentDecision: (adsetId: string, sinceISO: string) => Promise<boolean>;
+  getAdSetState: (adsetId: string, sinceISO: string) => Promise<AdSetAutomationState>;
   insertDecision: (row: DecisionToInsert) => Promise<void>;
   fetchInsights: (campaignId: string, window: RuleTimeWindow) => Promise<AdSetInsightRow[]>;
+  readAdSetDailyBudget: (adsetId: string) => Promise<number | null>;
+  updateAdSetDailyBudget: (adsetId: string, dailyBudgetPence: number) => Promise<unknown>;
   /**
    * Slack notify seam — fired when a single campaign evaluation throws so
    * silent per-campaign failures (e.g. invalid Meta date_preset) surface in
@@ -86,6 +101,17 @@ export interface OptimisationTickDeps {
   now?: Date;
   /** Recent-decision lookback in hours. Defaults to 24 (loop-prevention window). */
   lookbackHours?: number;
+  /** `ENABLE_OPTIMISATION_WRITES === "1"` — gate (a). */
+  writesEnabled: boolean;
+  maxWritesPerRun?: number;
+}
+
+export interface AppliedWriteDetail {
+  campaignName: string;
+  adsetName: string;
+  budgetBeforePence: number;
+  budgetAfterPence: number;
+  ruleMatched: string | null;
 }
 
 export interface OptimisationTickSummary {
@@ -97,6 +123,12 @@ export interface OptimisationTickSummary {
   adSetsSkippedRecentDecision: number;
   decisionsInserted: number;
   decisionsByAction: Record<string, number>;
+  writesApplied: number;
+  writesFailed: number;
+  writesAbortedUnderfoot: number;
+  pausesRecommended: number;
+  writesCapReached: boolean;
+  appliedWriteDetails: AppliedWriteDetail[];
 }
 
 function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]): OptimisationTickSummary {
@@ -109,6 +141,12 @@ function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]):
     adSetsSkippedRecentDecision: 0,
     decisionsInserted: 0,
     decisionsByAction: {},
+    writesApplied: 0,
+    writesFailed: 0,
+    writesAbortedUnderfoot: 0,
+    pausesRecommended: 0,
+    writesCapReached: false,
+    appliedWriteDetails: [],
   };
 }
 
@@ -136,6 +174,7 @@ export async function runOptimisationTick(
   const now = deps.now ?? new Date();
   const lookbackHours = deps.lookbackHours ?? 24;
   const sinceISO = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000).toISOString();
+  const maxWrites = deps.maxWritesPerRun ?? MAX_WRITES_PER_RUN;
 
   const summary = emptySummary();
   let campaigns: CampaignAutomationInput[];
@@ -151,21 +190,90 @@ export async function runOptimisationTick(
     try {
       const window = primaryWindowFor(campaign.objective, campaign.optimisationStrategy);
       const rows = await deps.fetchInsights(campaign.campaignId, window);
+      const gates = optimisationDryRunGates(
+        deps.writesEnabled,
+        true,
+        campaign.optimisationAutomationLive,
+      );
 
       for (const row of rows) {
         summary.adSetsConsidered += 1;
 
-        const recentlyDecided = await deps.hasRecentDecision(row.adsetId, sinceISO);
-        if (recentlyDecided) {
-          summary.adSetsSkippedRecentDecision += 1;
-          continue;
-        }
+        try {
+          const state = await deps.getAdSetState(row.adsetId, sinceISO);
+          // Live writes: cooldown from last APPLIED write only, so a shadow
+          // recommendation cannot start the clock. Shadow mode still falls
+          // back to decided_at so we don't flood 6 rows/day.
+          const lastTouchedAt = gates.dryRun
+            ? resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt)
+            : state.lastAppliedAt;
+          const cooldownHours =
+            campaign.optimisationStrategy.guardrails.cooldownHours ?? lookbackHours;
+          if (
+            lastTouchedAt &&
+            Math.abs(now.getTime() - lastTouchedAt.getTime()) < cooldownHours * 60 * 60 * 1000
+          ) {
+            summary.adSetsSkippedRecentDecision += 1;
+            continue;
+          }
 
-        const decision = buildDecision(campaign, row, window, now);
-        await deps.insertDecision(decision);
-        summary.decisionsInserted += 1;
-        summary.decisionsByAction[decision.actionRecommended] =
-          (summary.decisionsByAction[decision.actionRecommended] ?? 0) + 1;
+          const decision = buildDecision(
+            campaign,
+            row,
+            window,
+            now,
+            lastTouchedAt,
+            state.appliedIncreasePercentLast24h,
+          );
+
+          const writesRemaining = maxWrites - summary.writesApplied;
+          const outcome = await applyOptimisationDecision(
+            {
+              decision,
+              campaignName: campaign.campaignName,
+              adsetName: row.adsetName,
+              gates,
+              writesRemaining,
+            },
+            {
+              readAdSetDailyBudget: deps.readAdSetDailyBudget,
+              updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+              insertDecision: deps.insertDecision,
+              notify: deps.notify,
+              now,
+            },
+          );
+
+          summary.decisionsInserted += 1;
+          summary.decisionsByAction[outcome.decision.actionRecommended] =
+            (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
+
+          if (outcome.kind === "applied") {
+            summary.writesApplied += 1;
+            summary.appliedWriteDetails.push({
+              campaignName: campaign.campaignName,
+              adsetName: row.adsetName,
+              budgetBeforePence: outcome.decision.budgetBeforePence,
+              budgetAfterPence: outcome.decision.budgetAfterPence,
+              ruleMatched: outcome.decision.ruleMatched,
+            });
+          } else if (outcome.kind === "write_failed") {
+            summary.writesFailed += 1;
+          } else if (outcome.kind === "aborted_underfoot") {
+            summary.writesAbortedUnderfoot += 1;
+          } else if (outcome.kind === "pause_recommended") {
+            summary.pausesRecommended += 1;
+          } else if (outcome.kind === "cap_reached") {
+            summary.writesCapReached = true;
+          }
+        } catch (adsetErr) {
+          // One ad set failing must never abort the rest of the run.
+          const message = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
+          console.error(
+            `[optimisation-tick] campaign=${campaign.campaignId} adset=${row.adsetId} threw: ${message}`,
+          );
+          summary.writesFailed += 1;
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -183,9 +291,31 @@ export async function runOptimisationTick(
     }
   }
 
+  if (summary.writesCapReached) {
+    console.log(
+      `[optimisation-tick] MAX_WRITES_PER_RUN=${maxWrites} reached — remaining scale actions shadowed`,
+    );
+    await deps.notify({
+      channel: "ads_automation",
+      text: `optimisation-tick hit MAX_WRITES_PER_RUN=${maxWrites} — remaining scale actions were recorded as shadow decisions.`,
+    });
+  }
+
+  if (summary.writesApplied > 0) {
+    const lines = summary.appliedWriteDetails.map(
+      (d) =>
+        `• ${d.adsetName}: ${d.budgetBeforePence} → ${d.budgetAfterPence}` +
+        (d.ruleMatched ? ` (${d.ruleMatched})` : ""),
+    );
+    await deps.notify({
+      channel: "ads_automation",
+      text: `optimisation-tick applied ${summary.writesApplied} budget write(s):\n${lines.join("\n")}`,
+    });
+  }
+
   summary.ok = summary.campaignsErrored.length === 0;
   console.log(
-    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted}`,
+    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended}`,
   );
   return summary;
 }
@@ -195,6 +325,8 @@ function buildDecision(
   row: AdSetInsightRow,
   window: RuleTimeWindow,
   now: Date,
+  lastTouchedAt: Date | null,
+  appliedIncreasePercentLast24h: number,
 ): DecisionToInsert {
   const primaryMetric = OBJECTIVE_METRIC_PRIORITY[campaign.objective].primary;
   const base = {
@@ -240,7 +372,8 @@ function buildDecision(
     guardrails: campaign.optimisationStrategy.guardrails,
     currentBudgetPence: row.dailyBudgetPence,
     liveMetric,
-    lastTouchedAt: null, // the caller's hasRecentDecision check already gates recency
+    lastTouchedAt,
+    appliedIncreasePercentLast24h,
     impressions: row.impressions,
     now,
   });

@@ -48,6 +48,8 @@ function campaign(overrides: Partial<CampaignAutomationInput> = {}): CampaignAut
     adAccountId: "act_123",
     objective: "registration",
     optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: GUARDRAILS },
+    optimisationAutomationLive: false,
+    campaignName: "Test Campaign",
     ...overrides,
   };
 }
@@ -70,11 +72,22 @@ function insightRow(overrides: Partial<AdSetInsightRow> = {}): AdSetInsightRow {
 function makeDeps(overrides: Partial<OptimisationTickDeps> = {}): OptimisationTickDeps {
   return {
     loadOptedInCampaigns: async () => [campaign()],
-    hasRecentDecision: async () => false,
+    getAdSetState: async () => ({
+      lastAppliedAt: null,
+      lastDecidedAt: null,
+      appliedIncreasePercentLast24h: 0,
+    }),
     insertDecision: async () => {},
     fetchInsights: async () => [insightRow()],
+    readAdSetDailyBudget: async () => {
+      throw new Error("readAdSetDailyBudget must not be called in shadow mode");
+    },
+    updateAdSetDailyBudget: async () => {
+      throw new Error("updateAdSetDailyBudget must not be called in shadow mode");
+    },
     notify: async () => ({ sent: true }),
     now: new Date("2026-08-07T12:00:00Z"),
+    writesEnabled: false,
     ...overrides,
   };
 }
@@ -141,7 +154,11 @@ describe("runOptimisationTick — dry-run decisions", () => {
   it("skips (no insert) an ad set with a decision inside the 24h lookback", async () => {
     const inserted: DecisionToInsert[] = [];
     const deps = makeDeps({
-      hasRecentDecision: async () => true,
+      getAdSetState: async () => ({
+        lastAppliedAt: null,
+        lastDecidedAt: new Date("2026-08-07T06:00:00Z"),
+        appliedIncreasePercentLast24h: 0,
+      }),
       insertDecision: async (row) => void inserted.push(row),
     });
     const summary = await runOptimisationTick(true, false, deps);
@@ -240,5 +257,105 @@ describe("runOptimisationTick — dry-run decisions", () => {
     assert.equal(inserted.length, 2);
     assert.equal(inserted.find((d) => d.adsetId === "adset_a")?.actionRecommended, "scale_up");
     assert.equal(inserted.find((d) => d.adsetId === "adset_b")?.actionRecommended, "pause");
+  });
+});
+
+describe("runOptimisationTick — PR B live writes", () => {
+  it("cooldown prefers last applied_at — a recent write skips evaluation", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      loadOptedInCampaigns: async () => [campaign({ optimisationAutomationLive: true })],
+      getAdSetState: async () => ({
+        lastAppliedAt: new Date("2026-08-07T06:00:00Z"),
+        lastDecidedAt: new Date("2026-08-01T00:00:00Z"),
+        appliedIncreasePercentLast24h: 0,
+      }),
+      insertDecision: async (row) => void inserted.push(row),
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async () => ({ ok: true }),
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.adSetsSkippedRecentDecision, 1);
+    assert.equal(inserted.length, 0);
+    assert.equal(summary.writesApplied, 0);
+  });
+
+  it("never-written ad set: recent shadow decided_at does not block a live write", async () => {
+    const updates: number[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      loadOptedInCampaigns: async () => [campaign({ optimisationAutomationLive: true })],
+      getAdSetState: async () => ({
+        lastAppliedAt: null,
+        lastDecidedAt: new Date("2026-08-07T10:00:00Z"), // 2h ago shadow row
+        appliedIncreasePercentLast24h: 0,
+      }),
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (_id, pence) => {
+        updates.push(pence);
+        return { ok: true };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.adSetsSkippedRecentDecision, 0);
+    assert.equal(summary.writesApplied, 1);
+    assert.deepEqual(updates, [13000]);
+  });
+
+  it("MAX_WRITES_PER_RUN shadows remaining scale actions after the cap", async () => {
+    const updates: string[] = [];
+    const notifyCalls: NotifyOptions[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      maxWritesPerRun: 1,
+      loadOptedInCampaigns: async () => [campaign({ optimisationAutomationLive: true })],
+      fetchInsights: async () => [
+        insightRow({ adsetId: "adset_a", adsetName: "A" }),
+        insightRow({ adsetId: "adset_b", adsetName: "B" }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      notify: async (opts) => {
+        notifyCalls.push(opts);
+        return { sent: true };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.writesApplied, 1);
+    assert.equal(summary.writesCapReached, true);
+    assert.equal(updates.length, 1);
+    assert.ok(notifyCalls.some((n) => n.channel === "ads_automation" && /MAX_WRITES_PER_RUN/.test(n.text)));
+  });
+
+  it("one ad set 500s and the rest still process (failure isolation)", async () => {
+    const updates: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      loadOptedInCampaigns: async () => [campaign({ optimisationAutomationLive: true })],
+      fetchInsights: async () => [
+        insightRow({ adsetId: "adset_bad", adsetName: "Bad" }),
+        insightRow({ adsetId: "adset_good", adsetName: "Good" }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        if (id === "adset_bad") {
+          throw Object.assign(new Error("Meta 500"), { name: "MetaApiError", code: 2 });
+        }
+        updates.push(id);
+        return { ok: true };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.writesFailed, 1);
+    assert.equal(summary.writesApplied, 1);
+    assert.deepEqual(updates, ["adset_good"]);
+    assert.equal(summary.ok, true);
   });
 });
