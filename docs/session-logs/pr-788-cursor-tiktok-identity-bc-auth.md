@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 788
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/788
 - **Branch:** `cursor/tiktok-identity-bc-auth`
 
 ## Summary
