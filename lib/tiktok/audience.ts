@@ -53,9 +53,15 @@ const ACTION_CATEGORY_KEYS = [
   "categories",
 ] as const;
 
-const AUDIENCE_LIST_KEYS = ["list", "audiences", "custom_audiences"] as const;
+const AUDIENCE_LIST_KEYS = [
+  "saved_audiences",
+  "list",
+  "audiences",
+  "custom_audiences",
+] as const;
 
 const INTEREST_KEYWORD_KEYS = [
+  "recommended_keywords",
   "list",
   "keywords",
   "interest_keywords",
@@ -69,7 +75,13 @@ const HASHTAG_KEYS = [
   "keywords",
 ] as const;
 
-const REGION_KEYS = ["list", "regions", "location_list", "locations"] as const;
+const REGION_KEYS = [
+  "region_list",
+  "list",
+  "regions",
+  "location_list",
+  "locations",
+] as const;
 
 const LANGUAGE_KEYS = ["list", "languages", "language_list"] as const;
 
@@ -100,8 +112,13 @@ export function logAudienceEnvelope(
   const counts = keys
     .map((key) => `${key}:${Array.isArray(record[key]) ? record[key].length : 0}`)
     .join(",");
+  const firstRow = extractAudienceRows(res, keys)[0];
+  const rowKeys =
+    firstRow && typeof firstRow === "object" && !Array.isArray(firstRow)
+      ? Object.keys(firstRow)
+      : [];
   console.error(
-    `[tiktok/audience] ${path} advertiser=${advertiserId} keys=[${objectKeys.join(",")}] counts={${counts}} mapped=${mapped}`,
+    `[tiktok/audience] ${path} advertiser=${advertiserId} keys=[${objectKeys.join(",")}] counts={${counts}} mapped=${mapped} rowKeys=[${rowKeys.join(",")}]`,
   );
 }
 
@@ -296,7 +313,9 @@ export async function fetchTikTokRegions(input: {
       if (!id) return null;
       return {
         id,
-        name: firstString(row, "name", "region_name", "location_name", "country") ?? id,
+        name:
+          firstString(row, "name", "region_name", "location_name", "country") ??
+          id,
         countryCode: firstString(row, "country_code", "region_code", "code"),
       };
     })
@@ -340,6 +359,7 @@ export async function fetchTikTokLanguages(input: {
 }
 
 function mapCategories(rows: Record<string, unknown>[]): TikTokAudienceCategory[] {
+  const parentByChild = parentIdsFromSubCategories(rows);
   return rows
     .map((row) => {
       const id = firstString(
@@ -352,12 +372,48 @@ function mapCategories(rows: Record<string, unknown>[]): TikTokAudienceCategory[
       if (!id) return null;
       return {
         id,
-        label: firstString(row, "category_name", "name") ?? id,
-        parent_id: firstString(row, "parent_category_id", "parent_id"),
+        // Official interest row uses interest_category_name, not category_name:
+        // https://ads.tiktok.com/marketing_api/docs?id=1737174348712961
+        label:
+          firstString(
+            row,
+            "interest_category_name",
+            "action_category_name",
+            "category_name",
+            "name",
+          ) ?? id,
+        parent_id:
+          firstString(row, "parent_category_id", "parent_id") ??
+          parentByChild.get(id) ??
+          null,
       };
     })
     .filter((row): row is TikTokAudienceCategory => Boolean(row))
     .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function parentIdsFromSubCategories(
+  rows: Record<string, unknown>[],
+): Map<string, string> {
+  const parentByChild = new Map<string, string>();
+  for (const row of rows) {
+    const id = firstString(
+      row,
+      "category_id",
+      "action_category_id",
+      "interest_category_id",
+      "id",
+    );
+    const subs = row.sub_category_ids;
+    if (!id || !Array.isArray(subs)) continue;
+    for (const child of subs) {
+      if (typeof child === "string" || typeof child === "number") {
+        const childId = String(child).trim();
+        if (childId) parentByChild.set(childId, id);
+      }
+    }
+  }
+  return parentByChild;
 }
 
 function mapAudienceList(
@@ -414,7 +470,10 @@ function firstString(
 ): string | null {
   for (const key of keys) {
     const value = row[key];
-    if (typeof value === "string" && value.length > 0) return value;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
     if (typeof value === "number" && Number.isFinite(value)) return String(value);
   }
   return null;
