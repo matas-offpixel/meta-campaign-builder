@@ -115,17 +115,16 @@ describe("commitUploadedTikTokCreatives", () => {
       store.items.map((item) => item.videoId),
       ["v1", "v1", "v2", "v2", "v3", "v3"],
     );
-    assert.deepEqual(
-      store.items.map((item) => item.name),
-      [
-        "Hero · v1",
-        "Hero · v2",
-        "Hero · v1",
-        "Hero · v2",
-        "Hero · v1",
-        "Hero · v2",
-      ],
-    );
+    const names = store.items.map((item) => item.name);
+    assert.equal(new Set(names).size, names.length);
+    assert.deepEqual(names, [
+      "Hero · v1",
+      "Hero · v2",
+      "Hero · v3",
+      "Hero · v4",
+      "Hero · v5",
+      "Hero · v6",
+    ]);
   });
 
   it("a failed draft write keeps the server's own message", async () => {

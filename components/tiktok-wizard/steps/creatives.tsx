@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
-import { clampTikTokVariationCount } from "@/lib/tiktok-wizard/creative-items";
+import {
+  clampTikTokVariationCount,
+  nextTikTokCreativeNames,
+} from "@/lib/tiktok-wizard/creative-items";
 import { refreshExpiredTikTokThumbnails } from "@/lib/tiktok-wizard/creative-thumbnails";
 import {
   commitUploadedTikTokCreatives,
@@ -16,7 +19,6 @@ import {
 import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
-  nameCreativeVariations,
   type TikTokVideoInfo,
 } from "@/lib/tiktok/creative";
 import {
@@ -202,13 +204,17 @@ export function CreativesStep({
     const count = clampTikTokVariationCount(variationCount);
     const videoInfo = await loadVideoInfo(videoId);
     if (!videoInfo) return;
-    const names = nameCreativeVariations(baseName, count);
+    const names = nextTikTokCreativeNames(
+      baseName,
+      itemsRef.current.length,
+      count,
+    );
     const displayName =
       draft.accountSetup.identityDisplayName ??
       draft.accountSetup.identityManualName ??
       "";
     const nextItems: TikTokCreativeDraft[] = [
-      ...draft.creatives.items,
+      ...itemsRef.current,
       ...names.map((name) => ({
         id: crypto.randomUUID(),
         name,

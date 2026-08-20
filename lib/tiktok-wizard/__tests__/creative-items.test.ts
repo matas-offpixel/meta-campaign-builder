@@ -5,6 +5,7 @@ import { nameCreativeVariations } from "../../tiktok/creative.ts";
 import {
   appendUploadedTikTokCreatives,
   clampTikTokVariationCount,
+  nextTikTokCreativeNames,
 } from "../creative-items.ts";
 
 const SHARED = {
@@ -39,11 +40,9 @@ describe("appendUploadedTikTokCreatives", () => {
     );
     assert.deepEqual(
       items.map((item) => item.name),
-      nameCreativeVariations("Hero", 1).concat(
-        nameCreativeVariations("Hero", 1),
-        nameCreativeVariations("Hero", 1),
-      ),
+      ["Hero · v1", "Hero · v2", "Hero · v3"],
     );
+    assert.equal(new Set(items.map((item) => item.name)).size, items.length);
   });
 
   it("fans one uploaded video into three items that share the video id", () => {
@@ -86,14 +85,9 @@ describe("appendUploadedTikTokCreatives", () => {
       items.map((item) => item.videoId),
       ["v1", "v1", "v2", "v2", "v3", "v3"],
     );
-    assert.deepEqual(
-      items.map((item) => item.name),
-      [
-        ...nameCreativeVariations("Hero", 2),
-        ...nameCreativeVariations("Hero", 2),
-        ...nameCreativeVariations("Hero", 2),
-      ],
-    );
+    const names = items.map((item) => item.name);
+    assert.equal(new Set(names).size, names.length);
+    assert.deepEqual(names, nameCreativeVariations("Hero", 6));
     assert.deepEqual(
       items.map((item) => item.title),
       ["one.mp4", "one.mp4", "two.mp4", "two.mp4", "three.mp4", "three.mp4"],
@@ -137,6 +131,39 @@ describe("appendUploadedTikTokCreatives", () => {
     });
     assert.equal(tooFew.length, 1);
     assert.deepEqual(tooFew.map((item) => item.name), nameCreativeVariations("Hero", 1));
+  });
+
+  it("numbering continues from existing items rather than restarting", () => {
+    let n = 0;
+    const existing = appendUploadedTikTokCreatives({
+      existing: [],
+      uploads: [
+        { videoId: "old-1", thumbnailUrl: "t0", durationSeconds: 1, fileName: "old-a.mp4" },
+        { videoId: "old-2", thumbnailUrl: "t0", durationSeconds: 1, fileName: "old-b.mp4" },
+      ],
+      ...SHARED,
+      newId: () => `id-${++n}`,
+    });
+    const items = appendUploadedTikTokCreatives({
+      existing,
+      uploads: [
+        { videoId: "vid-1", thumbnailUrl: "t1", durationSeconds: 8, fileName: "promo.mp4" },
+      ],
+      ...SHARED,
+      variationCount: 3,
+      newId: () => `id-${++n}`,
+    });
+    const added = items.slice(existing.length).map((item) => item.name);
+    assert.deepEqual(added, ["Hero · v3", "Hero · v4", "Hero · v5"]);
+    assert.equal(new Set(items.map((item) => item.name)).size, items.length);
+  });
+
+  it("two sequential pastes get distinct names continuing the sequence", () => {
+    const first = nextTikTokCreativeNames("Hero", 0, 2);
+    const second = nextTikTokCreativeNames("Hero", first.length, 2);
+    const names = [...first, ...second];
+    assert.equal(new Set(names).size, names.length);
+    assert.deepEqual(names, nameCreativeVariations("Hero", 4));
   });
 
   it("produces a UUID-shaped id when newId is not injected", () => {

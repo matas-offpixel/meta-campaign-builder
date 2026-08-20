@@ -8,7 +8,7 @@
 
 ## Summary
 
-Upload now honours the Variations field the same way paste-a-video-id does: clamp 1..10, `nameCreativeVariations`, N items per file sharing one video id. Multi-file compose is one functional append so 3×2 is six items, not only the last file. Campaign-setup syncs `draftRef` every render, flushes the pending name save on unmount (setState guarded by a mounted ref), and the dummy `tikTokTextFieldDisabledWhileSaving` helper is gone.
+Upload now honours the Variations field the same way paste-a-video-id does: clamp 1..10, N items per file sharing one video id. Names number the full expansion as one sequence continuing from existing items (3×2 → Hero · v1…v6, not three copies of v1/v2). Paste uses the same helper. Campaign-setup syncs `draftRef` every render, flushes the pending name save on unmount (setState guarded by a mounted ref), and the dummy `tikTokTextFieldDisabledWhileSaving` helper is gone.
 
 ## Scope / files
 
@@ -18,7 +18,7 @@ Upload now honours the Variations field the same way paste-a-video-id does: clam
 ## Validation
 
 - [x] `npm run build`
-- [x] `npm test` — 3950 = 3935 passed + 13 failed + 2 skipped (13 pre-existing)
+- [x] `npm test` — 3952 = 3936 passed + 13 failed + 3 skipped (13 pre-existing)
 - [x] eslint on changed files clean
 
 ## Notes
