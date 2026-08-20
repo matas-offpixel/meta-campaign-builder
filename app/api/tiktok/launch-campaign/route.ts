@@ -37,7 +37,7 @@ export async function GET(): Promise<NextResponse> {
   });
 }
 
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest): Promise<Response> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -54,11 +54,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const result = await handleTikTokLaunch({
-    userId: user?.id ?? null,
-    draftId,
-    session: supabase,
-    admin: createServiceRoleClient(),
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const emit = (event: unknown) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+      };
+      try {
+        const result = await handleTikTokLaunch({
+          userId: user?.id ?? null,
+          draftId,
+          session: supabase,
+          admin: createServiceRoleClient(),
+          onProgress: (progress) => {
+            emit({ type: "progress", ...progress });
+          },
+        });
+        emit({ type: "result", status: result.status, body: result.body });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        emit({
+          type: "result",
+          status: 500,
+          body: { ok: false, error: message },
+        });
+      } finally {
+        controller.close();
+      }
+    },
   });
-  return NextResponse.json(result.body, { status: result.status });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }

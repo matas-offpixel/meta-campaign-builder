@@ -4,6 +4,7 @@ import {
   createDefaultTikTokDraft,
   normalizeTikTokAudiences,
   type TikTokCampaignDraft,
+  type TikTokPublishedIds,
 } from "../types/tiktok-draft.ts";
 
 /**
@@ -81,7 +82,37 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
           ? (assignments.byAdGroupId as Record<string, string[]>)
           : defaults.creativeAssignments.byAdGroupId,
     },
+    publishedIds: normalizePublishedIds(incoming.publishedIds),
   };
+}
+
+/**
+ * Production drafts that launched before launchedAt existed omit the key
+ * entirely. Fill `launchedAt: null` without dropping the TikTok ids.
+ */
+export function normalizePublishedIds(raw: unknown): TikTokPublishedIds | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  if (
+    !("campaignId" in record) &&
+    !("adgroupIds" in record) &&
+    !("adIds" in record) &&
+    !("launchedAt" in record)
+  ) {
+    return null;
+  }
+  return {
+    campaignId: typeof record.campaignId === "string" ? record.campaignId : "",
+    adgroupIds: asStringArray(record.adgroupIds),
+    adIds: asStringArray(record.adIds),
+    launchedAt: typeof record.launchedAt === "string" ? record.launchedAt : null,
+  };
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }
 
 export function tikTokIdentityBcIdMissing(

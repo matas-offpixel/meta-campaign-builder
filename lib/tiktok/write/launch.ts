@@ -14,6 +14,7 @@ import {
   TikTokLaunchPreflightError,
   type LaunchTikTokDraftResult,
 } from "./orchestrator.ts";
+import type { TikTokLaunchProgress } from "./progress.ts";
 import { hydrateDraftIdentityBcId } from "../identity.ts";
 import { hydrateDraftCoverImageIds } from "./cover-image.ts";
 import { fetchAdvertiserCampaignNames } from "./campaign-names.ts";
@@ -26,6 +27,7 @@ export interface TikTokLaunchSuccessBody {
   campaign_id: string;
   adgroup_ids: string[];
   ad_ids: string[];
+  launched_at: string;
   entities: LaunchTikTokDraftResult["entities"];
 }
 
@@ -50,6 +52,7 @@ export async function handleTikTokLaunch(input: {
   request?: TikTokPost;
   requestGet?: typeof tiktokGet;
   sleep?: Sleep;
+  onProgress?: (progress: TikTokLaunchProgress) => void;
 }): Promise<TikTokLaunchResponse> {
   if (!input.userId) {
     return { status: 401, body: { ok: false, error: "Unauthorised" } };
@@ -158,10 +161,12 @@ export async function handleTikTokLaunch(input: {
         request: input.request,
         existingCampaignNames,
         sleep: input.sleep,
+        onProgress: input.onProgress,
       },
       draft,
     );
 
+    const launchedAt = new Date().toISOString();
     await upsertTikTokDraft(input.session, draft.id, {
       ...draft,
       userId: input.userId,
@@ -170,6 +175,7 @@ export async function handleTikTokLaunch(input: {
         campaignId: result.campaign_id,
         adgroupIds: result.adgroup_ids,
         adIds: result.ad_ids,
+        launchedAt,
       },
     });
 
@@ -180,6 +186,7 @@ export async function handleTikTokLaunch(input: {
         campaign_id: result.campaign_id,
         adgroup_ids: result.adgroup_ids,
         ad_ids: result.ad_ids,
+        launched_at: launchedAt,
         entities: result.entities,
       },
     };

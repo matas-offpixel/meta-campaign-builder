@@ -27,6 +27,8 @@ export interface TikTokPublishedIds {
   campaignId: string;
   adgroupIds: string[];
   adIds: string[];
+  /** ISO timestamp written on a successful launch. Omitted on older drafts. */
+  launchedAt: string | null;
 }
 
 export interface TikTokAccountSetup {

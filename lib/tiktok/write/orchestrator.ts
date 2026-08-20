@@ -10,6 +10,10 @@ import {
   type TikTokWriteContext,
 } from "./idempotency.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
+import {
+  plannedTikTokLaunchCounts,
+  type TikTokLaunchProgress,
+} from "./progress.ts";
 import { postTikTokWrite } from "./request.ts";
 import type { TikTokLaunchEntity } from "./types.ts";
 
@@ -17,6 +21,7 @@ export interface LaunchTikTokDraftArgs
   extends Omit<TikTokWriteContext, "draftId" | "advertiserId"> {
   draftId: string;
   existingCampaignNames?: string[];
+  onProgress?: (progress: TikTokLaunchProgress) => void;
 }
 
 export interface LaunchTikTokDraftResult {
@@ -70,6 +75,11 @@ export async function launchTikTokDraftState(
     advertiserId,
   };
 
+  const planned = plannedTikTokLaunchCounts(draft);
+  const report = (progress: TikTokLaunchProgress) => {
+    args.onProgress?.(progress);
+  };
+
   const createdCampaign = await createTikTokCampaign({
     ...context,
     draft,
@@ -82,6 +92,14 @@ export async function launchTikTokDraftState(
       status: "created",
     },
   ];
+  report({
+    phase: "campaign",
+    campaignId: createdCampaign.campaign_id,
+    adGroupsDone: 0,
+    adGroupsTotal: planned.adGroupsTotal,
+    adsDone: 0,
+    adsTotal: planned.adsTotal,
+  });
 
   const adgroupIds: string[] = [];
   const adIds: string[] = [];
@@ -101,6 +119,14 @@ export async function launchTikTokDraftState(
         name: adGroup.name,
         status: "created",
       });
+      report({
+        phase: "adgroup",
+        campaignId: createdCampaign.campaign_id,
+        adGroupsDone: adgroupIds.length,
+        adGroupsTotal: planned.adGroupsTotal,
+        adsDone: adIds.length,
+        adsTotal: planned.adsTotal,
+      });
 
       const creativeIds = draft.creativeAssignments.byAdGroupId[adGroup.id] ?? [];
       for (const creativeId of creativeIds) {
@@ -118,6 +144,14 @@ export async function launchTikTokDraftState(
           id: createdAd.ad_id,
           name: creative.name,
           status: "created",
+        });
+        report({
+          phase: "ad",
+          campaignId: createdCampaign.campaign_id,
+          adGroupsDone: adgroupIds.length,
+          adGroupsTotal: planned.adGroupsTotal,
+          adsDone: adIds.length,
+          adsTotal: planned.adsTotal,
         });
       }
     }

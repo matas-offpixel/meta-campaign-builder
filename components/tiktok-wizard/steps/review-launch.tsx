@@ -3,7 +3,15 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { TikTokLaunchPanel } from "@/components/tiktok-wizard/launch-panel";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
+import { buildTikTokAdsManagerUrl } from "@/lib/tiktok/ads-manager-url";
+import {
+  applyTikTokLaunchProgress,
+  buildTikTokLaunchPanelModel,
+  emptyTikTokLaunchProgress,
+  type TikTokLaunchProgressView,
+} from "@/lib/tiktok-wizard/launch-progress";
 import {
   buildTikTokBriefFilename,
   buildTikTokBriefMarkdown,
@@ -20,8 +28,11 @@ import { tikTokTargetingWideningNotes } from "@/lib/tiktok-wizard/targeting-warn
 import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
 import { filterClientResolvableTikTokPreflightIssues } from "@/lib/tiktok-wizard/migrate-draft";
 import { TIKTOK_WRITES_DISABLED_REASON } from "@/lib/tiktok/write/feature-flag";
+import {
+  readTikTokLaunchStream,
+  type TikTokLaunchStreamResultEvent,
+} from "@/lib/tiktok/write/launch-stream";
 import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
-import type { TikTokLaunchEntity } from "@/lib/tiktok/write/types";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 type LaunchState =
@@ -29,14 +40,29 @@ type LaunchState =
   | { status: "launching" }
   | {
       status: "success";
-      entities: TikTokLaunchEntity[];
       campaignId: string;
+      adgroupIds: string[];
+      adIds: string[];
+      launchedAt: string | null;
     }
   | {
       status: "error";
       message: string;
       preflight?: Array<{ id: string; field: string; message: string }>;
+      tiktok?: { code?: number; message: string; request_id?: string };
     };
+
+function launchStateFromDraft(draft: TikTokCampaignDraft): LaunchState {
+  const published = draft.publishedIds;
+  if (!published?.campaignId) return { status: "idle" };
+  return {
+    status: "success",
+    campaignId: published.campaignId,
+    adgroupIds: published.adgroupIds,
+    adIds: published.adIds,
+    launchedAt: published.launchedAt,
+  };
+}
 
 export function ReviewLaunchStep({
   draft,
@@ -49,7 +75,12 @@ export function ReviewLaunchStep({
 }) {
   const [saving, setSaving] = useState(false);
   const [validationOpen, setValidationOpen] = useState(false);
-  const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
+  const [launch, setLaunch] = useState<LaunchState>(() =>
+    launchStateFromDraft(draft),
+  );
+  const [progress, setProgress] = useState<TikTokLaunchProgressView>(
+    emptyTikTokLaunchProgress(),
+  );
   const checks = buildTikTokPreflightChecks(draft);
   const adGroups = suggestTikTokAdGroups(draft);
   const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
@@ -91,49 +122,46 @@ export function ReviewLaunchStep({
   async function launchOnTikTok() {
     if (launchDisabled) return;
     setLaunch({ status: "launching" });
+    setProgress(emptyTikTokLaunchProgress());
     try {
       const res = await fetch("/api/tiktok/launch-campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ draftId: draft.id }),
       });
-      const json = (await res.json().catch(() => null)) as
-        | {
-            ok: true;
-            campaign_id: string;
-            entities: TikTokLaunchEntity[];
-          }
-        | {
-            ok: false;
-            error: string;
-            preflight?: Array<{ id: string; field: string; message: string }>;
-          }
-        | null;
-      if (!res.ok || !json?.ok) {
+      const collected: { result: TikTokLaunchStreamResultEvent | null } = {
+        result: null,
+      };
+      await readTikTokLaunchStream(res, (event) => {
+        if (event.type === "progress") {
+          setProgress(applyTikTokLaunchProgress(event));
+          return;
+        }
+        collected.result = event;
+      });
+      const body = collected.result?.body;
+      if (!body || !body.ok) {
         setLaunch({
           status: "error",
-          message:
-            json && !json.ok ? json.error : "TikTok launch failed",
-          preflight: json && !json.ok ? json.preflight : undefined,
+          message: body && !body.ok ? body.error : "TikTok launch failed",
+          preflight: body && !body.ok ? body.preflight : undefined,
+          tiktok: body && !body.ok ? body.tiktok : undefined,
         });
         return;
       }
+      const publishedIds = {
+        campaignId: body.campaign_id,
+        adgroupIds: body.adgroup_ids,
+        adIds: body.ad_ids,
+        launchedAt: body.launched_at,
+      };
       await onSave({
         status: "published",
-        publishedIds: {
-          campaignId: json.campaign_id,
-          adgroupIds: json.entities
-            .filter((entity) => entity.kind === "adgroup")
-            .map((entity) => entity.id),
-          adIds: json.entities
-            .filter((entity) => entity.kind === "ad")
-            .map((entity) => entity.id),
-        },
+        publishedIds,
       });
       setLaunch({
         status: "success",
-        entities: json.entities,
-        campaignId: json.campaign_id,
+        ...publishedIds,
       });
     } catch (err) {
       setLaunch({
@@ -413,37 +441,34 @@ export function ReviewLaunchStep({
       {(launch.status === "launching" ||
         launch.status === "success" ||
         launch.status === "error") && (
-        <section className="rounded-md border border-border bg-background p-4">
-          <h3 className="font-heading text-lg">Launch progress</h3>
-          {launch.status === "launching" && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Creating campaign → ad groups → ads…
-            </p>
-          )}
-          {launch.status === "success" && (
-            <ul className="mt-3 space-y-2 text-sm">
-              {launch.entities.map((entity) => (
-                <li key={`${entity.kind}-${entity.id}`}>
-                  <span className="text-muted-foreground">{entity.kind}</span>{" "}
-                  {entity.name} · {entity.id}
-                </li>
-              ))}
-            </ul>
-          )}
-          {launch.status === "error" && (
-            <div className="mt-2 space-y-2 text-sm">
-              <p className="text-red-700">{launch.message}</p>
-              {launch.preflight && launch.preflight.length > 0 && (
-                <ul className="list-disc space-y-1 pl-5">
-                  {launch.preflight.map((issue) => (
-                    <li key={issue.id}>{issue.message}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </section>
+        <TikTokLaunchPanel
+          model={buildTikTokLaunchPanelModel({
+            status: launch.status,
+            progress,
+            campaignId:
+              launch.status === "success" ? launch.campaignId : null,
+            adGroupCount:
+              launch.status === "success" ? launch.adgroupIds.length : null,
+            adCount: launch.status === "success" ? launch.adIds.length : null,
+            launchedAt:
+              launch.status === "success" ? launch.launchedAt : null,
+            adsManagerUrl: buildTikTokAdsManagerUrl(
+              draft.accountSetup.advertiserId,
+            ),
+            errorMessage: launch.status === "error" ? launch.message : null,
+            tiktok: launch.status === "error" ? launch.tiktok : null,
+          })}
+        />
       )}
+      {launch.status === "error" &&
+        launch.preflight &&
+        launch.preflight.length > 0 && (
+          <ul className="list-disc space-y-1 pl-5 text-sm text-red-700">
+            {launch.preflight.map((issue) => (
+              <li key={issue.id}>{issue.message}</li>
+            ))}
+          </ul>
+        )}
 
       <div className="space-y-2">
         <div className="flex flex-wrap gap-3">
