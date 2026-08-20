@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
+import { appendUploadedTikTokCreatives } from "@/lib/tiktok-wizard/creative-items";
 import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
@@ -75,42 +76,6 @@ export function CreativesStep({
     );
   }
 
-  async function persistUploadedVideo(input: {
-    videoId: string;
-    thumbnailUrl: string | null;
-    durationSeconds: number | null;
-    fileName: string;
-  }) {
-    const count = Math.max(1, Math.min(10, Number.parseInt(variationCount, 10) || 1));
-    const names = nameCreativeVariations(baseName, count);
-    const displayName =
-      draft.accountSetup.identityDisplayName ??
-      draft.accountSetup.identityManualName ??
-      "";
-    const nextItems: TikTokCreativeDraft[] = [
-      ...draft.creatives.items,
-      ...names.map((name) => ({
-        id: crypto.randomUUID(),
-        name,
-        baseName: baseName.trim() || "TikTok creative",
-        mode: "VIDEO_REFERENCE" as const,
-        videoId: input.videoId,
-        videoUrl: null,
-        thumbnailUrl: input.thumbnailUrl,
-        durationSeconds: input.durationSeconds,
-        title: input.fileName,
-        sparkPostId: null,
-        caption: adText,
-        adText,
-        displayName,
-        landingPageUrl: landingPageUrl.trim(),
-        cta,
-        musicId: null,
-      })),
-    ];
-    await persist(nextItems);
-  }
-
   async function uploadFiles(files: File[]) {
     const advertiserId = draft.accountSetup.advertiserId;
     if (!advertiserId) {
@@ -121,6 +86,12 @@ export function CreativesStep({
       setError("TikTok ad text must be 100 characters or fewer.");
       return;
     }
+    const uploads: Array<{
+      videoId: string;
+      thumbnailUrl: string | null;
+      durationSeconds: number | null;
+      fileName: string;
+    }> = [];
     for (const file of files) {
       const gate = validateTikTokVideoFile(file);
       if (!gate.ok) {
@@ -163,7 +134,7 @@ export function CreativesStep({
           videoId: result.videoId,
           thumbnailUrl: result.previewUrl,
         });
-        await persistUploadedVideo({
+        uploads.push({
           videoId: result.videoId,
           thumbnailUrl: result.previewUrl,
           durationSeconds: result.durationSeconds,
@@ -175,6 +146,21 @@ export function CreativesStep({
         setError(message);
       }
     }
+    if (uploads.length === 0) return;
+    const nextItems = appendUploadedTikTokCreatives({
+      existing: draft.creatives.items,
+      uploads,
+      baseName,
+      variationCount: Number.parseInt(variationCount, 10) || 1,
+      adText,
+      displayName:
+        draft.accountSetup.identityDisplayName ??
+        draft.accountSetup.identityManualName ??
+        "",
+      landingPageUrl: landingPageUrl.trim(),
+      cta,
+    });
+    await persist(nextItems);
   }
 
   async function addVideoReference() {
@@ -351,7 +337,7 @@ export function CreativesStep({
             browse
           </button>
           <p className="mt-1 text-xs text-muted-foreground">
-            .mp4, .mov, .mpeg, .avi · up to 500 MB
+            .mp4, .mov, .mpeg, .avi · up to 200 MB (Storage ceiling)
           </p>
         </div>
         <input

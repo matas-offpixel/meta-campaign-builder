@@ -7,6 +7,9 @@ const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3";
 const UPLOAD_PATH = "/file/video/ad/upload/";
 const INFO_PATH = "/file/video/ad/info/";
 
+/** Generous ceiling above TikTok's documented 10s interface timeout. */
+export const TIKTOK_UPLOAD_TIMEOUT_MS = 120_000;
+
 export type TikTokVideoUploadMode = "UPLOAD_BY_FILE" | "UPLOAD_BY_URL";
 
 export interface TikTokUploadedVideo {
@@ -21,11 +24,26 @@ export interface TikTokUploadedVideo {
   backfilled: boolean;
 }
 
+export type TikTokFileUploadSource = {
+  kind: "file";
+  signature: string;
+  mimeType: string;
+  byteLength: number;
+  open: () => Promise<ReadableStream<Uint8Array>>;
+};
+
+export type TikTokUrlUploadSource = {
+  kind: "url";
+  videoUrl: string;
+};
+
 export interface TikTokUploadTransportRequest {
   url: string;
   method: "POST";
   headers: Record<string, string>;
   body: BodyInit;
+  signal: AbortSignal;
+  duplex?: "half";
 }
 
 export interface TikTokUploadTransportResponse {
@@ -45,13 +63,24 @@ const INFO_BACKOFF_MS = [2_000, 4_000, 8_000] as const;
  * Smart Fix stays off. TikTok's flaw_detect / auto_fix_enabled /
  * auto_bind_enabled silently re-encode resolution and re-crop aspect
  * ratio, which would publish a different video than the operator
- * supplied. Send false explicitly — do not rely on API defaults.
+ * supplied.
+ *
+ * URL mode sends these as JSON booleans. FILE mode OMITS them —
+ * multipart string "false" can be parsed as truthy, which would enable
+ * Smart Fix. Documented defaults are already false.
  */
-const SMART_FIX_OFF = {
+export const SMART_FIX_OFF = {
   flaw_detect: false,
   auto_fix_enabled: false,
   auto_bind_enabled: false,
 } as const;
+
+export function smartFixFieldsForMode(
+  mode: TikTokVideoUploadMode,
+): Record<keyof typeof SMART_FIX_OFF, boolean> | null {
+  if (mode === "UPLOAD_BY_FILE") return null;
+  return { ...SMART_FIX_OFF };
+}
 
 export function resolveTikTokVideoUploadMode(
   raw = process.env.TIKTOK_VIDEO_UPLOAD_MODE,
@@ -77,6 +106,22 @@ export function md5Hex(bytes: Uint8Array): string {
   return createHash("md5").update(bytes).digest("hex");
 }
 
+export async function hashStreamMd5(
+  stream: ReadableStream<Uint8Array>,
+): Promise<{ signature: string; bytes: number }> {
+  const hash = createHash("md5");
+  let bytes = 0;
+  const reader = stream.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    hash.update(value);
+    bytes += value.byteLength;
+  }
+  return { signature: hash.digest("hex"), bytes };
+}
+
 export function isTikTokDuplicateFileNameError(error: {
   message: string;
   code?: number;
@@ -94,6 +139,7 @@ export function isTikTokDuplicateFileNameError(error: {
 export function isTikTokUploadTimeoutError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === "AbortError") return true;
   if (error instanceof Error && error.name === "TimeoutError") return true;
+  if (error instanceof Error && error.name === "AbortError") return true;
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   return (
@@ -154,10 +200,10 @@ function readUploadRow(res: unknown): Record<string, unknown> | null {
   }
   if (data && typeof data === "object") {
     const nested = data as Record<string, unknown>;
-    if (typeof nested.video_id === "string") return nested;
     if (Array.isArray(nested.list) && nested.list[0] && typeof nested.list[0] === "object") {
       return nested.list[0] as Record<string, unknown>;
     }
+    return nested;
   }
   if (typeof record.video_id === "string") return record;
   return null;
@@ -205,42 +251,106 @@ function formatUploadFailure(input: {
 
 function defaultTransport(): TikTokUploadTransport {
   return async (request) => {
-    const response = await fetch(request.url, {
+    const init: RequestInit & { duplex?: "half" } = {
       method: request.method,
       headers: request.headers,
       body: request.body,
       cache: "no-store",
-    });
+      signal: request.signal,
+    };
+    if (request.duplex) init.duplex = request.duplex;
+    const response = await fetch(request.url, init);
     const json = (await response.json().catch(() => ({}))) as unknown;
     return { status: response.status, json };
   };
+}
+
+export function createMultipartFileBody(input: {
+  fields: Record<string, string>;
+  fileField: string;
+  fileName: string;
+  mimeType: string;
+  fileStream: ReadableStream<Uint8Array>;
+  boundary: string;
+}): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const parts: Uint8Array[] = [];
+  for (const [name, value] of Object.entries(input.fields)) {
+    parts.push(
+      encoder.encode(
+        `--${input.boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ),
+    );
+  }
+  parts.push(
+    encoder.encode(
+      `--${input.boundary}\r\nContent-Disposition: form-data; name="${input.fileField}"; filename="${input.fileName}"\r\nContent-Type: ${input.mimeType}\r\n\r\n`,
+    ),
+  );
+  const preamble = concatSmall(parts);
+  const epilogue = encoder.encode(`\r\n--${input.boundary}--\r\n`);
+  const reader = input.fileStream.getReader();
+  let phase: "preamble" | "file" | "epilogue" | "done" = "preamble";
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (phase === "preamble") {
+        controller.enqueue(preamble);
+        phase = "file";
+        return;
+      }
+      if (phase === "file") {
+        const { done, value } = await reader.read();
+        if (!done && value) {
+          controller.enqueue(value);
+          return;
+        }
+        phase = "epilogue";
+      }
+      if (phase === "epilogue") {
+        controller.enqueue(epilogue);
+        phase = "done";
+        controller.close();
+      }
+    },
+  });
+}
+
+function concatSmall(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 export async function uploadTikTokAdVideo(input: {
   advertiserId: string;
   token: string;
   mode: TikTokVideoUploadMode;
-  source:
-    | { kind: "file"; bytes: Uint8Array; mimeType: string }
-    | { kind: "url"; videoUrl: string };
+  source: TikTokFileUploadSource | TikTokUrlUploadSource;
   fileName: string;
   bytes?: number;
   transport?: TikTokUploadTransport;
   infoRequest?: typeof fetchTikTokVideoInfo;
   sleep?: TikTokUploadSleep;
   now?: () => number;
+  timeoutMs?: number;
 }): Promise<TikTokUploadedVideo> {
   const transport = input.transport ?? defaultTransport();
   const sleep = input.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const started = (input.now ?? Date.now)();
   const bytes =
     input.bytes ??
-    (input.source.kind === "file" ? input.source.bytes.byteLength : 0);
+    (input.source.kind === "file" ? input.source.byteLength : 0);
 
   let fileName = uniqueTikTokFileName(input.fileName);
   let retriedName = false;
 
   while (true) {
+    const signal = AbortSignal.timeout(input.timeoutMs ?? TIKTOK_UPLOAD_TIMEOUT_MS);
     try {
       const uploaded = await postTikTokAdVideo({
         advertiserId: input.advertiserId,
@@ -249,6 +359,7 @@ export async function uploadTikTokAdVideo(input: {
         source: input.source,
         fileName,
         transport,
+        signal,
       });
       const elapsedMs = (input.now ?? Date.now)() - started;
       logTikTokUploadTiming({
@@ -281,7 +392,7 @@ export async function uploadTikTokAdVideo(input: {
         fileName = nextName;
         continue;
       }
-      const timeout = isTikTokUploadTimeoutError(error);
+      const timeout = isTikTokUploadTimeoutError(error) || signal.aborted;
       logTikTokUploadTiming({
         mode: input.mode,
         advertiserId: input.advertiserId,
@@ -310,39 +421,48 @@ async function postTikTokAdVideo(input: {
   advertiserId: string;
   token: string;
   mode: TikTokVideoUploadMode;
-  source:
-    | { kind: "file"; bytes: Uint8Array; mimeType: string }
-    | { kind: "url"; videoUrl: string };
+  source: TikTokFileUploadSource | TikTokUrlUploadSource;
   fileName: string;
   transport: TikTokUploadTransport;
+  signal: AbortSignal;
 }): Promise<TikTokUploadedVideo> {
   const url = `${TIKTOK_BASE}${UPLOAD_PATH}`;
   const headers: Record<string, string> = {
     "Access-Token": input.token,
   };
   let body: BodyInit;
+  let duplex: "half" | undefined;
+
+  const smartFix = smartFixFieldsForMode(input.mode);
 
   if (input.mode === "UPLOAD_BY_FILE") {
     if (input.source.kind !== "file") {
-      throw new TikTokApiError("UPLOAD_BY_FILE requires file bytes");
+      throw new TikTokApiError("UPLOAD_BY_FILE requires a file stream");
     }
-    const signature = md5Hex(input.source.bytes);
-    const form = new FormData();
-    form.append("advertiser_id", input.advertiserId);
-    form.append("upload_type", "UPLOAD_BY_FILE");
-    form.append("video_signature", signature);
-    form.append("file_name", input.fileName);
-    form.append("flaw_detect", "false");
-    form.append("auto_fix_enabled", "false");
-    form.append("auto_bind_enabled", "false");
-    form.append(
-      "video_file",
-      new Blob([Buffer.from(input.source.bytes)], {
-        type: input.source.mimeType || "video/mp4",
-      }),
-      input.fileName,
-    );
-    body = form;
+    const fields: Record<string, string> = {
+      advertiser_id: input.advertiserId,
+      upload_type: "UPLOAD_BY_FILE",
+      video_signature: input.source.signature,
+      file_name: input.fileName,
+    };
+    void SMART_FIX_OFF;
+    if (smartFix) {
+      for (const [key, value] of Object.entries(smartFix)) {
+        fields[key] = String(value);
+      }
+    }
+    const boundary = `----tiktok${crypto.randomUUID().replace(/-/g, "")}`;
+    const fileStream = await input.source.open();
+    body = createMultipartFileBody({
+      fields,
+      fileField: "video_file",
+      fileName: input.fileName,
+      mimeType: input.source.mimeType,
+      fileStream,
+      boundary,
+    });
+    headers["Content-Type"] = `multipart/form-data; boundary=${boundary}`;
+    duplex = "half";
   } else {
     if (input.source.kind !== "url") {
       throw new TikTokApiError("UPLOAD_BY_URL requires a video URL");
@@ -353,11 +473,18 @@ async function postTikTokAdVideo(input: {
       upload_type: "UPLOAD_BY_URL",
       video_url: input.source.videoUrl,
       file_name: input.fileName,
-      ...SMART_FIX_OFF,
+      ...(smartFix ?? {}),
     });
   }
 
-  const response = await input.transport({ url, method: "POST", headers, body });
+  const response = await input.transport({
+    url,
+    method: "POST",
+    headers,
+    body,
+    signal: input.signal,
+    duplex,
+  });
   const json = response.json;
   const envelope =
     json && typeof json === "object" ? (json as Record<string, unknown>) : {};
@@ -381,8 +508,9 @@ async function postTikTokAdVideo(input: {
   if (!row || !videoId) {
     const objectKeys =
       json && typeof json === "object" ? Object.keys(json as object) : [];
+    const rowKeys = row ? Object.keys(row) : [];
     throw new TikTokApiError(
-      `TikTok video upload returned no video_id. keys=[${objectKeys.join(",")}] rowKeys=[]`,
+      `TikTok video upload returned no video_id. keys=[${objectKeys.join(",")}] rowKeys=[${rowKeys.join(",")}]`,
       code,
       requestId,
       response.status,
@@ -431,35 +559,11 @@ async function backfillUploadMetadata(
   return uploaded;
 }
 
-export async function hashAndBufferStream(
-  stream: ReadableStream<Uint8Array> | null,
-  fallback: ArrayBuffer,
-): Promise<{ bytes: Uint8Array; signature: string }> {
-  if (!stream) {
-    const bytes = new Uint8Array(fallback);
-    return { bytes, signature: md5Hex(bytes) };
-  }
-  const hash = createHash("md5");
-  const chunks: Uint8Array[] = [];
-  const reader = stream.getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    hash.update(value);
-    chunks.push(value);
-  }
-  const bytes = concatBytes(chunks);
-  return { bytes, signature: hash.digest("hex") };
-}
-
-function concatBytes(chunks: Uint8Array[]): Uint8Array {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return out;
+export function bytesToStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
 }

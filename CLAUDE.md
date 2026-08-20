@@ -104,6 +104,7 @@ TIKTOK_APP_ID=
 TIKTOK_APP_SECRET=
 TIKTOK_REDIRECT_URI=
 TIKTOK_TOKEN_KEY=
+TIKTOK_VIDEO_UPLOAD_MODE=
 OFFPIXEL_TIKTOK_WRITES_ENABLED=
 OFFPIXEL_META_AUDIENCE_WRITES_ENABLED=
 GOOGLE_ADS_DEVELOPER_TOKEN=
@@ -159,6 +160,13 @@ ENABLE_BUDGET_PACING_ALERTS=
 > `/business-managers` + `docs/session-logs/pr-pending-ops-business-manager-asset-sync.md`.
 
 > **`FACEBOOK_OAUTH_SCOPES`** — optional comma-separated override for the Facebook OAuth dialog scope list (and the settings UI missing-permissions check); set on deployments whose Meta app cannot request `instagram_basic`.
+
+> **`TIKTOK_VIDEO_UPLOAD_MODE`** — TikTok Asset Library upload transport
+> (`POST /api/tiktok/creative/upload`). Default `UPLOAD_BY_FILE` (multipart
+> stream Vercel → TikTok). Set to `UPLOAD_BY_URL` to pass a short-lived
+> Storage signed URL and let TikTok pull the file. Live measurement of
+> 15/60/140 MB decides whether the default should change. Smart Fix stays
+> off in both modes.
 
 > **`OFFPIXEL_TIKTOK_WRITES_ENABLED`** — TikTok campaign launcher killswitch
 > (`POST /api/tiktok/launch-campaign`). Must be exactly `"true"`; unset (the

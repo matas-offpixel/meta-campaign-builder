@@ -13,15 +13,16 @@ describe("validateTikTokVideoFile", () => {
     if (!result.ok) assert.match(result.error, /\.mkv/);
   });
 
-  it("names the actual size when the file is over 500 MB", () => {
+  it("names the actual size when the file is over the 200 MB Storage ceiling", () => {
     const result = validateTikTokVideoFile({
       name: "huge.mp4",
       size: TIKTOK_VIDEO_MAX_BYTES + 1024 * 1024,
     });
     assert.equal(result.ok, false);
     if (!result.ok) {
-      assert.match(result.error, /501\.0 MB/);
-      assert.match(result.error, /500 MB/);
+      assert.match(result.error, /201\.0 MB/);
+      assert.match(result.error, /200 MB/);
+      assert.match(result.error, /Storage ceiling/);
     }
   });
 

@@ -1,4 +1,5 @@
-export const TIKTOK_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+/** campaign-assets single-file ceiling from PR #593 / migration 118. */
+export const TIKTOK_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
 export const TIKTOK_VIDEO_EXTENSIONS = [".mp4", ".mov", ".mpeg", ".avi"] as const;
 
 export function validateTikTokVideoFile(file: {
@@ -17,7 +18,7 @@ export function validateTikTokVideoFile(file: {
     const sizeMb = (file.size / 1024 / 1024).toFixed(1);
     return {
       ok: false,
-      error: `File "${file.name}" is ${sizeMb} MB — TikTok's documented limit is 500 MB.`,
+      error: `File "${file.name}" is ${sizeMb} MB — the campaign-assets Storage ceiling is 200 MB.`,
     };
   }
   if (file.size === 0) {

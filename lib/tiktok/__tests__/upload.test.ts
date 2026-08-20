@@ -4,10 +4,15 @@ import { describe, it } from "node:test";
 
 import { TikTokApiError } from "../client.ts";
 import {
+  bytesToStream,
+  hashStreamMd5,
   logTikTokUploadTiming,
   md5Hex,
+  SMART_FIX_OFF,
+  smartFixFieldsForMode,
   uniqueTikTokFileName,
   uploadTikTokAdVideo,
+  type TikTokFileUploadSource,
   type TikTokUploadTransport,
 } from "../upload.ts";
 
@@ -19,6 +24,35 @@ function md5(text: string): string {
   return createHash("md5").update(text).digest("hex");
 }
 
+function fileSource(bytes: Uint8Array, mimeType = "video/mp4"): TikTokFileUploadSource {
+  return {
+    kind: "file",
+    signature: md5Hex(bytes),
+    mimeType,
+    byteLength: bytes.byteLength,
+    open: async () => bytesToStream(bytes),
+  };
+}
+
+async function readBody(body: BodyInit): Promise<Uint8Array> {
+  assert.ok(body instanceof ReadableStream);
+  const reader = (body as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value);
+  }
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 describe("uniqueTikTokFileName", () => {
   it("suffixes a timestamp and stays within 100 chars", () => {
     const name = uniqueTikTokFileName("house anthem.mp4", 1_700_000_000_000);
@@ -27,25 +61,34 @@ describe("uniqueTikTokFileName", () => {
   });
 });
 
+describe("smartFixFieldsForMode", () => {
+  it("is identical in source and omits FILE multipart booleans", () => {
+    assert.equal(smartFixFieldsForMode("UPLOAD_BY_FILE"), null);
+    assert.deepEqual(smartFixFieldsForMode("UPLOAD_BY_URL"), { ...SMART_FIX_OFF });
+    assert.equal(SMART_FIX_OFF.flaw_detect, false);
+    assert.equal(SMART_FIX_OFF.auto_fix_enabled, false);
+    assert.equal(SMART_FIX_OFF.auto_bind_enabled, false);
+  });
+});
+
 describe("uploadTikTokAdVideo", () => {
-  it("UPLOAD_BY_FILE sends multipart with video_file, md5 signature, and Smart Fix off", async () => {
+  it("UPLOAD_BY_FILE streams multipart with the pass-1 signature and no Smart Fix fields", async () => {
     const bytes = new TextEncoder().encode("video-bytes");
-    let sawFile = false;
+    const expectedSignature = md5("video-bytes");
+    let sawStream = false;
     const transport: TikTokUploadTransport = async (request) => {
       assert.match(request.url, /\/file\/video\/ad\/upload\/$/);
       assert.equal(request.headers["Access-Token"], TOKEN);
-      assert.equal(request.headers["Content-Type"], undefined);
-      assert.ok(request.body instanceof FormData);
-      const form = request.body;
-      assert.equal(form.get("advertiser_id"), "adv-1");
-      assert.equal(form.get("upload_type"), "UPLOAD_BY_FILE");
-      assert.equal(form.get("video_signature"), md5("video-bytes"));
-      assert.equal(form.get("flaw_detect"), "false");
-      assert.equal(form.get("auto_fix_enabled"), "false");
-      assert.equal(form.get("auto_bind_enabled"), "false");
-      const file = form.get("video_file");
-      assert.ok(file instanceof Blob);
-      sawFile = true;
+      assert.match(request.headers["Content-Type"] ?? "", /^multipart\/form-data; boundary=/);
+      assert.equal(request.duplex, "half");
+      assert.ok(request.body instanceof ReadableStream);
+      sawStream = true;
+      const raw = new TextDecoder().decode(await readBody(request.body));
+      assert.match(raw, new RegExp(`name="video_signature"\\r\\n\\r\\n${expectedSignature}`));
+      assert.match(raw, /name="video_file"/);
+      assert.doesNotMatch(raw, /flaw_detect/);
+      assert.doesNotMatch(raw, /auto_fix_enabled/);
+      assert.doesNotMatch(raw, /auto_bind_enabled/);
       return {
         status: 200,
         json: {
@@ -68,15 +111,17 @@ describe("uploadTikTokAdVideo", () => {
       advertiserId: "adv-1",
       token: TOKEN,
       mode: "UPLOAD_BY_FILE",
-      source: { kind: "file", bytes, mimeType: "video/mp4" },
+      source: fileSource(bytes),
       fileName: "clip.mp4",
       transport,
       sleep: async () => {},
     });
     assert.equal(result.videoId, "v-file");
     assert.equal(result.previewUrl, "https://cdn.example/preview.jpg");
-    assert.equal(sawFile, true);
-    assert.equal(md5Hex(bytes), md5("video-bytes"));
+    assert.equal(sawStream, true);
+    const hashed = await hashStreamMd5(bytesToStream(bytes));
+    assert.equal(hashed.signature, expectedSignature);
+    assert.equal(hashed.bytes, bytes.byteLength);
   });
 
   it("UPLOAD_BY_URL sends JSON with video_url and Smart Fix false booleans", async () => {
@@ -85,9 +130,14 @@ describe("uploadTikTokAdVideo", () => {
       const body = JSON.parse(String(request.body)) as Record<string, unknown>;
       assert.equal(body.upload_type, "UPLOAD_BY_URL");
       assert.equal(body.video_url, SIGNED_URL);
-      assert.equal(body.flaw_detect, false);
-      assert.equal(body.auto_fix_enabled, false);
-      assert.equal(body.auto_bind_enabled, false);
+      assert.deepEqual(
+        {
+          flaw_detect: body.flaw_detect,
+          auto_fix_enabled: body.auto_fix_enabled,
+          auto_bind_enabled: body.auto_bind_enabled,
+        },
+        SMART_FIX_OFF,
+      );
       return {
         status: 200,
         json: { code: 0, data: [{ video_id: "v-url", duration: 9 }] },
@@ -117,7 +167,7 @@ describe("uploadTikTokAdVideo", () => {
       advertiserId: "adv-1",
       token: TOKEN,
       mode: "UPLOAD_BY_FILE",
-      source: { kind: "file", bytes: new Uint8Array([1, 2, 3]), mimeType: "video/mp4" },
+      source: fileSource(new Uint8Array([1, 2, 3])),
       fileName: "late.mp4",
       transport,
       sleep: async () => {},
@@ -145,12 +195,13 @@ describe("uploadTikTokAdVideo", () => {
     let calls = 0;
     const transport: TikTokUploadTransport = async (request) => {
       calls += 1;
-      const form = request.body as FormData;
-      names.push(String(form.get("file_name")));
+      const raw = new TextDecoder().decode(await readBody(request.body));
+      const match = raw.match(/name="file_name"\r\n\r\n([^\r]+)/);
+      names.push(match?.[1] ?? "");
       if (calls === 1) {
         return {
-          status: 200,
-          json: { code: 40900, message: "file name already exists" },
+          status: 400,
+          json: { message: "file name already exists" },
         };
       }
       return {
@@ -163,7 +214,7 @@ describe("uploadTikTokAdVideo", () => {
       advertiserId: "adv-1",
       token: TOKEN,
       mode: "UPLOAD_BY_FILE",
-      source: { kind: "file", bytes: new Uint8Array([9]), mimeType: "video/mp4" },
+      source: fileSource(new Uint8Array([9])),
       fileName: "same.mp4",
       transport,
       sleep: async () => {},
@@ -180,7 +231,7 @@ describe("uploadTikTokAdVideo", () => {
           advertiserId: "adv-1",
           token: TOKEN,
           mode: "UPLOAD_BY_FILE",
-          source: { kind: "file", bytes: new Uint8Array([1]), mimeType: "video/mp4" },
+          source: fileSource(new Uint8Array([1])),
           fileName: "odd.mp4",
           transport: async () => ({
             status: 200,
@@ -191,9 +242,51 @@ describe("uploadTikTokAdVideo", () => {
       (error: unknown) => {
         assert.ok(error instanceof TikTokApiError);
         assert.match(error.message, /no video_id/);
-        assert.match(error.message, /keys=\[/);
+        assert.match(error.message, /keys=\[code,data\]/);
+        assert.match(error.message, /rowKeys=\[unexpected\]/);
         return true;
       },
+    );
+  });
+
+  it("a timed-out upload yields outcome=timeout with bytes and elapsedMs", async () => {
+    const lines: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      await assert.rejects(
+        () =>
+          uploadTikTokAdVideo({
+            advertiserId: "adv-1",
+            token: TOKEN,
+            mode: "UPLOAD_BY_URL",
+            source: { kind: "url", videoUrl: SIGNED_URL },
+            fileName: "slow.mp4",
+            bytes: 15_728_640,
+            timeoutMs: 20,
+            transport: async (request) =>
+              new Promise((_, reject) => {
+                request.signal.addEventListener("abort", () => {
+                  reject(new DOMException("The operation was aborted.", "AbortError"));
+                });
+              }),
+            sleep: async () => {},
+          }),
+        (error: unknown) => {
+          assert.ok(error instanceof TikTokApiError);
+          assert.match(error.message, /timeout/);
+          assert.match(error.message, /15\.0 MB/);
+          return true;
+        },
+      );
+    } finally {
+      console.error = original;
+    }
+    assert.match(
+      lines.join("\n"),
+      /\[tiktok\/upload\] mode=UPLOAD_BY_URL advertiser=adv-1 bytes=15728640 elapsedMs=\d+ outcome=timeout/,
     );
   });
 

@@ -26,7 +26,7 @@ explicitly false. A video_id-only latency response backfills metadata from
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` — 3907 = 3891 passed + 13 failed + 3 skipped
+- [x] `npm test` — 3914 = 3898 passed + 13 failed + 3 skipped
 - [x] Changed-file eslint clean
 
 ## Notes
@@ -35,4 +35,9 @@ explicitly false. A video_id-only latency response backfills metadata from
   or a `mode` field on the route body (measurement).
 - Timing log format:
   `[tiktok/upload] mode=<UPLOAD_BY_FILE|UPLOAD_BY_URL> advertiser=<id> bytes=<n> elapsedMs=<n> outcome=<ok|timeout|error> code=<n>`
-- Fetchers in `lib/tiktok/audience.ts` unchanged. Smart Fix off. Image upload not implemented.
+- Fetchers in `lib/tiktok/audience.ts` unchanged. Image upload not implemented.
+- Review follow-up: allowlisted `campaign-assets` + `tiktok-videos/<uuid>.<ext>`
+  before any service-role call; Mode A two-pass stream (hash then framed
+  multipart); Smart Fix omitted on FILE (multipart `"false"` is ambiguous);
+  multi-file persist once; AbortSignal.timeout 120s; client gate 200 MB
+  Storage ceiling.
