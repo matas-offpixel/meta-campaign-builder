@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import {
+  filterTikTokRegions,
+  resolveTikTokGenderLabel,
+  resolveTikTokLanguageLabel,
+  resolveTikTokLocationLabel,
+  visibleTikTokCategoryRows,
+} from "@/lib/tiktok-wizard/audience-display";
+import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
   hasLegacyTikTokTargeting,
@@ -97,6 +104,8 @@ export function AudiencesStep({
   const [languageQuery, setLanguageQuery] = useState("");
   const keywordAbort = useRef<AbortController | null>(null);
   const hashtagAbort = useRef<AbortController | null>(null);
+  const groupCardRefs = useRef(new Map<string, HTMLDivElement>());
+  const [scrollToGroupId, setScrollToGroupId] = useState<string | null>(null);
 
   const advertiserId = draft.accountSetup.advertiserId;
   const groups = audiences.interestGroups;
@@ -319,7 +328,15 @@ export function AudiencesStep({
     if (!group.name) group.name = `Group ${groups.length + 1}`;
     await persistGroups([...groups, group]);
     setActiveGroupId(group.id);
+    setScrollToGroupId(group.id);
   }
+
+  useEffect(() => {
+    if (!scrollToGroupId) return;
+    const card = groupCardRefs.current.get(scrollToGroupId);
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setScrollToGroupId(null);
+  }, [scrollToGroupId, groups]);
 
   async function removeGroup(groupId: string) {
     const next = groups.filter((group) => group.id !== groupId);
@@ -366,17 +383,10 @@ export function AudiencesStep({
   }
 
   const interestTree = useMemo(() => buildTree(interests), [interests]);
-  const filteredRegions = useMemo(() => {
-    const query = locationQuery.trim().toLowerCase();
-    if (!query) return regions.slice(0, 40);
-    return regions
-      .filter((region) =>
-        `${region.name} ${region.countryCode ?? ""} ${region.id}`
-          .toLowerCase()
-          .includes(query),
-      )
-      .slice(0, 40);
-  }, [regions, locationQuery]);
+  const filteredRegions = useMemo(
+    () => filterTikTokRegions(regions, locationQuery),
+    [regions, locationQuery],
+  );
   const filteredLanguages = useMemo(() => {
     const query = languageQuery.trim().toLowerCase();
     const unused = languageOptions.filter(
@@ -417,12 +427,12 @@ export function AudiencesStep({
           Targeting summary
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {summaryChips(draft).map((chip) => (
+          {summaryChips(draft, regions, languageOptions).map((chip) => (
             <span key={chip} className="rounded-full bg-muted px-3 py-1 text-xs text-foreground">
               {chip}
             </span>
           ))}
-          {summaryChips(draft).length === 0 && (
+          {summaryChips(draft, regions, languageOptions).length === 0 && (
             <span className="text-sm text-muted-foreground">No targeting selected yet.</span>
           )}
         </div>
@@ -444,6 +454,10 @@ export function AudiencesStep({
             {groups.map((group) => (
               <div
                 key={group.id}
+                ref={(node) => {
+                  if (node) groupCardRefs.current.set(group.id, node);
+                  else groupCardRefs.current.delete(group.id);
+                }}
                 className={`rounded-md border p-3 ${
                   group.id === activeGroup?.id
                     ? "border-primary bg-primary/5"
@@ -515,6 +529,11 @@ export function AudiencesStep({
           </button>
         ))}
       </div>
+      <p className="text-sm text-muted-foreground">
+        {activeGroup
+          ? `Selecting for ${activeGroup.name || "Untitled group"}.`
+          : "Add a group to enable the pickers."}
+      </p>
 
       {activeTab === "interests" && (
         <div className="space-y-4">
@@ -720,38 +739,53 @@ export function AudiencesStep({
           <SearchInput
             value={locationQuery}
             onChange={(event) => setLocationQuery(event.target.value)}
-            placeholder="Search regions"
+            placeholder="Search for a location"
             onClear={() => setLocationQuery("")}
             disabled={!advertiserId}
           />
           <div className="max-h-40 overflow-auto rounded-md border border-border">
-            {filteredRegions.map((region) => (
-              <button
-                key={region.id}
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
-                disabled={
-                  saving ||
-                  tikTokLocationAlreadySelected(audiences.locationCodes, region.id)
-                }
-                onClick={() => {
-                  if (tikTokLocationAlreadySelected(audiences.locationCodes, region.id)) {
-                    return;
+            {!locationQuery.trim() ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                Search for a location
+              </p>
+            ) : filteredRegions.rows.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                No locations match that search.
+              </p>
+            ) : (
+              filteredRegions.rows.map((region) => (
+                <button
+                  key={region.id}
+                  type="button"
+                  className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+                  disabled={
+                    saving ||
+                    tikTokLocationAlreadySelected(audiences.locationCodes, region.id)
                   }
-                  void persist({
-                    locationCodes: [...audiences.locationCodes, region.id],
-                    locationLabels: {
-                      ...audiences.locationLabels,
-                      [region.id]: region.name,
-                    },
-                  });
-                }}
-              >
-                {region.name}
-                {region.countryCode ? ` · ${region.countryCode}` : ""}
-              </button>
-            ))}
+                  onClick={() => {
+                    if (tikTokLocationAlreadySelected(audiences.locationCodes, region.id)) {
+                      return;
+                    }
+                    void persist({
+                      locationCodes: [...audiences.locationCodes, region.id],
+                      locationLabels: {
+                        ...audiences.locationLabels,
+                        [region.id]: region.name,
+                      },
+                    });
+                  }}
+                >
+                  {region.name}
+                  {region.countryCode ? ` · ${region.countryCode}` : ""}
+                </button>
+              ))
+            )}
           </div>
+          {locationQuery.trim() && filteredRegions.total > filteredRegions.rows.length && (
+            <p className="text-xs text-muted-foreground">
+              Showing {filteredRegions.rows.length} of {filteredRegions.total} — refine your search
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {audiences.locationCodes.map((code) => (
               <button
@@ -767,7 +801,7 @@ export function AudiencesStep({
                   });
                 }}
               >
-                {audiences.locationLabels[code] ?? code} ×
+                {resolveTikTokLocationLabel(code, audiences.locationLabels, regions)} ×
               </button>
             ))}
           </div>
@@ -822,7 +856,7 @@ export function AudiencesStep({
                   });
                 }}
               >
-                {audiences.languageLabels[code] ?? code} ×
+                {resolveTikTokLanguageLabel(code, audiences.languageLabels, languageOptions)} ×
               </button>
             ))}
           </div>
@@ -849,6 +883,11 @@ export function AudiencesStep({
         <MultiToggle
           title="Gender"
           values={["MALE", "FEMALE", "UNKNOWN"]}
+          labels={{
+            MALE: resolveTikTokGenderLabel("MALE"),
+            FEMALE: resolveTikTokGenderLabel("FEMALE"),
+            UNKNOWN: resolveTikTokGenderLabel("UNKNOWN"),
+          }}
           selected={audiences.genders}
           onChange={(genders) =>
             void persist({
@@ -948,26 +987,86 @@ function CategoryList({
   empty: string;
   onToggle: (row: CategoryRow) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  const visible = useMemo(
+    () =>
+      visibleTikTokCategoryRows(rows, {
+        query,
+        expandedIds,
+      }),
+    [rows, query, expandedIds],
+  );
+  const parentsWithChildren = useMemo(() => {
+    const ids = new Set<string>();
+    for (const row of rows) {
+      if (row.parent_id) ids.add(row.parent_id);
+    }
+    return ids;
+  }, [rows]);
+
   if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
   }
   return (
-    <div className="max-h-72 overflow-auto rounded-md border border-border bg-background p-2">
-      {rows.map((row) => (
-        <label
-          key={row.id}
-          className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
-          style={{ paddingLeft: `${8 + row.depth * 18}px` }}
-        >
-          <input
-            type="checkbox"
-            checked={selectedIds.includes(row.id)}
-            disabled={disabled}
-            onChange={() => onToggle(row)}
-          />
-          {row.label}
-        </label>
-      ))}
+    <div className="space-y-2">
+      <SearchInput
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="Filter this list"
+        onClear={() => setQuery("")}
+      />
+      <div className="max-h-72 overflow-auto rounded-md border border-border bg-background p-2">
+        {visible.rows.length === 0 ? (
+          <p className="px-2 py-1.5 text-sm text-muted-foreground">
+            No categories match that search.
+          </p>
+        ) : (
+          visible.rows.map((row) => {
+            const expanded = expandedIds.includes(row.id);
+            return (
+              <div
+                key={row.id}
+                className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+                style={{ paddingLeft: `${8 + row.depth * 18}px` }}
+              >
+                {parentsWithChildren.has(row.id) && !query.trim() ? (
+                  <button
+                    type="button"
+                    className="w-4 text-xs text-muted-foreground"
+                    aria-expanded={expanded}
+                    onClick={() =>
+                      setExpandedIds((current) =>
+                        expanded
+                          ? current.filter((id) => id !== row.id)
+                          : [...current, row.id],
+                      )
+                    }
+                  >
+                    {expanded ? "−" : "+"}
+                  </button>
+                ) : (
+                  <span className="w-4" />
+                )}
+                <label className="flex min-w-0 flex-1 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(row.id)}
+                    disabled={disabled}
+                    onChange={() => onToggle(row)}
+                  />
+                  <span className="truncate">{row.label}</span>
+                </label>
+              </div>
+            );
+          })
+        )}
+      </div>
+      {visible.capped && (
+        <p className="text-xs text-muted-foreground">
+          Showing {visible.rows.length} of {visible.total} — refine your search
+        </p>
+      )}
     </div>
   );
 }
@@ -1092,7 +1191,11 @@ function MultiToggle({
   );
 }
 
-function summaryChips(draft: TikTokCampaignDraft): string[] {
+function summaryChips(
+  draft: TikTokCampaignDraft,
+  regions: TikTokRegionOption[],
+  languages: TikTokLanguageOption[],
+): string[] {
   const groupNames = draft.audiences.interestGroups
     .filter(isTikTokInterestGroupNonEmpty)
     .map((group) => group.name || "Untitled group");
@@ -1102,10 +1205,13 @@ function summaryChips(draft: TikTokCampaignDraft): string[] {
     ...Object.values(draft.audiences.behaviourCategoryLabels),
     ...Object.values(draft.audiences.customAudienceLabels),
     ...Object.values(draft.audiences.lookalikeAudienceLabels),
-    ...draft.audiences.locationCodes.map(
-      (code) => draft.audiences.locationLabels[code] ?? code,
+    ...draft.audiences.locationCodes.map((code) =>
+      resolveTikTokLocationLabel(code, draft.audiences.locationLabels, regions),
     ),
-    ...draft.audiences.genders,
+    ...draft.audiences.languages.map((code) =>
+      resolveTikTokLanguageLabel(code, draft.audiences.languageLabels, languages),
+    ),
+    ...draft.audiences.genders.map(resolveTikTokGenderLabel),
   ];
 }
 
