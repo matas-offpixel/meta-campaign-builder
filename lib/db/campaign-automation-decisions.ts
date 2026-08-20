@@ -33,6 +33,7 @@ interface OptedInDraftRow {
   id: string;
   ad_account_id: string | null;
   draft_json: Record<string, unknown>;
+  optimisation_automation_live: boolean | null;
 }
 
 /**
@@ -48,7 +49,7 @@ export async function loadOptedInCampaignsForAutomation(
   const sb = anySb(supabase);
   const { data, error } = await sb
     .from("campaign_drafts")
-    .select("id, ad_account_id, draft_json")
+    .select("id, ad_account_id, draft_json, optimisation_automation_live")
     .eq("status", "published")
     .eq("optimisation_automation_enabled", true);
 
@@ -73,6 +74,8 @@ export async function loadOptedInCampaignsForAutomation(
         adAccountId: row.ad_account_id ?? draft.settings.adAccountId,
         objective: draft.settings.objective,
         optimisationStrategy: draft.optimisationStrategy,
+        optimisationAutomationLive: row.optimisation_automation_live === true,
+        campaignName: draft.settings.campaignName || draft.metaCampaignId,
       });
     } catch (err) {
       console.warn(
@@ -105,7 +108,7 @@ export async function hasRecentDecisionForAdSet(
   return Boolean(data);
 }
 
-/** Insert one dry-run decision row. `dry_run` / `applied` are hard-coded per PR A scope — see migration 151. */
+/** Insert one decision row. PR B sets `dry_run` / `applied` / `applied_at` / `meta_response_json` per outcome. */
 export async function insertAutomationDecision(
   supabase: SupabaseClient,
   decision: DecisionToInsert,
@@ -126,8 +129,10 @@ export async function insertAutomationDecision(
     budget_after_pence: decision.budgetAfterPence,
     guardrail_note: decision.guardrailNote,
     reason_text: decision.reasonText,
-    dry_run: true,
-    applied: false,
+    dry_run: decision.dryRun ?? true,
+    applied: decision.applied ?? false,
+    applied_at: decision.appliedAt ?? null,
+    meta_response_json: decision.metaResponseJson ?? null,
   });
 
   if (error) {
