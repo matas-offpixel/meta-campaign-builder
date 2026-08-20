@@ -1259,7 +1259,7 @@ export function PageAudiencesPanel({
 
                   <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border">
                     {/* Business Manager section */}
-                    {(businessPages.loading || businessPages.data.length > 0 || businessPages.error) && (
+                    {(businessPages.loading || businessPages.data.length > 0 || businessPages.error || businessPages.degraded) && (
                       <div>
                         <div className="sticky top-0 flex items-center gap-1.5 border-b border-border bg-muted/80 px-3 py-1.5 backdrop-blur-sm">
                           <Building2 className="h-3 w-3 text-muted-foreground" />
@@ -1277,6 +1277,21 @@ export function PageAudiencesPanel({
                           {businessPages.error && (
                             <span className="ml-1 text-[10px] text-destructive" title={businessPages.error}>
                               Error loading
+                            </span>
+                          )}
+                          {businessPages.degraded && !businessPages.loading && (
+                            <span className="ml-auto flex items-center gap-1.5">
+                              <span className="text-[10px] text-warning">
+                                Shared/partner pages failed to load — list is incomplete
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => businessPages.refetch()}
+                                className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium text-foreground hover:bg-muted"
+                              >
+                                <RefreshCw className="h-2.5 w-2.5" />
+                                Retry
+                              </button>
                             </span>
                           )}
                         </div>

@@ -10,8 +10,9 @@
  *   3. Personal token pages — via /me/accounts
  *
  * Fetching all three covers the most common access patterns.
- * Sources that fail (e.g. missing permissions) are silently skipped
- * so partial results are always returned.
+ * Client/personal sources that fail (e.g. 429) still leave HTTP 200 with
+ * whatever pages we have; `degraded` flags that failure so the picker
+ * cache will not pin a short list for the session.
  *
  * The route resolves the freshest available Facebook token for the current
  * user (DB first, then META_ACCESS_TOKEN env-var fallback) so the list
@@ -28,53 +29,44 @@ import {
   graphGet,
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { buildPagesListPayload, settlePagesSource } from "@/lib/meta/pages-list-response";
 import type { MetaApiPage } from "@/lib/types";
 
 type GraphPagedResponse<T> = { data: T[] };
 
+async function loadClientPages(businessId: string, token?: string): Promise<MetaApiPage[]> {
+  const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
+  const params = { fields, limit: "200" };
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(
+        `/${businessId}/client_pages`,
+        params,
+        token,
+      )
+    : await graphGet<GraphPagedResponse<MetaApiPage>>(
+        `/${businessId}/client_pages`,
+        params,
+      );
+  return res.data ?? [];
+}
+
+async function loadPersonalPages(token?: string): Promise<MetaApiPage[]> {
+  const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
+  const params = { fields, limit: "200" };
+  const res = token
+    ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>("/me/accounts", params, token)
+    : await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", params);
+  return res.data ?? [];
+}
+
 /** Fetch client pages for a BM — requires business_management or pages_read_engagement */
-async function fetchClientPages(businessId: string, token?: string): Promise<MetaApiPage[]> {
-  try {
-    const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
-    const params = { fields, limit: "200" };
-    const res = token
-      ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(
-          `/${businessId}/client_pages`,
-          params,
-          token,
-        )
-      : await graphGet<GraphPagedResponse<MetaApiPage>>(
-          `/${businessId}/client_pages`,
-          params,
-        );
-    return res.data ?? [];
-  } catch {
-    return [];
-  }
+async function fetchClientPages(businessId: string, token?: string) {
+  return settlePagesSource("client", () => loadClientPages(businessId, token), console.error);
 }
 
 /** Fetch personal pages the token owner directly manages via /me/accounts */
-async function fetchPersonalPages(token?: string): Promise<MetaApiPage[]> {
-  try {
-    const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
-    const params = { fields, limit: "200" };
-    const res = token
-      ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>("/me/accounts", params, token)
-      : await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", params);
-    return res.data ?? [];
-  } catch {
-    return [];
-  }
-}
-
-/** Deduplicates an array of pages, preserving first-seen order */
-function deduplicatePages(pages: MetaApiPage[]): MetaApiPage[] {
-  const seen = new Set<string>();
-  return pages.filter((p) => {
-    if (seen.has(p.id)) return false;
-    seen.add(p.id);
-    return true;
-  });
+async function fetchPersonalPages(token?: string) {
+  return settlePagesSource("personal", () => loadPersonalPages(token), console.error);
 }
 
 export async function GET(req: NextRequest) {
@@ -104,7 +96,7 @@ export async function GET(req: NextRequest) {
   console.info(`[/api/meta/pages] token source=${tokenSource} adAccount=${adAccountId ?? "none"}`);
 
   try {
-    const [personalPages, businessPages, clientPages] = await Promise.all([
+    const [personal, businessPages, client] = await Promise.all([
       // Always fetch personal pages
       fetchPersonalPages(token),
 
@@ -117,29 +109,19 @@ export async function GET(req: NextRequest) {
 
       adAccountId
         ? fetchBusinessIdForAccount(adAccountId, token).then((businessId) =>
-            businessId ? fetchClientPages(businessId, token) : [],
+            businessId ? fetchClientPages(businessId, token) : Promise.resolve({ pages: [] as MetaApiPage[], failed: false }),
           )
-        : Promise.resolve([]),
+        : Promise.resolve({ pages: [] as MetaApiPage[], failed: false }),
     ]);
 
-    // BM-owned pages first (most authoritative), then client pages, then personal
-    const pages = deduplicatePages([
-      ...businessPages,
-      ...clientPages,
-      ...personalPages,
-    ]);
-
-    return Response.json({
-      data: pages,
-      count: pages.length,
-      tokenSource,
-      sources: {
-        business: businessPages.length,
-        client: clientPages.length,
-        personal: personalPages.length,
-        total: pages.length,
-      },
-    });
+    return Response.json(
+      buildPagesListPayload({
+        businessPages,
+        client,
+        personal,
+        tokenSource,
+      }),
+    );
   } catch (err) {
     if (err instanceof MetaApiError) {
       return Response.json(err.toJSON(), { status: 502 });
