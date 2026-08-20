@@ -32,6 +32,10 @@ import {
   isFacebookTokenExpiredError,
   type StoredFacebookToken,
 } from "@/lib/facebook-token-storage";
+import {
+  applyPagesResponseToCache,
+  bypassPagesCache,
+} from "@/lib/meta/pages-list-response";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -43,6 +47,11 @@ export interface MetaFetchState<T> {
   stale?: boolean;
   /** ISO timestamp of the cached row when `stale` is true. */
   staleAsOf?: string | null;
+  /**
+   * True when /api/meta/pages returned a partial list because client_pages
+   * or /me/accounts failed. Optional so other fetch hooks stay unchanged.
+   */
+  degraded?: boolean;
 }
 
 type IGWithPage = MetaInstagramAccount & { linkedPageId: string };
@@ -248,10 +257,13 @@ export function useFetchAdAccounts(): MetaFetchState<MetaAdAccount> {
  * Results are cached in a module-level Map keyed by adAccountId so remounts
  * (e.g. navigating between wizard steps) return the previous data immediately
  * rather than flickering back to the loading/empty state.
+ *
+ * A degraded response (client_pages or /me/accounts failed) is never written
+ * to this cache, and never overwrites a longer already-cached list.
  */
 export function useFetchPages(
   adAccountId?: string,
-): MetaFetchState<MetaApiPage> {
+): MetaFetchState<MetaApiPage> & { refetch: () => void } {
   const cacheKey = adAccountId ?? "__me__";
   const cached = _pagesCache.get(cacheKey) ?? null;
 
@@ -259,7 +271,14 @@ export function useFetchPages(
     data: cached ?? [],
     loading: cached === null,
     error: null,
+    degraded: false,
   });
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  const refetch = useCallback(() => {
+    bypassPagesCache(_pagesCache, cacheKey);
+    setReloadNonce((n) => n + 1);
+  }, [cacheKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -272,29 +291,68 @@ export function useFetchPages(
       ? `/api/meta/pages?adAccountId=${encodeURIComponent(adAccountId)}`
       : "/api/meta/pages";
 
-    apiFetch<MetaApiPage>(url)
-      .then((data) => {
-        if (!cancelled) {
-          _pagesCache.set(cacheKey, data);
-          setState({ data, loading: false, error: null });
+    void (async () => {
+      try {
+        const res = await fetch(url);
+        const json = (await res.json()) as {
+          data?: MetaApiPage[];
+          error?: string;
+          code?: number;
+          type?: string;
+          tokenSource?: string;
+          degraded?: { client?: boolean; personal?: boolean };
+        };
+
+        if (json.tokenSource) {
+          console.info(`[apiFetch] ${url} tokenSource=${json.tokenSource}`);
         }
-      })
-      .catch((err: unknown) => {
+
+        if (!res.ok || json.error) {
+          const errMsg = json.error ?? `HTTP ${res.status}`;
+          if (isFacebookTokenExpiredError(errMsg) || json.code === 190) {
+            setFbTokenExpiredGlobal(true);
+          }
+          throw new Error(errMsg);
+        }
+
+        if (cancelled) return;
+
+        const incoming = json.data ?? [];
+        const degraded = Boolean(json.degraded?.client || json.degraded?.personal);
+        const applied = applyPagesResponseToCache(
+          _pagesCache,
+          cacheKey,
+          incoming,
+          degraded,
+        );
+        setState({
+          data: applied.data,
+          loading: false,
+          error: null,
+          degraded: applied.degraded,
+        });
+      } catch (err: unknown) {
         if (!cancelled) {
           const msg =
             err instanceof Error ? err.message : "Failed to load pages";
           // Keep cached data on error so UI doesn't blank out
-          setState({ data: _pagesCache.get(cacheKey) ?? [], loading: false, error: msg });
+          setState({
+            data: _pagesCache.get(cacheKey) ?? [],
+            loading: false,
+            error: msg,
+            degraded: false,
+          });
         }
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adAccountId]);
+  }, [adAccountId, reloadNonce]);
 
-  return state;
+  return { ...state, refetch };
 }
 
 // ─── useFetchAdditionalPages ──────────────────────────────────────────────────
