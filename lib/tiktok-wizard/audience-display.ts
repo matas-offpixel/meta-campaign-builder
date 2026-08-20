@@ -7,6 +7,14 @@ export interface TikTokNamedRegion {
   id: string;
   name: string;
   countryCode?: string | null;
+  /** Present only when the catalog row carries it. Country-code fallback
+   *  requires `level === "COUNTRY"`; a missing level is not a guess. */
+  level?: string | null;
+}
+
+export interface TikTokLocationLookup {
+  byId: Map<string, TikTokNamedRegion>;
+  byCountryCode: Map<string, TikTokNamedRegion>;
 }
 
 export interface TikTokNamedLanguage {
@@ -59,22 +67,41 @@ export function visibleTikTokCategoryRows<T extends TikTokCategoryDisplayRow>(
   };
 }
 
+export function buildTikTokLocationLookup(
+  regions: TikTokNamedRegion[],
+): TikTokLocationLookup {
+  const byId = new Map<string, TikTokNamedRegion>();
+  const byCountryCode = new Map<string, TikTokNamedRegion>();
+  for (const region of regions) {
+    byId.set(region.id, region);
+    if (region.level === "COUNTRY" && region.countryCode) {
+      if (!byCountryCode.has(region.countryCode)) {
+        byCountryCode.set(region.countryCode, region);
+      }
+    }
+  }
+  return { byId, byCountryCode };
+}
+
 export function resolveTikTokLocationLabel(
   code: string,
   labels: Record<string, string>,
-  regions: TikTokNamedRegion[],
+  regions: TikTokNamedRegion[] | TikTokLocationLookup,
 ): string {
   const stored = labels[code]?.trim();
   if (stored) return stored;
-  const byId = regions.find((region) => region.id === code);
+  const lookup = Array.isArray(regions)
+    ? buildTikTokLocationLookup(regions)
+    : regions;
+  const byId = lookup.byId.get(code);
   if (byId?.name.trim()) return byId.name.trim();
-  const byCountry = regions.find((region) => region.countryCode === code);
-  if (byCountry?.name.trim()) return byCountry.name.trim();
   const canon = canonicalTikTokLocationId(code);
-  if (canon && canon !== code) {
-    const byCanon = regions.find((region) => region.id === canon);
+  if (canon) {
+    const byCanon = lookup.byId.get(canon);
     if (byCanon?.name.trim()) return byCanon.name.trim();
   }
+  const byCountry = lookup.byCountryCode.get(code);
+  if (byCountry?.name.trim()) return byCountry.name.trim();
   return code;
 }
 

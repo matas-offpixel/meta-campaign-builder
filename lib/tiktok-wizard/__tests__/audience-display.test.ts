@@ -10,9 +10,11 @@ import {
 } from "../audience-display.ts";
 
 const regions = [
+  { id: "2657832", name: "Aberdeen", countryCode: "GB" },
+  { id: "2653941", name: "Bath", countryCode: "GB" },
+  { id: "2643743", name: "London", countryCode: "GB" },
   { id: "2635167", name: "United Kingdom", countryCode: "GB" },
   { id: "2749991", name: "'s Hertogenbosch", countryCode: "NL" },
-  { id: "2643743", name: "London", countryCode: "GB" },
 ];
 
 describe("filterTikTokRegions", () => {
@@ -32,20 +34,48 @@ describe("filterTikTokRegions", () => {
 });
 
 describe("resolveTikTokLocationLabel", () => {
-  it("renders a stored name, then a catalog name, then the raw code", () => {
+  it("resolves GB to United Kingdom, not the first alphabetically ordered GB city", () => {
+    assert.equal(resolveTikTokLocationLabel("GB", {}, regions), "United Kingdom");
+    assert.notEqual(resolveTikTokLocationLabel("GB", {}, regions), "Aberdeen");
+  });
+
+  it("resolves a numeric location id to its own name", () => {
+    assert.equal(resolveTikTokLocationLabel("2643743", {}, regions), "London");
+  });
+
+  it("falls back to the raw code when nothing matches", () => {
+    assert.equal(resolveTikTokLocationLabel("ZZ", {}, regions), "ZZ");
+  });
+
+  it("lets a stored label win over catalog names", () => {
     assert.equal(
       resolveTikTokLocationLabel("GB", { GB: "Britain" }, regions),
       "Britain",
     );
-    assert.equal(resolveTikTokLocationLabel("GB", {}, regions), "United Kingdom");
-    assert.equal(resolveTikTokLocationLabel("ZZ", {}, regions), "ZZ");
   });
 
-  it("does not turn a resolved name into the persisted value", () => {
+  it("does not change persisted codes when rendering a name", () => {
     const persisted = ["GB"];
     const label = resolveTikTokLocationLabel("GB", {}, regions);
     assert.equal(label, "United Kingdom");
     assert.deepEqual(persisted, ["GB"]);
+  });
+
+  it("only uses a countryCode match on a COUNTRY-level row", () => {
+    const withoutLevel = resolveTikTokLocationLabel("IE", {}, [
+      { id: "2964574", name: "Dublin", countryCode: "IE" },
+    ]);
+    assert.equal(withoutLevel, "IE");
+    const withLevel = resolveTikTokLocationLabel("IE", {}, [
+      { id: "2964574", name: "Dublin", countryCode: "IE" },
+      {
+        id: "2963597",
+        name: "Ireland",
+        countryCode: "IE",
+        level: "COUNTRY",
+      },
+    ]);
+    assert.equal(withLevel, "Ireland");
   });
 });
 
