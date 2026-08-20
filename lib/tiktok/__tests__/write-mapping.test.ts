@@ -148,8 +148,11 @@ describe("optimisation and bid mappings", () => {
     }
     const manual = mapTikTokIdentityType("MANUAL");
     const ttUser = mapTikTokIdentityType("TT_USER");
-    assert.equal(manual.ok, true);
-    if (manual.ok) assert.equal(manual.value, "CUSTOMIZED_USER");
+    assert.equal(manual.ok, false);
+    if (!manual.ok) {
+      assert.equal(manual.error.field, "identity_type");
+      assert.match(manual.error.message, /MANUAL/);
+    }
     assert.equal(ttUser.ok, true);
     if (ttUser.ok) assert.equal(ttUser.value, "TT_USER");
     const trafficPromo = mapTikTokPromotionType("TRAFFIC");

@@ -50,9 +50,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, identities }, { status: 200 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn("[tiktok/identities] read failed:", message);
+    console.error("[tiktok/identities] read failed:", message);
     return NextResponse.json(
-      { ok: false, error: message, identities: [] },
+      {
+        ok: false,
+        failed: true,
+        error: message || "TikTok identity read failed",
+        identities: [],
+      },
       { status: 200 },
     );
   }
