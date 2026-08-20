@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import {
+  buildTikTokLocationLookup,
   filterTikTokRegions,
   resolveTikTokGenderLabel,
   resolveTikTokLanguageLabel,
   resolveTikTokLocationLabel,
   visibleTikTokCategoryRows,
+  type TikTokLocationLookup,
 } from "@/lib/tiktok-wizard/audience-display";
 import {
   createEmptyTikTokInterestGroup,
@@ -387,6 +389,10 @@ export function AudiencesStep({
     () => filterTikTokRegions(regions, locationQuery),
     [regions, locationQuery],
   );
+  const locationLookup = useMemo(
+    () => buildTikTokLocationLookup(regions),
+    [regions],
+  );
   const filteredLanguages = useMemo(() => {
     const query = languageQuery.trim().toLowerCase();
     const unused = languageOptions.filter(
@@ -427,12 +433,12 @@ export function AudiencesStep({
           Targeting summary
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
-          {summaryChips(draft, regions, languageOptions).map((chip) => (
+          {summaryChips(draft, locationLookup, languageOptions).map((chip) => (
             <span key={chip} className="rounded-full bg-muted px-3 py-1 text-xs text-foreground">
               {chip}
             </span>
           ))}
-          {summaryChips(draft, regions, languageOptions).length === 0 && (
+          {summaryChips(draft, locationLookup, languageOptions).length === 0 && (
             <span className="text-sm text-muted-foreground">No targeting selected yet.</span>
           )}
         </div>
@@ -801,7 +807,7 @@ export function AudiencesStep({
                   });
                 }}
               >
-                {resolveTikTokLocationLabel(code, audiences.locationLabels, regions)} ×
+                {resolveTikTokLocationLabel(code, audiences.locationLabels, locationLookup)} ×
               </button>
             ))}
           </div>
@@ -1193,7 +1199,7 @@ function MultiToggle({
 
 function summaryChips(
   draft: TikTokCampaignDraft,
-  regions: TikTokRegionOption[],
+  locationLookup: TikTokLocationLookup,
   languages: TikTokLanguageOption[],
 ): string[] {
   const groupNames = draft.audiences.interestGroups
@@ -1206,7 +1212,7 @@ function summaryChips(
     ...Object.values(draft.audiences.customAudienceLabels),
     ...Object.values(draft.audiences.lookalikeAudienceLabels),
     ...draft.audiences.locationCodes.map((code) =>
-      resolveTikTokLocationLabel(code, draft.audiences.locationLabels, regions),
+      resolveTikTokLocationLabel(code, draft.audiences.locationLabels, locationLookup),
     ),
     ...draft.audiences.languages.map((code) =>
       resolveTikTokLanguageLabel(code, draft.audiences.languageLabels, languages),
