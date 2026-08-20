@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -17,6 +17,11 @@ import {
   TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE,
   validOptimisationGoalForObjective,
 } from "@/lib/tiktok-wizard/campaign-setup";
+import {
+  applyTikTokCampaignSetupPatch,
+  createDebouncedCallback,
+  tikTokTextFieldDisabledWhileSaving,
+} from "@/lib/tiktok-wizard/debounced-text-save";
 import type {
   TikTokBidStrategy,
   TikTokCampaignDraft,
@@ -35,12 +40,31 @@ export function CampaignSetupStep({
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const draftRef = useRef(draft);
+  const [nameDraft, setNameDraft] = useState(() =>
+    stripLockedEventCodePrefix(
+      draft.campaignSetup.eventCode,
+      draft.campaignSetup.campaignName,
+    ),
+  );
+  const nameDraftRef = useRef(nameDraft);
+  nameDraftRef.current = nameDraft;
+
+  useEffect(() => {
+    draftRef.current = draft;
+    setNameDraft(
+      stripLockedEventCodePrefix(
+        draft.campaignSetup.eventCode,
+        draft.campaignSetup.campaignName,
+      ),
+    );
+    // Reconcile only when the draft identity changes — remote echoes must
+    // not fight the in-progress name.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.id]);
+
   const eventCode = draft.campaignSetup.eventCode;
   const lockedPrefix = eventCode ? `[${eventCode}] ` : "";
-  const editableName = stripLockedEventCodePrefix(
-    eventCode,
-    draft.campaignSetup.campaignName,
-  );
   const objective = draft.campaignSetup.objective ?? "TRAFFIC";
   const goalOptions = useMemo(
     () => TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE[objective],
@@ -63,13 +87,10 @@ export function CampaignSetupStep({
   async function persist(campaignSetup: Partial<TikTokCampaignDraft["campaignSetup"]>) {
     setSaving(true);
     setSaveError(null);
+    const next = applyTikTokCampaignSetupPatch(draftRef.current, campaignSetup);
+    draftRef.current = next;
     try {
-      await onSave({
-        campaignSetup: {
-          ...draft.campaignSetup,
-          ...campaignSetup,
-        },
-      });
+      await onSave({ campaignSetup: next.campaignSetup });
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save campaign setup");
     } finally {
@@ -77,20 +98,33 @@ export function CampaignSetupStep({
     }
   }
 
-  async function saveName(value: string) {
+  async function saveNameNow() {
+    const latest = draftRef.current.campaignSetup;
     await persist({
-      campaignName: ensureTikTokCampaignNamePrefix(eventCode, value),
-      eventCode,
+      campaignName: ensureTikTokCampaignNamePrefix(
+        latest.eventCode,
+        nameDraftRef.current,
+      ),
+      eventCode: latest.eventCode,
     });
   }
 
+  const nameSave = useRef(createDebouncedCallback(() => void saveNameNow()));
+  useEffect(() => {
+    const current = nameSave.current;
+    return () => current.cancel();
+  }, []);
+
+  function onNameChange(value: string) {
+    setNameDraft(value);
+    nameSave.current.schedule();
+  }
+
   async function saveObjective(nextObjective: TikTokObjective) {
+    const latest = draftRef.current.campaignSetup;
     const nextGoal =
-      validOptimisationGoalForObjective(
-        nextObjective,
-        draft.campaignSetup.optimisationGoal,
-      )
-        ? draft.campaignSetup.optimisationGoal
+      validOptimisationGoalForObjective(nextObjective, latest.optimisationGoal)
+        ? latest.optimisationGoal
         : defaultOptimisationGoalForObjective(nextObjective);
     await persist({
       objective: nextObjective,
@@ -100,7 +134,7 @@ export function CampaignSetupStep({
 
   async function saveGoal(nextGoal: TikTokOptimisationGoal) {
     await persist({
-      objective,
+      objective: draftRef.current.campaignSetup.objective ?? objective,
       optimisationGoal: nextGoal,
     });
   }
@@ -138,10 +172,11 @@ export function CampaignSetupStep({
           <input
             id="tiktok-campaign-name"
             className="h-9 min-w-0 flex-1 bg-transparent px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-40"
-            value={editableName}
-            onChange={(event) => void saveName(event.target.value)}
+            value={nameDraft}
+            onChange={(event) => onNameChange(event.target.value)}
+            onBlur={() => nameSave.current.flush()}
             placeholder="Campaign name"
-            disabled={saving}
+            disabled={tikTokTextFieldDisabledWhileSaving(saving)}
           />
         </div>
         {!eventCode && (

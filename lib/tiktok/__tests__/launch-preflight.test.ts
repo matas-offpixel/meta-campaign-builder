@@ -226,7 +226,7 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.ok(result.issues.some((issue) => issue.field === "optimisationGoal"));
   });
 
-  it("warns that hashtag targeting is unverified against TikTok", () => {
+  it("blocks a draft with non-empty hashtagIds because the id namespace is unverified", () => {
     const draft = launchableDraft();
     draft.audiences.interestGroups = [
       {
@@ -237,14 +237,26 @@ describe("collectTikTokLaunchPreflight", () => {
         behaviourIds: [],
       },
     ];
-    const result = collectTikTokLaunchPreflight(draft);
-    assert.equal(result.ok, true);
+    const blocked = collectTikTokLaunchPreflight(draft);
+    assert.equal(blocked.ok, false);
     assert.ok(
-      result.warnings.some(
-        (warning) =>
-          warning.id === "hashtag-unverified" &&
-          warning.message.includes("unverified against TikTok"),
+      blocked.issues.some(
+        (issue) =>
+          issue.id === "hashtag-unverified" &&
+          issue.message.includes("namespace"),
       ),
+    );
+    assert.equal(
+      blocked.warnings.some((warning) => warning.id === "hashtag-unverified"),
+      false,
+    );
+
+    draft.audiences.interestGroups[0].hashtagIds = [];
+    const empty = collectTikTokLaunchPreflight(draft);
+    assert.equal(empty.ok, true);
+    assert.equal(
+      empty.issues.some((issue) => issue.id === "hashtag-unverified"),
+      false,
     );
   });
 
