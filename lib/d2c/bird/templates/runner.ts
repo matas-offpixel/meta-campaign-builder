@@ -164,8 +164,9 @@ export async function shipTemplateDefinitions(
         continue;
       }
 
-      // One project per template (created if absent).
-      const projectName = def.name;
+      // One project per template (created if absent). `projectName` lets a
+      // definition point at a hand-named project whose name is not the slug.
+      const projectName = def.projectName ?? def.name;
       const existingProject = await findProjectByName(cfg, projectName);
       const project = existingProject ?? (await createProject(cfg, projectName));
       const projectCreated = !existingProject;
@@ -279,7 +280,7 @@ export async function deleteBrandTemplates(
       continue;
     }
     try {
-      const project = await findProjectByName(cfg, def.name);
+      const project = await findProjectByName(cfg, def.projectName ?? def.name);
       if (!project) {
         results.push({ name: def.name, outcome: "skipped_not_found" });
         continue;

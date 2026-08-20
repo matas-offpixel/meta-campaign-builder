@@ -44,6 +44,10 @@ const ARTWORK_URL =
 /** WhatsApp community invite via the Meta-approved redirect domain. */
 const COMMUNITY_URL = "https://app.offpixel.co.uk/j/puzzle-circuit";
 
+/** Skiddle listing for the event — the presale-live CTA destination. */
+const TICKET_URL =
+  "https://www.skiddle.com/whats-on/Southampton/Circuit-Southampton/Puzzle-Southampton-171026/42666273/";
+
 const JOIN_BUTTON = {
   text: { en: "WHATSAPP COMMUNITY" },
   url: COMMUNITY_URL,
@@ -106,7 +110,59 @@ const announce_v3: BrandTemplateDefinition = {
   variableExamples: {},
 };
 
+/**
+ * Presale-live. Broadcast to `CQ-puzzle-circuit-oct-17` once the super early
+ * bird allocation is on sale.
+ *
+ * Body is Matas's SIGNED-OFF copy. Do not reword.
+ *
+ * ⚠️ The copy says the lineup drops "*very soon*", NOT "later today". This is
+ * deliberate and must not be "improved" into something more urgent: an
+ * approved template is permanent and reusable, so a same-day time claim would
+ * be false the moment Meta clears it after the lineup has already landed. The
+ * same-day framing lives only in the email + community post, which are
+ * one-shot sends (see `puzzle_presale_live_email` and the HTML at
+ * `puzzle-email-presale-live.html`).
+ *
+ * Button is the Skiddle ticket URL — a direct commerce link, not the
+ * `app.offpixel.co.uk/j/…` community alias the teaser/announce templates use.
+ * There is nothing to repoint here: once the presale is live, the destination
+ * is the ticket page for the life of the template.
+ *
+ * Copy says a plain `£10`; Skiddle adds a booking fee at checkout. Matas has
+ * seen this flagged and signed it off as-is. If it ever needs to become
+ * "from £10" / "£10 + booking fee", that is a NEW `_v2` template — an approved
+ * template's copy is immutable.
+ *
+ * STATUS: submitted to Meta immediately on creation (unlike `announce_v3`,
+ * which was deliberately held as a draft). A presale-live template is only
+ * useful while the presale is running and Meta review has run anywhere from
+ * one minute to 16+ hours, so there is no upside to waiting. The email and
+ * the community post carry this send; the template is the tail, not the
+ * critical path.
+ */
+const presale_live: BrandTemplateDefinition = {
+  name: "puzzle_southampton_17_10_26_presale_live",
+  projectName: "Puzzle-Southampton-17.10.26 presale live",
+  category: "MARKETING",
+  locales: ["en"],
+  headerImageUrl: ARTWORK_URL,
+  body: {
+    en:
+      "*PUZZLE SOUTHAMPTON: SUPER EARLY BIRD TICKETS ARE LIVE*\n\n" +
+      "£10 tickets are on sale now — the lowest price these will ever be.\n\n" +
+      "The lineup drops *very soon*. Once it lands, this allocation is gone and that price doesn't come back.\n\n" +
+      "Limited release, and it won't last. Grab yours below.",
+  },
+  button: {
+    text: { en: "GET YOUR TICKET" },
+    url: TICKET_URL,
+  },
+  variableExamples: {},
+};
+
 export const puzzleCircuitTemplates: BrandTemplateDefinition[] = [
   signup_confirmation,
   announce_v3,
+  presale_live,
 ];

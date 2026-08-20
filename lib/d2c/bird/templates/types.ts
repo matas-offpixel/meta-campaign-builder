@@ -142,6 +142,18 @@ export type LocalizedExamples = Record<LocaleId, string | string[]>;
 export interface BrandTemplateDefinition {
   /** whatsappTemplateName (Meta-visible, snake_case). */
   name: string;
+  /**
+   * Bird **project** name, when it must differ from `name`.
+   *
+   * The house layout is one project per template, and the runner names that
+   * project after the template slug. But Bird's UI names projects in human
+   * form ("Puzzle-Southampton-17.10.26 presale live") and slugs that into
+   * `whatsappTemplateName`, so a project created by hand carries the human
+   * name while its template carries the slug. Set this to match an existing
+   * hand-named project, or to create one in house UI style. Defaults to
+   * `name`.
+   */
+  projectName?: string;
   category: WhatsAppCategory;
   /**
    * Bird template **project** id (stable). Resolved after creation; needed by
