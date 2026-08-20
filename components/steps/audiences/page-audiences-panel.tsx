@@ -1281,7 +1281,7 @@ export function PageAudiencesPanel({
                           )}
                           {businessPages.degraded && !businessPages.loading && (
                             <span className="ml-auto flex items-center gap-1.5">
-                              <span className="text-[10px] text-warning-foreground">
+                              <span className="text-[10px] text-warning">
                                 Shared/partner pages failed to load — list is incomplete
                               </span>
                               <button
