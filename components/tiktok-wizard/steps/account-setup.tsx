@@ -15,6 +15,7 @@ interface TikTokIdentityOption {
   identity_id: string;
   display_name: string;
   identity_type: TikTokIdentityType | null;
+  identity_bc_id?: string | null;
 }
 
 interface TikTokPixelOption {
@@ -226,6 +227,7 @@ export function AccountSetupStep({
       identityId: null,
       identityDisplayName: null,
       identityManualName: null,
+      identityBcId: null,
       identityType: null,
       pixelId: null,
       pixelName: null,
@@ -247,6 +249,7 @@ export function AccountSetupStep({
       identityId: identity?.identity_id ?? null,
       identityDisplayName: identity?.display_name ?? null,
       identityManualName: null,
+      identityBcId: identity?.identity_bc_id?.trim() || null,
       identityType: resolvedType,
     });
     if (resolvedType) {
@@ -308,6 +311,7 @@ export function AccountSetupStep({
       identityId,
       identityDisplayName: displayName || identityId,
       identityManualName: displayName || identityId,
+      identityBcId: null,
       identityType: manualIdentityType,
     });
   }

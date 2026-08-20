@@ -68,6 +68,22 @@ export function collectTikTokLaunchPreflight(
       issues.push(
         issue("identity-type", identityType.error.field, identityType.error.message),
       );
+    } else if (
+      identityType.value === "BC_AUTH_TT" &&
+      !draft.accountSetup.identityBcId?.trim()
+    ) {
+      const name =
+        draft.accountSetup.identityDisplayName ??
+        draft.accountSetup.identityManualName ??
+        draft.accountSetup.identityId ??
+        "unknown";
+      issues.push(
+        issue(
+          "identity-bc-id",
+          "identity_bc_id",
+          `Identity "${name}" is BC_AUTH_TT but no Business Center id could be resolved. TikTok requires identity_bc_id for Business-Center-shared identities.`,
+        ),
+      );
     }
   }
 
@@ -159,19 +175,22 @@ export function collectTikTokLaunchPreflight(
     budgetMode: draft.budgetSchedule.budgetMode,
     startAt: start,
     endAt: end,
+    currency: draft.accountSetup.currency,
   });
+  const currencyLabel =
+    (draft.accountSetup.currency ?? "").trim().toUpperCase() || "unknown";
   if (campaignBudget == null) {
     issues.push(issue("budget", "budget", "Budget is required"));
   } else if (!campaignFloor.ok) {
     issues.push(
       issue("budget-minimum", campaignFloor.error.field, campaignFloor.error.message),
     );
-  } else if (campaignBudget < campaignFloor.value) {
+  } else if (campaignFloor.value != null && campaignBudget < campaignFloor.value) {
     issues.push(
       issue(
         "budget-minimum",
         "budget",
-        `Budget must be at least ${campaignFloor.value} for ${draft.budgetSchedule.budgetMode} mode`,
+        `TikTok requires a minimum ${currencyLabel} ${draft.budgetSchedule.budgetMode.toLowerCase()} budget of ${campaignFloor.value} (TikTok's constraint, not ours)`,
       ),
     );
   }
@@ -202,6 +221,7 @@ export function collectTikTokLaunchPreflight(
       budgetMode: draft.budgetSchedule.budgetMode,
       startAt: adGroup.startAt ?? start,
       endAt: adGroup.endAt ?? end,
+      currency: draft.accountSetup.currency,
     });
     if (groupBudget == null) {
       issues.push(
@@ -219,12 +239,12 @@ export function collectTikTokLaunchPreflight(
           `${adGroup.name}: ${groupFloor.error.message}`,
         ),
       );
-    } else if (groupBudget < groupFloor.value) {
+    } else if (groupFloor.value != null && groupBudget < groupFloor.value) {
       issues.push(
         issue(
           `adgroup-budget-${adGroup.id}`,
           "budget",
-          `Ad group "${adGroup.name}" budget ${groupBudget} is below the ${groupFloor.value} floor for ${draft.budgetSchedule.budgetMode} mode`,
+          `Ad group "${adGroup.name}" budget ${groupBudget} is below TikTok's ${currencyLabel} minimum of ${groupFloor.value} for ${draft.budgetSchedule.budgetMode} mode`,
         ),
       );
     }
@@ -293,7 +313,7 @@ export function collectTikTokLaunchPreflight(
       issue(
         "budget-currency",
         "currency",
-        `Advertiser currency is ${currency} — the 20 budget floor is documented for GBP and is unverified for this account`,
+        `Advertiser currency is ${currency} — no TikTok minimum budget is documented for this currency, so preflight is not blocking on amount`,
       ),
     );
   }

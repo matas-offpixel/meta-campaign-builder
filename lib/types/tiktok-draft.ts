@@ -35,6 +35,8 @@ export interface TikTokAccountSetup {
   identityId: string | null;
   identityDisplayName: string | null;
   identityManualName: string | null;
+  /** Business Center id required by TikTok when identity_type is BC_AUTH_TT. */
+  identityBcId: string | null;
   identityType:
     | "AUTH_CODE"
     | "BC_AUTH_TT"
@@ -197,6 +199,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       identityId: null,
       identityDisplayName: null,
       identityManualName: null,
+      identityBcId: null,
       identityType: null,
       pixelId: null,
       pixelName: null,

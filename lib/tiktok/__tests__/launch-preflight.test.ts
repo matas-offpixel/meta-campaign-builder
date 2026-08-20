@@ -56,6 +56,7 @@ describe("collectTikTokLaunchPreflight", () => {
 
   it("returns every blocker at once", () => {
     const draft = createDefaultTikTokDraft("draft-1");
+    draft.accountSetup.currency = "GBP";
     draft.audiences.locationCodes = [];
     draft.budgetSchedule.budgetAmount = 5;
     draft.budgetSchedule.scheduleStartAt = "2026-05-08T09:00:00Z";
@@ -178,7 +179,7 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 1")));
     assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 2")));
     assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 3")));
-    assert.ok(budgetIssues.every((issue) => issue.message.includes("10")));
+    assert.ok(budgetIssues.every((issue) => issue.message.includes("50")));
   });
 
   it("passes a CONVERSIONS draft with pixel, CONVERT, and a pixel event", () => {
@@ -267,7 +268,7 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.equal(result.ok, true);
     assert.ok(
       result.warnings.some((warning) =>
-        warning.message.includes("unverified"),
+        warning.message.includes("not blocking on amount"),
       ),
     );
   });
@@ -280,7 +281,7 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.equal(result.ok, false);
     assert.ok(
       result.issues.some((issue) =>
-        issue.message.includes("20 × scheduled days"),
+        issue.message.includes("50 × scheduled days"),
       ),
     );
   });

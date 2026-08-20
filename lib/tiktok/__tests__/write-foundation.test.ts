@@ -298,6 +298,65 @@ describe("launchTikTokDraftState", () => {
     );
   });
 
+  it("blocks BC_AUTH_TT without a Business Center id before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.accountSetup.identityType = "BC_AUTH_TT";
+    draft.accountSetup.identityDisplayName = "Ironworks";
+    draft.accountSetup.identityBcId = null;
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        draft,
+      ),
+      /Ironworks/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
+  it("blocks a GBP daily budget below 50 before any TikTok write and allows 50", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.budgetAmount = 25;
+    draft.budgetSchedule.adGroups[0].budget = 25;
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        draft,
+      ),
+      /GBP/,
+    );
+    assert.equal(mock.calls.length, 0);
+
+    const allowed = launchableDraft();
+    allowed.budgetSchedule.budgetAmount = 50;
+    allowed.budgetSchedule.adGroups[0].budget = 50;
+    const out = await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+      },
+      allowed,
+    );
+    assert.equal(out.campaign_id, "campaign_mock_1");
+    assert.ok(mock.calls.length > 0);
+  });
+
   it("blocks Smart+ in preflight before any TikTok write", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();
