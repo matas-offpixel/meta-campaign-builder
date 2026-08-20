@@ -94,7 +94,28 @@ export interface TikTokOptimisation {
   guardrails: string[];
 }
 
+export type TikTokTargetingAudienceType =
+  | "GENERAL_INTEREST"
+  | "PURCHASE_INTENTION";
+
+export interface TikTokTargetingItem {
+  id: string;
+  name: string;
+  kind?: "category" | "keyword";
+  audienceType?: TikTokTargetingAudienceType;
+  audienceSize?: number | null;
+}
+
+export interface TikTokInterestGroup {
+  id: string;
+  name: string;
+  interestIds: TikTokTargetingItem[];
+  hashtagIds: TikTokTargetingItem[];
+  behaviourIds: TikTokTargetingItem[];
+}
+
 export interface TikTokAudiences {
+  interestGroups: TikTokInterestGroup[];
   interestCategoryIds: string[];
   interestCategoryLabels: Record<string, string>;
   interestKeywordIds: string[];
@@ -105,11 +126,12 @@ export interface TikTokAudiences {
   lookalikeAudienceIds: string[];
   lookalikeAudienceLabels: Record<string, string>;
   locationCodes: string[];
+  locationLabels: Record<string, string>;
+  languageLabels: Record<string, string>;
   ageMin: number;
   ageMax: number;
   genders: Array<"MALE" | "FEMALE" | "UNKNOWN">;
   languages: string[];
-  estimatedReach: number | null;
 }
 
 export interface TikTokCreativeDraft {
@@ -141,6 +163,7 @@ export interface TikTokAdGroupDraft {
   budget: number | null;
   startAt: string | null;
   endAt: string | null;
+  interestGroupId?: string | null;
 }
 
 export interface TikTokBudgetSchedule {
@@ -196,23 +219,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       maxLifetimeSpend: null,
       guardrails: [],
     },
-    audiences: {
-      interestCategoryIds: [],
-      interestCategoryLabels: {},
-      interestKeywordIds: [],
-      behaviourCategoryIds: [],
-      behaviourCategoryLabels: {},
-      customAudienceIds: [],
-      customAudienceLabels: {},
-      lookalikeAudienceIds: [],
-      lookalikeAudienceLabels: {},
-      locationCodes: ["GB"],
-      ageMin: 18,
-      ageMax: 65,
-      genders: [],
-      languages: ["en"],
-      estimatedReach: null,
-    },
+    audiences: defaultTikTokAudiences(),
     creatives: { items: [] },
     budgetSchedule: {
       budgetMode: "DAILY",
@@ -232,6 +239,117 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export function defaultTikTokAudiences(): TikTokAudiences {
+  return {
+    interestGroups: [],
+    interestCategoryIds: [],
+    interestCategoryLabels: {},
+    interestKeywordIds: [],
+    behaviourCategoryIds: [],
+    behaviourCategoryLabels: {},
+    customAudienceIds: [],
+    customAudienceLabels: {},
+    lookalikeAudienceIds: [],
+    lookalikeAudienceLabels: {},
+    locationCodes: ["GB"],
+    locationLabels: {},
+    languageLabels: {},
+    ageMin: 18,
+    ageMax: 65,
+    genders: [],
+    languages: ["en"],
+  };
+}
+
+export function normalizeTikTokAudiences(
+  raw: Partial<TikTokAudiences> | null | undefined,
+): TikTokAudiences {
+  const base = defaultTikTokAudiences();
+  if (!raw || typeof raw !== "object") return base;
+  return {
+    ...base,
+    ...raw,
+    interestGroups: Array.isArray(raw.interestGroups)
+      ? raw.interestGroups
+          .map(normalizeTikTokInterestGroup)
+          .filter((group): group is TikTokInterestGroup => group != null)
+      : [],
+    interestCategoryIds: asStringArray(raw.interestCategoryIds),
+    interestKeywordIds: asStringArray(raw.interestKeywordIds),
+    behaviourCategoryIds: asStringArray(raw.behaviourCategoryIds),
+    customAudienceIds: asStringArray(raw.customAudienceIds),
+    lookalikeAudienceIds: asStringArray(raw.lookalikeAudienceIds),
+    locationCodes: asStringArray(raw.locationCodes, base.locationCodes),
+    languages: asStringArray(raw.languages, base.languages),
+    interestCategoryLabels: asStringRecord(raw.interestCategoryLabels),
+    behaviourCategoryLabels: asStringRecord(raw.behaviourCategoryLabels),
+    customAudienceLabels: asStringRecord(raw.customAudienceLabels),
+    lookalikeAudienceLabels: asStringRecord(raw.lookalikeAudienceLabels),
+    locationLabels: asStringRecord(raw.locationLabels),
+    languageLabels: asStringRecord(raw.languageLabels),
+    genders: Array.isArray(raw.genders)
+      ? raw.genders.filter(
+          (value): value is TikTokAudiences["genders"][number] =>
+            value === "MALE" || value === "FEMALE" || value === "UNKNOWN",
+        )
+      : [],
+    ageMin: typeof raw.ageMin === "number" ? raw.ageMin : base.ageMin,
+    ageMax: typeof raw.ageMax === "number" ? raw.ageMax : base.ageMax,
+  };
+}
+
+function normalizeTikTokInterestGroup(
+  raw: TikTokInterestGroup,
+): TikTokInterestGroup | null {
+  if (!raw || typeof raw !== "object" || !raw.id) return null;
+  return {
+    id: String(raw.id),
+    name: typeof raw.name === "string" ? raw.name : "",
+    interestIds: asTargetingItems(raw.interestIds),
+    hashtagIds: asTargetingItems(raw.hashtagIds),
+    behaviourIds: asTargetingItems(raw.behaviourIds),
+  };
+}
+
+function asTargetingItems(value: unknown): TikTokTargetingItem[] {
+  if (!Array.isArray(value)) return [];
+  const items: TikTokTargetingItem[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as TikTokTargetingItem;
+    if (!record.id) continue;
+    items.push({
+      id: String(record.id),
+      name: typeof record.name === "string" ? record.name : String(record.id),
+      kind: record.kind === "keyword" ? "keyword" : "category",
+      audienceType:
+        record.audienceType === "PURCHASE_INTENTION"
+          ? "PURCHASE_INTENTION"
+          : record.audienceType === "GENERAL_INTEREST"
+            ? "GENERAL_INTEREST"
+            : undefined,
+      audienceSize:
+        typeof record.audienceSize === "number" ? record.audienceSize : null,
+    });
+  }
+  return items;
+}
+
+function asStringArray(value: unknown, fallback: string[] = []): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : fallback;
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 export const TIKTOK_WIZARD_STEPS = [

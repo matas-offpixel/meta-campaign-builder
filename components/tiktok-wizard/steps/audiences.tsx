@@ -1,34 +1,47 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
+import { SearchInput } from "@/components/ui/search-input";
+import {
+  createEmptyTikTokInterestGroup,
+  flattenTikTokInterestGroups,
+  hasLegacyTikTokTargeting,
+  isTikTokInterestGroupNonEmpty,
+  seedTikTokInterestGroupFromLegacy,
+} from "@/lib/tiktok-wizard/interest-groups";
 import type {
   TikTokAudienceCategory,
   TikTokAudienceListItem,
+  TikTokAudienceRecommendItem,
+  TikTokHashtagOperator,
+  TikTokInterestAudienceType,
+  TikTokInterestKeywordMode,
+  TikTokLanguageOption,
+  TikTokRegionOption,
 } from "@/lib/tiktok/audience";
-import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import {
+  readAudienceCatalogState,
+  readAudienceDimensionFailed,
+} from "@/lib/tiktok/audience-response";
+import { tikTokLocationAlreadySelected } from "@/lib/tiktok/write/mapping";
+import type {
+  TikTokAudiences,
+  TikTokCampaignDraft,
+  TikTokInterestGroup,
+  TikTokTargetingItem,
+} from "@/lib/types/tiktok-draft";
 
-type Tab = "interests" | "behaviours" | "custom" | "lookalikes";
+type CatalogTab = "interests" | "hashtags" | "behaviours" | "custom" | "lookalikes";
 
-const LOCATION_OPTIONS = [
-  { value: "GB", label: "United Kingdom" },
-  { value: "IE", label: "Ireland" },
-  { value: "US", label: "United States" },
-  { value: "BR", label: "Brazil" },
-  { value: "DE", label: "Germany" },
-  { value: "FR", label: "France" },
-  { value: "ES", label: "Spain" },
-];
-
-const LANGUAGE_OPTIONS = [
-  { value: "en", label: "English" },
-  { value: "pt", label: "Portuguese" },
-  { value: "es", label: "Spanish" },
-  { value: "fr", label: "French" },
-  { value: "de", label: "German" },
-];
+interface CategoryFailed {
+  interests: boolean;
+  behaviours: boolean;
+  customAudiences: boolean;
+  savedAudiences: boolean;
+}
 
 export function AudiencesStep({
   draft,
@@ -37,35 +50,65 @@ export function AudiencesStep({
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
 }) {
-  const [activeTab, setActiveTab] = useState<Tab>("interests");
+  const audiences = draft.audiences;
+  const [activeTab, setActiveTab] = useState<CatalogTab>("interests");
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(
+    audiences.interestGroups[0]?.id ?? null,
+  );
   const [interests, setInterests] = useState<TikTokAudienceCategory[]>([]);
   const [behaviours, setBehaviours] = useState<TikTokAudienceCategory[]>([]);
   const [customAudiences, setCustomAudiences] = useState<TikTokAudienceListItem[]>([]);
   const [savedAudiences, setSavedAudiences] = useState<TikTokAudienceListItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [customUnavailable, setCustomUnavailable] = useState(false);
-  const [lookalikesUnavailable, setLookalikesUnavailable] = useState(false);
-  const [reachUnavailable, setReachUnavailable] = useState(false);
+  const [regions, setRegions] = useState<TikTokRegionOption[]>([]);
+  const [languageOptions, setLanguageOptions] = useState<TikTokLanguageOption[]>([]);
+  const [keywordResults, setKeywordResults] = useState<TikTokAudienceRecommendItem[]>([]);
+  const [hashtagResults, setHashtagResults] = useState<TikTokAudienceRecommendItem[]>([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [loadingKeywords, setLoadingKeywords] = useState(false);
+  const [loadingHashtags, setLoadingHashtags] = useState(false);
+  const [catalogFailed, setCatalogFailed] = useState<CategoryFailed>({
+    interests: false,
+    behaviours: false,
+    customAudiences: false,
+    savedAudiences: false,
+  });
+  const [catalogWarning, setCatalogWarning] = useState<string | null>(null);
+  const [regionsFailed, setRegionsFailed] = useState(false);
+  const [regionsError, setRegionsError] = useState<string | null>(null);
+  const [languagesFailed, setLanguagesFailed] = useState(false);
+  const [languagesError, setLanguagesError] = useState<string | null>(null);
+  const [keywordFailed, setKeywordFailed] = useState<string | null>(null);
+  const [hashtagFailed, setHashtagFailed] = useState<string | null>(null);
+  const [catalogReload, setCatalogReload] = useState(0);
+  const [geoReload, setGeoReload] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [ageMin, setAgeMin] = useState(String(draft.audiences.ageMin));
-  const [ageMax, setAgeMax] = useState(String(draft.audiences.ageMax));
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [ageMin, setAgeMin] = useState(String(audiences.ageMin));
+  const [ageMax, setAgeMax] = useState(String(audiences.ageMax));
+  const [seed, setSeed] = useState("");
+  const [keywordMode, setKeywordMode] =
+    useState<TikTokInterestKeywordMode>("SEMANTIC_RECOMMEND");
+  const [audienceType, setAudienceType] =
+    useState<TikTokInterestAudienceType>("GENERAL_INTEREST");
+  const [hashtagSeeds, setHashtagSeeds] = useState("");
+  const [hashtagOperator, setHashtagOperator] =
+    useState<TikTokHashtagOperator>("OR");
+  const [locationQuery, setLocationQuery] = useState("");
+  const [languageQuery, setLanguageQuery] = useState("");
+  const keywordAbort = useRef<AbortController | null>(null);
+  const hashtagAbort = useRef<AbortController | null>(null);
+
+  const advertiserId = draft.accountSetup.advertiserId;
+  const groups = audiences.interestGroups;
+  const activeGroup =
+    groups.find((group) => group.id === activeGroupId) ?? groups[0] ?? null;
 
   useEffect(() => {
-    const advertiserId = draft.accountSetup.advertiserId;
     if (!advertiserId) return;
     let cancelled = false;
-    setLoading(true);
-    setWarning(null);
-    setCustomUnavailable(false);
-    setLookalikesUnavailable(false);
-    setReachUnavailable(false);
-    const selectedParams = draft.audiences.interestCategoryIds
-      .map((id) => `selected_id=${encodeURIComponent(id)}`)
-      .join("&");
-    const suffix = selectedParams ? `&${selectedParams}` : "";
+    setLoadingCatalog(true);
     fetch(
-      `/api/tiktok/audience/categories?advertiser_id=${encodeURIComponent(advertiserId)}${suffix}`,
+      `/api/tiktok/audience/categories?advertiser_id=${encodeURIComponent(advertiserId)}`,
       { cache: "no-store" },
     )
       .then((res) => res.json())
@@ -76,69 +119,235 @@ export function AudiencesStep({
           behaviours?: TikTokAudienceCategory[];
           customAudiences?: TikTokAudienceListItem[];
           savedAudiences?: TikTokAudienceListItem[];
-          estimatedReach?: number | null;
-          customAudiencesError?: string | null;
-          savedAudiencesError?: string | null;
-          reachError?: string | null;
+          failed?: Partial<CategoryFailed>;
           error?: string;
         }) => {
           if (cancelled) return;
+          const state = readAudienceCatalogState(json);
           if (!json.ok) {
-            setWarning(json.error ?? "TikTok audience data is unavailable.");
+            setInterests([]);
+            setBehaviours([]);
+            setCustomAudiences([]);
+            setSavedAudiences([]);
+            setCatalogFailed(state.catalogFailed);
+            setCatalogWarning(json.error ?? state.warning);
+            return;
           }
           setInterests(json.interests ?? []);
           setBehaviours(json.behaviours ?? []);
           setCustomAudiences(json.customAudiences ?? []);
           setSavedAudiences(json.savedAudiences ?? []);
-          setCustomUnavailable(Boolean(json.customAudiencesError));
-          setLookalikesUnavailable(Boolean(json.savedAudiencesError));
-          setReachUnavailable(Boolean(json.reachError));
-          if (json.estimatedReach !== undefined) {
-            void persist({ estimatedReach: json.estimatedReach ?? null });
-          }
+          setCatalogFailed(state.catalogFailed);
+          setCatalogWarning(state.warning);
         },
       )
       .catch(() => {
-        if (!cancelled) setWarning("TikTok audience data is unavailable.");
+        if (!cancelled) {
+          setCatalogFailed({
+            interests: true,
+            behaviours: true,
+            customAudiences: true,
+            savedAudiences: true,
+          });
+          setCatalogWarning("TikTok audience data is unavailable.");
+        }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLoadingCatalog(false);
       });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.accountSetup.advertiserId, draft.audiences.interestCategoryIds.join("|")]);
+  }, [advertiserId, catalogReload]);
 
-  const interestTree = useMemo(() => buildTree(interests), [interests]);
+  useEffect(() => {
+    if (!advertiserId) return;
+    let cancelled = false;
+    fetch(
+      `/api/tiktok/audience/regions?advertiser_id=${encodeURIComponent(advertiserId)}`,
+      { cache: "no-store" },
+    )
+      .then((res) => res.json())
+      .then((json: { ok?: boolean; regions?: TikTokRegionOption[]; failed?: boolean; error?: string }) => {
+        if (cancelled) return;
+        const state = readAudienceDimensionFailed(json);
+        setRegions(json.regions ?? []);
+        setRegionsFailed(state.failed);
+        setRegionsError(state.error);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRegionsFailed(true);
+          setRegionsError("Locations failed to load.");
+        }
+      });
+    fetch(
+      `/api/tiktok/audience/languages?advertiser_id=${encodeURIComponent(advertiserId)}`,
+      { cache: "no-store" },
+    )
+      .then((res) => res.json())
+      .then((json: { ok?: boolean; languages?: TikTokLanguageOption[]; failed?: boolean; error?: string }) => {
+        if (cancelled) return;
+        const state = readAudienceDimensionFailed(json);
+        setLanguageOptions(json.languages ?? []);
+        setLanguagesFailed(state.failed);
+        setLanguagesError(state.error);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLanguagesFailed(true);
+          setLanguagesError("Languages failed to load.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [advertiserId, geoReload]);
 
-  async function persist(audiences: Partial<TikTokCampaignDraft["audiences"]>) {
+  useEffect(() => {
+    if (!advertiserId || !seed.trim()) {
+      setKeywordResults([]);
+      setKeywordFailed(null);
+      return;
+    }
+    const controller = new AbortController();
+    keywordAbort.current?.abort();
+    keywordAbort.current = controller;
+    const timer = window.setTimeout(() => {
+      setLoadingKeywords(true);
+      const params = new URLSearchParams({
+        advertiser_id: advertiserId,
+        keyword: seed.trim(),
+        mode: keywordMode,
+        audience_type: audienceType,
+      });
+      fetch(`/api/tiktok/audience/keywords?${params}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then((res) => res.json())
+        .then((json: { ok?: boolean; keywords?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
+          setKeywordResults(json.keywords ?? []);
+          const state = readAudienceDimensionFailed(json);
+          setKeywordFailed(
+            state.failed ? state.error ?? "Keyword recommend failed" : null,
+          );
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setKeywordFailed("Keyword recommend failed");
+        })
+        .finally(() => setLoadingKeywords(false));
+    }, 600);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [advertiserId, seed, keywordMode, audienceType]);
+
+  useEffect(() => {
+    const keywords = parseHashtagSeeds(hashtagSeeds);
+    if (!advertiserId || keywords.length === 0) {
+      setHashtagResults([]);
+      setHashtagFailed(null);
+      return;
+    }
+    const controller = new AbortController();
+    hashtagAbort.current?.abort();
+    hashtagAbort.current = controller;
+    const timer = window.setTimeout(() => {
+      setLoadingHashtags(true);
+      const params = new URLSearchParams({
+        advertiser_id: advertiserId,
+        operator: hashtagOperator,
+      });
+      keywords.forEach((keyword) => params.append("keyword", keyword));
+      fetch(`/api/tiktok/audience/hashtags?${params}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then((res) => res.json())
+        .then((json: { ok?: boolean; hashtags?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
+          setHashtagResults(json.hashtags ?? []);
+          const state = readAudienceDimensionFailed(json);
+          setHashtagFailed(
+            state.failed ? state.error ?? "Hashtag recommend failed" : null,
+          );
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          setHashtagFailed("Hashtag recommend failed");
+        })
+        .finally(() => setLoadingHashtags(false));
+    }, 600);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [advertiserId, hashtagSeeds, hashtagOperator]);
+
+  async function persist(next: Partial<TikTokAudiences>) {
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave({
         audiences: {
           ...draft.audiences,
-          ...audiences,
+          ...next,
         },
       });
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save audiences");
     } finally {
       setSaving(false);
     }
   }
 
-  async function toggleCategory(
-    id: string,
-    label: string,
-    key: "interestCategoryIds" | "behaviourCategoryIds",
-    labelKey: "interestCategoryLabels" | "behaviourCategoryLabels",
+  async function persistGroups(nextGroups: TikTokInterestGroup[]) {
+    const flat = flattenTikTokInterestGroups(nextGroups, draft.audiences);
+    await persist({
+      interestGroups: nextGroups,
+      ...flat,
+    });
+  }
+
+  async function addGroup() {
+    const group =
+      groups.length === 0 && hasLegacyTikTokTargeting(audiences)
+        ? seedTikTokInterestGroupFromLegacy(audiences)
+        : createEmptyTikTokInterestGroup();
+    if (!group.name) group.name = `Group ${groups.length + 1}`;
+    await persistGroups([...groups, group]);
+    setActiveGroupId(group.id);
+  }
+
+  async function removeGroup(groupId: string) {
+    const next = groups.filter((group) => group.id !== groupId);
+    await persistGroups(next);
+    if (activeGroupId === groupId) setActiveGroupId(next[0]?.id ?? null);
+  }
+
+  async function renameGroup(groupId: string, name: string) {
+    await persistGroups(
+      groups.map((group) => (group.id === groupId ? { ...group, name } : group)),
+    );
+  }
+
+  async function toggleGroupItem(
+    key: "interestIds" | "hashtagIds" | "behaviourIds",
+    item: TikTokTargetingItem,
   ) {
-    const current = draft.audiences[key];
-    const exists = current.includes(id);
-    const next = exists ? current.filter((item) => item !== id) : [...current, id];
-    const labels = { ...draft.audiences[labelKey] };
-    if (exists) delete labels[id];
-    else labels[id] = label;
-    await persist({ [key]: next, [labelKey]: labels });
+    if (!activeGroup) return;
+    const current = activeGroup[key];
+    const exists = current.some((row) => row.id === item.id);
+    const nextItems = exists
+      ? current.filter((row) => row.id !== item.id)
+      : [...current, item];
+    await persistGroups(
+      groups.map((group) =>
+        group.id === activeGroup.id ? { ...group, [key]: nextItems } : group,
+      ),
+    );
   }
 
   async function toggleListItem(
@@ -147,35 +356,60 @@ export function AudiencesStep({
     key: "customAudienceIds" | "lookalikeAudienceIds",
     labelKey: "customAudienceLabels" | "lookalikeAudienceLabels",
   ) {
-    const current = draft.audiences[key];
+    const current = audiences[key];
     const exists = current.includes(id);
     const next = exists ? current.filter((item) => item !== id) : [...current, id];
-    const labels = { ...draft.audiences[labelKey] };
+    const labels = { ...audiences[labelKey] };
     if (exists) delete labels[id];
     else labels[id] = label;
     await persist({ [key]: next, [labelKey]: labels });
   }
+
+  const interestTree = useMemo(() => buildTree(interests), [interests]);
+  const filteredRegions = useMemo(() => {
+    const query = locationQuery.trim().toLowerCase();
+    if (!query) return regions.slice(0, 40);
+    return regions
+      .filter((region) =>
+        `${region.name} ${region.countryCode ?? ""} ${region.id}`
+          .toLowerCase()
+          .includes(query),
+      )
+      .slice(0, 40);
+  }, [regions, locationQuery]);
+  const filteredLanguages = useMemo(() => {
+    const query = languageQuery.trim().toLowerCase();
+    const unused = languageOptions.filter(
+      (language) => !audiences.languages.includes(language.id),
+    );
+    if (!query) return unused.slice(0, 40);
+    return unused
+      .filter((language) =>
+        `${language.name} ${language.id}`.toLowerCase().includes(query),
+      )
+      .slice(0, 40);
+  }, [languageOptions, languageQuery, audiences.languages]);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="font-heading text-xl">Audiences</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Select TikTok interests, behaviours, custom audiences, lookalikes,
-          locations, demographics, and languages.
+          Name one interest group per intended ad group. Seed TikTok for
+          recommended interests and hashtags, then add locations and languages.
         </p>
       </div>
 
-      {!draft.accountSetup.advertiserId && (
+      {!advertiserId && (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           Select an advertiser in Step 0 to load TikTok audience options.
         </p>
       )}
 
-      {warning && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          {warning}
-        </p>
+      {saveError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          {saveError}
+        </div>
       )}
 
       <div className="rounded-md border border-border bg-background p-4">
@@ -192,18 +426,81 @@ export function AudiencesStep({
             <span className="text-sm text-muted-foreground">No targeting selected yet.</span>
           )}
         </div>
-        <p className="mt-3 text-sm text-muted-foreground">
-          Estimated reach:{" "}
-          {reachUnavailable
-            ? "Reach estimate unavailable"
-            : draft.audiences.estimatedReach == null
-            ? "—"
-            : draft.audiences.estimatedReach.toLocaleString()}
-        </p>
       </div>
 
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-medium">Interest groups</h3>
+          <Button type="button" size="sm" variant="outline" onClick={() => void addGroup()} disabled={saving}>
+            Add group
+          </Button>
+        </div>
+        {groups.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Add a named group. Each non-empty group becomes one ad group.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {groups.map((group) => (
+              <div
+                key={group.id}
+                className={`rounded-md border p-3 ${
+                  group.id === activeGroup?.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-background"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="text-xs uppercase tracking-wide text-muted-foreground"
+                    onClick={() => setActiveGroupId(group.id)}
+                  >
+                    {isTikTokInterestGroupNonEmpty(group) ? "Ready" : "Empty"}
+                  </button>
+                  <GroupNameInput
+                    groupId={group.id}
+                    name={group.name}
+                    onCommit={(groupId, name) => void renameGroup(groupId, name)}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void removeGroup(group.id)}
+                    disabled={saving}
+                  >
+                    Remove
+                  </Button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[...group.interestIds, ...group.hashtagIds, ...group.behaviourIds].map((item) => (
+                    <button
+                      key={`${group.id}-${item.id}`}
+                      type="button"
+                      className="rounded-full bg-muted px-3 py-1 text-xs"
+                      onClick={() => {
+                        setActiveGroupId(group.id);
+                        const key = group.hashtagIds.some((row) => row.id === item.id)
+                          ? "hashtagIds"
+                          : group.behaviourIds.some((row) => row.id === item.id)
+                            ? "behaviourIds"
+                            : "interestIds";
+                        void toggleGroupItem(key, item);
+                      }}
+                    >
+                      {item.name} ×
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <div className="flex flex-wrap gap-2">
-        {(["interests", "behaviours", "custom", "lookalikes"] as Tab[]).map((tab) => (
+        {(["interests", "hashtags", "behaviours", "custom", "lookalikes"] as CatalogTab[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -220,73 +517,185 @@ export function AudiencesStep({
       </div>
 
       {activeTab === "interests" && (
-        loading ? (
-          <SkeletonTree />
-        ) : (
-          <CategoryList
-            rows={interestTree}
-            selectedIds={draft.audiences.interestCategoryIds}
-            disabled={saving || loading}
-            empty="No interest categories available."
+        <div className="space-y-4">
+          {failedBanner(
+            catalogFailed.interests,
+            catalogWarning ?? "Interest categories failed to load.",
+            () => setCatalogReload((count) => count + 1),
+          )}
+          <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+            <SearchInput
+              value={seed}
+              onChange={(event) => setSeed(event.target.value)}
+              placeholder="Seed keyword — TikTok recommends related interests"
+              onClear={() => setSeed("")}
+              disabled={!advertiserId || !activeGroup}
+            />
+            <select
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              value={keywordMode}
+              onChange={(event) =>
+                setKeywordMode(event.target.value as TikTokInterestKeywordMode)
+              }
+            >
+              <option value="SEMANTIC_RECOMMEND">Semantic recommend</option>
+              <option value="FUZZ_MATCH">Fuzz match</option>
+            </select>
+            <select
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              value={audienceType}
+              onChange={(event) =>
+                setAudienceType(event.target.value as TikTokInterestAudienceType)
+              }
+            >
+              <option value="GENERAL_INTEREST">General interest</option>
+              <option value="PURCHASE_INTENTION">Purchase intention</option>
+            </select>
+          </div>
+          {keywordFailed && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">{keywordFailed}</p>
+          )}
+          {loadingKeywords && <p className="text-sm text-muted-foreground">Loading recommendations…</p>}
+          <RecommendList
+            rows={keywordResults}
+            selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
+            disabled={saving || !activeGroup}
+            empty={seed.trim() ? "No keyword recommendations." : "Enter a seed keyword."}
             onToggle={(row) =>
-              void toggleCategory(
-                row.id,
-                row.label,
-                "interestCategoryIds",
-                "interestCategoryLabels",
-              )
+              void toggleGroupItem("interestIds", {
+                id: row.id,
+                name: row.name,
+                kind: "keyword",
+                audienceType,
+                audienceSize: row.audienceSize,
+              })
             }
           />
-        )
+          {loadingCatalog ? (
+            <SkeletonTree />
+          ) : catalogFailed.interests ? null : (
+            <CategoryList
+              rows={interestTree}
+              selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
+              disabled={saving || loadingCatalog || !activeGroup}
+              empty="No interest categories available."
+              onToggle={(row) =>
+                void toggleGroupItem("interestIds", {
+                  id: row.id,
+                  name: row.label,
+                  kind: "category",
+                })
+              }
+            />
+          )}
+        </div>
       )}
-      {activeTab === "behaviours" && (
-        <CategoryList
-          rows={behaviours.map((row) => ({ ...row, depth: 0 }))}
-          selectedIds={draft.audiences.behaviourCategoryIds}
-          disabled={saving || loading}
-          empty="No behaviours available for this advertiser."
-          onToggle={(row) =>
-            void toggleCategory(
-              row.id,
-              row.label,
-              "behaviourCategoryIds",
-              "behaviourCategoryLabels",
-            )
-          }
-        />
-      )}
-      {activeTab === "custom" && (
-        customUnavailable ? (
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-            Custom audiences temporarily unavailable.
+
+      {activeTab === "hashtags" && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Up to 10 keywords. AND with unrelated keywords often returns nothing.
           </p>
+          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+            <SearchInput
+              value={hashtagSeeds}
+              onChange={(event) => setHashtagSeeds(limitHashtagSeeds(event.target.value))}
+              placeholder="house, techno, warehouse"
+              onClear={() => setHashtagSeeds("")}
+              disabled={!advertiserId || !activeGroup}
+            />
+            <select
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              value={hashtagOperator}
+              onChange={(event) =>
+                setHashtagOperator(event.target.value as TikTokHashtagOperator)
+              }
+            >
+              <option value="OR">OR</option>
+              <option value="AND">AND</option>
+            </select>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {parseHashtagSeeds(hashtagSeeds).length}/10 keywords
+          </p>
+          {hashtagFailed && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">{hashtagFailed}</p>
+          )}
+          {loadingHashtags && <p className="text-sm text-muted-foreground">Loading hashtags…</p>}
+          <RecommendList
+            rows={hashtagResults}
+            selectedIds={activeGroup?.hashtagIds.map((item) => item.id) ?? []}
+            disabled={saving || !activeGroup}
+            empty={parseHashtagSeeds(hashtagSeeds).length ? "No hashtag recommendations." : "Enter keywords."}
+            onToggle={(row) =>
+              void toggleGroupItem("hashtagIds", {
+                id: row.id,
+                name: row.name,
+                kind: "keyword",
+                audienceSize: row.audienceSize,
+              })
+            }
+          />
+        </div>
+      )}
+
+      {activeTab === "behaviours" && (
+        <div className="space-y-3">
+          {failedBanner(
+            catalogFailed.behaviours,
+            catalogWarning ?? "Behaviours failed to load.",
+            () => setCatalogReload((count) => count + 1),
+          )}
+          {!catalogFailed.behaviours && (
+            <CategoryList
+              rows={behaviours.map((row) => ({ ...row, depth: 0 }))}
+              selectedIds={activeGroup?.behaviourIds.map((item) => item.id) ?? []}
+              disabled={saving || loadingCatalog || !activeGroup}
+              empty="No behaviours available for this advertiser."
+              onToggle={(row) =>
+                void toggleGroupItem("behaviourIds", {
+                  id: row.id,
+                  name: row.label,
+                  kind: "category",
+                })
+              }
+            />
+          )}
+        </div>
+      )}
+
+      {activeTab === "custom" && (
+        catalogFailed.customAudiences ? (
+          failedBanner(
+            true,
+            catalogWarning ?? "Custom audiences temporarily unavailable.",
+            () => setCatalogReload((count) => count + 1),
+          )
         ) : (
           <AudienceList
             rows={customAudiences}
-            selectedIds={draft.audiences.customAudienceIds}
-            disabled={saving || loading}
+            selectedIds={audiences.customAudienceIds}
+            disabled={saving || loadingCatalog}
             empty="No custom audiences available."
             onToggle={(row) =>
-              void toggleListItem(
-                row.id,
-                row.label,
-                "customAudienceIds",
-                "customAudienceLabels",
-              )
+              void toggleListItem(row.id, row.label, "customAudienceIds", "customAudienceLabels")
             }
           />
         )
       )}
+
       {activeTab === "lookalikes" && (
-        lookalikesUnavailable ? (
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-            Custom audiences temporarily unavailable.
-          </p>
+        catalogFailed.savedAudiences ? (
+          failedBanner(
+            true,
+            catalogWarning ?? "Lookalikes temporarily unavailable.",
+            () => setCatalogReload((count) => count + 1),
+          )
         ) : (
           <AudienceList
             rows={savedAudiences}
-            selectedIds={draft.audiences.lookalikeAudienceIds}
-            disabled={saving || loading}
+            selectedIds={audiences.lookalikeAudienceIds}
+            disabled={saving || loadingCatalog}
             empty="No lookalikes available."
             onToggle={(row) =>
               void toggleListItem(
@@ -300,22 +709,127 @@ export function AudiencesStep({
         )
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Select
-          id="tiktok-location"
-          label="Add location"
-          value=""
-          onChange={(event) => {
-            const value = event.target.value;
-            if (value && !draft.audiences.locationCodes.includes(value)) {
-              void persist({ locationCodes: [...draft.audiences.locationCodes, value] });
-            }
-          }}
-          placeholder="Select location"
-          options={LOCATION_OPTIONS.filter(
-            (option) => !draft.audiences.locationCodes.includes(option.value),
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Locations</p>
+          {failedBanner(
+            regionsFailed,
+            regionsError ?? "Locations failed to load.",
+            () => setGeoReload((count) => count + 1),
           )}
-        />
+          <SearchInput
+            value={locationQuery}
+            onChange={(event) => setLocationQuery(event.target.value)}
+            placeholder="Search regions"
+            onClear={() => setLocationQuery("")}
+            disabled={!advertiserId}
+          />
+          <div className="max-h-40 overflow-auto rounded-md border border-border">
+            {filteredRegions.map((region) => (
+              <button
+                key={region.id}
+                type="button"
+                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+                disabled={
+                  saving ||
+                  tikTokLocationAlreadySelected(audiences.locationCodes, region.id)
+                }
+                onClick={() => {
+                  if (tikTokLocationAlreadySelected(audiences.locationCodes, region.id)) {
+                    return;
+                  }
+                  void persist({
+                    locationCodes: [...audiences.locationCodes, region.id],
+                    locationLabels: {
+                      ...audiences.locationLabels,
+                      [region.id]: region.name,
+                    },
+                  });
+                }}
+              >
+                {region.name}
+                {region.countryCode ? ` · ${region.countryCode}` : ""}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {audiences.locationCodes.map((code) => (
+              <button
+                key={code}
+                type="button"
+                className="rounded-full bg-muted px-3 py-1 text-xs"
+                onClick={() => {
+                  const labels = { ...audiences.locationLabels };
+                  delete labels[code];
+                  void persist({
+                    locationCodes: audiences.locationCodes.filter((item) => item !== code),
+                    locationLabels: labels,
+                  });
+                }}
+              >
+                {audiences.locationLabels[code] ?? code} ×
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium">Languages</p>
+          {failedBanner(
+            languagesFailed,
+            languagesError ?? "Languages failed to load.",
+            () => setGeoReload((count) => count + 1),
+          )}
+          <SearchInput
+            value={languageQuery}
+            onChange={(event) => setLanguageQuery(event.target.value)}
+            placeholder="Search languages"
+            onClear={() => setLanguageQuery("")}
+            disabled={!advertiserId}
+          />
+          <div className="max-h-40 overflow-auto rounded-md border border-border">
+            {filteredLanguages.map((language) => (
+              <button
+                key={language.id}
+                type="button"
+                className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+                disabled={saving}
+                onClick={() =>
+                  void persist({
+                    languages: [...audiences.languages, language.id],
+                    languageLabels: {
+                      ...audiences.languageLabels,
+                      [language.id]: language.name,
+                    },
+                  })
+                }
+              >
+                {language.name}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {audiences.languages.map((code) => (
+              <button
+                key={code}
+                type="button"
+                className="rounded-full bg-muted px-3 py-1 text-xs"
+                onClick={() => {
+                  const labels = { ...audiences.languageLabels };
+                  delete labels[code];
+                  void persist({
+                    languages: audiences.languages.filter((item) => item !== code),
+                    languageLabels: labels,
+                  });
+                }}
+              >
+                {audiences.languageLabels[code] ?? code} ×
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
         <Input
           id="tiktok-age-min"
           label="Age min"
@@ -332,46 +846,55 @@ export function AudiencesStep({
           onChange={(event) => setAgeMax(event.target.value)}
           onBlur={() => void persist({ ageMax: clampAge(ageMax, 65) })}
         />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {draft.audiences.locationCodes.map((code) => (
-          <button
-            key={code}
-            type="button"
-            className="rounded-full bg-muted px-3 py-1 text-xs"
-            onClick={() =>
-              void persist({
-                locationCodes: draft.audiences.locationCodes.filter((c) => c !== code),
-              })
-            }
-          >
-            {LOCATION_OPTIONS.find((option) => option.value === code)?.label ?? code} ×
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
         <MultiToggle
           title="Gender"
           values={["MALE", "FEMALE", "UNKNOWN"]}
-          selected={draft.audiences.genders}
+          selected={audiences.genders}
           onChange={(genders) =>
             void persist({
               genders: genders as Array<"MALE" | "FEMALE" | "UNKNOWN">,
             })
           }
         />
-        <MultiToggle
-          title="Languages"
-          values={LANGUAGE_OPTIONS.map((option) => option.value)}
-          labels={Object.fromEntries(
-            LANGUAGE_OPTIONS.map((option) => [option.value, option.label]),
-          )}
-          selected={draft.audiences.languages}
-          onChange={(languages) => void persist({ languages })}
-        />
       </div>
+    </div>
+  );
+}
+
+function GroupNameInput({
+  groupId,
+  name,
+  onCommit,
+}: {
+  groupId: string;
+  name: string;
+  onCommit: (groupId: string, name: string) => void;
+}) {
+  const [value, setValue] = useState(name);
+  useEffect(() => {
+    setValue(name);
+  }, [name]);
+  return (
+    <Input
+      id={`tiktok-group-name-${groupId}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        if (value !== name) onCommit(groupId, value);
+      }}
+      placeholder="Group name"
+    />
+  );
+}
+
+function failedBanner(failed: boolean, message: string, retry: () => void) {
+  if (!failed) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+      <p>{message}</p>
+      <Button type="button" size="sm" variant="outline" onClick={retry}>
+        Retry
+      </Button>
     </div>
   );
 }
@@ -445,6 +968,44 @@ function CategoryList({
           {row.label}
         </label>
       ))}
+    </div>
+  );
+}
+
+function RecommendList({
+  rows,
+  selectedIds,
+  disabled,
+  empty,
+  onToggle,
+}: {
+  rows: TikTokAudienceRecommendItem[];
+  selectedIds: string[];
+  disabled: boolean;
+  empty: string;
+  onToggle: (row: TikTokAudienceRecommendItem) => void;
+}) {
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {rows.map((row) => {
+        const selected = selectedIds.includes(row.id);
+        return (
+          <button
+            key={row.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onToggle(row)}
+            className={`rounded-full border px-3 py-1 text-xs ${
+              selected ? "border-primary bg-primary/10 text-primary" : "border-border"
+            }`}
+          >
+            {row.name}
+            {row.audienceSize != null ? ` · ${row.audienceSize.toLocaleString()}` : ""}
+            {selected ? " ×" : " +"}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -532,20 +1093,55 @@ function MultiToggle({
 }
 
 function summaryChips(draft: TikTokCampaignDraft): string[] {
+  const groupNames = draft.audiences.interestGroups
+    .filter(isTikTokInterestGroupNonEmpty)
+    .map((group) => group.name || "Untitled group");
   return [
+    ...groupNames,
     ...Object.values(draft.audiences.interestCategoryLabels),
     ...Object.values(draft.audiences.behaviourCategoryLabels),
     ...Object.values(draft.audiences.customAudienceLabels),
     ...Object.values(draft.audiences.lookalikeAudienceLabels),
-    ...draft.audiences.locationCodes,
+    ...draft.audiences.locationCodes.map(
+      (code) => draft.audiences.locationLabels[code] ?? code,
+    ),
     ...draft.audiences.genders,
   ];
 }
 
-function tabLabel(tab: Tab): string {
+function tabLabel(tab: CatalogTab): string {
   if (tab === "custom") return "Custom audiences";
   if (tab === "lookalikes") return "Lookalikes";
   return tab[0].toUpperCase() + tab.slice(1);
+}
+
+function parseHashtagSeeds(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
+function limitHashtagSeeds(raw: string): string {
+  const parts = raw.split(/([,\n])/);
+  const kept: string[] = [];
+  let keywords = 0;
+  for (const part of parts) {
+    if (part === "," || part === "\n") {
+      if (keywords >= 10) continue;
+      kept.push(part);
+      continue;
+    }
+    if (!part.trim()) {
+      kept.push(part);
+      continue;
+    }
+    if (keywords >= 10) continue;
+    kept.push(part);
+    keywords += 1;
+  }
+  return kept.join("");
 }
 
 function clampAge(raw: string, fallback: number): number {

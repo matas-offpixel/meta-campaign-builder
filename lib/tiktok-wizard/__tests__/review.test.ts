@@ -23,6 +23,43 @@ describe("TikTok review helpers", () => {
     assert.equal(suggestTikTokAdGroups(smart)[0].budget, 150);
   });
 
+  it("generates one ad group per non-empty interest group and skips empty ones", () => {
+    const draft = createDefaultTikTokDraft("draft-ig");
+    draft.budgetSchedule.budgetAmount = 200;
+    draft.audiences.interestGroups = [
+      {
+        id: "g-empty",
+        name: "Empty",
+        interestIds: [],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+      {
+        id: "g-house",
+        name: "House",
+        interestIds: [{ id: "i1", name: "House", kind: "category" }],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+      {
+        id: "g-techno",
+        name: "Techno",
+        interestIds: [],
+        hashtagIds: [{ id: "h1", name: "techno", kind: "keyword" }],
+        behaviourIds: [],
+      },
+    ];
+    const groups = suggestTikTokAdGroups(draft);
+    assert.equal(groups.length, 2);
+    assert.deepEqual(
+      groups.map((group) => group.interestGroupId),
+      ["g-house", "g-techno"],
+    );
+    assert.equal(groups[0].name, "House");
+    assert.equal(groups[0].budget, 100);
+    assert.equal(groups[1].name, "Techno");
+  });
+
   it("checks creative assignment completeness", () => {
     const draft = createDefaultTikTokDraft("draft-1");
     draft.creatives.items = [

@@ -226,6 +226,28 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.ok(result.issues.some((issue) => issue.field === "optimisationGoal"));
   });
 
+  it("warns that hashtag targeting is unverified against TikTok", () => {
+    const draft = launchableDraft();
+    draft.audiences.interestGroups = [
+      {
+        id: "g-1",
+        name: "House",
+        interestIds: [],
+        hashtagIds: [{ id: "h1", name: "house", kind: "keyword" }],
+        behaviourIds: [],
+      },
+    ];
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, true);
+    assert.ok(
+      result.warnings.some(
+        (warning) =>
+          warning.id === "hashtag-unverified" &&
+          warning.message.includes("unverified against TikTok"),
+      ),
+    );
+  });
+
   it("warns when the advertiser currency is not GBP", () => {
     const draft = launchableDraft();
     draft.accountSetup.currency = "EUR";

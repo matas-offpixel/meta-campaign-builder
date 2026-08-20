@@ -273,6 +273,20 @@ export function collectTikTokLaunchPreflight(
     }
   }
 
+  const hashtagCount = (draft.audiences.interestGroups ?? []).reduce(
+    (sum, group) => sum + group.hashtagIds.length,
+    0,
+  );
+  if (hashtagCount > 0) {
+    warnings.push(
+      issue(
+        "hashtag-unverified",
+        "interest_keyword_ids",
+        "Hashtag targeting is unverified against TikTok — selected hashtag IDs are sent as interest_keyword_ids",
+      ),
+    );
+  }
+
   if (tikTokBudgetFloorUnverified(draft.accountSetup.currency)) {
     const currency = draft.accountSetup.currency?.trim() || "unknown";
     warnings.push(
