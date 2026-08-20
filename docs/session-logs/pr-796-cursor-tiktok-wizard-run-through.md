@@ -4,8 +4,8 @@ Copy to `docs/session-logs/pr-{number}-{branch-slug}.md` (use `pr-pending-{branc
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 796
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/796
 - **Branch:** `cursor/tiktok-wizard-run-through`
 
 ## Summary
@@ -22,9 +22,9 @@ Live TikTok wizard run-through left uploaded videos unsaved, keyword presets emp
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build` (when applicable)
-- [ ] `npm test` (when applicable)
+- [x] `npm run build`
+- [x] `npm test` — 3925 = 3909 passed + 13 failed + 3 skipped (13 pre-existing)
+- [x] eslint on changed files clean; repo-wide lint still has 28 pre-existing errors
 
 ## Notes
 
