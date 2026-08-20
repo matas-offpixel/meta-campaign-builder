@@ -19,11 +19,21 @@ export function appendUploadedTikTokCreatives(input: {
   cta: string;
   newId?: () => string;
 }): TikTokCreativeDraft[] {
+  // Uploads ignore the Variations input — one file is one creative.
+  // Number names across existing + this batch so 14 files become v1…v14,
+  // not fourteen copies of "base · v1".
+  const names = nameCreativeVariations(
+    input.baseName,
+    input.existing.length + input.uploads.length,
+  );
   const next = [...input.existing];
-  for (const upload of input.uploads) {
-    const [name] = nameCreativeVariations(input.baseName, 1);
+  const newId = input.newId ?? (() => crypto.randomUUID());
+  input.uploads.forEach((upload, index) => {
+    const name =
+      names[input.existing.length + index] ??
+      `${input.baseName.trim() || "TikTok creative"} · v${input.existing.length + index + 1}`;
     next.push({
-      id: (input.newId ?? crypto.randomUUID)(),
+      id: newId(),
       name,
       baseName: input.baseName.trim() || "TikTok creative",
       mode: "VIDEO_REFERENCE",
@@ -41,6 +51,6 @@ export function appendUploadedTikTokCreatives(input: {
       cta: input.cta,
       musicId: null,
     });
-  }
+  });
   return next;
 }

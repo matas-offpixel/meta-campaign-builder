@@ -30,6 +30,8 @@ describe("TikTok preview URL expiry", () => {
       isTikTokPreviewExpired("2026-08-20T20:00:00.000Z", now),
       false,
     );
+    assert.equal(isTikTokPreviewExpired(null, now), true);
+    assert.equal(isTikTokPreviewExpired(undefined, now), true);
   });
 
   it("prefers the cover image over preview_url", () => {

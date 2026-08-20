@@ -19,6 +19,7 @@ interface TikTokWizardFooterProps {
   currentStep: number;
   canContinue: boolean;
   saveStatus: TikTokSaveStatus;
+  saveError?: string | null;
   onBack: () => void;
   onContinue: () => void;
   onSaveDraft: () => void;
@@ -30,6 +31,7 @@ export function TikTokWizardFooter({
   currentStep,
   canContinue,
   saveStatus,
+  saveError,
   onBack,
   onContinue,
   onSaveDraft,
@@ -69,6 +71,9 @@ export function TikTokWizardFooter({
                   <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                   <span className="text-success">Saved</span>
                 </>
+              )}
+              {saveError && (
+                <span className="text-destructive">{saveError}</span>
               )}
             </div>
           </div>

@@ -4,6 +4,9 @@ import {
   type TikTokCampaignTemplate,
 } from "../tiktok-wizard/templates.ts";
 import type { TikTokCampaignDraft } from "../types/tiktok-draft.ts";
+import { throwIfTikTokTemplateDeleteFailed } from "./tiktok-template-delete.ts";
+
+export { throwIfTikTokTemplateDeleteFailed } from "./tiktok-template-delete.ts";
 
 function rowToTemplate(row: Record<string, unknown>): TikTokCampaignTemplate {
   return {
@@ -66,8 +69,6 @@ export async function deleteTikTokTemplateFromDb(id: string): Promise<void> {
     .from("tiktok_campaign_templates")
     .delete()
     .eq("id", id);
-  if (error) {
-    console.warn("Supabase TikTok template delete error:", error.message);
-  }
+  throwIfTikTokTemplateDeleteFailed(error);
 }
 

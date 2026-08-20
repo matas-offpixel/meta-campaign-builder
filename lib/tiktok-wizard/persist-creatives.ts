@@ -4,6 +4,11 @@ import {
   type TikTokUploadedCreativeInput,
 } from "./creative-items.ts";
 
+export function formatTikTokCreativePersistFailure(serverMessage: string): string {
+  const cause = serverMessage.trim() || "Failed to save creatives";
+  return `${cause} — uploaded to TikTok but failed to save the creative to this draft.`;
+}
+
 export async function commitUploadedTikTokCreatives(input: {
   readItems: () => TikTokCreativeDraft[];
   writeItems: (items: TikTokCreativeDraft[]) => Promise<void>;

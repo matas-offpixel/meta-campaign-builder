@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
-import { commitUploadedTikTokCreatives } from "../persist-creatives.ts";
+import {
+  commitUploadedTikTokCreatives,
+  formatTikTokCreativePersistFailure,
+} from "../persist-creatives.ts";
 
 describe("commitUploadedTikTokCreatives", () => {
   it("N uploaded videos become N persisted creatives and survive a reload", async () => {
@@ -61,5 +64,37 @@ describe("commitUploadedTikTokCreatives", () => {
       reloaded.creatives.items.map((item: { videoId: string }) => item.videoId),
       ["v1", "v2", "v3"],
     );
+  });
+
+  it("a failed draft write keeps the server's own message", async () => {
+    const store = { items: [] as unknown[] };
+    await assert.rejects(
+      () =>
+        commitUploadedTikTokCreatives({
+          readItems: () => [],
+          writeItems: async () => {
+            throw new Error("Draft not found");
+          },
+          upload: {
+            videoId: "v1",
+            thumbnailUrl: null,
+            durationSeconds: 1,
+            fileName: "one.mp4",
+          },
+          baseName: "Hero",
+          adText: "Book now",
+          displayName: "Brand",
+          landingPageUrl: "https://example.com",
+          cta: "LEARN_MORE",
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        const jobError = formatTikTokCreativePersistFailure(err.message);
+        assert.match(jobError, /Draft not found/);
+        assert.match(jobError, /failed to save the creative to this draft/);
+        return true;
+      },
+    );
+    assert.equal(store.items.length, 0);
   });
 });

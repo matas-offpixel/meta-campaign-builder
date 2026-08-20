@@ -119,6 +119,7 @@ export function AudiencesStep({
   const keywordAbort = useRef<AbortController | null>(null);
   const hashtagAbort = useRef<AbortController | null>(null);
   const presetAbort = useRef<AbortController | null>(null);
+  const pointerDeletedGroupIds = useRef(new Set<string>());
   const groupCardRefs = useRef(new Map<string, HTMLDivElement>());
   const [scrollToGroupId, setScrollToGroupId] = useState<string | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -656,12 +657,20 @@ export function AudiencesStep({
                       type="button"
                       size="sm"
                       variant="outline"
-                      onMouseDown={(event) => {
+                      onPointerDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
+                        pointerDeletedGroupIds.current.add(group.id);
                         void removeGroup(group.id);
                       }}
-                      onClick={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (pointerDeletedGroupIds.current.has(group.id)) {
+                          pointerDeletedGroupIds.current.delete(group.id);
+                          return;
+                        }
+                        void removeGroup(group.id);
+                      }}
                     >
                       Delete · {counts}
                     </Button>

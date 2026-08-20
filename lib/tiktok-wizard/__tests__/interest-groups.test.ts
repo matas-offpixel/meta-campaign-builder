@@ -32,13 +32,21 @@ describe("flattenTikTokInterestGroups", () => {
 });
 
 describe("removeTikTokInterestGroup", () => {
-  it("removes the group from the persisted draft and does not bring it back", () => {
+  it("removes a non-empty group and drops its ids from the flat targeting fields", () => {
     const draft = createDefaultTikTokDraft("draft-1");
     const keep = createEmptyTikTokInterestGroup();
     keep.name = "UK";
+    keep.interestIds = [{ id: "keep-kw", name: "House", kind: "keyword" }];
+    keep.hashtagIds = [{ id: "keep-tag", name: "house", kind: "keyword" }];
     const remove = createEmptyTikTokInterestGroup();
     remove.name = "London";
+    remove.interestIds = [{ id: "gone-kw", name: "Techno", kind: "keyword" }];
+    remove.hashtagIds = [{ id: "gone-tag", name: "techno", kind: "keyword" }];
+    remove.behaviourIds = [{ id: "gone-beh", name: "Creators", kind: "category" }];
     draft.audiences.interestGroups = [keep, remove];
+    draft.audiences.interestKeywordIds = ["keep-kw", "keep-tag", "gone-kw", "gone-tag"];
+    draft.audiences.behaviourCategoryIds = ["gone-beh"];
+    draft.audiences.behaviourCategoryLabels = { "gone-beh": "Creators" };
 
     const persisted = {
       current: JSON.parse(JSON.stringify(draft)) as typeof draft,
@@ -55,6 +63,11 @@ describe("removeTikTokInterestGroup", () => {
       reloaded.audiences.interestGroups.some((group) => group.id === remove.id),
       false,
     );
+    assert.deepEqual(reloaded.audiences.interestKeywordIds, ["keep-kw", "keep-tag"]);
+    assert.equal(reloaded.audiences.interestKeywordIds.includes("gone-kw"), false);
+    assert.equal(reloaded.audiences.interestKeywordIds.includes("gone-tag"), false);
+    assert.deepEqual(reloaded.audiences.behaviourCategoryIds, []);
+    assert.equal(reloaded.audiences.behaviourCategoryLabels["gone-beh"], undefined);
   });
 });
 

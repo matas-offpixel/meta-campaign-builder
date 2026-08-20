@@ -23,9 +23,13 @@ Live TikTok wizard run-through left uploaded videos unsaved, keyword presets emp
 ## Validation
 
 - [x] `npm run build`
-- [x] `npm test` — 3925 = 3909 passed + 13 failed + 3 skipped (13 pre-existing)
+- [x] `npm test` — 3930 = 3914 passed + 13 failed + 3 skipped (13 pre-existing)
 - [x] eslint on changed files clean; repo-wide lint still has 28 pre-existing errors
 
 ## Notes
 
 Delete suspect: `disabled={saving}` on the Delete button (Button also uses `pointer-events-none`). Naming a group blurs the input, kicks off rename persist, and the Delete click never fires. stopPropagation was already present and was not the bug. A stale last-write-wins race was a secondary failure mode if both events fired; persists are now queued and apply against a draft ref.
+
+Follow-up: `appendUploadedTikTokCreatives` called `crypto.randomUUID` detached from `crypto`, which throws in Node 22 / Chrome and was the real reason 14 successful uploads persisted nothing. Uploads ignore the Variations input (one file = one creative; names number across the batch). Missing `thumbnailExpiresAt` is treated as expired so pre-fix creatives refetch.
+
+Out of scope / later PR: `PATCH /api/tiktok/drafts/[id]` still has no ownership check (`getTikTokDraft` vs `getOwnedTikTokDraft`). Do not fix here.

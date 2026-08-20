@@ -60,4 +60,25 @@ describe("refreshExpiredTikTokThumbnails", () => {
     assert.equal(result.items[0]?.thumbnailUrl, "https://cdn.example/fresh.jpg");
     assert.equal(result.items[1]?.thumbnailUrl, "https://cdn.example/live.jpg");
   });
+
+  it("treats a missing expiry as expired so pre-fix creatives refetch", async () => {
+    let fetched = 0;
+    const result = await refreshExpiredTikTokThumbnails({
+      items: [
+        creative({
+          id: "legacy",
+          videoId: "v-old",
+          thumbnailUrl: "https://cdn.example/dead.jpg",
+          thumbnailExpiresAt: null,
+        }),
+      ],
+      fetchInfo: async () => {
+        fetched += 1;
+        return { thumbnailUrl: "https://cdn.example/fresh.jpg" };
+      },
+    });
+    assert.equal(fetched, 1);
+    assert.deepEqual(result.refetchedIds, ["legacy"]);
+    assert.equal(result.items[0]?.thumbnailUrl, "https://cdn.example/fresh.jpg");
+  });
 });

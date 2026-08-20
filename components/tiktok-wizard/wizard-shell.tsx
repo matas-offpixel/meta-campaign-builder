@@ -55,6 +55,7 @@ export function TikTokWizardShell({
   workingDraftRef.current = workingDraft;
   const saveQueue = useRef(Promise.resolve());
   const [saveStatus, setSaveStatus] = useState<TikTokSaveStatus>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
   const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
@@ -117,12 +118,14 @@ export function TikTokWizardShell({
 
   async function handleSaveDraft() {
     setSaveStatus("saving");
+    setSaveError(null);
     try {
-      await saveDraft(workingDraftRef.current);
+      await saveDraft({});
       setSaveStatus("saved");
       window.setTimeout(() => setSaveStatus("idle"), 2000);
-    } catch {
+    } catch (err) {
       setSaveStatus("idle");
+      setSaveError(err instanceof Error ? err.message : "Failed to save draft");
     }
   }
 
@@ -162,12 +165,22 @@ export function TikTokWizardShell({
   }
 
   async function handleLoadTemplate(template: TikTokCampaignTemplate) {
-    const next = applyTikTokTemplate(template, workingDraftRef.current.id);
+    const previous = workingDraftRef.current;
+    const next = applyTikTokTemplate(template, previous.id);
     setWorkingDraft(next);
     workingDraftRef.current = next;
-    await saveDraft(next);
-    setStep(0);
-    setLoadTemplateOpen(false);
+    try {
+      await saveDraft(next);
+      setStep(0);
+      setLoadTemplateOpen(false);
+      setSaveError(null);
+    } catch (err) {
+      workingDraftRef.current = previous;
+      setWorkingDraft(previous);
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to load template",
+      );
+    }
   }
 
   async function handleDeleteTemplate(id: string) {
@@ -176,7 +189,7 @@ export function TikTokWizardShell({
     try {
       await deleteTikTokTemplateFromDb(id);
     } catch (err) {
-      console.warn("Failed to delete TikTok template:", err);
+      console.error("Failed to delete TikTok template:", err);
       const userId = await currentUserId();
       if (userId) setTemplates(await loadTikTokTemplatesFromDb(userId));
     } finally {
@@ -232,6 +245,7 @@ export function TikTokWizardShell({
           currentStep={step}
           canContinue={!blocksNext}
           saveStatus={saveStatus}
+          saveError={saveError}
           onBack={() => setStep((s) => Math.max(0, s - 1))}
           onContinue={() =>
             setStep((s) => Math.min(TIKTOK_WIZARD_STEPS.length - 1, s + 1))

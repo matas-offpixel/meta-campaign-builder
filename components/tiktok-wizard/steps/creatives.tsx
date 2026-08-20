@@ -8,7 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
 import { refreshExpiredTikTokThumbnails } from "@/lib/tiktok-wizard/creative-thumbnails";
-import { commitUploadedTikTokCreatives } from "@/lib/tiktok-wizard/persist-creatives";
+import {
+  commitUploadedTikTokCreatives,
+  formatTikTokCreativePersistFailure,
+} from "@/lib/tiktok-wizard/persist-creatives";
 import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
@@ -67,16 +70,16 @@ export function CreativesStep({
   itemsRef.current = draft.creatives.items;
   const refreshingRef = useRef(false);
 
-  async function persist(items: TikTokCreativeDraft[]): Promise<boolean> {
+  async function persist(items: TikTokCreativeDraft[]): Promise<void> {
     setSaving(true);
     setError(null);
     try {
       await onSave({ creatives: { ...draft.creatives, items } });
       itemsRef.current = items;
-      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save creatives");
-      return false;
+      const message = err instanceof Error ? err.message : "Failed to save creatives";
+      setError(message);
+      throw err instanceof Error ? err : new Error(message);
     } finally {
       setSaving(false);
     }
@@ -147,9 +150,14 @@ export function CreativesStep({
         const persisted = await commitUploadedTikTokCreatives({
           readItems: () => itemsRef.current,
           writeItems: async (items) => {
-            const saved = await persist(items);
-            if (!saved) {
-              throw new Error("Uploaded to TikTok but failed to save the creative to this draft.");
+            try {
+              await persist(items);
+            } catch (persistErr) {
+              const cause =
+                persistErr instanceof Error
+                  ? persistErr.message
+                  : "Failed to save creatives";
+              throw new Error(formatTikTokCreativePersistFailure(cause));
             }
           },
           upload: {
@@ -220,7 +228,11 @@ export function CreativesStep({
         musicId: null,
       })),
     ];
-    await persist(nextItems);
+    try {
+      await persist(nextItems);
+    } catch {
+      // persist already set the operator-facing error
+    }
   }
 
   async function loadVideoInfo(videoId: string): Promise<TikTokVideoInfo | null> {
@@ -262,7 +274,11 @@ export function CreativesStep({
   }
 
   async function removeCreative(id: string) {
-    await persist(itemsRef.current.filter((item) => item.id !== id));
+    try {
+      await persist(itemsRef.current.filter((item) => item.id !== id));
+    } catch {
+      // persist already set the operator-facing error
+    }
   }
 
   useEffect(() => {
@@ -352,7 +368,7 @@ export function CreativesStep({
         />
         <Input
           id="creative-variation-count"
-          label="Variations"
+          label="Variations (paste-a-video-id only)"
           inputMode="numeric"
           value={variationCount}
           onChange={(event) => setVariationCount(event.target.value)}

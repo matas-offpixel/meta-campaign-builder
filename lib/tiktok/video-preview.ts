@@ -37,7 +37,7 @@ export function isTikTokPreviewExpired(
   expiresAt: string | null | undefined,
   now = Date.now(),
 ): boolean {
-  if (!expiresAt) return false;
+  if (!expiresAt) return true;
   const parsed = Date.parse(expiresAt);
   return Number.isNaN(parsed) || parsed <= now;
 }
