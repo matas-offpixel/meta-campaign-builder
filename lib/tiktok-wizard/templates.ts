@@ -29,6 +29,7 @@ function stripTikTokAccountIds(
     identityId: null,
     identityDisplayName: null,
     identityManualName: null,
+    identityBcId: null,
     identityType: null,
     pixelId: null,
     pixelName: null,

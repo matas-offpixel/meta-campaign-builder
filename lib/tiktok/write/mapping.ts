@@ -150,16 +150,26 @@ const BILLING_EVENT_BY_GOAL: Record<string, string> = {
 };
 
 /**
- * Documented TikTok ad-group daily floor (Ads Manager + Create ad group).
- * Applied in the advertiser's own currency units. We only treat this number
- * as verified when `/advertiser/info/` reports GBP; otherwise preflight
- * warns rather than silently assuming a sterling floor.
+ * Per-currency TikTok daily budget floors. GBP = 50, observed from TikTok
+ * 40002 "Your budget setting must not be less than £50" on advertiser
+ * 7639802149165301776 (request 202608210618444D942991BC30CBAA9000).
+ * Unknown currencies are permissive: do not invent a floor.
  *
- * Lifetime (`BUDGET_MODE_TOTAL`) is not a flat 20: TikTok's documented
- * rule is daily minimum × scheduled days. We fail if the schedule cannot
- * produce a day count instead of falling back to 20.
+ * Lifetime is daily minimum × scheduled days when a currency floor exists.
  */
-export const TIKTOK_MIN_DAILY_BUDGET = 20;
+export const TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY: Record<string, number> = {
+  GBP: 50,
+};
+
+/** @deprecated Use tikTokDailyBudgetMinimum(currency). GBP live floor is 50. */
+export const TIKTOK_MIN_DAILY_BUDGET = 50;
+
+export function tikTokDailyBudgetMinimum(
+  currency: string | null | undefined,
+): number | null {
+  const code = (currency ?? "").trim().toUpperCase();
+  return TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY[code] ?? null;
+}
 
 export const SMART_PLUS_BLOCK_MESSAGE =
   "Smart+ campaigns generate their own creative — turn it off to launch with your own assets only";
@@ -381,37 +391,43 @@ export function tikTokScheduledDays(
 }
 
 /**
- * Ad-group budget floor. Daily = 20. Lifetime = 20 × scheduled days
- * (TikTok documented lifetime minimum). Missing lifetime schedule → error.
+ * Ad-group budget floor. GBP daily = 50 (TikTok's constraint).
+ * Lifetime = 50 × scheduled days. Unknown currencies → no floor.
+ * Missing lifetime schedule with a known currency → error.
  */
 export function tikTokAdGroupBudgetFloor(input: {
   budgetMode: "DAILY" | "LIFETIME";
   startAt: string | null;
   endAt: string | null;
-}): MappingResult<number> {
-  if (input.budgetMode === "DAILY") return ok(TIKTOK_MIN_DAILY_BUDGET);
+  currency?: string | null;
+}): MappingResult<number | null> {
+  const dailyMin = tikTokDailyBudgetMinimum(input.currency);
+  if (dailyMin == null) return ok(null);
+  const currency = (input.currency ?? "").trim().toUpperCase() || "GBP";
+  if (input.budgetMode === "DAILY") return ok(dailyMin);
   const days = tikTokScheduledDays(input.startAt, input.endAt);
   if (days == null) {
     return missing(
       "budget",
-      "Lifetime budget floor is 20 × scheduled days; set a schedule end so the minimum can be calculated",
+      `TikTok lifetime minimum is ${dailyMin} × scheduled days in ${currency}; set a schedule end so the minimum can be calculated`,
     );
   }
-  return ok(TIKTOK_MIN_DAILY_BUDGET * days);
+  return ok(dailyMin * days);
 }
 
 export function tikTokMinimumBudget(
   budgetMode: "DAILY" | "LIFETIME",
   startAt: string | null = null,
   endAt: string | null = null,
-): MappingResult<number> {
-  return tikTokAdGroupBudgetFloor({ budgetMode, startAt, endAt });
+  currency: string | null = "GBP",
+): MappingResult<number | null> {
+  return tikTokAdGroupBudgetFloor({ budgetMode, startAt, endAt, currency });
 }
 
 export function tikTokBudgetFloorUnverified(
   currency: string | null | undefined,
 ): boolean {
-  return (currency ?? "").toUpperCase() !== "GBP";
+  return tikTokDailyBudgetMinimum(currency) == null;
 }
 
 export function buildTikTokAdGroupPayload(input: {
@@ -466,12 +482,14 @@ export function buildTikTokAdGroupPayload(input: {
     budgetMode: draft.budgetSchedule.budgetMode,
     startAt,
     endAt,
+    currency: draft.accountSetup.currency,
   });
   if (!floor.ok) return floor;
-  if (budget < floor.value) {
+  if (floor.value != null && budget < floor.value) {
+    const currency = (draft.accountSetup.currency ?? "").trim().toUpperCase() || "GBP";
     return missing(
       "budget",
-      `Ad group "${adGroup.name}" budget ${budget} is below the ${floor.value} floor for ${draft.budgetSchedule.budgetMode} mode`,
+      `Ad group "${adGroup.name}" budget ${budget} is below TikTok's ${currency} minimum of ${floor.value} for ${draft.budgetSchedule.budgetMode} mode`,
     );
   }
 
@@ -593,6 +611,16 @@ export function buildTikTokAdPayload(input: {
     identity_type: identityType.value,
     creative_authorized: false,
   };
+  if (identityType.value === "BC_AUTH_TT") {
+    const bcId = input.draft.accountSetup.identityBcId?.trim();
+    if (!bcId) {
+      return missing(
+        "identity_bc_id",
+        `Identity "${input.draft.accountSetup.identityDisplayName ?? input.draft.accountSetup.identityId}" is BC_AUTH_TT but no Business Center id could be resolved`,
+      );
+    }
+    creative.identity_bc_id = bcId;
+  }
   if (input.creative.cta) creative.call_to_action = input.creative.cta;
   if (input.creative.mode === "SPARK_AD" && input.creative.sparkPostId) {
     creative.tiktok_item_id = input.creative.sparkPostId;

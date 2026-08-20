@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchTikTokIdentities } from "../identity.ts";
+import {
+  extractIdentityBcId,
+  fetchAdvertiserBusinessCenterId,
+  fetchTikTokIdentities,
+} from "../identity.ts";
 
 describe("fetchTikTokIdentities", () => {
   it("parses an unfiltered /identity/get/ response under list", async () => {
@@ -17,6 +21,7 @@ describe("fetchTikTokIdentities", () => {
               identity_id: "id-list",
               display_name: "From list",
               identity_type: "BC_AUTH_TT",
+              identity_bc_id: "bc-from-row",
             },
           ],
         } as T;
@@ -28,6 +33,7 @@ describe("fetchTikTokIdentities", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0].identity_id, "id-list");
     assert.equal(rows[0].identity_type, "BC_AUTH_TT");
+    assert.equal(rows[0].identity_bc_id, "bc-from-row");
   });
 
   it("parses an unfiltered /identity/get/ response under identity_list", async () => {
@@ -72,6 +78,8 @@ describe("fetchTikTokIdentities", () => {
             {
               identity_id: `identity-${params.identity_type}`,
               display_name: `Identity ${params.identity_type}`,
+              identity_bc_id:
+                params.identity_type === "BC_AUTH_TT" ? "bc-ladder" : undefined,
             },
           ],
         } as T;
@@ -142,6 +150,7 @@ describe("fetchTikTokIdentities", () => {
               identity_id: "shared-bc",
               display_name: "Ironworks",
               identity_type: "BC_AUTH_TT",
+              identity_bc_id: "bc-ironworks",
             },
           ],
         }) as T,
@@ -170,6 +179,8 @@ describe("fetchTikTokIdentities", () => {
             {
               identity_id: `identity-${params.identity_type}`,
               display_name: `Identity ${params.identity_type}`,
+              identity_bc_id:
+                params.identity_type === "BC_AUTH_TT" ? "bc-ladder" : undefined,
             },
           ],
         } as T;
@@ -217,6 +228,7 @@ describe("fetchTikTokIdentities", () => {
               {
                 identity_id: "shared-bc",
                 display_name: "Ironworks",
+                identity_bc_id: "bc-ironworks",
               },
             ],
           } as T;
@@ -276,6 +288,7 @@ describe("fetchTikTokIdentities", () => {
               identity_id: "typed-id",
               display_name: "Typed identity",
               identity_type: "BC_AUTH_TT",
+              identity_bc_id: "bc-typed",
             },
           ],
         } as T;
@@ -285,5 +298,82 @@ describe("fetchTikTokIdentities", () => {
     assert.deepEqual(identityTypes, [undefined]);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].identity_type, "BC_AUTH_TT");
+  });
+
+  it("reads identity_bc_id from each candidate key", () => {
+    assert.deepEqual(extractIdentityBcId({ identity_bc_id: "bc-a" }), {
+      value: "bc-a",
+      key: "identity_bc_id",
+    });
+    assert.deepEqual(extractIdentityBcId({ bc_id: "bc-b" }), {
+      value: "bc-b",
+      key: "bc_id",
+    });
+    assert.deepEqual(extractIdentityBcId({ business_center_id: "bc-c" }), {
+      value: "bc-c",
+      key: "business_center_id",
+    });
+    assert.deepEqual(extractIdentityBcId({ identity_id: "id-1" }), {
+      value: null,
+      key: null,
+    });
+  });
+
+  it("falls back to /bc/get/ when the identity row has no BC id", async () => {
+    const paths: string[] = [];
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      request: async <T,>(path: string) => {
+        paths.push(path);
+        if (path === "/bc/get/") {
+          return { list: [{ bc_id: "bc-fallback" }] } as T;
+        }
+        return {
+          list: [
+            {
+              identity_id: "ironworks",
+              display_name: "Ironworks",
+              identity_type: "BC_AUTH_TT",
+            },
+          ],
+        } as T;
+      },
+    });
+    assert.ok(paths.includes("/identity/get/"));
+    assert.ok(paths.includes("/bc/get/"));
+    assert.equal(rows[0]?.identity_bc_id, "bc-fallback");
+  });
+});
+
+describe("fetchAdvertiserBusinessCenterId", () => {
+  it("uses the single BC from /bc/get/", async () => {
+    const result = await fetchAdvertiserBusinessCenterId({
+      advertiserId: "adv-1",
+      token: "token-1",
+      request: async <T,>(path: string) => {
+        assert.equal(path, "/bc/get/");
+        return { list: [{ bc_id: "bc-only" }] } as T;
+      },
+    });
+    assert.deepEqual(result, { bcId: "bc-only", path: "bc/get" });
+  });
+
+  it("matches the advertiser across multiple BCs via /bc/advertiser/get/", async () => {
+    const result = await fetchAdvertiserBusinessCenterId({
+      advertiserId: "adv-1",
+      token: "token-1",
+      request: async <T,>(path: string, params: Record<string, unknown>) => {
+        if (path === "/bc/get/") {
+          return { list: [{ bc_id: "bc-a" }, { bc_id: "bc-b" }] } as T;
+        }
+        assert.equal(path, "/bc/advertiser/get/");
+        if (params.bc_id === "bc-b") {
+          return { list: [{ advertiser_id: "adv-1" }] } as T;
+        }
+        return { list: [{ advertiser_id: "other" }] } as T;
+      },
+    });
+    assert.deepEqual(result, { bcId: "bc-b", path: "bc/advertiser/get" });
   });
 });

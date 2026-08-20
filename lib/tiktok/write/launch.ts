@@ -14,6 +14,7 @@ import {
   TikTokLaunchPreflightError,
   type LaunchTikTokDraftResult,
 } from "./orchestrator.ts";
+import { hydrateDraftIdentityBcId } from "../identity.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import type { TikTokPost, Sleep } from "./idempotency.ts";
 
@@ -72,18 +73,6 @@ export async function handleTikTokLaunch(input: {
     return { status: 404, body: { ok: false, error: "Draft not found" } };
   }
 
-  const preflight = collectTikTokLaunchPreflight(draft);
-  if (!preflight.ok) {
-    return {
-      status: 400,
-      body: {
-        ok: false,
-        error: "Launch preflight failed",
-        preflight: preflight.issues,
-      },
-    };
-  }
-
   const advertiserId = draft.accountSetup.advertiserId;
   if (!advertiserId) {
     return { status: 400, body: { ok: false, error: "TikTok advertiser is missing" } };
@@ -97,6 +86,23 @@ export async function handleTikTokLaunch(input: {
     return {
       status: 400,
       body: { ok: false, error: "TikTok credentials missing for this advertiser" },
+    };
+  }
+
+  await hydrateDraftIdentityBcId({
+    draft,
+    token: credentials.accessToken,
+  });
+
+  const preflight = collectTikTokLaunchPreflight(draft);
+  if (!preflight.ok) {
+    return {
+      status: 400,
+      body: {
+        ok: false,
+        error: "Launch preflight failed",
+        preflight: preflight.issues,
+      },
     };
   }
 

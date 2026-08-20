@@ -239,6 +239,46 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(creatives[0].creative_authorized, false);
     assert.equal(creatives[0].identity_id, "identity_1");
     assert.equal(creatives[0].identity_type, "TT_USER");
+    assert.equal(creatives[0].identity_bc_id, undefined);
+  });
+
+  it("sends identity_bc_id only for BC_AUTH_TT identities", () => {
+    for (const identityType of ["TT_USER", "AUTH_CODE", "CUSTOMIZED_USER"] as const) {
+      const draft = createDefaultTikTokDraft("draft-1");
+      draft.accountSetup.identityId = "identity_1";
+      draft.accountSetup.identityType = identityType;
+      draft.accountSetup.identityBcId = "bc-should-not-send";
+      draft.creatives.items = [sampleCreative()];
+      const result = buildTikTokAdPayload({
+        advertiserId: "adv-1",
+        adGroupId: "ag-1",
+        draft,
+        creative: draft.creatives.items[0],
+      });
+      assert.equal(result.ok, true, identityType);
+      if (!result.ok) return;
+      const creatives = result.value.creatives as Array<Record<string, unknown>>;
+      assert.equal(creatives[0].identity_type, identityType);
+      assert.equal(creatives[0].identity_bc_id, undefined, identityType);
+    }
+
+    const bcDraft = createDefaultTikTokDraft("draft-bc");
+    bcDraft.accountSetup.identityId = "identity_ironworks";
+    bcDraft.accountSetup.identityDisplayName = "Ironworks";
+    bcDraft.accountSetup.identityType = "BC_AUTH_TT";
+    bcDraft.accountSetup.identityBcId = "bc-ironworks";
+    bcDraft.creatives.items = [sampleCreative()];
+    const bc = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft: bcDraft,
+      creative: bcDraft.creatives.items[0],
+    });
+    assert.equal(bc.ok, true);
+    if (!bc.ok) return;
+    const creatives = bc.value.creatives as Array<Record<string, unknown>>;
+    assert.equal(creatives[0].identity_type, "BC_AUTH_TT");
+    assert.equal(creatives[0].identity_bc_id, "bc-ironworks");
   });
 
   it("sends enhancements off even when the unused draft flag is false", () => {
@@ -415,25 +455,35 @@ describe("conversions payload", () => {
 });
 
 describe("tikTokAdGroupBudgetFloor", () => {
-  it("uses 20 daily and 20 × scheduled days for lifetime", () => {
+  it("uses TikTok's GBP daily 50 and 50 × scheduled days for lifetime", () => {
     const daily = tikTokAdGroupBudgetFloor({
       budgetMode: "DAILY",
       startAt: "2026-05-01T09:00:00Z",
       endAt: "2026-05-08T09:00:00Z",
+      currency: "GBP",
     });
     const lifetime = tikTokAdGroupBudgetFloor({
       budgetMode: "LIFETIME",
       startAt: "2026-05-01T09:00:00Z",
       endAt: "2026-05-08T09:00:00Z",
+      currency: "GBP",
     });
     const missingEnd = tikTokAdGroupBudgetFloor({
       budgetMode: "LIFETIME",
       startAt: "2026-05-01T09:00:00Z",
       endAt: null,
+      currency: "GBP",
     });
-    assert.equal(daily.ok && daily.value, 20);
-    assert.equal(lifetime.ok && lifetime.value, 140);
+    const unknown = tikTokAdGroupBudgetFloor({
+      budgetMode: "DAILY",
+      startAt: "2026-05-01T09:00:00Z",
+      endAt: "2026-05-08T09:00:00Z",
+      currency: "EUR",
+    });
+    assert.equal(daily.ok && daily.value, 50);
+    assert.equal(lifetime.ok && lifetime.value, 350);
     assert.equal(missingEnd.ok, false);
+    assert.equal(unknown.ok && unknown.value, null);
   });
 });
 
