@@ -58,7 +58,7 @@ export function shouldOptimisationDryRun(
 
 /** Env reader used by the cron route — exact `"1"` match, same as ENABLE_OPTIMISATION_AUTOMATION. */
 export function isOptimisationWritesEnabledFromEnv(
-  env: { ENABLE_OPTIMISATION_WRITES?: string } = process.env,
-): boolean {
-  return env.ENABLE_OPTIMISATION_WRITES === "1";
-}
+    env: Record<string, string | undefined> = process.env,
+  ): boolean {
+    return env.ENABLE_OPTIMISATION_WRITES === "1";
+  }
