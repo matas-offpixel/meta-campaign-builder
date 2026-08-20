@@ -166,12 +166,15 @@ ENABLE_BUDGET_PACING_ALERTS=
 > disabled. The launcher is `lib/tiktok/write/{campaign,adgroup,ad,orchestrator}.ts`
 > plus all-at-once preflight in `lib/tiktok/write/preflight.ts`. Enhancements
 > stay **off**: every ad is created with `is_aco: false` and
-> `creative_authorized: false` (Creative Integrity Mode defaults ON on the
-> draft). Smart+ (`draft.optimisation.smartPlusEnabled`) is a hard preflight
-> blocker — this path never calls `/smart_plus/*` or Smart Creative endpoints.
-> Campaigns are created paused (`operation_status: DISABLE`) so the first live
-> write can be inspected before spend starts. Leave this unset in Vercel until
-> a paused smoke-test campaign has been verified.
+> `creative_authorized: false` (literal — the Review & Launch toggle is a
+> fixed statement, not a switch). Smart+ (`draft.optimisation.smartPlusEnabled`)
+> is a hard preflight blocker — this path never calls `/smart_plus/*` or Smart
+> Creative endpoints. Campaign, ad groups, and ads are created paused
+> (`operation_status: DISABLE`) so enabling the campaign is a second, explicit
+> gate. A failed launch deletes the TikTok campaign **and** clears
+> `tiktok_write_idempotency` for that draft so retry cannot target deleted IDs.
+> Leave this unset in Vercel until a paused smoke-test campaign has been
+> verified.
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII

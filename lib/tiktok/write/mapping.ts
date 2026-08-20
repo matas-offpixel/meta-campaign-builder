@@ -79,9 +79,15 @@ export const TIKTOK_LOCATION_IDS_BY_CODE: Record<string, string> = {
 };
 
 /**
- * Official v1.3 campaign `objective_type` values we emit. `CONVERSIONS` on
- * our draft is `WEB_CONVERSIONS` on TikTok. `AWARENESS` is not a TikTok
- * campaign objective — we refuse it rather than silently rewrite to REACH.
+ * Official v1.3 campaign `objective_type` values. Documented enum includes
+ * TRAFFIC, WEB_CONVERSIONS, VIDEO_VIEWS, REACH, ENGAGEMENT, APP_PROMOTION,
+ * LEAD_GENERATION, PRODUCT_SALES. Our draft `CONVERSIONS` is
+ * `WEB_CONVERSIONS`. `AWARENESS` is not a TikTok campaign objective — we
+ * refuse it rather than silently rewrite to REACH.
+ *
+ * The launcher only writes TRAFFIC and WEB_CONVERSIONS. Other documented
+ * values still map 1:1 so preflight can name them as "not supported yet"
+ * instead of inventing a different enum.
  */
 export const TIKTOK_OBJECTIVE_TYPE: Record<
   Exclude<TikTokObjective, "AWARENESS" | "CONVERSIONS"> | "WEB_CONVERSIONS",
@@ -93,6 +99,18 @@ export const TIKTOK_OBJECTIVE_TYPE: Record<
   REACH: "REACH",
   ENGAGEMENT: "ENGAGEMENT",
 };
+
+export const TIKTOK_LAUNCHER_OBJECTIVES: TikTokObjective[] = [
+  "TRAFFIC",
+  "CONVERSIONS",
+];
+
+export const TIKTOK_LAUNCHER_UNSUPPORTED_OBJECTIVES: TikTokObjective[] = [
+  "VIDEO_VIEWS",
+  "REACH",
+  "AWARENESS",
+  "ENGAGEMENT",
+];
 
 /**
  * Official v1.3 `optimization_goal` values (Create ad groups).
@@ -127,8 +145,17 @@ const BILLING_EVENT_BY_GOAL: Record<string, string> = {
   ENGAGEMENT: "OCPM",
 };
 
+/**
+ * Documented TikTok ad-group daily floor (Ads Manager + Create ad group).
+ * Applied in the advertiser's own currency units. We only treat this number
+ * as verified when `/advertiser/info/` reports GBP; otherwise preflight
+ * warns rather than silently assuming a sterling floor.
+ *
+ * Lifetime (`BUDGET_MODE_TOTAL`) is not a flat 20: TikTok's documented
+ * rule is daily minimum × scheduled days. We fail if the schedule cannot
+ * produce a day count instead of falling back to 20.
+ */
 export const TIKTOK_MIN_DAILY_BUDGET = 20;
-export const TIKTOK_MIN_LIFETIME_BUDGET = 20;
 
 export const SMART_PLUS_BLOCK_MESSAGE =
   "Smart+ campaigns generate their own creative — turn it off to launch with your own assets only";
@@ -290,16 +317,73 @@ export function mapTikTokIdentityType(
   return ok(identityType);
 }
 
-export function mapTikTokPromotionType(): "WEBSITE" {
-  return "WEBSITE";
+export function mapTikTokPromotionType(
+  objective: TikTokObjective | null,
+): MappingResult<"WEBSITE"> {
+  if (!objective) {
+    return missing("promotion_type", "Campaign objective is required");
+  }
+  if (objective === "TRAFFIC" || objective === "CONVERSIONS") {
+    return ok("WEBSITE");
+  }
+  return missing(
+    "promotion_type",
+    `${objective} is not supported by the launcher yet`,
+  );
+}
+
+export function resolveTikTokAdGroupBudget(
+  draft: TikTokCampaignDraft,
+  adGroup: TikTokAdGroupDraft,
+): number | null {
+  return adGroup.budget ?? draft.budgetSchedule.budgetAmount;
+}
+
+export function tikTokScheduledDays(
+  startAt: string | null,
+  endAt: string | null,
+): number | null {
+  if (!startAt || !endAt) return null;
+  const start = new Date(startAt).getTime();
+  const end = new Date(endAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return null;
+  }
+  return Math.max(1, Math.ceil((end - start) / 86_400_000));
+}
+
+/**
+ * Ad-group budget floor. Daily = 20. Lifetime = 20 × scheduled days
+ * (TikTok documented lifetime minimum). Missing lifetime schedule → error.
+ */
+export function tikTokAdGroupBudgetFloor(input: {
+  budgetMode: "DAILY" | "LIFETIME";
+  startAt: string | null;
+  endAt: string | null;
+}): MappingResult<number> {
+  if (input.budgetMode === "DAILY") return ok(TIKTOK_MIN_DAILY_BUDGET);
+  const days = tikTokScheduledDays(input.startAt, input.endAt);
+  if (days == null) {
+    return missing(
+      "budget",
+      "Lifetime budget floor is 20 × scheduled days; set a schedule end so the minimum can be calculated",
+    );
+  }
+  return ok(TIKTOK_MIN_DAILY_BUDGET * days);
 }
 
 export function tikTokMinimumBudget(
   budgetMode: "DAILY" | "LIFETIME",
-): number {
-  return budgetMode === "LIFETIME"
-    ? TIKTOK_MIN_LIFETIME_BUDGET
-    : TIKTOK_MIN_DAILY_BUDGET;
+  startAt: string | null = null,
+  endAt: string | null = null,
+): MappingResult<number> {
+  return tikTokAdGroupBudgetFloor({ budgetMode, startAt, endAt });
+}
+
+export function tikTokBudgetFloorUnverified(
+  currency: string | null | undefined,
+): boolean {
+  return (currency ?? "").toUpperCase() !== "GBP";
 }
 
 export function buildTikTokAdGroupPayload(input: {
@@ -345,8 +429,23 @@ export function buildTikTokAdGroupPayload(input: {
     endTime = formattedEnd.value;
   }
 
-  const budget = adGroup.budget ?? draft.budgetSchedule.budgetAmount;
+  const promotion = mapTikTokPromotionType(draft.campaignSetup.objective);
+  if (!promotion.ok) return promotion;
+
+  const budget = resolveTikTokAdGroupBudget(draft, adGroup);
   if (budget == null) return missing("budget", "Ad group budget is required");
+  const floor = tikTokAdGroupBudgetFloor({
+    budgetMode: draft.budgetSchedule.budgetMode,
+    startAt,
+    endAt,
+  });
+  if (!floor.ok) return floor;
+  if (budget < floor.value) {
+    return missing(
+      "budget",
+      `Ad group "${adGroup.name}" budget ${budget} is below the ${floor.value} floor for ${draft.budgetSchedule.budgetMode} mode`,
+    );
+  }
 
   const payload: Record<string, BodyValue> = {
     advertiser_id: input.advertiserId,
@@ -365,7 +464,8 @@ export function buildTikTokAdGroupPayload(input: {
     gender: gender.value,
     placement_type: "PLACEMENT_TYPE_NORMAL",
     placements: ["PLACEMENT_TIKTOK"],
-    promotion_type: mapTikTokPromotionType(),
+    promotion_type: promotion.value,
+    operation_status: "DISABLE",
   };
 
   if (endTime) payload.schedule_end_time = endTime;
@@ -388,7 +488,10 @@ export function buildTikTokAdGroupPayload(input: {
     ...draft.audiences.lookalikeAudienceIds,
   ];
   if (audienceIds.length > 0) payload.audience_ids = audienceIds;
-  if (draft.accountSetup.pixelId) payload.pixel_id = draft.accountSetup.pixelId;
+
+  const conversionsFields = applyTikTokConversionFields(draft, goal.value);
+  if (!conversionsFields.ok) return conversionsFields;
+  Object.assign(payload, conversionsFields.value);
 
   if (
     (goal.value === "REACH" || goal.value === "SHOW") &&
@@ -446,7 +549,6 @@ export function buildTikTokAdPayload(input: {
     );
   }
 
-  const integrityOn = input.draft.creativeIntegrityMode !== false;
   const creative: Record<string, BodyValue> = {
     ad_name: input.creative.name,
     ad_format: "SINGLE_VIDEO",
@@ -456,7 +558,7 @@ export function buildTikTokAdPayload(input: {
     landing_page_url: input.creative.landingPageUrl,
     identity_id: input.draft.accountSetup.identityId,
     identity_type: identityType.value,
-    creative_authorized: integrityOn ? false : false,
+    creative_authorized: false,
   };
   if (input.creative.cta) creative.call_to_action = input.creative.cta;
   if (input.creative.mode === "SPARK_AD" && input.creative.sparkPostId) {
@@ -467,7 +569,8 @@ export function buildTikTokAdPayload(input: {
   return ok({
     advertiser_id: input.advertiserId,
     adgroup_id: input.adGroupId,
-    is_aco: integrityOn ? false : false,
+    operation_status: "DISABLE",
+    is_aco: false,
     creatives: [creative],
   });
 }
@@ -492,6 +595,52 @@ export function buildTikTokCampaignPayload(input: {
     payload.budget = input.draft.budgetSchedule.budgetAmount;
   }
   return ok(payload);
+}
+
+/**
+ * `pixel_id` is only valid on CONVERT/VALUE. Official docs also require
+ * `optimization_event` whenever `pixel_id` is set. Values come from the
+ * pixel's `/pixel/list/` events — never a hardcoded enum.
+ */
+function applyTikTokConversionFields(
+  draft: TikTokCampaignDraft,
+  mappedGoal: string,
+): MappingResult<Record<string, BodyValue>> {
+  const pixelSupported = mappedGoal === "CONVERT" || mappedGoal === "VALUE";
+  const fields: Record<string, BodyValue> = {};
+
+  if (draft.campaignSetup.objective === "CONVERSIONS") {
+    if (!draft.accountSetup.pixelId) {
+      return missing("pixel_id", "CONVERSIONS requires a TikTok pixel");
+    }
+    if (!draft.accountSetup.optimisationEvent) {
+      return missing(
+        "optimization_event",
+        "CONVERSIONS requires an optimisation event from the selected pixel",
+      );
+    }
+    if (!pixelSupported) {
+      return missing(
+        "optimization_goal",
+        "CONVERSIONS requires optimization_goal CONVERT or VALUE",
+      );
+    }
+    fields.pixel_id = draft.accountSetup.pixelId;
+    fields.optimization_event = draft.accountSetup.optimisationEvent;
+    return ok(fields);
+  }
+
+  if (pixelSupported && draft.accountSetup.pixelId) {
+    if (!draft.accountSetup.optimisationEvent) {
+      return missing(
+        "optimization_event",
+        "optimization_event is required when pixel_id is set",
+      );
+    }
+    fields.pixel_id = draft.accountSetup.pixelId;
+    fields.optimization_event = draft.accountSetup.optimisationEvent;
+  }
+  return ok(fields);
 }
 
 function resolveBidPrice(draft: TikTokCampaignDraft): number | null {

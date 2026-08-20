@@ -22,6 +22,11 @@ interface TikTokPixelOption {
   status: string | null;
 }
 
+interface TikTokPixelEventOption {
+  optimization_event: string;
+  name: string;
+}
+
 export function AccountSetupStep({
   draft,
   onSave,
@@ -32,8 +37,10 @@ export function AccountSetupStep({
   const [accounts, setAccounts] = useState<TikTokAccount[]>([]);
   const [identities, setIdentities] = useState<TikTokIdentityOption[]>([]);
   const [pixels, setPixels] = useState<TikTokPixelOption[]>([]);
+  const [pixelEvents, setPixelEvents] = useState<TikTokPixelEventOption[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   const [identityWarning, setIdentityWarning] = useState<string | null>(null);
   const [pixelWarning, setPixelWarning] = useState<string | null>(null);
   const [pixelApiFailed, setPixelApiFailed] = useState(false);
@@ -71,6 +78,7 @@ export function AccountSetupStep({
     if (!selectedAdvertiserId) {
       setIdentities([]);
       setPixels([]);
+      setPixelEvents([]);
       return;
     }
     const advertiserId = selectedAdvertiserId;
@@ -115,10 +123,14 @@ export function AccountSetupStep({
         const json = (await pixelRes.value.json().catch(() => null)) as {
           ok?: boolean;
           pixels?: TikTokPixelOption[];
+          currency?: string | null;
           error?: string;
         } | null;
         const next = json?.ok ? (json.pixels ?? []) : [];
         setPixels(next);
+        if (json?.ok && json.currency && json.currency !== draft.accountSetup.currency) {
+          await persist({ currency: json.currency });
+        }
         if (!json?.ok && json?.error) {
           setPixelApiFailed(true);
           setPixelWarning(`TikTok pixel API returned: ${json.error}. Enter a pixel ID manually below.`);
@@ -140,6 +152,34 @@ export function AccountSetupStep({
     };
   }, [draft.accountSetup.advertiserId]);
 
+  useEffect(() => {
+    const advertiserId = draft.accountSetup.advertiserId;
+    const pixelId = draft.accountSetup.pixelId;
+    if (!advertiserId || !pixelId) {
+      setPixelEvents([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingEvents(true);
+    fetch(
+      `/api/tiktok/pixels?advertiser_id=${encodeURIComponent(advertiserId)}&pixel_id=${encodeURIComponent(pixelId)}`,
+    )
+      .then((res) => res.json())
+      .then((json: { ok?: boolean; events?: TikTokPixelEventOption[] }) => {
+        if (cancelled) return;
+        setPixelEvents(json.ok ? (json.events ?? []) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setPixelEvents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEvents(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.accountSetup.advertiserId, draft.accountSetup.pixelId]);
+
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === draft.accountSetup.tiktokAccountId),
     [accounts, draft.accountSetup.tiktokAccountId],
@@ -156,6 +196,8 @@ export function AccountSetupStep({
       identityType: null,
       pixelId: null,
       pixelName: null,
+      optimisationEvent: null,
+      currency: null,
     });
     setManualIdentityName("");
   }
@@ -176,6 +218,13 @@ export function AccountSetupStep({
     await persist({
       pixelId: pixel?.pixel_id ?? null,
       pixelName: pixel?.pixel_name ?? null,
+      optimisationEvent: null,
+    });
+  }
+
+  async function saveOptimisationEvent(optimizationEvent: string) {
+    await persist({
+      optimisationEvent: optimizationEvent || null,
     });
   }
 
@@ -188,6 +237,7 @@ export function AccountSetupStep({
     await persist({
       pixelId: value || null,
       pixelName: value ? `Manual pixel ${value}` : null,
+      optimisationEvent: null,
     });
   }
 
@@ -223,8 +273,9 @@ export function AccountSetupStep({
       <div>
         <h2 className="font-heading text-xl">Account setup</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Choose the TikTok advertiser, identity, and optional pixel for this
-          draft. One advertiser is stored per draft.
+          Choose the TikTok advertiser, identity, and pixel for this draft.
+          Conversions launches also need an optimisation event from that pixel.
+          One advertiser is stored per draft.
         </p>
       </div>
 
@@ -322,9 +373,32 @@ export function AccountSetupStep({
             label: pixel.status ? `${pixel.pixel_name} · ${pixel.status}` : pixel.pixel_name,
           }))}
         />
-        <ReadOnlySummary
-          label="Saved pixel"
-          value={draft.accountSetup.pixelName ?? draft.accountSetup.pixelId}
+        <Select
+          id="tiktok-optimisation-event"
+          label="Optimisation event"
+          value={draft.accountSetup.optimisationEvent ?? ""}
+          onChange={(event) => void saveOptimisationEvent(event.target.value)}
+          disabled={
+            !draft.accountSetup.pixelId ||
+            loadingEvents ||
+            saving ||
+            pixelEvents.length === 0
+          }
+          placeholder={
+            !draft.accountSetup.pixelId
+              ? "Select a pixel first"
+              : loadingEvents
+                ? "Loading pixel events..."
+                : pixelEvents.length === 0
+                  ? "No events on this pixel"
+                  : "Select conversion event"
+          }
+          options={pixelEvents.map((event) => ({
+            value: event.optimization_event,
+            label: event.name === event.optimization_event
+              ? event.optimization_event
+              : `${event.name} · ${event.optimization_event}`,
+          }))}
         />
       </div>
 

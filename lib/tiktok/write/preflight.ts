@@ -7,14 +7,19 @@
  */
 
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
+import { validOptimisationGoalForObjective } from "../../tiktok-wizard/campaign-setup.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
 import {
   SMART_PLUS_BLOCK_MESSAGE,
+  TIKTOK_LAUNCHER_UNSUPPORTED_OBJECTIVES,
   buildTikTokAdGroupPayload,
   buildTikTokAdPayload,
   buildTikTokCampaignPayload,
   mapTikTokIdentityType,
-  tikTokMinimumBudget,
+  mapTikTokObjectiveType,
+  resolveTikTokAdGroupBudget,
+  tikTokAdGroupBudgetFloor,
+  tikTokBudgetFloorUnverified,
 } from "./mapping.ts";
 
 export interface TikTokLaunchPreflightIssue {
@@ -26,12 +31,14 @@ export interface TikTokLaunchPreflightIssue {
 export interface TikTokLaunchPreflightResult {
   ok: boolean;
   issues: TikTokLaunchPreflightIssue[];
+  warnings: TikTokLaunchPreflightIssue[];
 }
 
 export function collectTikTokLaunchPreflight(
   draft: TikTokCampaignDraft,
 ): TikTokLaunchPreflightResult {
   const issues: TikTokLaunchPreflightIssue[] = [];
+  const warnings: TikTokLaunchPreflightIssue[] = [];
 
   if (!draft.eventId) {
     issues.push(
@@ -71,6 +78,62 @@ export function collectTikTokLaunchPreflight(
     issues.push(issue("smart-plus-bid", "bidStrategy", SMART_PLUS_BLOCK_MESSAGE));
   }
 
+  const objective = draft.campaignSetup.objective;
+  if (
+    objective &&
+    TIKTOK_LAUNCHER_UNSUPPORTED_OBJECTIVES.includes(objective)
+  ) {
+    issues.push(
+      issue(
+        "objective-unsupported",
+        "objective",
+        `${objective} is not supported by the launcher yet`,
+      ),
+    );
+  }
+  if (
+    !validOptimisationGoalForObjective(
+      draft.campaignSetup.objective,
+      draft.campaignSetup.optimisationGoal,
+    )
+  ) {
+    issues.push(
+      issue(
+        "objective-goal",
+        "optimisationGoal",
+        "Objective and optimisation goal are not a compatible pair",
+      ),
+    );
+  }
+
+  if (objective === "CONVERSIONS") {
+    if (!draft.accountSetup.pixelId) {
+      issues.push(
+        issue("pixel", "pixel_id", "CONVERSIONS requires a TikTok pixel"),
+      );
+    }
+    if (!draft.accountSetup.optimisationEvent) {
+      issues.push(
+        issue(
+          "optimisation-event",
+          "optimization_event",
+          "CONVERSIONS requires an optimisation event from the selected pixel",
+        ),
+      );
+    }
+  }
+
+  const mappedObjective = mapTikTokObjectiveType(objective);
+  if (!mappedObjective.ok) {
+    issues.push(
+      issue(
+        `campaign-${mappedObjective.error.field}`,
+        mappedObjective.error.field,
+        mappedObjective.error.message,
+      ),
+    );
+  }
+
   const campaign = buildTikTokCampaignPayload({
     advertiserId: draft.accountSetup.advertiserId ?? "",
     draft,
@@ -91,16 +154,24 @@ export function collectTikTokLaunchPreflight(
     );
   }
 
-  const budget = draft.budgetSchedule.budgetAmount;
-  const minimum = tikTokMinimumBudget(draft.budgetSchedule.budgetMode);
-  if (budget == null) {
+  const campaignBudget = draft.budgetSchedule.budgetAmount;
+  const campaignFloor = tikTokAdGroupBudgetFloor({
+    budgetMode: draft.budgetSchedule.budgetMode,
+    startAt: start,
+    endAt: end,
+  });
+  if (campaignBudget == null) {
     issues.push(issue("budget", "budget", "Budget is required"));
-  } else if (budget < minimum) {
+  } else if (!campaignFloor.ok) {
+    issues.push(
+      issue("budget-minimum", campaignFloor.error.field, campaignFloor.error.message),
+    );
+  } else if (campaignBudget < campaignFloor.value) {
     issues.push(
       issue(
         "budget-minimum",
         "budget",
-        `Budget must be at least ${minimum} for ${draft.budgetSchedule.budgetMode} mode`,
+        `Budget must be at least ${campaignFloor.value} for ${draft.budgetSchedule.budgetMode} mode`,
       ),
     );
   }
@@ -122,6 +193,38 @@ export function collectTikTokLaunchPreflight(
           `adgroup-creative-${adGroup.id}`,
           "creativeAssignments",
           `Ad group "${adGroup.name}" needs at least one assigned creative with a videoId`,
+        ),
+      );
+    }
+
+    const groupBudget = resolveTikTokAdGroupBudget(draft, adGroup);
+    const groupFloor = tikTokAdGroupBudgetFloor({
+      budgetMode: draft.budgetSchedule.budgetMode,
+      startAt: adGroup.startAt ?? start,
+      endAt: adGroup.endAt ?? end,
+    });
+    if (groupBudget == null) {
+      issues.push(
+        issue(
+          `adgroup-budget-${adGroup.id}`,
+          "budget",
+          `Ad group "${adGroup.name}" is missing a budget`,
+        ),
+      );
+    } else if (!groupFloor.ok) {
+      issues.push(
+        issue(
+          `adgroup-budget-floor-${adGroup.id}`,
+          groupFloor.error.field,
+          `${adGroup.name}: ${groupFloor.error.message}`,
+        ),
+      );
+    } else if (groupBudget < groupFloor.value) {
+      issues.push(
+        issue(
+          `adgroup-budget-${adGroup.id}`,
+          "budget",
+          `Ad group "${adGroup.name}" budget ${groupBudget} is below the ${groupFloor.value} floor for ${draft.budgetSchedule.budgetMode} mode`,
         ),
       );
     }
@@ -170,7 +273,22 @@ export function collectTikTokLaunchPreflight(
     }
   }
 
-  return { ok: issues.length === 0, issues: dedupeIssues(issues) };
+  if (tikTokBudgetFloorUnverified(draft.accountSetup.currency)) {
+    const currency = draft.accountSetup.currency?.trim() || "unknown";
+    warnings.push(
+      issue(
+        "budget-currency",
+        "currency",
+        `Advertiser currency is ${currency} — the 20 budget floor is documented for GBP and is unverified for this account`,
+      ),
+    );
+  }
+
+  return {
+    ok: issues.length === 0,
+    issues: dedupeIssues(issues),
+    warnings: dedupeIssues(warnings),
+  };
 }
 
 export function isAbsoluteHttpUrl(value: string | null | undefined): boolean {

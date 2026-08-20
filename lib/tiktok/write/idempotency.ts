@@ -97,6 +97,20 @@ export async function withTikTokWriteIdempotency(
   }
 }
 
+/**
+ * Drops every ledger row for a draft so a post-rollback retry cannot
+ * short-circuit onto deleted TikTok object IDs.
+ */
+export async function clearTikTokWriteIdempotency(
+  context: Pick<TikTokWriteContext, "supabase" | "draftId">,
+): Promise<void> {
+  const { error } = await context.supabase
+    .from("tiktok_write_idempotency")
+    .delete()
+    .eq("draft_id", context.draftId);
+  if (error) throw new Error(error.message);
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);

@@ -127,6 +127,10 @@ function rowToDraft(row: TikTokDraftRow): TikTokCampaignDraft {
   return {
     ...base,
     ...state,
+    accountSetup: {
+      ...base.accountSetup,
+      ...(state.accountSetup ?? {}),
+    },
     id: row.id,
     clientId: row.client_id,
     eventId: row.event_id,

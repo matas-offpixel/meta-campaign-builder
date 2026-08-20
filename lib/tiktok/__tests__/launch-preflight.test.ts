@@ -12,6 +12,7 @@ function launchableDraft() {
   draft.accountSetup.identityId = "identity_1";
   draft.accountSetup.identityType = "TT_USER";
   draft.campaignSetup.campaignName = "Campaign";
+  draft.accountSetup.currency = "GBP";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
   draft.budgetSchedule.budgetMode = "DAILY";
@@ -50,6 +51,7 @@ describe("collectTikTokLaunchPreflight", () => {
     const result = collectTikTokLaunchPreflight(launchableDraft());
     assert.equal(result.ok, true);
     assert.deepEqual(result.issues, []);
+    assert.deepEqual(result.warnings, []);
   });
 
   it("returns every blocker at once", () => {
@@ -159,5 +161,93 @@ describe("collectTikTokLaunchPreflight", () => {
         `expected ${testCase.field} among ${result.issues.map((issue) => issue.field).join(",")}`,
       );
     }
+  });
+
+  it("blocks the derived per-ad-group split when it falls under the floor", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups = [];
+    draft.budgetSchedule.budgetAmount = 30;
+    draft.creativeAssignments.byAdGroupId = {
+      "adgroup-1": ["creative-1"],
+      "adgroup-2": ["creative-1"],
+      "adgroup-3": ["creative-1"],
+    };
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    const budgetIssues = result.issues.filter((issue) => issue.field === "budget");
+    assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 1")));
+    assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 2")));
+    assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 3")));
+    assert.ok(budgetIssues.every((issue) => issue.message.includes("10")));
+  });
+
+  it("passes a CONVERSIONS draft with pixel, CONVERT, and a pixel event", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "CONVERSIONS";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "COMPLETE_REGISTRATION";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.issues, []);
+  });
+
+  it("blocks CONVERSIONS without a pixel or optimisation event", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "CONVERSIONS";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.some((issue) => issue.field === "pixel_id"));
+    assert.ok(result.issues.some((issue) => issue.field === "optimization_event"));
+  });
+
+  it("blocks VIDEO_VIEWS, REACH, AWARENESS, and ENGAGEMENT as unsupported", () => {
+    for (const objective of ["VIDEO_VIEWS", "REACH", "AWARENESS", "ENGAGEMENT"] as const) {
+      const draft = launchableDraft();
+      draft.campaignSetup.objective = objective;
+      const result = collectTikTokLaunchPreflight(draft);
+      assert.equal(result.ok, false, objective);
+      assert.ok(
+        result.issues.some((issue) =>
+          issue.message.includes("not supported by the launcher yet"),
+        ),
+        objective,
+      );
+    }
+  });
+
+  it("blocks an incompatible objective and optimisation goal pair", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "TRAFFIC";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.some((issue) => issue.field === "optimisationGoal"));
+  });
+
+  it("warns when the advertiser currency is not GBP", () => {
+    const draft = launchableDraft();
+    draft.accountSetup.currency = "EUR";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, true);
+    assert.ok(
+      result.warnings.some((warning) =>
+        warning.message.includes("unverified"),
+      ),
+    );
+  });
+
+  it("fails lifetime launches that cannot compute scheduled days", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.budgetMode = "LIFETIME";
+    draft.budgetSchedule.scheduleEndAt = null;
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    assert.ok(
+      result.issues.some((issue) =>
+        issue.message.includes("20 × scheduled days"),
+      ),
+    );
   });
 });

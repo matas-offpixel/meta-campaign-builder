@@ -5,7 +5,9 @@ import { describe, it } from "node:test";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import {
   TIKTOK_LOCATION_IDS_BY_CODE,
+  buildTikTokAdGroupPayload,
   buildTikTokAdPayload,
+  buildTikTokCampaignPayload,
   formatTikTokScheduleTime,
   mapTikTokAgeGroups,
   mapTikTokBidType,
@@ -19,6 +21,7 @@ import {
   mapTikTokPacing,
   mapTikTokPromotionType,
   mapTikTokScheduleType,
+  tikTokAdGroupBudgetFloor,
 } from "../write/mapping.ts";
 
 describe("mapTikTokAgeGroups", () => {
@@ -139,13 +142,24 @@ describe("optimisation and bid mappings", () => {
     assert.equal(conversions.ok, true);
     if (conversions.ok) assert.equal(conversions.value, "WEB_CONVERSIONS");
     assert.equal(mapTikTokObjectiveType("AWARENESS").ok, false);
+    for (const objective of ["TRAFFIC", "VIDEO_VIEWS", "REACH", "ENGAGEMENT"] as const) {
+      const mapped = mapTikTokObjectiveType(objective);
+      assert.equal(mapped.ok && mapped.value, objective, objective);
+    }
     const manual = mapTikTokIdentityType("MANUAL");
     const ttUser = mapTikTokIdentityType("TT_USER");
     assert.equal(manual.ok, true);
     if (manual.ok) assert.equal(manual.value, "CUSTOMIZED_USER");
     assert.equal(ttUser.ok, true);
     if (ttUser.ok) assert.equal(ttUser.value, "TT_USER");
-    assert.equal(mapTikTokPromotionType(), "WEBSITE");
+    const trafficPromo = mapTikTokPromotionType("TRAFFIC");
+    const conversionsPromo = mapTikTokPromotionType("CONVERSIONS");
+    assert.equal(trafficPromo.ok && trafficPromo.value, "WEBSITE");
+    assert.equal(conversionsPromo.ok && conversionsPromo.value, "WEBSITE");
+    assert.equal(mapTikTokPromotionType("VIDEO_VIEWS").ok, false);
+    assert.equal(mapTikTokPromotionType("REACH").ok, false);
+    assert.equal(mapTikTokPromotionType("AWARENESS").ok, false);
+    assert.equal(mapTikTokPromotionType("ENGAGEMENT").ok, false);
   });
 });
 
@@ -207,9 +221,160 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.value.is_aco, false);
+    assert.equal(result.value.operation_status, "DISABLE");
     const creatives = result.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].creative_authorized, false);
     assert.equal(creatives[0].identity_id, "identity_1");
     assert.equal(creatives[0].identity_type, "TT_USER");
   });
+
+  it("sends enhancements off even when the unused draft flag is false", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    draft.creativeIntegrityMode = false;
+    draft.accountSetup.identityId = "identity_1";
+    draft.accountSetup.identityType = "TT_USER";
+    draft.creatives.items = [sampleCreative()];
+    const result = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: draft.creatives.items[0],
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.is_aco, false);
+    const creatives = result.value.creatives as Array<Record<string, unknown>>;
+    assert.equal(creatives[0].creative_authorized, false);
+  });
 });
+
+describe("paused payloads at every level", () => {
+  it("sets operation_status DISABLE on campaign, ad group, and ad", () => {
+    const draft = payloadDraft();
+    const campaign = buildTikTokCampaignPayload({
+      advertiserId: "adv-1",
+      draft,
+    });
+    const adGroup = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    const ad = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: draft.creatives.items[0],
+    });
+    assert.equal(campaign.ok && campaign.value.operation_status, "DISABLE");
+    assert.equal(adGroup.ok && adGroup.value.operation_status, "DISABLE");
+    assert.equal(ad.ok && ad.value.operation_status, "DISABLE");
+  });
+});
+
+describe("conversions payload", () => {
+  it("emits WEB_CONVERSIONS with pixel_id, CONVERT, and the pixel event", () => {
+    const draft = payloadDraft();
+    draft.campaignSetup.objective = "CONVERSIONS";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "COMPLETE_REGISTRATION";
+    const campaign = buildTikTokCampaignPayload({
+      advertiserId: "adv-1",
+      draft,
+    });
+    const adGroup = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(campaign.ok && campaign.value.objective_type, "WEB_CONVERSIONS");
+    assert.equal(adGroup.ok, true);
+    if (!adGroup.ok) return;
+    assert.equal(adGroup.value.optimization_goal, "CONVERT");
+    assert.equal(adGroup.value.pixel_id, "px-1");
+    assert.equal(adGroup.value.optimization_event, "COMPLETE_REGISTRATION");
+  });
+
+  it("does not attach pixel_id on TRAFFIC", () => {
+    const draft = payloadDraft();
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "COMPLETE_REGISTRATION";
+    const adGroup = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(adGroup.ok, true);
+    if (!adGroup.ok) return;
+    assert.equal(adGroup.value.pixel_id, undefined);
+    assert.equal(adGroup.value.optimization_event, undefined);
+  });
+});
+
+describe("tikTokAdGroupBudgetFloor", () => {
+  it("uses 20 daily and 20 × scheduled days for lifetime", () => {
+    const daily = tikTokAdGroupBudgetFloor({
+      budgetMode: "DAILY",
+      startAt: "2026-05-01T09:00:00Z",
+      endAt: "2026-05-08T09:00:00Z",
+    });
+    const lifetime = tikTokAdGroupBudgetFloor({
+      budgetMode: "LIFETIME",
+      startAt: "2026-05-01T09:00:00Z",
+      endAt: "2026-05-08T09:00:00Z",
+    });
+    const missingEnd = tikTokAdGroupBudgetFloor({
+      budgetMode: "LIFETIME",
+      startAt: "2026-05-01T09:00:00Z",
+      endAt: null,
+    });
+    assert.equal(daily.ok && daily.value, 20);
+    assert.equal(lifetime.ok && lifetime.value, 140);
+    assert.equal(missingEnd.ok, false);
+  });
+});
+
+function sampleCreative() {
+  return {
+    id: "creative-1",
+    name: "Hero",
+    mode: "VIDEO_REFERENCE" as const,
+    baseName: "Hero",
+    videoId: "video_1",
+    videoUrl: null,
+    thumbnailUrl: null,
+    durationSeconds: null,
+    title: null,
+    sparkPostId: null,
+    caption: "",
+    adText: "Ad text",
+    displayName: "Off/Pixel",
+    landingPageUrl: "https://example.com",
+    cta: "LEARN_MORE",
+    musicId: null,
+  };
+}
+
+function payloadDraft() {
+  const draft = createDefaultTikTokDraft("draft-1");
+  draft.accountSetup.advertiserId = "adv-1";
+  draft.accountSetup.identityId = "identity_1";
+  draft.accountSetup.identityType = "TT_USER";
+  draft.accountSetup.currency = "GBP";
+  draft.campaignSetup.campaignName = "Campaign";
+  draft.campaignSetup.objective = "TRAFFIC";
+  draft.campaignSetup.optimisationGoal = "CLICK";
+  draft.budgetSchedule.budgetMode = "DAILY";
+  draft.budgetSchedule.budgetAmount = 50;
+  draft.budgetSchedule.scheduleStartAt = "2026-05-01T09:00:00Z";
+  draft.budgetSchedule.scheduleEndAt = "2026-05-08T09:00:00Z";
+  draft.budgetSchedule.adGroups = [
+    { id: "ag-1", name: "Prospecting", budget: 50, startAt: null, endAt: null },
+  ];
+  draft.creatives.items = [sampleCreative()];
+  return draft;
+}

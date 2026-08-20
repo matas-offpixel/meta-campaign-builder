@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { getTikTokCredentials } from "@/lib/tiktok/credentials";
-import { fetchTikTokPixels } from "@/lib/tiktok/pixel";
+import { fetchTikTokAdvertiserCurrency } from "@/lib/tiktok/advertiser";
+import { fetchTikTokPixelEvents, fetchTikTokPixels } from "@/lib/tiktok/pixel";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -43,11 +44,28 @@ export async function GET(req: NextRequest) {
         { status: 400 },
       );
     }
-    const pixels = await fetchTikTokPixels({
-      advertiserId,
-      token: credentials.access_token,
-    });
-    return NextResponse.json({ ok: true, pixels }, { status: 200 });
+    const pixelId = req.nextUrl.searchParams.get("pixel_id");
+    const [pixels, currency, events] = await Promise.all([
+      fetchTikTokPixels({
+        advertiserId,
+        token: credentials.access_token,
+      }),
+      fetchTikTokAdvertiserCurrency({
+        advertiserId,
+        token: credentials.access_token,
+      }).catch(() => null),
+      pixelId
+        ? fetchTikTokPixelEvents({
+            advertiserId,
+            pixelId,
+            token: credentials.access_token,
+          }).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    return NextResponse.json(
+      { ok: true, pixels, currency, events },
+      { status: 200 },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.warn("[tiktok/pixels] read failed:", message);

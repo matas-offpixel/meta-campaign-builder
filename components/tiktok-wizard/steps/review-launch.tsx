@@ -56,7 +56,6 @@ export function ReviewLaunchStep({
   const writesEnabled = context?.writesEnabled === true;
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
-  const creativeIntegrityMode = draft.creativeIntegrityMode !== false;
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
@@ -74,10 +73,6 @@ export function ReviewLaunchStep({
     } finally {
       setSaving(false);
     }
-  }
-
-  async function setCreativeIntegrityMode(value: boolean) {
-    await onSave({ creativeIntegrityMode: value });
   }
 
   async function launchOnTikTok() {
@@ -226,52 +221,31 @@ export function ReviewLaunchStep({
         </section>
       )}
 
+      {launchPreflight.warnings.length > 0 && (
+        <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-sm font-medium">Launch warnings</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {launchPreflight.warnings.map((warning) => (
+              <li key={warning.id}>{warning.message}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="rounded-md border border-border bg-background p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-heading text-lg">Creative Integrity Mode</h3>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                  creativeIntegrityMode
-                    ? "bg-emerald-500/10 text-emerald-700"
-                    : "bg-amber-500/10 text-amber-800"
-                }`}
-              >
-                {creativeIntegrityMode ? "ON" : "OFF"}
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Publish ads exactly as uploaded. Forces{" "}
-              <code>is_aco=false</code> and{" "}
-              <code>creative_authorized=false</code> — no Smart+, no Smart
-              Creative, no automated ads.
-            </p>
-            {!creativeIntegrityMode && (
-              <p className="mt-1.5 text-[11px] text-amber-700">
-                This launcher still sends enhancements off. Turn Creative
-                Integrity Mode back on so the operator-facing state matches
-                the payload.
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={creativeIntegrityMode}
-            aria-label="Toggle Creative Integrity Mode"
-            onClick={() => void setCreativeIntegrityMode(!creativeIntegrityMode)}
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-              creativeIntegrityMode ? "bg-foreground" : "bg-border"
-            }`}
-          >
-            <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform ${
-                creativeIntegrityMode ? "translate-x-5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+        <div className="flex items-center gap-2">
+          <h3 className="font-heading text-lg">Creative Integrity Mode</h3>
+          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+            ALWAYS ON
+          </span>
         </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          This launcher always publishes ads exactly as uploaded. Every ad is
+          created with <code>is_aco=false</code> and{" "}
+          <code>creative_authorized=false</code> — no Smart+, no Smart
+          Creative, no automated ads. Campaign, ad groups, and ads are all
+          created paused.
+        </p>
       </section>
 
       <ReviewPanel title="Account">
@@ -287,6 +261,11 @@ export function ReviewLaunchStep({
           label="Pixel"
           value={draft.accountSetup.pixelName ?? draft.accountSetup.pixelId}
         />
+        <KeyValue
+          label="Optimisation event"
+          value={draft.accountSetup.optimisationEvent}
+        />
+        <KeyValue label="Currency" value={draft.accountSetup.currency} />
       </ReviewPanel>
 
       <ReviewPanel title="Campaign">

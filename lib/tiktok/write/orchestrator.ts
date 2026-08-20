@@ -5,7 +5,10 @@ import { createTikTokAd } from "./ad.ts";
 import { createTikTokAdGroup } from "./adgroup.ts";
 import { createTikTokCampaign } from "./campaign.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
-import type { TikTokWriteContext } from "./idempotency.ts";
+import {
+  clearTikTokWriteIdempotency,
+  type TikTokWriteContext,
+} from "./idempotency.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import { postTikTokWrite } from "./request.ts";
 import type { TikTokLaunchEntity } from "./types.ts";
@@ -146,6 +149,15 @@ async function cleanupTikTokCampaign(
   } catch (err) {
     console.warn(
       `[tiktok-write] failed to clean up campaign ${campaignId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  try {
+    await clearTikTokWriteIdempotency(context);
+  } catch (err) {
+    console.warn(
+      `[tiktok-write] failed to clear idempotency for draft ${context.draftId}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
