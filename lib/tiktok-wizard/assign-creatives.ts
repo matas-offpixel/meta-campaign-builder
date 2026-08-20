@@ -40,7 +40,7 @@ export function assignTikTokCreativeToAllAdGroups(
   for (const adGroupId of adGroupIds) {
     const current = next[adGroupId] ?? [];
     next[adGroupId] = current.includes(creativeId)
-      ? current
+      ? [...current]
       : [...current, creativeId];
   }
   return next;
@@ -66,7 +66,7 @@ export function assignTikTokEverything(
   const next = { ...byAdGroupId };
   const ids = unique(creativeIds);
   for (const adGroupId of adGroupIds) {
-    next[adGroupId] = ids;
+    next[adGroupId] = [...ids];
   }
   return next;
 }

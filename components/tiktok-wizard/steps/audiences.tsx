@@ -16,9 +16,11 @@ import {
 } from "@/lib/tiktok-wizard/audience-display";
 import {
   expandTikTokPresetKeywords,
+  formatTikTokUnresolvedPresetPaths,
   mergeTikTokPresetTaxonomy,
   resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
+  tikTokPresetTaxonomyPendingReason,
   TIKTOK_GENRE_PRESET_LIMITATION_NOTE,
   TIKTOK_GENRE_PRESETS,
   type TikTokGenrePreset,
@@ -135,6 +137,7 @@ export function AudiencesStep({
     {},
   );
   const [presetPartialNote, setPresetPartialNote] = useState<string | null>(null);
+  const [presetTaxonomyNote, setPresetTaxonomyNote] = useState<string | null>(null);
 
   const advertiserId = draft.accountSetup.advertiserId;
   const audiencesRef = useRef(audiences);
@@ -360,14 +363,21 @@ export function AudiencesStep({
     const group =
       audiencesRef.current.interestGroups.find((item) => item.id === activeGroupId) ??
       audiencesRef.current.interestGroups[0];
-    if (!group) return false;
+    const catalogLoaded = interests.length > 0 || behaviours.length > 0;
+    if (
+      tikTokPresetTaxonomyPendingReason({
+        hasGroup: Boolean(group),
+        catalogLoaded,
+      })
+    ) {
+      return true;
+    }
+    if (!group) return true;
     const taxonomy = resolveTikTokPresetTaxonomy(
       { interests, behaviours },
       preset,
     );
-    if (taxonomy.interestItems.length === 0 && taxonomy.behaviourItems.length === 0) {
-      return interests.length === 0 && behaviours.length === 0;
-    }
+    setPresetTaxonomyNote(formatTikTokUnresolvedPresetPaths(taxonomy.unresolvedPaths));
     const merged = mergeTikTokPresetTaxonomy(group, taxonomy);
     const unchanged =
       merged.interestIds.length === group.interestIds.length &&
@@ -420,6 +430,7 @@ export function AudiencesStep({
     pendingPresetTaxonomyId.current = null;
     setActivePresetId(null);
     setPresetPartialNote(null);
+    setPresetTaxonomyNote(null);
   }
 
   useEffect(() => {
@@ -456,6 +467,7 @@ export function AudiencesStep({
     setKeywordFailed(null);
     setHashtagFailed(null);
     setPresetPartialNote(null);
+    setPresetTaxonomyNote(null);
     setKeywordProvenance({});
     setLoadingKeywords(true);
     setLoadingHashtags(true);
@@ -817,6 +829,9 @@ export function AudiencesStep({
           {presetPartialNote && (
             <p className="text-sm text-amber-700 dark:text-amber-300">{presetPartialNote}</p>
           )}
+          {presetTaxonomyNote && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">{presetTaxonomyNote}</p>
+          )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
             <SearchInput
               value={seed}
@@ -921,6 +936,9 @@ export function AudiencesStep({
           />
           {presetPartialNote && (
             <p className="text-sm text-amber-700 dark:text-amber-300">{presetPartialNote}</p>
+          )}
+          {presetTaxonomyNote && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">{presetTaxonomyNote}</p>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <SearchInput
