@@ -2,10 +2,28 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  extractBcIdsFromList,
   extractIdentityBcId,
   fetchAdvertiserBusinessCenterId,
   fetchTikTokIdentities,
 } from "../identity.ts";
+
+/** Exact /identity/get/ row keys logged for advertiser 7639802149165301776. */
+const PRODUCTION_IDENTITY_ROW = {
+  ads_only_mode: false,
+  available_status: true,
+  can_manage_message: true,
+  can_pull_video: true,
+  can_push_video: true,
+  can_use_live_ads: true,
+  display_name: "Ironworks",
+  identity_authorized_bc_id: "7078123456789012345",
+  identity_id: "ironworks-id",
+  identity_type: "BC_AUTH_TT",
+  is_gpppa: false,
+  profile_image: "https://example.com/ironworks.jpg",
+  username: "ironworks",
+} as const;
 
 describe("fetchTikTokIdentities", () => {
   it("parses an unfiltered /identity/get/ response under list", async () => {
@@ -301,6 +319,13 @@ describe("fetchTikTokIdentities", () => {
   });
 
   it("reads identity_bc_id from each candidate key", () => {
+    assert.deepEqual(
+      extractIdentityBcId({ identity_authorized_bc_id: "bc-auth" }),
+      {
+        value: "bc-auth",
+        key: "identity_authorized_bc_id",
+      },
+    );
     assert.deepEqual(extractIdentityBcId({ identity_bc_id: "bc-a" }), {
       value: "bc-a",
       key: "identity_bc_id",
@@ -317,6 +342,46 @@ describe("fetchTikTokIdentities", () => {
       value: null,
       key: null,
     });
+  });
+
+  it("extracts identity_authorized_bc_id from the measured production row keys", () => {
+    assert.deepEqual(
+      Object.keys(PRODUCTION_IDENTITY_ROW),
+      [
+        "ads_only_mode",
+        "available_status",
+        "can_manage_message",
+        "can_pull_video",
+        "can_push_video",
+        "can_use_live_ads",
+        "display_name",
+        "identity_authorized_bc_id",
+        "identity_id",
+        "identity_type",
+        "is_gpppa",
+        "profile_image",
+        "username",
+      ],
+    );
+    assert.deepEqual(extractIdentityBcId(PRODUCTION_IDENTITY_ROW), {
+      value: "7078123456789012345",
+      key: "identity_authorized_bc_id",
+    });
+  });
+
+  it("parses the production row without calling /bc/get/", async () => {
+    const paths: string[] = [];
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "7639802149165301776",
+      token: "token-1",
+      request: async <T,>(path: string) => {
+        paths.push(path);
+        return { list: [PRODUCTION_IDENTITY_ROW] } as T;
+      },
+    });
+    assert.deepEqual(paths, ["/identity/get/"]);
+    assert.equal(rows[0]?.identity_type, "BC_AUTH_TT");
+    assert.equal(rows[0]?.identity_bc_id, "7078123456789012345");
   });
 
   it("falls back to /bc/get/ when the identity row has no BC id", async () => {
@@ -375,5 +440,69 @@ describe("fetchAdvertiserBusinessCenterId", () => {
       },
     });
     assert.deepEqual(result, { bcId: "bc-b", path: "bc/advertiser/get" });
+  });
+
+  it("reads nested bc_info ids and matches a numeric advertiser_id", async () => {
+    const result = await fetchAdvertiserBusinessCenterId({
+      advertiserId: "7639802149165301776",
+      token: "token-1",
+      request: async <T,>(path: string, params: Record<string, unknown>) => {
+        if (path === "/bc/get/") {
+          return {
+            list: [
+              { bc_info: { bc_id: "bc-1" }, user_role: "ADMIN" },
+              { bc_info: { bc_id: "bc-2" }, user_role: "ADMIN" },
+              { bc_info: { bc_id: "bc-3" }, user_role: "ADMIN" },
+              { bc_info: { bc_id: "bc-4" }, user_role: "ADMIN" },
+              { bc_info: { bc_id: "bc-5" }, user_role: "ADMIN" },
+            ],
+            page_info: {},
+            parent_bc: null,
+          } as T;
+        }
+        assert.equal(path, "/bc/advertiser/get/");
+        if (params.bc_id === "bc-4") {
+          return { list: [{ advertiser_id: 1234567890 }] } as T;
+        }
+        if (params.bc_id === "bc-5") {
+          return { list: [{ advertiser_id: "7639802149165301776" }] } as T;
+        }
+        return { list: [{ advertiser_id: 111 }] } as T;
+      },
+    });
+    assert.deepEqual(result, { bcId: "bc-5", path: "bc/advertiser/get" });
+  });
+
+  it("treats a numeric advertiser_id as a match", async () => {
+    const result = await fetchAdvertiserBusinessCenterId({
+      advertiserId: "1234567890",
+      token: "token-1",
+      request: async <T,>(path: string, params: Record<string, unknown>) => {
+        if (path === "/bc/get/") {
+          return {
+            list: [
+              { bc_info: { bc_id: "bc-a" }, user_role: "ADMIN" },
+              { bc_info: { bc_id: "bc-b" }, user_role: "ADMIN" },
+            ],
+          } as T;
+        }
+        if (params.bc_id === "bc-b") {
+          return { list: [{ advertiser_id: 1234567890 }] } as T;
+        }
+        return { list: [{ advertiser_id: "other" }] } as T;
+      },
+    });
+    assert.deepEqual(result, { bcId: "bc-b", path: "bc/advertiser/get" });
+  });
+});
+
+describe("extractBcIdsFromList", () => {
+  it("reads bc_id from nested bc_info", () => {
+    assert.deepEqual(
+      extractBcIdsFromList({
+        list: [{ bc_info: { bc_id: "bc-nested" }, user_role: "ADMIN" }],
+      }),
+      ["bc-nested"],
+    );
   });
 });

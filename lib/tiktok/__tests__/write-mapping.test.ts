@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+import { extractIdentityBcId } from "../identity.ts";
 import {
   TIKTOK_LOCATION_IDS_BY_CODE,
   buildTikTokAdGroupPayload,
@@ -279,6 +280,35 @@ describe("buildTikTokAdPayload enhancements", () => {
     const creatives = bc.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].identity_type, "BC_AUTH_TT");
     assert.equal(creatives[0].identity_bc_id, "bc-ironworks");
+
+    const fromAuthorized = extractIdentityBcId({
+      ads_only_mode: false,
+      available_status: true,
+      can_manage_message: true,
+      can_pull_video: true,
+      can_push_video: true,
+      can_use_live_ads: true,
+      display_name: "Ironworks",
+      identity_authorized_bc_id: "7078123456789012345",
+      identity_id: "ironworks-id",
+      identity_type: "BC_AUTH_TT",
+      is_gpppa: false,
+      profile_image: "https://example.com/ironworks.jpg",
+      username: "ironworks",
+    });
+    bcDraft.accountSetup.identityBcId = fromAuthorized.value;
+    const resolved = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft: bcDraft,
+      creative: bcDraft.creatives.items[0],
+    });
+    assert.equal(resolved.ok, true);
+    if (!resolved.ok) return;
+    const resolvedCreatives = resolved.value.creatives as Array<
+      Record<string, unknown>
+    >;
+    assert.equal(resolvedCreatives[0].identity_bc_id, "7078123456789012345");
   });
 
   it("sends enhancements off even when the unused draft flag is false", () => {

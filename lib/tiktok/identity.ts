@@ -29,12 +29,14 @@ export interface TikTokIdentityGetRow {
   nickname?: string;
   avatar_url?: string;
   identity_type?: string;
+  identity_authorized_bc_id?: string;
   identity_bc_id?: string;
   bc_id?: string;
   business_center_id?: string;
 }
 
 export const IDENTITY_BC_ID_CANDIDATE_KEYS = [
+  "identity_authorized_bc_id",
   "identity_bc_id",
   "bc_id",
   "business_center_id",
@@ -344,21 +346,36 @@ function extractListRows(res: unknown): Record<string, unknown>[] {
   return [];
 }
 
-function extractBcIdsFromList(res: unknown): string[] {
+export function extractBcIdsFromList(res: unknown): string[] {
   const ids: string[] = [];
   for (const row of extractListRows(res)) {
-    const extracted = extractIdentityBcId(row);
-    if (extracted.value) ids.push(extracted.value);
+    const fromRow = extractIdentityBcId(row);
+    if (fromRow.value) {
+      ids.push(fromRow.value);
+      continue;
+    }
+    const info = row.bc_info;
+    if (info && typeof info === "object" && !Array.isArray(info)) {
+      const fromInfo = extractIdentityBcId(info as TikTokIdentityGetRow);
+      if (fromInfo.value) ids.push(fromInfo.value);
+    }
   }
   return ids;
+}
+
+function sameTikTokId(raw: unknown, expected: string): boolean {
+  if (typeof raw === "string") return raw === expected;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return String(raw) === expected;
+  }
+  return false;
 }
 
 function listContainsAdvertiser(
   res: unknown,
   advertiserId: string,
 ): boolean {
-  return extractListRows(res).some((row) => {
-    const raw = row.advertiser_id;
-    return typeof raw === "string" && raw === advertiserId;
-  });
+  return extractListRows(res).some((row) =>
+    sameTikTokId(row.advertiser_id, advertiserId),
+  );
 }

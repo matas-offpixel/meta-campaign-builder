@@ -321,6 +321,31 @@ describe("launchTikTokDraftState", () => {
     assert.equal(mock.calls.length, 0);
   });
 
+  it("launches BC_AUTH_TT when identity_authorized_bc_id is resolved", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.accountSetup.identityType = "BC_AUTH_TT";
+    draft.accountSetup.identityDisplayName = "Ironworks";
+    draft.accountSetup.identityBcId = "7078123456789012345";
+
+    const out = await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+      },
+      draft,
+    );
+    assert.equal(out.campaign_id, "campaign_mock_1");
+    const ad = mock.calls.find((call) => call.path === "/ad/create/");
+    assert.ok(ad);
+    const creatives = ad.body.creatives as Array<Record<string, unknown>>;
+    assert.equal(creatives[0].identity_type, "BC_AUTH_TT");
+    assert.equal(creatives[0].identity_bc_id, "7078123456789012345");
+  });
+
   it("blocks a GBP daily budget below 50 before any TikTok write and allows 50", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();

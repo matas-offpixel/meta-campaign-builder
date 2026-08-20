@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+import { extractIdentityBcId } from "../identity.ts";
 import { SMART_PLUS_BLOCK_MESSAGE } from "../write/mapping.ts";
 import { collectTikTokLaunchPreflight } from "../write/preflight.ts";
 
@@ -52,6 +53,33 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.equal(result.ok, true);
     assert.deepEqual(result.issues, []);
     assert.deepEqual(result.warnings, []);
+  });
+
+  it("does not block BC_AUTH_TT once identity_authorized_bc_id is resolved", () => {
+    const draft = launchableDraft();
+    draft.accountSetup.identityType = "BC_AUTH_TT";
+    draft.accountSetup.identityDisplayName = "Ironworks";
+    draft.accountSetup.identityBcId = extractIdentityBcId({
+      ads_only_mode: false,
+      available_status: true,
+      can_manage_message: true,
+      can_pull_video: true,
+      can_push_video: true,
+      can_use_live_ads: true,
+      display_name: "Ironworks",
+      identity_authorized_bc_id: "7078123456789012345",
+      identity_id: "ironworks-id",
+      identity_type: "BC_AUTH_TT",
+      is_gpppa: false,
+      profile_image: "https://example.com/ironworks.jpg",
+      username: "ironworks",
+    }).value;
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.issues.some((issue) => issue.id === "identity-bc-id"),
+      false,
+    );
   });
 
   it("returns every blocker at once", () => {
