@@ -121,4 +121,37 @@ describe("mapTikTokLaunchError", () => {
     assert.match(mapped.message, /\[IRW0001\] Jamie Jones -sig/);
     assert.doesNotMatch(mapped.message, /TikTok connection is invalid/);
   });
+
+  it("does not treat 40002 parameter-validation errors as auth", () => {
+    const budget = mapTikTokLaunchError({
+      code: 40002,
+      message: "Your budget setting must not be less than £50",
+    });
+    assert.equal(budget.kind, "other");
+    assert.equal(budget.status, 502);
+    assert.match(budget.message, /TikTok error 40002/);
+    assert.match(budget.message, /Your budget setting must not be less than £50/);
+    assert.doesNotMatch(budget.message, /TikTok connection is invalid/);
+
+    const identity = mapTikTokLaunchError({
+      code: 40002,
+      message: "Identity_type and Identity_bc_ID don't match",
+    });
+    assert.equal(identity.kind, "other");
+    assert.equal(identity.status, 502);
+    assert.match(identity.message, /TikTok error 40002/);
+    assert.match(identity.message, /Identity_type and Identity_bc_ID don't match/);
+    assert.doesNotMatch(identity.message, /TikTok connection is invalid/);
+
+    const nameExists = mapTikTokLaunchError({
+      code: 40002,
+      message: "Campaign name already exists. Please try another one.",
+    });
+    assert.equal(nameExists.kind, "name_collision");
+    assert.doesNotMatch(nameExists.message, /TikTok connection is invalid/);
+    assert.match(
+      nameExists.message,
+      /already used on this advertiser/,
+    );
+  });
 });

@@ -24,7 +24,9 @@ export interface TikTokLaunchErrorMapping {
 }
 
 const RATE_LIMIT_CODES = new Set([40100, 40101, 50001]);
-const AUTH_CODES = new Set([40001, 40002, 40105]);
+// 40002 is TikTok's generic parameter-validation error, not auth.
+// Live 40002s: budget floors, identity mismatches, name collisions.
+const AUTH_CODES = new Set([40001, 40105]);
 
 export function classifyTikTokLaunchCode(
   code: number | undefined | null,
