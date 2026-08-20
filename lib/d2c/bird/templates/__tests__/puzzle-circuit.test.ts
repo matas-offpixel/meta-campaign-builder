@@ -131,6 +131,54 @@ test("lineup first look is marked single-use where Bird's picker shows it", () =
   assert.match(d.projectName ?? "", /SINGLE USE/);
 });
 
+test("signup phase 2 reveals on the lineup artwork — never the teaser", () => {
+  // The teaser reads "LINEUP DROPPING SOON" across the middle; on a post-reveal
+  // autoresponder that contradicts the message it is attached to.
+  const payload = payloadFor("puzzle_southampton_17_10_26_signup_phase2");
+  const header = payload.platformContent[0].blocks.find(
+    (b): b is BirdImageBlock => b.type === "image",
+  );
+  assert.ok(header, "header image missing");
+  assert.match(header.image.mediaUrl, /puzzle-circuit-lineup-1080\.jpg$/);
+  assert.doesNotMatch(header.image.mediaUrl, /teaser/);
+});
+
+test("signup phase 2 button is the full Brighton-style label to the community", () => {
+  const payload = payloadFor("puzzle_southampton_17_10_26_signup_phase2");
+  const buttons = payload.platformContent[0].blocks.filter(
+    (b): b is BirdLinkActionBlock => b.type === "link-action",
+  );
+  assert.equal(buttons.length, 1);
+  assert.equal(buttons[0].linkAction.text, "JOIN WHATSAPP COMMUNITY");
+  assert.equal(buttons[0].linkAction.url, "https://app.offpixel.co.uk/j/puzzle-circuit");
+});
+
+test("signup phase 2 copy is verbatim, one bold span, no manual STOP line", () => {
+  const payload = payloadFor("puzzle_southampton_17_10_26_signup_phase2");
+  const body = payload.platformContent[0].blocks.find(
+    (b): b is BirdTextBlock => b.type === "text" && b.role === "body",
+  );
+  assert.ok(body);
+  assert.equal(
+    body.text.text,
+    "Thank you for signing up for Puzzle at Circuit, Southampton on Saturday 17th October 2026.\n\n" +
+      "The presale for the next release of tickets begins *12pm Tuesday 25th August*.\n\n" +
+      "To receive your ticket link 30 minutes ahead of time, join the WhatsApp community below. Demand is expected to be high — secure your spot early when the time comes.",
+  );
+  // Exactly one bold span (2 asterisks) — deliberate, matching Brighton.
+  assert.equal((body.text.text.match(/\*/g) ?? []).length, 2);
+  // WhatsApp appends its own opt-out on marketing templates; a manual one dupes it.
+  assert.doesNotMatch(body.text.text, /reply stop/i);
+  // General sale follows on 26 Aug, so this is not the last release.
+  assert.match(body.text.text, /next release/);
+  assert.doesNotMatch(body.text.text, /final release/i);
+  // No footer block — the definition declares none.
+  assert.equal(
+    payload.platformContent[0].blocks.some((b) => b.type === "text" && b.role === "footer"),
+    false,
+  );
+});
+
 test("superseded announce templates stay out of the shipped set", () => {
   const names = puzzleCircuitTemplates.map((t) => t.name);
   for (const dead of [

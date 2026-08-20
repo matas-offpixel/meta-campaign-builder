@@ -66,6 +66,14 @@ const JOIN_BUTTON = {
  *
  * LIVE: approved by Meta, platformReference 1672439417158028. Test send to
  * +44 7780 672270 confirmed `delivered`.
+ *
+ * ⛔ SUPERSEDED 2026-08-20 by `signup_phase2` — DO NOT ATTACH OR RE-POINT TO.
+ * Its copy went factually wrong once the lineup landed: "Lineup drops soon"
+ * (it is public) and a "30-minute head start on tickets when the presale
+ * opens" (that presale has been and gone). Its Bird project is renamed
+ * "ZZ DO NOT USE - superseded - …" to keep it out of the picker; the approved
+ * template NAME is immutable (PATCH → 422) and Bird deletes are global, so
+ * renaming the project is the only lever.
  */
 const signup_confirmation: BrandTemplateDefinition = {
   name: "puzzle_circuit_oct17_signup_en",
@@ -240,9 +248,68 @@ const lineup_first_look: BrandTemplateDefinition = {
   variableExamples: {},
 };
 
+/**
+ * Signup autoresponder, PHASE 2 — replaces `signup_confirmation`, whose copy
+ * went factually wrong once the lineup landed: it says "Lineup drops soon"
+ * (it is public) and promises "a 30-minute head start on tickets when the
+ * presale opens" (that presale has been and gone).
+ *
+ * ⏳ EXPIRES 26 AUGUST 2026. The body names "*12pm Tuesday 25th August*" as
+ * the next presale; general sale opens 26 Aug, at which point that sentence is
+ * false and every new signup gets a dead date. A phase 3 template is required
+ * before then — this is a scheduled replacement, not an open-ended template.
+ *
+ * Header is the LINEUP artwork. It must NOT be the teaser: the teaser reads
+ * "LINEUP DROPPING SOON" across the middle, which would contradict a message
+ * sent after the lineup is public.
+ *
+ * Copy notes, so nobody "improves" it:
+ *   - ONE bold span only, modelled on Puzzle's Brighton autoresponder, which
+ *     reads clean. Do not add more.
+ *   - "next release", NOT "final release" — general sale follows on 26 Aug, so
+ *     the 25 Aug presale is not the last one.
+ *   - No "Reply STOP to unsubscribe." line: WhatsApp appends that itself on
+ *     marketing templates, so adding it duplicates it. (Note the older
+ *     `p26_brighton_auto` carries one — do not copy that.)
+ *   - The community's 11:30 access is implied by "30 minutes ahead of time"
+ *     rather than stated. Intentional.
+ *   - Button label is "JOIN WHATSAPP COMMUNITY", matching the Brighton
+ *     reference — NOT the bare "WHATSAPP COMMUNITY" of the earlier Puzzle
+ *     templates, hence its own button object rather than `JOIN_BUTTON`.
+ *
+ * FIRES: per-signup on Bird list add to `CQ-puzzle-circuit-oct-17`. The Bird
+ * Journey still triggers the phase-1 template; re-pointing it is Matas's
+ * MANUAL step in the Bird UI. Never automate it — journey write/publish
+ * endpoints are unverified and a previous session left a journey stuck
+ * mid-publish.
+ *
+ * `shortLinks: false` is required to activate at all — see
+ * `BrandTemplateDefinition.shortLinks`.
+ */
+const signup_phase2: BrandTemplateDefinition = {
+  name: "puzzle_southampton_17_10_26_signup_phase2",
+  projectName: "Puzzle-Southampton-17.10.26 signup phase 2",
+  category: "MARKETING",
+  shortLinks: false,
+  locales: ["en"],
+  headerImageUrl: LINEUP_ARTWORK_URL,
+  body: {
+    en:
+      "Thank you for signing up for Puzzle at Circuit, Southampton on Saturday 17th October 2026.\n\n" +
+      "The presale for the next release of tickets begins *12pm Tuesday 25th August*.\n\n" +
+      "To receive your ticket link 30 minutes ahead of time, join the WhatsApp community below. Demand is expected to be high — secure your spot early when the time comes.",
+  },
+  button: {
+    text: { en: "JOIN WHATSAPP COMMUNITY" },
+    url: COMMUNITY_URL,
+  },
+  variableExamples: {},
+};
+
 export const puzzleCircuitTemplates: BrandTemplateDefinition[] = [
   signup_confirmation,
   announce_v3,
   presale_live,
   lineup_first_look,
+  signup_phase2,
 ];
