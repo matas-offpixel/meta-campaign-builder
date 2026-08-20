@@ -9,6 +9,7 @@
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
 import { validOptimisationGoalForObjective } from "../../tiktok-wizard/campaign-setup.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
+import { tikTokCampaignNameCollisionMessage } from "./campaign-names.ts";
 import {
   SMART_PLUS_BLOCK_MESSAGE,
   TIKTOK_LAUNCHER_UNSUPPORTED_OBJECTIVES,
@@ -36,9 +37,24 @@ export interface TikTokLaunchPreflightResult {
 
 export function collectTikTokLaunchPreflight(
   draft: TikTokCampaignDraft,
+  options: { existingCampaignNames?: string[] } = {},
 ): TikTokLaunchPreflightResult {
   const issues: TikTokLaunchPreflightIssue[] = [];
   const warnings: TikTokLaunchPreflightIssue[] = [];
+  const campaignName = draft.campaignSetup.campaignName.trim();
+  const existingNames = options.existingCampaignNames ?? [];
+  if (
+    campaignName &&
+    existingNames.some((name) => name.trim() === campaignName)
+  ) {
+    issues.push(
+      issue(
+        "campaign-name-taken",
+        "campaign_name",
+        tikTokCampaignNameCollisionMessage(campaignName, existingNames),
+      ),
+    );
+  }
 
   if (!draft.eventId) {
     issues.push(
