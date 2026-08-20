@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 795
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/795
 - **Branch:** `cursor/tiktok-video-upload`
 
 ## Summary
