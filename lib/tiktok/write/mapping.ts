@@ -12,7 +12,11 @@
  */
 
 import type { BodyValue } from "../client.ts";
-import type { TikTokIdentityType } from "../identity.ts";
+import {
+  isTikTokIdentityType,
+  type TikTokIdentityType,
+  TIKTOK_IDENTITY_TYPES,
+} from "../identity.ts";
 import type {
   TikTokAdGroupDraft,
   TikTokBidStrategy,
@@ -308,13 +312,16 @@ export function formatTikTokScheduleTime(
 }
 
 export function mapTikTokIdentityType(
-  identityType: TikTokCampaignDraft["accountSetup"]["identityType"],
+  identityType: TikTokCampaignDraft["accountSetup"]["identityType"] | string | null,
 ): MappingResult<TikTokIdentityType> {
   if (!identityType) {
     return missing("identity_type", "Identity type is required");
   }
-  if (identityType === "MANUAL") return ok("CUSTOMIZED_USER");
-  return ok(identityType);
+  if (isTikTokIdentityType(identityType)) return ok(identityType);
+  return missing(
+    "identity_type",
+    `Identity type must be one of ${TIKTOK_IDENTITY_TYPES.join(", ")} — "${identityType}" is not a TikTok identity_type`,
+  );
 }
 
 export function mapTikTokPromotionType(

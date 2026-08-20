@@ -42,6 +42,35 @@ export function buildTikTokWizardValidationIssues(
     issues.push(error("advertiser", 0, "Connect a TikTok account first", "Connect a TikTok account first before configuring campaign details."));
   }
   if (
+    draft.accountSetup.identityType === "MANUAL" ||
+    (Boolean(draft.accountSetup.identityManualName) &&
+      (!draft.accountSetup.identityId ||
+        !isWizardTikTokIdentityType(draft.accountSetup.identityType)))
+  ) {
+    issues.push(
+      error(
+        "identity-manual",
+        0,
+        "Manual identity needs a TikTok ID and type",
+        "A manual identity requires a valid TikTok identity ID and type (AUTH_CODE, BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER).",
+      ),
+    );
+  }
+  if (
+    draft.accountSetup.identityId &&
+    !draft.accountSetup.identityManualName &&
+    !isWizardTikTokIdentityType(draft.accountSetup.identityType)
+  ) {
+    issues.push(
+      error(
+        "identity-type-unresolved",
+        0,
+        "Identity type required",
+        "TikTok did not report a type for this identity. Pick AUTH_CODE, BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER before continuing.",
+      ),
+    );
+  }
+  if (
     draft.accountSetup.pixelId &&
     !TIKTOK_PIXEL_ID_PATTERN.test(draft.accountSetup.pixelId)
   ) {
@@ -125,6 +154,17 @@ function scheduleEndAfterStart(draft: TikTokCampaignDraft): boolean {
   const { scheduleStartAt, scheduleEndAt } = draft.budgetSchedule;
   return Boolean(
     scheduleStartAt && scheduleEndAt && scheduleEndAt > scheduleStartAt,
+  );
+}
+
+function isWizardTikTokIdentityType(
+  value: TikTokCampaignDraft["accountSetup"]["identityType"],
+): boolean {
+  return (
+    value === "AUTH_CODE" ||
+    value === "BC_AUTH_TT" ||
+    value === "CUSTOMIZED_USER" ||
+    value === "TT_USER"
   );
 }
 
