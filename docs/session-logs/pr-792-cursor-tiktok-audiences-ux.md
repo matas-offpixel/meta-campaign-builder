@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 792
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/792
 - **Branch:** `cursor/tiktok-audiences-ux`
 
 ## Summary
