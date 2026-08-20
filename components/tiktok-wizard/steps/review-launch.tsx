@@ -13,6 +13,7 @@ import {
   suggestTikTokAdGroups,
 } from "@/lib/tiktok-wizard/review";
 import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
+import { filterClientResolvableTikTokPreflightIssues } from "@/lib/tiktok-wizard/migrate-draft";
 import { TIKTOK_WRITES_DISABLED_REASON } from "@/lib/tiktok/write/feature-flag";
 import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
 import type { TikTokLaunchEntity } from "@/lib/tiktok/write/types";
@@ -53,17 +54,23 @@ export function ReviewLaunchStep({
     (issue) => issue.severity === "error",
   );
   const launchPreflight = collectTikTokLaunchPreflight(draft);
+  const clientIssues = filterClientResolvableTikTokPreflightIssues(
+    launchPreflight.issues,
+    draft,
+    context?.identityBcIdResolution ?? "idle",
+  );
+  const clientPreflightOk = clientIssues.length === 0;
   const writesEnabled = context?.writesEnabled === true;
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
-    !launchPreflight.ok;
+    !clientPreflightOk;
   const launchTitle = !writesEnabled
     ? writesDisabledReason
-    : !launchPreflight.ok
-      ? launchPreflight.issues.map((issue) => issue.message).join(" · ")
+    : !clientPreflightOk
+      ? clientIssues.map((issue) => issue.message).join(" · ")
       : undefined;
 
   async function markReviewReady() {
@@ -210,11 +217,11 @@ export function ReviewLaunchStep({
         ))}
       </section>
 
-      {!launchPreflight.ok && (
+      {!clientPreflightOk && (
         <section className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
           <p className="text-sm font-medium">Launch blockers</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-            {launchPreflight.issues.map((issue) => (
+            {clientIssues.map((issue) => (
               <li key={issue.id}>{issue.message}</li>
             ))}
           </ul>

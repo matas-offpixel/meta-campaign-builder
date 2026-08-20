@@ -1,8 +1,14 @@
 import { redirect } from "next/navigation";
 
 import { TikTokWizardShell } from "@/components/tiktok-wizard/wizard-shell";
-import { getTikTokDraft } from "@/lib/db/tiktok-drafts";
+import { getTikTokDraft, upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { createClient } from "@/lib/supabase/server";
+import { readTikTokAccountCredentials } from "@/lib/tiktok/api-account";
+import { fetchTikTokIdentities } from "@/lib/tiktok/identity";
+import {
+  resolveTikTokDraftIdentityBcIdOnLoad,
+  tikTokIdentityBcIdIsServerResolvable,
+} from "@/lib/tiktok-wizard/migrate-draft";
 import {
   isTikTokWritesEnabled,
   TIKTOK_WRITES_DISABLED_REASON,
@@ -19,6 +25,38 @@ export default async function TikTokCampaignPage(props: {
 
   const loaded = await getTikTokDraft(supabase, id);
   const draft = loaded ?? createDefaultTikTokDraft(id);
+  if (
+    tikTokIdentityBcIdIsServerResolvable(draft) &&
+    draft.accountSetup.advertiserId
+  ) {
+    try {
+      const credentials = await readTikTokAccountCredentials(supabase, {
+        userId: data.user.id,
+        advertiserId: draft.accountSetup.advertiserId,
+      });
+      if (credentials?.accessToken) {
+        await resolveTikTokDraftIdentityBcIdOnLoad({
+          draft,
+          fetchIdentities: () =>
+            fetchTikTokIdentities({
+              advertiserId: draft.accountSetup.advertiserId!,
+              token: credentials.accessToken,
+            }),
+          persist: async (next) => {
+            await upsertTikTokDraft(supabase, next.id, {
+              ...next,
+              userId: data.user.id,
+            });
+          },
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[tiktok/draft] identityBcId heal draft=${draft.id} failed: ${message}`,
+      );
+    }
+  }
   if (draft.eventId && !draft.campaignSetup.eventCode) {
     const { data: event } = await supabase
       .from("events")
