@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import {
@@ -10,9 +10,15 @@ import {
 } from "@/lib/db/tiktok-templates";
 import { createClient } from "@/lib/supabase/client";
 import {
+  resolveTikTokDraftIdentityBcIdOnLoad,
+  tikTokIdentityBcIdIsServerResolvable,
+  type TikTokIdentityBcIdResolution,
+} from "@/lib/tiktok-wizard/migrate-draft";
+import {
   applyTikTokTemplate,
   type TikTokCampaignTemplate,
 } from "@/lib/tiktok-wizard/templates";
+import type { TikTokIdentity } from "@/lib/tiktok/identity";
 import {
   validateTikTokWizardStep,
   type TikTokWizardValidationIssue,
@@ -40,6 +46,7 @@ export interface TikTokWizardContext {
   eventEditPath?: string | null;
   writesEnabled?: boolean;
   writesDisabledReason?: string | null;
+  identityBcIdResolution?: TikTokIdentityBcIdResolution;
 }
 
 export function TikTokWizardShell({
@@ -64,6 +71,9 @@ export function TikTokWizardShell({
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
+  const [identityBcIdResolution, setIdentityBcIdResolution] =
+    useState<TikTokIdentityBcIdResolution>("idle");
+  const identityHealStarted = useRef(false);
   const CurrentStep = useMemo(
     () => STEP_COMPONENTS[step] ?? AccountSetupStep,
     [step],
@@ -75,6 +85,35 @@ export function TikTokWizardShell({
     validationContext,
   );
   const blocksNext = currentIssues.some((issue) => issue.blocksContinue);
+
+  useEffect(() => {
+    if (identityHealStarted.current) return;
+    const current = workingDraftRef.current;
+    if (!tikTokIdentityBcIdIsServerResolvable(current)) return;
+    const advertiserId = current.accountSetup.advertiserId;
+    if (!advertiserId) return;
+    identityHealStarted.current = true;
+    setIdentityBcIdResolution("pending");
+    void resolveTikTokDraftIdentityBcIdOnLoad({
+      draft: current,
+      fetchIdentities: async () => {
+        const res = await fetch(
+          `/api/tiktok/identities?advertiser_id=${encodeURIComponent(advertiserId)}`,
+        );
+        const json = (await res.json().catch(() => null)) as
+          | { ok?: boolean; identities?: TikTokIdentity[] }
+          | null;
+        return json?.identities ?? [];
+      },
+      persist: async (next) => {
+        await saveDraftNow({
+          accountSetup: next.accountSetup,
+        });
+      },
+    }).then((status) => {
+      setIdentityBcIdResolution(status === "resolved" ? "idle" : "unresolved");
+    });
+  }, []);
 
   async function saveDraftNow(patch: Partial<TikTokCampaignDraft>) {
     const current = workingDraftRef.current;
@@ -237,7 +276,10 @@ export function TikTokWizardShell({
           <CurrentStep
             draft={workingDraft}
             onSave={saveDraft}
-            context={context}
+            context={{
+              ...context,
+              identityBcIdResolution,
+            }}
           />
         </section>
 

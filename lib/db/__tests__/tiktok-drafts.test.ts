@@ -61,6 +61,36 @@ describe("tiktok-drafts db helpers", () => {
     assert.equal(draft?.id, "draft-1");
     assert.equal(draft?.clientId, "client-1");
     assert.equal(draft?.campaignSetup.campaignName, "[EVT] Name");
+    assert.equal("identityBcId" in (draft?.accountSetup ?? {}), true);
+    assert.equal(draft?.accountSetup.identityBcId, null);
+  });
+
+  it("migrates a pre-#802 accountSetup that omitted identityBcId", async () => {
+    const { client } = makeQueryClient({
+      data: {
+        id: "draft-old",
+        client_id: "client-1",
+        event_id: "event-1",
+        status: "draft",
+        state: {
+          accountSetup: {
+            advertiserId: "7639802149165301776",
+            identityId: "ironworks-id",
+            identityDisplayName: "Ironworks",
+            identityType: "BC_AUTH_TT",
+          },
+        },
+        created_at: "2026-04-29T00:00:00Z",
+        updated_at: "2026-04-29T01:00:00Z",
+      },
+      error: null,
+    });
+
+    const draft = await getTikTokDraft(client, "draft-old");
+    assert.equal(draft?.accountSetup.identityId, "ironworks-id");
+    assert.equal(draft?.accountSetup.identityType, "BC_AUTH_TT");
+    assert.equal("identityBcId" in (draft?.accountSetup ?? {}), true);
+    assert.equal(draft?.accountSetup.identityBcId, null);
   });
 
   it("upserts full state without requiring generated Supabase types", async () => {

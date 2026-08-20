@@ -1,9 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "./database.types.ts";
+import { migrateTikTokDraft } from "../tiktok-wizard/migrate-draft.ts";
 import {
   createDefaultTikTokDraft,
-  normalizeTikTokAudiences,
   type TikTokCampaignDraft,
   type TikTokDraftStatus,
 } from "../types/tiktok-draft.ts";
@@ -120,19 +120,14 @@ export async function deleteTikTokDraft(
 }
 
 function rowToDraft(row: TikTokDraftRow): TikTokCampaignDraft {
-  const base = createDefaultTikTokDraft(row.id);
-  const state =
-    row.state && typeof row.state === "object"
-      ? (row.state as Partial<TikTokCampaignDraft>)
-      : {};
+  const migrated = migrateTikTokDraft({
+    ...(row.state && typeof row.state === "object"
+      ? (row.state as Record<string, unknown>)
+      : {}),
+    id: row.id,
+  });
   return {
-    ...base,
-    ...state,
-    accountSetup: {
-      ...base.accountSetup,
-      ...(state.accountSetup ?? {}),
-    },
-    audiences: normalizeTikTokAudiences(state.audiences),
+    ...migrated,
     id: row.id,
     clientId: row.client_id,
     eventId: row.event_id,
