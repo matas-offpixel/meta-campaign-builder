@@ -4,6 +4,16 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
+  assignTikTokCreativeToAllAdGroups,
+  assignTikTokCreativesToAdGroup,
+  assignTikTokEverything,
+  clearTikTokAdGroupAssignments,
+  clearTikTokCreativeFromAllAdGroups,
+  clearTikTokEverything,
+  toggleTikTokAssignment,
+  type TikTokAssignmentMap,
+} from "@/lib/tiktok-wizard/assign-creatives";
+import {
   everyAdGroupHasCreative,
   everyCreativeAssigned,
   suggestTikTokAdGroups,
@@ -19,6 +29,8 @@ export function AssignCreativesStep({
 }) {
   const [saving, setSaving] = useState(false);
   const adGroups = suggestTikTokAdGroups(draft);
+  const creativeIds = draft.creatives.items.map((creative) => creative.id);
+  const adGroupIds = adGroups.map((adGroup) => adGroup.id);
 
   useEffect(() => {
     if (draft.budgetSchedule.adGroups.length > 0) return;
@@ -31,34 +43,57 @@ export function AssignCreativesStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function toggle(adGroupId: string, creativeId: string) {
+  async function persistAssignments(byAdGroupId: TikTokAssignmentMap) {
     setSaving(true);
-    const current = draft.creativeAssignments.byAdGroupId[adGroupId] ?? [];
-    const next = current.includes(creativeId)
-      ? current.filter((id) => id !== creativeId)
-      : [...current, creativeId];
     try {
       await onSave({
-        creativeAssignments: {
-          byAdGroupId: {
-            ...draft.creativeAssignments.byAdGroupId,
-            [adGroupId]: next,
-          },
-        },
+        creativeAssignments: { byAdGroupId },
       });
     } finally {
       setSaving(false);
     }
   }
 
+  const current = draft.creativeAssignments.byAdGroupId;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-heading text-xl">Assign creatives</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Assign each creative to at least one suggested ad group. Every ad
-          group must also have at least one creative before review.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-xl">Assign creatives</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Assign each creative to at least one suggested ad group. Every ad
+            group must also have at least one creative before review.
+          </p>
+        </div>
+        {draft.creatives.items.length > 0 && adGroups.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={saving}
+              onClick={() =>
+                void persistAssignments(
+                  assignTikTokEverything(current, adGroupIds, creativeIds),
+                )
+              }
+            >
+              Assign everything
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={saving}
+              onClick={() =>
+                void persistAssignments(clearTikTokEverything(current, adGroupIds))
+              }
+            >
+              Clear everything
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -101,9 +136,9 @@ export function AssignCreativesStep({
                           : ""
                       }`}
                     >
-                      {adGroup.name}
+                      <div>{adGroup.name}</div>
                       <span
-                        className={`ml-2 rounded-full px-2 py-0.5 text-[10px] ${
+                        className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] normal-case tracking-normal ${
                           assignedCount === 0
                             ? "bg-red-500/20 text-red-700"
                             : "bg-background"
@@ -111,6 +146,37 @@ export function AssignCreativesStep({
                       >
                         {assignedCount}
                       </span>
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] font-normal normal-case tracking-normal">
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() =>
+                            void persistAssignments(
+                              assignTikTokCreativesToAdGroup(
+                                current,
+                                adGroup.id,
+                                creativeIds,
+                              ),
+                            )
+                          }
+                          className="text-primary hover:underline disabled:opacity-50"
+                        >
+                          Assign all
+                        </button>
+                        <span>·</span>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() =>
+                            void persistAssignments(
+                              clearTikTokAdGroupAssignments(current, adGroup.id),
+                            )
+                          }
+                          className="text-destructive hover:underline disabled:opacity-50"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     </th>
                   );
                 })}
@@ -122,6 +188,41 @@ export function AssignCreativesStep({
                   <td className="p-3">
                     <div className="font-medium">{creative.name}</div>
                     <div className="text-xs text-muted-foreground">{creative.videoId}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px]">
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() =>
+                          void persistAssignments(
+                            assignTikTokCreativeToAllAdGroups(
+                              current,
+                              adGroupIds,
+                              creative.id,
+                            ),
+                          )
+                        }
+                        className="text-primary hover:underline disabled:opacity-50"
+                      >
+                        Assign to all ad groups
+                      </button>
+                      <span className="text-muted-foreground">·</span>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() =>
+                          void persistAssignments(
+                            clearTikTokCreativeFromAllAdGroups(
+                              current,
+                              adGroupIds,
+                              creative.id,
+                            ),
+                          )
+                        }
+                        className="text-destructive hover:underline disabled:opacity-50"
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </td>
                   {adGroups.map((adGroup) => {
                     const checked = (
@@ -133,7 +234,15 @@ export function AssignCreativesStep({
                           type="checkbox"
                           checked={checked}
                           disabled={saving}
-                          onChange={() => void toggle(adGroup.id, creative.id)}
+                          onChange={() =>
+                            void persistAssignments(
+                              toggleTikTokAssignment(
+                                current,
+                                adGroup.id,
+                                creative.id,
+                              ),
+                            )
+                          }
                         />
                       </td>
                     );
