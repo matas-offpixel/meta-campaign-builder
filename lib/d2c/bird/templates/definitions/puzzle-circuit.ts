@@ -77,7 +77,10 @@ const JOIN_BUTTON = {
  */
 const signup_confirmation: BrandTemplateDefinition = {
   name: "puzzle_circuit_oct17_signup_en",
-  projectName: "Puzzle-Southampton-17.10.26 signup",
+  // Renamed in Bird 2026-08-20 when phase 2 was approved. Tracked verbatim so
+  // findProjectByName still resolves the real project instead of creating a
+  // fresh one under the old name.
+  projectName: "ZZ DO NOT USE - superseded - Puzzle-Southampton-17.10.26 signup",
   category: "MARKETING",
   projectId: "bf830807-6bb0-43d9-8d68-2f905903ba01",
   projectVersionId: "0087be29-eed4-4a75-99bb-5de1ae5ebf11",
@@ -285,11 +288,24 @@ const lineup_first_look: BrandTemplateDefinition = {
  *
  * `shortLinks: false` is required to activate at all — see
  * `BrandTemplateDefinition.shortLinks`.
+ *
+ * LIVE: submitted 2026-08-20 and APPROVED by Meta, platformReference
+ * 2026591054648578.
+ *
+ * ⚠️ NOT YET WIRED UP. Journey `94f0325c-e548-4216-8a77-5874f0cb8e42`
+ * ("P26-Circuit - Auto", active, triggering on list `9e069eca-…`) still sends
+ * the phase-1 template — both its published version `00e8600c-…` AND its
+ * unpublished draft `353b7e4b-…` reference projectId
+ * `bf830807-6bb0-43d9-8d68-2f905903ba01` / version
+ * `0087be29-eed4-4a75-99bb-5de1ae5ebf11`. Until Matas re-points and PUBLISHES
+ * it by hand in the Bird UI, every new signup still gets the stale teaser copy.
  */
 const signup_phase2: BrandTemplateDefinition = {
   name: "puzzle_southampton_17_10_26_signup_phase2",
   projectName: "Puzzle-Southampton-17.10.26 signup phase 2",
   category: "MARKETING",
+  projectId: "83f5ce89-d194-404a-941b-a14b68727a7f",
+  projectVersionId: "3a76d2a5-8cbc-439b-a12d-2ca8a114900a",
   shortLinks: false,
   locales: ["en"],
   headerImageUrl: LINEUP_ARTWORK_URL,
