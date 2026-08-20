@@ -57,6 +57,20 @@ export function buildTikTokWizardValidationIssues(
     );
   }
   if (
+    draft.accountSetup.identityId &&
+    !draft.accountSetup.identityManualName &&
+    !isWizardTikTokIdentityType(draft.accountSetup.identityType)
+  ) {
+    issues.push(
+      error(
+        "identity-type-unresolved",
+        0,
+        "Identity type required",
+        "TikTok did not report a type for this identity. Pick AUTH_CODE, BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER before continuing.",
+      ),
+    );
+  }
+  if (
     draft.accountSetup.pixelId &&
     !TIKTOK_PIXEL_ID_PATTERN.test(draft.accountSetup.pixelId)
   ) {

@@ -14,7 +14,7 @@ import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 interface TikTokIdentityOption {
   identity_id: string;
   display_name: string;
-  identity_type: "AUTH_CODE" | "BC_AUTH_TT" | "CUSTOMIZED_USER" | "TT_USER";
+  identity_type: TikTokIdentityType | null;
 }
 
 interface TikTokPixelOption {
@@ -213,6 +213,10 @@ export function AccountSetupStep({
     () => accounts.find((account) => account.id === draft.accountSetup.tiktokAccountId),
     [accounts, draft.accountSetup.tiktokAccountId],
   );
+  const selectedIdentityNeedsType = Boolean(
+    draft.accountSetup.identityId &&
+      !isListedIdentityType(draft.accountSetup.identityType),
+  );
 
   async function saveAccount(accountId: string) {
     const account = accounts.find((candidate) => candidate.id === accountId);
@@ -235,15 +239,32 @@ export function AccountSetupStep({
 
   async function saveIdentity(identityId: string) {
     const identity = identities.find((candidate) => candidate.identity_id === identityId);
+    const resolvedType =
+      identity && isListedIdentityType(identity.identity_type)
+        ? identity.identity_type
+        : null;
     await persist({
       identityId: identity?.identity_id ?? null,
       identityDisplayName: identity?.display_name ?? null,
       identityManualName: null,
-      identityType: identity?.identity_type ?? null,
+      identityType: resolvedType,
     });
-    setManualIdentityId("");
+    if (resolvedType) {
+      setManualIdentityId("");
+      setManualIdentityType("");
+      setManualIdentityName("");
+      return;
+    }
+    setManualIdentityId(identity?.identity_id ?? "");
     setManualIdentityType("");
     setManualIdentityName("");
+  }
+
+  async function saveIdentityType(nextType: TikTokIdentityType | "") {
+    setManualIdentityType(nextType);
+    if (!nextType || !draft.accountSetup.identityId) return;
+    if (isListedIdentityType(draft.accountSetup.identityType)) return;
+    await persist({ identityType: nextType });
   }
 
   async function savePixel(pixelId: string) {
@@ -361,18 +382,27 @@ export function AccountSetupStep({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Select
-          id="tiktok-identity"
-          label="TikTok identity"
-          value={draft.accountSetup.identityId ?? ""}
-          onChange={(event) => void saveIdentity(event.target.value)}
-          disabled={!draft.accountSetup.advertiserId || loadingDetails || saving || identities.length === 0}
-          placeholder={loadingDetails ? "Loading identities..." : "Select identity"}
-          options={identities.map((identity) => ({
-            value: identity.identity_id,
-            label: `${identity.display_name} · ${identity.identity_type}`,
-          }))}
-        />
+        <div className="space-y-2">
+          <Select
+            id="tiktok-identity"
+            label="TikTok identity"
+            value={draft.accountSetup.identityId ?? ""}
+            onChange={(event) => void saveIdentity(event.target.value)}
+            disabled={!draft.accountSetup.advertiserId || loadingDetails || saving || identities.length === 0}
+            placeholder={loadingDetails ? "Loading identities..." : "Select identity"}
+            options={identities.map((identity) => ({
+              value: identity.identity_id,
+              label: `${identity.display_name} · ${identity.identity_type ?? "type unknown"}`,
+            }))}
+          />
+          {selectedIdentityNeedsType && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              TikTok did not report a type for this identity. Pick AUTH_CODE,
+              BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER from the type select
+              before continuing.
+            </p>
+          )}
+        </div>
         <div className="space-y-2">
           <Input
             id="tiktok-manual-identity-id"
@@ -387,7 +417,7 @@ export function AccountSetupStep({
             label="Manual identity type"
             value={manualIdentityType}
             onChange={(event) =>
-              setManualIdentityType(event.target.value as TikTokIdentityType | "")
+              void saveIdentityType(event.target.value as TikTokIdentityType | "")
             }
             disabled={!draft.accountSetup.advertiserId || saving}
             placeholder="Select identity type"
@@ -516,6 +546,12 @@ export function AccountSetupStep({
       )}
     </div>
   );
+}
+
+function isListedIdentityType(
+  value: TikTokIdentityType | "MANUAL" | null | undefined,
+): value is TikTokIdentityType {
+  return MANUAL_IDENTITY_TYPES.includes(value as TikTokIdentityType);
 }
 
 function ReadOnlySummary({

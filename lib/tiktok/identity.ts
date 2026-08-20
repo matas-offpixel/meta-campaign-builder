@@ -16,7 +16,7 @@ export const TIKTOK_IDENTITY_TYPES: TikTokIdentityType[] = [
 export interface TikTokIdentity {
   identity_id: string;
   display_name: string;
-  identity_type: TikTokIdentityType;
+  identity_type: TikTokIdentityType | null;
   avatar_url: string | null;
 }
 
@@ -58,16 +58,30 @@ export async function fetchTikTokIdentities(input: {
 }): Promise<TikTokIdentity[]> {
   const request = input.request ?? tiktokGet;
   const byId = new Map<string, TikTokIdentity>();
+  let unfilteredFailed = false;
 
-  const unfiltered = await request<Record<string, unknown>>(
-    "/identity/get/",
-    { advertiser_id: input.advertiserId },
-    input.token,
-  );
-  logIdentityEnvelope(input.advertiserId, unfiltered);
-  ingestIdentityRows(byId, extractIdentityRows(unfiltered), "TT_USER");
+  try {
+    const unfiltered = await request<Record<string, unknown>>(
+      "/identity/get/",
+      { advertiser_id: input.advertiserId },
+      input.token,
+    );
+    logIdentityEnvelope(input.advertiserId, unfiltered);
+    ingestIdentityRows(byId, extractIdentityRows(unfiltered), null);
+  } catch (err) {
+    unfilteredFailed = true;
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[tiktok/identity] /identity/get/ unfiltered advertiser=${input.advertiserId} failed: ${message}`,
+    );
+  }
 
-  if (byId.size === 0) {
+  const needsLadder =
+    unfilteredFailed ||
+    byId.size === 0 ||
+    [...byId.values()].some((identity) => identity.identity_type == null);
+
+  if (needsLadder) {
     for (const identityType of IDENTITY_TYPES) {
       try {
         const res = await request<Record<string, unknown>>(
@@ -106,10 +120,20 @@ export function extractIdentityRows(res: unknown): TikTokIdentityGetRow[] {
 function ingestIdentityRows(
   byId: Map<string, TikTokIdentity>,
   rows: TikTokIdentityGetRow[],
-  fallbackType: TikTokIdentityType,
+  fallbackType: TikTokIdentityType | null,
 ): void {
   for (const row of rows) {
     if (!row.identity_id) continue;
+    const rowType = isTikTokIdentityType(row.identity_type)
+      ? row.identity_type
+      : fallbackType;
+    const existing = byId.get(row.identity_id);
+    if (existing) {
+      if (existing.identity_type == null && rowType != null) {
+        existing.identity_type = rowType;
+      }
+      continue;
+    }
     byId.set(row.identity_id, {
       identity_id: row.identity_id,
       display_name:
@@ -117,9 +141,7 @@ function ingestIdentityRows(
         row.identity_name ??
         row.nickname ??
         row.identity_id,
-      identity_type: isTikTokIdentityType(row.identity_type)
-        ? row.identity_type
-        : fallbackType,
+      identity_type: rowType,
       avatar_url: row.avatar_url ?? null,
     });
   }

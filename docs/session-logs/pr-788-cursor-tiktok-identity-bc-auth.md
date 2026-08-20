@@ -35,3 +35,7 @@ as an identity_type.
 - Do not enumerate Business Centers or send `identity_authorized_bc_id`
   in this PR. Grep Vercel for the unfiltered envelope log first.
 - `OFFPIXEL_TIKTOK_WRITES_ENABLED` stays unset.
+- Review follow-up: wrap the unfiltered `/identity/get/` call so a throw
+  still runs the per-type ladder; never guess `TT_USER` for a missing
+  `identity_type` (return `null` and let the operator pick).
+  `mapTikTokIdentityType` already rejects null via `if (!identityType)`.

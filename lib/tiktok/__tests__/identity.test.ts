@@ -150,4 +150,140 @@ describe("fetchTikTokIdentities", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0].identity_type, "BC_AUTH_TT");
   });
+
+  it("falls back to per-type calls when the unfiltered call throws", async () => {
+    const identityTypes: Array<string | undefined> = [];
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      request: async <T,>(_path: string, params: Record<string, unknown>) => {
+        identityTypes.push(
+          typeof params.identity_type === "string"
+            ? params.identity_type
+            : undefined,
+        );
+        if (!params.identity_type) {
+          throw new Error("code 50001 rate limit");
+        }
+        return {
+          list: [
+            {
+              identity_id: `identity-${params.identity_type}`,
+              display_name: `Identity ${params.identity_type}`,
+            },
+          ],
+        } as T;
+      },
+    });
+
+    assert.deepEqual(identityTypes, [
+      undefined,
+      "BC_AUTH_TT",
+      "AUTH_CODE",
+      "CUSTOMIZED_USER",
+      "TT_USER",
+    ]);
+    assert.equal(rows.length, 4);
+    assert.deepEqual(
+      rows.map((row) => row.identity_type).sort(),
+      ["AUTH_CODE", "BC_AUTH_TT", "CUSTOMIZED_USER", "TT_USER"],
+    );
+  });
+
+  it("fills a missing identity_type from the per-type filter, not TT_USER", async () => {
+    const identityTypes: Array<string | undefined> = [];
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      request: async <T,>(_path: string, params: Record<string, unknown>) => {
+        identityTypes.push(
+          typeof params.identity_type === "string"
+            ? params.identity_type
+            : undefined,
+        );
+        if (!params.identity_type) {
+          return {
+            list: [
+              {
+                identity_id: "shared-bc",
+                display_name: "Ironworks",
+              },
+            ],
+          } as T;
+        }
+        if (params.identity_type === "BC_AUTH_TT") {
+          return {
+            list: [
+              {
+                identity_id: "shared-bc",
+                display_name: "Ironworks",
+              },
+            ],
+          } as T;
+        }
+        return { list: [] } as T;
+      },
+    });
+
+    assert.ok(identityTypes.length > 1);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].identity_id, "shared-bc");
+    assert.equal(rows[0].identity_type, "BC_AUTH_TT");
+    assert.notEqual(rows[0].identity_type, "TT_USER");
+  });
+
+  it("returns identity_type null when neither pass observes a type", async () => {
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      request: async <T,>(_path: string, params: Record<string, unknown>) => {
+        if (!params.identity_type) {
+          return {
+            list: [
+              {
+                identity_id: "untyped-id",
+                display_name: "Untyped identity",
+              },
+            ],
+          } as T;
+        }
+        return { list: [] } as T;
+      },
+    });
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].identity_id, "untyped-id");
+    assert.equal(rows[0].identity_type, null);
+  });
+
+  it("does not run the per-type ladder when unfiltered rows already carry identity_type", async () => {
+    const identityTypes: Array<string | undefined> = [];
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      request: async <T,>(_path: string, params: Record<string, unknown>) => {
+        identityTypes.push(
+          typeof params.identity_type === "string"
+            ? params.identity_type
+            : undefined,
+        );
+        if (params.identity_type) {
+          throw new Error("per-type ladder should not run");
+        }
+        return {
+          list: [
+            {
+              identity_id: "typed-id",
+              display_name: "Typed identity",
+              identity_type: "BC_AUTH_TT",
+            },
+          ],
+        } as T;
+      },
+    });
+
+    assert.deepEqual(identityTypes, [undefined]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].identity_type, "BC_AUTH_TT");
+  });
 });
