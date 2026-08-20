@@ -3,6 +3,7 @@ import type {
   TikTokCampaignDraft,
 } from "../types/tiktok-draft.ts";
 import { validOptimisationGoalForObjective } from "./campaign-setup.ts";
+import { isTikTokInterestGroupNonEmpty } from "./interest-groups.ts";
 
 export type PreflightSeverity = "red" | "amber" | "green";
 
@@ -15,6 +16,25 @@ export interface TikTokPreflightCheck {
 
 export function suggestTikTokAdGroups(draft: TikTokCampaignDraft): TikTokAdGroupDraft[] {
   if (draft.budgetSchedule.adGroups.length > 0) return draft.budgetSchedule.adGroups;
+  const interestGroups = (draft.audiences.interestGroups ?? []).filter(
+    isTikTokInterestGroupNonEmpty,
+  );
+  if (interestGroups.length > 0) {
+    const perGroupBudget =
+      draft.budgetSchedule.budgetAmount == null
+        ? null
+        : Math.round(
+            (draft.budgetSchedule.budgetAmount / interestGroups.length) * 100,
+          ) / 100;
+    return interestGroups.map((group, index) => ({
+      id: `ig_${group.id}`,
+      name: group.name.trim() || `Interest group ${index + 1}`,
+      budget: perGroupBudget,
+      startAt: draft.budgetSchedule.scheduleStartAt,
+      endAt: draft.budgetSchedule.scheduleEndAt,
+      interestGroupId: group.id,
+    }));
+  }
   const count = draft.optimisation.smartPlusEnabled ? 2 : 3;
   const perGroupBudget =
     draft.budgetSchedule.budgetAmount == null
@@ -53,6 +73,7 @@ export function hasAnyTargeting(draft: TikTokCampaignDraft): boolean {
     draft.audiences.locationCodes.length > 0 ||
     draft.audiences.genders.length > 0 ||
     draft.audiences.interestCategoryIds.length > 0 ||
+    (draft.audiences.interestGroups ?? []).some(isTikTokInterestGroupNonEmpty) ||
     draft.audiences.behaviourCategoryIds.length > 0 ||
     draft.audiences.customAudienceIds.length > 0 ||
     draft.audiences.lookalikeAudienceIds.length > 0

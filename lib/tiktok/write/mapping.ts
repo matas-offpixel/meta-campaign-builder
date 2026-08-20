@@ -204,14 +204,20 @@ export function mapTikTokLocationIds(
   }
   const ids: string[] = [];
   for (const code of locationCodes) {
-    const id = TIKTOK_LOCATION_IDS_BY_CODE[code];
-    if (!id) {
-      return missing(
-        "location_ids",
-        `No TikTok location_id mapping for location code ${code}`,
-      );
+    const mapped = TIKTOK_LOCATION_IDS_BY_CODE[code];
+    if (mapped) {
+      ids.push(mapped);
+      continue;
     }
-    ids.push(id);
+    // /search/region/ returns TikTok location_ids (numeric GeoNames IDs).
+    if (/^\d+$/.test(code)) {
+      ids.push(code);
+      continue;
+    }
+    return missing(
+      "location_ids",
+      `No TikTok location_id mapping for location code ${code}`,
+    );
   }
   return ok(ids);
 }
@@ -479,15 +485,20 @@ export function buildTikTokAdGroupPayload(input: {
   if (draft.audiences.languages.length > 0) {
     payload.languages = draft.audiences.languages;
   }
-  if (draft.audiences.interestCategoryIds.length > 0) {
-    payload.interest_category_ids = draft.audiences.interestCategoryIds;
+  const targeting = targetingIdsForAdGroup(draft, adGroup);
+  if (targeting.interestCategoryIds.length > 0) {
+    payload.interest_category_ids = targeting.interestCategoryIds;
   }
-  if (draft.audiences.interestKeywordIds.length > 0) {
-    payload.interest_keyword_ids = draft.audiences.interestKeywordIds;
+  if (targeting.interestKeywordIds.length > 0) {
+    payload.interest_keyword_ids = targeting.interestKeywordIds;
   }
-  if (draft.audiences.behaviourCategoryIds.length > 0) {
+  if (targeting.purchaseIntentionKeywordIds.length > 0) {
+    payload.purchase_intention_keyword_ids =
+      targeting.purchaseIntentionKeywordIds;
+  }
+  if (targeting.behaviourCategoryIds.length > 0) {
     payload.actions = [
-      { action_category_ids: draft.audiences.behaviourCategoryIds },
+      { action_category_ids: targeting.behaviourCategoryIds },
     ];
   }
   const audienceIds = [
@@ -648,6 +659,64 @@ function applyTikTokConversionFields(
     fields.optimization_event = draft.accountSetup.optimisationEvent;
   }
   return ok(fields);
+}
+
+function targetingIdsForAdGroup(
+  draft: TikTokCampaignDraft,
+  adGroup: TikTokAdGroupDraft,
+): {
+  interestCategoryIds: string[];
+  interestKeywordIds: string[];
+  purchaseIntentionKeywordIds: string[];
+  behaviourCategoryIds: string[];
+} {
+  const group = adGroup.interestGroupId
+    ? (draft.audiences.interestGroups ?? []).find(
+        (candidate) => candidate.id === adGroup.interestGroupId,
+      )
+    : null;
+  if (group) {
+    const categoryIds = uniqueIds(
+      group.interestIds
+        .filter((item) => item.kind !== "keyword")
+        .map((item) => item.id),
+    );
+    const purchaseIntentionKeywordIds = uniqueIds(
+      group.interestIds
+        .filter((item) => item.audienceType === "PURCHASE_INTENTION")
+        .map((item) => item.id),
+    );
+    // Hashtag tool IDs are `keyword_ids` in ToolApi.md (`toolHashtagGet`).
+    // AdgroupCreateBody has no hashtag_* field, so those IDs ride on
+    // `interest_keyword_ids` — the only documented create field that takes
+    // keyword IDs.
+    const interestKeywordIds = uniqueIds([
+      ...group.interestIds
+        .filter(
+          (item) =>
+            item.kind === "keyword" &&
+            item.audienceType !== "PURCHASE_INTENTION",
+        )
+        .map((item) => item.id),
+      ...group.hashtagIds.map((item) => item.id),
+    ]);
+    return {
+      interestCategoryIds: categoryIds,
+      interestKeywordIds,
+      purchaseIntentionKeywordIds,
+      behaviourCategoryIds: uniqueIds(group.behaviourIds.map((item) => item.id)),
+    };
+  }
+  return {
+    interestCategoryIds: uniqueIds(draft.audiences.interestCategoryIds),
+    interestKeywordIds: uniqueIds(draft.audiences.interestKeywordIds),
+    purchaseIntentionKeywordIds: [],
+    behaviourCategoryIds: uniqueIds(draft.audiences.behaviourCategoryIds),
+  };
+}
+
+function uniqueIds(ids: string[]): string[] {
+  return [...new Set(ids.filter(Boolean))];
 }
 
 function resolveBidPrice(draft: TikTokCampaignDraft): number | null {

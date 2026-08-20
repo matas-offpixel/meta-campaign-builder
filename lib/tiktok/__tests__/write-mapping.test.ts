@@ -81,6 +81,11 @@ describe("mapTikTokLocationIds", () => {
       assert.match(result.error.message, /ZZ/);
     }
   });
+
+  it("passes numeric /search/region/ location_ids through", () => {
+    const result = mapTikTokLocationIds(["2635167"]);
+    assert.deepEqual(result.ok && result.value, ["2635167"]);
+  });
 });
 
 describe("optimisation and bid mappings", () => {
@@ -248,6 +253,55 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(result.value.is_aco, false);
     const creatives = result.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].creative_authorized, false);
+  });
+});
+
+describe("ad group targeting from interest groups", () => {
+  it("maps per-group category, keyword, hashtag, and behaviour ids", () => {
+    const draft = payloadDraft();
+    draft.audiences.interestGroups = [
+      {
+        id: "g-house",
+        name: "House",
+        interestIds: [
+          { id: "cat-1", name: "Dance", kind: "category" },
+          {
+            id: "kw-1",
+            name: "house music",
+            kind: "keyword",
+            audienceType: "GENERAL_INTEREST",
+          },
+          {
+            id: "kw-buy",
+            name: "tickets",
+            kind: "keyword",
+            audienceType: "PURCHASE_INTENTION",
+          },
+        ],
+        hashtagIds: [{ id: "hash-1", name: "housemusic", kind: "keyword" }],
+        behaviourIds: [{ id: "beh-1", name: "Creators", kind: "category" }],
+      },
+    ];
+    const result = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: {
+        id: "ig_g-house",
+        name: "House",
+        budget: 50,
+        startAt: null,
+        endAt: null,
+        interestGroupId: "g-house",
+      },
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.value.interest_category_ids, ["cat-1"]);
+    assert.deepEqual(result.value.interest_keyword_ids, ["kw-1", "hash-1"]);
+    assert.deepEqual(result.value.purchase_intention_keyword_ids, ["kw-buy"]);
+    assert.deepEqual(result.value.actions, [{ action_category_ids: ["beh-1"] }]);
+    assert.equal("hashtag_ids" in result.value, false);
   });
 });
 

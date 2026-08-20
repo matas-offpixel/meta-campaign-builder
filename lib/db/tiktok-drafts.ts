@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./database.types.ts";
 import {
   createDefaultTikTokDraft,
+  normalizeTikTokAudiences,
   type TikTokCampaignDraft,
   type TikTokDraftStatus,
 } from "../types/tiktok-draft.ts";
@@ -131,6 +132,7 @@ function rowToDraft(row: TikTokDraftRow): TikTokCampaignDraft {
       ...base.accountSetup,
       ...(state.accountSetup ?? {}),
     },
+    audiences: normalizeTikTokAudiences(state.audiences),
     id: row.id,
     clientId: row.client_id,
     eventId: row.event_id,

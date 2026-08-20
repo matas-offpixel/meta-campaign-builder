@@ -144,6 +144,12 @@ function hasAnyTargeting(draft: TikTokCampaignDraft): boolean {
     draft.audiences.genders.length > 0 ||
     draft.audiences.languages.length > 0 ||
     draft.audiences.interestCategoryIds.length > 0 ||
+    (draft.audiences.interestGroups ?? []).some(
+      (group) =>
+        group.interestIds.length > 0 ||
+        group.hashtagIds.length > 0 ||
+        group.behaviourIds.length > 0,
+    ) ||
     draft.audiences.behaviourCategoryIds.length > 0 ||
     draft.audiences.customAudienceIds.length > 0 ||
     draft.audiences.lookalikeAudienceIds.length > 0

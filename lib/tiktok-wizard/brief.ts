@@ -39,6 +39,17 @@ export function buildTikTokBriefMarkdown(
     "## Audiences",
     `- Locations: ${list(draft.audiences.locationCodes)}`,
     `- Demographics: ages ${draft.audiences.ageMin}-${draft.audiences.ageMax}, gender ${list(draft.audiences.genders)}, languages ${list(draft.audiences.languages)}`,
+    `- Interest groups: ${list(
+      draft.audiences.interestGroups
+        .filter(
+          (group) =>
+            group.interestIds.length +
+              group.hashtagIds.length +
+              group.behaviourIds.length >
+            0,
+        )
+        .map((group) => group.name || "Untitled group"),
+    )}`,
     `- Interest categories: ${recordValues(draft.audiences.interestCategoryLabels)}`,
     `- Behaviours: ${recordValues(draft.audiences.behaviourCategoryLabels)}`,
     `- Custom audiences: ${recordValues(draft.audiences.customAudienceLabels)}`,
