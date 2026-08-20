@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import { TikTokApiError } from "../client.ts";
 import { createMockTikTokClient } from "../__mocks__/client.ts";
-import { createTikTokAd } from "../write/ad.ts";
+import { createTikTokAd, tikTokAdCreateIdentityLog } from "../write/ad.ts";
 import { createTikTokAdGroup } from "../write/adgroup.ts";
 import { createTikTokCampaign } from "../write/campaign.ts";
 import { hashTikTokWritePayload } from "../write/idempotency.ts";
@@ -271,6 +271,49 @@ describe("ad group and ad writes", () => {
     assert.equal(mock.calls[0].body.operation_status, "DISABLE");
     assert.equal(mock.calls[1].body.operation_status, "DISABLE");
   });
+
+  it("logs outgoing /ad/create/ identity fields immediately before the write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.accountSetup.identityType = "BC_AUTH_TT";
+    draft.accountSetup.identityDisplayName = "Ironworks";
+    draft.accountSetup.identityBcId = "7629750024332378128";
+
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    };
+    try {
+      await createTikTokAd({
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+        adGroupId: "adgroup_1",
+        draft,
+        creative: draft.creatives.items[0],
+      });
+    } finally {
+      console.error = original;
+    }
+
+    const line = errors.find((entry) =>
+      entry.includes("[tiktok/ad-create] outgoing identity fields"),
+    );
+    assert.ok(line, "expected identity payload log");
+    const logged = tikTokAdCreateIdentityLog(mock.calls[0].body);
+    assert.equal(logged.creatives[0].identity_type, "BC_AUTH_TT");
+    assert.equal(
+      logged.creatives[0].identity_authorized_bc_id,
+      "7629750024332378128",
+    );
+    assert.equal(logged.creatives[0].identity_bc_id, null);
+    assert.match(line, /identity_authorized_bc_id/);
+    assert.match(line, /7629750024332378128/);
+    assert.match(line, /"identity_type":"BC_AUTH_TT"/);
+  });
 });
 
 describe("launchTikTokDraftState", () => {
@@ -343,7 +386,8 @@ describe("launchTikTokDraftState", () => {
     assert.ok(ad);
     const creatives = ad.body.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].identity_type, "BC_AUTH_TT");
-    assert.equal(creatives[0].identity_bc_id, "7078123456789012345");
+    assert.equal(creatives[0].identity_authorized_bc_id, "7078123456789012345");
+    assert.equal(creatives[0].identity_bc_id, undefined);
   });
 
   it("blocks a GBP daily budget below 50 before any TikTok write and allows 50", async () => {

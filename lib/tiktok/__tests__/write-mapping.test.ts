@@ -241,9 +241,10 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(creatives[0].identity_id, "identity_1");
     assert.equal(creatives[0].identity_type, "TT_USER");
     assert.equal(creatives[0].identity_bc_id, undefined);
+    assert.equal(creatives[0].identity_authorized_bc_id, undefined);
   });
 
-  it("sends identity_bc_id only for BC_AUTH_TT identities", () => {
+  it("sends identity_authorized_bc_id only for BC_AUTH_TT identities", () => {
     for (const identityType of ["TT_USER", "AUTH_CODE", "CUSTOMIZED_USER"] as const) {
       const draft = createDefaultTikTokDraft("draft-1");
       draft.accountSetup.identityId = "identity_1";
@@ -261,6 +262,11 @@ describe("buildTikTokAdPayload enhancements", () => {
       const creatives = result.value.creatives as Array<Record<string, unknown>>;
       assert.equal(creatives[0].identity_type, identityType);
       assert.equal(creatives[0].identity_bc_id, undefined, identityType);
+      assert.equal(
+        creatives[0].identity_authorized_bc_id,
+        undefined,
+        identityType,
+      );
     }
 
     const bcDraft = createDefaultTikTokDraft("draft-bc");
@@ -279,7 +285,8 @@ describe("buildTikTokAdPayload enhancements", () => {
     if (!bc.ok) return;
     const creatives = bc.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].identity_type, "BC_AUTH_TT");
-    assert.equal(creatives[0].identity_bc_id, "bc-ironworks");
+    assert.equal(creatives[0].identity_authorized_bc_id, "bc-ironworks");
+    assert.equal(creatives[0].identity_bc_id, undefined);
 
     const fromAuthorized = extractIdentityBcId({
       ads_only_mode: false,
@@ -308,7 +315,11 @@ describe("buildTikTokAdPayload enhancements", () => {
     const resolvedCreatives = resolved.value.creatives as Array<
       Record<string, unknown>
     >;
-    assert.equal(resolvedCreatives[0].identity_bc_id, "7078123456789012345");
+    assert.equal(
+      resolvedCreatives[0].identity_authorized_bc_id,
+      "7078123456789012345",
+    );
+    assert.equal(resolvedCreatives[0].identity_bc_id, undefined);
   });
 
   it("sends enhancements off even when the unused draft flag is false", () => {
