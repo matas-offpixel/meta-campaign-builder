@@ -1,19 +1,25 @@
 "use client";
 
 import { Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
-import { appendUploadedTikTokCreatives } from "@/lib/tiktok-wizard/creative-items";
+import { refreshExpiredTikTokThumbnails } from "@/lib/tiktok-wizard/creative-thumbnails";
+import { commitUploadedTikTokCreatives } from "@/lib/tiktok-wizard/persist-creatives";
 import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
   nameCreativeVariations,
   type TikTokVideoInfo,
 } from "@/lib/tiktok/creative";
+import {
+  isTikTokPreviewExpired,
+  pickTikTokCoverUrl,
+  resolveTikTokPreviewExpiry,
+} from "@/lib/tiktok/video-preview";
 import type {
   TikTokCampaignDraft,
   TikTokCreativeDraft,
@@ -23,7 +29,7 @@ interface UploadJob {
   id: string;
   fileName: string;
   sizeLabel: string;
-  stage: "storage" | "tiktok" | "done" | "error";
+  stage: "storage" | "tiktok" | "saving" | "done" | "error";
   videoId: string | null;
   thumbnailUrl: string | null;
   error: string | null;
@@ -57,14 +63,20 @@ export function CreativesStep({
   const [isDragging, setIsDragging] = useState(false);
   const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const itemsRef = useRef(draft.creatives.items);
+  itemsRef.current = draft.creatives.items;
+  const refreshingRef = useRef(false);
 
-  async function persist(items: TikTokCreativeDraft[]) {
+  async function persist(items: TikTokCreativeDraft[]): Promise<boolean> {
     setSaving(true);
     setError(null);
     try {
       await onSave({ creatives: { ...draft.creatives, items } });
+      itemsRef.current = items;
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save creatives");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -86,12 +98,6 @@ export function CreativesStep({
       setError("TikTok ad text must be 100 characters or fewer.");
       return;
     }
-    const uploads: Array<{
-      videoId: string;
-      thumbnailUrl: string | null;
-      durationSeconds: number | null;
-      fileName: string;
-    }> = [];
     for (const file of files) {
       const gate = validateTikTokVideoFile(file);
       if (!gate.ok) {
@@ -129,38 +135,47 @@ export function CreativesStep({
           advertiserId,
           onStage: (stage) => patchJob(jobId, { stage }),
         });
+        const thumbnailUrl = pickTikTokCoverUrl({
+          coverUrl: result.coverUrl,
+          previewUrl: result.previewUrl,
+        });
         patchJob(jobId, {
-          stage: "done",
+          stage: "saving",
           videoId: result.videoId,
-          thumbnailUrl: result.previewUrl,
+          thumbnailUrl,
         });
-        uploads.push({
-          videoId: result.videoId,
-          thumbnailUrl: result.previewUrl,
-          durationSeconds: result.durationSeconds,
-          fileName: file.name,
+        const persisted = await commitUploadedTikTokCreatives({
+          readItems: () => itemsRef.current,
+          writeItems: async (items) => {
+            const saved = await persist(items);
+            if (!saved) {
+              throw new Error("Uploaded to TikTok but failed to save the creative to this draft.");
+            }
+          },
+          upload: {
+            videoId: result.videoId,
+            thumbnailUrl,
+            thumbnailExpiresAt: resolveTikTokPreviewExpiry(result.previewUrlExpireAt),
+            durationSeconds: result.durationSeconds,
+            fileName: file.name,
+          },
+          baseName,
+          adText,
+          displayName:
+            draft.accountSetup.identityDisplayName ??
+            draft.accountSetup.identityManualName ??
+            "",
+          landingPageUrl: landingPageUrl.trim(),
+          cta,
         });
+        itemsRef.current = persisted;
+        patchJob(jobId, { stage: "done", videoId: result.videoId, thumbnailUrl });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
         patchJob(jobId, { stage: "error", error: message });
         setError(message);
       }
     }
-    if (uploads.length === 0) return;
-    const nextItems = appendUploadedTikTokCreatives({
-      existing: draft.creatives.items,
-      uploads,
-      baseName,
-      variationCount: Number.parseInt(variationCount, 10) || 1,
-      adText,
-      displayName:
-        draft.accountSetup.identityDisplayName ??
-        draft.accountSetup.identityManualName ??
-        "",
-      landingPageUrl: landingPageUrl.trim(),
-      cta,
-    });
-    await persist(nextItems);
   }
 
   async function addVideoReference() {
@@ -191,6 +206,9 @@ export function CreativesStep({
         videoId,
         videoUrl: videoInput.trim(),
         thumbnailUrl: videoInfo?.thumbnail_url ?? null,
+        thumbnailExpiresAt: resolveTikTokPreviewExpiry(
+          videoInfo?.preview_url_expire_time,
+        ),
         durationSeconds: videoInfo?.duration_seconds ?? null,
         title: videoInfo?.title ?? null,
         sparkPostId: null,
@@ -244,8 +262,44 @@ export function CreativesStep({
   }
 
   async function removeCreative(id: string) {
-    await persist(draft.creatives.items.filter((item) => item.id !== id));
+    await persist(itemsRef.current.filter((item) => item.id !== id));
   }
+
+  useEffect(() => {
+    const advertiserId = draft.accountSetup.advertiserId;
+    const expired = itemsRef.current.filter(
+      (item) =>
+        item.videoId && isTikTokPreviewExpired(item.thumbnailExpiresAt),
+    );
+    if (!advertiserId || expired.length === 0 || refreshingRef.current) return;
+    refreshingRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      const result = await refreshExpiredTikTokThumbnails({
+        items: expired,
+        fetchInfo: async (videoId) => {
+          const videoInfo = await loadVideoInfo(videoId);
+          if (!videoInfo?.thumbnail_url) return null;
+          return {
+            thumbnailUrl: videoInfo.thumbnail_url,
+            expiresAt: videoInfo.preview_url_expire_time,
+          };
+        },
+      });
+      if (cancelled || result.refetchedIds.length === 0) {
+        refreshingRef.current = false;
+        return;
+      }
+      const byId = new Map(result.items.map((item) => [item.id, item]));
+      await persist(itemsRef.current.map((item) => byId.get(item.id) ?? item));
+      refreshingRef.current = false;
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Refetch only when persisted creatives or the advertiser change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.accountSetup.advertiserId, draft.creatives.items]);
 
   return (
     <div className="space-y-6">
@@ -353,9 +407,9 @@ export function CreativesStep({
         />
       </div>
 
-      {uploadJobs.length > 0 && (
+      {visibleUploadJobs(uploadJobs, draft.creatives.items).length > 0 && (
         <div className="space-y-2">
-          {uploadJobs.map((job) => (
+          {visibleUploadJobs(uploadJobs, draft.creatives.items).map((job) => (
             <div
               key={job.id}
               className="flex items-center gap-3 rounded-md border border-border bg-background p-3"
@@ -365,6 +419,7 @@ export function CreativesStep({
                 <img
                   src={job.thumbnailUrl}
                   alt=""
+                  referrerPolicy="no-referrer"
                   className="h-14 w-14 rounded object-cover"
                 />
               ) : (
@@ -454,11 +509,12 @@ export function CreativesStep({
             key={item.id}
             className="flex items-center gap-3 rounded-md border border-border bg-background p-3"
           >
-            {item.thumbnailUrl ? (
+            {item.thumbnailUrl && !isTikTokPreviewExpired(item.thumbnailExpiresAt) ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={item.thumbnailUrl}
                 alt=""
+                referrerPolicy="no-referrer"
                 className="h-14 w-14 rounded object-cover"
               />
             ) : (
@@ -494,9 +550,20 @@ export function CreativesStep({
   );
 }
 
+function visibleUploadJobs(
+  jobs: UploadJob[],
+  items: TikTokCreativeDraft[],
+): UploadJob[] {
+  return jobs.filter((job) => {
+    if (job.stage !== "done") return true;
+    return !items.some((item) => item.videoId && item.videoId === job.videoId);
+  });
+}
+
 function jobStageLabel(job: UploadJob): string {
   if (job.stage === "storage") return "Uploading to storage…";
   if (job.stage === "tiktok") return "Sending to TikTok Asset Library…";
+  if (job.stage === "saving") return "Saving creative to draft…";
   if (job.stage === "done") return "Uploaded";
   return "Failed";
 }

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { TikTokApiError } from "./client.ts";
 import { fetchTikTokVideoInfo } from "./creative.ts";
+import { parseTikTokPreviewExpiry } from "./video-preview.ts";
 
 const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3";
 const UPLOAD_PATH = "/file/video/ad/upload/";
@@ -17,6 +18,7 @@ export interface TikTokUploadedVideo {
   materialId: string | null;
   previewUrl: string | null;
   coverUrl: string | null;
+  previewUrlExpireAt: string | null;
   width: number | null;
   height: number | null;
   durationSeconds: number | null;
@@ -229,6 +231,7 @@ function mapUploadedVideo(
       asOptionalString(row.video_cover_url) ??
       asOptionalString(row.thumbnail_url),
     coverUrl: asOptionalString(row.video_cover_url),
+    previewUrlExpireAt: parseTikTokPreviewExpiry(row.preview_url_expire_time),
     width: asOptionalNumber(row.width),
     height: asOptionalNumber(row.height),
     durationSeconds:

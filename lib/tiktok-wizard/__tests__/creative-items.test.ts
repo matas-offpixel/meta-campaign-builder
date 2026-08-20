@@ -14,7 +14,6 @@ describe("appendUploadedTikTokCreatives", () => {
         { videoId: "v3", thumbnailUrl: "t3", durationSeconds: 3, fileName: "c.mp4" },
       ],
       baseName: "Hero",
-      variationCount: 1,
       adText: "Book now",
       displayName: "Brand",
       landingPageUrl: "https://example.com",

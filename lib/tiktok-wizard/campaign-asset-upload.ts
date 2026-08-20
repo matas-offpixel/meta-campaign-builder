@@ -9,6 +9,7 @@ export interface TikTokVideoUploadResult {
   videoId: string;
   previewUrl: string | null;
   coverUrl: string | null;
+  previewUrlExpireAt: string | null;
   width: number | null;
   height: number | null;
   durationSeconds: number | null;

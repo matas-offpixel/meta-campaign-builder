@@ -26,8 +26,12 @@ import {
   formatTikTokInterestGroupCounts,
   hasLegacyTikTokTargeting,
   isTikTokInterestGroupNonEmpty,
+  removeTikTokInterestGroup,
   seedTikTokInterestGroupFromLegacy,
 } from "@/lib/tiktok-wizard/interest-groups";
+import {
+  TIKTOK_SEMANTIC_FALLBACK_NOTE,
+} from "@/lib/tiktok-wizard/keyword-recommend";
 import type {
   TikTokAudienceCategory,
   TikTokAudienceListItem,
@@ -103,7 +107,8 @@ export function AudiencesStep({
   const [ageMax, setAgeMax] = useState(String(audiences.ageMax));
   const [seed, setSeed] = useState("");
   const [keywordMode, setKeywordMode] =
-    useState<TikTokInterestKeywordMode>("SEMANTIC_RECOMMEND");
+    useState<TikTokInterestKeywordMode>("FUZZ_MATCH");
+  const [keywordSemanticFallback, setKeywordSemanticFallback] = useState(false);
   const [audienceType, setAudienceType] =
     useState<TikTokInterestAudienceType>("GENERAL_INTEREST");
   const [hashtagSeeds, setHashtagSeeds] = useState("");
@@ -126,6 +131,8 @@ export function AudiencesStep({
   const [presetPartialNote, setPresetPartialNote] = useState<string | null>(null);
 
   const advertiserId = draft.accountSetup.advertiserId;
+  const audiencesRef = useRef(audiences);
+  audiencesRef.current = audiences;
   const groups = audiences.interestGroups;
   const activeGroup =
     groups.find((group) => group.id === activeGroupId) ?? groups[0] ?? null;
@@ -237,6 +244,7 @@ export function AudiencesStep({
       setKeywordResults([]);
       setKeywordFailed(null);
       setKeywordProvenance({});
+      setKeywordSemanticFallback(false);
       return;
     }
     const controller = new AbortController();
@@ -255,8 +263,9 @@ export function AudiencesStep({
         signal: controller.signal,
       })
         .then((res) => res.json())
-        .then((json: { ok?: boolean; keywords?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
+        .then((json: { ok?: boolean; keywords?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string; semanticFallback?: boolean }) => {
           setKeywordResults(json.keywords ?? []);
+          setKeywordSemanticFallback(Boolean(json.semanticFallback));
           const state = readAudienceDimensionFailed(json);
           setKeywordFailed(
             state.failed ? state.error ?? "Keyword recommend failed" : null,
@@ -319,14 +328,13 @@ export function AudiencesStep({
   async function persist(next: Partial<TikTokAudiences>) {
     setSaving(true);
     setSaveError(null);
+    const previous = audiencesRef.current;
+    const latest = { ...previous, ...next };
+    audiencesRef.current = latest;
     try {
-      await onSave({
-        audiences: {
-          ...draft.audiences,
-          ...next,
-        },
-      });
+      await onSave({ audiences: latest });
     } catch (err) {
+      audiencesRef.current = previous;
       setSaveError(err instanceof Error ? err.message : "Failed to save audiences");
     } finally {
       setSaving(false);
@@ -334,7 +342,8 @@ export function AudiencesStep({
   }
 
   async function persistGroups(nextGroups: TikTokInterestGroup[]) {
-    const flat = flattenTikTokInterestGroups(nextGroups, draft.audiences);
+    const latest = audiencesRef.current;
+    const flat = flattenTikTokInterestGroups(nextGroups, latest);
     await persist({
       interestGroups: nextGroups,
       ...flat,
@@ -342,12 +351,13 @@ export function AudiencesStep({
   }
 
   async function addGroup() {
+    const current = audiencesRef.current;
     const group =
-      groups.length === 0 && hasLegacyTikTokTargeting(audiences)
-        ? seedTikTokInterestGroupFromLegacy(audiences)
+      current.interestGroups.length === 0 && hasLegacyTikTokTargeting(current)
+        ? seedTikTokInterestGroupFromLegacy(current)
         : createEmptyTikTokInterestGroup();
-    if (!group.name) group.name = `Group ${groups.length + 1}`;
-    await persistGroups([...groups, group]);
+    if (!group.name) group.name = `Group ${current.interestGroups.length + 1}`;
+    await persistGroups([...current.interestGroups, group]);
     setActiveGroupId(group.id);
     setScrollToGroupId(group.id);
   }
@@ -360,14 +370,16 @@ export function AudiencesStep({
   }, [scrollToGroupId, groups]);
 
   async function removeGroup(groupId: string) {
-    const next = groups.filter((group) => group.id !== groupId);
-    await persistGroups(next);
-    if (activeGroupId === groupId) setActiveGroupId(next[0]?.id ?? null);
+    const next = removeTikTokInterestGroup(audiencesRef.current, groupId);
+    await persist(next);
+    if (activeGroupId === groupId) setActiveGroupId(next.interestGroups[0]?.id ?? null);
   }
 
   async function renameGroup(groupId: string, name: string) {
     await persistGroups(
-      groups.map((group) => (group.id === groupId ? { ...group, name } : group)),
+      audiencesRef.current.interestGroups.map((group) =>
+        group.id === groupId ? { ...group, name } : group,
+      ),
     );
   }
 
@@ -396,7 +408,9 @@ export function AudiencesStep({
     setKeywordProvenance({});
     setLoadingKeywords(true);
     setLoadingHashtags(true);
+    setKeywordSemanticFallback(false);
 
+    let semanticFallback = false;
     const keywordPromise = expandTikTokPresetKeywords(preset.seeds, async (keyword) => {
       const params = new URLSearchParams({
         advertiser_id: advertiserId,
@@ -412,10 +426,12 @@ export function AudiencesStep({
         ok?: boolean;
         keywords?: TikTokAudienceRecommendItem[];
         error?: string;
+        semanticFallback?: boolean;
       };
       if (json.ok === false) {
         throw new Error(json.error ?? "Keyword recommend failed");
       }
+      if (json.semanticFallback) semanticFallback = true;
       return json.keywords ?? [];
     });
 
@@ -459,6 +475,7 @@ export function AudiencesStep({
       setKeywordProvenance(
         Object.fromEntries(expanded.rows.map((row) => [row.id, row.seeds])),
       );
+      if (semanticFallback) setKeywordSemanticFallback(true);
       if (expanded.failedSeeds.length > 0) {
         setPresetPartialNote(
           `Some seeds failed (${expanded.failedSeeds.join(", ")}). Showing the rest.`,
@@ -504,7 +521,7 @@ export function AudiencesStep({
       ? current.filter((row) => row.id !== item.id)
       : [...current, item];
     await persistGroups(
-      groups.map((group) =>
+      audiencesRef.current.interestGroups.map((group) =>
         group.id === activeGroup.id ? { ...group, [key]: nextItems } : group,
       ),
     );
@@ -639,11 +656,12 @@ export function AudiencesStep({
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={saving}
-                      onClick={(event) => {
+                      onMouseDown={(event) => {
+                        event.preventDefault();
                         event.stopPropagation();
                         void removeGroup(group.id);
                       }}
+                      onClick={(event) => event.stopPropagation()}
                     >
                       Delete · {counts}
                     </Button>
@@ -759,8 +777,8 @@ export function AudiencesStep({
                 setKeywordMode(event.target.value as TikTokInterestKeywordMode)
               }
             >
-              <option value="SEMANTIC_RECOMMEND">Semantic recommend</option>
               <option value="FUZZ_MATCH">Fuzz match</option>
+              <option value="SEMANTIC_RECOMMEND">Semantic recommend</option>
             </select>
             <select
               className="h-9 rounded-md border border-border bg-background px-2 text-sm"
@@ -776,6 +794,11 @@ export function AudiencesStep({
           {keywordFailed && (
             <p className="text-sm text-amber-700 dark:text-amber-300">{keywordFailed}</p>
           )}
+          {keywordSemanticFallback && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              {TIKTOK_SEMANTIC_FALLBACK_NOTE}
+            </p>
+          )}
           {loadingKeywords && <p className="text-sm text-muted-foreground">Loading recommendations…</p>}
           <RecommendList
             rows={keywordResults}
@@ -783,11 +806,13 @@ export function AudiencesStep({
             provenance={keywordProvenance}
             disabled={saving || !activeGroup}
             empty={
-              activePresetId
-                ? "No keyword recommendations for this preset."
-                : seed.trim()
-                  ? "No keyword recommendations."
-                  : "Enter a seed keyword."
+              keywordSemanticFallback
+                ? TIKTOK_SEMANTIC_FALLBACK_NOTE
+                : activePresetId
+                  ? "No keyword recommendations for this preset."
+                  : seed.trim()
+                    ? "No keyword recommendations."
+                    : "Enter a seed keyword."
             }
             onToggle={(row) =>
               void toggleGroupItem("interestIds", {

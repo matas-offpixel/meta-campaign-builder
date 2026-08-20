@@ -6,6 +6,7 @@ import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
   formatTikTokInterestGroupCounts,
+  removeTikTokInterestGroup,
 } from "../interest-groups.ts";
 
 describe("flattenTikTokInterestGroups", () => {
@@ -27,6 +28,33 @@ describe("flattenTikTokInterestGroups", () => {
     assert.deepEqual(flat.interestKeywordIds, ["kw-1"]);
     assert.deepEqual(flat.behaviourCategoryIds, ["beh-1"]);
     assert.equal(flat.behaviourCategoryLabels["beh-1"], "Creators");
+  });
+});
+
+describe("removeTikTokInterestGroup", () => {
+  it("removes the group from the persisted draft and does not bring it back", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    const keep = createEmptyTikTokInterestGroup();
+    keep.name = "UK";
+    const remove = createEmptyTikTokInterestGroup();
+    remove.name = "London";
+    draft.audiences.interestGroups = [keep, remove];
+
+    const persisted = {
+      current: JSON.parse(JSON.stringify(draft)) as typeof draft,
+    };
+    persisted.current.audiences = removeTikTokInterestGroup(
+      persisted.current.audiences,
+      remove.id,
+    );
+    const reloaded = JSON.parse(JSON.stringify(persisted.current)) as typeof draft;
+
+    assert.equal(reloaded.audiences.interestGroups.length, 1);
+    assert.equal(reloaded.audiences.interestGroups[0]?.name, "UK");
+    assert.equal(
+      reloaded.audiences.interestGroups.some((group) => group.id === remove.id),
+      false,
+    );
   });
 });
 
