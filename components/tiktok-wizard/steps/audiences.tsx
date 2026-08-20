@@ -16,7 +16,10 @@ import {
 } from "@/lib/tiktok-wizard/audience-display";
 import {
   expandTikTokPresetKeywords,
+  mergeTikTokPresetTaxonomy,
+  resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
+  TIKTOK_GENRE_PRESET_LIMITATION_NOTE,
   TIKTOK_GENRE_PRESETS,
   type TikTokGenrePreset,
 } from "@/lib/tiktok-wizard/genre-presets";
@@ -29,6 +32,7 @@ import {
   removeTikTokInterestGroup,
   seedTikTokInterestGroupFromLegacy,
 } from "@/lib/tiktok-wizard/interest-groups";
+import { tikTokHashtagUnavailableNote } from "@/lib/tiktok-wizard/hashtag-recommend";
 import {
   TIKTOK_SEMANTIC_FALLBACK_NOTE,
 } from "@/lib/tiktok-wizard/keyword-recommend";
@@ -118,6 +122,7 @@ export function AudiencesStep({
   const [languageQuery, setLanguageQuery] = useState("");
   const keywordAbort = useRef<AbortController | null>(null);
   const hashtagAbort = useRef<AbortController | null>(null);
+  const pendingPresetTaxonomyId = useRef<string | null>(null);
   const presetAbort = useRef<AbortController | null>(null);
   const pointerDeletedGroupIds = useRef(new Set<string>());
   const groupCardRefs = useRef(new Map<string, HTMLDivElement>());
@@ -351,6 +356,33 @@ export function AudiencesStep({
     });
   }
 
+  async function applyPresetTaxonomy(preset: TikTokGenrePreset) {
+    const group =
+      audiencesRef.current.interestGroups.find((item) => item.id === activeGroupId) ??
+      audiencesRef.current.interestGroups[0];
+    if (!group) return false;
+    const taxonomy = resolveTikTokPresetTaxonomy(
+      { interests, behaviours },
+      preset,
+    );
+    if (taxonomy.interestItems.length === 0 && taxonomy.behaviourItems.length === 0) {
+      return interests.length === 0 && behaviours.length === 0;
+    }
+    const merged = mergeTikTokPresetTaxonomy(group, taxonomy);
+    const unchanged =
+      merged.interestIds.length === group.interestIds.length &&
+      merged.behaviourIds.length === group.behaviourIds.length &&
+      merged.interestIds.every((item, index) => item.id === group.interestIds[index]?.id) &&
+      merged.behaviourIds.every((item, index) => item.id === group.behaviourIds[index]?.id);
+    if (unchanged) return false;
+    await persistGroups(
+      audiencesRef.current.interestGroups.map((item) =>
+        item.id === group.id ? { ...item, ...merged } : item,
+      ),
+    );
+    return false;
+  }
+
   async function addGroup() {
     const current = audiencesRef.current;
     const group =
@@ -385,9 +417,23 @@ export function AudiencesStep({
   }
 
   function clearPresetMode() {
+    pendingPresetTaxonomyId.current = null;
     setActivePresetId(null);
     setPresetPartialNote(null);
   }
+
+  useEffect(() => {
+    const presetId = pendingPresetTaxonomyId.current;
+    if (!presetId) return;
+    if (interests.length === 0 && behaviours.length === 0) return;
+    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    void applyPresetTaxonomy(preset).then((stillPending) => {
+      if (!stillPending) pendingPresetTaxonomyId.current = null;
+    });
+    // Catalog arrival only — applyPreset already tries once with whatever is loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [interests, behaviours]);
 
   async function applyPreset(preset: TikTokGenrePreset) {
     if (!advertiserId) return;
@@ -399,6 +445,10 @@ export function AudiencesStep({
     hashtagAbort.current = controller;
     presetAbort.current = controller;
     setActivePresetId(preset.id);
+    pendingPresetTaxonomyId.current = preset.id;
+    void applyPresetTaxonomy(preset).then((stillPending) => {
+      if (!stillPending) pendingPresetTaxonomyId.current = null;
+    });
     setKeywordSource("preset");
     setSeed("");
     setHashtagSeeds(preset.seeds.join(", "));
@@ -542,6 +592,12 @@ export function AudiencesStep({
     else labels[id] = label;
     await persist({ [key]: next, [labelKey]: labels });
   }
+
+  const hashtagUnavailableNote = tikTokHashtagUnavailableNote({
+    failed: Boolean(hashtagFailed),
+    rowCount: hashtagResults.length,
+    keywords: parseHashtagSeeds(hashtagSeeds),
+  });
 
   const interestTree = useMemo(() => buildTree(interests), [interests]);
   const filteredRegions = useMemo(
@@ -898,17 +954,24 @@ export function AudiencesStep({
           {hashtagFailed && (
             <p className="text-sm text-amber-700 dark:text-amber-300">{hashtagFailed}</p>
           )}
+          {hashtagUnavailableNote && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              {hashtagUnavailableNote}
+            </p>
+          )}
           {loadingHashtags && <p className="text-sm text-muted-foreground">Loading hashtags…</p>}
           <RecommendList
             rows={hashtagResults}
             selectedIds={activeGroup?.hashtagIds.map((item) => item.id) ?? []}
             disabled={saving || !activeGroup}
             empty={
-              activePresetId
-                ? "No hashtag recommendations for this preset."
-                : parseHashtagSeeds(hashtagSeeds).length
-                  ? "No hashtag recommendations."
-                  : "Enter keywords."
+              hashtagUnavailableNote
+                ? hashtagUnavailableNote
+                : activePresetId
+                  ? "No hashtag recommendations for this preset."
+                  : parseHashtagSeeds(hashtagSeeds).length
+                    ? "No hashtag recommendations."
+                    : "Enter keywords."
             }
             onToggle={(row) =>
               void toggleGroupItem("hashtagIds", {
@@ -1373,6 +1436,9 @@ function GenrePresetRow({
           Seeds: {active.seeds.join(", ")}
         </p>
       )}
+      <p className="text-xs text-muted-foreground">
+        {TIKTOK_GENRE_PRESET_LIMITATION_NOTE}
+      </p>
     </div>
   );
 }

@@ -1,20 +1,39 @@
+import type { TikTokAudienceCategory } from "../tiktok/audience.ts";
+import type { TikTokTargetingItem } from "../types/tiktok-draft.ts";
+
+export const TIKTOK_GENRE_PRESET_LIMITATION_NOTE =
+  "TikTok has no genre-level interest categories, so a genre preset maps to broad music and dance interests plus keyword matches, and precision comes from geo, age and custom audiences.";
+
+export const TIKTOK_ELECTRONIC_INTEREST_LABELS = [
+  "Music",
+  "Dance",
+  "Entertainment",
+] as const;
+
+export const TIKTOK_ELECTRONIC_BEHAVIOUR_LABELS = [
+  "Music",
+  "Dance",
+  "Singing & Dancing",
+  "Performance",
+] as const;
+
 export interface TikTokGenrePreset {
   id: string;
   label: string;
   seeds: string[];
+  interestLabels: readonly string[];
+  behaviourLabels: readonly string[];
 }
 
 export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
   {
     id: "electronic-music",
     label: "Electronic music",
-    seeds: [
-      "Electronic music",
-      "tech house",
-      "house music",
-      "techno music",
-      "disco music",
-    ],
+    // Single words only: FUZZ_MATCH is a literal substring matcher, so
+    // "tech house" / "house music" return 0 and "edm" matches "edmonton".
+    seeds: ["techno", "house", "disco", "electronic", "dance"],
+    interestLabels: TIKTOK_ELECTRONIC_INTEREST_LABELS,
+    behaviourLabels: TIKTOK_ELECTRONIC_BEHAVIOUR_LABELS,
   },
 ];
 
@@ -23,6 +42,53 @@ export interface TikTokPresetKeywordRow {
   name: string;
   audienceSize: number | null;
   seeds: string[];
+}
+
+export interface TikTokPresetTaxonomySelection {
+  interestItems: TikTokTargetingItem[];
+  behaviourItems: TikTokTargetingItem[];
+}
+
+export function resolveTikTokPresetTaxonomy(
+  catalog: {
+    interests: TikTokAudienceCategory[];
+    behaviours: TikTokAudienceCategory[];
+  },
+  preset: Pick<TikTokGenrePreset, "interestLabels" | "behaviourLabels">,
+): TikTokPresetTaxonomySelection {
+  return {
+    interestItems: matchCatalogLabels(catalog.interests, preset.interestLabels).map(
+      (row) => ({
+        id: row.id,
+        name: row.label,
+        kind: "category" as const,
+      }),
+    ),
+    behaviourItems: matchCatalogLabels(
+      catalog.behaviours,
+      preset.behaviourLabels,
+    ).map((row) => ({
+      id: row.id,
+      name: row.label,
+      kind: "category" as const,
+    })),
+  };
+}
+
+export function mergeTikTokPresetTaxonomy(
+  group: {
+    interestIds: TikTokTargetingItem[];
+    behaviourIds: TikTokTargetingItem[];
+  },
+  taxonomy: TikTokPresetTaxonomySelection,
+): {
+  interestIds: TikTokTargetingItem[];
+  behaviourIds: TikTokTargetingItem[];
+} {
+  return {
+    interestIds: unionById(group.interestIds, taxonomy.interestItems),
+    behaviourIds: unionById(group.behaviourIds, taxonomy.behaviourItems),
+  };
 }
 
 export async function expandTikTokPresetKeywords(
@@ -76,4 +142,43 @@ export function tikTokHashtagPresetQuery(seeds: string[]): {
     keywords: seeds.map((seed) => seed.trim()).filter(Boolean).slice(0, 10),
     operator: "OR",
   };
+}
+
+function matchCatalogLabels(
+  rows: TikTokAudienceCategory[],
+  labels: readonly string[],
+): TikTokAudienceCategory[] {
+  const wanted = new Map(
+    labels.map((label) => [normaliseLabel(label), label] as const),
+  );
+  const matched = new Map<string, TikTokAudienceCategory>();
+  for (const row of rows) {
+    const key = normaliseLabel(row.label);
+    if (!wanted.has(key)) continue;
+    const existing = matched.get(key);
+    if (!existing || (existing.parent_id && !row.parent_id)) {
+      matched.set(key, row);
+    }
+  }
+  return labels
+    .map((label) => matched.get(normaliseLabel(label)))
+    .filter((row): row is TikTokAudienceCategory => Boolean(row));
+}
+
+function unionById(
+  current: TikTokTargetingItem[],
+  extra: TikTokTargetingItem[],
+): TikTokTargetingItem[] {
+  const seen = new Set(current.map((item) => item.id));
+  const next = [...current];
+  for (const item of extra) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    next.push(item);
+  }
+  return next;
+}
+
+function normaliseLabel(label: string): string {
+  return label.trim().toLowerCase();
 }

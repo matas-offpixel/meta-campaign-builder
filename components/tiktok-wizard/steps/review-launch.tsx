@@ -405,26 +405,34 @@ export function ReviewLaunchStep({
         </section>
       )}
 
-      <div className="flex flex-wrap gap-3">
-        <Button
-          type="button"
-          disabled={launchDisabled}
-          title={launchTitle}
-          onClick={() => void launchOnTikTok()}
-        >
-          {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
-        </Button>
-        <Button type="button" variant="outline" onClick={downloadBrief}>
-          Download as brief (Markdown)
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={saving}
-          onClick={() => void markReviewReady()}
-        >
-          Mark review ready
-        </Button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-3">
+          <Button
+            type="button"
+            disabled={launchDisabled}
+            title={launchTitle}
+            onClick={() => void launchOnTikTok()}
+          >
+            {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
+          </Button>
+          <Button type="button" variant="outline" onClick={downloadBrief}>
+            Download as brief (Markdown)
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={saving}
+            onClick={() => void markReviewReady()}
+          >
+            Mark review ready
+          </Button>
+        </div>
+        {!writesEnabled && (
+          <p className="text-sm text-muted-foreground">
+            TikTok launches are behind a killswitch that is intentionally off.
+            Download as brief / Mark review ready are the available actions.
+          </p>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         {draft.reviewReadyAt

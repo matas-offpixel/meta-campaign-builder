@@ -3,7 +3,11 @@ import { describe, it } from "node:test";
 
 import {
   expandTikTokPresetKeywords,
+  mergeTikTokPresetTaxonomy,
+  resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
+  TIKTOK_ELECTRONIC_BEHAVIOUR_LABELS,
+  TIKTOK_ELECTRONIC_INTEREST_LABELS,
   TIKTOK_GENRE_PRESETS,
 } from "../genre-presets.ts";
 
@@ -64,15 +68,67 @@ describe("tikTokHashtagPresetQuery", () => {
     assert.deepEqual(query.keywords, seeds.slice(0, 10));
   });
 
-  it("ships the Electronic music preset as a seed bundle", () => {
+  it("ships the Electronic music preset as single-word seeds plus taxonomy labels", () => {
     const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === "electronic-music");
     assert.ok(preset);
+    assert.ok(preset.seeds.every((seed) => !/\s/.test(seed)));
     assert.deepEqual(preset.seeds, [
-      "Electronic music",
-      "tech house",
-      "house music",
-      "techno music",
-      "disco music",
+      "techno",
+      "house",
+      "disco",
+      "electronic",
+      "dance",
     ]);
+    assert.deepEqual([...preset.interestLabels], [...TIKTOK_ELECTRONIC_INTEREST_LABELS]);
+    assert.deepEqual([...preset.behaviourLabels], [...TIKTOK_ELECTRONIC_BEHAVIOUR_LABELS]);
+  });
+});
+
+describe("resolveTikTokPresetTaxonomy", () => {
+  it("selects the expected taxonomy node ids by exact catalog label", () => {
+    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === "electronic-music");
+    assert.ok(preset);
+    const taxonomy = resolveTikTokPresetTaxonomy(
+      {
+        interests: [
+          { id: "int-games", label: "Music Games", parent_id: "int-music" },
+          { id: "int-music", label: "Music", parent_id: null },
+          { id: "int-dance", label: "Dance", parent_id: "int-music" },
+          { id: "int-entertainment", label: "Entertainment", parent_id: null },
+          { id: "int-audio", label: "Audio players", parent_id: "int-music" },
+        ],
+        behaviours: [
+          { id: "beh-music", label: "Music", parent_id: null },
+          { id: "beh-dance", label: "Dance", parent_id: null },
+          { id: "beh-sing", label: "Singing & Dancing", parent_id: null },
+          { id: "beh-perf", label: "Performance", parent_id: null },
+          { id: "beh-other", label: "Creators", parent_id: null },
+        ],
+      },
+      preset,
+    );
+    assert.deepEqual(
+      taxonomy.interestItems.map((item) => item.id),
+      ["int-music", "int-dance", "int-entertainment"],
+    );
+    assert.deepEqual(
+      taxonomy.behaviourItems.map((item) => item.id),
+      ["beh-music", "beh-dance", "beh-sing", "beh-perf"],
+    );
+    const merged = mergeTikTokPresetTaxonomy(
+      {
+        interestIds: [{ id: "int-music", name: "Music", kind: "category" }],
+        behaviourIds: [],
+      },
+      taxonomy,
+    );
+    assert.deepEqual(
+      merged.interestIds.map((item) => item.id),
+      ["int-music", "int-dance", "int-entertainment"],
+    );
+    assert.deepEqual(
+      merged.behaviourIds.map((item) => item.id),
+      ["beh-music", "beh-dance", "beh-sing", "beh-perf"],
+    );
   });
 });
