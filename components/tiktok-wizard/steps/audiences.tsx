@@ -644,7 +644,7 @@ export function AudiencesStep({
       </div>
 
       {!advertiserId && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-warning-foreground">
           Select an advertiser in Step 0 to load TikTok audience options.
         </p>
       )}
@@ -827,10 +827,10 @@ export function AudiencesStep({
             onSelect={(preset) => void applyPreset(preset)}
           />
           {presetPartialNote && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{presetPartialNote}</p>
+            <p className="text-sm text-warning-foreground">{presetPartialNote}</p>
           )}
           {presetTaxonomyNote && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{presetTaxonomyNote}</p>
+            <p className="text-sm text-warning-foreground">{presetTaxonomyNote}</p>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
             <SearchInput
@@ -872,10 +872,10 @@ export function AudiencesStep({
             </select>
           </div>
           {keywordFailed && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{keywordFailed}</p>
+            <p className="text-sm text-warning-foreground">{keywordFailed}</p>
           )}
           {keywordSemanticFallback && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+            <p className="text-sm text-warning-foreground">
               {TIKTOK_SEMANTIC_FALLBACK_NOTE}
             </p>
           )}
@@ -935,10 +935,10 @@ export function AudiencesStep({
             onSelect={(preset) => void applyPreset(preset)}
           />
           {presetPartialNote && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{presetPartialNote}</p>
+            <p className="text-sm text-warning-foreground">{presetPartialNote}</p>
           )}
           {presetTaxonomyNote && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{presetTaxonomyNote}</p>
+            <p className="text-sm text-warning-foreground">{presetTaxonomyNote}</p>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <SearchInput
@@ -970,10 +970,10 @@ export function AudiencesStep({
             {parseHashtagSeeds(hashtagSeeds).length}/10 keywords
           </p>
           {hashtagFailed && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{hashtagFailed}</p>
+            <p className="text-sm text-warning-foreground">{hashtagFailed}</p>
           )}
           {hashtagUnavailableNote && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+            <p className="text-sm text-warning-foreground">
               {hashtagUnavailableNote}
             </p>
           )}

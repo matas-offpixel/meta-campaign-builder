@@ -278,11 +278,11 @@ export function collectTikTokLaunchPreflight(
     0,
   );
   if (hashtagCount > 0) {
-    warnings.push(
+    issues.push(
       issue(
         "hashtag-unverified",
         "interest_keyword_ids",
-        "Hashtag targeting is unverified against TikTok — selected hashtag IDs are sent as interest_keyword_ids",
+        "Hashtag targeting is blocked: TikTok hashtag IDs have not been verified to share a namespace with interest_keyword_ids. Remove hashtags from the audience before launch.",
       ),
     );
   }
