@@ -599,11 +599,19 @@ export function buildTikTokAdPayload(input: {
       `Creative ${input.creative.name} is missing a landing page URL`,
     );
   }
+  const coverImageId = input.creative.coverImageId?.trim();
+  if (!coverImageId) {
+    return missing(
+      "image_ids",
+      `Creative "${input.creative.name}" needs a cover image. TikTok rejects video ads without image_ids.`,
+    );
+  }
 
   const creative: Record<string, BodyValue> = {
     ad_name: input.creative.name,
     ad_format: "SINGLE_VIDEO",
     video_id: input.creative.videoId,
+    image_ids: [coverImageId],
     ad_text: input.creative.adText,
     display_name: input.creative.displayName,
     landing_page_url: input.creative.landingPageUrl,

@@ -146,6 +146,8 @@ export interface TikTokCreativeDraft {
   thumbnailUrl: string | null;
   /** ISO timestamp. TikTok cover/preview URLs are valid for six hours. */
   thumbnailExpiresAt?: string | null;
+  /** TikTok Asset Library image id for the video cover (`image_ids` on /ad/create/). */
+  coverImageId?: string | null;
   durationSeconds: number | null;
   title: string | null;
   sparkPostId: string | null;

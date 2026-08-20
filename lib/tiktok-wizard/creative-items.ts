@@ -5,6 +5,7 @@ export interface TikTokUploadedCreativeInput {
   videoId: string;
   thumbnailUrl: string | null;
   thumbnailExpiresAt?: string | null;
+  coverImageId?: string | null;
   durationSeconds: number | null;
   fileName: string;
 }
@@ -63,6 +64,7 @@ export function appendUploadedTikTokCreatives(input: {
         videoUrl: null,
         thumbnailUrl: upload.thumbnailUrl,
         thumbnailExpiresAt: upload.thumbnailExpiresAt ?? null,
+        coverImageId: upload.coverImageId ?? null,
         durationSeconds: upload.durationSeconds,
         title: upload.fileName,
         sparkPostId: null,

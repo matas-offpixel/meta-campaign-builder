@@ -52,7 +52,11 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
     ),
     creatives: {
       items: Array.isArray(creatives.items)
-        ? (creatives.items as TikTokCampaignDraft["creatives"]["items"])
+        ? creatives.items
+            .map(normalizeTikTokCreativeItem)
+            .filter((item): item is TikTokCampaignDraft["creatives"]["items"][number] =>
+              item != null,
+            )
         : defaults.creatives.items,
     },
     budgetSchedule: {
@@ -150,12 +154,40 @@ export function filterClientResolvableTikTokPreflightIssues(
   resolution: TikTokIdentityBcIdResolution,
 ): TikTokLaunchPreflightIssue[] {
   return issues.filter((issue) => {
+    if (issue.field === "image_ids" || issue.id.startsWith("cover-image-")) {
+      return !tikTokCoverImageIsServerResolvable(draft, issue);
+    }
     if (issue.id !== "identity-bc-id" && issue.field !== "identity_bc_id") {
       return true;
     }
     if (resolution === "unresolved") return true;
     return !tikTokIdentityBcIdIsServerResolvable(draft);
   });
+}
+
+function tikTokCoverImageIsServerResolvable(
+  draft: TikTokCampaignDraft,
+  issue: TikTokLaunchPreflightIssue,
+): boolean {
+  return draft.creatives.items.some((creative) => {
+    if (!creative.videoId?.trim() || creative.coverImageId?.trim()) return false;
+    const matches =
+      issue.id.includes(creative.id) || issue.message.includes(creative.name);
+    return matches && Boolean(creative.thumbnailUrl?.trim() || creative.videoId);
+  });
+}
+
+function normalizeTikTokCreativeItem(
+  raw: unknown,
+): TikTokCampaignDraft["creatives"]["items"][number] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const item = raw as TikTokCampaignDraft["creatives"]["items"][number];
+  if (!item.id) return null;
+  return {
+    ...item,
+    coverImageId:
+      typeof item.coverImageId === "string" ? item.coverImageId : null,
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

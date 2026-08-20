@@ -215,6 +215,7 @@ describe("buildTikTokAdPayload enhancements", () => {
         videoId: "video_1",
         videoUrl: null,
         thumbnailUrl: null,
+        coverImageId: "img_hero_1",
         durationSeconds: null,
         title: null,
         sparkPostId: null,
@@ -242,6 +243,37 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(creatives[0].identity_type, "TT_USER");
     assert.equal(creatives[0].identity_bc_id, undefined);
     assert.equal(creatives[0].identity_authorized_bc_id, undefined);
+    assert.deepEqual(creatives[0].image_ids, ["img_hero_1"]);
+  });
+
+  it("sends each creative's own cover as image_ids with exactly one id", () => {
+    const draft = payloadDraft();
+    const first = { ...sampleCreative(), id: "c-a", name: "A", coverImageId: "img-a" };
+    const second = { ...sampleCreative(), id: "c-b", name: "B", coverImageId: "img-b" };
+    const firstPayload = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: first,
+    });
+    const secondPayload = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: second,
+    });
+    assert.equal(firstPayload.ok, true);
+    assert.equal(secondPayload.ok, true);
+    if (!firstPayload.ok || !secondPayload.ok) return;
+    const firstCreatives = firstPayload.value.creatives as Array<
+      Record<string, unknown>
+    >;
+    const secondCreatives = secondPayload.value.creatives as Array<
+      Record<string, unknown>
+    >;
+    assert.deepEqual(firstCreatives[0].image_ids, ["img-a"]);
+    assert.deepEqual(secondCreatives[0].image_ids, ["img-b"]);
+    assert.notDeepEqual(firstCreatives[0].image_ids, secondCreatives[0].image_ids);
   });
 
   it("sends identity_authorized_bc_id only for BC_AUTH_TT identities", () => {
@@ -537,6 +569,7 @@ function sampleCreative() {
     videoId: "video_1",
     videoUrl: null,
     thumbnailUrl: null,
+    coverImageId: "img_hero_1",
     durationSeconds: null,
     title: null,
     sparkPostId: null,

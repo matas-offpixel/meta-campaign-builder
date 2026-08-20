@@ -32,6 +32,7 @@ function launchableDraft() {
       videoId: "video_1",
       videoUrl: null,
       thumbnailUrl: null,
+      coverImageId: "img_hero_1",
       durationSeconds: null,
       title: null,
       sparkPostId: null,
@@ -48,6 +49,18 @@ function launchableDraft() {
 }
 
 describe("collectTikTokLaunchPreflight", () => {
+  it("blocks a named creative that has no resolvable cover image", () => {
+    const draft = launchableDraft();
+    delete (draft.creatives.items[0] as { coverImageId?: string | null }).coverImageId;
+    draft.creatives.items[0].thumbnailUrl = null;
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    const cover = result.issues.find((issue) => issue.field === "image_ids");
+    assert.ok(cover);
+    assert.match(cover.message, /Hero/);
+    assert.match(cover.message, /image_ids/);
+  });
+
   it("passes a complete launchable draft", () => {
     const result = collectTikTokLaunchPreflight(launchableDraft());
     assert.equal(result.ok, true);

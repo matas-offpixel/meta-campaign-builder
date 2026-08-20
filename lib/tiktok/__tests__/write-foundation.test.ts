@@ -268,6 +268,8 @@ describe("ad group and ad writes", () => {
     const creatives = mock.calls[1].body.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].creative_authorized, false);
     assert.equal(creatives[0].identity_type, "TT_USER");
+    assert.deepEqual(creatives[0].image_ids, ["img_hero_1"]);
+    assert.equal(creatives[0].video_id, "video_1");
     assert.equal(mock.calls[0].body.operation_status, "DISABLE");
     assert.equal(mock.calls[1].body.operation_status, "DISABLE");
   });
@@ -310,9 +312,13 @@ describe("ad group and ad writes", () => {
       "7629750024332378128",
     );
     assert.equal(logged.creatives[0].identity_bc_id, null);
+    assert.equal(logged.creatives[0].video_id, "video_1");
+    assert.deepEqual(logged.creatives[0].image_ids, ["img_hero_1"]);
     assert.match(line, /identity_authorized_bc_id/);
     assert.match(line, /7629750024332378128/);
     assert.match(line, /"identity_type":"BC_AUTH_TT"/);
+    assert.match(line, /"video_id":"video_1"/);
+    assert.match(line, /"image_ids":\["img_hero_1"\]/);
   });
 });
 
@@ -339,6 +345,28 @@ describe("launchTikTokDraftState", () => {
       mock.calls.map((call) => call.path),
       ["/campaign/create/", "/adgroup/create/", "/ad/create/"],
     );
+  });
+
+  it("blocks a video creative with no cover image before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    delete (draft.creatives.items[0] as { coverImageId?: string | null }).coverImageId;
+    draft.creatives.items[0].thumbnailUrl = null;
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        draft,
+      ),
+      /Hero/,
+    );
+    assert.equal(mock.calls.length, 0);
   });
 
   it("blocks BC_AUTH_TT without a Business Center id before any TikTok write", async () => {
@@ -604,6 +632,7 @@ function launchableDraft() {
       videoId: "video_1",
       videoUrl: null,
       thumbnailUrl: null,
+      coverImageId: "img_hero_1",
       durationSeconds: null,
       title: null,
       sparkPostId: null,

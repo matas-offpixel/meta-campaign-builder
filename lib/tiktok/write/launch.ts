@@ -15,6 +15,7 @@ import {
   type LaunchTikTokDraftResult,
 } from "./orchestrator.ts";
 import { hydrateDraftIdentityBcId } from "../identity.ts";
+import { hydrateDraftCoverImageIds } from "./cover-image.ts";
 import { fetchAdvertiserCampaignNames } from "./campaign-names.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import { tiktokGet } from "../client.ts";
@@ -96,6 +97,27 @@ export async function handleTikTokLaunch(input: {
     draft,
     token: credentials.accessToken,
   });
+
+  const coversResolved = await hydrateDraftCoverImageIds({
+    draft,
+    token: credentials.accessToken,
+    request: input.request,
+    requestGet: input.requestGet,
+    sleep: input.sleep,
+  });
+  if (coversResolved > 0) {
+    try {
+      await upsertTikTokDraft(input.session, draft.id, {
+        ...draft,
+        userId: input.userId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[tiktok/launch] persist coverImageId draft=${draft.id} failed: ${message}`,
+      );
+    }
+  }
 
   let existingCampaignNames: string[] = [];
   try {
