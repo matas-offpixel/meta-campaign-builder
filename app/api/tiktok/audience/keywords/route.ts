@@ -6,6 +6,7 @@ import {
   type TikTokInterestAudienceType,
   type TikTokInterestKeywordMode,
 } from "@/lib/tiktok/audience";
+import { recommendWithSemanticFallback } from "@/lib/tiktok-wizard/keyword-recommend";
 
 const MODES = new Set<TikTokInterestKeywordMode>([
   "FUZZ_MATCH",
@@ -42,15 +43,28 @@ export async function GET(req: NextRequest) {
   const limit = limitRaw ? Number.parseInt(limitRaw, 10) : 50;
 
   try {
-    const keywords = await fetchTikTokInterestKeywordRecommendations({
-      advertiserId: context.advertiserId,
-      token: context.accessToken,
-      keyword,
+    const recommended = await recommendWithSemanticFallback({
       mode,
-      audienceType,
-      limit,
+      fetch: (nextMode) =>
+        fetchTikTokInterestKeywordRecommendations({
+          advertiserId: context.advertiserId,
+          token: context.accessToken,
+          keyword,
+          mode: nextMode,
+          audienceType,
+          limit,
+        }),
     });
-    return NextResponse.json({ ok: true, failed: false, keywords }, { status: 200 });
+    return NextResponse.json(
+      {
+        ok: true,
+        failed: false,
+        keywords: recommended.keywords,
+        usedMode: recommended.usedMode,
+        semanticFallback: recommended.semanticFallback,
+      },
+      { status: 200 },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[tiktok/audience/keywords] failed:", message);

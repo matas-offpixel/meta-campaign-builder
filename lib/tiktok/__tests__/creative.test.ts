@@ -57,6 +57,7 @@ describe("TikTok creative helpers", () => {
       {
         video_id: "v1",
         thumbnail_url: "https://example.com/thumb.jpg",
+        preview_url_expire_time: null,
         duration_seconds: 12,
         title: "Hero video",
       },

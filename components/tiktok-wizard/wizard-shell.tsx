@@ -1,7 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
+import { SaveTemplateModal } from "@/components/templates/save-template-modal";
+import {
+  deleteTikTokTemplateFromDb,
+  loadTikTokTemplatesFromDb,
+  saveTikTokTemplateToDb,
+} from "@/lib/db/tiktok-templates";
+import { createClient } from "@/lib/supabase/client";
+import {
+  applyTikTokTemplate,
+  type TikTokCampaignTemplate,
+} from "@/lib/tiktok-wizard/templates";
 import {
   validateTikTokWizardStep,
   type TikTokWizardValidationIssue,
@@ -10,6 +21,7 @@ import {
   TIKTOK_WIZARD_STEPS,
   type TikTokCampaignDraft,
 } from "@/lib/types/tiktok-draft";
+import { TikTokLoadTemplateModal } from "./load-template-modal";
 import { AccountSetupStep } from "./steps/account-setup";
 import { CampaignSetupStep } from "./steps/campaign-setup";
 import { OptimisationStrategyStep } from "./steps/optimisation-strategy";
@@ -18,6 +30,7 @@ import { CreativesStep } from "./steps/creatives";
 import { BudgetScheduleStep } from "./steps/budget-schedule";
 import { AssignCreativesStep } from "./steps/assign-creatives";
 import { ReviewLaunchStep } from "./steps/review-launch";
+import { TikTokWizardFooter, type TikTokSaveStatus } from "./wizard-footer";
 
 export interface TikTokWizardContext {
   eventName?: string | null;
@@ -38,6 +51,19 @@ export function TikTokWizardShell({
 }) {
   const [step, setStep] = useState(0);
   const [workingDraft, setWorkingDraft] = useState(draft);
+  const workingDraftRef = useRef(workingDraft);
+  workingDraftRef.current = workingDraft;
+  const saveQueue = useRef(Promise.resolve());
+  const [saveStatus, setSaveStatus] = useState<TikTokSaveStatus>("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
   const CurrentStep = useMemo(
     () => STEP_COMPONENTS[step] ?? AccountSetupStep,
     [step],
@@ -50,10 +76,12 @@ export function TikTokWizardShell({
   );
   const blocksNext = currentIssues.some((issue) => issue.blocksContinue);
 
-  async function saveDraft(patch: Partial<TikTokCampaignDraft>) {
-    const optimistic = mergeDraft(workingDraft, patch);
+  async function saveDraftNow(patch: Partial<TikTokCampaignDraft>) {
+    const current = workingDraftRef.current;
+    const optimistic = mergeDraft(current, patch);
+    workingDraftRef.current = optimistic;
     setWorkingDraft(optimistic);
-    const res = await fetch(`/api/tiktok/drafts/${workingDraft.id}`, {
+    const res = await fetch(`/api/tiktok/drafts/${current.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -63,10 +91,110 @@ export function TikTokWizardShell({
       | { ok: false; error: string }
       | null;
     if (!res.ok || !json?.ok) {
-      setWorkingDraft(workingDraft);
+      workingDraftRef.current = current;
+      setWorkingDraft(current);
       throw new Error(json && !json.ok ? json.error : "Failed to save draft");
     }
+    workingDraftRef.current = json.draft;
     setWorkingDraft(json.draft);
+  }
+
+  function saveDraft(patch: Partial<TikTokCampaignDraft>) {
+    const run = saveQueue.current.then(() => saveDraftNow(patch));
+    saveQueue.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  async function currentUserId(): Promise<string | null> {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    return user?.id ?? null;
+  }
+
+  async function handleSaveDraft() {
+    setSaveStatus("saving");
+    setSaveError(null);
+    try {
+      await saveDraft({});
+      setSaveStatus("saved");
+      window.setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch (err) {
+      setSaveStatus("idle");
+      setSaveError(err instanceof Error ? err.message : "Failed to save draft");
+    }
+  }
+
+  async function handleSaveTemplate(name: string, description: string, tags: string[]) {
+    const userId = await currentUserId();
+    if (!userId) {
+      setTemplateSaveError("Not signed in");
+      return;
+    }
+    setTemplateSaving(true);
+    setTemplateSaveError(null);
+    setTemplateSaveSuccess(false);
+    try {
+      await saveTikTokTemplateToDb(workingDraftRef.current, name, description, tags, userId);
+      setTemplateSaveSuccess(true);
+    } catch (err) {
+      setTemplateSaveError(
+        err instanceof Error ? err.message : "Unknown error saving template",
+      );
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  async function handleOpenLoadModal() {
+    setLoadTemplateOpen(true);
+    const userId = await currentUserId();
+    if (!userId) return;
+    setTemplatesLoading(true);
+    try {
+      setTemplates(await loadTikTokTemplatesFromDb(userId));
+    } catch (err) {
+      console.warn("Failed to fetch TikTok templates:", err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }
+
+  async function handleLoadTemplate(template: TikTokCampaignTemplate) {
+    const previous = workingDraftRef.current;
+    const next = applyTikTokTemplate(template, previous.id);
+    setWorkingDraft(next);
+    workingDraftRef.current = next;
+    try {
+      await saveDraft(next);
+      setStep(0);
+      setLoadTemplateOpen(false);
+      setSaveError(null);
+    } catch (err) {
+      workingDraftRef.current = previous;
+      setWorkingDraft(previous);
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to load template",
+      );
+    }
+  }
+
+  async function handleDeleteTemplate(id: string) {
+    setTemplates((prev) => prev.filter((template) => template.id !== id));
+    setDeletingTemplateId(id);
+    try {
+      await deleteTikTokTemplateFromDb(id);
+    } catch (err) {
+      console.error("Failed to delete TikTok template:", err);
+      const userId = await currentUserId();
+      if (userId) setTemplates(await loadTikTokTemplatesFromDb(userId));
+    } finally {
+      setDeletingTemplateId(null);
+    }
   }
 
   return (
@@ -113,27 +241,46 @@ export function TikTokWizardShell({
           />
         </section>
 
-        <div className="mt-6 flex justify-between">
-          <button
-            type="button"
-            className="rounded-md border border-border px-4 py-2 text-sm disabled:opacity-40"
-            disabled={step === 0}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40"
-            disabled={step === TIKTOK_WIZARD_STEPS.length - 1 || blocksNext}
-            onClick={() =>
-              setStep((s) => Math.min(TIKTOK_WIZARD_STEPS.length - 1, s + 1))
-            }
-          >
-            Next
-          </button>
-        </div>
+        <TikTokWizardFooter
+          currentStep={step}
+          canContinue={!blocksNext}
+          saveStatus={saveStatus}
+          saveError={saveError}
+          onBack={() => setStep((s) => Math.max(0, s - 1))}
+          onContinue={() =>
+            setStep((s) => Math.min(TIKTOK_WIZARD_STEPS.length - 1, s + 1))
+          }
+          onSaveDraft={() => void handleSaveDraft()}
+          onSaveTemplate={() => {
+            setSaveTemplateOpen(true);
+            setTemplateSaveSuccess(false);
+            setTemplateSaveError(null);
+          }}
+          onLoadTemplate={() => void handleOpenLoadModal()}
+        />
       </div>
+
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        saving={templateSaving}
+        savedSuccessfully={templateSaveSuccess}
+        error={templateSaveError}
+        onClose={() => {
+          setSaveTemplateOpen(false);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
+        onSave={handleSaveTemplate}
+      />
+      <TikTokLoadTemplateModal
+        open={loadTemplateOpen}
+        templates={templates}
+        loading={templatesLoading}
+        deletingId={deletingTemplateId}
+        onClose={() => setLoadTemplateOpen(false)}
+        onSelect={(template) => void handleLoadTemplate(template)}
+        onDelete={(id) => void handleDeleteTemplate(id)}
+      />
     </main>
   );
 }

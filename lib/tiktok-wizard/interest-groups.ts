@@ -156,6 +156,20 @@ export function flattenTikTokInterestGroups(
   return fromGroups;
 }
 
+export function removeTikTokInterestGroup(
+  audiences: TikTokAudiences,
+  groupId: string,
+): TikTokAudiences {
+  const interestGroups = audiences.interestGroups.filter(
+    (group) => group.id !== groupId,
+  );
+  return {
+    ...audiences,
+    interestGroups,
+    ...flattenTikTokInterestGroups(interestGroups, audiences),
+  };
+}
+
 function unique(ids: string[]): string[] {
   return [...new Set(ids.filter(Boolean))];
 }

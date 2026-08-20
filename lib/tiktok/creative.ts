@@ -5,6 +5,7 @@ type TikTokGet = typeof tiktokGet;
 export interface TikTokVideoInfo {
   video_id: string;
   thumbnail_url: string | null;
+  preview_url_expire_time?: string | number | null;
   duration_seconds: number | null;
   title: string | null;
 }
@@ -12,6 +13,9 @@ export interface TikTokVideoInfo {
 interface VideoInfoRow {
   video_id?: string;
   thumbnail_url?: string;
+  video_cover_url?: string;
+  preview_url?: string;
+  preview_url_expire_time?: string | number;
   duration?: number;
   duration_seconds?: number;
   title?: string;
@@ -44,7 +48,9 @@ export async function fetchTikTokVideoInfo(input: {
     )
     .map((row) => ({
       video_id: row.video_id,
-      thumbnail_url: row.thumbnail_url ?? null,
+      thumbnail_url:
+        row.video_cover_url ?? row.thumbnail_url ?? row.preview_url ?? null,
+      preview_url_expire_time: row.preview_url_expire_time ?? null,
       duration_seconds: row.duration_seconds ?? row.duration ?? null,
       title: row.title ?? row.file_name ?? null,
     }));

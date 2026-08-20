@@ -6,6 +6,7 @@ import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
   formatTikTokInterestGroupCounts,
+  removeTikTokInterestGroup,
 } from "../interest-groups.ts";
 
 describe("flattenTikTokInterestGroups", () => {
@@ -27,6 +28,46 @@ describe("flattenTikTokInterestGroups", () => {
     assert.deepEqual(flat.interestKeywordIds, ["kw-1"]);
     assert.deepEqual(flat.behaviourCategoryIds, ["beh-1"]);
     assert.equal(flat.behaviourCategoryLabels["beh-1"], "Creators");
+  });
+});
+
+describe("removeTikTokInterestGroup", () => {
+  it("removes a non-empty group and drops its ids from the flat targeting fields", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    const keep = createEmptyTikTokInterestGroup();
+    keep.name = "UK";
+    keep.interestIds = [{ id: "keep-kw", name: "House", kind: "keyword" }];
+    keep.hashtagIds = [{ id: "keep-tag", name: "house", kind: "keyword" }];
+    const remove = createEmptyTikTokInterestGroup();
+    remove.name = "London";
+    remove.interestIds = [{ id: "gone-kw", name: "Techno", kind: "keyword" }];
+    remove.hashtagIds = [{ id: "gone-tag", name: "techno", kind: "keyword" }];
+    remove.behaviourIds = [{ id: "gone-beh", name: "Creators", kind: "category" }];
+    draft.audiences.interestGroups = [keep, remove];
+    draft.audiences.interestKeywordIds = ["keep-kw", "keep-tag", "gone-kw", "gone-tag"];
+    draft.audiences.behaviourCategoryIds = ["gone-beh"];
+    draft.audiences.behaviourCategoryLabels = { "gone-beh": "Creators" };
+
+    const persisted = {
+      current: JSON.parse(JSON.stringify(draft)) as typeof draft,
+    };
+    persisted.current.audiences = removeTikTokInterestGroup(
+      persisted.current.audiences,
+      remove.id,
+    );
+    const reloaded = JSON.parse(JSON.stringify(persisted.current)) as typeof draft;
+
+    assert.equal(reloaded.audiences.interestGroups.length, 1);
+    assert.equal(reloaded.audiences.interestGroups[0]?.name, "UK");
+    assert.equal(
+      reloaded.audiences.interestGroups.some((group) => group.id === remove.id),
+      false,
+    );
+    assert.deepEqual(reloaded.audiences.interestKeywordIds, ["keep-kw", "keep-tag"]);
+    assert.equal(reloaded.audiences.interestKeywordIds.includes("gone-kw"), false);
+    assert.equal(reloaded.audiences.interestKeywordIds.includes("gone-tag"), false);
+    assert.deepEqual(reloaded.audiences.behaviourCategoryIds, []);
+    assert.equal(reloaded.audiences.behaviourCategoryLabels["gone-beh"], undefined);
   });
 });
 

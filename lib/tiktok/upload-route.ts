@@ -147,6 +147,7 @@ export async function executeTikTokCreativeUpload(input: {
       videoId: uploaded.videoId,
       previewUrl: uploaded.previewUrl,
       coverUrl: uploaded.coverUrl,
+      previewUrlExpireAt: uploaded.previewUrlExpireAt,
       width: uploaded.width,
       height: uploaded.height,
       durationSeconds: uploaded.durationSeconds,
