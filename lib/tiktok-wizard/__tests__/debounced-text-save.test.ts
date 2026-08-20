@@ -6,11 +6,10 @@ import {
   applyTikTokCampaignSetupPatch,
   createDebouncedCallback,
   TIKTOK_TEXT_SAVE_DEBOUNCE_MS,
-  tikTokTextFieldDisabledWhileSaving,
 } from "../debounced-text-save.ts";
 
 describe("TikTok campaign-name save", () => {
-  it("debounces rapid changes to one save of the last value and never disables the input", () => {
+  it("debounces rapid changes to one save of the last value", () => {
     mock.timers.enable({ apis: ["setTimeout"] });
     const saves: string[] = [];
     let latest = "";
@@ -21,12 +20,33 @@ describe("TikTok campaign-name save", () => {
     for (const next of ["H", "He", "Hel", "Hell", "Hello"]) {
       latest = next;
       debounced.schedule();
-      assert.equal(tikTokTextFieldDisabledWhileSaving(true), false);
     }
 
     mock.timers.tick(TIKTOK_TEXT_SAVE_DEBOUNCE_MS - 1);
     assert.deepEqual(saves, []);
     mock.timers.tick(1);
+    assert.deepEqual(saves, ["Hello"]);
+    mock.timers.reset();
+  });
+
+  it("flushes a pending name save on unmount instead of discarding it", () => {
+    mock.timers.enable({ apis: ["setTimeout"] });
+    const saves: string[] = [];
+    let latest = "";
+    const debounced = createDebouncedCallback(() => {
+      saves.push(latest);
+    }, TIKTOK_TEXT_SAVE_DEBOUNCE_MS);
+
+    latest = "Hello";
+    debounced.schedule();
+    mock.timers.tick(TIKTOK_TEXT_SAVE_DEBOUNCE_MS - 1);
+    assert.deepEqual(saves, []);
+
+    // Component unmount: flush, do not cancel.
+    debounced.flush();
+    assert.deepEqual(saves, ["Hello"]);
+
+    mock.timers.tick(TIKTOK_TEXT_SAVE_DEBOUNCE_MS);
     assert.deepEqual(saves, ["Hello"]);
     mock.timers.reset();
   });
@@ -53,5 +73,25 @@ describe("TikTok campaign-name save", () => {
       { objective: "CONVERSIONS" },
     );
     assert.notEqual(staleSecond.campaignSetup.campaignName, "[EVT] Hello");
+  });
+
+  it("a draft changed from outside is what the next patch builds on", () => {
+    const draftRef = { current: createDefaultTikTokDraft("draft-1") };
+    draftRef.current.campaignSetup.campaignName = "[EVT] Typed locally";
+    draftRef.current.campaignSetup.objective = "TRAFFIC";
+
+    const fromOutside = createDefaultTikTokDraft("draft-1");
+    fromOutside.campaignSetup.campaignName = "[EVT] Typed locally";
+    fromOutside.campaignSetup.objective = "CONVERSIONS";
+    fromOutside.campaignSetup.optimisationGoal = "CONVERSION";
+    // Render-body assign — not gated on draft.id.
+    draftRef.current = fromOutside;
+
+    const next = applyTikTokCampaignSetupPatch(draftRef.current, {
+      campaignName: "[EVT] After outside change",
+    });
+    assert.equal(next.campaignSetup.campaignName, "[EVT] After outside change");
+    assert.equal(next.campaignSetup.objective, "CONVERSIONS");
+    assert.equal(next.campaignSetup.optimisationGoal, "CONVERSION");
   });
 });

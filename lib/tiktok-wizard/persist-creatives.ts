@@ -18,6 +18,7 @@ export async function commitUploadedTikTokCreatives(input: {
   displayName: string;
   landingPageUrl: string;
   cta: string;
+  variationCount?: string | number;
   newId?: () => string;
 }): Promise<TikTokCreativeDraft[]> {
   const items = appendUploadedTikTokCreatives({
@@ -28,6 +29,7 @@ export async function commitUploadedTikTokCreatives(input: {
     displayName: input.displayName,
     landingPageUrl: input.landingPageUrl,
     cta: input.cta,
+    variationCount: input.variationCount,
     newId: input.newId,
   });
   await input.writeItems(items);

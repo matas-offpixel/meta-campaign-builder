@@ -20,7 +20,6 @@ import {
 import {
   applyTikTokCampaignSetupPatch,
   createDebouncedCallback,
-  tikTokTextFieldDisabledWhileSaving,
 } from "@/lib/tiktok-wizard/debounced-text-save";
 import type {
   TikTokBidStrategy,
@@ -41,6 +40,8 @@ export function CampaignSetupStep({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const mountedRef = useRef(true);
   const [nameDraft, setNameDraft] = useState(() =>
     stripLockedEventCodePrefix(
       draft.campaignSetup.eventCode,
@@ -51,7 +52,6 @@ export function CampaignSetupStep({
   nameDraftRef.current = nameDraft;
 
   useEffect(() => {
-    draftRef.current = draft;
     setNameDraft(
       stripLockedEventCodePrefix(
         draft.campaignSetup.eventCode,
@@ -85,16 +85,22 @@ export function CampaignSetupStep({
   );
 
   async function persist(campaignSetup: Partial<TikTokCampaignDraft["campaignSetup"]>) {
-    setSaving(true);
-    setSaveError(null);
+    if (mountedRef.current) {
+      setSaving(true);
+      setSaveError(null);
+    }
     const next = applyTikTokCampaignSetupPatch(draftRef.current, campaignSetup);
     draftRef.current = next;
     try {
       await onSave({ campaignSetup: next.campaignSetup });
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save campaign setup");
+      if (mountedRef.current) {
+        setSaveError(err instanceof Error ? err.message : "Failed to save campaign setup");
+      }
     } finally {
-      setSaving(false);
+      if (mountedRef.current) {
+        setSaving(false);
+      }
     }
   }
 
@@ -111,8 +117,12 @@ export function CampaignSetupStep({
 
   const nameSave = useRef(createDebouncedCallback(() => void saveNameNow()));
   useEffect(() => {
+    mountedRef.current = true;
     const current = nameSave.current;
-    return () => current.cancel();
+    return () => {
+      mountedRef.current = false;
+      current.flush();
+    };
   }, []);
 
   function onNameChange(value: string) {
@@ -176,7 +186,6 @@ export function CampaignSetupStep({
             onChange={(event) => onNameChange(event.target.value)}
             onBlur={() => nameSave.current.flush()}
             placeholder="Campaign name"
-            disabled={tikTokTextFieldDisabledWhileSaving(saving)}
           />
         </div>
         {!eventCode && (
