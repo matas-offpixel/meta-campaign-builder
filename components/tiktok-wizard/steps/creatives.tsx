@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
+import {
+  clampTikTokVariationCount,
+  nextTikTokCreativeNames,
+} from "@/lib/tiktok-wizard/creative-items";
 import { refreshExpiredTikTokThumbnails } from "@/lib/tiktok-wizard/creative-thumbnails";
 import {
   commitUploadedTikTokCreatives,
@@ -15,7 +19,6 @@ import {
 import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
-  nameCreativeVariations,
   type TikTokVideoInfo,
 } from "@/lib/tiktok/creative";
 import {
@@ -101,6 +104,7 @@ export function CreativesStep({
       setError("TikTok ad text must be 100 characters or fewer.");
       return;
     }
+    const count = clampTikTokVariationCount(variationCount);
     for (const file of files) {
       const gate = validateTikTokVideoFile(file);
       if (!gate.ok) {
@@ -175,6 +179,7 @@ export function CreativesStep({
             "",
           landingPageUrl: landingPageUrl.trim(),
           cta,
+          variationCount: count,
         });
         itemsRef.current = persisted;
         patchJob(jobId, { stage: "done", videoId: result.videoId, thumbnailUrl });
@@ -196,16 +201,20 @@ export function CreativesStep({
       setError("TikTok ad text must be 100 characters or fewer.");
       return;
     }
-    const count = Math.max(1, Math.min(10, Number.parseInt(variationCount, 10) || 1));
+    const count = clampTikTokVariationCount(variationCount);
     const videoInfo = await loadVideoInfo(videoId);
     if (!videoInfo) return;
-    const names = nameCreativeVariations(baseName, count);
+    const names = nextTikTokCreativeNames(
+      baseName,
+      itemsRef.current.length,
+      count,
+    );
     const displayName =
       draft.accountSetup.identityDisplayName ??
       draft.accountSetup.identityManualName ??
       "";
     const nextItems: TikTokCreativeDraft[] = [
-      ...draft.creatives.items,
+      ...itemsRef.current,
       ...names.map((name) => ({
         id: crypto.randomUUID(),
         name,
@@ -368,7 +377,7 @@ export function CreativesStep({
         />
         <Input
           id="creative-variation-count"
-          label="Variations (paste-a-video-id only)"
+          label="Variations"
           inputMode="numeric"
           value={variationCount}
           onChange={(event) => setVariationCount(event.target.value)}

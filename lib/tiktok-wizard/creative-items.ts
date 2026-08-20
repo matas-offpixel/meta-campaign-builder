@@ -9,6 +9,26 @@ export interface TikTokUploadedCreativeInput {
   fileName: string;
 }
 
+export function clampTikTokVariationCount(raw: string | number): number {
+  const parsed = typeof raw === "number" ? raw : Number.parseInt(raw, 10);
+  return Math.max(1, Math.min(10, Number.isFinite(parsed) ? parsed : 1));
+}
+
+/**
+ * Number names across existing + this batch so 14 files become v1…v14,
+ * not fourteen copies of "base · v1". The sequence is one list of
+ * existingCount + addedCount names; we return only the new slice.
+ */
+export function nextTikTokCreativeNames(
+  baseName: string,
+  existingCount: number,
+  addedCount: number,
+): string[] {
+  return nameCreativeVariations(baseName, existingCount + addedCount).slice(
+    existingCount,
+  );
+}
+
 export function appendUploadedTikTokCreatives(input: {
   existing: TikTokCreativeDraft[];
   uploads: TikTokUploadedCreativeInput[];
@@ -17,40 +37,43 @@ export function appendUploadedTikTokCreatives(input: {
   displayName: string;
   landingPageUrl: string;
   cta: string;
+  variationCount?: string | number;
   newId?: () => string;
 }): TikTokCreativeDraft[] {
-  // Uploads ignore the Variations input — one file is one creative.
-  // Number names across existing + this batch so 14 files become v1…v14,
-  // not fourteen copies of "base · v1".
-  const names = nameCreativeVariations(
-    input.baseName,
-    input.existing.length + input.uploads.length,
-  );
+  const count = clampTikTokVariationCount(input.variationCount ?? 1);
   const next = [...input.existing];
   const newId = input.newId ?? (() => crypto.randomUUID());
-  input.uploads.forEach((upload, index) => {
-    const name =
-      names[input.existing.length + index] ??
-      `${input.baseName.trim() || "TikTok creative"} · v${input.existing.length + index + 1}`;
-    next.push({
-      id: newId(),
-      name,
-      baseName: input.baseName.trim() || "TikTok creative",
-      mode: "VIDEO_REFERENCE",
-      videoId: upload.videoId,
-      videoUrl: null,
-      thumbnailUrl: upload.thumbnailUrl,
-      thumbnailExpiresAt: upload.thumbnailExpiresAt ?? null,
-      durationSeconds: upload.durationSeconds,
-      title: upload.fileName,
-      sparkPostId: null,
-      caption: input.adText,
-      adText: input.adText,
-      displayName: input.displayName,
-      landingPageUrl: input.landingPageUrl,
-      cta: input.cta,
-      musicId: null,
-    });
-  });
+  const resolvedBase = input.baseName.trim() || "TikTok creative";
+  const names = nextTikTokCreativeNames(
+    resolvedBase,
+    input.existing.length,
+    input.uploads.length * count,
+  );
+  let nameIndex = 0;
+  for (const upload of input.uploads) {
+    for (let variation = 0; variation < count; variation += 1) {
+      const name = names[nameIndex] ?? `${resolvedBase} · v${nameIndex + 1}`;
+      nameIndex += 1;
+      next.push({
+        id: newId(),
+        name,
+        baseName: resolvedBase,
+        mode: "VIDEO_REFERENCE",
+        videoId: upload.videoId,
+        videoUrl: null,
+        thumbnailUrl: upload.thumbnailUrl,
+        thumbnailExpiresAt: upload.thumbnailExpiresAt ?? null,
+        durationSeconds: upload.durationSeconds,
+        title: upload.fileName,
+        sparkPostId: null,
+        caption: input.adText,
+        adText: input.adText,
+        displayName: input.displayName,
+        landingPageUrl: input.landingPageUrl,
+        cta: input.cta,
+        musicId: null,
+      });
+    }
+  }
   return next;
 }

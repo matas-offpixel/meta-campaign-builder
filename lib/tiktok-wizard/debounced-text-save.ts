@@ -2,12 +2,6 @@ import type { TikTokCampaignDraft } from "../types/tiktok-draft.ts";
 
 export const TIKTOK_TEXT_SAVE_DEBOUNCE_MS = 500;
 
-/** Text fields must never disable themselves mid-word while a PATCH is in flight. */
-export function tikTokTextFieldDisabledWhileSaving(saving: boolean): false {
-  void saving;
-  return false;
-}
-
 export function applyTikTokCampaignSetupPatch(
   latest: TikTokCampaignDraft,
   patch: Partial<TikTokCampaignDraft["campaignSetup"]>,

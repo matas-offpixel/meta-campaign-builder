@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+import {
+  createDefaultTikTokDraft,
+  type TikTokCreativeDraft,
+} from "../../types/tiktok-draft.ts";
 import {
   commitUploadedTikTokCreatives,
   formatTikTokCreativePersistFailure,
@@ -64,6 +67,64 @@ describe("commitUploadedTikTokCreatives", () => {
       reloaded.creatives.items.map((item: { videoId: string }) => item.videoId),
       ["v1", "v2", "v3"],
     );
+  });
+
+  it("sequential uploads with two variations keep every file's items", async () => {
+    let n = 0;
+    const store = { items: [] as TikTokCreativeDraft[] };
+    const uploads = [
+      {
+        videoId: "v1",
+        thumbnailUrl: "https://cdn.example/1.jpg",
+        durationSeconds: 8,
+        fileName: "one.mp4",
+      },
+      {
+        videoId: "v2",
+        thumbnailUrl: "https://cdn.example/2.jpg",
+        durationSeconds: 9,
+        fileName: "two.mp4",
+      },
+      {
+        videoId: "v3",
+        thumbnailUrl: "https://cdn.example/3.jpg",
+        durationSeconds: 10,
+        fileName: "three.mp4",
+      },
+    ];
+
+    for (const upload of uploads) {
+      await commitUploadedTikTokCreatives({
+        readItems: () => store.items,
+        writeItems: async (items) => {
+          store.items = items;
+        },
+        upload,
+        baseName: "Hero",
+        adText: "Book now",
+        displayName: "Brand",
+        landingPageUrl: "https://example.com",
+        cta: "LEARN_MORE",
+        variationCount: 2,
+        newId: () => `id-${++n}`,
+      });
+    }
+
+    assert.equal(store.items.length, 6);
+    assert.deepEqual(
+      store.items.map((item) => item.videoId),
+      ["v1", "v1", "v2", "v2", "v3", "v3"],
+    );
+    const names = store.items.map((item) => item.name);
+    assert.equal(new Set(names).size, names.length);
+    assert.deepEqual(names, [
+      "Hero · v1",
+      "Hero · v2",
+      "Hero · v3",
+      "Hero · v4",
+      "Hero · v5",
+      "Hero · v6",
+    ]);
   });
 
   it("a failed draft write keeps the server's own message", async () => {
