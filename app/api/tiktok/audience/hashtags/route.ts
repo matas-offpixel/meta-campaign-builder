@@ -6,6 +6,18 @@ import {
   type TikTokHashtagOperator,
 } from "@/lib/tiktok/audience";
 
+/**
+ * GET /api/tiktok/audience/hashtags
+ *
+ * Query:
+ *   advertiser_id  required
+ *   keyword        required, repeatable, max 10 after trim.
+ *                  Repeat the param (`?keyword=techno&keyword=house`) or
+ *                  comma-separate (`?keyword=techno,house`). The plural
+ *                  `keywords=` form is ignored — `?keywords=techno` is
+ *                  a 400 because no `keyword` values were collected.
+ *   operator       optional, AND | OR (default AND)
+ */
 export async function GET(req: NextRequest) {
   const context = await requireTikTokAudienceContext(req);
   if (!context.ok) return context.response;
