@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { buildTemplatePayload } from "../builder.ts";
 import { puzzleCircuitTemplates } from "../definitions/puzzle-circuit.ts";
-import type { BirdLinkActionBlock, BirdTextBlock } from "../types.ts";
+import type { BirdImageBlock, BirdLinkActionBlock, BirdTextBlock } from "../types.ts";
 
 const PUZZLE_CHANNEL_GROUP = "81675dc0-c9f0-4521-b207-47e15b897ede";
 
@@ -86,6 +86,49 @@ test("every Puzzle template opts out of Bird link-shortening", () => {
 test("the runner honours a definition's shortLinks opt-out", () => {
   const payload = payloadFor("puzzle_southampton_17_10_26_presale_live");
   assert.equal(payload.shortLinks.enabled, false);
+});
+
+test("lineup first look reveals on the lineup artwork, not the teaser", () => {
+  const payload = payloadFor("puzzle_southampton_17_10_26_lineup_first_look");
+  const header = payload.platformContent[0].blocks.find(
+    (b): b is BirdImageBlock => b.type === "image",
+  );
+  assert.ok(header, "header image missing");
+  assert.match(header.image.mediaUrl, /puzzle-circuit-lineup-1080\.jpg$/);
+  assert.doesNotMatch(header.image.mediaUrl, /teaser/);
+});
+
+test("lineup first look carries one button and the signed-off copy verbatim", () => {
+  const payload = payloadFor("puzzle_southampton_17_10_26_lineup_first_look");
+  const blocks = payload.platformContent[0].blocks;
+  const buttons = blocks.filter(
+    (b): b is BirdLinkActionBlock => b.type === "link-action",
+  );
+  assert.equal(buttons.length, 1);
+  assert.equal(buttons[0].linkAction.text, "GET YOUR TICKET");
+
+  const body = blocks.find(
+    (b): b is BirdTextBlock => b.type === "text" && b.role === "body",
+  );
+  assert.ok(body);
+  assert.equal(
+    body.text.text,
+    "*FIRST LOOK AT THE LINEUP*\n" +
+      "*LAST CHANCE FOR £10 TICKETS*\n\n" +
+      "We couldn't hold it any longer and are beyond excited to welcome *Jamback, Mella Dee, Cam Stockman, Li Li* and many more for our return to Southampton.\n\n" +
+      "Last chance for £10 tickets. They come off sale at *5pm today* — that's when the lineup goes public with a sign up for the next release of tickets.",
+  );
+  // Four bold spans is the house maximum; an odd count means an unclosed span,
+  // which WhatsApp renders as a literal asterisk.
+  assert.equal((body.text.text.match(/\*/g) ?? []).length, 8);
+});
+
+test("lineup first look is marked single-use where Bird's picker shows it", () => {
+  // It pins "5pm today" — true for exactly one broadcast. The project name is
+  // the only thing an operator sees when attaching a template to a send.
+  const d = def("puzzle_southampton_17_10_26_lineup_first_look");
+  assert.match(d.projectName ?? "", /^Puzzle-Southampton-17\.10\.26 lineup first look/);
+  assert.match(d.projectName ?? "", /SINGLE USE/);
 });
 
 test("superseded announce templates stay out of the shipped set", () => {

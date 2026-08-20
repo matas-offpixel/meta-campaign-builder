@@ -48,6 +48,13 @@ const COMMUNITY_URL = "https://app.offpixel.co.uk/j/puzzle-circuit";
 const TICKET_URL =
   "https://www.skiddle.com/whats-on/Southampton/Circuit-Southampton/Puzzle-Southampton-171026/42666273/";
 
+/**
+ * Lineup artwork (1080x1350), same public-read bucket as the teaser. Distinct
+ * asset — the lineup reveal must not go out on the teaser poster.
+ */
+const LINEUP_ARTWORK_URL =
+  "https://bpvsfsrrsckbmpzohjhy.supabase.co/storage/v1/object/public/offpixel-event-assets/puzzle-circuit-lineup-1080.jpg";
+
 const JOIN_BUTTON = {
   text: { en: "WHATSAPP COMMUNITY" },
   url: COMMUNITY_URL,
@@ -179,8 +186,56 @@ const presale_live: BrandTemplateDefinition = {
   variableExamples: {},
 };
 
+/**
+ * Lineup first look — the reveal, doubling as the £10 last-chance push.
+ *
+ * ⚠️⚠️ SINGLE-USE. DO NOT REUSE ON A LATER SEND. ⚠️⚠️
+ * The body pins "*5pm today*", which is true only for the one broadcast this
+ * was built for (Thu 20 Aug 2026). On any later send the deadline is a lie and
+ * the £10 tier no longer exists. The Bird project is named "… (SINGLE USE …)"
+ * so it reads as spent in the picker.
+ *
+ * This is a CONSCIOUS EXCEPTION to the rule that permanent, immutable template
+ * copy must never pin a time (cf. `presale_live`, which says "*very soon*"
+ * precisely to avoid this). It is justified only because approval on this WABA
+ * runs in minutes and the deadline IS the message. Do not treat it as
+ * precedent — the default remains: no time claims in template copy.
+ *
+ * Header is the LINEUP artwork, not the teaser. The two are different assets
+ * and a reveal on the teaser poster would be wrong.
+ *
+ * `shortLinks: false` is required to activate at all — see
+ * `BrandTemplateDefinition.shortLinks` and the audit's Phase 3 log. Cost is no
+ * per-click tracking on the button; Skiddle's own analytics are the fallback.
+ *
+ * Copy is Matas's signed-off text, reproduced verbatim — four bold spans, at
+ * the house maximum, none nested inside italic. Do not reword and do not
+ * "correct" it.
+ */
+const lineup_first_look: BrandTemplateDefinition = {
+  name: "puzzle_southampton_17_10_26_lineup_first_look",
+  projectName: "Puzzle-Southampton-17.10.26 lineup first look (SINGLE USE - 20 Aug, expires 5pm)",
+  category: "MARKETING",
+  shortLinks: false,
+  locales: ["en"],
+  headerImageUrl: LINEUP_ARTWORK_URL,
+  body: {
+    en:
+      "*FIRST LOOK AT THE LINEUP*\n" +
+      "*LAST CHANCE FOR £10 TICKETS*\n\n" +
+      "We couldn't hold it any longer and are beyond excited to welcome *Jamback, Mella Dee, Cam Stockman, Li Li* and many more for our return to Southampton.\n\n" +
+      "Last chance for £10 tickets. They come off sale at *5pm today* — that's when the lineup goes public with a sign up for the next release of tickets.",
+  },
+  button: {
+    text: { en: "GET YOUR TICKET" },
+    url: TICKET_URL,
+  },
+  variableExamples: {},
+};
+
 export const puzzleCircuitTemplates: BrandTemplateDefinition[] = [
   signup_confirmation,
   announce_v3,
   presale_live,
+  lineup_first_look,
 ];
