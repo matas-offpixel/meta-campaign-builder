@@ -23,7 +23,7 @@ export interface TikTokWriteContext {
   draftId: string;
   advertiserId: string;
   token: string;
-  request: TikTokPost;
+  request?: TikTokPost;
   sleep?: Sleep;
 }
 

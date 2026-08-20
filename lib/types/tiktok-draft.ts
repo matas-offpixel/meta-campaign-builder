@@ -12,9 +12,23 @@ export interface TikTokCampaignDraft {
   creatives: TikTokCreatives;
   budgetSchedule: TikTokBudgetSchedule;
   creativeAssignments: TikTokCreativeAssignments;
+  /**
+   * Creative Integrity Mode — when `true` (default), the launcher forces
+   * `is_aco: false` and `creative_authorized: false` so TikTok cannot apply
+   * automated-ad or Smart Creative enhancements. Mirror of Meta's
+   * `settings.creativeIntegrityMode`.
+   */
+  creativeIntegrityMode: boolean;
+  publishedIds: TikTokPublishedIds | null;
   reviewReadyAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TikTokPublishedIds {
+  campaignId: string;
+  adgroupIds: string[];
+  adIds: string[];
 }
 
 export interface TikTokAccountSetup {
@@ -205,6 +219,8 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       adGroups: [],
     },
     creativeAssignments: { byAdGroupId: {} },
+    creativeIntegrityMode: true,
+    publishedIds: null,
     reviewReadyAt: null,
     createdAt: now,
     updatedAt: now,

@@ -160,6 +160,19 @@ ENABLE_BUDGET_PACING_ALERTS=
 
 > **`FACEBOOK_OAUTH_SCOPES`** — optional comma-separated override for the Facebook OAuth dialog scope list (and the settings UI missing-permissions check); set on deployments whose Meta app cannot request `instagram_basic`.
 
+> **`OFFPIXEL_TIKTOK_WRITES_ENABLED`** — TikTok campaign launcher killswitch
+> (`POST /api/tiktok/launch-campaign`). Must be exactly `"true"`; unset (the
+> default) or any other value returns 503 and the Review & Launch button stays
+> disabled. The launcher is `lib/tiktok/write/{campaign,adgroup,ad,orchestrator}.ts`
+> plus all-at-once preflight in `lib/tiktok/write/preflight.ts`. Enhancements
+> stay **off**: every ad is created with `is_aco: false` and
+> `creative_authorized: false` (Creative Integrity Mode defaults ON on the
+> draft). Smart+ (`draft.optimisation.smartPlusEnabled`) is a hard preflight
+> blocker — this path never calls `/smart_plus/*` or Smart Creative endpoints.
+> Campaigns are created paused (`operation_status: DISABLE`) so the first live
+> write can be inspected before spend starts. Leave this unset in Vercel until
+> a paused smoke-test campaign has been verified.
+
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII
 > (deliberately NOT `D2C_TOKEN_KEY` — blast-radius isolation, see
@@ -405,7 +418,8 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   `tiktok_campaign_drafts` + `tiktok_campaign_templates` (058),
   `tiktok_rollup_breakdowns` (059), `tiktok_write_idempotency` (062). Full
   integration including OAuth, rollup, share, breakdowns, wizard, library,
-  brief export, and write-API foundation behind feature flag.
+  brief export, and the write launcher (`POST /api/tiktok/launch-campaign`,
+  gated by `OFFPIXEL_TIKTOK_WRITES_ENABLED`, enhancements off by default).
 - Google Ads pipeline (April 2026): `google_ads_accounts` (encrypted
   credentials, migration 063; customer_id uniqueness constraint 065),
   `event_daily_rollups` extended with Google Ads columns (064). Includes

@@ -1,11 +1,14 @@
 import { getTikTokDraft } from "../../db/tiktok-drafts.ts";
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
+import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
 import { createTikTokAd } from "./ad.ts";
 import { createTikTokAdGroup } from "./adgroup.ts";
 import { createTikTokCampaign } from "./campaign.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
 import type { TikTokWriteContext } from "./idempotency.ts";
+import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import { postTikTokWrite } from "./request.ts";
+import type { TikTokLaunchEntity } from "./types.ts";
 
 export interface LaunchTikTokDraftArgs
   extends Omit<TikTokWriteContext, "draftId" | "advertiserId"> {
@@ -16,6 +19,19 @@ export interface LaunchTikTokDraftResult {
   campaign_id: string;
   adgroup_ids: string[];
   ad_ids: string[];
+  entities: TikTokLaunchEntity[];
+}
+
+export type { TikTokLaunchEntity } from "./types.ts";
+
+export class TikTokLaunchPreflightError extends Error {
+  readonly issues: ReturnType<typeof collectTikTokLaunchPreflight>["issues"];
+
+  constructor(issues: ReturnType<typeof collectTikTokLaunchPreflight>["issues"]) {
+    super(issues.map((issue) => issue.message).join("; ") || "TikTok launch preflight failed");
+    this.name = "TikTokLaunchPreflightError";
+    this.issues = issues;
+  }
 }
 
 export async function launchTikTokDraft(
@@ -35,6 +51,11 @@ export async function launchTikTokDraftState(
   draft: TikTokCampaignDraft,
 ): Promise<LaunchTikTokDraftResult> {
   assertTikTokWritesEnabled();
+  const preflight = collectTikTokLaunchPreflight(draft);
+  if (!preflight.ok) {
+    throw new TikTokLaunchPreflightError(preflight.issues);
+  }
+
   const advertiserId = draft.accountSetup.advertiserId;
   if (!advertiserId) throw new Error("TikTok advertiser is missing");
 
@@ -45,46 +66,53 @@ export async function launchTikTokDraftState(
 
   const createdCampaign = await createTikTokCampaign({
     ...context,
-    campaignName: draft.campaignSetup.campaignName,
-    objective: draft.campaignSetup.objective ?? "TRAFFIC",
-    budgetMode: draft.budgetSchedule.budgetMode,
+    draft,
   });
+  const entities: TikTokLaunchEntity[] = [
+    {
+      kind: "campaign",
+      id: createdCampaign.campaign_id,
+      name: draft.campaignSetup.campaignName,
+      status: "created",
+    },
+  ];
 
   const adgroupIds: string[] = [];
   const adIds: string[] = [];
 
   try {
-    for (const adGroup of draft.budgetSchedule.adGroups) {
+    for (const adGroup of suggestTikTokAdGroups(draft)) {
       const createdAdGroup = await createTikTokAdGroup({
         ...context,
         campaignId: createdCampaign.campaign_id,
-        adGroupName: adGroup.name,
-        budget: adGroup.budget ?? draft.budgetSchedule.budgetAmount,
-        scheduleStartAt: adGroup.startAt ?? draft.budgetSchedule.scheduleStartAt,
-        scheduleEndAt: adGroup.endAt ?? draft.budgetSchedule.scheduleEndAt,
-        optimisationGoal: draft.campaignSetup.optimisationGoal,
+        draft,
+        adGroup,
       });
       adgroupIds.push(createdAdGroup.adgroup_id);
+      entities.push({
+        kind: "adgroup",
+        id: createdAdGroup.adgroup_id,
+        name: adGroup.name,
+        status: "created",
+      });
 
-      const creativeIds =
-        draft.creativeAssignments.byAdGroupId[adGroup.id] ?? [];
+      const creativeIds = draft.creativeAssignments.byAdGroupId[adGroup.id] ?? [];
       for (const creativeId of creativeIds) {
-        const creative = draft.creatives.items.find(
-          (item) => item.id === creativeId,
-        );
+        const creative = draft.creatives.items.find((item) => item.id === creativeId);
         if (!creative?.videoId) continue;
         const createdAd = await createTikTokAd({
           ...context,
           adGroupId: createdAdGroup.adgroup_id,
-          adName: creative.name,
-          videoId: creative.videoId,
-          adText: creative.adText,
-          displayName: creative.displayName,
-          landingPageUrl: creative.landingPageUrl,
-          cta: creative.cta,
-          identityId: draft.accountSetup.identityId,
+          draft,
+          creative,
         });
         adIds.push(createdAd.ad_id);
+        entities.push({
+          kind: "ad",
+          id: createdAd.ad_id,
+          name: creative.name,
+          status: "created",
+        });
       }
     }
   } catch (err) {
@@ -96,6 +124,7 @@ export async function launchTikTokDraftState(
     campaign_id: createdCampaign.campaign_id,
     adgroup_ids: adgroupIds,
     ad_ids: adIds,
+    entities,
   };
 }
 
