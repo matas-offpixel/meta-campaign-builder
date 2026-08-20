@@ -206,3 +206,83 @@ A create only produces a **draft**. Transitioning `draft → pending_approval` (
 | `jackies_presale_reminder` | MARKETING | es-ES | `02d9b563-6944-4041-816d-b21db691f754` | `b7314a0b-3ce9-4130-93be-7470aa2279e5` |
 
 All are `status: draft` with the brand WABA attached — **submit each in Bird Studio** (one click) to start Meta's 24-48h clock. Re-running the CLI is a no-op (idempotent skip, verified).
+
+---
+
+## Probe log (Phase 3) — 2026-08-20, workspace `b506380f` (Puzzle)
+
+### ✅ `PUT …/activate` 500s when `shortLinks.enabled` is true and the caller is an accesskey
+
+Submitting `puzzle_southampton_17_10_26_presale_live` returned a bare
+`500 InternalServerError` from `PUT …/channel-templates/{id}/activate` — twice,
+so not the base client's 5xx retry being unlucky. The draft itself was created
+fine and was structurally identical to the already-approved
+`puzzle_southampton_17_10_26_announce_v3` except for one field:
+`shortLinks.enabled` (`true` vs `false`).
+
+`PATCH {shortLinks:{enabled:false,domain:"brd1.eu"}}` → 200, body and button
+verified unchanged. The very next `activate` → `pending`, then Meta-approved
+(`platformReference 1080503107823299`).
+
+Corroborating: across all active `channelTemplate` projects in this workspace,
+every `shortLinks: true` template has `editorType: "user"` (UI-authored and
+UI-activated), and all three accesskey-created Puzzle-Southampton templates
+carry `shortLinks: false`. No accesskey appears ever to have activated a
+shortLinks-enabled template here.
+
+Caveat: correlational. The fix was not isolated from the PATCH itself (a PATCH
+with shortLinks left ON was not tried — that would have meant submitting a junk
+template to the client's live WABA). `BrandTemplateDefinition.shortLinks`
+now exposes the opt-out; the default stays `true`.
+
+**Cost of the opt-out:** Bird leaves URLs raw, so no per-click tracking on that
+button — the `jackies_autoresp` regression (capture §F) traded for the ability
+to submit at all.
+
+### ⛔ html-email subject/body are NOT API-writable — settled, stop probing
+
+The endpoint is `…/projects/{pid}/html-emails` and the project must be
+`type: "htmlEmail"` (a `channelTemplate` project 422s with *"The project type
+(channelTemplate) doesn't match the provided item type (htmlEmail)"*).
+
+Bird's 422 enumerates every unsupported property **by name**, which makes the
+schema directly discoverable rather than guessable. A kitchen-sink POST of 24
+candidate field names returned 21 of them as `unsupported`:
+
+> assets, blocks, body, channelId, channelIds, content, contents, editorUrl,
+> from, html, htmlBody, locales, markup, name, preheader, previewText,
+> shortLinks, source, styles, subject, variables
+
+Leaving the **entire** accepted create body as:
+
+```jsonc
+// POST /workspaces/{wid}/projects/{pid}/html-emails   (project type: htmlEmail)
+{ "editor": "html" | "native", "defaultLocale": "en", "useCase": "marketing" }
+```
+
+`editor` and `defaultLocale` are required (omitting either → *"property … is
+missing"*). `PATCH` accepts the same three and rejects `content`/`html`
+identically. No content sub-resource is mounted — `content`, `contents`,
+`html`, `body`, `versions`, `revisions` all 403 (the same "route not mounted"
+signature as this workspace's `/groups`).
+
+A GET of a UI-authored `native` template returns `content.en.subject` but never
+a body, so the body is not readable either.
+
+There is no back door via the send: a broadcast references content as
+`channelTemplate.projectId` + `projectVersionId`, so the HTML must live in the
+template.
+
+**Conclusion:** the API can create/rename the *shell* and nothing else. An
+HTML email must be authored in the Bird UI. An API-created shell is an empty
+project that looks real in the picker — the reason the 2026-08-19 attempt was
+renamed "ZZ DO NOT USE - empty API shell - …". Do not create more of them.
+
+Probe artifacts (Bird deletes are global and forbidden, so these linger):
+- `ZZ DO NOT USE - probe 2026-08-20 - html-email schema discovery (empty, wrong type)`
+  (`2be72ae0-ea88-4afe-b1a7-92ea404dc467`) — created as `channelTemplate`
+  before the type constraint was known; holds nothing.
+- The 2026-08-19 `ZZ DO NOT USE - empty API shell …` draft
+  (`8366a84d-757a-45c3-9b5e-951975a8a62c`) was reused for the PATCH probes
+  rather than creating a second htmlEmail project. Its announce copy was
+  already superseded.

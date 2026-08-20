@@ -62,9 +62,11 @@ const JOIN_BUTTON = {
  */
 const signup_confirmation: BrandTemplateDefinition = {
   name: "puzzle_circuit_oct17_signup_en",
+  projectName: "Puzzle-Southampton-17.10.26 signup",
   category: "MARKETING",
   projectId: "bf830807-6bb0-43d9-8d68-2f905903ba01",
   projectVersionId: "0087be29-eed4-4a75-99bb-5de1ae5ebf11",
+  shortLinks: false,
   locales: ["en"],
   headerImageUrl: ARTWORK_URL,
   body: {
@@ -90,13 +92,19 @@ const signup_confirmation: BrandTemplateDefinition = {
  * the lineup is "dropping SOON" rather than naming a day, which keeps it true
  * whether the lineup lands Tue 18 or Wed 19 Aug.
  *
- * STATUS: draft, NOT submitted — submission is a deliberate human trigger.
+ * STATUS: LIVE — approved by Meta, platformReference 2362582784145667, and
+ * already sent. (This comment previously read "draft, NOT submitted", which
+ * was true only until the human trigger fired; corrected 2026-08-20 from the
+ * API.) Its copy is now historic: it says the presale opens "12pm tomorrow",
+ * which has passed. Do not re-attach it — `presale_live` is the live one.
  */
 const announce_v3: BrandTemplateDefinition = {
   name: "puzzle_southampton_17_10_26_announce_v3",
+  projectName: "Puzzle-Southampton-17.10.26 announce v3",
   category: "MARKETING",
   projectId: "37f5f5df-56f9-41fe-8caf-592e0a178c37",
   projectVersionId: "d9bdc0de-b39d-47f0-84e1-118fdee12c9e",
+  shortLinks: false,
   locales: ["en"],
   headerImageUrl: ARTWORK_URL,
   body: {
@@ -134,10 +142,17 @@ const announce_v3: BrandTemplateDefinition = {
  * "from £10" / "£10 + booking fee", that is a NEW `_v2` template — an approved
  * template's copy is immutable.
  *
- * STATUS: submitted to Meta immediately on creation (unlike `announce_v3`,
- * which was deliberately held as a draft). A presale-live template is only
+ * `shortLinks: false` is REQUIRED, not cosmetic: `PUT …/activate` 500s on a
+ * shortLinks-enabled template when the caller is an API key. See
+ * `BrandTemplateDefinition.shortLinks`. The cost is that Bird leaves the
+ * Skiddle URL raw, so there is no per-click tracking on this button — the
+ * Skiddle listing's own analytics are the fallback.
+ *
+ * LIVE: submitted 2026-08-20 and APPROVED by Meta, platformReference
+ * 1080503107823299. Submitted immediately on creation (unlike `announce_v3`,
+ * which was deliberately held as a draft): a presale-live template is only
  * useful while the presale is running and Meta review has run anywhere from
- * one minute to 16+ hours, so there is no upside to waiting. The email and
+ * one minute to 16+ hours, so there was no upside to waiting. The email and
  * the community post carry this send; the template is the tail, not the
  * critical path.
  */
@@ -145,6 +160,9 @@ const presale_live: BrandTemplateDefinition = {
   name: "puzzle_southampton_17_10_26_presale_live",
   projectName: "Puzzle-Southampton-17.10.26 presale live",
   category: "MARKETING",
+  projectId: "4289cf4a-1e14-470c-871c-f91ab0c933c8",
+  projectVersionId: "0b0dfb68-e697-430c-a532-cdf310023e41",
+  shortLinks: false,
   locales: ["en"],
   headerImageUrl: ARTWORK_URL,
   body: {

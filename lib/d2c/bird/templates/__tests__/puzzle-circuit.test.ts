@@ -13,10 +13,12 @@ function def(name: string) {
   return found;
 }
 
+/** Mirrors how `runner.ts` builds the payload, so these assert the real wire body. */
 function payloadFor(name: string) {
-  return buildTemplatePayload(def(name), {
+  const d = def(name);
+  return buildTemplatePayload(d, {
     channelGroupIds: [PUZZLE_CHANNEL_GROUP],
-    shortLinks: true,
+    shortLinks: d.shortLinks ?? true,
   });
 }
 
@@ -71,6 +73,19 @@ test("presale-live ships into its hand-named Bird project, not the slug", () => 
     def("puzzle_southampton_17_10_26_presale_live").projectName,
     "Puzzle-Southampton-17.10.26 presale live",
   );
+});
+
+test("every Puzzle template opts out of Bird link-shortening", () => {
+  // `PUT …/activate` 500s on a shortLinks-enabled template when the caller is
+  // an API key (audit Phase 3, 2026-08-20). These are all shipped by accesskey.
+  for (const t of puzzleCircuitTemplates) {
+    assert.equal(t.shortLinks, false, `${t.name}: shortLinks must be false to activate`);
+  }
+});
+
+test("the runner honours a definition's shortLinks opt-out", () => {
+  const payload = payloadFor("puzzle_southampton_17_10_26_presale_live");
+  assert.equal(payload.shortLinks.enabled, false);
 });
 
 test("superseded announce templates stay out of the shipped set", () => {

@@ -152,7 +152,9 @@ export async function shipTemplateDefinitions(
         // Enable Bird link-shortening so click-through tracking works. Without
         // this, shortLinks.enabled defaults false and Bird leaves URLs raw
         // (link tracking disabled — capture §F, jackies_autoresp regression).
-        shortLinks: true,
+        // A definition opts out when it must be activated by an API key —
+        // see `BrandTemplateDefinition.shortLinks` for the activate-500.
+        shortLinks: def.shortLinks ?? true,
       });
 
       if (dryRun) {
@@ -182,7 +184,7 @@ export async function shipTemplateDefinitions(
             buildTemplatePayload(def, {
               channelGroupIds: [cg],
               onlyLocales: opts.locales,
-              shortLinks: true,
+              shortLinks: def.shortLinks ?? true,
             }),
           );
         }

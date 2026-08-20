@@ -194,6 +194,22 @@ export interface BrandTemplateDefinition {
   variableExamples: Record<string, LocalizedExamples>;
   /** Optional human descriptions per variable key (Meta-visible). */
   variableDescriptions?: Record<string, string>;
+  /**
+   * Bird link-shortening (`brd1.eu`). Defaults to `true` — link tracking off
+   * is the `jackies_autoresp` regression (capture §F).
+   *
+   * ⚠️ Set `false` when the template will be ACTIVATED BY AN API KEY.
+   * `PUT …/activate` returns a bare `500 InternalServerError` on a template
+   * with `shortLinks.enabled = true` when the caller is an accesskey. Probed
+   * 2026-08-20 against workspace b506380f (Puzzle): the presale-live draft
+   * 500'd twice, a `PATCH {shortLinks:{enabled:false}}` changed nothing else,
+   * and the very next activate succeeded → Meta-approved. Consistent with the
+   * workspace's history — every shortLinks-enabled template there was
+   * activated in the UI as a `user`, and all three accesskey-created
+   * Puzzle templates carry `enabled:false`. Correlational, not isolated from
+   * the PATCH itself; the next API activation will confirm.
+   */
+  shortLinks?: boolean;
 }
 
 // ─── Runtime validation (hand-rolled — zod is not a dependency here) ────────
