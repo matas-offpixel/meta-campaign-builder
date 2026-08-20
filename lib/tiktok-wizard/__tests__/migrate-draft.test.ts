@@ -50,6 +50,7 @@ function launchableDraft() {
       videoId: "video_1",
       videoUrl: null,
       thumbnailUrl: null,
+      coverImageId: "img_hero_1",
       durationSeconds: null,
       title: null,
       sparkPostId: null,
@@ -84,6 +85,22 @@ describe("migrateTikTokDraft", () => {
       preflight.issues.some((issue) => issue.id === "identity-bc-id"),
       false,
     );
+  });
+
+  it("adds an omitted coverImageId key on a pre-cover draft without wiping the item", () => {
+    const stored = launchableDraft();
+    const item = { ...stored.creatives.items[0] };
+    delete (item as { coverImageId?: string | null }).coverImageId;
+    assert.equal("coverImageId" in item, false);
+
+    const migrated = migrateTikTokDraft({
+      ...stored,
+      creatives: { items: [item] },
+    });
+    assert.equal("coverImageId" in migrated.creatives.items[0], true);
+    assert.equal(migrated.creatives.items[0].coverImageId, null);
+    assert.equal(migrated.creatives.items[0].id, item.id);
+    assert.equal(migrated.creatives.items[0].videoId, "video_1");
   });
 
   it("is idempotent for a draft written by createDefaultTikTokDraft", () => {

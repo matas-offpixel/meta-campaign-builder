@@ -40,6 +40,8 @@ export function tikTokAdCreateIdentityLog(body: Record<string, BodyValue>): {
     identity_type: unknown;
     identity_authorized_bc_id: unknown;
     identity_bc_id: unknown;
+    video_id: unknown;
+    image_ids: unknown;
   }>;
 } {
   const creatives = Array.isArray(body.creatives) ? body.creatives : [];
@@ -56,6 +58,8 @@ export function tikTokAdCreateIdentityLog(body: Record<string, BodyValue>): {
         identity_type: creative.identity_type ?? null,
         identity_authorized_bc_id: creative.identity_authorized_bc_id ?? null,
         identity_bc_id: creative.identity_bc_id ?? null,
+        video_id: creative.video_id ?? null,
+        image_ids: creative.image_ids ?? null,
       };
     }),
   };
