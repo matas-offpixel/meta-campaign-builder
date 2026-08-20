@@ -5,6 +5,7 @@ import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
+  formatTikTokInterestGroupCounts,
 } from "../interest-groups.ts";
 
 describe("flattenTikTokInterestGroups", () => {
@@ -28,3 +29,24 @@ describe("flattenTikTokInterestGroups", () => {
     assert.equal(flat.behaviourCategoryLabels["beh-1"], "Creators");
   });
 });
+
+describe("formatTikTokInterestGroupCounts", () => {
+  it("renders counts from group contents", () => {
+    const group = createEmptyTikTokInterestGroup();
+    group.interestIds = [
+      { id: "1", name: "House", kind: "keyword" },
+      { id: "2", name: "Techno", kind: "keyword" },
+      { id: "3", name: "Disco", kind: "keyword" },
+    ];
+    group.hashtagIds = [
+      { id: "h1", name: "house", kind: "keyword" },
+      { id: "h2", name: "techno", kind: "keyword" },
+    ];
+    group.behaviourIds = [{ id: "b1", name: "Creators", kind: "category" }];
+    assert.equal(
+      formatTikTokInterestGroupCounts(group),
+      "3 interests · 2 hashtags · 1 behaviour",
+    );
+  });
+});
+

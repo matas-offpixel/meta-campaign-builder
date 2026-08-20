@@ -15,8 +15,15 @@ import {
   type TikTokLocationLookup,
 } from "@/lib/tiktok-wizard/audience-display";
 import {
+  expandTikTokPresetKeywords,
+  tikTokHashtagPresetQuery,
+  TIKTOK_GENRE_PRESETS,
+  type TikTokGenrePreset,
+} from "@/lib/tiktok-wizard/genre-presets";
+import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
+  formatTikTokInterestGroupCounts,
   hasLegacyTikTokTargeting,
   isTikTokInterestGroupNonEmpty,
   seedTikTokInterestGroupFromLegacy,
@@ -106,8 +113,17 @@ export function AudiencesStep({
   const [languageQuery, setLanguageQuery] = useState("");
   const keywordAbort = useRef<AbortController | null>(null);
   const hashtagAbort = useRef<AbortController | null>(null);
+  const presetAbort = useRef<AbortController | null>(null);
   const groupCardRefs = useRef(new Map<string, HTMLDivElement>());
   const [scrollToGroupId, setScrollToGroupId] = useState<string | null>(null);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [keywordSource, setKeywordSource] = useState<"idle" | "typed" | "preset">(
+    "idle",
+  );
+  const [keywordProvenance, setKeywordProvenance] = useState<Record<string, string[]>>(
+    {},
+  );
+  const [presetPartialNote, setPresetPartialNote] = useState<string | null>(null);
 
   const advertiserId = draft.accountSetup.advertiserId;
   const groups = audiences.interestGroups;
@@ -216,9 +232,11 @@ export function AudiencesStep({
   }, [advertiserId, geoReload]);
 
   useEffect(() => {
+    if (keywordSource === "preset") return;
     if (!advertiserId || !seed.trim()) {
       setKeywordResults([]);
       setKeywordFailed(null);
+      setKeywordProvenance({});
       return;
     }
     const controller = new AbortController();
@@ -254,9 +272,10 @@ export function AudiencesStep({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [advertiserId, seed, keywordMode, audienceType]);
+  }, [advertiserId, seed, keywordMode, audienceType, keywordSource]);
 
   useEffect(() => {
+    if (activePresetId) return;
     const keywords = parseHashtagSeeds(hashtagSeeds);
     if (!advertiserId || keywords.length === 0) {
       setHashtagResults([]);
@@ -295,7 +314,7 @@ export function AudiencesStep({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [advertiserId, hashtagSeeds, hashtagOperator]);
+  }, [advertiserId, hashtagSeeds, hashtagOperator, activePresetId]);
 
   async function persist(next: Partial<TikTokAudiences>) {
     setSaving(true);
@@ -351,6 +370,128 @@ export function AudiencesStep({
       groups.map((group) => (group.id === groupId ? { ...group, name } : group)),
     );
   }
+
+  function clearPresetMode() {
+    setActivePresetId(null);
+    setPresetPartialNote(null);
+  }
+
+  async function applyPreset(preset: TikTokGenrePreset) {
+    if (!advertiserId) return;
+    keywordAbort.current?.abort();
+    hashtagAbort.current?.abort();
+    presetAbort.current?.abort();
+    const controller = new AbortController();
+    keywordAbort.current = controller;
+    hashtagAbort.current = controller;
+    presetAbort.current = controller;
+    setActivePresetId(preset.id);
+    setKeywordSource("preset");
+    setSeed("");
+    setHashtagSeeds(preset.seeds.join(", "));
+    setHashtagOperator("OR");
+    setKeywordFailed(null);
+    setHashtagFailed(null);
+    setPresetPartialNote(null);
+    setKeywordProvenance({});
+    setLoadingKeywords(true);
+    setLoadingHashtags(true);
+
+    const keywordPromise = expandTikTokPresetKeywords(preset.seeds, async (keyword) => {
+      const params = new URLSearchParams({
+        advertiser_id: advertiserId,
+        keyword,
+        mode: keywordMode,
+        audience_type: audienceType,
+      });
+      const res = await fetch(`/api/tiktok/audience/keywords?${params}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        keywords?: TikTokAudienceRecommendItem[];
+        error?: string;
+      };
+      if (json.ok === false) {
+        throw new Error(json.error ?? "Keyword recommend failed");
+      }
+      return json.keywords ?? [];
+    });
+
+    const hashtagQuery = tikTokHashtagPresetQuery(preset.seeds);
+    const hashtagParams = new URLSearchParams({
+      advertiser_id: advertiserId,
+      operator: hashtagQuery.operator,
+    });
+    hashtagQuery.keywords.forEach((keyword) =>
+      hashtagParams.append("keyword", keyword),
+    );
+    const hashtagPromise = fetch(`/api/tiktok/audience/hashtags?${hashtagParams}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    }).then(
+      (res) =>
+        res.json() as Promise<{
+          ok?: boolean;
+          hashtags?: TikTokAudienceRecommendItem[];
+          failed?: boolean;
+          error?: string;
+        }>,
+    );
+
+    const [keywordSettled, hashtagSettled] = await Promise.allSettled([
+      keywordPromise,
+      hashtagPromise,
+    ]);
+    if (controller.signal.aborted) return;
+
+    if (keywordSettled.status === "fulfilled") {
+      const expanded = keywordSettled.value;
+      setKeywordResults(
+        expanded.rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          kind: "keyword" as const,
+          audienceSize: row.audienceSize,
+        })),
+      );
+      setKeywordProvenance(
+        Object.fromEntries(expanded.rows.map((row) => [row.id, row.seeds])),
+      );
+      if (expanded.failedSeeds.length > 0) {
+        setPresetPartialNote(
+          `Some seeds failed (${expanded.failedSeeds.join(", ")}). Showing the rest.`,
+        );
+      }
+    } else if (!isAbortError(keywordSettled.reason)) {
+      setKeywordResults([]);
+      setKeywordFailed("Keyword recommend failed");
+    }
+
+    if (hashtagSettled.status === "fulfilled") {
+      const json = hashtagSettled.value;
+      setHashtagResults(json.hashtags ?? []);
+      const state = readAudienceDimensionFailed(json);
+      setHashtagFailed(
+        state.failed ? state.error ?? "Hashtag recommend failed" : null,
+      );
+    } else if (!isAbortError(hashtagSettled.reason)) {
+      setHashtagResults([]);
+      setHashtagFailed("Hashtag recommend failed");
+    }
+
+    setLoadingKeywords(false);
+    setLoadingHashtags(false);
+  }
+
+  useEffect(() => {
+    if (!activePresetId) return;
+    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === activePresetId);
+    if (preset) void applyPreset(preset);
+    // Re-fan the same seeds when recommend mode or audience type changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keywordMode, audienceType]);
 
   async function toggleGroupItem(
     key: "interestIds" | "hashtagIds" | "behaviourIds",
@@ -457,64 +598,101 @@ export function AudiencesStep({
           </p>
         ) : (
           <div className="space-y-2">
-            {groups.map((group) => (
-              <div
-                key={group.id}
-                ref={(node) => {
-                  if (node) groupCardRefs.current.set(group.id, node);
-                  else groupCardRefs.current.delete(group.id);
-                }}
-                className={`rounded-md border p-3 ${
-                  group.id === activeGroup?.id
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-background"
-                }`}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="text-xs uppercase tracking-wide text-muted-foreground"
-                    onClick={() => setActiveGroupId(group.id)}
-                  >
-                    {isTikTokInterestGroupNonEmpty(group) ? "Ready" : "Empty"}
-                  </button>
-                  <GroupNameInput
-                    groupId={group.id}
-                    name={group.name}
-                    onCommit={(groupId, name) => void renameGroup(groupId, name)}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void removeGroup(group.id)}
-                    disabled={saving}
-                  >
-                    Remove
-                  </Button>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {[...group.interestIds, ...group.hashtagIds, ...group.behaviourIds].map((item) => (
-                    <button
-                      key={`${group.id}-${item.id}`}
+            {groups.map((group) => {
+              const isActive = group.id === activeGroup?.id;
+              const counts = formatTikTokInterestGroupCounts(group);
+              return (
+                <div
+                  key={group.id}
+                  ref={(node) => {
+                    if (node) groupCardRefs.current.set(group.id, node);
+                    else groupCardRefs.current.delete(group.id);
+                  }}
+                  onClick={() => setActiveGroupId(group.id)}
+                  className={`cursor-pointer rounded-md p-3 text-left ${
+                    isActive
+                      ? "border border-primary border-l-4 bg-primary/10 shadow-sm ring-2 ring-primary/40"
+                      : "border border-border bg-background hover:bg-muted/50"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isActive ? (
+                      <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {isTikTokInterestGroupNonEmpty(group) ? "Ready" : "Empty"}
+                      </span>
+                    )}
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground">
+                      {counts}
+                    </span>
+                    <div className="min-w-[12rem] flex-1">
+                      <GroupNameInput
+                        groupId={group.id}
+                        name={group.name}
+                        onCommit={(groupId, name) => void renameGroup(groupId, name)}
+                      />
+                    </div>
+                    <Button
                       type="button"
-                      className="rounded-full bg-muted px-3 py-1 text-xs"
-                      onClick={() => {
-                        setActiveGroupId(group.id);
-                        const key = group.hashtagIds.some((row) => row.id === item.id)
-                          ? "hashtagIds"
-                          : group.behaviourIds.some((row) => row.id === item.id)
-                            ? "behaviourIds"
-                            : "interestIds";
-                        void toggleGroupItem(key, item);
+                      size="sm"
+                      variant="outline"
+                      disabled={saving}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void removeGroup(group.id);
                       }}
                     >
-                      {item.name} ×
-                    </button>
-                  ))}
+                      Delete · {counts}
+                    </Button>
+                  </div>
+                  {isActive && (
+                    <div
+                      className="mt-3 flex flex-wrap gap-2"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {group.interestIds.map((item) => (
+                        <button
+                          key={`${group.id}-interest-${item.id}`}
+                          type="button"
+                          className="rounded-full bg-muted px-3 py-1 text-xs"
+                          onClick={() => void toggleGroupItem("interestIds", item)}
+                        >
+                          Interest · {item.name} ×
+                        </button>
+                      ))}
+                      {group.hashtagIds.map((item) => (
+                        <button
+                          key={`${group.id}-hashtag-${item.id}`}
+                          type="button"
+                          className="rounded-full bg-muted px-3 py-1 text-xs"
+                          onClick={() => void toggleGroupItem("hashtagIds", item)}
+                        >
+                          Hashtag · {item.name} ×
+                        </button>
+                      ))}
+                      {group.behaviourIds.map((item) => (
+                        <button
+                          key={`${group.id}-behaviour-${item.id}`}
+                          type="button"
+                          className="rounded-full bg-muted px-3 py-1 text-xs"
+                          onClick={() => void toggleGroupItem("behaviourIds", item)}
+                        >
+                          Behaviour · {item.name} ×
+                        </button>
+                      ))}
+                      {!isTikTokInterestGroupNonEmpty(group) && (
+                        <p className="text-xs text-muted-foreground">
+                          Nothing selected yet. Use the pickers below.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -548,12 +726,30 @@ export function AudiencesStep({
             catalogWarning ?? "Interest categories failed to load.",
             () => setCatalogReload((count) => count + 1),
           )}
+          <GenrePresetRow
+            activePresetId={activePresetId}
+            disabled={!advertiserId || !activeGroup}
+            onSelect={(preset) => void applyPreset(preset)}
+          />
+          {presetPartialNote && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">{presetPartialNote}</p>
+          )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
             <SearchInput
               value={seed}
-              onChange={(event) => setSeed(event.target.value)}
+              onChange={(event) => {
+                clearPresetMode();
+                setKeywordSource(event.target.value.trim() ? "typed" : "idle");
+                setKeywordProvenance({});
+                setSeed(event.target.value);
+              }}
               placeholder="Seed keyword — TikTok recommends related interests"
-              onClear={() => setSeed("")}
+              onClear={() => {
+                clearPresetMode();
+                setKeywordSource("idle");
+                setKeywordProvenance({});
+                setSeed("");
+              }}
               disabled={!advertiserId || !activeGroup}
             />
             <select
@@ -584,8 +780,15 @@ export function AudiencesStep({
           <RecommendList
             rows={keywordResults}
             selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
+            provenance={keywordProvenance}
             disabled={saving || !activeGroup}
-            empty={seed.trim() ? "No keyword recommendations." : "Enter a seed keyword."}
+            empty={
+              activePresetId
+                ? "No keyword recommendations for this preset."
+                : seed.trim()
+                  ? "No keyword recommendations."
+                  : "Enter a seed keyword."
+            }
             onToggle={(row) =>
               void toggleGroupItem("interestIds", {
                 id: row.id,
@@ -621,20 +824,35 @@ export function AudiencesStep({
           <p className="text-sm text-muted-foreground">
             Up to 10 keywords. AND with unrelated keywords often returns nothing.
           </p>
+          <GenrePresetRow
+            activePresetId={activePresetId}
+            disabled={!advertiserId || !activeGroup}
+            onSelect={(preset) => void applyPreset(preset)}
+          />
+          {presetPartialNote && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">{presetPartialNote}</p>
+          )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <SearchInput
               value={hashtagSeeds}
-              onChange={(event) => setHashtagSeeds(limitHashtagSeeds(event.target.value))}
+              onChange={(event) => {
+                clearPresetMode();
+                setHashtagSeeds(limitHashtagSeeds(event.target.value));
+              }}
               placeholder="house, techno, warehouse"
-              onClear={() => setHashtagSeeds("")}
+              onClear={() => {
+                clearPresetMode();
+                setHashtagSeeds("");
+              }}
               disabled={!advertiserId || !activeGroup}
             />
             <select
               className="h-9 rounded-md border border-border bg-background px-2 text-sm"
               value={hashtagOperator}
-              onChange={(event) =>
-                setHashtagOperator(event.target.value as TikTokHashtagOperator)
-              }
+              onChange={(event) => {
+                clearPresetMode();
+                setHashtagOperator(event.target.value as TikTokHashtagOperator);
+              }}
             >
               <option value="OR">OR</option>
               <option value="AND">AND</option>
@@ -651,7 +869,13 @@ export function AudiencesStep({
             rows={hashtagResults}
             selectedIds={activeGroup?.hashtagIds.map((item) => item.id) ?? []}
             disabled={saving || !activeGroup}
-            empty={parseHashtagSeeds(hashtagSeeds).length ? "No hashtag recommendations." : "Enter keywords."}
+            empty={
+              activePresetId
+                ? "No hashtag recommendations for this preset."
+                : parseHashtagSeeds(hashtagSeeds).length
+                  ? "No hashtag recommendations."
+                  : "Enter keywords."
+            }
             onToggle={(row) =>
               void toggleGroupItem("hashtagIds", {
                 id: row.id,
@@ -1077,15 +1301,59 @@ function CategoryList({
   );
 }
 
+function GenrePresetRow({
+  activePresetId,
+  disabled,
+  onSelect,
+}: {
+  activePresetId: string | null;
+  disabled: boolean;
+  onSelect: (preset: TikTokGenrePreset) => void;
+}) {
+  const active = TIKTOK_GENRE_PRESETS.find((preset) => preset.id === activePresetId);
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Genre presets</span>
+        {TIKTOK_GENRE_PRESETS.map((preset) => {
+          const selected = preset.id === activePresetId;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(preset)}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                selected
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-foreground"
+              }`}
+            >
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
+      {active && (
+        <p className="text-xs text-muted-foreground">
+          Seeds: {active.seeds.join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RecommendList({
   rows,
   selectedIds,
+  provenance,
   disabled,
   empty,
   onToggle,
 }: {
   rows: TikTokAudienceRecommendItem[];
   selectedIds: string[];
+  provenance?: Record<string, string[]>;
   disabled: boolean;
   empty: string;
   onToggle: (row: TikTokAudienceRecommendItem) => void;
@@ -1095,6 +1363,7 @@ function RecommendList({
     <div className="flex flex-wrap gap-2">
       {rows.map((row) => {
         const selected = selectedIds.includes(row.id);
+        const seeds = provenance?.[row.id] ?? [];
         return (
           <button
             key={row.id}
@@ -1107,6 +1376,7 @@ function RecommendList({
           >
             {row.name}
             {row.audienceSize != null ? ` · ${row.audienceSize.toLocaleString()}` : ""}
+            {seeds.length > 0 ? ` · from ${seeds.join(", ")}` : ""}
             {selected ? " ×" : " +"}
           </button>
         );
@@ -1254,6 +1524,10 @@ function limitHashtagSeeds(raw: string): string {
     keywords += 1;
   }
   return kept.join("");
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function clampAge(raw: string, fallback: number): number {
