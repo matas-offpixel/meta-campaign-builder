@@ -171,6 +171,33 @@ describe("TikTok audience read helpers", () => {
     assert.equal(languages[0].id, "en");
   });
 
+  it("logs mapped row count alongside raw envelope counts", async () => {
+    const lines: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      lines.push(String(args[0]));
+    };
+    try {
+      await fetchTikTokInterestCategories({
+        advertiserId: "advertiser-1",
+        token: "token-1",
+        request: async <T,>(): Promise<T> =>
+          ({
+            list: [
+              { category_id: "music", category_name: "Music" },
+              { not_an_id: true },
+            ],
+          }) as T,
+      });
+    } finally {
+      console.error = original;
+    }
+    const line = lines.find((entry) => entry.includes("[tiktok/audience]"));
+    assert.ok(line, "expected an envelope log line");
+    assert.match(line, /counts=\{list:2/);
+    assert.match(line, /mapped=1/);
+  });
+
   it("extractAudienceRows falls back to [] on unknown shapes", () => {
     assert.deepEqual(extractAudienceRows(null, ["list"]), []);
     assert.deepEqual(extractAudienceRows({ foo: 1 }, ["list", "keywords"]), []);

@@ -219,7 +219,22 @@ export function mapTikTokLocationIds(
       `No TikTok location_id mapping for location code ${code}`,
     );
   }
-  return ok(ids);
+  return ok(uniqueIds(ids));
+}
+
+export function canonicalTikTokLocationId(code: string): string | null {
+  if (TIKTOK_LOCATION_IDS_BY_CODE[code]) return TIKTOK_LOCATION_IDS_BY_CODE[code];
+  if (/^\d+$/.test(code)) return code;
+  return null;
+}
+
+export function tikTokLocationAlreadySelected(
+  locationCodes: string[],
+  candidate: string,
+): boolean {
+  const canon = canonicalTikTokLocationId(candidate);
+  if (!canon) return locationCodes.includes(candidate);
+  return locationCodes.some((code) => canonicalTikTokLocationId(code) === canon);
 }
 
 export function mapTikTokObjectiveType(
@@ -683,23 +698,31 @@ function targetingIdsForAdGroup(
     );
     const purchaseIntentionKeywordIds = uniqueIds(
       group.interestIds
-        .filter((item) => item.audienceType === "PURCHASE_INTENTION")
+        .filter(
+          (item) =>
+            item.kind === "keyword" &&
+            item.audienceType === "PURCHASE_INTENTION",
+        )
         .map((item) => item.id),
     );
     // Hashtag tool IDs are `keyword_ids` in ToolApi.md (`toolHashtagGet`).
     // AdgroupCreateBody has no hashtag_* field, so those IDs ride on
     // `interest_keyword_ids` — the only documented create field that takes
     // keyword IDs.
-    const interestKeywordIds = uniqueIds([
-      ...group.interestIds
-        .filter(
-          (item) =>
-            item.kind === "keyword" &&
-            item.audienceType !== "PURCHASE_INTENTION",
-        )
-        .map((item) => item.id),
-      ...group.hashtagIds.map((item) => item.id),
-    ]);
+    const generalKeywordIds = group.interestIds
+      .filter(
+        (item) =>
+          item.kind === "keyword" &&
+          item.audienceType !== "PURCHASE_INTENTION",
+      )
+      .map((item) => item.id);
+    const hashtagIds = group.hashtagIds.map((item) => item.id);
+    if (hashtagIds.length > 0) {
+      console.error(
+        `[tiktok/mapping] adgroup=${adGroup.name} interest_keyword_ids merged keywords=${generalKeywordIds.length} hashtags=${hashtagIds.length} — hashtag IDs ride on interest_keyword_ids, unverified`,
+      );
+    }
+    const interestKeywordIds = uniqueIds([...generalKeywordIds, ...hashtagIds]);
     return {
       interestCategoryIds: categoryIds,
       interestKeywordIds,

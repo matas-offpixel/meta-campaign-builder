@@ -7,7 +7,10 @@ import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
 import {
   createEmptyTikTokInterestGroup,
+  flattenTikTokInterestGroups,
+  hasLegacyTikTokTargeting,
   isTikTokInterestGroupNonEmpty,
+  seedTikTokInterestGroupFromLegacy,
 } from "@/lib/tiktok-wizard/interest-groups";
 import type {
   TikTokAudienceCategory,
@@ -19,6 +22,11 @@ import type {
   TikTokLanguageOption,
   TikTokRegionOption,
 } from "@/lib/tiktok/audience";
+import {
+  readAudienceCatalogState,
+  readAudienceDimensionFailed,
+} from "@/lib/tiktok/audience-response";
+import { tikTokLocationAlreadySelected } from "@/lib/tiktok/write/mapping";
 import type {
   TikTokAudiences,
   TikTokCampaignDraft,
@@ -64,8 +72,11 @@ export function AudiencesStep({
     customAudiences: false,
     savedAudiences: false,
   });
+  const [catalogWarning, setCatalogWarning] = useState<string | null>(null);
   const [regionsFailed, setRegionsFailed] = useState(false);
+  const [regionsError, setRegionsError] = useState<string | null>(null);
   const [languagesFailed, setLanguagesFailed] = useState(false);
+  const [languagesError, setLanguagesError] = useState<string | null>(null);
   const [keywordFailed, setKeywordFailed] = useState<string | null>(null);
   const [hashtagFailed, setHashtagFailed] = useState<string | null>(null);
   const [catalogReload, setCatalogReload] = useState(0);
@@ -112,16 +123,22 @@ export function AudiencesStep({
           error?: string;
         }) => {
           if (cancelled) return;
+          const state = readAudienceCatalogState(json);
+          if (!json.ok) {
+            setInterests([]);
+            setBehaviours([]);
+            setCustomAudiences([]);
+            setSavedAudiences([]);
+            setCatalogFailed(state.catalogFailed);
+            setCatalogWarning(json.error ?? state.warning);
+            return;
+          }
           setInterests(json.interests ?? []);
           setBehaviours(json.behaviours ?? []);
           setCustomAudiences(json.customAudiences ?? []);
           setSavedAudiences(json.savedAudiences ?? []);
-          setCatalogFailed({
-            interests: Boolean(json.failed?.interests),
-            behaviours: Boolean(json.failed?.behaviours),
-            customAudiences: Boolean(json.failed?.customAudiences),
-            savedAudiences: Boolean(json.failed?.savedAudiences),
-          });
+          setCatalogFailed(state.catalogFailed);
+          setCatalogWarning(state.warning);
         },
       )
       .catch(() => {
@@ -132,6 +149,7 @@ export function AudiencesStep({
             customAudiences: true,
             savedAudiences: true,
           });
+          setCatalogWarning("TikTok audience data is unavailable.");
         }
       })
       .finally(() => {
@@ -150,26 +168,36 @@ export function AudiencesStep({
       { cache: "no-store" },
     )
       .then((res) => res.json())
-      .then((json: { regions?: TikTokRegionOption[]; failed?: boolean }) => {
+      .then((json: { ok?: boolean; regions?: TikTokRegionOption[]; failed?: boolean; error?: string }) => {
         if (cancelled) return;
+        const state = readAudienceDimensionFailed(json);
         setRegions(json.regions ?? []);
-        setRegionsFailed(Boolean(json.failed));
+        setRegionsFailed(state.failed);
+        setRegionsError(state.error);
       })
       .catch(() => {
-        if (!cancelled) setRegionsFailed(true);
+        if (!cancelled) {
+          setRegionsFailed(true);
+          setRegionsError("Locations failed to load.");
+        }
       });
     fetch(
       `/api/tiktok/audience/languages?advertiser_id=${encodeURIComponent(advertiserId)}`,
       { cache: "no-store" },
     )
       .then((res) => res.json())
-      .then((json: { languages?: TikTokLanguageOption[]; failed?: boolean }) => {
+      .then((json: { ok?: boolean; languages?: TikTokLanguageOption[]; failed?: boolean; error?: string }) => {
         if (cancelled) return;
+        const state = readAudienceDimensionFailed(json);
         setLanguageOptions(json.languages ?? []);
-        setLanguagesFailed(Boolean(json.failed));
+        setLanguagesFailed(state.failed);
+        setLanguagesError(state.error);
       })
       .catch(() => {
-        if (!cancelled) setLanguagesFailed(true);
+        if (!cancelled) {
+          setLanguagesFailed(true);
+          setLanguagesError("Languages failed to load.");
+        }
       });
     return () => {
       cancelled = true;
@@ -198,9 +226,12 @@ export function AudiencesStep({
         signal: controller.signal,
       })
         .then((res) => res.json())
-        .then((json: { keywords?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
+        .then((json: { ok?: boolean; keywords?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
           setKeywordResults(json.keywords ?? []);
-          setKeywordFailed(json.failed ? json.error ?? "Keyword recommend failed" : null);
+          const state = readAudienceDimensionFailed(json);
+          setKeywordFailed(
+            state.failed ? state.error ?? "Keyword recommend failed" : null,
+          );
         })
         .catch((err: unknown) => {
           if (err instanceof DOMException && err.name === "AbortError") return;
@@ -236,9 +267,12 @@ export function AudiencesStep({
         signal: controller.signal,
       })
         .then((res) => res.json())
-        .then((json: { hashtags?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
+        .then((json: { ok?: boolean; hashtags?: TikTokAudienceRecommendItem[]; failed?: boolean; error?: string }) => {
           setHashtagResults(json.hashtags ?? []);
-          setHashtagFailed(json.failed ? json.error ?? "Hashtag recommend failed" : null);
+          const state = readAudienceDimensionFailed(json);
+          setHashtagFailed(
+            state.failed ? state.error ?? "Hashtag recommend failed" : null,
+          );
         })
         .catch((err: unknown) => {
           if (err instanceof DOMException && err.name === "AbortError") return;
@@ -270,7 +304,7 @@ export function AudiencesStep({
   }
 
   async function persistGroups(nextGroups: TikTokInterestGroup[]) {
-    const flat = flattenGroups(nextGroups);
+    const flat = flattenTikTokInterestGroups(nextGroups, draft.audiences);
     await persist({
       interestGroups: nextGroups,
       ...flat,
@@ -278,8 +312,11 @@ export function AudiencesStep({
   }
 
   async function addGroup() {
-    const group = createEmptyTikTokInterestGroup();
-    group.name = `Group ${groups.length + 1}`;
+    const group =
+      groups.length === 0 && hasLegacyTikTokTargeting(audiences)
+        ? seedTikTokInterestGroupFromLegacy(audiences)
+        : createEmptyTikTokInterestGroup();
+    if (!group.name) group.name = `Group ${groups.length + 1}`;
     await persistGroups([...groups, group]);
     setActiveGroupId(group.id);
   }
@@ -421,12 +458,10 @@ export function AudiencesStep({
                   >
                     {isTikTokInterestGroupNonEmpty(group) ? "Ready" : "Empty"}
                   </button>
-                  <Input
-                    id={`tiktok-group-name-${group.id}`}
-                    value={group.name}
-                    onChange={(event) => void renameGroup(group.id, event.target.value)}
-                    placeholder="Group name"
-                    disabled={saving}
+                  <GroupNameInput
+                    groupId={group.id}
+                    name={group.name}
+                    onCommit={(groupId, name) => void renameGroup(groupId, name)}
                   />
                   <Button
                     type="button"
@@ -485,7 +520,7 @@ export function AudiencesStep({
         <div className="space-y-4">
           {failedBanner(
             catalogFailed.interests,
-            "Interest categories failed to load.",
+            catalogWarning ?? "Interest categories failed to load.",
             () => setCatalogReload((count) => count + 1),
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
@@ -538,7 +573,7 @@ export function AudiencesStep({
           />
           {loadingCatalog ? (
             <SkeletonTree />
-          ) : (
+          ) : catalogFailed.interests ? null : (
             <CategoryList
               rows={interestTree}
               selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
@@ -608,29 +643,33 @@ export function AudiencesStep({
         <div className="space-y-3">
           {failedBanner(
             catalogFailed.behaviours,
-            "Behaviours failed to load.",
+            catalogWarning ?? "Behaviours failed to load.",
             () => setCatalogReload((count) => count + 1),
           )}
-          <CategoryList
-            rows={behaviours.map((row) => ({ ...row, depth: 0 }))}
-            selectedIds={activeGroup?.behaviourIds.map((item) => item.id) ?? []}
-            disabled={saving || loadingCatalog || !activeGroup}
-            empty="No behaviours available for this advertiser."
-            onToggle={(row) =>
-              void toggleGroupItem("behaviourIds", {
-                id: row.id,
-                name: row.label,
-                kind: "category",
-              })
-            }
-          />
+          {!catalogFailed.behaviours && (
+            <CategoryList
+              rows={behaviours.map((row) => ({ ...row, depth: 0 }))}
+              selectedIds={activeGroup?.behaviourIds.map((item) => item.id) ?? []}
+              disabled={saving || loadingCatalog || !activeGroup}
+              empty="No behaviours available for this advertiser."
+              onToggle={(row) =>
+                void toggleGroupItem("behaviourIds", {
+                  id: row.id,
+                  name: row.label,
+                  kind: "category",
+                })
+              }
+            />
+          )}
         </div>
       )}
 
       {activeTab === "custom" && (
         catalogFailed.customAudiences ? (
-          failedBanner(true, "Custom audiences temporarily unavailable.", () =>
-            setCatalogReload((count) => count + 1),
+          failedBanner(
+            true,
+            catalogWarning ?? "Custom audiences temporarily unavailable.",
+            () => setCatalogReload((count) => count + 1),
           )
         ) : (
           <AudienceList
@@ -647,8 +686,10 @@ export function AudiencesStep({
 
       {activeTab === "lookalikes" && (
         catalogFailed.savedAudiences ? (
-          failedBanner(true, "Lookalikes temporarily unavailable.", () =>
-            setCatalogReload((count) => count + 1),
+          failedBanner(
+            true,
+            catalogWarning ?? "Lookalikes temporarily unavailable.",
+            () => setCatalogReload((count) => count + 1),
           )
         ) : (
           <AudienceList
@@ -671,8 +712,10 @@ export function AudiencesStep({
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <p className="text-sm font-medium">Locations</p>
-          {failedBanner(regionsFailed, "Locations failed to load.", () =>
-            setGeoReload((count) => count + 1),
+          {failedBanner(
+            regionsFailed,
+            regionsError ?? "Locations failed to load.",
+            () => setGeoReload((count) => count + 1),
           )}
           <SearchInput
             value={locationQuery}
@@ -687,16 +730,22 @@ export function AudiencesStep({
                 key={region.id}
                 type="button"
                 className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
-                disabled={saving || audiences.locationCodes.includes(region.id)}
-                onClick={() =>
+                disabled={
+                  saving ||
+                  tikTokLocationAlreadySelected(audiences.locationCodes, region.id)
+                }
+                onClick={() => {
+                  if (tikTokLocationAlreadySelected(audiences.locationCodes, region.id)) {
+                    return;
+                  }
                   void persist({
                     locationCodes: [...audiences.locationCodes, region.id],
                     locationLabels: {
                       ...audiences.locationLabels,
                       [region.id]: region.name,
                     },
-                  })
-                }
+                  });
+                }}
               >
                 {region.name}
                 {region.countryCode ? ` · ${region.countryCode}` : ""}
@@ -725,8 +774,10 @@ export function AudiencesStep({
         </div>
         <div className="space-y-2">
           <p className="text-sm font-medium">Languages</p>
-          {failedBanner(languagesFailed, "Languages failed to load.", () =>
-            setGeoReload((count) => count + 1),
+          {failedBanner(
+            languagesFailed,
+            languagesError ?? "Languages failed to load.",
+            () => setGeoReload((count) => count + 1),
           )}
           <SearchInput
             value={languageQuery}
@@ -810,41 +861,30 @@ export function AudiencesStep({
   );
 }
 
-function flattenGroups(groups: TikTokInterestGroup[]): Pick<
-  TikTokAudiences,
-  | "interestCategoryIds"
-  | "interestCategoryLabels"
-  | "interestKeywordIds"
-  | "behaviourCategoryIds"
-  | "behaviourCategoryLabels"
-> {
-  const interestCategoryIds: string[] = [];
-  const interestCategoryLabels: Record<string, string> = {};
-  const interestKeywordIds: string[] = [];
-  const behaviourCategoryIds: string[] = [];
-  const behaviourCategoryLabels: Record<string, string> = {};
-  for (const group of groups) {
-    for (const item of group.interestIds) {
-      if (item.kind === "keyword") {
-        interestKeywordIds.push(item.id);
-      } else {
-        interestCategoryIds.push(item.id);
-        interestCategoryLabels[item.id] = item.name;
-      }
-    }
-    for (const item of group.hashtagIds) interestKeywordIds.push(item.id);
-    for (const item of group.behaviourIds) {
-      behaviourCategoryIds.push(item.id);
-      behaviourCategoryLabels[item.id] = item.name;
-    }
-  }
-  return {
-    interestCategoryIds: [...new Set(interestCategoryIds)],
-    interestCategoryLabels,
-    interestKeywordIds: [...new Set(interestKeywordIds)],
-    behaviourCategoryIds: [...new Set(behaviourCategoryIds)],
-    behaviourCategoryLabels,
-  };
+function GroupNameInput({
+  groupId,
+  name,
+  onCommit,
+}: {
+  groupId: string;
+  name: string;
+  onCommit: (groupId: string, name: string) => void;
+}) {
+  const [value, setValue] = useState(name);
+  useEffect(() => {
+    setValue(name);
+  }, [name]);
+  return (
+    <Input
+      id={`tiktok-group-name-${groupId}`}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={() => {
+        if (value !== name) onCommit(groupId, value);
+      }}
+      placeholder="Group name"
+    />
+  );
 }
 
 function failedBanner(failed: boolean, message: string, retry: () => void) {

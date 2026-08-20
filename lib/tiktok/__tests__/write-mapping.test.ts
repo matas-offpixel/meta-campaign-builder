@@ -86,6 +86,11 @@ describe("mapTikTokLocationIds", () => {
     const result = mapTikTokLocationIds(["2635167"]);
     assert.deepEqual(result.ok && result.value, ["2635167"]);
   });
+
+  it("dedupes an ISO code against the matching /search/region/ location_id", () => {
+    const result = mapTikTokLocationIds(["GB", "2635167"]);
+    assert.deepEqual(result.ok && result.value, ["2635167"]);
+  });
 });
 
 describe("optimisation and bid mappings", () => {
@@ -302,6 +307,43 @@ describe("ad group targeting from interest groups", () => {
     assert.deepEqual(result.value.purchase_intention_keyword_ids, ["kw-buy"]);
     assert.deepEqual(result.value.actions, [{ action_category_ids: ["beh-1"] }]);
     assert.equal("hashtag_ids" in result.value, false);
+  });
+
+  it("keeps a category with PURCHASE_INTENTION out of purchase_intention_keyword_ids", () => {
+    const draft = payloadDraft();
+    draft.audiences.interestGroups = [
+      {
+        id: "g-lost-kind",
+        name: "Lost kind",
+        interestIds: [
+          {
+            id: "cat-buy",
+            name: "Tickets",
+            kind: "category",
+            audienceType: "PURCHASE_INTENTION",
+          },
+        ],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+    ];
+    const result = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: {
+        id: "ig_g-lost-kind",
+        name: "Lost kind",
+        budget: 50,
+        startAt: null,
+        endAt: null,
+        interestGroupId: "g-lost-kind",
+      },
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.deepEqual(result.value.interest_category_ids, ["cat-buy"]);
+    assert.equal("purchase_intention_keyword_ids" in result.value, false);
   });
 });
 

@@ -35,3 +35,11 @@ group.
   and mapped onto `interest_keyword_ids` because AdgroupCreateBody has no
   `hashtag_*` field and `/tool/hashtag/get/` takes `keyword_ids`.
 - `OFFPIXEL_TIKTOK_WRITES_ENABLED` unchanged.
+- Review follow-up: `requireTikTokAudienceContext` 401/400 bodies now carry
+  `failed` for every catalog dimension; the client also treats `ok:false`
+  (even without `failed`) as an error, never "no data". First empty group
+  no longer wipes legacy flat targeting. Location IDs are deduped across the
+  ISO table and `/search/region/`. Purchase-intention filter requires
+  `kind === "keyword"`. Hashtag union is logged at payload-build time and
+  warned in preflight. Envelope logs include `mapped=N`. Group name edits
+  persist on blur.

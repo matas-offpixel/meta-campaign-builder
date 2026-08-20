@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { readTikTokAccountCredentials } from "@/lib/tiktok/api-account";
+import { tikTokAudienceAuthErrorBody } from "@/lib/tiktok/audience-response";
 import {
   audienceErrorMessage,
   settleAudienceDimension,
@@ -24,10 +25,9 @@ export async function requireTikTokAudienceContext(req: NextRequest): Promise<
   if (!user) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { ok: false, error: "Not signed in" },
-        { status: 401 },
-      ),
+      response: NextResponse.json(tikTokAudienceAuthErrorBody("Not signed in"), {
+        status: 401,
+      }),
     };
   }
 
@@ -36,7 +36,7 @@ export async function requireTikTokAudienceContext(req: NextRequest): Promise<
     return {
       ok: false,
       response: NextResponse.json(
-        { ok: false, error: "Missing advertiser_id query param" },
+        tikTokAudienceAuthErrorBody("Missing advertiser_id query param"),
         { status: 400 },
       ),
     };
@@ -50,7 +50,7 @@ export async function requireTikTokAudienceContext(req: NextRequest): Promise<
     return {
       ok: false,
       response: NextResponse.json(
-        { ok: false, error: "TikTok credentials missing" },
+        tikTokAudienceAuthErrorBody("TikTok credentials missing"),
         { status: 400 },
       ),
     };

@@ -91,6 +91,7 @@ export function logAudienceEnvelope(
   advertiserId: string,
   res: unknown,
   keys: readonly string[],
+  mapped = 0,
 ): void {
   const record =
     res && typeof res === "object" ? (res as Record<string, unknown>) : {};
@@ -100,7 +101,7 @@ export function logAudienceEnvelope(
     .map((key) => `${key}:${Array.isArray(record[key]) ? record[key].length : 0}`)
     .join(",");
   console.error(
-    `[tiktok/audience] ${path} advertiser=${advertiserId} keys=[${objectKeys.join(",")}] counts={${counts}}`,
+    `[tiktok/audience] ${path} advertiser=${advertiserId} keys=[${objectKeys.join(",")}] counts={${counts}} mapped=${mapped}`,
   );
 }
 
@@ -120,8 +121,9 @@ export async function fetchTikTokInterestCategories(input: {
     },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, INTEREST_CATEGORY_KEYS);
-  return mapCategories(extractAudienceRows(res, INTEREST_CATEGORY_KEYS));
+  const mapped = mapCategories(extractAudienceRows(res, INTEREST_CATEGORY_KEYS));
+  logAudienceEnvelope(path, input.advertiserId, res, INTEREST_CATEGORY_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokBehaviourCategories(input: {
@@ -136,8 +138,9 @@ export async function fetchTikTokBehaviourCategories(input: {
     { advertiser_id: input.advertiserId },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, ACTION_CATEGORY_KEYS);
-  return mapCategories(extractAudienceRows(res, ACTION_CATEGORY_KEYS));
+  const mapped = mapCategories(extractAudienceRows(res, ACTION_CATEGORY_KEYS));
+  logAudienceEnvelope(path, input.advertiserId, res, ACTION_CATEGORY_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokCustomAudiences(input: {
@@ -152,11 +155,12 @@ export async function fetchTikTokCustomAudiences(input: {
     { advertiser_id: input.advertiserId },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, AUDIENCE_LIST_KEYS);
-  return mapAudienceList(
+  const mapped = mapAudienceList(
     extractAudienceRows(res, AUDIENCE_LIST_KEYS),
     "custom_audience_id",
   );
+  logAudienceEnvelope(path, input.advertiserId, res, AUDIENCE_LIST_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokSavedAudiences(input: {
@@ -171,11 +175,12 @@ export async function fetchTikTokSavedAudiences(input: {
     { advertiser_id: input.advertiserId },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, AUDIENCE_LIST_KEYS);
-  return mapAudienceList(
+  const mapped = mapAudienceList(
     extractAudienceRows(res, AUDIENCE_LIST_KEYS),
     "saved_audience_id",
   );
+  logAudienceEnvelope(path, input.advertiserId, res, AUDIENCE_LIST_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokInterestKeywordRecommendations(input: {
@@ -204,11 +209,12 @@ export async function fetchTikTokInterestKeywordRecommendations(input: {
     },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, INTEREST_KEYWORD_KEYS);
-  return mapRecommendItems(
+  const mapped = mapRecommendItems(
     extractAudienceRows(res, INTEREST_KEYWORD_KEYS),
     "keyword",
   );
+  logAudienceEnvelope(path, input.advertiserId, res, INTEREST_KEYWORD_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokHashtagRecommendations(input: {
@@ -234,8 +240,9 @@ export async function fetchTikTokHashtagRecommendations(input: {
     },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, HASHTAG_KEYS);
-  return mapRecommendItems(extractAudienceRows(res, HASHTAG_KEYS), "keyword");
+  const mapped = mapRecommendItems(extractAudienceRows(res, HASHTAG_KEYS), "keyword");
+  logAudienceEnvelope(path, input.advertiserId, res, HASHTAG_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokHashtagsByIds(input: {
@@ -256,8 +263,9 @@ export async function fetchTikTokHashtagsByIds(input: {
     },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, HASHTAG_KEYS);
-  return mapRecommendItems(extractAudienceRows(res, HASHTAG_KEYS), "keyword");
+  const mapped = mapRecommendItems(extractAudienceRows(res, HASHTAG_KEYS), "keyword");
+  logAudienceEnvelope(path, input.advertiserId, res, HASHTAG_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokRegions(input: {
@@ -276,8 +284,7 @@ export async function fetchTikTokRegions(input: {
     },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, REGION_KEYS);
-  return extractAudienceRows(res, REGION_KEYS)
+  const mapped = extractAudienceRows(res, REGION_KEYS)
     .map((row) => {
       const id = firstString(
         row,
@@ -295,6 +302,8 @@ export async function fetchTikTokRegions(input: {
     })
     .filter((row): row is TikTokRegionOption => Boolean(row))
     .sort((a, b) => a.name.localeCompare(b.name));
+  logAudienceEnvelope(path, input.advertiserId, res, REGION_KEYS, mapped.length);
+  return mapped;
 }
 
 export async function fetchTikTokLanguages(input: {
@@ -309,8 +318,7 @@ export async function fetchTikTokLanguages(input: {
     { advertiser_id: input.advertiserId },
     input.token,
   );
-  logAudienceEnvelope(path, input.advertiserId, res, LANGUAGE_KEYS);
-  return extractAudienceRows(res, LANGUAGE_KEYS)
+  const mapped = extractAudienceRows(res, LANGUAGE_KEYS)
     .map((row) => {
       const id = firstString(
         row,
@@ -327,6 +335,8 @@ export async function fetchTikTokLanguages(input: {
     })
     .filter((row): row is TikTokLanguageOption => Boolean(row))
     .sort((a, b) => a.name.localeCompare(b.name));
+  logAudienceEnvelope(path, input.advertiserId, res, LANGUAGE_KEYS, mapped.length);
+  return mapped;
 }
 
 function mapCategories(rows: Record<string, unknown>[]): TikTokAudienceCategory[] {
