@@ -33,6 +33,29 @@ export function isTikTokInterestGroupNonEmpty(
   );
 }
 
+export function tikTokInterestGroupCounts(group: TikTokInterestGroup): {
+  interests: number;
+  hashtags: number;
+  behaviours: number;
+} {
+  return {
+    interests: group.interestIds.length,
+    hashtags: group.hashtagIds.length,
+    behaviours: group.behaviourIds.length,
+  };
+}
+
+export function formatTikTokInterestGroupCounts(
+  group: TikTokInterestGroup,
+): string {
+  const counts = tikTokInterestGroupCounts(group);
+  return [
+    `${counts.interests} ${counts.interests === 1 ? "interest" : "interests"}`,
+    `${counts.hashtags} ${counts.hashtags === 1 ? "hashtag" : "hashtags"}`,
+    `${counts.behaviours} ${counts.behaviours === 1 ? "behaviour" : "behaviours"}`,
+  ].join(" · ");
+}
+
 export function targetingItemIds(
   items: TikTokTargetingItem[],
   kind?: TikTokTargetingItem["kind"],
