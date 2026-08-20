@@ -615,11 +615,15 @@ export function buildTikTokAdPayload(input: {
     const bcId = input.draft.accountSetup.identityBcId?.trim();
     if (!bcId) {
       return missing(
-        "identity_bc_id",
+        "identity_authorized_bc_id",
         `Identity "${input.draft.accountSetup.identityDisplayName ?? input.draft.accountSetup.identityId}" is BC_AUTH_TT but no Business Center id could be resolved`,
       );
     }
-    creative.identity_bc_id = bcId;
+    // Official AdcreateCreatives + preview docs: identity_authorized_bc_id.
+    // "Identity_bc_ID" in TikTok's 40002 text is prose, not a field name.
+    // https://business-api.tiktok.com/portal/docs?id=1739403070695426
+    // https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdcreateCreatives.md
+    creative.identity_authorized_bc_id = bcId;
   }
   if (input.creative.cta) creative.call_to_action = input.creative.cta;
   if (input.creative.mode === "SPARK_AD" && input.creative.sparkPostId) {

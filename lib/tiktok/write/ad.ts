@@ -32,6 +32,41 @@ export function buildTikTokAdWritePayload(args: {
   return built.value;
 }
 
+export function tikTokAdCreateIdentityLog(body: Record<string, BodyValue>): {
+  advertiser_id: unknown;
+  adgroup_id: unknown;
+  creatives: Array<{
+    identity_id: unknown;
+    identity_type: unknown;
+    identity_authorized_bc_id: unknown;
+    identity_bc_id: unknown;
+  }>;
+} {
+  const creatives = Array.isArray(body.creatives) ? body.creatives : [];
+  return {
+    advertiser_id: body.advertiser_id ?? null,
+    adgroup_id: body.adgroup_id ?? null,
+    creatives: creatives.map((item) => {
+      const creative =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : {};
+      return {
+        identity_id: creative.identity_id ?? null,
+        identity_type: creative.identity_type ?? null,
+        identity_authorized_bc_id: creative.identity_authorized_bc_id ?? null,
+        identity_bc_id: creative.identity_bc_id ?? null,
+      };
+    }),
+  };
+}
+
+function logTikTokAdCreateIdentityFields(body: Record<string, BodyValue>): void {
+  console.error(
+    `[tiktok/ad-create] outgoing identity fields ${JSON.stringify(tikTokAdCreateIdentityLog(body))}`,
+  );
+}
+
 export async function createTikTokAd(
   args: CreateTikTokAdArgs,
 ): Promise<{ ad_id: string }> {
@@ -40,6 +75,7 @@ export async function createTikTokAd(
   const payload = buildTikTokAdWritePayload(args);
 
   const adId = await withTikTokWriteIdempotency(args, "ad_create", payload, async () => {
+    logTikTokAdCreateIdentityFields(payload);
     const res = await postTikTokWrite<CreateAdResponse>({
       path: "/ad/create/",
       body: payload,
