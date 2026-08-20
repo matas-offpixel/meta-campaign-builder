@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 793
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/793
 - **Branch:** `cursor/tiktok-location-label-country`
 
 ## Summary
