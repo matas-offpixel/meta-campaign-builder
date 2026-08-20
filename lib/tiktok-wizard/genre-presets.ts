@@ -4,25 +4,25 @@ import type { TikTokTargetingItem } from "../types/tiktok-draft.ts";
 export const TIKTOK_GENRE_PRESET_LIMITATION_NOTE =
   "TikTok has no genre-level interest categories, so a genre preset maps to broad music and dance interests plus keyword matches, and precision comes from geo, age and custom audiences.";
 
-export const TIKTOK_ELECTRONIC_INTEREST_LABELS = [
-  "Music",
-  "Dance",
-  "Entertainment",
-] as const;
+export type TikTokTaxonomyPath = readonly string[];
 
-export const TIKTOK_ELECTRONIC_BEHAVIOUR_LABELS = [
-  "Music",
-  "Dance",
-  "Singing & Dancing",
-  "Performance",
-] as const;
+export const TIKTOK_ELECTRONIC_INTEREST_PATHS = [
+  ["News & Entertainment", "Culture & Art", "Music"],
+  ["News & Entertainment", "Culture & Art", "Dance"],
+] as const satisfies readonly TikTokTaxonomyPath[];
+
+export const TIKTOK_ELECTRONIC_BEHAVIOUR_PATHS = [
+  ["Entertainment", "Entertainment & Culture", "Music"],
+  ["Talents", "Singing & Dancing"],
+  ["Talents", "Singing & Dancing", "Dance"],
+] as const satisfies readonly TikTokTaxonomyPath[];
 
 export interface TikTokGenrePreset {
   id: string;
   label: string;
   seeds: string[];
-  interestLabels: readonly string[];
-  behaviourLabels: readonly string[];
+  interestPaths: readonly TikTokTaxonomyPath[];
+  behaviourPaths: readonly TikTokTaxonomyPath[];
 }
 
 export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
@@ -32,8 +32,8 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     // Single words only: FUZZ_MATCH is a literal substring matcher, so
     // "tech house" / "house music" return 0 and "edm" matches "edmonton".
     seeds: ["techno", "house", "disco", "electronic", "dance"],
-    interestLabels: TIKTOK_ELECTRONIC_INTEREST_LABELS,
-    behaviourLabels: TIKTOK_ELECTRONIC_BEHAVIOUR_LABELS,
+    interestPaths: TIKTOK_ELECTRONIC_INTEREST_PATHS,
+    behaviourPaths: TIKTOK_ELECTRONIC_BEHAVIOUR_PATHS,
   },
 ];
 
@@ -44,9 +44,36 @@ export interface TikTokPresetKeywordRow {
   seeds: string[];
 }
 
+export interface TikTokUnresolvedPresetPath {
+  kind: "interest" | "behaviour";
+  path: TikTokTaxonomyPath;
+}
+
 export interface TikTokPresetTaxonomySelection {
   interestItems: TikTokTargetingItem[];
   behaviourItems: TikTokTargetingItem[];
+  unresolvedPaths: TikTokUnresolvedPresetPath[];
+}
+
+export function formatTikTokTaxonomyPath(path: TikTokTaxonomyPath): string {
+  return path.map((segment) => segment.trim()).filter(Boolean).join(" > ");
+}
+
+export function formatTikTokUnresolvedPresetPaths(
+  unresolved: readonly TikTokUnresolvedPresetPath[],
+): string | null {
+  if (unresolved.length === 0) return null;
+  const named = unresolved.map((item) => formatTikTokTaxonomyPath(item.path));
+  return `TikTok catalog has no node for ${named.join("; ")}.`;
+}
+
+export function tikTokPresetTaxonomyPendingReason(input: {
+  hasGroup: boolean;
+  catalogLoaded: boolean;
+}): "no-group" | "catalog-empty" | null {
+  if (!input.hasGroup) return "no-group";
+  if (!input.catalogLoaded) return "catalog-empty";
+  return null;
 }
 
 export function resolveTikTokPresetTaxonomy(
@@ -54,25 +81,36 @@ export function resolveTikTokPresetTaxonomy(
     interests: TikTokAudienceCategory[];
     behaviours: TikTokAudienceCategory[];
   },
-  preset: Pick<TikTokGenrePreset, "interestLabels" | "behaviourLabels">,
+  preset: Pick<TikTokGenrePreset, "interestPaths" | "behaviourPaths">,
 ): TikTokPresetTaxonomySelection {
-  return {
-    interestItems: matchCatalogLabels(catalog.interests, preset.interestLabels).map(
-      (row) => ({
-        id: row.id,
-        name: row.label,
-        kind: "category" as const,
-      }),
-    ),
-    behaviourItems: matchCatalogLabels(
-      catalog.behaviours,
-      preset.behaviourLabels,
-    ).map((row) => ({
+  const unresolvedPaths: TikTokUnresolvedPresetPath[] = [];
+  const interestItems: TikTokTargetingItem[] = [];
+  for (const path of preset.interestPaths) {
+    const row = matchCatalogPath(catalog.interests, path);
+    if (!row) {
+      unresolvedPaths.push({ kind: "interest", path });
+      continue;
+    }
+    interestItems.push({
       id: row.id,
-      name: row.label,
-      kind: "category" as const,
-    })),
-  };
+      name: formatTikTokTaxonomyPath(path),
+      kind: "category",
+    });
+  }
+  const behaviourItems: TikTokTargetingItem[] = [];
+  for (const path of preset.behaviourPaths) {
+    const row = matchCatalogPath(catalog.behaviours, path);
+    if (!row) {
+      unresolvedPaths.push({ kind: "behaviour", path });
+      continue;
+    }
+    behaviourItems.push({
+      id: row.id,
+      name: formatTikTokTaxonomyPath(path),
+      kind: "category",
+    });
+  }
+  return { interestItems, behaviourItems, unresolvedPaths };
 }
 
 export function mergeTikTokPresetTaxonomy(
@@ -80,7 +118,7 @@ export function mergeTikTokPresetTaxonomy(
     interestIds: TikTokTargetingItem[];
     behaviourIds: TikTokTargetingItem[];
   },
-  taxonomy: TikTokPresetTaxonomySelection,
+  taxonomy: Pick<TikTokPresetTaxonomySelection, "interestItems" | "behaviourItems">,
 ): {
   interestIds: TikTokTargetingItem[];
   behaviourIds: TikTokTargetingItem[];
@@ -144,25 +182,36 @@ export function tikTokHashtagPresetQuery(seeds: string[]): {
   };
 }
 
-function matchCatalogLabels(
+function matchCatalogPath(
   rows: TikTokAudienceCategory[],
-  labels: readonly string[],
-): TikTokAudienceCategory[] {
-  const wanted = new Map(
-    labels.map((label) => [normaliseLabel(label), label] as const),
-  );
-  const matched = new Map<string, TikTokAudienceCategory>();
+  path: TikTokTaxonomyPath,
+): TikTokAudienceCategory | null {
+  const wanted = path.map(normaliseLabel);
+  if (wanted.length === 0 || wanted.some((segment) => !segment)) return null;
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const leaf = wanted[wanted.length - 1];
   for (const row of rows) {
-    const key = normaliseLabel(row.label);
-    if (!wanted.has(key)) continue;
-    const existing = matched.get(key);
-    if (!existing || (existing.parent_id && !row.parent_id)) {
-      matched.set(key, row);
-    }
+    if (normaliseLabel(row.label) !== leaf) continue;
+    if (ancestorPathEquals(row, wanted, byId)) return row;
   }
-  return labels
-    .map((label) => matched.get(normaliseLabel(label)))
-    .filter((row): row is TikTokAudienceCategory => Boolean(row));
+  return null;
+}
+
+function ancestorPathEquals(
+  row: TikTokAudienceCategory,
+  wanted: string[],
+  byId: Map<string, TikTokAudienceCategory>,
+): boolean {
+  const walked: string[] = [];
+  const seen = new Set<string>();
+  let current: TikTokAudienceCategory | undefined = row;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    walked.unshift(normaliseLabel(current.label));
+    current = current.parent_id ? byId.get(current.parent_id) : undefined;
+  }
+  if (walked.length !== wanted.length) return false;
+  return walked.every((segment, index) => segment === wanted[index]);
 }
 
 function unionById(
