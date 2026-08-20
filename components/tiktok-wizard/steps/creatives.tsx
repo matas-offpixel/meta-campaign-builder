@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { Upload } from "lucide-react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
+import { appendUploadedTikTokCreatives } from "@/lib/tiktok-wizard/creative-items";
+import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
   nameCreativeVariations,
@@ -14,6 +18,16 @@ import type {
   TikTokCampaignDraft,
   TikTokCreativeDraft,
 } from "@/lib/types/tiktok-draft";
+
+interface UploadJob {
+  id: string;
+  fileName: string;
+  sizeLabel: string;
+  stage: "storage" | "tiktok" | "done" | "error";
+  videoId: string | null;
+  thumbnailUrl: string | null;
+  error: string | null;
+}
 
 const CTA_OPTIONS = [
   { value: "LEARN_MORE", label: "Learn more" },
@@ -40,6 +54,9 @@ export function CreativesStep({
   const [videoLookupLoading, setVideoLookupLoading] = useState(false);
   const [retryVideoId, setRetryVideoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadJobs, setUploadJobs] = useState<UploadJob[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function persist(items: TikTokCreativeDraft[]) {
     setSaving(true);
@@ -51,6 +68,99 @@ export function CreativesStep({
     } finally {
       setSaving(false);
     }
+  }
+
+  function patchJob(id: string, patch: Partial<UploadJob>) {
+    setUploadJobs((current) =>
+      current.map((job) => (job.id === id ? { ...job, ...patch } : job)),
+    );
+  }
+
+  async function uploadFiles(files: File[]) {
+    const advertiserId = draft.accountSetup.advertiserId;
+    if (!advertiserId) {
+      setError("Select an advertiser in Step 0 before uploading video.");
+      return;
+    }
+    if (adText.length > 100) {
+      setError("TikTok ad text must be 100 characters or fewer.");
+      return;
+    }
+    const uploads: Array<{
+      videoId: string;
+      thumbnailUrl: string | null;
+      durationSeconds: number | null;
+      fileName: string;
+    }> = [];
+    for (const file of files) {
+      const gate = validateTikTokVideoFile(file);
+      if (!gate.ok) {
+        setError(gate.error);
+        setUploadJobs((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            fileName: file.name,
+            sizeLabel: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+            stage: "error",
+            videoId: null,
+            thumbnailUrl: null,
+            error: gate.error,
+          },
+        ]);
+        continue;
+      }
+      const jobId = crypto.randomUUID();
+      setUploadJobs((current) => [
+        ...current,
+        {
+          id: jobId,
+          fileName: file.name,
+          sizeLabel: `${(file.size / 1024 / 1024).toFixed(1)} MB`,
+          stage: "storage",
+          videoId: null,
+          thumbnailUrl: null,
+          error: null,
+        },
+      ]);
+      try {
+        const result = await uploadTikTokVideoViaStorage({
+          file,
+          advertiserId,
+          onStage: (stage) => patchJob(jobId, { stage }),
+        });
+        patchJob(jobId, {
+          stage: "done",
+          videoId: result.videoId,
+          thumbnailUrl: result.previewUrl,
+        });
+        uploads.push({
+          videoId: result.videoId,
+          thumbnailUrl: result.previewUrl,
+          durationSeconds: result.durationSeconds,
+          fileName: file.name,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Upload failed";
+        patchJob(jobId, { stage: "error", error: message });
+        setError(message);
+      }
+    }
+    if (uploads.length === 0) return;
+    const nextItems = appendUploadedTikTokCreatives({
+      existing: draft.creatives.items,
+      uploads,
+      baseName,
+      variationCount: Number.parseInt(variationCount, 10) || 1,
+      adText,
+      displayName:
+        draft.accountSetup.identityDisplayName ??
+        draft.accountSetup.identityManualName ??
+        "",
+      landingPageUrl: landingPageUrl.trim(),
+      cta,
+    });
+    await persist(nextItems);
   }
 
   async function addVideoReference() {
@@ -142,8 +252,9 @@ export function CreativesStep({
       <div>
         <h2 className="font-heading text-xl">Creatives</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Add video-reference creatives. Spark Ads are shown as a v2 placeholder
-          and are not wired in this version.
+          Upload a video to the TikTok Asset Library, or paste an existing
+          video URL / video_id. Spark Ads are a v2 placeholder and are not
+          wired.
         </p>
       </div>
 
@@ -195,9 +306,94 @@ export function CreativesStep({
         />
       </div>
 
+      <div
+        onDragOver={(event) => {
+          event.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault();
+          setIsDragging(false);
+          void uploadFiles([...event.dataTransfer.files]);
+        }}
+        className={`relative flex items-center justify-center gap-3 rounded-xl border-2 border-dashed p-5 transition-colors ${
+          isDragging
+            ? "border-primary bg-primary/10"
+            : "border-border bg-muted/30 hover:border-border-strong"
+        }`}
+      >
+        <Upload className={`h-5 w-5 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
+        <div className="text-sm">
+          <span className={isDragging ? "font-medium text-primary" : "text-muted-foreground"}>
+            {isDragging ? "Drop videos to upload" : "Drag & drop videos to upload"}
+          </span>
+          <span className="text-muted-foreground"> or </span>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="font-medium text-primary hover:underline"
+          >
+            browse
+          </button>
+          <p className="mt-1 text-xs text-muted-foreground">
+            .mp4, .mov, .mpeg, .avi · up to 200 MB (Storage ceiling)
+          </p>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".mp4,.mov,.mpeg,.avi,video/mp4,video/quicktime,video/mpeg,video/x-msvideo"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            void uploadFiles([...(event.target.files ?? [])]);
+            event.target.value = "";
+          }}
+        />
+      </div>
+
+      {uploadJobs.length > 0 && (
+        <div className="space-y-2">
+          {uploadJobs.map((job) => (
+            <div
+              key={job.id}
+              className="flex items-center gap-3 rounded-md border border-border bg-background p-3"
+            >
+              {job.thumbnailUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={job.thumbnailUrl}
+                  alt=""
+                  className="h-14 w-14 rounded object-cover"
+                />
+              ) : (
+                <div className="flex h-14 w-14 items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                  {job.stage === "done" ? "Ready" : "…"}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{job.fileName}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {job.sizeLabel} · {jobStageLabel(job)}
+                </p>
+                {job.videoId && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    video_id {job.videoId}
+                  </p>
+                )}
+                {job.error && (
+                  <p className="text-xs text-amber-700 dark:text-amber-300">{job.error}</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <Input
         id="creative-video"
-        label="TikTok video URL or video_id"
+        label="Or paste a TikTok video URL or video_id"
         value={videoInput}
         onChange={(event) => setVideoInput(event.target.value)}
         placeholder="https://www.tiktok.com/@brand/video/123..."
@@ -296,6 +492,13 @@ export function CreativesStep({
       </div>
     </div>
   );
+}
+
+function jobStageLabel(job: UploadJob): string {
+  if (job.stage === "storage") return "Uploading to storage…";
+  if (job.stage === "tiktok") return "Sending to TikTok Asset Library…";
+  if (job.stage === "done") return "Uploaded";
+  return "Failed";
 }
 
 function isRateLimitMessage(message: string): boolean {
