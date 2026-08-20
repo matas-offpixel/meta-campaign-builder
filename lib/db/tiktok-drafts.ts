@@ -41,6 +41,22 @@ export async function getTikTokDraft(
   return rowToDraft(data as TikTokDraftRow);
 }
 
+export async function getOwnedTikTokDraft(
+  supabase: TypedSupabaseClient,
+  draftId: string,
+  userId: string,
+): Promise<TikTokCampaignDraft | null> {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("id, client_id, event_id, status, state, created_at, updated_at")
+    .eq("id", draftId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return rowToDraft(data as TikTokDraftRow);
+}
+
 export async function upsertTikTokDraft(
   supabase: TypedSupabaseClient,
   draftId: string,
@@ -111,6 +127,10 @@ function rowToDraft(row: TikTokDraftRow): TikTokCampaignDraft {
   return {
     ...base,
     ...state,
+    accountSetup: {
+      ...base.accountSetup,
+      ...(state.accountSetup ?? {}),
+    },
     id: row.id,
     clientId: row.client_id,
     eventId: row.event_id,

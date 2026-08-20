@@ -25,6 +25,8 @@ export interface TikTokWizardContext {
   clientName?: string | null;
   advertiserName?: string | null;
   eventEditPath?: string | null;
+  writesEnabled?: boolean;
+  writesDisabledReason?: string | null;
 }
 
 export function TikTokWizardShell({
@@ -76,8 +78,9 @@ export function TikTokWizardShell({
           </p>
           <h1 className="mt-2 font-heading text-3xl">TikTok campaign draft</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Build the TikTok campaign configuration step by step. Launch remains
-            disabled until TikTok write APIs are enabled.
+            Build the TikTok campaign configuration step by step. Launch writes
+            stay behind OFFPIXEL_TIKTOK_WRITES_ENABLED and never enable Smart+
+            or automated-ad enhancements.
           </p>
         </div>
 

@@ -13,7 +13,24 @@ import {
   suggestTikTokAdGroups,
 } from "@/lib/tiktok-wizard/review";
 import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
+import { TIKTOK_WRITES_DISABLED_REASON } from "@/lib/tiktok/write/feature-flag";
+import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
+import type { TikTokLaunchEntity } from "@/lib/tiktok/write/types";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+
+type LaunchState =
+  | { status: "idle" }
+  | { status: "launching" }
+  | {
+      status: "success";
+      entities: TikTokLaunchEntity[];
+      campaignId: string;
+    }
+  | {
+      status: "error";
+      message: string;
+      preflight?: Array<{ id: string; field: string; message: string }>;
+    };
 
 export function ReviewLaunchStep({
   draft,
@@ -26,6 +43,7 @@ export function ReviewLaunchStep({
 }) {
   const [saving, setSaving] = useState(false);
   const [validationOpen, setValidationOpen] = useState(false);
+  const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
   const checks = buildTikTokPreflightChecks(draft);
   const adGroups = suggestTikTokAdGroups(draft);
   const validationIssues = buildTikTokWizardValidationIssues(draft, {
@@ -34,6 +52,19 @@ export function ReviewLaunchStep({
   const failingIssues = validationIssues.filter(
     (issue) => issue.severity === "error",
   );
+  const launchPreflight = collectTikTokLaunchPreflight(draft);
+  const writesEnabled = context?.writesEnabled === true;
+  const writesDisabledReason =
+    context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
+  const launchDisabled =
+    launch.status === "launching" ||
+    !writesEnabled ||
+    !launchPreflight.ok;
+  const launchTitle = !writesEnabled
+    ? writesDisabledReason
+    : !launchPreflight.ok
+      ? launchPreflight.issues.map((issue) => issue.message).join(" · ")
+      : undefined;
 
   async function markReviewReady() {
     setSaving(true);
@@ -41,6 +72,61 @@ export function ReviewLaunchStep({
       await onSave({ reviewReadyAt: new Date().toISOString() });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function launchOnTikTok() {
+    if (launchDisabled) return;
+    setLaunch({ status: "launching" });
+    try {
+      const res = await fetch("/api/tiktok/launch-campaign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftId: draft.id }),
+      });
+      const json = (await res.json().catch(() => null)) as
+        | {
+            ok: true;
+            campaign_id: string;
+            entities: TikTokLaunchEntity[];
+          }
+        | {
+            ok: false;
+            error: string;
+            preflight?: Array<{ id: string; field: string; message: string }>;
+          }
+        | null;
+      if (!res.ok || !json?.ok) {
+        setLaunch({
+          status: "error",
+          message:
+            json && !json.ok ? json.error : "TikTok launch failed",
+          preflight: json && !json.ok ? json.preflight : undefined,
+        });
+        return;
+      }
+      await onSave({
+        status: "published",
+        publishedIds: {
+          campaignId: json.campaign_id,
+          adgroupIds: json.entities
+            .filter((entity) => entity.kind === "adgroup")
+            .map((entity) => entity.id),
+          adIds: json.entities
+            .filter((entity) => entity.kind === "ad")
+            .map((entity) => entity.id),
+        },
+      });
+      setLaunch({
+        status: "success",
+        entities: json.entities,
+        campaignId: json.campaign_id,
+      });
+    } catch (err) {
+      setLaunch({
+        status: "error",
+        message: err instanceof Error ? err.message : "TikTok launch failed",
+      });
     }
   }
 
@@ -62,8 +148,9 @@ export function ReviewLaunchStep({
       <div>
         <h2 className="font-heading text-xl">Review & launch</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Review the full TikTok plan. Launch writes are disabled until the
-          TikTok write API is enabled.
+          Review the full TikTok plan. This launcher never enables Smart+ or
+          automated ads — campaigns are created paused so you can inspect them
+          before spend starts.
         </p>
       </div>
 
@@ -123,6 +210,44 @@ export function ReviewLaunchStep({
         ))}
       </section>
 
+      {!launchPreflight.ok && (
+        <section className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-sm font-medium">Launch blockers</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {launchPreflight.issues.map((issue) => (
+              <li key={issue.id}>{issue.message}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {launchPreflight.warnings.length > 0 && (
+        <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-sm font-medium">Launch warnings</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {launchPreflight.warnings.map((warning) => (
+              <li key={warning.id}>{warning.message}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="rounded-md border border-border bg-background p-4">
+        <div className="flex items-center gap-2">
+          <h3 className="font-heading text-lg">Creative Integrity Mode</h3>
+          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+            ALWAYS ON
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          This launcher always publishes ads exactly as uploaded. Every ad is
+          created with <code>is_aco=false</code> and{" "}
+          <code>creative_authorized=false</code> — no Smart+, no Smart
+          Creative, no automated ads. Campaign, ad groups, and ads are all
+          created paused.
+        </p>
+      </section>
+
       <ReviewPanel title="Account">
         <KeyValue label="Advertiser" value={draft.accountSetup.advertiserId} />
         <KeyValue
@@ -136,6 +261,11 @@ export function ReviewLaunchStep({
           label="Pixel"
           value={draft.accountSetup.pixelName ?? draft.accountSetup.pixelId}
         />
+        <KeyValue
+          label="Optimisation event"
+          value={draft.accountSetup.optimisationEvent}
+        />
+        <KeyValue label="Currency" value={draft.accountSetup.currency} />
       </ReviewPanel>
 
       <ReviewPanel title="Campaign">
@@ -240,13 +370,49 @@ export function ReviewLaunchStep({
         </div>
       </ReviewPanel>
 
+      {(launch.status === "launching" ||
+        launch.status === "success" ||
+        launch.status === "error") && (
+        <section className="rounded-md border border-border bg-background p-4">
+          <h3 className="font-heading text-lg">Launch progress</h3>
+          {launch.status === "launching" && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Creating campaign → ad groups → ads…
+            </p>
+          )}
+          {launch.status === "success" && (
+            <ul className="mt-3 space-y-2 text-sm">
+              {launch.entities.map((entity) => (
+                <li key={`${entity.kind}-${entity.id}`}>
+                  <span className="text-muted-foreground">{entity.kind}</span>{" "}
+                  {entity.name} · {entity.id}
+                </li>
+              ))}
+            </ul>
+          )}
+          {launch.status === "error" && (
+            <div className="mt-2 space-y-2 text-sm">
+              <p className="text-red-700">{launch.message}</p>
+              {launch.preflight && launch.preflight.length > 0 && (
+                <ul className="list-disc space-y-1 pl-5">
+                  {launch.preflight.map((issue) => (
+                    <li key={issue.id}>{issue.message}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="flex flex-wrap gap-3">
         <Button
           type="button"
-          disabled
-          title="TikTok writes coming soon — this draft is saved and will be launchable when the writes API is enabled."
+          disabled={launchDisabled}
+          title={launchTitle}
+          onClick={() => void launchOnTikTok()}
         >
-          Launch on TikTok
+          {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
         </Button>
         <Button type="button" variant="outline" onClick={downloadBrief}>
           Download as brief (Markdown)
@@ -264,6 +430,9 @@ export function ReviewLaunchStep({
         {draft.reviewReadyAt
           ? `Marked review ready at ${draft.reviewReadyAt}.`
           : "Review-ready state is stored inside the draft JSON; no status migration required."}
+        {draft.publishedIds
+          ? ` Published TikTok campaign ${draft.publishedIds.campaignId}.`
+          : ""}
       </p>
     </div>
   );

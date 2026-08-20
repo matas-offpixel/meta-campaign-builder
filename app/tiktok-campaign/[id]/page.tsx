@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { TikTokWizardShell } from "@/components/tiktok-wizard/wizard-shell";
 import { getTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { createClient } from "@/lib/supabase/server";
+import {
+  isTikTokWritesEnabled,
+  TIKTOK_WRITES_DISABLED_REASON,
+} from "@/lib/tiktok/write/feature-flag";
 import { createDefaultTikTokDraft } from "@/lib/types/tiktok-draft";
 
 export default async function TikTokCampaignPage(props: {
@@ -62,6 +66,10 @@ export default async function TikTokCampaignPage(props: {
         clientName: client?.name ?? null,
         advertiserName: advertiser?.account_name ?? null,
         eventEditPath: draft.eventId ? `/events/${draft.eventId}/edit` : null,
+        writesEnabled: isTikTokWritesEnabled(),
+        writesDisabledReason: isTikTokWritesEnabled()
+          ? null
+          : TIKTOK_WRITES_DISABLED_REASON,
       }}
     />
   );

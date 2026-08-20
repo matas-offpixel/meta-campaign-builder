@@ -12,9 +12,21 @@ export interface TikTokCampaignDraft {
   creatives: TikTokCreatives;
   budgetSchedule: TikTokBudgetSchedule;
   creativeAssignments: TikTokCreativeAssignments;
+  /**
+   * Unused by the launcher. TikTok writes always send `is_aco: false` and
+   * `creative_authorized: false`. Kept so older draft JSON still loads.
+   */
+  creativeIntegrityMode: boolean;
+  publishedIds: TikTokPublishedIds | null;
   reviewReadyAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TikTokPublishedIds {
+  campaignId: string;
+  adgroupIds: string[];
+  adIds: string[];
 }
 
 export interface TikTokAccountSetup {
@@ -32,6 +44,13 @@ export interface TikTokAccountSetup {
     | null;
   pixelId: string | null;
   pixelName: string | null;
+  /**
+   * TikTok `optimization_event` sourced from `/pixel/list/` for this pixel.
+   * Required for WEB_CONVERSIONS. Never a hardcoded enum.
+   */
+  optimisationEvent: string | null;
+  /** ISO 4217 from `/advertiser/info/`. Used to qualify the budget floor. */
+  currency: string | null;
 }
 
 export type TikTokObjective =
@@ -156,6 +175,8 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       identityType: null,
       pixelId: null,
       pixelName: null,
+      optimisationEvent: null,
+      currency: null,
     },
     campaignSetup: {
       campaignName: "",
@@ -205,6 +226,8 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       adGroups: [],
     },
     creativeAssignments: { byAdGroupId: {} },
+    creativeIntegrityMode: true,
+    publishedIds: null,
     reviewReadyAt: null,
     createdAt: now,
     updatedAt: now,

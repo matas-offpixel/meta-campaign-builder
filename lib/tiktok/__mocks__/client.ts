@@ -14,6 +14,7 @@ export function createMockTikTokClient(options: {
 } = {}): { tiktokPost: TikTokPost; calls: MockTikTokCall[] } {
   const calls: MockTikTokCall[] = [];
   const failedOnce = new Set<string>();
+  let campaignSeq = 0;
 
   const mockPost: TikTokPost = async <T,>(
     path: string,
@@ -32,7 +33,8 @@ export function createMockTikTokClient(options: {
     }
 
     if (path === "/campaign/create/") {
-      return { campaign_id: "campaign_mock_1" } as T;
+      campaignSeq += 1;
+      return { campaign_id: `campaign_mock_${campaignSeq}` } as T;
     }
     if (path === "/adgroup/create/") {
       return { adgroup_id: `adgroup_mock_${calls.length}` } as T;

@@ -42,6 +42,7 @@ class MemoryBuilder {
   private eqs: Record<string, unknown> = {};
   private pendingUpsert: { id?: string } | null = null;
   private pendingUpdate: Record<string, unknown> | null = null;
+  private pendingDelete = false;
   private selectedAfterWrite = false;
 
   constructor(db: MemorySupabase) {
@@ -88,6 +89,11 @@ class MemoryBuilder {
     return this;
   }
 
+  delete() {
+    this.pendingDelete = true;
+    return this;
+  }
+
   maybeSingle() {
     if (this.pendingUpsert && this.selectedAfterWrite) {
       return Promise.resolve({ data: { id: this.pendingUpsert.id }, error: null });
@@ -102,6 +108,14 @@ class MemoryBuilder {
   }
 
   then(onFulfilled?: (value: { data: null; error: null }) => unknown) {
+    if (this.pendingDelete) {
+      this.db.rows = this.db.rows.filter(
+        (candidate) =>
+          !Object.entries(this.eqs).every(
+            ([key, value]) => candidate[key as keyof IdempotencyRow] === value,
+          ),
+      );
+    }
     const value = { data: null, error: null };
     return Promise.resolve(onFulfilled ? onFulfilled(value) : value);
   }
@@ -140,9 +154,8 @@ describe("TikTok write feature flag", () => {
       createTikTokCampaign({
         ...BASE_CONTEXT,
         supabase: db as unknown as SupabaseClient,
-    request: mock.tiktokPost,
-        campaignName: "Campaign",
-        objective: "TRAFFIC",
+        request: mock.tiktokPost,
+        draft: launchableDraft(),
       }),
       /TikTok writes are disabled/,
     );
@@ -162,8 +175,7 @@ describe("createTikTokCampaign", () => {
       ...BASE_CONTEXT,
       supabase: db as unknown as SupabaseClient,
       request: mock.tiktokPost,
-      campaignName: "Campaign",
-      objective: "TRAFFIC",
+      draft: launchableDraft(),
     });
 
     assert.deepEqual(out, { campaign_id: "campaign_mock_1" });
@@ -180,8 +192,7 @@ describe("createTikTokCampaign", () => {
       ...BASE_CONTEXT,
       supabase: db as unknown as SupabaseClient,
       request: mock.tiktokPost,
-      campaignName: "Campaign",
-      objective: "TRAFFIC",
+      draft: launchableDraft(),
     };
 
     await createTikTokCampaign(args);
@@ -213,8 +224,7 @@ describe("createTikTokCampaign", () => {
       sleep: async (ms) => {
         sleeps.push(ms);
       },
-      campaignName: "Campaign",
-      objective: "TRAFFIC",
+      draft: launchableDraft(),
     });
 
     assert.equal(out.campaign_id, "campaign_mock_1");
@@ -234,25 +244,18 @@ describe("ad group and ad writes", () => {
       request: mock.tiktokPost,
     };
 
+    const draft = launchableDraft();
     const adgroup = await createTikTokAdGroup({
       ...context,
       campaignId: "campaign_1",
-      adGroupName: "Prospecting",
-      budget: 50,
-      scheduleStartAt: "2026-05-01T09:00:00Z",
-      scheduleEndAt: "2026-05-08T09:00:00Z",
-      optimisationGoal: "CLICK",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
     });
     const ad = await createTikTokAd({
       ...context,
       adGroupId: adgroup.adgroup_id,
-      adName: "Hero · v1",
-      videoId: "video_1",
-      adText: "Ad text",
-      displayName: "Off/Pixel",
-      landingPageUrl: "https://example.com",
-      cta: "LEARN_MORE",
-      identityId: "identity_1",
+      draft,
+      creative: draft.creatives.items[0],
     });
 
     assert.ok(adgroup.adgroup_id.startsWith("adgroup_mock_"));
@@ -261,6 +264,12 @@ describe("ad group and ad writes", () => {
       mock.calls.map((call) => call.path),
       ["/adgroup/create/", "/ad/create/"],
     );
+    assert.equal(mock.calls[1].body.is_aco, false);
+    const creatives = mock.calls[1].body.creatives as Array<Record<string, unknown>>;
+    assert.equal(creatives[0].creative_authorized, false);
+    assert.equal(creatives[0].identity_type, "TT_USER");
+    assert.equal(mock.calls[0].body.operation_status, "DISABLE");
+    assert.equal(mock.calls[1].body.operation_status, "DISABLE");
   });
 });
 
@@ -286,6 +295,54 @@ describe("launchTikTokDraftState", () => {
     assert.deepEqual(
       mock.calls.map((call) => call.path),
       ["/campaign/create/", "/adgroup/create/", "/ad/create/"],
+    );
+  });
+
+  it("blocks Smart+ in preflight before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.optimisation.smartPlusEnabled = true;
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        draft,
+      ),
+      /Smart\+ campaigns generate their own creative/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
+  it("attempts campaign cleanup after a mid-flight ad failure", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient({
+      failAlways: {
+        "/ad/create/": new TikTokApiError("ad invalid", 40000, "req-ad", 400),
+      },
+    });
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        launchableDraft(),
+      ),
+      /ad invalid/,
+    );
+
+    assert.deepEqual(
+      mock.calls.map((call) => call.path),
+      ["/campaign/create/", "/adgroup/create/", "/ad/create/", "/campaign/delete/"],
     );
   });
 
@@ -315,6 +372,45 @@ describe("launchTikTokDraftState", () => {
       ["/campaign/create/", "/adgroup/create/", "/campaign/delete/"],
     );
   });
+
+  it("clears the idempotency ledger on rollback so retry creates a new campaign", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient({
+      failOnce: {
+        "/ad/create/": new TikTokApiError("ad invalid", 40000, "req-ad", 400),
+      },
+    });
+    const args = {
+      ...BASE_CONTEXT,
+      supabase: db as unknown as SupabaseClient,
+      request: mock.tiktokPost,
+    };
+    const draft = launchableDraft();
+
+    await assert.rejects(launchTikTokDraftState(args, draft), /ad invalid/);
+    assert.equal(db.rows.length, 0);
+    assert.deepEqual(
+      mock.calls.map((call) => call.path),
+      ["/campaign/create/", "/adgroup/create/", "/ad/create/", "/campaign/delete/"],
+    );
+
+    const out = await launchTikTokDraftState(args, draft);
+    assert.equal(out.campaign_id, "campaign_mock_2");
+    assert.notEqual(out.campaign_id, "campaign_mock_1");
+    assert.deepEqual(
+      mock.calls.map((call) => call.path),
+      [
+        "/campaign/create/",
+        "/adgroup/create/",
+        "/ad/create/",
+        "/campaign/delete/",
+        "/campaign/create/",
+        "/adgroup/create/",
+        "/ad/create/",
+      ],
+    );
+  });
 });
 
 describe("hashTikTokWritePayload", () => {
@@ -331,6 +427,8 @@ function launchableDraft() {
   draft.eventId = BASE_CONTEXT.eventId;
   draft.accountSetup.advertiserId = BASE_CONTEXT.advertiserId;
   draft.accountSetup.identityId = "identity_1";
+  draft.accountSetup.identityType = "TT_USER";
+  draft.accountSetup.currency = "GBP";
   draft.campaignSetup.campaignName = "Campaign";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";

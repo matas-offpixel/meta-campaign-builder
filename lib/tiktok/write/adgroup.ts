@@ -1,21 +1,37 @@
+import type { BodyValue } from "../client.ts";
+import type {
+  TikTokAdGroupDraft,
+  TikTokCampaignDraft,
+} from "../../types/tiktok-draft.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
 import {
   withTikTokWriteIdempotency,
   type TikTokWriteContext,
 } from "./idempotency.ts";
+import { buildTikTokAdGroupPayload } from "./mapping.ts";
 import { postTikTokWrite } from "./request.ts";
 
 export interface CreateTikTokAdGroupArgs extends TikTokWriteContext {
   campaignId: string;
-  adGroupName: string;
-  budget: number | null;
-  scheduleStartAt: string | null;
-  scheduleEndAt: string | null;
-  optimisationGoal: string | null;
+  draft: TikTokCampaignDraft;
+  adGroup: TikTokAdGroupDraft;
 }
 
 interface CreateAdGroupResponse {
   adgroup_id?: string;
+}
+
+export function buildTikTokAdGroupWritePayload(args: {
+  advertiserId: string;
+  campaignId: string;
+  draft: TikTokCampaignDraft;
+  adGroup: TikTokAdGroupDraft;
+}): Record<string, BodyValue> {
+  const built = buildTikTokAdGroupPayload(args);
+  if (!built.ok) {
+    throw new Error(`${built.error.field}: ${built.error.message}`);
+  }
+  return built.value;
 }
 
 export async function createTikTokAdGroup(
@@ -23,15 +39,7 @@ export async function createTikTokAdGroup(
 ): Promise<{ adgroup_id: string }> {
   assertTikTokWritesEnabled();
 
-  const payload = {
-    advertiser_id: args.advertiserId,
-    campaign_id: args.campaignId,
-    adgroup_name: args.adGroupName,
-    budget: args.budget ?? undefined,
-    schedule_start_time: args.scheduleStartAt ?? undefined,
-    schedule_end_time: args.scheduleEndAt ?? undefined,
-    optimization_goal: args.optimisationGoal ?? undefined,
-  };
+  const payload = buildTikTokAdGroupWritePayload(args);
 
   const adgroupId = await withTikTokWriteIdempotency(
     args,

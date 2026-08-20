@@ -1,18 +1,30 @@
+import type { BodyValue } from "../client.ts";
+import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
 import {
   withTikTokWriteIdempotency,
   type TikTokWriteContext,
 } from "./idempotency.ts";
+import { buildTikTokCampaignPayload } from "./mapping.ts";
 import { postTikTokWrite } from "./request.ts";
 
 export interface CreateTikTokCampaignArgs extends TikTokWriteContext {
-  campaignName: string;
-  objective: string;
-  budgetMode?: string | null;
+  draft: TikTokCampaignDraft;
 }
 
 interface CreateCampaignResponse {
   campaign_id?: string;
+}
+
+export function buildTikTokCampaignWritePayload(args: {
+  advertiserId: string;
+  draft: TikTokCampaignDraft;
+}): Record<string, BodyValue> {
+  const built = buildTikTokCampaignPayload(args);
+  if (!built.ok) {
+    throw new Error(`${built.error.field}: ${built.error.message}`);
+  }
+  return built.value;
 }
 
 export async function createTikTokCampaign(
@@ -20,12 +32,7 @@ export async function createTikTokCampaign(
 ): Promise<{ campaign_id: string }> {
   assertTikTokWritesEnabled();
 
-  const payload = {
-    advertiser_id: args.advertiserId,
-    campaign_name: args.campaignName,
-    objective_type: args.objective,
-    budget_mode: args.budgetMode ?? undefined,
-  };
+  const payload = buildTikTokCampaignWritePayload(args);
 
   const campaignId = await withTikTokWriteIdempotency(
     args,

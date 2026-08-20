@@ -86,7 +86,8 @@ export type BodyValue =
   | undefined
   | string[]
   | number[]
-  | Record<string, unknown>;
+  | Record<string, unknown>
+  | Array<Record<string, unknown>>;
 
 export async function tiktokGet<T>(
   path: string,
