@@ -33,6 +33,28 @@ export function isTikTokInterestGroupNonEmpty(
   );
 }
 
+export function isTikTokInterestGroupNamed(
+  group: TikTokInterestGroup,
+): boolean {
+  return group.name.trim().length > 0;
+}
+
+/**
+ * A named group with no interests/hashtags/behaviours is a deliberate
+ * broad ad group. An unnamed empty card is still unconfigured.
+ */
+export function isTikTokInterestGroupBroad(
+  group: TikTokInterestGroup,
+): boolean {
+  return isTikTokInterestGroupNamed(group) && !isTikTokInterestGroupNonEmpty(group);
+}
+
+export function isTikTokInterestGroupLaunchable(
+  group: TikTokInterestGroup,
+): boolean {
+  return isTikTokInterestGroupNamed(group) || isTikTokInterestGroupNonEmpty(group);
+}
+
 export function tikTokInterestGroupCounts(group: TikTokInterestGroup): {
   interests: number;
   hashtags: number;

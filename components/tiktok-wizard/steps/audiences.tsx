@@ -37,6 +37,9 @@ import {
   flattenTikTokInterestGroups,
   formatTikTokInterestGroupCounts,
   hasLegacyTikTokTargeting,
+  isTikTokInterestGroupBroad,
+  isTikTokInterestGroupLaunchable,
+  isTikTokInterestGroupNamed,
   isTikTokInterestGroupNonEmpty,
   removeTikTokInterestGroup,
   seedTikTokInterestGroupFromLegacy,
@@ -730,8 +733,10 @@ export function AudiencesStep({
       <div>
         <h2 className="font-heading text-xl">Audiences</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Name one interest group per intended ad group. Seed TikTok for
-          recommended interests and hashtags, then add locations and languages.
+          Name one interest group per intended ad group. A named group with
+          nothing selected is a valid broad audience. Seed TikTok for
+          recommended interests and hashtags only if you want to narrow a
+          group, then add locations and languages.
         </p>
       </div>
 
@@ -800,7 +805,11 @@ export function AudiencesStep({
                       </span>
                     ) : (
                       <span className="text-xs uppercase tracking-wide text-muted-foreground">
-                        {isTikTokInterestGroupNonEmpty(group) ? "Ready" : "Empty"}
+                        {isTikTokInterestGroupNonEmpty(group)
+                          ? "Ready"
+                          : isTikTokInterestGroupBroad(group)
+                            ? "Broad"
+                            : "Unnamed"}
                       </span>
                     )}
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground">
@@ -870,9 +879,19 @@ export function AudiencesStep({
                           Behaviour · {item.name} ×
                         </button>
                       ))}
-                      {!isTikTokInterestGroupNonEmpty(group) && (
+                      {isTikTokInterestGroupBroad(group) && (
                         <p className="text-xs text-muted-foreground">
-                          Nothing selected yet. Use the pickers below.
+                          Broad audience — no interests, hashtags, or
+                          behaviours. Geo, language, age and gender still
+                          apply. Add targeting below only if you want to
+                          narrow this group.
+                        </p>
+                      )}
+                      {!isTikTokInterestGroupNamed(group) &&
+                        !isTikTokInterestGroupNonEmpty(group) && (
+                        <p className="text-xs text-muted-foreground">
+                          Name this group to use it as a broad ad group, or
+                          add targeting below.
                         </p>
                       )}
                     </div>
@@ -1838,8 +1857,8 @@ function summaryChips(
   languages: TikTokLanguageOption[],
 ): string[] {
   const groupNames = draft.audiences.interestGroups
-    .filter(isTikTokInterestGroupNonEmpty)
-    .map((group) => group.name || "Untitled group");
+    .filter(isTikTokInterestGroupLaunchable)
+    .map((group) => group.name.trim() || "Untitled group");
   return [
     ...groupNames,
     ...Object.values(draft.audiences.interestCategoryLabels),

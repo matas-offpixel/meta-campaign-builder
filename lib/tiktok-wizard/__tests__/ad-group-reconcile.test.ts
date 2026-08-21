@@ -42,7 +42,15 @@ function launchableDraft(): TikTokCampaignDraft {
 }
 
 function targetingByAdGroup(draft: TikTokCampaignDraft) {
-  const out: Record<string, { interests: string[]; name: string }> = {};
+  const out: Record<
+    string,
+    {
+      name: string;
+      interests: string[];
+      keywords: string[] | undefined;
+      actions: unknown;
+    }
+  > = {};
   for (const adGroup of suggestTikTokAdGroups(draft)) {
     const payload = buildTikTokAdGroupPayload({
       advertiserId: "adv-1",
@@ -55,6 +63,8 @@ function targetingByAdGroup(draft: TikTokCampaignDraft) {
     out[adGroup.id] = {
       name: adGroup.name,
       interests: (payload.value.interest_category_ids as string[]) ?? [],
+      keywords: payload.value.interest_keyword_ids as string[] | undefined,
+      actions: payload.value.actions,
     };
   }
   return out;
@@ -135,7 +145,7 @@ describe("reconcileTikTokAdGroups — deleted interest groups", () => {
     assert.deepEqual(byAdGroup["ig_g-house"].interests, ["int-house"]);
   });
 
-  it("drops the ad group when its interest group is emptied rather than deleted", () => {
+  it("keeps a named emptied interest group as a broad ad group", () => {
     const draft = launchableDraft();
     draft.audiences.interestGroups = [
       group("g-house", "House", "int-house"),
@@ -147,8 +157,9 @@ describe("reconcileTikTokAdGroups — deleted interest groups", () => {
     const result = reconcileTikTokAdGroups(draft);
     assert.deepEqual(
       result.adGroups.map((adGroup) => adGroup.interestGroupId),
-      ["g-house"],
+      ["g-house", "g-techno"],
     );
+    assert.equal(result.adGroups[1].name, "Techno");
   });
 
   it("prunes creative assignments for removed ad groups", () => {
@@ -231,7 +242,7 @@ describe("reconcileTikTokAdGroups — positional defaults", () => {
     draft.budgetSchedule.adGroups = reconcileTikTokAdGroups(draft).adGroups;
     assert.deepEqual(
       draft.budgetSchedule.adGroups.map((adGroup) => adGroup.name),
-      ["Ad group 1", "Ad group 2", "Ad group 3"],
+      ["Ad group 1"],
     );
 
     draft.budgetSchedule.adGroups[0] = {
@@ -253,7 +264,7 @@ describe("reconcileTikTokAdGroups — positional defaults", () => {
       result.adGroups.map((adGroup) => adGroup.id),
       ["ig_g-house"],
     );
-    assert.equal(result.removed.length, 3);
+    assert.equal(result.removed.length, 1);
   });
 
   it("restores positional defaults when the last interest group goes", () => {
@@ -265,7 +276,7 @@ describe("reconcileTikTokAdGroups — positional defaults", () => {
     const result = reconcileTikTokAdGroups(draft);
     assert.deepEqual(
       result.adGroups.map((adGroup) => adGroup.name),
-      ["Ad group 1", "Ad group 2", "Ad group 3"],
+      ["Ad group 1"],
     );
   });
 });
@@ -291,5 +302,88 @@ describe("describeTikTokAdGroupReconciliation", () => {
       describeTikTokAdGroupReconciliation(reconcileTikTokAdGroups(draft)),
       null,
     );
+  });
+});
+
+describe("reconcileTikTokAdGroups — named empty is broad", () => {
+  it("turns one named empty interest group into one broad ad group", () => {
+    const draft = launchableDraft();
+    draft.audiences.interestGroups = [
+      {
+        id: "g-london-wide",
+        name: "London - Wide",
+        interestIds: [],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+    ];
+
+    const result = reconcileTikTokAdGroups(draft);
+    assert.equal(result.adGroups.length, 1);
+    assert.equal(result.adGroups[0].name, "London - Wide");
+    assert.equal(result.adGroups[0].interestGroupId, "g-london-wide");
+
+    const byAdGroup = targetingByAdGroup(draft);
+    assert.deepEqual(Object.keys(byAdGroup), ["ig_g-london-wide"]);
+    assert.equal(byAdGroup["ig_g-london-wide"].name, "London - Wide");
+    assert.deepEqual(byAdGroup["ig_g-london-wide"].interests, []);
+    assert.equal(byAdGroup["ig_g-london-wide"].keywords, undefined);
+    assert.equal(byAdGroup["ig_g-london-wide"].actions, undefined);
+  });
+
+  it("keeps a populated group targeted and an empty named group broad", () => {
+    const draft = launchableDraft();
+    draft.audiences.interestGroups = [
+      group("g-house", "House", "int-house"),
+      {
+        id: "g-london-wide",
+        name: "London - Wide",
+        interestIds: [],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+    ];
+
+    const result = reconcileTikTokAdGroups(draft);
+    assert.equal(result.adGroups.length, 2);
+    assert.deepEqual(
+      result.adGroups.map((adGroup) => adGroup.interestGroupId),
+      ["g-house", "g-london-wide"],
+    );
+
+    const byAdGroup = targetingByAdGroup(draft);
+    assert.deepEqual(byAdGroup["ig_g-house"].interests, ["int-house"]);
+    assert.equal(byAdGroup["ig_g-house"].actions, undefined);
+    assert.deepEqual(byAdGroup["ig_g-london-wide"].interests, []);
+    assert.equal(byAdGroup["ig_g-london-wide"].keywords, undefined);
+    assert.equal(byAdGroup["ig_g-london-wide"].actions, undefined);
+    assert.equal(byAdGroup["ig_g-london-wide"].name, "London - Wide");
+  });
+
+  it("does not invent generic ad groups when a named interest group exists", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups = [
+      { id: "adgroup-1", name: "Ad group 1", budget: 50, startAt: null, endAt: null },
+      { id: "adgroup-2", name: "Ad group 2", budget: 50, startAt: null, endAt: null },
+      { id: "adgroup-3", name: "Ad group 3", budget: 50, startAt: null, endAt: null },
+    ];
+    draft.audiences.interestGroups = [
+      {
+        id: "g-london-wide",
+        name: "London - Wide",
+        interestIds: [],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+    ];
+
+    const result = reconcileTikTokAdGroups(draft);
+    assert.equal(result.adGroups.length, 1);
+    assert.equal(result.adGroups[0].name, "London - Wide");
+    assert.deepEqual(
+      result.adGroups.map((adGroup) => adGroup.id),
+      ["ig_g-london-wide"],
+    );
+    assert.equal(result.removed.length, 3);
   });
 });

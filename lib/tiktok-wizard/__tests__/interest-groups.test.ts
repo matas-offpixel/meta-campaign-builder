@@ -6,6 +6,8 @@ import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
   formatTikTokInterestGroupCounts,
+  isTikTokInterestGroupBroad,
+  isTikTokInterestGroupLaunchable,
   removeTikTokInterestGroup,
   seedTikTokInterestGroupFromLegacy,
 } from "../interest-groups.ts";
@@ -122,6 +124,21 @@ describe("formatTikTokInterestGroupCounts", () => {
       formatTikTokInterestGroupCounts(group),
       "3 interests · 2 hashtags · 1 behaviour",
     );
+  });
+});
+
+describe("isTikTokInterestGroupBroad / launchable", () => {
+  it("treats a named empty group as a launchable broad audience", () => {
+    const group = createEmptyTikTokInterestGroup();
+    group.name = "London - Wide";
+    assert.equal(isTikTokInterestGroupBroad(group), true);
+    assert.equal(isTikTokInterestGroupLaunchable(group), true);
+  });
+
+  it("does not treat an unnamed empty group as launchable", () => {
+    const group = createEmptyTikTokInterestGroup();
+    assert.equal(isTikTokInterestGroupBroad(group), false);
+    assert.equal(isTikTokInterestGroupLaunchable(group), false);
   });
 });
 
