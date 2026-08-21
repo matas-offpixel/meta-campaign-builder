@@ -178,28 +178,39 @@ export const TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY: Record<string, number> = {
 export const TIKTOK_MIN_DAILY_BUDGET = 50;
 
 /**
+ * Scene-dependent lookback for /adgroup/create/ `actions[].action_period`.
+ *
+ * Source: TikTok Marketing API — Create an ad group
+ * https://ads.tiktok.com/marketing_api/docs?id=1739499616346114
+ * (same page as portal docs?id=1739499616346114)
+ *
+ * That page's actions / behaviour-targeting section lists enum `0 | 7 | 15`
+ * and makes the window scene-dependent:
+ * - VIDEO_RELATED: Ads Manager cannot pick a window and uses 15 by default.
+ *   The same note still says the API can pass `0`, `7`, or `15`, but the live
+ *   /adgroup/create/ endpoint rejected 0 with 40002 "Invalid time period set
+ *   for behavior targeting." request_id 20260821191646DAEFF0B9BC2AA7DA28AE.
+ *   Remaining documented windows are 7 and 15. 15 is the broader audience.
+ * - CREATOR_RELATED / HASHTAG_RELATED: the same page says 0 is used
+ *   regardless of the value you pass.
+ *
+ * AdgroupcreateActions.md still marks every field optional with no enums —
+ * do not re-borrow 0 from DmpsavedAudiencecreateActions (#814 did that).
+ */
+export const TIKTOK_ADGROUP_ACTION_PERIOD_BY_SCENE = {
+  VIDEO_RELATED: 15,
+  CREATOR_RELATED: 0,
+  HASHTAG_RELATED: 0,
+} as const;
+
+/**
  * Defaults for /adgroup/create/ `actions[]` when behaviour categories are set.
- *
- * Field names: AdgroupcreateActions
- * https://raw.githubusercontent.com/tiktok/tiktok-business-api-sdk/main/python_sdk/docs/AdgroupcreateActions.md
- *
- * That model lists `action_category_ids`, `action_period`, `action_scene`,
- * `video_user_actions` — all `[optional]`, no enums. The live API still
- * rejected a body that sent only `action_category_ids` (40002
- * `actions.0.action_period` missing, request
- * 202608211826403EAD08F71F250ED15D9B). The same four fields on
- * DmpsavedAudiencecreateActions are documented as required once `actions`
- * is specified, with enums:
- * https://raw.githubusercontent.com/tiktok/tiktok-business-api-sdk/main/python_sdk/docs/DmpsavedAudiencecreateActions.md
- *
- * Broadest interest-behaviour defaults from those enums:
- * `VIDEO_RELATED` (scene for `/tool/action_category/` behaviour IDs),
- * `action_period` 0 ("no definite timeframe"), and every VIDEO_RELATED
- * `video_user_actions` value.
+ * Scene is VIDEO_RELATED because `/tool/action_category/` behaviour IDs are
+ * video-interaction categories. Period comes from the scene map above.
  */
 export const TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS = {
   action_scene: "VIDEO_RELATED",
-  action_period: 0,
+  action_period: TIKTOK_ADGROUP_ACTION_PERIOD_BY_SCENE.VIDEO_RELATED,
   video_user_actions: ["WATCHED_TO_END", "LIKED", "COMMENTED", "SHARED"],
 } as const;
 

@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import { extractIdentityBcId } from "../identity.ts";
 import {
+  TIKTOK_ADGROUP_ACTION_PERIOD_BY_SCENE,
   TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
   TIKTOK_LOCATION_IDS_BY_CODE,
   buildTikTokAdGroupPayload,
@@ -382,6 +383,16 @@ describe("buildTikTokAdPayload enhancements", () => {
 });
 
 describe("ad group targeting from interest groups", () => {
+  it("never emits action_period 0 for VIDEO_RELATED behaviour targeting", () => {
+    assert.notEqual(
+      TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS.action_period,
+      0,
+    );
+    assert.equal(TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS.action_period, 15);
+    assert.equal(TIKTOK_ADGROUP_ACTION_PERIOD_BY_SCENE.VIDEO_RELATED, 15);
+    assert.notEqual(TIKTOK_ADGROUP_ACTION_PERIOD_BY_SCENE.VIDEO_RELATED, 0);
+  });
+
   it("maps per-group category, keyword, hashtag, and behaviour ids", () => {
     const draft = payloadDraft();
     draft.audiences.interestGroups = [
@@ -433,7 +444,8 @@ describe("ad group targeting from interest groups", () => {
     ]);
     const actions = result.value.actions as Array<Record<string, unknown>>;
     assert.equal(actions[0]?.action_scene, "VIDEO_RELATED");
-    assert.equal(actions[0]?.action_period, 0);
+    assert.equal(actions[0]?.action_period, 15);
+    assert.notEqual(actions[0]?.action_period, 0);
     assert.deepEqual(actions[0]?.video_user_actions, [
       "WATCHED_TO_END",
       "LIKED",
