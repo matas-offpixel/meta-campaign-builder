@@ -7,6 +7,7 @@ import {
   deleteTikTokDraft,
   getTikTokDraft,
   listTikTokDrafts,
+  permanentlyDeleteTikTokDraft,
   upsertTikTokDraft,
 } from "../tiktok-drafts.ts";
 
@@ -152,5 +153,33 @@ describe("tiktok-drafts db helpers", () => {
     } as unknown as SupabaseClient<Database>;
     await deleteTikTokDraft(updateClient, "draft-1");
     assert.equal((updates[0] as Record<string, unknown>).status, "archived");
+  });
+
+  it("permanently deletes our row and does not archive", async () => {
+    const calls: Array<{ method: string; args: unknown[] }> = [];
+    const client = {
+      from(table: string) {
+        calls.push({ method: "from", args: [table] });
+        const builder = {
+          delete() {
+            calls.push({ method: "delete", args: [] });
+            return builder;
+          },
+          eq(...args: unknown[]) {
+            calls.push({ method: "eq", args });
+            return Promise.resolve({ data: null, error: null });
+          },
+          update() {
+            throw new Error("permanent delete must not archive");
+          },
+        };
+        return builder;
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    await permanentlyDeleteTikTokDraft(client, "draft-1");
+    assert.ok(calls.some((call) => call.method === "from" && call.args[0] === "tiktok_campaign_drafts"));
+    assert.ok(calls.some((call) => call.method === "delete"));
+    assert.ok(calls.some((call) => call.method === "eq" && call.args[0] === "id" && call.args[1] === "draft-1"));
   });
 });

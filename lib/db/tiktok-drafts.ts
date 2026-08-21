@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "./database.types.ts";
 import { migrateTikTokDraft } from "../tiktok-wizard/migrate-draft.ts";
+import { duplicateTikTokDraftState } from "../tiktok-wizard/library.ts";
 import {
   createDefaultTikTokDraft,
   type TikTokCampaignDraft,
@@ -108,15 +109,55 @@ export async function listTikTokDrafts(
   return ((data ?? []) as TikTokDraftRow[]).map(rowToDraft);
 }
 
+export async function updateTikTokDraftStatus(
+  supabase: TypedSupabaseClient,
+  draftId: string,
+  status: TikTokDraftStatus,
+): Promise<void> {
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", draftId);
+  if (error) throw new Error(error.message);
+}
+
+/** Soft-delete. The row stays; status becomes archived. */
 export async function deleteTikTokDraft(
   supabase: TypedSupabaseClient,
   draftId: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from(TABLE)
-    .update({ status: "archived", updated_at: new Date().toISOString() })
-    .eq("id", draftId);
+  await updateTikTokDraftStatus(supabase, draftId, "archived");
+}
+
+export async function archiveTikTokDraft(
+  supabase: TypedSupabaseClient,
+  draftId: string,
+): Promise<void> {
+  await updateTikTokDraftStatus(supabase, draftId, "archived");
+}
+
+/**
+ * Removes our `tiktok_campaign_drafts` row only. Cascades our
+ * `tiktok_write_idempotency` ledger. Does not call TikTok.
+ */
+export async function permanentlyDeleteTikTokDraft(
+  supabase: TypedSupabaseClient,
+  draftId: string,
+): Promise<void> {
+  const { error } = await supabase.from(TABLE).delete().eq("id", draftId);
   if (error) throw new Error(error.message);
+}
+
+export async function duplicateTikTokDraft(
+  supabase: TypedSupabaseClient,
+  draftId: string,
+  userId: string,
+): Promise<TikTokCampaignDraft | null> {
+  const original = await getTikTokDraft(supabase, draftId);
+  if (!original) return null;
+  const copyId = crypto.randomUUID();
+  const copy = duplicateTikTokDraftState(original, copyId);
+  return upsertTikTokDraft(supabase, copyId, { ...copy, userId });
 }
 
 function rowToDraft(row: TikTokDraftRow): TikTokCampaignDraft {
