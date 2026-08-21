@@ -125,6 +125,19 @@ describe("migrateTikTokDraft", () => {
     const draft = createDefaultTikTokDraft("draft-default");
     assert.deepEqual(migrateTikTokDraft(draft), draft);
   });
+
+  it("loads an existing CONVERSIONS draft unchanged", () => {
+    const stored = launchableDraft();
+    stored.campaignSetup.objective = "CONVERSIONS";
+    stored.campaignSetup.optimisationGoal = "CONVERSION";
+    stored.accountSetup.pixelId = "px-1";
+    stored.accountSetup.optimisationEvent = "FORM";
+    const migrated = migrateTikTokDraft(stored);
+    assert.equal(migrated.campaignSetup.objective, "CONVERSIONS");
+    assert.equal(migrated.campaignSetup.optimisationGoal, "CONVERSION");
+    const preflight = collectTikTokLaunchPreflight(migrated);
+    assert.equal(preflight.ok, true);
+  });
 });
 
 describe("resolveTikTokDraftIdentityBcIdOnLoad", () => {

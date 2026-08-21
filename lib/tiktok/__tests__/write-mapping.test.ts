@@ -20,6 +20,7 @@ import {
   mapTikTokObjectiveType,
   mapTikTokOptimizationGoal,
   mapTikTokPacing,
+  mapTikTokPromotionTargetType,
   mapTikTokPromotionType,
   mapTikTokSavedAudienceId,
   mapTikTokScheduleType,
@@ -153,6 +154,8 @@ describe("optimisation and bid mappings", () => {
     const conversions = mapTikTokObjectiveType("CONVERSIONS");
     assert.equal(conversions.ok, true);
     if (conversions.ok) assert.equal(conversions.value, "WEB_CONVERSIONS");
+    const leadGen = mapTikTokObjectiveType("LEAD_GENERATION");
+    assert.equal(leadGen.ok && leadGen.value, "LEAD_GENERATION");
     assert.equal(mapTikTokObjectiveType("AWARENESS").ok, false);
     for (const objective of ["TRAFFIC", "VIDEO_VIEWS", "REACH", "ENGAGEMENT"] as const) {
       const mapped = mapTikTokObjectiveType(objective);
@@ -169,8 +172,10 @@ describe("optimisation and bid mappings", () => {
     if (ttUser.ok) assert.equal(ttUser.value, "TT_USER");
     const trafficPromo = mapTikTokPromotionType("TRAFFIC");
     const conversionsPromo = mapTikTokPromotionType("CONVERSIONS");
+    const leadPromo = mapTikTokPromotionType("LEAD_GENERATION");
     assert.equal(trafficPromo.ok && trafficPromo.value, "WEBSITE");
     assert.equal(conversionsPromo.ok && conversionsPromo.value, "WEBSITE");
+    assert.equal(leadPromo.ok && leadPromo.value, "WEBSITE");
     assert.equal(mapTikTokPromotionType("VIDEO_VIEWS").ok, false);
     assert.equal(mapTikTokPromotionType("REACH").ok, false);
     assert.equal(mapTikTokPromotionType("AWARENESS").ok, false);
@@ -591,6 +596,48 @@ describe("conversions payload", () => {
     assert.equal(adGroup.value.optimization_goal, "CONVERT");
     assert.equal(adGroup.value.pixel_id, "px-1");
     assert.equal(adGroup.value.optimization_event, "COMPLETE_REGISTRATION");
+    assert.equal(adGroup.value.promotion_target_type, undefined);
+  });
+
+  it("emits LEAD_GENERATION with website location, pixel, CONVERT, and the pixel event", () => {
+    const draft = payloadDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-ironworks";
+    draft.accountSetup.optimisationEvent = "ON_WEB_REGISTER";
+    const campaign = buildTikTokCampaignPayload({
+      advertiserId: "adv-1",
+      draft,
+    });
+    const adGroup = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(campaign.ok && campaign.value.objective_type, "LEAD_GENERATION");
+    assert.equal(campaign.ok && campaign.value.advertiser_id, "adv-1");
+    assert.equal(campaign.ok && campaign.value.campaign_name, "Campaign");
+    assert.equal(adGroup.ok, true);
+    if (!adGroup.ok) return;
+    // AdgroupCreateBody required fields + Lead gen website location.
+    assert.equal(adGroup.value.advertiser_id, "adv-1");
+    assert.equal(adGroup.value.campaign_id, "camp-1");
+    assert.equal(adGroup.value.adgroup_name, "Prospecting");
+    assert.equal(adGroup.value.billing_event, "OCPM");
+    assert.equal(adGroup.value.budget, 50);
+    assert.equal(adGroup.value.budget_mode, "BUDGET_MODE_DAY");
+    assert.equal(adGroup.value.optimization_goal, "CONVERT");
+    assert.equal(adGroup.value.pacing, "PACING_MODE_SMOOTH");
+    assert.equal(typeof adGroup.value.schedule_start_time, "string");
+    assert.equal(adGroup.value.schedule_type, "SCHEDULE_START_END");
+    assert.equal(adGroup.value.promotion_type, "WEBSITE");
+    assert.equal(adGroup.value.promotion_target_type, "EXTERNAL_WEBSITE");
+    assert.equal(adGroup.value.pixel_id, "px-ironworks");
+    assert.equal(adGroup.value.optimization_event, "ON_WEB_REGISTER");
+    const location = mapTikTokPromotionTargetType("LEAD_GENERATION");
+    assert.equal(location.ok && location.value, "EXTERNAL_WEBSITE");
+    assert.equal(mapTikTokPromotionTargetType("CONVERSIONS").ok && mapTikTokPromotionTargetType("CONVERSIONS").value, null);
   });
 
   it("does not attach pixel_id on TRAFFIC", () => {

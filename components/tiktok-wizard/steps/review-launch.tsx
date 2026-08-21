@@ -9,6 +9,10 @@ import {
   buildTikTokBriefMarkdown,
 } from "@/lib/tiktok-wizard/brief";
 import {
+  TIKTOK_OBJECTIVE_LABELS,
+  tikTokOptimisationGoalLabel,
+} from "@/lib/tiktok-wizard/campaign-setup";
+import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
 } from "@/lib/tiktok-wizard/review";
@@ -279,11 +283,31 @@ export function ReviewLaunchStep({
 
       <ReviewPanel title="Campaign">
         <KeyValue label="Name" value={draft.campaignSetup.campaignName} />
-        <KeyValue label="Objective" value={draft.campaignSetup.objective} />
+        <KeyValue
+          label="Objective"
+          value={
+            draft.campaignSetup.objective
+              ? TIKTOK_OBJECTIVE_LABELS[draft.campaignSetup.objective]
+              : draft.campaignSetup.objective
+          }
+        />
         <KeyValue
           label="Optimisation goal"
-          value={draft.campaignSetup.optimisationGoal}
+          value={
+            draft.campaignSetup.optimisationGoal
+              ? tikTokOptimisationGoalLabel(
+                  draft.campaignSetup.optimisationGoal,
+                  draft.campaignSetup.objective,
+                )
+              : draft.campaignSetup.optimisationGoal
+          }
         />
+        {draft.campaignSetup.objective === "LEAD_GENERATION" && (
+          <KeyValue
+            label="Optimization location"
+            value="Website (Instant Form not yet supported)"
+          />
+        )}
         <KeyValue label="Bid strategy" value={draft.campaignSetup.bidStrategy} />
       </ReviewPanel>
 

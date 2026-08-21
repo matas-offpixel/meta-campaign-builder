@@ -293,6 +293,30 @@ describe("collectTikTokLaunchPreflight", () => {
     }
   });
 
+  it("does not fire the CONVERSIONS deny-list for LEAD_GENERATION + ON_WEB_REGISTER", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "ON_WEB_REGISTER";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.issues.some((issue) => issue.field === "optimization_event"),
+      false,
+    );
+  });
+
+  it("blocks LEAD_GENERATION without a pixel or optimisation event", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.some((issue) => issue.field === "pixel_id"));
+    assert.ok(result.issues.some((issue) => issue.field === "optimization_event"));
+  });
+
   it("blocks CONVERSIONS without a pixel or optimisation event", () => {
     const draft = launchableDraft();
     draft.campaignSetup.objective = "CONVERSIONS";

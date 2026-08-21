@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 import {
   defaultOptimisationGoalForObjective,
   ensureTikTokCampaignNamePrefix,
+  isRetiredTikTokObjective,
   stripLockedEventCodePrefix,
   TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE,
+  tikTokOptimisationGoalLabel,
   validOptimisationGoalForObjective,
 } from "../campaign-setup.ts";
 
@@ -41,6 +43,22 @@ describe("TikTok campaign setup helpers", () => {
       "CONVERSION",
       "VALUE",
     ]);
+    assert.deepEqual(TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE.LEAD_GENERATION, [
+      "CONVERSION",
+    ]);
+    assert.equal(
+      validOptimisationGoalForObjective("LEAD_GENERATION", "CONVERSION"),
+      true,
+    );
+    assert.equal(
+      validOptimisationGoalForObjective("LEAD_GENERATION", "VALUE"),
+      false,
+    );
+    assert.equal(defaultOptimisationGoalForObjective("LEAD_GENERATION"), "CONVERSION");
     assert.equal(defaultOptimisationGoalForObjective("VIDEO_VIEWS"), "VIDEO_VIEW");
+    assert.equal(isRetiredTikTokObjective("CONVERSIONS"), true);
+    assert.equal(isRetiredTikTokObjective("LEAD_GENERATION"), false);
+    assert.equal(tikTokOptimisationGoalLabel("CONVERSION", "LEAD_GENERATION"), "Leads");
+    assert.equal(tikTokOptimisationGoalLabel("CONVERSION", "CONVERSIONS"), "Conversion");
   });
 });

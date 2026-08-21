@@ -57,6 +57,7 @@ export interface TikTokAccountSetup {
 
 export type TikTokObjective =
   | "TRAFFIC"
+  | "LEAD_GENERATION"
   | "CONVERSIONS"
   | "VIDEO_VIEWS"
   | "REACH"

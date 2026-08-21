@@ -92,15 +92,21 @@ export const TIKTOK_LOCATION_IDS_BY_CODE: Record<string, string> = {
  * `WEB_CONVERSIONS`. `AWARENESS` is not a TikTok campaign objective — we
  * refuse it rather than silently rewrite to REACH.
  *
- * The launcher only writes TRAFFIC and WEB_CONVERSIONS. Other documented
- * values still map 1:1 so preflight can name them as "not supported yet"
- * instead of inventing a different enum.
+ * The launcher writes TRAFFIC, WEB_CONVERSIONS (draft CONVERSIONS), and
+ * LEAD_GENERATION. Other documented values still map 1:1 so preflight can
+ * name them as "not supported yet" instead of inventing a different enum.
+ *
+ * Optimization location for Lead generation is `promotion_target_type`
+ * (SDK ToolApi): INSTANT_PAGE = Instant Form, EXTERNAL_WEBSITE = Website.
+ * Instant Form is out of scope; we send EXTERNAL_WEBSITE only.
+ * https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/ToolApi.md
  */
 export const TIKTOK_OBJECTIVE_TYPE: Record<
   Exclude<TikTokObjective, "AWARENESS" | "CONVERSIONS"> | "WEB_CONVERSIONS",
   string
 > = {
   TRAFFIC: "TRAFFIC",
+  LEAD_GENERATION: "LEAD_GENERATION",
   WEB_CONVERSIONS: "WEB_CONVERSIONS",
   VIDEO_VIEWS: "VIDEO_VIEWS",
   REACH: "REACH",
@@ -109,8 +115,12 @@ export const TIKTOK_OBJECTIVE_TYPE: Record<
 
 export const TIKTOK_LAUNCHER_OBJECTIVES: TikTokObjective[] = [
   "TRAFFIC",
+  "LEAD_GENERATION",
   "CONVERSIONS",
 ];
+
+/** SDK ToolApi: website optimization location under LEAD_GENERATION. */
+export const TIKTOK_LEAD_GEN_WEBSITE_LOCATION = "EXTERNAL_WEBSITE";
 
 export const TIKTOK_LAUNCHER_UNSUPPORTED_OBJECTIVES: TikTokObjective[] = [
   "VIDEO_VIEWS",
@@ -390,13 +400,30 @@ export function mapTikTokPromotionType(
   if (!objective) {
     return missing("promotion_type", "Campaign objective is required");
   }
-  if (objective === "TRAFFIC" || objective === "CONVERSIONS") {
+  if (
+    objective === "TRAFFIC" ||
+    objective === "CONVERSIONS" ||
+    objective === "LEAD_GENERATION"
+  ) {
     return ok("WEBSITE");
   }
   return missing(
     "promotion_type",
     `${objective} is not supported by the launcher yet`,
   );
+}
+
+/**
+ * Lead generation optimization location. Official SDK ToolApi documents
+ * `promotion_target_type` when `objective_type` is `LEAD_GENERATION`:
+ * INSTANT_PAGE (Instant Form) or EXTERNAL_WEBSITE (Website Form).
+ * This PR only implements Website.
+ */
+export function mapTikTokPromotionTargetType(
+  objective: TikTokObjective | null,
+): MappingResult<string | null> {
+  if (objective === "LEAD_GENERATION") return ok(TIKTOK_LEAD_GEN_WEBSITE_LOCATION);
+  return ok(null);
 }
 
 export function resolveTikTokAdGroupBudget(
@@ -542,6 +569,13 @@ export function buildTikTokAdGroupPayload(input: {
     promotion_type: promotion.value,
     operation_status: "DISABLE",
   };
+  const promotionTarget = mapTikTokPromotionTargetType(
+    draft.campaignSetup.objective,
+  );
+  if (!promotionTarget.ok) return promotionTarget;
+  if (promotionTarget.value) {
+    payload.promotion_target_type = promotionTarget.value;
+  }
 
   if (endTime) payload.schedule_end_time = endTime;
   if (draft.audiences.languages.length > 0) {
@@ -713,20 +747,24 @@ function applyTikTokConversionFields(
   const pixelSupported = mappedGoal === "CONVERT" || mappedGoal === "VALUE";
   const fields: Record<string, BodyValue> = {};
 
-  if (draft.campaignSetup.objective === "CONVERSIONS") {
+  const websitePixelObjective =
+    draft.campaignSetup.objective === "CONVERSIONS" ||
+    draft.campaignSetup.objective === "LEAD_GENERATION";
+  if (websitePixelObjective) {
+    const label = draft.campaignSetup.objective;
     if (!draft.accountSetup.pixelId) {
-      return missing("pixel_id", "CONVERSIONS requires a TikTok pixel");
+      return missing("pixel_id", `${label} requires a TikTok pixel`);
     }
     if (!draft.accountSetup.optimisationEvent) {
       return missing(
         "optimization_event",
-        "CONVERSIONS requires an optimisation event from the selected pixel",
+        `${label} requires an optimisation event from the selected pixel`,
       );
     }
     if (!pixelSupported) {
       return missing(
         "optimization_goal",
-        "CONVERSIONS requires optimization_goal CONVERT or VALUE",
+        `${label} requires optimization_goal CONVERT or VALUE`,
       );
     }
     fields.pixel_id = draft.accountSetup.pixelId;

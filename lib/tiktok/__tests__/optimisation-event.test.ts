@@ -20,6 +20,14 @@ describe("isUnsupportedTikTokOptimisationEvent", () => {
       isUnsupportedTikTokOptimisationEvent("TRAFFIC", "ON_WEB_REGISTER"),
       false,
     );
+    assert.equal(
+      isUnsupportedTikTokOptimisationEvent("LEAD_GENERATION", "ON_WEB_REGISTER"),
+      false,
+    );
+    assert.equal(
+      isUnsupportedTikTokOptimisationEvent("LEAD_GENERATION", "CONTACT"),
+      false,
+    );
   });
 
   it("treats COMPLETE_REGISTRATION and Contact as the same denied pairing", () => {

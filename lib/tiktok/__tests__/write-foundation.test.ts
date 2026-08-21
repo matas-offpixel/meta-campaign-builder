@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+import { migrateTikTokDraft } from "../../tiktok-wizard/migrate-draft.ts";
 import { TikTokApiError } from "../client.ts";
 import { createMockTikTokClient } from "../__mocks__/client.ts";
 import { createTikTokAd, tikTokAdCreateIdentityLog } from "../write/ad.ts";
@@ -525,6 +526,67 @@ describe("launchTikTokDraftState", () => {
     const adGroup = mock.calls.find((call) => call.path === "/adgroup/create/");
     assert.ok(adGroup);
     assert.equal(adGroup.body.optimization_event, "FORM");
+  });
+
+  it("launches a migrated CONVERSIONS draft unchanged (WEB_CONVERSIONS, no lead-gen location)", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const stored = launchableDraft();
+    stored.campaignSetup.objective = "CONVERSIONS";
+    stored.campaignSetup.optimisationGoal = "CONVERSION";
+    stored.accountSetup.pixelId = "px-1";
+    stored.accountSetup.optimisationEvent = "FORM";
+    const draft = migrateTikTokDraft(stored);
+
+    const out = await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+      },
+      draft,
+    );
+    assert.equal(out.campaign_id, "campaign_mock_1");
+    const campaign = mock.calls.find((call) => call.path === "/campaign/create/");
+    const adGroup = mock.calls.find((call) => call.path === "/adgroup/create/");
+    assert.ok(campaign);
+    assert.ok(adGroup);
+    assert.equal(campaign.body.objective_type, "WEB_CONVERSIONS");
+    assert.equal(adGroup.body.promotion_target_type, undefined);
+    assert.equal(adGroup.body.optimization_event, "FORM");
+  });
+
+  it("launches LEAD_GENERATION with website location and does not deny ON_WEB_REGISTER", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "ON_WEB_REGISTER";
+
+    const out = await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+      },
+      draft,
+    );
+    assert.equal(out.campaign_id, "campaign_mock_1");
+    assert.ok(mock.calls.length > 0);
+    const campaign = mock.calls.find((call) => call.path === "/campaign/create/");
+    const adGroup = mock.calls.find((call) => call.path === "/adgroup/create/");
+    assert.ok(campaign);
+    assert.ok(adGroup);
+    assert.equal(campaign.body.objective_type, "LEAD_GENERATION");
+    assert.equal(adGroup.body.promotion_type, "WEBSITE");
+    assert.equal(adGroup.body.promotion_target_type, "EXTERNAL_WEBSITE");
+    assert.equal(adGroup.body.optimization_event, "ON_WEB_REGISTER");
+    assert.equal(adGroup.body.pixel_id, "px-1");
+    assert.equal(adGroup.body.optimization_goal, "CONVERT");
   });
 
   it("blocks an empty ad group name before any TikTok write", async () => {
