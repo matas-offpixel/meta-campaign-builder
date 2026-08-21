@@ -135,4 +135,22 @@ describe("visibleTikTokCategoryRows", () => {
     assert.equal(searched.total, 1);
     assert.equal(searched.rows[0]?.id, "10100");
   });
+
+  it("keeps the full filtered set on all when the render list is capped", () => {
+    const many = Array.from({ length: 90 }, (_, index) => ({
+      id: String(index),
+      parent_id: null,
+      label: `house ${index}`,
+      depth: 0,
+    }));
+    const visible = visibleTikTokCategoryRows(many, {
+      query: "house",
+      expandedIds: [],
+      limit: 80,
+    });
+    assert.equal(visible.rows.length, 80);
+    assert.equal(visible.all.length, 90);
+    assert.equal(visible.total, 90);
+    assert.equal(visible.capped, true);
+  });
 });

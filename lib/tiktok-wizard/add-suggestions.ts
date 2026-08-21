@@ -23,16 +23,27 @@ export function shouldOfferTikTokCategoryBulkActions(input: {
   return input.filterQuery.trim().length > 0;
 }
 
+export type TikTokTargetingItemRef = Pick<TikTokTargetingItem, "id" | "kind">;
+
+/** Categories and keywords are separate TikTok ID namespaces. */
+export function tikTokTargetingItemKey(
+  item: TikTokTargetingItemRef,
+): string {
+  return `${item.kind}:${item.id}`;
+}
+
 /** Additive and idempotent. Existing rows (and their provenance) stay put. */
 export function addTikTokTargetingItems(
   current: TikTokTargetingItem[],
   incoming: TikTokTargetingItem[],
 ): TikTokTargetingItem[] {
-  const seen = new Set(current.map((item) => item.id));
+  const seen = new Set(current.map(tikTokTargetingItemKey));
   const next = [...current];
   for (const item of incoming) {
-    if (!item.id || seen.has(item.id)) continue;
-    seen.add(item.id);
+    if (!item.id) continue;
+    const key = tikTokTargetingItemKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
     next.push(item);
   }
   return next;
@@ -40,11 +51,13 @@ export function addTikTokTargetingItems(
 
 export function removeTikTokTargetingItems(
   current: TikTokTargetingItem[],
-  ids: readonly string[],
+  items: readonly TikTokTargetingItemRef[],
 ): TikTokTargetingItem[] {
-  const drop = new Set(ids.filter(Boolean));
+  const drop = new Set(
+    items.filter((item) => item.id).map(tikTokTargetingItemKey),
+  );
   if (drop.size === 0) return current;
-  return current.filter((item) => !drop.has(item.id));
+  return current.filter((item) => !drop.has(tikTokTargetingItemKey(item)));
 }
 
 export function addVisibleToTikTokGroup(
@@ -64,11 +77,11 @@ export function removeVisibleFromTikTokGroup(
   groups: TikTokInterestGroup[],
   groupId: string,
   key: TikTokGroupItemKey,
-  ids: readonly string[],
+  items: readonly TikTokTargetingItemRef[],
 ): TikTokInterestGroup[] {
   return groups.map((group) =>
     group.id === groupId
-      ? { ...group, [key]: removeTikTokTargetingItems(group[key], ids) }
+      ? { ...group, [key]: removeTikTokTargetingItems(group[key], items) }
       : group,
   );
 }
