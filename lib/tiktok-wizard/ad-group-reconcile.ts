@@ -11,18 +11,21 @@
  *
  * The reconciliation rule:
  *
- * - If at least one NON-EMPTY interest group exists, ad groups are 1:1 with
- *   those groups, in interest-group order. An ad group already carrying a
+ * - If at least one LAUNCHABLE interest group exists (named, or carrying
+ *   interests/hashtags/behaviours), ad groups are 1:1 with those groups, in
+ *   interest-group order. A named group with no interests is a deliberate
+ *   broad ad group — it is not filtered out. An ad group already carrying a
  *   matching `interestGroupId` is preserved so operator edits (names and
  *   budgets) survive. Schedule is campaign-level and is not stored on the
  *   ad group. Ad groups without an `interestGroupId` — the positional
- *   "Ad group 1/2/3" stubs — are dropped once interest groups take over,
- *   because their targeting is not expressible as an interest group and
- *   keeping them would send the flattened union.
- * - If there is NO non-empty interest group, positional ad groups are the
- *   truth: existing ones (with their edits) are kept, orphans pointing at a
- *   deleted or now-empty interest group are dropped, and when nothing is left
- *   a fresh positional default set is generated.
+ *   stubs — are dropped once interest groups take over, because their
+ *   targeting is not expressible as an interest group and keeping them would
+ *   send the flattened union.
+ * - If there are interest groups but none are launchable (unnamed and empty),
+ *   invent nothing. The operator has cards they have not finished.
+ * - If there are NO interest groups at all, one positional ad group is
+ *   generated (or existing positional edits are kept). Three identical
+ *   empty groups competing in the same auction is never the default.
  *
  * Preserved ad groups keep their stored budget even when the group count
  * changes; only freshly-added ad groups take the even split of the campaign
@@ -35,7 +38,7 @@ import type {
   TikTokCampaignDraft,
   TikTokInterestGroup,
 } from "../types/tiktok-draft.ts";
-import { isTikTokInterestGroupNonEmpty } from "./interest-groups.ts";
+import { isTikTokInterestGroupLaunchable } from "./interest-groups.ts";
 
 export interface TikTokAdGroupReconciliation {
   adGroups: TikTokAdGroupDraft[];
@@ -49,13 +52,16 @@ export function reconcileTikTokAdGroups(
   draft: TikTokCampaignDraft,
 ): TikTokAdGroupReconciliation {
   const existing = draft.budgetSchedule.adGroups ?? [];
-  const interestGroups = (draft.audiences.interestGroups ?? []).filter(
-    isTikTokInterestGroupNonEmpty,
+  const allInterestGroups = draft.audiences.interestGroups ?? [];
+  const interestGroups = allInterestGroups.filter(
+    isTikTokInterestGroupLaunchable,
   );
   const adGroups =
     interestGroups.length > 0
       ? fromInterestGroups(draft, existing, interestGroups)
-      : fromPositional(draft, existing);
+      : allInterestGroups.length > 0
+        ? []
+        : fromPositional(draft, existing);
 
   const nextIds = new Set(adGroups.map((adGroup) => adGroup.id));
   const existingIds = new Set(existing.map((adGroup) => adGroup.id));
@@ -103,7 +109,7 @@ export function describeTikTokAdGroupReconciliation(
 export function defaultTikTokPositionalAdGroups(
   draft: TikTokCampaignDraft,
 ): TikTokAdGroupDraft[] {
-  const count = draft.optimisation.smartPlusEnabled ? 2 : 3;
+  const count = 1;
   const perGroupBudget = evenSplit(draft.budgetSchedule.budgetAmount, count);
   return Array.from({ length: count }, (_, index) => ({
     id: `adgroup-${index + 1}`,

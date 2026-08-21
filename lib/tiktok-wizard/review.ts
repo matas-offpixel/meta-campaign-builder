@@ -5,7 +5,7 @@ import {
 } from "../types/tiktok-draft.ts";
 import { reconcileTikTokAdGroups } from "./ad-group-reconcile.ts";
 import { validOptimisationGoalForObjective } from "./campaign-setup.ts";
-import { isTikTokInterestGroupNonEmpty } from "./interest-groups.ts";
+import { isTikTokInterestGroupLaunchable } from "./interest-groups.ts";
 
 export type PreflightSeverity = "red" | "amber" | "green";
 
@@ -57,7 +57,7 @@ export function hasAnyTargeting(draft: TikTokCampaignDraft): boolean {
     draft.audiences.genders.length > 0 ||
     hasNonDefaultTikTokAgeRange(draft) ||
     draft.audiences.interestCategoryIds.length > 0 ||
-    (draft.audiences.interestGroups ?? []).some(isTikTokInterestGroupNonEmpty) ||
+    (draft.audiences.interestGroups ?? []).some(isTikTokInterestGroupLaunchable) ||
     draft.audiences.behaviourCategoryIds.length > 0 ||
     draft.audiences.customAudienceIds.length > 0 ||
     draft.audiences.lookalikeAudienceIds.length > 0

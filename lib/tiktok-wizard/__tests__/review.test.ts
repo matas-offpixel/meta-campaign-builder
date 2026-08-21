@@ -11,22 +11,23 @@ import {
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 
 describe("TikTok review helpers", () => {
-  it("suggests 2 Smart+ ad groups and 3 manual ad groups", () => {
+  it("suggests one positional ad group when there are no interest groups", () => {
     const manual = createDefaultTikTokDraft("draft-1");
     manual.budgetSchedule.budgetAmount = 300;
-    assert.equal(suggestTikTokAdGroups(manual).length, 3);
-    assert.equal(suggestTikTokAdGroups(manual)[0].budget, 100);
+    assert.equal(suggestTikTokAdGroups(manual).length, 1);
+    assert.equal(suggestTikTokAdGroups(manual)[0].budget, 300);
+    assert.equal(suggestTikTokAdGroups(manual)[0].name, "Ad group 1");
 
     const smart = createDefaultTikTokDraft("draft-2");
     smart.optimisation.smartPlusEnabled = true;
     smart.budgetSchedule.budgetAmount = 300;
-    assert.equal(suggestTikTokAdGroups(smart).length, 2);
-    assert.equal(suggestTikTokAdGroups(smart)[0].budget, 150);
+    assert.equal(suggestTikTokAdGroups(smart).length, 1);
+    assert.equal(suggestTikTokAdGroups(smart)[0].budget, 300);
   });
 
-  it("generates one ad group per non-empty interest group and skips empty ones", () => {
+  it("generates one ad group per named interest group, including empty broad ones", () => {
     const draft = createDefaultTikTokDraft("draft-ig");
-    draft.budgetSchedule.budgetAmount = 200;
+    draft.budgetSchedule.budgetAmount = 300;
     draft.audiences.interestGroups = [
       {
         id: "g-empty",
@@ -51,14 +52,15 @@ describe("TikTok review helpers", () => {
       },
     ];
     const groups = suggestTikTokAdGroups(draft);
-    assert.equal(groups.length, 2);
+    assert.equal(groups.length, 3);
     assert.deepEqual(
       groups.map((group) => group.interestGroupId),
-      ["g-house", "g-techno"],
+      ["g-empty", "g-house", "g-techno"],
     );
-    assert.equal(groups[0].name, "House");
+    assert.equal(groups[0].name, "Empty");
     assert.equal(groups[0].budget, 100);
-    assert.equal(groups[1].name, "Techno");
+    assert.equal(groups[1].name, "House");
+    assert.equal(groups[2].name, "Techno");
   });
 
   it("counts languages and a moved age range as targeting", () => {

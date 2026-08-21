@@ -9,6 +9,7 @@ import {
   suggestFreshTikTokSchedule,
   validateBudgetGuardrails,
 } from "@/lib/tiktok-wizard/budget-schedule";
+import { suggestTikTokAdGroups } from "@/lib/tiktok-wizard/review";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 export function BudgetScheduleStep({
@@ -32,6 +33,7 @@ export function BudgetScheduleStep({
   const [error, setError] = useState<string | null>(null);
   const refreshedSchedule = useRef(false);
   const smartPlus = draft.optimisation.smartPlusEnabled;
+  const plannedAdGroups = suggestTikTokAdGroups(draft);
   const warnings = validateBudgetGuardrails({
     budget: draft.budgetSchedule,
     optimisation: draft.optimisation,
@@ -213,8 +215,9 @@ export function BudgetScheduleStep({
       )}
 
       <p className="text-sm text-muted-foreground">
-        {draft.budgetSchedule.adGroups.length} ad groups planned. Ad-group
-        suggestions are generated in Step 6.
+        {plannedAdGroups.length} ad group
+        {plannedAdGroups.length === 1 ? "" : "s"} planned. Names and budgets
+        can be edited in Step 7.
       </p>
     </div>
   );

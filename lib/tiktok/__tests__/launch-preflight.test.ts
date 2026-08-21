@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
 import { extractIdentityBcId } from "../identity.ts";
 import { SMART_PLUS_BLOCK_MESSAGE } from "../write/mapping.ts";
 import { collectTikTokLaunchPreflight } from "../write/preflight.ts";
@@ -252,15 +253,11 @@ describe("collectTikTokLaunchPreflight", () => {
     draft.budgetSchedule.budgetAmount = 30;
     draft.creativeAssignments.byAdGroupId = {
       "adgroup-1": ["creative-1"],
-      "adgroup-2": ["creative-1"],
-      "adgroup-3": ["creative-1"],
     };
     const result = collectTikTokLaunchPreflight(draft);
     assert.equal(result.ok, false);
     const budgetIssues = result.issues.filter((issue) => issue.field === "budget");
     assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 1")));
-    assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 2")));
-    assert.ok(budgetIssues.some((issue) => issue.message.includes("Ad group 3")));
     assert.ok(budgetIssues.every((issue) => issue.message.includes("50")));
   });
 
@@ -378,6 +375,11 @@ describe("collectTikTokLaunchPreflight", () => {
     );
 
     draft.audiences.interestGroups[0].hashtagIds = [];
+    const broad = suggestTikTokAdGroups(draft);
+    draft.budgetSchedule.adGroups = broad;
+    draft.creativeAssignments.byAdGroupId = {
+      [broad[0].id]: ["creative-1"],
+    };
     const empty = collectTikTokLaunchPreflight(draft);
     assert.equal(empty.ok, true);
     assert.equal(
