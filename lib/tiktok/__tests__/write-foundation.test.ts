@@ -370,6 +370,57 @@ describe("launchTikTokDraftState", () => {
     assert.equal(mock.calls.length, 0);
   });
 
+  it("reports real per-phase progress as each write completes", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups = [
+      { id: "ag-1", name: "Prospecting", budget: 50, startAt: null, endAt: null },
+      { id: "ag-2", name: "Retargeting", budget: 50, startAt: null, endAt: null },
+    ];
+    draft.creatives.items = [
+      { ...draft.creatives.items[0], id: "creative-1", videoId: "video_1" },
+      { ...draft.creatives.items[0], id: "creative-2", videoId: "video_2" },
+    ];
+    draft.creativeAssignments.byAdGroupId = {
+      "ag-1": ["creative-1"],
+      "ag-2": ["creative-2"],
+    };
+    const events: Array<{
+      phase: string;
+      adGroupsDone: number;
+      adsDone: number;
+    }> = [];
+
+    await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+        onProgress: (progress) => {
+          events.push({
+            phase: progress.phase,
+            adGroupsDone: progress.adGroupsDone,
+            adsDone: progress.adsDone,
+          });
+          assert.equal(progress.adGroupsTotal, 2);
+          assert.equal(progress.adsTotal, 2);
+          assert.ok(progress.campaignId);
+        },
+      },
+      draft,
+    );
+
+    assert.deepEqual(events, [
+      { phase: "campaign", adGroupsDone: 0, adsDone: 0 },
+      { phase: "adgroup", adGroupsDone: 1, adsDone: 0 },
+      { phase: "ad", adGroupsDone: 1, adsDone: 1 },
+      { phase: "adgroup", adGroupsDone: 2, adsDone: 1 },
+      { phase: "ad", adGroupsDone: 2, adsDone: 2 },
+    ]);
+  });
+
   it("blocks BC_AUTH_TT without a Business Center id before any TikTok write", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();

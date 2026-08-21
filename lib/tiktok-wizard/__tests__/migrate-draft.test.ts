@@ -138,6 +138,32 @@ describe("migrateTikTokDraft", () => {
     const preflight = collectTikTokLaunchPreflight(migrated);
     assert.equal(preflight.ok, true);
   });
+
+  it("keeps launch ids when launchedAt is omitted from a pre-existing publishedIds", () => {
+    const stored = launchableDraft();
+    const publishedIds = {
+      campaignId: "campaign_legacy",
+      adgroupIds: ["ag_1", "ag_2"],
+      adIds: ["ad_1", "ad_2", "ad_3"],
+    };
+    assert.equal("launchedAt" in publishedIds, false);
+
+    const withoutPublished = { ...stored } as Record<string, unknown>;
+    delete withoutPublished.publishedIds;
+    assert.equal("publishedIds" in withoutPublished, false);
+    assert.equal(migrateTikTokDraft(withoutPublished).publishedIds, null);
+
+    const migrated = migrateTikTokDraft({
+      ...stored,
+      publishedIds,
+    });
+    assert.deepEqual(migrated.publishedIds, {
+      campaignId: "campaign_legacy",
+      adgroupIds: ["ag_1", "ag_2"],
+      adIds: ["ad_1", "ad_2", "ad_3"],
+      launchedAt: null,
+    });
+  });
 });
 
 describe("resolveTikTokDraftIdentityBcIdOnLoad", () => {
