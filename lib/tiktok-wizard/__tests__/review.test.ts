@@ -5,6 +5,7 @@ import {
   buildTikTokPreflightChecks,
   everyAdGroupHasCreative,
   everyCreativeAssigned,
+  hasAnyTargeting,
   suggestTikTokAdGroups,
 } from "../review.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
@@ -58,6 +59,33 @@ describe("TikTok review helpers", () => {
     assert.equal(groups[0].name, "House");
     assert.equal(groups[0].budget, 100);
     assert.equal(groups[1].name, "Techno");
+  });
+
+  it("counts languages and a moved age range as targeting", () => {
+    const bare = createDefaultTikTokDraft("draft-targeting");
+    bare.audiences.locationCodes = [];
+    bare.audiences.languages = [];
+    assert.equal(hasAnyTargeting(bare), false);
+
+    const withLanguages = createDefaultTikTokDraft("draft-lang");
+    withLanguages.audiences.locationCodes = [];
+    assert.deepEqual(withLanguages.audiences.languages, ["en"]);
+    assert.equal(hasAnyTargeting(withLanguages), true);
+
+    const withAge = createDefaultTikTokDraft("draft-age");
+    withAge.audiences.locationCodes = [];
+    withAge.audiences.languages = [];
+    withAge.audiences.ageMax = 34;
+    assert.equal(hasAnyTargeting(withAge), true);
+  });
+
+  it("does not treat the implicit 18-65 default as chosen age targeting", () => {
+    const draft = createDefaultTikTokDraft("draft-default-age");
+    draft.audiences.locationCodes = [];
+    draft.audiences.languages = [];
+    assert.equal(draft.audiences.ageMin, 18);
+    assert.equal(draft.audiences.ageMax, 65);
+    assert.equal(hasAnyTargeting(draft), false);
   });
 
   it("checks creative assignment completeness", () => {

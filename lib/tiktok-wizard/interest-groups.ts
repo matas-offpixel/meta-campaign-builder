@@ -98,9 +98,17 @@ export function seedTikTokInterestGroupFromLegacy(
   return group;
 }
 
+/**
+ * Flattens the groups into the legacy flat targeting fields the mapper falls
+ * back to for ad groups with no `interestGroupId`.
+ *
+ * This deliberately takes no "previous" snapshot to merge back in. It used to:
+ * when every group was empty it re-merged the previous flat IDs, so an
+ * operator who emptied or deleted every group still launched with the
+ * targeting they had just removed. Clearing the UI now clears the payload.
+ */
 export function flattenTikTokInterestGroups(
   groups: TikTokInterestGroup[],
-  previous?: TikTokFlatTargeting,
 ): TikTokFlatTargeting {
   const interestCategoryIds: string[] = [];
   const interestCategoryLabels: Record<string, string> = {};
@@ -122,38 +130,13 @@ export function flattenTikTokInterestGroups(
       behaviourCategoryLabels[item.id] = item.name;
     }
   }
-  const fromGroups: TikTokFlatTargeting = {
+  return {
     interestCategoryIds: unique(interestCategoryIds),
     interestCategoryLabels,
     interestKeywordIds: unique(interestKeywordIds),
     behaviourCategoryIds: unique(behaviourCategoryIds),
     behaviourCategoryLabels,
   };
-  if (!groups.some(isTikTokInterestGroupNonEmpty) && previous) {
-    return {
-      interestCategoryIds: unique([
-        ...fromGroups.interestCategoryIds,
-        ...previous.interestCategoryIds,
-      ]),
-      interestCategoryLabels: {
-        ...previous.interestCategoryLabels,
-        ...fromGroups.interestCategoryLabels,
-      },
-      interestKeywordIds: unique([
-        ...fromGroups.interestKeywordIds,
-        ...previous.interestKeywordIds,
-      ]),
-      behaviourCategoryIds: unique([
-        ...fromGroups.behaviourCategoryIds,
-        ...previous.behaviourCategoryIds,
-      ]),
-      behaviourCategoryLabels: {
-        ...previous.behaviourCategoryLabels,
-        ...fromGroups.behaviourCategoryLabels,
-      },
-    };
-  }
-  return fromGroups;
 }
 
 export function removeTikTokInterestGroup(
@@ -166,7 +149,7 @@ export function removeTikTokInterestGroup(
   return {
     ...audiences,
     interestGroups,
-    ...flattenTikTokInterestGroups(interestGroups, audiences),
+    ...flattenTikTokInterestGroups(interestGroups),
   };
 }
 

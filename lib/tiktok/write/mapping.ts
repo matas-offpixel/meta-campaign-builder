@@ -47,15 +47,18 @@ export const TIKTOK_AGE_GROUPS = [
 
 export type TikTokAgeGroup = (typeof TIKTOK_AGE_GROUPS)[number];
 
-const AGE_GROUP_RANGES: Array<{ id: TikTokAgeGroup; min: number; max: number }> =
-  [
-    { id: "AGE_13_17", min: 13, max: 17 },
-    { id: "AGE_18_24", min: 18, max: 24 },
-    { id: "AGE_25_34", min: 25, max: 34 },
-    { id: "AGE_35_44", min: 35, max: 44 },
-    { id: "AGE_45_54", min: 45, max: 54 },
-    { id: "AGE_55_100", min: 55, max: 100 },
-  ];
+export const TIKTOK_AGE_GROUP_RANGES: Array<{
+  id: TikTokAgeGroup;
+  min: number;
+  max: number;
+}> = [
+  { id: "AGE_13_17", min: 13, max: 17 },
+  { id: "AGE_18_24", min: 18, max: 24 },
+  { id: "AGE_25_34", min: 25, max: 34 },
+  { id: "AGE_35_44", min: 35, max: 44 },
+  { id: "AGE_45_54", min: 45, max: 54 },
+  { id: "AGE_55_100", min: 55, max: 100 },
+];
 
 /**
  * Official v1.3 `gender` (Create ad groups): GENDER_MALE / GENDER_FEMALE /
@@ -184,7 +187,7 @@ export function mapTikTokAgeGroups(
   if (ageMin > ageMax) {
     return missing("age_groups", "ageMin must be less than or equal to ageMax");
   }
-  const groups = AGE_GROUP_RANGES.filter(
+  const groups = TIKTOK_AGE_GROUP_RANGES.filter(
     (bucket) => ageMin <= bucket.max && ageMax >= bucket.min,
   ).map((bucket) => bucket.id);
   if (groups.length === 0) {
@@ -204,6 +207,32 @@ export function mapTikTokGender(
   if (unique.size === 1 && unique.has("MALE")) return ok("GENDER_MALE");
   if (unique.size === 1 && unique.has("FEMALE")) return ok("GENDER_FEMALE");
   return ok("GENDER_UNLIMITED");
+}
+
+/**
+ * The wizard's "Lookalikes" tab is populated from `/dmp/saved_audience/list/`
+ * and keyed on `saved_audience_id`. Those IDs used to be appended to
+ * `audience_ids` alongside custom audiences, which is the wrong field:
+ * `AdgroupCreateBody` documents `audience_ids` as `list[str]` (custom-audience
+ * IDs) and `saved_audience_id` as a SEPARATE, singular `str`.
+ * https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/AdgroupCreateBody.md
+ *
+ * Because the field is singular, more than one selected saved audience is a
+ * blocker rather than a guess — there is no documented list form to fall back
+ * on and picking one silently would be the same class of bug.
+ */
+export function mapTikTokSavedAudienceId(
+  savedAudienceIds: string[],
+): MappingResult<string | null> {
+  const ids = uniqueIds(savedAudienceIds);
+  if (ids.length === 0) return ok(null);
+  if (ids.length > 1) {
+    return missing(
+      "saved_audience_id",
+      `TikTok takes a single saved_audience_id per ad group but ${ids.length} saved audiences are selected (${ids.join(", ")}). Keep one — saved-audience IDs are not valid in audience_ids.`,
+    );
+  }
+  return ok(ids[0]);
 }
 
 export function mapTikTokLocationIds(
@@ -534,11 +563,13 @@ export function buildTikTokAdGroupPayload(input: {
       { action_category_ids: targeting.behaviourCategoryIds },
     ];
   }
-  const audienceIds = [
-    ...draft.audiences.customAudienceIds,
-    ...draft.audiences.lookalikeAudienceIds,
-  ];
+  const audienceIds = uniqueIds(draft.audiences.customAudienceIds);
   if (audienceIds.length > 0) payload.audience_ids = audienceIds;
+  const savedAudienceId = mapTikTokSavedAudienceId(
+    draft.audiences.lookalikeAudienceIds,
+  );
+  if (!savedAudienceId.ok) return savedAudienceId;
+  if (savedAudienceId.value) payload.saved_audience_id = savedAudienceId.value;
 
   const conversionsFields = applyTikTokConversionFields(draft, goal.value);
   if (!conversionsFields.ok) return conversionsFields;

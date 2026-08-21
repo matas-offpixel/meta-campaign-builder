@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  describeTikTokAdGroupReconciliation,
+  reconcileTikTokAdGroups,
+} from "@/lib/tiktok-wizard/ad-group-reconcile";
 import {
   assignTikTokCreativeToAllAdGroups,
   assignTikTokCreativesToAdGroup,
@@ -10,13 +14,13 @@ import {
   clearTikTokAdGroupAssignments,
   clearTikTokCreativeFromAllAdGroups,
   clearTikTokEverything,
+  pruneTikTokAssignments,
   toggleTikTokAssignment,
   type TikTokAssignmentMap,
 } from "@/lib/tiktok-wizard/assign-creatives";
 import {
   everyAdGroupHasCreative,
   everyCreativeAssigned,
-  suggestTikTokAdGroups,
 } from "@/lib/tiktok-wizard/review";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
@@ -28,20 +32,37 @@ export function AssignCreativesStep({
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
-  const adGroups = suggestTikTokAdGroups(draft);
+  const [reconcileNotice, setReconcileNotice] = useState<string | null>(null);
+  const reconciliation = useMemo(() => reconcileTikTokAdGroups(draft), [draft]);
+  const adGroups = reconciliation.adGroups;
   const creativeIds = draft.creatives.items.map((creative) => creative.id);
   const adGroupIds = adGroups.map((adGroup) => adGroup.id);
+  const reconciledSignature = adGroupIds.join("|");
+  const persistedSignature = draft.budgetSchedule.adGroups
+    .map((adGroup) => adGroup.id)
+    .join("|");
 
+  // Reconcile whenever the interest groups move, not once on mount. The two
+  // signatures are the only inputs that can make this fire, and persisting the
+  // reconciled list makes them equal, so this settles after one save.
   useEffect(() => {
-    if (draft.budgetSchedule.adGroups.length > 0) return;
+    if (reconciledSignature === persistedSignature) return;
+    const hadPersistedList = draft.budgetSchedule.adGroups.length > 0;
+    const message = hadPersistedList
+      ? describeTikTokAdGroupReconciliation(reconciliation)
+      : null;
+    const assignments = pruneTikTokAssignments(
+      draft.creativeAssignments.byAdGroupId,
+      adGroupIds,
+    );
     void onSave({
-      budgetSchedule: {
-        ...draft.budgetSchedule,
-        adGroups,
-      },
-    });
+      budgetSchedule: { ...draft.budgetSchedule, adGroups },
+      ...(assignments.pruned
+        ? { creativeAssignments: { byAdGroupId: assignments.byAdGroupId } }
+        : {}),
+    }).then(() => setReconcileNotice(message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reconciledSignature, persistedSignature]);
 
   async function persistAssignments(byAdGroupId: TikTokAssignmentMap) {
     setSaving(true);
@@ -58,10 +79,9 @@ export function AssignCreativesStep({
     await onSave({
       budgetSchedule: {
         ...draft.budgetSchedule,
-        adGroups: (draft.budgetSchedule.adGroups.length > 0
-          ? draft.budgetSchedule.adGroups
-          : adGroups
-        ).map((group) => (group.id === id ? { ...group, name } : group)),
+        adGroups: adGroups.map((group) =>
+          group.id === id ? { ...group, name } : group,
+        ),
       },
     });
   }
@@ -107,6 +127,20 @@ export function AssignCreativesStep({
           </div>
         )}
       </div>
+
+      {reconcileNotice && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          <p>{reconcileNotice}</p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setReconcileNotice(null)}
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Badge ok={everyCreativeAssigned(draft)}>
