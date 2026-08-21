@@ -147,9 +147,26 @@ describe("optimisation and bid mappings", () => {
     const fromNow = mapTikTokScheduleType("2026-05-01T09:00:00Z", null);
     assert.equal(fromNow.ok, true);
     if (fromNow.ok) assert.equal(fromNow.value, "SCHEDULE_FROM_NOW");
-    const formatted = formatTikTokScheduleTime("2026-05-01T09:00:00Z");
+    const formatted = formatTikTokScheduleTime(
+      "2026-01-15T17:00:00.000Z",
+      "America/New_York",
+    );
     assert.equal(formatted.ok, true);
-    if (formatted.ok) assert.equal(formatted.value, "2026-05-01 09:00:00");
+    if (formatted.ok) assert.equal(formatted.value, "2026-01-15 12:00:00");
+    const naive = formatTikTokScheduleTime(
+      "2026-08-21T12:50",
+      "America/New_York",
+    );
+    assert.equal(naive.ok, true);
+    if (naive.ok) assert.equal(naive.value, "2026-08-21 12:50:00");
+    const londonShaped = formatTikTokScheduleTime(
+      "2026-01-15T17:00:00.000Z",
+      "Europe/London",
+    );
+    assert.equal(londonShaped.ok, true);
+    if (londonShaped.ok) {
+      assert.notEqual(londonShaped.value, formatted.ok ? formatted.value : "");
+    }
   });
 
   it("maps campaign objectives and identity types", () => {
@@ -379,6 +396,24 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(result.value.is_aco, false);
     const creatives = result.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].creative_authorized, false);
+  });
+});
+
+describe("ad group schedule timezone", () => {
+  it("converts start and end into America/New_York wall clocks, not UTC", () => {
+    const draft = payloadDraft();
+    const result = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.schedule_start_time, "2026-01-15 12:00:00");
+    assert.equal(result.value.schedule_end_time, "2026-01-16 00:00:00");
+    assert.notEqual(result.value.schedule_start_time, "2026-01-15 17:00:00");
+    assert.notEqual(result.value.schedule_end_time, "2026-01-16 05:00:00");
   });
 });
 
@@ -759,13 +794,14 @@ function payloadDraft() {
   draft.accountSetup.identityId = "identity_1";
   draft.accountSetup.identityType = "TT_USER";
   draft.accountSetup.currency = "GBP";
+  draft.accountSetup.timezone = "America/New_York";
   draft.campaignSetup.campaignName = "Campaign";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = 50;
-  draft.budgetSchedule.scheduleStartAt = "2026-05-01T09:00:00Z";
-  draft.budgetSchedule.scheduleEndAt = "2026-05-08T09:00:00Z";
+  draft.budgetSchedule.scheduleStartAt = "2026-01-15T17:00:00.000Z";
+  draft.budgetSchedule.scheduleEndAt = "2026-01-16T05:00:00.000Z";
   draft.budgetSchedule.adGroups = [
     { id: "ag-1", name: "Prospecting", budget: 50, startAt: null, endAt: null },
   ];

@@ -159,12 +159,22 @@ export function AccountSetupStep({
           ok?: boolean;
           pixels?: TikTokPixelOption[];
           currency?: string | null;
+          timezone?: string | null;
           error?: string;
         } | null;
         const next = json?.ok ? (json.pixels ?? []) : [];
         setPixels(next);
-        if (json?.ok && json.currency && json.currency !== draft.accountSetup.currency) {
-          await persist({ currency: json.currency });
+        if (json?.ok) {
+          const nextAccount: Partial<typeof draft.accountSetup> = {};
+          if (json.currency && json.currency !== draft.accountSetup.currency) {
+            nextAccount.currency = json.currency;
+          }
+          if (json.timezone && json.timezone !== draft.accountSetup.timezone) {
+            nextAccount.timezone = json.timezone;
+          }
+          if (Object.keys(nextAccount).length > 0) {
+            await persist(nextAccount);
+          }
         }
         if (!json?.ok && json?.error) {
           setPixelApiFailed(true);

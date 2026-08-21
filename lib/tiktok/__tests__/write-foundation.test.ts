@@ -10,6 +10,7 @@ import { createTikTokAd, tikTokAdCreateIdentityLog } from "../write/ad.ts";
 import {
   createTikTokAdGroup,
   tikTokAdGroupCreateActionsLog,
+  tikTokAdGroupCreateScheduleLog,
 } from "../write/adgroup.ts";
 import { TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS } from "../write/mapping.ts";
 import { createTikTokCampaign } from "../write/campaign.ts";
@@ -379,9 +380,99 @@ describe("ad group and ad writes", () => {
     assert.match(line, /WATCHED_TO_END/);
     assert.match(line, /beh-1/);
   });
+
+  it("logs input schedule, advertiser timezone, and the exact strings sent", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.scheduleStartAt = "2026-01-15T17:00:00.000Z";
+    draft.budgetSchedule.scheduleEndAt = "2026-01-16T05:00:00.000Z";
+
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    };
+    try {
+      await createTikTokAdGroup({
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+        campaignId: "campaign_1",
+        draft,
+        adGroup: draft.budgetSchedule.adGroups[0],
+      });
+    } finally {
+      console.error = original;
+    }
+
+    const line = errors.find((entry) =>
+      entry.includes("[tiktok/adgroup-create] outgoing schedule"),
+    );
+    assert.ok(line, "expected schedule payload log");
+    const logged = tikTokAdGroupCreateScheduleLog({
+      inputStart: draft.budgetSchedule.scheduleStartAt,
+      inputEnd: draft.budgetSchedule.scheduleEndAt,
+      timeZone: draft.accountSetup.timezone,
+      body: mock.calls[0].body,
+    });
+    assert.equal(logged.input_start, "2026-01-15T17:00:00.000Z");
+    assert.equal(logged.advertiser_timezone, "America/New_York");
+    assert.equal(logged.schedule_start_time, "2026-01-15 12:00:00");
+    assert.equal(logged.schedule_end_time, "2026-01-16 00:00:00");
+    assert.match(line, /America\/New_York/);
+    assert.match(line, /2026-01-15 12:00:00/);
+  });
 });
 
 describe("launchTikTokDraftState", () => {
+  it("blocks a past advertiser-local start with zero write calls", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T11:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T12:00";
+    await assert.rejects(
+      () =>
+        launchTikTokDraftState(
+          {
+            ...BASE_CONTEXT,
+            supabase: db as unknown as SupabaseClient,
+            request: mock.tiktokPost,
+            now: new Date("2026-08-21T16:00:00.000Z"),
+          },
+          draft,
+        ),
+      /past or less than 15 minutes/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
+  it("blocks a start inside the 15-minute margin with zero write calls", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T12:10";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T12:00";
+    await assert.rejects(
+      () =>
+        launchTikTokDraftState(
+          {
+            ...BASE_CONTEXT,
+            supabase: db as unknown as SupabaseClient,
+            request: mock.tiktokPost,
+            now: new Date("2026-08-21T16:00:00.000Z"),
+          },
+          draft,
+        ),
+      /past or less than 15 minutes/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
   it("launches campaign, ad groups, and ads in order", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();
@@ -905,13 +996,14 @@ function launchableDraft() {
   draft.accountSetup.identityId = "identity_1";
   draft.accountSetup.identityType = "TT_USER";
   draft.accountSetup.currency = "GBP";
+  draft.accountSetup.timezone = "America/New_York";
   draft.campaignSetup.campaignName = "Campaign";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = 50;
-  draft.budgetSchedule.scheduleStartAt = "2026-05-01T09:00:00Z";
-  draft.budgetSchedule.scheduleEndAt = "2026-05-08T09:00:00Z";
+  draft.budgetSchedule.scheduleStartAt = "2027-09-01T09:00:00Z";
+  draft.budgetSchedule.scheduleEndAt = "2027-09-08T09:00:00Z";
   draft.budgetSchedule.adGroups = [
     {
       id: "adgroup-draft-1",

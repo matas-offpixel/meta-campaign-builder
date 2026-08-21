@@ -14,12 +14,13 @@ function launchableDraft() {
   draft.accountSetup.identityType = "TT_USER";
   draft.campaignSetup.campaignName = "Campaign";
   draft.accountSetup.currency = "GBP";
+  draft.accountSetup.timezone = "America/New_York";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = 50;
-  draft.budgetSchedule.scheduleStartAt = "2026-05-01T09:00:00Z";
-  draft.budgetSchedule.scheduleEndAt = "2026-05-08T09:00:00Z";
+  draft.budgetSchedule.scheduleStartAt = "2027-09-01T09:00:00Z";
+  draft.budgetSchedule.scheduleEndAt = "2027-09-08T09:00:00Z";
   draft.budgetSchedule.adGroups = [
     { id: "ag-1", name: "Prospecting", budget: 50, startAt: null, endAt: null },
   ];
@@ -395,6 +396,38 @@ describe("collectTikTokLaunchPreflight", () => {
         warning.message.includes("not blocking on amount"),
       ),
     );
+  });
+
+  it("blocks a start already past in the advertiser timezone", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T11:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T12:00";
+    const result = collectTikTokLaunchPreflight(draft, {
+      now: new Date("2026-08-21T16:00:00.000Z"),
+    });
+    assert.equal(result.ok, false);
+    const issue = result.issues.find(
+      (entry) => entry.id === "schedule-start-soon",
+    );
+    assert.ok(issue);
+    assert.match(issue.message, /2026-08-21 11:00:00/);
+    assert.match(issue.message, /America\/New_York/);
+  });
+
+  it("blocks a start inside the 15-minute advertiser-timezone margin", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T12:10";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T12:00";
+    const result = collectTikTokLaunchPreflight(draft, {
+      now: new Date("2026-08-21T16:00:00.000Z"),
+    });
+    assert.equal(result.ok, false);
+    const issue = result.issues.find(
+      (entry) => entry.id === "schedule-start-soon",
+    );
+    assert.ok(issue);
+    assert.match(issue.message, /2026-08-21 12:10:00/);
+    assert.match(issue.message, /America\/New_York/);
   });
 
   it("fails lifetime launches that cannot compute scheduled days", () => {

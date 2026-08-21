@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import { getTikTokCredentials } from "@/lib/tiktok/credentials";
-import { fetchTikTokAdvertiserCurrency } from "@/lib/tiktok/advertiser";
+import { fetchTikTokAdvertiserInfo } from "@/lib/tiktok/advertiser";
 import { fetchTikTokPixelEvents, fetchTikTokPixels } from "@/lib/tiktok/pixel";
 
 export async function GET(req: NextRequest) {
@@ -45,12 +45,12 @@ export async function GET(req: NextRequest) {
       );
     }
     const pixelId = req.nextUrl.searchParams.get("pixel_id");
-    const [pixels, currency, events] = await Promise.all([
+    const [pixels, advertiser, events] = await Promise.all([
       fetchTikTokPixels({
         advertiserId,
         token: credentials.access_token,
       }),
-      fetchTikTokAdvertiserCurrency({
+      fetchTikTokAdvertiserInfo({
         advertiserId,
         token: credentials.access_token,
       }).catch(() => null),
@@ -63,7 +63,13 @@ export async function GET(req: NextRequest) {
         : Promise.resolve([]),
     ]);
     return NextResponse.json(
-      { ok: true, pixels, currency, events },
+      {
+        ok: true,
+        pixels,
+        currency: advertiser?.currency ?? null,
+        timezone: advertiser?.timezone ?? null,
+        events,
+      },
       { status: 200 },
     );
   } catch (err) {

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   applySmartPlusDefaults,
   parseOptionalMoney,
+  suggestFreshTikTokSchedule,
   validateBudgetGuardrails,
 } from "../budget-schedule.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
@@ -43,6 +44,38 @@ describe("TikTok Smart+ budget linkage", () => {
       "Daily budget is above the max daily spend guardrail.",
       "Schedule end must be after schedule start.",
     ]);
+  });
+});
+
+describe("suggestFreshTikTokSchedule", () => {
+  it("replaces a missing or yesterday start with a near-future wall clock", () => {
+    const now = new Date(2026, 7, 21, 12, 32);
+    const fresh = suggestFreshTikTokSchedule(
+      { scheduleStartAt: null, scheduleEndAt: null },
+      now,
+    );
+    assert.ok(fresh);
+    assert.equal(fresh.scheduleStartAt, "2026-08-21T13:02");
+    const stale = suggestFreshTikTokSchedule(
+      {
+        scheduleStartAt: "2026-08-20T18:00",
+        scheduleEndAt: "2026-09-01T18:00",
+      },
+      now,
+    );
+    assert.ok(stale);
+    assert.equal(stale.scheduleStartAt, "2026-08-21T13:02");
+    assert.equal(stale.scheduleEndAt, "2026-09-01T18:00");
+    assert.equal(
+      suggestFreshTikTokSchedule(
+        {
+          scheduleStartAt: "2026-08-21T14:00",
+          scheduleEndAt: "2026-08-28T14:00",
+        },
+        now,
+      ),
+      null,
+    );
   });
 });
 

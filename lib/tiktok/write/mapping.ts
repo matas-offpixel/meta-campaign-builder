@@ -25,6 +25,11 @@ import type {
   TikTokObjective,
   TikTokOptimisationGoal,
 } from "../../types/tiktok-draft.ts";
+import {
+  formatWallClockForTikTok,
+  isIanaTimeZone,
+  tikTokAdvertiserTimezoneMissingMessage,
+} from "./schedule-time.ts";
 
 export interface MappingError {
   field: string;
@@ -402,20 +407,22 @@ export function mapTikTokScheduleType(
 }
 
 /**
- * TikTok schedule fields want `YYYY-MM-DD HH:MM:SS`, not ISO-8601.
+ * TikTok schedule fields want `YYYY-MM-DD HH:MM:SS` in the advertiser
+ * timezone. See `schedule-time.ts` for why this is not UTC.
  */
 export function formatTikTokScheduleTime(
   value: string | null,
+  timeZone?: string | null,
 ): MappingResult<string> {
   if (!value) return missing("schedule_start_time", "Schedule time is required");
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  if (!isIanaTimeZone(timeZone)) {
+    return missing("timezone", tikTokAdvertiserTimezoneMissingMessage());
+  }
+  const formatted = formatWallClockForTikTok(value, timeZone!.trim());
+  if (!formatted) {
     return missing("schedule_start_time", `Invalid schedule time: ${value}`);
   }
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return ok(
-    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`,
-  );
+  return ok(formatted);
 }
 
 export function mapTikTokIdentityType(
@@ -552,11 +559,12 @@ export function buildTikTokAdGroupPayload(input: {
   const endAt = adGroup.endAt ?? draft.budgetSchedule.scheduleEndAt;
   const scheduleType = mapTikTokScheduleType(startAt, endAt);
   if (!scheduleType.ok) return scheduleType;
-  const startTime = formatTikTokScheduleTime(startAt);
+  const timeZone = draft.accountSetup.timezone;
+  const startTime = formatTikTokScheduleTime(startAt, timeZone);
   if (!startTime.ok) return startTime;
   let endTime: string | undefined;
   if (scheduleType.value === "SCHEDULE_START_END") {
-    const formattedEnd = formatTikTokScheduleTime(endAt);
+    const formattedEnd = formatTikTokScheduleTime(endAt, timeZone);
     if (!formattedEnd.ok) {
       return {
         ok: false,

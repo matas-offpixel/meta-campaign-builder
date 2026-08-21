@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
   parseOptionalMoney,
+  suggestFreshTikTokSchedule,
   validateBudgetGuardrails,
 } from "@/lib/tiktok-wizard/budget-schedule";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
@@ -29,6 +30,7 @@ export function BudgetScheduleStep({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshedSchedule = useRef(false);
   const smartPlus = draft.optimisation.smartPlusEnabled;
   const warnings = validateBudgetGuardrails({
     budget: draft.budgetSchedule,
@@ -94,6 +96,19 @@ export function BudgetScheduleStep({
     }
     await persist({ frequencyCap: value });
   }
+
+  useEffect(() => {
+    if (refreshedSchedule.current || smartPlus) return;
+    const next = suggestFreshTikTokSchedule(draft.budgetSchedule);
+    refreshedSchedule.current = true;
+    if (!next) return;
+    void onSave({
+      budgetSchedule: {
+        ...draft.budgetSchedule,
+        ...next,
+      },
+    });
+  }, [draft.budgetSchedule, onSave, smartPlus]);
 
   return (
     <div className="space-y-6">

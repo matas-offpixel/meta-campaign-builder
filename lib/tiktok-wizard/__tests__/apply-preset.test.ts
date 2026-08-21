@@ -33,6 +33,7 @@ function launchableDraft(): TikTokCampaignDraft {
   draft.accountSetup.identityId = "identity_1";
   draft.accountSetup.identityType = "TT_USER";
   draft.accountSetup.currency = "GBP";
+  draft.accountSetup.timezone = "America/New_York";
   draft.campaignSetup.campaignName = "Campaign";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";

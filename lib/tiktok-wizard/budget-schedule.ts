@@ -4,6 +4,7 @@ import type {
   TikTokOptimisation,
 } from "../types/tiktok-draft.ts";
 import { parseMoneyAmountInput } from "../additional-spend-parse.ts";
+import { TIKTOK_SCHEDULE_START_LEAD_MS } from "../tiktok/write/schedule-time.ts";
 
 export interface SmartPlusDefaults {
   optimisation: TikTokOptimisation;
@@ -105,4 +106,51 @@ function addDays(date: Date, days: number): Date {
 export function toDatetimeLocal(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * Replace a missing or already-past datetime-local start with a near-future
+ * wall clock so a stale draft (yesterday's start) cannot be launched as-is.
+ */
+export function suggestFreshTikTokSchedule(
+  current: {
+    scheduleStartAt: string | null;
+    scheduleEndAt: string | null;
+  },
+  now = new Date(),
+): { scheduleStartAt: string; scheduleEndAt: string } | null {
+  if (!isStaleDatetimeLocal(current.scheduleStartAt, now)) return null;
+  const start = toDatetimeLocal(
+    new Date(now.getTime() + TIKTOK_SCHEDULE_START_LEAD_MS),
+  );
+  const end =
+    current.scheduleEndAt && current.scheduleEndAt > start
+      ? current.scheduleEndAt
+      : toDatetimeLocal(
+          addDays(new Date(now.getTime() + TIKTOK_SCHEDULE_START_LEAD_MS), 7),
+        );
+  return { scheduleStartAt: start, scheduleEndAt: end };
+}
+
+function isStaleDatetimeLocal(
+  value: string | null,
+  now: Date,
+): boolean {
+  if (!value) return true;
+  const naive = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(
+    value,
+  );
+  if (naive) {
+    const local = new Date(
+      Number(naive[1]),
+      Number(naive[2]) - 1,
+      Number(naive[3]),
+      Number(naive[4]),
+      Number(naive[5]),
+      Number(naive[6] ?? "0"),
+    );
+    return local.getTime() <= now.getTime();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) || parsed.getTime() <= now.getTime();
 }
