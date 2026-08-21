@@ -7,7 +7,11 @@ import { migrateTikTokDraft } from "../../tiktok-wizard/migrate-draft.ts";
 import { TikTokApiError } from "../client.ts";
 import { createMockTikTokClient } from "../__mocks__/client.ts";
 import { createTikTokAd, tikTokAdCreateIdentityLog } from "../write/ad.ts";
-import { createTikTokAdGroup } from "../write/adgroup.ts";
+import {
+  createTikTokAdGroup,
+  tikTokAdGroupCreateActionsLog,
+} from "../write/adgroup.ts";
+import { TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS } from "../write/mapping.ts";
 import { createTikTokCampaign } from "../write/campaign.ts";
 import { hashTikTokWritePayload } from "../write/idempotency.ts";
 import { launchTikTokDraftState } from "../write/orchestrator.ts";
@@ -320,6 +324,60 @@ describe("ad group and ad writes", () => {
     assert.match(line, /"identity_type":"BC_AUTH_TT"/);
     assert.match(line, /"video_id":"video_1"/);
     assert.match(line, /"image_ids":\["img_hero_1"\]/);
+  });
+
+  it("logs the full actions array immediately before /adgroup/create/", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.audiences.interestGroups = [
+      {
+        id: "g-behaviours",
+        name: "Behaviours",
+        interestIds: [],
+        hashtagIds: [],
+        behaviourIds: [{ id: "beh-1", name: "Music", kind: "category" }],
+      },
+    ];
+    draft.budgetSchedule.adGroups[0] = {
+      ...draft.budgetSchedule.adGroups[0],
+      interestGroupId: "g-behaviours",
+    };
+
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    };
+    try {
+      await createTikTokAdGroup({
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+        campaignId: "campaign_1",
+        draft,
+        adGroup: draft.budgetSchedule.adGroups[0],
+      });
+    } finally {
+      console.error = original;
+    }
+
+    const line = errors.find((entry) =>
+      entry.includes("[tiktok/adgroup-create] outgoing actions"),
+    );
+    assert.ok(line, "expected actions payload log");
+    const logged = tikTokAdGroupCreateActionsLog(mock.calls[0].body);
+    assert.deepEqual(logged.actions, [
+      {
+        ...TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
+        action_category_ids: ["beh-1"],
+      },
+    ]);
+    assert.match(line, /action_period/);
+    assert.match(line, /VIDEO_RELATED/);
+    assert.match(line, /WATCHED_TO_END/);
+    assert.match(line, /beh-1/);
   });
 });
 

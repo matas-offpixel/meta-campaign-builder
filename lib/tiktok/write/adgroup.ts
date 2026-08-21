@@ -34,6 +34,26 @@ export function buildTikTokAdGroupWritePayload(args: {
   return built.value;
 }
 
+export function tikTokAdGroupCreateActionsLog(body: Record<string, BodyValue>): {
+  advertiser_id: unknown;
+  campaign_id: unknown;
+  adgroup_name: unknown;
+  actions: unknown;
+} {
+  return {
+    advertiser_id: body.advertiser_id ?? null,
+    campaign_id: body.campaign_id ?? null,
+    adgroup_name: body.adgroup_name ?? null,
+    actions: body.actions ?? null,
+  };
+}
+
+function logTikTokAdGroupCreateActions(body: Record<string, BodyValue>): void {
+  console.error(
+    `[tiktok/adgroup-create] outgoing actions ${JSON.stringify(tikTokAdGroupCreateActionsLog(body))}`,
+  );
+}
+
 export async function createTikTokAdGroup(
   args: CreateTikTokAdGroupArgs,
 ): Promise<{ adgroup_id: string }> {
@@ -46,6 +66,7 @@ export async function createTikTokAdGroup(
     "adgroup_create",
     payload,
     async () => {
+      logTikTokAdGroupCreateActions(payload);
       const res = await postTikTokWrite<CreateAdGroupResponse>({
         path: "/adgroup/create/",
         body: payload,

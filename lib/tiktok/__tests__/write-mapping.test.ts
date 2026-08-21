@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import { extractIdentityBcId } from "../identity.ts";
 import {
+  TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
   TIKTOK_LOCATION_IDS_BY_CODE,
   buildTikTokAdGroupPayload,
   buildTikTokAdPayload,
@@ -424,8 +425,36 @@ describe("ad group targeting from interest groups", () => {
     assert.deepEqual(result.value.interest_category_ids, ["cat-1"]);
     assert.deepEqual(result.value.interest_keyword_ids, ["kw-1", "hash-1"]);
     assert.deepEqual(result.value.purchase_intention_keyword_ids, ["kw-buy"]);
-    assert.deepEqual(result.value.actions, [{ action_category_ids: ["beh-1"] }]);
+    assert.deepEqual(result.value.actions, [
+      {
+        ...TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
+        action_category_ids: ["beh-1"],
+      },
+    ]);
+    const actions = result.value.actions as Array<Record<string, unknown>>;
+    assert.equal(actions[0]?.action_scene, "VIDEO_RELATED");
+    assert.equal(actions[0]?.action_period, 0);
+    assert.deepEqual(actions[0]?.video_user_actions, [
+      "WATCHED_TO_END",
+      "LIKED",
+      "COMMENTED",
+      "SHARED",
+    ]);
+    assert.deepEqual(actions[0]?.action_category_ids, ["beh-1"]);
     assert.equal("hashtag_ids" in result.value, false);
+  });
+
+  it("omits the actions key entirely when the draft has no behaviours", () => {
+    const draft = payloadDraft();
+    const result = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal("actions" in result.value, false);
   });
 
   it("keeps a category with PURCHASE_INTENTION out of purchase_intention_keyword_ids", () => {
