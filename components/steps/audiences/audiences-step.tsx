@@ -10,6 +10,7 @@ import { SavedAudiencesPanel } from "./saved-audiences-panel";
 import { InterestGroupsPanel } from "./interest-groups-panel";
 import type { AudienceSettings, AudienceTab, CampaignSettings } from "@/lib/types";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
+import { initialAudienceTab } from "@/lib/interest-preset-surface";
 import { FUNNEL_STAGE_LABELS } from "@/lib/audiences/metadata";
 import type { MetaCustomAudience } from "@/lib/types/audience";
 import {
@@ -48,7 +49,9 @@ export function AudiencesStep({
   eventId,
   campaignName,
 }: AudiencesStepProps) {
-  const [activeTab, setActiveTab] = useState<AudienceTab>("pages");
+  const [activeTab, setActiveTab] = useState<AudienceTab>(() =>
+    initialAudienceTab(audiences),
+  );
   const igAccounts = useFetchInstagramAccounts();
   const pages = useFetchPages(adAccountId);
 
