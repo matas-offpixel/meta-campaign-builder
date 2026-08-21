@@ -7,43 +7,24 @@ import {
   mergeTikTokPresetTaxonomy,
   resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
+  tikTokPresetById,
   tikTokPresetTaxonomyPendingReason,
+  tikTokPresetsForCluster,
   TIKTOK_ELECTRONIC_BEHAVIOUR_PATHS,
   TIKTOK_ELECTRONIC_INTEREST_PATHS,
   TIKTOK_GENRE_PRESETS,
+  TIKTOK_PRESET_CLUSTERS,
 } from "../genre-presets.ts";
+import {
+  APPS_MUSIC_PLAYER_ID,
+  LIVE_BEHAVIOUR_CATALOG,
+  LIVE_INTEREST_CATALOG,
+} from "./live-catalog-fixture.ts";
 
-const LIVE_INTEREST_CATALOG = [
-  { id: "20101", label: "Apps", parent_id: null },
-  { id: "20101100", label: "Audio & Video Players", parent_id: "20101" },
-  { id: "20101101", label: "Music", parent_id: "20101100" },
-  { id: "231", label: "News & Entertainment", parent_id: null },
-  { id: "23116", label: "Culture & Art", parent_id: "231" },
-  { id: "23116107", label: "Music", parent_id: "23116" },
-  { id: "23119", label: "Movie", parent_id: "231" },
-  { id: "23119115", label: "Dance", parent_id: "23119" },
-  { id: "10106102", label: "Dance", parent_id: "23116" },
-  { id: "259", label: "Games", parent_id: null },
-  { id: "25999", label: "Genre", parent_id: "259" },
-  { id: "25999001", label: "Hyper-Casual", parent_id: "25999" },
-  { id: "25999001005", label: "Music", parent_id: "25999001" },
-  { id: "25999012", label: "Party", parent_id: "25999" },
-  { id: "25999012003", label: "Dance", parent_id: "25999012" },
-  { id: "20107", label: "Life & Leisure", parent_id: "20101" },
-  { id: "20107103", label: "Entertainment", parent_id: "20107" },
-];
-
-const LIVE_BEHAVIOUR_CATALOG = [
-  { id: "18", label: "Entertainment", parent_id: null },
-  { id: "18101", label: "Entertainment & Culture", parent_id: "18" },
-  { id: "1810101", label: "Music", parent_id: "18101" },
-  { id: "3", label: "Talent", parent_id: null },
-  { id: "3002", label: "Music", parent_id: "3" },
-  { id: "11", label: "Talents", parent_id: null },
-  { id: "1101", label: "Singing & Dancing", parent_id: "11" },
-  { id: "1101100", label: "Dance", parent_id: "1101" },
-  { id: "10", label: "Performance", parent_id: null },
-];
+const LIVE_CATALOG = {
+  interests: LIVE_INTEREST_CATALOG,
+  behaviours: LIVE_BEHAVIOUR_CATALOG,
+};
 
 describe("expandTikTokPresetKeywords", () => {
   it("fires one keyword call per seed in parallel and unions by id", async () => {
@@ -103,8 +84,9 @@ describe("tikTokHashtagPresetQuery", () => {
   });
 
   it("ships the Electronic music preset as single-word seeds plus full taxonomy paths", () => {
-    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === "electronic-music");
+    const preset = tikTokPresetById("electronic-music");
     assert.ok(preset);
+    assert.equal(preset.cluster, "Music & Nightlife");
     assert.ok(preset.seeds.every((seed) => !/\s/.test(seed)));
     assert.deepEqual(preset.seeds, [
       "techno",
@@ -115,28 +97,19 @@ describe("tikTokHashtagPresetQuery", () => {
     ]);
     assert.deepEqual(preset.interestPaths, TIKTOK_ELECTRONIC_INTEREST_PATHS);
     assert.deepEqual(preset.behaviourPaths, TIKTOK_ELECTRONIC_BEHAVIOUR_PATHS);
-    assert.ok(
-      !preset.interestPaths.some((path) => path[path.length - 1] === "Entertainment"),
-    );
-    assert.ok(
-      !preset.behaviourPaths.some((path) => path[path.length - 1] === "Performance"),
-    );
   });
 });
 
 describe("resolveTikTokPresetTaxonomy", () => {
   it("picks Culture & Art Music, not the Apps music-player node", () => {
-    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === "electronic-music");
+    const preset = tikTokPresetById("electronic-music");
     assert.ok(preset);
-    const taxonomy = resolveTikTokPresetTaxonomy(
-      { interests: LIVE_INTEREST_CATALOG, behaviours: LIVE_BEHAVIOUR_CATALOG },
-      preset,
-    );
+    const taxonomy = resolveTikTokPresetTaxonomy(LIVE_CATALOG, preset);
     assert.deepEqual(
       taxonomy.interestItems.map((item) => item.id),
       ["23116107", "10106102"],
     );
-    assert.ok(!taxonomy.interestItems.some((item) => item.id === "20101101"));
+    assert.ok(!taxonomy.interestItems.some((item) => item.id === APPS_MUSIC_PLAYER_ID));
     assert.ok(!taxonomy.interestItems.some((item) => item.id === "20107103"));
     assert.deepEqual(
       taxonomy.behaviourItems.map((item) => item.id),
@@ -169,13 +142,10 @@ describe("resolveTikTokPresetTaxonomy", () => {
   });
 
   it("names an unresolvable path instead of skipping it or falling back to a leaf label", () => {
-    const taxonomy = resolveTikTokPresetTaxonomy(
-      { interests: LIVE_INTEREST_CATALOG, behaviours: LIVE_BEHAVIOUR_CATALOG },
-      {
-        interestPaths: [["News & Entertainment", "Culture & Art", "Techno"]],
-        behaviourPaths: [["Talents", "Singing & Dancing"]],
-      },
-    );
+    const taxonomy = resolveTikTokPresetTaxonomy(LIVE_CATALOG, {
+      interestPaths: [["News & Entertainment", "Culture & Art", "Techno"]],
+      behaviourPaths: [["Talents", "Singing & Dancing"]],
+    });
     assert.deepEqual(taxonomy.interestItems, []);
     assert.deepEqual(
       taxonomy.behaviourItems.map((item) => item.id),
@@ -206,5 +176,45 @@ describe("resolveTikTokPresetTaxonomy", () => {
       tikTokPresetTaxonomyPendingReason({ hasGroup: true, catalogLoaded: true }),
       null,
     );
+  });
+
+  it("resolves every shipped preset and never lands on the Apps Music player node", () => {
+    const ids = new Set(TIKTOK_GENRE_PRESETS.map((preset) => preset.id));
+    assert.equal(ids.size, TIKTOK_GENRE_PRESETS.length);
+    assert.ok(ids.has("electronic-music"));
+    assert.deepEqual(
+      [...new Set(TIKTOK_GENRE_PRESETS.map((preset) => preset.cluster))],
+      [...TIKTOK_PRESET_CLUSTERS],
+    );
+    for (const cluster of TIKTOK_PRESET_CLUSTERS) {
+      assert.ok(
+        tikTokPresetsForCluster(cluster).length >= 3,
+        `${cluster} should have several targeting angles`,
+      );
+    }
+    for (const preset of TIKTOK_GENRE_PRESETS) {
+      assert.ok(
+        preset.seeds.every((seed) => seed.length > 0 && !/\s/.test(seed)),
+        `${preset.id} has a multi-word seed`,
+      );
+      const taxonomy = resolveTikTokPresetTaxonomy(LIVE_CATALOG, preset);
+      assert.ok(
+        !taxonomy.interestItems.some((item) => item.id === APPS_MUSIC_PLAYER_ID),
+        `${preset.id} resolved to Apps > Audio & Video Players > Music`,
+      );
+      assert.ok(
+        !taxonomy.interestItems.some((item) => item.id === "20107103"),
+        `${preset.id} resolved to Apps > Life & Leisure > Entertainment`,
+      );
+      assert.equal(
+        taxonomy.interestItems.length + taxonomy.unresolvedPaths.filter((item) => item.kind === "interest").length,
+        preset.interestPaths.length,
+      );
+      assert.equal(
+        taxonomy.behaviourItems.length + taxonomy.unresolvedPaths.filter((item) => item.kind === "behaviour").length,
+        preset.behaviourPaths.length,
+      );
+      assert.deepEqual(taxonomy.unresolvedPaths, []);
+    }
   });
 });

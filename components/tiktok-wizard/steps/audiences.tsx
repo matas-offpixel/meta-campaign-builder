@@ -15,15 +15,21 @@ import {
   type TikTokLocationLookup,
 } from "@/lib/tiktok-wizard/audience-display";
 import {
+  applyTikTokPresetTaxonomyToGroup,
+  createTikTokInterestGroupFromPreset,
+  formatTikTokPresetResolution,
+} from "@/lib/tiktok-wizard/apply-preset";
+import {
   expandTikTokPresetKeywords,
-  formatTikTokUnresolvedPresetPaths,
-  mergeTikTokPresetTaxonomy,
   resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
+  tikTokPresetById,
   tikTokPresetTaxonomyPendingReason,
+  tikTokPresetsForCluster,
   TIKTOK_GENRE_PRESET_LIMITATION_NOTE,
-  TIKTOK_GENRE_PRESETS,
+  TIKTOK_PRESET_CLUSTERS,
   type TikTokGenrePreset,
+  type TikTokPresetCluster,
 } from "@/lib/tiktok-wizard/genre-presets";
 import {
   createEmptyTikTokInterestGroup,
@@ -135,7 +141,6 @@ export function AudiencesStep({
   const [languageQuery, setLanguageQuery] = useState("");
   const keywordAbort = useRef<AbortController | null>(null);
   const hashtagAbort = useRef<AbortController | null>(null);
-  const pendingPresetTaxonomyId = useRef<string | null>(null);
   const presetAbort = useRef<AbortController | null>(null);
   const pointerDeletedGroupIds = useRef(new Set<string>());
   const groupCardRefs = useRef(new Map<string, HTMLDivElement>());
@@ -149,6 +154,16 @@ export function AudiencesStep({
   );
   const [presetPartialNote, setPresetPartialNote] = useState<string | null>(null);
   const [presetTaxonomyNote, setPresetTaxonomyNote] = useState<string | null>(null);
+  const [presetResolutionNote, setPresetResolutionNote] = useState<string | null>(
+    null,
+  );
+  const [selectedCluster, setSelectedCluster] =
+    useState<TikTokPresetCluster>("Music & Nightlife");
+  const [pickedPresetId, setPickedPresetId] = useState<string | null>(null);
+  const pendingPresetApply = useRef<{
+    id: string;
+    mode: "active" | "new";
+  } | null>(null);
 
   const advertiserId = draft.accountSetup.advertiserId;
   const audiencesRef = useRef(audiences);
@@ -369,35 +384,60 @@ export function AudiencesStep({
     });
   }
 
-  async function applyPresetTaxonomy(preset: TikTokGenrePreset) {
+  function reportPresetResolution(
+    taxonomy: ReturnType<typeof resolveTikTokPresetTaxonomy>,
+    keywordMatches: number,
+  ) {
+    setPresetResolutionNote(
+      formatTikTokPresetResolution({ taxonomy, keywordMatches }),
+    );
+    setPresetTaxonomyNote(null);
+  }
+
+  async function applyPresetTaxonomy(
+    preset: TikTokGenrePreset,
+    mode: "active" | "new",
+  ) {
+    const catalogLoaded = interests.length > 0 || behaviours.length > 0;
     const group =
       audiencesRef.current.interestGroups.find((item) => item.id === activeGroupId) ??
       audiencesRef.current.interestGroups[0];
-    const catalogLoaded = interests.length > 0 || behaviours.length > 0;
-    if (
-      tikTokPresetTaxonomyPendingReason({
-        hasGroup: Boolean(group),
-        catalogLoaded,
-      })
-    ) {
+    if (mode === "active") {
+      if (
+        tikTokPresetTaxonomyPendingReason({
+          hasGroup: Boolean(group),
+          catalogLoaded,
+        })
+      ) {
+        return true;
+      }
+      if (!group) return true;
+    } else if (!catalogLoaded) {
       return true;
     }
-    if (!group) return true;
     const taxonomy = resolveTikTokPresetTaxonomy(
       { interests, behaviours },
       preset,
     );
-    setPresetTaxonomyNote(formatTikTokUnresolvedPresetPaths(taxonomy.unresolvedPaths));
-    const merged = mergeTikTokPresetTaxonomy(group, taxonomy);
+    reportPresetResolution(taxonomy, 0);
+    if (mode === "new") {
+      const created = createTikTokInterestGroupFromPreset({ preset, taxonomy });
+      await persistGroups([...audiencesRef.current.interestGroups, created]);
+      setActiveGroupId(created.id);
+      setScrollToGroupId(created.id);
+      return false;
+    }
+    if (!group) return true;
+    const next = applyTikTokPresetTaxonomyToGroup(group, taxonomy);
     const unchanged =
-      merged.interestIds.length === group.interestIds.length &&
-      merged.behaviourIds.length === group.behaviourIds.length &&
-      merged.interestIds.every((item, index) => item.id === group.interestIds[index]?.id) &&
-      merged.behaviourIds.every((item, index) => item.id === group.behaviourIds[index]?.id);
+      next.interestIds.length === group.interestIds.length &&
+      next.behaviourIds.length === group.behaviourIds.length &&
+      next.interestIds.every((item, index) => item.id === group.interestIds[index]?.id) &&
+      next.behaviourIds.every((item, index) => item.id === group.behaviourIds[index]?.id);
     if (unchanged) return false;
     await persistGroups(
       audiencesRef.current.interestGroups.map((item) =>
-        item.id === group.id ? { ...item, ...merged } : item,
+        item.id === group.id ? next : item,
       ),
     );
     return false;
@@ -437,27 +477,33 @@ export function AudiencesStep({
   }
 
   function clearPresetMode() {
-    pendingPresetTaxonomyId.current = null;
+    pendingPresetApply.current = null;
     setActivePresetId(null);
     setPresetPartialNote(null);
     setPresetTaxonomyNote(null);
+    setPresetResolutionNote(null);
   }
 
   useEffect(() => {
-    const presetId = pendingPresetTaxonomyId.current;
-    if (!presetId) return;
+    const pending = pendingPresetApply.current;
+    if (!pending) return;
     if (interests.length === 0 && behaviours.length === 0) return;
-    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === presetId);
+    const preset = tikTokPresetById(pending.id);
     if (!preset) return;
-    void applyPresetTaxonomy(preset).then((stillPending) => {
-      if (!stillPending) pendingPresetTaxonomyId.current = null;
+    void applyPresetTaxonomy(preset, pending.mode).then((stillPending) => {
+      if (!stillPending) pendingPresetApply.current = null;
     });
     // Catalog arrival only — applyPreset already tries once with whatever is loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interests, behaviours]);
 
-  async function applyPreset(preset: TikTokGenrePreset) {
+  async function applyPreset(
+    preset: TikTokGenrePreset,
+    mode: "active" | "new" = "active",
+    options: { fetchHashtags?: boolean } = {},
+  ) {
     if (!advertiserId) return;
+    const fetchHashtags = options.fetchHashtags ?? false;
     keywordAbort.current?.abort();
     hashtagAbort.current?.abort();
     presetAbort.current?.abort();
@@ -466,9 +512,11 @@ export function AudiencesStep({
     hashtagAbort.current = controller;
     presetAbort.current = controller;
     setActivePresetId(preset.id);
-    pendingPresetTaxonomyId.current = preset.id;
-    void applyPresetTaxonomy(preset).then((stillPending) => {
-      if (!stillPending) pendingPresetTaxonomyId.current = null;
+    setPickedPresetId(preset.id);
+    setSelectedCluster(preset.cluster);
+    pendingPresetApply.current = { id: preset.id, mode };
+    void applyPresetTaxonomy(preset, mode).then((stillPending) => {
+      if (!stillPending) pendingPresetApply.current = null;
     });
     setKeywordSource("preset");
     setSeed("");
@@ -477,10 +525,9 @@ export function AudiencesStep({
     setKeywordFailed(null);
     setHashtagFailed(null);
     setPresetPartialNote(null);
-    setPresetTaxonomyNote(null);
     setKeywordProvenance({});
     setLoadingKeywords(true);
-    setLoadingHashtags(true);
+    setLoadingHashtags(fetchHashtags);
     setKeywordSemanticFallback(false);
 
     let semanticFallback = false;
@@ -508,26 +555,30 @@ export function AudiencesStep({
       return json.keywords ?? [];
     });
 
-    const hashtagQuery = tikTokHashtagPresetQuery(preset.seeds);
-    const hashtagParams = new URLSearchParams({
-      advertiser_id: advertiserId,
-      operator: hashtagQuery.operator,
-    });
-    hashtagQuery.keywords.forEach((keyword) =>
-      hashtagParams.append("keyword", keyword),
-    );
-    const hashtagPromise = fetch(`/api/tiktok/audience/hashtags?${hashtagParams}`, {
-      cache: "no-store",
-      signal: controller.signal,
-    }).then(
-      (res) =>
-        res.json() as Promise<{
-          ok?: boolean;
-          hashtags?: TikTokAudienceRecommendItem[];
-          failed?: boolean;
-          error?: string;
-        }>,
-    );
+    const hashtagPromise = fetchHashtags
+      ? (() => {
+          const hashtagQuery = tikTokHashtagPresetQuery(preset.seeds);
+          const hashtagParams = new URLSearchParams({
+            advertiser_id: advertiserId,
+            operator: hashtagQuery.operator,
+          });
+          hashtagQuery.keywords.forEach((keyword) =>
+            hashtagParams.append("keyword", keyword),
+          );
+          return fetch(`/api/tiktok/audience/hashtags?${hashtagParams}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }).then(
+            (res) =>
+              res.json() as Promise<{
+                ok?: boolean;
+                hashtags?: TikTokAudienceRecommendItem[];
+                failed?: boolean;
+                error?: string;
+              }>,
+          );
+        })()
+      : Promise.resolve(null);
 
     const [keywordSettled, hashtagSettled] = await Promise.allSettled([
       keywordPromise,
@@ -554,19 +605,28 @@ export function AudiencesStep({
           `Some seeds failed (${expanded.failedSeeds.join(", ")}). Showing the rest.`,
         );
       }
+      const taxonomy = resolveTikTokPresetTaxonomy(
+        { interests, behaviours },
+        preset,
+      );
+      reportPresetResolution(taxonomy, expanded.rows.length);
     } else if (!isAbortError(keywordSettled.reason)) {
       setKeywordResults([]);
       setKeywordFailed("Keyword recommend failed");
     }
 
-    if (hashtagSettled.status === "fulfilled") {
+    if (hashtagSettled.status === "fulfilled" && hashtagSettled.value) {
       const json = hashtagSettled.value;
       setHashtagResults(json.hashtags ?? []);
       const state = readAudienceDimensionFailed(json);
       setHashtagFailed(
         state.failed ? state.error ?? "Hashtag recommend failed" : null,
       );
-    } else if (!isAbortError(hashtagSettled.reason)) {
+    } else if (
+      fetchHashtags &&
+      hashtagSettled.status === "rejected" &&
+      !isAbortError(hashtagSettled.reason)
+    ) {
       setHashtagResults([]);
       setHashtagFailed("Hashtag recommend failed");
     }
@@ -577,8 +637,8 @@ export function AudiencesStep({
 
   useEffect(() => {
     if (!activePresetId) return;
-    const preset = TIKTOK_GENRE_PRESETS.find((item) => item.id === activePresetId);
-    if (preset) void applyPreset(preset);
+    const preset = tikTokPresetById(activePresetId);
+    if (preset) void applyPreset(preset, "active");
     // Re-fan the same seeds when recommend mode or audience type changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keywordMode, audienceType]);
@@ -834,11 +894,20 @@ export function AudiencesStep({
             catalogWarning ?? "Interest categories failed to load.",
             () => setCatalogReload((count) => count + 1),
           )}
-          <GenrePresetRow
+          <AudiencePresetPanel
+            selectedCluster={selectedCluster}
+            pickedPresetId={pickedPresetId}
             activePresetId={activePresetId}
-            disabled={!advertiserId || !activeGroup}
-            onSelect={(preset) => void applyPreset(preset)}
+            canAddToGroup={Boolean(advertiserId && activeGroup)}
+            canCreateGroup={Boolean(advertiserId)}
+            onSelectCluster={setSelectedCluster}
+            onPickPreset={setPickedPresetId}
+            onAddToGroup={(preset) => void applyPreset(preset, "active")}
+            onCreateGroup={(preset) => void applyPreset(preset, "new")}
           />
+          {presetResolutionNote && (
+            <p className="text-sm text-foreground">{presetResolutionNote}</p>
+          )}
           {presetPartialNote && (
             <p className="text-sm text-warning-foreground">{presetPartialNote}</p>
           )}
@@ -945,7 +1014,9 @@ export function AudiencesStep({
           <GenrePresetRow
             activePresetId={activePresetId}
             disabled={!advertiserId || !activeGroup}
-            onSelect={(preset) => void applyPreset(preset)}
+            onSelect={(preset) =>
+              void applyPreset(preset, "active", { fetchHashtags: true })
+            }
           />
           {presetPartialNote && (
             <p className="text-sm text-warning-foreground">{presetPartialNote}</p>
@@ -1466,6 +1537,101 @@ function CategoryList({
   );
 }
 
+function chipClass(selected: boolean): string {
+  return `rounded-full border px-3 py-1 text-xs ${
+    selected
+      ? "border-primary bg-primary/10 text-primary"
+      : "border-border text-foreground"
+  }`;
+}
+
+function AudiencePresetPanel({
+  selectedCluster,
+  pickedPresetId,
+  activePresetId,
+  canAddToGroup,
+  canCreateGroup,
+  onSelectCluster,
+  onPickPreset,
+  onAddToGroup,
+  onCreateGroup,
+}: {
+  selectedCluster: TikTokPresetCluster;
+  pickedPresetId: string | null;
+  activePresetId: string | null;
+  canAddToGroup: boolean;
+  canCreateGroup: boolean;
+  onSelectCluster: (cluster: TikTokPresetCluster) => void;
+  onPickPreset: (id: string) => void;
+  onAddToGroup: (preset: TikTokGenrePreset) => void;
+  onCreateGroup: (preset: TikTokGenrePreset) => void;
+}) {
+  const presets = tikTokPresetsForCluster(selectedCluster);
+  const picked = tikTokPresetById(pickedPresetId ?? "");
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Audience presets</span>
+        {TIKTOK_PRESET_CLUSTERS.map((cluster) => (
+          <button
+            key={cluster}
+            type="button"
+            onClick={() => onSelectCluster(cluster)}
+            className={chipClass(cluster === selectedCluster)}
+          >
+            {cluster}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {presets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => onPickPreset(preset.id)}
+            className={chipClass(preset.id === pickedPresetId)}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      {picked && (
+        <p className="text-xs text-muted-foreground">
+          Seeds: {picked.seeds.join(", ")}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!picked || !canAddToGroup}
+          onClick={() => picked && onAddToGroup(picked)}
+        >
+          Add to this group
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!picked || !canCreateGroup}
+          onClick={() => picked && onCreateGroup(picked)}
+        >
+          New group from this preset
+        </Button>
+      </div>
+      {activePresetId && (
+        <p className="text-xs text-muted-foreground">
+          Last applied: {tikTokPresetById(activePresetId)?.label ?? activePresetId}
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {TIKTOK_GENRE_PRESET_LIMITATION_NOTE}
+      </p>
+    </div>
+  );
+}
+
 function GenrePresetRow({
   activePresetId,
   disabled,
@@ -1475,33 +1641,25 @@ function GenrePresetRow({
   disabled: boolean;
   onSelect: (preset: TikTokGenrePreset) => void;
 }) {
-  const active = TIKTOK_GENRE_PRESETS.find((preset) => preset.id === activePresetId);
+  const electronic = tikTokPresetById("electronic-music");
+  if (!electronic) return null;
+  const selected = electronic.id === activePresetId;
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted-foreground">Genre presets</span>
-        {TIKTOK_GENRE_PRESETS.map((preset) => {
-          const selected = preset.id === activePresetId;
-          return (
-            <button
-              key={preset.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => onSelect(preset)}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                selected
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-foreground"
-              }`}
-            >
-              {preset.label}
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSelect(electronic)}
+          className={chipClass(selected)}
+        >
+          {electronic.label}
+        </button>
       </div>
-      {active && (
+      {selected && (
         <p className="text-xs text-muted-foreground">
-          Seeds: {active.seeds.join(", ")}
+          Seeds: {electronic.seeds.join(", ")}
         </p>
       )}
       <p className="text-xs text-muted-foreground">
