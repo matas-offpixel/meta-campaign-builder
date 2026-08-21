@@ -150,18 +150,33 @@ describe("migrateTikTokDraft", () => {
     assert.deepEqual(migrateTikTokDraft(draft), draft);
   });
 
-  it("adds omitted targetCostPerResult as null", () => {
+  it("adds omitted targetCostPerResult as null unless COST_CAP conversion can backfill", () => {
     const stored = launchableDraft();
     const optimisation = { ...stored.optimisation };
     delete (optimisation as { targetCostPerResult?: number | null })
       .targetCostPerResult;
     assert.equal("targetCostPerResult" in optimisation, false);
+    assert.equal(stored.campaignSetup.bidStrategy, "LOWEST_COST");
 
     const migrated = migrateTikTokDraft({
       ...stored,
       optimisation,
     });
     assert.equal(migrated.optimisation.targetCostPerResult, null);
+
+    stored.campaignSetup.bidStrategy = "COST_CAP";
+    stored.campaignSetup.objective = "LEAD_GENERATION";
+    stored.campaignSetup.optimisationGoal = "CONVERSION";
+    stored.optimisation.bidStrategy = "COST_CAP";
+    stored.optimisation.benchmarkCpc = 1.5;
+    const costCapOptimisation = { ...stored.optimisation };
+    delete (costCapOptimisation as { targetCostPerResult?: number | null })
+      .targetCostPerResult;
+    const backfilled = migrateTikTokDraft({
+      ...stored,
+      optimisation: costCapOptimisation,
+    });
+    assert.equal(backfilled.optimisation.targetCostPerResult, 1.5);
   });
 
   it("loads an existing CONVERSIONS draft unchanged", () => {

@@ -93,7 +93,12 @@ export function CampaignSetupStep({
     const next = applyTikTokCampaignSetupPatch(draftRef.current, campaignSetup);
     draftRef.current = next;
     try {
-      await onSave({ campaignSetup: next.campaignSetup });
+      await onSave({
+        campaignSetup: next.campaignSetup,
+        ...("bidStrategy" in campaignSetup
+          ? { optimisation: next.optimisation }
+          : {}),
+      });
     } catch (err) {
       if (mountedRef.current) {
         setSaveError(err instanceof Error ? err.message : "Failed to save campaign setup");
@@ -151,33 +156,7 @@ export function CampaignSetupStep({
   }
 
   async function saveBidStrategy(nextBidStrategy: TikTokBidStrategy) {
-    const latest = draftRef.current;
-    const campaignSetup = {
-      ...latest.campaignSetup,
-      bidStrategy: nextBidStrategy,
-    };
-    const optimisation = {
-      ...latest.optimisation,
-      bidStrategy: nextBidStrategy,
-    };
-    draftRef.current = { ...latest, campaignSetup, optimisation };
-    if (mountedRef.current) {
-      setSaving(true);
-      setSaveError(null);
-    }
-    try {
-      await onSave({ campaignSetup, optimisation });
-    } catch (err) {
-      if (mountedRef.current) {
-        setSaveError(
-          err instanceof Error ? err.message : "Failed to save campaign setup",
-        );
-      }
-    } finally {
-      if (mountedRef.current) {
-        setSaving(false);
-      }
-    }
+    await persist({ bidStrategy: nextBidStrategy });
   }
 
   return (

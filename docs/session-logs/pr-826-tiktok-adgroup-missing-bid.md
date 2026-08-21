@@ -29,4 +29,4 @@ Null `bidStrategy` was treated as `BID_TYPE_NO_BID`, so a Target CPC typed in St
 
 ## Notes
 
-The #820 audience/add-suggestions review items were already shipped as PR #822 and are not in this change.
+Follow-up: migrate backfills `targetCostPerResult` from benchmarks for COST_CAP + CONVERSION/VALUE. `saveBidStrategy` sends `{ bidStrategy }` through `applyTikTokCampaignSetupPatch` so a stale optimisation snapshot cannot overwrite the money fields.

@@ -26,6 +26,14 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
   const creatives = asRecord(incoming.creatives);
   const budgetSchedule = asRecord(incoming.budgetSchedule);
   const assignments = asRecord(incoming.creativeAssignments);
+  const mergedCampaignSetup = {
+    ...defaults.campaignSetup,
+    ...campaignSetup,
+  };
+  const mergedOptimisation = {
+    ...defaults.optimisation,
+    ...optimisation,
+  };
 
   return {
     ...defaults,
@@ -35,18 +43,18 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
       ...defaults.accountSetup,
       ...accountSetup,
     },
-    campaignSetup: {
-      ...defaults.campaignSetup,
-      ...campaignSetup,
-    },
+    campaignSetup: mergedCampaignSetup,
     optimisation: {
-      ...defaults.optimisation,
-      ...optimisation,
+      ...mergedOptimisation,
       guardrails: Array.isArray(optimisation.guardrails)
         ? optimisation.guardrails.filter(
             (item): item is string => typeof item === "string",
           )
         : defaults.optimisation.guardrails,
+      targetCostPerResult: resolveMigratedTargetCostPerResult(
+        mergedOptimisation,
+        mergedCampaignSetup,
+      ),
     },
     audiences: normalizeTikTokAudiences(
       incoming.audiences as TikTokCampaignDraft["audiences"],
@@ -246,4 +254,35 @@ function normalizeTikTokAdGroup(
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Persisted COST_CAP + CONVERT/VALUE drafts stored the figure on
+ * benchmarkCpc (Target CPC) before targetCostPerResult existed.
+ * Copy it once so preflight does not force a re-type.
+ */
+function resolveMigratedTargetCostPerResult(
+  optimisation: Record<string, unknown>,
+  campaignSetup: Record<string, unknown>,
+): number | null {
+  const existing = asOptionalNumber(optimisation.targetCostPerResult);
+  if (existing != null) return existing;
+  const bidStrategy =
+    optimisation.bidStrategy ?? campaignSetup.bidStrategy;
+  const goal = campaignSetup.optimisationGoal;
+  if (
+    bidStrategy === "COST_CAP" &&
+    (goal === "CONVERSION" || goal === "VALUE")
+  ) {
+    return (
+      asOptionalNumber(optimisation.benchmarkCpc) ??
+      asOptionalNumber(optimisation.benchmarkCpv) ??
+      asOptionalNumber(optimisation.benchmarkCpm)
+    );
+  }
+  return null;
 }

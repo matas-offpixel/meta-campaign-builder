@@ -94,4 +94,17 @@ describe("TikTok campaign-name save", () => {
     assert.equal(next.campaignSetup.objective, "CONVERSIONS");
     assert.equal(next.campaignSetup.optimisationGoal, "CONVERSION");
   });
+
+  it("syncs bidStrategy onto optimisation without replacing money fields", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    draft.optimisation.targetCostPerResult = 1.5;
+    draft.optimisation.benchmarkCpc = 0.8;
+    const next = applyTikTokCampaignSetupPatch(draft, {
+      bidStrategy: "COST_CAP",
+    });
+    assert.equal(next.campaignSetup.bidStrategy, "COST_CAP");
+    assert.equal(next.optimisation.bidStrategy, "COST_CAP");
+    assert.equal(next.optimisation.targetCostPerResult, 1.5);
+    assert.equal(next.optimisation.benchmarkCpc, 0.8);
+  });
 });
