@@ -1,3 +1,4 @@
+import { nextDuplicateName } from "../duplicate-name.ts";
 import { TIKTOK_OBJECTIVE_LABELS } from "./campaign-setup.ts";
 import { applyTikTokTemplate, snapshotTikTokDraft } from "./templates.ts";
 import type { TikTokCampaignTemplate } from "./templates.ts";
@@ -102,18 +103,35 @@ export function filterTikTokLibraryTemplates(
   );
 }
 
+/** Names already on drafts the operator can see for this client + event. */
+export function tikTokDuplicateExistingNames(
+  original: Pick<TikTokCampaignDraft, "clientId" | "eventId">,
+  visibleDrafts: readonly TikTokCampaignDraft[],
+): string[] {
+  return visibleDrafts
+    .filter(
+      (draft) =>
+        draft.clientId === original.clientId &&
+        draft.eventId === original.eventId,
+    )
+    .map((draft) => draft.campaignSetup.campaignName);
+}
+
 export function duplicateTikTokDraftState(
   original: TikTokCampaignDraft,
   newId: string,
+  existingNames: readonly string[] = [],
 ): TikTokCampaignDraft {
   const copy = structuredClone(original);
   const now = new Date().toISOString();
-  const name = original.campaignSetup.campaignName.trim();
   copy.id = newId;
   copy.status = "draft";
   copy.publishedIds = null;
   copy.reviewReadyAt = null;
-  copy.campaignSetup.campaignName = name ? `${name} (Copy)` : "Untitled (Copy)";
+  copy.campaignSetup.campaignName = nextDuplicateName(
+    original.campaignSetup.campaignName.trim(),
+    existingNames,
+  );
   copy.createdAt = now;
   copy.updatedAt = now;
   return copy;

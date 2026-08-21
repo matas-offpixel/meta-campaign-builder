@@ -7,11 +7,13 @@ import {
   filterTikTokLibraryDrafts,
   filterTikTokLibraryTemplates,
   startTikTokDraftFromTemplate,
+  tikTokDuplicateExistingNames,
   tikTokLibraryTabCounts,
   tikTokLibraryTemplateFromDraft,
   TIKTOK_LIBRARY_DELETE_CONFIRM,
   type TikTokLibraryDraftRow,
 } from "../library.ts";
+import { resolveDuplicateAdSetName } from "../../wizard/adset-suggestions.ts";
 
 function row(
   id: string,
@@ -143,7 +145,7 @@ describe("duplicateTikTokDraftState", () => {
     assert.equal(copy.id, "copy-1");
     assert.equal(copy.status, "draft");
     assert.equal(copy.publishedIds, null);
-    assert.equal(copy.campaignSetup.campaignName, "Jamie Jones (Copy)");
+    assert.equal(copy.campaignSetup.campaignName, "Jamie Jones 2");
 
     copy.campaignSetup.campaignName = "Mutated";
     copy.audiences.interestGroups[0]!.name = "Mutated group";
@@ -206,6 +208,87 @@ describe("filterTikTokLibraryTemplates", () => {
     ];
     assert.equal(filterTikTokLibraryTemplates(templates, "warehouse").length, 1);
     assert.equal(filterTikTokLibraryTemplates(templates, "house")[0]?.id, "t1");
+  });
+});
+
+describe("tikTokDuplicateExistingNames", () => {
+  it("scopes occupied names to the same client and event", () => {
+    const source = createDefaultTikTokDraft("src");
+    source.clientId = "client-irw";
+    source.eventId = "event-1";
+    source.campaignSetup.campaignName = "[IRW0001] Jamie Jones -signup 16";
+
+    const sameSeries = createDefaultTikTokDraft("sib");
+    sameSeries.clientId = "client-irw";
+    sameSeries.eventId = "event-1";
+    sameSeries.campaignSetup.campaignName = "[IRW0001] Jamie Jones -signup 17";
+
+    const otherEvent = createDefaultTikTokDraft("other");
+    otherEvent.clientId = "client-irw";
+    otherEvent.eventId = "event-2";
+    otherEvent.campaignSetup.campaignName = "[IRW0001] Jamie Jones -signup 18";
+
+    assert.deepEqual(
+      tikTokDuplicateExistingNames(source, [source, sameSeries, otherEvent]),
+      [
+        "[IRW0001] Jamie Jones -signup 16",
+        "[IRW0001] Jamie Jones -signup 17",
+      ],
+    );
+  });
+});
+
+describe("TikTok library and Meta wizard share nextDuplicateName", () => {
+  it("produce the same name for the same input so the call sites cannot drift", () => {
+    const sourceName = "[IRW0001] Jamie Jones -signup 16";
+    const onlySource = [sourceName];
+    const withSeventeen = [sourceName, "[IRW0001] Jamie Jones -signup 17"];
+    const noNumber = "[IRW0001] Jamie Jones -signup";
+
+    const draft = createDefaultTikTokDraft("src");
+    draft.campaignSetup.campaignName = sourceName;
+
+    const tikTokFrom16 = duplicateTikTokDraftState(
+      draft,
+      "copy-17",
+      onlySource,
+    ).campaignSetup.campaignName;
+    const metaFrom16 = resolveDuplicateAdSetName(
+      { name: sourceName, advantagePlus: false },
+      false,
+      onlySource,
+    );
+    assert.equal(tikTokFrom16, "[IRW0001] Jamie Jones -signup 17");
+    assert.equal(tikTokFrom16, metaFrom16);
+
+    draft.campaignSetup.campaignName = sourceName;
+    const tikTokFromTaken17 = duplicateTikTokDraftState(
+      draft,
+      "copy-18",
+      withSeventeen,
+    ).campaignSetup.campaignName;
+    const metaFromTaken17 = resolveDuplicateAdSetName(
+      { name: sourceName, advantagePlus: false },
+      false,
+      withSeventeen,
+    );
+    assert.equal(tikTokFromTaken17, "[IRW0001] Jamie Jones -signup 18");
+    assert.equal(tikTokFromTaken17, metaFromTaken17);
+
+    draft.campaignSetup.campaignName = noNumber;
+    const tikTokBare = duplicateTikTokDraftState(
+      draft,
+      "copy-2",
+      [noNumber],
+    ).campaignSetup.campaignName;
+    const metaBare = resolveDuplicateAdSetName(
+      { name: noNumber, advantagePlus: false },
+      false,
+      [noNumber],
+    );
+    assert.equal(tikTokBare, "[IRW0001] Jamie Jones -signup 2");
+    assert.equal(tikTokBare, metaBare);
+    assert.doesNotMatch(tikTokBare, /\(Copy\)/i);
   });
 });
 
