@@ -7,12 +7,12 @@ import {
   flattenTikTokInterestGroups,
   formatTikTokInterestGroupCounts,
   removeTikTokInterestGroup,
+  seedTikTokInterestGroupFromLegacy,
 } from "../interest-groups.ts";
 
 describe("flattenTikTokInterestGroups", () => {
-  it("retains legacy targeting after adding an empty group", () => {
+  it("clears the flat targeting when every group is empty", () => {
     const draft = createDefaultTikTokDraft("draft-1");
-    draft.audiences.interestGroups = [];
     draft.audiences.interestCategoryIds = ["cat-1"];
     draft.audiences.interestCategoryLabels = { "cat-1": "Dance" };
     draft.audiences.interestKeywordIds = ["kw-1"];
@@ -21,7 +21,41 @@ describe("flattenTikTokInterestGroups", () => {
 
     const empty = createEmptyTikTokInterestGroup();
     empty.name = "Group 1";
-    const flat = flattenTikTokInterestGroups([empty], draft.audiences);
+    const flat = flattenTikTokInterestGroups([empty]);
+
+    assert.deepEqual(flat.interestCategoryIds, []);
+    assert.deepEqual(flat.interestCategoryLabels, {});
+    assert.deepEqual(flat.interestKeywordIds, []);
+    assert.deepEqual(flat.behaviourCategoryIds, []);
+    assert.deepEqual(flat.behaviourCategoryLabels, {});
+  });
+
+  it("clears the flat targeting when the last group is removed", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    const only = createEmptyTikTokInterestGroup();
+    only.name = "House";
+    only.interestIds = [{ id: "cat-1", name: "Dance", kind: "category" }];
+    draft.audiences.interestGroups = [only];
+    draft.audiences.interestCategoryIds = ["cat-1"];
+    draft.audiences.interestCategoryLabels = { "cat-1": "Dance" };
+
+    const next = removeTikTokInterestGroup(draft.audiences, only.id);
+
+    assert.deepEqual(next.interestGroups, []);
+    assert.deepEqual(next.interestCategoryIds, []);
+    assert.deepEqual(next.interestCategoryLabels, {});
+  });
+
+  it("keeps legacy targeting through the seeded group, not a merge-back", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    draft.audiences.interestCategoryIds = ["cat-1"];
+    draft.audiences.interestCategoryLabels = { "cat-1": "Dance" };
+    draft.audiences.interestKeywordIds = ["kw-1"];
+    draft.audiences.behaviourCategoryIds = ["beh-1"];
+    draft.audiences.behaviourCategoryLabels = { "beh-1": "Creators" };
+
+    const seeded = seedTikTokInterestGroupFromLegacy(draft.audiences);
+    const flat = flattenTikTokInterestGroups([seeded]);
 
     assert.deepEqual(flat.interestCategoryIds, ["cat-1"]);
     assert.equal(flat.interestCategoryLabels["cat-1"], "Dance");

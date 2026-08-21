@@ -36,6 +36,12 @@ import {
 } from "@/lib/tiktok-wizard/interest-groups";
 import { tikTokHashtagUnavailableNote } from "@/lib/tiktok-wizard/hashtag-recommend";
 import {
+  tikTokAgeWideningNote,
+  tikTokGenderWideningNote,
+  TIKTOK_CAMPAIGN_WIDE_AUDIENCE_NOTE,
+  TIKTOK_SAVED_AUDIENCE_SINGLE_NOTE,
+} from "@/lib/tiktok-wizard/targeting-warnings";
+import {
   TIKTOK_SEMANTIC_FALLBACK_NOTE,
 } from "@/lib/tiktok-wizard/keyword-recommend";
 import type {
@@ -60,7 +66,12 @@ import type {
   TikTokTargetingItem,
 } from "@/lib/types/tiktok-draft";
 
-type CatalogTab = "interests" | "hashtags" | "behaviours" | "custom" | "lookalikes";
+// Custom audiences and lookalikes are deliberately NOT tabs: they are stored
+// draft-wide (`audiences.customAudienceIds` / `lookalikeAudienceIds`) and the
+// mapper applies them to every ad group, so putting them in the per-group tab
+// strip implied a scoping that does not exist. They live in their own
+// campaign-wide section below.
+type CatalogTab = "interests" | "hashtags" | "behaviours";
 
 interface CategoryFailed {
   interests: boolean;
@@ -351,8 +362,7 @@ export function AudiencesStep({
   }
 
   async function persistGroups(nextGroups: TikTokInterestGroup[]) {
-    const latest = audiencesRef.current;
-    const flat = flattenTikTokInterestGroups(nextGroups, latest);
+    const flat = flattenTikTokInterestGroups(nextGroups);
     await persist({
       interestGroups: nextGroups,
       ...flat,
@@ -611,6 +621,9 @@ export function AudiencesStep({
     keywords: parseHashtagSeeds(hashtagSeeds),
   });
 
+  const ageNote = tikTokAgeWideningNote(audiences.ageMin, audiences.ageMax);
+  const genderNote = tikTokGenderWideningNote(audiences.genders);
+
   const interestTree = useMemo(() => buildTree(interests), [interests]);
   const filteredRegions = useMemo(
     () => filterTikTokRegions(regions, locationQuery),
@@ -793,7 +806,7 @@ export function AudiencesStep({
       </section>
 
       <div className="flex flex-wrap gap-2">
-        {(["interests", "hashtags", "behaviours", "custom", "lookalikes"] as CatalogTab[]).map((tab) => (
+        {(["interests", "hashtags", "behaviours"] as CatalogTab[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -1028,50 +1041,75 @@ export function AudiencesStep({
         </div>
       )}
 
-      {activeTab === "custom" && (
-        catalogFailed.customAudiences ? (
-          failedBanner(
-            true,
-            catalogWarning ?? "Custom audiences temporarily unavailable.",
-            () => setCatalogReload((count) => count + 1),
-          )
-        ) : (
-          <AudienceList
-            rows={customAudiences}
-            selectedIds={audiences.customAudienceIds}
-            disabled={saving || loadingCatalog}
-            empty="No custom audiences available."
-            onToggle={(row) =>
-              void toggleListItem(row.id, row.label, "customAudienceIds", "customAudienceLabels")
-            }
-          />
-        )
-      )}
-
-      {activeTab === "lookalikes" && (
-        catalogFailed.savedAudiences ? (
-          failedBanner(
-            true,
-            catalogWarning ?? "Lookalikes temporarily unavailable.",
-            () => setCatalogReload((count) => count + 1),
-          )
-        ) : (
-          <AudienceList
-            rows={savedAudiences}
-            selectedIds={audiences.lookalikeAudienceIds}
-            disabled={saving || loadingCatalog}
-            empty="No lookalikes available."
-            onToggle={(row) =>
-              void toggleListItem(
-                row.id,
-                row.label,
-                "lookalikeAudienceIds",
-                "lookalikeAudienceLabels",
+      <section className="space-y-4 rounded-md border border-border bg-background p-4">
+        <div>
+          <h3 className="text-sm font-medium">Campaign-wide audiences</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {TIKTOK_CAMPAIGN_WIDE_AUDIENCE_NOTE}
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Custom audiences</p>
+            {catalogFailed.customAudiences ? (
+              failedBanner(
+                true,
+                catalogWarning ?? "Custom audiences temporarily unavailable.",
+                () => setCatalogReload((count) => count + 1),
               )
-            }
-          />
-        )
-      )}
+            ) : (
+              <AudienceList
+                rows={customAudiences}
+                selectedIds={audiences.customAudienceIds}
+                disabled={saving || loadingCatalog}
+                empty="No custom audiences available."
+                onToggle={(row) =>
+                  void toggleListItem(
+                    row.id,
+                    row.label,
+                    "customAudienceIds",
+                    "customAudienceLabels",
+                  )
+                }
+              />
+            )}
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Lookalikes</p>
+            <p className="text-xs text-muted-foreground">
+              {TIKTOK_SAVED_AUDIENCE_SINGLE_NOTE}
+            </p>
+            {audiences.lookalikeAudienceIds.length > 1 && (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+                {audiences.lookalikeAudienceIds.length} lookalikes selected —
+                launch is blocked until one remains.
+              </p>
+            )}
+            {catalogFailed.savedAudiences ? (
+              failedBanner(
+                true,
+                catalogWarning ?? "Lookalikes temporarily unavailable.",
+                () => setCatalogReload((count) => count + 1),
+              )
+            ) : (
+              <AudienceList
+                rows={savedAudiences}
+                selectedIds={audiences.lookalikeAudienceIds}
+                disabled={saving || loadingCatalog}
+                empty="No lookalikes available."
+                onToggle={(row) =>
+                  void toggleListItem(
+                    row.id,
+                    row.label,
+                    "lookalikeAudienceIds",
+                    "lookalikeAudienceLabels",
+                  )
+                }
+              />
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -1209,37 +1247,49 @@ export function AudiencesStep({
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Input
-          id="tiktok-age-min"
-          label="Age min"
-          inputMode="numeric"
-          value={ageMin}
-          onChange={(event) => setAgeMin(event.target.value)}
-          onBlur={() => void persist({ ageMin: clampAge(ageMin, 18) })}
-        />
-        <Input
-          id="tiktok-age-max"
-          label="Age max"
-          inputMode="numeric"
-          value={ageMax}
-          onChange={(event) => setAgeMax(event.target.value)}
-          onBlur={() => void persist({ ageMax: clampAge(ageMax, 65) })}
-        />
-        <MultiToggle
-          title="Gender"
-          values={["MALE", "FEMALE", "UNKNOWN"]}
-          labels={{
-            MALE: resolveTikTokGenderLabel("MALE"),
-            FEMALE: resolveTikTokGenderLabel("FEMALE"),
-            UNKNOWN: resolveTikTokGenderLabel("UNKNOWN"),
-          }}
-          selected={audiences.genders}
-          onChange={(genders) =>
-            void persist({
-              genders: genders as Array<"MALE" | "FEMALE" | "UNKNOWN">,
-            })
-          }
-        />
+        <div className="space-y-1.5">
+          <Input
+            id="tiktok-age-min"
+            label="Age min"
+            inputMode="numeric"
+            value={ageMin}
+            onChange={(event) => setAgeMin(event.target.value)}
+            onBlur={() => void persist({ ageMin: clampAge(ageMin, 18) })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Input
+            id="tiktok-age-max"
+            label="Age max"
+            inputMode="numeric"
+            value={ageMax}
+            onChange={(event) => setAgeMax(event.target.value)}
+            onBlur={() => void persist({ ageMax: clampAge(ageMax, 65) })}
+          />
+          {ageNote && (
+            <p className="text-xs text-warning-foreground">{ageNote}</p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <MultiToggle
+            title="Gender"
+            values={["MALE", "FEMALE", "UNKNOWN"]}
+            labels={{
+              MALE: resolveTikTokGenderLabel("MALE"),
+              FEMALE: resolveTikTokGenderLabel("FEMALE"),
+              UNKNOWN: resolveTikTokGenderLabel("UNKNOWN"),
+            }}
+            selected={audiences.genders}
+            onChange={(genders) =>
+              void persist({
+                genders: genders as Array<"MALE" | "FEMALE" | "UNKNOWN">,
+              })
+            }
+          />
+          {genderNote && (
+            <p className="text-xs text-warning-foreground">{genderNote}</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1610,8 +1660,6 @@ function summaryChips(
 }
 
 function tabLabel(tab: CatalogTab): string {
-  if (tab === "custom") return "Custom audiences";
-  if (tab === "lookalikes") return "Lookalikes";
   return tab[0].toUpperCase() + tab.slice(1);
 }
 

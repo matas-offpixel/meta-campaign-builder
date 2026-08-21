@@ -12,6 +12,7 @@ import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
 } from "@/lib/tiktok-wizard/review";
+import { tikTokTargetingWideningNotes } from "@/lib/tiktok-wizard/targeting-warnings";
 import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
 import { filterClientResolvableTikTokPreflightIssues } from "@/lib/tiktok-wizard/migrate-draft";
 import { TIKTOK_WRITES_DISABLED_REASON } from "@/lib/tiktok/write/feature-flag";
@@ -47,6 +48,7 @@ export function ReviewLaunchStep({
   const [launch, setLaunch] = useState<LaunchState>({ status: "idle" });
   const checks = buildTikTokPreflightChecks(draft);
   const adGroups = suggestTikTokAdGroups(draft);
+  const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
   const validationIssues = buildTikTokWizardValidationIssues(draft, {
     eventEditPath: context?.eventEditPath,
   });
@@ -318,6 +320,13 @@ export function ReviewLaunchStep({
             ...draft.audiences.languages,
           ]}
         />
+        {wideningNotes.length > 0 && (
+          <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-warning-foreground">
+            {wideningNotes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        )}
       </ReviewPanel>
 
       <ReviewPanel title="Creatives">

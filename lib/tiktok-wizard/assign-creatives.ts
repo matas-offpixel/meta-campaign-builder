@@ -71,6 +71,26 @@ export function assignTikTokEverything(
   return next;
 }
 
+/**
+ * Drops assignment entries for ad groups that no longer exist. Without this a
+ * creative assigned only to a removed ad group still satisfies
+ * `everyCreativeAssigned`, so the review checklist reads green while that
+ * creative launches nowhere.
+ */
+export function pruneTikTokAssignments(
+  byAdGroupId: TikTokAssignmentMap,
+  adGroupIds: string[],
+): { byAdGroupId: TikTokAssignmentMap; pruned: boolean } {
+  const keep = new Set(adGroupIds);
+  const entries = Object.entries(byAdGroupId).filter(([adGroupId]) =>
+    keep.has(adGroupId),
+  );
+  return {
+    byAdGroupId: Object.fromEntries(entries),
+    pruned: entries.length !== Object.keys(byAdGroupId).length,
+  };
+}
+
 export function clearTikTokEverything(
   byAdGroupId: TikTokAssignmentMap,
   adGroupIds: string[],

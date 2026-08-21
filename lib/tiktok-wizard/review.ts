@@ -1,7 +1,9 @@
-import type {
-  TikTokAdGroupDraft,
-  TikTokCampaignDraft,
+import {
+  defaultTikTokAudiences,
+  type TikTokAdGroupDraft,
+  type TikTokCampaignDraft,
 } from "../types/tiktok-draft.ts";
+import { reconcileTikTokAdGroups } from "./ad-group-reconcile.ts";
 import { validOptimisationGoalForObjective } from "./campaign-setup.ts";
 import { isTikTokInterestGroupNonEmpty } from "./interest-groups.ts";
 
@@ -14,41 +16,14 @@ export interface TikTokPreflightCheck {
   detail: string;
 }
 
+/**
+ * The launch-facing ad-group list. Always reconciled against the current
+ * interest groups (see `ad-group-reconcile.ts`) rather than trusting whatever
+ * was persisted first — the persisted list can be stale by an interest group
+ * added or deleted after Step 6 was last opened.
+ */
 export function suggestTikTokAdGroups(draft: TikTokCampaignDraft): TikTokAdGroupDraft[] {
-  if (draft.budgetSchedule.adGroups.length > 0) return draft.budgetSchedule.adGroups;
-  const interestGroups = (draft.audiences.interestGroups ?? []).filter(
-    isTikTokInterestGroupNonEmpty,
-  );
-  if (interestGroups.length > 0) {
-    const perGroupBudget =
-      draft.budgetSchedule.budgetAmount == null
-        ? null
-        : Math.round(
-            (draft.budgetSchedule.budgetAmount / interestGroups.length) * 100,
-          ) / 100;
-    return interestGroups.map((group, index) => ({
-      id: `ig_${group.id}`,
-      name: group.name.trim() || `Interest group ${index + 1}`,
-      budget: perGroupBudget,
-      startAt: draft.budgetSchedule.scheduleStartAt,
-      endAt: draft.budgetSchedule.scheduleEndAt,
-      interestGroupId: group.id,
-    }));
-  }
-  const count = draft.optimisation.smartPlusEnabled ? 2 : 3;
-  const perGroupBudget =
-    draft.budgetSchedule.budgetAmount == null
-      ? null
-      : Math.round((draft.budgetSchedule.budgetAmount / count) * 100) / 100;
-  return Array.from({ length: count }, (_, index) => ({
-    id: `adgroup-${index + 1}`,
-    name: draft.optimisation.smartPlusEnabled
-      ? `Smart+ ad group ${index + 1}`
-      : `Ad group ${index + 1}`,
-    budget: perGroupBudget,
-    startAt: draft.budgetSchedule.scheduleStartAt,
-    endAt: draft.budgetSchedule.scheduleEndAt,
-  }));
+  return reconcileTikTokAdGroups(draft).adGroups;
 }
 
 export function everyCreativeAssigned(draft: TikTokCampaignDraft): boolean {
@@ -68,15 +43,32 @@ export function everyAdGroupHasCreative(draft: TikTokCampaignDraft): boolean {
   );
 }
 
+/**
+ * Languages and age are real targeting dimensions that reach the ad-group
+ * payload (`languages`, `age_groups`), so a language-plus-age setup must not
+ * read as "no targeting". Age is always a number on the draft — 18–65 is the
+ * implicit default from `defaultTikTokAudiences()` — so only a range the
+ * operator actually moved counts.
+ */
 export function hasAnyTargeting(draft: TikTokCampaignDraft): boolean {
   return (
     draft.audiences.locationCodes.length > 0 ||
+    draft.audiences.languages.length > 0 ||
     draft.audiences.genders.length > 0 ||
+    hasNonDefaultTikTokAgeRange(draft) ||
     draft.audiences.interestCategoryIds.length > 0 ||
     (draft.audiences.interestGroups ?? []).some(isTikTokInterestGroupNonEmpty) ||
     draft.audiences.behaviourCategoryIds.length > 0 ||
     draft.audiences.customAudienceIds.length > 0 ||
     draft.audiences.lookalikeAudienceIds.length > 0
+  );
+}
+
+export function hasNonDefaultTikTokAgeRange(draft: TikTokCampaignDraft): boolean {
+  const defaults = defaultTikTokAudiences();
+  return (
+    draft.audiences.ageMin !== defaults.ageMin ||
+    draft.audiences.ageMax !== defaults.ageMax
   );
 }
 

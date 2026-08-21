@@ -21,6 +21,7 @@ import {
   mapTikTokOptimizationGoal,
   mapTikTokPacing,
   mapTikTokPromotionType,
+  mapTikTokSavedAudienceId,
   mapTikTokScheduleType,
   tikTokAdGroupBudgetFloor,
 } from "../write/mapping.ts";
@@ -483,6 +484,62 @@ describe("adgroup_name", () => {
       results.map((result) => (result.ok ? result.value.adgroup_name : null)),
       names,
     );
+  });
+});
+
+describe("custom audiences vs saved audiences", () => {
+  it("sends custom-audience ids in audience_ids and nothing else", () => {
+    const draft = payloadDraft();
+    draft.audiences.customAudienceIds = ["ca-1", "ca-2"];
+    const payload = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(payload.ok, true);
+    if (!payload.ok) return;
+    assert.deepEqual(payload.value.audience_ids, ["ca-1", "ca-2"]);
+    assert.equal(payload.value.saved_audience_id, undefined);
+  });
+
+  it("sends a saved audience as saved_audience_id, not audience_ids", () => {
+    const draft = payloadDraft();
+    draft.audiences.customAudienceIds = ["ca-1"];
+    draft.audiences.lookalikeAudienceIds = ["sa-1"];
+    const payload = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(payload.ok, true);
+    if (!payload.ok) return;
+    assert.deepEqual(payload.value.audience_ids, ["ca-1"]);
+    assert.equal(payload.value.saved_audience_id, "sa-1");
+  });
+
+  it("blocks rather than guessing when more than one saved audience is selected", () => {
+    const draft = payloadDraft();
+    draft.audiences.lookalikeAudienceIds = ["sa-1", "sa-2"];
+    const payload = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(payload.ok, false);
+    if (payload.ok) return;
+    assert.equal(payload.error.field, "saved_audience_id");
+  });
+
+  it("maps zero, one, and many saved audiences", () => {
+    assert.deepEqual(mapTikTokSavedAudienceId([]), { ok: true, value: null });
+    assert.deepEqual(mapTikTokSavedAudienceId(["sa-1", "sa-1"]), {
+      ok: true,
+      value: "sa-1",
+    });
+    assert.equal(mapTikTokSavedAudienceId(["sa-1", "sa-2"]).ok, false);
   });
 });
 
