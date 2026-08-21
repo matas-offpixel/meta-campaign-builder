@@ -123,8 +123,33 @@ export function collectTikTokLaunchPreflight(
   if (draft.optimisation.smartPlusEnabled) {
     issues.push(issue("smart-plus", "smartPlusEnabled", SMART_PLUS_BLOCK_MESSAGE));
   }
-  if (draft.campaignSetup.bidStrategy === "SMART_PLUS") {
+  const bidStrategy =
+    draft.optimisation.bidStrategy ?? draft.campaignSetup.bidStrategy;
+  if (bidStrategy == null) {
+    issues.push(
+      issue(
+        "bid-strategy",
+        "bidStrategy",
+        "Choose a bid strategy before launch. A missing strategy publishes the ad group with no bid.",
+      ),
+    );
+  }
+  if (bidStrategy === "SMART_PLUS") {
     issues.push(issue("smart-plus-bid", "bidStrategy", SMART_PLUS_BLOCK_MESSAGE));
+  }
+  if (
+    bidStrategy === "COST_CAP" &&
+    (draft.campaignSetup.optimisationGoal === "CONVERSION" ||
+      draft.campaignSetup.optimisationGoal === "VALUE") &&
+    draft.optimisation.targetCostPerResult == null
+  ) {
+    issues.push(
+      issue(
+        "target-cost",
+        "targetCostPerResult",
+        "Cost cap requires a target cost per result",
+      ),
+    );
   }
 
   const objective = draft.campaignSetup.objective;

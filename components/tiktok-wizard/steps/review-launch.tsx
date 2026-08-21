@@ -17,6 +17,7 @@ import {
   buildTikTokBriefMarkdown,
 } from "@/lib/tiktok-wizard/brief";
 import {
+  TIKTOK_BID_STRATEGY_LABELS,
   TIKTOK_OBJECTIVE_LABELS,
   tikTokOptimisationGoalLabel,
 } from "@/lib/tiktok-wizard/campaign-setup";
@@ -81,6 +82,8 @@ export function ReviewLaunchStep({
   const [progress, setProgress] = useState<TikTokLaunchProgressView>(
     emptyTikTokLaunchProgress(),
   );
+  const bidStrategy =
+    draft.optimisation.bidStrategy ?? draft.campaignSetup.bidStrategy;
   const checks = buildTikTokPreflightChecks(draft);
   const adGroups = suggestTikTokAdGroups(draft);
   const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
@@ -336,7 +339,12 @@ export function ReviewLaunchStep({
             value="Website (Instant Form not yet supported)"
           />
         )}
-        <KeyValue label="Bid strategy" value={draft.campaignSetup.bidStrategy} />
+        <KeyValue
+          label="Bid strategy"
+          value={bidStrategy ? TIKTOK_BID_STRATEGY_LABELS[bidStrategy] : null}
+          tone={bidStrategy ? "default" : "warning"}
+          emptyWarning="Not set — launch will publish the ad group with no bid"
+        />
       </ReviewPanel>
 
       <ReviewPanel title="Optimisation">
@@ -529,14 +537,27 @@ function ReviewPanel({
 function KeyValue({
   label,
   value,
+  tone = "default",
+  emptyWarning,
 }: {
   label: string;
   value: string | null | undefined;
+  tone?: "default" | "warning";
+  emptyWarning?: string;
 }) {
+  const display = value || (tone === "warning" ? (emptyWarning ?? "Not set") : "—");
   return (
     <div className="flex justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className="text-right text-foreground">{value || "—"}</span>
+      <span
+        className={
+          tone === "warning"
+            ? "text-right text-amber-700 dark:text-amber-300"
+            : "text-right text-foreground"
+        }
+      >
+        {display}
+      </span>
     </div>
   );
 }
