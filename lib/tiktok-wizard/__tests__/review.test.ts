@@ -11,6 +11,7 @@ import {
   tikTokReviewValidationChip,
 } from "../review.ts";
 import { TIKTOK_WRITES_DISABLED_REASON } from "../../tiktok/write/feature-flag.ts";
+import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 
 describe("TikTok review helpers", () => {
@@ -194,6 +195,25 @@ describe("tikTokLaunchReviewSummary", () => {
 });
 
 describe("tikTokReviewValidationChip", () => {
+  it("fails when the only launch issue is a missing bid strategy", () => {
+    const draft = createDefaultTikTokDraft("draft-bid");
+    const bidIssues = collectTikTokLaunchPreflight(draft).issues.filter(
+      (issue) => issue.id === "bid-strategy",
+    );
+    assert.equal(bidIssues.length, 1);
+    const summary = tikTokLaunchReviewSummary(bidIssues);
+    assert.equal(summary.ok, false);
+    assert.equal(summary.ok === false && bidIssues.length > 0, true);
+    const chip = tikTokReviewValidationChip({
+      launchDisabled: !summary.ok,
+      writesEnabled: true,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: summary.blockerCount,
+    });
+    assert.equal(chip.pass, false);
+  });
+
   it("is not passing whenever launch is disabled, including the killswitch", () => {
     const blockers = tikTokReviewValidationChip({
       launchDisabled: true,

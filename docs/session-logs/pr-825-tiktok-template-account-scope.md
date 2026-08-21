@@ -22,10 +22,11 @@ Templates keep account setup in the snapshot and restore it when loaded for the 
 ## Validation
 
 - [x] `npm run build`
-- [x] `npm test` — `4146 = 4130 passed + 13 failed + 3 skipped`. Pre-existing failures still 13.
+- [x] `npm test` — `4158 = 4142 passed + 13 failed + 3 skipped`. Pre-existing failures still 13.
 
 ## Notes
 
 - identityBcId: re-resolve on load (never restore from snapshot).
 - Schedule start/end always nulled.
 - Follow-up: snapshot `clientId`/`eventId` no longer overwrite the target draft. Foreign apply twice stays stripped. Notice has a third unscoped branch. Chip uses the same expression as `launchDisabled` (killswitch included).
+- Rebased onto `2ce2af4` (#826). Chip now has a test that a lone `bid-strategy` preflight issue makes `summary.ok === false`.

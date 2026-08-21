@@ -71,10 +71,16 @@ function restoreTikTokAccountSetup(
 function omitTemplateIdentity(
   snapshot: TikTokTemplateSnapshot,
 ): Omit<TikTokTemplateSnapshot, "clientId" | "eventId"> {
-  const rest = { ...snapshot };
-  delete rest.clientId;
-  delete rest.eventId;
-  return rest;
+  return {
+    accountSetup: snapshot.accountSetup,
+    campaignSetup: snapshot.campaignSetup,
+    optimisation: snapshot.optimisation,
+    audiences: snapshot.audiences,
+    creatives: snapshot.creatives,
+    budgetSchedule: snapshot.budgetSchedule,
+    creativeAssignments: snapshot.creativeAssignments,
+    creativeIntegrityMode: snapshot.creativeIntegrityMode,
+  };
 }
 
 function scopedClientId(
