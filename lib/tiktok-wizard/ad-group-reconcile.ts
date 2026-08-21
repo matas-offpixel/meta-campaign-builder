@@ -13,11 +13,12 @@
  *
  * - If at least one NON-EMPTY interest group exists, ad groups are 1:1 with
  *   those groups, in interest-group order. An ad group already carrying a
- *   matching `interestGroupId` is preserved verbatim so operator edits (names,
- *   budgets, per-group schedules) survive. Ad groups without an
- *   `interestGroupId` — the positional "Ad group 1/2/3" stubs — are dropped
- *   once interest groups take over, because their targeting is not expressible
- *   as an interest group and keeping them would send the flattened union.
+ *   matching `interestGroupId` is preserved so operator edits (names and
+ *   budgets) survive. Schedule is campaign-level and is not stored on the
+ *   ad group. Ad groups without an `interestGroupId` — the positional
+ *   "Ad group 1/2/3" stubs — are dropped once interest groups take over,
+ *   because their targeting is not expressible as an interest group and
+ *   keeping them would send the flattened union.
  * - If there is NO non-empty interest group, positional ad groups are the
  *   truth: existing ones (with their edits) are kept, orphans pointing at a
  *   deleted or now-empty interest group are dropped, and when nothing is left
@@ -110,8 +111,8 @@ export function defaultTikTokPositionalAdGroups(
       ? `Smart+ ad group ${index + 1}`
       : `Ad group ${index + 1}`,
     budget: perGroupBudget,
-    startAt: draft.budgetSchedule.scheduleStartAt,
-    endAt: draft.budgetSchedule.scheduleEndAt,
+    startAt: null,
+    endAt: null,
   }));
 }
 
@@ -137,8 +138,8 @@ function fromInterestGroups(
       id: `ig_${group.id}`,
       name: group.name.trim() || `Interest group ${index + 1}`,
       budget: perGroupBudget,
-      startAt: draft.budgetSchedule.scheduleStartAt,
-      endAt: draft.budgetSchedule.scheduleEndAt,
+      startAt: null,
+      endAt: null,
       interestGroupId: group.id,
     };
   });

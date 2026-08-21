@@ -318,7 +318,8 @@ export function AssignCreativesStep({
                 Budget: {adGroup.budget == null ? "—" : `£${adGroup.budget}`}
               </p>
               <p className="text-xs text-muted-foreground">
-                {adGroup.startAt ?? "No start"} → {adGroup.endAt ?? "No end"}
+                {draft.budgetSchedule.scheduleStartAt ?? "No start"} →{" "}
+                {draft.budgetSchedule.scheduleEndAt ?? "No end"}
               </p>
             </div>
           ))}

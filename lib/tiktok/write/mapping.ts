@@ -397,6 +397,20 @@ export function mapTikTokBudgetMode(
   return budgetMode === "LIFETIME" ? "BUDGET_MODE_TOTAL" : "BUDGET_MODE_DAY";
 }
 
+/**
+ * Schedule is campaign-level. Ad-group `startAt` / `endAt` are leftover
+ * snapshots from first generation and must not reach the write payload.
+ */
+export function tikTokWriteSchedule(draft: TikTokCampaignDraft): {
+  startAt: string | null;
+  endAt: string | null;
+} {
+  return {
+    startAt: draft.budgetSchedule.scheduleStartAt,
+    endAt: draft.budgetSchedule.scheduleEndAt,
+  };
+}
+
 export function mapTikTokScheduleType(
   startAt: string | null,
   endAt: string | null,
@@ -554,9 +568,7 @@ export function buildTikTokAdGroupPayload(input: {
   const gender = mapTikTokGender(draft.audiences.genders);
   if (!gender.ok) return gender;
 
-  const startAt =
-    adGroup.startAt ?? draft.budgetSchedule.scheduleStartAt;
-  const endAt = adGroup.endAt ?? draft.budgetSchedule.scheduleEndAt;
+  const { startAt, endAt } = tikTokWriteSchedule(draft);
   const scheduleType = mapTikTokScheduleType(startAt, endAt);
   if (!scheduleType.ok) return scheduleType;
   const timeZone = draft.accountSetup.timezone;

@@ -25,6 +25,7 @@ import {
   resolveTikTokAdGroupBudget,
   tikTokAdGroupBudgetFloor,
   tikTokBudgetFloorUnverified,
+  tikTokWriteSchedule,
 } from "./mapping.ts";
 import {
   TIKTOK_SCHEDULE_START_MARGIN_MS,
@@ -205,8 +206,7 @@ export function collectTikTokLaunchPreflight(
     issues.push(issue(`campaign-${campaign.error.field}`, campaign.error.field, campaign.error.message));
   }
 
-  const start = draft.budgetSchedule.scheduleStartAt;
-  const end = draft.budgetSchedule.scheduleEndAt;
+  const { startAt: start, endAt: end } = tikTokWriteSchedule(draft);
   const timeZone =
     options.advertiserTimezone ?? draft.accountSetup.timezone ?? null;
   if (!isIanaTimeZone(timeZone)) {
@@ -304,8 +304,8 @@ export function collectTikTokLaunchPreflight(
     const groupBudget = resolveTikTokAdGroupBudget(draft, adGroup);
     const groupFloor = tikTokAdGroupBudgetFloor({
       budgetMode: draft.budgetSchedule.budgetMode,
-      startAt: adGroup.startAt ?? start,
-      endAt: adGroup.endAt ?? end,
+      startAt: start,
+      endAt: end,
       currency: draft.accountSetup.currency,
     });
     if (groupBudget == null) {

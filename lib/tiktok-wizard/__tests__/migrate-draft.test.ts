@@ -104,6 +104,27 @@ describe("migrateTikTokDraft", () => {
     assert.equal(migrated.creatives.items[0].videoId, "video_1");
   });
 
+  it("loads an older ad group that still carries startAt and endAt", () => {
+    const stored = launchableDraft();
+    stored.budgetSchedule.scheduleStartAt = "2026-08-21T14:00";
+    stored.budgetSchedule.scheduleEndAt = "2026-08-28T14:00";
+    stored.budgetSchedule.adGroups = [
+      {
+        id: "ag-1",
+        name: "Prospecting",
+        budget: 50,
+        startAt: "2026-08-20T21:42",
+        endAt: "2026-08-27T21:42",
+      },
+    ];
+    const migrated = migrateTikTokDraft(stored);
+    assert.equal(migrated.budgetSchedule.adGroups[0].startAt, "2026-08-20T21:42");
+    assert.equal(migrated.budgetSchedule.adGroups[0].endAt, "2026-08-27T21:42");
+    assert.equal(migrated.budgetSchedule.adGroups[0].name, "Prospecting");
+    assert.equal(migrated.budgetSchedule.adGroups[0].budget, 50);
+    assert.equal(migrated.budgetSchedule.scheduleStartAt, "2026-08-21T14:00");
+  });
+
   it("adds an omitted ad group name key as an empty string", () => {
     const stored = launchableDraft();
     const group = { ...stored.budgetSchedule.adGroups[0] };

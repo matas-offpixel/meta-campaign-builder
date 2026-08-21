@@ -236,6 +236,10 @@ function normalizeTikTokAdGroup(
   return {
     ...group,
     name: typeof group.name === "string" ? group.name : "",
+    // Older drafts snapshotted schedule onto each ad group. Writes ignore
+    // these leftover fields; keep them so load does not reject the row.
+    startAt: typeof group.startAt === "string" ? group.startAt : null,
+    endAt: typeof group.endAt === "string" ? group.endAt : null,
   };
 }
 

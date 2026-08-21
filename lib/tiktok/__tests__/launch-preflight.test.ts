@@ -398,6 +398,50 @@ describe("collectTikTokLaunchPreflight", () => {
     );
   });
 
+  it("rejects the sent start when leftover ad-group startAt disagrees", () => {
+    const draft = launchableDraft();
+    draft.accountSetup.timezone = "Etc/GMT";
+    // The two fields disagree, as in production. Read-through sends the
+    // draft schedule, so a past scheduleStartAt must fail even if leftover
+    // ad-group startAt is later.
+    draft.budgetSchedule.scheduleStartAt = "2026-08-20T21:42";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-27T21:42";
+    draft.budgetSchedule.adGroups[0] = {
+      ...draft.budgetSchedule.adGroups[0],
+      startAt: "2026-08-21T14:00",
+      endAt: "2026-08-28T14:00",
+    };
+    const result = collectTikTokLaunchPreflight(draft, {
+      now: new Date("2026-08-21T13:00:00.000Z"),
+    });
+    assert.equal(result.ok, false);
+    const issue = result.issues.find(
+      (entry) => entry.id === "schedule-start-soon",
+    );
+    assert.ok(issue);
+    assert.match(issue.message, /2026-08-20 21:42:00/);
+  });
+
+  it("does not treat a stale past ad-group startAt as the sent start", () => {
+    const draft = launchableDraft();
+    draft.accountSetup.timezone = "Etc/GMT";
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T14:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T14:00";
+    draft.budgetSchedule.adGroups[0] = {
+      ...draft.budgetSchedule.adGroups[0],
+      startAt: "2026-08-20T21:42",
+      endAt: "2026-08-27T21:42",
+    };
+    const result = collectTikTokLaunchPreflight(draft, {
+      now: new Date("2026-08-21T13:00:00.000Z"),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.issues.some((entry) => entry.id === "schedule-start-soon"),
+      false,
+    );
+  });
+
   it("blocks a start already past in the advertiser timezone", () => {
     const draft = launchableDraft();
     draft.budgetSchedule.scheduleStartAt = "2026-08-21T11:00";
