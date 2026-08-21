@@ -11,10 +11,11 @@ import {
   stripLockedEventCodePrefix,
   TIKTOK_BID_STRATEGIES,
   TIKTOK_BID_STRATEGY_LABELS,
+  isRetiredTikTokObjective,
   TIKTOK_OBJECTIVE_LABELS,
   TIKTOK_OBJECTIVES,
-  TIKTOK_OPTIMISATION_GOAL_LABELS,
   TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE,
+  tikTokOptimisationGoalLabel,
   validOptimisationGoalForObjective,
 } from "@/lib/tiktok-wizard/campaign-setup";
 import {
@@ -159,7 +160,9 @@ export function CampaignSetupStep({
         <h2 className="font-heading text-xl">Campaign setup</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           Set the TikTok campaign name, objective, optimisation goal, and bid
-          strategy. Lead generation and app install objectives are deferred.
+          strategy. TikTok retired Conversions from Ads Manager — website
+          registration now runs under Lead generation. Instant Form is not
+          yet supported.
         </p>
       </div>
 
@@ -230,10 +233,30 @@ export function CampaignSetupStep({
           disabled={saving}
           options={goalOptions.map((value) => ({
             value,
-            label: TIKTOK_OPTIMISATION_GOAL_LABELS[value],
+            label: tikTokOptimisationGoalLabel(value, objective),
           }))}
         />
       </div>
+
+      {isRetiredTikTokObjective(draft.campaignSetup.objective) && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          Conversions is retired in TikTok Ads Manager. Website registration
+          now runs as an optimization location under Lead generation. Existing
+          drafts still load and launch, but new campaigns should use Lead
+          generation. This draft was not changed.
+        </p>
+      )}
+
+      {draft.campaignSetup.objective === "LEAD_GENERATION" && (
+        <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+          <p className="font-medium text-foreground">Optimization location</p>
+          <p className="mt-1 text-muted-foreground">
+            Website — uses the TikTok pixel and optimisation event from Step 1.
+            TikTok Instant Form is a second location in Ads Manager and is not
+            yet supported here.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Select

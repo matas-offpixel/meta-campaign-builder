@@ -142,10 +142,10 @@ export function collectTikTokLaunchPreflight(
     );
   }
 
-  if (objective === "CONVERSIONS") {
+  if (objective === "CONVERSIONS" || objective === "LEAD_GENERATION") {
     if (!draft.accountSetup.pixelId) {
       issues.push(
-        issue("pixel", "pixel_id", "CONVERSIONS requires a TikTok pixel"),
+        issue("pixel", "pixel_id", `${objective} requires a TikTok pixel`),
       );
     }
     if (!draft.accountSetup.optimisationEvent) {
@@ -153,7 +153,7 @@ export function collectTikTokLaunchPreflight(
         issue(
           "optimisation-event",
           "optimization_event",
-          "CONVERSIONS requires an optimisation event from the selected pixel",
+          `${objective} requires an optimisation event from the selected pixel`,
         ),
       );
     } else if (

@@ -6,6 +6,7 @@ import type {
 
 export const TIKTOK_OBJECTIVES: TikTokObjective[] = [
   "TRAFFIC",
+  "LEAD_GENERATION",
   "CONVERSIONS",
   "VIDEO_VIEWS",
   "REACH",
@@ -13,20 +14,33 @@ export const TIKTOK_OBJECTIVES: TikTokObjective[] = [
   "ENGAGEMENT",
 ];
 
+export const TIKTOK_RETIRED_OBJECTIVES: readonly TikTokObjective[] = [
+  "CONVERSIONS",
+];
+
 export const TIKTOK_OBJECTIVE_LABELS: Record<TikTokObjective, string> = {
   TRAFFIC: "Traffic",
-  CONVERSIONS: "Conversions",
+  LEAD_GENERATION: "Lead generation",
+  CONVERSIONS: "Conversions (retired — use Lead generation)",
   VIDEO_VIEWS: "Video views",
   REACH: "Reach",
   AWARENESS: "Awareness",
   ENGAGEMENT: "Engagement",
 };
 
+/**
+ * Per-objective goals. AdgroupCreateBody.optimization_goal is unconstrained
+ * `str` (no enum). LEAD_GENERATION → CONVERSION (maps to CONVERT) is the
+ * goal on live Ironworks Lead generation campaigns (PR #517) and matches
+ * Ads Manager "Leads". Do not invent VALUE / LEAD_GENERATION as a goal
+ * without an SDK enum.
+ */
 export const TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE: Record<
   TikTokObjective,
   TikTokOptimisationGoal[]
 > = {
   TRAFFIC: ["CLICK", "LANDING_PAGE_VIEW", "REACH"],
+  LEAD_GENERATION: ["CONVERSION"],
   CONVERSIONS: ["CONVERSION", "VALUE"],
   VIDEO_VIEWS: ["VIDEO_VIEW", "VIEW_6_SECOND"],
   REACH: ["REACH"],
@@ -48,6 +62,20 @@ export const TIKTOK_OPTIMISATION_GOAL_LABELS: Record<
   SHOW: "Show",
   ENGAGEMENT: "Engagement",
 };
+
+export function isRetiredTikTokObjective(
+  objective: TikTokObjective | null,
+): boolean {
+  return objective != null && TIKTOK_RETIRED_OBJECTIVES.includes(objective);
+}
+
+export function tikTokOptimisationGoalLabel(
+  goal: TikTokOptimisationGoal,
+  objective?: TikTokObjective | null,
+): string {
+  if (objective === "LEAD_GENERATION" && goal === "CONVERSION") return "Leads";
+  return TIKTOK_OPTIMISATION_GOAL_LABELS[goal];
+}
 
 export const TIKTOK_BID_STRATEGIES: TikTokBidStrategy[] = [
   "LOWEST_COST",
