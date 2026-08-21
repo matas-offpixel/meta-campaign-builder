@@ -13,6 +13,7 @@ import {
   TIKTOK_LIBRARY_DELETE_CONFIRM,
   type TikTokLibraryDraftRow,
 } from "../library.ts";
+import { validateTikTokWizardStep } from "../validation.ts";
 import { resolveDuplicateAdSetName } from "../../wizard/adset-suggestions.ts";
 
 function row(
@@ -173,13 +174,25 @@ describe("save-as-template then load-from-template", () => {
     ];
 
     source.clientId = "client-irw";
+    source.eventId = "event-1";
+    source.campaignSetup.eventCode = "IRW0001";
     const template = tikTokLibraryTemplateFromDraft(source, {
       id: "tpl-1",
       name: "Electronic",
       description: "Preset",
       tags: ["house"],
     });
-    const loaded = startTikTokDraftFromTemplate(template, "fresh").draft;
+    const unscoped = startTikTokDraftFromTemplate(template, "fresh").draft;
+    assert.equal(unscoped.accountSetup.advertiserId, null);
+    assert.equal(unscoped.clientId, null);
+    assert.equal(unscoped.eventId, null);
+
+    const loaded = startTikTokDraftFromTemplate(
+      template,
+      "fresh",
+      "client-irw",
+      "event-1",
+    ).draft;
 
     assert.equal(loaded.id, "fresh");
     assert.equal(loaded.status, "draft");
@@ -187,7 +200,44 @@ describe("save-as-template then load-from-template", () => {
     assert.equal(loaded.campaignSetup.objective, "LEAD_GENERATION");
     assert.equal(loaded.audiences.interestGroups[0]?.name, "London");
     assert.equal(loaded.accountSetup.advertiserId, "adv-live");
+    assert.equal(loaded.eventId, "event-1");
+    assert.equal(loaded.campaignSetup.eventCode, "IRW0001");
     assert.equal(loaded.publishedIds, null);
+    const step1 = validateTikTokWizardStep(loaded, 1);
+    assert.equal(
+      step1.some((issue) => issue.id === "event-code" && issue.blocksContinue),
+      false,
+    );
+  });
+});
+
+describe("library-path create from template", () => {
+  it("is advanceable past step 1 when the caller picks an event with an event_code", () => {
+    const source = createDefaultTikTokDraft("source");
+    source.clientId = "client-irw";
+    source.eventId = "event-1";
+    source.campaignSetup.eventCode = "IRW0001";
+    source.campaignSetup.objective = "TRAFFIC";
+    source.campaignSetup.optimisationGoal = "CLICK";
+    const template = tikTokLibraryTemplateFromDraft(source, {
+      id: "tpl-event",
+      name: "With event",
+      description: "",
+      tags: [],
+    });
+    const loaded = startTikTokDraftFromTemplate(
+      template,
+      "fresh-event",
+      "client-irw",
+      "event-1",
+    ).draft;
+    assert.equal(loaded.eventId, "event-1");
+    assert.equal(loaded.campaignSetup.eventCode, "IRW0001");
+    const step1 = validateTikTokWizardStep(loaded, 1);
+    assert.equal(
+      step1.some((issue) => issue.id === "event-code" && issue.blocksContinue),
+      false,
+    );
   });
 });
 

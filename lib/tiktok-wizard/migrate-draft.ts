@@ -52,7 +52,7 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
           )
         : defaults.optimisation.guardrails,
       targetCostPerResult: resolveMigratedTargetCostPerResult(
-        mergedOptimisation,
+        optimisation,
         mergedCampaignSetup,
       ),
     },
@@ -269,8 +269,8 @@ function resolveMigratedTargetCostPerResult(
   optimisation: Record<string, unknown>,
   campaignSetup: Record<string, unknown>,
 ): number | null {
-  const existing = asOptionalNumber(optimisation.targetCostPerResult);
-  if (existing != null) return existing;
+  if ("targetCostPerResult" in optimisation)
+    return asOptionalNumber(optimisation.targetCostPerResult);
   const bidStrategy =
     optimisation.bidStrategy ?? campaignSetup.bidStrategy;
   const goal = campaignSetup.optimisationGoal;

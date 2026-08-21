@@ -235,6 +235,19 @@ describe("tikTokReviewValidationChip", () => {
     assert.equal(killswitch.pass, false);
     assert.equal(killswitch.message, TIKTOK_WRITES_DISABLED_REASON);
 
+    const killswitchWithBlockers = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: false,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 3,
+    });
+    assert.equal(killswitchWithBlockers.pass, false);
+    assert.match(killswitchWithBlockers.message, /3 launch blockers/);
+    assert.ok(
+      killswitchWithBlockers.message.includes(TIKTOK_WRITES_DISABLED_REASON),
+    );
+
     const ready = tikTokReviewValidationChip({
       launchDisabled: false,
       writesEnabled: true,

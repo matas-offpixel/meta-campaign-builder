@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
+import { listClients } from "@/lib/db/clients";
 import {
   deleteTikTokTemplateFromDb,
   loadTikTokTemplatesFromDb,
@@ -72,6 +73,9 @@ export function TikTokWizardShell({
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
+  const [templateClientNameById, setTemplateClientNameById] = useState<
+    Record<string, string>
+  >({});
   const [identityBcIdResolution, setIdentityBcIdResolution] =
     useState<TikTokIdentityBcIdResolution>("idle");
   const [templateAccountNotice, setTemplateAccountNotice] = useState<
@@ -199,7 +203,14 @@ export function TikTokWizardShell({
     if (!userId) return;
     setTemplatesLoading(true);
     try {
-      setTemplates(await loadTikTokTemplatesFromDb(userId));
+      const [fetched, clients] = await Promise.all([
+        loadTikTokTemplatesFromDb(userId),
+        listClients(userId),
+      ]);
+      setTemplates(fetched);
+      setTemplateClientNameById(
+        Object.fromEntries(clients.map((client) => [client.id, client.name])),
+      );
     } catch (err) {
       console.warn("Failed to fetch TikTok templates:", err);
     } finally {
@@ -215,7 +226,13 @@ export function TikTokWizardShell({
       previous.clientId,
       previous.eventId,
     );
-    const next = applied.draft;
+    const next = {
+      ...applied.draft,
+      campaignSetup: {
+        ...applied.draft.campaignSetup,
+        eventCode: previous.campaignSetup.eventCode,
+      },
+    };
     setWorkingDraft(next);
     workingDraftRef.current = next;
     try {
@@ -333,6 +350,7 @@ export function TikTokWizardShell({
       <TikTokLoadTemplateModal
         open={loadTemplateOpen}
         templates={templates}
+        clientNameById={templateClientNameById}
         loading={templatesLoading}
         deletingId={deletingTemplateId}
         onClose={() => setLoadTemplateOpen(false)}

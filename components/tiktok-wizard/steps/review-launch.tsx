@@ -27,6 +27,7 @@ import {
   tikTokLaunchReviewSummary,
   tikTokReviewValidationChip,
 } from "@/lib/tiktok-wizard/review";
+import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
 import { tikTokTargetingWideningNotes } from "@/lib/tiktok-wizard/targeting-warnings";
 import { filterClientResolvableTikTokPreflightIssues } from "@/lib/tiktok-wizard/migrate-draft";
 import { TIKTOK_WRITES_DISABLED_REASON } from "@/lib/tiktok/write/feature-flag";
@@ -86,6 +87,9 @@ export function ReviewLaunchStep({
   const bidStrategy =
     draft.optimisation.bidStrategy ?? draft.campaignSetup.bidStrategy;
   const checks = buildTikTokPreflightChecks(draft);
+  const wizardIssues = buildTikTokWizardValidationIssues(draft, {
+    eventEditPath: context?.eventEditPath ?? null,
+  });
   const adGroups = suggestTikTokAdGroups(draft);
   const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
   const launchPreflight = collectTikTokLaunchPreflight(draft);
@@ -214,37 +218,86 @@ export function ReviewLaunchStep({
       </button>
 
       {validationOpen && (
-        <div className="rounded-md border border-border bg-background p-4">
-          <p className="text-sm font-medium">Launch blockers</p>
-          {clientIssues.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">
-              No launch blockers.
+        <div className="space-y-4 rounded-md border border-border bg-background p-4">
+          <div>
+            <p className="text-sm font-medium">Launch blockers</p>
+            {clientIssues.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No launch blockers.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2 text-sm">
+                {clientIssues.map((issue) => (
+                  <li key={issue.id}>{issue.message}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-medium">Wizard validation</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Step issues from the wizard. These are not launch preflight
+              blockers.
             </p>
-          ) : (
-            <ul className="mt-2 space-y-2 text-sm">
-              {clientIssues.map((issue) => (
-                <li key={issue.id}>{issue.message}</li>
-              ))}
-            </ul>
-          )}
+            {wizardIssues.length === 0 ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No wizard validation issues.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2 text-sm">
+                {wizardIssues.map((issue) => (
+                  <li key={issue.id}>
+                    {issue.label}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
-      <section className="grid gap-3 md:grid-cols-2">
-        {checks.map((check) => (
-          <div
-            key={check.id}
-            className={`rounded-md border p-3 ${
-              check.severity === "green"
-                ? "border-emerald-500/30 bg-emerald-500/10"
-                : "border-red-500/30 bg-red-500/10"
-            }`}
-          >
-            <p className="text-sm font-medium">{check.label}</p>
-            <p className="text-xs text-muted-foreground">{check.detail}</p>
-          </div>
-        ))}
+      <section className="space-y-3">
+        <div>
+          <p className="text-sm font-medium">
+            Wizard checks (not launch blockers)
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Informational wizard cards. They do not disable Launch.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {checks.map((check) => (
+            <div
+              key={check.id}
+              className={`rounded-md border p-3 ${
+                check.severity === "green"
+                  ? "border-emerald-500/30 bg-emerald-500/10"
+                  : "border-red-500/30 bg-red-500/10"
+              }`}
+            >
+              <p className="text-sm font-medium">{check.label}</p>
+              <p className="text-xs text-muted-foreground">{check.detail}</p>
+            </div>
+          ))}
+        </div>
       </section>
+
+      {wizardIssues.length > 0 && (
+        <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
+          <p className="text-sm font-medium">Wizard validation</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Step issues from the wizard. These are not launch preflight
+            blockers.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+            {wizardIssues.map((issue) => (
+              <li key={issue.id}>
+                {issue.label}: {issue.message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {!clientPreflightOk && (
         <section className="rounded-md border border-red-500/30 bg-red-500/10 p-4">

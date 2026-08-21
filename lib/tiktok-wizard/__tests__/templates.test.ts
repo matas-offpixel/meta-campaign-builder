@@ -151,7 +151,9 @@ describe("TikTok template account scope", () => {
   });
 
   it("keeps the target eventId and drops the snapshot event", () => {
-    const template = templateFromDraft(sourcedDraft());
+    const source = sourcedDraft();
+    source.campaignSetup.eventCode = "IRW0001";
+    const template = templateFromDraft(source);
     const applied = applyTikTokTemplate(
       template,
       "d",
@@ -160,6 +162,7 @@ describe("TikTok template account scope", () => {
     );
     assert.equal(applied.draft.eventId, "event-keep");
     assert.notEqual(applied.draft.eventId, template.snapshot.eventId);
+    assert.equal(applied.draft.campaignSetup.eventCode, null);
   });
 
   it("still round-trips campaign configuration into a new draft", () => {

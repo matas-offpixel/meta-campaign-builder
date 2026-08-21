@@ -68,27 +68,21 @@ function restoreTikTokAccountSetup(
   };
 }
 
-function omitTemplateIdentity(
-  snapshot: TikTokTemplateSnapshot,
-): Omit<TikTokTemplateSnapshot, "clientId" | "eventId"> {
-  return {
-    accountSetup: snapshot.accountSetup,
-    campaignSetup: snapshot.campaignSetup,
-    optimisation: snapshot.optimisation,
-    audiences: snapshot.audiences,
-    creatives: snapshot.creatives,
-    budgetSchedule: snapshot.budgetSchedule,
-    creativeAssignments: snapshot.creativeAssignments,
-    creativeIntegrityMode: snapshot.creativeIntegrityMode,
-  };
-}
-
 function scopedClientId(
   value: string | null | undefined,
 ): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+export function tikTokTemplateClientLabel(
+  templateClientId: string | null | undefined,
+  clientName: string | null | undefined,
+): string {
+  const name = clientName?.trim();
+  if (name) return name;
+  return scopedClientId(templateClientId) ? "Unknown client" : "No client";
 }
 
 export function tikTokTemplateSameClient(
@@ -175,16 +169,24 @@ export function applyTikTokTemplate(
 ): TikTokTemplateApplyResult {
   const now = new Date().toISOString();
   const base = createDefaultTikTokDraft(draftId);
-  const snapshot = omitTemplateIdentity(template.snapshot);
   const accountSetupRestored = tikTokTemplateSameClient(
     template.snapshot.clientId,
     targetClientId,
   );
+  const eventId = targetEventId ?? base.eventId;
+  const keepSnapshotEventCode =
+    eventId != null && eventId === template.snapshot.eventId;
   const draft: TikTokCampaignDraft = {
     ...base,
-    ...snapshot,
+    ...template.snapshot,
     clientId: targetClientId,
-    eventId: targetEventId ?? base.eventId,
+    eventId,
+    campaignSetup: {
+      ...template.snapshot.campaignSetup,
+      eventCode: keepSnapshotEventCode
+        ? template.snapshot.campaignSetup.eventCode
+        : null,
+    },
     accountSetup: accountSetupRestored
       ? restoreTikTokAccountSetup(template.snapshot.accountSetup)
       : stripTikTokAccountIds(template.snapshot.accountSetup),

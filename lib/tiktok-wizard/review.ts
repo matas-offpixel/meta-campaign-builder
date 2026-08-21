@@ -184,19 +184,26 @@ export function tikTokReviewValidationChip(input: {
   blockerCount: number;
 }): { pass: boolean; message: string } {
   const pass = !input.launchDisabled;
-  if (!input.writesEnabled) {
-    return { pass, message: input.writesDisabledReason };
-  }
   if (input.launching) {
     return { pass, message: "Launching…" };
   }
-  if (input.blockerCount > 0) {
+  const blockers =
+    input.blockerCount > 0
+      ? `${input.blockerCount} launch blocker${
+          input.blockerCount === 1 ? "" : "s"
+        }`
+      : null;
+  if (blockers && !input.writesEnabled) {
     return {
       pass,
-      message: `${input.blockerCount} launch blocker${
-        input.blockerCount === 1 ? "" : "s"
-      }`,
+      message: `${blockers} · ${input.writesDisabledReason}`,
     };
+  }
+  if (blockers) {
+    return { pass, message: blockers };
+  }
+  if (!input.writesEnabled) {
+    return { pass, message: input.writesDisabledReason };
   }
   return { pass, message: "all checks pass" };
 }
