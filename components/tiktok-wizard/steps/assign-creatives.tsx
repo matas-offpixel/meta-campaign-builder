@@ -307,16 +307,27 @@ function AdGroupNameInput({
   disabled?: boolean;
   onChange: (name: string) => void;
 }) {
+  const blank = !value.trim();
   return (
-    <input
-      type="text"
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
-      title="Click to rename this ad group"
-      placeholder="Ad group name"
-      className="min-w-0 w-full truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium normal-case tracking-normal text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none disabled:opacity-50"
-    />
+    <div>
+      <input
+        type="text"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        title="Click to rename this ad group"
+        placeholder="Ad group name"
+        aria-invalid={blank}
+        className={`min-w-0 w-full truncate rounded border bg-transparent px-1 py-0.5 text-sm font-medium normal-case tracking-normal text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none disabled:opacity-50 ${
+          blank ? "border-red-500/50" : "border-transparent"
+        }`}
+      />
+      {blank ? (
+        <p className="mt-1 text-[10px] font-normal normal-case tracking-normal text-red-700">
+          Name cannot be empty
+        </p>
+      ) : null}
+    </div>
   );
 }
 

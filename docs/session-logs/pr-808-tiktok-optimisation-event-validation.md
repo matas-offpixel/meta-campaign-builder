@@ -36,6 +36,27 @@ Did not invent a supported-event matrix. Mapper still passes the draft `optimiza
 - [x] eslint on changed files clean (pre-existing `account-setup.tsx` exhaustive-deps warning only)
 - [x] `npm run build` clean (existing Remotion `config` warning only)
 
+## Follow-up — empty ad group name
+
+Step 6 now lets operators edit ad group names, but a cleared or whitespace-only name was stored as `""` and sent to TikTok as `adgroup_name: ""`. That fails at `/adgroup/create/` *after* campaign create, forcing rollback and burning the campaign name (then #804's collision blocker on retry).
+
+Preflight now blocks empty / whitespace-only names in the existing ad-group loop. The issue names the ad group by id (`Ad group "ag-1"`) and tells the operator to set a name — no silent default, no migrate/`suggestTikTokAdGroups` fallback. Step 6 shows a non-blocking empty-name hint. Launch still makes zero writes when blocked.
+
+### Follow-up files
+
+- `lib/tiktok/write/preflight.ts` — `adgroup_name` blocker + `isBlankTikTokAdGroupName`
+- `components/tiktok-wizard/steps/assign-creatives.tsx` — inline empty-name hint (does not block typing)
+- Tests: empty + whitespace preflight (names the id); empty + whitespace launch zero-write; named happy path unchanged
+
+### Follow-up validation
+
+- [x] focused TikTok tests — 40 passed (2 new preflight + 2 new zero-write)
+- [x] `npm test` — 4003 = 3987 passed + 13 failed + 3 skipped (+4 vs first #808 commit; same 13 pre-existing)
+- [x] eslint on changed files clean (repo-wide lint still has pre-existing errors outside this PR)
+- [x] `npm run build` clean (existing Remotion `config` warning only)
+
 ## Notes
 
 `CONSULT` is not denied (that is "Consult" in official docs). Tests that previously treated `COMPLETE_REGISTRATION` as a launchable CONVERSIONS event now use `FORM`, which is listed in the official conversion-events docs and is not on this deny-list.
+
+Do not invent `"Ad group 1"` on migrate or suggest. The operator cleared the name deliberately.

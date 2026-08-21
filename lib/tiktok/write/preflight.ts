@@ -236,6 +236,16 @@ export function collectTikTokLaunchPreflight(
   }
 
   for (const adGroup of adGroups) {
+    if (isBlankTikTokAdGroupName(adGroup.name)) {
+      issues.push(
+        issue(
+          `adgroup-name-${adGroup.id}`,
+          "adgroup_name",
+          tikTokBlankAdGroupNameMessage(adGroup.id),
+        ),
+      );
+    }
+
     const assigned = draft.creativeAssignments.byAdGroupId[adGroup.id] ?? [];
     const creatives = assigned
       .map((id) => draft.creatives.items.find((item) => item.id === id))
@@ -358,6 +368,16 @@ export function collectTikTokLaunchPreflight(
     issues: dedupeIssues(issues),
     warnings: dedupeIssues(warnings),
   };
+}
+
+export function isBlankTikTokAdGroupName(
+  name: string | null | undefined,
+): boolean {
+  return !(name ?? "").trim();
+}
+
+export function tikTokBlankAdGroupNameMessage(adGroupId: string): string {
+  return `Ad group "${adGroupId}" has an empty or whitespace-only name. Set a name before launch — TikTok rejects a blank adgroup_name.`;
 }
 
 export function isAbsoluteHttpUrl(value: string | null | undefined): boolean {

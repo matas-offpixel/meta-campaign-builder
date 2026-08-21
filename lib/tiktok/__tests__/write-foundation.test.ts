@@ -527,6 +527,48 @@ describe("launchTikTokDraftState", () => {
     assert.equal(adGroup.body.optimization_event, "FORM");
   });
 
+  it("blocks an empty ad group name before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups[0].name = "";
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        draft,
+      ),
+      /empty or whitespace-only/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
+  it("blocks a whitespace-only ad group name before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups[0].name = "   ";
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        draft,
+      ),
+      /empty or whitespace-only/,
+    );
+    assert.equal(mock.calls.length, 0);
+  });
+
   it("sends each ad group's own name on /adgroup/create/", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();

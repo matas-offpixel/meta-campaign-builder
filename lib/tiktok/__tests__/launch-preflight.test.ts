@@ -61,6 +61,31 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.match(cover.message, /image_ids/);
   });
 
+  it("blocks an empty ad group name and names the ad group by id", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups[0].name = "";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    const issue = result.issues.find((entry) => entry.field === "adgroup_name");
+    assert.ok(issue);
+    assert.equal(issue.id, "adgroup-name-ag-1");
+    assert.match(issue.message, /Ad group "ag-1"/);
+    assert.match(issue.message, /empty or whitespace-only/);
+    assert.match(issue.message, /Set a name/);
+  });
+
+  it("blocks a whitespace-only ad group name and names the ad group by id", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups[0].name = "   ";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    const issue = result.issues.find((entry) => entry.field === "adgroup_name");
+    assert.ok(issue);
+    assert.equal(issue.id, "adgroup-name-ag-1");
+    assert.match(issue.message, /Ad group "ag-1"/);
+    assert.match(issue.message, /empty or whitespace-only/);
+  });
+
   it("passes a complete launchable draft", () => {
     const result = collectTikTokLaunchPreflight(launchableDraft());
     assert.equal(result.ok, true);
