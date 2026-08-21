@@ -2,7 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database, Json } from "./database.types.ts";
 import { migrateTikTokDraft } from "../tiktok-wizard/migrate-draft.ts";
-import { duplicateTikTokDraftState } from "../tiktok-wizard/library.ts";
+import {
+  duplicateTikTokDraftState,
+  tikTokDuplicateExistingNames,
+} from "../tiktok-wizard/library.ts";
 import {
   createDefaultTikTokDraft,
   type TikTokCampaignDraft,
@@ -155,8 +158,13 @@ export async function duplicateTikTokDraft(
 ): Promise<TikTokCampaignDraft | null> {
   const original = await getTikTokDraft(supabase, draftId);
   if (!original) return null;
+  const visible = await listTikTokDrafts(supabase, { userId });
   const copyId = crypto.randomUUID();
-  const copy = duplicateTikTokDraftState(original, copyId);
+  const copy = duplicateTikTokDraftState(
+    original,
+    copyId,
+    tikTokDuplicateExistingNames(original, visible),
+  );
   return upsertTikTokDraft(supabase, copyId, { ...copy, userId });
 }
 
