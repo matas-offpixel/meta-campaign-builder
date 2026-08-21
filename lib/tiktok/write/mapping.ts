@@ -408,11 +408,17 @@ export function mapTikTokPacing(
 export function mapTikTokBidType(
   bidStrategy: TikTokBidStrategy | null,
 ): MappingResult<"BID_TYPE_NO_BID" | "BID_TYPE_CUSTOM"> {
-  if (!bidStrategy || bidStrategy === "LOWEST_COST") return ok("BID_TYPE_NO_BID");
+  if (bidStrategy === "LOWEST_COST") return ok("BID_TYPE_NO_BID");
   if (bidStrategy === "COST_CAP") return ok("BID_TYPE_CUSTOM");
+  if (bidStrategy === "SMART_PLUS") {
+    return missing(
+      "bid_type",
+      "SMART_PLUS is not a TikTok bid_type on this launcher",
+    );
+  }
   return missing(
     "bid_type",
-    "SMART_PLUS is not a TikTok bid_type on this launcher",
+    "Choose a bid strategy before launch. A missing strategy publishes the ad group with no bid.",
   );
 }
 
@@ -711,14 +717,19 @@ export function buildTikTokAdGroupPayload(input: {
 
   if (bidType.value === "BID_TYPE_CUSTOM") {
     const bidPrice = resolveBidPrice(draft);
-    if (bidPrice == null) {
+    if (goal.value === "CONVERT" || goal.value === "VALUE") {
+      if (bidPrice == null) {
+        return missing(
+          "conversion_bid_price",
+          "COST_CAP requires a target cost per result",
+        );
+      }
+      payload.conversion_bid_price = bidPrice;
+    } else if (bidPrice == null) {
       return missing(
         "bid_price",
         "COST_CAP requires a bid price (benchmark CPC / CPV / CPM)",
       );
-    }
-    if (goal.value === "CONVERT" || goal.value === "VALUE") {
-      payload.conversion_bid_price = bidPrice;
     } else {
       payload.bid_price = bidPrice;
     }
@@ -936,6 +947,9 @@ function uniqueIds(ids: string[]): string[] {
 
 function resolveBidPrice(draft: TikTokCampaignDraft): number | null {
   const goal = draft.campaignSetup.optimisationGoal;
+  if (goal === "CONVERSION" || goal === "VALUE") {
+    return draft.optimisation.targetCostPerResult;
+  }
   if (goal === "CLICK" || goal === "LANDING_PAGE_VIEW") {
     return draft.optimisation.benchmarkCpc;
   }
@@ -945,11 +959,7 @@ function resolveBidPrice(draft: TikTokCampaignDraft): number | null {
   if (goal === "REACH" || goal === "SHOW") {
     return draft.optimisation.benchmarkCpm;
   }
-  return (
-    draft.optimisation.benchmarkCpc ??
-    draft.optimisation.benchmarkCpv ??
-    draft.optimisation.benchmarkCpm
-  );
+  return null;
 }
 
 function ok<T>(value: T): MappingResult<T> {

@@ -18,6 +18,8 @@ function launchableDraft() {
   draft.accountSetup.timezone = "America/New_York";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
+  draft.campaignSetup.bidStrategy = "LOWEST_COST";
+  draft.optimisation.bidStrategy = "LOWEST_COST";
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = 50;
   draft.budgetSchedule.scheduleStartAt = "2027-09-01T09:00:00Z";

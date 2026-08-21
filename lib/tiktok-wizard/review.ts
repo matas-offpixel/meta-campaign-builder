@@ -111,6 +111,15 @@ export function buildTikTokPreflightChecks(
       "Objective and optimisation goal are compatible",
     ),
     check(
+      "bid-strategy",
+      "Bid strategy selected",
+      (draft.optimisation.bidStrategy ?? draft.campaignSetup.bidStrategy) !=
+        null,
+      draft.optimisation.bidStrategy ??
+        draft.campaignSetup.bidStrategy ??
+        "Choose a bid strategy — a missing strategy publishes with no bid",
+    ),
+    check(
       "creatives",
       "At least one creative",
       draft.creatives.items.length > 0,

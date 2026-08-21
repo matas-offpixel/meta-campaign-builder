@@ -93,7 +93,12 @@ export function CampaignSetupStep({
     const next = applyTikTokCampaignSetupPatch(draftRef.current, campaignSetup);
     draftRef.current = next;
     try {
-      await onSave({ campaignSetup: next.campaignSetup });
+      await onSave({
+        campaignSetup: next.campaignSetup,
+        ...("bidStrategy" in campaignSetup
+          ? { optimisation: next.optimisation }
+          : {}),
+      });
     } catch (err) {
       if (mountedRef.current) {
         setSaveError(err instanceof Error ? err.message : "Failed to save campaign setup");
@@ -259,22 +264,36 @@ export function CampaignSetupStep({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Select
-          id="tiktok-bid-strategy"
-          label="Bid strategy"
-          value={
-            draft.optimisation.smartPlusEnabled
-              ? "SMART_PLUS"
-              : (draft.campaignSetup.bidStrategy ?? "")
-          }
-          onChange={(event) => void saveBidStrategy(event.target.value as TikTokBidStrategy)}
-          disabled={saving || draft.optimisation.smartPlusEnabled}
-          placeholder="Select bid strategy"
-          options={TIKTOK_BID_STRATEGIES.map((value) => ({
-            value,
-            label: TIKTOK_BID_STRATEGY_LABELS[value],
-          }))}
-        />
+        <div className="space-y-2">
+          <Select
+            id="tiktok-bid-strategy"
+            label="Bid strategy"
+            value={
+              draft.optimisation.smartPlusEnabled
+                ? "SMART_PLUS"
+                : (draft.campaignSetup.bidStrategy ??
+                  draft.optimisation.bidStrategy ??
+                  "")
+            }
+            onChange={(event) =>
+              void saveBidStrategy(event.target.value as TikTokBidStrategy)
+            }
+            disabled={saving || draft.optimisation.smartPlusEnabled}
+            placeholder="Select bid strategy"
+            options={TIKTOK_BID_STRATEGIES.map((value) => ({
+              value,
+              label: TIKTOK_BID_STRATEGY_LABELS[value],
+            }))}
+          />
+          {!draft.optimisation.smartPlusEnabled &&
+            !draft.campaignSetup.bidStrategy &&
+            !draft.optimisation.bidStrategy && (
+              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+                Bid strategy is not set. Launch will publish the ad group with
+                no bid.
+              </p>
+            )}
+        </div>
         <Input
           id="tiktok-smart-plus-note"
           label="Smart+ linkage"

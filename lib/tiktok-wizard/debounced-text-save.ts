@@ -6,11 +6,19 @@ export function applyTikTokCampaignSetupPatch(
   latest: TikTokCampaignDraft,
   patch: Partial<TikTokCampaignDraft["campaignSetup"]>,
 ): TikTokCampaignDraft {
+  const campaignSetup = {
+    ...latest.campaignSetup,
+    ...patch,
+  };
+  if (!("bidStrategy" in patch)) {
+    return { ...latest, campaignSetup };
+  }
   return {
     ...latest,
-    campaignSetup: {
-      ...latest.campaignSetup,
-      ...patch,
+    campaignSetup,
+    optimisation: {
+      ...latest.optimisation,
+      bidStrategy: patch.bidStrategy ?? null,
     },
   };
 }

@@ -5,12 +5,19 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
+  TIKTOK_BID_STRATEGIES,
+  TIKTOK_BID_STRATEGY_LABELS,
+} from "@/lib/tiktok-wizard/campaign-setup";
+import {
   applySmartPlusDefaults,
   disableSmartPlus,
   parseOptionalMoney,
   validateBudgetGuardrails,
 } from "@/lib/tiktok-wizard/budget-schedule";
-import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import type {
+  TikTokBidStrategy,
+  TikTokCampaignDraft,
+} from "@/lib/types/tiktok-draft";
 
 export function OptimisationStrategyStep({
   draft,
@@ -46,8 +53,27 @@ export function OptimisationStrategyStep({
     await persist(disableSmartPlus(draft));
   }
 
+  async function saveBidStrategy(nextBidStrategy: TikTokBidStrategy) {
+    await persist({
+      campaignSetup: {
+        ...draft.campaignSetup,
+        bidStrategy: nextBidStrategy,
+      },
+      optimisation: {
+        ...draft.optimisation,
+        bidStrategy: nextBidStrategy,
+      },
+    });
+  }
+
   async function saveMoneyField(
-    key: "benchmarkCpv" | "benchmarkCpc" | "benchmarkCpm" | "maxDailySpend" | "maxLifetimeSpend",
+    key:
+      | "targetCostPerResult"
+      | "benchmarkCpv"
+      | "benchmarkCpc"
+      | "benchmarkCpm"
+      | "maxDailySpend"
+      | "maxLifetimeSpend",
     value: string,
   ) {
     try {
@@ -95,6 +121,47 @@ export function OptimisationStrategyStep({
           </span>
         </span>
       </label>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Select
+          id="tiktok-opt-bid-strategy"
+          label="Bid strategy"
+          value={
+            draft.optimisation.smartPlusEnabled
+              ? "SMART_PLUS"
+              : (draft.optimisation.bidStrategy ??
+                draft.campaignSetup.bidStrategy ??
+                "")
+          }
+          disabled={saving || draft.optimisation.smartPlusEnabled}
+          placeholder="Select bid strategy"
+          onChange={(event) =>
+            void saveBidStrategy(event.target.value as TikTokBidStrategy)
+          }
+          options={TIKTOK_BID_STRATEGIES.map((value) => ({
+            value,
+            label: TIKTOK_BID_STRATEGY_LABELS[value],
+          }))}
+        />
+        {(draft.optimisation.bidStrategy ?? draft.campaignSetup.bidStrategy) ===
+          "COST_CAP" && (
+          <div className="space-y-2">
+            <MoneyInput
+              id="target-cost-per-result"
+              label="Target cost per result (£)"
+              value={draft.optimisation.targetCostPerResult}
+              disabled={saving}
+              onBlur={(value) =>
+                void saveMoneyField("targetCostPerResult", value)
+              }
+            />
+            <p className="text-sm text-muted-foreground">
+              Conversion and value goals send this as the ad-group bid. Click,
+              view, and reach still use Target CPC / CPV / CPM.
+            </p>
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <MoneyInput

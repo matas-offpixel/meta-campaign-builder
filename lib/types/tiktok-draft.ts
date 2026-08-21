@@ -95,6 +95,11 @@ export interface TikTokCampaignSetup {
 export interface TikTokOptimisation {
   smartPlusEnabled: boolean;
   bidStrategy: TikTokBidStrategy | null;
+  /**
+   * Cost-cap target for CONVERT / VALUE. Independent of the benchmark*
+   * fields so a stale Target CPC cannot beat a figure typed here.
+   */
+  targetCostPerResult: number | null;
   benchmarkCpv: number | null;
   benchmarkCpc: number | null;
   benchmarkCpm: number | null;
@@ -232,6 +237,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
     optimisation: {
       smartPlusEnabled: false,
       bidStrategy: null,
+      targetCostPerResult: null,
       benchmarkCpv: null,
       benchmarkCpc: null,
       benchmarkCpm: null,

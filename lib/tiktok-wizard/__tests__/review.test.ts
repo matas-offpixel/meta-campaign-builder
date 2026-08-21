@@ -130,6 +130,8 @@ describe("TikTok review helpers", () => {
     draft.campaignSetup.campaignName = "[EVT] Campaign";
     draft.campaignSetup.objective = "TRAFFIC";
     draft.campaignSetup.optimisationGoal = "CLICK";
+    draft.campaignSetup.bidStrategy = "LOWEST_COST";
+    draft.optimisation.bidStrategy = "LOWEST_COST";
     draft.budgetSchedule.budgetAmount = 100;
     draft.budgetSchedule.scheduleStartAt = "2026-05-01T10:00";
     draft.budgetSchedule.scheduleEndAt = "2026-05-02T10:00";
@@ -159,6 +161,7 @@ describe("TikTok review helpers", () => {
     assert.deepEqual(
       buildTikTokPreflightChecks(draft).map((check) => check.severity),
       [
+        "green",
         "green",
         "green",
         "green",

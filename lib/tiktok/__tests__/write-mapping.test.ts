@@ -132,6 +132,7 @@ describe("optimisation and bid mappings", () => {
     assert.equal(costCap.ok, true);
     if (costCap.ok) assert.equal(costCap.value, "BID_TYPE_CUSTOM");
     assert.equal(mapTikTokBidType("SMART_PLUS").ok, false);
+    assert.equal(mapTikTokBidType(null).ok, false);
     const smooth = mapTikTokPacing("STANDARD", "BID_TYPE_NO_BID");
     assert.equal(smooth.ok, true);
     if (smooth.ok) assert.equal(smooth.value, "PACING_MODE_SMOOTH");
@@ -847,6 +848,8 @@ function payloadDraft() {
   draft.campaignSetup.campaignName = "Campaign";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
+  draft.campaignSetup.bidStrategy = "LOWEST_COST";
+  draft.optimisation.bidStrategy = "LOWEST_COST";
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = 50;
   draft.budgetSchedule.scheduleStartAt = "2026-01-15T17:00:00.000Z";
