@@ -189,8 +189,12 @@ describe("formatTikTokPresetResolution", () => {
       behaviourPaths: [["Talents", "Singing & Dancing"]],
     });
     assert.equal(
-      formatTikTokPresetResolution({ taxonomy, keywordMatches: 4 }),
-      "1 category, 1 behaviour, 4 keyword matches. TikTok catalog has no node for News & Entertainment > Culture & Art > Techno.",
+      formatTikTokPresetResolution({
+        taxonomy,
+        keywordTerms: 6,
+        unresolvedKeywordTerms: ["tech house", "drumcode"],
+      }),
+      "1 category, 1 behaviour, 6 keyword terms. TikTok catalog has no node for News & Entertainment > Culture & Art > Techno. TikTok catalog has no keyword for tech house; drumcode.",
     );
   });
 });

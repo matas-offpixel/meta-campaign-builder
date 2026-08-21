@@ -3,12 +3,13 @@ import type { TikTokTargetingItem } from "../types/tiktok-draft.ts";
 
 /**
  * TikTok has no genre-level interest nodes. Categories are broad backing
- * only; precision comes from single-word keyword seeds (FUZZ_MATCH is a
- * literal substring matcher). Streaming is a TikTok-only cluster — it is
- * not in Meta's category list.
+ * only; precision comes from curated keyword terms applied by exact match
+ * (FUZZ_MATCH is a literal substring matcher and must not fan out). The
+ * index has no artist / label / venue / media-brand entities. Streaming is
+ * a TikTok-only cluster — it is not in Meta's category list.
  */
 export const TIKTOK_GENRE_PRESET_LIMITATION_NOTE =
-  "TikTok has no genre-level interest categories. A preset adds broad backing paths plus single-word keyword seeds — precision comes from those seeds, geo, age and custom audiences, not from a genre node. Streaming exists here only; it is not a Meta category.";
+  "TikTok has no genre-level interest categories and no artist, label, venue or media-brand keyword entities. A preset adds broad backing paths plus curated keyword terms that must exist in TikTok's index as exact matches. Precision comes from those terms, geo, age and custom audiences, not from a genre node. Streaming exists here only; it is not a Meta category.";
 
 export type TikTokTaxonomyPath = readonly string[];
 
@@ -80,6 +81,7 @@ export interface TikTokGenrePreset {
   cluster: TikTokPresetCluster;
   bucket: TikTokPresetBucket;
   label: string;
+  /** Curated keyword terms, applied by exact case-insensitive match. */
   seeds: string[];
   interestPaths: readonly TikTokTaxonomyPath[];
   behaviourPaths: readonly TikTokTaxonomyPath[];
@@ -97,9 +99,20 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Music & Nightlife",
     bucket: "scene",
     label: "Electronic music",
-    // Validated against the live catalog. Single words only: FUZZ_MATCH
-    // is a literal substring matcher ("tech house" → 0, "edm" → edmonton).
-    seeds: ["techno", "house", "disco", "electronic", "dance"],
+    // Curated terms seen in the live keyword index. Applied by exact
+    // match only — FUZZ_MATCH must not fan these out.
+    seeds: [
+      "techno",
+      "disco",
+      "electronic music",
+      "Dance music",
+      "deep house",
+      "house music",
+      "dj set",
+      "dj mixer",
+      "clubbing",
+      "live music",
+    ],
     interestPaths: TIKTOK_ELECTRONIC_INTEREST_PATHS,
     behaviourPaths: TIKTOK_ELECTRONIC_BEHAVIOUR_PATHS,
   }),
@@ -108,7 +121,14 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Music & Nightlife",
     bucket: "festival",
     label: "Festival audiences",
-    seeds: ["festival", "glastonbury", "tomorrowland", "boiler", "rave"],
+    seeds: [
+      "music festival",
+      "Music festivals",
+      "concert",
+      "concert tickets",
+      "live music",
+      "tomorrowland",
+    ],
     interestPaths: [PATH_CULTURE_MUSIC, PATH_CULTURE_DANCE],
     behaviourPaths: [BEHAVIOUR_MUSIC, BEHAVIOUR_DANCE],
   }),
@@ -117,7 +137,15 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Music & Nightlife",
     bucket: "nightlife",
     label: "Afterparty & nightlife",
-    seeds: ["club", "nightlife", "afterparty", "warehouse", "party"],
+    seeds: [
+      "clubbing",
+      "after party",
+      "concert",
+      "live music",
+      "dj set",
+      "dance floor",
+      "dance parties",
+    ],
     interestPaths: [PATH_CULTURE_MUSIC, PATH_CULTURE_DANCE],
     behaviourPaths: [BEHAVIOUR_DANCE, BEHAVIOUR_SINGING],
   }),
@@ -126,7 +154,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Music & Nightlife",
     bucket: "media",
     label: "Music media",
-    seeds: ["mixmag", "resident", "radio", "tastemaker", "press"],
+    seeds: [
+      "live music",
+      "electronic music",
+      "Dance music",
+      "Podcast",
+      "radio",
+    ],
     interestPaths: [PATH_CULTURE_MUSIC],
     behaviourPaths: [BEHAVIOUR_MUSIC],
   }),
@@ -135,7 +169,14 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Music & Nightlife",
     bucket: "artist",
     label: "DJs & labels",
-    seeds: ["producer", "vinyl", "label", "remix", "dj"],
+    seeds: [
+      "dj set",
+      "dj mixer",
+      "vinyl",
+      "Vinyl Records",
+      "music producer",
+      "Producer",
+    ],
     interestPaths: [PATH_CULTURE_MUSIC],
     behaviourPaths: [BEHAVIOUR_MUSIC, BEHAVIOUR_SINGING],
   }),
@@ -144,7 +185,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Fashion & Streetwear",
     bucket: "scene",
     label: "Streetwear",
-    seeds: ["streetwear", "hypebeast", "skate", "graphic", "oversized"],
+    seeds: ["streetwear fashion", "streetwear style", "sneaker culture"],
     interestPaths: [PATH_HOODIES, PATH_ATHLEISURE],
     behaviourPaths: [BEHAVIOUR_FASHION],
   }),
@@ -153,7 +194,17 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Fashion & Streetwear",
     bucket: "lifestyle",
     label: "Luxury fashion",
-    seeds: ["luxury", "designer", "runway", "couture", "tailoring"],
+    seeds: [
+      "luxury",
+      "luxury fashion",
+      "Designer",
+      "designer fashion",
+      "couture",
+      "haute couture",
+      "Runway",
+      "tailoring",
+      "vogue",
+    ],
     interestPaths: [PATH_JEWELRY, PATH_APPAREL],
     behaviourPaths: [BEHAVIOUR_FASHION],
   }),
@@ -162,7 +213,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Fashion & Streetwear",
     bucket: "media",
     label: "Fashion media",
-    seeds: ["vogue", "dazed", "editorial", "magazine", "campaign"],
+    seeds: ["vogue", "magazine", "editorial"],
     interestPaths: [PATH_APPAREL, PATH_CELEBRITY],
     behaviourPaths: [BEHAVIOUR_FASHION],
   }),
@@ -171,7 +222,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Fashion & Streetwear",
     bucket: "nightlife",
     label: "Sneaker culture",
-    seeds: ["sneaker", "kicks", "jordan", "trainer", "resale"],
+    seeds: ["sneaker culture", "sneakers", "resale"],
     interestPaths: [PATH_MEN_SNEAKERS, PATH_WOMEN_SNEAKERS],
     behaviourPaths: [BEHAVIOUR_FASHION],
   }),
@@ -180,7 +231,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Lifestyle & Nightlife",
     bucket: "nightlife",
     label: "Going-out",
-    seeds: ["bar", "cocktail", "nightlife", "weekend", "clubbing"],
+    seeds: ["clubbing", "after party", "concert", "weekend", "cocktails"],
     interestPaths: [PATH_CULTURE_DANCE, PATH_LIVE_EVENTS, PATH_TRAVEL],
     behaviourPaths: [BEHAVIOUR_DANCE],
   }),
@@ -189,7 +240,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Lifestyle & Nightlife",
     bucket: "scene",
     label: "Alternative lifestyle",
-    seeds: ["queer", "alternative", "underground", "community", "subculture"],
+    seeds: ["alternative", "clubbing", "live music", "Dance music"],
     interestPaths: [PATH_CULTURE_DANCE],
     behaviourPaths: [BEHAVIOUR_SINGING, BEHAVIOUR_DANCE],
   }),
@@ -198,7 +249,15 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Lifestyle & Nightlife",
     bucket: "lifestyle",
     label: "Wellness & fitness",
-    seeds: ["gym", "yoga", "wellness", "fitness", "pilates"],
+    seeds: [
+      "gym",
+      "Yoga",
+      "yoga class",
+      "fitness",
+      "fitness classes",
+      "pilates",
+      "pilates class",
+    ],
     interestPaths: [PATH_EXERCISE, PATH_HEALTH_WELLNESS, PATH_BEAUTY],
     behaviourPaths: [BEHAVIOUR_FITNESS],
   }),
@@ -207,7 +266,14 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Lifestyle & Nightlife",
     bucket: "festival",
     label: "City-break travel",
-    seeds: ["travel", "weekend", "ibiza", "berlin", "amsterdam"],
+    seeds: [
+      "ibiza",
+      "Amsterdam",
+      "weekend",
+      "weekend getaway",
+      "Weekend Trips",
+      "travel & adventure",
+    ],
     interestPaths: [PATH_TRAVEL, PATH_TOURISM],
     behaviourPaths: [],
   }),
@@ -216,7 +282,15 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Activities & Culture",
     bucket: "scene",
     label: "Art & exhibitions",
-    seeds: ["gallery", "exhibition", "contemporary", "curator", "painting"],
+    seeds: [
+      "gallery",
+      "art gallery",
+      "exhibition",
+      "Painting",
+      "Sculpture",
+      "art museums",
+      "interactive art",
+    ],
     interestPaths: [PATH_CULTURE_PAINTING, PATH_CULTURE_ART],
     behaviourPaths: [],
   }),
@@ -225,7 +299,14 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Activities & Culture",
     bucket: "artist",
     label: "Galleries & institutions",
-    seeds: ["museum", "tate", "biennale", "collection", "sculpture"],
+    seeds: [
+      "art gallery",
+      "art museums",
+      "museums",
+      "exhibition",
+      "Sculpture",
+      "Painting",
+    ],
     interestPaths: [PATH_MUSEUMS, PATH_CULTURE_ART],
     behaviourPaths: [],
   }),
@@ -234,7 +315,12 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Activities & Culture",
     bucket: "festival",
     label: "Cultural festivals",
-    seeds: ["frieze", "biennale", "festival", "fair", "design"],
+    seeds: [
+      "music festival",
+      "Music festivals",
+      "exhibition",
+      "concert",
+    ],
     interestPaths: [PATH_LIVE_EVENTS, PATH_ATTRACTIONS],
     behaviourPaths: [],
   }),
@@ -243,7 +329,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Activities & Culture",
     bucket: "nightlife",
     label: "Immersive experiences",
-    seeds: ["immersive", "installation", "experiential", "interactive", "late"],
+    seeds: [
+      "interactive art",
+      "art gallery",
+      "exhibition",
+      "concert",
+      "live music",
+    ],
     interestPaths: [PATH_CULTURE_ART, PATH_LIVE_EVENTS],
     behaviourPaths: [BEHAVIOUR_SINGING],
   }),
@@ -252,7 +344,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Media & Entertainment",
     bucket: "media",
     label: "Music press",
-    seeds: ["mixmag", "boiler", "radio", "tastemaker", "press"],
+    seeds: ["live music", "electronic music", "Podcast", "radio"],
     interestPaths: [PATH_CULTURE_MUSIC],
     behaviourPaths: [BEHAVIOUR_MUSIC],
   }),
@@ -261,7 +353,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Media & Entertainment",
     bucket: "scene",
     label: "Editorial culture",
-    seeds: ["dazed", "magazine", "culture", "editorial", "interview"],
+    seeds: ["magazine", "editorial", "culture", "interview", "vogue"],
     interestPaths: [PATH_MOVIE, PATH_CELEBRITY],
     behaviourPaths: [],
   }),
@@ -270,7 +362,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Media & Entertainment",
     bucket: "lifestyle",
     label: "Radio & podcasts",
-    seeds: ["radio", "podcast", "nts", "rinse", "broadcast"],
+    seeds: ["Podcast", "radio", "broadcast", "live music", "spotify music"],
     interestPaths: [PATH_CULTURE_MUSIC],
     behaviourPaths: [BEHAVIOUR_MUSIC],
   }),
@@ -279,7 +371,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Media & Entertainment",
     bucket: "nightlife",
     label: "Event listings",
-    seeds: ["listings", "nightlife", "calendar", "ticket", "event"],
+    seeds: [
+      "concert",
+      "concert tickets",
+      "event tickets",
+      "music festival",
+      "clubbing",
+    ],
     interestPaths: [PATH_LIVE_EVENTS, PATH_CULTURE_MUSIC, PATH_CULTURE_DANCE],
     behaviourPaths: [BEHAVIOUR_DANCE],
   }),
@@ -288,7 +386,15 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Sports & Live Events",
     bucket: "scene",
     label: "Fan culture",
-    seeds: ["football", "supporter", "matchday", "stadium", "ultras"],
+    seeds: [
+      "football",
+      "football fans",
+      "Live Football",
+      "matchday",
+      "Stadium",
+      "Ultras",
+      "Sports Fans",
+    ],
     interestPaths: [PATH_SPORTS, PATH_SOCCER, PATH_SPORTS_FITNESS_NEWS],
     behaviourPaths: [BEHAVIOUR_SPORTS],
   }),
@@ -297,7 +403,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Sports & Live Events",
     bucket: "nightlife",
     label: "Watch parties",
-    seeds: ["pub", "screening", "fanzone", "football", "beer"],
+    seeds: [
+      "watch party",
+      "football",
+      "Live Football",
+      "beer",
+      "sporting events",
+    ],
     interestPaths: [PATH_SPORTS, PATH_LIVE_EVENTS],
     behaviourPaths: [BEHAVIOUR_SPORTS],
   }),
@@ -306,7 +418,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Sports & Live Events",
     bucket: "festival",
     label: "Major competitions",
-    seeds: ["premier", "champions", "tournament", "football", "final"],
+    seeds: [
+      "football",
+      "Premier League",
+      "Champions League",
+      "Tournament",
+      "sporting events",
+    ],
     interestPaths: [PATH_SPORTS, PATH_SPORTS_FITNESS_NEWS],
     behaviourPaths: [BEHAVIOUR_SPORTS],
   }),
@@ -315,7 +433,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Sports & Live Events",
     bucket: "media",
     label: "Sports media",
-    seeds: ["sky", "espn", "broadcast", "highlights", "sport"],
+    seeds: [
+      "espn",
+      "sky sports",
+      "highlights",
+      "Live Football",
+      "sporting events",
+    ],
     interestPaths: [PATH_SPORTS_FITNESS_NEWS],
     behaviourPaths: [BEHAVIOUR_SPORTS],
   }),
@@ -324,7 +448,15 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Sports & Live Events",
     bucket: "lifestyle",
     label: "Gym & fitness",
-    seeds: ["gym", "crossfit", "running", "training", "fitness"],
+    seeds: [
+      "gym",
+      "fitness",
+      "Yoga",
+      "pilates",
+      "running",
+      "training",
+      "fitness classes",
+    ],
     interestPaths: [PATH_EXERCISE, PATH_FITNESS_GEAR, PATH_SPORTS_FITNESS_NEWS],
     behaviourPaths: [BEHAVIOUR_FITNESS],
   }),
@@ -333,7 +465,13 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Streaming",
     bucket: "artist",
     label: "Music streaming",
-    seeds: ["spotify", "playlist", "soundcloud", "tidal", "stream"],
+    seeds: [
+      "Spotify",
+      "spotify music",
+      "playlist",
+      "youtube music",
+      "live music",
+    ],
     interestPaths: [PATH_CULTURE_MUSIC],
     behaviourPaths: [BEHAVIOUR_MUSIC],
   }),
@@ -342,7 +480,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Streaming",
     bucket: "media",
     label: "Video streaming",
-    seeds: ["netflix", "youtube", "twitch", "binge", "series"],
+    seeds: ["netflix", "youtube", "Twitch", "binge", "Binge-watching"],
     interestPaths: [PATH_MOVIE],
     behaviourPaths: [],
   }),
@@ -351,7 +489,7 @@ export const TIKTOK_GENRE_PRESETS: TikTokGenrePreset[] = [
     cluster: "Streaming",
     bucket: "scene",
     label: "Creators",
-    seeds: ["creator", "influencer", "follow", "subscribe", "livestream"],
+    seeds: ["Creator", "content creators", "youtube", "Twitch"],
     interestPaths: [PATH_MOVIE],
     behaviourPaths: [],
   }),
@@ -395,6 +533,43 @@ export function formatTikTokUnresolvedPresetPaths(
   if (unresolved.length === 0) return null;
   const named = unresolved.map((item) => formatTikTokTaxonomyPath(item.path));
   return `TikTok catalog has no node for ${named.join("; ")}.`;
+}
+
+export function formatTikTokUnresolvedPresetKeywords(
+  terms: readonly string[],
+): string | null {
+  const named = [...new Set(terms.map((term) => term.trim()).filter(Boolean))];
+  if (named.length === 0) return null;
+  return `TikTok catalog has no keyword for ${named.join("; ")}.`;
+}
+
+export function tikTokKeywordNameEquals(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase();
+}
+
+/**
+ * Complete-token match for ad-hoc seed search. "techno" keeps "Techno" and
+ * drops "technology"; "disco" drops "discount 50"; "dj" keeps "dj set" and
+ * drops "djing". It still keeps "beach house" and "resident evil" — helper
+ * only, not a substitute for curated exact terms.
+ */
+export function tikTokKeywordMatchesWordBoundary(
+  seed: string,
+  name: string,
+): boolean {
+  const needle = seed.trim();
+  if (!needle) return false;
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_])${escaped}([^A-Za-z0-9_]|$)`, "i").test(
+    name,
+  );
+}
+
+export function filterTikTokKeywordsByWordBoundary<T extends { name: string }>(
+  seed: string,
+  rows: readonly T[],
+): T[] {
+  return rows.filter((row) => tikTokKeywordMatchesWordBoundary(seed, row.name));
 }
 
 export function tikTokPresetTaxonomyPendingReason(input: {
@@ -459,45 +634,53 @@ export function mergeTikTokPresetTaxonomy(
   };
 }
 
-export async function expandTikTokPresetKeywords(
-  seeds: string[],
-  fetchSeed: (seed: string) => Promise<
+export async function resolveTikTokPresetKeywords(
+  terms: string[],
+  fetchTerm: (term: string) => Promise<
     Array<{ id: string; name: string; audienceSize?: number | null }>
   >,
 ): Promise<{
   rows: TikTokPresetKeywordRow[];
-  failedSeeds: string[];
+  unresolvedTerms: string[];
+  failedTerms: string[];
   requested: number;
 }> {
-  const trimmed = [...new Set(seeds.map((seed) => seed.trim()).filter(Boolean))];
+  const trimmed = [...new Set(terms.map((term) => term.trim()).filter(Boolean))];
   const settled = await Promise.allSettled(
-    trimmed.map((seed) => fetchSeed(seed)),
+    trimmed.map((term) => fetchTerm(term)),
   );
   const byId = new Map<string, TikTokPresetKeywordRow>();
-  const failedSeeds: string[] = [];
+  const unresolvedTerms: string[] = [];
+  const failedTerms: string[] = [];
   settled.forEach((result, index) => {
-    const seed = trimmed[index];
+    const term = trimmed[index];
     if (result.status === "rejected") {
-      failedSeeds.push(seed);
+      failedTerms.push(term);
       return;
     }
-    for (const item of result.value) {
-      const existing = byId.get(item.id);
-      if (existing) {
-        if (!existing.seeds.includes(seed)) existing.seeds.push(seed);
-        continue;
-      }
-      byId.set(item.id, {
-        id: item.id,
-        name: item.name,
-        audienceSize: item.audienceSize ?? null,
-        seeds: [seed],
-      });
+    const match = result.value.find((item) =>
+      tikTokKeywordNameEquals(item.name, term),
+    );
+    if (!match) {
+      unresolvedTerms.push(term);
+      return;
     }
+    const existing = byId.get(match.id);
+    if (existing) {
+      if (!existing.seeds.includes(term)) existing.seeds.push(term);
+      return;
+    }
+    byId.set(match.id, {
+      id: match.id,
+      name: match.name,
+      audienceSize: match.audienceSize ?? null,
+      seeds: [term],
+    });
   });
   return {
     rows: [...byId.values()],
-    failedSeeds,
+    unresolvedTerms,
+    failedTerms,
     requested: trimmed.length,
   };
 }
@@ -561,3 +744,4 @@ function unionById(
 function normaliseLabel(label: string): string {
   return label.trim().toLowerCase();
 }
+
