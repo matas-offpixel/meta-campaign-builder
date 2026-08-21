@@ -8,7 +8,7 @@ import {
   withTikTokWriteIdempotency,
   type TikTokWriteContext,
 } from "./idempotency.ts";
-import { buildTikTokAdGroupPayload } from "./mapping.ts";
+import { buildTikTokAdGroupPayload, tikTokWriteSchedule } from "./mapping.ts";
 import { postTikTokWrite } from "./request.ts";
 
 export interface CreateTikTokAdGroupArgs extends TikTokWriteContext {
@@ -99,10 +99,10 @@ export async function createTikTokAdGroup(
     payload,
     async () => {
       logTikTokAdGroupCreateActions(payload);
+      const schedule = tikTokWriteSchedule(args.draft);
       logTikTokAdGroupCreateSchedule({
-        inputStart:
-          args.adGroup.startAt ?? args.draft.budgetSchedule.scheduleStartAt,
-        inputEnd: args.adGroup.endAt ?? args.draft.budgetSchedule.scheduleEndAt,
+        inputStart: schedule.startAt,
+        inputEnd: schedule.endAt,
         timeZone: args.draft.accountSetup.timezone,
         body: payload,
       });

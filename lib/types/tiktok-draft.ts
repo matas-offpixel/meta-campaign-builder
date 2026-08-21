@@ -175,6 +175,11 @@ export interface TikTokAdGroupDraft {
   id: string;
   name: string;
   budget: number | null;
+  /**
+   * Leftover snapshot from first generation. Writes and preflight ignore
+   * these and read `budgetSchedule.scheduleStartAt` / `scheduleEndAt`.
+   * Kept so `migrateTikTokDraft` can load older persisted ad groups.
+   */
   startAt: string | null;
   endAt: string | null;
   interestGroupId?: string | null;

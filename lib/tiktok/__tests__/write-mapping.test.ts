@@ -399,6 +399,38 @@ describe("buildTikTokAdPayload enhancements", () => {
   });
 });
 
+describe("ad group schedule is campaign-level", () => {
+  it("sends the draft schedule in the create payload after ad groups already exist", () => {
+    const draft = payloadDraft();
+    draft.accountSetup.timezone = "Etc/GMT";
+    draft.budgetSchedule.adGroups = [
+      {
+        id: "ag-1",
+        name: "Prospecting — renamed",
+        budget: 75,
+        startAt: "2026-08-20T21:42",
+        endAt: "2026-08-27T21:42",
+      },
+    ];
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T14:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T14:00";
+
+    const result = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.schedule_start_time, "2026-08-21 14:00:00");
+    assert.equal(result.value.schedule_end_time, "2026-08-28 14:00:00");
+    assert.notEqual(result.value.schedule_start_time, "2026-08-20 21:42:00");
+    assert.equal(result.value.adgroup_name, "Prospecting — renamed");
+    assert.equal(result.value.budget, 75);
+  });
+});
+
 describe("ad group schedule timezone", () => {
   it("converts start and end into America/New_York wall clocks, not UTC", () => {
     const draft = payloadDraft();

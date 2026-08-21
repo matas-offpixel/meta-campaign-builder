@@ -162,6 +162,40 @@ describe("reconcileTikTokAdGroups — deleted interest groups", () => {
 });
 
 describe("reconcileTikTokAdGroups — operator edits survive", () => {
+  it("keeps per-ad-group name and budget when the campaign schedule changes", () => {
+    const draft = launchableDraft();
+    draft.audiences.interestGroups = [
+      group("g-house", "House", "int-house"),
+    ];
+    draft.budgetSchedule.adGroups = reconcileTikTokAdGroups(draft).adGroups;
+    draft.budgetSchedule.adGroups[0] = {
+      ...draft.budgetSchedule.adGroups[0],
+      name: "House — renamed by hand",
+      budget: 120,
+      startAt: "2026-08-20T21:42",
+      endAt: "2026-08-27T21:42",
+    };
+    draft.budgetSchedule.scheduleStartAt = "2026-08-21T14:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-08-28T14:00";
+
+    const result = reconcileTikTokAdGroups(draft);
+    assert.equal(result.changed, false);
+    assert.equal(result.adGroups[0].name, "House — renamed by hand");
+    assert.equal(result.adGroups[0].budget, 120);
+
+    const payload = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: result.adGroups[0],
+    });
+    assert.equal(payload.ok, true);
+    if (!payload.ok) return;
+    assert.equal(payload.value.schedule_start_time, "2026-08-21 14:00:00");
+    assert.equal(payload.value.adgroup_name, "House — renamed by hand");
+    assert.equal(payload.value.budget, 120);
+  });
+
   it("preserves edited names and budgets for groups that still exist", () => {
     const draft = launchableDraft();
     draft.audiences.interestGroups = [
