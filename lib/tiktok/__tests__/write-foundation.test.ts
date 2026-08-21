@@ -476,6 +476,91 @@ describe("launchTikTokDraftState", () => {
     assert.equal(mock.calls.length, 0);
   });
 
+  it("blocks CONVERSIONS + ON_WEB_REGISTER or CONTACT before any TikTok write", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    for (const event of ["ON_WEB_REGISTER", "CONTACT"] as const) {
+      const db = new MemorySupabase();
+      const mock = createMockTikTokClient();
+      const draft = launchableDraft();
+      draft.campaignSetup.objective = "CONVERSIONS";
+      draft.campaignSetup.optimisationGoal = "CONVERSION";
+      draft.accountSetup.pixelId = "px-1";
+      draft.accountSetup.optimisationEvent = event;
+
+      await assert.rejects(
+        launchTikTokDraftState(
+          {
+            ...BASE_CONTEXT,
+            supabase: db as unknown as SupabaseClient,
+            request: mock.tiktokPost,
+          },
+          draft,
+        ),
+        /Ads Manager|no longer supported/,
+      );
+      assert.equal(mock.calls.length, 0, event);
+    }
+  });
+
+  it("launches CONVERSIONS with a non-denied optimisation event", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "CONVERSIONS";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "FORM";
+
+    const out = await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+      },
+      draft,
+    );
+    assert.equal(out.campaign_id, "campaign_mock_1");
+    assert.ok(mock.calls.length > 0);
+    const adGroup = mock.calls.find((call) => call.path === "/adgroup/create/");
+    assert.ok(adGroup);
+    assert.equal(adGroup.body.optimization_event, "FORM");
+  });
+
+  it("sends each ad group's own name on /adgroup/create/", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient();
+    const draft = launchableDraft();
+    const names = ["Prospecting UK", "Retargeting", "Lookalike EU"];
+    draft.budgetSchedule.adGroups = names.map((name, index) => ({
+      id: `ag-${index + 1}`,
+      name,
+      budget: 50,
+      startAt: null,
+      endAt: null,
+    }));
+    draft.creativeAssignments.byAdGroupId = {
+      "ag-1": ["creative-1"],
+      "ag-2": ["creative-1"],
+      "ag-3": ["creative-1"],
+    };
+
+    const out = await launchTikTokDraftState(
+      {
+        ...BASE_CONTEXT,
+        supabase: db as unknown as SupabaseClient,
+        request: mock.tiktokPost,
+      },
+      draft,
+    );
+    assert.equal(out.adgroup_ids.length, 3);
+    const adGroupNames = mock.calls
+      .filter((call) => call.path === "/adgroup/create/")
+      .map((call) => call.body.adgroup_name);
+    assert.deepEqual(adGroupNames, names);
+  });
+
   it("blocks Smart+ in preflight before any TikTok write", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();

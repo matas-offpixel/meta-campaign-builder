@@ -63,7 +63,14 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
       ...defaults.budgetSchedule,
       ...budgetSchedule,
       adGroups: Array.isArray(budgetSchedule.adGroups)
-        ? (budgetSchedule.adGroups as TikTokCampaignDraft["budgetSchedule"]["adGroups"])
+        ? budgetSchedule.adGroups
+            .map(normalizeTikTokAdGroup)
+            .filter(
+              (
+                group,
+              ): group is TikTokCampaignDraft["budgetSchedule"]["adGroups"][number] =>
+                group != null,
+            )
         : defaults.budgetSchedule.adGroups,
     },
     creativeAssignments: {
@@ -187,6 +194,17 @@ function normalizeTikTokCreativeItem(
     ...item,
     coverImageId:
       typeof item.coverImageId === "string" ? item.coverImageId : null,
+  };
+}
+
+function normalizeTikTokAdGroup(
+  raw: unknown,
+): TikTokCampaignDraft["budgetSchedule"]["adGroups"][number] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const group = raw as TikTokCampaignDraft["budgetSchedule"]["adGroups"][number];
+  return {
+    ...group,
+    name: typeof group.name === "string" ? group.name : "",
   };
 }
 

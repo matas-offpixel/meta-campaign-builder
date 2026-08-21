@@ -9,6 +9,10 @@
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
 import { validOptimisationGoalForObjective } from "../../tiktok-wizard/campaign-setup.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
+import {
+  isUnsupportedTikTokOptimisationEvent,
+  tikTokUnsupportedOptimisationEventMessage,
+} from "../optimisation-event.ts";
 import { tikTokCampaignNameCollisionMessage } from "./campaign-names.ts";
 import {
   SMART_PLUS_BLOCK_MESSAGE,
@@ -150,6 +154,21 @@ export function collectTikTokLaunchPreflight(
           "optimisation-event",
           "optimization_event",
           "CONVERSIONS requires an optimisation event from the selected pixel",
+        ),
+      );
+    } else if (
+      isUnsupportedTikTokOptimisationEvent(
+        objective,
+        draft.accountSetup.optimisationEvent,
+      )
+    ) {
+      issues.push(
+        issue(
+          "optimisation-event-unsupported",
+          "optimization_event",
+          tikTokUnsupportedOptimisationEventMessage(
+            draft.accountSetup.optimisationEvent,
+          ),
         ),
       );
     }

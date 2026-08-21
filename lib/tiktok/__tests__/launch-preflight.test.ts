@@ -243,10 +243,29 @@ describe("collectTikTokLaunchPreflight", () => {
     draft.campaignSetup.objective = "CONVERSIONS";
     draft.campaignSetup.optimisationGoal = "CONVERSION";
     draft.accountSetup.pixelId = "px-1";
-    draft.accountSetup.optimisationEvent = "COMPLETE_REGISTRATION";
+    draft.accountSetup.optimisationEvent = "FORM";
     const result = collectTikTokLaunchPreflight(draft);
     assert.equal(result.ok, true);
     assert.deepEqual(result.issues, []);
+  });
+
+  it("blocks CONVERSIONS with ON_WEB_REGISTER or CONTACT as unsupported", () => {
+    for (const event of ["ON_WEB_REGISTER", "CONTACT"] as const) {
+      const draft = launchableDraft();
+      draft.campaignSetup.objective = "CONVERSIONS";
+      draft.campaignSetup.optimisationGoal = "CONVERSION";
+      draft.accountSetup.pixelId = "px-1";
+      draft.accountSetup.optimisationEvent = event;
+      const result = collectTikTokLaunchPreflight(draft);
+      assert.equal(result.ok, false, event);
+      const issue = result.issues.find(
+        (entry) => entry.field === "optimization_event",
+      );
+      assert.ok(issue, event);
+      assert.match(issue.message, new RegExp(event));
+      assert.match(issue.message, /Ads Manager/);
+      assert.match(issue.message, /no longer supported/);
+    }
   });
 
   it("blocks CONVERSIONS without a pixel or optimisation event", () => {

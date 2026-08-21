@@ -460,6 +460,32 @@ describe("ad group targeting from interest groups", () => {
   });
 });
 
+describe("adgroup_name", () => {
+  it("sends each ad group's own name so names are not broadcast", () => {
+    const draft = payloadDraft();
+    const names = ["Prospecting UK", "Retargeting", "Lookalike EU"];
+    const results = names.map((name, index) =>
+      buildTikTokAdGroupPayload({
+        advertiserId: "adv-1",
+        campaignId: "camp-1",
+        draft,
+        adGroup: {
+          id: `ag-${index + 1}`,
+          name,
+          budget: 50,
+          startAt: null,
+          endAt: null,
+        },
+      }),
+    );
+    assert.ok(results.every((result) => result.ok));
+    assert.deepEqual(
+      results.map((result) => (result.ok ? result.value.adgroup_name : null)),
+      names,
+    );
+  });
+});
+
 describe("paused payloads at every level", () => {
   it("sets operation_status DISABLE on campaign, ad group, and ad", () => {
     const draft = payloadDraft();
