@@ -17,7 +17,6 @@ import {
 import {
   applyTikTokTemplate,
   consumeTikTokTemplateAccountNotice,
-  tikTokTemplateAccountNotice,
   type TikTokCampaignTemplate,
 } from "@/lib/tiktok-wizard/templates";
 import type { TikTokIdentity } from "@/lib/tiktok/identity";
@@ -214,6 +213,7 @@ export function TikTokWizardShell({
       template,
       previous.id,
       previous.clientId,
+      previous.eventId,
     );
     const next = applied.draft;
     setWorkingDraft(next);
@@ -223,9 +223,7 @@ export function TikTokWizardShell({
       setStep(0);
       setLoadTemplateOpen(false);
       setSaveError(null);
-      setTemplateAccountNotice(
-        tikTokTemplateAccountNotice(applied.accountSetupRestored),
-      );
+      setTemplateAccountNotice(applied.accountNotice);
     } catch (err) {
       workingDraftRef.current = previous;
       setWorkingDraft(previous);

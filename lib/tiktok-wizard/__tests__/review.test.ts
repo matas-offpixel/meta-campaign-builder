@@ -8,7 +8,9 @@ import {
   hasAnyTargeting,
   suggestTikTokAdGroups,
   tikTokLaunchReviewSummary,
+  tikTokReviewValidationChip,
 } from "../review.ts";
+import { TIKTOK_WRITES_DISABLED_REASON } from "../../tiktok/write/feature-flag.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 
 describe("TikTok review helpers", () => {
@@ -188,5 +190,39 @@ describe("tikTokLaunchReviewSummary", () => {
     assert.equal(summary.ok, false);
     assert.equal(summary.blockerCount, issues.length);
     assert.equal(summary.ok === false && issues.length > 0, true);
+  });
+});
+
+describe("tikTokReviewValidationChip", () => {
+  it("is not passing whenever launch is disabled, including the killswitch", () => {
+    const blockers = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: true,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 14,
+    });
+    assert.equal(blockers.pass, false);
+    assert.match(blockers.message, /14/);
+
+    const killswitch = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: false,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 0,
+    });
+    assert.equal(killswitch.pass, false);
+    assert.equal(killswitch.message, TIKTOK_WRITES_DISABLED_REASON);
+
+    const ready = tikTokReviewValidationChip({
+      launchDisabled: false,
+      writesEnabled: true,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 0,
+    });
+    assert.equal(ready.pass, true);
+    assert.equal(ready.message, "all checks pass");
   });
 });

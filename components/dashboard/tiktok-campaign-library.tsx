@@ -215,7 +215,7 @@ export function TikTokCampaignLibrary({
   const handleLoadTemplate = async (template: TikTokCampaignTemplate) => {
     const applied = startTikTokDraftFromTemplate(template, crypto.randomUUID());
     const draft = applied.draft;
-    storeTikTokTemplateAccountNotice(draft.id, applied.accountSetupRestored);
+    storeTikTokTemplateAccountNotice(draft.id, applied.accountNotice);
     const supabase = createClient();
     await upsertTikTokDraft(supabase, draft.id, { ...draft, userId });
     router.push(`/tiktok-campaign/${draft.id}`);

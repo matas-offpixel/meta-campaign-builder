@@ -23,6 +23,8 @@ export const TIKTOK_TEMPLATE_ACCOUNT_RESTORED =
   "Account setup restored from template";
 export const TIKTOK_TEMPLATE_ACCOUNT_CLEARED =
   "Account setup cleared — this template was saved for a different client";
+export const TIKTOK_TEMPLATE_ACCOUNT_UNSCOPED =
+  "Account setup was not restored — the template or this draft has no client";
 
 export const TIKTOK_TEMPLATE_NOTICE_STORAGE_KEY =
   "tiktok-template-account-notice";
@@ -30,6 +32,7 @@ export const TIKTOK_TEMPLATE_NOTICE_STORAGE_KEY =
 export type TikTokTemplateApplyResult = {
   draft: TikTokCampaignDraft;
   accountSetupRestored: boolean;
+  accountNotice: string;
 };
 
 function stripTikTokAccountIds(
@@ -65,33 +68,57 @@ function restoreTikTokAccountSetup(
   };
 }
 
-export function tikTokTemplateSameClient(
-  templateClientId: string | null,
-  targetClientId: string | null,
-): boolean {
-  return (
-    templateClientId != null &&
-    targetClientId != null &&
-    templateClientId === targetClientId
-  );
+function omitTemplateIdentity(
+  snapshot: TikTokTemplateSnapshot,
+): Omit<TikTokTemplateSnapshot, "clientId" | "eventId"> {
+  const rest = { ...snapshot };
+  delete rest.clientId;
+  delete rest.eventId;
+  return rest;
 }
 
-export function tikTokTemplateAccountNotice(restored: boolean): string {
-  return restored
-    ? TIKTOK_TEMPLATE_ACCOUNT_RESTORED
-    : TIKTOK_TEMPLATE_ACCOUNT_CLEARED;
+function scopedClientId(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function tikTokTemplateSameClient(
+  templateClientId: string | null | undefined,
+  targetClientId: string | null | undefined,
+): boolean {
+  const left = scopedClientId(templateClientId);
+  const right = scopedClientId(targetClientId);
+  return left != null && right != null && left === right;
+}
+
+export function tikTokTemplateAccountNotice(input: {
+  restored: boolean;
+  templateClientId: string | null | undefined;
+  targetClientId: string | null | undefined;
+}): string {
+  if (input.restored) return TIKTOK_TEMPLATE_ACCOUNT_RESTORED;
+  if (
+    scopedClientId(input.templateClientId) &&
+    scopedClientId(input.targetClientId)
+  ) {
+    return TIKTOK_TEMPLATE_ACCOUNT_CLEARED;
+  }
+  return TIKTOK_TEMPLATE_ACCOUNT_UNSCOPED;
 }
 
 export function storeTikTokTemplateAccountNotice(
   draftId: string,
-  restored: boolean,
+  notice: string,
 ): void {
   if (typeof sessionStorage === "undefined") return;
   sessionStorage.setItem(
     TIKTOK_TEMPLATE_NOTICE_STORAGE_KEY,
     JSON.stringify({
       draftId,
-      notice: tikTokTemplateAccountNotice(restored),
+      notice,
     }),
   );
 }
@@ -137,17 +164,21 @@ export function snapshotTikTokDraft(
 export function applyTikTokTemplate(
   template: TikTokCampaignTemplate,
   draftId: string,
-  targetClientId: string | null = template.snapshot.clientId,
+  targetClientId: string | null = null,
+  targetEventId: string | null = null,
 ): TikTokTemplateApplyResult {
   const now = new Date().toISOString();
   const base = createDefaultTikTokDraft(draftId);
+  const snapshot = omitTemplateIdentity(template.snapshot);
   const accountSetupRestored = tikTokTemplateSameClient(
     template.snapshot.clientId,
     targetClientId,
   );
   const draft: TikTokCampaignDraft = {
     ...base,
-    ...template.snapshot,
+    ...snapshot,
+    clientId: targetClientId,
+    eventId: targetEventId ?? base.eventId,
     accountSetup: accountSetupRestored
       ? restoreTikTokAccountSetup(template.snapshot.accountSetup)
       : stripTikTokAccountIds(template.snapshot.accountSetup),
@@ -163,5 +194,13 @@ export function applyTikTokTemplate(
     createdAt: now,
     updatedAt: now,
   };
-  return { draft, accountSetupRestored };
+  return {
+    draft,
+    accountSetupRestored,
+    accountNotice: tikTokTemplateAccountNotice({
+      restored: accountSetupRestored,
+      templateClientId: template.snapshot.clientId,
+      targetClientId,
+    }),
+  };
 }

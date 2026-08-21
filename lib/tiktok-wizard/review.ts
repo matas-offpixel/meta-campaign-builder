@@ -171,3 +171,32 @@ export function tikTokLaunchReviewSummary(
     blockerCount: blockingIssues.length,
   };
 }
+
+/**
+ * Chip pass/fail matches `launchDisabled`. Killswitch, launch-in-flight,
+ * and blockers each get a distinct non-green label.
+ */
+export function tikTokReviewValidationChip(input: {
+  launchDisabled: boolean;
+  writesEnabled: boolean;
+  writesDisabledReason: string;
+  launching: boolean;
+  blockerCount: number;
+}): { pass: boolean; message: string } {
+  const pass = !input.launchDisabled;
+  if (!input.writesEnabled) {
+    return { pass, message: input.writesDisabledReason };
+  }
+  if (input.launching) {
+    return { pass, message: "Launching…" };
+  }
+  if (input.blockerCount > 0) {
+    return {
+      pass,
+      message: `${input.blockerCount} launch blocker${
+        input.blockerCount === 1 ? "" : "s"
+      }`,
+    };
+  }
+  return { pass, message: "all checks pass" };
+}

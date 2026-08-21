@@ -28,3 +28,4 @@ Templates keep account setup in the snapshot and restore it when loaded for the 
 
 - identityBcId: re-resolve on load (never restore from snapshot).
 - Schedule start/end always nulled.
+- Follow-up: snapshot `clientId`/`eventId` no longer overwrite the target draft. Foreign apply twice stays stripped. Notice has a third unscoped branch. Chip uses the same expression as `launchDisabled` (killswitch included).

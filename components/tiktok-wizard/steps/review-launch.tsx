@@ -25,6 +25,7 @@ import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
   tikTokLaunchReviewSummary,
+  tikTokReviewValidationChip,
 } from "@/lib/tiktok-wizard/review";
 import { tikTokTargetingWideningNotes } from "@/lib/tiktok-wizard/targeting-warnings";
 import { filterClientResolvableTikTokPreflightIssues } from "@/lib/tiktok-wizard/migrate-draft";
@@ -102,6 +103,13 @@ export function ReviewLaunchStep({
     launch.status === "launching" ||
     !writesEnabled ||
     !launchSummary.ok;
+  const validationChip = tikTokReviewValidationChip({
+    launchDisabled,
+    writesEnabled,
+    writesDisabledReason,
+    launching: launch.status === "launching",
+    blockerCount: launchSummary.blockerCount,
+  });
   const launchTitle = !writesEnabled
     ? writesDisabledReason
     : !launchSummary.ok
@@ -197,17 +205,12 @@ export function ReviewLaunchStep({
         type="button"
         onClick={() => setValidationOpen((open) => !open)}
         className={`rounded-full px-3 py-1 text-xs font-medium ${
-          launchSummary.ok
+          validationChip.pass
             ? "bg-emerald-500/10 text-emerald-700"
             : "bg-red-500/10 text-red-700"
         }`}
       >
-        Validation summary:{" "}
-        {launchSummary.ok
-          ? "all checks pass"
-          : `${launchSummary.blockerCount} launch blocker${
-              launchSummary.blockerCount === 1 ? "" : "s"
-            }`}
+        Validation summary: {validationChip.message}
       </button>
 
       {validationOpen && (
