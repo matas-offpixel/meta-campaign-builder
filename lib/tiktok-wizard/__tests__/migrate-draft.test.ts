@@ -103,6 +103,24 @@ describe("migrateTikTokDraft", () => {
     assert.equal(migrated.creatives.items[0].videoId, "video_1");
   });
 
+  it("adds an omitted ad group name key as an empty string", () => {
+    const stored = launchableDraft();
+    const group = { ...stored.budgetSchedule.adGroups[0] };
+    delete (group as { name?: string }).name;
+    assert.equal("name" in group, false);
+
+    const migrated = migrateTikTokDraft({
+      ...stored,
+      budgetSchedule: {
+        ...stored.budgetSchedule,
+        adGroups: [group],
+      },
+    });
+    assert.equal("name" in migrated.budgetSchedule.adGroups[0], true);
+    assert.equal(migrated.budgetSchedule.adGroups[0].name, "");
+    assert.equal(migrated.budgetSchedule.adGroups[0].id, group.id);
+  });
+
   it("is idempotent for a draft written by createDefaultTikTokDraft", () => {
     const draft = createDefaultTikTokDraft("draft-default");
     assert.deepEqual(migrateTikTokDraft(draft), draft);

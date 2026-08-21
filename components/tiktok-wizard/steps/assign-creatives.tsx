@@ -54,6 +54,18 @@ export function AssignCreativesStep({
     }
   }
 
+  async function persistAdGroupName(id: string, name: string) {
+    await onSave({
+      budgetSchedule: {
+        ...draft.budgetSchedule,
+        adGroups: (draft.budgetSchedule.adGroups.length > 0
+          ? draft.budgetSchedule.adGroups
+          : adGroups
+        ).map((group) => (group.id === id ? { ...group, name } : group)),
+      },
+    });
+  }
+
   const current = draft.creativeAssignments.byAdGroupId;
 
   return (
@@ -136,7 +148,11 @@ export function AssignCreativesStep({
                           : ""
                       }`}
                     >
-                      <div>{adGroup.name}</div>
+                      <AdGroupNameInput
+                        value={adGroup.name}
+                        disabled={saving}
+                        onChange={(name) => void persistAdGroupName(adGroup.id, name)}
+                      />
                       <span
                         className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] normal-case tracking-normal ${
                           assignedCount === 0
@@ -259,7 +275,11 @@ export function AssignCreativesStep({
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {adGroups.map((adGroup) => (
             <div key={adGroup.id} className="rounded border border-border p-3 text-sm">
-              <p className="font-medium">{adGroup.name}</p>
+              <AdGroupNameInput
+                value={adGroup.name}
+                disabled={saving}
+                onChange={(name) => void persistAdGroupName(adGroup.id, name)}
+              />
               <p className="text-xs text-muted-foreground">
                 Budget: {adGroup.budget == null ? "—" : `£${adGroup.budget}`}
               </p>
@@ -274,6 +294,39 @@ export function AssignCreativesStep({
       <Button type="button" variant="outline" disabled>
         Manual ad-group count coming soon
       </Button>
+    </div>
+  );
+}
+
+function AdGroupNameInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (name: string) => void;
+}) {
+  const blank = !value.trim();
+  return (
+    <div>
+      <input
+        type="text"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        title="Click to rename this ad group"
+        placeholder="Ad group name"
+        aria-invalid={blank}
+        className={`min-w-0 w-full truncate rounded border bg-transparent px-1 py-0.5 text-sm font-medium normal-case tracking-normal text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none disabled:opacity-50 ${
+          blank ? "border-red-500/50" : "border-transparent"
+        }`}
+      />
+      {blank ? (
+        <p className="mt-1 text-[10px] font-normal normal-case tracking-normal text-red-700">
+          Name cannot be empty
+        </p>
+      ) : null}
     </div>
   );
 }

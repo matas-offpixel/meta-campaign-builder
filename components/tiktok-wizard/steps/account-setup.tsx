@@ -8,6 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { TIKTOK_PIXEL_ID_PATTERN } from "@/lib/tiktok-wizard/validation";
 import type { TikTokIdentityType } from "@/lib/tiktok/identity";
+import {
+  formatTikTokOptimisationEventLabel,
+  isUnsupportedTikTokOptimisationEvent,
+  tikTokUnsupportedOptimisationEventMessage,
+} from "@/lib/tiktok/optimisation-event";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
@@ -505,12 +510,29 @@ export function AccountSetupStep({
           }
           options={pixelEvents.map((event) => ({
             value: event.optimization_event,
-            label: event.name === event.optimization_event
-              ? event.optimization_event
-              : `${event.name} · ${event.optimization_event}`,
+            label: formatTikTokOptimisationEventLabel(
+              event,
+              draft.campaignSetup.objective,
+            ),
           }))}
         />
       </div>
+
+      {isUnsupportedTikTokOptimisationEvent(
+        draft.campaignSetup.objective,
+        draft.accountSetup.optimisationEvent,
+        pixelEvents.find(
+          (event) =>
+            event.optimization_event === draft.accountSetup.optimisationEvent,
+        )?.name,
+      ) &&
+        draft.accountSetup.optimisationEvent && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {tikTokUnsupportedOptimisationEventMessage(
+              draft.accountSetup.optimisationEvent,
+            )}
+          </p>
+        )}
 
       {pixelWarning && (
         <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">

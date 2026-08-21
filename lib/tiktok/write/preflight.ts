@@ -9,6 +9,10 @@
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
 import { validOptimisationGoalForObjective } from "../../tiktok-wizard/campaign-setup.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
+import {
+  isUnsupportedTikTokOptimisationEvent,
+  tikTokUnsupportedOptimisationEventMessage,
+} from "../optimisation-event.ts";
 import { tikTokCampaignNameCollisionMessage } from "./campaign-names.ts";
 import {
   SMART_PLUS_BLOCK_MESSAGE,
@@ -152,6 +156,21 @@ export function collectTikTokLaunchPreflight(
           "CONVERSIONS requires an optimisation event from the selected pixel",
         ),
       );
+    } else if (
+      isUnsupportedTikTokOptimisationEvent(
+        objective,
+        draft.accountSetup.optimisationEvent,
+      )
+    ) {
+      issues.push(
+        issue(
+          "optimisation-event-unsupported",
+          "optimization_event",
+          tikTokUnsupportedOptimisationEventMessage(
+            draft.accountSetup.optimisationEvent,
+          ),
+        ),
+      );
     }
   }
 
@@ -217,6 +236,16 @@ export function collectTikTokLaunchPreflight(
   }
 
   for (const adGroup of adGroups) {
+    if (isBlankTikTokAdGroupName(adGroup.name)) {
+      issues.push(
+        issue(
+          `adgroup-name-${adGroup.id}`,
+          "adgroup_name",
+          tikTokBlankAdGroupNameMessage(adGroup.id),
+        ),
+      );
+    }
+
     const assigned = draft.creativeAssignments.byAdGroupId[adGroup.id] ?? [];
     const creatives = assigned
       .map((id) => draft.creatives.items.find((item) => item.id === id))
@@ -339,6 +368,16 @@ export function collectTikTokLaunchPreflight(
     issues: dedupeIssues(issues),
     warnings: dedupeIssues(warnings),
   };
+}
+
+export function isBlankTikTokAdGroupName(
+  name: string | null | undefined,
+): boolean {
+  return !(name ?? "").trim();
+}
+
+export function tikTokBlankAdGroupNameMessage(adGroupId: string): string {
+  return `Ad group "${adGroupId}" has an empty or whitespace-only name. Set a name before launch — TikTok rejects a blank adgroup_name.`;
 }
 
 export function isAbsoluteHttpUrl(value: string | null | undefined): boolean {

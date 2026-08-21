@@ -61,6 +61,31 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.match(cover.message, /image_ids/);
   });
 
+  it("blocks an empty ad group name and names the ad group by id", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups[0].name = "";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    const issue = result.issues.find((entry) => entry.field === "adgroup_name");
+    assert.ok(issue);
+    assert.equal(issue.id, "adgroup-name-ag-1");
+    assert.match(issue.message, /Ad group "ag-1"/);
+    assert.match(issue.message, /empty or whitespace-only/);
+    assert.match(issue.message, /Set a name/);
+  });
+
+  it("blocks a whitespace-only ad group name and names the ad group by id", () => {
+    const draft = launchableDraft();
+    draft.budgetSchedule.adGroups[0].name = "   ";
+    const result = collectTikTokLaunchPreflight(draft);
+    assert.equal(result.ok, false);
+    const issue = result.issues.find((entry) => entry.field === "adgroup_name");
+    assert.ok(issue);
+    assert.equal(issue.id, "adgroup-name-ag-1");
+    assert.match(issue.message, /Ad group "ag-1"/);
+    assert.match(issue.message, /empty or whitespace-only/);
+  });
+
   it("passes a complete launchable draft", () => {
     const result = collectTikTokLaunchPreflight(launchableDraft());
     assert.equal(result.ok, true);
@@ -243,10 +268,29 @@ describe("collectTikTokLaunchPreflight", () => {
     draft.campaignSetup.objective = "CONVERSIONS";
     draft.campaignSetup.optimisationGoal = "CONVERSION";
     draft.accountSetup.pixelId = "px-1";
-    draft.accountSetup.optimisationEvent = "COMPLETE_REGISTRATION";
+    draft.accountSetup.optimisationEvent = "FORM";
     const result = collectTikTokLaunchPreflight(draft);
     assert.equal(result.ok, true);
     assert.deepEqual(result.issues, []);
+  });
+
+  it("blocks CONVERSIONS with ON_WEB_REGISTER or CONTACT as unsupported", () => {
+    for (const event of ["ON_WEB_REGISTER", "CONTACT"] as const) {
+      const draft = launchableDraft();
+      draft.campaignSetup.objective = "CONVERSIONS";
+      draft.campaignSetup.optimisationGoal = "CONVERSION";
+      draft.accountSetup.pixelId = "px-1";
+      draft.accountSetup.optimisationEvent = event;
+      const result = collectTikTokLaunchPreflight(draft);
+      assert.equal(result.ok, false, event);
+      const issue = result.issues.find(
+        (entry) => entry.field === "optimization_event",
+      );
+      assert.ok(issue, event);
+      assert.match(issue.message, new RegExp(event));
+      assert.match(issue.message, /Ads Manager/);
+      assert.match(issue.message, /no longer supported/);
+    }
   });
 
   it("blocks CONVERSIONS without a pixel or optimisation event", () => {
