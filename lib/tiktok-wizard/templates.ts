@@ -35,6 +35,7 @@ function stripTikTokAccountIds(
     pixelName: null,
     optimisationEvent: null,
     currency: null,
+    timezone: null,
   };
 }
 

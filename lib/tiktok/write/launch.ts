@@ -20,6 +20,7 @@ import { hydrateDraftCoverImageIds } from "./cover-image.ts";
 import { fetchAdvertiserCampaignNames } from "./campaign-names.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import { tiktokGet } from "../client.ts";
+import { fetchTikTokAdvertiserInfo } from "../advertiser.ts";
 import type { TikTokPost, Sleep } from "./idempotency.ts";
 
 export interface TikTokLaunchSuccessBody {
@@ -136,8 +137,27 @@ export async function handleTikTokLaunch(input: {
     );
   }
 
+  try {
+    const advertiser = await fetchTikTokAdvertiserInfo({
+      advertiserId,
+      token: credentials.accessToken,
+      request: input.requestGet,
+    });
+    draft.accountSetup.timezone = advertiser.timezone;
+    if (advertiser.currency && !draft.accountSetup.currency) {
+      draft.accountSetup.currency = advertiser.currency;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[tiktok/launch] advertiser timezone preflight read failed advertiser=${advertiserId}: ${message}`,
+    );
+    draft.accountSetup.timezone = null;
+  }
+
   const preflight = collectTikTokLaunchPreflight(draft, {
     existingCampaignNames,
+    advertiserTimezone: draft.accountSetup.timezone,
   });
   if (!preflight.ok) {
     return {

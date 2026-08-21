@@ -31,13 +31,14 @@ function launchableDraft() {
   draft.accountSetup.identityId = "identity_1";
   draft.accountSetup.identityType = "TT_USER";
   draft.accountSetup.currency = "GBP";
+  draft.accountSetup.timezone = "America/New_York";
   draft.campaignSetup.campaignName = "Campaign";
   draft.campaignSetup.objective = "TRAFFIC";
   draft.campaignSetup.optimisationGoal = "CLICK";
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = 50;
-  draft.budgetSchedule.scheduleStartAt = "2026-05-01T09:00:00Z";
-  draft.budgetSchedule.scheduleEndAt = "2026-05-08T09:00:00Z";
+  draft.budgetSchedule.scheduleStartAt = "2027-09-01T09:00:00Z";
+  draft.budgetSchedule.scheduleEndAt = "2027-09-08T09:00:00Z";
   draft.budgetSchedule.adGroups = [
     { id: "ag-1", name: "Prospecting", budget: 50, startAt: null, endAt: null },
   ];

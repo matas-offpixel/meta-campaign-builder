@@ -26,6 +26,14 @@ import {
   tikTokAdGroupBudgetFloor,
   tikTokBudgetFloorUnverified,
 } from "./mapping.ts";
+import {
+  TIKTOK_SCHEDULE_START_MARGIN_MS,
+  formatWallClockForTikTok,
+  isIanaTimeZone,
+  resolveScheduleInstant,
+  tikTokAdvertiserTimezoneMissingMessage,
+  tikTokScheduleStartTooSoonMessage,
+} from "./schedule-time.ts";
 
 export interface TikTokLaunchPreflightIssue {
   id: string;
@@ -41,7 +49,11 @@ export interface TikTokLaunchPreflightResult {
 
 export function collectTikTokLaunchPreflight(
   draft: TikTokCampaignDraft,
-  options: { existingCampaignNames?: string[] } = {},
+  options: {
+    existingCampaignNames?: string[];
+    now?: Date;
+    advertiserTimezone?: string | null;
+  } = {},
 ): TikTokLaunchPreflightResult {
   const issues: TikTokLaunchPreflightIssue[] = [];
   const warnings: TikTokLaunchPreflightIssue[] = [];
@@ -195,6 +207,17 @@ export function collectTikTokLaunchPreflight(
 
   const start = draft.budgetSchedule.scheduleStartAt;
   const end = draft.budgetSchedule.scheduleEndAt;
+  const timeZone =
+    options.advertiserTimezone ?? draft.accountSetup.timezone ?? null;
+  if (!isIanaTimeZone(timeZone)) {
+    issues.push(
+      issue(
+        "advertiser-timezone",
+        "timezone",
+        tikTokAdvertiserTimezoneMissingMessage(),
+      ),
+    );
+  }
   if (!start || !end) {
     issues.push(
       issue("schedule", "schedule", "Schedule start and end are required"),
@@ -203,6 +226,23 @@ export function collectTikTokLaunchPreflight(
     issues.push(
       issue("schedule-order", "schedule", "Schedule end must be after start"),
     );
+  } else if (isIanaTimeZone(timeZone)) {
+    const now = options.now ?? new Date();
+    const startInstant = resolveScheduleInstant(start, timeZone);
+    const formattedStart =
+      formatWallClockForTikTok(start, timeZone) ?? start;
+    if (
+      !startInstant ||
+      startInstant.getTime() < now.getTime() + TIKTOK_SCHEDULE_START_MARGIN_MS
+    ) {
+      issues.push(
+        issue(
+          "schedule-start-soon",
+          "schedule_start_time",
+          tikTokScheduleStartTooSoonMessage(formattedStart, timeZone),
+        ),
+      );
+    }
   }
 
   const campaignBudget = draft.budgetSchedule.budgetAmount;

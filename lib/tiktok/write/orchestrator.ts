@@ -21,6 +21,7 @@ export interface LaunchTikTokDraftArgs
   extends Omit<TikTokWriteContext, "draftId" | "advertiserId"> {
   draftId: string;
   existingCampaignNames?: string[];
+  now?: Date;
   onProgress?: (progress: TikTokLaunchProgress) => void;
 }
 
@@ -62,6 +63,8 @@ export async function launchTikTokDraftState(
   assertTikTokWritesEnabled();
   const preflight = collectTikTokLaunchPreflight(draft, {
     existingCampaignNames: args.existingCampaignNames,
+    now: args.now,
+    advertiserTimezone: draft.accountSetup.timezone,
   });
   if (!preflight.ok) {
     throw new TikTokLaunchPreflightError(preflight.issues);

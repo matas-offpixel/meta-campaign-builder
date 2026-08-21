@@ -55,6 +55,11 @@ export interface TikTokAccountSetup {
   optimisationEvent: string | null;
   /** ISO 4217 from `/advertiser/info/`. Used to qualify the budget floor. */
   currency: string | null;
+  /**
+   * IANA timezone from `/advertiser/info/` `timezone` (activity / schedule),
+   * not `display_timezone`. Required to format schedule_*_time.
+   */
+  timezone: string | null;
 }
 
 export type TikTokObjective =
@@ -210,6 +215,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       pixelName: null,
       optimisationEvent: null,
       currency: null,
+      timezone: null,
     },
     campaignSetup: {
       campaignName: "",
