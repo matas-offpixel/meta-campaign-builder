@@ -172,20 +172,21 @@ describe("save-as-template then load-from-template", () => {
       },
     ];
 
+    source.clientId = "client-irw";
     const template = tikTokLibraryTemplateFromDraft(source, {
       id: "tpl-1",
       name: "Electronic",
       description: "Preset",
       tags: ["house"],
     });
-    const loaded = startTikTokDraftFromTemplate(template, "fresh");
+    const loaded = startTikTokDraftFromTemplate(template, "fresh").draft;
 
     assert.equal(loaded.id, "fresh");
     assert.equal(loaded.status, "draft");
     assert.equal(loaded.campaignSetup.campaignName, "Prospecting");
     assert.equal(loaded.campaignSetup.objective, "LEAD_GENERATION");
     assert.equal(loaded.audiences.interestGroups[0]?.name, "London");
-    assert.equal(loaded.accountSetup.advertiserId, null);
+    assert.equal(loaded.accountSetup.advertiserId, "adv-live");
     assert.equal(loaded.publishedIds, null);
   });
 });

@@ -16,6 +16,8 @@ import {
 } from "@/lib/tiktok-wizard/migrate-draft";
 import {
   applyTikTokTemplate,
+  consumeTikTokTemplateAccountNotice,
+  tikTokTemplateAccountNotice,
   type TikTokCampaignTemplate,
 } from "@/lib/tiktok-wizard/templates";
 import type { TikTokIdentity } from "@/lib/tiktok/identity";
@@ -73,6 +75,9 @@ export function TikTokWizardShell({
   const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
   const [identityBcIdResolution, setIdentityBcIdResolution] =
     useState<TikTokIdentityBcIdResolution>("idle");
+  const [templateAccountNotice, setTemplateAccountNotice] = useState<
+    string | null
+  >(() => consumeTikTokTemplateAccountNotice(draft.id));
   const identityHealStarted = useRef(false);
   const CurrentStep = useMemo(
     () => STEP_COMPONENTS[step] ?? AccountSetupStep,
@@ -205,7 +210,12 @@ export function TikTokWizardShell({
 
   async function handleLoadTemplate(template: TikTokCampaignTemplate) {
     const previous = workingDraftRef.current;
-    const next = applyTikTokTemplate(template, previous.id);
+    const applied = applyTikTokTemplate(
+      template,
+      previous.id,
+      previous.clientId,
+    );
+    const next = applied.draft;
     setWorkingDraft(next);
     workingDraftRef.current = next;
     try {
@@ -213,6 +223,9 @@ export function TikTokWizardShell({
       setStep(0);
       setLoadTemplateOpen(false);
       setSaveError(null);
+      setTemplateAccountNotice(
+        tikTokTemplateAccountNotice(applied.accountSetupRestored),
+      );
     } catch (err) {
       workingDraftRef.current = previous;
       setWorkingDraft(previous);
@@ -272,6 +285,11 @@ export function TikTokWizardShell({
         </ol>
 
         <section className="rounded-lg border border-border bg-card p-6">
+          {templateAccountNotice && (
+            <p className="mb-6 rounded-md border border-border bg-muted/40 p-3 text-sm">
+              {templateAccountNotice}
+            </p>
+          )}
           <StepValidationMessages issues={currentIssues} />
           <CurrentStep
             draft={workingDraft}

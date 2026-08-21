@@ -45,7 +45,10 @@ import {
   type TikTokLibraryDraftRow,
   type TikTokLibraryTab,
 } from "@/lib/tiktok-wizard/library";
-import type { TikTokCampaignTemplate } from "@/lib/tiktok-wizard/templates";
+import {
+  storeTikTokTemplateAccountNotice,
+  type TikTokCampaignTemplate,
+} from "@/lib/tiktok-wizard/templates";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 interface NamedRef {
@@ -210,7 +213,9 @@ export function TikTokCampaignLibrary({
   };
 
   const handleLoadTemplate = async (template: TikTokCampaignTemplate) => {
-    const draft = startTikTokDraftFromTemplate(template, crypto.randomUUID());
+    const applied = startTikTokDraftFromTemplate(template, crypto.randomUUID());
+    const draft = applied.draft;
+    storeTikTokTemplateAccountNotice(draft.id, applied.accountSetupRestored);
     const supabase = createClient();
     await upsertTikTokDraft(supabase, draft.id, { ...draft, userId });
     router.push(`/tiktok-campaign/${draft.id}`);

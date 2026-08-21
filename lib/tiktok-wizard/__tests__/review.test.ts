@@ -7,6 +7,7 @@ import {
   everyCreativeAssigned,
   hasAnyTargeting,
   suggestTikTokAdGroups,
+  tikTokLaunchReviewSummary,
 } from "../review.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 
@@ -173,5 +174,19 @@ describe("TikTok review helpers", () => {
         "green",
       ],
     );
+  });
+});
+
+describe("tikTokLaunchReviewSummary", () => {
+  it("is not ok whenever any blocking issue exists", () => {
+    const empty = tikTokLaunchReviewSummary([]);
+    assert.equal(empty.ok, true);
+    assert.equal(empty.blockerCount, 0);
+
+    const issues = [{ id: "missing-identity" }, { id: "missing-schedule" }];
+    const summary = tikTokLaunchReviewSummary(issues);
+    assert.equal(summary.ok, false);
+    assert.equal(summary.blockerCount, issues.length);
+    assert.equal(summary.ok === false && issues.length > 0, true);
   });
 });

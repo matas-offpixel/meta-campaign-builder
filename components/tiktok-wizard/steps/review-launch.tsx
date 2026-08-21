@@ -24,9 +24,9 @@ import {
 import {
   buildTikTokPreflightChecks,
   suggestTikTokAdGroups,
+  tikTokLaunchReviewSummary,
 } from "@/lib/tiktok-wizard/review";
 import { tikTokTargetingWideningNotes } from "@/lib/tiktok-wizard/targeting-warnings";
-import { buildTikTokWizardValidationIssues } from "@/lib/tiktok-wizard/validation";
 import { filterClientResolvableTikTokPreflightIssues } from "@/lib/tiktok-wizard/migrate-draft";
 import { TIKTOK_WRITES_DISABLED_REASON } from "@/lib/tiktok/write/feature-flag";
 import {
@@ -87,29 +87,24 @@ export function ReviewLaunchStep({
   const checks = buildTikTokPreflightChecks(draft);
   const adGroups = suggestTikTokAdGroups(draft);
   const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
-  const validationIssues = buildTikTokWizardValidationIssues(draft, {
-    eventEditPath: context?.eventEditPath,
-  });
-  const failingIssues = validationIssues.filter(
-    (issue) => issue.severity === "error",
-  );
   const launchPreflight = collectTikTokLaunchPreflight(draft);
   const clientIssues = filterClientResolvableTikTokPreflightIssues(
     launchPreflight.issues,
     draft,
     context?.identityBcIdResolution ?? "idle",
   );
-  const clientPreflightOk = clientIssues.length === 0;
+  const launchSummary = tikTokLaunchReviewSummary(clientIssues);
+  const clientPreflightOk = launchSummary.ok;
   const writesEnabled = context?.writesEnabled === true;
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
-    !clientPreflightOk;
+    !launchSummary.ok;
   const launchTitle = !writesEnabled
     ? writesDisabledReason
-    : !clientPreflightOk
+    : !launchSummary.ok
       ? clientIssues.map((issue) => issue.message).join(" · ")
       : undefined;
 
@@ -202,36 +197,30 @@ export function ReviewLaunchStep({
         type="button"
         onClick={() => setValidationOpen((open) => !open)}
         className={`rounded-full px-3 py-1 text-xs font-medium ${
-          failingIssues.length > 0
-            ? "bg-red-500/10 text-red-700"
-            : "bg-emerald-500/10 text-emerald-700"
+          launchSummary.ok
+            ? "bg-emerald-500/10 text-emerald-700"
+            : "bg-red-500/10 text-red-700"
         }`}
       >
         Validation summary:{" "}
-        {failingIssues.length > 0
-          ? `${failingIssues.length} failing`
-          : "all checks pass"}
+        {launchSummary.ok
+          ? "all checks pass"
+          : `${launchSummary.blockerCount} launch blocker${
+              launchSummary.blockerCount === 1 ? "" : "s"
+            }`}
       </button>
 
       {validationOpen && (
         <div className="rounded-md border border-border bg-background p-4">
-          <p className="text-sm font-medium">Failing validation checks</p>
-          {failingIssues.length === 0 ? (
+          <p className="text-sm font-medium">Launch blockers</p>
+          {clientIssues.length === 0 ? (
             <p className="mt-2 text-sm text-muted-foreground">
-              No failing validation checks.
+              No launch blockers.
             </p>
           ) : (
             <ul className="mt-2 space-y-2 text-sm">
-              {failingIssues.map((issue) => (
-                <li key={issue.id}>
-                  <a
-                    className="font-medium underline"
-                    href={`#tiktok-step-${issue.step}`}
-                  >
-                    Step {issue.step + 1}
-                  </a>
-                  : {issue.message}
-                </li>
+              {clientIssues.map((issue) => (
+                <li key={issue.id}>{issue.message}</li>
               ))}
             </ul>
           )}

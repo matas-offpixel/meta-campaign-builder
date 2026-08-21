@@ -161,3 +161,13 @@ function check(
     detail: ok ? detail : "Needs attention",
   };
 }
+
+/** Same source as the Launch button's client-resolvable preflight gate. */
+export function tikTokLaunchReviewSummary(
+  blockingIssues: readonly unknown[],
+): { ok: boolean; blockerCount: number } {
+  return {
+    ok: blockingIssues.length === 0,
+    blockerCount: blockingIssues.length,
+  };
+}

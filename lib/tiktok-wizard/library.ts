@@ -140,8 +140,8 @@ export function duplicateTikTokDraftState(
 export function startTikTokDraftFromTemplate(
   template: TikTokCampaignTemplate,
   draftId: string,
-): TikTokCampaignDraft {
-  return applyTikTokTemplate(template, draftId);
+) {
+  return applyTikTokTemplate(template, draftId, template.snapshot.clientId);
 }
 
 export function tikTokLibraryTemplateFromDraft(
