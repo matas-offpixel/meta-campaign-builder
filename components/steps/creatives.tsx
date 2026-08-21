@@ -48,6 +48,7 @@ import {
   createDefaultCaption,
 } from "@/lib/campaign-defaults";
 import { connectFacebookAccount } from "@/lib/facebook-connect";
+import { nextDuplicateName } from "@/lib/duplicate-name";
 import {
   bindUploadToAssetSlot,
   type QueueLibraryItem,
@@ -232,7 +233,10 @@ export function Creatives({
     const copy: AdCreativeDraft = {
       ...source,
       id: crypto.randomUUID(),
-      name: `${source.name} (copy)`,
+      name: nextDuplicateName(
+        source.name,
+        creatives.map((c) => c.name),
+      ),
       identity: { ...(source.identity ?? { pageId: "", instagramAccountId: "" }) },
       assetVariations: (source.assetVariations ?? []).map((v) => ({
         ...v,

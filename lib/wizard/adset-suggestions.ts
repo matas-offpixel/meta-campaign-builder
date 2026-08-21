@@ -21,6 +21,7 @@ import type { AdSetSuggestion, LocationTargetingGroup } from "@/lib/types";
 // plain Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" import above which vanishes entirely at runtime.
 import { groupToGeo } from "../meta/location-targeting.ts";
+import { nextDuplicateName } from "../duplicate-name.ts";
 
 /**
  * Meta's practical minimum daily budget in major currency units. Used as the
@@ -192,18 +193,32 @@ function truncateForSuffix(name: string, suffix: string): string {
  * with (" – Strict" / " – Adv+") so the pair reads as an intentional A/B
  * instead of two identically-named, identically-configured rows (the East
  * End Dubs Newcastle "Similar Pages" / "Similar Pages (copy)" bug — both
- * silently published strict with no way to tell them apart). Falls back to
- * the plain " (copy)" suffix when the mode is unchanged (blank ad sets,
- * objectives where Advantage+ isn't available at all, or an already-mixed
- * source/copy pair).
+ * silently published strict with no way to tell them apart).
+ *
+ * When the mode is unchanged (blank ad sets, objectives where Advantage+
+ * isn't available, or an already-mixed source/copy pair) the copy still
+ * MUST have a different name from the source — that is the End Dubs
+ * distinguishing behaviour. The fallback used to be " (copy)"; it is now
+ * {@link nextDuplicateName} ("Similar Pages 2") so the name stays unique
+ * without the useless suffix. The mode-flip suffixes are untouched.
  */
 export function resolveDuplicateAdSetName(
   original: Pick<AdSetSuggestion, "name" | "advantagePlus">,
   copyAdvantagePlus: boolean,
+  existingNames: readonly string[] = [],
 ): string {
-  let suffix = " (copy)";
-  if (original.advantagePlus && !copyAdvantagePlus) suffix = " – Strict";
-  else if (!original.advantagePlus && copyAdvantagePlus) suffix = " – Adv+";
+  if (original.advantagePlus && !copyAdvantagePlus) {
+    const suffix = " – Strict";
+    return `${truncateForSuffix(original.name, suffix)}${suffix}`;
+  }
+  if (!original.advantagePlus && copyAdvantagePlus) {
+    const suffix = " – Adv+";
+    return `${truncateForSuffix(original.name, suffix)}${suffix}`;
+  }
+  const next = nextDuplicateName(original.name, existingNames);
+  if (next.length <= MAX_ADSET_NAME_LENGTH) return next;
+  const suffixMatch = /(\s*\d+)$/.exec(next);
+  const suffix = suffixMatch?.[1] ?? "";
   return `${truncateForSuffix(original.name, suffix)}${suffix}`;
 }
 
@@ -244,7 +259,11 @@ export function duplicateAdSetSuggestion(
   const clone: AdSetSuggestion = {
     ...source,
     id: `${source.id}_copy_${Date.now()}`,
-    name: resolveDuplicateAdSetName(source, copyAdvantagePlus),
+    name: resolveDuplicateAdSetName(
+      source,
+      copyAdvantagePlus,
+      suggestions.map((s) => s.name),
+    ),
     advantagePlus: copyAdvantagePlus,
   };
   const next = [...suggestions];
