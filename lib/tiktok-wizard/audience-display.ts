@@ -51,7 +51,7 @@ export function visibleTikTokCategoryRows<T extends TikTokCategoryDisplayRow>(
     expandedIds: readonly string[];
     limit?: number;
   },
-): { rows: T[]; total: number; capped: boolean } {
+): { rows: T[]; all: T[]; total: number; capped: boolean } {
   const limit = options.limit ?? TIKTOK_PICKER_ROW_LIMIT;
   const needle = options.query.trim().toLowerCase();
   const expanded = new Set(options.expandedIds);
@@ -62,6 +62,7 @@ export function visibleTikTokCategoryRows<T extends TikTokCategoryDisplayRow>(
       );
   return {
     rows: filtered.slice(0, limit),
+    all: filtered,
     total: filtered.length,
     capped: filtered.length > limit,
   };

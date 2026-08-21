@@ -47,4 +47,16 @@ describe("tikTokHashtagUnavailableNote", () => {
       null,
     );
   });
+
+  it("states the empty response as an observation and names both causes", () => {
+    assert.match(TIKTOK_HASHTAG_UNAVAILABLE_NOTE, /TikTok returned no hashtag recommendations/);
+    assert.match(TIKTOK_HASHTAG_UNAVAILABLE_NOTE, /not enabled on this ad account/);
+    assert.match(TIKTOK_HASHTAG_UNAVAILABLE_NOTE, /single-token hashtag index/);
+    assert.equal(
+      /hashtag targeting may not be enabled on this ad account/.test(
+        TIKTOK_HASHTAG_UNAVAILABLE_NOTE,
+      ),
+      false,
+    );
+  });
 });

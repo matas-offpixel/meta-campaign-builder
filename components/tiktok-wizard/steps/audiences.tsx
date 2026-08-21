@@ -38,6 +38,7 @@ import {
   shouldOfferTikTokCategoryBulkActions,
   tikTokAddAllLabel,
   type TikTokGroupItemKey,
+  type TikTokTargetingItemRef,
 } from "@/lib/tiktok-wizard/add-suggestions";
 import {
   createEmptyTikTokInterestGroup,
@@ -699,7 +700,7 @@ export function AudiencesStep({
 
   async function clearVisibleGroupItems(
     key: TikTokGroupItemKey,
-    ids: readonly string[],
+    items: readonly TikTokTargetingItemRef[],
   ) {
     if (!activeGroup) return;
     await persistGroups(
@@ -707,7 +708,7 @@ export function AudiencesStep({
         audiencesRef.current.interestGroups,
         activeGroup.id,
         key,
-        ids,
+        items,
       ),
     );
   }
@@ -1033,7 +1034,7 @@ export function AudiencesStep({
           {keywordFailed && (
             <p className="text-sm text-warning-foreground">{keywordFailed}</p>
           )}
-          {keywordSemanticFallback && (
+          {keywordSemanticFallback && visibleKeywordResults.length > 0 && (
             <p className="text-sm text-warning-foreground">
               {TIKTOK_SEMANTIC_FALLBACK_NOTE}
             </p>
@@ -1059,9 +1060,15 @@ export function AudiencesStep({
           )}
           <RecommendList
             rows={visibleKeywordResults}
-            selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
+            selectedIds={
+              activeGroup?.interestIds
+                .filter((item) => item.kind === "keyword")
+                .map((item) => item.id) ?? []
+            }
             provenance={keywordProvenance}
             disabled={saving || !activeGroup}
+            showBulkActions={!showUnfilteredKeywords}
+            bulkLabel="keywords"
             empty={
               keywordSemanticFallback
                 ? TIKTOK_SEMANTIC_FALLBACK_NOTE
@@ -1095,7 +1102,7 @@ export function AudiencesStep({
             onClearAll={(rows) =>
               void clearVisibleGroupItems(
                 "interestIds",
-                rows.map((row) => row.id),
+                rows.map((row) => ({ id: row.id, kind: "keyword" })),
               )
             }
           />
@@ -1104,10 +1111,15 @@ export function AudiencesStep({
           ) : catalogFailed.interests ? null : (
             <CategoryList
               rows={interestTree}
-              selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
+              selectedIds={
+                activeGroup?.interestIds
+                  .filter((item) => item.kind === "category")
+                  .map((item) => item.id) ?? []
+              }
               disabled={saving || loadingCatalog || !activeGroup}
               empty="No interest categories available."
               allowUnfilteredBulk={false}
+              bulkLabel="interest categories"
               onToggle={(row) =>
                 void toggleGroupItem("interestIds", {
                   id: row.id,
@@ -1128,7 +1140,7 @@ export function AudiencesStep({
               onClearAll={(rows) =>
                 void clearVisibleGroupItems(
                   "interestIds",
-                  rows.map((row) => row.id),
+                  rows.map((row) => ({ id: row.id, kind: "category" })),
                 )
               }
             />
@@ -1186,16 +1198,12 @@ export function AudiencesStep({
           {hashtagFailed && (
             <p className="text-sm text-warning-foreground">{hashtagFailed}</p>
           )}
-          {hashtagUnavailableNote && (
-            <p className="text-sm text-warning-foreground">
-              {hashtagUnavailableNote}
-            </p>
-          )}
           {loadingHashtags && <p className="text-sm text-muted-foreground">Loading hashtags…</p>}
           <RecommendList
             rows={hashtagResults}
             selectedIds={activeGroup?.hashtagIds.map((item) => item.id) ?? []}
             disabled={saving || !activeGroup}
+            bulkLabel="hashtags"
             empty={
               hashtagUnavailableNote
                 ? hashtagUnavailableNote
@@ -1227,7 +1235,7 @@ export function AudiencesStep({
             onClearAll={(rows) =>
               void clearVisibleGroupItems(
                 "hashtagIds",
-                rows.map((row) => row.id),
+                rows.map((row) => ({ id: row.id, kind: "keyword" })),
               )
             }
           />
@@ -1248,6 +1256,7 @@ export function AudiencesStep({
               disabled={saving || loadingCatalog || !activeGroup}
               empty="No behaviours available for this advertiser."
               allowUnfilteredBulk
+              bulkLabel="behaviours"
               onToggle={(row) =>
                 void toggleGroupItem("behaviourIds", {
                   id: row.id,
@@ -1268,7 +1277,7 @@ export function AudiencesStep({
               onClearAll={(rows) =>
                 void clearVisibleGroupItems(
                   "behaviourIds",
-                  rows.map((row) => row.id),
+                  rows.map((row) => ({ id: row.id, kind: "category" })),
                 )
               }
             />
@@ -1610,6 +1619,7 @@ function CategoryList({
   disabled,
   empty,
   allowUnfilteredBulk,
+  bulkLabel,
   onToggle,
   onAddAll,
   onClearAll,
@@ -1619,6 +1629,7 @@ function CategoryList({
   disabled: boolean;
   empty: string;
   allowUnfilteredBulk: boolean;
+  bulkLabel: string;
   onToggle: (row: CategoryRow) => void;
   onAddAll: (rows: CategoryRow[]) => void;
   onClearAll: (rows: CategoryRow[]) => void;
@@ -1659,10 +1670,12 @@ function CategoryList({
       />
       {showBulk && (
         <ListBulkActions
-          count={visible.rows.length}
+          key={`${bulkLabel}-${visible.total}`}
+          count={visible.total}
           disabled={disabled}
-          onAddAll={() => onAddAll(visible.rows)}
-          onClearAll={() => onClearAll(visible.rows)}
+          listLabel={bulkLabel}
+          onAddAll={() => onAddAll(visible.all)}
+          onClearAll={() => onClearAll(visible.all)}
         />
       )}
       <div className="max-h-72 overflow-auto rounded-md border border-border bg-background p-2">
@@ -1855,33 +1868,64 @@ function GenrePresetRow({
 function ListBulkActions({
   count,
   disabled,
+  listLabel,
   onAddAll,
   onClearAll,
 }: {
   count: number;
   disabled: boolean;
+  listLabel: string;
   onAddAll: () => void;
   onClearAll: () => void;
 }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+
   return (
     <div className="flex flex-wrap items-center gap-1 text-xs">
       <button
         type="button"
         disabled={disabled || count === 0}
+        aria-label={`Add all ${count} ${listLabel}`}
         onClick={onAddAll}
         className="text-primary hover:underline disabled:opacity-50"
       >
         {tikTokAddAllLabel(count)}
       </button>
       <span className="text-muted-foreground">·</span>
-      <button
-        type="button"
-        disabled={disabled || count === 0}
-        onClick={onClearAll}
-        className="text-destructive hover:underline disabled:opacity-50"
-      >
-        Clear all
-      </button>
+      {confirmClear ? (
+        <>
+          <button
+            type="button"
+            disabled={disabled || count === 0}
+            aria-label={`Confirm clear all ${count} ${listLabel}`}
+            onClick={() => {
+              setConfirmClear(false);
+              onClearAll();
+            }}
+            className="text-destructive hover:underline disabled:opacity-50"
+          >
+            Confirm clear all
+          </button>
+          <button
+            type="button"
+            aria-label={`Cancel clear all ${listLabel}`}
+            onClick={() => setConfirmClear(false)}
+            className="text-muted-foreground hover:underline"
+          >
+            Cancel
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled || count === 0}
+          aria-label={`Clear all ${count} ${listLabel}`}
+          onClick={() => setConfirmClear(true)}
+          className="text-destructive hover:underline disabled:opacity-50"
+        >
+          Clear all
+        </button>
+      )}
     </div>
   );
 }
@@ -1892,6 +1936,8 @@ function RecommendList({
   provenance,
   disabled,
   empty,
+  showBulkActions = true,
+  bulkLabel,
   onToggle,
   onAddAll,
   onClearAll,
@@ -1901,6 +1947,8 @@ function RecommendList({
   provenance?: Record<string, string[]>;
   disabled: boolean;
   empty: string;
+  showBulkActions?: boolean;
+  bulkLabel: string;
   onToggle: (row: TikTokAudienceRecommendItem) => void;
   onAddAll: (rows: TikTokAudienceRecommendItem[]) => void;
   onClearAll: (rows: TikTokAudienceRecommendItem[]) => void;
@@ -1908,33 +1956,37 @@ function RecommendList({
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
   return (
     <div className="space-y-2">
-      <ListBulkActions
-        count={rows.length}
-        disabled={disabled}
-        onAddAll={() => onAddAll(rows)}
-        onClearAll={() => onClearAll(rows)}
-      />
+      {showBulkActions && (
+        <ListBulkActions
+          key={`${bulkLabel}-${rows.length}`}
+          count={rows.length}
+          disabled={disabled}
+          listLabel={bulkLabel}
+          onAddAll={() => onAddAll(rows)}
+          onClearAll={() => onClearAll(rows)}
+        />
+      )}
       <div className="flex flex-wrap gap-2">
-      {rows.map((row) => {
-        const selected = selectedIds.includes(row.id);
-        const seeds = provenance?.[row.id] ?? [];
-        return (
-          <button
-            key={row.id}
-            type="button"
-            disabled={disabled}
-            onClick={() => onToggle(row)}
-            className={`rounded-full border px-3 py-1 text-xs ${
-              selected ? "border-primary bg-primary/10 text-primary" : "border-border"
-            }`}
-          >
-            {row.name}
-            {row.audienceSize != null ? ` · ${row.audienceSize.toLocaleString()}` : ""}
-            {seeds.length > 0 ? ` · from ${seeds.join(", ")}` : ""}
-            {selected ? " ×" : " +"}
-          </button>
-        );
-      })}
+        {rows.map((row) => {
+          const selected = selectedIds.includes(row.id);
+          const seeds = provenance?.[row.id] ?? [];
+          return (
+            <button
+              key={row.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => onToggle(row)}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                selected ? "border-primary bg-primary/10 text-primary" : "border-border"
+              }`}
+            >
+              {row.name}
+              {row.audienceSize != null ? ` · ${row.audienceSize.toLocaleString()}` : ""}
+              {seeds.length > 0 ? ` · from ${seeds.join(", ")}` : ""}
+              {selected ? " ×" : " +"}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

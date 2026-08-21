@@ -117,17 +117,38 @@ describe("addTikTokTargetingItems", () => {
 });
 
 describe("removeTikTokTargetingItems", () => {
-  it("clears only the listed ids", () => {
+  it("clears only the listed id+kind pairs", () => {
     const current = [
       item("kw-1", { kind: "keyword" }),
       item("kw-2", { kind: "keyword" }),
       item("cat-1", { kind: "category" }),
       item("hash-1", { kind: "keyword" }),
     ];
-    const next = removeTikTokTargetingItems(current, ["kw-1", "kw-2"]);
+    const next = removeTikTokTargetingItems(current, [
+      { id: "kw-1", kind: "keyword" },
+      { id: "kw-2", kind: "keyword" },
+    ]);
     assert.deepEqual(
       next.map((row) => row.id),
       ["cat-1", "hash-1"],
+    );
+  });
+
+  it("does not treat a colliding raw id in another namespace as the same item", () => {
+    const category = item("10100", { name: "Dance", kind: "category" });
+    const keyword = item("10100", { name: "dance", kind: "keyword" });
+    const added = addTikTokTargetingItems([category], [keyword]);
+    assert.deepEqual(
+      added.map((row) => `${row.kind}:${row.id}`),
+      ["category:10100", "keyword:10100"],
+    );
+
+    const afterKeywordClear = removeTikTokTargetingItems(added, [
+      { id: "10100", kind: "keyword" },
+    ]);
+    assert.deepEqual(
+      afterKeywordClear.map((row) => `${row.kind}:${row.id}`),
+      ["category:10100"],
     );
   });
 });
@@ -166,7 +187,7 @@ describe("visible filtered category add-all", () => {
       added,
       group.id,
       "interestIds",
-      visible.rows.map((row) => row.id),
+      visible.rows.map((row) => ({ id: row.id, kind: "category" as const })),
     );
     assert.deepEqual(
       cleared[0]?.interestIds.map((row) => row.id),

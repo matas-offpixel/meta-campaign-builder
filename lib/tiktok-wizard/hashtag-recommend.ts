@@ -1,5 +1,5 @@
 export const TIKTOK_HASHTAG_UNAVAILABLE_NOTE =
-  "TikTok returned no hashtag recommendations for this advertiser — hashtag targeting may not be enabled on this ad account.";
+  "TikTok returned no hashtag recommendations. Two common causes: hashtag targeting is not enabled on this ad account, or the seeds do not match TikTok's single-token hashtag index (multi-word terms such as “electronic music” are not looked up).";
 
 export function isPlausibleTikTokRecommendSeed(seed: string): boolean {
   const trimmed = seed.trim();
