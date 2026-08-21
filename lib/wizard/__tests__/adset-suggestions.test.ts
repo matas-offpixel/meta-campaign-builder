@@ -247,18 +247,20 @@ describe("duplicateAdSetSuggestion", () => {
     assert.equal(next[1].name, "Page Group – Strict");
   });
 
-  it("keeps the copy identical (name + advantagePlus) when advantagePlusSupported is false", () => {
+  it("keeps the copy identical (advantagePlus) and a distinct incremented name when advantagePlusSupported is false", () => {
     const source = makeSuggestion({ advantagePlus: false });
     const next = duplicateAdSetSuggestion([source], "s1", false);
     assert.equal(next[1].advantagePlus, false);
-    assert.equal(next[1].name, "Page Group (copy)");
+    assert.equal(next[1].name, "Page Group 2");
+    assert.notEqual(next[1].name, source.name);
   });
 
   it("never flips advantagePlus for a blank ad set (always locked ON)", () => {
     const source = makeSuggestion({ sourceType: "blank", advantagePlus: true, name: "Blank (no audience)" });
     const next = duplicateAdSetSuggestion([source], "s1", true);
     assert.equal(next[1].advantagePlus, true);
-    assert.equal(next[1].name, "Blank (no audience) (copy)");
+    assert.equal(next[1].name, "Blank (no audience) 2");
+    assert.notEqual(next[1].name, source.name);
   });
 
   it("inserts the clone directly under the source row, not at the end", () => {
@@ -275,6 +277,19 @@ describe("duplicateAdSetSuggestion", () => {
     const rows = [makeSuggestion({ id: "a" })];
     assert.equal(duplicateAdSetSuggestion(rows, "missing"), rows);
   });
+
+  it("End Dubs: successive mode-unchanged duplicates never share a name with the source or each other", () => {
+    const source = makeSuggestion({
+      id: "a",
+      name: "Similar Pages",
+      advantagePlus: false,
+    });
+    const once = duplicateAdSetSuggestion([source], "a", false);
+    const twice = duplicateAdSetSuggestion(once, "a", false);
+    const names = twice.map((s) => s.name);
+    assert.equal(new Set(names).size, names.length, "every row must have a unique name");
+    assert.deepEqual(names, ["Similar Pages", "Similar Pages 3", "Similar Pages 2"]);
+  });
 });
 
 describe("resolveDuplicateAdSetName", () => {
@@ -286,12 +301,41 @@ describe("resolveDuplicateAdSetName", () => {
     assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: false }, true), "Similar Pages – Adv+");
   });
 
-  it("falls back to ' (copy)' when the mode is unchanged (both strict)", () => {
-    assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: false }, false), "Similar Pages (copy)");
+  it("End Dubs: mode-unchanged copy still has a distinct name (not the source, not a second silent twin)", () => {
+    const source = "Similar Pages";
+    const bothStrict = resolveDuplicateAdSetName({ name: source, advantagePlus: false }, false, [source]);
+    const bothAdv = resolveDuplicateAdSetName({ name: source, advantagePlus: true }, true, [source]);
+    assert.equal(bothStrict, "Similar Pages 2");
+    assert.equal(bothAdv, "Similar Pages 2");
+    assert.notEqual(bothStrict, source);
+    assert.notEqual(bothAdv, source);
+    assert.doesNotMatch(bothStrict, /\(copy\)/);
+    assert.doesNotMatch(bothAdv, /\(copy\)/);
   });
 
-  it("falls back to ' (copy)' when the mode is unchanged (both Advantage+)", () => {
-    assert.equal(resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: true }, true), "Similar Pages (copy)");
+  it("End Dubs: flipping Advantage+ → strict still names the copy ' – Strict', not a counter", () => {
+    assert.equal(
+      resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: true }, false, ["Similar Pages"]),
+      "Similar Pages – Strict",
+    );
+  });
+
+  it("End Dubs: flipping strict → Advantage+ still names the copy ' – Adv+'", () => {
+    assert.equal(
+      resolveDuplicateAdSetName({ name: "Similar Pages", advantagePlus: false }, true, ["Similar Pages"]),
+      "Similar Pages – Adv+",
+    );
+  });
+
+  it("mode-unchanged increment skips a taken sibling", () => {
+    assert.equal(
+      resolveDuplicateAdSetName(
+        { name: "Similar Pages", advantagePlus: false },
+        false,
+        ["Similar Pages", "Similar Pages 2"],
+      ),
+      "Similar Pages 3",
+    );
   });
 
   it("truncates a long name with an ellipsis so the result stays within MAX_ADSET_NAME_LENGTH", () => {
