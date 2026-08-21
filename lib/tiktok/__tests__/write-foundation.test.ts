@@ -9,8 +9,7 @@ import { createMockTikTokClient } from "../__mocks__/client.ts";
 import { createTikTokAd, tikTokAdCreateIdentityLog } from "../write/ad.ts";
 import {
   createTikTokAdGroup,
-  tikTokAdGroupCreateActionsLog,
-  tikTokAdGroupCreateScheduleLog,
+  tikTokAdGroupCreatePayloadLog,
 } from "../write/adgroup.ts";
 import { TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS } from "../write/mapping.ts";
 import { createTikTokCampaign } from "../write/campaign.ts";
@@ -327,11 +326,15 @@ describe("ad group and ad writes", () => {
     assert.match(line, /"image_ids":\["img_hero_1"\]/);
   });
 
-  it("logs the full actions array immediately before /adgroup/create/", async () => {
+  it("logs the complete /adgroup/create/ body immediately before the write", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const db = new MemorySupabase();
     const mock = createMockTikTokClient();
     const draft = launchableDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "px-1";
+    draft.accountSetup.optimisationEvent = "ON_WEB_REGISTER";
     draft.audiences.interestGroups = [
       {
         id: "g-behaviours",
@@ -345,47 +348,6 @@ describe("ad group and ad writes", () => {
       ...draft.budgetSchedule.adGroups[0],
       interestGroupId: "g-behaviours",
     };
-
-    const errors: string[] = [];
-    const original = console.error;
-    console.error = (...args: unknown[]) => {
-      errors.push(args.map(String).join(" "));
-    };
-    try {
-      await createTikTokAdGroup({
-        ...BASE_CONTEXT,
-        supabase: db as unknown as SupabaseClient,
-        request: mock.tiktokPost,
-        campaignId: "campaign_1",
-        draft,
-        adGroup: draft.budgetSchedule.adGroups[0],
-      });
-    } finally {
-      console.error = original;
-    }
-
-    const line = errors.find((entry) =>
-      entry.includes("[tiktok/adgroup-create] outgoing actions"),
-    );
-    assert.ok(line, "expected actions payload log");
-    const logged = tikTokAdGroupCreateActionsLog(mock.calls[0].body);
-    assert.deepEqual(logged.actions, [
-      {
-        ...TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
-        action_category_ids: ["beh-1"],
-      },
-    ]);
-    assert.match(line, /action_period/);
-    assert.match(line, /VIDEO_RELATED/);
-    assert.match(line, /WATCHED_TO_END/);
-    assert.match(line, /beh-1/);
-  });
-
-  it("logs input schedule, advertiser timezone, and the exact strings sent", async () => {
-    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
-    const db = new MemorySupabase();
-    const mock = createMockTikTokClient();
-    const draft = launchableDraft();
     draft.budgetSchedule.scheduleStartAt = "2026-01-15T17:00:00.000Z";
     draft.budgetSchedule.scheduleEndAt = "2026-01-16T05:00:00.000Z";
 
@@ -408,21 +370,32 @@ describe("ad group and ad writes", () => {
     }
 
     const line = errors.find((entry) =>
-      entry.includes("[tiktok/adgroup-create] outgoing schedule"),
+      entry.includes("[tiktok/adgroup-create] outgoing payload"),
     );
-    assert.ok(line, "expected schedule payload log");
-    const logged = tikTokAdGroupCreateScheduleLog({
-      inputStart: draft.budgetSchedule.scheduleStartAt,
-      inputEnd: draft.budgetSchedule.scheduleEndAt,
-      timeZone: draft.accountSetup.timezone,
-      body: mock.calls[0].body,
-    });
-    assert.equal(logged.input_start, "2026-01-15T17:00:00.000Z");
-    assert.equal(logged.advertiser_timezone, "America/New_York");
+    assert.ok(line, "expected complete ad group payload log");
+    const prefix = "[tiktok/adgroup-create] outgoing payload ";
+    const logged = JSON.parse(line.slice(line.indexOf(prefix) + prefix.length)) as Record<
+      string,
+      unknown
+    >;
+    const body = mock.calls[0].body;
+    assert.deepEqual(logged, tikTokAdGroupCreatePayloadLog(body));
+    assert.deepEqual(Object.keys(logged).sort(), Object.keys(body).sort());
+    for (const key of Object.keys(body)) {
+      assert.ok(key in logged, `complete log missing field ${key}`);
+    }
+    assert.equal(logged.promotion_type, "LEAD_GENERATION");
+    assert.equal(logged.promotion_target_type, "EXTERNAL_WEBSITE");
+    assert.equal(logged.optimization_goal, "CONVERT");
+    assert.equal(logged.optimization_event, "ON_WEB_REGISTER");
+    assert.deepEqual(logged.actions, [
+      {
+        ...TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
+        action_category_ids: ["beh-1"],
+      },
+    ]);
     assert.equal(logged.schedule_start_time, "2026-01-15 12:00:00");
     assert.equal(logged.schedule_end_time, "2026-01-16 00:00:00");
-    assert.match(line, /America\/New_York/);
-    assert.match(line, /2026-01-15 12:00:00/);
   });
 });
 
@@ -782,7 +755,7 @@ describe("launchTikTokDraftState", () => {
     assert.ok(campaign);
     assert.ok(adGroup);
     assert.equal(campaign.body.objective_type, "LEAD_GENERATION");
-    assert.equal(adGroup.body.promotion_type, "WEBSITE");
+    assert.equal(adGroup.body.promotion_type, "LEAD_GENERATION");
     assert.equal(adGroup.body.promotion_target_type, "EXTERNAL_WEBSITE");
     assert.equal(adGroup.body.optimization_event, "ON_WEB_REGISTER");
     assert.equal(adGroup.body.pixel_id, "px-1");

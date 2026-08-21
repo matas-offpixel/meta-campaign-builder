@@ -8,7 +8,7 @@ import {
   withTikTokWriteIdempotency,
   type TikTokWriteContext,
 } from "./idempotency.ts";
-import { buildTikTokAdGroupPayload, tikTokWriteSchedule } from "./mapping.ts";
+import { buildTikTokAdGroupPayload } from "./mapping.ts";
 import { postTikTokWrite } from "./request.ts";
 
 export interface CreateTikTokAdGroupArgs extends TikTokWriteContext {
@@ -34,55 +34,16 @@ export function buildTikTokAdGroupWritePayload(args: {
   return built.value;
 }
 
-export function tikTokAdGroupCreateActionsLog(body: Record<string, BodyValue>): {
-  advertiser_id: unknown;
-  campaign_id: unknown;
-  adgroup_name: unknown;
-  actions: unknown;
-} {
-  return {
-    advertiser_id: body.advertiser_id ?? null,
-    campaign_id: body.campaign_id ?? null,
-    adgroup_name: body.adgroup_name ?? null,
-    actions: body.actions ?? null,
-  };
+/** Complete /adgroup/create/ body. No redaction — this payload has no secrets. */
+export function tikTokAdGroupCreatePayloadLog(
+  body: Record<string, BodyValue>,
+): Record<string, BodyValue> {
+  return { ...body };
 }
 
-function logTikTokAdGroupCreateActions(body: Record<string, BodyValue>): void {
+function logTikTokAdGroupCreatePayload(body: Record<string, BodyValue>): void {
   console.error(
-    `[tiktok/adgroup-create] outgoing actions ${JSON.stringify(tikTokAdGroupCreateActionsLog(body))}`,
-  );
-}
-
-export function tikTokAdGroupCreateScheduleLog(input: {
-  inputStart: string | null;
-  inputEnd: string | null;
-  timeZone: string | null;
-  body: Record<string, BodyValue>;
-}): {
-  input_start: string | null;
-  input_end: string | null;
-  advertiser_timezone: string | null;
-  schedule_start_time: unknown;
-  schedule_end_time: unknown;
-} {
-  return {
-    input_start: input.inputStart,
-    input_end: input.inputEnd,
-    advertiser_timezone: input.timeZone,
-    schedule_start_time: input.body.schedule_start_time ?? null,
-    schedule_end_time: input.body.schedule_end_time ?? null,
-  };
-}
-
-function logTikTokAdGroupCreateSchedule(input: {
-  inputStart: string | null;
-  inputEnd: string | null;
-  timeZone: string | null;
-  body: Record<string, BodyValue>;
-}): void {
-  console.error(
-    `[tiktok/adgroup-create] outgoing schedule ${JSON.stringify(tikTokAdGroupCreateScheduleLog(input))}`,
+    `[tiktok/adgroup-create] outgoing payload ${JSON.stringify(tikTokAdGroupCreatePayloadLog(body))}`,
   );
 }
 
@@ -98,14 +59,7 @@ export async function createTikTokAdGroup(
     "adgroup_create",
     payload,
     async () => {
-      logTikTokAdGroupCreateActions(payload);
-      const schedule = tikTokWriteSchedule(args.draft);
-      logTikTokAdGroupCreateSchedule({
-        inputStart: schedule.startAt,
-        inputEnd: schedule.endAt,
-        timeZone: args.draft.accountSetup.timezone,
-        body: payload,
-      });
+      logTikTokAdGroupCreatePayload(payload);
       const res = await postTikTokWrite<CreateAdGroupResponse>({
         path: "/adgroup/create/",
         body: payload,
