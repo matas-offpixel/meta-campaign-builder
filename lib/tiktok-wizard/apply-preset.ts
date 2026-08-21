@@ -1,6 +1,7 @@
 import type { TikTokInterestGroup } from "../types/tiktok-draft.ts";
 import { createEmptyTikTokInterestGroup } from "./interest-groups.ts";
 import {
+  formatTikTokUnresolvedPresetKeywords,
   formatTikTokUnresolvedPresetPaths,
   mergeTikTokPresetTaxonomy,
   type TikTokGenrePreset,
@@ -28,7 +29,8 @@ export function createTikTokInterestGroupFromPreset(input: {
 
 export function formatTikTokPresetResolution(input: {
   taxonomy: TikTokPresetTaxonomySelection;
-  keywordMatches: number;
+  keywordTerms: number;
+  unresolvedKeywordTerms?: readonly string[];
 }): string {
   const categories = input.taxonomy.interestItems.length;
   const behaviours = input.taxonomy.behaviourItems.length;
@@ -36,11 +38,12 @@ export function formatTikTokPresetResolution(input: {
     categories === 1 ? "category" : "categories"
   }, ${behaviours} ${
     behaviours === 1 ? "behaviour" : "behaviours"
-  }, ${input.keywordMatches} keyword ${
-    input.keywordMatches === 1 ? "match" : "matches"
+  }, ${input.keywordTerms} keyword ${
+    input.keywordTerms === 1 ? "term" : "terms"
   }.`;
-  const unresolved = formatTikTokUnresolvedPresetPaths(
-    input.taxonomy.unresolvedPaths,
-  );
-  return unresolved ? `${summary} ${unresolved}` : summary;
+  const unresolved = [
+    formatTikTokUnresolvedPresetPaths(input.taxonomy.unresolvedPaths),
+    formatTikTokUnresolvedPresetKeywords(input.unresolvedKeywordTerms ?? []),
+  ].filter((part): part is string => Boolean(part));
+  return unresolved.length > 0 ? `${summary} ${unresolved.join(" ")}` : summary;
 }

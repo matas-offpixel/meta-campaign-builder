@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  expandTikTokPresetKeywords,
+  filterTikTokKeywordsByWordBoundary,
+  formatTikTokUnresolvedPresetKeywords,
   formatTikTokUnresolvedPresetPaths,
   mergeTikTokPresetTaxonomy,
+  resolveTikTokPresetKeywords,
   resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
+  tikTokKeywordMatchesWordBoundary,
   tikTokPresetById,
   tikTokPresetTaxonomyPendingReason,
   tikTokPresetsForCluster,
@@ -26,51 +29,187 @@ const LIVE_CATALOG = {
   behaviours: LIVE_BEHAVIOUR_CATALOG,
 };
 
-describe("expandTikTokPresetKeywords", () => {
-  it("fires one keyword call per seed in parallel and unions by id", async () => {
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const started: string[] = [];
-    const rows = await expandTikTokPresetKeywords(
-      ["house music", "techno music", "disco music"],
-      async (seed) => {
-        started.push(seed);
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        await Promise.resolve();
-        inFlight -= 1;
+const TECHNO_NOISE = [
+  { id: "kw-techno", name: "Techno" },
+  { id: "kw-technology", name: "technology" },
+  { id: "kw-smart", name: "smart technology" },
+  { id: "kw-technodom", name: "technodom" },
+];
+
+describe("resolveTikTokPresetKeywords", () => {
+  it("adds an exact catalog term and refuses a substring-only hit", async () => {
+    const result = await resolveTikTokPresetKeywords(
+      ["techno"],
+      async () => TECHNO_NOISE,
+    );
+    assert.deepEqual(
+      result.rows.map((row) => row.name),
+      ["Techno"],
+    );
+    assert.deepEqual(result.unresolvedTerms, []);
+    assert.deepEqual(result.failedTerms, []);
+    assert.ok(!result.rows.some((row) => /technology/i.test(row.name)));
+  });
+
+  it("does not pull resident evil when a preset term is resident", async () => {
+    const result = await resolveTikTokPresetKeywords(
+      ["resident"],
+      async () => [
+        { id: "kw-evil", name: "resident evil" },
+        { id: "kw-residential", name: "residential" },
+        { id: "kw-uk", name: "uk residents" },
+        { id: "kw-resident", name: "Resident" },
+      ],
+    );
+    assert.deepEqual(
+      result.rows.map((row) => row.name),
+      ["Resident"],
+    );
+    assert.equal(
+      result.rows.some((row) => /evil|residential|residents/i.test(row.name)),
+      false,
+    );
+  });
+
+  it("does not pull technology when a preset term is techno", async () => {
+    const result = await resolveTikTokPresetKeywords(
+      ["techno", "electronic music"],
+      async (term) => {
+        if (term === "techno") return TECHNO_NOISE;
         return [
-          { id: "shared", name: "House" },
-          { id: `only-${seed}`, name: seed },
+          { id: "kw-electronic-music", name: "electronic music" },
+          { id: "kw-electronics", name: "consumer electronics" },
         ];
       },
     );
-    assert.equal(started.length, 3);
-    assert.equal(maxInFlight, 3);
-    assert.equal(rows.requested, 3);
-    assert.deepEqual(rows.failedSeeds, []);
-    assert.equal(rows.rows.length, 4);
-    const shared = rows.rows.find((row) => row.id === "shared");
-    assert.deepEqual(shared?.seeds, [
-      "house music",
-      "techno music",
-      "disco music",
-    ]);
+    assert.deepEqual(
+      result.rows.map((row) => row.name).sort(),
+      ["Techno", "electronic music"],
+    );
+    assert.equal(
+      result.rows.some((row) => row.name.toLowerCase() === "technology"),
+      false,
+    );
+    assert.equal(
+      result.rows.some((row) => /technology/i.test(row.name)),
+      false,
+    );
   });
 
-  it("keeps other seeds when one recommend rejects", async () => {
-    const rows = await expandTikTokPresetKeywords(
+  it("names an unresolved curated term instead of dropping it", async () => {
+    const result = await resolveTikTokPresetKeywords(
+      ["techno", "tech house"],
+      async (term) => (term === "techno" ? TECHNO_NOISE : []),
+    );
+    assert.deepEqual(
+      result.rows.map((row) => row.name),
+      ["Techno"],
+    );
+    assert.deepEqual(result.unresolvedTerms, ["tech house"]);
+    assert.equal(
+      formatTikTokUnresolvedPresetKeywords(result.unresolvedTerms),
+      "TikTok catalog has no keyword for tech house.",
+    );
+  });
+
+  it("keeps other terms when one recommend rejects", async () => {
+    const result = await resolveTikTokPresetKeywords(
       ["ok", "bad", "also-ok"],
-      async (seed) => {
-        if (seed === "bad") throw new Error("seed failed");
-        return [{ id: seed, name: seed }];
+      async (term) => {
+        if (term === "bad") throw new Error("term failed");
+        return [{ id: term, name: term }];
       },
     );
     assert.deepEqual(
-      rows.rows.map((row) => row.id).sort(),
+      result.rows.map((row) => row.id).sort(),
       ["also-ok", "ok"],
     );
-    assert.deepEqual(rows.failedSeeds, ["bad"]);
+    assert.deepEqual(result.failedTerms, ["bad"]);
+    assert.deepEqual(result.unresolvedTerms, []);
+  });
+});
+
+describe("tikTokKeywordMatchesWordBoundary", () => {
+  it("keeps Techno and drops technology for techno", () => {
+    assert.equal(tikTokKeywordMatchesWordBoundary("techno", "Techno"), true);
+    assert.equal(tikTokKeywordMatchesWordBoundary("techno", "technology"), false);
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("techno", "smart technology"),
+      false,
+    );
+    const filtered = filterTikTokKeywordsByWordBoundary("techno", [
+      { name: "Techno" },
+      { name: "technology" },
+      { name: "internet & technology" },
+      { name: "technodom" },
+    ]);
+    assert.deepEqual(
+      filtered.map((row) => row.name),
+      ["Techno"],
+    );
+  });
+
+  it("drops residential noise for resident; resident evil stays as leftover phrase noise", () => {
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("resident", "residential"),
+      false,
+    );
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("resident", "uk residents"),
+      false,
+    );
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("resident", "your residential unit"),
+      false,
+    );
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("resident", "resident evil"),
+      true,
+    );
+  });
+
+  it("drops discount 50 for disco", () => {
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("disco", "discount 50"),
+      false,
+    );
+    assert.equal(tikTokKeywordMatchesWordBoundary("disco", "discord"), false);
+    assert.equal(
+      tikTokKeywordMatchesWordBoundary("disco", "discoloration"),
+      false,
+    );
+  });
+
+  it("still keeps beach house for house — the helper is not a solution", () => {
+    assert.equal(tikTokKeywordMatchesWordBoundary("house", "beach house"), true);
+    assert.equal(tikTokKeywordMatchesWordBoundary("house", "household"), false);
+  });
+
+  it("narrows the live dj and concert noisy sets the way word-boundary measured", () => {
+    const dj = filterTikTokKeywordsByWordBoundary("dj", [
+      { name: "djing" },
+      { name: "dj mixer" },
+      { name: "dj set" },
+      { name: "this dj app" },
+      { name: "djs" },
+      { name: "dji" },
+      { name: "novak djokovic" },
+    ]);
+    assert.deepEqual(
+      dj.map((row) => row.name),
+      ["dj mixer", "dj set", "this dj app"],
+    );
+    const concert = filterTikTokKeywordsByWordBoundary("concert", [
+      { name: "Concerts" },
+      { name: "concert tickets" },
+      { name: "live concerts" },
+      { name: "the concert" },
+      { name: "concert" },
+    ]);
+    assert.deepEqual(
+      concert.map((row) => row.name),
+      ["concert tickets", "the concert", "concert"],
+    );
   });
 });
 
@@ -83,18 +222,12 @@ describe("tikTokHashtagPresetQuery", () => {
     assert.deepEqual(query.keywords, seeds.slice(0, 10));
   });
 
-  it("ships the Electronic music preset as single-word seeds plus full taxonomy paths", () => {
+  it("ships the Electronic music preset as curated terms plus full taxonomy paths", () => {
     const preset = tikTokPresetById("electronic-music");
     assert.ok(preset);
     assert.equal(preset.cluster, "Music & Nightlife");
-    assert.ok(preset.seeds.every((seed) => !/\s/.test(seed)));
-    assert.deepEqual(preset.seeds, [
-      "techno",
-      "house",
-      "disco",
-      "electronic",
-      "dance",
-    ]);
+    assert.ok(preset.seeds.includes("techno"));
+    assert.ok(preset.seeds.includes("electronic music"));
     assert.deepEqual(preset.interestPaths, TIKTOK_ELECTRONIC_INTEREST_PATHS);
     assert.deepEqual(preset.behaviourPaths, TIKTOK_ELECTRONIC_BEHAVIOUR_PATHS);
   });
@@ -194,8 +327,9 @@ describe("resolveTikTokPresetTaxonomy", () => {
     }
     for (const preset of TIKTOK_GENRE_PRESETS) {
       assert.ok(
-        preset.seeds.every((seed) => seed.length > 0 && !/\s/.test(seed)),
-        `${preset.id} has a multi-word seed`,
+        preset.seeds.length > 0 &&
+          preset.seeds.every((seed) => seed.trim().length > 0),
+        `${preset.id} is missing curated keyword terms`,
       );
       const taxonomy = resolveTikTokPresetTaxonomy(LIVE_CATALOG, preset);
       assert.ok(

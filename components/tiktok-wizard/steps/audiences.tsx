@@ -20,7 +20,8 @@ import {
   formatTikTokPresetResolution,
 } from "@/lib/tiktok-wizard/apply-preset";
 import {
-  expandTikTokPresetKeywords,
+  filterTikTokKeywordsByWordBoundary,
+  resolveTikTokPresetKeywords,
   resolveTikTokPresetTaxonomy,
   tikTokHashtagPresetQuery,
   tikTokPresetById,
@@ -149,6 +150,7 @@ export function AudiencesStep({
   const [keywordSource, setKeywordSource] = useState<"idle" | "typed" | "preset">(
     "idle",
   );
+  const [showUnfilteredKeywords, setShowUnfilteredKeywords] = useState(false);
   const [keywordProvenance, setKeywordProvenance] = useState<Record<string, string[]>>(
     {},
   );
@@ -386,10 +388,15 @@ export function AudiencesStep({
 
   function reportPresetResolution(
     taxonomy: ReturnType<typeof resolveTikTokPresetTaxonomy>,
-    keywordMatches: number,
+    keywordTerms: number,
+    unresolvedKeywordTerms: readonly string[] = [],
   ) {
     setPresetResolutionNote(
-      formatTikTokPresetResolution({ taxonomy, keywordMatches }),
+      formatTikTokPresetResolution({
+        taxonomy,
+        keywordTerms,
+        unresolvedKeywordTerms,
+      }),
     );
     setPresetTaxonomyNote(null);
   }
@@ -520,6 +527,7 @@ export function AudiencesStep({
     });
     setKeywordSource("preset");
     setSeed("");
+    setShowUnfilteredKeywords(false);
     setHashtagSeeds(preset.seeds.join(", "));
     setHashtagOperator("OR");
     setKeywordFailed(null);
@@ -531,7 +539,7 @@ export function AudiencesStep({
     setKeywordSemanticFallback(false);
 
     let semanticFallback = false;
-    const keywordPromise = expandTikTokPresetKeywords(preset.seeds, async (keyword) => {
+    const keywordPromise = resolveTikTokPresetKeywords(preset.seeds, async (keyword) => {
       const params = new URLSearchParams({
         advertiser_id: advertiserId,
         keyword,
@@ -600,16 +608,20 @@ export function AudiencesStep({
         Object.fromEntries(expanded.rows.map((row) => [row.id, row.seeds])),
       );
       if (semanticFallback) setKeywordSemanticFallback(true);
-      if (expanded.failedSeeds.length > 0) {
+      if (expanded.failedTerms.length > 0) {
         setPresetPartialNote(
-          `Some seeds failed (${expanded.failedSeeds.join(", ")}). Showing the rest.`,
+          `Some keyword terms failed (${expanded.failedTerms.join(", ")}). Showing the rest.`,
         );
       }
       const taxonomy = resolveTikTokPresetTaxonomy(
         { interests, behaviours },
         preset,
       );
-      reportPresetResolution(taxonomy, expanded.rows.length);
+      reportPresetResolution(
+        taxonomy,
+        expanded.rows.length,
+        expanded.unresolvedTerms,
+      );
     } else if (!isAbortError(keywordSettled.reason)) {
       setKeywordResults([]);
       setKeywordFailed("Keyword recommend failed");
@@ -683,6 +695,13 @@ export function AudiencesStep({
 
   const ageNote = tikTokAgeWideningNote(audiences.ageMin, audiences.ageMax);
   const genderNote = tikTokGenderWideningNote(audiences.genders);
+
+  const visibleKeywordResults = useMemo(() => {
+    if (keywordSource !== "typed" || showUnfilteredKeywords) return keywordResults;
+    const needle = seed.trim();
+    if (!needle) return keywordResults;
+    return filterTikTokKeywordsByWordBoundary(needle, keywordResults);
+  }, [keywordResults, keywordSource, seed, showUnfilteredKeywords]);
 
   const interestTree = useMemo(() => buildTree(interests), [interests]);
   const filteredRegions = useMemo(
@@ -921,6 +940,7 @@ export function AudiencesStep({
                 clearPresetMode();
                 setKeywordSource(event.target.value.trim() ? "typed" : "idle");
                 setKeywordProvenance({});
+                setShowUnfilteredKeywords(false);
                 setSeed(event.target.value);
               }}
               placeholder="Seed keyword — TikTok recommends related interests"
@@ -928,6 +948,7 @@ export function AudiencesStep({
                 clearPresetMode();
                 setKeywordSource("idle");
                 setKeywordProvenance({});
+                setShowUnfilteredKeywords(false);
                 setSeed("");
               }}
               disabled={!advertiserId || !activeGroup}
@@ -962,8 +983,26 @@ export function AudiencesStep({
             </p>
           )}
           {loadingKeywords && <p className="text-sm text-muted-foreground">Loading recommendations…</p>}
+          {keywordSource === "typed" && seed.trim() && keywordResults.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {showUnfilteredKeywords
+                  ? `Showing all ${keywordResults.length} recommend results for “${seed.trim()}”, including substring noise.`
+                  : `Showing whole-word matches for “${seed.trim()}” (${visibleKeywordResults.length} of ${keywordResults.length}). Substring hits like technology for techno are hidden.`}
+              </p>
+              <button
+                type="button"
+                className="text-xs text-primary underline-offset-2 hover:underline"
+                onClick={() => setShowUnfilteredKeywords((current) => !current)}
+              >
+                {showUnfilteredKeywords
+                  ? "Hide substring noise"
+                  : "Show unfiltered results"}
+              </button>
+            </div>
+          )}
           <RecommendList
-            rows={keywordResults}
+            rows={visibleKeywordResults}
             selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
             provenance={keywordProvenance}
             disabled={saving || !activeGroup}
@@ -1597,7 +1636,7 @@ function AudiencePresetPanel({
       </div>
       {picked && (
         <p className="text-xs text-muted-foreground">
-          Seeds: {picked.seeds.join(", ")}
+          Keyword terms: {picked.seeds.join(", ")}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
@@ -1659,7 +1698,7 @@ function GenrePresetRow({
       </div>
       {selected && (
         <p className="text-xs text-muted-foreground">
-          Seeds: {electronic.seeds.join(", ")}
+          Keyword terms: {electronic.seeds.join(", ")}
         </p>
       )}
       <p className="text-xs text-muted-foreground">
