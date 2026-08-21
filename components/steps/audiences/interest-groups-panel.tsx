@@ -27,6 +27,11 @@ import {
   CLUSTER_LABELS,
   inferClusterFromName,
 } from "@/lib/interest-suggestions";
+import {
+  CLUSTER_CHOOSER_PROMPT,
+  resolveInterestPresetSurface,
+  shouldShowCollapsedClusterChooser,
+} from "@/lib/interest-preset-surface";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { readGenreCache } from "@/lib/genre-classification";
 import { getSceneHintPresets, type SceneHintPreset } from "@/lib/scene-hint-presets";
@@ -62,6 +67,48 @@ function createEmptyInterestGroup(): InterestGroup {
     interests: [],
     aiPrompt: "",
   };
+}
+
+function ClusterChooserButtons({
+  selected,
+  inferred,
+  onSelect,
+  onClear,
+}: {
+  selected?: string;
+  inferred: string | null;
+  onSelect: (label: string) => void;
+  onClear: () => void;
+}) {
+  const active = selected ?? inferred ?? undefined;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {CLUSTER_LABELS.map((label) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onSelect(label)}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
+            active === label
+              ? "bg-primary text-white border-primary"
+              : "bg-muted text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+      {active && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:text-destructive"
+          title="Clear cluster type (discover all categories)"
+        >
+          ✕ All
+        </button>
+      )}
+    </div>
+  );
 }
 
 // ── Known-deprecated names — client-side fast check for chip indicator ──────
@@ -1350,6 +1397,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
         const results = getResults(group.id);
         const isSearching = activeSearchGroupId === group.id && searchState.loading;
         const searchError = activeSearchGroupId === group.id ? searchState.error : null;
+        const presetSurface = resolveInterestPresetSurface(group);
+        const showCollapsedChooser =
+          !isExpanded && shouldShowCollapsedClusterChooser(group);
 
         return (
           <Card key={group.id} className="p-0 overflow-hidden">
@@ -1382,6 +1432,29 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
               </div>
             </div>
 
+            {showCollapsedChooser && (
+              <div
+                className="border-t border-border p-4 space-y-2"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <p className="text-sm font-medium text-warning">
+                  {CLUSTER_CHOOSER_PROMPT}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Scene-hint presets appear after you pick a category.
+                </p>
+                <ClusterChooserButtons
+                  selected={group.clusterType}
+                  inferred={inferClusterFromName(group.name)}
+                  onSelect={(label) => {
+                    updateGroup(group.id, { clusterType: label });
+                    setExpandedGroupId(group.id);
+                  }}
+                  onClear={() => updateGroup(group.id, { clusterType: undefined })}
+                />
+              </div>
+            )}
+
             {isExpanded && (
               <div className="border-t border-border p-4 space-y-4">
                 <Input
@@ -1402,42 +1475,21 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                 {/* Cluster type selector — controls which cluster AI discovery targets */}
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                    AI Discovery Cluster
+                    {presetSurface.kind === "cluster-chooser"
+                      ? CLUSTER_CHOOSER_PROMPT
+                      : "AI Discovery Cluster"}
                     <span className="ml-1 font-normal">(controls which category Discover from Pages uses)</span>
                   </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CLUSTER_LABELS.map((label) => {
-                      const active = (group.clusterType ?? inferClusterFromName(group.name)) === label;
-                      return (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() =>
-                            updateGroup(group.id, {
-                              clusterType: group.clusterType === label ? undefined : label,
-                            })
-                          }
-                          className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors ${
-                            active
-                              ? "bg-primary text-white border-primary"
-                              : "bg-muted text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                    {(group.clusterType || inferClusterFromName(group.name)) && (
-                      <button
-                        type="button"
-                        onClick={() => updateGroup(group.id, { clusterType: undefined })}
-                        className="rounded-full px-2 py-0.5 text-[11px] text-muted-foreground hover:text-destructive"
-                        title="Clear cluster type (discover all categories)"
-                      >
-                        ✕ All
-                      </button>
-                    )}
-                  </div>
+                  <ClusterChooserButtons
+                    selected={group.clusterType}
+                    inferred={inferClusterFromName(group.name)}
+                    onSelect={(label) =>
+                      updateGroup(group.id, {
+                        clusterType: group.clusterType === label ? undefined : label,
+                      })
+                    }
+                    onClear={() => updateGroup(group.id, { clusterType: undefined })}
+                  />
                 </div>
 
                 <div>
@@ -1708,12 +1760,35 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       Comma-separated scene tags to bias discovery. Helps when page names don&apos;t clearly signal the niche (e.g. <span className="font-mono">hard_techno</span>, <span className="font-mono">editorial_fashion</span>, <span className="font-mono">psy_trance</span>).
                     </p>
 
-                    {/* Suggested scene hints — quick-pick chips per cluster */}
+                    {/* Suggested scene hints — quick-pick chips per cluster.
+                        Unclustered groups used to return null here, which is
+                        exactly when a user most needs the prompt. */}
                     {(() => {
-                      if (!effectiveCluster) return null;
+                      if (presetSurface.kind === "cluster-chooser") {
+                        return (
+                          <div className="mt-2 rounded-lg border border-warning/40 bg-warning/5 p-3 space-y-2">
+                            <p className="text-sm font-medium text-warning">
+                              {presetSurface.prompt}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Scene-hint presets appear after you pick a category.
+                            </p>
+                            <ClusterChooserButtons
+                              selected={group.clusterType}
+                              inferred={inferClusterFromName(group.name)}
+                              onSelect={(label) =>
+                                updateGroup(group.id, { clusterType: label })
+                              }
+                              onClear={() =>
+                                updateGroup(group.id, { clusterType: undefined })
+                              }
+                            />
+                          </div>
+                        );
+                      }
                       const fp = fingerprintByGroup[group.id];
                       const presets: SceneHintPreset[] = getSceneHintPresets({
-                        clusterLabel: effectiveCluster,
+                        clusterLabel: effectiveCluster ?? presetSurface.clusterLabel,
                         dominantScenes: fp?.dominantScenes,
                         detectedSceneTags: discoverSceneTags[group.id],
                       });
@@ -1767,13 +1842,10 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       );
                     })()}
 
-                    {/* Suggested audience personas — Phase 1 layer above the
-                        scene-hint chips. Currently active for Fashion &
-                        Streetwear, Music & Nightlife, and Lifestyle &
-                        Nightlife (clusters defined in PERSONAS_BY_CLUSTER
-                        in lib/audience-personas.ts). Empty for Sports etc.
-                        Shares selectedPresetByGroup so only one chip — scene
-                        OR persona — is highlighted at a time. */}
+                    {/* Suggested audience personas — Fashion, Music, Lifestyle.
+                        Activities & Culture, Media & Entertainment, and Sports
+                        have no persona chips by design; the row is labeled so
+                        that reads as intentional. */}
                     {(() => {
                       if (!effectiveCluster) return null;
                       const fp = fingerprintByGroup[group.id];
@@ -1783,7 +1855,23 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                           fp?.dominantScenes,
                           discoverSceneTags[group.id],
                         );
-                      if (personaPresets.length === 0) return null;
+                      if (personaPresets.length === 0) {
+                        const emptyLabel =
+                          presetSurface.kind === "presets"
+                            ? presetSurface.personaEmptyLabel
+                            : null;
+                        if (!emptyLabel) return null;
+                        return (
+                          <div className="mt-2">
+                            <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                              Suggested audience personas
+                            </p>
+                            <p className="text-[11px] text-muted-foreground/80 italic">
+                              {emptyLabel}
+                            </p>
+                          </div>
+                        );
+                      }
                       if (process.env.NODE_ENV !== "production") {
                         console.info(
                           `[persona-presets] cluster=${effectiveCluster} count=${personaPresets.length} ` +
