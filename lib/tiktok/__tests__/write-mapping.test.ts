@@ -194,7 +194,7 @@ describe("optimisation and bid mappings", () => {
     const leadPromo = mapTikTokPromotionType("LEAD_GENERATION");
     assert.equal(trafficPromo.ok && trafficPromo.value, "WEBSITE");
     assert.equal(conversionsPromo.ok && conversionsPromo.value, "WEBSITE");
-    assert.equal(leadPromo.ok && leadPromo.value, "WEBSITE");
+    assert.equal(leadPromo.ok && leadPromo.value, "LEAD_GENERATION");
     assert.equal(mapTikTokPromotionType("VIDEO_VIEWS").ok, false);
     assert.equal(mapTikTokPromotionType("REACH").ok, false);
     assert.equal(mapTikTokPromotionType("AWARENESS").ok, false);
@@ -728,21 +728,38 @@ describe("conversions payload", () => {
     assert.equal(campaign.ok && campaign.value.campaign_name, "Campaign");
     assert.equal(adGroup.ok, true);
     if (!adGroup.ok) return;
-    // AdgroupCreateBody required fields + Lead gen website location.
-    assert.equal(adGroup.value.advertiser_id, "adv-1");
-    assert.equal(adGroup.value.campaign_id, "camp-1");
-    assert.equal(adGroup.value.adgroup_name, "Prospecting");
-    assert.equal(adGroup.value.billing_event, "OCPM");
-    assert.equal(adGroup.value.budget, 50);
-    assert.equal(adGroup.value.budget_mode, "BUDGET_MODE_DAY");
-    assert.equal(adGroup.value.optimization_goal, "CONVERT");
-    assert.equal(adGroup.value.pacing, "PACING_MODE_SMOOTH");
-    assert.equal(typeof adGroup.value.schedule_start_time, "string");
-    assert.equal(adGroup.value.schedule_type, "SCHEDULE_START_END");
-    assert.equal(adGroup.value.promotion_type, "WEBSITE");
-    assert.equal(adGroup.value.promotion_target_type, "EXTERNAL_WEBSITE");
-    assert.equal(adGroup.value.pixel_id, "px-ironworks");
-    assert.equal(adGroup.value.optimization_event, "ON_WEB_REGISTER");
+    // Full website lead-gen shape. A missing key here is a silent regression.
+    assert.deepEqual(adGroup.value, {
+      advertiser_id: "adv-1",
+      campaign_id: "camp-1",
+      adgroup_name: "Prospecting",
+      budget: 50,
+      budget_mode: "BUDGET_MODE_DAY",
+      schedule_type: "SCHEDULE_START_END",
+      schedule_start_time: "2026-01-15 12:00:00",
+      schedule_end_time: "2026-01-16 00:00:00",
+      optimization_goal: "CONVERT",
+      billing_event: "OCPM",
+      bid_type: "BID_TYPE_NO_BID",
+      pacing: "PACING_MODE_SMOOTH",
+      location_ids: [TIKTOK_LOCATION_IDS_BY_CODE.GB],
+      age_groups: [
+        "AGE_18_24",
+        "AGE_25_34",
+        "AGE_35_44",
+        "AGE_45_54",
+        "AGE_55_100",
+      ],
+      gender: "GENDER_UNLIMITED",
+      placement_type: "PLACEMENT_TYPE_NORMAL",
+      placements: ["PLACEMENT_TIKTOK"],
+      promotion_type: "LEAD_GENERATION",
+      promotion_target_type: "EXTERNAL_WEBSITE",
+      operation_status: "DISABLE",
+      languages: ["en"],
+      pixel_id: "px-ironworks",
+      optimization_event: "ON_WEB_REGISTER",
+    });
     const location = mapTikTokPromotionTargetType("LEAD_GENERATION");
     assert.equal(location.ok && location.value, "EXTERNAL_WEBSITE");
     assert.equal(mapTikTokPromotionTargetType("CONVERSIONS").ok && mapTikTokPromotionTargetType("CONVERSIONS").value, null);

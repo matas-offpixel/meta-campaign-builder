@@ -101,10 +101,32 @@ export const TIKTOK_LOCATION_IDS_BY_CODE: Record<string, string> = {
  * LEAD_GENERATION. Other documented values still map 1:1 so preflight can
  * name them as "not supported yet" instead of inventing a different enum.
  *
- * Optimization location for Lead generation is `promotion_target_type`
- * (SDK ToolApi): INSTANT_PAGE = Instant Form, EXTERNAL_WEBSITE = Website.
- * Instant Form is out of scope; we send EXTERNAL_WEBSITE only.
- * https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/ToolApi.md
+ * Lead generation ad-group field set (website location; Instant Form is
+ * out of scope):
+ *   promotion_type = LEAD_GENERATION — Instant Form or Website. WEBSITE
+ *     is the landing-page value for TRAFFIC / WEB_CONVERSIONS and is not
+ *     valid under objective_type LEAD_GENERATION.
+ *     Preview docs (portal id 1739403070695426): LEAD_GENERATION is valid
+ *     only when objective_type is LEAD_GENERATION.
+ *     Instant Form create guide: set promotion_type LEAD_GENERATION AND
+ *     promotion_target_type INSTANT_PAGE (or omit).
+ *     Smart+ ad docs: when objective_type is LEAD_GENERATION, ad-group
+ *     promotion_type is LEAD_GENERATION and promotion_target_type is
+ *     INSTANT_PAGE or EXTERNAL_WEBSITE.
+ *   promotion_target_type = EXTERNAL_WEBSITE — Website Form. Coexists
+ *     with promotion_type LEAD_GENERATION. SDK ToolApi tool_region:
+ *     INSTANT_PAGE | EXTERNAL_WEBSITE when objective_type is
+ *     LEAD_GENERATION.
+ *     https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/ToolApi.md
+ *   optimization_goal = CONVERT — website + pixel. Instant Form's
+ *     official recipe uses LEAD_GENERATION (form submission, no pixel).
+ *     Pixel + Complete registration on the delivering Ironworks campaign
+ *     is CONVERT (PR #517 IRWOHD rows). Ads Manager "Leads" is our
+ *     CONVERSION → CONVERT label. AdgroupCreateBody.optimization_goal is
+ *     required unconstrained str.
+ *   optimization_event — required whenever pixel_id is set (ToolApi VBO
+ *     note + AdgroupCreateBody.optimization_event optional unconstrained
+ *     str). Website lead-gen always sends the selected pixel event.
  */
 export const TIKTOK_OBJECTIVE_TYPE: Record<
   Exclude<TikTokObjective, "AWARENESS" | "CONVERSIONS"> | "WEB_CONVERSIONS",
@@ -123,6 +145,9 @@ export const TIKTOK_LAUNCHER_OBJECTIVES: TikTokObjective[] = [
   "LEAD_GENERATION",
   "CONVERSIONS",
 ];
+
+/** Ad-group promotion_type under objective_type LEAD_GENERATION. */
+export const TIKTOK_LEAD_GEN_PROMOTION_TYPE = "LEAD_GENERATION";
 
 /** SDK ToolApi: website optimization location under LEAD_GENERATION. */
 export const TIKTOK_LEAD_GEN_WEBSITE_LOCATION = "EXTERNAL_WEBSITE";
@@ -454,15 +479,12 @@ export function mapTikTokIdentityType(
 
 export function mapTikTokPromotionType(
   objective: TikTokObjective | null,
-): MappingResult<"WEBSITE"> {
+): MappingResult<"WEBSITE" | "LEAD_GENERATION"> {
   if (!objective) {
     return missing("promotion_type", "Campaign objective is required");
   }
-  if (
-    objective === "TRAFFIC" ||
-    objective === "CONVERSIONS" ||
-    objective === "LEAD_GENERATION"
-  ) {
+  if (objective === "LEAD_GENERATION") return ok(TIKTOK_LEAD_GEN_PROMOTION_TYPE);
+  if (objective === "TRAFFIC" || objective === "CONVERSIONS") {
     return ok("WEBSITE");
   }
   return missing(
@@ -472,10 +494,11 @@ export function mapTikTokPromotionType(
 }
 
 /**
- * Lead generation optimization location. Official SDK ToolApi documents
- * `promotion_target_type` when `objective_type` is `LEAD_GENERATION`:
- * INSTANT_PAGE (Instant Form) or EXTERNAL_WEBSITE (Website Form).
- * This PR only implements Website.
+ * Lead generation optimization location. Official Instant Form create
+ * guide and Smart+ ad docs pair `promotion_type` LEAD_GENERATION with
+ * `promotion_target_type` INSTANT_PAGE or EXTERNAL_WEBSITE. SDK ToolApi
+ * tool_region documents the same two values when `objective_type` is
+ * `LEAD_GENERATION`. This path only implements Website.
  */
 export function mapTikTokPromotionTargetType(
   objective: TikTokObjective | null,
