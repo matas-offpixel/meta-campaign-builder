@@ -177,6 +177,32 @@ export const TIKTOK_MIN_DAILY_BUDGET_BY_CURRENCY: Record<string, number> = {
 /** @deprecated Use tikTokDailyBudgetMinimum(currency). GBP live floor is 50. */
 export const TIKTOK_MIN_DAILY_BUDGET = 50;
 
+/**
+ * Defaults for /adgroup/create/ `actions[]` when behaviour categories are set.
+ *
+ * Field names: AdgroupcreateActions
+ * https://raw.githubusercontent.com/tiktok/tiktok-business-api-sdk/main/python_sdk/docs/AdgroupcreateActions.md
+ *
+ * That model lists `action_category_ids`, `action_period`, `action_scene`,
+ * `video_user_actions` — all `[optional]`, no enums. The live API still
+ * rejected a body that sent only `action_category_ids` (40002
+ * `actions.0.action_period` missing, request
+ * 202608211826403EAD08F71F250ED15D9B). The same four fields on
+ * DmpsavedAudiencecreateActions are documented as required once `actions`
+ * is specified, with enums:
+ * https://raw.githubusercontent.com/tiktok/tiktok-business-api-sdk/main/python_sdk/docs/DmpsavedAudiencecreateActions.md
+ *
+ * Broadest interest-behaviour defaults from those enums:
+ * `VIDEO_RELATED` (scene for `/tool/action_category/` behaviour IDs),
+ * `action_period` 0 ("no definite timeframe"), and every VIDEO_RELATED
+ * `video_user_actions` value.
+ */
+export const TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS = {
+  action_scene: "VIDEO_RELATED",
+  action_period: 0,
+  video_user_actions: ["WATCHED_TO_END", "LIKED", "COMMENTED", "SHARED"],
+} as const;
+
 export function tikTokDailyBudgetMinimum(
   currency: string | null | undefined,
 ): number | null {
@@ -594,7 +620,10 @@ export function buildTikTokAdGroupPayload(input: {
   }
   if (targeting.behaviourCategoryIds.length > 0) {
     payload.actions = [
-      { action_category_ids: targeting.behaviourCategoryIds },
+      {
+        ...TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS,
+        action_category_ids: targeting.behaviourCategoryIds,
+      },
     ];
   }
   const audienceIds = uniqueIds(draft.audiences.customAudienceIds);
