@@ -33,6 +33,13 @@ import {
   type TikTokPresetCluster,
 } from "@/lib/tiktok-wizard/genre-presets";
 import {
+  addVisibleToTikTokGroup,
+  removeVisibleFromTikTokGroup,
+  shouldOfferTikTokCategoryBulkActions,
+  tikTokAddAllLabel,
+  type TikTokGroupItemKey,
+} from "@/lib/tiktok-wizard/add-suggestions";
+import {
   createEmptyTikTokInterestGroup,
   flattenTikTokInterestGroups,
   formatTikTokInterestGroupCounts,
@@ -675,6 +682,36 @@ export function AudiencesStep({
     );
   }
 
+  async function addVisibleGroupItems(
+    key: TikTokGroupItemKey,
+    items: TikTokTargetingItem[],
+  ) {
+    if (!activeGroup) return;
+    await persistGroups(
+      addVisibleToTikTokGroup(
+        audiencesRef.current.interestGroups,
+        activeGroup.id,
+        key,
+        items,
+      ),
+    );
+  }
+
+  async function clearVisibleGroupItems(
+    key: TikTokGroupItemKey,
+    ids: readonly string[],
+  ) {
+    if (!activeGroup) return;
+    await persistGroups(
+      removeVisibleFromTikTokGroup(
+        audiencesRef.current.interestGroups,
+        activeGroup.id,
+        key,
+        ids,
+      ),
+    );
+  }
+
   async function toggleListItem(
     id: string,
     label: string,
@@ -1043,6 +1080,24 @@ export function AudiencesStep({
                 audienceSize: row.audienceSize,
               })
             }
+            onAddAll={(rows) =>
+              void addVisibleGroupItems(
+                "interestIds",
+                rows.map((row) => ({
+                  id: row.id,
+                  name: row.name,
+                  kind: "keyword",
+                  audienceType,
+                  audienceSize: row.audienceSize,
+                })),
+              )
+            }
+            onClearAll={(rows) =>
+              void clearVisibleGroupItems(
+                "interestIds",
+                rows.map((row) => row.id),
+              )
+            }
           />
           {loadingCatalog ? (
             <SkeletonTree />
@@ -1052,12 +1107,29 @@ export function AudiencesStep({
               selectedIds={activeGroup?.interestIds.map((item) => item.id) ?? []}
               disabled={saving || loadingCatalog || !activeGroup}
               empty="No interest categories available."
+              allowUnfilteredBulk={false}
               onToggle={(row) =>
                 void toggleGroupItem("interestIds", {
                   id: row.id,
                   name: row.label,
                   kind: "category",
                 })
+              }
+              onAddAll={(rows) =>
+                void addVisibleGroupItems(
+                  "interestIds",
+                  rows.map((row) => ({
+                    id: row.id,
+                    name: row.label,
+                    kind: "category",
+                  })),
+                )
+              }
+              onClearAll={(rows) =>
+                void clearVisibleGroupItems(
+                  "interestIds",
+                  rows.map((row) => row.id),
+                )
               }
             />
           )}
@@ -1141,6 +1213,23 @@ export function AudiencesStep({
                 audienceSize: row.audienceSize,
               })
             }
+            onAddAll={(rows) =>
+              void addVisibleGroupItems(
+                "hashtagIds",
+                rows.map((row) => ({
+                  id: row.id,
+                  name: row.name,
+                  kind: "keyword",
+                  audienceSize: row.audienceSize,
+                })),
+              )
+            }
+            onClearAll={(rows) =>
+              void clearVisibleGroupItems(
+                "hashtagIds",
+                rows.map((row) => row.id),
+              )
+            }
           />
         </div>
       )}
@@ -1158,12 +1247,29 @@ export function AudiencesStep({
               selectedIds={activeGroup?.behaviourIds.map((item) => item.id) ?? []}
               disabled={saving || loadingCatalog || !activeGroup}
               empty="No behaviours available for this advertiser."
+              allowUnfilteredBulk
               onToggle={(row) =>
                 void toggleGroupItem("behaviourIds", {
                   id: row.id,
                   name: row.label,
                   kind: "category",
                 })
+              }
+              onAddAll={(rows) =>
+                void addVisibleGroupItems(
+                  "behaviourIds",
+                  rows.map((row) => ({
+                    id: row.id,
+                    name: row.label,
+                    kind: "category",
+                  })),
+                )
+              }
+              onClearAll={(rows) =>
+                void clearVisibleGroupItems(
+                  "behaviourIds",
+                  rows.map((row) => row.id),
+                )
               }
             />
           )}
@@ -1503,13 +1609,19 @@ function CategoryList({
   selectedIds,
   disabled,
   empty,
+  allowUnfilteredBulk,
   onToggle,
+  onAddAll,
+  onClearAll,
 }: {
   rows: CategoryRow[];
   selectedIds: string[];
   disabled: boolean;
   empty: string;
+  allowUnfilteredBulk: boolean;
   onToggle: (row: CategoryRow) => void;
+  onAddAll: (rows: CategoryRow[]) => void;
+  onClearAll: (rows: CategoryRow[]) => void;
 }) {
   const [query, setQuery] = useState("");
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
@@ -1528,6 +1640,11 @@ function CategoryList({
     }
     return ids;
   }, [rows]);
+  const showBulk = shouldOfferTikTokCategoryBulkActions({
+    visibleCount: visible.rows.length,
+    filterQuery: query,
+    allowUnfiltered: allowUnfilteredBulk,
+  });
 
   if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
@@ -1540,6 +1657,14 @@ function CategoryList({
         placeholder="Filter this list"
         onClear={() => setQuery("")}
       />
+      {showBulk && (
+        <ListBulkActions
+          count={visible.rows.length}
+          disabled={disabled}
+          onAddAll={() => onAddAll(visible.rows)}
+          onClearAll={() => onClearAll(visible.rows)}
+        />
+      )}
       <div className="max-h-72 overflow-auto rounded-md border border-border bg-background p-2">
         {visible.rows.length === 0 ? (
           <p className="px-2 py-1.5 text-sm text-muted-foreground">
@@ -1727,6 +1852,40 @@ function GenrePresetRow({
   );
 }
 
+function ListBulkActions({
+  count,
+  disabled,
+  onAddAll,
+  onClearAll,
+}: {
+  count: number;
+  disabled: boolean;
+  onAddAll: () => void;
+  onClearAll: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-xs">
+      <button
+        type="button"
+        disabled={disabled || count === 0}
+        onClick={onAddAll}
+        className="text-primary hover:underline disabled:opacity-50"
+      >
+        {tikTokAddAllLabel(count)}
+      </button>
+      <span className="text-muted-foreground">·</span>
+      <button
+        type="button"
+        disabled={disabled || count === 0}
+        onClick={onClearAll}
+        className="text-destructive hover:underline disabled:opacity-50"
+      >
+        Clear all
+      </button>
+    </div>
+  );
+}
+
 function RecommendList({
   rows,
   selectedIds,
@@ -1734,6 +1893,8 @@ function RecommendList({
   disabled,
   empty,
   onToggle,
+  onAddAll,
+  onClearAll,
 }: {
   rows: TikTokAudienceRecommendItem[];
   selectedIds: string[];
@@ -1741,10 +1902,19 @@ function RecommendList({
   disabled: boolean;
   empty: string;
   onToggle: (row: TikTokAudienceRecommendItem) => void;
+  onAddAll: (rows: TikTokAudienceRecommendItem[]) => void;
+  onClearAll: (rows: TikTokAudienceRecommendItem[]) => void;
 }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="space-y-2">
+      <ListBulkActions
+        count={rows.length}
+        disabled={disabled}
+        onAddAll={() => onAddAll(rows)}
+        onClearAll={() => onClearAll(rows)}
+      />
+      <div className="flex flex-wrap gap-2">
       {rows.map((row) => {
         const selected = selectedIds.includes(row.id);
         const seeds = provenance?.[row.id] ?? [];
@@ -1765,6 +1935,7 @@ function RecommendList({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }
