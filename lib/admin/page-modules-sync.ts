@@ -21,6 +21,13 @@ import type { ModuleInstance } from "../landing-pages/modules.ts";
 export interface LegacyModuleInputs {
   /** Clean hero-carousel URLs (already parseImageList'd). */
   heroImages: string[];
+  /**
+   * `content.artwork_url` — the admin-uploaded brand poster. Semantically
+   * distinct from `heroImages` (atmosphere photos), but always pinned to
+   * hero-carousel slide 1 when present: it's the one image every LP must
+   * show first. Null when no artwork has been uploaded.
+   */
+  artworkUrl: string | null;
   /** Raw YouTube URL string, or null. */
   youtubeUrl: string | null;
   /** Clean bottom image-grid URLs. */
@@ -38,6 +45,13 @@ function defaultId(): string {
  * fixed render order hero → youtube → grid → brand-socials. A section with
  * no content contributes no module (so the renderer hides it), matching the
  * migration backfill exactly.
+ *
+ * `artworkUrl`, when present, is always pinned to hero-carousel slide 1 —
+ * deduped against `heroImages` so re-saving after the admin also manually
+ * added the same artwork never double-renders it. When `artworkUrl` is null
+ * this is byte-identical to the pre-fix behaviour (P0, 2026-07-17: artwork
+ * was silently dropped on every admin save because this function had no
+ * parameter for it — see docs/session-logs for the incident).
  */
 export function rebuildModulesFromLegacy(
   input: LegacyModuleInputs,
@@ -45,13 +59,17 @@ export function rebuildModulesFromLegacy(
 ): ModuleInstance[] {
   const modules: ModuleInstance[] = [];
 
-  if (input.heroImages.length > 0) {
+  const heroImages = input.artworkUrl
+    ? [input.artworkUrl, ...input.heroImages.filter((u) => u !== input.artworkUrl)]
+    : input.heroImages;
+
+  if (heroImages.length > 0) {
     modules.push({
       id: idFactory(),
       type: "hero_carousel",
       enabled: true,
       order: 0,
-      config: { images: input.heroImages },
+      config: { images: heroImages },
     });
   }
 
