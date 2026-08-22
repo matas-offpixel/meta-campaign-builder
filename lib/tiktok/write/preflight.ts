@@ -36,10 +36,28 @@ import {
   tikTokScheduleStartTooSoonMessage,
 } from "./schedule-time.ts";
 
+export type TikTokPreflightScope = "campaign" | "adgroup" | "creative";
+
 export interface TikTokLaunchPreflightIssue {
   id: string;
   field: string;
   message: string;
+  scope?: TikTokPreflightScope;
+  /** Unprefixed problem text used as the collapse key. */
+  reason?: string;
+  creativeIds?: string[];
+  adGroupIds?: string[];
+}
+
+const PREFLIGHT_FIELD_ALIASES: Record<string, string> = {
+  bid_type: "bidStrategy",
+  bidStrategy: "bidStrategy",
+  optimization_goal: "optimisationGoal",
+  optimisationGoal: "optimisationGoal",
+};
+
+export function canonicalTikTokPreflightField(field: string): string {
+  return PREFLIGHT_FIELD_ALIASES[field] ?? field;
 }
 
 export interface TikTokLaunchPreflightResult {
@@ -307,6 +325,7 @@ export function collectTikTokLaunchPreflight(
           `adgroup-name-${adGroup.id}`,
           "adgroup_name",
           tikTokBlankAdGroupNameMessage(adGroup.id),
+          { scope: "adgroup", adGroupId: adGroup.id },
         ),
       );
     }
@@ -322,6 +341,7 @@ export function collectTikTokLaunchPreflight(
           `adgroup-creative-${adGroup.id}`,
           "creativeAssignments",
           `Ad group "${adGroup.name}" needs at least one assigned creative with a videoId`,
+          { scope: "adgroup", adGroupId: adGroup.id },
         ),
       );
     }
@@ -339,6 +359,7 @@ export function collectTikTokLaunchPreflight(
           `adgroup-budget-${adGroup.id}`,
           "budget",
           `Ad group "${adGroup.name}" is missing a budget`,
+          { scope: "adgroup", adGroupId: adGroup.id },
         ),
       );
     } else if (!groupFloor.ok) {
@@ -347,6 +368,11 @@ export function collectTikTokLaunchPreflight(
           `adgroup-budget-floor-${adGroup.id}`,
           groupFloor.error.field,
           `${adGroup.name}: ${groupFloor.error.message}`,
+          {
+            scope: "adgroup",
+            adGroupId: adGroup.id,
+            reason: groupFloor.error.message,
+          },
         ),
       );
     } else if (groupFloor.value != null && groupBudget < groupFloor.value) {
@@ -355,6 +381,7 @@ export function collectTikTokLaunchPreflight(
           `adgroup-budget-${adGroup.id}`,
           "budget",
           `Ad group "${adGroup.name}" budget ${groupBudget} is below TikTok's ${currencyLabel} minimum of ${groupFloor.value} for ${draft.budgetSchedule.budgetMode} mode`,
+          { scope: "adgroup", adGroupId: adGroup.id },
         ),
       );
     }
@@ -371,6 +398,11 @@ export function collectTikTokLaunchPreflight(
           `adgroup-${adGroup.id}-${groupPayload.error.field}`,
           groupPayload.error.field,
           `${adGroup.name}: ${groupPayload.error.message}`,
+          {
+            scope: "adgroup",
+            adGroupId: adGroup.id,
+            reason: groupPayload.error.message,
+          },
         ),
       );
     }
@@ -382,6 +414,7 @@ export function collectTikTokLaunchPreflight(
             `landing-${creative.id}`,
             "landing_page_url",
             `Creative "${creative.name}" needs an absolute landing page URL`,
+            { scope: "creative", creativeId: creative.id },
           ),
         );
       }
@@ -397,6 +430,11 @@ export function collectTikTokLaunchPreflight(
             `ad-${creative.id}-${adPayload.error.field}`,
             adPayload.error.field,
             `${creative.name}: ${adPayload.error.message}`,
+            {
+              scope: "creative",
+              creativeId: creative.id,
+              reason: adPayload.error.message,
+            },
           ),
         );
       }
@@ -456,82 +494,127 @@ export function isAbsoluteHttpUrl(value: string | null | undefined): boolean {
   }
 }
 
+function inferPreflightScope(id: string): TikTokPreflightScope {
+  if (id.startsWith("adgroup-")) return "adgroup";
+  if (id.startsWith("landing-")) return "creative";
+  if (id.startsWith("ad-") && id !== "ad-groups") return "creative";
+  return "campaign";
+}
+
 function issue(
   id: string,
   field: string,
   message: string,
+  extras: {
+    scope?: TikTokPreflightScope;
+    reason?: string;
+    creativeId?: string;
+    adGroupId?: string;
+    creativeIds?: string[];
+    adGroupIds?: string[];
+  } = {},
 ): TikTokLaunchPreflightIssue {
-  return { id, field, message };
+  const scope = extras.scope ?? inferPreflightScope(id);
+  const creativeIds =
+    extras.creativeIds ??
+    (extras.creativeId ? [extras.creativeId] : undefined);
+  const adGroupIds =
+    extras.adGroupIds ?? (extras.adGroupId ? [extras.adGroupId] : undefined);
+  return {
+    id,
+    field,
+    message,
+    scope,
+    reason: extras.reason ?? message,
+    ...(creativeIds ? { creativeIds } : {}),
+    ...(adGroupIds ? { adGroupIds } : {}),
+  };
 }
 
-function isAdGroupScopedIssue(entry: TikTokLaunchPreflightIssue): boolean {
-  return entry.id.startsWith("adgroup-");
+type NormalizedPreflightIssue = TikTokLaunchPreflightIssue & {
+  scope: TikTokPreflightScope;
+  reason: string;
+};
+
+function normalizePreflightIssue(
+  entry: TikTokLaunchPreflightIssue,
+): NormalizedPreflightIssue {
+  return {
+    ...entry,
+    scope: entry.scope ?? inferPreflightScope(entry.id),
+    reason: entry.reason ?? entry.message,
+  };
 }
 
-function isCreativeScopedIssue(entry: TikTokLaunchPreflightIssue): boolean {
-  return entry.id.startsWith("landing-") ||
-    (entry.id.startsWith("ad-") && entry.id !== "ad-groups");
+function collapseKey(entry: NormalizedPreflightIssue): string {
+  return `${canonicalTikTokPreflightField(entry.field)}:${entry.reason}`;
 }
 
-/** Strip an `"Ad group name: "` / `"Creative name: "` prefix. */
-export function rootTikTokPreflightMessage(message: string): string {
-  const prefixed = /^[^:]+:\s+(.+)$/.exec(message);
-  return prefixed?.[1] ?? message;
-}
-
-function scopedIssueKey(entry: TikTokLaunchPreflightIssue): string {
-  return `${entry.field}:${rootTikTokPreflightMessage(entry.message)}`;
+function memberIds(
+  group: readonly TikTokLaunchPreflightIssue[],
+  key: "creativeIds" | "adGroupIds",
+): string[] {
+  return [
+    ...new Set(group.flatMap((entry) => entry[key] ?? [])),
+  ];
 }
 
 /**
  * Campaign + ad-group (or per-creative) checks often fire on the same
- * field. Keep the campaign-level issue, and collapse leftover creatives
- * that share a field + root message into one counted line.
+ * problem under aliased field names. Keep the campaign-level issue, collapse
+ * leftover scoped issues that share a canonical field + reason, and carry
+ * every member id on the survivor.
  */
 export function collapseTikTokLaunchPreflightIssues(
   issues: readonly TikTokLaunchPreflightIssue[],
 ): TikTokLaunchPreflightIssue[] {
-  const unique = dedupeIssues(issues);
+  const unique = dedupeIssues(issues).map(normalizePreflightIssue);
   const campaignKeys = new Set(
-    unique
-      .filter(
-        (entry) =>
-          !isAdGroupScopedIssue(entry) && !isCreativeScopedIssue(entry),
-      )
-      .map(scopedIssueKey),
+    unique.filter((entry) => entry.scope === "campaign").map(collapseKey),
   );
 
-  const creativeGroups = new Map<string, TikTokLaunchPreflightIssue[]>();
+  const scopedGroups = {
+    adgroup: new Map<string, NormalizedPreflightIssue[]>(),
+    creative: new Map<string, NormalizedPreflightIssue[]>(),
+  };
   for (const entry of unique) {
-    if (!isCreativeScopedIssue(entry)) continue;
-    const key = scopedIssueKey(entry);
+    if (entry.scope === "campaign") continue;
+    const key = collapseKey(entry);
     if (campaignKeys.has(key)) continue;
-    const group = creativeGroups.get(key) ?? [];
+    const groups = scopedGroups[entry.scope];
+    const group = groups.get(key) ?? [];
     group.push(entry);
-    creativeGroups.set(key, group);
+    groups.set(key, group);
   }
 
-  const emittedCreativeKeys = new Set<string>();
+  const emitted = {
+    adgroup: new Set<string>(),
+    creative: new Set<string>(),
+  };
   const collapsed: TikTokLaunchPreflightIssue[] = [];
   for (const entry of unique) {
-    const key = scopedIssueKey(entry);
-    if (isAdGroupScopedIssue(entry) && campaignKeys.has(key)) continue;
-    if (isCreativeScopedIssue(entry)) {
-      if (campaignKeys.has(key) || emittedCreativeKeys.has(key)) continue;
-      emittedCreativeKeys.add(key);
-      const group = creativeGroups.get(key) ?? [entry];
-      if (group.length === 1) {
-        collapsed.push(entry);
-        continue;
-      }
-      collapsed.push({
-        id: group[0]!.id,
-        field: entry.field,
-        message: `${rootTikTokPreflightMessage(entry.message)} (${group.length} creatives)`,
-      });
+    if (entry.scope === "campaign") {
+      collapsed.push(entry);
       continue;
     }
-    collapsed.push(entry);
+    const key = collapseKey(entry);
+    if (campaignKeys.has(key) || emitted[entry.scope].has(key)) continue;
+    emitted[entry.scope].add(key);
+    const group = scopedGroups[entry.scope].get(key) ?? [entry];
+    if (group.length === 1) {
+      collapsed.push(entry);
+      continue;
+    }
+    const noun = entry.scope === "creative" ? "creatives" : "ad groups";
+    const idsKey = entry.scope === "creative" ? "creativeIds" : "adGroupIds";
+    collapsed.push({
+      ...entry,
+      id: group[0]!.id,
+      field: entry.field,
+      message: `${entry.reason} (${group.length} ${noun})`,
+      reason: entry.reason,
+      [idsKey]: memberIds(group, idsKey),
+    });
   }
   return collapsed;
 }

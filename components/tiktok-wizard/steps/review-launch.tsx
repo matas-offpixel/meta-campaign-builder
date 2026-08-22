@@ -122,9 +122,14 @@ export function ReviewLaunchStep({
     blockerCount: launchSummary.blockerCount,
     alreadyLaunched,
   });
-  const launchTitle = launchDisabled
-    ? "Resolve the launch blockers above"
-    : undefined;
+  const launchTitle =
+    launch.status === "launching"
+      ? undefined
+      : !launchSummary.ok
+        ? "Resolve the launch blockers above"
+        : !writesEnabled
+          ? writesDisabledReason
+          : undefined;
   const firstLaunchBlocker = clientIssues[0]?.message;
 
   async function relaunchAsNewDraft() {
@@ -341,7 +346,7 @@ export function ReviewLaunchStep({
         </section>
       )}
 
-      {!clientPreflightOk && (
+      {!alreadyLaunched && !clientPreflightOk && (
         <section className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
           <p className="text-sm font-medium">Launch blockers</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">

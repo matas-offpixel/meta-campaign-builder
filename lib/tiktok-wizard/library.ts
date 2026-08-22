@@ -1,5 +1,6 @@
 import { nextDuplicateName } from "../duplicate-name.ts";
 import { TIKTOK_OBJECTIVE_LABELS } from "./campaign-setup.ts";
+import { suggestFreshTikTokSchedule } from "./budget-schedule.ts";
 import { applyTikTokTemplate, snapshotTikTokDraft } from "./templates.ts";
 import type { TikTokCampaignTemplate } from "./templates.ts";
 import type {
@@ -121,9 +122,10 @@ export function duplicateTikTokDraftState(
   original: TikTokCampaignDraft,
   newId: string,
   existingNames: readonly string[] = [],
+  now: Date = new Date(),
 ): TikTokCampaignDraft {
   const copy = structuredClone(original);
-  const now = new Date().toISOString();
+  const timestamp = now.toISOString();
   copy.id = newId;
   copy.status = "draft";
   copy.publishedIds = null;
@@ -132,17 +134,24 @@ export function duplicateTikTokDraftState(
     original.campaignSetup.campaignName.trim(),
     existingNames,
   );
-  // Null only the start. Step 5 heals a missing start via
-  // suggestFreshTikTokSchedule while keeping a still-valid end (the event
-  // date). Nulling the end would silently rewrite it to start + 7 days.
+  // Null the start, keep the event end, then heal here. Wizard-shell mounts
+  // one step at a time and lands on step 0, so BudgetScheduleStep's mount
+  // effect never runs if the operator goes straight to Review.
+  // Library Duplicate shares this helper — a valid future start is also
+  // rewritten to now + lead so both paths are born launchable on schedule.
   copy.budgetSchedule.scheduleStartAt = null;
   copy.budgetSchedule.adGroups = copy.budgetSchedule.adGroups.map((group) => ({
     ...group,
     startAt: null,
     endAt: null,
   }));
-  copy.createdAt = now;
-  copy.updatedAt = now;
+  const healed = suggestFreshTikTokSchedule(copy.budgetSchedule, now);
+  if (healed) {
+    copy.budgetSchedule.scheduleStartAt = healed.scheduleStartAt;
+    copy.budgetSchedule.scheduleEndAt = healed.scheduleEndAt;
+  }
+  copy.createdAt = timestamp;
+  copy.updatedAt = timestamp;
   return copy;
 }
 

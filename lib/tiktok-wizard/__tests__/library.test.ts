@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
-import { suggestFreshTikTokSchedule } from "../budget-schedule.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import {
   duplicateTikTokDraftState,
@@ -158,7 +157,7 @@ describe("duplicateTikTokDraftState", () => {
     assert.equal(original.publishedIds?.campaignId, "1874139934320802");
   });
 
-  it("nulls the start, keeps a future end, and heals to a launchable schedule", () => {
+  it("heals the start on duplicate so Review is not born blocked on schedule", () => {
     const now = new Date(2026, 7, 22, 13, 0);
     const original = createDefaultTikTokDraft("orig-launched");
     original.status = "published";
@@ -168,7 +167,8 @@ describe("duplicateTikTokDraftState", () => {
       adIds: ["ad-1"],
       launchedAt: "2026-08-22T12:00:00.000Z",
     };
-    original.accountSetup.timezone = "Europe/London";
+    original.accountSetup.timezone =
+      Intl.DateTimeFormat().resolvedOptions().timeZone;
     original.budgetSchedule.scheduleStartAt = "2026-08-22T12:50";
     original.budgetSchedule.scheduleEndAt = "2026-09-01T12:00";
     original.budgetSchedule.adGroups = [
@@ -181,37 +181,42 @@ describe("duplicateTikTokDraftState", () => {
       },
     ];
 
-    const copy = duplicateTikTokDraftState(original, "copy-fresh");
-    assert.equal(copy.budgetSchedule.scheduleStartAt, null);
+    const copy = duplicateTikTokDraftState(original, "copy-fresh", [], now);
+    assert.ok(copy.budgetSchedule.scheduleStartAt);
+    assert.notEqual(copy.budgetSchedule.scheduleStartAt, "2026-08-22T12:50");
     assert.equal(copy.budgetSchedule.scheduleEndAt, "2026-09-01T12:00");
     assert.equal(copy.budgetSchedule.adGroups[0]?.startAt, null);
     assert.equal(copy.budgetSchedule.adGroups[0]?.endAt, null);
     assert.equal(original.budgetSchedule.scheduleStartAt, "2026-08-22T12:50");
-    assert.equal(original.budgetSchedule.scheduleEndAt, "2026-09-01T12:00");
     assert.equal(original.budgetSchedule.adGroups[0]?.startAt, "2026-08-22T12:50");
 
-    const raw = collectTikTokLaunchPreflight(copy, { now });
-    assert.equal(raw.ok, false);
+    const preflight = collectTikTokLaunchPreflight(copy, { now });
     assert.equal(
-      raw.issues.some((issue) => issue.id === "schedule"),
-      true,
-    );
-    assert.equal(
-      raw.issues.some((issue) => issue.id === "schedule-start-soon"),
+      preflight.issues.some(
+        (issue) =>
+          issue.id === "schedule" ||
+          issue.id === "schedule-order" ||
+          issue.id === "schedule-start-soon",
+      ),
       false,
     );
+  });
 
-    const healed = suggestFreshTikTokSchedule(copy.budgetSchedule, now);
-    assert.ok(healed);
-    assert.equal(healed.scheduleEndAt, "2026-09-01T12:00");
-    assert.ok(healed.scheduleStartAt);
-    assert.ok(healed.scheduleStartAt < healed.scheduleEndAt);
-    copy.budgetSchedule.scheduleStartAt = healed.scheduleStartAt;
-    copy.budgetSchedule.scheduleEndAt = healed.scheduleEndAt;
-    const startAsUtc = Date.parse(`${healed.scheduleStartAt}:00Z`);
-    const preflight = collectTikTokLaunchPreflight(copy, {
-      now: new Date(startAsUtc - 2 * 60 * 60 * 1000),
-    });
+  it("heals schedule on an unpublished library Duplicate as well", () => {
+    const now = new Date(2026, 7, 22, 13, 0);
+    const original = createDefaultTikTokDraft("orig-draft");
+    original.status = "draft";
+    original.publishedIds = null;
+    original.accountSetup.timezone =
+      Intl.DateTimeFormat().resolvedOptions().timeZone;
+    original.budgetSchedule.scheduleStartAt = "2027-09-01T09:00";
+    original.budgetSchedule.scheduleEndAt = "2027-09-08T09:00";
+
+    const copy = duplicateTikTokDraftState(original, "copy-unpub", [], now);
+    assert.ok(copy.budgetSchedule.scheduleStartAt);
+    assert.notEqual(copy.budgetSchedule.scheduleStartAt, "2027-09-01T09:00");
+    assert.equal(copy.budgetSchedule.scheduleEndAt, "2027-09-08T09:00");
+    const preflight = collectTikTokLaunchPreflight(copy, { now });
     assert.equal(
       preflight.issues.some(
         (issue) =>
