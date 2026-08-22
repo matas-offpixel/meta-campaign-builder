@@ -27,6 +27,7 @@ import {
   tikTokBudgetFloorUnverified,
   tikTokWriteSchedule,
 } from "./mapping.ts";
+import type { RetiredInterestKeywordGroup } from "./interest-keywords.ts";
 import {
   TIKTOK_SCHEDULE_START_MARGIN_MS,
   formatWallClockForTikTok,
@@ -72,6 +73,7 @@ export function collectTikTokLaunchPreflight(
     existingCampaignNames?: string[];
     now?: Date;
     advertiserTimezone?: string | null;
+    retiredInterestKeywords?: RetiredInterestKeywordGroup[];
   } = {},
 ): TikTokLaunchPreflightResult {
   const issues: TikTokLaunchPreflightIssue[] = [];
@@ -451,6 +453,24 @@ export function collectTikTokLaunchPreflight(
         "hashtag-unverified",
         "interest_keyword_ids",
         "Hashtag targeting is blocked: TikTok hashtag IDs have not been verified to share a namespace with interest_keyword_ids. Remove hashtags from the audience before launch.",
+      ),
+    );
+  }
+
+  for (const retired of options.retiredInterestKeywords ?? []) {
+    if (retired.items.length === 0) continue;
+    const names = retired.items.map((item) => item.name);
+    const reason = `TikTok no longer indexes ${names.length} keyword(s) in "${retired.groupName}": ${names.join(", ")}. Remove or re-search them.`;
+    issues.push(
+      issue(
+        `interest-keyword-retired-${retired.groupId}`,
+        "interest_keyword_ids",
+        reason,
+        {
+          scope: "adgroup",
+          adGroupId: retired.adGroupId,
+          reason,
+        },
       ),
     );
   }

@@ -682,4 +682,49 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.match(locationIssues[0]!.message, /6 ad groups/);
     assert.equal(locationIssues[0]?.adGroupIds?.length, 6);
   });
+
+  it("blocks retired keyword ids and names the group plus chips", () => {
+    const draft = launchableDraft();
+    draft.audiences.interestGroups = [
+      {
+        id: "g-house",
+        name: "House",
+        interestIds: [
+          { id: "kw-live", name: "house music", kind: "keyword" },
+          { id: "kw-dead", name: "warehouse rave", kind: "keyword" },
+        ],
+        hashtagIds: [],
+        behaviourIds: [],
+      },
+    ];
+    const blocked = collectTikTokLaunchPreflight(draft, {
+      retiredInterestKeywords: [
+        {
+          groupId: "g-house",
+          groupName: "House",
+          adGroupId: "ag-house",
+          items: [{ id: "kw-dead", name: "warehouse rave" }],
+        },
+      ],
+    });
+    assert.equal(blocked.ok, false);
+    const retired = blocked.issues.find(
+      (issue) => issue.id === "interest-keyword-retired-g-house",
+    );
+    assert.ok(retired);
+    assert.equal(retired.field, "interest_keyword_ids");
+    assert.equal(retired.scope, "adgroup");
+    assert.deepEqual(retired.adGroupIds, ["ag-house"]);
+    assert.match(retired.message, /House/);
+    assert.match(retired.message, /warehouse rave/);
+    assert.doesNotMatch(retired.message, /house music/);
+
+    const clean = collectTikTokLaunchPreflight(draft, {
+      retiredInterestKeywords: [],
+    });
+    assert.equal(
+      clean.issues.some((issue) => issue.id.startsWith("interest-keyword-retired")),
+      false,
+    );
+  });
 });

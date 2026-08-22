@@ -10,11 +10,16 @@ import {
   TIKTOK_CAMPAIGN_NAME_COLLISION_STEP,
   tikTokCampaignNameCollisionMessage,
 } from "./campaign-names.ts";
+import {
+  isTikTokRetiredInterestKeywordMessage,
+  TIKTOK_RETIRED_INTEREST_KEYWORD_GUIDANCE,
+} from "./interest-keywords.ts";
 
 export type TikTokLaunchErrorKind =
   | "rate_limit"
   | "auth"
   | "name_collision"
+  | "retired_interest_keywords"
   | "other";
 
 export interface TikTokLaunchErrorMapping {
@@ -45,6 +50,14 @@ export function mapTikTokLaunchError(input: {
 }): TikTokLaunchErrorMapping {
   const requestSuffix = input.requestId ? ` (request_id ${input.requestId})` : "";
   const raw = input.message?.trim() || "TikTok write failed";
+
+  if (isTikTokRetiredInterestKeywordMessage(input.message)) {
+    return {
+      kind: "retired_interest_keywords",
+      status: 400,
+      message: `${TIKTOK_RETIRED_INTEREST_KEYWORD_GUIDANCE}${requestSuffix}`,
+    };
+  }
 
   if (isTikTokCampaignNameCollisionMessage(input.message)) {
     const name = input.campaignName?.trim();
