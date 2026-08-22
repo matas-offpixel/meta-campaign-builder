@@ -9,11 +9,13 @@ import {
   fetchTikTokHashtagsByIds,
   fetchTikTokInterestCategories,
   fetchTikTokInterestKeywordRecommendations,
+  fetchTikTokInterestKeywordsByIds,
   fetchTikTokLanguages,
   fetchTikTokRegions,
   fetchTikTokSavedAudiences,
 } from "../audience.ts";
 import { settleAudienceDimension } from "../audience-settle.ts";
+import { TikTokApiError } from "../client.ts";
 
 describe("TikTok audience read helpers", () => {
   it("maps official interest_categories rows by name and sub_category_ids", async () => {
@@ -201,6 +203,44 @@ describe("TikTok audience read helpers", () => {
       },
     });
     assert.equal(rows[0].id, "h1");
+  });
+
+  it("gets interest keywords by ids from /tool/interest_keyword/get/", async () => {
+    const ids = await fetchTikTokInterestKeywordsByIds({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      keywordIds: ["kw-live", "kw-dead"],
+      request: async <T,>(path: string, params: Record<string, unknown>): Promise<T> => {
+        assert.equal(path, "/tool/interest_keyword/get/");
+        assert.deepEqual(params.keyword_ids, ["kw-live", "kw-dead"]);
+        return {
+          interest_keywords: [{ keyword_id: "kw-live", keyword: "house" }],
+        } as T;
+      },
+    });
+    assert.deepEqual([...ids], ["kw-live"]);
+  });
+
+  it("falls back to /tool/hashtag/get/ when interest_keyword/get/ is unavailable", async () => {
+    const paths: string[] = [];
+    const ids = await fetchTikTokInterestKeywordsByIds({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      keywordIds: ["kw-1"],
+      request: async <T,>(path: string): Promise<T> => {
+        paths.push(path);
+        if (path === "/tool/interest_keyword/get/") {
+          throw new TikTokApiError("path not found", 40002, "req-1", 404);
+        }
+        assert.equal(path, "/tool/hashtag/get/");
+        return { list: [{ keyword_id: "kw-1", keyword: "house" }] } as T;
+      },
+    });
+    assert.deepEqual(paths, [
+      "/tool/interest_keyword/get/",
+      "/tool/hashtag/get/",
+    ]);
+    assert.ok(ids.has("kw-1"));
   });
 
   it("loads regions from /search/region/ and languages from /tool/language/", async () => {

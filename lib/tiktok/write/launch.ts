@@ -18,6 +18,7 @@ import type { TikTokLaunchProgress } from "./progress.ts";
 import { hydrateDraftIdentityBcId } from "../identity.ts";
 import { hydrateDraftCoverImageIds } from "./cover-image.ts";
 import { fetchAdvertiserCampaignNames } from "./campaign-names.ts";
+import { hydrateDraftInterestKeywordIds } from "./interest-keywords.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import { tiktokGet } from "../client.ts";
 import { fetchTikTokAdvertiserInfo } from "../advertiser.ts";
@@ -102,6 +103,12 @@ export async function handleTikTokLaunch(input: {
     token: credentials.accessToken,
   });
 
+  const retiredInterestKeywords = await hydrateDraftInterestKeywordIds({
+    draft,
+    token: credentials.accessToken,
+    request: input.requestGet,
+  });
+
   const coversResolved = await hydrateDraftCoverImageIds({
     draft,
     token: credentials.accessToken,
@@ -158,6 +165,7 @@ export async function handleTikTokLaunch(input: {
   const preflight = collectTikTokLaunchPreflight(draft, {
     existingCampaignNames,
     advertiserTimezone: draft.accountSetup.timezone,
+    retiredInterestKeywords,
   });
   if (!preflight.ok) {
     return {

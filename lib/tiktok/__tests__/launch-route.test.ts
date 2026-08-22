@@ -154,4 +154,16 @@ describe("mapTikTokLaunchError", () => {
       /already used on this advertiser/,
     );
   });
+
+  it("maps retired additional-interest 40002 to Audiences guidance", () => {
+    const mapped = mapTikTokLaunchError({
+      code: 40002,
+      message: "This ad group includes additional interest(s) that are no longer available",
+      requestId: "2026082222154592596C2036F897ECC37F",
+    });
+    assert.equal(mapped.kind, "retired_interest_keywords");
+    assert.equal(mapped.status, 400);
+    assert.match(mapped.message, /re-search the keyword chips/);
+    assert.match(mapped.message, /2026082222154592596C2036F897ECC37F/);
+  });
 });

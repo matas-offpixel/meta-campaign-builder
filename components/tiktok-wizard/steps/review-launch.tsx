@@ -39,6 +39,7 @@ import {
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
 import { requestTikTokReviewScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
+import { staleTikTokKeywordChips } from "@/lib/tiktok/write/interest-keywords";
 import {
   collectTikTokLaunchPreflight,
   type TikTokLaunchPreflightIssue,
@@ -500,6 +501,13 @@ export function ReviewLaunchStep({
             ...draft.audiences.languages,
           ]}
         />
+        {staleTikTokKeywordChips(draft).length > 0 && (
+          <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">
+            Some keyword interests are older than 14 days. TikTok retires
+            keyword IDs — reopen Audiences and re-search those chips before
+            launch.
+          </p>
+        )}
         {wideningNotes.length > 0 && (
           <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-warning-foreground">
             {wideningNotes.map((note) => (

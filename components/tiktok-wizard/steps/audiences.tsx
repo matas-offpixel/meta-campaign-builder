@@ -33,6 +33,10 @@ import {
   type TikTokPresetCluster,
 } from "@/lib/tiktok-wizard/genre-presets";
 import {
+  staleTikTokKeywordChips,
+  stampTikTokKeywordResolvedAt,
+} from "@/lib/tiktok/write/interest-keywords";
+import {
   addVisibleToTikTokGroup,
   removeVisibleFromTikTokGroup,
   shouldOfferTikTokCategoryBulkActions,
@@ -675,7 +679,7 @@ export function AudiencesStep({
     const exists = current.some((row) => row.id === item.id);
     const nextItems = exists
       ? current.filter((row) => row.id !== item.id)
-      : [...current, item];
+      : [...current, stampTikTokKeywordResolvedAt(item)];
     await persistGroups(
       audiencesRef.current.interestGroups.map((group) =>
         group.id === activeGroup.id ? { ...group, [key]: nextItems } : group,
@@ -693,7 +697,7 @@ export function AudiencesStep({
         audiencesRef.current.interestGroups,
         activeGroup.id,
         key,
-        items,
+        items.map((item) => stampTikTokKeywordResolvedAt(item)),
       ),
     );
   }
@@ -777,6 +781,13 @@ export function AudiencesStep({
           group, then add locations and languages.
         </p>
       </div>
+      {staleTikTokKeywordChips(draft).length > 0 && (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+          Some keyword interests were saved more than 14 days ago (or before we
+          started tracking age). TikTok retires keyword IDs — clear and
+          re-search those chips before launch.
+        </p>
+      )}
 
       {!advertiserId && (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-warning-foreground">

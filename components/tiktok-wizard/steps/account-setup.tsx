@@ -60,19 +60,12 @@ export function AccountSetupStep({
   const [identityReload, setIdentityReload] = useState(0);
   const [pixelWarning, setPixelWarning] = useState<string | null>(null);
   const [pixelApiFailed, setPixelApiFailed] = useState(false);
-  const [manualIdentityId, setManualIdentityId] = useState(
-    draft.accountSetup.identityId ?? "",
-  );
   const [manualIdentityType, setManualIdentityType] = useState<
     TikTokIdentityType | ""
   >(
-    draft.accountSetup.identityType &&
-      draft.accountSetup.identityType !== "MANUAL"
+    isListedIdentityType(draft.accountSetup.identityType)
       ? draft.accountSetup.identityType
       : "",
-  );
-  const [manualIdentityName, setManualIdentityName] = useState(
-    draft.accountSetup.identityManualName ?? "",
   );
   const [manualPixelId, setManualPixelId] = useState(
     draft.accountSetup.pixelId ?? "",
@@ -249,9 +242,7 @@ export function AccountSetupStep({
       optimisationEvent: null,
       currency: null,
     });
-    setManualIdentityId("");
     setManualIdentityType("");
-    setManualIdentityName("");
   }
 
   async function saveIdentity(identityId: string) {
@@ -267,15 +258,7 @@ export function AccountSetupStep({
       identityBcId: identity?.identity_bc_id?.trim() || null,
       identityType: resolvedType,
     });
-    if (resolvedType) {
-      setManualIdentityId("");
-      setManualIdentityType("");
-      setManualIdentityName("");
-      return;
-    }
-    setManualIdentityId(identity?.identity_id ?? "");
     setManualIdentityType("");
-    setManualIdentityName("");
   }
 
   async function saveIdentityType(nextType: TikTokIdentityType | "") {
@@ -310,24 +293,6 @@ export function AccountSetupStep({
       pixelId: value || null,
       pixelName: value ? `Manual pixel ${value}` : null,
       optimisationEvent: null,
-    });
-  }
-
-  async function saveManualIdentity() {
-    const identityId = manualIdentityId.trim();
-    const displayName = manualIdentityName.trim();
-    if (!identityId || !manualIdentityType) {
-      setSaveError(
-        "A manual identity requires a valid TikTok identity ID and type (AUTH_CODE, BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER).",
-      );
-      return;
-    }
-    await persist({
-      identityId,
-      identityDisplayName: displayName || identityId,
-      identityManualName: displayName || identityId,
-      identityBcId: null,
-      identityType: manualIdentityType,
     });
   }
 
@@ -400,8 +365,7 @@ export function AccountSetupStep({
         </p>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
+      <div className="space-y-2">
           <Select
             id="tiktok-identity"
             label="TikTok identity"
@@ -415,54 +379,36 @@ export function AccountSetupStep({
             }))}
           />
           {selectedIdentityNeedsType && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">
-              TikTok did not report a type for this identity. Pick AUTH_CODE,
-              BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER from the type select
-              before continuing.
-            </p>
+            <>
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                TikTok did not report a type for this identity. Pick AUTH_CODE,
+                BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER before continuing.
+              </p>
+              <Select
+                id="tiktok-identity-type"
+                label="Identity type"
+                value={manualIdentityType}
+                onChange={(event) =>
+                  void saveIdentityType(event.target.value as TikTokIdentityType | "")
+                }
+                disabled={!draft.accountSetup.advertiserId || saving}
+                placeholder="Select identity type"
+                options={MANUAL_IDENTITY_TYPES.map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
+            </>
           )}
-        </div>
-        <div className="space-y-2">
-          <Input
-            id="tiktok-manual-identity-id"
-            label="Manual identity ID"
-            value={manualIdentityId}
-            onChange={(event) => setManualIdentityId(event.target.value)}
-            placeholder="TikTok identity_id"
-            disabled={!draft.accountSetup.advertiserId || saving}
-          />
-          <Select
-            id="tiktok-manual-identity-type"
-            label="Manual identity type"
-            value={manualIdentityType}
-            onChange={(event) =>
-              void saveIdentityType(event.target.value as TikTokIdentityType | "")
-            }
-            disabled={!draft.accountSetup.advertiserId || saving}
-            placeholder="Select identity type"
-            options={MANUAL_IDENTITY_TYPES.map((value) => ({
-              value,
-              label: value,
-            }))}
-          />
-          <Input
-            id="tiktok-manual-identity-name"
-            label="Manual display name"
-            value={manualIdentityName}
-            onChange={(event) => setManualIdentityName(event.target.value)}
-            placeholder="Optional display name"
-            disabled={!draft.accountSetup.advertiserId || saving}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void saveManualIdentity()}
-            disabled={!draft.accountSetup.advertiserId || saving}
-          >
-            Save manual identity
-          </Button>
-        </div>
+          {!loadingDetails &&
+            draft.accountSetup.advertiserId &&
+            identities.length === 0 &&
+            !identityFailed && (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                No identities came back from TikTok. Fix access in Business
+                Center, then retry — do not type an identity ID.
+              </p>
+            )}
       </div>
 
       {identityFailed && identityWarning && (
@@ -585,7 +531,7 @@ export function AccountSetupStep({
 }
 
 function isListedIdentityType(
-  value: TikTokIdentityType | "MANUAL" | null | undefined,
+  value: TikTokIdentityType | null | undefined,
 ): value is TikTokIdentityType {
   return MANUAL_IDENTITY_TYPES.includes(value as TikTokIdentityType);
 }
