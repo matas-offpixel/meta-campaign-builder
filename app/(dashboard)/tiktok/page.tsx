@@ -16,11 +16,9 @@ export default async function TikTokIndexPage() {
   if (!user) redirect("/login");
 
   const drafts = await listTikTokDrafts(supabase, { userId: user.id });
-  const clientIds = unique(drafts.map((draft) => draft.clientId).filter(isString));
-  const eventIds = unique(drafts.map((draft) => draft.eventId).filter(isString));
   const [clientsById, eventsById] = await Promise.all([
-    readClients(supabase, clientIds),
-    readEvents(supabase, eventIds),
+    readAllClients(supabase, user.id),
+    readAllEvents(supabase, user.id),
   ]);
 
   return (
@@ -51,38 +49,30 @@ export default async function TikTokIndexPage() {
   );
 }
 
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function isString(value: string | null): value is string {
-  return Boolean(value);
-}
-
-async function readClients(
+async function readAllClients(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  ids: string[],
+  userId: string,
 ): Promise<Record<string, { id: string; name: string }>> {
-  if (ids.length === 0) return {};
   const { data, error } = await supabase
     .from("clients")
     .select("id, name")
-    .in("id", ids);
+    .eq("user_id", userId)
+    .order("name", { ascending: true });
   if (error) return {};
   return Object.fromEntries(
     ((data ?? []) as { id: string; name: string }[]).map((row) => [row.id, row]),
   );
 }
 
-async function readEvents(
+async function readAllEvents(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  ids: string[],
+  userId: string,
 ): Promise<Record<string, { id: string; name: string; client_id: string }>> {
-  if (ids.length === 0) return {};
   const { data, error } = await supabase
     .from("events")
     .select("id, name, client_id")
-    .in("id", ids);
+    .eq("user_id", userId)
+    .order("event_date", { ascending: false });
   if (error) return {};
   return Object.fromEntries(
     ((data ?? []) as { id: string; name: string; client_id: string }[]).map((row) => [

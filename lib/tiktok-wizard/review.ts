@@ -161,3 +161,49 @@ function check(
     detail: ok ? detail : "Needs attention",
   };
 }
+
+/** Same source as the Launch button's client-resolvable preflight gate. */
+export function tikTokLaunchReviewSummary(
+  blockingIssues: readonly unknown[],
+): { ok: boolean; blockerCount: number } {
+  return {
+    ok: blockingIssues.length === 0,
+    blockerCount: blockingIssues.length,
+  };
+}
+
+/**
+ * Chip pass/fail matches `launchDisabled`. Killswitch, launch-in-flight,
+ * and blockers each get a distinct non-green label.
+ */
+export function tikTokReviewValidationChip(input: {
+  launchDisabled: boolean;
+  writesEnabled: boolean;
+  writesDisabledReason: string;
+  launching: boolean;
+  blockerCount: number;
+}): { pass: boolean; message: string } {
+  const pass = !input.launchDisabled;
+  if (input.launching) {
+    return { pass, message: "Launching…" };
+  }
+  const blockers =
+    input.blockerCount > 0
+      ? `${input.blockerCount} launch blocker${
+          input.blockerCount === 1 ? "" : "s"
+        }`
+      : null;
+  if (blockers && !input.writesEnabled) {
+    return {
+      pass,
+      message: `${blockers} · ${input.writesDisabledReason}`,
+    };
+  }
+  if (blockers) {
+    return { pass, message: blockers };
+  }
+  if (!input.writesEnabled) {
+    return { pass, message: input.writesDisabledReason };
+  }
+  return { pass, message: "all checks pass" };
+}

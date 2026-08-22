@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
+import { listClients } from "@/lib/db/clients";
 import {
   deleteTikTokTemplateFromDb,
   loadTikTokTemplatesFromDb,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/tiktok-wizard/migrate-draft";
 import {
   applyTikTokTemplate,
+  consumeTikTokTemplateAccountNotice,
   type TikTokCampaignTemplate,
 } from "@/lib/tiktok-wizard/templates";
 import type { TikTokIdentity } from "@/lib/tiktok/identity";
@@ -71,8 +73,14 @@ export function TikTokWizardShell({
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
+  const [templateClientNameById, setTemplateClientNameById] = useState<
+    Record<string, string>
+  >({});
   const [identityBcIdResolution, setIdentityBcIdResolution] =
     useState<TikTokIdentityBcIdResolution>("idle");
+  const [templateAccountNotice, setTemplateAccountNotice] = useState<
+    string | null
+  >(() => consumeTikTokTemplateAccountNotice(draft.id));
   const identityHealStarted = useRef(false);
   const CurrentStep = useMemo(
     () => STEP_COMPONENTS[step] ?? AccountSetupStep,
@@ -195,7 +203,14 @@ export function TikTokWizardShell({
     if (!userId) return;
     setTemplatesLoading(true);
     try {
-      setTemplates(await loadTikTokTemplatesFromDb(userId));
+      const [fetched, clients] = await Promise.all([
+        loadTikTokTemplatesFromDb(userId),
+        listClients(userId),
+      ]);
+      setTemplates(fetched);
+      setTemplateClientNameById(
+        Object.fromEntries(clients.map((client) => [client.id, client.name])),
+      );
     } catch (err) {
       console.warn("Failed to fetch TikTok templates:", err);
     } finally {
@@ -205,7 +220,19 @@ export function TikTokWizardShell({
 
   async function handleLoadTemplate(template: TikTokCampaignTemplate) {
     const previous = workingDraftRef.current;
-    const next = applyTikTokTemplate(template, previous.id);
+    const applied = applyTikTokTemplate(
+      template,
+      previous.id,
+      previous.clientId,
+      previous.eventId,
+    );
+    const next = {
+      ...applied.draft,
+      campaignSetup: {
+        ...applied.draft.campaignSetup,
+        eventCode: previous.campaignSetup.eventCode,
+      },
+    };
     setWorkingDraft(next);
     workingDraftRef.current = next;
     try {
@@ -213,6 +240,7 @@ export function TikTokWizardShell({
       setStep(0);
       setLoadTemplateOpen(false);
       setSaveError(null);
+      setTemplateAccountNotice(applied.accountNotice);
     } catch (err) {
       workingDraftRef.current = previous;
       setWorkingDraft(previous);
@@ -272,6 +300,11 @@ export function TikTokWizardShell({
         </ol>
 
         <section className="rounded-lg border border-border bg-card p-6">
+          {templateAccountNotice && (
+            <p className="mb-6 rounded-md border border-border bg-muted/40 p-3 text-sm">
+              {templateAccountNotice}
+            </p>
+          )}
           <StepValidationMessages issues={currentIssues} />
           <CurrentStep
             draft={workingDraft}
@@ -317,6 +350,7 @@ export function TikTokWizardShell({
       <TikTokLoadTemplateModal
         open={loadTemplateOpen}
         templates={templates}
+        clientNameById={templateClientNameById}
         loading={templatesLoading}
         deletingId={deletingTemplateId}
         onClose={() => setLoadTemplateOpen(false)}

@@ -45,7 +45,11 @@ import {
   type TikTokLibraryDraftRow,
   type TikTokLibraryTab,
 } from "@/lib/tiktok-wizard/library";
-import type { TikTokCampaignTemplate } from "@/lib/tiktok-wizard/templates";
+import {
+  storeTikTokTemplateAccountNotice,
+  tikTokTemplateClientLabel,
+  type TikTokCampaignTemplate,
+} from "@/lib/tiktok-wizard/templates";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 interface NamedRef {
@@ -209,8 +213,19 @@ export function TikTokCampaignLibrary({
     }
   };
 
-  const handleLoadTemplate = async (template: TikTokCampaignTemplate) => {
-    const draft = startTikTokDraftFromTemplate(template, crypto.randomUUID());
+  const handleLoadTemplate = async (
+    template: TikTokCampaignTemplate,
+    targetClientId: string,
+    targetEventId: string,
+  ) => {
+    const applied = startTikTokDraftFromTemplate(
+      template,
+      crypto.randomUUID(),
+      targetClientId,
+      targetEventId,
+    );
+    const draft = applied.draft;
+    storeTikTokTemplateAccountNotice(draft.id, applied.accountNotice);
     const supabase = createClient();
     await upsertTikTokDraft(supabase, draft.id, { ...draft, userId });
     router.push(`/tiktok-campaign/${draft.id}`);
@@ -316,7 +331,11 @@ export function TikTokCampaignLibrary({
               <TemplateRow
                 key={template.id}
                 template={template}
-                onLoad={(next) => void handleLoadTemplate(next)}
+                clientsById={clientsById}
+                eventsById={eventsById}
+                onLoad={(next, clientId, eventId) =>
+                  void handleLoadTemplate(next, clientId, eventId)
+                }
                 onDelete={(id) => void handleDeleteTemplate(id)}
               />
             ))}
@@ -491,19 +510,43 @@ function CampaignRow({
 
 function TemplateRow({
   template,
+  clientsById,
+  eventsById,
   onLoad,
   onDelete,
 }: {
   template: TikTokCampaignTemplate;
-  onLoad: (template: TikTokCampaignTemplate) => void;
+  clientsById: Record<string, NamedRef>;
+  eventsById: Record<string, EventRef>;
+  onLoad: (
+    template: TikTokCampaignTemplate,
+    clientId: string,
+    eventId: string,
+  ) => void;
   onDelete: (id: string) => void;
 }) {
   const [confirmDel, setConfirmDel] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const snapshotClientId = template.snapshot.clientId ?? "";
+  const snapshotEventId = template.snapshot.eventId ?? "";
+  const [targetClientId, setTargetClientId] = useState(snapshotClientId);
+  const [targetEventId, setTargetEventId] = useState(snapshotEventId);
   const objective = template.snapshot.campaignSetup.objective
     ? TIKTOK_OBJECTIVE_LABELS[template.snapshot.campaignSetup.objective]
     : "—";
   const groupCount = template.snapshot.audiences.interestGroups.length;
   const creativeCount = template.snapshot.creatives.items.length;
+  const savedClientName = tikTokTemplateClientLabel(
+    template.snapshot.clientId,
+    template.snapshot.clientId
+      ? (clientsById[template.snapshot.clientId]?.name ?? null)
+      : null,
+  );
+  const clientOptions = Object.values(clientsById);
+  const eventOptions = Object.values(eventsById).filter(
+    (event) => !targetClientId || event.client_id === targetClientId,
+  );
+  const canCreate = Boolean(targetClientId && targetEventId);
 
   return (
     <div className="group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong">
@@ -517,6 +560,7 @@ function TemplateRow({
           )}
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{objective}</span>
+            <span>Saved for {savedClientName}</span>
             <span>
               {groupCount} interest group{groupCount !== 1 ? "s" : ""}
             </span>
@@ -560,9 +604,55 @@ function TemplateRow({
                 Cancel
               </Button>
             </div>
+          ) : picking ? (
+            <div className="w-64 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Pick a client and event before creating the draft. This template
+                was saved for {savedClientName}.
+              </p>
+              <FilterSelect
+                label="Client"
+                value={targetClientId}
+                onChange={(next) => {
+                  setTargetClientId(next);
+                  setTargetEventId("");
+                }}
+                emptyLabel="Select a client"
+                options={clientOptions.map((client) => ({
+                  value: client.id,
+                  label: client.name,
+                }))}
+              />
+              <FilterSelect
+                label="Event"
+                value={targetEventId}
+                onChange={setTargetEventId}
+                emptyLabel="Select an event"
+                options={eventOptions.map((event) => ({
+                  value: event.id,
+                  label: event.name,
+                }))}
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  disabled={!canCreate}
+                  onClick={() => {
+                    if (!canCreate) return;
+                    onLoad(template, targetClientId, targetEventId);
+                    setPicking(false);
+                  }}
+                >
+                  Create draft
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setPicking(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
           ) : (
             <>
-              <Button size="sm" onClick={() => onLoad(template)}>
+              <Button size="sm" onClick={() => setPicking(true)}>
                 <FolderOpen className="h-3.5 w-3.5" />
                 Use Template
               </Button>
@@ -624,11 +714,13 @@ function FilterSelect({
   value,
   onChange,
   options,
+  emptyLabel = "All",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
+  emptyLabel?: string;
 }) {
   return (
     <label className="space-y-1 text-sm">
@@ -638,7 +730,7 @@ function FilterSelect({
         onChange={(event) => onChange(event.target.value)}
         className="h-9 w-full rounded-md border border-border-strong bg-background px-3 text-sm"
       >
-        <option value="">All</option>
+        <option value="">{emptyLabel}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

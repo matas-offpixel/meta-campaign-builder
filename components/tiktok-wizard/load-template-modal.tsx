@@ -4,11 +4,15 @@ import { useMemo, useState } from "react";
 import { Clock, FileText, Search, Tag, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { TikTokCampaignTemplate } from "@/lib/tiktok-wizard/templates";
+import {
+  tikTokTemplateClientLabel,
+  type TikTokCampaignTemplate,
+} from "@/lib/tiktok-wizard/templates";
 
 interface TikTokLoadTemplateModalProps {
   open: boolean;
   templates: TikTokCampaignTemplate[];
+  clientNameById?: Record<string, string>;
   loading?: boolean;
   deletingId?: string | null;
   onClose: () => void;
@@ -35,6 +39,7 @@ export function TikTokLoadTemplateModal(props: TikTokLoadTemplateModalProps) {
 
 function TikTokLoadTemplateModalBody({
   templates,
+  clientNameById = {},
   loading = false,
   deletingId = null,
   onClose,
@@ -128,6 +133,15 @@ function TikTokLoadTemplateModalBody({
                         <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
                           <span className="font-medium text-foreground">
                             {template.snapshot.campaignSetup.objective ?? "No objective"}
+                          </span>
+                          <span>
+                            Saved for{" "}
+                            {tikTokTemplateClientLabel(
+                              template.snapshot.clientId,
+                              template.snapshot.clientId
+                                ? (clientNameById[template.snapshot.clientId] ?? null)
+                                : null,
+                            )}
                           </span>
                           <span>
                             {groupCount} group{groupCount !== 1 ? "s" : ""}

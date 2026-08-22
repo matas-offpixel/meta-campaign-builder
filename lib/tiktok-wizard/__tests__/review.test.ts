@@ -7,7 +7,11 @@ import {
   everyCreativeAssigned,
   hasAnyTargeting,
   suggestTikTokAdGroups,
+  tikTokLaunchReviewSummary,
+  tikTokReviewValidationChip,
 } from "../review.ts";
+import { TIKTOK_WRITES_DISABLED_REASON } from "../../tiktok/write/feature-flag.ts";
+import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 
 describe("TikTok review helpers", () => {
@@ -173,5 +177,85 @@ describe("TikTok review helpers", () => {
         "green",
       ],
     );
+  });
+});
+
+describe("tikTokLaunchReviewSummary", () => {
+  it("is not ok whenever any blocking issue exists", () => {
+    const empty = tikTokLaunchReviewSummary([]);
+    assert.equal(empty.ok, true);
+    assert.equal(empty.blockerCount, 0);
+
+    const issues = [{ id: "missing-identity" }, { id: "missing-schedule" }];
+    const summary = tikTokLaunchReviewSummary(issues);
+    assert.equal(summary.ok, false);
+    assert.equal(summary.blockerCount, issues.length);
+    assert.equal(summary.ok === false && issues.length > 0, true);
+  });
+});
+
+describe("tikTokReviewValidationChip", () => {
+  it("fails when the only launch issue is a missing bid strategy", () => {
+    const draft = createDefaultTikTokDraft("draft-bid");
+    const bidIssues = collectTikTokLaunchPreflight(draft).issues.filter(
+      (issue) => issue.id === "bid-strategy",
+    );
+    assert.equal(bidIssues.length, 1);
+    const summary = tikTokLaunchReviewSummary(bidIssues);
+    assert.equal(summary.ok, false);
+    assert.equal(summary.ok === false && bidIssues.length > 0, true);
+    const chip = tikTokReviewValidationChip({
+      launchDisabled: !summary.ok,
+      writesEnabled: true,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: summary.blockerCount,
+    });
+    assert.equal(chip.pass, false);
+  });
+
+  it("is not passing whenever launch is disabled, including the killswitch", () => {
+    const blockers = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: true,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 14,
+    });
+    assert.equal(blockers.pass, false);
+    assert.match(blockers.message, /14/);
+
+    const killswitch = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: false,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 0,
+    });
+    assert.equal(killswitch.pass, false);
+    assert.equal(killswitch.message, TIKTOK_WRITES_DISABLED_REASON);
+
+    const killswitchWithBlockers = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: false,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 3,
+    });
+    assert.equal(killswitchWithBlockers.pass, false);
+    assert.match(killswitchWithBlockers.message, /3 launch blockers/);
+    assert.ok(
+      killswitchWithBlockers.message.includes(TIKTOK_WRITES_DISABLED_REASON),
+    );
+
+    const ready = tikTokReviewValidationChip({
+      launchDisabled: false,
+      writesEnabled: true,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 0,
+    });
+    assert.equal(ready.pass, true);
+    assert.equal(ready.message, "all checks pass");
   });
 });
