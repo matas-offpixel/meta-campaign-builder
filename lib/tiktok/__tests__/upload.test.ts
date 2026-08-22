@@ -268,9 +268,20 @@ describe("uploadTikTokAdVideo", () => {
             timeoutMs: 20,
             transport: async (request) =>
               new Promise((_, reject) => {
-                request.signal.addEventListener("abort", () => {
-                  reject(new DOMException("The operation was aborted.", "AbortError"));
-                });
+                // AbortSignal.timeout() is unref'd. On Node 22 the worker
+                // treats the loop as empty and cancels this test (and the
+                // rest of the file) with "event loop has already resolved".
+                let settled = false;
+                const fail = () => {
+                  if (settled) return;
+                  settled = true;
+                  clearTimeout(keepAlive);
+                  reject(
+                    new DOMException("The operation was aborted.", "AbortError"),
+                  );
+                };
+                const keepAlive = setTimeout(fail, 25);
+                request.signal.addEventListener("abort", fail, { once: true });
               }),
             sleep: async () => {},
           }),
