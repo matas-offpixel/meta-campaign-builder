@@ -38,13 +38,13 @@
  * Manchester WC26 bugs without a new table or cron job.
  */
 
-import type { WeeklyTicketSnapshotRow } from "@/lib/db/client-portal-server";
-import type { TierChannelDailyHistoryRow } from "@/lib/db/tier-channel-daily-history";
-import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
+import type { WeeklyTicketSnapshotRow } from "../db/client-portal-server.ts";
+import type { TierChannelDailyHistoryRow } from "../db/tier-channel-daily-history.ts";
+import type { TrendChartPoint } from "./trend-chart-data.ts";
 import {
   collapseSnapshotsToOnePerDay,
   type MailchimpSnapshotRow,
-} from "@/lib/mailchimp/compute-registrations";
+} from "../mailchimp/compute-registrations.ts";
 
 /**
  * Per-event SUM of `tier_channel_sales.tickets_sold` (and revenue).
