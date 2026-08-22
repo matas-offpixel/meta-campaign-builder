@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import {
   duplicateTikTokDraftState,
@@ -154,6 +155,36 @@ describe("duplicateTikTokDraftState", () => {
     assert.equal(original.audiences.interestGroups[0]?.name, "London");
     assert.equal(original.status, "published");
     assert.equal(original.publishedIds?.campaignId, "1874139934320802");
+  });
+
+  it("does not inherit a past or soon start that would fail schedule-start-soon", () => {
+    const now = new Date("2026-08-22T13:00:00.000Z");
+    const original = createDefaultTikTokDraft("orig-launched");
+    original.status = "published";
+    original.publishedIds = {
+      campaignId: "1874139934320802",
+      adgroupIds: ["ag-1"],
+      adIds: ["ad-1"],
+      launchedAt: "2026-08-22T12:00:00.000Z",
+    };
+    original.accountSetup.timezone = "Europe/London";
+    original.budgetSchedule.scheduleStartAt = "2026-08-22T12:50";
+    original.budgetSchedule.scheduleEndAt = "2026-09-01T12:00";
+
+    const copy = duplicateTikTokDraftState(original, "copy-fresh");
+    assert.equal(copy.budgetSchedule.scheduleStartAt, null);
+    assert.equal(copy.budgetSchedule.scheduleEndAt, null);
+
+    const preflight = collectTikTokLaunchPreflight(copy, { now });
+    assert.equal(
+      preflight.issues.some(
+        (issue) =>
+          issue.id === "schedule-start-soon" ||
+          issue.field === "schedule_start_time",
+      ),
+      false,
+    );
+    assert.equal(original.budgetSchedule.scheduleStartAt, "2026-08-22T12:50");
   });
 });
 

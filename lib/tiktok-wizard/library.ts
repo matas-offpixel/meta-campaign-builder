@@ -132,6 +132,11 @@ export function duplicateTikTokDraftState(
     original.campaignSetup.campaignName.trim(),
     existingNames,
   );
+  // Same treatment as snapshotTikTokDraft / applyTikTokTemplate: a copied
+  // start is already in the past (or inside the 15-minute launch margin),
+  // so inheriting it would immediately fail schedule-start-soon.
+  copy.budgetSchedule.scheduleStartAt = null;
+  copy.budgetSchedule.scheduleEndAt = null;
   copy.createdAt = now;
   copy.updatedAt = now;
   return copy;

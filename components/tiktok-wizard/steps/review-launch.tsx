@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { TikTokLaunchPanel } from "@/components/tiktok-wizard/launch-panel";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
+import { duplicateTikTokDraft } from "@/lib/db/tiktok-drafts";
+import { createClient } from "@/lib/supabase/client";
 import { buildTikTokAdsManagerUrl } from "@/lib/tiktok/ads-manager-url";
 import {
   applyTikTokLaunchProgress,
@@ -76,7 +79,10 @@ export function ReviewLaunchStep({
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   context?: TikTokWizardContext;
 }) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
+  const [relaunching, setRelaunching] = useState(false);
+  const [relaunchError, setRelaunchError] = useState<string | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
   const [launch, setLaunch] = useState<LaunchState>(() =>
     launchStateFromDraft(draft),
@@ -103,6 +109,7 @@ export function ReviewLaunchStep({
   const writesEnabled = context?.writesEnabled === true;
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
+  const alreadyLaunched = Boolean(draft.publishedIds);
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
@@ -119,6 +126,37 @@ export function ReviewLaunchStep({
     : !launchSummary.ok
       ? clientIssues.map((issue) => issue.message).join(" · ")
       : undefined;
+  const firstLaunchBlocker = !writesEnabled
+    ? writesDisabledReason
+    : clientIssues[0]?.message;
+
+  async function relaunchAsNewDraft() {
+    if (relaunching) return;
+    setRelaunching(true);
+    setRelaunchError(null);
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setRelaunchError("Not signed in");
+        return;
+      }
+      const copy = await duplicateTikTokDraft(supabase, draft.id, user.id);
+      if (!copy) {
+        setRelaunchError("Could not duplicate this draft");
+        return;
+      }
+      router.push(`/tiktok-campaign/${copy.id}`);
+    } catch (err) {
+      setRelaunchError(
+        err instanceof Error ? err.message : "Could not duplicate this draft",
+      );
+    } finally {
+      setRelaunching(false);
+    }
+  }
 
   async function markReviewReady() {
     setSaving(true);
@@ -525,14 +563,26 @@ export function ReviewLaunchStep({
 
       <div className="space-y-2">
         <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            disabled={launchDisabled}
-            title={launchTitle}
-            onClick={() => void launchOnTikTok()}
-          >
-            {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
-          </Button>
+          {alreadyLaunched ? (
+            <Button
+              type="button"
+              disabled={relaunching}
+              onClick={() => void relaunchAsNewDraft()}
+            >
+              {relaunching
+                ? "Duplicating…"
+                : "Already launched — Relaunch as a new draft"}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              disabled={launchDisabled}
+              title={launchTitle}
+              onClick={() => void launchOnTikTok()}
+            >
+              {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
+            </Button>
+          )}
           <Button type="button" variant="outline" onClick={downloadBrief}>
             Download as brief (Markdown)
           </Button>
@@ -545,7 +595,13 @@ export function ReviewLaunchStep({
             Mark review ready
           </Button>
         </div>
-        {!writesEnabled && (
+        {!alreadyLaunched && firstLaunchBlocker ? (
+          <p className="text-sm text-red-700">{firstLaunchBlocker}</p>
+        ) : null}
+        {relaunchError ? (
+          <p className="text-sm text-red-700">{relaunchError}</p>
+        ) : null}
+        {!alreadyLaunched && !writesEnabled && (
           <p className="text-sm text-muted-foreground">
             TikTok launches are behind a killswitch that is intentionally off.
             Download as brief / Mark review ready are the available actions.
