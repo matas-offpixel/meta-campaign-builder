@@ -165,6 +165,25 @@ export function applyTikTokScheduleHeal(
   };
 }
 
+/**
+ * One-shot Review/Step-5 heal. Set `attempted.current` before saving so a
+ * failed persist or a DST round-trip that still reads stale cannot hammer
+ * onSave on every shell re-render.
+ */
+export function requestTikTokReviewScheduleHeal(input: {
+  alreadyLaunched: boolean;
+  attempted: { current: boolean };
+  draft: TikTokCampaignDraft;
+  now?: Date;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+}): Promise<void> | undefined {
+  if (input.alreadyLaunched || input.attempted.current) return;
+  const healed = applyTikTokScheduleHeal(input.draft, input.now);
+  if (!healed) return;
+  input.attempted.current = true;
+  return input.onSave({ budgetSchedule: healed.budgetSchedule }).catch(() => {});
+}
+
 function isStaleDatetimeLocal(
   value: string | null,
   now: Date,

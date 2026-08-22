@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   applySmartPlusDefaults,
   parseOptionalMoney,
+  requestTikTokReviewScheduleHeal,
   suggestFreshTikTokSchedule,
   validateBudgetGuardrails,
 } from "../budget-schedule.ts";
@@ -102,6 +103,46 @@ describe("suggestFreshTikTokSchedule", () => {
     assert.ok(healed);
     assert.equal(healed.scheduleStartAt, "2026-08-22T13:30");
     assert.equal(healed.scheduleEndAt, "2026-09-01T12:00");
+  });
+});
+
+describe("requestTikTokReviewScheduleHeal", () => {
+  it("attempts onSave exactly once when persist fails", async () => {
+    const now = new Date("2026-08-22T12:00:00.000Z");
+    const draft = createDefaultTikTokDraft("draft-heal-once");
+    draft.budgetSchedule.scheduleStartAt = "2026-08-20T10:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-09-01T10:00";
+    const attempted = { current: false };
+    let saves = 0;
+    const onSave = async () => {
+      saves += 1;
+      throw new Error("offline");
+    };
+
+    await requestTikTokReviewScheduleHeal({
+      alreadyLaunched: false,
+      attempted,
+      draft,
+      now,
+      onSave,
+    });
+    await requestTikTokReviewScheduleHeal({
+      alreadyLaunched: false,
+      attempted,
+      draft,
+      now,
+      onSave,
+    });
+    await requestTikTokReviewScheduleHeal({
+      alreadyLaunched: false,
+      attempted,
+      draft,
+      now,
+      onSave,
+    });
+
+    assert.equal(saves, 1);
+    assert.equal(attempted.current, true);
   });
 });
 

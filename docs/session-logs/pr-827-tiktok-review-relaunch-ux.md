@@ -12,10 +12,10 @@ Published TikTok drafts only offered a disabled Launch button on Review. Review 
 
 ## Scope / files
 
-- `lib/tiktok-wizard/budget-schedule.ts` — stale = `< now + margin`; heal wall clock in advertiser TZ; `applyTikTokScheduleHeal`
+- `lib/tiktok-wizard/budget-schedule.ts` — stale = `< now + margin`; heal wall clock in advertiser TZ; `applyTikTokScheduleHeal`; one-shot `requestTikTokReviewScheduleHeal`
 - `lib/tiktok/write/schedule-time.ts` — `formatDatetimeLocalInTimeZone`
 - `lib/tiktok-wizard/library.ts` — heal only when the original start is stale; keep a valid future start
-- `components/tiktok-wizard/steps/review-launch.tsx` — Review-mount heal; hide leftover surfaces on published drafts; member names on collapsed blockers; copy `readWorkingDraft()`
+- `components/tiktok-wizard/steps/review-launch.tsx` — Review-mount heal is one-shot (`healedSchedule` ref before save); hide leftover surfaces on published drafts including Launch warnings and the chip's Wizard validation; member names on collapsed blockers; copy `readWorkingDraft()`
 - `components/tiktok-wizard/wizard-shell.tsx` — `readWorkingDraft`
 - `components/tiktok-wizard/steps/budget-schedule.tsx` — pass advertiser timezone into the Step 5 heal
 - tests in `library.test.ts`, `budget-schedule.test.ts`
@@ -30,5 +30,6 @@ Published TikTok drafts only offered a disabled Launch button on Review. Review 
 ## Notes
 
 - Stale start is the same gate as launch preflight (`now + TIKTOK_SCHEDULE_START_MARGIN_MS`) in `accountSetup.timezone`.
+- Review heal sets `attempted.current` before `onSave` and swallows persist errors so a failed save or DST round-trip cannot loop.
 - Duplicate at T0 + Review heal at T0+20m is covered so the 15-minute dead zone cannot come back.
 - Tests pin `Pacific/Auckland` (or `Atlantic/Azores` if the runtime already is Auckland), not `Intl.DateTimeFormat().resolvedOptions().timeZone`.

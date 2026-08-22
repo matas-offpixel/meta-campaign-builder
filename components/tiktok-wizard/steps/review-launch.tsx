@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,7 @@ import {
   readTikTokLaunchStream,
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
-import { applyTikTokScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
+import { requestTikTokReviewScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
 import {
   collectTikTokLaunchPreflight,
   type TikTokLaunchPreflightIssue,
@@ -138,12 +138,15 @@ export function ReviewLaunchStep({
           ? writesDisabledReason
           : undefined;
   const firstLaunchBlocker = clientIssues[0]?.message;
+  const healedSchedule = useRef(false);
 
   useEffect(() => {
-    if (alreadyLaunched) return;
-    const healed = applyTikTokScheduleHeal(draft);
-    if (!healed) return;
-    void onSave({ budgetSchedule: healed.budgetSchedule });
+    requestTikTokReviewScheduleHeal({
+      alreadyLaunched,
+      attempted: healedSchedule,
+      draft,
+      onSave,
+    });
   }, [alreadyLaunched, draft, onSave]);
 
   async function relaunchAsNewDraft() {
@@ -299,6 +302,7 @@ export function ReviewLaunchStep({
             )}
           </div>
           )}
+          {!alreadyLaunched && (
           <div>
             <p className="text-sm font-medium">Wizard validation</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -319,6 +323,7 @@ export function ReviewLaunchStep({
               </ul>
             )}
           </div>
+          )}
         </div>
       )}
 
@@ -380,7 +385,7 @@ export function ReviewLaunchStep({
         </section>
       )}
 
-      {launchPreflight.warnings.length > 0 && (
+      {!alreadyLaunched && launchPreflight.warnings.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
           <p className="text-sm font-medium">Launch warnings</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
