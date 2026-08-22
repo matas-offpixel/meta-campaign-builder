@@ -139,7 +139,13 @@ describe("TikTok audience read helpers", () => {
   });
 
   it("extracts keyword recommendations from each plausible key", async () => {
-    for (const key of ["list", "keywords", "interest_keywords", "recommend_list"]) {
+    for (const key of [
+      "list",
+      "keywords",
+      "keyword_list",
+      "interest_keywords",
+      "recommend_list",
+    ]) {
       const rows = await fetchTikTokInterestKeywordRecommendations({
         advertiserId: "advertiser-1",
         token: "token-1",
@@ -217,6 +223,19 @@ describe("TikTok audience read helpers", () => {
           interest_keywords: [{ keyword_id: "kw-live", keyword: "house" }],
         } as T;
       },
+    });
+    assert.deepEqual([...ids], ["kw-live"]);
+  });
+
+  it("maps /tool/interest_keyword/get/ rows from keyword_list", async () => {
+    const ids = await fetchTikTokInterestKeywordsByIds({
+      advertiserId: "advertiser-1",
+      token: "token-1",
+      keywordIds: ["kw-live"],
+      request: async <T,>(): Promise<T> =>
+        ({
+          keyword_list: [{ keyword_id: "kw-live", keyword: "house" }],
+        }) as T,
     });
     assert.deepEqual([...ids], ["kw-live"]);
   });

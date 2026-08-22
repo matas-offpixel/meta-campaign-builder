@@ -87,6 +87,13 @@ export async function hydrateDraftInterestKeywordIds(input: {
     return [];
   }
 
+  if (known.size === 0) {
+    console.error(
+      `[tiktok/launch] interest keyword hydrate resolved 0/${keywordIds.length} — treating as unverified`,
+    );
+    return [];
+  }
+
   const retiredByGroup = new Map<string, RetiredInterestKeywordGroup>();
   for (const row of rows) {
     if (known.has(row.item.id)) continue;
@@ -110,10 +117,9 @@ export function tikTokKeywordChipIsStale(
   item: TikTokTargetingItem,
   now = new Date(),
 ): boolean {
-  if (item.kind !== "keyword") return false;
-  if (!item.resolvedAt) return true;
+  if (item.kind !== "keyword" || !item.resolvedAt) return false;
   const at = Date.parse(item.resolvedAt);
-  if (!Number.isFinite(at)) return true;
+  if (!Number.isFinite(at)) return false;
   return now.getTime() - at > TIKTOK_KEYWORD_STALE_MS;
 }
 
@@ -130,6 +136,22 @@ export function stampTikTokKeywordResolvedAt(
   item: TikTokTargetingItem,
   now = new Date(),
 ): TikTokTargetingItem {
-  if (item.kind !== "keyword" || item.resolvedAt) return item;
+  if (item.kind !== "keyword") return item;
   return { ...item, resolvedAt: now.toISOString() };
+}
+
+/** Stamp only chips that are not already in `current`. Existing rows keep their (missing) resolvedAt. */
+export function stampNewTikTokKeywordChips(
+  current: TikTokTargetingItem[],
+  incoming: TikTokTargetingItem[],
+  now = new Date(),
+): TikTokTargetingItem[] {
+  const existing = new Set(
+    current.filter((item) => item.id).map((item) => `${item.kind}:${item.id}`),
+  );
+  return incoming.map((item) =>
+    item.id && existing.has(`${item.kind}:${item.id}`)
+      ? item
+      : stampTikTokKeywordResolvedAt(item, now),
+  );
 }

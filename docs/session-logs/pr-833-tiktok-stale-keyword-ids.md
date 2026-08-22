@@ -29,4 +29,6 @@ Block launches whose saved `interest_keyword_ids` TikTok no longer indexes, inst
 ## Notes
 
 - Hydrate does not drop dead ids from the draft. Preflight names the group and chips.
-- Missing `resolvedAt` counts as stale so existing drafts surface the 14-day note.
+- `known.size === 0` (unparseable get/ envelope) is unverified, not “every chip retired”.
+- Amber note only for chips with `resolvedAt` older than 14 days. Untimestamped chips stay quiet; launch hydrate is the gate.
+- Official get/ SDK envelope is `data.keywords`; we also accept `keyword_list`. First get/ call logs raw keys at info.

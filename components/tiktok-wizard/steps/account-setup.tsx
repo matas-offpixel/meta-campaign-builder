@@ -133,11 +133,6 @@ export function AccountSetupStep({
         } else if (!json?.ok && json?.error) {
           setIdentityFailed(true);
           setIdentityWarning(json.error);
-        } else if (next.length === 0) {
-          setIdentityFailed(false);
-          setIdentityWarning(
-            "No identities available. Use the manual override below.",
-          );
         }
       } else {
         setIdentities([]);

@@ -60,10 +60,14 @@ const AUDIENCE_LIST_KEYS = [
   "custom_audiences",
 ] as const;
 
+// recommend/ uses recommended_keywords. Official get/ (SDK
+// ToolInterestKeywordGetResponse) unwraps to `keywords`. `keyword_list` is
+// the hashtag/get sibling; first get/ call logs raw keys at info.
 const INTEREST_KEYWORD_KEYS = [
   "recommended_keywords",
   "list",
   "keywords",
+  "keyword_list",
   "interest_keywords",
   "recommend_list",
 ] as const;
@@ -84,6 +88,8 @@ const REGION_KEYS = [
 ] as const;
 
 const LANGUAGE_KEYS = ["list", "languages", "language_list"] as const;
+
+let loggedInterestKeywordGetEnvelope = false;
 
 export function extractAudienceRows(
   res: unknown,
@@ -301,6 +307,14 @@ export async function fetchTikTokInterestKeywordsByIds(input: {
       },
       input.token,
     );
+    if (!loggedInterestKeywordGetEnvelope) {
+      loggedInterestKeywordGetEnvelope = true;
+      const keys =
+        res && typeof res === "object" ? Object.keys(res as object) : [];
+      console.info(
+        `[tiktok/audience] ${path} first envelope keys=[${keys.join(",")}]`,
+      );
+    }
     const mapped = mapRecommendItems(
       extractAudienceRows(res, INTEREST_KEYWORD_KEYS),
       "keyword",

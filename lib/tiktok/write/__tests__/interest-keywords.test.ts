@@ -5,6 +5,7 @@ import { createDefaultTikTokDraft } from "../../../types/tiktok-draft.ts";
 import {
   hydrateDraftInterestKeywordIds,
   staleTikTokKeywordChips,
+  stampNewTikTokKeywordChips,
   TIKTOK_KEYWORD_STALE_MS,
 } from "../interest-keywords.ts";
 
@@ -50,6 +51,17 @@ describe("hydrateDraftInterestKeywordIds", () => {
     );
   });
 
+  it("treats a zero-row resolve as unverified instead of retiring every chip", async () => {
+    const draft = draftWithKeywords();
+    const retired = await hydrateDraftInterestKeywordIds({
+      draft,
+      token: "token-1",
+      request: async <T,>(): Promise<T> =>
+        ({ unexpected: { foo: 1 } }) as T,
+    });
+    assert.deepEqual(retired, []);
+  });
+
   it("returns no retirements when every keyword id still resolves", async () => {
     const draft = draftWithKeywords();
     const retired = await hydrateDraftInterestKeywordIds({
@@ -68,7 +80,7 @@ describe("hydrateDraftInterestKeywordIds", () => {
 });
 
 describe("staleTikTokKeywordChips", () => {
-  it("treats missing and >14-day resolvedAt as stale", () => {
+  it("warns only when resolvedAt is older than 14 days", () => {
     const draft = draftWithKeywords();
     const now = new Date("2026-08-22T12:00:00.000Z");
     draft.audiences.interestGroups[0]!.interestIds = [
@@ -88,8 +100,24 @@ describe("staleTikTokKeywordChips", () => {
     ];
     const stale = staleTikTokKeywordChips(draft, now);
     assert.deepEqual(
-      stale.map((item) => item.id).sort(),
-      ["kw-old", "kw-unknown"],
+      stale.map((item) => item.id),
+      ["kw-old"],
     );
+  });
+});
+
+describe("stampNewTikTokKeywordChips", () => {
+  it("does not stamp previously-saved chips that lack resolvedAt", () => {
+    const now = new Date("2026-08-22T12:00:00.000Z");
+    const current = [
+      { id: "kw-saved", name: "saved", kind: "keyword" as const },
+    ];
+    const incoming = [
+      { id: "kw-saved", name: "saved", kind: "keyword" as const },
+      { id: "kw-new", name: "new", kind: "keyword" as const },
+    ];
+    const stamped = stampNewTikTokKeywordChips(current, incoming, now);
+    assert.equal(stamped[0]?.resolvedAt, undefined);
+    assert.equal(stamped[1]?.resolvedAt, now.toISOString());
   });
 });
