@@ -352,6 +352,57 @@ describe("resolveTikTokDraftIdentityBcIdOnLoad", () => {
       false,
     );
   });
+
+  it("reasons about every creative id on a collapsed cover-image issue", () => {
+    const draft = launchableDraft();
+    const base = draft.creatives.items[0]!;
+    draft.creatives.items = [
+      {
+        ...base,
+        id: "c-ok",
+        name: "Ready",
+        coverImageId: null,
+        thumbnailUrl: "https://example.com/thumb.jpg",
+        videoId: "video_ok",
+      },
+      {
+        ...base,
+        id: "c-blocked",
+        name: "Blocked",
+        coverImageId: null,
+        thumbnailUrl: null,
+        videoId: null,
+      },
+    ];
+    const collapsed = [
+      {
+        id: "ad-c-ok-image_ids",
+        field: "image_ids",
+        message: "Identity type is required (2 creatives)",
+        scope: "creative" as const,
+        reason: "needs a cover image",
+        creativeIds: ["c-ok", "c-blocked"],
+      },
+    ];
+    const client = filterClientResolvableTikTokPreflightIssues(
+      collapsed,
+      draft,
+      "idle",
+    );
+    assert.equal(client.length, 1);
+
+    const allResolvable = filterClientResolvableTikTokPreflightIssues(
+      [
+        {
+          ...collapsed[0]!,
+          creativeIds: ["c-ok"],
+        },
+      ],
+      draft,
+      "idle",
+    );
+    assert.equal(allResolvable.length, 0);
+  });
 });
 
 describe("applyIdentityBcIdFromIdentities", () => {

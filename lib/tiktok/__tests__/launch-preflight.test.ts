@@ -5,7 +5,11 @@ import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
 import { extractIdentityBcId } from "../identity.ts";
 import { SMART_PLUS_BLOCK_MESSAGE } from "../write/mapping.ts";
-import { collectTikTokLaunchPreflight } from "../write/preflight.ts";
+import {
+  canonicalTikTokPreflightField,
+  collapseTikTokLaunchPreflightIssues,
+  collectTikTokLaunchPreflight,
+} from "../write/preflight.ts";
 
 function launchableDraft() {
   const draft = createDefaultTikTokDraft("draft-1");
@@ -489,5 +493,193 @@ describe("collectTikTokLaunchPreflight", () => {
         issue.message.includes("50 × scheduled days"),
       ),
     );
+  });
+
+  it("keeps one campaign-level issue when ad groups repeat the same field and root message", () => {
+    const draft = launchableDraft();
+    draft.campaignSetup.objective = "LEAD_GENERATION";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.accountSetup.pixelId = "pixel_1";
+    draft.accountSetup.optimisationEvent = null;
+    draft.budgetSchedule.adGroups = [
+      { id: "ag-1", name: "London - Wide", budget: 50, startAt: null, endAt: null },
+      { id: "ag-2", name: "Retargeting", budget: 50, startAt: null, endAt: null },
+    ];
+    draft.creativeAssignments.byAdGroupId = {
+      "ag-1": ["creative-1"],
+      "ag-2": ["creative-1"],
+    };
+    const result = collectTikTokLaunchPreflight(draft);
+    const eventIssues = result.issues.filter(
+      (issue) => issue.field === "optimization_event",
+    );
+    assert.equal(eventIssues.length, 1);
+    assert.equal(eventIssues[0]?.id, "optimisation-event");
+    assert.match(eventIssues[0]!.message, /LEAD_GENERATION requires/);
+    assert.equal(
+      result.issues.some((issue) => issue.message.startsWith("London - Wide:")),
+      false,
+    );
+  });
+
+  it("collapses per-creative issues that share a field and reason", () => {
+    const collapsed = collapseTikTokLaunchPreflightIssues(
+      Array.from({ length: 9 }, (_, index) => ({
+        id: `ad-creative-${index}-identity_type`,
+        field: "identity_type",
+        message: `Creative ${index + 1}: Identity type is required`,
+        scope: "creative" as const,
+        reason: "Identity type is required",
+        creativeIds: [`creative-${index}`],
+      })),
+    );
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0]?.field, "identity_type");
+    assert.equal(collapsed[0]?.message, "Identity type is required (9 creatives)");
+    assert.deepEqual(collapsed[0]?.creativeIds, [
+      "creative-0",
+      "creative-1",
+      "creative-2",
+      "creative-3",
+      "creative-4",
+      "creative-5",
+      "creative-6",
+      "creative-7",
+      "creative-8",
+    ]);
+
+    const draft = launchableDraft();
+    draft.accountSetup.identityType = null;
+    draft.creatives.items = Array.from({ length: 3 }, (_, index) => ({
+      ...draft.creatives.items[0]!,
+      id: `creative-${index + 1}`,
+      name: `Hero ${index + 1}`,
+    }));
+    draft.creativeAssignments.byAdGroupId = {
+      "ag-1": draft.creatives.items.map((item) => item.id),
+    };
+    const result = collectTikTokLaunchPreflight(draft);
+    const identityIssues = result.issues.filter(
+      (issue) => issue.field === "identity_type",
+    );
+    assert.equal(identityIssues.length, 1);
+    assert.equal(identityIssues[0]?.id, "identity-type");
+    assert.equal(identityIssues[0]?.message, "Identity type is required");
+  });
+
+  it("collapses campaign and ad-group issues that disagree on field aliases", () => {
+    const bid = collapseTikTokLaunchPreflightIssues([
+      {
+        id: "bid-strategy",
+        field: "bidStrategy",
+        message:
+          "Choose a bid strategy before launch. A missing strategy publishes the ad group with no bid.",
+        scope: "campaign",
+        reason:
+          "Choose a bid strategy before launch. A missing strategy publishes the ad group with no bid.",
+      },
+      {
+        id: "adgroup-ag-1-bid_type",
+        field: "bid_type",
+        message:
+          "London - Wide: Choose a bid strategy before launch. A missing strategy publishes the ad group with no bid.",
+        scope: "adgroup",
+        reason:
+          "Choose a bid strategy before launch. A missing strategy publishes the ad group with no bid.",
+        adGroupIds: ["ag-1"],
+      },
+    ]);
+    assert.equal(bid.length, 1);
+    assert.equal(bid[0]?.id, "bid-strategy");
+    assert.equal(canonicalTikTokPreflightField("bid_type"), "bidStrategy");
+
+    const goal = collapseTikTokLaunchPreflightIssues([
+      {
+        id: "objective-goal",
+        field: "optimisationGoal",
+        message: "Objective and optimisation goal are not a compatible pair",
+        scope: "campaign",
+        reason: "Objective and optimisation goal are not a compatible pair",
+      },
+      {
+        id: "adgroup-ag-1-optimization_goal",
+        field: "optimization_goal",
+        message:
+          "Retargeting: Objective and optimisation goal are not a compatible pair",
+        scope: "adgroup",
+        reason: "Objective and optimisation goal are not a compatible pair",
+        adGroupIds: ["ag-1"],
+      },
+    ]);
+    assert.equal(goal.length, 1);
+    assert.equal(goal[0]?.field, "optimisationGoal");
+    assert.equal(
+      canonicalTikTokPreflightField("optimization_goal"),
+      "optimisationGoal",
+    );
+
+    const draft = launchableDraft();
+    draft.campaignSetup.bidStrategy = null;
+    draft.optimisation.bidStrategy = null;
+    draft.budgetSchedule.adGroups = [
+      { id: "ag-1", name: "London - Wide", budget: 50, startAt: null, endAt: null },
+      { id: "ag-2", name: "Retargeting", budget: 50, startAt: null, endAt: null },
+    ];
+    draft.creativeAssignments.byAdGroupId = {
+      "ag-1": ["creative-1"],
+      "ag-2": ["creative-1"],
+    };
+    const live = collectTikTokLaunchPreflight(draft);
+    const bidIssues = live.issues.filter(
+      (issue) => canonicalTikTokPreflightField(issue.field) === "bidStrategy",
+    );
+    assert.equal(bidIssues.length, 1);
+    assert.equal(bidIssues[0]?.field, "bidStrategy");
+  });
+
+  it("collapses ad-group issues against each other when there is no campaign twin", () => {
+    const collapsed = collapseTikTokLaunchPreflightIssues(
+      Array.from({ length: 6 }, (_, index) => ({
+        id: `adgroup-ag-${index}-location_ids`,
+        field: "location_ids",
+        message: `Group ${index}: At least one location is required`,
+        scope: "adgroup" as const,
+        reason: "At least one location is required",
+        adGroupIds: [`ag-${index}`],
+      })),
+    );
+    assert.equal(collapsed.length, 1);
+    assert.equal(
+      collapsed[0]?.message,
+      "At least one location is required (6 ad groups)",
+    );
+    assert.deepEqual(collapsed[0]?.adGroupIds, [
+      "ag-0",
+      "ag-1",
+      "ag-2",
+      "ag-3",
+      "ag-4",
+      "ag-5",
+    ]);
+
+    const draft = launchableDraft();
+    draft.audiences.locationCodes = [];
+    draft.budgetSchedule.adGroups = Array.from({ length: 6 }, (_, index) => ({
+      id: `ag-${index}`,
+      name: `Group ${index}`,
+      budget: 50,
+      startAt: null,
+      endAt: null,
+    }));
+    draft.creativeAssignments.byAdGroupId = Object.fromEntries(
+      draft.budgetSchedule.adGroups.map((group) => [group.id, ["creative-1"]]),
+    );
+    const live = collectTikTokLaunchPreflight(draft);
+    const locationIssues = live.issues.filter(
+      (issue) => issue.field === "location_ids",
+    );
+    assert.equal(locationIssues.length, 1);
+    assert.match(locationIssues[0]!.message, /6 ad groups/);
+    assert.equal(locationIssues[0]?.adGroupIds?.length, 6);
   });
 });

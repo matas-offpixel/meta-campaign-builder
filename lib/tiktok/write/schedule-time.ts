@@ -65,6 +65,18 @@ export function formatWallClockForTikTok(
   return formatTikTokDateTimeParts(parts);
 }
 
+/** Wall-clock `YYYY-MM-DDTHH:mm` for a draft field in `timeZone`. */
+export function formatDatetimeLocalInTimeZone(
+  instant: Date,
+  timeZone: string,
+): string | null {
+  if (!isIanaTimeZone(timeZone)) return null;
+  const parts = wallClockPartsInTimeZone(instant, timeZone);
+  if (!parts) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
+}
+
 export function resolveScheduleInstant(
   value: string,
   timeZone: string,

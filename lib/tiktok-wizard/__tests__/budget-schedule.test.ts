@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   applySmartPlusDefaults,
   parseOptionalMoney,
+  requestTikTokReviewScheduleHeal,
   suggestFreshTikTokSchedule,
   validateBudgetGuardrails,
 } from "../budget-schedule.ts";
@@ -76,6 +77,72 @@ describe("suggestFreshTikTokSchedule", () => {
       ),
       null,
     );
+  });
+
+  it("treats a start inside the 15-minute preflight margin as stale", () => {
+    const now = new Date(2026, 7, 21, 12, 32);
+    const soon = suggestFreshTikTokSchedule(
+      {
+        scheduleStartAt: "2026-08-21T12:40",
+        scheduleEndAt: "2026-08-28T14:00",
+      },
+      now,
+    );
+    assert.ok(soon);
+    assert.equal(soon.scheduleStartAt, "2026-08-21T13:02");
+    assert.equal(soon.scheduleEndAt, "2026-08-28T14:00");
+  });
+
+  it("builds the healed start in the advertiser timezone", () => {
+    const now = new Date("2026-08-22T01:00:00.000Z");
+    const healed = suggestFreshTikTokSchedule(
+      { scheduleStartAt: null, scheduleEndAt: "2026-09-01T12:00" },
+      now,
+      "Pacific/Auckland",
+    );
+    assert.ok(healed);
+    assert.equal(healed.scheduleStartAt, "2026-08-22T13:30");
+    assert.equal(healed.scheduleEndAt, "2026-09-01T12:00");
+  });
+});
+
+describe("requestTikTokReviewScheduleHeal", () => {
+  it("attempts onSave exactly once when persist fails", async () => {
+    const now = new Date("2026-08-22T12:00:00.000Z");
+    const draft = createDefaultTikTokDraft("draft-heal-once");
+    draft.budgetSchedule.scheduleStartAt = "2026-08-20T10:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-09-01T10:00";
+    const attempted = { current: false };
+    let saves = 0;
+    const onSave = async () => {
+      saves += 1;
+      throw new Error("offline");
+    };
+
+    await requestTikTokReviewScheduleHeal({
+      alreadyLaunched: false,
+      attempted,
+      draft,
+      now,
+      onSave,
+    });
+    await requestTikTokReviewScheduleHeal({
+      alreadyLaunched: false,
+      attempted,
+      draft,
+      now,
+      onSave,
+    });
+    await requestTikTokReviewScheduleHeal({
+      alreadyLaunched: false,
+      attempted,
+      draft,
+      now,
+      onSave,
+    });
+
+    assert.equal(saves, 1);
+    assert.equal(attempted.current, true);
   });
 });
 

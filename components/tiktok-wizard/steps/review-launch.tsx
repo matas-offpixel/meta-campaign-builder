@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { TikTokLaunchPanel } from "@/components/tiktok-wizard/launch-panel";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
+import { duplicateTikTokDraft } from "@/lib/db/tiktok-drafts";
+import { createClient } from "@/lib/supabase/client";
 import { buildTikTokAdsManagerUrl } from "@/lib/tiktok/ads-manager-url";
 import {
   applyTikTokLaunchProgress,
@@ -35,8 +38,15 @@ import {
   readTikTokLaunchStream,
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
-import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
-import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import { requestTikTokReviewScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
+import {
+  collectTikTokLaunchPreflight,
+  type TikTokLaunchPreflightIssue,
+} from "@/lib/tiktok/write/preflight";
+import type {
+  TikTokAdGroupDraft,
+  TikTokCampaignDraft,
+} from "@/lib/types/tiktok-draft";
 
 type LaunchState =
   | { status: "idle" }
@@ -76,7 +86,10 @@ export function ReviewLaunchStep({
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   context?: TikTokWizardContext;
 }) {
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
+  const [relaunching, setRelaunching] = useState(false);
+  const [relaunchError, setRelaunchError] = useState<string | null>(null);
   const [validationOpen, setValidationOpen] = useState(false);
   const [launch, setLaunch] = useState<LaunchState>(() =>
     launchStateFromDraft(draft),
@@ -103,6 +116,7 @@ export function ReviewLaunchStep({
   const writesEnabled = context?.writesEnabled === true;
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
+  const alreadyLaunched = Boolean(draft.publishedIds?.campaignId);
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
@@ -113,12 +127,63 @@ export function ReviewLaunchStep({
     writesDisabledReason,
     launching: launch.status === "launching",
     blockerCount: launchSummary.blockerCount,
+    alreadyLaunched,
   });
-  const launchTitle = !writesEnabled
-    ? writesDisabledReason
-    : !launchSummary.ok
-      ? clientIssues.map((issue) => issue.message).join(" · ")
-      : undefined;
+  const launchTitle =
+    launch.status === "launching"
+      ? undefined
+      : !launchSummary.ok
+        ? "Resolve the launch blockers above"
+        : !writesEnabled
+          ? writesDisabledReason
+          : undefined;
+  const firstLaunchBlocker = clientIssues[0]?.message;
+  const healedSchedule = useRef(false);
+
+  useEffect(() => {
+    requestTikTokReviewScheduleHeal({
+      alreadyLaunched,
+      attempted: healedSchedule,
+      draft,
+      onSave,
+    });
+  }, [alreadyLaunched, draft, onSave]);
+
+  async function relaunchAsNewDraft() {
+    if (relaunching) return;
+    setRelaunching(true);
+    setRelaunchError(null);
+    try {
+      await context?.flushPendingSaves?.();
+      const source = context?.readWorkingDraft?.() ?? draft;
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setRelaunchError("Not signed in");
+        setRelaunching(false);
+        return;
+      }
+      const copy = await duplicateTikTokDraft(
+        supabase,
+        source.id,
+        user.id,
+        source,
+      );
+      if (!copy) {
+        setRelaunchError("Could not duplicate this draft");
+        setRelaunching(false);
+        return;
+      }
+      router.push(`/tiktok-campaign/${copy.id}`);
+    } catch (err) {
+      setRelaunchError(
+        err instanceof Error ? err.message : "Could not duplicate this draft",
+      );
+      setRelaunching(false);
+    }
+  }
 
   async function markReviewReady() {
     setSaving(true);
@@ -219,6 +284,7 @@ export function ReviewLaunchStep({
 
       {validationOpen && (
         <div className="space-y-4 rounded-md border border-border bg-background p-4">
+          {!alreadyLaunched && (
           <div>
             <p className="text-sm font-medium">Launch blockers</p>
             {clientIssues.length === 0 ? (
@@ -228,11 +294,15 @@ export function ReviewLaunchStep({
             ) : (
               <ul className="mt-2 space-y-2 text-sm">
                 {clientIssues.map((issue) => (
-                  <li key={issue.id}>{issue.message}</li>
+                  <li key={issue.id}>
+                    {formatPreflightIssue(issue, draft, adGroups)}
+                  </li>
                 ))}
               </ul>
             )}
           </div>
+          )}
+          {!alreadyLaunched && (
           <div>
             <p className="text-sm font-medium">Wizard validation</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -253,9 +323,11 @@ export function ReviewLaunchStep({
               </ul>
             )}
           </div>
+          )}
         </div>
       )}
 
+      {!alreadyLaunched && (
       <section className="space-y-3">
         <div>
           <p className="text-sm font-medium">
@@ -281,8 +353,9 @@ export function ReviewLaunchStep({
           ))}
         </div>
       </section>
+      )}
 
-      {wizardIssues.length > 0 && (
+      {!alreadyLaunched && wizardIssues.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
           <p className="text-sm font-medium">Wizard validation</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -299,18 +372,20 @@ export function ReviewLaunchStep({
         </section>
       )}
 
-      {!clientPreflightOk && (
+      {!alreadyLaunched && !clientPreflightOk && (
         <section className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
           <p className="text-sm font-medium">Launch blockers</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {clientIssues.map((issue) => (
-              <li key={issue.id}>{issue.message}</li>
+              <li key={issue.id}>
+                {formatPreflightIssue(issue, draft, adGroups)}
+              </li>
             ))}
           </ul>
         </section>
       )}
 
-      {launchPreflight.warnings.length > 0 && (
+      {!alreadyLaunched && launchPreflight.warnings.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
           <p className="text-sm font-medium">Launch warnings</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
@@ -525,14 +600,26 @@ export function ReviewLaunchStep({
 
       <div className="space-y-2">
         <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            disabled={launchDisabled}
-            title={launchTitle}
-            onClick={() => void launchOnTikTok()}
-          >
-            {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
-          </Button>
+          {alreadyLaunched ? (
+            <Button
+              type="button"
+              disabled={relaunching}
+              onClick={() => void relaunchAsNewDraft()}
+            >
+              {relaunching
+                ? "Duplicating…"
+                : "Already launched — Relaunch as a new draft"}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              disabled={launchDisabled}
+              title={launchTitle}
+              onClick={() => void launchOnTikTok()}
+            >
+              {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
+            </Button>
+          )}
           <Button type="button" variant="outline" onClick={downloadBrief}>
             Download as brief (Markdown)
           </Button>
@@ -545,7 +632,13 @@ export function ReviewLaunchStep({
             Mark review ready
           </Button>
         </div>
-        {!writesEnabled && (
+        {!alreadyLaunched && firstLaunchBlocker ? (
+          <p className="text-sm text-red-700">{firstLaunchBlocker}</p>
+        ) : null}
+        {relaunchError ? (
+          <p className="text-sm text-red-700">{relaunchError}</p>
+        ) : null}
+        {!alreadyLaunched && !writesEnabled && (
           <p className="text-sm text-muted-foreground">
             TikTok launches are behind a killswitch that is intentionally off.
             Download as brief / Mark review ready are the available actions.
@@ -556,12 +649,36 @@ export function ReviewLaunchStep({
         {draft.reviewReadyAt
           ? `Marked review ready at ${draft.reviewReadyAt}.`
           : "Review-ready state is stored inside the draft JSON; no status migration required."}
-        {draft.publishedIds
+        {draft.publishedIds?.campaignId
           ? ` Published TikTok campaign ${draft.publishedIds.campaignId}.`
           : ""}
       </p>
     </div>
   );
+}
+
+function formatPreflightIssue(
+  issue: TikTokLaunchPreflightIssue,
+  draft: TikTokCampaignDraft,
+  adGroups: TikTokAdGroupDraft[],
+): string {
+  const members =
+    issue.adGroupIds?.length
+      ? issue.adGroupIds
+          .map(
+            (id) => adGroups.find((group) => group.id === id)?.name ?? id,
+          )
+          .join(", ")
+      : issue.creativeIds?.length
+        ? issue.creativeIds
+            .map(
+              (id) =>
+                draft.creatives.items.find((item) => item.id === id)?.name ??
+                id,
+            )
+            .join(", ")
+        : null;
+  return members ? `${issue.message} — ${members}` : issue.message;
 }
 
 function ReviewPanel({

@@ -49,6 +49,8 @@ export interface TikTokWizardContext {
   writesEnabled?: boolean;
   writesDisabledReason?: string | null;
   identityBcIdResolution?: TikTokIdentityBcIdResolution;
+  flushPendingSaves?: () => Promise<void>;
+  readWorkingDraft?: () => TikTokCampaignDraft;
 }
 
 export function TikTokWizardShell({
@@ -312,6 +314,8 @@ export function TikTokWizardShell({
             context={{
               ...context,
               identityBcIdResolution,
+              flushPendingSaves: () => saveQueue.current,
+              readWorkingDraft: () => workingDraftRef.current,
             }}
           />
         </section>

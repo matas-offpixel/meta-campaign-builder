@@ -215,11 +215,16 @@ function tikTokCoverImageIsServerResolvable(
   draft: TikTokCampaignDraft,
   issue: TikTokLaunchPreflightIssue,
 ): boolean {
-  return draft.creatives.items.some((creative) => {
+  const candidates = draft.creatives.items.filter((creative) => {
+    if (issue.creativeIds?.includes(creative.id)) return true;
+    return (
+      issue.id.includes(creative.id) || issue.message.includes(creative.name)
+    );
+  });
+  if (candidates.length === 0) return false;
+  return candidates.every((creative) => {
     if (!creative.videoId?.trim() || creative.coverImageId?.trim()) return false;
-    const matches =
-      issue.id.includes(creative.id) || issue.message.includes(creative.name);
-    return matches && Boolean(creative.thumbnailUrl?.trim() || creative.videoId);
+    return Boolean(creative.thumbnailUrl?.trim() || creative.videoId);
   });
 }
 

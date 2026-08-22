@@ -257,5 +257,18 @@ describe("tikTokReviewValidationChip", () => {
     });
     assert.equal(ready.pass, true);
     assert.equal(ready.message, "all checks pass");
+
+    const published = tikTokReviewValidationChip({
+      launchDisabled: true,
+      writesEnabled: false,
+      writesDisabledReason: TIKTOK_WRITES_DISABLED_REASON,
+      launching: false,
+      blockerCount: 3,
+      alreadyLaunched: true,
+    });
+    assert.equal(published.pass, true);
+    assert.equal(published.message, "already launched");
+    assert.doesNotMatch(published.message, /launch blocker/);
+    assert.doesNotMatch(published.message, /disabled/);
   });
 });

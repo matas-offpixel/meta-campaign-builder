@@ -101,7 +101,11 @@ export function BudgetScheduleStep({
 
   useEffect(() => {
     if (refreshedSchedule.current || smartPlus) return;
-    const next = suggestFreshTikTokSchedule(draft.budgetSchedule);
+    const next = suggestFreshTikTokSchedule(
+      draft.budgetSchedule,
+      new Date(),
+      draft.accountSetup.timezone,
+    );
     refreshedSchedule.current = true;
     if (!next) return;
     void onSave({
@@ -110,7 +114,7 @@ export function BudgetScheduleStep({
         ...next,
       },
     });
-  }, [draft.budgetSchedule, onSave, smartPlus]);
+  }, [draft.accountSetup.timezone, draft.budgetSchedule, onSave, smartPlus]);
 
   return (
     <div className="space-y-6">

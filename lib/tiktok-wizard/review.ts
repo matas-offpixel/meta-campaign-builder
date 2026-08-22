@@ -182,7 +182,11 @@ export function tikTokReviewValidationChip(input: {
   writesDisabledReason: string;
   launching: boolean;
   blockerCount: number;
+  alreadyLaunched?: boolean;
 }): { pass: boolean; message: string } {
+  if (input.alreadyLaunched) {
+    return { pass: true, message: "already launched" };
+  }
   const pass = !input.launchDisabled;
   if (input.launching) {
     return { pass, message: "Launching…" };

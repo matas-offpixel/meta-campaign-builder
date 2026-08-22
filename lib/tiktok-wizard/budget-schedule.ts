@@ -4,7 +4,13 @@ import type {
   TikTokOptimisation,
 } from "../types/tiktok-draft.ts";
 import { parseMoneyAmountInput } from "../additional-spend-parse.ts";
-import { TIKTOK_SCHEDULE_START_LEAD_MS } from "../tiktok/write/schedule-time.ts";
+import {
+  TIKTOK_SCHEDULE_START_LEAD_MS,
+  TIKTOK_SCHEDULE_START_MARGIN_MS,
+  formatDatetimeLocalInTimeZone,
+  isIanaTimeZone,
+  resolveScheduleInstant,
+} from "../tiktok/write/schedule-time.ts";
 
 export interface SmartPlusDefaults {
   optimisation: TikTokOptimisation;
@@ -109,8 +115,9 @@ export function toDatetimeLocal(date: Date): string {
 }
 
 /**
- * Replace a missing or already-past datetime-local start with a near-future
- * wall clock so a stale draft (yesterday's start) cannot be launched as-is.
+ * Replace a missing or too-soon datetime-local start with a near-future
+ * wall clock. Stale means the same gate as launch preflight: start is
+ * missing or `< now + TIKTOK_SCHEDULE_START_MARGIN_MS` in `timeZone`.
  */
 export function suggestFreshTikTokSchedule(
   current: {
@@ -118,25 +125,77 @@ export function suggestFreshTikTokSchedule(
     scheduleEndAt: string | null;
   },
   now = new Date(),
+  timeZone?: string | null,
 ): { scheduleStartAt: string; scheduleEndAt: string } | null {
-  if (!isStaleDatetimeLocal(current.scheduleStartAt, now)) return null;
-  const start = toDatetimeLocal(
-    new Date(now.getTime() + TIKTOK_SCHEDULE_START_LEAD_MS),
-  );
+  if (!isStaleDatetimeLocal(current.scheduleStartAt, now, timeZone)) {
+    return null;
+  }
+  const lead = new Date(now.getTime() + TIKTOK_SCHEDULE_START_LEAD_MS);
+  const start =
+    (isIanaTimeZone(timeZone)
+      ? formatDatetimeLocalInTimeZone(lead, timeZone)
+      : null) ?? toDatetimeLocal(lead);
+  const rolledEnd =
+    (isIanaTimeZone(timeZone)
+      ? formatDatetimeLocalInTimeZone(addDays(lead, 7), timeZone)
+      : null) ?? toDatetimeLocal(addDays(lead, 7));
   const end =
     current.scheduleEndAt && current.scheduleEndAt > start
       ? current.scheduleEndAt
-      : toDatetimeLocal(
-          addDays(new Date(now.getTime() + TIKTOK_SCHEDULE_START_LEAD_MS), 7),
-        );
+      : rolledEnd;
   return { scheduleStartAt: start, scheduleEndAt: end };
+}
+
+export function applyTikTokScheduleHeal(
+  draft: TikTokCampaignDraft,
+  now = new Date(),
+): TikTokCampaignDraft | null {
+  const healed = suggestFreshTikTokSchedule(
+    draft.budgetSchedule,
+    now,
+    draft.accountSetup.timezone,
+  );
+  if (!healed) return null;
+  return {
+    ...draft,
+    budgetSchedule: {
+      ...draft.budgetSchedule,
+      ...healed,
+    },
+  };
+}
+
+/**
+ * One-shot Review/Step-5 heal. Set `attempted.current` before saving so a
+ * failed persist or a DST round-trip that still reads stale cannot hammer
+ * onSave on every shell re-render.
+ */
+export function requestTikTokReviewScheduleHeal(input: {
+  alreadyLaunched: boolean;
+  attempted: { current: boolean };
+  draft: TikTokCampaignDraft;
+  now?: Date;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+}): Promise<void> | undefined {
+  if (input.alreadyLaunched || input.attempted.current) return;
+  const healed = applyTikTokScheduleHeal(input.draft, input.now);
+  if (!healed) return;
+  input.attempted.current = true;
+  return input.onSave({ budgetSchedule: healed.budgetSchedule }).catch(() => {});
 }
 
 function isStaleDatetimeLocal(
   value: string | null,
   now: Date,
+  timeZone?: string | null,
 ): boolean {
   if (!value) return true;
+  const threshold = now.getTime() + TIKTOK_SCHEDULE_START_MARGIN_MS;
+  if (isIanaTimeZone(timeZone)) {
+    const instant = resolveScheduleInstant(value, timeZone);
+    if (!instant) return true;
+    return instant.getTime() < threshold;
+  }
   const naive = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(
     value,
   );
@@ -149,8 +208,8 @@ function isStaleDatetimeLocal(
       Number(naive[5]),
       Number(naive[6] ?? "0"),
     );
-    return local.getTime() <= now.getTime();
+    return local.getTime() < threshold;
   }
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) || parsed.getTime() <= now.getTime();
+  return Number.isNaN(parsed.getTime()) || parsed.getTime() < threshold;
 }

@@ -1,5 +1,6 @@
 import { nextDuplicateName } from "../duplicate-name.ts";
 import { TIKTOK_OBJECTIVE_LABELS } from "./campaign-setup.ts";
+import { suggestFreshTikTokSchedule } from "./budget-schedule.ts";
 import { applyTikTokTemplate, snapshotTikTokDraft } from "./templates.ts";
 import type { TikTokCampaignTemplate } from "./templates.ts";
 import type {
@@ -121,9 +122,10 @@ export function duplicateTikTokDraftState(
   original: TikTokCampaignDraft,
   newId: string,
   existingNames: readonly string[] = [],
+  now: Date = new Date(),
 ): TikTokCampaignDraft {
   const copy = structuredClone(original);
-  const now = new Date().toISOString();
+  const timestamp = now.toISOString();
   copy.id = newId;
   copy.status = "draft";
   copy.publishedIds = null;
@@ -132,8 +134,25 @@ export function duplicateTikTokDraftState(
     original.campaignSetup.campaignName.trim(),
     existingNames,
   );
-  copy.createdAt = now;
-  copy.updatedAt = now;
+  // Ask the heal *before* touching start. A still-valid future start (library
+  // Duplicate of an unpublished draft) must survive. A past or too-soon start
+  // (typical Relaunch) is rewritten in the advertiser timezone.
+  copy.budgetSchedule.adGroups = copy.budgetSchedule.adGroups.map((group) => ({
+    ...group,
+    startAt: null,
+    endAt: null,
+  }));
+  const healed = suggestFreshTikTokSchedule(
+    original.budgetSchedule,
+    now,
+    original.accountSetup.timezone,
+  );
+  if (healed) {
+    copy.budgetSchedule.scheduleStartAt = healed.scheduleStartAt;
+    copy.budgetSchedule.scheduleEndAt = healed.scheduleEndAt;
+  }
+  copy.createdAt = timestamp;
+  copy.updatedAt = timestamp;
   return copy;
 }
 
