@@ -428,9 +428,10 @@ export function collectTikTokLaunchPreflight(
     );
   }
 
+  const collapsed = collapseTikTokLaunchPreflightIssues(issues);
   return {
-    ok: issues.length === 0,
-    issues: dedupeIssues(issues),
+    ok: collapsed.length === 0,
+    issues: collapsed,
     warnings: dedupeIssues(warnings),
   };
 }
@@ -463,8 +464,80 @@ function issue(
   return { id, field, message };
 }
 
+function isAdGroupScopedIssue(entry: TikTokLaunchPreflightIssue): boolean {
+  return entry.id.startsWith("adgroup-");
+}
+
+function isCreativeScopedIssue(entry: TikTokLaunchPreflightIssue): boolean {
+  return entry.id.startsWith("landing-") ||
+    (entry.id.startsWith("ad-") && entry.id !== "ad-groups");
+}
+
+/** Strip an `"Ad group name: "` / `"Creative name: "` prefix. */
+export function rootTikTokPreflightMessage(message: string): string {
+  const prefixed = /^[^:]+:\s+(.+)$/.exec(message);
+  return prefixed?.[1] ?? message;
+}
+
+function scopedIssueKey(entry: TikTokLaunchPreflightIssue): string {
+  return `${entry.field}:${rootTikTokPreflightMessage(entry.message)}`;
+}
+
+/**
+ * Campaign + ad-group (or per-creative) checks often fire on the same
+ * field. Keep the campaign-level issue, and collapse leftover creatives
+ * that share a field + root message into one counted line.
+ */
+export function collapseTikTokLaunchPreflightIssues(
+  issues: readonly TikTokLaunchPreflightIssue[],
+): TikTokLaunchPreflightIssue[] {
+  const unique = dedupeIssues(issues);
+  const campaignKeys = new Set(
+    unique
+      .filter(
+        (entry) =>
+          !isAdGroupScopedIssue(entry) && !isCreativeScopedIssue(entry),
+      )
+      .map(scopedIssueKey),
+  );
+
+  const creativeGroups = new Map<string, TikTokLaunchPreflightIssue[]>();
+  for (const entry of unique) {
+    if (!isCreativeScopedIssue(entry)) continue;
+    const key = scopedIssueKey(entry);
+    if (campaignKeys.has(key)) continue;
+    const group = creativeGroups.get(key) ?? [];
+    group.push(entry);
+    creativeGroups.set(key, group);
+  }
+
+  const emittedCreativeKeys = new Set<string>();
+  const collapsed: TikTokLaunchPreflightIssue[] = [];
+  for (const entry of unique) {
+    const key = scopedIssueKey(entry);
+    if (isAdGroupScopedIssue(entry) && campaignKeys.has(key)) continue;
+    if (isCreativeScopedIssue(entry)) {
+      if (campaignKeys.has(key) || emittedCreativeKeys.has(key)) continue;
+      emittedCreativeKeys.add(key);
+      const group = creativeGroups.get(key) ?? [entry];
+      if (group.length === 1) {
+        collapsed.push(entry);
+        continue;
+      }
+      collapsed.push({
+        id: group[0]!.id,
+        field: entry.field,
+        message: `${rootTikTokPreflightMessage(entry.message)} (${group.length} creatives)`,
+      });
+      continue;
+    }
+    collapsed.push(entry);
+  }
+  return collapsed;
+}
+
 function dedupeIssues(
-  issues: TikTokLaunchPreflightIssue[],
+  issues: readonly TikTokLaunchPreflightIssue[],
 ): TikTokLaunchPreflightIssue[] {
   const seen = new Set<string>();
   return issues.filter((entry) => {

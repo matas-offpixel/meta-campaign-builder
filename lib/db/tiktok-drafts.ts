@@ -155,8 +155,9 @@ export async function duplicateTikTokDraft(
   supabase: TypedSupabaseClient,
   draftId: string,
   userId: string,
+  source?: TikTokCampaignDraft,
 ): Promise<TikTokCampaignDraft | null> {
-  const original = await getTikTokDraft(supabase, draftId);
+  const original = source ?? (await getTikTokDraft(supabase, draftId));
   if (!original) return null;
   const visible = await listTikTokDrafts(supabase, { userId });
   const copyId = crypto.randomUUID();

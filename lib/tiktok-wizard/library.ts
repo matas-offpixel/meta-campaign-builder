@@ -132,11 +132,15 @@ export function duplicateTikTokDraftState(
     original.campaignSetup.campaignName.trim(),
     existingNames,
   );
-  // Same treatment as snapshotTikTokDraft / applyTikTokTemplate: a copied
-  // start is already in the past (or inside the 15-minute launch margin),
-  // so inheriting it would immediately fail schedule-start-soon.
+  // Null only the start. Step 5 heals a missing start via
+  // suggestFreshTikTokSchedule while keeping a still-valid end (the event
+  // date). Nulling the end would silently rewrite it to start + 7 days.
   copy.budgetSchedule.scheduleStartAt = null;
-  copy.budgetSchedule.scheduleEndAt = null;
+  copy.budgetSchedule.adGroups = copy.budgetSchedule.adGroups.map((group) => ({
+    ...group,
+    startAt: null,
+    endAt: null,
+  }));
   copy.createdAt = now;
   copy.updatedAt = now;
   return copy;

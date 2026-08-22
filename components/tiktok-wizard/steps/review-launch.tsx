@@ -109,7 +109,7 @@ export function ReviewLaunchStep({
   const writesEnabled = context?.writesEnabled === true;
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
-  const alreadyLaunched = Boolean(draft.publishedIds);
+  const alreadyLaunched = Boolean(draft.publishedIds?.campaignId);
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
@@ -120,32 +120,37 @@ export function ReviewLaunchStep({
     writesDisabledReason,
     launching: launch.status === "launching",
     blockerCount: launchSummary.blockerCount,
+    alreadyLaunched,
   });
-  const launchTitle = !writesEnabled
-    ? writesDisabledReason
-    : !launchSummary.ok
-      ? clientIssues.map((issue) => issue.message).join(" · ")
-      : undefined;
-  const firstLaunchBlocker = !writesEnabled
-    ? writesDisabledReason
-    : clientIssues[0]?.message;
+  const launchTitle = launchDisabled
+    ? "Resolve the launch blockers above"
+    : undefined;
+  const firstLaunchBlocker = clientIssues[0]?.message;
 
   async function relaunchAsNewDraft() {
     if (relaunching) return;
     setRelaunching(true);
     setRelaunchError(null);
     try {
+      await context?.flushPendingSaves?.();
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) {
         setRelaunchError("Not signed in");
+        setRelaunching(false);
         return;
       }
-      const copy = await duplicateTikTokDraft(supabase, draft.id, user.id);
+      const copy = await duplicateTikTokDraft(
+        supabase,
+        draft.id,
+        user.id,
+        draft,
+      );
       if (!copy) {
         setRelaunchError("Could not duplicate this draft");
+        setRelaunching(false);
         return;
       }
       router.push(`/tiktok-campaign/${copy.id}`);
@@ -153,7 +158,6 @@ export function ReviewLaunchStep({
       setRelaunchError(
         err instanceof Error ? err.message : "Could not duplicate this draft",
       );
-    } finally {
       setRelaunching(false);
     }
   }
@@ -612,7 +616,7 @@ export function ReviewLaunchStep({
         {draft.reviewReadyAt
           ? `Marked review ready at ${draft.reviewReadyAt}.`
           : "Review-ready state is stored inside the draft JSON; no status migration required."}
-        {draft.publishedIds
+        {draft.publishedIds?.campaignId
           ? ` Published TikTok campaign ${draft.publishedIds.campaignId}.`
           : ""}
       </p>
