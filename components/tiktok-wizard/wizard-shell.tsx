@@ -50,6 +50,7 @@ export interface TikTokWizardContext {
   writesDisabledReason?: string | null;
   identityBcIdResolution?: TikTokIdentityBcIdResolution;
   flushPendingSaves?: () => Promise<void>;
+  readWorkingDraft?: () => TikTokCampaignDraft;
 }
 
 export function TikTokWizardShell({
@@ -314,6 +315,7 @@ export function TikTokWizardShell({
               ...context,
               identityBcIdResolution,
               flushPendingSaves: () => saveQueue.current,
+              readWorkingDraft: () => workingDraftRef.current,
             }}
           />
         </section>

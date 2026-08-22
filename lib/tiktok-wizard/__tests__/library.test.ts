@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { applyTikTokScheduleHeal } from "../budget-schedule.ts";
 import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
+import {
+  TIKTOK_SCHEDULE_START_MARGIN_MS,
+  resolveScheduleInstant,
+} from "../../tiktok/write/schedule-time.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import {
   duplicateTikTokDraftState,
@@ -157,77 +162,121 @@ describe("duplicateTikTokDraftState", () => {
     assert.equal(original.publishedIds?.campaignId, "1874139934320802");
   });
 
-  it("heals the start on duplicate so Review is not born blocked on schedule", () => {
-    const now = new Date(2026, 7, 22, 13, 0);
-    const original = createDefaultTikTokDraft("orig-launched");
-    original.status = "published";
-    original.publishedIds = {
-      campaignId: "1874139934320802",
-      adgroupIds: ["ag-1"],
-      adIds: ["ad-1"],
-      launchedAt: "2026-08-22T12:00:00.000Z",
-    };
-    original.accountSetup.timezone =
-      Intl.DateTimeFormat().resolvedOptions().timeZone;
-    original.budgetSchedule.scheduleStartAt = "2026-08-22T12:50";
-    original.budgetSchedule.scheduleEndAt = "2026-09-01T12:00";
-    original.budgetSchedule.adGroups = [
-      {
-        id: "ag-1",
-        name: "London - Wide",
-        budget: 50,
-        startAt: "2026-08-22T12:50",
-        endAt: "2026-09-01T12:00",
-      },
-    ];
+  it("heals a past start in the advertiser timezone, not the runtime zone", () => {
+    const now = new Date("2026-08-22T01:00:00.000Z");
+    const timeZone = fixtureAdvertiserTimeZone();
+    const original = publishedDraftWithSchedule({
+      start: "2026-08-21T12:50",
+      end: "2026-09-01T12:00",
+      timeZone,
+    });
 
     const copy = duplicateTikTokDraftState(original, "copy-fresh", [], now);
     assert.ok(copy.budgetSchedule.scheduleStartAt);
-    assert.notEqual(copy.budgetSchedule.scheduleStartAt, "2026-08-22T12:50");
+    assert.notEqual(copy.budgetSchedule.scheduleStartAt, "2026-08-21T12:50");
     assert.equal(copy.budgetSchedule.scheduleEndAt, "2026-09-01T12:00");
     assert.equal(copy.budgetSchedule.adGroups[0]?.startAt, null);
     assert.equal(copy.budgetSchedule.adGroups[0]?.endAt, null);
-    assert.equal(original.budgetSchedule.scheduleStartAt, "2026-08-22T12:50");
-    assert.equal(original.budgetSchedule.adGroups[0]?.startAt, "2026-08-22T12:50");
+
+    const startInstant = resolveScheduleInstant(
+      copy.budgetSchedule.scheduleStartAt,
+      timeZone,
+    );
+    assert.ok(startInstant);
+    assert.ok(
+      startInstant.getTime() >= now.getTime() + TIKTOK_SCHEDULE_START_MARGIN_MS,
+    );
 
     const preflight = collectTikTokLaunchPreflight(copy, { now });
+    assert.equal(hasScheduleBlocker(preflight), false);
+  });
+
+  it("re-heals on Review mount after the T0+15m dead zone", () => {
+    const t0 = new Date("2026-08-22T01:00:00.000Z");
+    const timeZone = fixtureAdvertiserTimeZone();
+    const original = publishedDraftWithSchedule({
+      start: "2026-08-21T12:50",
+      end: "2026-09-01T12:00",
+      timeZone,
+    });
+    const copy = duplicateTikTokDraftState(original, "copy-aged", [], t0);
+    const t20 = new Date(t0.getTime() + 20 * 60 * 1000);
     assert.equal(
-      preflight.issues.some(
-        (issue) =>
-          issue.id === "schedule" ||
-          issue.id === "schedule-order" ||
-          issue.id === "schedule-start-soon",
-      ),
+      hasScheduleBlocker(collectTikTokLaunchPreflight(copy, { now: t20 })),
+      true,
+    );
+
+    const healed = applyTikTokScheduleHeal(copy, t20);
+    assert.ok(healed);
+    assert.equal(
+      hasScheduleBlocker(collectTikTokLaunchPreflight(healed, { now: t20 })),
       false,
     );
   });
 
-  it("heals schedule on an unpublished library Duplicate as well", () => {
-    const now = new Date(2026, 7, 22, 13, 0);
+  it("keeps a still-valid future start on an unpublished library Duplicate", () => {
+    const now = new Date("2026-08-22T01:00:00.000Z");
+    const timeZone = fixtureAdvertiserTimeZone();
     const original = createDefaultTikTokDraft("orig-draft");
     original.status = "draft";
     original.publishedIds = null;
-    original.accountSetup.timezone =
-      Intl.DateTimeFormat().resolvedOptions().timeZone;
+    original.accountSetup.timezone = timeZone;
     original.budgetSchedule.scheduleStartAt = "2027-09-01T09:00";
     original.budgetSchedule.scheduleEndAt = "2027-09-08T09:00";
 
     const copy = duplicateTikTokDraftState(original, "copy-unpub", [], now);
-    assert.ok(copy.budgetSchedule.scheduleStartAt);
-    assert.notEqual(copy.budgetSchedule.scheduleStartAt, "2027-09-01T09:00");
+    assert.equal(copy.budgetSchedule.scheduleStartAt, "2027-09-01T09:00");
     assert.equal(copy.budgetSchedule.scheduleEndAt, "2027-09-08T09:00");
-    const preflight = collectTikTokLaunchPreflight(copy, { now });
     assert.equal(
-      preflight.issues.some(
-        (issue) =>
-          issue.id === "schedule" ||
-          issue.id === "schedule-order" ||
-          issue.id === "schedule-start-soon",
-      ),
+      hasScheduleBlocker(collectTikTokLaunchPreflight(copy, { now })),
       false,
     );
   });
 });
+
+function fixtureAdvertiserTimeZone(): string {
+  const runtime = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return runtime === "Pacific/Auckland" ? "Atlantic/Azores" : "Pacific/Auckland";
+}
+
+function publishedDraftWithSchedule(input: {
+  start: string;
+  end: string;
+  timeZone: string;
+}) {
+  const original = createDefaultTikTokDraft("orig-launched");
+  original.status = "published";
+  original.publishedIds = {
+    campaignId: "1874139934320802",
+    adgroupIds: ["ag-1"],
+    adIds: ["ad-1"],
+    launchedAt: "2026-08-22T00:00:00.000Z",
+  };
+  original.accountSetup.timezone = input.timeZone;
+  original.budgetSchedule.scheduleStartAt = input.start;
+  original.budgetSchedule.scheduleEndAt = input.end;
+  original.budgetSchedule.adGroups = [
+    {
+      id: "ag-1",
+      name: "London - Wide",
+      budget: 50,
+      startAt: input.start,
+      endAt: input.end,
+    },
+  ];
+  return original;
+}
+
+function hasScheduleBlocker(preflight: {
+  issues: readonly { id: string }[];
+}): boolean {
+  return preflight.issues.some(
+    (issue) =>
+      issue.id === "schedule" ||
+      issue.id === "schedule-order" ||
+      issue.id === "schedule-start-soon",
+  );
+}
 
 describe("save-as-template then load-from-template", () => {
   it("round-trips draft state through the same helpers the library uses", () => {

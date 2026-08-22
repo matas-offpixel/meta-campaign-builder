@@ -8,32 +8,27 @@
 
 ## Summary
 
-Published TikTok drafts only offered a disabled Launch button on Review. Review now offers the same `duplicateTikTokDraft` Relaunch as the library. Duplicate heals the start inside `duplicateTikTokDraftState` (keeps the event end), flushes in-memory wizard state before copying, and preflight collapses repeated campaign / ad-group / creative blockers including aliased fields.
-
-Rebased onto #825 (`78a7b9c`) so Review uses `launchSummary` / `tikTokReviewValidationChip`. The chip and the always-visible Launch blockers panel are gated on `alreadyLaunched`.
+Published TikTok drafts only offered a disabled Launch button on Review. Review now offers the same `duplicateTikTokDraft` Relaunch as the library. Schedule heal uses the advertiser timezone and the same 15-minute threshold as preflight, Review remounts re-heal the T0+15m dead zone, and a valid future start survives library Duplicate.
 
 ## Scope / files
 
-- `components/tiktok-wizard/steps/review-launch.tsx` — Relaunch, `publishedIds.campaignId` predicate, first preflight blocker under Launch, restored launchTitle cases, hide blockers panel when already launched
-- `components/tiktok-wizard/wizard-shell.tsx` — `flushPendingSaves` on the wizard context
-- `lib/db/tiktok-drafts.ts` — optional in-memory source for `duplicateTikTokDraft`
-- `lib/tiktok-wizard/library.ts` — heal start on duplicate (shared with library Duplicate); keep end; clear leftover ad-group dates
-- `lib/tiktok-wizard/review.ts` — chip `alreadyLaunched`
-- `lib/tiktok/write/preflight.ts` — scope/reason/member ids; field aliases; collapse ad-groups against each other
-- `lib/tiktok-wizard/migrate-draft.ts` — cover-image filter reads `creativeIds`
-- tests in `library.test.ts`, `review.test.ts`, `launch-preflight.test.ts`, `migrate-draft.test.ts`
+- `lib/tiktok-wizard/budget-schedule.ts` — stale = `< now + margin`; heal wall clock in advertiser TZ; `applyTikTokScheduleHeal`
+- `lib/tiktok/write/schedule-time.ts` — `formatDatetimeLocalInTimeZone`
+- `lib/tiktok-wizard/library.ts` — heal only when the original start is stale; keep a valid future start
+- `components/tiktok-wizard/steps/review-launch.tsx` — Review-mount heal; hide leftover surfaces on published drafts; member names on collapsed blockers; copy `readWorkingDraft()`
+- `components/tiktok-wizard/wizard-shell.tsx` — `readWorkingDraft`
+- `components/tiktok-wizard/steps/budget-schedule.tsx` — pass advertiser timezone into the Step 5 heal
+- tests in `library.test.ts`, `budget-schedule.test.ts`
 
 ## Validation
 
-- [x] TypeScript via `npm run build` (Finished TypeScript in 14.8s)
+- [x] TypeScript via `npm run build` (Finished TypeScript in 14.9s)
 - [x] `npm run build` — succeeded (Next.js 16.2.1 Turbopack; pre-existing remotion `config` warning only)
 - [x] `npx eslint` on changed files — clean
-- [x] `npm test` — 4167 tests, 4151 pass, **13 fail** (pre-existing, unchanged), 3 skipped
+- [x] `npm test` — 4170 tests, 4154 pass, **13 fail** (pre-existing, unchanged), 3 skipped
 
 ## Notes
 
-- Merge order: #825 squash-merged first (`78a7b9c`), then this branch rebased onto that tip.
-- Schedule: duplicate nulls `scheduleStartAt`, keeps `scheduleEndAt`, then calls `suggestFreshTikTokSchedule` so the copy is born with a healed start. Library Duplicate shares this path — a valid future start is also rewritten to now + lead.
-- Relaunch stays disabled after a successful duplicate (`relaunching` is not cleared in `finally`).
-- `launchTitle`: blockers → "Resolve the launch blockers above"; killswitch-only → `writesDisabledReason`; launching → undefined.
-- Collapse key is `canonicalField + reason` with explicit `scope` / `creativeIds` / `adGroupIds`, not a colon-prefix regex.
+- Stale start is the same gate as launch preflight (`now + TIKTOK_SCHEDULE_START_MARGIN_MS`) in `accountSetup.timezone`.
+- Duplicate at T0 + Review heal at T0+20m is covered so the 15-minute dead zone cannot come back.
+- Tests pin `Pacific/Auckland` (or `Atlantic/Azores` if the runtime already is Auckland), not `Intl.DateTimeFormat().resolvedOptions().timeZone`.

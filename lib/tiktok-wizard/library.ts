@@ -134,18 +134,19 @@ export function duplicateTikTokDraftState(
     original.campaignSetup.campaignName.trim(),
     existingNames,
   );
-  // Null the start, keep the event end, then heal here. Wizard-shell mounts
-  // one step at a time and lands on step 0, so BudgetScheduleStep's mount
-  // effect never runs if the operator goes straight to Review.
-  // Library Duplicate shares this helper — a valid future start is also
-  // rewritten to now + lead so both paths are born launchable on schedule.
-  copy.budgetSchedule.scheduleStartAt = null;
+  // Ask the heal *before* touching start. A still-valid future start (library
+  // Duplicate of an unpublished draft) must survive. A past or too-soon start
+  // (typical Relaunch) is rewritten in the advertiser timezone.
   copy.budgetSchedule.adGroups = copy.budgetSchedule.adGroups.map((group) => ({
     ...group,
     startAt: null,
     endAt: null,
   }));
-  const healed = suggestFreshTikTokSchedule(copy.budgetSchedule, now);
+  const healed = suggestFreshTikTokSchedule(
+    original.budgetSchedule,
+    now,
+    original.accountSetup.timezone,
+  );
   if (healed) {
     copy.budgetSchedule.scheduleStartAt = healed.scheduleStartAt;
     copy.budgetSchedule.scheduleEndAt = healed.scheduleEndAt;

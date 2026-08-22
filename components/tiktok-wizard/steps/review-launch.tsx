@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -38,8 +38,15 @@ import {
   readTikTokLaunchStream,
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
-import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
-import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import { applyTikTokScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
+import {
+  collectTikTokLaunchPreflight,
+  type TikTokLaunchPreflightIssue,
+} from "@/lib/tiktok/write/preflight";
+import type {
+  TikTokAdGroupDraft,
+  TikTokCampaignDraft,
+} from "@/lib/types/tiktok-draft";
 
 type LaunchState =
   | { status: "idle" }
@@ -132,12 +139,20 @@ export function ReviewLaunchStep({
           : undefined;
   const firstLaunchBlocker = clientIssues[0]?.message;
 
+  useEffect(() => {
+    if (alreadyLaunched) return;
+    const healed = applyTikTokScheduleHeal(draft);
+    if (!healed) return;
+    void onSave({ budgetSchedule: healed.budgetSchedule });
+  }, [alreadyLaunched, draft, onSave]);
+
   async function relaunchAsNewDraft() {
     if (relaunching) return;
     setRelaunching(true);
     setRelaunchError(null);
     try {
       await context?.flushPendingSaves?.();
+      const source = context?.readWorkingDraft?.() ?? draft;
       const supabase = createClient();
       const {
         data: { user },
@@ -149,9 +164,9 @@ export function ReviewLaunchStep({
       }
       const copy = await duplicateTikTokDraft(
         supabase,
-        draft.id,
+        source.id,
         user.id,
-        draft,
+        source,
       );
       if (!copy) {
         setRelaunchError("Could not duplicate this draft");
@@ -266,6 +281,7 @@ export function ReviewLaunchStep({
 
       {validationOpen && (
         <div className="space-y-4 rounded-md border border-border bg-background p-4">
+          {!alreadyLaunched && (
           <div>
             <p className="text-sm font-medium">Launch blockers</p>
             {clientIssues.length === 0 ? (
@@ -275,11 +291,14 @@ export function ReviewLaunchStep({
             ) : (
               <ul className="mt-2 space-y-2 text-sm">
                 {clientIssues.map((issue) => (
-                  <li key={issue.id}>{issue.message}</li>
+                  <li key={issue.id}>
+                    {formatPreflightIssue(issue, draft, adGroups)}
+                  </li>
                 ))}
               </ul>
             )}
           </div>
+          )}
           <div>
             <p className="text-sm font-medium">Wizard validation</p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -303,6 +322,7 @@ export function ReviewLaunchStep({
         </div>
       )}
 
+      {!alreadyLaunched && (
       <section className="space-y-3">
         <div>
           <p className="text-sm font-medium">
@@ -328,8 +348,9 @@ export function ReviewLaunchStep({
           ))}
         </div>
       </section>
+      )}
 
-      {wizardIssues.length > 0 && (
+      {!alreadyLaunched && wizardIssues.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
           <p className="text-sm font-medium">Wizard validation</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -351,7 +372,9 @@ export function ReviewLaunchStep({
           <p className="text-sm font-medium">Launch blockers</p>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {clientIssues.map((issue) => (
-              <li key={issue.id}>{issue.message}</li>
+              <li key={issue.id}>
+                {formatPreflightIssue(issue, draft, adGroups)}
+              </li>
             ))}
           </ul>
         </section>
@@ -627,6 +650,30 @@ export function ReviewLaunchStep({
       </p>
     </div>
   );
+}
+
+function formatPreflightIssue(
+  issue: TikTokLaunchPreflightIssue,
+  draft: TikTokCampaignDraft,
+  adGroups: TikTokAdGroupDraft[],
+): string {
+  const members =
+    issue.adGroupIds?.length
+      ? issue.adGroupIds
+          .map(
+            (id) => adGroups.find((group) => group.id === id)?.name ?? id,
+          )
+          .join(", ")
+      : issue.creativeIds?.length
+        ? issue.creativeIds
+            .map(
+              (id) =>
+                draft.creatives.items.find((item) => item.id === id)?.name ??
+                id,
+            )
+            .join(", ")
+        : null;
+  return members ? `${issue.message} — ${members}` : issue.message;
 }
 
 function ReviewPanel({
