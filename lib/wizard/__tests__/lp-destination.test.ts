@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   canAutoFillDestinationUrl,
+  destinationHelperKind,
   destinationUrlsMatch,
   shouldNudgeOffFunnel,
 } from "../lp-destination.ts";
@@ -45,6 +46,32 @@ describe("shouldNudgeOffFunnel — only when an LP exists and is unused", () => 
 
   it("non-LP URL while an LP exists → nudge", () => {
     assert.equal(shouldNudgeOffFunnel({ lpUrl: LP, chosenUrl: TICKETS }), true);
+  });
+});
+
+describe("destinationHelperKind — one line, never both why and nudge", () => {
+  it("ready + unused LP is nudge, not why", () => {
+    assert.equal(
+      destinationHelperKind({
+        state: "ready",
+        offerUrl: true,
+        lpUrl: LP,
+        chosenUrl: TICKETS,
+      }),
+      "nudge",
+    );
+  });
+
+  it("ready + empty field is why, not nudge", () => {
+    assert.equal(
+      destinationHelperKind({
+        state: "ready",
+        offerUrl: true,
+        lpUrl: LP,
+        chosenUrl: "",
+      }),
+      "why",
+    );
   });
 });
 

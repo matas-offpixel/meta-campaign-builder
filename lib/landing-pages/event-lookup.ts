@@ -1,3 +1,5 @@
+import type { LandingPageProvider, PageEventStatus } from "./types.ts";
+
 /**
  * lib/landing-pages/event-lookup.ts
  *
@@ -12,10 +14,14 @@
 
 export interface EventLandingPageRecord {
   eventId: string;
+  clientId: string | null;
   clientSlug: string | null;
   eventSlug: string | null;
   hasPage: boolean;
   pageEventId: string | null;
+  pageStatus: PageEventStatus | null;
+  hasClientConfig: boolean;
+  provider: LandingPageProvider | null;
   customHost: string | null;
 }
 
@@ -25,14 +31,22 @@ export function assembleEventLandingPageRecord(input: {
   clientSlug: string | null;
   pageEventId: string | null;
   customHost?: string | null;
+  clientId?: string | null;
+  pageStatus?: PageEventStatus | null;
+  hasClientConfig?: boolean;
+  provider?: LandingPageProvider | null;
 }): EventLandingPageRecord | null {
   if (!input.eventId) return null;
   return {
     eventId: input.eventId,
+    clientId: input.clientId ?? null,
     clientSlug: input.clientSlug,
     eventSlug: input.eventSlug,
     hasPage: input.pageEventId != null,
     pageEventId: input.pageEventId,
+    pageStatus: input.pageStatus ?? null,
+    hasClientConfig: input.hasClientConfig ?? false,
+    provider: input.provider ?? null,
     customHost: input.customHost ?? null,
   };
 }
