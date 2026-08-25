@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 import {
   canAutoFillDestinationUrl,
   destinationHelperKind,
+  destinationHelperText,
   destinationUrlsMatch,
   shouldNudgeOffFunnel,
+  wizardDestinationChrome,
 } from "../lp-destination.ts";
 import { WIZARD_DESTINATION_URL_FIELDS } from "../lp-destination-fields.ts";
 
@@ -72,6 +74,70 @@ describe("destinationHelperKind — one line, never both why and nudge", () => {
       }),
       "why",
     );
+  });
+});
+
+function renderChrome(input: Parameters<typeof wizardDestinationChrome>[0]): string {
+  const chrome = wizardDestinationChrome(input);
+  const parts: string[] = [];
+  if (chrome.action === "use") parts.push("Use event page");
+  const text = destinationHelperText(chrome.helper);
+  if (text) parts.push(text);
+  return parts.join("\n");
+}
+
+describe("wizardDestinationChrome — consume, do not create", () => {
+  it("(a) ready page → offered, one helper line", () => {
+    const empty = wizardDestinationChrome({
+      state: "ready",
+      offerUrl: true,
+      lpUrl: LP,
+      chosenUrl: "",
+    });
+    assert.equal(empty.action, "use");
+    assert.equal(empty.helper, "why");
+    assert.equal(destinationHelperText(empty.helper), "views and signups become measurable in your funnel.");
+
+    const off = wizardDestinationChrome({
+      state: "ready",
+      offerUrl: true,
+      lpUrl: LP,
+      chosenUrl: TICKETS,
+    });
+    assert.equal(off.action, "use");
+    assert.equal(off.helper, "nudge");
+    assert.notEqual(off.helper, "why");
+  });
+
+  it("(b) draft / unconfigured / none → no create affordance in rendered output", () => {
+    for (const state of ["draft", "unconfigured", "none"] as const) {
+      const rendered = renderChrome({
+        state,
+        offerUrl: false,
+        lpUrl: state === "none" ? null : LP,
+        chosenUrl: "",
+      });
+      assert.equal(rendered, "", `${state} must render nothing`);
+      assert.doesNotMatch(rendered, /create|publish/i);
+      const chrome = wizardDestinationChrome({
+        state,
+        offerUrl: false,
+        lpUrl: state === "none" ? null : LP,
+        chosenUrl: TICKETS,
+      });
+      assert.deepEqual(chrome, { action: null, helper: null });
+    }
+  });
+
+  it("(c) pasted arbitrary URL passes through to the draft untouched", () => {
+    for (const pasted of [
+      TICKETS,
+      "https://ra.co/events/1",
+      "https://dice.fm/event/jamie-jones",
+    ]) {
+      const next = canAutoFillDestinationUrl(pasted, LP) ? LP : pasted;
+      assert.equal(next, pasted);
+    }
   });
 });
 

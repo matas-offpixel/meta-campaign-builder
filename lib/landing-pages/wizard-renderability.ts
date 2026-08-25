@@ -4,6 +4,7 @@ import type { LandingPageProvider, PageEventStatus } from "./types.ts";
  * lib/landing-pages/wizard-renderability.ts
  *
  * Wizard-facing contract for "may we fill this URL into a live ad?"
+ * Read-only: wizards never create or publish pages.
  *
  * The public /l renderer 404s when (see resolveLandingPageContext +
  * resolveLandingPageOutcome):
@@ -14,9 +15,7 @@ import type { LandingPageProvider, PageEventStatus } from "./types.ts";
  *
  * Missing client_landing_pages does NOT 404 today (theme falls to defaults,
  * pixel stays off). The wizard still requires the row before offering a
- * URL: B.1 handed out a path that could not render, and a client with no
- * config layer is the other half of that failure. Quick-create inserts
- * the row with theme defaults and no pixel/CAPI.
+ * URL.
  *
  * "ready" is the only state whose URL may be filled.
  */
@@ -38,18 +37,6 @@ export interface AssessWizardLandingPageInput {
   eventSlug: string | null;
 }
 
-export interface RenderableEnsurePlan {
-  createClientConfig: boolean;
-  createPage: boolean;
-  publishPage: boolean;
-}
-
-/** Theme defaults only. Pixel / CAPI stay unset (LP no-fallback rule). */
-export const MINIMAL_CLIENT_LANDING_PAGE = {
-  theme: {} as Record<string, unknown>,
-  default_provider: "internal" as const,
-};
-
 export function assessWizardLandingPage(
   input: AssessWizardLandingPageInput,
 ): WizardLpAssessment {
@@ -68,21 +55,4 @@ export function assessWizardLandingPage(
     return { state: "ready", offerUrl: true };
   }
   return { state: "draft", offerUrl: false };
-}
-
-/**
- * Writes needed to make a wizard-owned page publicly serveable.
- * Never unarchives. Never flips evntree → internal.
- */
-export function planRenderableEnsure(input: {
-  hasClientConfig: boolean;
-  page: { status: PageEventStatus; provider: LandingPageProvider } | null;
-}): RenderableEnsurePlan {
-  const createClientConfig = !input.hasClientConfig;
-  if (!input.page) {
-    return { createClientConfig, createPage: true, publishPage: false };
-  }
-  const publishPage =
-    input.page.provider === "internal" && input.page.status === "draft";
-  return { createClientConfig, createPage: false, publishPage };
 }

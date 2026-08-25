@@ -7,8 +7,6 @@ import {
 } from "@/lib/landing-pages/event-lookup";
 import {
   assessWizardLandingPage,
-  MINIMAL_CLIENT_LANDING_PAGE,
-  planRenderableEnsure,
   type WizardLpAssessment,
 } from "@/lib/landing-pages/wizard-renderability";
 import type { LandingPageProvider, PageEventStatus } from "@/lib/landing-pages/types";
@@ -16,13 +14,13 @@ import type { LandingPageProvider, PageEventStatus } from "@/lib/landing-pages/t
 /**
  * lib/db/event-landing-page.ts
  *
- * Wizard-facing event ↔ LP lookup / ensure (by events.id). Public /l
+ * Wizard-facing event ↔ LP lookup (by events.id). Read-only: the launch
+ * wizards consume destination URLs; they do not create pages. Public /l
  * resolution stays slug-chain (`getLandingPageContext`). Ownership is RLS
- * on the cookie-bound client — operators only see their own events.
+ * on the cookie-bound client.
  *
- * Ensure writes a page the public renderer will serve: client_landing_pages
- * with theme defaults (no pixel/CAPI), page_events status "live". The
- * admin editor's create-as-draft path is unchanged.
+ * Page create/publish lives in the LP product
+ * (`createPageForExistingEvent` in lib/actions/update-page-event.ts).
  */
 
 function firstEmbed<T extends Record<string, unknown>>(
@@ -120,98 +118,4 @@ export async function lookupEventLandingPage(
       page_events: unknown;
     },
   );
-}
-
-/**
- * Make the event's landing page publicly serveable, or say why not.
- * Creates missing client_landing_pages (theme defaults, no pixel/CAPI)
- * and a live internal page_events row. Publishes an existing internal
- * draft. Never unarchives. Never flips evntree → internal.
- */
-export async function ensureRenderablePageForOwnedEvent(
-  eventId: string,
-): Promise<
-  | { record: EventLandingPageRecord; renderability: WizardLpAssessment }
-  | { error: string }
-> {
-  const existing = await lookupEventLandingPage(eventId);
-  if (!existing) return { error: "Event not found." };
-
-  const plan = planRenderableEnsure({
-    hasClientConfig: existing.hasClientConfig,
-    page:
-      existing.hasPage && existing.pageStatus && existing.provider
-        ? { status: existing.pageStatus, provider: existing.provider }
-        : null,
-  });
-
-  const supabase = await createClient();
-
-  if (plan.createClientConfig) {
-    const clientId = existing.clientId;
-    if (!clientId) return { error: "Event has no client — cannot create landing-page config." };
-    const { error: clpError } = await supabase.from("client_landing_pages").insert({
-      client_id: clientId,
-      theme: MINIMAL_CLIENT_LANDING_PAGE.theme,
-      default_provider: MINIMAL_CLIENT_LANDING_PAGE.default_provider,
-    });
-    if (clpError) {
-      const raced = await lookupEventLandingPage(eventId);
-      if (!raced?.hasClientConfig) {
-        return { error: `Create client config failed: ${clpError.message}` };
-      }
-    }
-  }
-
-  if (plan.createPage) {
-    const { error: insertError } = await supabase
-      .from("page_events")
-      .insert({
-        event_id: eventId,
-        provider: "internal",
-        status: "live",
-        content: { template_key: "mvp_v1" },
-      })
-      .select("id")
-      .single();
-    if (insertError) {
-      const raced = await lookupEventLandingPage(eventId);
-      if (!raced?.hasPage) {
-        return { error: `Create failed: ${insertError.message}` };
-      }
-    }
-  } else if (plan.publishPage) {
-    const { error: publishError } = await supabase
-      .from("page_events")
-      .update({ status: "live" })
-      .eq("event_id", eventId)
-      .eq("status", "draft")
-      .eq("provider", "internal");
-    if (publishError) {
-      return { error: `Publish failed: ${publishError.message}` };
-    }
-  }
-
-  const created = await lookupEventLandingPage(eventId);
-  if (!created) return { error: "Ensure succeeded but lookup returned nothing." };
-  const renderability = assessRecord(created);
-  if (!renderability.offerUrl) {
-    if (created.provider === "evntree") {
-      return {
-        error:
-          "This event already uses an Evntr.ee page. Flip it to the internal renderer in the page editor before using it as a destination.",
-      };
-    }
-    if (created.pageStatus === "archived") {
-      return {
-        error:
-          "This event page is archived. Restore it in the page editor before using it as a destination.",
-      };
-    }
-    return {
-      error:
-        "The event page is not publicly serveable yet. Publish it before using the URL.",
-    };
-  }
-  return { record: created, renderability };
 }

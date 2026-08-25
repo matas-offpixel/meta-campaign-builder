@@ -2,6 +2,12 @@
  * lib/wizard/lp-destination.ts
  *
  * Pure offer / fill / nudge rules for the wizard destination-URL fields.
+ *
+ * Wizards consume destination URLs; they do not create landing pages.
+ * Paste-any-URL is the default. "Use event page" is offered only when GET
+ * returns ready (a page the public renderer will serve). Draft /
+ * unconfigured / none show nothing — page creation lives in the LP product.
+ *
  * Offer, never force: a URL the operator already typed is never overwritten
  * by auto-fill. A click on "Use event page" is explicit and may replace.
  */
@@ -75,40 +81,27 @@ export const USE_EVENT_PAGE_WHY =
 export const OFF_FUNNEL_NUDGE =
   "this campaign's views won't appear in the funnel";
 
-export const DRAFT_NOT_OFFERED =
-  "created as draft — publish before using as a destination.";
+export type DestinationHelperKind = "why" | "nudge";
 
-export const UNCONFIGURED_CLIENT =
-  "this client has no landing-page config yet — create it before using the URL.";
-
-export type DestinationHelperKind =
-  | "why"
-  | "nudge"
-  | "draft"
-  | "unconfigured"
-  | "create";
+export type WizardLpOfferState = "ready" | "draft" | "unconfigured" | "none";
 
 /**
- * Exactly one helper line per state. Ready + off-funnel is the nudge;
- * ready + empty is the why. Never both.
+ * Exactly one helper line, and only when a ready page is on offer.
+ * Ready + off-funnel is the nudge; ready + empty is the why. Never both.
+ * Draft / unconfigured / none: no helper (no create nudge).
  */
 export function destinationHelperKind(input: {
-  state: "ready" | "draft" | "unconfigured" | "none";
+  state: WizardLpOfferState;
   offerUrl: boolean;
   lpUrl: string | null;
   chosenUrl: string;
 }): DestinationHelperKind | null {
-  if (input.state === "draft") return "draft";
-  if (input.state === "unconfigured") return "unconfigured";
-  if (input.state === "none") return "create";
-  if (input.state === "ready") {
-    if (shouldNudgeOffFunnel({ lpUrl: input.lpUrl, chosenUrl: input.chosenUrl })) {
-      return "nudge";
-    }
-    if (input.offerUrl && input.lpUrl && input.chosenUrl.trim()) return null;
-    if (input.offerUrl && input.lpUrl) return "why";
+  if (input.state !== "ready" || !input.offerUrl || !input.lpUrl) return null;
+  if (shouldNudgeOffFunnel({ lpUrl: input.lpUrl, chosenUrl: input.chosenUrl })) {
+    return "nudge";
   }
-  return null;
+  if (input.chosenUrl.trim()) return null;
+  return "why";
 }
 
 export function destinationHelperText(
@@ -116,15 +109,38 @@ export function destinationHelperText(
 ): string | null {
   switch (kind) {
     case "why":
-    case "create":
       return USE_EVENT_PAGE_WHY;
     case "nudge":
       return OFF_FUNNEL_NUDGE;
-    case "draft":
-      return DRAFT_NOT_OFFERED;
-    case "unconfigured":
-      return UNCONFIGURED_CLIENT;
     default:
       return null;
   }
 }
+
+/** What EventPageDestination may render. Create/publish are never in this set. */
+export function wizardDestinationChrome(input: {
+  state: WizardLpOfferState;
+  offerUrl: boolean;
+  lpUrl: string | null;
+  chosenUrl: string;
+}): { action: "use" | null; helper: DestinationHelperKind | null } {
+  const helper = destinationHelperKind(input);
+  if (input.state !== "ready" || !input.offerUrl || !input.lpUrl) {
+    return { action: null, helper: null };
+  }
+  const alreadyUsing = destinationUrlsMatch(input.chosenUrl, input.lpUrl);
+  return { action: alreadyUsing ? null : "use", helper };
+}
+
+/**
+ * Strings that must not appear in EventPageDestination. A test greps them
+ * out; it fails against the #843 component that still offered create/publish.
+ */
+export const WIZARD_CREATE_AFFORDANCE_BANS = [
+  "Create event page",
+  "Publish event page",
+  "Creating event page",
+  "Publishing event page",
+  "create it before using",
+  "created as draft",
+] as const;
