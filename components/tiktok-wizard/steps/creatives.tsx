@@ -30,6 +30,7 @@ import type {
   TikTokCampaignDraft,
   TikTokCreativeDraft,
 } from "@/lib/types/tiktok-draft";
+import { EventPageDestination } from "@/components/wizard/event-page-destination";
 
 interface UploadJob {
   id: string;
@@ -491,13 +492,21 @@ export function CreativesStep({
         <p className="self-end text-xs text-muted-foreground">
           {adText.length}/100 characters
         </p>
-        <Input
-          id="creative-landing-page"
-          label="Landing page URL"
-          value={landingPageUrl}
-          onChange={(event) => setLandingPageUrl(event.target.value)}
-          placeholder="https://..."
-        />
+        <div>
+          <Input
+            id="creative-landing-page"
+            label="Landing page URL"
+            value={landingPageUrl}
+            onChange={(event) => setLandingPageUrl(event.target.value)}
+            placeholder="https://..."
+          />
+          <EventPageDestination
+            fieldId="tiktok-creative-landing-page-url"
+            eventId={draft.eventId}
+            value={landingPageUrl}
+            onChange={setLandingPageUrl}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

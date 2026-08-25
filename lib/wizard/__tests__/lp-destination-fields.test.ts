@@ -1,0 +1,71 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+
+import { WIZARD_DESTINATION_URL_FIELDS } from "../lp-destination-fields.ts";
+
+/**
+ * Guard: every destination-URL input in the Meta + TikTok wizards must
+ * be listed in WIZARD_DESTINATION_URL_FIELDS and wired to
+ * EventPageDestination. A new input that isn't listed fails this test
+ * so half-attributed funnels cannot ship unnoticed.
+ */
+
+const REPO = process.cwd();
+
+function source(rel: string): string {
+  return readFileSync(join(REPO, rel), "utf8");
+}
+
+const DESTINATION_LABEL = /label="((?:Destination URL|Landing page URL)[^"]*)"/g;
+
+describe("wizard destination-URL field coverage", () => {
+  it("lists exactly the four launch-flow fields (bulk-attach / umbrella out of scope)", () => {
+    assert.equal(WIZARD_DESTINATION_URL_FIELDS.length, 4);
+    assert.deepEqual(
+      WIZARD_DESTINATION_URL_FIELDS.map((f) => f.id),
+      [
+        "meta-creative-destination-url",
+        "meta-existing-ig-destination-url",
+        "meta-existing-fb-destination-url",
+        "tiktok-creative-landing-page-url",
+      ],
+    );
+  });
+
+  it("every listed field is wired in its file (fieldId + EventPageDestination)", () => {
+    for (const field of WIZARD_DESTINATION_URL_FIELDS) {
+      const src = source(field.file);
+      assert.match(
+        src,
+        /EventPageDestination/,
+        `${field.file} must mount EventPageDestination`,
+      );
+      assert.ok(
+        src.includes(`fieldId="${field.id}"`),
+        `${field.file} must wire fieldId="${field.id}"`,
+      );
+      assert.ok(
+        src.includes(`label="${field.label}"`),
+        `${field.file} must still expose label="${field.label}"`,
+      );
+    }
+  });
+
+  it("every Destination URL / Landing page URL label in those files is a listed field", () => {
+    const files = [...new Set(WIZARD_DESTINATION_URL_FIELDS.map((f) => f.file))];
+    const labels: string[] = [];
+    for (const file of files) {
+      const src = source(file);
+      for (const match of src.matchAll(DESTINATION_LABEL)) {
+        labels.push(`${file} :: ${match[1]}`);
+      }
+    }
+    assert.equal(
+      labels.length,
+      WIZARD_DESTINATION_URL_FIELDS.length,
+      `ungarded destination-URL label(s):\n${labels.join("\n")}`,
+    );
+  });
+});
