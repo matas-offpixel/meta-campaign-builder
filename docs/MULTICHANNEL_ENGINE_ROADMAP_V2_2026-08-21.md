@@ -4,6 +4,20 @@
 adjudicates the audit (PR #835, `MULTICHANNEL_ENGINE_ROADMAP_AUDIT_2026-08-21.md`). Keep both
 for background; this is the canonical fallback document.
 
+**Amendment v2.1 (2026-08-25, Matas):** landing pages ALWAYS precede campaigns. An LP is a
+standalone client-facing product with its own creation, approval and testing cycle — it is
+never minted inside a launch flow. B.1 is re-scoped to **URL consumption**: the wizards offer
+an existing live, configured event page when one exists, and otherwise accept any pasted URL
+(client's own page, cirqlin page, RA/Dice, anything). Wizard-side quick-create is DELETED
+(follow-up to PR #843), including its POST route unless a non-wizard caller exists. The
+funnel middle populates opportunistically whenever the chosen URL is ours and shows honest
+not-instrumented states otherwise — so **Checkpoint B is dissolved as a gate**. Consequence:
+**Phase D (plan spine — one input set → Meta + TikTok + Google with a shared goal and
+budget) is promoted to NEXT**, and Phase C (self-learning benchmarks) runs in parallel as
+data accrues rather than gating anything. The engine's purpose, in one sentence: launch
+three campaigns at once from the same inputs, report them into one dashboard, and let each
+channel's results inform recommendations across all three.
+
 **The correction this version encodes (Matas, 2026-08-21):** in music-event marketing,
 accurate purchase-conversion tracking is structurally out of reach and will stay that way.
 ~90% of ticketing is split across outlets — RA, Dice, Skiddle — with no open APIs, and
@@ -65,7 +79,8 @@ provenance labels on every number.
 **Changed:** the reporting tier becomes FUNNEL reporting; forecasting decomposes through
 funnel stages instead of fitting spend→purchase curves; recommendations become stage
 diagnostics; landing-page adoption becomes a first-class workstream (the funnel middle only
-exists if ads point at our LPs — today: ONE live page).
+exists if ads point at our LPs — today: ONE live page). *(v2.1: adoption of LPs remains
+desirable but is no longer a gate — see the amendment above.)*
 
 ## 3. Existing assets, remapped to the funnel
 
@@ -73,7 +88,7 @@ exists if ads point at our LPs — today: ONE live page).
 |---|---|---|
 | Reach/clicks per platform/day | `event_daily_rollups` (meta_impressions, meta_reach, clicks, tiktok_*, google_*) | SHIPPED, fresh |
 | LPVs + signups | LP software, `event_signups` with `utm` jsonb incl. click IDs | BUILT, ~unadopted (1 page, 1 signup) |
-| Manual purchases | `ticket_sales_snapshots` manual provider + bulk manual endpoint | SHIPPED — but rollup tickets leg DEAD since July (#146) |
+| Manual purchases | `ticket_sales_snapshots` manual provider + bulk manual endpoint | SHIPPED — rollup tickets leg restored by #836 |
 | Pixel-attributed purchases | Meta pixel + CAPI per client, `meta_regs` | SHIPPED where configured |
 | Benchmark store | `event_funnel_overrides` (migration 060) + Funnel Planner UI shell | SEED EXISTS — v1 barely used it; v2 makes it central |
 | Client-visible surface | `/admin/[clientSlug]` client dashboard | SHIPPED |
@@ -83,11 +98,14 @@ The funnel engine is substantially more built than the attribution engine ever w
 
 ## 4. The path
 
-### P0 — Restore the bottom of the funnel (in flight)
+*(v2.1 ordering: P0 ✓ → A ✓ → B-as-amended ✓ → **D** → E.3-lite → C in parallel → E → F.
+Original phase text below is retained; read B and C through the amendment.)*
+
+### P0 — Restore the bottom of the funnel (SHIPPED — #836)
 **#146:** fix the snapshots→rollups tickets leg, backfill July–August, regression-pin,
 freshness alarm to ads_urgent. Without this, even manual purchase entry is invisible.
 
-### Phase A — Funnel reporting tier (4–6 PRs, no new schema for ~80%)
+### Phase A — Funnel reporting tier (SHIPPED — #837, #838, #839; A.4 folded into A.1)
 - **A.1** Per-event funnel view: reach → clicks → LPV → signups → purchases, per-stage
   conversion vs benchmark, per-platform split on the top stages. Data provenance badge per
   stage (platform-reported / first-party / manual / modelled).
@@ -103,21 +121,18 @@ freshness alarm to ads_urgent. Without this, even manual purchase entry is invis
 **Checkpoint A:** one client can see their full funnel with per-stage rates vs seed
 benchmarks, enters sales themselves, and the numbers reconcile with what they know. Billable.
 
-### Phase B — Landing-page adoption (3–4 PRs)
-The funnel middle is empty because ads don't point at our pages (1 live LP vs 164 events).
-- **B.1** Wizards consume destination URLs; they do not create landing pages. Paste-any-URL
-  is the default (client page, existing LP, RA/Dice, anything). "Use event page" is offered
-  only when a renderable page already exists. Page creation is a deliberate LP-product act.
-- **B.2** LPV capture verified end-to-end (page_events → rollups or equivalent) and joined to
+### Phase B — Landing-page instrumentation (RE-SCOPED by v2.1; #840, #841, #842, #843 + URL-consumer follow-up)
+- **B.1** *(as amended)* Wizards CONSUME destination URLs: offer an existing live event page
+  when one exists; accept any pasted URL otherwise. No creation from any launch surface —
+  LPs are made in the LP product, upstream, with their own approvals.
+- **B.2** LPV capture verified end-to-end (`lp_page_views`, migration 155) and joined to
   the funnel view; click-ID capture confirmed on real traffic.
-- **B.3** Migration prompt for live campaigns: surface which running campaigns point
-  off-funnel and the one-click switch.
+- **B.3** Off-funnel audit for live campaigns: surface which running campaigns point at
+  on-platform links; honest relaunch CTAs, no in-place writes.
 
-**Checkpoint B:** ≥5 events with ads pointing at our LPs and LPV+signup stages populating.
-If clients refuse LP adoption, the middle funnel thesis needs rework — this checkpoint can
-fail meaningfully.
+**Checkpoint B: DISSOLVED (v2.1).** Instrumented-LP launches are opportunistic, not gated.
 
-### Phase C — Self-learning benchmarks (3–5 PRs)
+### Phase C — Self-learning benchmarks (3–5 PRs; runs in PARALLEL once real funnel data accrues)
 - **C.1** Benchmark model: extend `event_funnel_overrides` toward
   `client_funnel_benchmarks`: per client × stage (later × phase × platform) observed rate,
   n, confidence, provenance (seed | learned | manually-overridden), updated_at.
@@ -132,18 +147,19 @@ fail meaningfully.
 **Checkpoint C:** a client with ≥3 completed events has learned benchmarks that differ from
 the seed and are used everywhere the seed used to be.
 
-### Phase D — Plan spine as adoption lever (unchanged from v1 Phase 1, ~6–9 PRs)
+### Phase D — Plan spine (NEXT per v2.1; ~6–9 PRs)
 `campaign_plans` + splits + adapters + fan-out through existing wizards. Prerequisite PR:
 paused-everywhere launch + Meta idempotency ledger (audit disagreement 6 — conceded).
-Landing URL defaults to the event LP (Phase B), so multichannel launch and funnel
-instrumentation arrive together.
+Destination URL is whatever the plan specifies (v2.1) — an event LP when one exists, any
+client URL otherwise. One input set → three platform launches, shared goal and budget,
+partial success first-class, everything created paused behind its own killswitch.
 
 **Adoption checkpoint (kill-switch):** within M weeks of Phase D shipping, ≥N events run
 2+ platforms through plans (suggest N=5, M=6 — set honestly at the time). If not met, stop:
 the multichannel decisioning thesis is wrong for this client base, and Phases E–F do not
 proceed on momentum.
 
-### Phase E — Funnel-based forecasting + stage diagnostics (4–6 PRs, needs A–C data)
+### Phase E — Funnel-based forecasting + stage diagnostics (4–6 PRs; E.3-lite may ship early on top-of-funnel data alone)
 - **E.1** Forecast by decomposition: planned spend × learned CPM/CPC per platform → reach,
   clicks → learned funnel rates → projected LPVs, signups, (modelled) purchases, with bands
   from benchmark confidence. Rendered on the plan screen pre-launch. Far more tractable than
@@ -167,15 +183,19 @@ read + propose first, apply via MCP only after Checkpoint E quality is proven.
 ## 5. Not building
 - Ticketing-outlet scraping, browser plugins, or dashboard-access requests — structurally
   closed doors; manual + pixel + funnel modelling replaces them by design, not as a stopgap.
+- Landing-page creation inside any launch flow (v2.1) — LPs are upstream, standalone,
+  approval-gated.
 - User-level journeys, incrementality, Bayesian MMM.
 - Statistical budget reallocation at current spend levels.
 - Auto-apply anything before its checkpoint.
 
-## 6. Fallback test (v2)
-1. Is the bottom of the funnel visible again (P0/#146)?
-2. Can a client see their funnel with honest provenance and enter their own sales? (A)
-3. Do ads point at our pages, populating the middle? (B)
-4. Are benchmarks visibly becoming THEIRS rather than the industry's? (C)
-5. Does one plan launch multiple platforms, and did adoption clear the kill-switch? (D)
+## 6. Fallback test (v2.1)
+1. Is the bottom of the funnel visible again (P0/#146)? ✓
+2. Can a client see their funnel with honest provenance and enter their own sales? (A) ✓
+3. Do the wizards consume the event's real URL cleanly, offering ours when one exists? (B
+   as amended) ✓ pending URL-consumer follow-up
+4. Does one plan launch multiple platforms from one input set, and did adoption clear the
+   kill-switch? (D)
+5. Are benchmarks visibly becoming THEIRS rather than the industry's? (C, parallel)
 6. Do forecasts and diagnostics change decisions, with tracked error? (E)
 First "no" is where to return to. Work that moves none of these is off-roadmap.
