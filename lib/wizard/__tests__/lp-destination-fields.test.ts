@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
+import { WIZARD_CREATE_AFFORDANCE_BANS } from "../lp-destination.ts";
 import { WIZARD_DESTINATION_URL_FIELDS } from "../lp-destination-fields.ts";
 
 /**
  * Guard: every destination-URL input in the Meta + TikTok wizards must
  * be listed in WIZARD_DESTINATION_URL_FIELDS and wired to
- * EventPageDestination. A new input that isn't listed fails this test
+ * EventPageDestination (picker + paste). That component no longer
+ * exposes page creation. A new input that isn't listed fails this test
  * so half-attributed funnels cannot ship unnoticed.
  */
 
@@ -66,6 +68,25 @@ describe("wizard destination-URL field coverage", () => {
       labels.length,
       WIZARD_DESTINATION_URL_FIELDS.length,
       `ungarded destination-URL label(s):\n${labels.join("\n")}`,
+    );
+  });
+
+  it("EventPageDestination and the four fields expose no create affordance", () => {
+    const picker = "components/wizard/event-page-destination.tsx";
+    const files = [picker, ...new Set(WIZARD_DESTINATION_URL_FIELDS.map((f) => f.file))];
+    for (const file of files) {
+      const src = source(file);
+      for (const ban of WIZARD_CREATE_AFFORDANCE_BANS) {
+        assert.ok(
+          !src.includes(ban),
+          `${file} must not contain create affordance ${JSON.stringify(ban)}`,
+        );
+      }
+    }
+    const pickerSrc = source(picker);
+    assert.ok(
+      !pickerSrc.includes('method: "POST"') && !pickerSrc.includes("method: 'POST'"),
+      `${picker} must not POST to create a landing page`,
     );
   });
 });

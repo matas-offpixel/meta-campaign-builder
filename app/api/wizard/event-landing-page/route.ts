@@ -11,10 +11,12 @@ import { createClient } from "@/lib/supabase/server";
  * GET  /api/wizard/event-landing-page?eventId=
  * POST /api/wizard/event-landing-page  { eventId }
  *
- * Operator-session lookup / ensure for the wizard destination-URL offer.
- * GET returns ready | draft | unconfigured | none. POST creates the
- * missing client config + a live page (or publishes an internal draft).
- * The URL is only offerable when renderability.offerUrl is true.
+ * GET is the wizard lookup: ready | draft | unconfigured | none. The
+ * launch wizards consume URLs and only offer "Use event page" on ready.
+ *
+ * POST is retained for the LP product / operator ensure path
+ * (createPageForExistingEvent + this ensure). The wizard no longer calls
+ * it — do not wire POST back into EventPageDestination.
  */
 
 async function requireUser() {

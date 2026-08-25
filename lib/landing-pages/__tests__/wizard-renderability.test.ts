@@ -303,7 +303,7 @@ describe("destinationHelperKind — one line per state", () => {
     );
   });
 
-  it("draft / unconfigured / none each get their own single line", () => {
+  it("draft / unconfigured / none show no helper (no create nudge)", () => {
     assert.equal(
       destinationHelperKind({
         state: "draft",
@@ -311,7 +311,7 @@ describe("destinationHelperKind — one line per state", () => {
         lpUrl: lp,
         chosenUrl: tickets,
       }),
-      "draft",
+      null,
     );
     assert.equal(
       destinationHelperKind({
@@ -320,7 +320,7 @@ describe("destinationHelperKind — one line per state", () => {
         lpUrl: lp,
         chosenUrl: "",
       }),
-      "unconfigured",
+      null,
     );
     assert.equal(
       destinationHelperKind({
@@ -329,7 +329,7 @@ describe("destinationHelperKind — one line per state", () => {
         lpUrl: null,
         chosenUrl: "",
       }),
-      "create",
+      null,
     );
   });
 });

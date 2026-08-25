@@ -10,19 +10,17 @@ import {
 import type { EventLandingPageRecord } from "@/lib/landing-pages/event-lookup";
 import type { WizardLpAssessment } from "@/lib/landing-pages/wizard-renderability";
 import {
-  canAutoFillDestinationUrl,
-  destinationHelperKind,
   destinationHelperText,
-  destinationUrlsMatch,
+  wizardDestinationChrome,
 } from "@/lib/wizard/lp-destination";
 import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
 
 /**
- * Offer (never force) the event landing page as the ad destination.
+ * Offer (never force) a ready event landing page as the ad destination.
  * Shared by every Meta + TikTok destination-URL field.
  *
- * Only a renderable URL is filled: ready = live internal page + client
- * landing-page config. Draft / unconfigured never land in the field.
+ * Wizards consume URLs. They do not create pages. Draft / unconfigured /
+ * none render nothing — paste-any-URL on the parent field is the default.
  */
 
 type Snapshot = {
@@ -103,7 +101,6 @@ export function EventPageDestination({
 }) {
   const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(Boolean(eventId));
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,68 +161,21 @@ export function EventPageDestination({
     [onChange],
   );
 
-  const ensurePage = useCallback(async () => {
-    if (!eventId || creating) return;
-    setCreating(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/wizard/event-landing-page", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId }),
-      });
-      const json = (await res.json()) as ApiPayload;
-      if (!res.ok || !json.ok || !json.record) {
-        setError(json.error ?? "Couldn’t create the event page.");
-        return;
-      }
-      const parsed = parsePayload(json);
-      const next = snapshotFromPayload(
-        parsed.record,
-        parsed.renderability,
-        publicOrigin(),
-      );
-      cache.set(eventId, next);
-      emitCache();
-      if (
-        next.renderability.offerUrl &&
-        next.url &&
-        canAutoFillDestinationUrl(value, next.url)
-      ) {
-        applyUrl(next.url);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn’t create the event page.");
-    } finally {
-      setCreating(false);
-    }
-  }, [applyUrl, creating, eventId, value]);
-
   if (!eventId) return null;
 
   const snapshot = cache.get(eventId) ?? null;
-  const record = snapshot?.record ?? null;
   const lpUrl = snapshot?.url ?? null;
   const renderability = snapshot?.renderability ?? {
     state: "none" as const,
     offerUrl: false,
   };
-  const eventKnown = record != null;
-  const alreadyUsing = Boolean(lpUrl && destinationUrlsMatch(value, lpUrl));
-  const helperKind = destinationHelperKind({
+  const chrome = wizardDestinationChrome({
     state: renderability.state,
     offerUrl: renderability.offerUrl,
     lpUrl,
     chosenUrl: value,
   });
-  const helperText = destinationHelperText(helperKind);
-
-  const showUse =
-    eventKnown && renderability.offerUrl && lpUrl != null && !alreadyUsing;
-  const showCreate = eventKnown && renderability.state === "none";
-  const showFinish = eventKnown && renderability.state === "unconfigured";
-  const showPublish = eventKnown && renderability.state === "draft";
+  const helperText = destinationHelperText(chrome.helper);
 
   if (loading && !snapshot) {
     return (
@@ -235,32 +185,17 @@ export function EventPageDestination({
     );
   }
 
+  if (!chrome.action && !helperText && !error) return null;
+
   return (
     <div className="mt-1.5 space-y-1" data-lp-destination-field={fieldId}>
-      {showUse && lpUrl && (
+      {chrome.action === "use" && lpUrl && (
         <button
           type="button"
           onClick={() => applyUrl(lpUrl)}
           className="inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary-hover"
         >
           Use event page
-        </button>
-      )}
-
-      {(showCreate || showFinish || showPublish) && (
-        <button
-          type="button"
-          onClick={() => void ensurePage()}
-          disabled={creating}
-          className="inline-flex items-center rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-40"
-        >
-          {creating
-            ? showPublish
-              ? "Publishing event page…"
-              : "Creating event page…"
-            : showPublish
-              ? "Publish event page"
-              : "Create event page"}
         </button>
       )}
 

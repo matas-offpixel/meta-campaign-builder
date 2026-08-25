@@ -1,5 +1,7 @@
 /**
  * Every destination-URL input in the Meta + TikTok launch wizards.
+ * Each must mount EventPageDestination (picker + paste). That component
+ * no longer exposes page creation — wizards consume URLs.
  * Bulk-attach / umbrella are out of scope (follow-up). A new wizard
  * field that is not listed here will fail the field-coverage guard.
  */

@@ -105,8 +105,9 @@ benchmarks, enters sales themselves, and the numbers reconcile with what they kn
 
 ### Phase B — Landing-page adoption (3–4 PRs)
 The funnel middle is empty because ads don't point at our pages (1 live LP vs 164 events).
-- **B.1** LP creation folded into the launch flow: creating/linking an event LP is a step (or
-  one-click default) in the wizards; destination URL auto-set to it.
+- **B.1** Wizards consume destination URLs; they do not create landing pages. Paste-any-URL
+  is the default (client page, existing LP, RA/Dice, anything). "Use event page" is offered
+  only when a renderable page already exists. Page creation is a deliberate LP-product act.
 - **B.2** LPV capture verified end-to-end (page_events → rollups or equivalent) and joined to
   the funnel view; click-ID capture confirmed on real traffic.
 - **B.3** Migration prompt for live campaigns: surface which running campaigns point
