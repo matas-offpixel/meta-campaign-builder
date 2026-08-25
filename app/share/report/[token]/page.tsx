@@ -27,6 +27,7 @@ import {
 } from "@/lib/insights/types";
 import type { TikTokManualReportSnapshot } from "@/lib/types/tiktok";
 import { PublicReport } from "@/components/report/public-report";
+import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
 import type { TikTokReportBlockData } from "@/components/report/tiktok-report-block";
 import type { GoogleAdsReportBlockData } from "@/components/report/google-ads-report-block";
 import { ReportUnavailable } from "@/components/report/report-unavailable";
@@ -271,7 +272,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
   // same admin client so no extra Supabase connection is opened. The
   // TikTok read returns null on any failure so a missing snapshot never
   // poisons the Meta path — TikTok is purely additive here.
-  const [eventRow, providerToken, planTickets, tiktokRow, planBudgetRow, googleAdsPlanRow] =
+  const [eventRow, providerToken, planTickets, tiktokRow, planBudgetRow, googleAdsPlanRow, funnel] =
     await Promise.all([
       admin
         .from("events")
@@ -299,6 +300,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      loadEventFunnelView(admin, event_id).catch((err) => {
+        console.warn(
+          `[share/report] funnel load failed for token=${token.slice(0, 6)}:`,
+          err instanceof Error ? err.message : err,
+        );
+        return null;
+      }),
     ]);
 
   if (eventRow.error || !eventRow.data) {
@@ -954,6 +962,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       brandRollupSpend={brandRollupSpend}
       tiktokRollupTotals={tiktokRollupTotals}
       tiktokSnapshots={tiktokSnapshots}
+      funnel={funnel}
     />
   );
 }
