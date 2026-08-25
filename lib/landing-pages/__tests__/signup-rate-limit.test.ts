@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   _resetLandingPageRateLimitForTests,
+  _resetPageViewRateLimitForTests,
   _resetSignupRateLimitForTests,
+  buildPageViewRateLimitKey,
   buildSignupRateLimitKey,
   checkLandingPageRateLimit,
+  checkPageViewRateLimit,
   checkSignupRateLimit,
 } from "../rate-limit.ts";
 
@@ -70,6 +73,41 @@ describe("checkSignupRateLimit", () => {
     for (let i = 0; i < 6; i++) checkSignupRateLimit("s:1.2.3.4:a/b", T0);
     // Page-view limiter still fresh for the same IP.
     assert.equal(checkLandingPageRateLimit("l:1.2.3.4", T0).allowed, true);
+  });
+});
+
+describe("checkPageViewRateLimit", () => {
+  beforeEach(() => {
+    _resetPageViewRateLimitForTests();
+    delete process.env.LANDING_PAGES_VIEW_RATE_MAX;
+    delete process.env.LANDING_PAGES_VIEW_RATE_WINDOW_MINUTES;
+  });
+  afterEach(() => {
+    delete process.env.LANDING_PAGES_VIEW_RATE_MAX;
+    delete process.env.LANDING_PAGES_VIEW_RATE_WINDOW_MINUTES;
+  });
+
+  it("allows 60 views then blocks the 61st within one minute", () => {
+    const key = "v:1.2.3.4:gmc/jackies";
+    for (let i = 0; i < 60; i++) {
+      assert.equal(checkPageViewRateLimit(key, T0 + i).allowed, true, `view ${i + 1}`);
+    }
+    assert.equal(checkPageViewRateLimit(key, T0 + 60).allowed, false);
+  });
+
+  it("does not share state with the signup limiter", () => {
+    _resetSignupRateLimitForTests();
+    for (let i = 0; i < 61; i++) checkPageViewRateLimit("v:1.2.3.4:a/b", T0);
+    assert.equal(checkSignupRateLimit("s:1.2.3.4:a/b", T0).allowed, true);
+  });
+});
+
+describe("buildPageViewRateLimitKey", () => {
+  it("uses the first x-forwarded-for hop plus the slug pair", () => {
+    assert.equal(
+      buildPageViewRateLimitKey("203.0.113.7, 10.0.0.1", "gmc", "jackies"),
+      "v:203.0.113.7:gmc/jackies",
+    );
   });
 });
 

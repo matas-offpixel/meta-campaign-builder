@@ -67,6 +67,7 @@ export type FunnelCostCell =
   | { kind: "no_reach_yet" }
   | { kind: "no_clicks_yet" }
   | { kind: "no_signups_yet" }
+  | { kind: "no_lpv_yet" }
   | { kind: "no_tickets_yet" }
   | { kind: "no_spend_recorded" }
   | { kind: "no_reach_data" }
@@ -78,6 +79,7 @@ export const FUNNEL_COST_CELL_KINDS = [
   "no_reach_yet",
   "no_clicks_yet",
   "no_signups_yet",
+  "no_lpv_yet",
   "no_tickets_yet",
   "no_spend_recorded",
   "no_reach_data",
@@ -126,6 +128,11 @@ export interface EventFunnelInput {
   googleSpend: number;
   /** Meta `landing_page_views` (platform action). Never the first-party stage. */
   metaReportedLpv: number;
+  /**
+   * First-party `lp_page_views` count. Null = capture not queried /
+   * table missing (stage stays not instrumented). 0 is a real zero.
+   */
+  firstPartyLpv?: number | null;
   signupCount: number;
   purchases: number;
   /** Distinct `ticket_sales_snapshots.source` values for this event. */
@@ -219,6 +226,7 @@ export function costPerUnit(
     | "no_reach_yet"
     | "no_clicks_yet"
     | "no_signups_yet"
+    | "no_lpv_yet"
     | "no_tickets_yet",
   scale = 1,
 ): FunnelCostCell {
@@ -244,6 +252,8 @@ export function funnelCostLabel(cell: FunnelCostCell): string {
       return "no clicks yet";
     case "no_signups_yet":
       return "no signups yet";
+    case "no_lpv_yet":
+      return "no landing-page views yet";
     case "no_tickets_yet":
       return "no tickets yet";
     case "no_spend_recorded":
@@ -350,7 +360,10 @@ function buildEventFunnelCosts(
     bestCpm: pickBestCost(platforms, "cpm"),
     bestCostPerReach: pickBestCost(platforms, "costPerReach"),
     bestCpc: pickBestCost(platforms, "cpc"),
-    costPerLpv: { kind: "not_instrumented" },
+    costPerLpv:
+      input.firstPartyLpv == null
+        ? { kind: "not_instrumented" }
+        : costPerUnit(totalSpend, n(input.firstPartyLpv), "no_lpv_yet"),
     costPerSignup: costPerUnit(totalSpend, n(input.signupCount), "no_signups_yet"),
     costPerTicket: costPerUnit(totalSpend, n(input.purchases), "no_tickets_yet"),
     ticketProvenance: purchaseProvenance,
@@ -378,12 +391,15 @@ export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
     n(input.metaClicks) + n(input.tiktokClicks) + n(input.googleClicks);
   const purchases = n(input.purchases);
   const signups = n(input.signupCount);
+  const firstPartyLpv =
+    input.firstPartyLpv == null ? null : n(input.firstPartyLpv);
   const winning = winningSnapshotSource(input.snapshotSources);
   const purchaseProvenance = provenanceForPurchaseSource(winning);
 
   const reachToClick = rate(clicks, reach);
-  const clickToLpv = null;
-  const lpvToPurchase = null;
+  const clickToLpv = rate(firstPartyLpv, clicks);
+  const lpvToSignup = rate(signups, firstPartyLpv);
+  const lpvToPurchase = rate(purchases, firstPartyLpv);
 
   const stages: EventFunnelStage[] = [
     {
@@ -415,10 +431,12 @@ export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
     {
       key: "lpv",
       label: "Landing-page views",
-      value: null,
-      provenance: "not instrumented",
+      value: firstPartyLpv,
+      provenance: firstPartyLpv == null ? "not instrumented" : "first-party",
       provenanceDetail:
-        "not instrumented yet — landing-page adoption is Phase B. `page_events` is the LP config row, not a pageview rollup. Meta `landing_page_views` is a platform action and is not this stage.",
+        firstPartyLpv == null
+          ? "not instrumented yet — landing-page adoption is Phase B. `page_events` is the LP config row, not a pageview rollup. Meta `landing_page_views` is a platform action and is not this stage."
+          : "page views (unfiltered) — first-party `lp_page_views` count for this event. Obvious bots (HEAD, known crawler UAs) are dropped; we do not claim bot-free. Meta `landing_page_views` is a platform action and is not this stage.",
       conversionFromPrevious: clickToLpv,
       conversionLabel: "Click → LPV",
       seedRate: EVENT_FUNNEL_SEEDS.clickToLpv,
@@ -432,7 +450,7 @@ export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
       provenance: "first-party",
       provenanceDetail:
         "Count of `event_signups` for this event (soft-deletes excluded). Pipeline is live; near-empty is expected until ads point at our landing pages.",
-      conversionFromPrevious: null,
+      conversionFromPrevious: lpvToSignup,
       conversionLabel: "LPV → signup",
       seedRate: null,
       seedLabel: null,
