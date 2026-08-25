@@ -4,7 +4,11 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import { warnMetaReconcileDriftForTopRollupEvents } from "@/lib/dashboard/rollup-meta-reconcile-log";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import { loadRollupTicketsFreshnessInput } from "@/lib/db/rollup-tickets-freshness-load";
 import { syncMailchimpAudienceDailyHistory } from "@/lib/mailchimp/sync";
+import { notify } from "@/lib/notify/slack";
+import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
+import { notifyRollupTicketsDeadIfNeeded } from "@/lib/ticketing/rollup-tickets-freshness";
 
 /**
  * GET /api/cron/rollup-sync-events
@@ -363,6 +367,22 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.warn(
       `[cron rollup-sync-events] meta reconcile log skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  try {
+    const freshness = await loadRollupTicketsFreshnessInput(supabase);
+    const alarm = await notifyRollupTicketsDeadIfNeeded(freshness, (opts) =>
+      notify(opts, buildLiveNotifyDeps(supabase)),
+    );
+    console.log(
+      `[cron rollup-sync-events] tickets freshness snapshots=${freshness.snapshotRowsInWindow} growth=${freshness.snapshotLifetimeGrowthInWindow} rollup_sum=${freshness.rollupTicketsSumInWindow} alarmed=${alarm.alarmed}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[cron rollup-sync-events] tickets freshness alarm skipped: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );

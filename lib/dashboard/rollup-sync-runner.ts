@@ -17,6 +17,7 @@ import {
   getLatestSnapshotForLinkBeforeDate,
   getConnectionWithDecryptedCredentials,
   insertSnapshot,
+  listAllSnapshotsForEvent,
   listLinksForEvent,
   recordConnectionSync,
   replaceEventTicketTiers,
@@ -40,6 +41,7 @@ import type {
 } from "@/lib/ticketing/types";
 import { tryGetEventbriteTokenKey } from "@/lib/ticketing/secrets";
 import { currentSnapshotDailyDelta } from "@/lib/ticketing/current-snapshot-delta";
+import { buildRollupTicketDeltasFromSnapshots } from "@/lib/ticketing/rollup-tickets-from-snapshots";
 import {
   allocateVenueSpendForCode,
   type VenueAllocatorResult,
@@ -1160,7 +1162,6 @@ export async function runRollupSyncForEvent(
         | "fourthefans"
         | "foursomething"
         | null = null;
-      let hasNonEventbriteOrdersProvider = false;
 
       function mergeDailyTicketsRow(
         date: string,
@@ -1196,9 +1197,6 @@ export async function runRollupSyncForEvent(
             );
           }
           const isEbOrders = connection.provider === "eventbrite";
-          if (!isEbOrders) {
-            hasNonEventbriteOrdersProvider = true;
-          }
           const src = snapshotSourceForProvider(connection.provider);
           if (src) {
             snapshotSourceForPaddingClear = src;
@@ -1337,35 +1335,28 @@ export async function runRollupSyncForEvent(
 
       const hadOrdersToday = mergedEbByDate.has(todayStr);
       diagnostics.eventbriteTodayInWindow = hadOrdersToday;
-      if (!hadOrdersToday && !hasNonEventbriteOrdersProvider) {
-        diagnostics.eventbriteTodayPadded = true;
-        console.warn(
-          `[rollup-sync] eventbrite today has no paid orders; will zero-pad in window`,
-        );
-      }
+      // Do not zero-pad the rolling window. That walk-forward overwrite
+      // is what zeroed tickets_sold from 2026-07-01 while snapshots
+      // kept ingesting. Tickets now come from collapsed snapshots.
+      diagnostics.eventbriteTodayPadded = false;
+      diagnostics.eventbriteWindowDaysPadded = 0;
 
-      const ebBeforePad = mergedEbByDate.size;
-      let ebPadded = 0;
-      if (!hasNonEventbriteOrdersProvider) {
-        for (const d of eachInclusiveYmd(sinceStr, untilStr)) {
-          if (!mergedEbByDate.has(d)) {
-            mergedEbByDate.set(d, { tickets_sold: 0, revenue: 0 });
-            ebPadded++;
-          }
-        }
-      }
-      diagnostics.eventbriteWindowDaysPadded = ebPadded;
-
-      const ebUpsertRows = Array.from(mergedEbByDate.entries())
+      const snapshots = await listAllSnapshotsForEvent(supabase, eventId);
+      const fromSnapshots = buildRollupTicketDeltasFromSnapshots(snapshots);
+      const liveFallbackRows = Array.from(mergedEbByDate.entries())
         .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([date, v]) => ({
           date,
           tickets_sold: v.tickets_sold,
           revenue: v.revenue,
         }));
+      const ebUpsertRows =
+        fromSnapshots.length > 0 ? fromSnapshots : liveFallbackRows;
       diagnostics.eventbriteRowsAttempted = ebUpsertRows.length;
       console.log(
-        `[rollup-sync] eventbrite merged window zero-pad added=${ebPadded} dates (with orders before pad=${ebBeforePad})`,
+        `[rollup-sync] tickets from ${
+          fromSnapshots.length > 0 ? "collapsed-snapshots" : "live-fallback"
+        } rows=${ebUpsertRows.length} snapshot_rows=${snapshots.length} live_days=${liveFallbackRows.length}`,
       );
 
       if (ebUpsertRows.length > 0) {
