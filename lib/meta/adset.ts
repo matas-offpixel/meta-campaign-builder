@@ -813,6 +813,11 @@ export function buildAdSetPayload(
    * by re-fetching Meta.
    */
   hasBoostCreative?: boolean,
+  /**
+   * Create-time status. Wizard default ACTIVE (spend starts immediately).
+   * Plan fan-out passes PAUSED. Omitting keeps today's wizard behaviour.
+   */
+  entityStatus: "ACTIVE" | "PAUSED" = "ACTIVE",
 ): MetaAdSetPayload {
   // Resolve the effective goal BEFORE mapping — corrects stale draft values
   // that are incompatible with the campaign objective (see resolveOptimisationGoal).
@@ -833,10 +838,9 @@ export function buildAdSetPayload(
     // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
     bid_strategy: mapBidStrategy(effectiveGoal),
     targeting: buildMetaTargeting(adSet, audiences, budgetSchedule.locationGroups),
-    // Ad sets are created ACTIVE so spend begins immediately when the campaign
-    // is also ACTIVE. A safety beacon log below records this at every launch so
-    // there is always a Vercel log entry if anyone wonders why spending started.
-    status: "ACTIVE",
+    // Wizard default ACTIVE so spend begins immediately. Plan fan-out
+    // threads PAUSED via entityStatus without changing standalone launches.
+    status: entityStatus,
     // start_time and end_time are added below only when explicitly set —
     // sending null / 0 is rejected by Meta as "Invalid parameter".
   };
@@ -920,12 +924,13 @@ export function buildAdSetPayload(
     `\n  Full payload: ${JSON.stringify(payload, null, 2)}`,
   );
 
-  // Schedule audit + ACTIVE status safety beacon.
+  // Schedule audit + create-status safety beacon.
   // console.error surfaces in Vercel Function logs where console.log is filtered.
-  // The status=ACTIVE line is intentional: if anyone questions why a campaign
-  // started spending immediately after launch, this log entry is the answer.
   console.error(
-    `[buildAdSetPayload] "${adSet.name}" status=ACTIVE (spending begins on launch)`,
+    `[buildAdSetPayload] "${adSet.name}" status=${entityStatus}` +
+      (entityStatus === "ACTIVE"
+        ? " (spending begins on launch)"
+        : " (created paused — plan fan-out / createPaused)"),
     `start_time=${payload.start_time ?? "(not set — Meta defaults to now)"}`,
     `end_time=${payload.end_time ?? "(not set — ad set will run Ongoing)"}`,
     `rawStartDate=${budgetSchedule.startDate ?? "(none)"}`,

@@ -99,7 +99,7 @@ export interface CreateCampaignRequest {
   metaAdAccountId: string;
   name: string;
   objective: CampaignObjective;
-  /** Explicitly passed at launch — the route always passes ACTIVE so spending begins immediately */
+  /** Explicitly passed at launch — wizard default ACTIVE; plan fan-out passes PAUSED */
   status?: "ACTIVE" | "PAUSED";
 }
 

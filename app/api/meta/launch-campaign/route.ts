@@ -11,11 +11,18 @@
  *
  * Lookalike audience creation does NOT block standard ad set/creative creation.
  * After all phases complete, the published draft is saved to Supabase.
- * All campaigns, ad sets, and ads are created in ACTIVE status — spending begins immediately on launch.
+ * Campaigns, ad sets, and ads default to ACTIVE (wizard). Pass
+ * `createPaused: true` to create every new entity PAUSED (plan fan-out).
+ * Attach-to-existing-live-campaign never changes the parent campaign status.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { resolveMetaLaunchEntityStatus } from "@/lib/meta/launch-status";
+import {
+  withMetaWriteIdempotency,
+  type MetaWriteContext,
+} from "@/lib/meta/write-idempotency";
 import {
   createMetaCampaign,
   createMetaAdSet,
@@ -113,6 +120,36 @@ import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 
 function elapsed(startMs: number): number {
   return Date.now() - startMs;
+}
+
+function isUuid(value: string | undefined | null): value is string {
+  return (
+    !!value &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  );
+}
+
+function tryMetaWriteContext(args: {
+  userId: string;
+  draftId: string | undefined;
+  eventId: string | undefined;
+}): MetaWriteContext | null {
+  if (!args.draftId || !isUuid(args.draftId) || !args.userId) return null;
+  try {
+    return {
+      supabase: createServiceRoleClient(),
+      userId: args.userId,
+      draftId: args.draftId,
+      eventId: args.eventId && isUuid(args.eventId) ? args.eventId : null,
+    };
+  } catch {
+    console.warn(
+      "[meta-write-idempotency] ledger unavailable (service_role_unconfigured); proceeding without idempotency",
+    );
+    return null;
+  }
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -341,21 +378,56 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── Parse body ─────────────────────────────────────────────────────────────
   let draft: CampaignDraft;
   let clientIgMap: Record<string, string> = {};
+  let createPaused = false;
   try {
     const body = (await req.json()) as {
       draft?: CampaignDraft;
       /** Page ID → IG account ID, built client-side from enriched pages cache */
       igAccountMap?: Record<string, string>;
+      /**
+       * Plan fan-out only. Wizard omits this; entities stay ACTIVE.
+       * When true, newly created campaign / ad sets / ads are PAUSED.
+       */
+      createPaused?: boolean;
     };
     if (!body?.draft) throw new Error("Missing required field: draft");
     draft = body.draft;
     clientIgMap = body.igAccountMap ?? {};
+    createPaused = body.createPaused === true;
   } catch (err) {
     return NextResponse.json(
       { error: `Invalid request body: ${err instanceof Error ? err.message : "bad JSON"}` },
       { status: 400 },
     );
   }
+
+  const entityStatus = resolveMetaLaunchEntityStatus({ createPaused });
+  const metaWriteCtx = tryMetaWriteContext({
+    userId: user.id,
+    draftId: draft.id,
+    eventId: draft.settings.eventId,
+  });
+  const runMetaWrite = async (
+    opKind: "campaign_create" | "adset_create" | "ad_create",
+    payload: unknown,
+    run: () => Promise<{ id: string }>,
+  ): Promise<{ id: string }> => {
+    const id = await withMetaWriteIdempotency(metaWriteCtx, opKind, payload, async () => {
+      const res = await run();
+      return res.id;
+    });
+    return { id };
+  };
+  const createMetaAdSetViaLedger = (
+    accountId: string,
+    payload: Parameters<typeof createMetaAdSet>[1],
+    token?: string,
+  ) => runMetaWrite("adset_create", payload, () => createMetaAdSet(accountId, payload, token));
+  const createMetaAdViaLedger = (
+    accountId: string,
+    payload: Parameters<typeof createMetaAd>[1],
+    token?: string,
+  ) => runMetaWrite("ad_create", payload, () => createMetaAd(accountId, payload, token));
 
   // ── Fetch user's Facebook OAuth token ─────────────────────────────────────
   // We select provider_token + updated_at.  expires_at is fetched separately
@@ -1244,7 +1316,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const phase1Start = Date.now();
   console.error(
     `[launch-campaign] launching campaign "${draft.settings.campaignName}" — ` +
-      `all layers will be created ACTIVE (campaigns auto-activate by default per 2026-06-04 product decision)`,
+      `new entities will be created ${entityStatus}` +
+      (createPaused
+        ? " (createPaused — plan fan-out)"
+        : " (wizard default ACTIVE per 2026-06-04 product decision)"),
   );
   let metaCampaignId: string;
   // All validated campaigns for multi-campaign attach_campaign launches.
@@ -1496,15 +1571,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         adAccountId,
         name: draft.settings.campaignName.trim(),
         objective: draft.settings.objective,
-        // ACTIVE so the campaign can serve as soon as ad sets and ads are created.
-        status: "ACTIVE" as const,
+        status: entityStatus,
         token: launchToken,
       };
       console.log(
         "[launch-campaign] Phase 1 payload:", JSON.stringify({ ...campaignPayload, token: `[${launchTokenSource}]` }, null, 2),
       );
 
-      const campaignRes = await createMetaCampaign(campaignPayload);
+      const campaignRes = await runMetaWrite(
+        "campaign_create",
+        {
+          adAccountId,
+          name: campaignPayload.name,
+          objective: campaignPayload.objective,
+          status: entityStatus,
+        },
+        () => createMetaCampaign(campaignPayload),
+      );
       metaCampaignId = campaignRes.id;
       phaseDurations["campaign"] = elapsed(phase1Start);
       console.log(`[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} (${phaseDurations["campaign"]}ms)`);
@@ -2870,7 +2953,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // attached campaign shares one ad account and one operator token — so one
   // closure built once per launch covers every call site.
   const salvageDeps: CreateAdSetWithSalvageDeps = {
-    createMetaAdSet,
+    createMetaAdSet: createMetaAdSetViaLedger,
     fetchCustomAudienceAvailability,
     recreateEngagementAudiencesForGroup: (group) =>
       recreateEngagementAudiencesForGroup(group, {
@@ -2960,6 +3043,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
             boostAdSetIds.has(adSet.id),
+            entityStatus,
           );
 
           // ── Manual placement override for existing-post ad sets ─────────────
@@ -3090,7 +3174,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           }
 
           try {
-            const adSetRes = await createMetaAdSet(adAccountId, prep.payload, launchToken);
+            const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep.payload, launchToken);
             const dur = elapsed(asStart);
             console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
@@ -3138,6 +3222,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   dynamicAdSetIds.has(adSet.id),
                   draft.settings.placementConfig,
                   boostAdSetIds.has(adSet.id),
+            entityStatus,
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
                 // run the local sync sanitiser one more time so any other
@@ -3149,7 +3234,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   );
                   retryPayload = { ...retryPayload, targeting: { ...retryPayload.targeting, interests: cleaned } };
                 }
-                const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
+                const retryRes = await createMetaAdSetViaLedger(adAccountId, retryPayload, launchToken);
                 launchRetrySucceeded += 1;
                 const dur = elapsed(asStart);
                 console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
@@ -3595,6 +3680,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           dynamicAdSetIds.has(adSet.id),
           draft.settings.placementConfig,
           boostAdSetIds.has(adSet.id),
+            entityStatus,
         );
 
         // Targeting trace log
@@ -3629,7 +3715,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           throw new Error(`No valid targeting — ad set creation aborted. ${reason}`);
         }
 
-        const adSetRes = await createMetaAdSet(adAccountId, prep2b.payload, launchToken);
+        const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep2b.payload, launchToken);
         const dur = elapsed(asStart);
         console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
         adSetsCreated.push({
@@ -3656,6 +3742,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
             boostAdSetIds.has(adSet.id),
+            entityStatus,
           );
           const salvaged = await createAdSetWithSalvage(
             {
@@ -3787,10 +3874,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             `${creative.name} — ${adSetName}`,
             creativeEntry.metaCreativeId,
             metaAdSetId,
+            entityStatus,
           );
 
           try {
-            const adRes = await createMetaAd(adAccountId, adPayload, launchToken);
+            const adRes = await createMetaAdViaLedger(adAccountId, adPayload, launchToken);
             const dur = elapsed(adStart);
             console.log(`[launch-campaign] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             creativeEntry.ads.push({ adSetName, metaAdId: adRes.id, durationMs: dur });
@@ -3918,6 +4006,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
               boostAdSetIds.has(adSet.id),
+            entityStatus,
             );
 
             // Placement override for existing-post ad sets.
@@ -3967,7 +4056,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             }
 
             try {
-              const adSetRes = await createMetaAdSet(adAccountId, prep.payload, launchToken);
+              const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep.payload, launchToken);
               const dur = elapsed(asStart);
               console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
               return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
@@ -3985,13 +4074,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     dynamicAdSetIds.has(adSet.id),
                     draft.settings.placementConfig,
                     boostAdSetIds.has(adSet.id),
+            entityStatus,
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
                   if ((retryPayload.targeting.interests ?? []).length > 0) {
                     const { cleaned } = sanitizeTargetingInterestsBeforeLaunch(retryPayload.targeting.interests ?? []);
                     retryPayload = { ...retryPayload, targeting: { ...retryPayload.targeting, interests: cleaned } };
                   }
-                  const retryRes = await createMetaAdSet(adAccountId, retryPayload, launchToken);
+                  const retryRes = await createMetaAdSetViaLedger(adAccountId, retryPayload, launchToken);
                   const dur = elapsed(asStart);
                   console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
                   return { adSet, metaAdSetId: retryRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
@@ -4088,6 +4178,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
             boostAdSetIds.has(adSet.id),
+            entityStatus,
           );
           if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
             throw new Error(`No valid targeting for lookalike ad set "${adSet.name}"`);
@@ -4107,7 +4198,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             salvageDeps,
           );
 
-          const adSetRes = await createMetaAdSet(adAccountId, prep2b.payload, launchToken);
+          const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep2b.payload, launchToken);
           const dur = elapsed(asStart);
           ciAdSetsCreated.push({
             name: adSet.name,
@@ -4128,6 +4219,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
               boostAdSetIds.has(adSet.id),
+            entityStatus,
             );
             const salvaged = await createAdSetWithSalvage(
               {
@@ -4183,9 +4275,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 `${creative.name} — ${adSetName}`,
                 creativeEntry.metaCreativeId,
                 metaAdSetId,
+                entityStatus,
               );
               try {
-                const adRes = await createMetaAd(adAccountId, adPayload, launchToken);
+                const adRes = await createMetaAdViaLedger(adAccountId, adPayload, launchToken);
                 console.log(`[launch-campaign] MC[${ci}] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id}`);
                 ciAdsCreated++;
               } catch (err) {

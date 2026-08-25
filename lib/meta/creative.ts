@@ -1258,13 +1258,14 @@ export function buildAdPayload(
   name: string,
   metaCreativeId: string,
   metaAdSetId: string,
+  entityStatus: "ACTIVE" | "PAUSED" = "ACTIVE",
 ): MetaAdPayload {
   return {
     name,
     adset_id: metaAdSetId,
     creative: { creative_id: metaCreativeId },
-    // ACTIVE matches the ad set status — ads must be ACTIVE to serve.
-    status: "ACTIVE",
+    // Wizard default ACTIVE matches the ad set. Plan fan-out passes PAUSED.
+    status: entityStatus,
   };
 }
 
