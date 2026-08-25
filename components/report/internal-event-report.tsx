@@ -33,6 +33,7 @@ import { ReportUnavailable } from "./report-unavailable";
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { EventFunnelCard } from "@/components/dashboard/event-report/event-funnel-card";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
+import type { OffFunnelAuditRow } from "@/lib/dashboard/off-funnel-audit";
 
 interface Props {
   eventId: string;
@@ -111,6 +112,7 @@ export function InternalEventReport({
   const [registrationsData, setRegistrationsData] =
     useState<MailchimpRegistrationsData | null>(null);
   const [funnel, setFunnel] = useState<EventFunnelView | null>(null);
+  const [offFunnelRows, setOffFunnelRows] = useState<OffFunnelAuditRow[]>([]);
 
   const loadRollupTimeline = useCallback(async () => {
     try {
@@ -306,6 +308,17 @@ export function InternalEventReport({
         .catch(() => {
           if (!cancelled) setFunnel(null);
         });
+      void fetch(`/api/events/${encodeURIComponent(eventId)}/off-funnel`, {
+        cache: "no-store",
+      })
+        .then((res) => res.json())
+        .then((json: { ok?: boolean; rows?: OffFunnelAuditRow[] }) => {
+          if (cancelled || !json.ok) return;
+          setOffFunnelRows(json.rows ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setOffFunnelRows([]);
+        });
     });
     return () => {
       cancelled = true;
@@ -487,7 +500,11 @@ export function InternalEventReport({
         {flagBanner}
         {funnel ? (
           <div className="mb-6">
-            <EventFunnelCard funnel={funnel} tonality="internal" />
+            <EventFunnelCard
+              funnel={funnel}
+              tonality="internal"
+              offFunnelRows={offFunnelRows}
+            />
           </div>
         ) : null}
         <ReportUnavailable
@@ -546,6 +563,7 @@ export function InternalEventReport({
       registrationsData={registrationsData}
       onRefreshRegistrations={handleRefreshMailchimp}
       funnel={funnel}
+      offFunnelRows={offFunnelRows}
     />
     </>
   );
