@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 846
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/846
 - **Branch:** `cursor/plan-d1` (stacked on `cursor/plan-d0`)
 
 ## Summary
