@@ -654,6 +654,38 @@ export async function listRecentSnapshotsForEvent(
   return (data ?? []) as unknown as TicketSalesSnapshot[];
 }
 
+const SNAPSHOT_PAGE = 1000;
+
+/** Every snapshot for an event, oldest first. Used by the tickets rollup pipe. */
+export async function listAllSnapshotsForEvent(
+  supabase: AnySupabaseClient,
+  eventId: string,
+): Promise<TicketSalesSnapshot[]> {
+  const sb = asAnyTable(supabase);
+  const out: TicketSalesSnapshot[] = [];
+  let from = 0;
+  for (;;) {
+    const to = from + SNAPSHOT_PAGE - 1;
+    const { data, error } = await sb
+      .from("ticket_sales_snapshots")
+      .select(
+        "snapshot_at, tickets_sold, source, gross_revenue_cents, external_event_id, connection_id",
+      )
+      .eq("event_id", eventId)
+      .order("snapshot_at", { ascending: true })
+      .range(from, to);
+    if (error) {
+      console.warn("[ticketing listAllSnapshotsForEvent]", error.message);
+      return out;
+    }
+    const page = (data ?? []) as unknown as TicketSalesSnapshot[];
+    out.push(...page);
+    if (page.length < SNAPSHOT_PAGE) break;
+    from += SNAPSHOT_PAGE;
+  }
+  return out;
+}
+
 export async function getLatestSnapshotForEvent(
   supabase: AnySupabaseClient,
   eventId: string,
