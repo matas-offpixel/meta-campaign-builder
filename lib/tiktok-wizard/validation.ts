@@ -43,23 +43,7 @@ export function buildTikTokWizardValidationIssues(
     issues.push(error("advertiser", 0, "Connect a TikTok account first", "Connect a TikTok account first before configuring campaign details."));
   }
   if (
-    draft.accountSetup.identityType === "MANUAL" ||
-    (Boolean(draft.accountSetup.identityManualName) &&
-      (!draft.accountSetup.identityId ||
-        !isWizardTikTokIdentityType(draft.accountSetup.identityType)))
-  ) {
-    issues.push(
-      error(
-        "identity-manual",
-        0,
-        "Manual identity needs a TikTok ID and type",
-        "A manual identity requires a valid TikTok identity ID and type (AUTH_CODE, BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER).",
-      ),
-    );
-  }
-  if (
     draft.accountSetup.identityId &&
-    !draft.accountSetup.identityManualName &&
     !isWizardTikTokIdentityType(draft.accountSetup.identityType)
   ) {
     issues.push(

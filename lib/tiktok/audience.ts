@@ -1,4 +1,4 @@
-import { tiktokGet } from "./client.ts";
+import { TikTokApiError, tiktokGet } from "./client.ts";
 
 type TikTokGet = typeof tiktokGet;
 
@@ -60,10 +60,14 @@ const AUDIENCE_LIST_KEYS = [
   "custom_audiences",
 ] as const;
 
+// recommend/ uses recommended_keywords. Official get/ (SDK
+// ToolInterestKeywordGetResponse) unwraps to `keywords`. `keyword_list` is
+// the hashtag/get sibling; first get/ call logs raw keys at info.
 const INTEREST_KEYWORD_KEYS = [
   "recommended_keywords",
   "list",
   "keywords",
+  "keyword_list",
   "interest_keywords",
   "recommend_list",
 ] as const;
@@ -84,6 +88,8 @@ const REGION_KEYS = [
 ] as const;
 
 const LANGUAGE_KEYS = ["list", "languages", "language_list"] as const;
+
+let loggedInterestKeywordGetEnvelope = false;
 
 export function extractAudienceRows(
   res: unknown,
@@ -260,6 +266,77 @@ export async function fetchTikTokHashtagRecommendations(input: {
   const mapped = mapRecommendItems(extractAudienceRows(res, HASHTAG_KEYS), "keyword");
   logAudienceEnvelope(path, input.advertiserId, res, HASHTAG_KEYS, mapped.length);
   return mapped;
+}
+
+export function isTikTokInterestKeywordGetUnavailable(error: unknown): boolean {
+  if (!(error instanceof TikTokApiError)) return false;
+  if (error.httpStatus === 404) return true;
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("not found") ||
+    text.includes("not supported") ||
+    text.includes("not available") ||
+    text.includes("unknown path") ||
+    text.includes("invalid path") ||
+    text.includes("does not exist")
+  );
+}
+
+/**
+ * Resolve which interest keyword IDs TikTok still indexes.
+ * Official first try is `/tool/interest_keyword/get/`. Some advertisers
+ * only have `/tool/hashtag/get/` (`keyword_ids`) — same namespace as
+ * `interest_keyword_ids` per the #790 session log.
+ */
+export async function fetchTikTokInterestKeywordsByIds(input: {
+  advertiserId: string;
+  token: string;
+  keywordIds: string[];
+  request?: TikTokGet;
+}): Promise<Set<string>> {
+  const keywordIds = [...new Set(input.keywordIds.filter(Boolean))];
+  if (keywordIds.length === 0) return new Set();
+  const request = input.request ?? tiktokGet;
+  try {
+    const path = "/tool/interest_keyword/get/";
+    const res = await request<Record<string, unknown>>(
+      path,
+      {
+        advertiser_id: input.advertiserId,
+        keyword_ids: keywordIds,
+      },
+      input.token,
+    );
+    if (!loggedInterestKeywordGetEnvelope) {
+      loggedInterestKeywordGetEnvelope = true;
+      const keys =
+        res && typeof res === "object" ? Object.keys(res as object) : [];
+      console.info(
+        `[tiktok/audience] ${path} first envelope keys=[${keys.join(",")}]`,
+      );
+    }
+    const mapped = mapRecommendItems(
+      extractAudienceRows(res, INTEREST_KEYWORD_KEYS),
+      "keyword",
+    );
+    logAudienceEnvelope(
+      path,
+      input.advertiserId,
+      res,
+      INTEREST_KEYWORD_KEYS,
+      mapped.length,
+    );
+    return new Set(mapped.map((row) => row.id));
+  } catch (err) {
+    if (!isTikTokInterestKeywordGetUnavailable(err)) throw err;
+    const fallback = await fetchTikTokHashtagsByIds({
+      advertiserId: input.advertiserId,
+      token: input.token,
+      keywordIds,
+      request,
+    });
+    return new Set(fallback.map((row) => row.id));
+  }
 }
 
 export async function fetchTikTokHashtagsByIds(input: {

@@ -44,7 +44,6 @@ export interface TikTokAccountSetup {
     | "BC_AUTH_TT"
     | "CUSTOMIZED_USER"
     | "TT_USER"
-    | "MANUAL"
     | null;
   pixelId: string | null;
   pixelName: string | null;
@@ -119,6 +118,8 @@ export interface TikTokTargetingItem {
   kind?: "category" | "keyword";
   audienceType?: TikTokTargetingAudienceType;
   audienceSize?: number | null;
+  /** ISO timestamp set when a keyword chip is added from a live recommend. */
+  resolvedAt?: string;
 }
 
 export interface TikTokInterestGroup {
@@ -359,6 +360,10 @@ function asTargetingItems(value: unknown): TikTokTargetingItem[] {
             : undefined,
       audienceSize:
         typeof record.audienceSize === "number" ? record.audienceSize : null,
+      resolvedAt:
+        typeof record.resolvedAt === "string" && record.resolvedAt.trim()
+          ? record.resolvedAt
+          : undefined,
     });
   }
   return items;

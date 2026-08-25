@@ -15,13 +15,13 @@ describe("TikTok wizard validation", () => {
       validateTikTokWizardStep(draft, 0).some((issue) => issue.id === "advertiser"),
     );
     draft.accountSetup.advertiserId = "adv-1";
-    draft.accountSetup.identityType = "MANUAL";
-    draft.accountSetup.identityManualName = "Ironworks";
-    assert.ok(
-      validateTikTokWizardStep(draft, 0).some((issue) => issue.id === "identity-manual"),
-    );
+    draft.accountSetup.identityId = "identity-1";
     draft.accountSetup.identityType = null;
-    draft.accountSetup.identityManualName = null;
+    assert.ok(
+      validateTikTokWizardStep(draft, 0).some((issue) => issue.id === "identity-type-unresolved"),
+    );
+    draft.accountSetup.identityId = null;
+    draft.accountSetup.identityType = null;
     draft.accountSetup.pixelId = "abc";
     assert.equal(TIKTOK_PIXEL_ID_PATTERN.test("123456"), true);
     assert.ok(
