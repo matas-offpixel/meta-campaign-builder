@@ -4,6 +4,7 @@ import type { TikTokPost } from "../write/idempotency.ts";
 
 export interface MockTikTokCall {
   path: string;
+  method: "POST";
   body: Record<string, BodyValue>;
   token: string;
 }
@@ -21,7 +22,7 @@ export function createMockTikTokClient(options: {
     body: Record<string, BodyValue>,
     token: string,
   ): Promise<T> => {
-    calls.push({ path, body, token });
+    calls.push({ path, method: "POST", body, token });
 
     const alwaysError = options.failAlways?.[path];
     if (alwaysError) throw alwaysError;
@@ -42,7 +43,7 @@ export function createMockTikTokClient(options: {
     if (path === "/ad/create/") {
       return { ad_id: `ad_mock_${calls.length}` } as T;
     }
-    if (path === "/campaign/delete/") {
+    if (path === "/campaign/status/update/") {
       return { ok: true } as T;
     }
     return {} as T;

@@ -1,6 +1,7 @@
 import { getTikTokDraft } from "../../db/tiktok-drafts.ts";
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
+import { TikTokApiError } from "../client.ts";
 import { createTikTokAd } from "./ad.ts";
 import { createTikTokAdGroup } from "./adgroup.ts";
 import { createTikTokCampaign } from "./campaign.ts";
@@ -33,6 +34,37 @@ export interface LaunchTikTokDraftResult {
 }
 
 export type { TikTokLaunchEntity } from "./types.ts";
+
+/**
+ * Official SDK has no `/campaign/delete/`. Delete is a status update:
+ * `POST /open_api/v1.3/campaign/status/update/`
+ * (CampaignCreationApi.campaign_status_update, body CampaignStatusUpdateBody:
+ * advertiser_id, campaign_ids, operation_status).
+ * https://github.com/tiktok/tiktok-business-api-sdk/blob/main/python_sdk/docs/CampaignCreationApi.md
+ */
+export const TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH = "/campaign/status/update/";
+export const TIKTOK_CAMPAIGN_DELETE_STATUS = "DELETE";
+
+export function tikTokOrphanCampaignMessage(campaignId: string): string {
+  return `An orphan campaign was left behind (id ${campaignId}). Delete it in Ads Manager before retrying.`;
+}
+
+export function withTikTokOrphanCampaign(
+  err: unknown,
+  campaignId: string,
+): Error {
+  const extra = tikTokOrphanCampaignMessage(campaignId);
+  if (err instanceof TikTokApiError) {
+    return new TikTokApiError(
+      `${err.message}. ${extra}`,
+      err.code,
+      err.requestId,
+      err.httpStatus,
+    );
+  }
+  const base = err instanceof Error ? err.message : String(err);
+  return new Error(`${base}. ${extra}`);
+}
 
 export class TikTokLaunchPreflightError extends Error {
   readonly issues: ReturnType<typeof collectTikTokLaunchPreflight>["issues"];
@@ -159,8 +191,13 @@ export async function launchTikTokDraftState(
       }
     }
   } catch (err) {
-    await cleanupTikTokCampaign(context, createdCampaign.campaign_id);
-    throw err;
+    const deleted = await cleanupTikTokCampaign(
+      context,
+      createdCampaign.campaign_id,
+    );
+    throw deleted
+      ? err
+      : withTikTokOrphanCampaign(err, createdCampaign.campaign_id);
   }
 
   return {
@@ -174,18 +211,21 @@ export async function launchTikTokDraftState(
 async function cleanupTikTokCampaign(
   context: TikTokWriteContext,
   campaignId: string,
-): Promise<void> {
+): Promise<boolean> {
+  let deleted = false;
   try {
     await postTikTokWrite({
-      path: "/campaign/delete/",
+      path: TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH,
       body: {
         advertiser_id: context.advertiserId,
         campaign_ids: [campaignId],
+        operation_status: TIKTOK_CAMPAIGN_DELETE_STATUS,
       },
       token: context.token,
       request: context.request,
       sleep: context.sleep,
     });
+    deleted = true;
     console.error(
       `[tiktok-write] campaign cleanup campaign_id=${campaignId} outcome=deleted`,
     );
@@ -205,4 +245,5 @@ async function cleanupTikTokCampaign(
       }`,
     );
   }
+  return deleted;
 }

@@ -14,7 +14,14 @@ import {
 import { TIKTOK_ADGROUP_BEHAVIOUR_ACTION_DEFAULTS } from "../write/mapping.ts";
 import { createTikTokCampaign } from "../write/campaign.ts";
 import { hashTikTokWritePayload } from "../write/idempotency.ts";
-import { launchTikTokDraftState } from "../write/orchestrator.ts";
+import { mapTikTokLaunchError } from "../write/error-classify.ts";
+import {
+  launchTikTokDraftState,
+  TIKTOK_CAMPAIGN_DELETE_STATUS,
+  TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH,
+  tikTokOrphanCampaignMessage,
+  withTikTokOrphanCampaign,
+} from "../write/orchestrator.ts";
 
 interface IdempotencyRow {
   id: string;
@@ -882,8 +889,66 @@ describe("launchTikTokDraftState", () => {
 
     assert.deepEqual(
       mock.calls.map((call) => call.path),
-      ["/campaign/create/", "/adgroup/create/", "/ad/create/", "/campaign/delete/"],
+      [
+        "/campaign/create/",
+        "/adgroup/create/",
+        "/ad/create/",
+        TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH,
+      ],
     );
+    const cleanup = mock.calls[3];
+    assert.equal(cleanup?.path, "/campaign/status/update/");
+    assert.equal(cleanup?.method, "POST");
+    assert.equal(cleanup?.body.operation_status, TIKTOK_CAMPAIGN_DELETE_STATUS);
+    assert.deepEqual(cleanup?.body.campaign_ids, ["campaign_mock_1"]);
+    assert.equal(cleanup?.body.advertiser_id, BASE_CONTEXT.advertiserId);
+  });
+
+  it("surfaces the orphan campaign id when cleanup itself fails", async () => {
+    process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+    const db = new MemorySupabase();
+    const mock = createMockTikTokClient({
+      failAlways: {
+        "/ad/create/": new TikTokApiError("ad invalid", 40000, "req-ad", 400),
+        [TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH]: new TikTokApiError(
+          "HTTP 404",
+          40002,
+          "req-del",
+          404,
+        ),
+      },
+    });
+
+    await assert.rejects(
+      launchTikTokDraftState(
+        {
+          ...BASE_CONTEXT,
+          supabase: db as unknown as SupabaseClient,
+          request: mock.tiktokPost,
+        },
+        launchableDraft(),
+      ),
+      (err: unknown) => {
+        assert.ok(err instanceof TikTokApiError);
+        assert.match(err.message, /ad invalid/);
+        assert.match(err.message, /campaign_mock_1/);
+        assert.match(err.message, /orphan campaign/i);
+        assert.ok(
+          err.message.includes(tikTokOrphanCampaignMessage("campaign_mock_1")),
+        );
+        return true;
+      },
+    );
+    assert.equal(db.rows.length, 0);
+    const mapped = mapTikTokLaunchError({
+      code: 40000,
+      message: withTikTokOrphanCampaign(
+        new TikTokApiError("ad invalid", 40000, "req-ad", 400),
+        "campaign_mock_1",
+      ).message,
+    });
+    assert.match(mapped.message, /campaign_mock_1/);
+    assert.match(mapped.message, /orphan campaign/i);
   });
 
   it("attempts campaign cleanup after a mid-flight ad group failure", async () => {
@@ -909,7 +974,7 @@ describe("launchTikTokDraftState", () => {
 
     assert.deepEqual(
       mock.calls.map((call) => call.path),
-      ["/campaign/create/", "/adgroup/create/", "/campaign/delete/"],
+      ["/campaign/create/", "/adgroup/create/", TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH],
     );
   });
 
@@ -932,7 +997,12 @@ describe("launchTikTokDraftState", () => {
     assert.equal(db.rows.length, 0);
     assert.deepEqual(
       mock.calls.map((call) => call.path),
-      ["/campaign/create/", "/adgroup/create/", "/ad/create/", "/campaign/delete/"],
+      [
+        "/campaign/create/",
+        "/adgroup/create/",
+        "/ad/create/",
+        TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH,
+      ],
     );
 
     const out = await launchTikTokDraftState(args, draft);
@@ -944,7 +1014,7 @@ describe("launchTikTokDraftState", () => {
         "/campaign/create/",
         "/adgroup/create/",
         "/ad/create/",
-        "/campaign/delete/",
+        TIKTOK_CAMPAIGN_STATUS_UPDATE_PATH,
         "/campaign/create/",
         "/adgroup/create/",
         "/ad/create/",
