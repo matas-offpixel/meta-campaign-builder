@@ -1,4 +1,4 @@
-import { UTM_ALLOWLIST } from "./signup-schema.ts";
+import { sanitizeReferrerUrl, utmFromSearch } from "./signup-schema.ts";
 
 /**
  * lib/landing-pages/attribution.ts
@@ -30,23 +30,9 @@ export function captureAttribution(
   search: string,
   referrer: string | null | undefined,
 ): CapturedAttribution {
-  const utm: Record<string, string> = {};
-  let params: URLSearchParams;
-  try {
-    params = new URLSearchParams(search ?? "");
-  } catch {
-    params = new URLSearchParams();
-  }
-  for (const key of UTM_ALLOWLIST) {
-    const value = params.get(key);
-    if (value && value.trim().length > 0) {
-      utm[key] = value.trim().slice(0, 300);
-    }
-  }
-  const ref = (referrer ?? "").trim();
   return {
-    utm,
-    referrer_url: ref.length > 0 && ref.length <= 2000 ? ref : null,
+    utm: utmFromSearch(search),
+    referrer_url: sanitizeReferrerUrl(referrer),
   };
 }
 

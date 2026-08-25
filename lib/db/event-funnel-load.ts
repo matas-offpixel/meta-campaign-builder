@@ -78,6 +78,19 @@ export async function loadEventFunnelInput(
     .eq("event_id", eventId)
     .is("deleted_at", null);
 
+  // First-party LPV at read time — same pattern as signups. No
+  // event_daily_rollups.lp_views column: the helper already does a
+  // lifetime COUNT for the first-party middle, and rollup-sync does
+  // not own this pipe.
+  const lpvRes = await sb
+    .from("lp_page_views")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", eventId);
+  const firstPartyLpv = lpvRes.error ? null : Number(lpvRes.count ?? 0);
+  if (lpvRes.error) {
+    console.warn("[event-funnel] lp_page_views count failed", lpvRes.error.message);
+  }
+
   const sources = new Set<string>();
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb
@@ -99,6 +112,7 @@ export async function loadEventFunnelInput(
   return {
     ...sums,
     signupCount: Number(signupRes.count ?? 0),
+    firstPartyLpv,
     snapshotSources: [...sources],
   };
 }

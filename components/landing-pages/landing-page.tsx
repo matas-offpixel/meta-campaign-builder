@@ -11,6 +11,7 @@ import { BrandSocials } from "./brand-socials";
 import { CountdownBlock } from "./countdown-block";
 import { HeroCarousel } from "./hero-carousel";
 import { MetaPixel } from "./meta-pixel";
+import { PageViewBeacon } from "./page-view-beacon";
 import { SignupForm } from "./signup-form";
 
 /**
@@ -67,6 +68,7 @@ export function LandingPage({
     <div className={styles.root} style={rootStyle}>
       {/* Per-tenant pixel — id comes ONLY from the view-model seam. */}
       <MetaPixel pixelId={view.metaPixelId} />
+      <PageViewBeacon clientSlug={view.clientSlug} eventSlug={view.eventSlug} />
       <div className={styles.page}>
         <HeaderBlock view={view} />
 

@@ -136,19 +136,11 @@ export function parseSignupSubmission(
   // otherwise (the form hides the checkbox, but never trust the client).
   const consentWaOptIn = values.consent_wa_opt_in === true && phoneE164 !== null;
 
-  // Attribution: allowlisted keys only, values clamped.
-  const utm: Record<string, string> = {};
-  if (values.utm && typeof values.utm === "object" && !Array.isArray(values.utm)) {
-    for (const key of UTM_ALLOWLIST) {
-      const v = (values.utm as Record<string, unknown>)[key];
-      if (typeof v === "string" && v.trim().length > 0) {
-        utm[key] = v.trim().slice(0, 300);
-      }
-    }
-  }
-  const referrerRaw = asTrimmedString(values.referrer_url);
-  const referrerUrl =
-    referrerRaw.length > 0 && referrerRaw.length <= 2000 ? referrerRaw : null;
+  // Attribution: allowlisted keys only, values clamped. Same function
+  // the page-view capture uses — Phase B click-ID joins must see
+  // identical keys for the same URL on views and signups.
+  const utm = sanitizeUtm(values.utm);
+  const referrerUrl = sanitizeReferrerUrl(values.referrer_url);
 
   // PR 3: Meta event id for client/server dedup. Invalid or missing values
   // degrade to null (server generates one) — never a field error, because
@@ -196,6 +188,41 @@ export const UTM_ALLOWLIST = [
   "ttclid",
   "gclid",
 ] as const;
+
+/** Allowlisted utm_* + click-id keys, values clamped. Shared by signup + views. */
+export function sanitizeUtm(raw: unknown): Record<string, string> {
+  const utm: Record<string, string> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return utm;
+  const record = raw as Record<string, unknown>;
+  for (const key of UTM_ALLOWLIST) {
+    const v = record[key];
+    if (typeof v === "string" && v.trim().length > 0) {
+      utm[key] = v.trim().slice(0, 300);
+    }
+  }
+  return utm;
+}
+
+export function sanitizeReferrerUrl(raw: unknown): string | null {
+  const referrerRaw = asTrimmedString(raw);
+  return referrerRaw.length > 0 && referrerRaw.length <= 2000 ? referrerRaw : null;
+}
+
+/** Parse allowlisted attribution params out of a location.search string. */
+export function utmFromSearch(search: string): Record<string, string> {
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(search ?? "");
+  } catch {
+    params = new URLSearchParams();
+  }
+  const raw: Record<string, string> = {};
+  for (const key of UTM_ALLOWLIST) {
+    const value = params.get(key);
+    if (value) raw[key] = value;
+  }
+  return sanitizeUtm(raw);
+}
 
 /**
  * Coarse source bucket from attribution. Heuristic on purpose — analytics

@@ -61,6 +61,26 @@ describe("buildEventFunnelView", () => {
     assert.equal(lpv.seedRate, EVENT_FUNNEL_SEEDS.clickToLpv);
   });
 
+  it("first-party LPV lights the stage, click→LPV, and cost per LPV", () => {
+    const view = buildEventFunnelView({ ...base, firstPartyLpv: 800 });
+    const lpv = view.stages.find((s) => s.key === "lpv");
+    assert.ok(lpv);
+    assert.equal(lpv.value, 800);
+    assert.equal(lpv.provenance, "first-party");
+    assert.match(lpv.provenanceDetail, /page views \(unfiltered\)/i);
+    assert.ok(lpv.conversionFromPrevious != null);
+    assert.ok(
+      Math.abs((lpv.conversionFromPrevious ?? 0) - 800 / 1650) < 1e-9,
+    );
+    const total = 400 + 80 + 60;
+    assert.deepEqual(view.costs.costPerLpv, {
+      kind: "amount",
+      value: total / 800,
+    });
+    const signups = view.stages.find((s) => s.key === "signups");
+    assert.ok(signups?.conversionFromPrevious != null);
+  });
+
   it("shows a real zero for a tracked clicks column, not 'not tracked'", () => {
     const view = buildEventFunnelView({
       ...base,

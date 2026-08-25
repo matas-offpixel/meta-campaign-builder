@@ -164,3 +164,63 @@ export function buildSignupRateLimitKey(
 export function _resetSignupRateLimitForTests(): void {
   signupStore.clear();
 }
+
+// ─── Page-view write-path limiter (Phase B LPV capture) ─────────────────────
+//
+// Views are cheap inserts (no captcha, no PII). Higher ceiling than
+// signups: default 60 / 1 min per (IP, page). Env-tunable:
+//   LANDING_PAGES_VIEW_RATE_MAX
+//   LANDING_PAGES_VIEW_RATE_WINDOW_MINUTES
+
+const viewStore = new Map<string, WindowEntry>();
+const VIEW_MAX_ENTRIES = 5000;
+const VIEW_DEFAULT_MAX = 60;
+const VIEW_DEFAULT_WINDOW_MINUTES = 1;
+
+export function checkPageViewRateLimit(
+  key: string,
+  nowMs: number = Date.now(),
+): LandingRateLimitDecision {
+  const maxPerWindow = envInt("LANDING_PAGES_VIEW_RATE_MAX", VIEW_DEFAULT_MAX);
+  const windowMs =
+    envInt(
+      "LANDING_PAGES_VIEW_RATE_WINDOW_MINUTES",
+      VIEW_DEFAULT_WINDOW_MINUTES,
+    ) * 60_000;
+
+  const existing = viewStore.get(key);
+
+  if (!existing || nowMs - existing.windowStartMs >= windowMs) {
+    viewStore.delete(key);
+    viewStore.set(key, { windowStartMs: nowMs, count: 1 });
+    if (viewStore.size > VIEW_MAX_ENTRIES) {
+      const iter = viewStore.keys().next();
+      if (!iter.done) viewStore.delete(iter.value);
+    }
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  if (existing.count < maxPerWindow) {
+    existing.count += 1;
+    return { allowed: true, retryAfterMs: 0 };
+  }
+
+  return {
+    allowed: false,
+    retryAfterMs: windowMs - (nowMs - existing.windowStartMs),
+  };
+}
+
+export function buildPageViewRateLimitKey(
+  xForwardedFor: string | null | undefined,
+  clientSlug: string,
+  eventSlug: string,
+): string {
+  const ip = (xForwardedFor ?? "").split(",")[0]?.trim() || "anon";
+  return `v:${ip}:${clientSlug}/${eventSlug}`;
+}
+
+/** Test-only. Production code must not call this. */
+export function _resetPageViewRateLimitForTests(): void {
+  viewStore.clear();
+}
