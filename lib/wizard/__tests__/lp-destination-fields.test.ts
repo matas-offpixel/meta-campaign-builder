@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
@@ -89,4 +89,52 @@ describe("wizard destination-URL field coverage", () => {
       `${picker} must not POST to create a landing page`,
     );
   });
+
+  it("no wizard route can create or publish a page_events row", () => {
+    const writeBan =
+      /\.from\(\s*["']page_events["']\s*\)[\s\S]{0,200}\.(insert|update|upsert)/;
+    const publishBan =
+      /status:\s*["']live["'][\s\S]{0,80}page_events|page_events[\s\S]{0,80}status:\s*["']live["']/;
+    const files = [
+      ...walkTs("app/api/wizard"),
+      "lib/db/event-landing-page.ts",
+      "components/wizard/event-page-destination.tsx",
+    ];
+    for (const file of files) {
+      const src = source(file);
+      assert.doesNotMatch(
+        src,
+        writeBan,
+        `${file} must not insert/update/upsert page_events`,
+      );
+      assert.doesNotMatch(
+        src,
+        publishBan,
+        `${file} must not publish a page_events row`,
+      );
+      assert.doesNotMatch(
+        src,
+        /ensureRenderablePageForOwnedEvent/,
+        `${file} must not call the deleted wizard ensure/write path`,
+      );
+    }
+    const route = source("app/api/wizard/event-landing-page/route.ts");
+    assert.doesNotMatch(
+      route,
+      /export async function POST/,
+      "wizard event-landing-page route must be GET-only",
+    );
+  });
 });
+
+function walkTs(relDir: string): string[] {
+  const abs = join(REPO, relDir);
+  const out: string[] = [];
+  for (const name of readdirSync(abs)) {
+    const rel = `${relDir}/${name}`;
+    const st = statSync(join(REPO, rel));
+    if (st.isDirectory()) out.push(...walkTs(rel));
+    else if (name.endsWith(".ts") || name.endsWith(".tsx")) out.push(rel);
+  }
+  return out;
+}
