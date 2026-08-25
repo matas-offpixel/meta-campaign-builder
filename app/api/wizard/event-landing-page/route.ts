@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
-  createDraftPageForOwnedEvent,
+  assessRecord,
+  ensureRenderablePageForOwnedEvent,
   lookupEventLandingPage,
 } from "@/lib/db/event-landing-page";
 import { createClient } from "@/lib/supabase/server";
@@ -10,9 +11,10 @@ import { createClient } from "@/lib/supabase/server";
  * GET  /api/wizard/event-landing-page?eventId=
  * POST /api/wizard/event-landing-page  { eventId }
  *
- * Operator-session lookup / stub-create for the wizard destination-URL
- * offer. Create orchestrates the existing page_events insert (same as
- * createPageForExistingEvent); it does not rebuild the LP editor.
+ * Operator-session lookup / ensure for the wizard destination-URL offer.
+ * GET returns ready | draft | unconfigured | none. POST creates the
+ * missing client config + a live page (or publishes an internal draft).
+ * The URL is only offerable when renderability.offerUrl is true.
  */
 
 async function requireUser() {
@@ -41,7 +43,11 @@ export async function GET(req: NextRequest) {
   }
 
   const record = await lookupEventLandingPage(eventId);
-  return NextResponse.json({ ok: true, record });
+  return NextResponse.json({
+    ok: true,
+    record,
+    renderability: assessRecord(record),
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -70,12 +76,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const result = await createDraftPageForOwnedEvent(eventId);
+  const result = await ensureRenderablePageForOwnedEvent(eventId);
   if ("error" in result) {
     return NextResponse.json(
       { ok: false, error: result.error },
       { status: 400 },
     );
   }
-  return NextResponse.json({ ok: true, record: result });
+  return NextResponse.json({
+    ok: true,
+    record: result.record,
+    renderability: result.renderability,
+  });
 }

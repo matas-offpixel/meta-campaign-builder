@@ -74,3 +74,57 @@ export const USE_EVENT_PAGE_WHY =
 
 export const OFF_FUNNEL_NUDGE =
   "this campaign's views won't appear in the funnel";
+
+export const DRAFT_NOT_OFFERED =
+  "created as draft — publish before using as a destination.";
+
+export const UNCONFIGURED_CLIENT =
+  "this client has no landing-page config yet — create it before using the URL.";
+
+export type DestinationHelperKind =
+  | "why"
+  | "nudge"
+  | "draft"
+  | "unconfigured"
+  | "create";
+
+/**
+ * Exactly one helper line per state. Ready + off-funnel is the nudge;
+ * ready + empty is the why. Never both.
+ */
+export function destinationHelperKind(input: {
+  state: "ready" | "draft" | "unconfigured" | "none";
+  offerUrl: boolean;
+  lpUrl: string | null;
+  chosenUrl: string;
+}): DestinationHelperKind | null {
+  if (input.state === "draft") return "draft";
+  if (input.state === "unconfigured") return "unconfigured";
+  if (input.state === "none") return "create";
+  if (input.state === "ready") {
+    if (shouldNudgeOffFunnel({ lpUrl: input.lpUrl, chosenUrl: input.chosenUrl })) {
+      return "nudge";
+    }
+    if (input.offerUrl && input.lpUrl && input.chosenUrl.trim()) return null;
+    if (input.offerUrl && input.lpUrl) return "why";
+  }
+  return null;
+}
+
+export function destinationHelperText(
+  kind: DestinationHelperKind | null,
+): string | null {
+  switch (kind) {
+    case "why":
+    case "create":
+      return USE_EVENT_PAGE_WHY;
+    case "nudge":
+      return OFF_FUNNEL_NUDGE;
+    case "draft":
+      return DRAFT_NOT_OFFERED;
+    case "unconfigured":
+      return UNCONFIGURED_CLIENT;
+    default:
+      return null;
+  }
+}

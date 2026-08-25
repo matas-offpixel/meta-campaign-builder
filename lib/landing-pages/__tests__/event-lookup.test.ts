@@ -24,6 +24,7 @@ describe("assembleEventLandingPageRecord", () => {
       pageEventId: "p1",
     });
     assert.equal(withPage?.hasPage, true);
+    assert.equal(withPage?.hasClientConfig, false);
     assert.equal(withPage?.customHost, null);
 
     const without = assembleEventLandingPageRecord({
