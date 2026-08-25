@@ -10,7 +10,8 @@
  * input) never landed, and a dead live fetch wrote 0s for a quarter.
  *
  * One collapse per consumer — this is the only tickets-from-snapshots
- * math. Cron, backfill, and tests all call it.
+ * math. Cron, backfill, the client-dashboard sales action, and tests
+ * all call it.
  */
 
 import { collapseWeekly } from "../db/event-history-collapse.ts";

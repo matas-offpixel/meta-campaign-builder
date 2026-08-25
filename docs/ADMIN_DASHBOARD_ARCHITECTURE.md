@@ -21,6 +21,7 @@ squash-merged PRs; the phase log at the bottom tracks what landed.
 /admin/{clientSlug}/pages/{id}/edit  full content editor (Phase 3/4)
 /admin/{clientSlug}/fans          fan table + CSV export (Phase 5)
 /admin/{clientSlug}/insights      analytics (Phase 6)
+/admin/{clientSlug}/sales         report ticket sales (roadmap v2 A.3)
 /admin/{clientSlug}/integrations  integration hub (Phases 7/8)
 /admin/{clientSlug}/settings      org/brand settings (Phase 2)
 ```
