@@ -57,10 +57,58 @@ export interface EventFunnelStage {
   platformSplit: EventFunnelPlatformSplit[] | null;
 }
 
+/**
+ * Every cost cell is a finite amount or a named state. There is no
+ * third case — never Infinity, NaN, or a silent blank.
+ */
+export type FunnelCostCell =
+  | { kind: "amount"; value: number }
+  | { kind: "no_impressions_yet" }
+  | { kind: "no_reach_yet" }
+  | { kind: "no_clicks_yet" }
+  | { kind: "no_signups_yet" }
+  | { kind: "no_tickets_yet" }
+  | { kind: "no_spend_recorded" }
+  | { kind: "no_reach_data" }
+  | { kind: "not_instrumented" };
+
+export const FUNNEL_COST_CELL_KINDS = [
+  "amount",
+  "no_impressions_yet",
+  "no_reach_yet",
+  "no_clicks_yet",
+  "no_signups_yet",
+  "no_tickets_yet",
+  "no_spend_recorded",
+  "no_reach_data",
+  "not_instrumented",
+] as const satisfies ReadonlyArray<FunnelCostCell["kind"]>;
+
+export interface EventFunnelPlatformCosts {
+  platform: FunnelPlatform;
+  label: string;
+  spend: number;
+  cpm: FunnelCostCell;
+  costPerReach: FunnelCostCell;
+  cpc: FunnelCostCell;
+}
+
+export interface EventFunnelCosts {
+  platforms: EventFunnelPlatformCosts[];
+  bestCpm: FunnelPlatform | null;
+  bestCostPerReach: FunnelPlatform | null;
+  bestCpc: FunnelPlatform | null;
+  costPerLpv: FunnelCostCell;
+  costPerSignup: FunnelCostCell;
+  costPerTicket: FunnelCostCell;
+  ticketProvenance: FunnelProvenance;
+}
+
 export interface EventFunnelView {
   stages: EventFunnelStage[];
   /** Meta Insights landing_page_view actions — not the first-party LPV stage. */
   metaReportedLpv: number;
+  costs: EventFunnelCosts;
 }
 
 export interface EventFunnelInput {
@@ -150,6 +198,163 @@ function visibleSplits(
   rows: EventFunnelPlatformSplit[],
 ): EventFunnelPlatformSplit[] {
   return rows.filter((r) => r.spend > 0 || (r.tracked && (r.value ?? 0) > 0));
+}
+
+export function isAmountCell(
+  cell: FunnelCostCell,
+): cell is { kind: "amount"; value: number } {
+  return cell.kind === "amount" && Number.isFinite(cell.value);
+}
+
+/**
+ * Spend / metric (optionally × scale). Named states instead of
+ * Infinity/NaN. 0/0 is treated as an absent pair (no_spend_recorded)
+ * so callers never leak a third case.
+ */
+export function costPerUnit(
+  spend: number,
+  metric: number,
+  zeroMetricKind:
+    | "no_impressions_yet"
+    | "no_reach_yet"
+    | "no_clicks_yet"
+    | "no_signups_yet"
+    | "no_tickets_yet",
+  scale = 1,
+): FunnelCostCell {
+  const s = n(spend);
+  const m = n(metric);
+  if (s > 0 && m <= 0) return { kind: zeroMetricKind };
+  if (s <= 0 && m > 0) return { kind: "no_spend_recorded" };
+  if (s <= 0 && m <= 0) return { kind: "no_spend_recorded" };
+  const value = (s / m) * scale;
+  if (!Number.isFinite(value)) return { kind: zeroMetricKind };
+  return { kind: "amount", value };
+}
+
+export function funnelCostLabel(cell: FunnelCostCell): string {
+  switch (cell.kind) {
+    case "amount":
+      return Number.isFinite(cell.value) ? String(cell.value) : "—";
+    case "no_impressions_yet":
+      return "no impressions yet";
+    case "no_reach_yet":
+      return "no reach yet";
+    case "no_clicks_yet":
+      return "no clicks yet";
+    case "no_signups_yet":
+      return "no signups yet";
+    case "no_tickets_yet":
+      return "no tickets yet";
+    case "no_spend_recorded":
+      return "no spend recorded";
+    case "no_reach_data":
+      return "no reach data";
+    case "not_instrumented":
+      return "not instrumented yet — Phase B";
+  }
+}
+
+function pickBestCost(
+  rows: EventFunnelPlatformCosts[],
+  key: "cpm" | "costPerReach" | "cpc",
+): FunnelPlatform | null {
+  const scored = rows.filter((r) => isAmountCell(r[key]));
+  if (scored.length < 2) return null;
+  return scored.reduce((best, row) => {
+    const a = best[key];
+    const b = row[key];
+    if (!isAmountCell(a) || !isAmountCell(b)) return best;
+    return b.value < a.value ? row : best;
+  }).platform;
+}
+
+function platformHasSignal(args: {
+  spend: number;
+  impressions: number;
+  reach: number;
+  reachTracked: boolean;
+  clicks: number;
+}): boolean {
+  return (
+    args.spend > 0 ||
+    args.impressions > 0 ||
+    args.clicks > 0 ||
+    (args.reachTracked && args.reach > 0)
+  );
+}
+
+function buildPlatformCosts(
+  platform: FunnelPlatform,
+  spend: number,
+  impressions: number,
+  reach: number,
+  reachTracked: boolean,
+  clicks: number,
+): EventFunnelPlatformCosts | null {
+  const s = n(spend);
+  const imps = n(impressions);
+  const r = n(reach);
+  const c = n(clicks);
+  if (!platformHasSignal({ spend: s, impressions: imps, reach: r, reachTracked, clicks: c })) {
+    return null;
+  }
+  return {
+    platform,
+    label: PLATFORM_LABEL[platform],
+    spend: s,
+    cpm: costPerUnit(s, imps, "no_impressions_yet", 1000),
+    costPerReach: reachTracked
+      ? costPerUnit(s, r, "no_reach_yet")
+      : { kind: "no_reach_data" },
+    cpc: costPerUnit(s, c, "no_clicks_yet"),
+  };
+}
+
+function buildEventFunnelCosts(
+  input: EventFunnelInput,
+  purchaseProvenance: FunnelProvenance,
+): EventFunnelCosts {
+  const platforms = [
+    buildPlatformCosts(
+      "meta",
+      input.metaSpend,
+      input.metaImpressions,
+      input.metaReach,
+      true,
+      input.metaClicks,
+    ),
+    buildPlatformCosts(
+      "tiktok",
+      input.tiktokSpend,
+      input.tiktokImpressions,
+      input.tiktokReach,
+      true,
+      input.tiktokClicks,
+    ),
+    buildPlatformCosts(
+      "google",
+      input.googleSpend,
+      input.googleImpressions,
+      0,
+      false,
+      input.googleClicks,
+    ),
+  ].filter((row): row is EventFunnelPlatformCosts => row != null);
+
+  const totalSpend =
+    n(input.metaSpend) + n(input.tiktokSpend) + n(input.googleSpend);
+
+  return {
+    platforms,
+    bestCpm: pickBestCost(platforms, "cpm"),
+    bestCostPerReach: pickBestCost(platforms, "costPerReach"),
+    bestCpc: pickBestCost(platforms, "cpc"),
+    costPerLpv: { kind: "not_instrumented" },
+    costPerSignup: costPerUnit(totalSpend, n(input.signupCount), "no_signups_yet"),
+    costPerTicket: costPerUnit(totalSpend, n(input.purchases), "no_tickets_yet"),
+    ticketProvenance: purchaseProvenance,
+  };
 }
 
 export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
@@ -252,5 +457,6 @@ export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
   return {
     stages,
     metaReportedLpv: n(input.metaReportedLpv),
+    costs: buildEventFunnelCosts(input, purchaseProvenance),
   };
 }

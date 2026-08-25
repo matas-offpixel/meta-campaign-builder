@@ -1,7 +1,11 @@
 import {
   EVENT_FUNNEL_SEED_LABEL,
+  funnelCostLabel,
+  isAmountCell,
+  type EventFunnelCosts,
   type EventFunnelStage,
   type EventFunnelView,
+  type FunnelCostCell,
   type FunnelProvenance,
 } from "@/lib/dashboard/event-funnel";
 
@@ -118,26 +122,143 @@ function StageCard({
   );
 }
 
-export function EventFunnelCard({ funnel }: { funnel: EventFunnelView }) {
+const GBP = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+function fmtCost(cell: FunnelCostCell): string {
+  if (isAmountCell(cell)) return GBP.format(cell.value);
+  return funnelCostLabel(cell);
+}
+
+function CostCell({
+  cell,
+  best,
+}: {
+  cell: FunnelCostCell;
+  best: boolean;
+}) {
   return (
-    <section data-testid="event-funnel" className="space-y-3">
+    <td
+      className={`px-3 py-2 tabular-nums ${
+        best ? "bg-emerald-500/10 font-medium text-emerald-900 dark:text-emerald-100" : ""
+      }`}
+    >
+      {fmtCost(cell)}
+      {best ? (
+        <span className="ml-1 text-[10px] uppercase tracking-[0.12em]">best</span>
+      ) : null}
+    </td>
+  );
+}
+
+function EventFunnelCostTable({
+  costs,
+  tonality,
+}: {
+  costs: EventFunnelCosts;
+  tonality: "internal" | "share";
+}) {
+  if (costs.platforms.length === 0) return null;
+  const subtitle =
+    tonality === "share"
+      ? "What each paid channel costs at the stages we can actually measure. Signup and ticket costs are blended — we do not invent per-platform purchase attribution."
+      : "CPM, cost-per-reach and CPC per platform. Signup and ticket costs are blended (first-party / manual), not attributed. Best-value highlight only when two or more platforms have both spend and the metric.";
+
+  return (
+    <div className="space-y-3" data-testid="event-funnel-costs">
       <div>
-        <h2 className="font-heading text-lg tracking-wide">Funnel</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Reach → clicks → landing-page views → signups → purchases.
-          Empty middle stages are the Phase B landing-page gap, not missing
-          spend. Seeds are {EVENT_FUNNEL_SEED_LABEL}.
-        </p>
+        <h3 className="font-heading text-base tracking-wide">Cost per stage</h3>
+        <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {funnel.stages.map((stage) => (
-          <StageCard
-            key={stage.key}
-            stage={stage}
-            metaReportedLpv={funnel.metaReportedLpv}
-          />
-        ))}
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full min-w-[36rem] text-left text-sm">
+          <thead className="bg-muted/50 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Channel</th>
+              <th className="px-3 py-2 font-medium">Spend</th>
+              <th className="px-3 py-2 font-medium">CPM</th>
+              <th className="px-3 py-2 font-medium">Cost / reach</th>
+              <th className="px-3 py-2 font-medium">CPC</th>
+            </tr>
+          </thead>
+          <tbody>
+            {costs.platforms.map((row) => (
+              <tr key={row.platform} className="border-t border-border">
+                <th className="px-3 py-2 font-medium">{row.label}</th>
+                <td className="px-3 py-2 tabular-nums">{GBP.format(row.spend)}</td>
+                <CostCell cell={row.cpm} best={costs.bestCpm === row.platform} />
+                <CostCell
+                  cell={row.costPerReach}
+                  best={costs.bestCostPerReach === row.platform}
+                />
+                <CostCell cell={row.cpc} best={costs.bestCpc === row.platform} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3 text-sm">
+        <li className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+            Cost per LPV
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {funnelCostLabel(costs.costPerLpv)}
+          </p>
+        </li>
+        <li className="rounded-lg border border-border bg-card p-3">
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+            Cost per signup
+          </p>
+          <p className="mt-1 font-medium tabular-nums">{fmtCost(costs.costPerSignup)}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">blended · first-party</p>
+        </li>
+        <li className="rounded-lg border border-border bg-card p-3">
+          <p className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+            <span>Cost per ticket</span>
+            <ProvenanceBadge provenance={costs.ticketProvenance} />
+          </p>
+          <p className="mt-1 font-medium tabular-nums">{fmtCost(costs.costPerTicket)}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">blended</p>
+        </li>
+      </ul>
+    </div>
+  );
+}
+
+export function EventFunnelCard({
+  funnel,
+  tonality = "internal",
+}: {
+  funnel: EventFunnelView;
+  tonality?: "internal" | "share";
+}) {
+  return (
+    <section data-testid="event-funnel" className="space-y-6">
+      <div className="space-y-3">
+        <div>
+          <h2 className="font-heading text-lg tracking-wide">Funnel</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Reach → clicks → landing-page views → signups → purchases.
+            Empty middle stages are the Phase B landing-page gap, not missing
+            spend. Seeds are {EVENT_FUNNEL_SEED_LABEL}.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {funnel.stages.map((stage) => (
+            <StageCard
+              key={stage.key}
+              stage={stage}
+              metaReportedLpv={funnel.metaReportedLpv}
+            />
+          ))}
+        </div>
+      </div>
+      <EventFunnelCostTable costs={funnel.costs} tonality={tonality} />
     </section>
   );
 }
