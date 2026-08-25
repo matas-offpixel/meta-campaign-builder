@@ -26,7 +26,10 @@ import type { TikTokReportBlockData } from "./tiktok-report-block";
 import type { TikTokRollupTotals } from "./meta-insights-sections";
 import type { GoogleAdsReportBlockData } from "./google-ads-report-block";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
-import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
+import type {
+  CrossPlatformComparison,
+  EventFunnelView,
+} from "@/lib/dashboard/event-funnel";
 
 interface Props {
   event: EventReportViewEvent;
@@ -127,6 +130,7 @@ interface Props {
   /** Pre-loaded TikTok snapshot rows — brand_campaign share pages only. */
   tiktokSnapshots?: TikTokSnapshotData | null;
   funnel?: EventFunnelView | null;
+  comparison?: CrossPlatformComparison | null;
 }
 
 /*
@@ -176,6 +180,7 @@ export function PublicReport({
   tiktokRollupTotals,
   tiktokSnapshots,
   funnel = null,
+  comparison = null,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -381,6 +386,7 @@ export function PublicReport({
       tiktokRollupTotals={tiktokRollupTotals}
       tiktokSnapshots={tiktokSnapshots}
       funnel={funnel}
+      comparison={comparison}
     />
   );
 }

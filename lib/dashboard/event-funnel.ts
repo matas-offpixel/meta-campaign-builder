@@ -321,11 +321,10 @@ function buildPlatformCosts(
   };
 }
 
-function buildEventFunnelCosts(
+export function platformCostsFromFunnelInput(
   input: EventFunnelInput,
-  purchaseProvenance: FunnelProvenance,
-): EventFunnelCosts {
-  const platforms = [
+): EventFunnelPlatformCosts[] {
+  return [
     buildPlatformCosts(
       "meta",
       input.metaSpend,
@@ -351,6 +350,13 @@ function buildEventFunnelCosts(
       input.googleClicks,
     ),
   ].filter((row): row is EventFunnelPlatformCosts => row != null);
+}
+
+function buildEventFunnelCosts(
+  input: EventFunnelInput,
+  purchaseProvenance: FunnelProvenance,
+): EventFunnelCosts {
+  const platforms = platformCostsFromFunnelInput(input);
 
   const totalSpend =
     n(input.metaSpend) + n(input.tiktokSpend) + n(input.googleSpend);
@@ -476,5 +482,170 @@ export function buildEventFunnelView(input: EventFunnelInput): EventFunnelView {
     stages,
     metaReportedLpv: n(input.metaReportedLpv),
     costs: buildEventFunnelCosts(input, purchaseProvenance),
+  };
+}
+
+/** Inclusive UTC calendar days used by E.3-lite comparisons. */
+export const CROSS_PLATFORM_WINDOW_DAYS = 7;
+
+/**
+ * A cheaper platform must be at least this many times cheaper, and the
+ * absolute gap must clear the metric floor, before we recommend a shift.
+ * Recommend-only — never auto-applied.
+ */
+export const STAGE_COST_GAP = {
+  ratio: 1.8,
+  cpcAbs: 0.2,
+  cpmAbs: 2,
+  costPerReachAbs: 0.01,
+} as const;
+
+export type FunnelDiagnosticProvenance = "computed-from-event_daily_rollups";
+
+export interface FunnelDiagnosticEvidence {
+  metric: "cpc" | "cpm" | "costPerReach";
+  cheaperPlatform: FunnelPlatform;
+  dearerPlatform: FunnelPlatform;
+  cheaperValue: number;
+  dearerValue: number;
+  ratio: number;
+  windowDays: number;
+}
+
+export interface FunnelDiagnosticRow {
+  recommendation: string;
+  evidence: FunnelDiagnosticEvidence;
+  createdAt: string;
+  provenance: FunnelDiagnosticProvenance;
+  /** Always false in this run — diagnostics never write budgets. */
+  autoApply: false;
+}
+
+export interface CrossPlatformComparison {
+  windowDays: number;
+  sinceDate: string;
+  platforms: EventFunnelPlatformCosts[];
+  bestCpm: FunnelPlatform | null;
+  bestCostPerReach: FunnelPlatform | null;
+  bestCpc: FunnelPlatform | null;
+  diagnostics: FunnelDiagnosticRow[];
+  emptyReason: string | null;
+}
+
+export function utcDateDaysAgo(daysBack: number, now = new Date()): string {
+  const d = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  d.setUTCDate(d.getUTCDate() - daysBack);
+  return d.toISOString().slice(0, 10);
+}
+
+function gbp(value: number): string {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function gapDiagnostic(
+  platforms: EventFunnelPlatformCosts[],
+  metric: FunnelDiagnosticEvidence["metric"],
+  absFloor: number,
+  windowDays: number,
+  createdAt: string,
+): FunnelDiagnosticRow | null {
+  const scored = platforms.filter((row) => isAmountCell(row[metric]));
+  if (scored.length < 2) return null;
+  const ranked = [...scored].sort((a, b) => {
+    const left = a[metric];
+    const right = b[metric];
+    if (!isAmountCell(left) || !isAmountCell(right)) return 0;
+    return left.value - right.value;
+  });
+  const cheapest = ranked[0];
+  const dearest = ranked[ranked.length - 1];
+  const cheapCell = cheapest[metric];
+  const dearCell = dearest[metric];
+  if (!isAmountCell(cheapCell) || !isAmountCell(dearCell)) return null;
+  if (cheapCell.value <= 0) return null;
+  const ratio = dearCell.value / cheapCell.value;
+  const gap = dearCell.value - cheapCell.value;
+  if (ratio < STAGE_COST_GAP.ratio || gap < absFloor) return null;
+  const metricLabel =
+    metric === "cpc" ? "CPC" : metric === "cpm" ? "CPM" : "cost-per-reach";
+  return {
+    recommendation: `${cheapest.label} ${metricLabel} ${gbp(cheapCell.value)} vs ${dearest.label} ${gbp(dearCell.value)} over ${windowDays} days — consider shifting spend`,
+    evidence: {
+      metric,
+      cheaperPlatform: cheapest.platform,
+      dearerPlatform: dearest.platform,
+      cheaperValue: cheapCell.value,
+      dearerValue: dearCell.value,
+      ratio,
+      windowDays,
+    },
+    createdAt,
+    provenance: "computed-from-event_daily_rollups",
+    autoApply: false,
+  };
+}
+
+/**
+ * 7-day (or caller window) per-platform CPM/CPC/cost-per-reach plus
+ * recommend-only rows. One platform is an honest empty, not a fake compare.
+ */
+export function buildCrossPlatformComparison(
+  input: EventFunnelInput,
+  args: { windowDays?: number; sinceDate: string; createdAt: string },
+): CrossPlatformComparison {
+  const windowDays = args.windowDays ?? CROSS_PLATFORM_WINDOW_DAYS;
+  const platforms = platformCostsFromFunnelInput(input);
+  const emptyReason =
+    platforms.length === 0
+      ? `No paid-channel spend or metrics in the last ${windowDays} days.`
+      : platforms.length === 1
+        ? `Only ${platforms[0].label} has signal in the last ${windowDays} days — nothing to compare.`
+        : null;
+
+  const diagnostics =
+    emptyReason == null
+      ? (
+          [
+            gapDiagnostic(
+              platforms,
+              "cpc",
+              STAGE_COST_GAP.cpcAbs,
+              windowDays,
+              args.createdAt,
+            ),
+            gapDiagnostic(
+              platforms,
+              "cpm",
+              STAGE_COST_GAP.cpmAbs,
+              windowDays,
+              args.createdAt,
+            ),
+            gapDiagnostic(
+              platforms,
+              "costPerReach",
+              STAGE_COST_GAP.costPerReachAbs,
+              windowDays,
+              args.createdAt,
+            ),
+          ] as Array<FunnelDiagnosticRow | null>
+        ).filter((row): row is FunnelDiagnosticRow => row != null)
+      : [];
+
+  return {
+    windowDays,
+    sinceDate: args.sinceDate,
+    platforms,
+    bestCpm: pickBestCost(platforms, "cpm"),
+    bestCostPerReach: pickBestCost(platforms, "costPerReach"),
+    bestCpc: pickBestCost(platforms, "cpc"),
+    diagnostics,
+    emptyReason,
   };
 }
