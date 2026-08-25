@@ -8,6 +8,8 @@ import {
   type FunnelCostCell,
   type FunnelProvenance,
 } from "@/lib/dashboard/event-funnel";
+import type { OffFunnelAuditRow } from "@/lib/dashboard/off-funnel-audit";
+import { OffFunnelCampaignsCard } from "@/components/dashboard/event-report/off-funnel-campaigns-card";
 
 const NUM = new Intl.NumberFormat("en-GB");
 
@@ -233,9 +235,11 @@ function EventFunnelCostTable({
 export function EventFunnelCard({
   funnel,
   tonality = "internal",
+  offFunnelRows = [],
 }: {
   funnel: EventFunnelView;
   tonality?: "internal" | "share";
+  offFunnelRows?: OffFunnelAuditRow[];
 }) {
   return (
     <section data-testid="event-funnel" className="space-y-6">
@@ -259,6 +263,9 @@ export function EventFunnelCard({
         </div>
       </div>
       <EventFunnelCostTable costs={funnel.costs} tonality={tonality} />
+      {tonality === "internal" ? (
+        <OffFunnelCampaignsCard rows={offFunnelRows} />
+      ) : null}
     </section>
   );
 }

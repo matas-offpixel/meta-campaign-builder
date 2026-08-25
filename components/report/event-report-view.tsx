@@ -22,6 +22,7 @@ import {
 
 import { EventFunnelCard } from "@/components/dashboard/event-report/event-funnel-card";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
+import type { OffFunnelAuditRow } from "@/lib/dashboard/off-funnel-audit";
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
 import {
   MetaCampaignBreakdownSection,
@@ -346,6 +347,8 @@ interface Props {
    * the rest of the report.
    */
   funnel?: EventFunnelView | null;
+  /** Operator-only. Share surfaces omit this. */
+  offFunnelRows?: OffFunnelAuditRow[];
 }
 
 type PlatformFilterValue = "all" | "meta" | "google" | "tiktok";
@@ -430,6 +433,7 @@ export function EventReportView({
   tiktokRollupTotals,
   tiktokSnapshots,
   funnel = null,
+  offFunnelRows = [],
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -636,6 +640,7 @@ export function EventReportView({
 
         {funnel ? (
           <EventFunnelCard
+            offFunnelRows={offFunnelRows}
             funnel={funnel}
             tonality={variant === "standalone" ? "share" : "internal"}
           />
