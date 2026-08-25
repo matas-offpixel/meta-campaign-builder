@@ -59,6 +59,9 @@ import {
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
 import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
+import { EventPageDestination } from "@/components/wizard/event-page-destination";
+import { useWizardEventContext } from "@/lib/wizard/use-event-context";
+import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
@@ -132,6 +135,8 @@ export function Creatives({
   const bulkVariationInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [postSearch, setPostSearch] = useState("");
+  const { event: linkedEvent } = useWizardEventContext();
+  const linkedEventId = linkedEvent?.id || settings?.eventId || null;
   // Keep a fresh reference for async upload callbacks that run after state updates
   const creativesRef = useRef(creatives);
   useEffect(() => { creativesRef.current = creatives; }, [creatives]);
@@ -1125,11 +1130,12 @@ export function Creatives({
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
-                        <Input
+                        <DestinationUrlField
+                          fieldId="meta-creative-destination-url"
                           label="Destination URL"
+                          eventId={linkedEventId}
                           value={active.destinationUrl}
-                          onChange={(e) => updateAd(active.id, { destinationUrl: e.target.value })}
-                          placeholder="https://..."
+                          onChange={(url) => updateAd(active.id, { destinationUrl: url })}
                         />
                         <Select
                           label="Call to Action"
@@ -1417,11 +1423,12 @@ export function Creatives({
                           </div>
 
                           <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
-                            <Input
+                            <DestinationUrlField
+                              fieldId="meta-existing-ig-destination-url"
                               label="Destination URL (optional)"
+                              eventId={linkedEventId}
                               value={active.destinationUrl}
-                              onChange={(e) => updateAd(active.id, { destinationUrl: e.target.value })}
-                              placeholder="https://..."
+                              onChange={(url) => updateAd(active.id, { destinationUrl: url })}
                             />
                             <Select
                               label="CTA (optional)"
@@ -1583,11 +1590,12 @@ export function Creatives({
 
                         {/* Optional CTA/URL override for existing posts — preserved from prior UI */}
                         <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
-                          <Input
+                          <DestinationUrlField
+                            fieldId="meta-existing-fb-destination-url"
                             label="Destination URL (optional)"
+                            eventId={linkedEventId}
                             value={active.destinationUrl}
-                            onChange={(e) => updateAd(active.id, { destinationUrl: e.target.value })}
-                            placeholder="https://..."
+                            onChange={(url) => updateAd(active.id, { destinationUrl: url })}
                           />
                           <Select
                             label="CTA (optional)"
@@ -1748,6 +1756,37 @@ export function Creatives({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function DestinationUrlField({
+  fieldId,
+  label,
+  eventId,
+  value,
+  onChange,
+}: {
+  fieldId: WizardDestinationUrlFieldId;
+  label: string;
+  eventId: string | null;
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  return (
+    <div>
+      <Input
+        label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="https://..."
+      />
+      <EventPageDestination
+        fieldId={fieldId}
+        eventId={eventId}
+        value={value}
+        onChange={onChange}
+      />
     </div>
   );
 }
