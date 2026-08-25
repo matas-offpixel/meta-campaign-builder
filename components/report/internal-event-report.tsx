@@ -31,6 +31,8 @@ import {
 } from "./internal-active-creatives-section";
 import { ReportUnavailable } from "./report-unavailable";
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
+import { EventFunnelCard } from "@/components/dashboard/event-report/event-funnel-card";
+import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 
 interface Props {
   eventId: string;
@@ -108,6 +110,7 @@ export function InternalEventReport({
   >(null);
   const [registrationsData, setRegistrationsData] =
     useState<MailchimpRegistrationsData | null>(null);
+  const [funnel, setFunnel] = useState<EventFunnelView | null>(null);
 
   const loadRollupTimeline = useCallback(async () => {
     try {
@@ -289,6 +292,26 @@ export function InternalEventReport({
     });
   }, [loadRegistrationsData]);
 
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      void fetch(`/api/events/${encodeURIComponent(eventId)}/funnel`, {
+        cache: "no-store",
+      })
+        .then((res) => res.json())
+        .then((json: { ok?: boolean; funnel?: EventFunnelView }) => {
+          if (cancelled || !json.ok || !json.funnel) return;
+          setFunnel(json.funnel);
+        })
+        .catch(() => {
+          if (!cancelled) setFunnel(null);
+        });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId]);
+
   const sellOutPacing = useMemo(
     () =>
       computeSellOutPacing({
@@ -462,6 +485,11 @@ export function InternalEventReport({
     return (
       <>
         {flagBanner}
+        {funnel ? (
+          <div className="mb-6">
+            <EventFunnelCard funnel={funnel} />
+          </div>
+        ) : null}
         <ReportUnavailable
         eventName={event.name}
         venueName={event.venueName}
@@ -517,6 +545,7 @@ export function InternalEventReport({
       additionalSpendSlot={additionalSpendSlot}
       registrationsData={registrationsData}
       onRefreshRegistrations={handleRefreshMailchimp}
+      funnel={funnel}
     />
     </>
   );

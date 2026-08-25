@@ -26,6 +26,7 @@ import type { TikTokReportBlockData } from "./tiktok-report-block";
 import type { TikTokRollupTotals } from "./meta-insights-sections";
 import type { GoogleAdsReportBlockData } from "./google-ads-report-block";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
+import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 
 interface Props {
   event: EventReportViewEvent;
@@ -125,6 +126,7 @@ interface Props {
   tiktokRollupTotals?: TikTokRollupTotals | null;
   /** Pre-loaded TikTok snapshot rows — brand_campaign share pages only. */
   tiktokSnapshots?: TikTokSnapshotData | null;
+  funnel?: EventFunnelView | null;
 }
 
 /*
@@ -173,6 +175,7 @@ export function PublicReport({
   brandRollupSpend,
   tiktokRollupTotals,
   tiktokSnapshots,
+  funnel = null,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -377,6 +380,7 @@ export function PublicReport({
       brandRollupSpend={brandRollupSpend}
       tiktokRollupTotals={tiktokRollupTotals}
       tiktokSnapshots={tiktokSnapshots}
+      funnel={funnel}
     />
   );
 }

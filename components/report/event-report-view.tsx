@@ -20,6 +20,8 @@ import {
   type EventInsightsPayload,
 } from "@/lib/insights/types";
 
+import { EventFunnelCard } from "@/components/dashboard/event-report/event-funnel-card";
+import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
 import {
   MetaCampaignBreakdownSection,
@@ -339,6 +341,11 @@ interface Props {
    * event share pages leave this undefined and keep the existing copy.
    */
   tiktokSnapshots?: TikTokSnapshotData | null;
+  /**
+   * Phase A.1 per-event funnel. Optional so a load miss never blanks
+   * the rest of the report.
+   */
+  funnel?: EventFunnelView | null;
 }
 
 type PlatformFilterValue = "all" | "meta" | "google" | "tiktok";
@@ -422,6 +429,7 @@ export function EventReportView({
   brandRollupSpend,
   tiktokRollupTotals,
   tiktokSnapshots,
+  funnel = null,
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
     .filter(Boolean)
@@ -625,6 +633,8 @@ export function EventReportView({
             ) : null}
           </section>
         ) : null}
+
+        {funnel ? <EventFunnelCard funnel={funnel} /> : null}
 
         {/* Platform filter pills — brand_campaign only; shown when multiple
             platforms have data. Above the timeframe pills so they communicate
