@@ -634,7 +634,12 @@ export function EventReportView({
           </section>
         ) : null}
 
-        {funnel ? <EventFunnelCard funnel={funnel} /> : null}
+        {funnel ? (
+          <EventFunnelCard
+            funnel={funnel}
+            tonality={variant === "standalone" ? "share" : "internal"}
+          />
+        ) : null}
 
         {/* Platform filter pills — brand_campaign only; shown when multiple
             platforms have data. Above the timeframe pills so they communicate

@@ -487,7 +487,7 @@ export function InternalEventReport({
         {flagBanner}
         {funnel ? (
           <div className="mb-6">
-            <EventFunnelCard funnel={funnel} />
+            <EventFunnelCard funnel={funnel} tonality="internal" />
           </div>
         ) : null}
         <ReportUnavailable

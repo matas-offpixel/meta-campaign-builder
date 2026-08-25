@@ -3,9 +3,14 @@ import { describe, it } from "node:test";
 
 import {
   EVENT_FUNNEL_SEEDS,
+  FUNNEL_COST_CELL_KINDS,
   buildEventFunnelView,
+  costPerUnit,
+  funnelCostLabel,
+  isAmountCell,
   provenanceForPurchaseSource,
   winningSnapshotSource,
+  type FunnelCostCell,
 } from "../event-funnel.ts";
 
 /**
@@ -122,5 +127,153 @@ describe("provenanceForPurchaseSource", () => {
     assert.equal(provenanceForPurchaseSource("fourthefans"), "first-party");
     assert.equal(provenanceForPurchaseSource("eventbrite"), "first-party");
     assert.equal(provenanceForPurchaseSource(null), "first-party");
+  });
+});
+
+function assertNamedOrFinite(cell: FunnelCostCell): void {
+  assert.ok(FUNNEL_COST_CELL_KINDS.includes(cell.kind), `unknown kind ${cell.kind}`);
+  if (cell.kind === "amount") {
+    assert.ok(Number.isFinite(cell.value), "amount must be finite");
+  }
+}
+
+describe("costPerUnit", () => {
+  it("spend > 0 and metric = 0 is a named zero-metric state, not Infinity", () => {
+    assert.deepEqual(costPerUnit(80, 0, "no_clicks_yet"), { kind: "no_clicks_yet" });
+    assert.deepEqual(costPerUnit(80, 0, "no_impressions_yet"), {
+      kind: "no_impressions_yet",
+    });
+    assert.deepEqual(costPerUnit(80, 0, "no_reach_yet"), { kind: "no_reach_yet" });
+    const cell = costPerUnit(80, 0, "no_clicks_yet");
+    assert.equal(isAmountCell(cell), false);
+    assert.equal(funnelCostLabel(cell), "no clicks yet");
+  });
+
+  it("spend = 0 and metric > 0 is no_spend_recorded", () => {
+    assert.deepEqual(costPerUnit(0, 400, "no_clicks_yet"), {
+      kind: "no_spend_recorded",
+    });
+    assert.equal(funnelCostLabel({ kind: "no_spend_recorded" }), "no spend recorded");
+  });
+
+  it("neither spend nor metric is a named state, not 0/0", () => {
+    const cell = costPerUnit(0, 0, "no_clicks_yet");
+    assert.equal(cell.kind, "no_spend_recorded");
+    assert.equal(isAmountCell(cell), false);
+  });
+
+  it("returns a finite amount when both sides are positive", () => {
+    const cell = costPerUnit(80, 400, "no_clicks_yet");
+    assert.deepEqual(cell, { kind: "amount", value: 0.2 });
+    const cpm = costPerUnit(80, 4000, "no_impressions_yet", 1000);
+    assert.deepEqual(cpm, { kind: "amount", value: 20 });
+  });
+});
+
+describe("buildEventFunnelView costs", () => {
+  const base = {
+    metaReach: 10_000,
+    metaImpressions: 20_000,
+    metaClicks: 1_200,
+    metaSpend: 400,
+    tiktokReach: 2_000,
+    tiktokImpressions: 5_000,
+    tiktokClicks: 300,
+    tiktokSpend: 80,
+    googleImpressions: 8_000,
+    googleClicks: 150,
+    googleSpend: 60,
+    metaReportedLpv: 400,
+    signupCount: 1,
+    purchases: 502,
+    snapshotSources: ["fourthefans", "manual"],
+  };
+
+  it("every cost cell is a finite amount or a named state", () => {
+    const { costs } = buildEventFunnelView(base);
+    for (const row of costs.platforms) {
+      assertNamedOrFinite(row.cpm);
+      assertNamedOrFinite(row.costPerReach);
+      assertNamedOrFinite(row.cpc);
+    }
+    assertNamedOrFinite(costs.costPerLpv);
+    assertNamedOrFinite(costs.costPerSignup);
+    assertNamedOrFinite(costs.costPerTicket);
+  });
+
+  it("Google shows CPM + CPC and no reach data", () => {
+    const google = buildEventFunnelView(base).costs.platforms.find(
+      (p) => p.platform === "google",
+    );
+    assert.ok(google);
+    assert.deepEqual(google.cpm, { kind: "amount", value: (60 / 8000) * 1000 });
+    assert.deepEqual(google.cpc, { kind: "amount", value: 60 / 150 });
+    assert.deepEqual(google.costPerReach, { kind: "no_reach_data" });
+    assert.equal(funnelCostLabel(google.costPerReach), "no reach data");
+  });
+
+  it("highlights TikTok CPC when it is cheaper than Meta; drops when TikTok has no clicks", () => {
+    const twoPlatforms = {
+      ...base,
+      googleSpend: 0,
+      googleImpressions: 0,
+      googleClicks: 0,
+    };
+    const withBoth = buildEventFunnelView(twoPlatforms);
+    // TikTok 80/300 ≈ 0.267; Meta 400/1200 ≈ 0.333
+    assert.equal(withBoth.costs.bestCpc, "tiktok");
+
+    const withoutTikTokClicks = buildEventFunnelView({
+      ...twoPlatforms,
+      tiktokClicks: 0,
+    });
+    const tiktok = withoutTikTokClicks.costs.platforms.find(
+      (p) => p.platform === "tiktok",
+    );
+    assert.equal(tiktok?.cpc.kind, "no_clicks_yet");
+    assert.equal(withoutTikTokClicks.costs.bestCpc, null);
+  });
+
+  it("omits a platform that has neither spend nor metrics", () => {
+    const { costs } = buildEventFunnelView({
+      ...base,
+      googleSpend: 0,
+      googleImpressions: 0,
+      googleClicks: 0,
+    });
+    assert.equal(
+      costs.platforms.some((p) => p.platform === "google"),
+      false,
+    );
+  });
+
+  it("cost per LPV is not instrumented; signup and ticket are blended", () => {
+    const { costs } = buildEventFunnelView(base);
+    assert.deepEqual(costs.costPerLpv, { kind: "not_instrumented" });
+    assert.equal(funnelCostLabel(costs.costPerLpv), "not instrumented yet — Phase B");
+    const total = 400 + 80 + 60;
+    assert.deepEqual(costs.costPerSignup, { kind: "amount", value: total / 1 });
+    assert.deepEqual(costs.costPerTicket, { kind: "amount", value: total / 502 });
+    assert.equal(costs.ticketProvenance, "manual entry");
+  });
+
+  it("blended signup with spend and zero signups is no_signups_yet", () => {
+    const { costs } = buildEventFunnelView({ ...base, signupCount: 0 });
+    assert.deepEqual(costs.costPerSignup, { kind: "no_signups_yet" });
+  });
+
+  it("organic edge: metric without spend is no_spend_recorded on that platform", () => {
+    const { costs } = buildEventFunnelView({
+      ...base,
+      tiktokSpend: 0,
+      tiktokClicks: 40,
+      tiktokImpressions: 800,
+      tiktokReach: 200,
+    });
+    const tiktok = costs.platforms.find((p) => p.platform === "tiktok");
+    assert.ok(tiktok);
+    assert.deepEqual(tiktok.cpc, { kind: "no_spend_recorded" });
+    assert.deepEqual(tiktok.cpm, { kind: "no_spend_recorded" });
+    assert.deepEqual(tiktok.costPerReach, { kind: "no_spend_recorded" });
   });
 });
