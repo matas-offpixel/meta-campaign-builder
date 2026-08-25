@@ -44,6 +44,10 @@ describe("isAdminPublicPath", () => {
       isAdminPublicPath("/admin/gmc-worldwide-productions/settings"),
       false,
     );
+    assert.equal(
+      isAdminPublicPath("/admin/gmc-worldwide-productions/sales"),
+      false,
+    );
     // A client slug that HAPPENS to start with "login" must not be public.
     assert.equal(isAdminPublicPath("/admin/login-records"), false);
   });
@@ -73,6 +77,10 @@ describe("adminClientSlugFromPath", () => {
     );
     assert.equal(
       adminClientSlugFromPath("/admin/gmc-worldwide-productions/pages/new"),
+      "gmc-worldwide-productions",
+    );
+    assert.equal(
+      adminClientSlugFromPath("/admin/gmc-worldwide-productions/sales"),
       "gmc-worldwide-productions",
     );
   });

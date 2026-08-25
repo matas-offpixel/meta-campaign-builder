@@ -8,6 +8,7 @@ import {
   LayoutList,
   Plug,
   Settings as SettingsIcon,
+  Ticket,
   Users,
 } from "lucide-react";
 
@@ -46,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { segment: "pages", label: "pages", icon: LayoutList },
   { segment: "fans", label: "fans", icon: Users },
   { segment: "insights", label: "insights", icon: BarChart3 },
+  { segment: "sales", label: "report sales", icon: Ticket },
   { segment: "integrations", label: "integrations", icon: Plug },
   { segment: "settings", label: "settings", icon: SettingsIcon },
 ];
