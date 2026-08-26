@@ -5,6 +5,7 @@ import Link from "next/link";
 import { markPageCapabilityFailures, getCachedUserPages } from "@/lib/hooks/useMeta";
 import { planContinuationHref } from "@/lib/plan/schedule";
 import { Card, CardTitle } from "@/components/ui/card";
+import { ThresholdBand } from "@/components/viz/threshold-band";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -1773,13 +1774,7 @@ export function ReviewLaunch({
                         {rule.metric === "roas" ? "×" : ""}
                       </p>
                     )}
-                  <div className="space-y-0.5">
-                    {rule.thresholds.map((t) => (
-                      <p key={t.id} className="text-xs text-muted-foreground">
-                        {t.label}
-                      </p>
-                    ))}
-                  </div>
+                  <ThresholdBand rule={rule} />
                 </div>
               ))}
           </div>

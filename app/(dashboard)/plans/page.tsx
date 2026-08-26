@@ -5,6 +5,11 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
+import { EventThumb } from "@/components/viz/event-thumb";
+import { InfoTip } from "@/components/viz/info-tip";
+import { MetricChip } from "@/components/viz/metric-chip";
+import { StatusStrip } from "@/components/viz/status-strip";
+import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
 import { emptyPlanLaunches } from "@/lib/plan/load";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import { IDLE_PLAN_LAUNCH, type CampaignPlanLaunches } from "@/lib/plan/types";
@@ -15,6 +20,9 @@ interface PlanListRow {
   name: string | null;
   status: string;
   event_id: string;
+  total_daily_budget: number | string | null;
+  start_date: string | null;
+  end_date: string | null;
 }
 
 interface LaunchStatusRow {
@@ -35,6 +43,12 @@ function toLaunch(row: LaunchStatusRow | undefined) {
   };
 }
 
+function dateRangeLabel(start: string | null, end: string | null): string | null {
+  if (!start && !end) return null;
+  if (start && end) return `${start}–${end}`;
+  return start ?? end;
+}
+
 export default async function PlansPage() {
   const supabase = await createClient();
   const {
@@ -44,7 +58,7 @@ export default async function PlansPage() {
 
   const { data, error } = await supabase
     .from("campaign_plans")
-    .select("id, name, status, event_id")
+    .select("id, name, status, event_id, total_daily_budget, start_date, end_date")
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false });
 
@@ -86,11 +100,24 @@ export default async function PlansPage() {
     }
   }
 
+  const eventIds = [...new Set(rows.map((row) => row.event_id).filter(Boolean))];
+  const { data: eventRows } = eventIds.length
+    ? await supabase.from("events").select("id, name").in("id", eventIds)
+    : { data: [] as never[] };
+  const eventNames = new Map(
+    ((eventRows ?? []) as Array<{ id: string; name: string }>).map((row) => [row.id, row.name]),
+  );
+  const thumbs = await loadEventThumbSources(supabase, eventIds, eventNames);
+
   return (
     <>
       <PageHeader
-        title="Plans"
-        description="One set of inputs for Meta, TikTok, and Google. Everything launches paused."
+        title={
+          <span className="inline-flex items-center gap-2">
+            Plans
+            <InfoTip label="One set of inputs for Meta, TikTok, and Google. Everything launches paused." />
+          </span>
+        }
         actions={
           <Link href="/plan/new">
             <Button size="sm">
@@ -104,31 +131,39 @@ export default async function PlansPage() {
         <div className="mx-auto max-w-6xl space-y-4">
           {tableMissing ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-              No plans table yet. Migration 157 has not been applied — the list
-              cannot load stored plans. You can still open a new plan workspace.
+              No plans table yet. Migration 157 has not been applied.
             </p>
           ) : rows.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-              No plans yet. Create one from an event to enter the shared inputs
-              once.
+              No plans yet.
             </p>
           ) : (
             <ul className="divide-y divide-border rounded-lg border border-border">
-              {rows.map((row) => (
-                <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                  <div>
-                    <Link href={`/plan/${row.id}`} className="font-medium underline">
-                      {row.name || "Untitled plan"}
+              {rows.map((row) => {
+                const thumb = thumbs.get(row.event_id);
+                const budget = Number(row.total_daily_budget);
+                const range = dateRangeLabel(row.start_date, row.end_date);
+                return (
+                  <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                    <Link href={`/plan/${row.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                      <EventThumb url={thumb?.url} name={thumb?.name ?? row.name} />
+                      <span className="truncate font-medium">{row.name || "Untitled plan"}</span>
+                      <StatusStrip
+                        launches={launchesByPlan.get(row.id) ?? emptyPlanLaunches()}
+                      />
+                      {Number.isFinite(budget) && budget > 0 ? (
+                        <MetricChip label={`${budget} pounds per day`}>£{budget}/d</MetricChip>
+                      ) : null}
+                      {range ? <MetricChip label={range}>{range}</MetricChip> : null}
                     </Link>
-                    <span className="ml-2 text-muted-foreground">{row.status}</span>
-                  </div>
-                  <PlanDeleteAction
-                    planId={row.id}
-                    launches={launchesByPlan.get(row.id) ?? emptyPlanLaunches()}
-                    persisted
-                  />
-                </li>
-              ))}
+                    <PlanDeleteAction
+                      planId={row.id}
+                      launches={launchesByPlan.get(row.id) ?? emptyPlanLaunches()}
+                      persisted
+                    />
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

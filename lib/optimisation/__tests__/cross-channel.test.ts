@@ -311,8 +311,7 @@ describe("M.4 grep-guards — no new rules UI, migration 162 unapplied", () => {
   it("decisions list renders a channel badge", () => {
     const list = readFileSync("components/optimisation/automation-decisions-list.tsx", "utf8");
     assert.match(list, /row\.channel/);
-    assert.match(list, /TikTok/);
-    assert.match(list, /Google/);
+    assert.match(list, /PlatformGlyph/);
   });
 
   it("migration 162 adds channel with a meta default and is not applied from this PR", () => {

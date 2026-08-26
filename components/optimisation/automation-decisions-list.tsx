@@ -1,6 +1,10 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
+import { ActionGlyph } from "@/components/viz/action-glyph";
+import { InfoTip } from "@/components/viz/info-tip";
+import { MetricChip } from "@/components/viz/metric-chip";
+import { PlatformGlyph } from "@/components/viz/platform-glyph";
+import { ThresholdBand } from "@/components/viz/threshold-band";
 import {
   currencySymbol,
   formatPenceAsMajor,
@@ -20,62 +24,59 @@ export function AutomationDecisionsList({
 
   return (
     <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Recent decisions
-      </p>
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading decisions…</p>
+        <p className="text-sm text-muted-foreground">…</p>
       ) : decisions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No automation decisions yet. Once the tick evaluates this published
-          campaign, shadow and live rows will list here.
-        </p>
+        <p className="text-sm text-muted-foreground">No decisions yet.</p>
       ) : (
         <ul className="space-y-2">
-          {decisions.map((row, idx) => (
-            <li
-              key={`${row.decidedAt}-${row.action}-${idx}`}
-              className={`rounded-lg border px-3 py-2 ${
-                row.kind === "applied"
-                  ? "border-success/40 bg-success/5"
-                  : "border-border bg-muted/30"
-              }`}
-            >
-              <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                <Badge variant={row.kind === "applied" ? "success" : "outline"}>
-                  {row.kind === "applied" ? "Applied" : "Dry run"}
-                </Badge>
-                <Badge variant="outline">
-                  {row.channel === "tiktok"
-                    ? "TikTok"
-                    : row.channel === "google"
-                      ? "Google"
-                      : "Meta"}
-                </Badge>
-                <span className="text-xs text-muted-foreground">
+          {decisions.map((row, idx) => {
+            const delta =
+              row.budgetBeforePence != null && row.budgetAfterPence != null
+                ? row.budgetAfterPence - row.budgetBeforePence
+                : null;
+            return (
+              <li
+                key={`${row.decidedAt}-${row.action}-${idx}`}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2"
+              >
+                <PlatformGlyph platform={row.channel} size="sm" />
+                <ActionGlyph
+                  action={row.action || "maintain"}
+                  filled={row.kind === "applied"}
+                />
+                {row.metricValue != null ? (
+                  <MetricChip label={`${row.metric || "metric"} ${row.metricValue}`}>
+                    {row.metric || "cpr"} {row.metricValue}
+                    {delta != null && delta !== 0
+                      ? ` ${delta > 0 ? "+" : ""}${formatPenceAsMajor(delta, sym)}`
+                      : ""}
+                  </MetricChip>
+                ) : row.action === "metric_unavailable" ? (
+                  <InfoTip label={row.reasonText || "Metric unavailable"} />
+                ) : null}
+                <span className="min-w-24 flex-1">
+                  <ThresholdBand action={row.action} currentValue={row.metricValue} size="sm" />
+                </span>
+                <time
+                  className="text-[10px] text-muted-foreground"
+                  dateTime={row.decidedAt}
+                  title={row.decidedAt}
+                >
                   {new Date(row.decidedAt).toLocaleString("en-GB", {
-                    dateStyle: "medium",
+                    dateStyle: "short",
                     timeStyle: "short",
                     timeZone: "Europe/London",
                   })}
+                </time>
+                {row.reasonText ? <InfoTip label={row.reasonText} /> : null}
+                <span className="sr-only">
+                  {row.kind === "applied" ? "Applied" : "Dry run"} {row.channel}{" "}
+                  {row.action} {row.metricValue ?? ""} {row.reasonText}
                 </span>
-              </div>
-              <p className="text-sm">
-                <span className="font-medium">{row.action || "—"}</span>
-                {row.ruleMatched ? ` · ${row.ruleMatched}` : ""}
-                {row.metric ? ` · ${row.metric}` : ""}
-                {row.metricValue != null ? ` ${row.metricValue}` : ""}
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Budget {formatPenceAsMajor(row.budgetBeforePence, sym)}
-                {" → "}
-                {formatPenceAsMajor(row.budgetAfterPence, sym)}
-              </p>
-              {row.reasonText && (
-                <p className="mt-0.5 text-xs text-muted-foreground">{row.reasonText}</p>
-              )}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

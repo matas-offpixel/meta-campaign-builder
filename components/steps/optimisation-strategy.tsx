@@ -24,6 +24,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { ThresholdBand } from "@/components/viz/threshold-band";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -1184,14 +1185,7 @@ export function OptimisationStrategy({
                         )}
                       </div>
                     )}
-                    <div className="space-y-1">
-                      {rule.thresholds.map((t) => (
-                        <div key={t.id} className="flex items-center gap-2 text-sm">
-                          {actionIcon(t.action)}
-                          <span className="text-foreground">{t.label}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <ThresholdBand rule={rule} />
                   </div>
                 );
               })}

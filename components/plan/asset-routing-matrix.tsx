@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { AspectChip } from "@/components/viz/metric-chip";
+import { InfoTip } from "@/components/viz/info-tip";
+import { PlatformGlyph } from "@/components/viz/platform-glyph";
 import {
   formatBackfillSummary,
   type BackfillOutcomeRow,
@@ -194,13 +197,9 @@ export function AssetRoutingMatrix({
   }
 
   return (
-    <section className="space-y-3">
-      <div>
-        <h2 className="font-heading text-lg tracking-wide">Asset routing</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          One upload on Meta, selective fan-out. This matrix only routes — it
-          does not upload or retarget.
-        </p>
+    <section id="plan-assets" className="space-y-3">
+      <div className="flex items-center gap-2">
+        <InfoTip label="One upload on Meta, selective fan-out. This matrix only routes — it does not upload or retarget." />
       </div>
       {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
       {unregisteredCount > 0 ? (
@@ -230,18 +229,22 @@ export function AssetRoutingMatrix({
             ))}
         </ul>
       ) : null}
-      {launched ? (
-        <p className="text-xs text-muted-foreground">{TIKTOK_LAUNCHED_UNROUTE_NOTE}</p>
-      ) : null}
+      {launched ? <InfoTip label={TIKTOK_LAUNCHED_UNROUTE_NOTE} /> : null}
       {rows.length > 0 ? (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-[0.12em] text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 font-medium">Asset</th>
-                <th className="px-3 py-2 font-medium">Meta</th>
-                <th className="px-3 py-2 font-medium">TikTok</th>
-                <th className="px-3 py-2 font-medium">Google</th>
+                <th className="px-3 py-2 font-medium"> </th>
+                <th className="px-3 py-2 font-medium">
+                  <PlatformGlyph platform="meta" size="sm" />
+                </th>
+                <th className="px-3 py-2 font-medium">
+                  <PlatformGlyph platform="tiktok" size="sm" />
+                </th>
+                <th className="px-3 py-2 font-medium">
+                  <PlatformGlyph platform="google" size="sm" />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -259,7 +262,7 @@ export function AssetRoutingMatrix({
                       ) : (
                         <div className="h-12 w-12 rounded bg-muted" />
                       )}
-                      <div>
+                      <div className="flex items-center gap-2">
                         <p className="font-medium">
                           {row.asset.filename}
                           {newIds.has(row.asset.id) ? (
@@ -268,28 +271,38 @@ export function AssetRoutingMatrix({
                             </span>
                           ) : null}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.asset.mediaKind} · {row.asset.aspectRatio}
-                        </p>
+                        <AspectChip ratio={row.asset.aspectRatio} />
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-xs text-muted-foreground">
-                    Already on Meta
+                  <td className="px-3 py-3">
+                    <PlatformGlyph platform="meta" size="sm" />
                   </td>
                   <td className="px-3 py-3">
-                    <label className="flex items-center gap-2 text-xs">
+                    <label className="inline-flex items-center gap-2 text-xs">
                       <input
                         type="checkbox"
+                        className="peer sr-only"
                         checked={row.tiktok.enabled}
                         disabled={row.tiktok.disabled || busyId === row.asset.id}
                         onChange={(e) => void setEnabled(row.asset.id, e.target.checked)}
                       />
-                      {row.tiktok.disabled
-                        ? row.tiktok.disabledReason
-                        : row.tiktok.enabled
-                          ? "Route to TikTok"
-                          : "Off"}
+                      <span
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full border border-border ${
+                          row.tiktok.enabled ? "bg-success/40" : "bg-muted"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 rounded-full bg-foreground transition-transform ${
+                            row.tiktok.enabled ? "translate-x-4" : "translate-x-0.5"
+                          }`}
+                        />
+                      </span>
+                      <PlatformGlyph platform="tiktok" size="sm" />
+                      {row.tiktok.disabled && row.tiktok.disabledReason ? (
+                        <InfoTip label={row.tiktok.disabledReason} />
+                      ) : null}
                     </label>
                     {row.tiktok.uploadStatus === "failed" && row.tiktok.uploadError ? (
                       <div className="mt-2 space-y-1">
@@ -306,8 +319,11 @@ export function AssetRoutingMatrix({
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-3 py-3 text-xs text-muted-foreground">
-                    {GOOGLE_NO_ASSETS_COPY}
+                  <td className="px-3 py-3">
+                    <span className="inline-flex items-center gap-1">
+                      <PlatformGlyph platform="google" size="sm" />
+                      <InfoTip label={GOOGLE_NO_ASSETS_COPY} />
+                    </span>
                   </td>
                 </tr>
               ))}
