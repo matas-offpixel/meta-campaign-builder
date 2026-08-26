@@ -27,7 +27,7 @@ export function planDisposalAction(
 }
 
 export const DELETE_PLAN_CONFIRM =
-  "Delete this draft plan? Linked Meta, TikTok, and Google drafts and any launched campaigns are left untouched.";
+  "Delete this draft plan? This removes the plan only — drafts and launched campaigns untouched.";
 
 export const ARCHIVE_PLAN_CONFIRM =
-  "Archive this plan? Linked drafts and launched campaigns are left untouched.";
+  "Archive this plan? This archives the plan only — drafts and launched campaigns untouched.";

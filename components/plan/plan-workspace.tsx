@@ -709,6 +709,18 @@ export function PlanWorkspace({
         {metaFallbackHint ? (
           <p className="text-xs text-muted-foreground">{metaFallbackHint}</p>
         ) : null}
+        {plan.launches.meta.draftId ? (
+          <p className="text-xs text-muted-foreground">
+            <Link
+              href={`/campaign/${plan.launches.meta.draftId}`}
+              className="underline underline-offset-2"
+            >
+              Automation decisions
+            </Link>
+            {" "}live on the linked Meta campaign — the same Optimisation
+            Strategy shadows TikTok and Google. No separate rules editor here.
+          </p>
+        ) : null}
       </section>
 
       <AssetRoutingMatrix planId={plan.id} hasMetaDraft={hasMetaDraft} />

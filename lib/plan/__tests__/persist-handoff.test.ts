@@ -234,6 +234,8 @@ describe("plan page guards", () => {
     assert.match(workspace, /New from plan/);
     assert.match(workspace, /From existing campaign/);
     assert.match(workspace, /Continue in wizard/);
+    assert.match(workspace, /Automation decisions/);
+    assert.match(workspace, /\/campaign\/\$\{plan\.launches\.meta\.draftId\}/);
   });
 
   it("plan pages do not grow account pickers or asset upload", () => {
@@ -249,6 +251,7 @@ describe("plan page guards", () => {
       const source = readFileSync(file, "utf8");
       assert.doesNotMatch(source, /type=["']file["']/);
       assert.doesNotMatch(source, /AccountPicker|account-picker|AssetUpload|upload-asset/);
+      assert.doesNotMatch(source, /AutomationArmControl|optimisation-strategy|evaluateAdSet/);
     }
   });
 

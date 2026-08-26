@@ -9,6 +9,7 @@ import {
   backfillHistoricalMetaAssets,
   collectBackfillCandidates,
   countUnregisteredMetaAssets,
+  formatBackfillSummary,
   stampRegistryIdsOnDraft,
   storageRefFromUrl,
 } from "../asset-backfill.ts";
@@ -118,10 +119,13 @@ describe("delete gating by child-row state", () => {
 
   it("list and plan page confirm before delete or archive", () => {
     const action = readFileSync("components/plan/plan-delete-action.tsx", "utf8");
-    assert.match(action, /window\.confirm/);
+    assert.doesNotMatch(action, /window\.confirm/);
+    assert.match(action, /Dialog/);
+    assert.match(action, /DialogDescription/);
     assert.match(action, /DELETE_PLAN_CONFIRM|ARCHIVE_PLAN_CONFIRM/);
-    assert.match(DELETE_PLAN_CONFIRM, /untouched/);
-    assert.match(ARCHIVE_PLAN_CONFIRM, /untouched/);
+    assert.match(DELETE_PLAN_CONFIRM, /removes the plan only/);
+    assert.match(DELETE_PLAN_CONFIRM, /drafts and launched campaigns untouched/);
+    assert.match(ARCHIVE_PLAN_CONFIRM, /drafts and launched campaigns untouched/);
     const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(list, /PlanDeleteAction/);
@@ -220,6 +224,21 @@ describe("historical asset backfill", () => {
     );
     assert.equal(countUnregisteredMetaAssets(extractMetaDraftAssetRefs(stamped)), 2);
     assert.equal(collectBackfillCandidates(dodShapedDraft()).length, 4);
+  });
+
+  it("matrix shows a one-line summary and cannot-register reasons after backfill", () => {
+    assert.equal(
+      formatBackfillSummary({ registered: 2, alreadyRegistered: 1, cannotRegister: 1 }),
+      "2 registered · 1 already · 1 cannot register",
+    );
+    const matrix = readFileSync("components/plan/asset-routing-matrix.tsx", "utf8");
+    assert.match(matrix, /formatBackfillSummary/);
+    assert.match(matrix, /backfillSummary/);
+    assert.match(matrix, /cannot_register/);
+    assert.match(matrix, /row\.reason/);
+    const route = readFileSync("app/api/plan/[id]/asset-backfill/route.ts", "utf8");
+    assert.match(route, /alreadyRegistered/);
+    assert.match(route, /cannotRegister/);
   });
 });
 

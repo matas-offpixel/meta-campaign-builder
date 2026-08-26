@@ -43,7 +43,8 @@ export type AutomationAction =
   | "pause"
   | "maintain"
   | "skip_dormant"
-  | "skip_recent_touch";
+  | "skip_recent_touch"
+  | "metric_unavailable";
 
 export type GuardrailNote =
   | "hit_hard_ceiling"

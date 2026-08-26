@@ -44,6 +44,15 @@ export interface BackfillReport {
   draft: CampaignDraft;
 }
 
+/** One-line matrix summary after Register N — pinned by hygiene tests. */
+export function formatBackfillSummary(counts: {
+  registered: number;
+  alreadyRegistered: number;
+  cannotRegister: number;
+}): string {
+  return `${counts.registered} registered · ${counts.alreadyRegistered} already · ${counts.cannotRegister} cannot register`;
+}
+
 export interface BackfillCandidate {
   ref: MetaDraftAssetRef;
   storageBucket: string | null;

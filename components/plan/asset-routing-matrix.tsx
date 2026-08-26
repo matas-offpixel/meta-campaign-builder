@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { BackfillOutcomeRow } from "@/lib/plan/asset-backfill";
+import {
+  formatBackfillSummary,
+  type BackfillOutcomeRow,
+} from "@/lib/plan/asset-backfill";
 import {
   GOOGLE_NO_ASSETS_COPY,
   TIKTOK_LAUNCHED_UNROUTE_NOTE,
@@ -28,6 +31,7 @@ export function AssetRoutingMatrix({
   const [error, setError] = useState<string | null>(null);
   const [unregisteredCount, setUnregisteredCount] = useState(0);
   const [backfillRows, setBackfillRows] = useState<BackfillOutcomeRow[]>([]);
+  const [backfillSummary, setBackfillSummary] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
 
@@ -165,12 +169,22 @@ export function AssetRoutingMatrix({
         ok?: boolean;
         error?: string;
         rows?: BackfillOutcomeRow[];
+        registered?: number;
+        alreadyRegistered?: number;
+        cannotRegister?: number;
       };
       if (!res.ok || !json.ok) {
         setError(json.error ?? "Could not register existing assets");
         return;
       }
       setBackfillRows(json.rows ?? []);
+      setBackfillSummary(
+        formatBackfillSummary({
+          registered: json.registered ?? 0,
+          alreadyRegistered: json.alreadyRegistered ?? 0,
+          cannotRegister: json.cannotRegister ?? 0,
+        }),
+      );
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not register existing assets");
@@ -201,6 +215,9 @@ export function AssetRoutingMatrix({
             Register {unregisteredCount} existing asset{unregisteredCount === 1 ? "" : "s"}
           </Button>
         </div>
+      ) : null}
+      {backfillSummary ? (
+        <p className="text-xs text-muted-foreground">{backfillSummary}</p>
       ) : null}
       {backfillRows.some((row) => row.status === "cannot_register") ? (
         <ul className="space-y-1 text-xs text-muted-foreground">

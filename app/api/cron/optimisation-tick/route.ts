@@ -10,6 +10,10 @@ import {
   insertAutomationDecision,
   loadOptedInCampaignsForAutomation,
 } from "@/lib/db/campaign-automation-decisions";
+import {
+  fetchEventChannelRollup,
+  loadPlanLinkedChannelSubjects,
+} from "@/lib/db/cross-channel-automation";
 import { getAdSetAutomationState } from "@/lib/db/optimisation-decisions";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
@@ -131,6 +135,10 @@ export async function GET(req: NextRequest) {
         graphPostWithToken(`/${adsetId}`, { daily_budget: dailyBudgetPence }, token as string),
       notify: (opts) => notify(opts, notifyDeps),
       writesEnabled,
+      loadCrossChannelSubjects: (metaCampaigns) =>
+        loadPlanLinkedChannelSubjects(supabase, metaCampaigns),
+      fetchChannelRollup: (subject, window) =>
+        fetchEventChannelRollup(supabase, subject.eventId, subject.channel, window),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

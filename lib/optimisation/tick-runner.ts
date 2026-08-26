@@ -41,6 +41,14 @@ import { resolvePrimaryLiveMetric } from "./live-metric.ts";
 import type { AdSetInsightRow } from "./insights-fetch.ts";
 import { applyOptimisationDecision, MAX_WRITES_PER_RUN } from "./apply.ts";
 import { optimisationDryRunGates } from "./gates.ts";
+import {
+  CROSS_CHANNEL_SHADOW_GATES,
+  crossChannelAdsetId,
+  evaluateCrossChannelSubject,
+  type AutomationChannel,
+  type ChannelRollupWindow,
+  type CrossChannelSubject,
+} from "./cross-channel.ts";
 
 export interface CampaignAutomationInput {
   draftId: string;
@@ -61,6 +69,8 @@ export interface DecisionToInsert {
   adsetId: string;
   adAccountId: string;
   draftId: string;
+  /** Ledger channel. Default meta for the existing evaluator path. */
+  channel?: AutomationChannel;
   metric: RuleMetric;
   metricValue: number | null;
   metricWindow: RuleTimeWindow;
@@ -104,6 +114,17 @@ export interface OptimisationTickDeps {
   /** `ENABLE_OPTIMISATION_WRITES === "1"` — gate (a). */
   writesEnabled: boolean;
   maxWritesPerRun?: number;
+  /**
+   * Plan-linked TikTok/Google subjects for opted-in Meta drafts.
+   * Optional — existing tests omit this and the Meta path is unchanged.
+   */
+  loadCrossChannelSubjects?: (
+    metaCampaigns: CampaignAutomationInput[],
+  ) => Promise<CrossChannelSubject[]>;
+  fetchChannelRollup?: (
+    subject: CrossChannelSubject,
+    window: RuleTimeWindow,
+  ) => Promise<ChannelRollupWindow>;
 }
 
 export interface AppliedWriteDetail {
@@ -129,6 +150,8 @@ export interface OptimisationTickSummary {
   pausesRecommended: number;
   writesCapReached: boolean;
   appliedWriteDetails: AppliedWriteDetail[];
+  /** TikTok/Google shadow rows inserted this tick. Always dry_run. */
+  crossChannelDecisionsInserted: number;
 }
 
 function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]): OptimisationTickSummary {
@@ -147,6 +170,7 @@ function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]):
     pausesRecommended: 0,
     writesCapReached: false,
     appliedWriteDetails: [],
+    crossChannelDecisionsInserted: 0,
   };
 }
 
@@ -291,6 +315,68 @@ export async function runOptimisationTick(
     }
   }
 
+  if (deps.loadCrossChannelSubjects && deps.fetchChannelRollup) {
+    try {
+      const subjects = await deps.loadCrossChannelSubjects(campaigns);
+      for (const subject of subjects) {
+        try {
+          const adsetId = crossChannelAdsetId(subject.planId, subject.channel);
+          const state = await deps.getAdSetState(adsetId, sinceISO);
+          const lastTouchedAt = resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt);
+          const cooldownHours =
+            subject.optimisationStrategy.guardrails.cooldownHours ?? lookbackHours;
+          if (
+            lastTouchedAt &&
+            Math.abs(now.getTime() - lastTouchedAt.getTime()) < cooldownHours * 60 * 60 * 1000
+          ) {
+            summary.adSetsSkippedRecentDecision += 1;
+            continue;
+          }
+          const window = primaryWindowFor(subject.objective, subject.optimisationStrategy);
+          const rollup = await deps.fetchChannelRollup(subject, window);
+          const decision = evaluateCrossChannelSubject(
+            subject,
+            rollup,
+            window,
+            now,
+            lastTouchedAt,
+            state.appliedIncreasePercentLast24h,
+          );
+          summary.adSetsConsidered += 1;
+          const outcome = await applyOptimisationDecision(
+            {
+              decision: { ...decision, dryRun: true, applied: false },
+              campaignName: subject.campaignName,
+              adsetName: `${subject.channel} (${subject.planId})`,
+              gates: CROSS_CHANNEL_SHADOW_GATES,
+              writesRemaining: 0,
+            },
+            {
+              readAdSetDailyBudget: deps.readAdSetDailyBudget,
+              updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+              insertDecision: deps.insertDecision,
+              notify: deps.notify,
+              now,
+            },
+          );
+          summary.decisionsInserted += 1;
+          summary.crossChannelDecisionsInserted += 1;
+          summary.decisionsByAction[outcome.decision.actionRecommended] =
+            (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
+        } catch (subjectErr) {
+          const message = subjectErr instanceof Error ? subjectErr.message : String(subjectErr);
+          console.error(
+            `[optimisation-tick] cross-channel plan=${subject.planId} channel=${subject.channel} threw: ${message}`,
+          );
+          summary.writesFailed += 1;
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[optimisation-tick] loadCrossChannelSubjects failed: ${message}`);
+    }
+  }
+
   if (summary.writesCapReached) {
     console.log(
       `[optimisation-tick] MAX_WRITES_PER_RUN=${maxWrites} reached — remaining scale actions shadowed`,
@@ -315,7 +401,7 @@ export async function runOptimisationTick(
 
   summary.ok = summary.campaignsErrored.length === 0;
   console.log(
-    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended}`,
+    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended}`,
   );
   return summary;
 }
@@ -334,6 +420,7 @@ function buildDecision(
     adsetId: row.adsetId,
     adAccountId: campaign.adAccountId,
     draftId: campaign.draftId,
+    channel: "meta" as const,
     metric: primaryMetric,
     metricWindow: window,
   };
