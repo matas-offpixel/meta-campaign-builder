@@ -10,6 +10,7 @@ import {
   Users,
   Ticket,
   Megaphone,
+  Layers,
   BarChart3,
   Receipt,
   Settings as SettingsIcon,
@@ -77,6 +78,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Campaigns",
         icon: Megaphone,
         match: (p) => p === "/" || p.startsWith("/campaign/"),
+      },
+      {
+        href: "/plans",
+        label: "Plans",
+        icon: Layers,
+        match: (p) => p === "/plans" || p.startsWith("/plan/"),
       },
       { href: "/reporting", label: "Reporting", icon: BarChart3 },
       {
