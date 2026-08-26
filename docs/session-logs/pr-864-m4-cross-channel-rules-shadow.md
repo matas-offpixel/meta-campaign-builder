@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 864
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/864
 - **Branch:** `cursor/m4-cross-channel-rules-shadow`
 
 ## Summary
