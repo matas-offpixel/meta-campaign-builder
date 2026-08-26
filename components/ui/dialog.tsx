@@ -41,6 +41,8 @@ interface DialogProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
+  /** Extra classes on the centred panel wrapper (default max-w-md). */
+  panelClassName?: string;
   /**
    * Optional label that screen readers announce when the dialog opens.
    * Falls back to the visible <DialogTitle> via aria-labelledby when
@@ -49,7 +51,7 @@ interface DialogProps {
   ariaLabel?: string;
 }
 
-export function Dialog({ open, onClose, children, ariaLabel }: DialogProps) {
+export function Dialog({ open, onClose, children, ariaLabel, panelClassName }: DialogProps) {
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -106,7 +108,7 @@ export function Dialog({ open, onClose, children, ariaLabel }: DialogProps) {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div ref={panelRef} className="relative z-10 w-full max-w-md px-4">
+      <div ref={panelRef} className={`relative z-10 w-full max-w-md px-4 ${panelClassName ?? ""}`}>
         {children}
       </div>
     </div>

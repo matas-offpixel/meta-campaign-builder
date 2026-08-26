@@ -13,6 +13,7 @@ import {
   GOOGLE_DATE_ONLY_NOTE,
   normalizePlanTime,
   planContinuationHref,
+  planTimeFromInput,
   TIKTOK_DEFAULT_END_HOUR,
   TIKTOK_DEFAULT_START_HOUR,
   WIZARD_ACTIVE_VS_PLAN_PAUSED,
@@ -77,6 +78,20 @@ describe("plan schedule composition", () => {
     assert.equal(normalizePlanTime("09:15:00"), "09:15");
     assert.equal(normalizePlanTime(""), null);
     assert.equal(normalizePlanTime("not-a-time"), null);
+    assert.equal(normalizePlanTime("00:00"), "00:00");
+  });
+
+  it("null-time round-trip: date-only stays date-only; set then clear returns to null; midnight is not a clear", () => {
+    assert.equal(planTimeFromInput(""), null);
+    assert.equal(planTimeFromInput("00:00"), "00:00");
+    assert.equal(planTimeFromInput("10:30"), "10:30");
+    let time: string | null = null;
+    time = planTimeFromInput("10:30");
+    assert.equal(time, "10:30");
+    time = planTimeFromInput("");
+    assert.equal(time, null);
+    assert.equal(composeMetaScheduleIso("2026-09-01", time), "2026-09-01");
+    assert.equal(composeMetaScheduleIso("2026-09-01", "00:00"), "2026-09-01T00:00:00Z");
   });
 });
 
@@ -115,14 +130,24 @@ describe("adapter time threading", () => {
     assert.deepEqual(google.plan.date_range, { since: "2026-09-01", until: "2026-09-14" });
   });
 
-  it("persist omits time columns on old rows so a missing migration 159 cannot shift them", () => {
+  it("persist writes null times so a clear returns to date-only; midnight is 00:00", () => {
     const without = campaignPlanToRow(goldenPlan());
-    assert.equal("start_time" in without, false);
-    assert.equal("end_time" in without, false);
+    assert.equal(without.start_time, null);
+    assert.equal(without.end_time, null);
+
+    const midnight = campaignPlanToRow(goldenPlan({ startTime: "00:00", endTime: "00:00" }));
+    assert.equal(midnight.start_time, "00:00");
+    assert.equal(midnight.end_time, "00:00");
 
     const withTimes = campaignPlanToRow(goldenPlan({ startTime: "10:30", endTime: "21:00" }));
     assert.equal(withTimes.start_time, "10:30");
     assert.equal(withTimes.end_time, "21:00");
+
+    const cleared = campaignPlanToRow(
+      goldenPlan({ startTime: "10:30", endTime: "21:00", ...{ startTime: null, endTime: null } }),
+    );
+    assert.equal(cleared.start_time, null);
+    assert.equal(cleared.end_time, null);
   });
 });
 
@@ -274,9 +299,14 @@ describe("continuation link only for plan-linked drafts", () => {
 describe("plan page time inputs and ACTIVE vs PAUSED warning", () => {
   it("workspace collects times and warns before Prepare", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /type="time"/);
-    assert.match(workspace, /Start time/);
-    assert.match(workspace, /End time/);
+    assert.match(workspace, /PlanDateTimeField/);
+    assert.match(workspace, /label="Start"/);
+    assert.match(workspace, /label="End"/);
+    const field = readFileSync("components/plan/plan-datetime-field.tsx", "utf8");
+    assert.match(field, /type="date"/);
+    assert.match(field, /type="time"/);
+    assert.match(field, /Clear time/);
+    assert.match(field, /planTimeFromInput/);
     assert.match(workspace, /WIZARD_ACTIVE_VS_PLAN_PAUSED/);
     assert.match(workspace, /GOOGLE_DATE_ONLY_NOTE/);
     assert.match(workspace, /id=\{PLAN_STEP2_HASH\}/);

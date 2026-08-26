@@ -31,12 +31,10 @@ export function campaignPlanToRow(plan: CampaignPlan) {
     end_date: plan.intent.endDate,
     updated_at: new Date().toISOString(),
   };
-  // Omit time columns when unset so a persist before migration 159
-  // still writes. Setting a time requires the columns to exist.
-  const startTime = normalizePlanTime(plan.intent.startTime);
-  const endTime = normalizePlanTime(plan.intent.endTime);
-  if (startTime) row.start_time = startTime;
-  if (endTime) row.end_time = endTime;
+  // Always write time columns (including null) so clearing a previously
+  // set time returns the row to date-only. `00:00` is midnight, not null.
+  row.start_time = normalizePlanTime(plan.intent.startTime);
+  row.end_time = normalizePlanTime(plan.intent.endTime);
   return row;
 }
 

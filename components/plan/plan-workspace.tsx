@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
+import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import { splitPlanBlockers } from "@/lib/plan/blockers";
+import { planLaunchStatusIsIdle } from "@/lib/plan/from-existing";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
 import {
   planEventPickerRows,
@@ -40,12 +43,14 @@ function PlatformCard({
   issues,
   draftId,
   prepareLabel,
+  fromExistingLabel,
   busy,
   disabled,
   disabledReason,
   note,
   warning,
   onPrepare,
+  onPrepareFromExisting,
   onRederive,
 }: {
   adapter: PlanAdapterName;
@@ -54,12 +59,14 @@ function PlatformCard({
   issues: PlanPreflightIssue[];
   draftId: string | null;
   prepareLabel: string;
+  fromExistingLabel?: string;
   busy: boolean;
   disabled: boolean;
   disabledReason?: string | null;
   note?: string;
   warning?: string;
   onPrepare: () => void;
+  onPrepareFromExisting?: () => void;
   onRederive?: () => void;
 }) {
   const split = splitPlanBlockers(issues, adapter);
@@ -99,9 +106,7 @@ function PlatformCard({
             <dd className="break-all">{preview.destinationUrl || "—"}</dd>
           </div>
         </dl>
-      ) : (
-        <p className="mt-2 text-muted-foreground">Preview not ready yet.</p>
-      )}
+      ) : null}
 
       <div className="mt-3 space-y-3">
         {warning ? (
@@ -109,19 +114,21 @@ function PlatformCard({
         ) : null}
 
         <div className="rounded-md border border-border bg-muted/30 p-3">
-          <p className="text-xs font-medium">Complete in the wizard</p>
-          {split.wizard.length === 0 ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {draftId ? "Nothing outstanding." : "Prepare the draft to see what is left."}
-            </p>
-          ) : (
-            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-              {split.wizard.map((issue) => (
-                <li key={issue.id}>{issue.message}</li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
+          {draftId ? (
+            <>
+              <p className="text-xs font-medium">Complete in the wizard</p>
+              {split.wizard.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">Nothing outstanding.</p>
+              ) : (
+                <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+                  {split.wizard.map((issue) => (
+                    <li key={issue.id}>{issue.message}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : null}
+          <div className={`${draftId ? "mt-2" : ""} flex flex-wrap gap-2`}>
             {href ? (
               <Link
                 href={href}
@@ -130,14 +137,27 @@ function PlatformCard({
                 Continue in wizard
               </Link>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy || disabled}
-                onClick={onPrepare}
-              >
-                {prepareLabel}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || disabled}
+                  onClick={onPrepare}
+                >
+                  {prepareLabel}
+                </Button>
+                {onPrepareFromExisting && fromExistingLabel ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || disabled}
+                    onClick={onPrepareFromExisting}
+                  >
+                    {fromExistingLabel}
+                  </Button>
+                ) : null}
+              </>
             )}
             {href && onRederive ? (
               <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onRederive}>
@@ -210,6 +230,7 @@ export function PlanWorkspace({
   const [deriving, setDeriving] = useState<PlanAdapterName | null>(null);
   const [notes, setNotes] = useState<Partial<Record<PlanAdapterName, string>>>({});
   const [showPastEvents, setShowPastEvents] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const router = useRouter();
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
@@ -319,7 +340,10 @@ export function PlanWorkspace({
     return null;
   }, [busy, gate, plan.intent.destinationUrl, plan.intent.eventId, preflightOk]);
 
-  async function prepareDraft(adapter: PlanAdapterName) {
+  async function prepareDraft(
+    adapter: PlanAdapterName,
+    source?: LibraryPick,
+  ) {
     setPreparing(adapter);
     setError(null);
     try {
@@ -339,6 +363,7 @@ export function PlanWorkspace({
         body: JSON.stringify({
           adapter,
           clientId: selectedEvent?.clientId ?? null,
+          source: source ?? { kind: "plan" },
         }),
       });
       const json = (await res.json()) as {
@@ -353,6 +378,7 @@ export function PlanWorkspace({
         return;
       }
       setPlan((current) => ({ ...current, launches: json.launches! }));
+      setLibraryOpen(false);
       if (json.derived) {
         setNotes((current) => ({
           ...current,
@@ -459,9 +485,10 @@ export function PlanWorkspace({
     tiktokAdvertiserId,
   });
   const noEvents = events.length === 0;
+  const launchIdle = planLaunchStatusIsIdle(plan);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {noEvents ? (
         <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
           No events yet. Create an event first — a plan is scoped to one event and
@@ -545,46 +572,18 @@ export function PlanWorkspace({
             </label>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="text-muted-foreground">Start date</span>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-              value={plan.intent.startDate ?? ""}
-              onChange={(e) => patchIntent({ startDate: e.target.value || null })}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-muted-foreground">Start time</span>
-            <input
-              type="time"
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-              value={plan.intent.startTime ?? ""}
-              onChange={(e) => patchIntent({ startTime: e.target.value || null })}
-            />
-          </label>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block text-sm">
-            <span className="text-muted-foreground">End date</span>
-            <input
-              type="date"
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-              value={plan.intent.endDate ?? ""}
-              onChange={(e) => patchIntent({ endDate: e.target.value || null })}
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="text-muted-foreground">End time</span>
-            <input
-              type="time"
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-              value={plan.intent.endTime ?? ""}
-              onChange={(e) => patchIntent({ endTime: e.target.value || null })}
-            />
-          </label>
-        </div>
+        <PlanDateTimeField
+          label="Start"
+          date={plan.intent.startDate}
+          time={plan.intent.startTime}
+          onChange={({ date, time }) => patchIntent({ startDate: date, startTime: time })}
+        />
+        <PlanDateTimeField
+          label="End"
+          date={plan.intent.endDate}
+          time={plan.intent.endTime}
+          onChange={({ date, time }) => patchIntent({ endDate: date, endTime: time })}
+        />
       </section>
 
       <section className="space-y-3">
@@ -604,12 +603,14 @@ export function PlanWorkspace({
           preview={previews?.meta}
           issues={issues}
           draftId={plan.launches.meta.draftId}
-          prepareLabel="Prepare Meta draft"
+          prepareLabel="New from plan"
+          fromExistingLabel="From existing campaign…"
           busy={preparing != null || deriving != null}
           disabled={!plan.intent.eventId}
           note={notes.meta}
           warning={WIZARD_ACTIVE_VS_PLAN_PAUSED}
           onPrepare={() => void prepareDraft("meta")}
+          onPrepareFromExisting={() => setLibraryOpen(true)}
         />
         {metaFallbackHint ? (
           <p className="text-xs text-muted-foreground">{metaFallbackHint}</p>
@@ -667,39 +668,50 @@ export function PlanWorkspace({
 
       <section>
         <h2 className="font-heading text-lg tracking-wide">Launch status</h2>
-        <ul className="mt-3 space-y-2 text-sm">
-          {(["meta", "tiktok", "google"] as const).map((adapter) => {
-            const record = plan.launches[adapter];
-            const link = links.find((item) => item.adapter === adapter);
-            return (
-              <li key={adapter} className="rounded-md border border-border px-3 py-2">
-                <span className="font-medium capitalize">{adapter}</span>
-                {": "}
-                {record.status}
-                {record.error ? ` — ${record.error}` : ""}
-                {link?.href ? (
-                  <>
-                    {" · "}
-                    <a
-                      href={link.href}
-                      className="underline"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open in Ads Manager
-                    </a>
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {" · "}
-                    {link?.unavailableReason}
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        {launchIdle ? (
+          <p className="mt-2 text-sm text-muted-foreground">Nothing prepared yet.</p>
+        ) : (
+          <ul className="mt-3 space-y-2 text-sm">
+            {(["meta", "tiktok", "google"] as const).map((adapter) => {
+              const record = plan.launches[adapter];
+              const link = links.find((item) => item.adapter === adapter);
+              return (
+                <li key={adapter} className="rounded-md border border-border px-3 py-2">
+                  <span className="font-medium capitalize">{adapter}</span>
+                  {": "}
+                  {record.status}
+                  {record.error ? ` — ${record.error}` : ""}
+                  {link?.href ? (
+                    <>
+                      {" · "}
+                      <a
+                        href={link.href}
+                        className="underline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open in Ads Manager
+                      </a>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {" · "}
+                      {link?.unavailableReason}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
+
+      <CampaignLibraryPicker
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        busy={preparing === "meta"}
+        onPick={(pick) => void prepareDraft("meta", pick)}
+      />
 
       <p className="text-xs text-muted-foreground">
         <Link href="/plans" className="underline">
