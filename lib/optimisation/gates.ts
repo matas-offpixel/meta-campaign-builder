@@ -62,3 +62,14 @@ export function isOptimisationWritesEnabledFromEnv(
   ): boolean {
     return env.ENABLE_OPTIMISATION_WRITES === "1";
   }
+
+/** Plan-fan-out-shaped probe for the writes killswitch. Does not change the gate. */
+export function optimisationWritesGateState(
+  env: Record<string, string | undefined> = process.env,
+): { writesEnabled: boolean; skippedReason: "killswitch" | null } {
+  const writesEnabled = isOptimisationWritesEnabledFromEnv(env);
+  return {
+    writesEnabled,
+    skippedReason: writesEnabled ? null : "killswitch",
+  };
+}
