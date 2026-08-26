@@ -4,21 +4,22 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { CLUSTER_LABELS } from "@/lib/interest-suggestions";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
+import {
+  planEventPickerRows,
+  todayIsoDate,
+  visiblePlanEvents,
+  type PlanEventOption,
+} from "@/lib/plan/event-picker";
 import { GOOGLE_PREPARE_REASON, wizardHrefForDraft } from "@/lib/plan/prepare-draft";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
 import type { CampaignPlan, CampaignPlanObjectiveIntent, PlanAdapterName } from "@/lib/plan/types";
 
-export interface PlanEventOption {
-  id: string;
-  name: string;
-  clientId?: string | null;
-  metaAdAccountId?: string | null;
-  googleCustomerId?: string | null;
-}
+export type { PlanEventOption };
 
 interface GateState {
   enabled: boolean;
@@ -52,6 +53,7 @@ export function PlanWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [persistState, setPersistState] = useState<string>("Not saved yet");
   const [preparing, setPreparing] = useState<PlanAdapterName | null>(null);
+  const [showPastEvents, setShowPastEvents] = useState(false);
   const router = useRouter();
 
   function patchIntent(patch: Partial<CampaignPlan["intent"]>) {
@@ -221,6 +223,26 @@ export function PlanWorkspace({
     }
   }
 
+  const today = todayIsoDate();
+  const pickerEvents = useMemo(
+    () =>
+      visiblePlanEvents(events, {
+        today,
+        showPast: showPastEvents,
+        selectedId: plan.intent.eventId,
+      }),
+    [events, plan.intent.eventId, showPastEvents, today],
+  );
+  const pickerOptions = useMemo(
+    () =>
+      planEventPickerRows(pickerEvents).map((row) => ({
+        value: row.id,
+        label: row.label,
+        sublabel: row.sublabel || undefined,
+        keywords: row.keywords || undefined,
+      })),
+    [pickerEvents],
+  );
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId);
   const links = planAdsManagerLinks(plan, {
     metaAdAccountId: selectedEvent?.metaAdAccountId,
@@ -239,21 +261,24 @@ export function PlanWorkspace({
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-2">
-        <label className="block text-sm">
-          <span className="text-muted-foreground">Event</span>
-          <select
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+        <div className="block text-sm">
+          <Combobox
+            label="Event"
             value={plan.intent.eventId}
-            onChange={(e) => patchIntent({ eventId: e.target.value })}
-          >
-            <option value="">Select an event</option>
-            {events.map((event) => (
-              <option key={event.id} value={event.id}>
-                {event.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(eventId) => patchIntent({ eventId })}
+            options={pickerOptions}
+            placeholder="Select an event"
+            emptyText="No matching events"
+          />
+          <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={showPastEvents}
+              onChange={(e) => setShowPastEvents(e.target.checked)}
+            />
+            Show past events
+          </label>
+        </div>
         <label className="block text-sm">
           <span className="text-muted-foreground">Plan name</span>
           <input

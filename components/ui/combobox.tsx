@@ -24,6 +24,8 @@ export interface ComboboxOption {
    */
   dimmed?: boolean;
   disabled?: boolean;
+  /** Extra haystack for type-to-filter (not shown). */
+  keywords?: string;
 }
 
 interface ComboboxProps {
@@ -70,7 +72,8 @@ export function Combobox({
         return (
           o.label.toLowerCase().includes(q) ||
           o.value.toLowerCase().includes(q) ||
-          (o.sublabel?.toLowerCase().includes(q) ?? false)
+          (o.sublabel?.toLowerCase().includes(q) ?? false) ||
+          (o.keywords?.toLowerCase().includes(q) ?? false)
         );
       })
     : options;
@@ -191,7 +194,13 @@ export function Combobox({
         ].join(" ")}
       >
         <span className="truncate">
-          {loading ? "Loading…" : (selectedOption?.label ?? placeholder)}
+          {loading
+            ? "Loading…"
+            : selectedOption
+              ? selectedOption.sublabel
+                ? `${selectedOption.label} · ${selectedOption.sublabel}`
+                : selectedOption.label
+              : placeholder}
         </span>
         <ChevronDown
           className={`ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ${
