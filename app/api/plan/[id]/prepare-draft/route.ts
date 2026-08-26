@@ -25,13 +25,22 @@ import {
   type PreparableAdapter,
 } from "@/lib/plan/prepare-draft";
 import {
+  applyGoogleChannelDefaults,
+  applyMetaChannelDefaults,
+  applyTikTokChannelDefaults,
+  loadChannelDefaultsForEvent,
+  resolveChannelDefaults,
+} from "@/lib/clients/channel-defaults";
+import {
   cloneCampaignDraft,
   draftFromLibraryTemplate,
   overlayPlanSharedInputs,
 } from "@/lib/plan/from-existing";
 import { loadLinkedMetaDraft, upsertLinkedMetaDraft } from "@/lib/plan/linked-drafts";
 import type { CampaignPlan } from "@/lib/plan/types";
+import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 import type { CampaignDraft, CampaignTemplate } from "@/lib/types";
+import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 import { createClient } from "@/lib/supabase/server";
 
 function isPreparable(value: unknown): value is PreparableAdapter {
@@ -138,6 +147,7 @@ export async function POST(
       copy = overlayPlanSharedInputs(cloneCampaignDraft(original, names), plan, {
         clientId,
       });
+      copy = await withMetaDefaults(supabase, plan.intent.eventId, copy);
     } else if (source?.kind === "template" && source.id) {
       const template = await loadOwnedTemplate(supabase, user.id, source.id);
       if (!template) {
@@ -149,6 +159,7 @@ export async function POST(
       copy = overlayPlanSharedInputs(draftFromLibraryTemplate(template, names), plan, {
         clientId,
       });
+      copy = await withMetaDefaults(supabase, plan.intent.eventId, copy);
     } else {
       return NextResponse.json(
         { ok: false, error: "source.id is required" },
@@ -184,7 +195,11 @@ export async function POST(
   }
 
   if (adapter === "meta") {
-    const draft = buildPrefillMetaDraft(plan, clientId);
+    const draft = await withMetaDefaults(
+      supabase,
+      plan.intent.eventId,
+      buildPrefillMetaDraft(plan, clientId),
+    );
     const saved = await upsertLinkedMetaDraft(supabase, draft, user.id);
     if (!saved.ok) {
       return NextResponse.json({ ok: false, error: saved.error }, { status: 500 });
@@ -226,7 +241,7 @@ export async function POST(
       );
     }
     const seeded = mergeDerivedGoogleKeywords(
-      planToGoogleDraft(plan),
+      await withGoogleDefaults(supabase, plan.intent.eventId, planToGoogleDraft(plan)),
       deriveGoogleKeywords(vocabulary),
       deriveGoogleNoiseNegatives(),
     );
@@ -258,7 +273,11 @@ export async function POST(
     });
   }
 
-  const draft = buildPrefillTikTokDraft(plan, clientId);
+  const draft = await withTikTokDefaults(
+    supabase,
+    plan.intent.eventId,
+    buildPrefillTikTokDraft(plan, clientId),
+  );
   const saved = await upsertTikTokDraft(supabase as never, draft.id, {
     ...draft,
     userId: user.id,
@@ -361,4 +380,33 @@ async function loadOwnedTemplate(
     createdAt: data.created_at as string,
     updatedAt: data.updated_at as string,
   };
+}
+
+async function resolvedDefaults(supabase: unknown, eventId: string | null) {
+  const loaded = await loadChannelDefaultsForEvent(supabase, eventId);
+  return resolveChannelDefaults(loaded?.stored ?? null, loaded?.overrides ?? {});
+}
+
+async function withMetaDefaults(
+  supabase: unknown,
+  eventId: string | null,
+  draft: CampaignDraft,
+): Promise<CampaignDraft> {
+  return applyMetaChannelDefaults(draft, await resolvedDefaults(supabase, eventId));
+}
+
+async function withTikTokDefaults(
+  supabase: unknown,
+  eventId: string | null,
+  draft: TikTokCampaignDraft,
+): Promise<TikTokCampaignDraft> {
+  return applyTikTokChannelDefaults(draft, await resolvedDefaults(supabase, eventId));
+}
+
+async function withGoogleDefaults(
+  supabase: unknown,
+  eventId: string | null,
+  tree: GoogleSearchPlanTree,
+): Promise<GoogleSearchPlanTree> {
+  return applyGoogleChannelDefaults(tree, await resolvedDefaults(supabase, eventId));
 }

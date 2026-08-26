@@ -46,6 +46,11 @@ const ALLOWED_FIELDS = [
   "custom_minimum_fee",
   "retainer_monthly_fee",
   "retainer_started_at",
+  "default_page_ids",
+  "default_instagram_actor_id",
+  "default_tiktok_identity_id",
+  "default_tiktok_identity_type",
+  "default_tiktok_identity_bc_id",
 ] as const;
 
 type AllowedField = (typeof ALLOWED_FIELDS)[number];
@@ -78,6 +83,24 @@ function buildPatch(body: Record<string, unknown>): TablesUpdate<"clients"> {
     // mailchimp_audience_id is text, not uuid, but empty string → null for consistency.
     if (key === "mailchimp_audience_id" && value === "") {
       patch[key] = null;
+      continue;
+    }
+
+    if (
+      (key === "default_instagram_actor_id" ||
+        key === "default_tiktok_identity_id" ||
+        key === "default_tiktok_identity_type" ||
+        key === "default_tiktok_identity_bc_id") &&
+      value === ""
+    ) {
+      patch[key] = null;
+      continue;
+    }
+
+    if (key === "default_page_ids") {
+      patch[key] = Array.isArray(value)
+        ? value.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : [];
       continue;
     }
 

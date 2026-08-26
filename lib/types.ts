@@ -967,6 +967,14 @@ export interface CampaignSettings {
   metaPixelId?: string;
   /** Primary Instagram Business Account for this campaign */
   metaIGAccountId?: string;
+  /**
+   * Set when plan prepare filled page / IG from client channel defaults.
+   * The wizard shows these as auto-picked and the operator can change them.
+   */
+  channelDefaultsApplied?: {
+    facebookPage?: boolean;
+    instagramActor?: boolean;
+  };
 
   /**
    * Explicit Instagram account choice per Facebook Page when a page has 2+
