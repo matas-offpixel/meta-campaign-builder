@@ -20,9 +20,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { resolveMetaLaunchEntityStatus } from "@/lib/meta/launch-status";
+import { withMetaTransientRetry } from "@/lib/meta/transient-retry";
 import {
   withMetaWriteIdempotency,
   type MetaWriteContext,
+  type MetaWriteOpKind,
 } from "@/lib/meta/write-idempotency";
 import {
   createMetaCampaign,
@@ -409,13 +411,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     eventId: draft.settings.eventId,
   });
   const runMetaWrite = async (
-    opKind: "campaign_create" | "adset_create" | "ad_create",
+    opKind: MetaWriteOpKind,
     payload: unknown,
     run: () => Promise<{ id: string }>,
   ): Promise<{ id: string }> => {
     const id = await withMetaWriteIdempotency(metaWriteCtx, opKind, payload, async () => {
-      const res = await run();
-      return res.id;
+      const execute = async () => {
+        const res = await run();
+        return res.id;
+      };
+      // Transient retry lives INSIDE the ledger wrap so a recovered
+      // create is recorded as success, never as a failed row. Success
+      // rows still short-circuit — retries never re-POST a create the
+      // ledger already has.
+      if (opKind === "adset_create" || opKind === "ad_create") {
+        return withMetaTransientRetry(execute, { opKind });
+      }
+      return execute();
     });
     return { id };
   };
@@ -3529,7 +3541,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       let metaCreativeId: string;
       try {
-        const creativeRes = await createMetaCreative(adAccountId, creativePayload, launchToken);
+        const creativeRes = await runMetaWrite(
+          "creative_upload",
+          creativePayload,
+          () => createMetaCreative(adAccountId, creativePayload, launchToken),
+        );
         metaCreativeId = creativeRes.id;
         const dur = elapsed(cStart);
         console.log(

@@ -668,6 +668,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             onGoToLibrary={() => router.push("/")}
             linkedPlan={linkedPlan}
             onUpdateSettings={updateSettings}
+            onRetryFailedAds={handleLaunch}
           />
         )}
       </main>
