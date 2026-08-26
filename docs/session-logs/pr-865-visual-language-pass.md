@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 865
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/865
 - **Branch:** `cursor/visual-language-pass`
 
 ## Summary
