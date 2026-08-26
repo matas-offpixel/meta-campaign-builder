@@ -830,6 +830,18 @@ export function Creatives({
                           <AlertCircle className="h-3 w-3 flex-shrink-0" />
                           Facebook session expired — reconnect in Account Setup.
                         </p>
+                      ) : pages.degraded || pages.error ? (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-warning">
+                          <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                          {pages.error ?? "couldn't load all pages — retry"}
+                          <button
+                            type="button"
+                            onClick={() => pages.refetch()}
+                            className="underline"
+                          >
+                            Retry
+                          </button>
+                        </p>
                       ) : (
                         <FieldStatus
                           loading={pages.loading && pages.data.length === 0}
