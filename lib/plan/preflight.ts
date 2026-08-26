@@ -35,11 +35,18 @@ export interface PlanPreflightResult {
  * Plan-level preflight: adapt once, then reuse each platform's existing
  * validator so the operator sees every blocker in one list before launch.
  */
-export function collectPlanPreflight(plan: CampaignPlan): PlanPreflightResult {
+export function collectPlanPreflight(
+  plan: CampaignPlan,
+  linked?: {
+    meta?: ReturnType<typeof planToMetaDraft> | null;
+    tiktok?: ReturnType<typeof planToTikTokDraft> | null;
+    google?: ReturnType<typeof planToGoogleDraft> | null;
+  },
+): PlanPreflightResult {
   const drafts = {
-    meta: planToMetaDraft(plan),
-    tiktok: planToTikTokDraft(plan),
-    google: planToGoogleDraft(plan),
+    meta: linked?.meta ?? planToMetaDraft(plan),
+    tiktok: linked?.tiktok ?? planToTikTokDraft(plan),
+    google: linked?.google ?? planToGoogleDraft(plan),
   };
   const budgeted = new Set(budgetedLaunchAdapters(plan.intent.budget));
   const issues: PlanPreflightIssue[] = [];

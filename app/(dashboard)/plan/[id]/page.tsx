@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { createEmptyCampaignPlan } from "@/lib/plan/empty-plan";
 import { loadPlanLaunchRecords } from "@/lib/plan/load";
+import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
+import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -66,12 +68,14 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     return {
       id: event.id,
       name: event.name,
+      clientId: event.client_id,
       metaAdAccountId: client?.meta_ad_account_id ?? null,
       googleCustomerId: client?.google_ads_customer_id ?? null,
     };
   });
 
   let plan: CampaignPlan | null = null;
+  let loadError: { code?: string; message?: string } | null = null;
   if (id !== "new") {
     const { data, error } = await supabase
       .from("campaign_plans")
@@ -79,46 +83,22 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       .eq("id", id)
       .eq("user_id", user.id)
       .maybeSingle();
+    loadError = error;
     if (!error && data) {
       const row = data as {
         id: string;
         user_id: string;
         name: string | null;
         status: CampaignPlan["status"];
-        event_id: string;
-        objective_intent: CampaignPlan["intent"]["objectiveIntent"];
-        total_daily_budget: number;
-        daily_budget_meta: number;
-        daily_budget_tiktok: number;
-        daily_budget_google: number;
-        destination_url: string;
-        audience_cluster_ref: string | null;
-        creative_set_ref: string | null;
-        start_date: string | null;
-        end_date: string | null;
         created_at: string;
         updated_at: string;
-      };
+      } & Parameters<typeof rowToCampaignPlanIntent>[0];
       plan = {
         id: row.id,
         userId: row.user_id,
         name: row.name,
         status: row.status,
-        intent: {
-          eventId: row.event_id,
-          objectiveIntent: row.objective_intent,
-          budget: {
-            totalDaily: Number(row.total_daily_budget),
-            metaDaily: Number(row.daily_budget_meta),
-            tiktokDaily: Number(row.daily_budget_tiktok),
-            googleDaily: Number(row.daily_budget_google),
-          },
-          destinationUrl: row.destination_url,
-          audienceClusterRef: row.audience_cluster_ref,
-          creativeSetRef: row.creative_set_ref,
-          startDate: row.start_date,
-          endDate: row.end_date,
-        },
+        intent: rowToCampaignPlanIntent(row),
         launches: await loadPlanLaunchRecords(supabase, row.id),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -147,8 +127,9 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
         <div className="mx-auto max-w-6xl">
           {id !== "new" && !plan ? (
             <p className="mb-4 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-              That plan id is not in the database (migration 157 may be
-              unapplied). Showing a new workspace instead of a fake stored plan.
+              {isRelationMissing(loadError)
+                ? "campaign_plans is not in this database (migration 157)."
+                : "That plan was not found. Showing a new workspace instead of a fake stored plan."}
             </p>
           ) : null}
           <PlanWorkspace

@@ -30,6 +30,16 @@ export interface PlanLaunchers {
 export interface OrchestratePlanLaunchInput {
   plan: CampaignPlan;
   launchers: PlanLaunchers;
+  /** When set, fan-out launches these drafts instead of a fresh adapter output. */
+  linkedDrafts?: {
+    meta?: CampaignDraft | null;
+    tiktok?: TikTokCampaignDraft | null;
+    google?: GoogleSearchPlanTree | null;
+  };
+  persistLaunch?: (
+    adapter: PlanAdapterName,
+    record: CampaignPlanLaunchRecord,
+  ) => Promise<void>;
   logOutgoing?: (adapter: PlanAdapterName, payload: unknown) => void;
   env?: NodeJS.ProcessEnv;
 }
@@ -77,9 +87,9 @@ export async function orchestratePlanLaunch(
   const budgeted = new Set(budgetedLaunchAdapters(input.plan.intent.budget));
   const launches: CampaignPlanLaunches = { ...input.plan.launches };
   const drafts = {
-    meta: planToMetaDraft(input.plan),
-    tiktok: planToTikTokDraft(input.plan),
-    google: planToGoogleDraft(input.plan),
+    meta: input.linkedDrafts?.meta ?? planToMetaDraft(input.plan),
+    tiktok: input.linkedDrafts?.tiktok ?? planToTikTokDraft(input.plan),
+    google: input.linkedDrafts?.google ?? planToGoogleDraft(input.plan),
   };
 
   for (const adapter of ADAPTER_ORDER) {
@@ -90,6 +100,7 @@ export async function orchestratePlanLaunch(
           status: "skipped",
           error: `${adapter} daily budget is 0`,
         };
+        await input.persistLaunch?.(adapter, launches[adapter]);
       }
       continue;
     }
@@ -115,6 +126,7 @@ export async function orchestratePlanLaunch(
         error: err instanceof Error ? err.message : String(err),
       });
     }
+    await input.persistLaunch?.(adapter, launches[adapter]);
   }
 
   const status = deriveCampaignPlanStatus(launches);

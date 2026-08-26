@@ -5,7 +5,9 @@ import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { handleTikTokLaunch } from "@/lib/tiktok/write/launch";
 import { planFanoutGateState } from "@/lib/plan/gate";
+import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { orchestratePlanLaunch, type PlanAdapterOutcome } from "@/lib/plan/orchestrator";
+import { upsertCampaignPlan, upsertPlanLaunchRow } from "@/lib/plan/persist";
 import type { CampaignPlan } from "@/lib/plan/types";
 import type { CampaignDraft } from "@/lib/types";
 
@@ -100,8 +102,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const persisted = await upsertCampaignPlan(supabase, plan);
+  if (!persisted.ok) {
+    return NextResponse.json(
+      { ok: false, tableMissing: persisted.tableMissing, error: persisted.error },
+      { status: persisted.tableMissing ? 503 : 400 },
+    );
+  }
+
+  const linked = await loadLinkedDraftsForPlan(supabase, plan);
   const result = await orchestratePlanLaunch({
     plan,
+    linkedDrafts: linked,
+    persistLaunch: async (adapter, record) => {
+      const write = await upsertPlanLaunchRow(supabase, {
+        planId: plan.id,
+        userId: user.id,
+        adapter,
+        record,
+      });
+      if (!write.ok) {
+        console.error(`[plan-fanout] persist ${adapter} launch row failed`, write.error);
+      }
+    },
     logOutgoing,
     launchers: {
       meta: (draft) => launchMeta(req, draft),
@@ -139,6 +162,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }),
     },
   });
+
+  if (!result.skippedReason) {
+    await upsertCampaignPlan(supabase, result.plan);
+  }
 
   return NextResponse.json({
     ok: true,
