@@ -101,6 +101,8 @@ export async function withMetaWriteIdempotency(
   }
 
   const existingRow = existing as IdempotencyRow | null;
+  // Success is the only short-circuit. `failed` and `pending` fall through
+  // and re-run — that is what makes post-launch "Retry failed ads" safe.
   if (existingRow?.op_status === "success" && existingRow.op_result_id) {
     return existingRow.op_result_id;
   }
@@ -171,6 +173,34 @@ export async function withMetaWriteIdempotency(
  * today; this is the TikTok-parity primitive for when one is added.
  * Table-absent is a no-op (named warn).
  */
+export interface FailedMetaWrite {
+  op_kind: MetaWriteOpKind;
+  op_payload_hash: string;
+}
+
+const RETRYABLE_FAILED_KINDS: MetaWriteOpKind[] = ["ad_create", "adset_create"];
+
+/**
+ * Failed ad / ad-set ledger rows for a draft. The retry surface is
+ * offered only when this list is non-empty — a launch summary with
+ * failures but no ledger rows cannot safely short-circuit successes.
+ */
+export async function listFailedMetaWrites(
+  context: Pick<MetaWriteContext, "supabase" | "draftId">,
+  opKinds: MetaWriteOpKind[] = RETRYABLE_FAILED_KINDS,
+): Promise<FailedMetaWrite[]> {
+  const { data, error } = await context.supabase
+    .from("meta_write_idempotency")
+    .select("op_kind,op_payload_hash,op_status")
+    .eq("draft_id", context.draftId);
+
+  if (error || !data) return [];
+  const kinds = new Set(opKinds);
+  return (data as Array<FailedMetaWrite & { op_status?: string }>)
+    .filter((row) => row.op_status === "failed" && kinds.has(row.op_kind))
+    .map((row) => ({ op_kind: row.op_kind, op_payload_hash: row.op_payload_hash }));
+}
+
 export async function clearMetaWriteIdempotency(
   context: Pick<MetaWriteContext, "supabase" | "draftId">,
 ): Promise<void> {

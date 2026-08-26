@@ -6,6 +6,7 @@ import {
   clearMetaWriteIdempotency,
   hashMetaWritePayload,
   isMetaIdempotencyTableMissing,
+  listFailedMetaWrites,
   withMetaWriteIdempotency,
 } from "../write-idempotency.ts";
 
@@ -229,6 +230,36 @@ describe("withMetaWriteIdempotency", () => {
     assert.equal(runs, 1);
   });
 
+  it("re-runs a failed row and does not short-circuit onto a missing result id", async () => {
+    const db = new MemorySupabase();
+    const context = {
+      ...BASE_CONTEXT,
+      supabase: db as unknown as SupabaseClient,
+    };
+    await assert.rejects(
+      withMetaWriteIdempotency(context, "ad_create", { name: "DOD ad" }, async () => {
+        throw new Error("An unexpected error has occurred. Please retry your request later.");
+      }),
+    );
+    assert.equal(db.rows[0].op_status, "failed");
+    assert.equal(db.rows[0].op_result_id, null);
+
+    let runs = 0;
+    const retried = await withMetaWriteIdempotency(
+      context,
+      "ad_create",
+      { name: "DOD ad" },
+      async () => {
+        runs += 1;
+        return "ad_recovered";
+      },
+    );
+    assert.equal(retried, "ad_recovered");
+    assert.equal(runs, 1, "failed row must re-attempt, not return a cached id");
+    assert.equal(db.rows[0].op_status, "success");
+    assert.equal(db.rows[0].op_result_id, "ad_recovered");
+  });
+
   it("marks the row failed and rethrows when run() fails", async () => {
     const db = new MemorySupabase();
     await assert.rejects(
@@ -247,6 +278,30 @@ describe("withMetaWriteIdempotency", () => {
     );
     assert.equal(db.rows[0].op_status, "failed");
     assert.equal(db.rows[0].op_result_id, null);
+  });
+
+  it("lists only failed ad and ad-set rows (successes and other kinds stay hidden)", async () => {
+    const rows = [
+      { op_kind: "ad_create", op_payload_hash: "a", op_status: "failed" },
+      { op_kind: "ad_create", op_payload_hash: "b", op_status: "success" },
+      { op_kind: "campaign_create", op_payload_hash: "c", op_status: "failed" },
+      { op_kind: "adset_create", op_payload_hash: "d", op_status: "failed" },
+    ];
+    const supabase = {
+      from: () => ({
+        select: () => ({
+          eq: () => Promise.resolve({ data: rows, error: null }),
+        }),
+      }),
+    };
+    const failed = await listFailedMetaWrites({
+      supabase: supabase as unknown as SupabaseClient,
+      draftId: BASE_CONTEXT.draftId,
+    });
+    assert.deepEqual(failed, [
+      { op_kind: "ad_create", op_payload_hash: "a" },
+      { op_kind: "adset_create", op_payload_hash: "d" },
+    ]);
   });
 
   it("hashes payloads stably so key order does not fork the ledger", () => {
