@@ -176,6 +176,12 @@ export interface TikTokCreativeDraft {
   landingPageUrl: string;
   cta: string | null;
   musicId: string | null;
+  /**
+   * Set only by plan routing (Meta → TikTok). `registry:<assetId>`.
+   * Absence means the operator added the creative in the TikTok wizard,
+   * so re-routing must not remove it.
+   */
+  derivedFrom?: string;
 }
 
 export interface TikTokCreatives {

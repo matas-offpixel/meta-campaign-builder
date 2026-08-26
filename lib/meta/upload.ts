@@ -30,6 +30,8 @@ export interface UploadAssetResult {
   videoId?: string;
   /** Thumbnail URL (video preview; same as url for images) */
   previewUrl?: string;
+  /** CR.1 registry id when registration succeeded. Additive. */
+  registryAssetId?: string;
 }
 
 // ─── Slot layout ─────────────────────────────────────────────────────────────

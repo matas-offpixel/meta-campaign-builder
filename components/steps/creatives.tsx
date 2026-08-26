@@ -543,6 +543,7 @@ export function Creatives({
           thumbnailUrl: result.previewUrl ?? result.url,
           assetHash: result.hash,
           videoId: result.videoId,
+          registryAssetId: result.registryAssetId,
           uploadStatus: "uploaded",
         };
 
@@ -2061,6 +2062,7 @@ function AssetSlot({
         thumbnailUrl: result.previewUrl ?? result.url,
         assetHash: result.hash,
         videoId: result.videoId,
+        registryAssetId: result.registryAssetId,
         uploadStatus: "uploaded",
       });
     } catch (err) {

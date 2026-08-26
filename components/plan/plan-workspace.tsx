@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
+import { AssetRoutingMatrix } from "@/components/plan/asset-routing-matrix";
 import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
@@ -637,6 +638,8 @@ export function PlanWorkspace({
           <p className="text-xs text-muted-foreground">{metaFallbackHint}</p>
         ) : null}
       </section>
+
+      <AssetRoutingMatrix planId={plan.id} hasMetaDraft={hasMetaDraft} />
 
       <section id={PLAN_STEP2_HASH} className="space-y-3">
         <div>

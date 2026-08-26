@@ -36,7 +36,8 @@ import {
   draftFromLibraryTemplate,
   overlayPlanSharedInputs,
 } from "@/lib/plan/from-existing";
-import { loadLinkedMetaDraft, upsertLinkedMetaDraft } from "@/lib/plan/linked-drafts";
+import { runPlanTikTokAssetFanout } from "@/lib/plan/asset-routing-server";
+import { loadLinkedDraftsForPlan, loadLinkedMetaDraft, upsertLinkedMetaDraft } from "@/lib/plan/linked-drafts";
 import type { CampaignPlan } from "@/lib/plan/types";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 import type { CampaignDraft, CampaignTemplate } from "@/lib/types";
@@ -123,6 +124,10 @@ export async function POST(
   const fromLibrary = source?.kind === "draft" || source?.kind === "template";
   const existing = launches[adapter].draftId;
   if (existing && !fromLibrary) {
+    let routed: { failed: number } | undefined;
+    if (adapter === "tiktok") {
+      routed = await fanoutRoutedAssets(supabase, plan);
+    }
     return NextResponse.json({
       ok: true,
       reused: true,
@@ -130,6 +135,7 @@ export async function POST(
       draftId: existing,
       href: wizardHrefForDraft(adapter, existing),
       launches,
+      routed,
     });
   }
 
@@ -323,6 +329,7 @@ export async function POST(
   }
   launches.tiktok = record;
   await upsertCampaignPlan(supabase, plan);
+  const routed = await fanoutRoutedAssets(supabase, { ...plan, launches });
   return NextResponse.json({
     ok: true,
     reused: false,
@@ -330,8 +337,27 @@ export async function POST(
     draftId: resolved.draftId,
     href: wizardHrefForDraft("tiktok", resolved.draftId),
     derived,
+    routed,
     launches,
   });
+}
+
+async function fanoutRoutedAssets(
+  supabase: unknown,
+  plan: CampaignPlan,
+): Promise<{ failed: number; added: number } | undefined> {
+  const drafts = await loadLinkedDraftsForPlan(supabase, plan);
+  if (!drafts.tiktok) return undefined;
+  const applied = await runPlanTikTokAssetFanout({
+    supabase,
+    plan,
+    metaDraft: drafts.meta,
+    tiktokDraft: drafts.tiktok,
+  });
+  return {
+    added: applied.added,
+    failed: applied.cells.filter((cell) => !cell.ok).length,
+  };
 }
 
 async function listOwnedDraftNames(supabase: unknown, userId: string): Promise<string[]> {

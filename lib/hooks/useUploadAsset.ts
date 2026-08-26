@@ -27,7 +27,9 @@ const STORAGE_BUCKET = "campaign-assets";
  *   1. Client uploads file directly to Supabase Storage — no serverless body, no limit.
  *   2. Client sends only { storagePath, type, adAccountId } (tiny JSON) to the API route.
  *   3. API route downloads from storage and forwards to Meta's adimages / advideos endpoint.
- *   4. API route cleans up the storage object after Meta confirms receipt.
+ *   4. API route registers the bytes in creative_assets (CR.1) and keeps
+ *      the storage object so later TikTok fan-out can reuse it. A duplicate
+ *      of bytes already on this ad account skips the Meta re-upload.
  *
  * Exported as a standalone function so it can be used outside the hook
  * (e.g. handleBulkVariationFiles in the Creatives step).
