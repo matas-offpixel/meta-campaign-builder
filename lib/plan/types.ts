@@ -74,6 +74,8 @@ export interface CampaignPlanLaunches {
   google: CampaignPlanLaunchRecord;
 }
 
+export type PlanAdapterName = keyof CampaignPlanLaunches;
+
 export interface CampaignPlan {
   id: string;
   userId: string;

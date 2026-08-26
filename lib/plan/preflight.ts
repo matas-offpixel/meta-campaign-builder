@@ -8,9 +8,10 @@ import { planToTikTokDraft } from "./adapters/tiktok.ts";
 import {
   budgetedLaunchAdapters,
   type CampaignPlan,
+  type PlanAdapterName,
 } from "./types.ts";
 
-export type PlanAdapterName = "meta" | "tiktok" | "google";
+export type { PlanAdapterName };
 
 export interface PlanPreflightIssue {
   adapter: PlanAdapterName;
