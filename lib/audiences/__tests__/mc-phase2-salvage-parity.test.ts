@@ -67,6 +67,7 @@ describe("launch-campaign route: task #125 MC Phase 2/2b salvage parity", () => 
 
   it("MC[ci]'s freshlyCreatedEngagementAudienceIds is a per-campaign clone, not the shared base set", () => {
     assert.match(ROUTE, /const ciFreshlyCreatedEngagementAudienceIds = new Set\(freshlyCreatedEngagementAudienceIds\)/);
+    assert.match(ROUTE, /const ciReceiptAudienceIds = new Set\(receiptAudienceIds\)/);
     // Both MC call sites pass the per-campaign clone into prepareAdSetPayloadForCreate,
     // not the outer freshlyCreatedEngagementAudienceIds directly — recreated audiences
     // from campaign ci must not be treated as "fresh" by campaign ci+1's ad sets.
@@ -79,6 +80,18 @@ describe("launch-campaign route: task #125 MC Phase 2/2b salvage parity", () => 
       2,
       "expected both MC[ci] Phase 2 and MC[ci] Phase 2b to pass the per-campaign clone",
     );
+    const receiptUsages = mcLoop.match(/receiptAudienceIds:\s*ciReceiptAudienceIds/g);
+    assert.equal(
+      receiptUsages?.length,
+      2,
+      "expected both MC[ci] Phase 2 and MC[ci] Phase 2b to pass the per-campaign receipt clone",
+    );
+  });
+
+  it("Phase 1.5 records a receipt for reused AND freshly-created engagement audiences", () => {
+    assert.match(ROUTE, /receiptAudienceIds\.add\(existingStatus\.id\)/);
+    assert.match(ROUTE, /receiptAudienceIds\.add\(result\.id\)/);
+    assert.match(ROUTE, /receiptAudienceIds,/);
   });
 
   it("no ad-set-create call site re-implements a raw isDeletedCustomAudienceError/isInvalidTargetingAutomationError check outside the shared module", () => {
