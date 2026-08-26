@@ -33,8 +33,14 @@ import {
   type StoredFacebookToken,
 } from "@/lib/facebook-token-storage";
 import {
+  applyPagesErrorToCache,
   applyPagesResponseToCache,
   bypassPagesCache,
+  pagesListIsDegraded,
+  PAGES_LOAD_INCOMPLETE_MESSAGE,
+  readPagesError,
+  type PagesErrorEntry,
+  type PagesListPayload,
 } from "@/lib/meta/pages-list-response";
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
@@ -106,6 +112,7 @@ async function apiFetch<T>(url: string): Promise<T[]> {
 let _adAccountsCache: MetaAdAccount[] | null = null;
 // key: adAccountId ?? "__me__"
 const _pagesCache = new Map<string, MetaApiPage[]>();
+const _pagesErrorCache = new Map<string, PagesErrorEntry>();
 // key: adAccountId
 const _pixelsCache = new Map<string, MetaApiPixel[]>();
 
@@ -127,6 +134,7 @@ export function setFbTokenExpiredGlobal(expired: boolean): void {
     // ── In-memory data caches ────────────────────────────────────────────────
     _adAccountsCache = null;
     _pagesCache.clear();
+    _pagesErrorCache.clear();
     _pixelsCache.clear();
 
     // ── localStorage caches ──────────────────────────────────────────────────
@@ -266,23 +274,28 @@ export function useFetchPages(
 ): MetaFetchState<MetaApiPage> & { refetch: () => void } {
   const cacheKey = adAccountId ?? "__me__";
   const cached = _pagesCache.get(cacheKey) ?? null;
+  const cachedError = readPagesError(_pagesErrorCache, cacheKey);
 
   const [state, setState] = useState<MetaFetchState<MetaApiPage>>({
     data: cached ?? [],
-    loading: cached === null,
-    error: null,
+    loading: cached === null && cachedError === null,
+    error: cachedError,
     degraded: false,
   });
   const [reloadNonce, setReloadNonce] = useState(0);
 
   const refetch = useCallback(() => {
-    bypassPagesCache(_pagesCache, cacheKey);
+    bypassPagesCache(_pagesCache, cacheKey, _pagesErrorCache);
     setReloadNonce((n) => n + 1);
   }, [cacheKey]);
 
   useEffect(() => {
     let cancelled = false;
-    // Only show loading spinner if we have no cached data yet
+    const freshError = readPagesError(_pagesErrorCache, cacheKey);
+    if (freshError && !_pagesCache.has(cacheKey) && reloadNonce === 0) {
+      return;
+    }
+
     if (!_pagesCache.has(cacheKey)) {
       setState((s) => ({ ...s, loading: true }));
     }
@@ -294,13 +307,9 @@ export function useFetchPages(
     void (async () => {
       try {
         const res = await fetch(url);
-        const json = (await res.json()) as {
-          data?: MetaApiPage[];
+        const json = (await res.json()) as PagesListPayload & {
           error?: string;
           code?: number;
-          type?: string;
-          tokenSource?: string;
-          degraded?: { client?: boolean; personal?: boolean };
         };
 
         if (json.tokenSource) {
@@ -318,24 +327,32 @@ export function useFetchPages(
         if (cancelled) return;
 
         const incoming = json.data ?? [];
-        const degraded = Boolean(json.degraded?.client || json.degraded?.personal);
+        const degraded = pagesListIsDegraded(json);
         const applied = applyPagesResponseToCache(
           _pagesCache,
           cacheKey,
           incoming,
           degraded,
         );
+        if (!degraded) _pagesErrorCache.delete(cacheKey);
+        else {
+          applyPagesErrorToCache(
+            _pagesErrorCache,
+            cacheKey,
+            json.warning ?? PAGES_LOAD_INCOMPLETE_MESSAGE,
+          );
+        }
         setState({
           data: applied.data,
           loading: false,
-          error: null,
+          error: applied.degraded ? (json.warning ?? PAGES_LOAD_INCOMPLETE_MESSAGE) : null,
           degraded: applied.degraded,
         });
       } catch (err: unknown) {
         if (!cancelled) {
           const msg =
             err instanceof Error ? err.message : "Failed to load pages";
-          // Keep cached data on error so UI doesn't blank out
+          applyPagesErrorToCache(_pagesErrorCache, cacheKey, msg);
           setState({
             data: _pagesCache.get(cacheKey) ?? [],
             loading: false,
@@ -349,7 +366,6 @@ export function useFetchPages(
     return () => {
       cancelled = true;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adAccountId, reloadNonce]);
 
   return { ...state, refetch };

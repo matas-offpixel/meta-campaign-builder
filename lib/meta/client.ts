@@ -24,6 +24,7 @@ import type {
 } from "./creative";
 import type { UploadAssetResult } from "./upload";
 import { withActPrefix } from "./ad-account-id.ts";
+import { followCursors, PAGES_LIST_PAGE_SIZE } from "./pages-list-response.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
 import { parseAppUsageHeader, type AppUsageSnapshot } from "./app-usage.ts";
 import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
@@ -583,29 +584,67 @@ export async function fetchBusinessIdForAccount(
   }
 }
 
+const PAGE_LIST_FIELDS =
+  "id,name,fan_count,category,picture{url},instagram_business_account";
+
+/**
+ * Walk a Graph page edge to exhaustion (or the named pagination cap).
+ * Used by the wizard picker so a 200-item first page cannot silently drop
+ * later pages.
+ */
+export async function fetchPagedPageEdge(
+  path: string,
+  token?: string,
+): Promise<{ pages: MetaApiPage[]; truncated: boolean }> {
+  const result = await followCursors<MetaApiPage>(
+    async (after) => {
+      const params: Record<string, string> = {
+        fields: PAGE_LIST_FIELDS,
+        limit: String(PAGES_LIST_PAGE_SIZE),
+      };
+      if (after) params.after = after;
+      const res = token
+        ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(path, params, token)
+        : await graphGet<GraphPagedResponse<MetaApiPage>>(path, params);
+      return {
+        data: res.data ?? [],
+        after: res.paging?.cursors?.after ?? null,
+        hasNext: Boolean(res.paging?.next),
+      };
+    },
+    {
+      warn: (code, fetchedPages) => {
+        console.warn(
+          `[fetchPagedPageEdge] ${code} path=${path} graphPages=${fetchedPages}`,
+        );
+      },
+    },
+  );
+  return { pages: result.items, truncated: result.truncated };
+}
+
 /**
  * Fetch Facebook Pages for a Business Manager (if `businessId` is supplied)
  * or all pages the token owner personally manages via /me/accounts.
  *
- * Business pages: Requires business_management permission.
- * Personal pages: Requires pages_show_list permission.
- *
- * Returns up to 200 pages.
+ * Follows cursors. A cap hit logs {@link PAGES_LIST_PAGINATION_CAP}.
  */
 export async function fetchPages(businessId?: string, token?: string): Promise<MetaApiPage[]> {
-  const fields = "id,name,fan_count,category,picture{url},instagram_business_account";
+  const path = businessId ? `/${businessId}/owned_pages` : "/me/accounts";
+  const { pages } = await fetchPagedPageEdge(path, token);
+  return pages;
+}
 
-  if (businessId) {
-    const res = token
-      ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>(`/${businessId}/owned_pages`, { fields, limit: "200" }, token)
-      : await graphGet<GraphPagedResponse<MetaApiPage>>(`/${businessId}/owned_pages`, { fields, limit: "200" });
-    return res.data;
-  }
-
-  const res = token
-    ? await graphGetWithToken<GraphPagedResponse<MetaApiPage>>("/me/accounts", { fields, limit: "200" }, token)
-    : await graphGet<GraphPagedResponse<MetaApiPage>>("/me/accounts", { fields, limit: "200" });
-  return res.data;
+/**
+ * Pages this ad account is allowed to advertise as — the same set Meta
+ * checks when launch writes `object_story_spec.page_id`.
+ */
+export async function fetchPromotePages(
+  adAccountId: string,
+  token?: string,
+): Promise<{ pages: MetaApiPage[]; truncated: boolean }> {
+  const accountPath = withActPrefix(adAccountId);
+  return fetchPagedPageEdge(`/${accountPath}/promote_pages`, token);
 }
 
 // ─── Campaign listing (live, account-wide) ─────────────────────────────────
