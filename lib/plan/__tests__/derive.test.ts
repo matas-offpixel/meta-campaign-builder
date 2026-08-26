@@ -568,6 +568,7 @@ describe("plan page guards (extends #852)", () => {
   it("plan pages still grow no targeting, account-picker or upload UI", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
+      "components/plan/asset-routing-matrix.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
       "components/plan/plan-datetime-field.tsx",

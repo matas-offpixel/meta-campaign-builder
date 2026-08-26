@@ -113,6 +113,7 @@ function migrateAsset(raw: Partial<Asset>): Asset {
     thumbnailUrl: raw.thumbnailUrl,
     assetHash: raw.assetHash,
     videoId: raw.videoId,
+    registryAssetId: raw.registryAssetId,
     uploadStatus: raw.uploadStatus ?? "pending",
     error: raw.error,
   };

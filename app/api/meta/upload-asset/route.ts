@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { uploadToStorageBucket } from "@/lib/clients/asset-queue/storage-upload";
+import {
+  existingMetaResult,
+  findExistingMetaChannelUpload,
+  registerMetaUpload,
+} from "@/lib/creatives/register-upload";
 import {
   uploadImageAsset,
   uploadVideoAsset,
   MetaApiError,
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { validateAssetFile, type UploadAssetResult } from "@/lib/meta/upload";
+import { validateAssetFile, type AssetUploadType, type UploadAssetResult } from "@/lib/meta/upload";
 
 // 28 MB videos can take 60-90s to upload to Meta over a slow link.
 // Without this, Vercel's default 10s (Hobby) / 60s (Pro) limit kills the function.
@@ -47,14 +53,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── Storage-path path (videos, no raw payload) ────────────────────────────
   if (contentType.includes("application/json")) {
-    let body: { storagePath?: string; storageBucket?: string; type?: string; adAccountId?: string; fileName?: string };
+    let body: {
+      storagePath?: string;
+      storageBucket?: string;
+      type?: string;
+      adAccountId?: string;
+      fileName?: string;
+      aspectRatio?: string;
+    };
     try {
       body = (await req.json()) as typeof body;
     } catch (parseErr) {
       return NextResponse.json({ error: "Invalid JSON body", detail: String(parseErr) }, { status: 400 });
     }
 
-    const { storagePath, storageBucket = "campaign-assets", type, adAccountId, fileName } = body;
+    const { storagePath, storageBucket = "campaign-assets", type, adAccountId, fileName, aspectRatio } = body;
 
     if (!storagePath) return NextResponse.json({ error: "Missing storagePath" }, { status: 400 });
     if (!adAccountId) return NextResponse.json({ error: "Missing adAccountId" }, { status: 400 });
@@ -112,6 +125,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const resolvedFileName = fileName ?? storagePath.split("/").pop() ?? "video.mp4";
     const file = new File([videoBlob], resolvedFileName, { type: videoBlob.type || "video/mp4" });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const existing = await findExistingMetaChannelUpload(supabase, {
+      userId: user.id,
+      bytes,
+      adAccountId,
+    });
+    if (existing) {
+      await storage.storage.from(storageBucket).remove([storagePath]).catch(() => {});
+      return NextResponse.json(existingMetaResult(existing, type), { status: 201 });
+    }
 
     console.log("[upload-asset] Fetched from storage:", {
       sizeBytes: file.size,
@@ -135,7 +158,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const { hash, url } = await uploadImageAsset(adAccountId, file, resolvedFileName, uploadToken);
         const result: UploadAssetResult = { assetType: "image", url, hash, previewUrl: url };
         console.log("[upload-asset] ✓ Image uploaded to Meta via storage path:", { hash, url });
-        await cleanup();
+        result.registryAssetId = await registerMetaUpload({
+          supabase,
+          userId: user.id,
+          bytes,
+          fileName: resolvedFileName,
+          mediaKind: type,
+          adAccountId,
+          storageBucket,
+          storagePath,
+          result,
+          slotHint: aspectRatio,
+        });
         return NextResponse.json(result, { status: 201 });
       } catch (err) {
         await cleanup();
@@ -152,7 +186,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         previewUrl,
       };
       console.log("[upload-asset] ✓ Video uploaded to Meta:", { videoId, previewUrl });
-      await cleanup();
+      result.registryAssetId = await registerMetaUpload({
+        supabase,
+        userId: user.id,
+        bytes,
+        fileName: resolvedFileName,
+        mediaKind: type,
+        adAccountId,
+        storageBucket,
+        storagePath,
+        result,
+        slotHint: aspectRatio,
+      });
       return NextResponse.json(result, { status: 201 });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -188,6 +233,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const file = formData.get("file") as File | null;
   const type = formData.get("type") as "image" | "video" | null;
   const adAccountId = formData.get("adAccountId") as string | null;
+  const aspectRatio = (formData.get("aspectRatio") as string | null) ?? null;
 
   if (!file) return NextResponse.json({ error: "Missing required field: 'file'" }, { status: 400 });
   if (!type) return NextResponse.json({ error: "Missing required field: 'type'" }, { status: 400 });
@@ -213,16 +259,51 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const existing = await findExistingMetaChannelUpload(supabase, {
+    userId: user.id,
+    bytes,
+    adAccountId,
+  });
+  if (existing) {
+    return NextResponse.json(existingMetaResult(existing, type), { status: 201 });
+  }
+
   try {
+    let result: UploadAssetResult;
     if (type === "image") {
       const { hash, url } = await uploadImageAsset(adAccountId, file, file.name, uploadToken);
-      const result: UploadAssetResult = { assetType: "image", url, hash, previewUrl: url };
-      return NextResponse.json(result, { status: 201 });
+      result = { assetType: "image", url, hash, previewUrl: url };
     } else {
       const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, file.name, uploadToken);
-      const result: UploadAssetResult = { assetType: "video", url: previewUrl ?? "", videoId, previewUrl };
-      return NextResponse.json(result, { status: 201 });
+      result = { assetType: "video", url: previewUrl ?? "", videoId, previewUrl };
     }
+    const folder = type === "video" ? "videos" : "images";
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? (type === "video" ? "mp4" : "jpg");
+    const storagePath = `${folder}/${crypto.randomUUID()}.${ext}`;
+    const stored = await uploadToStorageBucket(
+      storage,
+      "campaign-assets",
+      storagePath,
+      Buffer.from(bytes),
+      file.type || (type === "video" ? "video/mp4" : "image/jpeg"),
+    );
+    if (stored.error) {
+      console.error("[upload-asset] registry persist failed:", stored.error);
+    }
+    result.registryAssetId = await registerMetaUpload({
+      supabase,
+      userId: user.id,
+      bytes,
+      fileName: file.name,
+      mediaKind: type as AssetUploadType,
+      adAccountId,
+      storageBucket: "campaign-assets",
+      storagePath,
+      result,
+      slotHint: aspectRatio,
+    });
+    return NextResponse.json(result, { status: 201 });
   } catch (err) {
     if (err instanceof MetaApiError) {
       const payload = err.toJSON();

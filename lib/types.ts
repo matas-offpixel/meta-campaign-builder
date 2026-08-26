@@ -511,6 +511,8 @@ export interface Asset {
   assetHash?: string;
   /** Meta video ID — required for video_data creative spec */
   videoId?: string;
+  /** CR.1 registry row written at upload. Absent on historical assets. */
+  registryAssetId?: string;
   uploadStatus: AssetUploadStatus;
   error?: string;
 }
