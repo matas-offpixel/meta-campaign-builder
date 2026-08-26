@@ -1,14 +1,18 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 
+import { readFileSync } from "node:fs";
+
 import {
   EVENT_FUNNEL_SEEDS,
   FUNNEL_COST_CELL_KINDS,
+  buildCrossPlatformComparison,
   buildEventFunnelView,
   costPerUnit,
   funnelCostLabel,
   isAmountCell,
   provenanceForPurchaseSource,
+  utcDateDaysAgo,
   winningSnapshotSource,
   type FunnelCostCell,
 } from "../event-funnel.ts";
@@ -295,5 +299,110 @@ describe("buildEventFunnelView costs", () => {
     assert.deepEqual(tiktok.cpc, { kind: "no_spend_recorded" });
     assert.deepEqual(tiktok.cpm, { kind: "no_spend_recorded" });
     assert.deepEqual(tiktok.costPerReach, { kind: "no_spend_recorded" });
+  });
+});
+
+describe("buildCrossPlatformComparison", () => {
+  const createdAt = "2026-08-25T12:00:00.000Z";
+  const empty = {
+    metaReach: 0,
+    metaImpressions: 0,
+    metaClicks: 0,
+    metaSpend: 0,
+    tiktokReach: 0,
+    tiktokImpressions: 0,
+    tiktokClicks: 0,
+    tiktokSpend: 0,
+    googleImpressions: 0,
+    googleClicks: 0,
+    googleSpend: 0,
+    metaReportedLpv: 0,
+    signupCount: 0,
+    purchases: 0,
+    snapshotSources: [] as string[],
+  };
+
+  it("does not invent a comparison for a single-platform event", () => {
+    const view = buildCrossPlatformComparison(
+      {
+        ...empty,
+        metaSpend: 98,
+        metaClicks: 100,
+        metaImpressions: 10_000,
+        metaReach: 4_000,
+      },
+      { sinceDate: "2026-08-19", createdAt },
+    );
+    assert.equal(view.platforms.length, 1);
+    assert.match(view.emptyReason ?? "", /Only Meta/);
+    assert.equal(view.diagnostics.length, 0);
+  });
+
+  it("recommends a spend shift when TikTok CPC is far cheaper than Meta", () => {
+    const view = buildCrossPlatformComparison(
+      {
+        ...empty,
+        metaSpend: 98,
+        metaClicks: 100,
+        metaImpressions: 10_000,
+        metaReach: 4_000,
+        tiktokSpend: 41,
+        tiktokClicks: 100,
+        tiktokImpressions: 8_000,
+        tiktokReach: 3_000,
+      },
+      { sinceDate: "2026-08-19", createdAt },
+    );
+    assert.equal(view.emptyReason, null);
+    const cpc = view.diagnostics.find((row) => row.evidence.metric === "cpc");
+    assert.ok(cpc);
+    assert.equal(cpc.autoApply, false);
+    assert.equal(cpc.provenance, "computed-from-event_daily_rollups");
+    assert.equal(cpc.createdAt, createdAt);
+    assert.match(
+      cpc.recommendation,
+      /TikTok CPC £0\.41 vs Meta £0\.98 over 7 days — consider shifting spend/,
+    );
+  });
+
+  it("stays silent when the gap is small", () => {
+    const view = buildCrossPlatformComparison(
+      {
+        ...empty,
+        metaSpend: 50,
+        metaClicks: 100,
+        metaImpressions: 10_000,
+        metaReach: 4_000,
+        tiktokSpend: 40,
+        tiktokClicks: 100,
+        tiktokImpressions: 8_000,
+        tiktokReach: 3_000,
+      },
+      { sinceDate: "2026-08-19", createdAt },
+    );
+    assert.equal(view.emptyReason, null);
+    assert.equal(
+      view.diagnostics.some((row) => row.evidence.metric === "cpc"),
+      false,
+    );
+  });
+
+  it("utcDateDaysAgo is inclusive calendar math", () => {
+    assert.equal(
+      utcDateDaysAgo(6, new Date("2026-08-25T15:00:00.000Z")),
+      "2026-08-19",
+    );
+  });
+
+  it("card copy stays honest about recommend-only and single-platform", () => {
+    const source = readFileSync(
+      "components/dashboard/event-report/event-funnel-card.tsx",
+      "utf8",
+    );
+    assert.match(source, /Recommend-only — nothing is auto-applied/);
+    assert.match(
+      readFileSync("lib/dashboard/event-funnel.ts", "utf8"),
+      /nothing to compare/,
+    );
   });
 });

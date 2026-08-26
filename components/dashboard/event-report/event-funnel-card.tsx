@@ -2,6 +2,7 @@ import {
   EVENT_FUNNEL_SEED_LABEL,
   funnelCostLabel,
   isAmountCell,
+  type CrossPlatformComparison,
   type EventFunnelCosts,
   type EventFunnelStage,
   type EventFunnelView,
@@ -232,14 +233,95 @@ function EventFunnelCostTable({
   );
 }
 
+function CrossPlatformComparisonCard({
+  comparison,
+  showDiagnostics,
+}: {
+  comparison: CrossPlatformComparison;
+  showDiagnostics: boolean;
+}) {
+  return (
+    <div className="space-y-3" data-testid="cross-platform-comparison">
+      <div>
+        <h3 className="font-heading text-base tracking-wide">
+          Last {comparison.windowDays} days by platform
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          CPM, CPC, and cost-per-reach from event_daily_rollups since{" "}
+          {comparison.sinceDate}. Recommend-only — nothing is auto-applied.
+        </p>
+      </div>
+      {comparison.emptyReason ? (
+        <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-4 text-sm text-muted-foreground">
+          {comparison.emptyReason}
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[36rem] text-left text-sm">
+            <thead className="bg-muted/50 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Channel</th>
+                <th className="px-3 py-2 font-medium">Spend</th>
+                <th className="px-3 py-2 font-medium">CPM</th>
+                <th className="px-3 py-2 font-medium">Cost / reach</th>
+                <th className="px-3 py-2 font-medium">CPC</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.platforms.map((row) => (
+                <tr key={row.platform} className="border-t border-border">
+                  <th className="px-3 py-2 font-medium">{row.label}</th>
+                  <td className="px-3 py-2 tabular-nums">{GBP.format(row.spend)}</td>
+                  <CostCell cell={row.cpm} best={comparison.bestCpm === row.platform} />
+                  <CostCell
+                    cell={row.costPerReach}
+                    best={comparison.bestCostPerReach === row.platform}
+                  />
+                  <CostCell cell={row.cpc} best={comparison.bestCpc === row.platform} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {showDiagnostics ? (
+        comparison.diagnostics.length === 0 ? (
+          comparison.emptyReason ? null : (
+            <p className="text-xs text-muted-foreground">
+              No sustained stage-cost gap large enough to recommend a shift.
+            </p>
+          )
+        ) : (
+          <ul className="space-y-2" data-testid="funnel-diagnostics">
+            {comparison.diagnostics.map((row) => (
+              <li
+                key={`${row.evidence.metric}-${row.createdAt}`}
+                className="rounded-lg border border-border bg-card px-4 py-3 text-sm"
+              >
+                <p>{row.recommendation}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {row.provenance} · {row.createdAt} · recommend-only (never
+                  auto-applied)
+                </p>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </div>
+  );
+}
+
 export function EventFunnelCard({
   funnel,
   tonality = "internal",
   offFunnelRows = [],
+  comparison = null,
 }: {
   funnel: EventFunnelView;
   tonality?: "internal" | "share";
   offFunnelRows?: OffFunnelAuditRow[];
+  comparison?: CrossPlatformComparison | null;
 }) {
   return (
     <section data-testid="event-funnel" className="space-y-6">
@@ -263,6 +345,12 @@ export function EventFunnelCard({
         </div>
       </div>
       <EventFunnelCostTable costs={funnel.costs} tonality={tonality} />
+      {comparison ? (
+        <CrossPlatformComparisonCard
+          comparison={comparison}
+          showDiagnostics={tonality === "internal"}
+        />
+      ) : null}
       {tonality === "internal" ? (
         <OffFunnelCampaignsCard rows={offFunnelRows} />
       ) : null}

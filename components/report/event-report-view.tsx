@@ -21,7 +21,10 @@ import {
 } from "@/lib/insights/types";
 
 import { EventFunnelCard } from "@/components/dashboard/event-report/event-funnel-card";
-import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
+import type {
+  CrossPlatformComparison,
+  EventFunnelView,
+} from "@/lib/dashboard/event-funnel";
 import type { OffFunnelAuditRow } from "@/lib/dashboard/off-funnel-audit";
 import { CreativePerformanceLazy } from "./creative-performance-lazy";
 import {
@@ -347,6 +350,7 @@ interface Props {
    * the rest of the report.
    */
   funnel?: EventFunnelView | null;
+  comparison?: CrossPlatformComparison | null;
   /** Operator-only. Share surfaces omit this. */
   offFunnelRows?: OffFunnelAuditRow[];
 }
@@ -433,6 +437,7 @@ export function EventReportView({
   tiktokRollupTotals,
   tiktokSnapshots,
   funnel = null,
+  comparison = null,
   offFunnelRows = [],
 }: Props) {
   const venue = [event.venueName, event.venueCity, event.venueCountry]
@@ -642,6 +647,7 @@ export function EventReportView({
           <EventFunnelCard
             offFunnelRows={offFunnelRows}
             funnel={funnel}
+            comparison={comparison}
             tonality={variant === "standalone" ? "share" : "internal"}
           />
         ) : null}

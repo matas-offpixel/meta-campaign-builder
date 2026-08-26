@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { getEventByIdServer } from "@/lib/db/events-server";
-import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
+import {
+  loadCrossPlatformComparison,
+  loadEventFunnelView,
+} from "@/lib/db/event-funnel-load";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -29,8 +32,11 @@ export async function GET(
   }
 
   try {
-    const funnel = await loadEventFunnelView(supabase, id);
-    return NextResponse.json({ ok: true, funnel });
+    const [funnel, comparison] = await Promise.all([
+      loadEventFunnelView(supabase, id),
+      loadCrossPlatformComparison(supabase, id),
+    ]);
+    return NextResponse.json({ ok: true, funnel, comparison });
   } catch (err) {
     const message = err instanceof Error ? err.message : "funnel load failed";
     console.warn("[api/events/funnel]", message);

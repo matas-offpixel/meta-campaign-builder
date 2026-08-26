@@ -32,7 +32,10 @@ import {
 import { ReportUnavailable } from "./report-unavailable";
 import { EnhancementFlagBanner } from "@/components/dashboard/EnhancementFlagBanner";
 import { EventFunnelCard } from "@/components/dashboard/event-report/event-funnel-card";
-import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
+import type {
+  CrossPlatformComparison,
+  EventFunnelView,
+} from "@/lib/dashboard/event-funnel";
 import type { OffFunnelAuditRow } from "@/lib/dashboard/off-funnel-audit";
 
 interface Props {
@@ -112,6 +115,9 @@ export function InternalEventReport({
   const [registrationsData, setRegistrationsData] =
     useState<MailchimpRegistrationsData | null>(null);
   const [funnel, setFunnel] = useState<EventFunnelView | null>(null);
+  const [comparison, setComparison] = useState<CrossPlatformComparison | null>(
+    null,
+  );
   const [offFunnelRows, setOffFunnelRows] = useState<OffFunnelAuditRow[]>([]);
 
   const loadRollupTimeline = useCallback(async () => {
@@ -301,12 +307,22 @@ export function InternalEventReport({
         cache: "no-store",
       })
         .then((res) => res.json())
-        .then((json: { ok?: boolean; funnel?: EventFunnelView }) => {
-          if (cancelled || !json.ok || !json.funnel) return;
-          setFunnel(json.funnel);
-        })
+        .then(
+          (json: {
+            ok?: boolean;
+            funnel?: EventFunnelView;
+            comparison?: CrossPlatformComparison;
+          }) => {
+            if (cancelled || !json.ok || !json.funnel) return;
+            setFunnel(json.funnel);
+            setComparison(json.comparison ?? null);
+          },
+        )
         .catch(() => {
-          if (!cancelled) setFunnel(null);
+          if (!cancelled) {
+            setFunnel(null);
+            setComparison(null);
+          }
         });
       void fetch(`/api/events/${encodeURIComponent(eventId)}/off-funnel`, {
         cache: "no-store",
@@ -504,6 +520,7 @@ export function InternalEventReport({
               funnel={funnel}
               tonality="internal"
               offFunnelRows={offFunnelRows}
+              comparison={comparison}
             />
           </div>
         ) : null}
@@ -563,6 +580,7 @@ export function InternalEventReport({
       registrationsData={registrationsData}
       onRefreshRegistrations={handleRefreshMailchimp}
       funnel={funnel}
+      comparison={comparison}
       offFunnelRows={offFunnelRows}
     />
     </>

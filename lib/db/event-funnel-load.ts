@@ -3,7 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  CROSS_PLATFORM_WINDOW_DAYS,
+  buildCrossPlatformComparison,
   buildEventFunnelView,
+  utcDateDaysAgo,
+  type CrossPlatformComparison,
   type EventFunnelInput,
   type EventFunnelView,
 } from "@/lib/dashboard/event-funnel";
@@ -21,6 +25,7 @@ function num(value: unknown): number {
 export async function loadEventFunnelInput(
   supabase: SupabaseClient,
   eventId: string,
+  options: { sinceDate?: string } = {},
 ): Promise<EventFunnelInput> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
@@ -42,13 +47,16 @@ export async function loadEventFunnelInput(
   };
 
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await sb
+    let query = sb
       .from("event_daily_rollups")
       .select(
         "meta_reach, meta_impressions, link_clicks, ad_spend, tiktok_reach, tiktok_impressions, tiktok_clicks, tiktok_spend, google_ads_impressions, google_ads_clicks, google_ads_spend, landing_page_views, tickets_sold",
       )
-      .eq("event_id", eventId)
-      .range(from, from + 999);
+      .eq("event_id", eventId);
+    if (options.sinceDate) {
+      query = query.gte("date", options.sinceDate);
+    }
+    const { data, error } = await query.range(from, from + 999);
     if (error) {
       console.warn("[event-funnel] rollup page failed", error.message);
       break;
@@ -122,4 +130,18 @@ export async function loadEventFunnelView(
   eventId: string,
 ): Promise<EventFunnelView> {
   return buildEventFunnelView(await loadEventFunnelInput(supabase, eventId));
+}
+
+export async function loadCrossPlatformComparison(
+  supabase: SupabaseClient,
+  eventId: string,
+  now = new Date(),
+): Promise<CrossPlatformComparison> {
+  const sinceDate = utcDateDaysAgo(CROSS_PLATFORM_WINDOW_DAYS - 1, now);
+  const input = await loadEventFunnelInput(supabase, eventId, { sinceDate });
+  return buildCrossPlatformComparison(input, {
+    windowDays: CROSS_PLATFORM_WINDOW_DAYS,
+    sinceDate,
+    createdAt: now.toISOString(),
+  });
 }
