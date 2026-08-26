@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { createEmptyCampaignPlan } from "@/lib/plan/empty-plan";
+import {
+  defaultPlanEventId,
+  todayIsoDate,
+  type PlanEventOption,
+} from "@/lib/plan/event-picker";
 import { loadPlanLaunchRecords } from "@/lib/plan/load";
 import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
@@ -25,7 +30,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
 
   const { data: events } = await supabase
     .from("events")
-    .select("id, name, client_id")
+    .select("id, name, client_id, event_date, event_code, venue_name, venue_city, kind")
     .eq("user_id", user.id)
     .order("event_date", { ascending: false });
 
@@ -33,6 +38,11 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     id: string;
     name: string;
     client_id: string | null;
+    event_date: string | null;
+    event_code: string | null;
+    venue_name: string | null;
+    venue_city: string | null;
+    kind: string | null;
   }[];
   const clientIds = [
     ...new Set(eventRows.map((event) => event.client_id).filter(Boolean)),
@@ -40,12 +50,13 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   const { data: clients } = clientIds.length
     ? await supabase
         .from("clients")
-        .select("id, meta_ad_account_id, google_ads_customer_id")
+        .select("id, name, meta_ad_account_id, google_ads_customer_id")
         .in("id", clientIds)
     : { data: [] as never[] };
   const clientById = new Map(
     ((clients ?? []) as {
       id: string;
+      name: string;
       meta_ad_account_id: string | null;
       google_ads_customer_id: string | null;
     }[]).map((client) => [client.id, client]),
@@ -63,12 +74,17 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     ),
   ];
 
-  const eventOptions = eventRows.map((event) => {
+  const eventOptions: PlanEventOption[] = eventRows.map((event) => {
     const client = event.client_id ? clientById.get(event.client_id) : undefined;
     return {
       id: event.id,
       name: event.name,
       clientId: event.client_id,
+      clientName: client?.name ?? null,
+      venueName: event.venue_name?.trim() || event.venue_city?.trim() || null,
+      eventDate: event.event_date,
+      eventCode: event.event_code,
+      kind: event.kind,
       metaAdAccountId: client?.meta_ad_account_id ?? null,
       googleCustomerId: client?.google_ads_customer_id ?? null,
     };
@@ -110,10 +126,10 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     plan ??
     createEmptyCampaignPlan({
       userId: user.id,
-      eventId:
-        eventFromQuery && eventOptions.some((event) => event.id === eventFromQuery)
-          ? eventFromQuery
-          : eventOptions[0]?.id ?? "",
+      eventId: defaultPlanEventId(eventOptions, {
+        today: todayIsoDate(),
+        preferredId: eventFromQuery,
+      }),
       name: "",
     });
 
