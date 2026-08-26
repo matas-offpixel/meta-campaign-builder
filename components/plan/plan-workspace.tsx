@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
-import { CLUSTER_LABELS } from "@/lib/interest-suggestions";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
+import { splitPlanBlockers } from "@/lib/plan/blockers";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
 import {
   planEventPickerRows,
@@ -20,6 +20,149 @@ import type { PlanPreflightIssue } from "@/lib/plan/preflight";
 import type { CampaignPlan, CampaignPlanObjectiveIntent, PlanAdapterName } from "@/lib/plan/types";
 
 export type { PlanEventOption };
+
+/**
+ * One platform card. Blockers are split by where they are actually fixed:
+ * wizard-owned bindings (accounts, identities, creatives, keywords) sit next
+ * to the Prepare/Continue button so they read as the next step, while the
+ * shared inputs this page owns are called out separately. A single flat red
+ * list reads as a dead end.
+ */
+function PlatformCard({
+  adapter,
+  heading,
+  preview,
+  issues,
+  draftId,
+  prepareLabel,
+  busy,
+  disabled,
+  disabledReason,
+  note,
+  onPrepare,
+  onRederive,
+}: {
+  adapter: PlanAdapterName;
+  heading: string;
+  preview?: Preview;
+  issues: PlanPreflightIssue[];
+  draftId: string | null;
+  prepareLabel: string;
+  busy: boolean;
+  disabled: boolean;
+  disabledReason?: string | null;
+  note?: string;
+  onPrepare: () => void;
+  onRederive?: () => void;
+}) {
+  const split = splitPlanBlockers(issues, adapter);
+  const href = draftId ? wizardHrefForDraft(adapter, draftId) : null;
+
+  return (
+    <article className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          {heading}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {draftId
+            ? split.wizard.length === 0
+              ? "Complete"
+              : `${split.wizard.length} to finish in the wizard`
+            : "Not started"}
+        </p>
+      </div>
+
+      {preview ? (
+        <dl className="mt-2 space-y-1">
+          <div>
+            <dt className="text-muted-foreground">Name</dt>
+            <dd>{preview.name || "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Objective</dt>
+            <dd>{preview.objective || "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Daily budget</dt>
+            <dd>{preview.dailyBudget ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Destination</dt>
+            <dd className="break-all">{preview.destinationUrl || "—"}</dd>
+          </div>
+        </dl>
+      ) : (
+        <p className="mt-2 text-muted-foreground">Preview not ready yet.</p>
+      )}
+
+      <div className="mt-3 space-y-3">
+        <div className="rounded-md border border-border bg-muted/30 p-3">
+          <p className="text-xs font-medium">Complete in the wizard</p>
+          {split.wizard.length === 0 ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {draftId ? "Nothing outstanding." : "Prepare the draft to see what is left."}
+            </p>
+          ) : (
+            <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+              {split.wizard.map((issue) => (
+                <li key={issue.id}>{issue.message}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {href ? (
+              <Link
+                href={href}
+                className="inline-flex h-8 items-center justify-center rounded-md bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
+              >
+                Continue in wizard
+              </Link>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy || disabled}
+                onClick={onPrepare}
+              >
+                {prepareLabel}
+              </Button>
+            )}
+            {href && onRederive ? (
+              <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onRederive}>
+                Re-derive from Meta
+              </Button>
+            ) : null}
+          </div>
+          {!href && disabled && disabledReason ? (
+            <p className="mt-2 text-xs text-muted-foreground">{disabledReason}</p>
+          ) : null}
+        </div>
+
+        {split.plan.length > 0 ? (
+          <div className="rounded-md border border-destructive/40 p-3">
+            <p className="text-xs font-medium text-destructive">Fix on this page</p>
+            <ul className="mt-1 space-y-1 text-xs text-destructive">
+              {split.plan.map((issue) => (
+                <li key={issue.id}>{issue.message}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {split.notes.length > 0 ? (
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {split.notes.map((issue) => (
+              <li key={issue.id}>{issue.message}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      </div>
+    </article>
+  );
+}
 
 interface GateState {
   enabled: boolean;
@@ -53,8 +196,21 @@ export function PlanWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [persistState, setPersistState] = useState<string>("Not saved yet");
   const [preparing, setPreparing] = useState<PlanAdapterName | null>(null);
+  const [deriving, setDeriving] = useState<PlanAdapterName | null>(null);
+  const [notes, setNotes] = useState<Partial<Record<PlanAdapterName, string>>>({});
   const [showPastEvents, setShowPastEvents] = useState(false);
   const router = useRouter();
+
+  const hasMetaDraft = plan.launches.meta.draftId != null;
+  /**
+   * The audience cluster is no longer an authored input — Meta owns targeting.
+   * Existing plans keep the value, and it only means anything while there is
+   * no Meta draft to read the real vocabulary from.
+   */
+  const metaFallbackHint =
+    !hasMetaDraft && plan.intent.audienceClusterRef
+      ? `Fallback hint from this plan: audience cluster "${plan.intent.audienceClusterRef}". Once a Meta draft exists, its page groups and interests replace it.`
+      : null;
 
   function patchIntent(patch: Partial<CampaignPlan["intent"]>) {
     setPlan((current) => ({
@@ -179,16 +335,58 @@ export function PlanWorkspace({
         error?: string;
         draftId?: string;
         launches?: CampaignPlan["launches"];
+        derived?: { added: number; skippedReason?: string | null; negatives?: number };
       };
       if (!res.ok || !json.ok || !json.launches) {
         setError(json.error ?? "Could not prepare draft");
         return;
       }
       setPlan((current) => ({ ...current, launches: json.launches! }));
+      if (json.derived) {
+        setNotes((current) => ({
+          ...current,
+          [adapter]: json.derived!.skippedReason
+            ? `Derivation skipped: ${json.derived!.skippedReason}`
+            : `Derived ${json.derived!.added} term${json.derived!.added === 1 ? "" : "s"} from Meta.`,
+        }));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not prepare draft");
     } finally {
       setPreparing(null);
+    }
+  }
+
+  async function rederive(adapter: PlanAdapterName) {
+    setDeriving(adapter);
+    setError(null);
+    try {
+      const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/derive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adapter }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        added?: number;
+        keptOperatorItems?: number;
+      };
+      if (!res.ok || !json.ok) {
+        setNotes((current) => ({
+          ...current,
+          [adapter]: json.error ?? "Could not re-derive from Meta",
+        }));
+        return;
+      }
+      setNotes((current) => ({
+        ...current,
+        [adapter]: `Re-derived ${json.added ?? 0} term${json.added === 1 ? "" : "s"} from Meta; kept ${json.keptOperatorItems ?? 0} you edited in the wizard.`,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not re-derive from Meta");
+    } finally {
+      setDeriving(null);
     }
   }
 
@@ -316,23 +514,6 @@ export function PlanWorkspace({
             onChange={(e) => patchIntent({ destinationUrl: e.target.value })}
           />
         </label>
-        <label className="block text-sm">
-          <span className="text-muted-foreground">Audience cluster</span>
-          <select
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-            value={plan.intent.audienceClusterRef ?? ""}
-            onChange={(e) =>
-              patchIntent({ audienceClusterRef: e.target.value || null })
-            }
-          >
-            <option value="">None</option>
-            {CLUSTER_LABELS.map((cluster) => (
-              <option key={cluster} value={cluster}>
-                {cluster}
-              </option>
-            ))}
-          </select>
-        </label>
         <div className="grid grid-cols-3 gap-2 text-sm">
           {(["metaDaily", "tiktokDaily", "googleDaily"] as const).map((key) => (
             <label key={key} className="block">
@@ -373,80 +554,65 @@ export function PlanWorkspace({
         </label>
       </section>
 
-      <section>
-        <h2 className="font-heading text-lg tracking-wide">Adapter previews</h2>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {(["meta", "tiktok", "google"] as const).map((adapter) => {
-            const preview = previews?.[adapter];
-            return (
-              <article
-                key={adapter}
-                className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm"
-              >
-                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {adapter}
-                </p>
-                {preview ? (
-                  <dl className="mt-2 space-y-1">
-                    <div>
-                      <dt className="text-muted-foreground">Name</dt>
-                      <dd>{preview.name || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Objective</dt>
-                      <dd>{preview.objective || "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Daily budget</dt>
-                      <dd>{preview.dailyBudget ?? "—"}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">Destination</dt>
-                      <dd className="break-all">{preview.destinationUrl || "—"}</dd>
-                    </div>
-                  </dl>
-                ) : (
-                  <p className="mt-2 text-muted-foreground">Preview not ready yet.</p>
-                )}
-                <ul className="mt-3 space-y-1 text-xs">
-                  {issues
-                    .filter((issue) => issue.adapter === adapter)
-                    .map((issue) => (
-                      <li
-                        key={issue.id}
-                        className={issue.blocking ? "text-destructive" : "text-muted-foreground"}
-                      >
-                        {issue.blocking ? "Blocker: " : ""}
-                        {issue.message}
-                      </li>
-                    ))}
-                </ul>
-                {adapter === "google" ? (
-                  <p className="mt-3 text-xs text-muted-foreground">{GOOGLE_PREPARE_REASON}</p>
-                ) : plan.launches[adapter].draftId ? (
-                  <p className="mt-3 text-xs">
-                    Draft ready.{" "}
-                    <Link
-                      href={wizardHrefForDraft(adapter, plan.launches[adapter].draftId!) ?? "#"}
-                      className="underline"
-                    >
-                      Complete in wizard
-                    </Link>
-                  </p>
-                ) : (
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="mt-3"
-                    disabled={preparing != null || !plan.intent.eventId}
-                    onClick={() => void prepareDraft(adapter)}
-                  >
-                    {adapter === "meta" ? "Prepare Meta draft" : "Prepare TikTok draft"}
-                  </Button>
-                )}
-              </article>
-            );
-          })}
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-heading text-lg tracking-wide">
+            Step 1 — Build the Meta campaign
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Meta is the authoring surface. Artist pages, similar-page groups, custom
+            audiences and lookalikes are built in the full Meta wizard; TikTok and
+            Google then derive their targeting vocabulary from it.
+          </p>
+        </div>
+        <PlatformCard
+          adapter="meta"
+          heading="Meta"
+          preview={previews?.meta}
+          issues={issues}
+          draftId={plan.launches.meta.draftId}
+          prepareLabel="Prepare Meta draft"
+          busy={preparing != null || deriving != null}
+          disabled={!plan.intent.eventId}
+          note={notes.meta}
+          onPrepare={() => void prepareDraft("meta")}
+        />
+        {metaFallbackHint ? (
+          <p className="text-xs text-muted-foreground">{metaFallbackHint}</p>
+        ) : null}
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-heading text-lg tracking-wide">
+            Step 2 — Derive TikTok and Google from Meta
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {hasMetaDraft
+              ? "Preparing a draft runs derivation automatically. Re-derive after Meta edits — terms you changed in the TikTok or Google wizard are never overwritten."
+              : "Locked until a Meta draft exists — there is no targeting vocabulary to derive from yet."}
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {(["tiktok", "google"] as const).map((adapter) => (
+            <PlatformCard
+              key={adapter}
+              adapter={adapter}
+              heading={adapter === "tiktok" ? "TikTok" : "Google Search"}
+              preview={previews?.[adapter]}
+              issues={issues}
+              draftId={plan.launches[adapter].draftId}
+              prepareLabel={
+                adapter === "tiktok" ? "Prepare TikTok draft" : "Prepare Google plan"
+              }
+              busy={preparing != null || deriving != null}
+              disabled={!plan.intent.eventId || !hasMetaDraft}
+              disabledReason={hasMetaDraft ? null : GOOGLE_PREPARE_REASON}
+              note={notes[adapter]}
+              onPrepare={() => void prepareDraft(adapter)}
+              onRederive={hasMetaDraft ? () => void rederive(adapter) : undefined}
+            />
+          ))}
         </div>
       </section>
 

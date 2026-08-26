@@ -146,11 +146,14 @@ describe("prepare draft handoff", () => {
     assert.deepEqual(second, { draftId: "new-draft", reused: true });
   });
 
-  it("wizard hrefs stay on the existing Meta and TikTok routes", () => {
+  it("wizard hrefs stay on the existing platform routes", () => {
     assert.equal(wizardHrefForDraft("meta", "d1"), "/campaign/d1");
     assert.equal(wizardHrefForDraft("tiktok", "d2"), "/tiktok-campaign/d2");
-    assert.equal(wizardHrefForDraft("google", "d3"), null);
+    // Google gained a real linked plan once seed keywords became derivable
+    // from the Meta draft (v2.2) — it is no longer a dead end.
+    assert.equal(wizardHrefForDraft("google", "d3"), "/google-search/d3");
     assert.match(GOOGLE_PREPARE_REASON, /keywords/);
+    assert.match(GOOGLE_PREPARE_REASON, /Meta/);
   });
 });
 
@@ -226,7 +229,7 @@ describe("plan page guards", () => {
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
     assert.match(workspace, /Saved to campaign_plans|persistState/);
     assert.match(workspace, /Prepare Meta draft/);
-    assert.match(workspace, /Complete in wizard/);
+    assert.match(workspace, /Continue in wizard/);
   });
 
   it("plan pages do not grow account pickers or asset upload", () => {
