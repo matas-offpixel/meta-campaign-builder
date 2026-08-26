@@ -2008,6 +2008,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // bounded readiness wait before/around ad set creation — see
   // `waitForAudienceReady` in `lib/meta/client.ts`.
   const freshlyCreatedEngagementAudienceIds = new Set<string>();
+  // Receipts for every engagement audience this launch already holds a Meta
+  // id for — brand-new creates AND Phase 1.5 reuse (we just read the id
+  // back from Meta). prepareAdSetPayloadForCreate trusts these without an
+  // availability listing/lookup; 441/populating is not a reason to drop.
+  const receiptAudienceIds = new Set<string>();
   // Typed seeds for Phase 1.75 — same data as pageGroupAudienceIds but with
   // engagement type attached so we can rank by preference before trying lookalikes.
   const pageGroupTypedSeeds = new Map<string, TypedSeed[]>();
@@ -2064,6 +2069,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             ` | ready: ${readiness?.ready ?? "?"} | populating: ${readiness?.populating ?? "?"}`,
           );
           createdIds.push(existingStatus.id);
+          receiptAudienceIds.add(existingStatus.id);
           engagementAudiencesCreated.push({
             name: existingStatus.pageName
               ? `${existingStatus.pageName} — ${ENGAGEMENT_LABELS[et] ?? et}`
@@ -2130,6 +2136,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           }
           createdIds.push(result.id);
           freshlyCreatedEngagementAudienceIds.add(result.id);
+          receiptAudienceIds.add(result.id);
           engagementAudiencesCreated.push({
             name: audienceName,
             id: result.id,
@@ -2314,6 +2321,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           pageEngIds.push(result.id);
           createdIds.push(result.id);
           freshlyCreatedEngagementAudienceIds.add(result.id);
+          receiptAudienceIds.add(result.id);
           engagementAudiencesCreated.push({
             name: audienceName,
             id: result.id,
@@ -3164,6 +3172,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               adSet,
               payload: adSetPayload,
               freshlyCreatedEngagementAudienceIds,
+              receiptAudienceIds,
               audienceNameById: engagementAudienceNameById,
               getOrWaitAudienceReady,
               launchToken: launchToken ?? undefined,
@@ -3725,6 +3734,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             adSet,
             payload: adSetPayload,
             freshlyCreatedEngagementAudienceIds,
+            receiptAudienceIds,
             audienceNameById: engagementAudienceNameById,
             getOrWaitAudienceReady,
             launchToken: launchToken ?? undefined,
@@ -3988,6 +3998,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // silently leak campaign ci's recreated ids into campaign ci+1's
       // readiness-wait decision.
       const ciFreshlyCreatedEngagementAudienceIds = new Set(freshlyCreatedEngagementAudienceIds);
+      const ciReceiptAudienceIds = new Set(receiptAudienceIds);
 
       // Build adSet → existing-post creative map for placement override logic.
       const ciAdSetToCreativeMap = new Map<string, AdCreativeDraft>();
@@ -4068,6 +4079,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   adSet,
                   payload: adSetPayload,
                   freshlyCreatedEngagementAudienceIds: ciFreshlyCreatedEngagementAudienceIds,
+                  receiptAudienceIds: ciReceiptAudienceIds,
                   audienceNameById: engagementAudienceNameById,
                   getOrWaitAudienceReady,
                   launchToken: launchToken ?? undefined,
@@ -4214,6 +4226,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               adSet,
               payload: adSetPayload,
               freshlyCreatedEngagementAudienceIds: ciFreshlyCreatedEngagementAudienceIds,
+              receiptAudienceIds: ciReceiptAudienceIds,
               audienceNameById: engagementAudienceNameById,
               getOrWaitAudienceReady,
               launchToken: launchToken ?? undefined,

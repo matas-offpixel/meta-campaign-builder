@@ -138,12 +138,66 @@ export function parseOffendingCustomAudienceIds(err: unknown): string[] {
 export interface CustomAudienceAvailabilityStatus {
   id: string;
   /**
-   * True when this audience is safe to keep targeting. False when Meta's
-   * `delivery_status`/`operation_status` (or its absence from a batch GET
-   * response) marks it deleted/unavailable — see
-   * `fetchCustomAudienceAvailability` in `lib/meta/client.ts`.
+   * True when this audience is safe to keep targeting. False only when the
+   * id is missing from a per-id GET, or Meta reports operation_status 411
+   * (deleted) / 412 (unavailable) — the 1359207-class dead ids. Populating
+   * (441) and non-200 delivery_status are NOT unavailable: Meta's 441
+   * description is "You can start running ads with this audience straight
+   * away." See `classifyCustomAudienceAvailability`.
    */
   available: boolean;
+}
+
+/** Meta operation_status: deleted. */
+export const CA_OP_DELETED = 411;
+/** Meta operation_status: unavailable. */
+export const CA_OP_UNAVAILABLE = 412;
+/** Meta operation_status: populating — valid for ad-set targeting. */
+export const CA_OP_POPULATING = 441;
+/** Meta operation_status: processing — short-lived; also valid for targeting. */
+export const CA_OP_PROCESSING = 400;
+
+export interface CustomAudienceStatusFields {
+  id?: string;
+  delivery_status?: { code: number; description?: string };
+  operation_status?: { code: number; description?: string };
+}
+
+export interface ClassifiedCustomAudienceAvailability extends CustomAudienceAvailabilityStatus {
+  deliveryStatusCode?: number;
+  operationStatusCode?: number;
+}
+
+/**
+ * Decide whether one custom audience is safe to put in ad-set targeting.
+ *
+ * This is a per-id verdict (the write path GETs `/{id}` — batched, never a
+ * `/customaudiences` listing membership check). Absence from a listing page
+ * is not an input and must never be treated as "dead".
+ *
+ * Dead (available=false):
+ *   - `row` missing — Meta omits objects it considers gone
+ *   - operation_status 411 (deleted) or 412 (unavailable)
+ *
+ * Alive (available=true), including the DJ EZ / code-441 shape:
+ *   - operation_status 441 (populating) or 400 (processing), regardless of
+ *     `delivery_status` — Meta says you can start running ads immediately
+ *   - any other row Meta actually returned (delivery_status !== 200 is a
+ *     readiness/size signal, not a delete)
+ */
+export function classifyCustomAudienceAvailability(
+  id: string,
+  row: CustomAudienceStatusFields | null | undefined,
+): ClassifiedCustomAudienceAvailability {
+  if (!row) {
+    return { id, available: false };
+  }
+  const deliveryCode = row.delivery_status?.code;
+  const opCode = row.operation_status?.code;
+  if (opCode === CA_OP_DELETED || opCode === CA_OP_UNAVAILABLE) {
+    return { id, available: false, deliveryStatusCode: deliveryCode, operationStatusCode: opCode };
+  }
+  return { id, available: true, deliveryStatusCode: deliveryCode, operationStatusCode: opCode };
 }
 
 export interface RecoverFromDeletedCaInput {
@@ -272,10 +326,10 @@ export interface PreflightAvailabilityDropResult {
 
 /**
  * Proactively drop custom audiences Meta already reports as unavailable
- * (`delivery_status.code !== 200` or `operation_status.code` 411/412 — see
- * `fetchCustomAudienceAvailability`'s own doc comment for the exact rule)
- * BEFORE the first `createMetaAdSet` attempt, instead of discovering them
- * reactively through the `recoverFromDeletedCa` salvage loop above.
+ * (missing from a per-id GET, or operation_status 411/412 — see
+ * `classifyCustomAudienceAvailability`) BEFORE the first `createMetaAdSet`
+ * attempt, instead of discovering them reactively through the
+ * `recoverFromDeletedCa` salvage loop above. Populating/441 is kept.
  *
  * Purely a keep/drop split on `availabilityStatuses` — no Meta error to
  * classify (nothing has failed yet), so unlike `recoverFromDeletedCa` this

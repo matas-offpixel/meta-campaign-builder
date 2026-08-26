@@ -121,6 +121,15 @@ export interface PrepareAdSetPayloadParams {
    * directly — see the module doc on scoping.
    */
   freshlyCreatedEngagementAudienceIds: Set<string>;
+  /**
+   * Ids this launch already holds a creation (or reuse) receipt for —
+   * Phase 1.5 just created them, or just read them back from Meta on the
+   * reuse branch. Trusted without an availability listing/lookup: the write
+   * already has the Meta id. Includes `freshlyCreatedEngagementAudienceIds`
+   * plus reused-this-run receipts. Does NOT trigger the 30s readiness wait
+   * (that's only for brand-new creates).
+   */
+  receiptAudienceIds?: Set<string>;
   /** id → display name, for legible wait/drop log lines and notes. */
   audienceNameById: Map<string, string>;
   getOrWaitAudienceReady: (audienceId: string) => Promise<AudienceReadinessWaitResult>;
@@ -157,6 +166,7 @@ export async function prepareAdSetPayloadForCreate(
   const {
     adSet,
     freshlyCreatedEngagementAudienceIds,
+    receiptAudienceIds,
     audienceNameById,
     getOrWaitAudienceReady,
     launchToken,
@@ -164,6 +174,10 @@ export async function prepareAdSetPayloadForCreate(
   } = params;
   let payload = params.payload;
   const customAudIds = (payload.targeting.custom_audiences ?? []).map((a) => a.id);
+  const trustedIds = new Set<string>([
+    ...freshlyCreatedEngagementAudienceIds,
+    ...(receiptAudienceIds ?? []),
+  ]);
 
   // ── task #122 FIX 1: wait out the freshly-created-audience race ──────────
   const freshReadinessResults = new Map<string, AudienceReadinessWaitResult>();
@@ -187,7 +201,7 @@ export async function prepareAdSetPayloadForCreate(
   // ── task #123 FIX 2: preflight availability check for reused audiences ───
   let preflightDroppedNote: string | undefined;
   let preflightDroppedCount = 0;
-  const reusedCaIds = customAudIds.filter((id) => !freshlyCreatedEngagementAudienceIds.has(id));
+  const reusedCaIds = customAudIds.filter((id) => !trustedIds.has(id));
   if (shouldRunPreflightAvailabilityCheck(reusedCaIds)) {
     console.log(
       `[launch-campaign] ${logPrefix} — "${adSet.name}" targets ${reusedCaIds.length} reused custom` +
@@ -289,17 +303,17 @@ export async function createAdSetWithSalvage(
       if (named.length === 0 && requestedCaIds.length > 0) {
         const fetched = await deps.fetchCustomAudienceAvailability(requestedCaIds, launchToken ?? undefined);
         const byId = new Map(fetched.map((s) => [s.id, s] as const));
-        // Overlay the pre-create readiness wait's outcome — availability
-        // fetch only flags 411/412 (genuinely deleted) as unavailable; a
-        // fresh audience STILL populating (441) after the 30s wait reads
-        // as "available" there (see prepareAdSetPayloadForCreate's doc).
+        // Overlay the pre-create readiness wait only for genuinely dead
+        // outcomes (null / 411 / 412 / other terminal errors). 441
+        // (populating) and 400 (processing) stay available — Meta's 441
+        // text is "You can start running ads with this audience straight
+        // away." Treating them as dead was the DJ EZ false negative.
         for (const [id, waited] of freshReadinessResults) {
-          if (!waited.ready) {
+          const populating = waited.finalCode === 441 || waited.finalCode === 400;
+          if (!waited.ready && !populating) {
             byId.set(id, { id, available: false, operationStatusCode: waited.finalCode ?? undefined });
             const baseName = audienceNameById.get(id) ?? id;
-            recoveryNames[id] = waited.timedOut
-              ? `${baseName} — dropped: still populating after 30s`
-              : `${baseName} — unavailable (code ${waited.finalCode ?? "unknown"})`;
+            recoveryNames[id] = `${baseName} — unavailable (code ${waited.finalCode ?? "unknown"})`;
           }
         }
         availabilityStatuses = requestedCaIds.map((id) => byId.get(id) ?? { id, available: true });

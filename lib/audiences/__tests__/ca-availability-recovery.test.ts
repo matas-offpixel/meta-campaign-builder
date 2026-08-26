@@ -10,6 +10,11 @@ import {
   preflightDropUnavailableAudiences,
   shouldRunPreflightAvailabilityCheck,
   REUSED_CA_PREFLIGHT_THRESHOLD,
+  classifyCustomAudienceAvailability,
+  CA_OP_DELETED,
+  CA_OP_UNAVAILABLE,
+  CA_OP_POPULATING,
+  CA_OP_PROCESSING,
 } from "../ca-availability-recovery.ts";
 
 /**
@@ -168,37 +173,27 @@ describe("recoverFromDeletedCa", () => {
   });
 
   /**
-   * task #122 (FIX 1) — the launch route now overlays a pre-create
-   * readiness-wait outcome (`waitForAudienceReady` in `lib/meta/client.ts`)
-   * onto `availabilityStatuses` for custom audiences created earlier in the
-   * SAME launch run. A fresh audience still `operation_status.code=441`
-   * ("populating") after the 30s wait is marked `available: false` there —
-   * this pins that `recoverFromDeletedCa` drops it exactly like a genuinely
-   * deleted (411/412) audience, and that the caller-supplied name (carrying
-   * the "still populating after 30s" context) surfaces in the note. Before
-   * this fix, `fetchCustomAudienceAvailability` alone never flagged 441 as
-   * unavailable, so this exact shape returned `dropIds=[]` (unrecoverable) —
-   * the IPC Newcastle signup v2 reproducer.
+   * recoverFromDeletedCa is a dumb keep/drop split on `available`. The
+   * caller decides what is unavailable. 441/populating is no longer marked
+   * unavailable by classify / the readiness overlay (DJ EZ false negative);
+   * this pins that a caller-flagged dead id is still dropped with its note.
    */
-  it("drops a still-populating (op=441) fresh audience marked unavailable by the readiness wait", () => {
+  it("drops an id the caller marked unavailable and surfaces the supplied name", () => {
     const out = recoverFromDeletedCa({
       requestedIds: [A, BAD, C],
       error: thrownLikeMetaApiError,
       availabilityStatuses: [
         { id: A, available: true },
-        // Not deleted (no 411/412) — still populating after the bounded wait
-        // timed out. The route marks this available:false itself; this
-        // module doesn't need to know WHY, only that it's false.
         { id: BAD, available: false },
         { id: C, available: true },
       ],
-      names: { [BAD]: "Similar Pages — engagement 40 — dropped: still populating after 30s" },
+      names: { [BAD]: "Similar Pages — engagement 40 — unavailable (deleted)" },
     });
     assert.equal(out.recognised, true);
     assert.deepEqual(out.keepIds, [A, C]);
     assert.deepEqual(out.dropIds, [BAD]);
     assert.equal(out.unrecoverable, undefined);
-    assert.match(out.note ?? "", /still populating after 30s/);
+    assert.match(out.note ?? "", /unavailable \(deleted\)/);
   });
 
   it("de-duplicates named ids and preserves requested order", () => {
@@ -495,5 +490,163 @@ describe("preflight threshold + drop — integration (task #123)", () => {
   it("recommends a preflight check well above the threshold (the Similar Pages shape — 40 engagement audiences)", () => {
     const reused = Array.from({ length: 40 }, (_, i) => `R${i + 1}`);
     assert.equal(shouldRunPreflightAvailabilityCheck(reused), true);
+  });
+});
+
+/**
+ * DJ EZ — NEWCASTLE — Signup (Copy) (draft cd116701…, 2026-08-26).
+ *
+ * Garage Audience's 32 engagement CAs exist with real Meta ids (created
+ * 17:20Z this launch) and Meta's own readiness read is code 441 — "You
+ * can start running ads with this audience straight away." The launch
+ * (and #856 retry) aborted with "all IDs failed real-ID validation"
+ * because the #757 availability rule treated them as dead.
+ *
+ * Mechanism (falsified against the two hypotheses, then pinned here):
+ *   (a) NOT a capped `/customaudiences` listing-membership check — the
+ *       validator never lists; it batch-GETs by id. Newest-falling-off-
+ *       page-one is a real class elsewhere, not this path.
+ *   (b) YES: `delivery_status !== 200` (typical 300 while populating)
+ *       OR the readiness overlay marking 441 as `available: false`.
+ *       Either empties targeting before create → the abort string.
+ *
+ * The previous rule (inlined in fetchCustomAudienceAvailability):
+ *   available = delivery !== undefined && delivery !== 200
+ *     ? false
+ *     : op !== 411 && op !== 412
+ * so a live 441 row with delivery 300 was unavailable. This suite
+ * asserts the write-path rule: 441/populating is valid; 411/412/missing
+ * still drop.
+ */
+describe("classifyCustomAudienceAvailability — DJ EZ / 441 false negative", () => {
+  const DJ_EZ = "120251562971780755";
+  const META_441 =
+    "We're finding people who fit your audience criteria. You can start running ads with this audience straight away, but be aware that your audience size will increase as the audience is populated.";
+
+  function legacyDeliveryFilter(
+    row: { delivery_status?: { code: number }; operation_status?: { code: number } } | null,
+  ): boolean {
+    if (!row) return false;
+    const deliveryCode = row.delivery_status?.code;
+    const opCode = row.operation_status?.code;
+    return deliveryCode !== undefined && deliveryCode !== 200 ? false : opCode !== 411 && opCode !== 412;
+  }
+
+  it("falsifying repro: exists + beyond listing page one + populating — legacy rule drops, write-path keeps", () => {
+    // Account has 64+ engagement audiences; Meta's listing default page is
+    // 25. Newest ids (created this launch) sit past page one — the class
+    // of bug the operator hypothesized. The validator does not list, but
+    // the DJ EZ shape is: those newest ids exist AND are 441.
+    const listingPageLimit = 25;
+    const ids = Array.from({ length: 32 }, (_, i) => `12025156297${String(10000 + i).slice(1)}755`);
+    ids[0] = DJ_EZ;
+    const listingPageOne = ids.slice(0, listingPageLimit);
+    const newest = ids[ids.length - 1]!;
+    assert.equal(listingPageOne.includes(newest), false, "newest id is beyond listing page one");
+    assert.equal(ids.length > listingPageLimit, true);
+
+    const djEzRow = {
+      id: DJ_EZ,
+      delivery_status: { code: 300, description: "This audience may not be ready." },
+      operation_status: { code: CA_OP_POPULATING, description: META_441 },
+    };
+
+    // Hypothesis (b) on main: the delivery!==200 filter marks this dead.
+    assert.equal(
+      legacyDeliveryFilter(djEzRow),
+      false,
+      "the pre-fix rule (delivery_status !== 200 → unavailable) is the false negative",
+    );
+
+    const classified = ids.map((id) =>
+      classifyCustomAudienceAvailability(id, {
+        id,
+        delivery_status: { code: 300 },
+        operation_status: { code: CA_OP_POPULATING, description: META_441 },
+      }),
+    );
+    assert.ok(
+      classified.every((s) => s.available),
+      "per-id GET + 441/populating must be valid even when the id would miss listing page one",
+    );
+
+    const preflight = preflightDropUnavailableAudiences({
+      requestedIds: ids,
+      availabilityStatuses: classified,
+    });
+    assert.equal(preflight.dropIds.length, 0);
+    assert.equal(preflight.keepIds.length, 32);
+    assert.ok(preflight.keepIds.includes(newest));
+    assert.ok(preflight.keepIds.includes(DJ_EZ));
+  });
+
+  it("populating / 441 is valid regardless of delivery_status", () => {
+    const shapes = [
+      { operation_status: { code: CA_OP_POPULATING, description: META_441 } },
+      {
+        delivery_status: { code: 200 },
+        operation_status: { code: CA_OP_POPULATING, description: META_441 },
+      },
+      {
+        delivery_status: { code: 300 },
+        operation_status: { code: CA_OP_POPULATING, description: META_441 },
+      },
+      { operation_status: { code: CA_OP_PROCESSING } },
+    ];
+    for (const row of shapes) {
+      const out = classifyCustomAudienceAvailability(DJ_EZ, { id: DJ_EZ, ...row });
+      assert.equal(out.available, true, `expected valid for ${JSON.stringify(row)}`);
+    }
+  });
+
+  it("dead / missing ids are still dropped (the #757 protection)", () => {
+    const missing = classifyCustomAudienceAvailability("120000000000000001", null);
+    const deleted = classifyCustomAudienceAvailability("120000000000000002", {
+      id: "120000000000000002",
+      operation_status: { code: CA_OP_DELETED },
+    });
+    const unavailable = classifyCustomAudienceAvailability("120000000000000003", {
+      id: "120000000000000003",
+      operation_status: { code: CA_OP_UNAVAILABLE },
+    });
+    assert.equal(missing.available, false);
+    assert.equal(deleted.available, false);
+    assert.equal(unavailable.available, false);
+
+    const keep = "120251562971780755";
+    const drop = "120000000000000002";
+    const preflight = preflightDropUnavailableAudiences({
+      requestedIds: [keep, drop],
+      availabilityStatuses: [
+        classifyCustomAudienceAvailability(keep, {
+          id: keep,
+          operation_status: { code: CA_OP_POPULATING, description: META_441 },
+        }),
+        deleted,
+      ],
+      names: { [drop]: "Garage Audience — stale page" },
+    });
+    assert.deepEqual(preflight.keepIds, [keep]);
+    assert.deepEqual(preflight.dropIds, [drop]);
+    assert.match(preflight.note ?? "", /Garage Audience — stale page/);
+  });
+
+  it("all ids dropped → abort only when each is individually confirmed dead, never because a listing page missed them", () => {
+    const dead = ["120000000000000011", "120000000000000012"];
+    const statuses = dead.map((id) => classifyCustomAudienceAvailability(id, null));
+    const preflight = preflightDropUnavailableAudiences({
+      requestedIds: dead,
+      availabilityStatuses: statuses,
+    });
+    assert.deepEqual(preflight.keepIds, []);
+    assert.deepEqual(preflight.dropIds, dead);
+
+    const recovery = recoverFromDeletedCa({
+      requestedIds: dead,
+      error: thrownLikeMetaApiError,
+      availabilityStatuses: statuses,
+    });
+    assert.equal(recovery.keepIds.length, 0);
+    assert.match(recovery.unrecoverable ?? "", /nothing left to target/);
   });
 });

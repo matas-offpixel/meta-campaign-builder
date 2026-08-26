@@ -987,11 +987,11 @@ export async function fetchAdSetGuardInfo(
 export interface CustomAudienceAvailability {
   id: string;
   /**
-   * True when this audience is safe to keep targeting. False when Meta's
-   * `delivery_status.code !== 200`, `operation_status.code` is 411
-   * (deleted) or 412 (unavailable), or the id is absent entirely from the
-   * batch response (an object Meta will not return at all is treated the
-   * same as one it explicitly flags — both mean "cannot be targeted").
+   * True when this audience is safe to keep targeting. False only when the
+   * id is missing from the per-id batch GET, or Meta reports
+   * operation_status 411 (deleted) / 412 (unavailable). Populating (441)
+   * and `delivery_status !== 200` are valid — see
+   * `classifyCustomAudienceAvailability`.
    */
   available: boolean;
   deliveryStatusCode?: number;
@@ -1006,8 +1006,10 @@ interface RawCustomAudienceStatusRow {
 
 /**
  * Batch-fetches `delivery_status` / `operation_status` for a set of custom
- * audience IDs via the multi-object Graph API endpoint (`GET /?ids=a,b,c`) —
- * one request regardless of how many IDs are passed.
+ * audience IDs via per-id Graph GETs (`graphMultiGetByIds` — Meta removed
+ * `ids=` in v26). Not a `/customaudiences` listing. Each id is classified
+ * by `classifyCustomAudienceAvailability` (441/populating is valid;
+ * 411/412/missing are not).
  *
  * Used by the launch-campaign salvage ladder (subcode 1359207, "this ad set
  * is using one or more custom audiences, which are no longer available")
@@ -1047,18 +1049,10 @@ export async function fetchCustomAudienceAvailability(
       effectiveToken,
     );
 
-    return uniqueIds.map((id) => {
-      const row = res[id];
-      if (!row) {
-        // Missing entirely from the batch response — Meta can't return an
-        // object it considers gone. Treat the same as an explicit refusal.
-        return { id, available: false };
-      }
-      const deliveryCode = row.delivery_status?.code;
-      const opCode = row.operation_status?.code;
-      const available = deliveryCode !== undefined && deliveryCode !== 200 ? false : opCode !== 411 && opCode !== 412;
-      return { id, available, deliveryStatusCode: deliveryCode, operationStatusCode: opCode };
-    });
+    const { classifyCustomAudienceAvailability } = await import(
+      "@/lib/audiences/ca-availability-recovery"
+    );
+    return uniqueIds.map((id) => classifyCustomAudienceAvailability(id, res[id]));
   } catch (err) {
     console.warn(
       "[fetchCustomAudienceAvailability] failed — proceeding without availability data:",

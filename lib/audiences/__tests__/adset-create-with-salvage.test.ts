@@ -163,6 +163,41 @@ describe("prepareAdSetPayloadForCreate", () => {
     assert.ok(result.preflightDroppedNote);
   });
 
+  it("trusts same-launch receipts without an availability lookup — DJ EZ class", async () => {
+    const receiptIds = Array.from({ length: 32 }, (_, i) => `12025156297${String(1780755 + i)}`);
+    let fetchCalled = false;
+    const deps = baseDeps({
+      fetchCustomAudienceAvailability: async (ids) => {
+        fetchCalled = true;
+        return ids.map((id) => ({ id, available: false }));
+      },
+    });
+    const result = await prepareAdSetPayloadForCreate(
+      {
+        adSet: adSet({ name: "Garage Audience" }),
+        payload: payload(receiptIds),
+        freshlyCreatedEngagementAudienceIds: new Set(),
+        receiptAudienceIds: new Set(receiptIds),
+        audienceNameById: new Map(),
+        getOrWaitAudienceReady: async (id) => ({
+          id,
+          ready: false,
+          timedOut: true,
+          finalCode: 441,
+          finalDescription: "You can start running ads with this audience straight away.",
+        }),
+        logPrefix: "Phase 2",
+      },
+      deps,
+    );
+    assert.equal(fetchCalled, false);
+    assert.deepEqual(
+      (result.payload.targeting.custom_audiences ?? []).map((a) => a.id),
+      receiptIds,
+    );
+    assert.equal(result.preflightDroppedCount, 0);
+  });
+
   it("does NOT run the preflight check below the reused-audience threshold", async () => {
     let called = false;
     const deps = baseDeps({
@@ -582,21 +617,20 @@ describe("createAdSetWithSalvage — fallthrough", () => {
 // ─── freshReadinessResults overlay into the 1359207 loop ───────────────────
 
 describe("createAdSetWithSalvage — readiness-wait overlay (task #122)", () => {
-  it("drops an id whose readiness wait timed out even when the availability endpoint calls it 'available'", async () => {
+  it("keeps a 441/populating id after the readiness wait — does not overlay it as dead", async () => {
     const timedOut: AudienceReadinessWaitResult = {
       id: "ca_still_populating",
       ready: false,
       timedOut: true,
       finalCode: 441,
-      finalDescription: "still processing",
+      finalDescription: "You can start running ads with this audience straight away.",
     };
     let retryIds: string[] = [];
     const deps = baseDeps({
-      // Availability endpoint disagrees — reports it as available.
-      fetchCustomAudienceAvailability: async (ids) => ids.map((id) => ({ id, available: true })),
+      fetchCustomAudienceAvailability: async (ids) =>
+        ids.map((id) => ({ id, available: id !== "ca_stale" })),
       createMetaAdSet: async (_acc, p) => {
-        const ids = (p.targeting.custom_audiences ?? []).map((a) => a.id);
-        retryIds = ids;
+        retryIds = (p.targeting.custom_audiences ?? []).map((a) => a.id);
         return { id: "meta_as_1" };
       },
     });
@@ -604,14 +638,53 @@ describe("createAdSetWithSalvage — readiness-wait overlay (task #122)", () => 
     const res = await createAdSetWithSalvage(
       {
         adSet: adSet(),
-        initialPayload: payload(["ca_still_populating", "ca_good"]),
+        initialPayload: payload(["ca_still_populating", "ca_stale", "ca_good"]),
         initialError: deletedCaError(),
         adAccountId: "act_1",
         logPrefix: "Phase 2",
         asStart: Date.now(),
         freshReadinessResults: new Map([["ca_still_populating", timedOut]]),
         preflightDroppedCount: 0,
-        audienceNameById: new Map([["ca_still_populating", "Similar Pages — Page Engaged"]]),
+        audienceNameById: new Map([["ca_still_populating", "Garage Audience — FB Likes"]]),
+        pageGroups: [],
+      },
+      deps,
+    );
+
+    assert.equal(res.metaAdSetId, "meta_as_1");
+    assert.deepEqual(retryIds, ["ca_still_populating", "ca_good"]);
+    assert.match(res.note ?? "", /ca_stale/);
+    assert.ok(!(res.note ?? "").includes("still populating"));
+  });
+
+  it("still overlays a genuinely dead wait outcome (null / non-441 terminal) as unavailable", async () => {
+    const dead: AudienceReadinessWaitResult = {
+      id: "ca_gone",
+      ready: false,
+      timedOut: false,
+      finalCode: 411,
+      finalDescription: "deleted",
+    };
+    let retryIds: string[] = [];
+    const deps = baseDeps({
+      fetchCustomAudienceAvailability: async (ids) => ids.map((id) => ({ id, available: true })),
+      createMetaAdSet: async (_acc, p) => {
+        retryIds = (p.targeting.custom_audiences ?? []).map((a) => a.id);
+        return { id: "meta_as_1" };
+      },
+    });
+
+    const res = await createAdSetWithSalvage(
+      {
+        adSet: adSet(),
+        initialPayload: payload(["ca_gone", "ca_good"]),
+        initialError: deletedCaError(),
+        adAccountId: "act_1",
+        logPrefix: "Phase 2",
+        asStart: Date.now(),
+        freshReadinessResults: new Map([["ca_gone", dead]]),
+        preflightDroppedCount: 0,
+        audienceNameById: new Map([["ca_gone", "Garage Audience — stale"]]),
         pageGroups: [],
       },
       deps,
@@ -619,6 +692,6 @@ describe("createAdSetWithSalvage — readiness-wait overlay (task #122)", () => 
 
     assert.equal(res.metaAdSetId, "meta_as_1");
     assert.deepEqual(retryIds, ["ca_good"]);
-    assert.match(res.note ?? "", /still populating after 30s/);
+    assert.match(res.note ?? "", /unavailable \(code 411\)/);
   });
 });
