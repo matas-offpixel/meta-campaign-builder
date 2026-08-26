@@ -583,6 +583,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             budgetAmount={draft.budgetSchedule.budgetAmount}
             currency={draft.budgetSchedule.currency}
             onChange={updateOptimisationStrategy}
+            draftId={draftId}
+            campaignStatus={draft.status}
           />
         )}
         {step === 3 && (

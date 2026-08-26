@@ -49,6 +49,7 @@ import {
   TIME_WINDOW_LABELS,
   OBJECTIVE_METRIC_PRIORITY,
 } from "@/lib/optimisation-rules";
+import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
 
 interface OptimisationStrategyProps {
   strategy: OptimisationStrategySettings;
@@ -56,6 +57,8 @@ interface OptimisationStrategyProps {
   budgetAmount: number;
   currency: string;
   onChange: (strategy: OptimisationStrategySettings) => void;
+  draftId: string;
+  campaignStatus: "draft" | "published" | "archived";
 }
 
 const MODE_OPTIONS: { id: OptimisationStrategySettings["mode"]; label: string; description: string; icon: typeof Ban }[] = [
@@ -852,7 +855,15 @@ function BudgetGuardrailsCard({
   );
 }
 
-export function OptimisationStrategy({ strategy, objective, budgetAmount, currency, onChange }: OptimisationStrategyProps) {
+export function OptimisationStrategy({
+  strategy,
+  objective,
+  budgetAmount,
+  currency,
+  onChange,
+  draftId,
+  campaignStatus,
+}: OptimisationStrategyProps) {
   const benchmarks = useMemo(() => ACCOUNT_BENCHMARKS[objective] ?? [], [objective]);
   const [prevObjective, setPrevObjective] = useState(objective);
 
@@ -987,6 +998,17 @@ export function OptimisationStrategy({ strategy, objective, budgetAmount, curren
           })}
         </div>
       </Card>
+
+      <AutomationArmControl
+        draftId={draftId}
+        currency={currency}
+        baseCampaignBudget={strategy.guardrails?.baseCampaignBudget ?? budgetAmount}
+        hardBudgetCeiling={
+          strategy.guardrails?.hardBudgetCeiling ??
+          Math.round((strategy.guardrails?.baseCampaignBudget ?? budgetAmount) * 2)
+        }
+        showDecisions={campaignStatus === "published"}
+      />
 
       {/* Rules section */}
       {strategy.mode !== "none" && (

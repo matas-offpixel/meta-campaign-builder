@@ -366,7 +366,8 @@ Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
   false. Third leg of the write gate alongside `ENABLE_OPTIMISATION_WRITES`
-  and `optimisation_automation_enabled`. No UI in this PR.
+  and `optimisation_automation_enabled`. Armed from Step 2 / Review via the
+  Off / Shadow / Live control (task #120 PR C).
 
 - Slack notifications (task #121 Phase 1, August 2026): `notification_dedupe_state`
   (migration 152) — dedupe/mute state for `lib/notify/slack.ts`'s `notify()`,

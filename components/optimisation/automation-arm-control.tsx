@@ -1,0 +1,272 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { AlertTriangle, Clock } from "lucide-react";
+import { Card, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  armFromFlags,
+  currencySymbol,
+  type AutomationArm,
+  type DecisionRowView,
+} from "@/lib/optimisation/automation-ui";
+import { AutomationDecisionsList } from "@/components/optimisation/automation-decisions-list";
+
+type GatePayload = {
+  ok?: boolean;
+  enabled?: boolean;
+  live?: boolean;
+  status?: string;
+  lastEvaluatedAt?: string | null;
+  decisions?: DecisionRowView[];
+  writesEnabled?: boolean;
+  skippedReason?: string | null;
+  error?: string;
+};
+
+const ARMS: Array<{ id: AutomationArm; label: string; description: string }> = [
+  { id: "off", label: "Off", description: "Default. The tick will not evaluate this campaign." },
+  {
+    id: "shadow",
+    label: "Shadow",
+    description: "Log what the rules would do, change nothing.",
+  },
+  {
+    id: "live",
+    label: "Live",
+    description: "Apply budget changes within guardrails.",
+  },
+];
+
+function formatEvaluatedAt(iso: string | null): string {
+  if (!iso) return "Never — no tick has evaluated this draft yet.";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/London",
+  });
+}
+
+export function AutomationArmControl({
+  draftId,
+  currency,
+  baseCampaignBudget,
+  hardBudgetCeiling,
+  showDecisions,
+}: {
+  draftId: string;
+  currency: string;
+  baseCampaignBudget: number;
+  hardBudgetCeiling: number;
+  showDecisions: boolean;
+}) {
+  const [arm, setArm] = useState<AutomationArm>("off");
+  const [writesEnabled, setWritesEnabled] = useState<boolean | null>(null);
+  const [lastEvaluatedAt, setLastEvaluatedAt] = useState<string | null>(null);
+  const [decisions, setDecisions] = useState<DecisionRowView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const sym = currencySymbol(currency);
+
+  const applyPayload = useCallback((json: GatePayload) => {
+    setArm(armFromFlags(json.enabled === true, json.live === true));
+    setWritesEnabled(json.writesEnabled === true);
+    setLastEvaluatedAt(json.lastEvaluatedAt ?? null);
+    setDecisions(json.decisions ?? []);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/campaigns/${draftId}/automation`)
+      .then((res) => res.json() as Promise<GatePayload>)
+      .then((json) => {
+        if (cancelled) return;
+        if (json.ok === false) {
+          setError(json.error ?? "Could not load automation state");
+          return;
+        }
+        applyPayload(json);
+        setError(null);
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not load automation state");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draftId, applyPayload]);
+
+  const writeArm = useCallback(
+    async (next: AutomationArm, confirmLive: boolean) => {
+      setSaving(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/campaigns/${draftId}/automation`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            arm: next,
+            ...(next === "live" ? { confirmLive } : {}),
+          }),
+        });
+        const json = (await res.json()) as GatePayload & { code?: string };
+        if (!res.ok || json.ok === false) {
+          setError(json.error ?? "Could not save automation state");
+          return;
+        }
+        applyPayload(json);
+        setConfirmOpen(false);
+      } catch {
+        setError("Could not save automation state");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [draftId, applyPayload],
+  );
+
+  const onSelect = (next: AutomationArm) => {
+    if (next === arm || saving) return;
+    if (next === "live") {
+      setConfirmOpen(true);
+      return;
+    }
+    void writeArm(next, false);
+  };
+
+  return (
+    <>
+      <Card>
+        <CardTitle className="mb-1">Automation</CardTitle>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Arms the existing tick. Off / Shadow / Live map to{" "}
+          <span className="font-mono text-[11px]">optimisation_automation_enabled</span> and{" "}
+          <span className="font-mono text-[11px]">optimisation_automation_live</span>. Live
+          also requires the account-level{" "}
+          <span className="font-mono text-[11px]">ENABLE_OPTIMISATION_WRITES</span> env gate.
+        </p>
+
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">ENABLE_OPTIMISATION_WRITES</span>
+          {writesEnabled === null ? (
+            <Badge variant="outline">checking…</Badge>
+          ) : writesEnabled ? (
+            <Badge variant="success">on</Badge>
+          ) : (
+            <Badge variant="warning">off (killswitch)</Badge>
+          )}
+        </div>
+
+        <div className="grid gap-2">
+          {ARMS.map((opt) => {
+            const isActive = arm === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                disabled={loading || saving}
+                onClick={() => onSelect(opt.id)}
+                className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-all
+                  ${
+                    isActive
+                      ? "border-primary bg-primary-light ring-1 ring-primary/20"
+                      : "border-border bg-card hover:border-border-strong hover:bg-muted/40"
+                  }`}
+              >
+                <div>
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{opt.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Last optimisation-tick evaluation:{" "}
+            <span className="text-foreground">{formatEvaluatedAt(lastEvaluatedAt)}</span>
+          </span>
+        </p>
+
+        {error && (
+          <p className="mt-2 text-xs text-destructive">{error}</p>
+        )}
+
+        {showDecisions && (
+          <div className="mt-4 border-t border-border pt-4">
+            <AutomationDecisionsList
+              decisions={decisions}
+              currency={currency}
+              loading={loading}
+            />
+          </div>
+        )}
+      </Card>
+
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <DialogContent>
+          <DialogHeader onClose={() => setConfirmOpen(false)}>
+            <DialogTitle>Arm live writes</DialogTitle>
+            <DialogDescription>
+              Apply budget changes within guardrails. This still requires{" "}
+              <span className="font-mono">ENABLE_OPTIMISATION_WRITES=1</span> on the
+              account
+              {writesEnabled === false
+                ? " — that gate is currently off, so the tick will keep shadowing."
+                : writesEnabled
+                  ? " — that gate is currently on."
+                  : "."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 text-sm">
+            <p className="mb-1 flex items-center gap-1.5 font-medium text-warning">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Guardrails that will bound writes
+            </p>
+            <p className="text-foreground">
+              Base budget {sym}
+              {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
+              {hardBudgetCeiling.toLocaleString()}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={saving}
+              onClick={() => void writeArm("live", true)}
+            >
+              {saving ? "Arming…" : "Confirm Live"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

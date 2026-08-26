@@ -33,6 +33,7 @@ import {
   failedAdLabelsFromSummary,
   RETRY_FAILED_ADS_CONFIRM,
 } from "@/lib/meta/transient-retry";
+import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
 
 interface ReviewLaunchProps {
   draft: CampaignDraft;
@@ -1848,6 +1849,25 @@ export function ReviewLaunch({
             );
           })()}
       </Card>
+      )}
+
+      {!isAttachAdSet && (
+        <AutomationArmControl
+          draftId={draft.id}
+          currency={bs.currency}
+          baseCampaignBudget={
+            draft.optimisationStrategy?.guardrails?.baseCampaignBudget ??
+            bs.budgetAmount
+          }
+          hardBudgetCeiling={
+            draft.optimisationStrategy?.guardrails?.hardBudgetCeiling ??
+            Math.round(
+              (draft.optimisationStrategy?.guardrails?.baseCampaignBudget ??
+                bs.budgetAmount) * 2,
+            )
+          }
+          showDecisions={draft.status === "published"}
+        />
       )}
 
       {/* Audience Summary — hidden in attach_adset mode (inherited) */}
