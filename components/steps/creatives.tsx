@@ -129,6 +129,20 @@ export function Creatives({
   const pageInstagramOverrides =
     settings?.pageInstagramOverrides ?? localOverrides;
   const persistSettings = Boolean(settings && onSettingsChange);
+  const clearChannelDefaultMark = useCallback(
+    (field: "facebookPage" | "instagramActor") => {
+      if (!settings || !onSettingsChange || !settings.channelDefaultsApplied?.[field]) {
+        return;
+      }
+      const next = { ...settings.channelDefaultsApplied };
+      delete next[field];
+      onSettingsChange({
+        ...settings,
+        channelDefaultsApplied: Object.keys(next).length > 0 ? next : undefined,
+      });
+    },
+    [settings, onSettingsChange],
+  );
   const [activeId, setActiveId] = useState<string | null>(creatives[0]?.id ?? null);
   const [appliedField, setAppliedField] = useState<BulkField | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -285,6 +299,7 @@ export function Creatives({
     updateAd(adId, {
       identity: { pageId, instagramAccountId: linkedIg, instagramActorId: linkedActor },
     });
+    clearChannelDefaultMark("facebookPage");
   };
 
   // When the per-page identity resolves:
@@ -805,6 +820,11 @@ export function Creatives({
                           sublabel: p.category ?? undefined,
                         }))}
                       />
+                      {settings?.channelDefaultsApplied?.facebookPage ? (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Auto-picked from client defaults — you can change it.
+                        </p>
+                      ) : null}
                       {fbTokenExpired ? (
                         <p className="mt-1 flex items-center gap-1 text-xs text-warning">
                           <AlertCircle className="h-3 w-3 flex-shrink-0" />
@@ -884,6 +904,7 @@ export function Creatives({
                                     instagramAccountId: igId,
                                   },
                                 });
+                                clearChannelDefaultMark("instagramActor");
                                 if (selectedPageId) {
                                   setPageInstagramOverride(selectedPageId, igId);
                                 }
@@ -919,6 +940,11 @@ export function Creatives({
                                 }),
                               ]}
                             />
+                            {settings?.channelDefaultsApplied?.instagramActor ? (
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                Auto-picked from client defaults — you can change it.
+                              </p>
+                            ) : null}
                             {selectedPageId && mergedIG.length >= 2 && !active.identity?.instagramAccountId && (
                               <p className="mt-1 text-[11px] text-destructive">
                                 Required — this page has {mergedIG.length} linked Instagram accounts. Pick the correct handle before continuing.

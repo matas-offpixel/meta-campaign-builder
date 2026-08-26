@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { loadChannelDefaultsForEvent } from "@/lib/clients/channel-defaults";
 import { createClient } from "@/lib/supabase/server";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { collectPlanPreflight } from "@/lib/plan/preflight";
@@ -35,7 +36,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const linked = await loadLinkedDraftsForPlan(supabase, plan);
-  const result = collectPlanPreflight(plan, linked);
+  const channel = await loadChannelDefaultsForEvent(supabase, plan.intent.eventId);
+  const result = collectPlanPreflight(plan, linked, channel);
   return NextResponse.json({
     ok: result.ok,
     issues: result.issues,

@@ -2,6 +2,15 @@ import { validateGoogleSearchPlan } from "../google-search/validation.ts";
 import { validateCampaignPayload } from "../meta/campaign.ts";
 import { validateCreativePayload } from "../meta/creative.ts";
 import { collectTikTokLaunchPreflight } from "../tiktok/write/preflight.ts";
+import {
+  annotateChannelDefaultCures,
+  applyGoogleChannelDefaults,
+  applyMetaChannelDefaults,
+  applyTikTokChannelDefaults,
+  resolveChannelDefaults,
+  type ClientChannelDefaultsRow,
+  type ChannelDefaultOverrides,
+} from "../clients/channel-defaults.ts";
 import { planToGoogleDraft } from "./adapters/google.ts";
 import { planToMetaDraft } from "./adapters/meta.ts";
 import { planToTikTokDraft } from "./adapters/tiktok.ts";
@@ -19,6 +28,8 @@ export interface PlanPreflightIssue {
   field: string;
   message: string;
   blocking: boolean;
+  /** Client settings path when a missing channel default is the cure. */
+  href?: string;
 }
 
 export interface PlanPreflightResult {
@@ -42,11 +53,16 @@ export function collectPlanPreflight(
     tiktok?: ReturnType<typeof planToTikTokDraft> | null;
     google?: ReturnType<typeof planToGoogleDraft> | null;
   },
+  channel?: {
+    stored: ClientChannelDefaultsRow | null;
+    overrides?: ChannelDefaultOverrides;
+  } | null,
 ): PlanPreflightResult {
+  const resolved = resolveChannelDefaults(channel?.stored ?? null, channel?.overrides ?? {});
   const drafts = {
-    meta: linked?.meta ?? planToMetaDraft(plan),
-    tiktok: linked?.tiktok ?? planToTikTokDraft(plan),
-    google: linked?.google ?? planToGoogleDraft(plan),
+    meta: linked?.meta ?? applyMetaChannelDefaults(planToMetaDraft(plan), resolved),
+    tiktok: linked?.tiktok ?? applyTikTokChannelDefaults(planToTikTokDraft(plan), resolved),
+    google: linked?.google ?? applyGoogleChannelDefaults(planToGoogleDraft(plan), resolved),
   };
   const budgeted = new Set(budgetedLaunchAdapters(plan.intent.budget));
   const issues: PlanPreflightIssue[] = [];
@@ -120,7 +136,13 @@ export function collectPlanPreflight(
     });
   }
 
-  const blocking = issues.filter((issue) => issue.blocking);
+  const cured = annotateChannelDefaultCures(
+    issues,
+    channel?.stored
+      ? { id: channel.stored.clientId, name: channel.stored.clientName }
+      : null,
+  );
+  const blocking = cured.filter((issue) => issue.blocking);
   const launchable = [...budgeted];
   const ok =
     launchable.length > 0 &&
@@ -128,5 +150,5 @@ export function collectPlanPreflight(
       (adapter) => !blocking.some((issue) => issue.adapter === adapter),
     );
 
-  return { ok, issues, drafts };
+  return { ok, issues: cured, drafts };
 }

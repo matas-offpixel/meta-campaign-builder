@@ -25,6 +25,7 @@ import {
 import { type EventWithClient } from "@/lib/db/events";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
+import { ChannelDefaultsCard } from "./channel-defaults-card";
 import { BillingSection } from "./billing-section";
 import { ClientShareLinkCard } from "./client-share-link-card";
 import { RefreshAllSpendButton } from "./refresh-all-spend-button";
@@ -550,6 +551,19 @@ export function ClientDetail({
             metaBusinessId={client.meta_business_id ?? null}
             metaAdAccountId={client.meta_ad_account_id ?? null}
             metaPixelId={client.meta_pixel_id ?? null}
+          />
+
+          <ChannelDefaultsCard
+            clientId={client.id}
+            metaAdAccountId={client.meta_ad_account_id ?? null}
+            initialPageIds={client.default_page_ids ?? []}
+            initialInstagramActorId={
+              (client as { default_instagram_actor_id?: string | null }).default_instagram_actor_id ?? null
+            }
+            tiktokAccountId={client.tiktok_account_id ?? null}
+            initialTikTokIdentityId={
+              (client as { default_tiktok_identity_id?: string | null }).default_tiktok_identity_id ?? null
+            }
           />
 
           <BillingSection

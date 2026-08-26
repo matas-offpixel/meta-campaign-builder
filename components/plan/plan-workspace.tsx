@@ -114,6 +114,19 @@ function PlatformCard({
         ) : null}
 
         <div className="rounded-md border border-border bg-muted/30 p-3">
+          {!draftId && split.wizard.some((issue) => issue.href) ? (
+            <ul className="mb-2 space-y-1 text-xs text-muted-foreground">
+              {split.wizard
+                .filter((issue) => issue.href)
+                .map((issue) => (
+                  <li key={issue.id}>
+                    <Link href={issue.href!} className="underline">
+                      {issue.message}
+                    </Link>
+                  </li>
+                ))}
+            </ul>
+          ) : null}
           {draftId ? (
             <>
               <p className="text-xs font-medium">Complete in the wizard</p>
@@ -122,7 +135,15 @@ function PlatformCard({
               ) : (
                 <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
                   {split.wizard.map((issue) => (
-                    <li key={issue.id}>{issue.message}</li>
+                    <li key={issue.id}>
+                      {issue.href ? (
+                        <Link href={issue.href} className="underline">
+                          {issue.message}
+                        </Link>
+                      ) : (
+                        issue.message
+                      )}
+                    </li>
                   ))}
                 </ul>
               )}
