@@ -513,6 +513,9 @@ export interface Asset {
   videoId?: string;
   /** CR.1 registry row written at upload. Absent on historical assets. */
   registryAssetId?: string;
+  /** Object path in `storageBucket` when the original bytes were kept. */
+  storagePath?: string;
+  storageBucket?: string;
   uploadStatus: AssetUploadStatus;
   error?: string;
 }

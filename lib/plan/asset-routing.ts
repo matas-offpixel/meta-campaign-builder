@@ -20,7 +20,7 @@ export const GOOGLE_NO_ASSETS_COPY =
   "Search ads take no assets — keywords are the creative.";
 
 export const HISTORICAL_BACKFILL_NOTE =
-  "Historical Meta assets are not backfilled in this PR — new uploads in the Meta wizard appear here.";
+  "Some Meta assets are not in the registry yet. Register existing assets to fill this matrix.";
 
 export const TIKTOK_LAUNCHED_UNROUTE_NOTE =
   "This plan's TikTok campaign is already launched — unrouting will not delete the live ad.";

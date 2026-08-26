@@ -21,6 +21,11 @@ export interface TikTokCampaignDraft {
   reviewReadyAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * ISO timestamp of the last plan derivation into this draft.
+   * Operator wizard edits bump `updatedAt` only — they do not clear this.
+   */
+  lastDerivedAt?: string | null;
 }
 
 export interface TikTokPublishedIds {

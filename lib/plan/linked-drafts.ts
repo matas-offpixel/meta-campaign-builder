@@ -4,20 +4,7 @@ import type { TikTokCampaignDraft } from "../types/tiktok-draft.ts";
 import type { CampaignPlan } from "./types.ts";
 
 export async function loadLinkedMetaDraft(
-  supabase: {
-    from: (table: string) => {
-      select: (cols: string) => {
-        eq: (col: string, value: string) => {
-          eq: (col: string, value: string) => {
-            maybeSingle: () => Promise<{
-              data: { draft_json?: unknown } | null;
-              error: { message?: string } | null;
-            }>;
-          };
-        };
-      };
-    };
-  } | unknown,
+  supabase: unknown,
   draftId: string,
   userId: string,
 ): Promise<CampaignDraft | null> {
@@ -27,7 +14,7 @@ export async function loadLinkedMetaDraft(
         eq: (col: string, value: string) => {
           eq: (col: string, value: string) => {
             maybeSingle: () => Promise<{
-              data: { draft_json?: unknown } | null;
+              data: { draft_json?: unknown; updated_at?: string } | null;
               error: { message?: string } | null;
             }>;
           };
@@ -37,13 +24,17 @@ export async function loadLinkedMetaDraft(
   };
   const { data, error } = await client
     .from("campaign_drafts")
-    .select("draft_json")
+    .select("draft_json, updated_at")
     .eq("id", draftId)
     .eq("user_id", userId)
     .maybeSingle();
   if (error || !data?.draft_json) return null;
   try {
-    return migrateDraft(data.draft_json as Record<string, unknown>);
+    const draft = migrateDraft(data.draft_json as Record<string, unknown>);
+    if (typeof data.updated_at === "string" && data.updated_at.trim()) {
+      draft.updatedAt = data.updated_at;
+    }
+    return draft;
   } catch {
     return null;
   }

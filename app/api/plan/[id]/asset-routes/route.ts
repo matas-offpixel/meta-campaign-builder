@@ -69,6 +69,7 @@ export async function GET(
       planStatus: plan.launches.tiktok.status,
       publishedIds: null,
     }),
+    unregisteredCount: matrix.unregisteredCount,
   });
 }
 

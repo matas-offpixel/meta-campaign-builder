@@ -92,6 +92,7 @@ export interface MergeDerivedTikTokResult {
 export function mergeDerivedTikTokInterests(
   draft: TikTokCampaignDraft,
   derived: DerivedTikTokTerm[],
+  now: string = new Date().toISOString(),
 ): MergeDerivedTikTokResult {
   const groups: TikTokInterestGroup[] = (draft.audiences.interestGroups ?? []).map(
     (group) => ({ ...group, interestIds: [...group.interestIds] }),
@@ -143,6 +144,7 @@ export function mergeDerivedTikTokInterests(
   return {
     draft: {
       ...draft,
+      lastDerivedAt: now,
       audiences: { ...draft.audiences, interestGroups: groups, ...flat },
     },
     added: newItems.length,

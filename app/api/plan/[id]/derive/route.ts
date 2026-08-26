@@ -90,6 +90,7 @@ export async function POST(
       ok: true,
       adapter,
       added: outcome.merged.added,
+      lastDerivedAt: outcome.merged.draft.lastDerivedAt ?? null,
       keptOperatorItems: outcome.merged.keptOperatorItems,
       replacedDerivedItems: outcome.merged.replacedDerivedItems,
       terms: outcome.derived.map((term) => ({
@@ -124,6 +125,7 @@ export async function POST(
     ok: true,
     adapter,
     added: merged.addedKeywords,
+    lastDerivedAt: merged.lastDerivedAt,
     keptOperatorItems: merged.keptOperatorKeywords,
     replacedDerivedItems: merged.replacedDerivedKeywords,
     addedNegatives: merged.addedNegatives,
