@@ -29,6 +29,8 @@ export function createEmptyCampaignPlan(input: {
       creativeSetRef: null,
       startDate: null,
       endDate: null,
+      startTime: null,
+      endTime: null,
     },
     launches: {
       meta: { ...IDLE_PLAN_LAUNCH },

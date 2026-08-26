@@ -59,6 +59,12 @@ export interface CampaignPlanIntent {
   creativeSetRef: string | null;
   startDate: string | null;
   endDate: string | null;
+  /**
+   * Optional HH:MM. Null on existing plans — adapters keep their date-only
+   * defaults (Meta midnight UTC, TikTok 09:00/21:00Z). Google ignores this.
+   */
+  startTime: string | null;
+  endTime: string | null;
 }
 
 export interface CampaignPlanLaunchRecord {

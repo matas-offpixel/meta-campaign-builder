@@ -22,6 +22,8 @@ function plan(): CampaignPlan {
       creativeSetRef: null,
       startDate: null,
       endDate: null,
+      startTime: null,
+      endTime: null,
     },
     launches: {
       meta: {

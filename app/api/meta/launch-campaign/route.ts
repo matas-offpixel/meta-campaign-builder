@@ -17,6 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { resolveMetaLaunchEntityStatus } from "@/lib/meta/launch-status";
 import {
@@ -1598,6 +1599,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         message,
         err instanceof MetaApiError ? err.toJSON() : "",
       );
+      await recordWizardMetaLaunch(supabase, {
+        draftId: draft.id,
+        userId: user.id,
+        campaignId: null,
+        ok: false,
+        error: message,
+      });
       return NextResponse.json(
         {
           error: `Failed to create campaign: ${message}`,
@@ -4400,6 +4408,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     console.warn("[launch-campaign] Supabase save exception (non-fatal):", err);
   }
+
+  await recordWizardMetaLaunch(supabase, {
+    draftId: draft.id,
+    userId: user.id,
+    campaignId: metaCampaignId,
+    ok: true,
+  });
 
   console.log(
     `[launch-campaign] ✓ Complete in ${totalDurationMs}ms — campaign: ${metaCampaignId}`,

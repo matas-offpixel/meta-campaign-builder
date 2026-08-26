@@ -17,6 +17,11 @@ import {
 } from "@/lib/plan/event-picker";
 import { GOOGLE_PREPARE_REASON, wizardHrefForDraft } from "@/lib/plan/prepare-draft";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
+import {
+  GOOGLE_DATE_ONLY_NOTE,
+  PLAN_STEP2_HASH,
+  WIZARD_ACTIVE_VS_PLAN_PAUSED,
+} from "@/lib/plan/schedule";
 import type { CampaignPlan, CampaignPlanObjectiveIntent, PlanAdapterName } from "@/lib/plan/types";
 
 export type { PlanEventOption };
@@ -39,6 +44,7 @@ function PlatformCard({
   disabled,
   disabledReason,
   note,
+  warning,
   onPrepare,
   onRederive,
 }: {
@@ -52,6 +58,7 @@ function PlatformCard({
   disabled: boolean;
   disabledReason?: string | null;
   note?: string;
+  warning?: string;
   onPrepare: () => void;
   onRederive?: () => void;
 }) {
@@ -97,6 +104,10 @@ function PlatformCard({
       )}
 
       <div className="mt-3 space-y-3">
+        {warning ? (
+          <p className="text-xs text-muted-foreground">{warning}</p>
+        ) : null}
+
         <div className="rounded-md border border-border bg-muted/30 p-3">
           <p className="text-xs font-medium">Complete in the wizard</p>
           {split.wizard.length === 0 ? (
@@ -534,24 +545,46 @@ export function PlanWorkspace({
             </label>
           ))}
         </div>
-        <label className="block text-sm">
-          <span className="text-muted-foreground">Start date</span>
-          <input
-            type="date"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-            value={plan.intent.startDate ?? ""}
-            onChange={(e) => patchIntent({ startDate: e.target.value || null })}
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-muted-foreground">End date</span>
-          <input
-            type="date"
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-            value={plan.intent.endDate ?? ""}
-            onChange={(e) => patchIntent({ endDate: e.target.value || null })}
-          />
-        </label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            <span className="text-muted-foreground">Start date</span>
+            <input
+              type="date"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+              value={plan.intent.startDate ?? ""}
+              onChange={(e) => patchIntent({ startDate: e.target.value || null })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted-foreground">Start time</span>
+            <input
+              type="time"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+              value={plan.intent.startTime ?? ""}
+              onChange={(e) => patchIntent({ startTime: e.target.value || null })}
+            />
+          </label>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block text-sm">
+            <span className="text-muted-foreground">End date</span>
+            <input
+              type="date"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+              value={plan.intent.endDate ?? ""}
+              onChange={(e) => patchIntent({ endDate: e.target.value || null })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="text-muted-foreground">End time</span>
+            <input
+              type="time"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
+              value={plan.intent.endTime ?? ""}
+              onChange={(e) => patchIntent({ endTime: e.target.value || null })}
+            />
+          </label>
+        </div>
       </section>
 
       <section className="space-y-3">
@@ -575,6 +608,7 @@ export function PlanWorkspace({
           busy={preparing != null || deriving != null}
           disabled={!plan.intent.eventId}
           note={notes.meta}
+          warning={WIZARD_ACTIVE_VS_PLAN_PAUSED}
           onPrepare={() => void prepareDraft("meta")}
         />
         {metaFallbackHint ? (
@@ -582,7 +616,7 @@ export function PlanWorkspace({
         ) : null}
       </section>
 
-      <section className="space-y-3">
+      <section id={PLAN_STEP2_HASH} className="space-y-3">
         <div>
           <h2 className="font-heading text-lg tracking-wide">
             Step 2 — Derive TikTok and Google from Meta
@@ -609,6 +643,7 @@ export function PlanWorkspace({
               disabled={!plan.intent.eventId || !hasMetaDraft}
               disabledReason={hasMetaDraft ? null : GOOGLE_PREPARE_REASON}
               note={notes[adapter]}
+              warning={adapter === "google" ? GOOGLE_DATE_ONLY_NOTE : undefined}
               onPrepare={() => void prepareDraft(adapter)}
               onRederive={hasMetaDraft ? () => void rederive(adapter) : undefined}
             />

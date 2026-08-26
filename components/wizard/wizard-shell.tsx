@@ -45,12 +45,15 @@ import {
   useWizardEventContext,
 } from "@/lib/wizard/use-event-context";
 import { derivePhase } from "@/lib/wizard/phase";
+import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
 
 interface WizardShellProps {
   draftId: string;
+  /** Set when this draft belongs to a campaign plan. Ordinary drafts omit it. */
+  linkedPlan?: LinkedPlanSummary | null;
 }
 
-export function WizardShell({ draftId }: WizardShellProps) {
+export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(0);
   const [draft, setDraft] = useState<CampaignDraft>(createDefaultDraft);
@@ -663,6 +666,7 @@ export function WizardShell({ draftId }: WizardShellProps) {
             onDismissLaunchError={dismissLaunchError}
             launchSummary={launchSummary}
             onGoToLibrary={() => router.push("/")}
+            linkedPlan={linkedPlan}
             onUpdateSettings={updateSettings}
           />
         )}
