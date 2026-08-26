@@ -21,6 +21,29 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { migrateDraft } from "@/lib/autosave";
 import type { CampaignAutomationInput, DecisionToInsert } from "@/lib/optimisation/tick-runner";
 
+function isUndefinedColumnError(
+  error: { message?: string; code?: string } | null | undefined,
+  column: string,
+): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    msg.includes(column.toLowerCase()) &&
+    (msg.includes("does not exist") ||
+      msg.includes("schema cache") ||
+      msg.includes("could not find"))
+  );
+}
+
+function mergeChannelJson(existing: unknown, channel: string): unknown {
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    return { ...(existing as Record<string, unknown>), channel };
+  }
+  if (existing == null) return { channel };
+  return existing;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = any;
 
@@ -114,7 +137,8 @@ export async function insertAutomationDecision(
   decision: DecisionToInsert,
 ): Promise<void> {
   const sb = anySb(supabase);
-  const { error } = await sb.from("campaign_automation_decisions").insert({
+  const channel = decision.channel ?? "meta";
+  const row = {
     campaign_id: decision.campaignId,
     adset_id: decision.adsetId,
     ad_account_id: decision.adAccountId,
@@ -132,8 +156,20 @@ export async function insertAutomationDecision(
     dry_run: decision.dryRun ?? true,
     applied: decision.applied ?? false,
     applied_at: decision.appliedAt ?? null,
-    meta_response_json: decision.metaResponseJson ?? null,
-  });
+    meta_response_json: mergeChannelJson(decision.metaResponseJson, channel),
+    channel,
+  };
+  const { error } = await sb.from("campaign_automation_decisions").insert(row);
+
+  if (error && isUndefinedColumnError(error, "channel")) {
+    const withoutChannel = { ...row };
+    delete (withoutChannel as { channel?: string }).channel;
+    const retry = await sb.from("campaign_automation_decisions").insert(withoutChannel);
+    if (retry.error) {
+      throw new Error(`insertAutomationDecision: insert failed: ${retry.error.message}`);
+    }
+    return;
+  }
 
   if (error) {
     throw new Error(`insertAutomationDecision: insert failed: ${error.message}`);

@@ -5,6 +5,14 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   ARCHIVE_PLAN_CONFIRM,
   DELETE_PLAN_CONFIRM,
   planDisposalAction,
@@ -23,15 +31,16 @@ export function PlanDeleteAction({
   onDeleted?: () => void;
 }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const action = planDisposalAction(launches);
   const label = action === "delete" ? "Delete plan" : "Archive plan";
+  const confirmCopy = action === "delete" ? DELETE_PLAN_CONFIRM : ARCHIVE_PLAN_CONFIRM;
 
   async function run() {
-    const confirmed = window.confirm(action === "delete" ? DELETE_PLAN_CONFIRM : ARCHIVE_PLAN_CONFIRM);
-    if (!confirmed) return;
     if (!persisted) {
+      setOpen(false);
       onDeleted?.();
       router.push("/plans");
       return;
@@ -49,6 +58,7 @@ export function PlanDeleteAction({
         setError(json.error ?? `Could not ${action} plan`);
         return;
       }
+      setOpen(false);
       onDeleted?.();
       router.push("/plans");
       router.refresh();
@@ -61,10 +71,32 @@ export function PlanDeleteAction({
 
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => void run()}>
+      <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(true)}>
         {label}
       </Button>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
+      <Dialog open={open} onClose={() => (!busy ? setOpen(false) : undefined)}>
+        <DialogContent>
+          <DialogHeader onClose={() => (!busy ? setOpen(false) : undefined)}>
+            <DialogTitle>{label}</DialogTitle>
+            <DialogDescription>{confirmCopy}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" size="sm" disabled={busy} onClick={() => void run()}>
+              {busy ? (action === "delete" ? "Deleting…" : "Archiving…") : label}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </span>
   );
 }

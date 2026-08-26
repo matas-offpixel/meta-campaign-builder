@@ -107,6 +107,27 @@ describe("presentDecisionRow — dry-run vs applied", () => {
     assert.equal(view.kind, "applied");
     assert.equal(view.applied, true);
     assert.equal(view.dryRun, false);
+    assert.equal(view.channel, "meta");
+  });
+
+  it("reads channel from the column, then meta_response_json, then defaults to meta", () => {
+    assert.equal(
+      presentDecisionRow({ ...base, applied: false, dry_run: true, channel: "tiktok" }).channel,
+      "tiktok",
+    );
+    assert.equal(
+      presentDecisionRow({
+        ...base,
+        applied: false,
+        dry_run: true,
+        meta_response_json: { channel: "google" },
+      }).channel,
+      "google",
+    );
+    assert.equal(
+      presentDecisionRow({ ...base, applied: false, dry_run: true }).channel,
+      "meta",
+    );
   });
 });
 

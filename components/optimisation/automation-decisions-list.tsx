@@ -45,6 +45,13 @@ export function AutomationDecisionsList({
                 <Badge variant={row.kind === "applied" ? "success" : "outline"}>
                   {row.kind === "applied" ? "Applied" : "Dry run"}
                 </Badge>
+                <Badge variant="outline">
+                  {row.channel === "tiktok"
+                    ? "TikTok"
+                    : row.channel === "google"
+                      ? "Google"
+                      : "Meta"}
+                </Badge>
                 <span className="text-xs text-muted-foreground">
                   {new Date(row.decidedAt).toLocaleString("en-GB", {
                     dateStyle: "medium",

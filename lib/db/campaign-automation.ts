@@ -57,14 +57,40 @@ export async function loadCampaignAutomationState(
   const { data: decisionRows, error: decErr } = await sb
     .from("campaign_automation_decisions")
     .select(
-      "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text",
+      "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, channel, meta_response_json",
     )
     .eq("draft_id", draftId)
     .order("decided_at", { ascending: false })
     .limit(40);
 
   if (decErr) {
-    throw new Error(`loadCampaignAutomationState: decisions query failed: ${decErr.message}`);
+    const missingChannel =
+      decErr.code === "42703" ||
+      (/channel/i.test(decErr.message ?? "") &&
+        /does not exist|schema cache|could not find/i.test(decErr.message ?? ""));
+    if (!missingChannel) {
+      throw new Error(`loadCampaignAutomationState: decisions query failed: ${decErr.message}`);
+    }
+    const retry = await sb
+      .from("campaign_automation_decisions")
+      .select(
+        "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, meta_response_json",
+      )
+      .eq("draft_id", draftId)
+      .order("decided_at", { ascending: false })
+      .limit(40);
+    if (retry.error) {
+      throw new Error(`loadCampaignAutomationState: decisions query failed: ${retry.error.message}`);
+    }
+    const decisions = ((retry.data ?? []) as DecisionRowInput[]).map(presentDecisionRow);
+    const lastEvaluatedAt = decisions[0]?.decidedAt ?? null;
+    return {
+      enabled: row.optimisation_automation_enabled === true,
+      live: row.optimisation_automation_live === true,
+      status: row.status ?? "draft",
+      lastEvaluatedAt,
+      decisions,
+    };
   }
 
   const decisions = ((decisionRows ?? []) as DecisionRowInput[]).map(presentDecisionRow);

@@ -64,6 +64,8 @@ export function parseAutomationFlagWrite(body: unknown): AutomationFlagWrite {
   return { ok: true, arm, ...flagsFromArm(arm) };
 }
 
+export type AutomationChannelView = "meta" | "tiktok" | "google";
+
 export type DecisionRowInput = {
   decided_at: string;
   metric: string | null;
@@ -75,6 +77,8 @@ export type DecisionRowInput = {
   applied: boolean | null;
   dry_run: boolean | null;
   reason_text: string | null;
+  channel?: string | null;
+  meta_response_json?: unknown;
 };
 
 export type DecisionRowView = {
@@ -89,7 +93,20 @@ export type DecisionRowView = {
   dryRun: boolean;
   reasonText: string;
   kind: "applied" | "dry_run";
+  channel: AutomationChannelView;
 };
+
+function resolveDecisionChannel(row: DecisionRowInput): AutomationChannelView {
+  if (row.channel === "tiktok" || row.channel === "google" || row.channel === "meta") {
+    return row.channel;
+  }
+  const json = row.meta_response_json;
+  if (json && typeof json === "object" && !Array.isArray(json)) {
+    const nested = (json as { channel?: unknown }).channel;
+    if (nested === "tiktok" || nested === "google" || nested === "meta") return nested;
+  }
+  return "meta";
+}
 
 function asNumber(value: number | string | null | undefined): number | null {
   if (value == null) return null;
@@ -112,6 +129,7 @@ export function presentDecisionRow(row: DecisionRowInput): DecisionRowView {
     dryRun,
     reasonText: row.reason_text ?? "",
     kind: applied ? "applied" : "dry_run",
+    channel: resolveDecisionChannel(row),
   };
 }
 
