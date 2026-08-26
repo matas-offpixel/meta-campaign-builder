@@ -4,7 +4,7 @@ import type { CampaignPlan, PlanAdapterName } from "./types.ts";
 import type { CampaignDraft } from "../types.ts";
 import type { TikTokCampaignDraft } from "../types/tiktok-draft.ts";
 
-export type PreparableAdapter = Exclude<PlanAdapterName, "google">;
+export type PreparableAdapter = PlanAdapterName;
 
 export function wizardHrefForDraft(
   adapter: PlanAdapterName,
@@ -12,6 +12,7 @@ export function wizardHrefForDraft(
 ): string | null {
   if (adapter === "meta") return `/campaign/${draftId}`;
   if (adapter === "tiktok") return `/tiktok-campaign/${draftId}`;
+  if (adapter === "google") return `/google-search/${draftId}`;
   return null;
 }
 
@@ -41,5 +42,10 @@ export function buildPrefillTikTokDraft(
   return draft;
 }
 
+/**
+ * Google prep is only refused when there is no Meta draft to derive from.
+ * With a Meta draft the seed keywords are the Meta targeting vocabulary
+ * verbatim — still not invented, just no longer empty.
+ */
 export const GOOGLE_PREPARE_REASON =
-  "google_keywords_not_invented — complete a google_search_plans tree in the existing Search wizard; the plan adapter will not guess keywords";
+  "google_keywords_not_invented — build the Meta campaign first; Google seed keywords are derived from the Meta targeting vocabulary, never guessed";

@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { createGoogleSearchPlanTreeFromDraft } from "@/lib/db/google-search-plans";
 import { upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
+import { planToGoogleDraft } from "@/lib/plan/adapters/google";
+import {
+  deriveGoogleKeywords,
+  deriveGoogleNoiseNegatives,
+  mergeDerivedGoogleKeywords,
+  toGoogleSearchPlanDraftTree,
+} from "@/lib/plan/derive/google";
+import { buildPlanVocabulary, deriveTikTokTargeting } from "@/lib/plan/derive/server";
 import { loadPlanLaunchRecords } from "@/lib/plan/load";
 import {
   rowToCampaignPlanIntent,
@@ -20,7 +29,7 @@ import type { CampaignPlan } from "@/lib/plan/types";
 import { createClient } from "@/lib/supabase/server";
 
 function isPreparable(value: unknown): value is PreparableAdapter {
-  return value === "meta" || value === "tiktok";
+  return value === "meta" || value === "tiktok" || value === "google";
 }
 
 export async function POST(
@@ -49,14 +58,11 @@ export async function POST(
     );
   }
 
-  if (adapter === "google") {
+  if (!isPreparable(adapter)) {
     return NextResponse.json(
-      { ok: false, error: GOOGLE_PREPARE_REASON },
+      { ok: false, error: "adapter must be meta, tiktok or google" },
       { status: 400 },
     );
-  }
-  if (!isPreparable(adapter)) {
-    return NextResponse.json({ ok: false, error: "adapter must be meta or tiktok" }, { status: 400 });
   }
 
   const { data, error } = await supabase
@@ -136,12 +142,81 @@ export async function POST(
     });
   }
 
+  // Meta is the authoring surface: TikTok and Google take their targeting
+  // vocabulary from the linked Meta draft rather than from plan-level fields.
+  const { vocabulary, hasMetaDraft } = await buildPlanVocabulary(supabase, plan);
+
+  if (adapter === "google") {
+    if (!hasMetaDraft) {
+      return NextResponse.json(
+        { ok: false, error: GOOGLE_PREPARE_REASON },
+        { status: 400 },
+      );
+    }
+    const seeded = mergeDerivedGoogleKeywords(
+      planToGoogleDraft(plan),
+      deriveGoogleKeywords(vocabulary),
+      deriveGoogleNoiseNegatives(),
+    );
+    const created = await createGoogleSearchPlanTreeFromDraft(
+      supabase,
+      user.id,
+      toGoogleSearchPlanDraftTree(seeded.tree),
+      { event_id: plan.intent.eventId },
+    );
+    const record = { ...launches.google, draftId: created.plan_id };
+    const launchWrite = await upsertPlanLaunchRow(supabase, {
+      planId: plan.id,
+      userId: user.id,
+      adapter: "google",
+      record,
+    });
+    if (!launchWrite.ok) {
+      return NextResponse.json({ ok: false, error: launchWrite.error }, { status: 500 });
+    }
+    launches.google = record;
+    return NextResponse.json({
+      ok: true,
+      reused: false,
+      adapter,
+      draftId: created.plan_id,
+      href: wizardHrefForDraft("google", created.plan_id),
+      derived: { added: seeded.addedKeywords, negatives: seeded.addedNegatives },
+      launches,
+    });
+  }
+
   const draft = buildPrefillTikTokDraft(plan, clientId);
   const saved = await upsertTikTokDraft(supabase as never, draft.id, {
     ...draft,
     userId: user.id,
   });
   const resolved = resolvePreparedDraftId(null, saved.id);
+
+  // Derivation needs an advertiser (suggestions are advertiser-scoped), which
+  // a fresh plan draft does not have yet. A skipped derivation is reported,
+  // never silently swallowed — the operator re-derives from the plan card.
+  let derived: { added: number; skippedReason: string | null } = {
+    added: 0,
+    skippedReason: hasMetaDraft ? null : GOOGLE_PREPARE_REASON,
+  };
+  if (hasMetaDraft) {
+    const outcome = await deriveTikTokTargeting(supabase, {
+      userId: user.id,
+      draft,
+      vocabulary,
+    });
+    if (outcome.ok) {
+      await upsertTikTokDraft(supabase as never, outcome.merged.draft.id, {
+        ...outcome.merged.draft,
+        userId: user.id,
+      });
+      derived = { added: outcome.merged.added, skippedReason: null };
+    } else {
+      derived = { added: 0, skippedReason: outcome.reason };
+    }
+  }
+
   const record = {
     ...launches.tiktok,
     draftId: resolved.draftId,
@@ -163,6 +238,7 @@ export async function POST(
     adapter,
     draftId: resolved.draftId,
     href: wizardHrefForDraft("tiktok", resolved.draftId),
+    derived,
     launches,
   });
 }

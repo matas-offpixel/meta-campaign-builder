@@ -1,3 +1,4 @@
+import { rowToCampaignPlanIntent } from "./persist.ts";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan, type CampaignPlanLaunchRecord } from "./types.ts";
 
 interface LaunchRow {
@@ -42,5 +43,46 @@ export async function loadPlanLaunchRecords(
     meta: toLaunch(meta.data),
     tiktok: toLaunch(tiktok.data),
     google: toLaunch(google.data),
+  };
+}
+
+/** Load a saved plan plus its launch children, scoped to the owner. */
+export async function loadPlanForUser(
+  supabase: unknown,
+  planId: string,
+  userId: string,
+): Promise<CampaignPlan | null> {
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          eq: (col: string, value: string) => {
+            maybeSingle: () => Promise<{
+              data: Record<string, unknown> | null;
+              error: unknown;
+            }>;
+          };
+        };
+      };
+    };
+  };
+  const { data, error } = await client
+    .from("campaign_plans")
+    .select("*")
+    .eq("id", planId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data) return null;
+
+  const row = data as Record<string, unknown>;
+  return {
+    id: row.id as string,
+    userId: row.user_id as string,
+    name: (row.name as string | null) ?? null,
+    status: row.status as CampaignPlan["status"],
+    intent: rowToCampaignPlanIntent(row as never),
+    launches: await loadPlanLaunchRecords(supabase, row.id as string),
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   };
 }

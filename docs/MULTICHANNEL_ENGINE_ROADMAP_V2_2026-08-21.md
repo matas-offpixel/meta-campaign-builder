@@ -18,6 +18,42 @@ data accrues rather than gating anything. The engine's purpose, in one sentence:
 three campaigns at once from the same inputs, report them into one dashboard, and let each
 channel's results inform recommendations across all three.
 
+**Amendment v2.2 (2026-08-26, Matas):** the plan is NOT a neutral form with three thin
+adapters. **Meta is the primary authoring surface** — the full existing Meta wizard, with
+artist pages, similar-page groups, custom audiences and lookalikes — and TikTok + Google
+take stock FROM the Meta campaign inputs. Fuse the existing products; do not build a
+dimmed-down parallel one. Consequences for Phase D, all landed in this amendment's PR:
+
+- **Plan-level shared inputs shrink to five:** event, destination URL, dates, per-platform
+  budget split, name. The audience-cluster dropdown is removed as an authored input; the
+  value survives on existing plans as a fallback hint that only applies while no Meta draft
+  exists.
+- **Derivation replaces parallel authoring** (`lib/plan/derive/`). The Meta draft's targeting
+  vocabulary — page-group labels, resolved page names, interest names, interest clusters,
+  plus the event's name/venue/genres — is extracted once and fed to each platform:
+  - *Meta → TikTok*: the vocabulary seeds the SAME interest-keyword recommend call the
+    TikTok wizard's own seed box uses; results prefill the draft.
+  - *Meta → Google*: the vocabulary becomes PHRASE seed keywords verbatim, plus the standard
+    noise negatives the preflight checklist already prescribes.
+  Suggestions are prefills the operator sees and edits in the platform wizard, never
+  silently final.
+- **Custom audiences and lookalikes are Meta-only by nature.** They are never derived, and
+  their absence from TikTok/Google blocks nothing.
+- **Provenance is per-field, and re-derive is non-destructive.** A derived TikTok term
+  carries `derivedFrom`; a derived Google keyword carries a `plan-derived:` note. Re-derive
+  replaces only rows bearing those marks — anything the operator touched in the platform
+  wizard survives. No schema change was needed: both live in columns that already exist
+  (TikTok draft `state` jsonb, `google_search_keywords.notes`).
+- **Blockers are split by where they are fixed** — "complete in the wizard" (shown beside
+  the Prepare/Continue button) vs "fix on this page". The previous flat red list read as a
+  dead end.
+- **The wizard links back.** A Meta draft a plan prepared shows "Part of plan &lt;name&gt;".
+  Creating a plan FROM an existing Meta campaign is named as a follow-up, not built.
+
+Phase D's one-line summary is therefore corrected from "one input set → three platform
+launches" to: **one Meta campaign → derived TikTok and Google drafts → three paused
+launches, shared goal and budget.**
+
 **The correction this version encodes (Matas, 2026-08-21):** in music-event marketing,
 accurate purchase-conversion tracking is structurally out of reach and will stay that way.
 ~90% of ticketing is split across outlets — RA, Dice, Skiddle — with no open APIs, and
@@ -147,12 +183,21 @@ benchmarks, enters sales themselves, and the numbers reconcile with what they kn
 **Checkpoint C:** a client with ≥3 completed events has learned benchmarks that differ from
 the seed and are used everywhere the seed used to be.
 
-### Phase D — Plan spine (NEXT per v2.1; ~6–9 PRs)
-`campaign_plans` + splits + adapters + fan-out through existing wizards. Prerequisite PR:
-paused-everywhere launch + Meta idempotency ledger (audit disagreement 6 — conceded).
+### Phase D — Plan spine, Meta-first (NEXT per v2.1; re-scoped by v2.2; ~6–9 PRs)
+`campaign_plans` + splits + **derivation** + fan-out through existing wizards. Prerequisite
+PR: paused-everywhere launch + Meta idempotency ledger (audit disagreement 6 — conceded).
 Destination URL is whatever the plan specifies (v2.1) — an event LP when one exists, any
-client URL otherwise. One input set → three platform launches, shared goal and budget,
-partial success first-class, everything created paused behind its own killswitch.
+client URL otherwise.
+
+Per v2.2 the shape is **Meta-first, not platform-neutral**: the operator builds the Meta
+campaign in the full existing wizard, and TikTok + Google derive their targeting vocabulary
+from it. One Meta campaign → derived TikTok and Google drafts → three platform launches,
+shared goal and budget, partial success first-class, everything created paused behind its
+own killswitch. The plan page authors five shared inputs (event, destination URL, dates,
+budget split, name) and grows no targeting UI of its own — a grep-guard enforces it.
+
+Follow-up named but not built: **create a plan from an existing Meta campaign** (entry from
+the library rather than from `/plan/new`).
 
 **Adoption checkpoint (kill-switch):** within M weeks of Phase D shipping, ≥N events run
 2+ platforms through plans (suggest N=5, M=6 — set honestly at the time). If not met, stop:

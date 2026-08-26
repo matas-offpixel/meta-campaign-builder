@@ -119,6 +119,12 @@ export interface TikTokTargetingItem {
   kind?: "category" | "keyword";
   audienceType?: TikTokTargetingAudienceType;
   audienceSize?: number | null;
+  /**
+   * Set only by plan derivation (Meta → TikTok). Carries the Meta source the
+   * term came from, e.g. `Meta page group "Jamie Jones"`. Absence means the
+   * operator chose the item themselves, so re-derive must not touch it.
+   */
+  derivedFrom?: string;
 }
 
 export interface TikTokInterestGroup {
