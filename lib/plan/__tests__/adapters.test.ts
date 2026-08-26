@@ -36,6 +36,8 @@ function goldenPlan(overrides: Partial<CampaignPlan["intent"]> = {}): CampaignPl
       creativeSetRef: null,
       startDate: "2026-09-01",
       endDate: "2026-09-14",
+      startTime: null,
+      endTime: null,
       ...overrides,
     },
     launches: {

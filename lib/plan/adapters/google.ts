@@ -38,6 +38,8 @@ export function planToGoogleDraft(plan: CampaignPlan): GoogleSearchPlanTree {
       structure_mode: DEFAULT_STRUCTURE_MODE,
       geo_targets: [],
       geo_target_type: DEFAULT_GEO_TARGET_TYPE,
+      // Google Ads campaign date_range is date-level. Plan start/end times
+      // are not invented into a time-of-day the API does not accept.
       date_range:
         intent.startDate && intent.endDate
           ? { since: intent.startDate, until: intent.endDate }

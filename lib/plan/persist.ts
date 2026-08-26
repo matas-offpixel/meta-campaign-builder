@@ -1,4 +1,5 @@
 import { isRelationMissing } from "./schema-probe.ts";
+import { normalizePlanTime } from "./schedule.ts";
 import type {
   CampaignPlan,
   CampaignPlanLaunchRecord,
@@ -12,7 +13,7 @@ export const PLAN_LAUNCH_TABLE: Record<PlanAdapterName, string> = {
 };
 
 export function campaignPlanToRow(plan: CampaignPlan) {
-  return {
+  const row: Record<string, unknown> = {
     id: plan.id,
     user_id: plan.userId,
     event_id: plan.intent.eventId,
@@ -30,6 +31,13 @@ export function campaignPlanToRow(plan: CampaignPlan) {
     end_date: plan.intent.endDate,
     updated_at: new Date().toISOString(),
   };
+  // Omit time columns when unset so a persist before migration 159
+  // still writes. Setting a time requires the columns to exist.
+  const startTime = normalizePlanTime(plan.intent.startTime);
+  const endTime = normalizePlanTime(plan.intent.endTime);
+  if (startTime) row.start_time = startTime;
+  if (endTime) row.end_time = endTime;
+  return row;
 }
 
 export function rowToCampaignPlanIntent(row: {
@@ -44,6 +52,8 @@ export function rowToCampaignPlanIntent(row: {
   creative_set_ref: string | null;
   start_date: string | null;
   end_date: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
 }): CampaignPlan["intent"] {
   return {
     eventId: row.event_id,
@@ -59,6 +69,8 @@ export function rowToCampaignPlanIntent(row: {
     creativeSetRef: row.creative_set_ref,
     startDate: row.start_date,
     endDate: row.end_date,
+    startTime: normalizePlanTime(row.start_time),
+    endTime: normalizePlanTime(row.end_time),
   };
 }
 

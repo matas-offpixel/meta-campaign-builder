@@ -41,6 +41,8 @@ function goldenPlan(): CampaignPlan {
       creativeSetRef: null,
       startDate: "2026-09-01",
       endDate: "2026-09-14",
+      startTime: null,
+      endTime: null,
     },
     launches: {
       meta: { ...IDLE_PLAN_LAUNCH },

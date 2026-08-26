@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useMemo, useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { markPageCapabilityFailures, getCachedUserPages } from "@/lib/hooks/useMeta";
+import { planContinuationHref } from "@/lib/plan/schedule";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,12 @@ interface ReviewLaunchProps {
   /** Populated after a successful launch — triggers the success state */
   launchSummary?: LaunchSummary | null;
   onGoToLibrary?: () => void;
+  /**
+   * Set only for a draft a plan prepared. After launch, the review screen
+   * offers a way back to Step 2 (derive TikTok & Google). Ordinary drafts
+   * leave this unset and the continuation is not rendered.
+   */
+  linkedPlan?: { id: string; name: string | null } | null;
   /**
    * Optional escape hatch for review-only fields (currently the Creative
    * Integrity Mode toggle). If absent the toggle renders read-only.
@@ -1062,6 +1070,7 @@ export function ReviewLaunch({
   onDismissLaunchError,
   launchSummary,
   onGoToLibrary,
+  linkedPlan,
   onUpdateSettings,
 }: ReviewLaunchProps) {
   const allValidation = validateStep(7, draft);
@@ -1266,12 +1275,22 @@ export function ReviewLaunch({
             <RetryLookalikesPanel draft={draft} />
           )}
 
-          {onGoToLibrary && launchSummary && (
-            <div className="mt-4 flex justify-end">
-              <Button onClick={onGoToLibrary}>
-                Go to Campaign Library
-                <ArrowRight className="h-4 w-4" />
-              </Button>
+          {launchSummary && (onGoToLibrary || linkedPlan) && (
+            <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+              {linkedPlan ? (
+                <Link
+                  href={planContinuationHref(linkedPlan.id)}
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-border-strong bg-transparent px-4 text-sm font-medium text-foreground transition-colors hover:bg-card"
+                >
+                  Continue plan {linkedPlan.name?.trim() || "Untitled plan"} — derive TikTok & Google
+                </Link>
+              ) : null}
+              {onGoToLibrary ? (
+                <Button onClick={onGoToLibrary}>
+                  Go to Campaign Library
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              ) : null}
             </div>
           )}
         </Card>

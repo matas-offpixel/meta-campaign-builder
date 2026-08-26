@@ -1,5 +1,6 @@
 import { createDefaultCreative, createDefaultDraft } from "../../campaign-defaults.ts";
 import type { CampaignDraft } from "../../types.ts";
+import { composeMetaScheduleIso } from "../schedule.ts";
 import type { CampaignPlan } from "../types.ts";
 
 /**
@@ -21,8 +22,14 @@ export function planToMetaDraft(plan: CampaignPlan): CampaignDraft {
       : "conversions";
 
   draft.budgetSchedule.budgetAmount = intent.budget.metaDaily;
-  draft.budgetSchedule.startDate = intent.startDate ?? "";
-  draft.budgetSchedule.endDate = intent.endDate ?? "";
+  draft.budgetSchedule.startDate = composeMetaScheduleIso(
+    intent.startDate,
+    intent.startTime,
+  );
+  draft.budgetSchedule.endDate = composeMetaScheduleIso(
+    intent.endDate,
+    intent.endTime,
+  );
   draft.optimisationStrategy.guardrails.baseCampaignBudget = intent.budget.metaDaily;
 
   if (cluster) {

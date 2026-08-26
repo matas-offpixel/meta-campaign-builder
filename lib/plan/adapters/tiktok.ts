@@ -4,6 +4,11 @@ import {
   type TikTokCampaignDraft,
   type TikTokObjective,
 } from "../../types/tiktok-draft.ts";
+import {
+  composeTikTokScheduleAt,
+  TIKTOK_DEFAULT_END_HOUR,
+  TIKTOK_DEFAULT_START_HOUR,
+} from "../schedule.ts";
 import type { CampaignPlan, CampaignPlanObjectiveIntent } from "../types.ts";
 
 /**
@@ -24,11 +29,6 @@ export function mapIntentToTikTokObjective(
     case "registration":
       return "LEAD_GENERATION";
   }
-}
-
-function wallClock(date: string | null, hour = "09:00:00"): string | null {
-  if (!date) return null;
-  return `${date}T${hour}Z`;
 }
 
 /**
@@ -55,8 +55,16 @@ export function planToTikTokDraft(plan: CampaignPlan): TikTokCampaignDraft {
   draft.budgetSchedule.budgetMode = "DAILY";
   draft.budgetSchedule.budgetAmount = intent.budget.tiktokDaily;
   draft.budgetSchedule.dailyBudget = intent.budget.tiktokDaily;
-  draft.budgetSchedule.scheduleStartAt = wallClock(intent.startDate);
-  draft.budgetSchedule.scheduleEndAt = wallClock(intent.endDate, "21:00:00");
+  draft.budgetSchedule.scheduleStartAt = composeTikTokScheduleAt(
+    intent.startDate,
+    intent.startTime,
+    TIKTOK_DEFAULT_START_HOUR,
+  );
+  draft.budgetSchedule.scheduleEndAt = composeTikTokScheduleAt(
+    intent.endDate,
+    intent.endTime,
+    TIKTOK_DEFAULT_END_HOUR,
+  );
 
   const adGroupId = crypto.randomUUID();
   draft.budgetSchedule.adGroups = [
