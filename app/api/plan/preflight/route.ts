@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
+import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { collectPlanPreflight } from "@/lib/plan/preflight";
 import type { CampaignPlan } from "@/lib/plan/types";
 
@@ -33,7 +34,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const result = collectPlanPreflight(plan);
+  const linked = await loadLinkedDraftsForPlan(supabase, plan);
+  const result = collectPlanPreflight(plan, linked);
   return NextResponse.json({
     ok: result.ok,
     issues: result.issues,

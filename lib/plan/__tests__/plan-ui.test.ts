@@ -90,5 +90,6 @@ describe("plan UI honest copy", () => {
     assert.match(workspace, /ENABLE_PLAN_FANOUT/);
     assert.match(workspace, /No events yet/);
     assert.match(workspace, /Open in Ads Manager/);
+    assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
   });
 });

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { isRelationMissing } from "@/lib/plan/schema-probe";
 import { createClient } from "@/lib/supabase/server";
 
 interface PlanListRow {
@@ -26,11 +27,7 @@ export default async function PlansPage() {
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false });
 
-  const tableMissing =
-    !!error &&
-    (error.code === "PGRST205" ||
-      error.code === "42P01" ||
-      (error.message ?? "").toLowerCase().includes("campaign_plans"));
+  const tableMissing = isRelationMissing(error);
 
   const rows = (data ?? []) as PlanListRow[];
 
