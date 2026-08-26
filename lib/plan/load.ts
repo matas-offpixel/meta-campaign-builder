@@ -1,5 +1,10 @@
 import { rowToCampaignPlanIntent } from "./persist.ts";
-import { IDLE_PLAN_LAUNCH, type CampaignPlan, type CampaignPlanLaunchRecord } from "./types.ts";
+import {
+  IDLE_PLAN_LAUNCH,
+  type CampaignPlan,
+  type CampaignPlanLaunchRecord,
+  type CampaignPlanLaunches,
+} from "./types.ts";
 
 interface LaunchRow {
   status?: CampaignPlanLaunchRecord["status"];
@@ -43,6 +48,14 @@ export async function loadPlanLaunchRecords(
     meta: toLaunch(meta.data),
     tiktok: toLaunch(tiktok.data),
     google: toLaunch(google.data),
+  };
+}
+
+export function emptyPlanLaunches(): CampaignPlanLaunches {
+  return {
+    meta: { ...IDLE_PLAN_LAUNCH },
+    tiktok: { ...IDLE_PLAN_LAUNCH },
+    google: { ...IDLE_PLAN_LAUNCH },
   };
 }
 

@@ -3,11 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import type { BackfillOutcomeRow } from "@/lib/plan/asset-backfill";
 import {
   GOOGLE_NO_ASSETS_COPY,
   TIKTOK_LAUNCHED_UNROUTE_NOTE,
   type RoutingMatrixRow,
 } from "@/lib/plan/asset-routing";
+import {
+  diffNewAssetIds,
+  planSeenAssetsStorageKey,
+} from "@/lib/plan/live-mirror";
 
 export function AssetRoutingMatrix({
   planId,
@@ -21,11 +26,35 @@ export function AssetRoutingMatrix({
   const [launched, setLaunched] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [unregisteredCount, setUnregisteredCount] = useState(0);
+  const [backfillRows, setBackfillRows] = useState<BackfillOutcomeRow[]>([]);
+  const [backfilling, setBackfilling] = useState(false);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+
+  const markNewAssets = useCallback((nextRows: RoutingMatrixRow[]) => {
+    if (typeof window === "undefined") return;
+    const key = planSeenAssetsStorageKey(planId);
+    let seen: string[] | null = null;
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      seen = raw ? (JSON.parse(raw) as string[]) : null;
+      if (!Array.isArray(seen)) seen = null;
+    } catch {
+      seen = null;
+    }
+    const diff = diffNewAssetIds(
+      nextRows.map((row) => row.asset.id),
+      seen,
+    );
+    setNewIds(new Set(diff.newIds));
+    window.sessionStorage.setItem(key, JSON.stringify(diff.nextSeen));
+  }, [planId]);
 
   const refresh = useCallback(async () => {
     if (!hasMetaDraft) {
       setRows([]);
       setNote("Build the Meta campaign and upload assets first.");
+      setUnregisteredCount(0);
       return;
     }
     const res = await fetch(`/api/plan/${encodeURIComponent(planId)}/asset-routes`);
@@ -34,20 +63,39 @@ export function AssetRoutingMatrix({
       rows?: RoutingMatrixRow[];
       note?: string | null;
       launched?: boolean;
+      unregisteredCount?: number;
       error?: string;
     };
     if (!res.ok || !json.ok) {
       setError(json.error ?? "Could not load routing matrix");
       return;
     }
-    setRows(json.rows ?? []);
+    const nextRows = json.rows ?? [];
+    setRows(nextRows);
     setNote(json.note ?? null);
     setLaunched(json.launched === true);
+    setUnregisteredCount(json.unregisteredCount ?? 0);
     setError(null);
-  }, [hasMetaDraft, planId]);
+    markNewAssets(nextRows);
+  }, [hasMetaDraft, markNewAssets, planId]);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    function onFocus() {
+      void refresh();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") void refresh();
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [refresh]);
 
   async function setEnabled(assetId: string, enabled: boolean) {
@@ -106,6 +154,31 @@ export function AssetRoutingMatrix({
     }
   }
 
+  async function registerExisting() {
+    setBackfilling(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/plan/${encodeURIComponent(planId)}/asset-backfill`, {
+        method: "POST",
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        rows?: BackfillOutcomeRow[];
+      };
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? "Could not register existing assets");
+        return;
+      }
+      setBackfillRows(json.rows ?? []);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not register existing assets");
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   return (
     <section className="space-y-3">
       <div>
@@ -116,6 +189,30 @@ export function AssetRoutingMatrix({
         </p>
       </div>
       {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {unregisteredCount > 0 ? (
+        <div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={backfilling}
+            onClick={() => void registerExisting()}
+          >
+            Register {unregisteredCount} existing asset{unregisteredCount === 1 ? "" : "s"}
+          </Button>
+        </div>
+      ) : null}
+      {backfillRows.some((row) => row.status === "cannot_register") ? (
+        <ul className="space-y-1 text-xs text-muted-foreground">
+          {backfillRows
+            .filter((row) => row.status === "cannot_register")
+            .map((row) => (
+              <li key={row.platformId}>
+                {row.filename}: {row.reason}
+              </li>
+            ))}
+        </ul>
+      ) : null}
       {launched ? (
         <p className="text-xs text-muted-foreground">{TIKTOK_LAUNCHED_UNROUTE_NOTE}</p>
       ) : null}
@@ -146,7 +243,14 @@ export function AssetRoutingMatrix({
                         <div className="h-12 w-12 rounded bg-muted" />
                       )}
                       <div>
-                        <p className="font-medium">{row.asset.filename}</p>
+                        <p className="font-medium">
+                          {row.asset.filename}
+                          {newIds.has(row.asset.id) ? (
+                            <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                              new
+                            </span>
+                          ) : null}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {row.asset.mediaKind} · {row.asset.aspectRatio}
                         </p>

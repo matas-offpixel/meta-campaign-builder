@@ -152,6 +152,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             initialPlan={workspacePlan}
             events={eventOptions}
             tiktokAdvertiserId={advertiserIds.length === 1 ? advertiserIds[0] : null}
+            isNew={id === "new"}
           />
         </div>
       </main>

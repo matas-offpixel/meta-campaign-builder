@@ -172,6 +172,26 @@ export interface MergeDerivedGoogleResult {
   keptOperatorKeywords: number;
   replacedDerivedKeywords: number;
   addedNegatives: number;
+  lastDerivedAt: string | null;
+}
+
+export const GOOGLE_LAST_DERIVED_KEY = "plan_last_derived_at";
+
+export function googleLastDerivedAt(tree: GoogleSearchPlanTree): string | null {
+  const stamped = tree.campaigns[0]?.bid_adjustments?.[GOOGLE_LAST_DERIVED_KEY];
+  if (typeof stamped === "string" && stamped.trim()) return stamped;
+  const stamps: string[] = [];
+  for (const campaign of tree.campaigns) {
+    for (const group of campaign.ad_groups) {
+      for (const keyword of group.keywords) {
+        if (isDerivedGoogleNote(keyword.notes) && keyword.created_at) {
+          stamps.push(keyword.created_at);
+        }
+      }
+    }
+  }
+  if (stamps.length === 0) return null;
+  return stamps.reduce((latest, stamp) => (stamp > latest ? stamp : latest));
 }
 
 /**
@@ -197,6 +217,7 @@ export function mergeDerivedGoogleKeywords(
       keptOperatorKeywords: 0,
       replacedDerivedKeywords: 0,
       addedNegatives: 0,
+      lastDerivedAt: googleLastDerivedAt(tree),
     };
   }
 
@@ -245,6 +266,10 @@ export function mergeDerivedGoogleKeywords(
         index === 0
           ? {
               ...entry,
+              bid_adjustments: {
+                ...entry.bid_adjustments,
+                [GOOGLE_LAST_DERIVED_KEY]: now,
+              },
               ad_groups: entry.ad_groups.map((group, groupIndex) =>
                 groupIndex === 0
                   ? { ...group, keywords: [...operatorKeywords, ...newKeywords] }
@@ -259,5 +284,6 @@ export function mergeDerivedGoogleKeywords(
     keptOperatorKeywords: operatorKeywords.length,
     replacedDerivedKeywords,
     addedNegatives: newNegatives.length,
+    lastDerivedAt: now,
   };
 }

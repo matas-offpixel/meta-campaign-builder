@@ -1,3 +1,4 @@
+import { countUnregisteredMetaAssets } from "./asset-backfill.ts";
 import { loadLinkedDraftsForPlan, loadLinkedMetaDraft } from "./linked-drafts.ts";
 import {
   HISTORICAL_BACKFILL_NOTE,
@@ -15,9 +16,15 @@ export async function loadPlanRoutingMatrix(
   rows: RoutingMatrixRow[];
   note: string | null;
   tableMissing: boolean;
+  unregisteredCount: number;
 }> {
   if (!plan.launches.meta.draftId) {
-    return { rows: [], note: "Build the Meta campaign and upload assets first.", tableMissing: false };
+    return {
+      rows: [],
+      note: "Build the Meta campaign and upload assets first.",
+      tableMissing: false,
+      unregisteredCount: 0,
+    };
   }
   const draft = await loadLinkedMetaDraft(supabase, plan.launches.meta.draftId, plan.userId);
   const { assets, refs } = await resolveLinkedRegistryAssets(supabase, plan.userId, draft);
@@ -27,14 +34,22 @@ export async function loadPlanRoutingMatrix(
       rows: [],
       note: "creative_assets is not in this database (migration 161).",
       tableMissing: true,
+      unregisteredCount: 0,
     };
   }
   const routes = saved.ok ? saved.routes : [];
   const rows = buildRoutingMatrix({ assets, refs, routes });
+  const unregisteredCount = countUnregisteredMetaAssets(refs);
   return {
     rows,
-    note: rows.length === 0 ? HISTORICAL_BACKFILL_NOTE : null,
+    note:
+      rows.length === 0
+        ? unregisteredCount > 0
+          ? HISTORICAL_BACKFILL_NOTE
+          : "Build the Meta campaign and upload assets first."
+        : null,
     tableMissing: false,
+    unregisteredCount,
   };
 }
 

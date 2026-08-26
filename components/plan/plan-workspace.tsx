@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
 import { AssetRoutingMatrix } from "@/components/plan/asset-routing-matrix";
 import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
+import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import { splitPlanBlockers } from "@/lib/plan/blockers";
 import { planLaunchStatusIsIdle } from "@/lib/plan/from-existing";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
+import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
 import {
   planEventPickerRows,
   todayIsoDate,
@@ -53,6 +55,7 @@ function PlatformCard({
   onPrepare,
   onPrepareFromExisting,
   onRederive,
+  staleChip,
 }: {
   adapter: PlanAdapterName;
   heading: string;
@@ -69,6 +72,7 @@ function PlatformCard({
   onPrepare: () => void;
   onPrepareFromExisting?: () => void;
   onRederive?: () => void;
+  staleChip?: string | null;
 }) {
   const split = splitPlanBlockers(issues, adapter);
   const href = draftId ? wizardHrefForDraft(adapter, draftId) : null;
@@ -187,6 +191,16 @@ function PlatformCard({
               </Button>
             ) : null}
           </div>
+          {staleChip && onRederive ? (
+            <button
+              type="button"
+              className="mt-2 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-left text-xs text-foreground"
+              disabled={busy}
+              onClick={onRederive}
+            >
+              {staleChip}
+            </button>
+          ) : null}
           {!href && disabled && disabledReason ? (
             <p className="mt-2 text-xs text-muted-foreground">{disabledReason}</p>
           ) : null}
@@ -233,12 +247,20 @@ export function PlanWorkspace({
   initialPlan,
   events,
   tiktokAdvertiserId,
+  isNew = false,
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
   tiktokAdvertiserId?: string | null;
+  isNew?: boolean;
 }) {
   const [plan, setPlan] = useState(initialPlan);
+  const [hasUserEdit, setHasUserEdit] = useState(false);
+  const [persisted, setPersisted] = useState(!isNew);
+  const [staleChips, setStaleChips] = useState<{ tiktok: string | null; google: string | null }>({
+    tiktok: null,
+    google: null,
+  });
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
   const [previews, setPreviews] = useState<Record<"meta" | "tiktok" | "google", Preview> | null>(
@@ -247,7 +269,9 @@ export function PlanWorkspace({
   const [preflightOk, setPreflightOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [persistState, setPersistState] = useState<string>("Not saved yet");
+  const [persistState, setPersistState] = useState<string>(
+    isNew ? "Not saved yet" : "Saved to campaign_plans",
+  );
   const [preparing, setPreparing] = useState<PlanAdapterName | null>(null);
   const [deriving, setDeriving] = useState<PlanAdapterName | null>(null);
   const [notes, setNotes] = useState<Partial<Record<PlanAdapterName, string>>>({});
@@ -266,8 +290,13 @@ export function PlanWorkspace({
       ? `Fallback hint from this plan: audience cluster "${plan.intent.audienceClusterRef}". Once a Meta draft exists, its page groups and interests replace it.`
       : null;
 
+  function markPlan(updater: (current: CampaignPlan) => CampaignPlan) {
+    setHasUserEdit(true);
+    setPlan(updater);
+  }
+
   function patchIntent(patch: Partial<CampaignPlan["intent"]>) {
-    setPlan((current) => ({
+    markPlan((current) => ({
       ...current,
       intent: { ...current.intent, ...patch },
       updatedAt: new Date().toISOString(),
@@ -293,8 +322,42 @@ export function PlanWorkspace({
     };
   }, []);
 
+  const refreshMirror = useCallback(async () => {
+    if (!persisted) return;
+    const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/mirror`);
+    const json = (await res.json()) as {
+      ok?: boolean;
+      tiktok?: { chip?: string | null };
+      google?: { chip?: string | null };
+    };
+    if (!res.ok || !json.ok) return;
+    setStaleChips({
+      tiktok: json.tiktok?.chip ?? null,
+      google: json.google?.chip ?? null,
+    });
+  }, [persisted, plan.id]);
+
   useEffect(() => {
-    if (!plan.intent.eventId) return;
+    void refreshMirror();
+  }, [refreshMirror, hasMetaDraft]);
+
+  useEffect(() => {
+    function onFocus() {
+      void refreshMirror();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") void refreshMirror();
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [refreshMirror]);
+
+  useEffect(() => {
+    if (!shouldPersistPlanOnChange({ hasUserEdit, eventId: plan.intent.eventId })) return;
     const handle = window.setTimeout(() => {
       void fetch("/api/plan", {
         method: "POST",
@@ -305,6 +368,7 @@ export function PlanWorkspace({
         .then((json: { ok?: boolean; tableMissing?: boolean; error?: string }) => {
           if (json.ok) {
             setPersistState("Saved to campaign_plans");
+            setPersisted(true);
             if (window.location.pathname === "/plan/new") {
               router.replace(`/plan/${plan.id}`);
             }
@@ -321,7 +385,7 @@ export function PlanWorkspace({
         });
     }, 400);
     return () => window.clearTimeout(handle);
-  }, [plan, router]);
+  }, [plan, router, hasUserEdit]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -378,6 +442,12 @@ export function PlanWorkspace({
       if (!persistRes.ok || !persistJson.ok) {
         setError(persistJson.error ?? "Save the plan before preparing a draft");
         return;
+      }
+      setHasUserEdit(true);
+      setPersisted(true);
+      setPersistState("Saved to campaign_plans");
+      if (window.location.pathname === "/plan/new") {
+        router.replace(`/plan/${plan.id}`);
       }
       const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/prepare-draft`, {
         method: "POST",
@@ -442,6 +512,8 @@ export function PlanWorkspace({
         ...current,
         [adapter]: `Re-derived ${json.added ?? 0} term${json.added === 1 ? "" : "s"} from Meta; kept ${json.keptOperatorItems ?? 0} you edited in the wizard.`,
       }));
+      setStaleChips((current) => ({ ...current, [adapter]: null }));
+      void refreshMirror();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not re-derive from Meta");
     } finally {
@@ -543,7 +615,7 @@ export function PlanWorkspace({
             className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
             value={plan.name ?? ""}
             onChange={(e) =>
-              setPlan((current) => ({ ...current, name: e.target.value || null }))
+              markPlan((current) => ({ ...current, name: e.target.value || null }))
             }
           />
         </label>
@@ -669,6 +741,7 @@ export function PlanWorkspace({
               disabledReason={hasMetaDraft ? null : GOOGLE_PREPARE_REASON}
               note={notes[adapter]}
               warning={adapter === "google" ? GOOGLE_DATE_ONLY_NOTE : undefined}
+              staleChip={staleChips[adapter]}
               onPrepare={() => void prepareDraft(adapter)}
               onRederive={hasMetaDraft ? () => void rederive(adapter) : undefined}
             />
@@ -741,7 +814,8 @@ export function PlanWorkspace({
         <Link href="/plans" className="underline">
           Back to plans
         </Link>
-        . {persistState}.
+        . {persistState}.{" "}
+        <PlanDeleteAction planId={plan.id} launches={plan.launches} persisted={persisted} />
       </p>
     </div>
   );

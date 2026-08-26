@@ -230,6 +230,7 @@ describe("plan page guards", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
     assert.match(workspace, /Saved to campaign_plans|persistState/);
+    assert.match(workspace, /shouldPersistPlanOnChange/);
     assert.match(workspace, /New from plan/);
     assert.match(workspace, /From existing campaign/);
     assert.match(workspace, /Continue in wizard/);
