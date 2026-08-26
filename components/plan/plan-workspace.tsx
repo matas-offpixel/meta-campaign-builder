@@ -8,8 +8,16 @@ import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/ca
 import { AssetRoutingMatrix } from "@/components/plan/asset-routing-matrix";
 import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
+import { BlockerBadge } from "@/components/viz/blocker-badge";
+import { InfoTip } from "@/components/viz/info-tip";
+import { MetricChip } from "@/components/viz/metric-chip";
+import { PipelineStepper } from "@/components/viz/pipeline-stepper";
+import { PlatformGlyph } from "@/components/viz/platform-glyph";
+import { StatusDot } from "@/components/viz/status-dot";
+import { StatusStrip } from "@/components/viz/status-strip";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
+import { statusFromLaunchRecord } from "@/lib/viz/status";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import { splitPlanBlockers } from "@/lib/plan/blockers";
 import { planLaunchStatusIsIdle } from "@/lib/plan/from-existing";
@@ -41,10 +49,10 @@ export type { PlanEventOption };
  */
 function PlatformCard({
   adapter,
-  heading,
   preview,
   issues,
   draftId,
+  launchStatus,
   prepareLabel,
   fromExistingLabel,
   busy,
@@ -52,16 +60,17 @@ function PlatformCard({
   disabledReason,
   note,
   warning,
+  warningChips,
   onPrepare,
   onPrepareFromExisting,
   onRederive,
   staleChip,
 }: {
   adapter: PlanAdapterName;
-  heading: string;
   preview?: Preview;
   issues: PlanPreflightIssue[];
   draftId: string | null;
+  launchStatus: CampaignPlan["launches"]["meta"];
   prepareLabel: string;
   fromExistingLabel?: string;
   busy: boolean;
@@ -69,6 +78,7 @@ function PlatformCard({
   disabledReason?: string | null;
   note?: string;
   warning?: string;
+  warningChips?: { wizard: string; plan: string; tip: string };
   onPrepare: () => void;
   onPrepareFromExisting?: () => void;
   onRederive?: () => void;
@@ -76,157 +86,95 @@ function PlatformCard({
 }) {
   const split = splitPlanBlockers(issues, adapter);
   const href = draftId ? wizardHrefForDraft(adapter, draftId) : null;
+  const blockers = [...split.wizard, ...split.plan];
 
   return (
-    <article className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm">
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-          {heading}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {draftId
-            ? split.wizard.length === 0
-              ? "Complete"
-              : `${split.wizard.length} to finish in the wizard`
-            : "Not started"}
-        </p>
+    <article className="rounded-lg border border-border bg-card p-3 text-sm shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5">
+          <PlatformGlyph platform={adapter} size="md" />
+          <StatusDot status={statusFromLaunchRecord(launchStatus)} />
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          {warning ? <InfoTip label={warning} /> : null}
+          {disabledReason ? <InfoTip label={disabledReason} /> : null}
+          <BlockerBadge
+            issues={blockers.map((issue) => ({
+              id: issue.id,
+              message: issue.message,
+              href: issue.href,
+            }))}
+          />
+        </span>
       </div>
 
-      {preview ? (
-        <dl className="mt-2 space-y-1">
-          <div>
-            <dt className="text-muted-foreground">Name</dt>
-            <dd>{preview.name || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Objective</dt>
-            <dd>{preview.objective || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Daily budget</dt>
-            <dd>{preview.dailyBudget ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Destination</dt>
-            <dd className="break-all">{preview.destinationUrl || "—"}</dd>
-          </div>
-        </dl>
-      ) : null}
-
-      <div className="mt-3 space-y-3">
-        {warning ? (
-          <p className="text-xs text-muted-foreground">{warning}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {preview?.dailyBudget != null ? (
+          <MetricChip label={`${preview.dailyBudget} per day`}>£{preview.dailyBudget}/d</MetricChip>
         ) : null}
-
-        <div className="rounded-md border border-border bg-muted/30 p-3">
-          {!draftId && split.wizard.some((issue) => issue.href) ? (
-            <ul className="mb-2 space-y-1 text-xs text-muted-foreground">
-              {split.wizard
-                .filter((issue) => issue.href)
-                .map((issue) => (
-                  <li key={issue.id}>
-                    <Link href={issue.href!} className="underline">
-                      {issue.message}
-                    </Link>
-                  </li>
-                ))}
-            </ul>
-          ) : null}
-          {draftId ? (
-            <>
-              <p className="text-xs font-medium">Complete in the wizard</p>
-              {split.wizard.length === 0 ? (
-                <p className="mt-1 text-xs text-muted-foreground">Nothing outstanding.</p>
-              ) : (
-                <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
-                  {split.wizard.map((issue) => (
-                    <li key={issue.id}>
-                      {issue.href ? (
-                        <Link href={issue.href} className="underline">
-                          {issue.message}
-                        </Link>
-                      ) : (
-                        issue.message
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          ) : null}
-          <div className={`${draftId ? "mt-2" : ""} flex flex-wrap gap-2`}>
-            {href ? (
-              <Link
-                href={href}
-                className="inline-flex h-8 items-center justify-center rounded-md bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
-              >
-                Continue in wizard
-              </Link>
-            ) : (
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy || disabled}
-                  onClick={onPrepare}
-                >
-                  {prepareLabel}
-                </Button>
-                {onPrepareFromExisting && fromExistingLabel ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || disabled}
-                    onClick={onPrepareFromExisting}
-                  >
-                    {fromExistingLabel}
-                  </Button>
-                ) : null}
-              </>
-            )}
-            {href && onRederive ? (
-              <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onRederive}>
-                Re-derive from Meta
-              </Button>
-            ) : null}
-          </div>
-          {staleChip && onRederive ? (
-            <button
-              type="button"
-              className="mt-2 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-left text-xs text-foreground"
-              disabled={busy}
-              onClick={onRederive}
-            >
-              {staleChip}
-            </button>
-          ) : null}
-          {!href && disabled && disabledReason ? (
-            <p className="mt-2 text-xs text-muted-foreground">{disabledReason}</p>
-          ) : null}
-        </div>
-
-        {split.plan.length > 0 ? (
-          <div className="rounded-md border border-destructive/40 p-3">
-            <p className="text-xs font-medium text-destructive">Fix on this page</p>
-            <ul className="mt-1 space-y-1 text-xs text-destructive">
-              {split.plan.map((issue) => (
-                <li key={issue.id}>{issue.message}</li>
-              ))}
-            </ul>
-          </div>
+        {preview?.name ? (
+          <MetricChip label={preview.name}>{preview.name}</MetricChip>
         ) : null}
-
-        {split.notes.length > 0 ? (
-          <ul className="space-y-1 text-xs text-muted-foreground">
-            {split.notes.map((issue) => (
-              <li key={issue.id}>{issue.message}</li>
-            ))}
-          </ul>
+        {preview?.objective ? (
+          <MetricChip label={preview.objective}>{preview.objective}</MetricChip>
         ) : null}
-
-        {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+        {warningChips ? (
+          <span className="inline-flex items-center gap-1" title={warningChips.tip}>
+            <MetricChip label={`Wizard ${warningChips.wizard}`}>{warningChips.wizard}</MetricChip>
+            <span aria-hidden="true">→</span>
+            <MetricChip label={`Plan ${warningChips.plan}`}>{warningChips.plan}</MetricChip>
+            <InfoTip label={warningChips.tip} />
+          </span>
+        ) : null}
       </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {href ? (
+          <Link
+            href={href}
+            className="inline-flex h-8 items-center justify-center rounded-md bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
+          >
+            Continue in wizard
+          </Link>
+        ) : (
+          <Button type="button" size="sm" disabled={busy || disabled} onClick={onPrepare}>
+            {prepareLabel}
+          </Button>
+        )}
+        {onPrepareFromExisting && fromExistingLabel ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy || disabled}
+            onClick={onPrepareFromExisting}
+          >
+            {fromExistingLabel}
+          </Button>
+        ) : null}
+        {href && onRederive ? (
+          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onRederive}>
+            Re-derive from Meta
+          </Button>
+        ) : null}
+        {staleChip && onRederive ? (
+          <button
+            type="button"
+            className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-left text-xs"
+            disabled={busy}
+            onClick={onRederive}
+            title={staleChip}
+          >
+            {staleChip}
+          </button>
+        ) : null}
+      </div>
+      {note ? <p className="mt-2 text-xs text-muted-foreground">{note}</p> : null}
+      {split.notes.map((issue) => (
+        <p key={issue.id} className="mt-1 text-xs text-muted-foreground" title={issue.message}>
+          {issue.message}
+        </p>
+      ))}
     </article>
   );
 }
@@ -583,10 +531,13 @@ export function PlanWorkspace({
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <PipelineStepper launches={plan.launches} />
+        <InfoTip label="Shared inputs, three adapter previews, one paused launch." />
+      </div>
       {noEvents ? (
         <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-          No events yet. Create an event first — a plan is scoped to one event and
-          will not invent one.
+          No events yet.
         </p>
       ) : null}
 
@@ -680,71 +631,67 @@ export function PlanWorkspace({
         />
       </section>
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="font-heading text-lg tracking-wide">
-            Step 1 — Build the Meta campaign
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Meta is the authoring surface. Artist pages, similar-page groups, custom
-            audiences and lookalikes are built in the full Meta wizard; TikTok and
-            Google then derive their targeting vocabulary from it.
-          </p>
+      <section id="plan-meta" className="space-y-3">
+        <div className="flex items-center gap-2">
+          <PlatformGlyph platform="meta" size="sm" />
+          <InfoTip label="Meta is the authoring surface. Artist pages, similar-page groups, custom audiences and lookalikes are built in the full Meta wizard; TikTok and Google then derive their targeting vocabulary from it." />
         </div>
         <PlatformCard
           adapter="meta"
-          heading="Meta"
           preview={previews?.meta}
           issues={issues}
           draftId={plan.launches.meta.draftId}
+          launchStatus={plan.launches.meta}
           prepareLabel="New from plan"
           fromExistingLabel="From existing campaign…"
           busy={preparing != null || deriving != null}
           disabled={!plan.intent.eventId}
           note={notes.meta}
-          warning={WIZARD_ACTIVE_VS_PLAN_PAUSED}
+          warningChips={{
+            wizard: "ACTIVE",
+            plan: "PAUSED",
+            tip: WIZARD_ACTIVE_VS_PLAN_PAUSED,
+          }}
           onPrepare={() => void prepareDraft("meta")}
           onPrepareFromExisting={() => setLibraryOpen(true)}
         />
-        {metaFallbackHint ? (
-          <p className="text-xs text-muted-foreground">{metaFallbackHint}</p>
-        ) : null}
+        {metaFallbackHint ? <InfoTip label={metaFallbackHint} /> : null}
         {plan.launches.meta.draftId ? (
-          <p className="text-xs text-muted-foreground">
-            <Link
-              href={`/campaign/${plan.launches.meta.draftId}`}
-              className="underline underline-offset-2"
-            >
-              Automation decisions
-            </Link>
-            {" "}live on the linked Meta campaign — the same Optimisation
-            Strategy shadows TikTok and Google. No separate rules editor here.
-          </p>
+          <Link
+            href={`/campaign/${plan.launches.meta.draftId}`}
+            className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+          >
+            Automation decisions
+            <InfoTip label="The same Optimisation Strategy shadows TikTok and Google. No separate rules editor here." />
+          </Link>
         ) : null}
       </section>
 
       <AssetRoutingMatrix planId={plan.id} hasMetaDraft={hasMetaDraft} />
 
       <section id={PLAN_STEP2_HASH} className="space-y-3">
-        <div>
-          <h2 className="font-heading text-lg tracking-wide">
-            Step 2 — Derive TikTok and Google from Meta
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {hasMetaDraft
-              ? "Preparing a draft runs derivation automatically. Re-derive after Meta edits — terms you changed in the TikTok or Google wizard are never overwritten."
-              : "Locked until a Meta draft exists — there is no targeting vocabulary to derive from yet."}
-          </p>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1">
+            <PlatformGlyph platform="tiktok" size="sm" />
+            <PlatformGlyph platform="google" size="sm" />
+          </span>
+          <InfoTip
+            label={
+              hasMetaDraft
+                ? "Preparing a draft runs derivation automatically. Re-derive after Meta edits — terms you changed in the TikTok or Google wizard are never overwritten."
+                : "Locked until a Meta draft exists — there is no targeting vocabulary to derive from yet."
+            }
+          />
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {(["tiktok", "google"] as const).map((adapter) => (
             <PlatformCard
               key={adapter}
               adapter={adapter}
-              heading={adapter === "tiktok" ? "TikTok" : "Google Search"}
               preview={previews?.[adapter]}
               issues={issues}
               draftId={plan.launches[adapter].draftId}
+              launchStatus={plan.launches[adapter]}
               prepareLabel={
                 adapter === "tiktok" ? "Prepare TikTok draft" : "Prepare Google plan"
               }
@@ -761,53 +708,42 @@ export function PlanWorkspace({
         </div>
       </section>
 
-      <section className="space-y-3">
-        <Button
-          type="button"
-          disabled={launchDisabledReason != null}
-          onClick={() => void launchAll()}
-        >
-          Launch all (paused)
-        </Button>
-        {launchDisabledReason ? (
-          <p className="text-sm text-muted-foreground">{launchDisabledReason}</p>
-        ) : null}
+      <section id="plan-launch" className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            type="button"
+            disabled={launchDisabledReason != null}
+            onClick={() => void launchAll()}
+          >
+            Launch all (paused)
+          </Button>
+          <StatusStrip launches={plan.launches} />
+          {launchDisabledReason ? <InfoTip label={launchDisabledReason} /> : null}
+        </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      </section>
-
-      <section>
-        <h2 className="font-heading text-lg tracking-wide">Launch status</h2>
         {launchIdle ? (
-          <p className="mt-2 text-sm text-muted-foreground">Nothing prepared yet.</p>
+          <p className="text-sm text-muted-foreground">Nothing prepared yet.</p>
         ) : (
-          <ul className="mt-3 space-y-2 text-sm">
+          <ul className="flex flex-wrap gap-3 text-xs">
             {(["meta", "tiktok", "google"] as const).map((adapter) => {
               const record = plan.launches[adapter];
               const link = links.find((item) => item.adapter === adapter);
               return (
-                <li key={adapter} className="rounded-md border border-border px-3 py-2">
-                  <span className="font-medium capitalize">{adapter}</span>
-                  {": "}
-                  {record.status}
-                  {record.error ? ` — ${record.error}` : ""}
-                  {link?.href ? (
-                    <>
-                      {" · "}
-                      <a
-                        href={link.href}
-                        className="underline"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open in Ads Manager
-                      </a>
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">
-                      {" · "}
-                      {link?.unavailableReason}
+                <li key={adapter} className="inline-flex items-center gap-1.5">
+                  <PlatformGlyph platform={adapter} size="sm" />
+                  <StatusDot status={statusFromLaunchRecord(record)} />
+                  {record.error ? (
+                    <span className="text-destructive" title={record.error}>
+                      {record.error}
                     </span>
-                  )}
+                  ) : null}
+                  {link?.href ? (
+                    <a href={link.href} className="underline" target="_blank" rel="noreferrer">
+                      Open in Ads Manager
+                    </a>
+                  ) : link?.unavailableReason ? (
+                    <InfoTip label={link.unavailableReason} />
+                  ) : null}
                 </li>
               );
             })}

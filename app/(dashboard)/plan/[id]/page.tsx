@@ -135,10 +135,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
 
   return (
     <>
-      <PageHeader
-        title={workspacePlan.name || "New plan"}
-        description="Shared inputs, three adapter previews, one paused launch."
-      />
+      <PageHeader title={workspacePlan.name || "New plan"} />
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl">
           {id !== "new" && !plan ? (

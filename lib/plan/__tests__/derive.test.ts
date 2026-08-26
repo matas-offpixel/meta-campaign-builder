@@ -597,7 +597,7 @@ describe("plan page guards (extends #852)", () => {
       /CLUSTER_LABELS\.map/,
       "cluster is no longer an authored primary input",
     );
-    assert.match(workspace, /Build the Meta campaign/);
+    assert.match(workspace, /authoring surface|plan-meta/);
     assert.match(workspace, /Re-derive from Meta/);
   });
 });
