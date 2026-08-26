@@ -24,8 +24,14 @@ import {
   wizardHrefForDraft,
   type PreparableAdapter,
 } from "@/lib/plan/prepare-draft";
-import { upsertLinkedMetaDraft } from "@/lib/plan/linked-drafts";
+import {
+  cloneCampaignDraft,
+  draftFromLibraryTemplate,
+  overlayPlanSharedInputs,
+} from "@/lib/plan/from-existing";
+import { loadLinkedMetaDraft, upsertLinkedMetaDraft } from "@/lib/plan/linked-drafts";
 import type { CampaignPlan } from "@/lib/plan/types";
+import type { CampaignDraft, CampaignTemplate } from "@/lib/types";
 import { createClient } from "@/lib/supabase/server";
 
 function isPreparable(value: unknown): value is PreparableAdapter {
@@ -47,10 +53,16 @@ export async function POST(
 
   let adapter: unknown;
   let clientId: string | null = null;
+  let source: { kind?: string; id?: string } | undefined;
   try {
-    const body = (await req.json()) as { adapter?: unknown; clientId?: string | null };
+    const body = (await req.json()) as {
+      adapter?: unknown;
+      clientId?: string | null;
+      source?: { kind?: string; id?: string };
+    };
     adapter = body.adapter;
     clientId = body.clientId ?? null;
+    source = body.source;
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "bad JSON" },
@@ -99,14 +111,74 @@ export async function POST(
     updatedAt: row.updated_at,
   };
 
+  const fromLibrary = source?.kind === "draft" || source?.kind === "template";
   const existing = launches[adapter].draftId;
-  if (existing) {
+  if (existing && !fromLibrary) {
     return NextResponse.json({
       ok: true,
       reused: true,
       adapter,
       draftId: existing,
       href: wizardHrefForDraft(adapter, existing),
+      launches,
+    });
+  }
+
+  if (adapter === "meta" && fromLibrary) {
+    const names = await listOwnedDraftNames(supabase, user.id);
+    let copy: CampaignDraft;
+    if (source?.kind === "draft" && source.id) {
+      const original = await loadLinkedMetaDraft(supabase, source.id, user.id);
+      if (!original) {
+        return NextResponse.json(
+          { ok: false, error: "Campaign not found" },
+          { status: 404 },
+        );
+      }
+      copy = overlayPlanSharedInputs(cloneCampaignDraft(original, names), plan, {
+        clientId,
+      });
+    } else if (source?.kind === "template" && source.id) {
+      const template = await loadOwnedTemplate(supabase, user.id, source.id);
+      if (!template) {
+        return NextResponse.json(
+          { ok: false, error: "Template not found" },
+          { status: 404 },
+        );
+      }
+      copy = overlayPlanSharedInputs(draftFromLibraryTemplate(template, names), plan, {
+        clientId,
+      });
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "source.id is required" },
+        { status: 400 },
+      );
+    }
+    const saved = await upsertLinkedMetaDraft(supabase, copy, user.id);
+    if (!saved.ok) {
+      return NextResponse.json({ ok: false, error: saved.error }, { status: 500 });
+    }
+    const record = {
+      ...launches.meta,
+      draftId: copy.id,
+    };
+    const launchWrite = await upsertPlanLaunchRow(supabase, {
+      planId: plan.id,
+      userId: user.id,
+      adapter: "meta",
+      record,
+    });
+    if (!launchWrite.ok) {
+      return NextResponse.json({ ok: false, error: launchWrite.error }, { status: 500 });
+    }
+    launches.meta = record;
+    return NextResponse.json({
+      ok: true,
+      reused: false,
+      adapter,
+      draftId: copy.id,
+      href: wizardHrefForDraft("meta", copy.id),
       launches,
     });
   }
@@ -241,4 +313,52 @@ export async function POST(
     derived,
     launches,
   });
+}
+
+async function listOwnedDraftNames(supabase: unknown, userId: string): Promise<string[]> {
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => Promise<{
+          data: Array<{ name?: string | null }> | null;
+        }>;
+      };
+    };
+  };
+  const { data } = await client.from("campaign_drafts").select("name").eq("user_id", userId);
+  return (data ?? []).map((row) => row.name).filter((name): name is string => Boolean(name));
+}
+
+async function loadOwnedTemplate(
+  supabase: unknown,
+  userId: string,
+  templateId: string,
+): Promise<CampaignTemplate | null> {
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          eq: (col: string, value: string) => {
+            maybeSingle: () => Promise<{ data: Record<string, unknown> | null }>;
+          };
+        };
+      };
+    };
+  };
+  const { data } = await client
+    .from("campaign_templates")
+    .select("*")
+    .eq("id", templateId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: data.id as string,
+    name: data.name as string,
+    description: (data.description as string) ?? "",
+    tags: (data.tags as string[]) ?? [],
+    snapshot: data.snapshot_json as CampaignTemplate["snapshot"],
+    createdAt: data.created_at as string,
+    updatedAt: data.updated_at as string,
+  };
 }

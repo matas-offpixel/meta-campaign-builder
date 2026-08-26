@@ -570,6 +570,8 @@ describe("plan page guards (extends #852)", () => {
       "components/plan/plan-workspace.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
+      "components/plan/plan-datetime-field.tsx",
+      "components/library/campaign-library-picker.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

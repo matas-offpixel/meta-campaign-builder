@@ -14,6 +14,13 @@ export function normalizePlanTime(value: string | null | undefined): string | nu
   return `${match[1]}:${match[2]}`;
 }
 
+/**
+ * Time input → stored value. Empty is a clear (null). `00:00` is midnight.
+ */
+export function planTimeFromInput(value: string): string | null {
+  return normalizePlanTime(value);
+}
+
 function withSeconds(time: string): string {
   return time.length === 5 ? `${time}:00` : time;
 }

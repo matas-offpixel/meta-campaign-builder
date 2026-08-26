@@ -230,7 +230,8 @@ describe("plan page guards", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
     assert.match(workspace, /Saved to campaign_plans|persistState/);
-    assert.match(workspace, /Prepare Meta draft/);
+    assert.match(workspace, /New from plan/);
+    assert.match(workspace, /From existing campaign/);
     assert.match(workspace, /Continue in wizard/);
   });
 
@@ -239,6 +240,8 @@ describe("plan page guards", () => {
       "components/plan/plan-workspace.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
+      "components/plan/plan-datetime-field.tsx",
+      "components/library/campaign-library-picker.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
