@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 856
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/856
 - **Branch:** `cursor/meta-launch-transient-retry`
 
 ## Summary
