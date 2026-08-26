@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 859
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/859
 - **Branch:** `cursor/plan-launcher-density-and-library`
 
 ## Summary
