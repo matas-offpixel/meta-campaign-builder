@@ -24,23 +24,43 @@ export interface EventEndAnchor {
   date: string;
 }
 
-function dateFromIso(value: string | null | undefined): string | null {
-  if (!value) return null;
+/**
+ * A column is present only when it has a real timestamp/date.
+ * Empty, "null", whitespace, and unparseable values are absent.
+ * Never fall back to event_date for a missing sale column.
+ */
+export function presentEventTimestamp(value: string | null | undefined): string | null {
+  if (value == null) return null;
   const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === "null" || trimmed.toLowerCase() === "undefined") {
+    return null;
+  }
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
   const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return null;
   return localDateTimeParts(parsed).date;
 }
 
+export function eventEndDateSourceFromOption(event: {
+  eventDate?: string | null;
+  presaleAt?: string | null;
+  generalSaleAt?: string | null;
+} | null | undefined): EventEndDateSource {
+  return {
+    eventDate: event?.eventDate ?? null,
+    presaleAt: event?.presaleAt ?? null,
+    generalSaleAt: event?.generalSaleAt ?? null,
+  };
+}
+
 export function resolveEventEndAnchors(event: EventEndDateSource | null | undefined): EventEndAnchor[] {
   if (!event) return [];
   const anchors: EventEndAnchor[] = [];
-  const presale = dateFromIso(event.presaleAt);
+  const presale = presentEventTimestamp(event.presaleAt);
   if (presale) anchors.push({ id: "presale", label: "Presale", date: presale });
-  const general = dateFromIso(event.generalSaleAt);
+  const general = presentEventTimestamp(event.generalSaleAt);
   if (general) anchors.push({ id: "general_sale", label: "General sale", date: general });
-  const eventDate = dateFromIso(event.eventDate);
+  const eventDate = presentEventTimestamp(event.eventDate);
   if (eventDate) anchors.push({ id: "event", label: "Event date", date: eventDate });
   return anchors;
 }

@@ -252,6 +252,8 @@ describe("plan page guards", () => {
       "app/api/plan/[id]/duplicate/route.ts",
       "app/api/plan/from-template/route.ts",
       "app/api/plan/templates/route.ts",
+      "components/viz/overflow-menu.tsx",
+      "components/plan/plan-budget-controls.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

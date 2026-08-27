@@ -577,6 +577,8 @@ describe("plan page guards (extends #852)", () => {
       "components/library/library-rows.tsx",
       "app/api/plan/[id]/duplicate/route.ts",
       "app/api/plan/from-template/route.ts",
+      "components/viz/overflow-menu.tsx",
+      "components/plan/plan-budget-controls.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
