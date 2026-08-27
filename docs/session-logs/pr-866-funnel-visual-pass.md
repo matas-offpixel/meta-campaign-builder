@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 866
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/866
 - **Branch:** `cursor/funnel-visual-pass`
 
 ## Summary
