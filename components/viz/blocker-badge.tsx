@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert } from "lucide-react";
+import { ArrowUpRight, CircleAlert, Info } from "lucide-react";
 
 import {
   blockerRowFromIssue,
@@ -20,41 +20,67 @@ export function BlockerBadge({
   const items = rows ?? (issues ?? []).map(blockerRowFromIssue);
   if (items.length === 0) return null;
 
+  const blockerCount = items.filter((row) => row.kind !== "advisory").length;
+  const amber = blockerCount > 0;
+  const aria =
+    blockerCount > 0
+      ? `${blockerCount} blocker${blockerCount === 1 ? "" : "s"}`
+      : `${items.length} advisor${items.length === 1 ? "y" : "ies"}`;
+
   return (
     <div className="relative">
       <button
         type="button"
-        className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1.5 text-[10px] font-semibold text-warning-foreground"
+        className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
+          amber
+            ? "bg-warning text-warning-foreground"
+            : "bg-muted text-muted-foreground"
+        }`}
         aria-expanded={open}
-        aria-label={`${items.length} blocker${items.length === 1 ? "" : "s"}`}
+        aria-label={aria}
         onClick={() => setOpen((value) => !value)}
       >
         {items.length}
       </button>
       {open ? (
-        <ul className="absolute z-20 mt-1 min-w-48 space-y-1 rounded-md border border-border bg-card p-2 shadow-md">
-          {items.map((row) => (
-            <li key={row.id}>
-              {row.href ? (
-                <Link
-                  href={row.href}
-                  className="flex items-center gap-1.5 text-xs text-foreground hover:underline"
-                  title={row.full}
-                >
-                  <CircleAlert className="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
-                  <span>{row.label}</span>
-                  <ArrowUpRight className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span className="sr-only">{row.full}</span>
-                </Link>
-              ) : (
-                <span className="flex items-center gap-1.5 text-xs" title={row.full}>
-                  <CircleAlert className="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
-                  <span>{row.label}</span>
-                  <span className="sr-only">{row.full}</span>
+        <ul className="absolute right-0 z-20 mt-1 min-w-48 space-y-1 rounded-md border border-border bg-card p-2 shadow-md">
+          {items.map((row) => {
+            const advisory = row.kind === "advisory";
+            const icon = advisory ? (
+              <Info className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+            ) : (
+              <CircleAlert className="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
+            );
+            const body = (
+              <>
+                {icon}
+                <span className={advisory ? "text-muted-foreground" : "text-foreground"}>
+                  {row.label}
                 </span>
-              )}
-            </li>
-          ))}
+                {row.href ? (
+                  <ArrowUpRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+                ) : null}
+                <span className="sr-only">{row.full}</span>
+              </>
+            );
+            return (
+              <li key={row.id}>
+                {row.href ? (
+                  <Link
+                    href={row.href}
+                    className="flex items-center gap-1.5 text-xs hover:underline"
+                    title={row.full}
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-xs" title={row.full}>
+                    {body}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>

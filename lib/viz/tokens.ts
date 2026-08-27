@@ -45,6 +45,50 @@ export const VIZ_PLATFORM_LABEL: Record<VizPlatform, string> = {
   google: "Google",
 };
 
+/** Fill tokens for stacked bars — distinct from status / action colours. */
+export const VIZ_PLATFORM_BAR: Record<VizPlatform, string> = {
+  meta: "bg-sky-500",
+  tiktok: "bg-fuchsia-500",
+  google: "bg-amber-500",
+};
+
+export const VIZ_PROVENANCES = [
+  "platform-reported",
+  "first-party",
+  "manual entry",
+  "modelled",
+  "not instrumented",
+] as const;
+
+export type VizProvenance = (typeof VIZ_PROVENANCES)[number];
+
+export const VIZ_PROVENANCE_MARK: Record<VizProvenance, string> = {
+  "platform-reported": "plat",
+  "first-party": "1P",
+  "manual entry": "man",
+  modelled: "mod",
+  "not instrumented": "—",
+};
+
+export const VIZ_PROVENANCE_TOKEN: Record<VizProvenance, string> = {
+  "platform-reported": "bg-sky-500/15 text-sky-800 dark:text-sky-200",
+  "first-party": "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+  "manual entry": "bg-amber-500/15 text-amber-900 dark:text-amber-200",
+  modelled: "bg-violet-500/15 text-violet-800 dark:text-violet-200",
+  "not instrumented":
+    "border border-dashed border-border bg-transparent text-muted-foreground",
+};
+
+export const VIZ_DELTA_TONES = ["above", "below", "neutral", "none"] as const;
+export type VizDeltaTone = (typeof VIZ_DELTA_TONES)[number];
+
+export const VIZ_DELTA_TOKEN: Record<VizDeltaTone, string> = {
+  above: "text-success",
+  below: "text-warning",
+  neutral: "text-muted-foreground",
+  none: "text-muted-foreground",
+};
+
 export const VIZ_ACTIONS = [
   "scale_up",
   "scale_down",
@@ -86,6 +130,10 @@ export const VIZ_ACTION_GLYPH: Record<VizAction, string> = {
   skip_recent_touch: "·",
   metric_unavailable: "◌",
 };
+
+export function isVizPlatform(value: string): value is VizPlatform {
+  return (VIZ_PLATFORMS as readonly string[]).includes(value);
+}
 
 export function isVizAction(value: string): value is VizAction {
   return (VIZ_ACTIONS as readonly string[]).includes(value);

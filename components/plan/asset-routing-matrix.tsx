@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { AspectChip } from "@/components/viz/metric-chip";
 import { InfoTip } from "@/components/viz/info-tip";
 import { PlatformGlyph } from "@/components/viz/platform-glyph";
+import { SectionAnchor } from "@/components/viz/section-anchor";
 import {
   formatBackfillSummary,
   type BackfillOutcomeRow,
@@ -198,9 +199,11 @@ export function AssetRoutingMatrix({
 
   return (
     <section id="plan-assets" className="space-y-3">
-      <div className="flex items-center gap-2">
-        <InfoTip label="One upload on Meta, selective fan-out. This matrix only routes — it does not upload or retarget." />
-      </div>
+      <SectionAnchor
+        kind="assets"
+        label="Assets"
+        tip="One upload on Meta, selective fan-out. This matrix only routes — it does not upload or retarget."
+      />
       {note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
       {unregisteredCount > 0 ? (
         <div>
