@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 867
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/867
 - **Branch:** `cursor/plan-controls-and-splitter`
 
 ## Summary
