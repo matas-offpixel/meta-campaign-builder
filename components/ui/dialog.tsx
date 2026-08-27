@@ -108,7 +108,10 @@ export function Dialog({ open, onClose, children, ariaLabel, panelClassName }: D
         onClick={onClose}
         aria-hidden="true"
       />
-      <div ref={panelRef} className={`relative z-10 w-full max-w-md px-4 ${panelClassName ?? ""}`}>
+      <div
+        ref={panelRef}
+        className={`relative z-10 w-full px-4 ${panelClassName ?? "max-w-md"}`}
+      >
         {children}
       </div>
     </div>

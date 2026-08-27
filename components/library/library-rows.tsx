@@ -12,7 +12,11 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MetricChip } from "@/components/viz/metric-chip";
+import { formatLibraryDate, formatLibraryRelativeDate } from "@/lib/library/format-date";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
+
+export { formatLibraryDate, formatLibraryRelativeDate };
 
 export type LibraryTab = "drafts" | "published" | "archived" | "templates";
 
@@ -23,20 +27,6 @@ export const OBJECTIVE_LABELS: Record<string, string> = {
   awareness: "Awareness",
   engagement: "Engagement",
 };
-
-export function formatLibraryDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 export function filterLibraryCampaigns(
   campaigns: CampaignListItem[],
@@ -137,6 +127,7 @@ export function CampaignRow({
   onSaveAsTemplate,
 }: CampaignRowProps) {
   const objective = OBJECTIVE_LABELS[c.objective ?? ""] ?? c.objective ?? "—";
+  const objectiveMark = objective.slice(0, 1).toUpperCase();
 
   return (
     <div
@@ -144,21 +135,42 @@ export function CampaignRow({
         ${isLoading ? "opacity-50 pointer-events-none" : ""}`}
     >
       <div className="flex items-center justify-between gap-4">
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-foreground truncate">
+            <p className="truncate text-sm font-medium text-foreground">
               {c.name || "Untitled Campaign"}
             </p>
             <StatusBadge status={c.status} />
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-            <span className="font-medium">{objective}</span>
-            {c.adAccountId && <span>Account: {c.adAccountId}</span>}
-            <span className="flex items-center gap-1">
-              <Clock className="h-2.5 w-2.5" />
-              {formatLibraryDate(c.updatedAt)}
-            </span>
-          </div>
+          {variant === "pick" ? (
+            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <span
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-[10px] font-semibold"
+                aria-label={objective}
+                title={objective}
+              >
+                {objectiveMark}
+              </span>
+              {c.adAccountId ? (
+                <MetricChip label={c.adAccountId} className="max-w-[12rem]">
+                  <span className="truncate">{c.adAccountId}</span>
+                </MetricChip>
+              ) : null}
+              <span className="inline-flex shrink-0 items-center gap-1">
+                <Clock className="h-2.5 w-2.5" />
+                {formatLibraryRelativeDate(c.updatedAt)}
+              </span>
+            </div>
+          ) : (
+            <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="font-medium">{objective}</span>
+              {c.adAccountId && <span>Account: {c.adAccountId}</span>}
+              <span className="flex items-center gap-1">
+                <Clock className="h-2.5 w-2.5" />
+                {formatLibraryDate(c.updatedAt)}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
