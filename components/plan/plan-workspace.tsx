@@ -13,8 +13,10 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { PipelineStepper } from "@/components/viz/pipeline-stepper";
 import { PlatformGlyph } from "@/components/viz/platform-glyph";
+import { SectionAnchor } from "@/components/viz/section-anchor";
 import { StatusDot } from "@/components/viz/status-dot";
 import { StatusStrip } from "@/components/viz/status-strip";
+import { collectBadgeRows } from "@/lib/viz/blockers";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { statusFromLaunchRecord } from "@/lib/viz/status";
@@ -87,6 +89,21 @@ function PlatformCard({
   const split = splitPlanBlockers(issues, adapter);
   const href = draftId ? wizardHrefForDraft(adapter, draftId) : null;
   const blockers = [...split.wizard, ...split.plan];
+  const advisories = [
+    ...split.notes,
+    ...(warning ? [{ id: `${adapter}:warning`, message: warning, href: undefined }] : []),
+    ...(disabledReason
+      ? [{ id: `${adapter}:disabled`, message: disabledReason, href: undefined }]
+      : []),
+  ];
+  const badgeRows = collectBadgeRows(
+    blockers.map((issue) => ({
+      id: issue.id,
+      message: issue.message,
+      href: issue.href,
+    })),
+    advisories,
+  );
 
   return (
     <article className="rounded-lg border border-border bg-card p-3 text-sm shadow-sm">
@@ -95,17 +112,7 @@ function PlatformCard({
           <PlatformGlyph platform={adapter} size="md" />
           <StatusDot status={statusFromLaunchRecord(launchStatus)} />
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          {warning ? <InfoTip label={warning} /> : null}
-          {disabledReason ? <InfoTip label={disabledReason} /> : null}
-          <BlockerBadge
-            issues={blockers.map((issue) => ({
-              id: issue.id,
-              message: issue.message,
-              href: issue.href,
-            }))}
-          />
-        </span>
+        <BlockerBadge rows={badgeRows} />
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -170,11 +177,6 @@ function PlatformCard({
         ) : null}
       </div>
       {note ? <p className="mt-2 text-xs text-muted-foreground">{note}</p> : null}
-      {split.notes.map((issue) => (
-        <p key={issue.id} className="mt-1 text-xs text-muted-foreground" title={issue.message}>
-          {issue.message}
-        </p>
-      ))}
     </article>
   );
 }
@@ -670,19 +672,15 @@ export function PlanWorkspace({
       <AssetRoutingMatrix planId={plan.id} hasMetaDraft={hasMetaDraft} />
 
       <section id={PLAN_STEP2_HASH} className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1">
-            <PlatformGlyph platform="tiktok" size="sm" />
-            <PlatformGlyph platform="google" size="sm" />
-          </span>
-          <InfoTip
-            label={
-              hasMetaDraft
-                ? "Preparing a draft runs derivation automatically. Re-derive after Meta edits — terms you changed in the TikTok or Google wizard are never overwritten."
-                : "Locked until a Meta draft exists — there is no targeting vocabulary to derive from yet."
-            }
-          />
-        </div>
+        <SectionAnchor
+          kind="derive"
+          label="Derive"
+          tip={
+            hasMetaDraft
+              ? "Preparing a draft runs derivation automatically. Re-derive after Meta edits — terms you changed in the TikTok or Google wizard are never overwritten."
+              : "Locked until a Meta draft exists — there is no targeting vocabulary to derive from yet."
+          }
+        />
         <div className="grid gap-3 md:grid-cols-2">
           {(["tiktok", "google"] as const).map((adapter) => (
             <PlatformCard

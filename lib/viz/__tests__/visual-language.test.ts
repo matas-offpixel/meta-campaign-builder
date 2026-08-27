@@ -77,6 +77,7 @@ describe("blocker information is preserved", () => {
     assert.match(source, /row\.full/);
     assert.match(source, /row\.href/);
     assert.match(source, /ArrowUpRight/);
+    assert.match(source, /advisory/);
   });
 });
 
