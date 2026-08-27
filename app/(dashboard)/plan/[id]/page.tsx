@@ -12,6 +12,7 @@ import { loadPlanLaunchRecords } from "@/lib/plan/load";
 import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
+import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -139,9 +140,12 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
 
   return (
     <>
-      <PageHeader title={workspacePlan.name || "New plan"} />
+      <PageHeader
+        title={workspacePlan.name || "New plan"}
+        contentClassName={PLAN_SURFACE_MAX_WIDTH_CLASS}
+      />
       <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-6xl">
+        <div className={`mx-auto ${PLAN_SURFACE_MAX_WIDTH_CLASS}`}>
           {id !== "new" && !plan ? (
             <p className="mb-4 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
               {isRelationMissing(loadError)

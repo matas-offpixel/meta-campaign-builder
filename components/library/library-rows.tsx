@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ElementType } from "react";
+import { useState, type ElementType, type ReactNode } from "react";
 import {
   Archive,
   BookmarkPlus,
@@ -18,6 +18,7 @@ import { MetricChip } from "@/components/viz/metric-chip";
 import { OverflowMenu } from "@/components/viz/overflow-menu";
 import { StatusStrip } from "@/components/viz/status-strip";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
+import { planRowMenuItemSpecs } from "@/lib/viz/overflow-menu";
 import { formatLibraryDate, formatLibraryRelativeDate } from "@/lib/library/format-date";
 import {
   filterLibraryPlans,
@@ -356,68 +357,74 @@ export function PlanRow({
   const range = dateRangeLabel(plan.startDate, plan.endDate);
   const budget = plan.totalDaily;
   const disposal = planDisposalAction(plan.launches);
+  const planLabel = plan.name || "Untitled plan";
+  const specs = planRowMenuItemSpecs({ status: plan.status, disposal });
+  const icons: Record<string, ReactNode> = {
+    open: <FolderOpen />,
+    duplicate: <Copy />,
+    template: <BookmarkPlus />,
+    unarchive: <RotateCcw />,
+    delete: <Trash2 />,
+  };
+  const handlers: Record<string, () => void> = {
+    open: () => onOpen?.(plan.id),
+    duplicate: () => onDuplicate?.(plan.id),
+    template: () => onSaveAsTemplate?.(plan.id),
+    unarchive: () => onUnarchive?.(plan.id),
+    delete: () => setDeleteOpen(true),
+  };
   return (
     <div
-      className={`group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong
+      className={`group relative flex w-full items-center gap-3 rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong
         ${isLoading ? "pointer-events-none opacity-50" : ""}`}
     >
-      <div className="flex items-center justify-between gap-4">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-          onClick={() => onOpen?.(plan.id)}
-        >
-          <EventThumb url={plan.thumbUrl} name={plan.eventName ?? plan.name} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium text-foreground">
-              {plan.name || "Untitled plan"}
-            </span>
-            <span className="mt-1 flex flex-wrap items-center gap-1.5">
-              <StatusStrip launches={plan.launches} />
-              {Number.isFinite(budget) && budget > 0 ? (
-                <MetricChip label={`${budget} pounds per day`}>£{budget}/d</MetricChip>
-              ) : null}
-              {range ? <MetricChip label={range}>{range}</MetricChip> : null}
-            </span>
-          </span>
-        </button>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <OverflowMenu
-            items={[
-              { id: "open", icon: <FolderOpen />, label: "Open", onSelect: () => onOpen?.(plan.id) },
-              { id: "duplicate", icon: <Copy />, label: "Duplicate", onSelect: () => onDuplicate?.(plan.id) },
-              {
-                id: "template",
-                icon: <BookmarkPlus />,
-                label: "Save as plan template",
-                onSelect: () => onSaveAsTemplate?.(plan.id),
-              },
-              {
-                id: "unarchive",
-                icon: <RotateCcw />,
-                label: "Unarchive",
-                hidden: plan.status !== "archived",
-                onSelect: () => onUnarchive?.(plan.id),
-              },
-              {
-                id: "delete",
-                icon: <Trash2 />,
-                label: disposal === "delete" ? "Delete plan" : "Archive plan",
-                destructive: true,
-                onSelect: () => setDeleteOpen(true),
-              },
-            ]}
-          />
-          <PlanDeleteAction
-            planId={plan.id}
-            launches={plan.launches}
-            persisted
-            trigger="none"
-            open={deleteOpen}
-            onOpenChange={setDeleteOpen}
-            onDeleted={onDeleted}
-          />
-        </div>
+      <button
+        type="button"
+        aria-label={planLabel}
+        className="absolute inset-0 z-0 rounded-md"
+        onClick={() => onOpen?.(plan.id)}
+      />
+      <span className="pointer-events-none relative z-[1] shrink-0">
+        <EventThumb url={plan.thumbUrl} name={plan.eventName ?? plan.name} />
+      </span>
+      <span className="pointer-events-none relative z-[1] min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+        {planLabel}
+      </span>
+      <span className="pointer-events-none relative z-[1] shrink-0">
+        <StatusStrip launches={plan.launches} />
+      </span>
+      {Number.isFinite(budget) && budget > 0 ? (
+        <span className="pointer-events-none relative z-[1] shrink-0">
+          <MetricChip label={`${budget} pounds per day`}>£{budget}/d</MetricChip>
+        </span>
+      ) : null}
+      {range ? (
+        <span className="pointer-events-none relative z-[1] shrink-0">
+          <MetricChip label={range}>{range}</MetricChip>
+        </span>
+      ) : null}
+      <div
+        className="relative z-10 flex shrink-0 items-center gap-1.5"
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <OverflowMenu
+          items={specs.map((spec) => ({
+            ...spec,
+            icon: icons[spec.id],
+            onSelect: handlers[spec.id],
+          }))}
+        />
+        <PlanDeleteAction
+          planId={plan.id}
+          launches={plan.launches}
+          persisted
+          trigger="none"
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          onDeleted={onDeleted}
+        />
       </div>
     </div>
   );

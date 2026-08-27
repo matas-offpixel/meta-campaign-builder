@@ -8,6 +8,7 @@ export function PageHeader({
   title,
   description,
   actions,
+  contentClassName = "max-w-6xl",
 }: {
   /**
    * Page title. Accepts a string (the common case) or arbitrary
@@ -18,10 +19,15 @@ export function PageHeader({
   title: ReactNode;
   description?: string;
   actions?: ReactNode;
+  /**
+   * Inner max-width. Default stays max-w-6xl so Clients / Events /
+   * Reporting / etc. are unchanged. Plan surfaces pass a wider cap.
+   */
+  contentClassName?: string;
 }) {
   return (
     <header className="border-b border-border bg-card px-6 py-4">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+      <div className={`mx-auto flex ${contentClassName} items-center justify-between gap-4`}>
         <div className="min-w-0">
           <h1 className="font-heading text-2xl tracking-wide truncate">
             {title}

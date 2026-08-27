@@ -10,6 +10,7 @@ import { emptyPlanLaunches } from "@/lib/plan/load";
 import { loadPlanTemplatesForUser } from "@/lib/plan/plan-templates";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan, type CampaignPlanLaunches } from "@/lib/plan/types";
+import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { createClient } from "@/lib/supabase/server";
 
 interface PlanListRow {
@@ -185,9 +186,10 @@ export default async function PlansPage() {
             <InfoTip label="One set of inputs for Meta, TikTok, and Google. Everything launches paused." />
           </span>
         }
+        contentClassName={PLAN_SURFACE_MAX_WIDTH_CLASS}
       />
       <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-6xl space-y-4">
+        <div className={`mx-auto ${PLAN_SURFACE_MAX_WIDTH_CLASS} space-y-4`}>
           {/* No plans yet / PlanDeleteAction: PlanLibrary + PlanRow keep list empty copy and #863 gating. */}
           {tableMissing ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
