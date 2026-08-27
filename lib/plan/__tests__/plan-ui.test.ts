@@ -83,10 +83,11 @@ describe("planAdsManagerLinks reuses existing builders", () => {
 describe("plan UI honest copy", () => {
   it("list and workspace name empty states and the paused launch gate", () => {
     const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
+    const library = readFileSync("components/library/plan-library.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     const nav = readFileSync("components/dashboard/dashboard-nav.tsx", "utf8");
     assert.match(list, /Migration 157 has not been applied/);
-    assert.match(list, /No plans yet/);
+    assert.match(`${list}\n${library}`, /No plans yet/);
     assert.match(nav, /href: "\/plans"/);
     assert.match(workspace, /Launch all \(paused\)/);
     assert.match(workspace, /ENABLE_PLAN_FANOUT/);

@@ -127,8 +127,9 @@ describe("delete gating by child-row state", () => {
     assert.match(DELETE_PLAN_CONFIRM, /drafts and launched campaigns untouched/);
     assert.match(ARCHIVE_PLAN_CONFIRM, /drafts and launched campaigns untouched/);
     const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
+    const rows = readFileSync("components/library/library-rows.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(list, /PlanDeleteAction/);
+    assert.match(`${list}\n${rows}`, /PlanDeleteAction/);
     assert.match(workspace, /PlanDeleteAction/);
   });
 });

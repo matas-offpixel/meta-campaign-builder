@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { archiveCampaignPlan, deleteCampaignPlan } from "@/lib/plan/dispose";
+import { archiveCampaignPlan, deleteCampaignPlan, unarchiveCampaignPlan } from "@/lib/plan/dispose";
 import { loadPlanForUser } from "@/lib/plan/load";
 import { createClient } from "@/lib/supabase/server";
 
@@ -57,12 +57,25 @@ export async function PATCH(
       { status: 400 },
     );
   }
-  if (status !== "archived") {
-    return NextResponse.json({ ok: false, error: "status must be archived" }, { status: 400 });
+  if (status !== "archived" && status !== "unarchive") {
+    return NextResponse.json({ ok: false, error: "status must be archived or unarchive" }, { status: 400 });
   }
   const plan = await loadPlanForUser(supabase, id, user.id);
   if (!plan) {
     return NextResponse.json({ ok: false, error: "Plan not found" }, { status: 404 });
+  }
+  if (status === "unarchive") {
+    if (plan.status !== "archived") {
+      return NextResponse.json({ ok: false, error: "plan is not archived" }, { status: 400 });
+    }
+    const result = await unarchiveCampaignPlan(supabase, id, user.id);
+    if (!result.ok) {
+      return NextResponse.json(
+        { ok: false, tableMissing: result.tableMissing, error: result.error },
+        { status: result.tableMissing ? 503 : 400 },
+      );
+    }
+    return NextResponse.json({ ok: true, action: "unarchive", status: result.status });
   }
   const result = await archiveCampaignPlan(supabase, id, user.id);
   if (!result.ok) {

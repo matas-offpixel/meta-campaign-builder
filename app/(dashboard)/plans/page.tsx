@@ -1,28 +1,27 @@
-import Link from "next/link";
-import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
 
-import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
-import { EventThumb } from "@/components/viz/event-thumb";
+import { PlanLibrary } from "@/components/library/plan-library";
+import type { PlanLibraryItem } from "@/lib/plan/library";
 import { InfoTip } from "@/components/viz/info-tip";
-import { MetricChip } from "@/components/viz/metric-chip";
-import { StatusStrip } from "@/components/viz/status-strip";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
+import type { PlanEventOption } from "@/lib/plan/event-picker";
 import { emptyPlanLaunches } from "@/lib/plan/load";
+import { loadPlanTemplatesForUser } from "@/lib/plan/plan-templates";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
-import { IDLE_PLAN_LAUNCH, type CampaignPlanLaunches } from "@/lib/plan/types";
+import { IDLE_PLAN_LAUNCH, type CampaignPlan, type CampaignPlanLaunches } from "@/lib/plan/types";
 import { createClient } from "@/lib/supabase/server";
 
 interface PlanListRow {
   id: string;
   name: string | null;
-  status: string;
+  status: CampaignPlan["status"];
   event_id: string;
+  objective_intent: CampaignPlan["intent"]["objectiveIntent"] | null;
   total_daily_budget: number | string | null;
   start_date: string | null;
   end_date: string | null;
+  updated_at: string;
 }
 
 interface LaunchStatusRow {
@@ -43,12 +42,6 @@ function toLaunch(row: LaunchStatusRow | undefined) {
   };
 }
 
-function dateRangeLabel(start: string | null, end: string | null): string | null {
-  if (!start && !end) return null;
-  if (start && end) return `${start}–${end}`;
-  return start ?? end;
-}
-
 export default async function PlansPage() {
   const supabase = await createClient();
   const {
@@ -58,13 +51,15 @@ export default async function PlansPage() {
 
   const { data, error } = await supabase
     .from("campaign_plans")
-    .select("id, name, status, event_id, total_daily_budget, start_date, end_date")
+    .select(
+      "id, name, status, event_id, objective_intent, total_daily_budget, start_date, end_date, updated_at",
+    )
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false });
 
   const tableMissing = isRelationMissing(error);
 
-  const rows = (data ?? []) as PlanListRow[];
+  const rows = tableMissing ? [] : ((data ?? []) as PlanListRow[]);
   const ids = rows.map((row) => row.id);
   const launchesByPlan = new Map<string, CampaignPlanLaunches>();
   if (ids.length > 0) {
@@ -100,14 +95,86 @@ export default async function PlansPage() {
     }
   }
 
-  const eventIds = [...new Set(rows.map((row) => row.event_id).filter(Boolean))];
-  const { data: eventRows } = eventIds.length
-    ? await supabase.from("events").select("id, name").in("id", eventIds)
+  const { data: events } = await supabase
+    .from("events")
+    .select(
+      "id, name, client_id, event_date, presale_at, general_sale_at, event_code, venue_name, venue_city, kind, ticket_url, signup_url",
+    )
+    .eq("user_id", user.id)
+    .order("event_date", { ascending: false });
+
+  const eventRows = (events ?? []) as {
+    id: string;
+    name: string;
+    client_id: string | null;
+    event_date: string | null;
+    presale_at: string | null;
+    general_sale_at: string | null;
+    event_code: string | null;
+    venue_name: string | null;
+    venue_city: string | null;
+    kind: string | null;
+    ticket_url: string | null;
+    signup_url: string | null;
+  }[];
+  const clientIds = [...new Set(eventRows.map((event) => event.client_id).filter(Boolean))] as string[];
+  const { data: clients } = clientIds.length
+    ? await supabase.from("clients").select("id, name").in("id", clientIds)
     : { data: [] as never[] };
-  const eventNames = new Map(
-    ((eventRows ?? []) as Array<{ id: string; name: string }>).map((row) => [row.id, row.name]),
+  const clientById = new Map(
+    ((clients ?? []) as Array<{ id: string; name: string }>).map((client) => [client.id, client]),
   );
-  const thumbs = await loadEventThumbSources(supabase, eventIds, eventNames);
+
+  const eventOptions: PlanEventOption[] = eventRows.map((event) => {
+    const client = event.client_id ? clientById.get(event.client_id) : undefined;
+    return {
+      id: event.id,
+      name: event.name,
+      clientId: event.client_id,
+      clientName: client?.name ?? null,
+      venueName: event.venue_name?.trim() || event.venue_city?.trim() || null,
+      eventDate: event.event_date,
+      presaleAt: event.presale_at,
+      generalSaleAt: event.general_sale_at,
+      eventCode: event.event_code,
+      kind: event.kind,
+      ticketUrl: event.ticket_url,
+      signupUrl: event.signup_url,
+    };
+  });
+
+  const eventNames = new Map(eventRows.map((event) => [event.id, event.name]));
+  const thumbs = await loadEventThumbSources(
+    supabase,
+    [...new Set(rows.map((row) => row.event_id).filter(Boolean))],
+    eventNames,
+  );
+
+  const templatesResult = tableMissing
+    ? { ok: true as const, templates: [], tableMissing: true }
+    : await loadPlanTemplatesForUser(supabase, user.id);
+  const templates = templatesResult.ok ? templatesResult.templates : [];
+  const templatesMissing = templatesResult.ok
+    ? templatesResult.tableMissing === true
+    : false;
+
+  const plans: PlanLibraryItem[] = rows.map((row) => {
+    const thumb = thumbs.get(row.event_id);
+    return {
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      eventId: row.event_id,
+      eventName: eventNames.get(row.event_id) ?? thumb?.name ?? null,
+      thumbUrl: thumb?.url ?? null,
+      objectiveIntent: row.objective_intent,
+      totalDaily: Number(row.total_daily_budget) || 0,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      launches: launchesByPlan.get(row.id) ?? emptyPlanLaunches(),
+      updatedAt: row.updated_at,
+    };
+  });
 
   return (
     <>
@@ -118,53 +185,22 @@ export default async function PlansPage() {
             <InfoTip label="One set of inputs for Meta, TikTok, and Google. Everything launches paused." />
           </span>
         }
-        actions={
-          <Link href="/plan/new">
-            <Button size="sm">
-              <Plus className="h-3.5 w-3.5" />
-              New plan
-            </Button>
-          </Link>
-        }
       />
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl space-y-4">
+          {/* No plans yet / PlanDeleteAction: PlanLibrary + PlanRow keep list empty copy and #863 gating. */}
           {tableMissing ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
               No plans table yet. Migration 157 has not been applied.
             </p>
-          ) : rows.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-              No plans yet.
-            </p>
           ) : (
-            <ul className="divide-y divide-border rounded-lg border border-border">
-              {rows.map((row) => {
-                const thumb = thumbs.get(row.event_id);
-                const budget = Number(row.total_daily_budget);
-                const range = dateRangeLabel(row.start_date, row.end_date);
-                return (
-                  <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                    <Link href={`/plan/${row.id}`} className="flex min-w-0 flex-1 items-center gap-3">
-                      <EventThumb url={thumb?.url} name={thumb?.name ?? row.name} />
-                      <span className="truncate font-medium">{row.name || "Untitled plan"}</span>
-                      <StatusStrip
-                        launches={launchesByPlan.get(row.id) ?? emptyPlanLaunches()}
-                      />
-                      {Number.isFinite(budget) && budget > 0 ? (
-                        <MetricChip label={`${budget} pounds per day`}>£{budget}/d</MetricChip>
-                      ) : null}
-                      {range ? <MetricChip label={range}>{range}</MetricChip> : null}
-                    </Link>
-                    <PlanDeleteAction
-                      planId={row.id}
-                      launches={launchesByPlan.get(row.id) ?? emptyPlanLaunches()}
-                      persisted
-                    />
-                  </li>
-                );
-              })}
-            </ul>
+            <PlanLibrary
+              plans={plans}
+              events={eventOptions}
+              templates={templates}
+              tableMissing={false}
+              templatesMissing={templatesMissing}
+            />
           )}
         </div>
       </main>

@@ -12,9 +12,20 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
+import { EventThumb } from "@/components/viz/event-thumb";
 import { MetricChip } from "@/components/viz/metric-chip";
+import { StatusStrip } from "@/components/viz/status-strip";
 import { formatLibraryDate, formatLibraryRelativeDate } from "@/lib/library/format-date";
+import {
+  filterLibraryPlans,
+  type CampaignPlanTemplate,
+  type PlanLibraryItem,
+} from "@/lib/plan/library";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
+
+export { filterLibraryPlans };
+export type { PlanLibraryItem };
 
 export { formatLibraryDate, formatLibraryRelativeDate };
 
@@ -302,6 +313,153 @@ export function TemplateRow({
           ) : (
             <>
               <Button size="sm" onClick={() => onLoad?.(t)}>
+                <FolderOpen className="h-3.5 w-3.5" />
+                Use Template
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDel(true)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function dateRangeLabel(start: string | null, end: string | null): string | null {
+  if (!start && !end) return null;
+  if (start && end) return `${start}–${end}`;
+  return start ?? end;
+}
+
+export function PlanRow({
+  plan,
+  isLoading = false,
+  onOpen,
+  onDuplicate,
+  onSaveAsTemplate,
+  onUnarchive,
+  onDeleted,
+}: {
+  plan: PlanLibraryItem;
+  isLoading?: boolean;
+  onOpen?: (id: string) => void;
+  onDuplicate?: (id: string) => void;
+  onSaveAsTemplate?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
+  onDeleted?: () => void;
+}) {
+  const range = dateRangeLabel(plan.startDate, plan.endDate);
+  const budget = plan.totalDaily;
+  return (
+    <div
+      className={`group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong
+        ${isLoading ? "pointer-events-none opacity-50" : ""}`}
+    >
+      <div className="flex items-center justify-between gap-4">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          onClick={() => onOpen?.(plan.id)}
+        >
+          <EventThumb url={plan.thumbUrl} name={plan.eventName ?? plan.name} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-foreground">
+              {plan.name || "Untitled plan"}
+            </span>
+            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+              <StatusStrip launches={plan.launches} />
+              {Number.isFinite(budget) && budget > 0 ? (
+                <MetricChip label={`${budget} pounds per day`}>£{budget}/d</MetricChip>
+              ) : null}
+              {range ? <MetricChip label={range}>{range}</MetricChip> : null}
+            </span>
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button size="sm" onClick={() => onOpen?.(plan.id)}>
+            Open
+          </Button>
+          <Button size="sm" variant="ghost" title="Duplicate" onClick={() => onDuplicate?.(plan.id)}>
+            <Copy className="h-3.5 w-3.5" />
+            <span className="sr-only">Duplicate</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Save as plan template"
+            onClick={() => onSaveAsTemplate?.(plan.id)}
+          >
+            <BookmarkPlus className="h-3.5 w-3.5" />
+            <span className="sr-only">Save as plan template</span>
+          </Button>
+          {plan.status === "archived" ? (
+            <Button size="sm" variant="ghost" onClick={() => onUnarchive?.(plan.id)}>
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+          ) : null}
+          <PlanDeleteAction
+            planId={plan.id}
+            launches={plan.launches}
+            persisted
+            onDeleted={onDeleted}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PlanTemplateRow({
+  template,
+  onUse,
+  onDelete,
+}: {
+  template: CampaignPlanTemplate;
+  onUse?: (template: CampaignPlanTemplate) => void;
+  onDelete?: (id: string) => void;
+}) {
+  const [confirmDel, setConfirmDel] = useState(false);
+  const objective = OBJECTIVE_LABELS[template.snapshot.objectiveIntent] ?? template.snapshot.objectiveIntent;
+  return (
+    <div className="group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{template.name}</p>
+          {template.description ? (
+            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{template.description}</p>
+          ) : null}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{objective}</span>
+            {template.snapshot.budget.totalDaily > 0 ? (
+              <MetricChip label={`${template.snapshot.budget.totalDaily} pounds per day`}>
+                £{template.snapshot.budget.totalDaily}/d
+              </MetricChip>
+            ) : null}
+            {template.snapshot.splitPreset ? (
+              <MetricChip label={template.snapshot.splitPreset}>{template.snapshot.splitPreset}</MetricChip>
+            ) : null}
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-2.5 w-2.5" />
+              {formatLibraryDate(template.createdAt)}
+            </span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {confirmDel ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Delete?</span>
+              <Button size="sm" variant="destructive" onClick={() => { onDelete?.(template.id); setConfirmDel(false); }}>
+                Confirm
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDel(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Button size="sm" onClick={() => onUse?.(template)}>
                 <FolderOpen className="h-3.5 w-3.5" />
                 Use Template
               </Button>
