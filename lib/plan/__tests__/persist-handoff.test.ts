@@ -245,6 +245,7 @@ describe("plan page guards", () => {
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
       "components/plan/plan-datetime-field.tsx",
+      "components/plan/plan-identity-chips.tsx",
       "components/library/campaign-library-picker.tsx",
     ];
     for (const file of files) {

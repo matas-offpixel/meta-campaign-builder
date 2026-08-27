@@ -10,6 +10,7 @@ import {
   resolveChannelDefaults,
   type ClientChannelDefaultsRow,
   type ChannelDefaultOverrides,
+  type ResolvedChannelDefaults,
 } from "../clients/channel-defaults.ts";
 import { planToGoogleDraft } from "./adapters/google.ts";
 import { planToMetaDraft } from "./adapters/meta.ts";
@@ -40,6 +41,8 @@ export interface PlanPreflightResult {
     tiktok: ReturnType<typeof planToTikTokDraft>;
     google: ReturnType<typeof planToGoogleDraft>;
   };
+  /** Same M.1 stack Prepare applies — identity chips + preview share it. */
+  resolved: ResolvedChannelDefaults;
 }
 
 /**
@@ -150,5 +153,5 @@ export function collectPlanPreflight(
       (adapter) => !blocking.some((issue) => issue.adapter === adapter),
     );
 
-  return { ok, issues: cured, drafts };
+  return { ok, issues: cured, drafts, resolved };
 }

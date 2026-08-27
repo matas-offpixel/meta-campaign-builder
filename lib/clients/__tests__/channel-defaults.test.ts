@@ -57,7 +57,8 @@ function goldenPlan(): CampaignPlan {
 function filledRow() {
   return {
     ...emptyChannelDefaultsRow("client-1", "Black Butter"),
-    metaAdAccountId: "act_111",
+    metaAdAccountId: "act_111111",
+    metaPixelId: "pixel_default",
     defaultPageId: "page_default",
     defaultInstagramActorId: "ig_default",
     tiktokAccountId: "tt_acc_1",
@@ -84,6 +85,9 @@ describe("resolveChannelDefaults precedence", () => {
     assert.equal(fromClient.tiktokAdvertiser.value, "adv_default");
     assert.equal(fromClient.tiktokIdentity.value?.id, "id_default");
     assert.equal(fromClient.googleAdsAccount.value, "ga_acc_1");
+    assert.equal(fromClient.metaAdAccount.value, "act_111111");
+    assert.equal(fromClient.metaPixel.value, "pixel_default");
+    assert.equal(fromClient.metaPixel.provenance, "client-default");
 
     const overridden = resolveChannelDefaults(filledRow(), {
       facebookPageId: "page_override",
@@ -125,6 +129,10 @@ describe("apply* only fills empty fields", () => {
     const resolved = resolveChannelDefaults(filledRow());
 
     const meta = applyMetaChannelDefaults(planToMetaDraft(plan), resolved);
+    assert.equal(meta.settings.adAccountId, "act_111111");
+    assert.equal(meta.settings.metaAdAccountId, "act_111111");
+    assert.equal(meta.settings.pixelId, "pixel_default");
+    assert.equal(meta.settings.metaPixelId, "pixel_default");
     assert.equal(meta.settings.metaPageId, "page_default");
     assert.equal(meta.settings.metaIGAccountId, "ig_default");
     assert.equal(meta.creatives[0]?.identity.pageId, "page_default");
@@ -200,6 +208,11 @@ describe("preflight consumes defaults and names the cure when unset", () => {
       withDefaults.issues.some((issue) => /Facebook page ID is required/i.test(issue.message)),
       false,
     );
+    assert.equal(
+      withDefaults.issues.some((issue) => /Ad account ID must start|Ad account ID is required/i.test(issue.message)),
+      false,
+    );
+    assert.equal(withDefaults.drafts.meta.settings.adAccountId, "act_111111");
   });
 
   it("rewrites unresolved blockers to name the client-settings cure", () => {
@@ -218,14 +231,19 @@ describe("preflight consumes defaults and names the cure when unset", () => {
     const page = result.issues.find((issue) =>
       /no default Facebook page for Black Butter/.test(issue.message),
     );
+    const adAccount = result.issues.find((issue) =>
+      /no default Meta ad account for Black Butter/.test(issue.message),
+    );
     assert.ok(tiktokAdvertiser);
     assert.ok(tiktokIdentity);
     assert.ok(google);
     assert.ok(page);
+    assert.ok(adAccount);
     assert.equal(tiktokAdvertiser?.href, "/clients/client-1");
     assert.equal(tiktokIdentity?.href, "/clients/client-1");
     assert.equal(google?.href, "/clients/client-1");
     assert.equal(page?.href, "/clients/client-1");
+    assert.equal(adAccount?.href, "/clients/client-1");
   });
 
   it("linked drafts are not re-applied — overrides already on the draft win", () => {
@@ -264,6 +282,8 @@ describe("annotateChannelDefaultCures", () => {
         { id: "c", message: "Pick a Google Ads account before continuing." },
         { id: "d", message: "Ad 1: Facebook page ID is required" },
         { id: "e", message: "something else" },
+        { id: "f", message: "Ad account ID is required (e.g. act_1234567890)" },
+        { id: "g", message: 'Ad account ID must start with "act_"' },
       ],
       { id: "client-1", name: "Black Butter" },
     );
@@ -284,9 +304,18 @@ describe("annotateChannelDefaultCures", () => {
       "no default Facebook page for Black Butter — set it in client settings",
     );
     assert.equal(cured[4]?.message, "something else");
+    assert.equal(
+      cured[5]?.message,
+      "no default Meta ad account for Black Butter — set it in client settings",
+    );
+    assert.equal(
+      cured[6]?.message,
+      "no default Meta ad account for Black Butter — set it in client settings",
+    );
     assert.equal(cured[0]?.href, "/clients/client-1");
     assert.equal(cured[4]?.href, undefined);
     assert.equal(cured[1]?.href, "/clients/client-1");
+    assert.equal(cured[5]?.href, "/clients/client-1");
   });
 });
 
@@ -429,6 +458,11 @@ describe("source-guards — consumers and settings reuse existing pickers", () =
     const preflight = readFileSync("lib/plan/preflight.ts", "utf8");
     assert.match(preflight, /annotateChannelDefaultCures/);
     assert.match(preflight, /applyMetaChannelDefaults/);
+    assert.match(preflight, /resolveChannelDefaults/);
+    assert.match(preflight, /drafts, resolved/);
+    const defaults = readFileSync("lib/clients/channel-defaults.ts", "utf8");
+    assert.match(defaults, /normalizeAdAccountId/);
+    assert.doesNotMatch(defaults, /act_\$\{/);
   });
 
   it("migration 160 is additive, unapplied, and does not duplicate existing account columns", () => {
@@ -462,5 +496,7 @@ describe("source-guards — consumers and settings reuse existing pickers", () =
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(workspace, /issue\.href/);
     assert.match(workspace, /set it in client settings|issue\.href/);
+    assert.match(workspace, /PlanIdentityChips/);
+    assert.match(workspace, /json\.resolved/);
   });
 });
