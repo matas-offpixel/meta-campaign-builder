@@ -578,6 +578,8 @@ describe("plan page guards (extends #852)", () => {
       "app/api/plan/[id]/duplicate/route.ts",
       "app/api/plan/from-template/route.ts",
       "components/viz/overflow-menu.tsx",
+      "lib/viz/overflow-menu.ts",
+      "lib/plan/surface.ts",
       "components/plan/plan-budget-controls.tsx",
     ];
     for (const file of files) {

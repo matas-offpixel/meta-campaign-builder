@@ -253,6 +253,8 @@ describe("plan page guards", () => {
       "app/api/plan/from-template/route.ts",
       "app/api/plan/templates/route.ts",
       "components/viz/overflow-menu.tsx",
+      "lib/viz/overflow-menu.ts",
+      "lib/plan/surface.ts",
       "components/plan/plan-budget-controls.tsx",
     ];
     for (const file of files) {

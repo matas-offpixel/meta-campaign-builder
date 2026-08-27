@@ -328,6 +328,8 @@ describe("plan page grep-guard still bans upload and targeting", () => {
       "components/library/plan-library.tsx",
       "components/library/library-rows.tsx",
       "components/viz/overflow-menu.tsx",
+      "lib/viz/overflow-menu.ts",
+      "lib/plan/surface.ts",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

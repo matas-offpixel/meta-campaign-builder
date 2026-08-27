@@ -134,7 +134,8 @@ describe("3 — /plans row actions collapse to an overflow menu", () => {
   it("PlanRow uses OverflowMenu and keeps #863 PlanDeleteAction confirm", () => {
     const rows = readFileSync("components/library/library-rows.tsx", "utf8");
     assert.match(rows, /OverflowMenu/);
-    assert.match(rows, /Save as plan template/);
+    assert.match(rows, /planRowMenuItemSpecs/);
+    assert.match(readFileSync("lib/viz/overflow-menu.ts", "utf8"), /Save as plan template/);
     assert.match(rows, /PlanDeleteAction/);
     assert.match(rows, /trigger="none"/);
     assert.match(readFileSync("components/viz/overflow-menu.tsx", "utf8"), /MoreHorizontal/);
