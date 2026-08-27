@@ -247,6 +247,11 @@ describe("plan page guards", () => {
       "components/plan/plan-datetime-field.tsx",
       "components/plan/plan-identity-chips.tsx",
       "components/library/campaign-library-picker.tsx",
+      "components/library/plan-library.tsx",
+      "components/library/library-rows.tsx",
+      "app/api/plan/[id]/duplicate/route.ts",
+      "app/api/plan/from-template/route.ts",
+      "app/api/plan/templates/route.ts",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

@@ -11,6 +11,8 @@ export interface PlanEventOption {
   kind?: string | null;
   metaAdAccountId?: string | null;
   googleCustomerId?: string | null;
+  ticketUrl?: string | null;
+  signupUrl?: string | null;
 }
 
 export interface PlanEventPickerRow {
