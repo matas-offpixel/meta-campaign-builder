@@ -1,6 +1,7 @@
 import type { CampaignDraft } from "../types.ts";
 import type { TikTokCampaignDraft, TikTokAccountSetup } from "../types/tiktok-draft.ts";
 import type { GoogleSearchPlanTree } from "../google-search/types.ts";
+import { normalizeAdAccountId } from "../meta/ad-account.ts";
 
 export type ChannelDefaultProvenance = "client-default" | "operator-override" | "unset";
 
@@ -36,6 +37,7 @@ export interface ClientChannelDefaultsRow {
 
 export interface ChannelDefaultOverrides {
   metaAdAccountId?: string | null;
+  metaPixelId?: string | null;
   facebookPageId?: string | null;
   instagramActorId?: string | null;
   tiktokAccountId?: string | null;
@@ -51,6 +53,7 @@ export interface ResolvedChannelDefaults {
   clientId: string | null;
   clientName: string | null;
   metaAdAccount: ResolvedChannelField<string>;
+  metaPixel: ResolvedChannelField<string>;
   facebookPage: ResolvedChannelField<string>;
   instagramActor: ResolvedChannelField<string>;
   tiktokAccount: ResolvedChannelField<string>;
@@ -75,6 +78,22 @@ function pickField<T>(
     return { value: fallback as T, provenance: "client-default" };
   }
   return { value: null, provenance: "unset" };
+}
+
+/**
+ * Same precedence as pickField, then `normalizeAdAccountId` so a bare
+ * stored id (`1967530076312`) and an already-prefixed one both resolve
+ * to `act_<digits>`. Invalid bodies stay unset — never `act_act_`.
+ */
+function pickNormalisedAdAccount(
+  override: string | null | undefined,
+  fallback: string | null | undefined,
+): ResolvedChannelField<string> {
+  const picked = pickField(override, fallback);
+  if (!picked.value) return picked;
+  const normalised = normalizeAdAccountId(picked.value);
+  if (!normalised) return { value: null, provenance: "unset" };
+  return { value: normalised, provenance: picked.provenance };
 }
 
 function hasValue(value: unknown): boolean {
@@ -111,7 +130,11 @@ export function resolveChannelDefaults(
   return {
     clientId: stored?.clientId ?? null,
     clientName: stored?.clientName ?? null,
-    metaAdAccount: pickField(overrides.metaAdAccountId, stored?.metaAdAccountId),
+    metaAdAccount: pickNormalisedAdAccount(
+      overrides.metaAdAccountId,
+      stored?.metaAdAccountId,
+    ),
+    metaPixel: pickField(overrides.metaPixelId, stored?.metaPixelId),
     facebookPage: pickField(overrides.facebookPageId, stored?.defaultPageId),
     instagramActor: pickField(overrides.instagramActorId, stored?.defaultInstagramActorId),
     tiktokAccount: pickField(overrides.tiktokAccountId, stored?.tiktokAccountId),
@@ -376,9 +399,14 @@ export function applyMetaChannelDefaults(
   };
   const marks = { ...(next.settings.channelDefaultsApplied ?? {}) };
 
-  if (!next.settings.metaAdAccountId && !next.settings.adAccountId && resolved.metaAdAccount.value) {
-    next.settings.adAccountId = resolved.metaAdAccount.value;
-    next.settings.metaAdAccountId = resolved.metaAdAccount.value;
+  const adAccountId = normalizeAdAccountId(resolved.metaAdAccount.value);
+  if (!next.settings.metaAdAccountId && !next.settings.adAccountId && adAccountId) {
+    next.settings.adAccountId = adAccountId;
+    next.settings.metaAdAccountId = adAccountId;
+  }
+  if (!next.settings.metaPixelId && !next.settings.pixelId && resolved.metaPixel.value) {
+    next.settings.pixelId = resolved.metaPixel.value;
+    next.settings.metaPixelId = resolved.metaPixel.value;
   }
   if (!next.settings.metaPageId && resolved.facebookPage.value) {
     next.settings.metaPageId = resolved.facebookPage.value;
@@ -479,6 +507,13 @@ export function annotateChannelDefaultCures<
       return {
         ...issue,
         message: `no default Facebook page for ${name} — set it in client settings`,
+        href,
+      };
+    }
+    if (/Ad account ID is required/i.test(message) || /Ad account ID must start/i.test(message)) {
+      return {
+        ...issue,
+        message: `no default Meta ad account for ${name} — set it in client settings`,
         href,
       };
     }

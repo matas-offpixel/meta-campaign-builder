@@ -93,6 +93,7 @@ describe("plan UI honest copy", () => {
     assert.match(workspace, /No events yet/);
     assert.match(workspace, /Open in Ads Manager/);
     assert.match(workspace, /Show past events/);
+    assert.match(workspace, /PlanIdentityChips/);
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
   });
 });

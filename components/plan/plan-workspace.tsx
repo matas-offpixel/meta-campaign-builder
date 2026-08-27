@@ -9,6 +9,7 @@ import { AssetRoutingMatrix } from "@/components/plan/asset-routing-matrix";
 import { PlanBudgetControls } from "@/components/plan/plan-budget-controls";
 import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
+import { PlanIdentityChips } from "@/components/plan/plan-identity-chips";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
@@ -33,6 +34,7 @@ import {
   type PlanEventOption,
 } from "@/lib/plan/event-picker";
 import { GOOGLE_PREPARE_REASON, wizardHrefForDraft } from "@/lib/plan/prepare-draft";
+import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
 import { resolveEventEndAnchors } from "@/lib/plan/event-end-dates";
 import {
@@ -235,6 +237,7 @@ export function PlanWorkspace({
   });
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
+  const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(null);
   const [previews, setPreviews] = useState<Record<"meta" | "tiktok" | "google", Preview> | null>(
     null,
   );
@@ -377,9 +380,11 @@ export function PlanWorkspace({
           (json: {
             ok?: boolean;
             issues?: PlanPreflightIssue[];
+            resolved?: ResolvedChannelDefaults;
             previews?: Record<"meta" | "tiktok" | "google", Preview>;
           }) => {
             setIssues(json.issues ?? []);
+            setResolved(json.resolved ?? null);
             setPreviews(json.previews ?? null);
             setPreflightOk(json.ok === true);
           },
@@ -601,6 +606,7 @@ export function PlanWorkspace({
             placeholder="Select an event"
             emptyText="No matching events"
           />
+          {plan.intent.eventId ? <PlanIdentityChips resolved={resolved} /> : null}
           <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"

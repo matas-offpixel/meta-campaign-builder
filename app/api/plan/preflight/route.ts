@@ -41,6 +41,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   return NextResponse.json({
     ok: result.ok,
     issues: result.issues,
+    resolved: result.resolved,
     previews: {
       meta: {
         name: result.drafts.meta.settings.campaignName,
