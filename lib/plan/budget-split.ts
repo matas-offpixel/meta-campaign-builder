@@ -237,3 +237,31 @@ export function lifetimeToDaily(lifetime: number, days: number): number {
   if (!(days > 0) || !Number.isFinite(lifetime)) return 0;
   return fromPence(pence(lifetime / days));
 }
+
+export function formatSplitPercents(weights: Record<PlanBudgetPlatform, number>): string {
+  return PLAN_BUDGET_PLATFORMS.filter((platform) => weights[platform] > 0)
+    .map((platform) => String(Math.round(weights[platform])))
+    .join("/");
+}
+
+export function nominalPresetLabel(presetId: PlanBudgetPresetId): string {
+  return presetId.replaceAll("-", "/");
+}
+
+/**
+ * Active chip shows the effective split for the current selection.
+ * Inactive chips keep the nominal 70/20/10-style label.
+ * Tooltip is always the nominal.
+ */
+export function presetChipCopy(
+  preset: (typeof PLAN_BUDGET_PRESETS)[number],
+  selected: PlanBudgetSelection,
+  active: boolean,
+): { label: string; title: string } {
+  const nominal = nominalPresetLabel(preset.id);
+  const effective = formatSplitPercents(renormalisePreset(preset, selected));
+  return {
+    label: active ? effective || nominal : nominal,
+    title: nominal,
+  };
+}

@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { EventThumb } from "@/components/viz/event-thumb";
 import { MetricChip } from "@/components/viz/metric-chip";
+import { OverflowMenu } from "@/components/viz/overflow-menu";
 import { StatusStrip } from "@/components/viz/status-strip";
+import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { formatLibraryDate, formatLibraryRelativeDate } from "@/lib/library/format-date";
 import {
   filterLibraryPlans,
@@ -350,8 +352,10 @@ export function PlanRow({
   onUnarchive?: (id: string) => void;
   onDeleted?: () => void;
 }) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const range = dateRangeLabel(plan.startDate, plan.endDate);
   const budget = plan.totalDaily;
+  const disposal = planDisposalAction(plan.launches);
   return (
     <div
       className={`group rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong
@@ -378,31 +382,39 @@ export function PlanRow({
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
-          <Button size="sm" onClick={() => onOpen?.(plan.id)}>
-            Open
-          </Button>
-          <Button size="sm" variant="ghost" title="Duplicate" onClick={() => onDuplicate?.(plan.id)}>
-            <Copy className="h-3.5 w-3.5" />
-            <span className="sr-only">Duplicate</span>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            title="Save as plan template"
-            onClick={() => onSaveAsTemplate?.(plan.id)}
-          >
-            <BookmarkPlus className="h-3.5 w-3.5" />
-            <span className="sr-only">Save as plan template</span>
-          </Button>
-          {plan.status === "archived" ? (
-            <Button size="sm" variant="ghost" onClick={() => onUnarchive?.(plan.id)}>
-              <RotateCcw className="h-3.5 w-3.5" />
-            </Button>
-          ) : null}
+          <OverflowMenu
+            items={[
+              { id: "open", icon: <FolderOpen />, label: "Open", onSelect: () => onOpen?.(plan.id) },
+              { id: "duplicate", icon: <Copy />, label: "Duplicate", onSelect: () => onDuplicate?.(plan.id) },
+              {
+                id: "template",
+                icon: <BookmarkPlus />,
+                label: "Save as plan template",
+                onSelect: () => onSaveAsTemplate?.(plan.id),
+              },
+              {
+                id: "unarchive",
+                icon: <RotateCcw />,
+                label: "Unarchive",
+                hidden: plan.status !== "archived",
+                onSelect: () => onUnarchive?.(plan.id),
+              },
+              {
+                id: "delete",
+                icon: <Trash2 />,
+                label: disposal === "delete" ? "Delete plan" : "Archive plan",
+                destructive: true,
+                onSelect: () => setDeleteOpen(true),
+              },
+            ]}
+          />
           <PlanDeleteAction
             planId={plan.id}
             launches={plan.launches}
             persisted
+            trigger="none"
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
             onDeleted={onDeleted}
           />
         </div>

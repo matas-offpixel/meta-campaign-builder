@@ -24,14 +24,25 @@ export function PlanDeleteAction({
   launches,
   persisted,
   onDeleted,
+  trigger = "button",
+  open: openProp,
+  onOpenChange,
 }: {
   planId: string;
   launches: CampaignPlanLaunches;
   persisted: boolean;
   onDeleted?: () => void;
+  trigger?: "button" | "none";
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = openProp ?? uncontrolledOpen;
+  function setOpen(next: boolean) {
+    onOpenChange?.(next);
+    if (openProp === undefined) setUncontrolledOpen(next);
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const action = planDisposalAction(launches);
@@ -71,9 +82,11 @@ export function PlanDeleteAction({
 
   return (
     <span className="inline-flex items-center gap-2">
-      <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(true)}>
-        {label}
-      </Button>
+      {trigger === "button" ? (
+        <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setOpen(true)}>
+          {label}
+        </Button>
+      ) : null}
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
       <Dialog open={open} onClose={() => (!busy ? setOpen(false) : undefined)}>
         <DialogContent>

@@ -8,6 +8,7 @@ import {
   PLAN_BUDGET_PLATFORMS,
   PLAN_BUDGET_PRESETS,
   applyPreset,
+  presetChipCopy,
   budgetVariancePence,
   dailyKey,
   lifetimeToDaily,
@@ -184,24 +185,29 @@ export function PlanBudgetControls({
             <MetricChip label={`${dailyTotal} per day`}>£{dailyTotal}/d</MetricChip>
           )
         ) : null}
-        {PLAN_BUDGET_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
-              presetId === preset.id
-                ? "border-foreground bg-foreground text-background"
-                : "border-border text-muted-foreground"
-            }`}
-            onClick={() => {
-              const next = presetId === preset.id ? null : preset.id;
-              onPreset(next);
-              if (next) onBudget(applyPreset(dailyTotal, next, selected));
-            }}
-          >
-            {preset.id.replaceAll("-", "/")}
-          </button>
-        ))}
+        {PLAN_BUDGET_PRESETS.map((preset) => {
+          const active = presetId === preset.id;
+          const copy = presetChipCopy(preset, selected, active);
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              title={copy.title}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                active
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border text-muted-foreground"
+              }`}
+              onClick={() => {
+                const next = presetId === preset.id ? null : preset.id;
+                onPreset(next);
+                if (next) onBudget(applyPreset(dailyTotal, next, selected));
+              }}
+            >
+              {copy.label}
+            </button>
+          );
+        })}
         {!locked && variance !== 0 ? (
           <MetricChip
             label={variance > 0 ? "Over the total" : "Under the total"}

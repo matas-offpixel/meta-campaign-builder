@@ -36,7 +36,7 @@ import {
 import { GOOGLE_PREPARE_REASON, wizardHrefForDraft } from "@/lib/plan/prepare-draft";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
-import { resolveEventEndAnchors } from "@/lib/plan/event-end-dates";
+import { eventEndDateSourceFromOption, resolveEventEndAnchors } from "@/lib/plan/event-end-dates";
 import {
   applyPreset,
   lifetimeToDaily,
@@ -567,7 +567,6 @@ export function PlanWorkspace({
       intent: { ...current.intent, budget: next },
       updatedAt: new Date().toISOString(),
     }));
-    setHasUserEdit(true);
   }, [
     budgetMode,
     budgetPreset,
@@ -698,7 +697,7 @@ export function PlanWorkspace({
           date={plan.intent.endDate}
           time={plan.intent.endTime}
           onChange={({ date, time }) => patchIntent({ endDate: date, endTime: time })}
-          extras={resolveEventEndAnchors(selectedEvent).map((anchor) => {
+          extras={resolveEventEndAnchors(eventEndDateSourceFromOption(selectedEvent)).map((anchor) => {
             const active = plan.intent.endDate === anchor.date;
             return (
               <button
