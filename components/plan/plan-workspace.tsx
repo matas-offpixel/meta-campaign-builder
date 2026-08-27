@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
 import { AssetRoutingMatrix } from "@/components/plan/asset-routing-matrix";
+import { PlanBudgetControls } from "@/components/plan/plan-budget-controls";
 import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
@@ -33,9 +34,20 @@ import {
 } from "@/lib/plan/event-picker";
 import { GOOGLE_PREPARE_REASON, wizardHrefForDraft } from "@/lib/plan/prepare-draft";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
+import { resolveEventEndAnchors } from "@/lib/plan/event-end-dates";
 import {
+  applyPreset,
+  lifetimeToDaily,
+  scheduledDayCount,
+  selectionFromBudget,
+  type PlanBudgetPresetId,
+  type PlanBudgetSelection,
+} from "@/lib/plan/budget-split";
+import {
+  endOfDayLocal,
   GOOGLE_DATE_ONLY_NOTE,
   PLAN_STEP2_HASH,
+  resolveStartNow,
   WIZARD_ACTIVE_VS_PLAN_PAUSED,
 } from "@/lib/plan/schedule";
 import type { CampaignPlan, CampaignPlanObjectiveIntent, PlanAdapterName } from "@/lib/plan/types";
@@ -67,6 +79,7 @@ function PlatformCard({
   onPrepareFromExisting,
   onRederive,
   staleChip,
+  collapsed,
 }: {
   adapter: PlanAdapterName;
   preview?: Preview;
@@ -85,6 +98,7 @@ function PlatformCard({
   onPrepareFromExisting?: () => void;
   onRederive?: () => void;
   staleChip?: string | null;
+  collapsed?: boolean;
 }) {
   const split = splitPlanBlockers(issues, adapter);
   const href = draftId ? wizardHrefForDraft(adapter, draftId) : null;
@@ -96,6 +110,14 @@ function PlatformCard({
       ? [{ id: `${adapter}:disabled`, message: disabledReason, href: undefined }]
       : []),
   ];
+  if (collapsed) {
+    return (
+      <article className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+        <PlatformGlyph platform={adapter} size="md" className="text-muted-foreground" />
+      </article>
+    );
+  }
+
   const badgeRows = collectBadgeRows(
     blockers.map((issue) => ({
       id: issue.id,
@@ -227,6 +249,12 @@ export function PlanWorkspace({
   const [notes, setNotes] = useState<Partial<Record<PlanAdapterName, string>>>({});
   const [showPastEvents, setShowPastEvents] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [budgetSelected, setBudgetSelected] = useState<PlanBudgetSelection>(() =>
+    selectionFromBudget(initialPlan.intent.budget),
+  );
+  const [budgetPreset, setBudgetPreset] = useState<PlanBudgetPresetId | null>(null);
+  const [budgetMode, setBudgetMode] = useState<"daily" | "lifetime">("daily");
+  const [lifetimeTotal, setLifetimeTotal] = useState(0);
   const router = useRouter();
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
@@ -523,6 +551,26 @@ export function PlanWorkspace({
     [pickerEvents],
   );
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId);
+
+  useEffect(() => {
+    if (budgetMode !== "lifetime") return;
+    const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
+    if (days == null || lifetimeTotal <= 0 || !budgetPreset) return;
+    const next = applyPreset(lifetimeToDaily(lifetimeTotal, days), budgetPreset, budgetSelected);
+    setPlan((current) => ({
+      ...current,
+      intent: { ...current.intent, budget: next },
+      updatedAt: new Date().toISOString(),
+    }));
+    setHasUserEdit(true);
+  }, [
+    budgetMode,
+    budgetPreset,
+    budgetSelected,
+    lifetimeTotal,
+    plan.intent.endDate,
+    plan.intent.startDate,
+  ]);
   const links = planAdsManagerLinks(plan, {
     metaAdAccountId: selectedEvent?.metaAdAccountId,
     googleCustomerId: selectedEvent?.googleCustomerId,
@@ -599,37 +647,71 @@ export function PlanWorkspace({
             onChange={(e) => patchIntent({ destinationUrl: e.target.value })}
           />
         </label>
-        <div className="grid grid-cols-3 gap-2 text-sm">
-          {(["metaDaily", "tiktokDaily", "googleDaily"] as const).map((key) => (
-            <label key={key} className="block">
-              <span className="text-muted-foreground">{key.replace("Daily", "")} £/day</span>
-              <input
-                type="number"
-                min={0}
-                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-                value={plan.intent.budget[key]}
-                onChange={(e) => {
-                  const value = Number(e.target.value) || 0;
-                  const budget = { ...plan.intent.budget, [key]: value };
-                  budget.totalDaily =
-                    budget.metaDaily + budget.tiktokDaily + budget.googleDaily;
-                  patchIntent({ budget });
-                }}
-              />
-            </label>
-          ))}
-        </div>
+        <PlanBudgetControls
+          budget={plan.intent.budget}
+          startDate={plan.intent.startDate}
+          endDate={plan.intent.endDate}
+          selected={budgetSelected}
+          presetId={budgetPreset}
+          mode={budgetMode}
+          lifetime={lifetimeTotal}
+          onBudget={(budget) => patchIntent({ budget })}
+          onSelected={setBudgetSelected}
+          onPreset={setBudgetPreset}
+          onMode={(mode) => {
+            setBudgetMode(mode);
+            if (mode === "lifetime") {
+              const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
+              if (days != null && lifetimeTotal > 0 && budgetPreset) {
+                patchIntent({ budget: applyPreset(lifetimeToDaily(lifetimeTotal, days), budgetPreset, budgetSelected) });
+              }
+            }
+          }}
+          onLifetime={setLifetimeTotal}
+        />
         <PlanDateTimeField
           label="Start"
           date={plan.intent.startDate}
           time={plan.intent.startTime}
           onChange={({ date, time }) => patchIntent({ startDate: date, startTime: time })}
+          extras={
+            <button
+              type="button"
+              className="rounded-full border border-border px-2.5 py-0.5 text-[11px]"
+              onClick={() => {
+                const next = resolveStartNow();
+                patchIntent({ startDate: next.date, startTime: next.time });
+              }}
+            >
+              Now
+            </button>
+          }
         />
         <PlanDateTimeField
           label="End"
           date={plan.intent.endDate}
           time={plan.intent.endTime}
           onChange={({ date, time }) => patchIntent({ endDate: date, endTime: time })}
+          extras={resolveEventEndAnchors(selectedEvent).map((anchor) => {
+            const active = plan.intent.endDate === anchor.date;
+            return (
+              <button
+                key={anchor.id}
+                type="button"
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                  active
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border text-muted-foreground"
+                }`}
+                onClick={() => {
+                  const end = endOfDayLocal(anchor.date);
+                  patchIntent({ endDate: end.date, endTime: end.time });
+                }}
+              >
+                {anchor.label}
+              </button>
+            );
+          })}
         />
       </section>
 
@@ -656,6 +738,7 @@ export function PlanWorkspace({
           }}
           onPrepare={() => void prepareDraft("meta")}
           onPrepareFromExisting={() => setLibraryOpen(true)}
+          collapsed={!budgetSelected.meta}
         />
         {metaFallbackHint ? <InfoTip label={metaFallbackHint} /> : null}
         {plan.launches.meta.draftId ? (
@@ -701,6 +784,7 @@ export function PlanWorkspace({
               staleChip={staleChips[adapter]}
               onPrepare={() => void prepareDraft(adapter)}
               onRederive={hasMetaDraft ? () => void rederive(adapter) : undefined}
+              collapsed={!budgetSelected[adapter]}
             />
           ))}
         </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { planTimeFromInput } from "@/lib/plan/schedule";
 
 /**
@@ -13,11 +15,13 @@ export function PlanDateTimeField({
   date,
   time,
   onChange,
+  extras,
 }: {
   label: string;
   date: string | null;
   time: string | null;
   onChange: (next: { date: string | null; time: string | null }) => void;
+  extras?: ReactNode;
 }) {
   return (
     <div className="block text-sm">
@@ -51,6 +55,7 @@ export function PlanDateTimeField({
           </button>
         ) : null}
       </div>
+      {extras ? <div className="mt-1.5 flex flex-wrap items-center gap-1.5">{extras}</div> : null}
     </div>
   );
 }

@@ -91,7 +91,7 @@ export function CampaignLibraryPicker({
   ];
 
   return (
-    <Dialog open={open} onClose={onClose} panelClassName="max-w-3xl">
+    <Dialog open={open} onClose={onClose} panelClassName="max-w-5xl">
       <DialogContent className="max-h-[80vh] overflow-hidden p-0">
         <div className="p-6 pb-0">
           <DialogHeader onClose={onClose} className="mb-3">

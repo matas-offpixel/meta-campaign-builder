@@ -77,3 +77,33 @@ export const WIZARD_ACTIVE_VS_PLAN_PAUSED =
 
 export const GOOGLE_DATE_ONLY_NOTE =
   "Google Ads is date-level — start/end times on this plan are not sent to Google.";
+
+/**
+ * Start = now + this buffer so Meta never sees a past start_time.
+ * Resolved in the operator's local zone; TikTok still threads the
+ * stored HH:MM as naive advertiser-tz wall clock (#855).
+ */
+export const PLAN_START_BUFFER_MINUTES = 15;
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+export function localDateTimeParts(at: Date): { date: string; time: string } {
+  return {
+    date: `${at.getFullYear()}-${pad2(at.getMonth() + 1)}-${pad2(at.getDate())}`,
+    time: `${pad2(at.getHours())}:${pad2(at.getMinutes())}`,
+  };
+}
+
+export function resolveStartNow(
+  now: Date = new Date(),
+  bufferMinutes: number = PLAN_START_BUFFER_MINUTES,
+): { date: string; time: string } {
+  const at = new Date(now.getTime() + Math.max(0, bufferMinutes) * 60_000);
+  return localDateTimeParts(at);
+}
+
+export function endOfDayLocal(date: string): { date: string; time: string } {
+  return { date: date.slice(0, 10), time: "23:59" };
+}

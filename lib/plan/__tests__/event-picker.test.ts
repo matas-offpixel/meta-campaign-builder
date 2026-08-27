@@ -132,6 +132,8 @@ describe("plan event picker wiring vs parent sha", () => {
     assert.match(workspace, /Show past events/);
     assert.doesNotMatch(workspace, /<select[\s\S]*event\.name/);
     assert.match(page, /event_date/);
+    assert.match(page, /presale_at/);
+    assert.match(page, /general_sale_at/);
     assert.match(page, /event_code/);
     assert.match(page, /venue_name/);
     assert.match(page, /client.*name/);

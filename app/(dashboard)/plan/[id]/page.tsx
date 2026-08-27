@@ -30,7 +30,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
 
   const { data: events } = await supabase
     .from("events")
-    .select("id, name, client_id, event_date, event_code, venue_name, venue_city, kind")
+    .select("id, name, client_id, event_date, presale_at, general_sale_at, event_code, venue_name, venue_city, kind")
     .eq("user_id", user.id)
     .order("event_date", { ascending: false });
 
@@ -39,6 +39,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     name: string;
     client_id: string | null;
     event_date: string | null;
+    presale_at: string | null;
+    general_sale_at: string | null;
     event_code: string | null;
     venue_name: string | null;
     venue_city: string | null;
@@ -83,6 +85,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       clientName: client?.name ?? null,
       venueName: event.venue_name?.trim() || event.venue_city?.trim() || null,
       eventDate: event.event_date,
+      presaleAt: event.presale_at,
+      generalSaleAt: event.general_sale_at,
       eventCode: event.event_code,
       kind: event.kind,
       metaAdAccountId: client?.meta_ad_account_id ?? null,
