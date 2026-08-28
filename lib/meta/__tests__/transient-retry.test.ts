@@ -48,6 +48,37 @@ describe("isRetryableMetaTransient", () => {
     assert.equal(isRetryableMetaTransient(null), false);
     assert.equal(isRetryableMetaTransient("string"), false);
   });
+
+  it("never treats rate-limit codes as #856 transient-retryable, even with is_transient", () => {
+    for (const code of [4, 17, 32, 341, 613, 80004]) {
+      assert.equal(
+        isRetryableMetaTransient({
+          code,
+          is_transient: true,
+          message: "Application request limit reached",
+        }),
+        false,
+        `code ${code}`,
+      );
+    }
+    assert.equal(
+      isRetryableMetaTransient({
+        code: 4,
+        subcode: 80004,
+        is_transient: true,
+        message: "(#80004) Rate limited",
+      }),
+      false,
+    );
+    assert.equal(
+      isRetryableMetaTransient({
+        code: 1,
+        rawErrorData: { error_subcode: 2446079, is_transient: true },
+        message: "Quota",
+      }),
+      false,
+    );
+  });
 });
 
 describe("withMetaTransientRetry", () => {
@@ -98,6 +129,30 @@ describe("withMetaTransientRetry", () => {
     assert.equal(attempts, META_TRANSIENT_RETRY_MAX + 1);
     assert.deepEqual(delays, [...META_TRANSIENT_RETRY_BACKOFF_MS]);
     assert.equal(delays.length, 3);
+  });
+
+  it("does not sleep or retry a #4 rate limit even when is_transient", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    await assert.rejects(
+      withMetaTransientRetry(
+        async () => {
+          attempts += 1;
+          throw {
+            code: 4,
+            is_transient: true,
+            message: "Application request limit reached",
+            fbtraceId: "buc",
+          };
+        },
+        { opKind: "ad_create" },
+        async (ms) => {
+          delays.push(ms);
+        },
+      ),
+    );
+    assert.equal(attempts, 1);
+    assert.deepEqual(delays, []);
   });
 
   it("does not sleep or retry a non-transient failure", async () => {

@@ -42,6 +42,9 @@ import {
   waitForAudienceReady,
   rankSeedsByPreference,
   MetaApiError,
+  getLastKnownMetaBucUsage,
+  getMetaCallCounts,
+  resetMetaCallCounts,
 } from "@/lib/meta/client";
 import type { AudienceReadinessWaitResult } from "@/lib/meta/client";
 import {
@@ -57,6 +60,12 @@ import {
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
 import { mapLaunchTokenError } from "@/lib/meta/launch-error-classify";
+import {
+  buildRateLimitUiState,
+  isMetaRateLimitCode,
+  type RateLimitUiState,
+} from "@/lib/meta/rate-limit-ui";
+import type { BusinessUseCaseSnapshot } from "@/lib/meta/app-usage";
 import type { EngagementAudienceSpec, EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
   mapMetaObjectiveToInternal,
@@ -294,6 +303,72 @@ function internalObjectiveForAttachCampaign(
 
 // ─── Error formatting ─────────────────────────────────────────────────────────
 
+function metaCodesFromUnknown(err: unknown): { code?: number; subcode?: number } {
+  if (err instanceof MetaApiError) {
+    return { code: err.code, subcode: err.subcode };
+  }
+  if (err && typeof err === "object") {
+    const o = err as { code?: unknown; subcode?: unknown };
+    return {
+      code: typeof o.code === "number" ? o.code : undefined,
+      subcode: typeof o.subcode === "number" ? o.subcode : undefined,
+    };
+  }
+  return {};
+}
+
+function bucSnapshotFromError(
+  err: unknown,
+  override?: BusinessUseCaseSnapshot | null,
+): BusinessUseCaseSnapshot | null {
+  if (override) return override;
+  if (err instanceof MetaApiError && err.rawErrorData && typeof err.rawErrorData === "object") {
+    const raw = err.rawErrorData.__bucUsage;
+    if (raw && typeof raw === "object" && "buckets" in raw) {
+      return raw as BusinessUseCaseSnapshot;
+    }
+  }
+  return getLastKnownMetaBucUsage()?.snapshot ?? null;
+}
+
+function launchRateLimitPayload(
+  err: unknown,
+  adAccountId?: string | null,
+  bucOverride?: BusinessUseCaseSnapshot | null,
+): { error: string; rateLimited: true; rateLimit: RateLimitUiState } {
+  const { code, subcode } = metaCodesFromUnknown(err);
+  const rateLimit = buildRateLimitUiState({
+    code,
+    subcode,
+    buc: bucSnapshotFromError(err, bucOverride),
+    adAccountId,
+  });
+  return { error: rateLimit.message, rateLimited: true, rateLimit };
+}
+
+function logLaunchMetaCallCounts(phase: string): void {
+  const counts = getMetaCallCounts();
+  console.log(
+    `[launch-campaign] Meta call counts (${phase}):` +
+      ` audiences=${counts.audiences}` +
+      ` adsets=${counts.adsets}` +
+      ` creatives=${counts.creatives}` +
+      ` ads=${counts.ads}` +
+      ` other=${counts.other}`,
+  );
+}
+
+function rateLimitJsonResponse(
+  err: unknown,
+  adAccountId?: string | null,
+  bucOverride?: BusinessUseCaseSnapshot | null,
+): NextResponse {
+  logLaunchMetaCallCounts("rate-limit abort");
+  return NextResponse.json(launchRateLimitPayload(err, adAccountId, bucOverride), {
+    status: 429,
+  });
+}
+
 function formatMetaError(err: unknown): string {
   if (err instanceof MetaApiError) {
     const parts: string[] = [err.message];
@@ -395,6 +470,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     };
     if (!body?.draft) throw new Error("Missing required field: draft");
     draft = body.draft;
+    resetMetaCallCounts();
     clientIgMap = body.igAccountMap ?? {};
     createPaused = body.createPaused === true;
   } catch (err) {
@@ -576,14 +652,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         `\n  meta_code:      ${liveTokenValidation.code ?? "n/a"}` +
         `\n  error:          ${liveTokenValidation.error ?? "unknown"}`,
       );
+      if (mapped.kind === "rate_limit") {
+        const tokenAccountId =
+          draft.settings.metaAdAccountId || draft.settings.adAccountId;
+        return rateLimitJsonResponse(
+          { code: liveTokenValidation.code },
+          tokenAccountId,
+          liveTokenValidation.bucUsage ?? null,
+        );
+      }
       return NextResponse.json(
         {
           error: mapped.message,
-          // Only flag token expiry for genuine auth failures — a rate limit must
-          // not trigger the client's reconnect flow.
-          ...(mapped.kind === "rate_limit"
-            ? { rateLimited: true }
-            : { tokenExpired: true }),
+          tokenExpired: true,
           detail: liveTokenValidation.error,
         },
         { status: mapped.status },
@@ -1570,6 +1651,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         message,
         err instanceof MetaApiError ? err.toJSON() : "",
       );
+      const { code, subcode } = metaCodesFromUnknown(err);
+      if (isMetaRateLimitCode(code, subcode)) {
+        return rateLimitJsonResponse(err, adAccountId);
+      }
       return NextResponse.json(
         {
           error: `Failed to verify the existing campaign: ${message}`,
@@ -1618,6 +1703,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         ok: false,
         error: message,
       });
+      const { code, subcode } = metaCodesFromUnknown(err);
+      if (isMetaRateLimitCode(code, subcode)) {
+        return rateLimitJsonResponse(err, adAccountId);
+      }
       return NextResponse.json(
         {
           error: `Failed to create campaign: ${message}`,
@@ -4451,6 +4540,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `| creatives: ${creativesCreated.length}`,
     `| ads: ${adsCreatedTotal}`,
   );
+  logLaunchMetaCallCounts("complete");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // RETURN — LaunchSummary only; no draft mutations are returned.

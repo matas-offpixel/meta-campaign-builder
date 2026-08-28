@@ -16,14 +16,18 @@
  */
 
 /**
- * App/user/account-level rate limits — TRANSIENT. The fix is to wait and retry,
- * NOT to reconnect Facebook.
- *   4     — Application request limit reached
+ * App/user/account-level rate limits. The fix is to wait — NOT reconnect
+ * Facebook, and NOT burn more BUC budget with in-launch transient retries.
+ *   4     — Application request limit reached (often a BUC envelope)
  *   17    — User request limit reached
+ *   32    — Page request limit reached
  *   341   — Application-level rate cap (alt code on some edges)
+ *   613   — Custom audiences / ads rate limit
  *   80004 — Ad-account request limit reached
  */
-const META_RATE_LIMIT_CODES: ReadonlySet<number> = new Set([4, 17, 341, 80004]);
+const META_RATE_LIMIT_CODES: ReadonlySet<number> = new Set([
+  4, 17, 32, 341, 613, 80004,
+]);
 
 /**
  * Genuine auth failures — the token really is expired/invalid, so reconnecting
@@ -74,7 +78,7 @@ export function mapLaunchTokenError(
       kind,
       status: 429,
       reconnect: false,
-      message: `Meta rate limit reached (#${code}) — this is temporary, please retry in a few minutes.`,
+      message: `Meta rate limit reached (#${code}) — this is temporary; retry after the window resets.`,
     };
   }
   return { kind, status: 401, reconnect: true, message: RECONNECT_MESSAGE };

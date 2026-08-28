@@ -38,6 +38,7 @@ import { createClient } from "@/lib/supabase/client";
 import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
 import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
+import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
 import {
@@ -66,8 +67,10 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const userIdRef = useRef<string | null>(null);
 
   // Launch state
-  const { mutate: launchCampaign, loading: launching, error: launchError, resetError: dismissLaunchError } = useLaunchCampaign();
+  const { mutate: launchCampaign, loading: launching, error: launchError, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
+  const launchAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId || null;
+  const launchCooldown = useBucCooldown(launchAccountId, launchRateLimit);
 
   // After a launch, auto-deselect engagement types that failed with permission errors
   // for every page in a group. This prevents repeated failed API calls on the next launch
@@ -366,6 +369,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const handleSaveDraft = () => autosave(draft);
 
   const handleLaunch = async () => {
+    if (launchCooldown.blocked) return;
     const review = validateStep(7, draft);
     if (!review.valid) {
       alert(`Cannot launch:\n${review.errors.join("\n")}`);
@@ -665,12 +669,14 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             draft={draft}
             isLaunching={launching}
             launchError={launchError}
+            launchRateLimit={launchRateLimit}
             onDismissLaunchError={dismissLaunchError}
             launchSummary={launchSummary}
             onGoToLibrary={() => router.push("/")}
             linkedPlan={linkedPlan}
             onUpdateSettings={updateSettings}
             onRetryFailedAds={handleLaunch}
+            onRetryLaunch={handleLaunch}
           />
         )}
       </main>
@@ -682,6 +688,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         validationErrors={currentValidation.errors}
         saveStatus={saveStatus}
         launching={launching}
+        launchCooldownLabel={launchCooldown.label}
         onBack={handleBack}
         onContinue={handleContinue}
         onSaveDraft={handleSaveDraft}

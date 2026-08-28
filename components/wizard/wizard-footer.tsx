@@ -25,6 +25,8 @@ interface WizardFooterProps {
   saveStatus: SaveStatus;
   /** True while the Meta campaign creation API call is in flight */
   launching?: boolean;
+  /** BUC cooldown remaining, e.g. "47m 00s" — disables Launch until elapsed. */
+  launchCooldownLabel?: string | null;
   onBack: () => void;
   onContinue: () => void;
   onSaveDraft: () => void;
@@ -40,6 +42,7 @@ export function WizardFooter({
   validationErrors = [],
   saveStatus,
   launching = false,
+  launchCooldownLabel = null,
   onBack,
   onContinue,
   onSaveDraft,
@@ -136,13 +139,20 @@ export function WizardFooter({
             </Button>
 
             {isLastStep ? (
-              <Button onClick={onLaunch} disabled={!canContinue || launching}>
+              <Button
+                onClick={onLaunch}
+                disabled={!canContinue || launching || Boolean(launchCooldownLabel)}
+              >
                 {launching ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Rocket className="h-4 w-4" />
                 )}
-                {launching ? "Creating campaign…" : "Launch Campaign"}
+                {launching
+                  ? "Creating campaign…"
+                  : launchCooldownLabel
+                    ? `Retry in ${launchCooldownLabel}`
+                    : "Launch Campaign"}
               </Button>
             ) : (
               <Button onClick={onContinue} disabled={!canContinue}>

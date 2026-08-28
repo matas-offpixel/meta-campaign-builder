@@ -12,7 +12,14 @@
  * trace id.
  *
  * Lives outside client.ts so Node strip-only tests can import it.
+ *
+ * Rate-limit errors (#4 / #17 / #32 / #341 / #613 / #80004 and their
+ * subcodes) are NEVER retried here, even when Meta sets `is_transient:
+ * true` on them — each retry still consumes BUC budget. Transient means
+ * code 2 / is_transient on a non-quota error, not a rate limit.
  */
+
+import { isMetaRateLimitCode } from "./rate-limit-ui.ts";
 
 export const META_TRANSIENT_RETRY_BACKOFF_MS = [2_000, 8_000, 20_000] as const;
 
@@ -25,6 +32,7 @@ export function isRetryableMetaTransient(err: unknown): boolean {
   if (err == null || typeof err !== "object") return false;
   const e = err as {
     code?: unknown;
+    subcode?: unknown;
     message?: unknown;
     userMsg?: unknown;
     is_transient?: unknown;
@@ -32,8 +40,20 @@ export function isRetryableMetaTransient(err: unknown): boolean {
       is_transient?: unknown;
       message?: unknown;
       error_user_msg?: unknown;
+      code?: unknown;
+      error_subcode?: unknown;
     };
   };
+
+  const code = typeof e.code === "number" ? e.code : typeof e.rawErrorData?.code === "number" ? e.rawErrorData.code : null;
+  const subcode =
+    typeof e.subcode === "number"
+      ? e.subcode
+      : typeof e.rawErrorData?.error_subcode === "number"
+        ? e.rawErrorData.error_subcode
+        : null;
+  // Quota errors consume BUC even when Meta marks them is_transient.
+  if (isMetaRateLimitCode(code, subcode)) return false;
 
   if (e.is_transient === true || e.rawErrorData?.is_transient === true) return true;
   if (e.code === 2) return true;
