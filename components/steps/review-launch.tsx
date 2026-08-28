@@ -34,7 +34,34 @@ import {
   failedAdLabelsFromSummary,
   RETRY_FAILED_ADS_CONFIRM,
 } from "@/lib/meta/transient-retry";
+import {
+  formatBusinessUseCaseLimitMessage,
+  type BusinessUseCaseBucket,
+} from "@/lib/meta/app-usage";
+import { type RateLimitUiState } from "@/lib/meta/rate-limit-ui";
+import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
+
+function formatLaunchRateLimitMessage(
+  state: RateLimitUiState,
+  accountName?: string | null,
+): string {
+  if (state.kind === "business_use_case" && state.bucket && state.percent != null && state.adAccountId) {
+    return formatBusinessUseCaseLimitMessage(
+      {
+        adAccountId: state.adAccountId,
+        type: state.bucket,
+        callCountPercent: state.percent,
+        totalTimePercent: state.percent,
+        totalCpuTimePercent: state.percent,
+        maxPercent: state.percent,
+        estimatedTimeToRegainAccessMinutes: state.estimatedTimeToRegainAccessMinutes,
+      },
+      accountName ?? state.accountLabel,
+    );
+  }
+  return state.message;
+}
 
 interface ReviewLaunchProps {
   draft: CampaignDraft;
@@ -42,7 +69,11 @@ interface ReviewLaunchProps {
   isLaunching?: boolean;
   /** Set when the Meta campaign creation call fails */
   launchError?: string | null;
+  /** Named BUC / rate-limit state from a 429 launch abort. */
+  launchRateLimit?: RateLimitUiState | null;
   onDismissLaunchError?: () => void;
+  /** Re-runs launch from the failed-dialog Retry button (blocked during BUC cooldown). */
+  onRetryLaunch?: () => void;
   /** Populated after a successful launch — triggers the success state */
   launchSummary?: LaunchSummary | null;
   onGoToLibrary?: () => void;
@@ -972,11 +1003,15 @@ function RetryFailedAdsPanel({
   launchSummary,
   onRetryFailedAds,
   isLaunching,
+  cooldownBlocked,
+  cooldownLabel,
 }: {
   draftId: string;
   launchSummary: LaunchSummary;
   onRetryFailedAds: () => void;
   isLaunching?: boolean;
+  cooldownBlocked?: boolean;
+  cooldownLabel?: string | null;
 }) {
   const [failedLedgerCount, setFailedLedgerCount] = useState<number | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -1041,7 +1076,7 @@ function RetryFailedAdsPanel({
               variant="outline"
               size="sm"
               className="border-amber-400 text-amber-700 hover:bg-amber-100"
-              disabled={isLaunching}
+              disabled={isLaunching || cooldownBlocked}
               onClick={() => {
                 setConfirming(false);
                 onRetryFailedAds();
@@ -1052,7 +1087,9 @@ function RetryFailedAdsPanel({
               ) : (
                 <RefreshCw className="h-3.5 w-3.5" />
               )}
-              Confirm retry
+              {cooldownBlocked && cooldownLabel
+                ? `Retry in ${cooldownLabel}`
+                : "Confirm retry"}
             </Button>
             <Button
               variant="ghost"
@@ -1069,11 +1106,13 @@ function RetryFailedAdsPanel({
           variant="outline"
           size="sm"
           className="mt-2 border-amber-400 text-amber-700 hover:bg-amber-100"
-          disabled={isLaunching}
+          disabled={isLaunching || cooldownBlocked}
           onClick={() => setConfirming(true)}
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          Retry failed ads
+          {cooldownBlocked && cooldownLabel
+            ? `Retry in ${cooldownLabel}`
+            : "Retry failed ads"}
         </Button>
       )}
     </div>
@@ -1193,7 +1232,9 @@ export function ReviewLaunch({
   draft,
   isLaunching = false,
   launchError,
+  launchRateLimit = null,
   onDismissLaunchError,
+  onRetryLaunch,
   launchSummary,
   onGoToLibrary,
   linkedPlan,
@@ -1229,6 +1270,41 @@ export function ReviewLaunch({
 
   const adAccountId =
     draft.settings.metaAdAccountId || draft.settings.adAccountId || undefined;
+  const launchCooldown = useBucCooldown(adAccountId, launchRateLimit ?? null);
+  const [prelaunchUsage, setPrelaunchUsage] = useState<{
+    accountName: string | null;
+    bucket: BusinessUseCaseBucket | null;
+    warn: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!adAccountId || launchSummary) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/meta/usage?adAccountId=${encodeURIComponent(adAccountId)}`,
+        );
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          accountName?: string | null;
+          adsManagement?: BusinessUseCaseBucket | null;
+          warn?: boolean;
+        };
+        if (cancelled) return;
+        setPrelaunchUsage({
+          accountName: body.accountName ?? null,
+          bucket: body.adsManagement ?? null,
+          warn: body.warn === true,
+        });
+      } catch {
+        /* pre-launch indicator is best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [adAccountId, launchSummary]);
 
   const days = useMemo(() => {
     if (!bs.startDate || !bs.endDate) return 0;
@@ -1301,6 +1377,25 @@ export function ReviewLaunch({
         <p className="mt-1 text-sm text-muted-foreground">
           Review your campaign configuration before launching.
         </p>
+        {prelaunchUsage?.warn && prelaunchUsage.bucket && (
+          <div
+            className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2"
+            role="status"
+            data-testid="buc-prelaunch-warning"
+          >
+            <p className="text-sm font-medium text-amber-950">
+              {formatBusinessUseCaseLimitMessage(
+                prelaunchUsage.bucket,
+                prelaunchUsage.accountName,
+              )}
+            </p>
+            <p className="mt-0.5 text-xs text-amber-900/80">
+              This ad account&apos;s ads_management budget is already above{" "}
+              {Math.round(prelaunchUsage.bucket.maxPercent)}%. A launch that
+              creates many audiences can hit the ceiling before it finishes.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ── Live launch progress feed ──────────────────────────────────────── */}
@@ -1404,6 +1499,8 @@ export function ReviewLaunch({
               launchSummary={launchSummary}
               onRetryFailedAds={onRetryFailedAds}
               isLaunching={isLaunching}
+              cooldownBlocked={launchCooldown.blocked}
+              cooldownLabel={launchCooldown.label}
             />
           )}
 
@@ -2155,7 +2252,11 @@ export function ReviewLaunch({
             </div>
 
             <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">{launchError}</p>
+              <p className="text-sm text-destructive" data-testid="launch-error-message">
+                {launchRateLimit
+                  ? formatLaunchRateLimitMessage(launchRateLimit, prelaunchUsage?.accountName)
+                  : launchError}
+              </p>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
@@ -2164,8 +2265,21 @@ export function ReviewLaunch({
                   <Button variant="outline" onClick={onDismissLaunchError}>
                     Go Back
                   </Button>
-                  <Button variant="outline" onClick={onDismissLaunchError}>
-                    Retry
+                  <Button
+                    variant="outline"
+                    disabled={launchCooldown.blocked}
+                    onClick={() => {
+                      if (launchCooldown.blocked) return;
+                      if (onRetryLaunch) {
+                        onRetryLaunch();
+                        return;
+                      }
+                      onDismissLaunchError();
+                    }}
+                  >
+                    {launchCooldown.blocked && launchCooldown.label
+                      ? `Retry in ${launchCooldown.label}`
+                      : "Retry"}
                   </Button>
                 </>
               )}

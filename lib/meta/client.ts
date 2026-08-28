@@ -26,7 +26,12 @@ import type { UploadAssetResult } from "./upload";
 import { withActPrefix } from "./ad-account-id.ts";
 import { followCursors, PAGES_LIST_PAGE_SIZE } from "./pages-list-response.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
-import { parseAppUsageHeader, type AppUsageSnapshot } from "./app-usage.ts";
+import {
+  parseAppUsageHeader,
+  parseBusinessUseCaseUsageHeader,
+  type AppUsageSnapshot,
+  type BusinessUseCaseSnapshot,
+} from "./app-usage.ts";
 import { effectiveStatusAllowListFor } from "./adset-effective-status-filter.ts";
 import {
   AD_ACCOUNT_BASE_FIELDS,
@@ -56,18 +61,75 @@ const BASE = `https://graph.facebook.com/${API_VERSION}`;
 // right now" indicator, not a source of truth for rate-limit decisions
 // (those read the header directly off the failing call, see grantPagesForBusinessManager).
 let lastAppUsage: { snapshot: AppUsageSnapshot; capturedAt: string } | null = null;
+let lastBucUsage: { snapshot: BusinessUseCaseSnapshot; capturedAt: string } | null = null;
 
-function recordAppUsage(headers: Headers): AppUsageSnapshot | null {
-  const snapshot = parseAppUsageHeader(headers.get("x-app-usage"));
-  if (snapshot) {
-    lastAppUsage = { snapshot, capturedAt: new Date().toISOString() };
+const metaCallCounts: Record<string, number> = {
+  audiences: 0,
+  adsets: 0,
+  creatives: 0,
+  ads: 0,
+  other: 0,
+};
+
+function classifyMetaCallPhase(path: string): keyof typeof metaCallCounts {
+  const p = path.toLowerCase();
+  if (p.includes("customaudience") || p.includes("/customaudiences")) return "audiences";
+  if (p.includes("/adsets") || p.endsWith("adsets")) return "adsets";
+  if (p.includes("adcreative") || p.includes("/adcreatives")) return "creatives";
+  if (/(?:^|\/)ads(?:\/|$|\?)/.test(p) || p.endsWith("/ads")) return "ads";
+  return "other";
+}
+
+function recordUsageHeaders(
+  headers: Headers,
+  path?: string,
+): { appUsage: AppUsageSnapshot | null; bucUsage: BusinessUseCaseSnapshot | null } {
+  if (path) {
+    const phase = classifyMetaCallPhase(path);
+    metaCallCounts[phase] = (metaCallCounts[phase] ?? 0) + 1;
   }
-  return snapshot;
+  const capturedAt = new Date().toISOString();
+  const appUsage = parseAppUsageHeader(headers.get("x-app-usage"));
+  if (appUsage) lastAppUsage = { snapshot: appUsage, capturedAt };
+  const bucUsage = parseBusinessUseCaseUsageHeader(headers.get("x-business-use-case-usage"));
+  if (bucUsage) lastBucUsage = { snapshot: bucUsage, capturedAt };
+  return { appUsage, bucUsage };
+}
+
+function attachUsageToRawError(
+  raw: Record<string, unknown> | undefined,
+  appUsage: AppUsageSnapshot | null,
+  bucUsage: BusinessUseCaseSnapshot | null,
+): Record<string, unknown> | undefined {
+  const base = raw ?? {};
+  if (!appUsage && !bucUsage) return raw;
+  return {
+    ...base,
+    ...(appUsage ? { __appUsage: appUsage } : {}),
+    ...(bucUsage ? { __bucUsage: bucUsage } : {}),
+  };
 }
 
 /** Best-effort last-observed Meta app-level quota usage. Null if no call has landed yet on this instance. */
 export function getLastKnownMetaAppUsage(): { snapshot: AppUsageSnapshot; capturedAt: string } | null {
   return lastAppUsage;
+}
+
+/** Last-observed per-ad-account BUC snapshot from X-Business-Use-Case-Usage. */
+export function getLastKnownMetaBucUsage(): { snapshot: BusinessUseCaseSnapshot; capturedAt: string } | null {
+  return lastBucUsage;
+}
+
+export function getMetaCallCounts(): Record<string, number> {
+  return { ...metaCallCounts };
+}
+
+export function resetMetaCallCounts(): void {
+  metaCallCounts.audiences = 0;
+  metaCallCounts.adsets = 0;
+  metaCallCounts.creatives = 0;
+  metaCallCounts.ads = 0;
+  metaCallCounts.other = 0;
 }
 
 // ─── Error class ─────────────────────────────────────────────────────────────
@@ -280,14 +342,14 @@ async function executeGetWithRetry<T>(
     // Always parse the body — even on success Meta sometimes returns a
     // top-level `error` object alongside data.
     const json = (await response.json()) as Record<string, unknown>;
-    const appUsage = recordAppUsage(response.headers);
+    const { appUsage, bucUsage } = recordUsageHeaders(response.headers, path);
 
     if (response.ok && !json.error) {
       return json as T;
     }
 
     const parsed = parseMetaError(json, response.status);
-    if (appUsage) parsed.rawErrorData = { ...parsed.rawErrorData, __appUsage: appUsage };
+    parsed.rawErrorData = attachUsageToRawError(parsed.rawErrorData, appUsage, bucUsage);
     const budget = getRetryBudget(response.status, parsed.code);
     const remaining = attempts - attempt - 1;
     const isRateLimit =
@@ -462,7 +524,7 @@ export async function graphPostWithToken<T>(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
-  const appUsage = recordAppUsage(response.headers);
+  const { appUsage, bucUsage } = recordUsageHeaders(response.headers, path);
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
@@ -484,7 +546,7 @@ export async function graphPostWithToken<T>(
       e.fbtrace_id as string | undefined,
       e.error_subcode as number | undefined,
       (e.error_user_msg ?? e.error_user_title) as string | undefined,
-      appUsage ? { ...e, __appUsage: appUsage } : (e as Record<string, unknown>),
+      attachUsageToRawError(e as Record<string, unknown>, appUsage, bucUsage),
     );
   }
 
@@ -1769,6 +1831,7 @@ export async function createEngagementAudience(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  const { appUsage, bucUsage } = recordUsageHeaders(response.headers, "/customaudiences");
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
@@ -1790,7 +1853,7 @@ export async function createEngagementAudience(
       e.fbtrace_id as string | undefined,
       e.error_subcode as number | undefined,
       (e.error_user_msg ?? e.error_user_title) as string | undefined,
-      e as Record<string, unknown>,
+      attachUsageToRawError(e as Record<string, unknown>, appUsage, bucUsage),
     );
   }
 
@@ -1877,6 +1940,7 @@ export async function createLookalikeAudience(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  recordUsageHeaders(response.headers, "/customaudiences");
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
@@ -2108,6 +2172,7 @@ export async function uploadImageAsset(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  recordUsageHeaders(response.headers, "/adimages");
   console.log("[uploadImageAsset] Meta response:", JSON.stringify(json, null, 2));
 
   if (!response.ok || json.error) {
@@ -2186,6 +2251,7 @@ export async function uploadImageFromUrl(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  recordUsageHeaders(response.headers, "/adimages");
   console.log("[uploadImageFromUrl] Meta response:", JSON.stringify(json, null, 2));
 
   if (!response.ok || json.error) {
@@ -2291,6 +2357,7 @@ export async function uploadVideoAsset(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  recordUsageHeaders(response.headers, "/advideos");
   console.log("[uploadVideoAsset] Meta response:", JSON.stringify(json, null, 2));
 
   if (!response.ok || json.error) {
@@ -2368,6 +2435,7 @@ export async function uploadVideoThumbnail(
   }
 
   const json = (await response.json()) as Record<string, unknown>;
+  recordUsageHeaders(response.headers, "/thumbnails");
   console.log("[uploadVideoThumbnail] Meta response:", JSON.stringify(json, null, 2));
 
   if (!response.ok || json.error) {

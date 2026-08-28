@@ -14,7 +14,7 @@ import {
  */
 describe("classifyLaunchMetaCode", () => {
   it("classifies app/user/account rate-limit codes as rate_limit", () => {
-    for (const code of [4, 17, 341, 80004]) {
+    for (const code of [4, 17, 32, 341, 613, 80004]) {
       assert.equal(classifyLaunchMetaCode(code), "rate_limit", `code ${code}`);
     }
   });
@@ -39,6 +39,7 @@ describe("mapLaunchTokenError", () => {
     assert.equal(m.reconnect, false);
     assert.match(m.message, /rate limit reached \(#4\)/i);
     assert.match(m.message, /temporary|retry/i);
+    assert.doesNotMatch(m.message, /few minutes/i);
     assert.doesNotMatch(m.message, /reconnect/i);
   });
 

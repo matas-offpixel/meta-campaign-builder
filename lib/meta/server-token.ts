@@ -13,6 +13,12 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  parseAppUsageHeader,
+  parseBusinessUseCaseUsageHeader,
+  type AppUsageSnapshot,
+  type BusinessUseCaseSnapshot,
+} from "./app-usage.ts";
 
 export type TokenSource = "db" | "env";
 
@@ -43,6 +49,9 @@ export interface TokenValidation {
    * failures (network error, missing app credentials).
    */
   code?: number;
+  /** Parsed from /debug_token response headers when present. */
+  appUsage?: AppUsageSnapshot | null;
+  bucUsage?: BusinessUseCaseSnapshot | null;
 }
 
 /**
@@ -89,11 +98,18 @@ export async function validateMetaToken(token: string): Promise<TokenValidation>
       error?: { message?: string; code?: number };
     };
 
+    const appUsage = parseAppUsageHeader(res.headers.get("x-app-usage"));
+    const bucUsage = parseBusinessUseCaseUsageHeader(
+      res.headers.get("x-business-use-case-usage"),
+    );
+
     if (!res.ok || json.error) {
       return {
         valid: false,
         error: json.error?.message ?? `HTTP ${res.status}`,
         code: json.error?.code,
+        appUsage,
+        bucUsage,
       };
     }
 
@@ -103,6 +119,8 @@ export async function validateMetaToken(token: string): Promise<TokenValidation>
         valid: false,
         error: d.error.message ?? "Meta returned data.error",
         code: d.error.code,
+        appUsage,
+        bucUsage,
       };
     }
 

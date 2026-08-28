@@ -32,7 +32,7 @@
  *   80004 — Ad-account request limit reached
  */
 export const META_RATE_LIMIT_CODES: ReadonlySet<number> = new Set([
-  4, 17, 341, 80004,
+  4, 17, 32, 341, 613, 80004,
 ]);
 
 /**
