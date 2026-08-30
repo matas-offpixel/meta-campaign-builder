@@ -1770,11 +1770,23 @@ async function fetchAllTicketSalesSnapshots(
   }> = [];
   for (let from = 0; ; from += PORTAL_PAGE_SIZE) {
     const to = from + PORTAL_PAGE_SIZE - 1;
+    // Order by the leading columns of `ticket_sales_snapshots_portal_covering_idx`
+    // (event_id, snapshot_at, id) so this is a sort-free Index Only Scan — the
+    // four selected columns are all covered by that index (migration 122).
+    // Ordering by snapshot_at alone (the pre-122 shape) could not use any index
+    // across an `event_id = ANY(...)` filter, forcing a full Seq Scan + Sort of
+    // the 72MB table on every page and tripping the statement timeout (P0
+    // 2026-06-29). The `id` tie-break also makes OFFSET pagination deterministic
+    // — snapshot_at alone is not unique, so the old order could skip/duplicate
+    // rows across page boundaries. Downstream groups + re-sorts per event, so
+    // the global ordering here is irrelevant to the computed result.
     const { data, error } = await admin
       .from("ticket_sales_snapshots")
       .select("event_id, snapshot_at, tickets_sold, source")
       .in("event_id", eventIds)
+      .order("event_id", { ascending: true })
       .order("snapshot_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, to);
 
     if (error) {
