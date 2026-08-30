@@ -14,9 +14,14 @@
  *
  * ── Safety invariants, all load-bearing ────────────────────────────────────
  *
- *  1. **Nothing is ever activated.** Templates are created as drafts and
- *     `submit` is never passed through. Submitting to Meta publishes under a
- *     live client WABA and stays a human decision.
+ *  1. **Templates ARE submitted to Meta when `submitTemplates` is set.**
+ *     Policy change, 2026-07-30: the draft-holding step was removed because
+ *     Meta approval is the long pole (promotional templates clear in ~2-3 min,
+ *     autoresponders have run 10+ min), and holding drafts pushed that wait
+ *     onto the operator at send time. Submission is still OPT-IN at the call
+ *     site so a caller cannot publish to a live client WABA by accident.
+ *     What is NOT automated: attaching a broadcast audience (invariant 2) and
+ *     scheduling/firing, which remain human.
  *  2. **Nothing is ever fired.** Broadcasts are created as drafts with NO
  *     audience. Bird itself blocks activation while `_issues` reports
  *     "Included recipients must be provided", so a draft physically cannot
@@ -85,6 +90,12 @@ export interface EventPipelineInput {
   milestones?: readonly WhatsappMilestone[];
   /** Plan only — no writes at all. */
   dryRun?: boolean;
+  /**
+   * Submit each created template to Meta for approval (policy change
+   * 2026-07-30). Opt-in: omitted means drafts only. Never causes a SEND —
+   * broadcasts still have no audience attached.
+   */
+  submitTemplates?: boolean;
   /**
    * Audience routing declared by the brief. When supplied it is resolved
    * against the live APIs BEFORE anything is created, and an unresolved name
@@ -160,11 +171,12 @@ export async function runEventWhatsappPipeline(
 
   const definitions = buildEventTemplateDefinitions(input.event, milestones);
 
-  // 1. Template drafts. `submit` is deliberately NOT forwarded — see invariant 1.
+  // 1. Templates. `submit` is forwarded only when the caller opts in.
   const shipReport = await shipTemplateDefinitions(cfg, definitions, {
     brand: `${input.event.brand}_${input.event.eventSlug}`,
     channelGroupId: input.channelGroupId,
     dryRun,
+    submit: input.submitTemplates === true,
   });
 
   const outcomes: MilestoneOutcome[] = [];
