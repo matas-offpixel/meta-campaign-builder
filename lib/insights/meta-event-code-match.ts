@@ -9,6 +9,13 @@ export function metaCampaignFilterPrefix(eventCode: string): string {
   return `[${eventCode.trim()}`;
 }
 
+/** First `[CODE]` in a campaign name — the prefix the matcher keys on. */
+export function parseBracketedEventCode(campaignName: string): string | null {
+  const match = campaignName.match(/\[([^\]]+)\]/);
+  const inner = match?.[1]?.trim();
+  return inner ? inner : null;
+}
+
 export function campaignMatchesBracketedEventCode(
   campaignName: string,
   eventCode: string,
