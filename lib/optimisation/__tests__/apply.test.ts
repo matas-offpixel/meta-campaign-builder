@@ -56,6 +56,12 @@ function makeDeps(overrides: Partial<ApplyOptimisationDeps> = {}): {
       updates.push({ id, pence });
       return { id, daily_budget: String(pence) };
     },
+    readCampaignDailyBudget: async () => {
+      throw new Error("readCampaignDailyBudget must not be called for ABO");
+    },
+    updateCampaignDailyBudget: async () => {
+      throw new Error("updateCampaignDailyBudget must not be called for ABO");
+    },
     insertDecision: async (row) => {
       inserted.push(row);
     },
@@ -162,6 +168,65 @@ describe("applyOptimisationDecision — shadow / pause / underfoot", () => {
     assert.equal(notifies[0]!.channel, "ads_urgent");
     assert.equal(notifies[0]!.dedupeKey, "optimisation_write_error:adset_1");
     assert.match(notifies[0]!.text, /meta_code=2/);
+  });
+
+  it("CBO scope writes campaign daily_budget, not the ad set", async () => {
+    const campaignReads: string[] = [];
+    const campaignUpdates: Array<{ id: string; pence: number }> = [];
+    const { deps, inserted, updates, reads } = makeDeps({
+      readCampaignDailyBudget: async (id) => {
+        campaignReads.push(id);
+        return 15000;
+      },
+      updateCampaignDailyBudget: async (id, pence) => {
+        campaignUpdates.push({ id, pence });
+        return { id, daily_budget: String(pence) };
+      },
+    });
+    const outcome = await applyOptimisationDecision(
+      input({
+        decision: decision({
+          scope: "campaign",
+          adsetId: "camp_1",
+          budgetBeforePence: 15000,
+          budgetAfterPence: 17250,
+        }),
+      }),
+      deps,
+    );
+    assert.equal(outcome.kind, "applied");
+    assert.equal(reads.length, 0);
+    assert.equal(updates.length, 0);
+    assert.deepEqual(campaignReads, ["camp_1"]);
+    assert.deepEqual(campaignUpdates, [{ id: "camp_1", pence: 17250 }]);
+    assert.equal(inserted[0]!.scope, "campaign");
+    assert.equal(inserted[0]!.dryRun, false);
+    assert.equal(inserted[0]!.applied, true);
+  });
+
+  it("CBO scope stays dry_run when the three gates are not open", async () => {
+    const { deps, inserted, updates } = makeDeps({
+      updateCampaignDailyBudget: async () => {
+        throw new Error("must not write");
+      },
+    });
+    const outcome = await applyOptimisationDecision(
+      input({
+        gates: shadowGates,
+        decision: decision({
+          scope: "campaign",
+          adsetId: "camp_1",
+          budgetBeforePence: 15000,
+          budgetAfterPence: 17250,
+        }),
+      }),
+      deps,
+    );
+    assert.equal(outcome.kind, "shadow");
+    assert.equal(outcome.wrote, false);
+    assert.equal(inserted[0]!.dryRun, true);
+    assert.equal(inserted[0]!.applied, false);
+    assert.equal(updates.length, 0);
   });
 
   it("writesRemaining=0 records a shadow decision and does not write", async () => {

@@ -7,7 +7,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { evaluateAdSet, resolveLastTouchedAt, type EvaluateAdSetInput } from "../evaluate.ts";
+import {
+  evaluateAdSet,
+  evaluateCampaign,
+  resolveLastTouchedAt,
+  type EvaluateAdSetInput,
+} from "../evaluate.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
 
 function tid(): string {
@@ -308,5 +313,55 @@ describe("evaluateAdSet — dormant / recent-touch skips", () => {
     const decided = new Date("2026-08-20T08:00:00Z");
     assert.equal(resolveLastTouchedAt(null, decided), decided);
     assert.equal(resolveLastTouchedAt(null, null), null);
+  });
+});
+
+describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
+  it("hard ceiling binds on the campaign daily budget", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 120,
+      ceilingBehaviour: "partial",
+    };
+    const result = evaluateCampaign(
+      baseInput({
+        guardrails,
+        currentBudgetPence: 10000,
+        liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+      }),
+    );
+    assert.equal(result.action, "scale_up");
+    assert.equal(result.budgetAfterPence, 12000);
+    assert.equal(result.guardrailNote, "hit_hard_ceiling");
+  });
+
+  it("maxSingleAdSetBudget does not bind on the CBO path", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "partial",
+      maxSingleAdSetBudget: 50,
+      maxSingleAdSetBudgetType: "fixed",
+    };
+    const adSet = evaluateAdSet(
+      baseInput({
+        guardrails,
+        currentBudgetPence: 10000,
+        liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+      }),
+    );
+    assert.equal(adSet.guardrailNote, "capped_by_max_single_adset_budget");
+    const campaign = evaluateCampaign(
+      baseInput({
+        guardrails,
+        currentBudgetPence: 10000,
+        liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+      }),
+    );
+    assert.equal(campaign.action, "scale_up");
+    assert.equal(campaign.budgetAfterPence, 13000);
+    assert.equal(campaign.guardrailNote, null);
   });
 });

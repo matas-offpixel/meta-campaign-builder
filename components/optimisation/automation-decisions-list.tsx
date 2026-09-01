@@ -4,6 +4,7 @@ import { ActionGlyph } from "@/components/viz/action-glyph";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { PlatformGlyph } from "@/components/viz/platform-glyph";
+import { ScopeGlyph } from "@/components/viz/scope-glyph";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import {
   currencySymbol,
@@ -41,6 +42,7 @@ export function AutomationDecisionsList({
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2"
               >
                 <PlatformGlyph platform={row.channel} size="sm" />
+                <ScopeGlyph scope={row.scope} size="sm" />
                 <ActionGlyph
                   action={row.action || "maintain"}
                   filled={row.kind === "applied"}

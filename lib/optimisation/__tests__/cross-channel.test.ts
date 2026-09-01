@@ -77,6 +77,7 @@ function insightRow(): AdSetInsightRow {
     adsetId: "adset_1",
     adsetName: "Ad Set 1",
     dailyBudgetPence: 10000,
+    lifetimeBudgetPence: null,
     effectiveStatus: "ACTIVE",
     impressions: 1000,
     cpc: null,
@@ -212,10 +213,19 @@ describe("cross-channel tick — always shadow, even when Meta is Live", () => {
       }),
       insertDecision: async (row) => void inserted.push(row),
       fetchInsights: async () => [insightRow()],
+      fetchCampaignInsights: async () => {
+        throw new Error("ABO path");
+      },
       readAdSetDailyBudget: async () => 10000,
       updateAdSetDailyBudget: async (id) => {
         updates.push(id);
         return { ok: true };
+      },
+      readCampaignDailyBudget: async () => {
+        throw new Error("ABO path");
+      },
+      updateCampaignDailyBudget: async () => {
+        throw new Error("ABO path");
       },
       notify: async () => ({ sent: true }),
       now: new Date("2026-08-26T12:00:00Z"),
@@ -277,10 +287,19 @@ describe("cross-channel tick — always shadow, even when Meta is Live", () => {
       }),
       insertDecision: async (row) => void inserted.push(row),
       fetchInsights: async () => [insightRow()],
+      fetchCampaignInsights: async () => {
+        throw new Error("ABO path");
+      },
       readAdSetDailyBudget: async () => {
         throw new Error("no Meta write in shadow");
       },
       updateAdSetDailyBudget: async () => {
+        throw new Error("no Meta write in shadow");
+      },
+      readCampaignDailyBudget: async () => {
+        throw new Error("no Meta write in shadow");
+      },
+      updateCampaignDailyBudget: async () => {
         throw new Error("no Meta write in shadow");
       },
       notify: async () => ({ sent: true }),

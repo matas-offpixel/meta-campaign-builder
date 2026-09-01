@@ -38,7 +38,21 @@ export interface AdSetInsightRow extends AdSetInsightMetrics {
   adsetName: string;
   /** Meta's `daily_budget`, already minor units (pence for GBP) as a numeric string — null if the ad set has no daily budget (e.g. CBO/campaign-budget-optimised, or lifetime_budget only). */
   dailyBudgetPence: number | null;
+  /** Meta's `lifetime_budget` in minor units — null when the ad set is daily or CBO. */
+  lifetimeBudgetPence: number | null;
   effectiveStatus: string | null;
+}
+
+/**
+ * Campaign-level budget + insights. `costPerActionType` / impressions are
+ * Meta's campaign-grain figures (one Insights row for the campaign), not
+ * a sum of ad-set rates. Summing ad-set `cost_per_action_type` would be a
+ * different, dishonest provenance.
+ */
+export interface CampaignBudgetInsight extends AdSetInsightMetrics {
+  campaignId: string;
+  dailyBudgetPence: number | null;
+  lifetimeBudgetPence: number | null;
 }
 
 interface RawInsightRow {
@@ -54,7 +68,15 @@ interface RawAdSetRow {
   id: string;
   name?: string;
   daily_budget?: string;
+  lifetime_budget?: string;
   effective_status?: string;
+  insights?: { data?: RawInsightRow[] };
+}
+
+interface RawCampaignNode {
+  id?: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
   insights?: { data?: RawInsightRow[] };
 }
 
@@ -69,6 +91,27 @@ export type OptimisationGraphFetcher = <T>(
   params: Record<string, string>,
   token: string,
 ) => Promise<RawPaged<T>>;
+
+/** Single-node Graph GET (campaign object, not a paged edge). */
+export type OptimisationNodeFetcher = <T>(
+  path: string,
+  params: Record<string, string>,
+  token: string,
+) => Promise<T>;
+
+export function isCboAdSetRoster(rows: AdSetInsightRow[]): boolean {
+  return rows.length > 0 && rows.every((row) => row.dailyBudgetPence === null);
+}
+
+function metricsFromInsight(insightRow: RawInsightRow | undefined): AdSetInsightMetrics {
+  return {
+    impressions: parseNum(insightRow?.impressions),
+    cpc: parseNumOrNull(insightRow?.cpc),
+    cpm: parseNumOrNull(insightRow?.cpm),
+    ctr: parseNumOrNull(insightRow?.ctr),
+    costPerActionType: costPerActionTypeMap(insightRow?.cost_per_action_type),
+  };
+}
 
 function parseNumOrNull(raw: string | undefined): number | null {
   if (raw === undefined) return null;
@@ -108,7 +151,7 @@ export async function fetchCampaignAdSetInsights(
 ): Promise<AdSetInsightRow[]> {
   const datePreset = windowToDatePreset(window);
   const insightsFields = `insights.date_preset(${datePreset}){impressions,cpc,cpm,ctr,actions,cost_per_action_type}`;
-  const fields = `id,name,daily_budget,effective_status,${insightsFields}`;
+  const fields = `id,name,daily_budget,lifetime_budget,effective_status,${insightsFields}`;
 
   const rows: AdSetInsightRow[] = [];
   let after: string | undefined;
@@ -125,12 +168,9 @@ export async function fetchCampaignAdSetInsights(
         adsetId: raw.id,
         adsetName: raw.name ?? raw.id,
         dailyBudgetPence: parseNumOrNull(raw.daily_budget),
+        lifetimeBudgetPence: parseNumOrNull(raw.lifetime_budget),
         effectiveStatus: raw.effective_status ?? null,
-        impressions: parseNum(insightRow?.impressions),
-        cpc: parseNumOrNull(insightRow?.cpc),
-        cpm: parseNumOrNull(insightRow?.cpm),
-        ctr: parseNumOrNull(insightRow?.ctr),
-        costPerActionType: costPerActionTypeMap(insightRow?.cost_per_action_type),
+        ...metricsFromInsight(insightRow),
       });
     }
     after = response.paging?.cursors?.after;
@@ -138,4 +178,29 @@ export async function fetchCampaignAdSetInsights(
   } while (after && page < MAX_PAGES);
 
   return rows;
+}
+
+/**
+ * Campaign-level `daily_budget` / `lifetime_budget` plus one Insights row.
+ * Graph fields: `daily_budget`, `lifetime_budget`, nested
+ * `insights.date_preset(...){impressions,cpc,cpm,ctr,actions,cost_per_action_type}`.
+ * One extra GET per CBO campaign (not used on the ABO path).
+ */
+export async function fetchCampaignBudgetInsights(
+  fetcher: OptimisationNodeFetcher,
+  campaignId: string,
+  token: string,
+  window: RuleTimeWindow,
+): Promise<CampaignBudgetInsight> {
+  const datePreset = windowToDatePreset(window);
+  const insightsFields = `insights.date_preset(${datePreset}){impressions,cpc,cpm,ctr,actions,cost_per_action_type}`;
+  const fields = `id,daily_budget,lifetime_budget,${insightsFields}`;
+  const raw = await fetcher<RawCampaignNode>(`/${campaignId}`, { fields }, token);
+  const insightRow = raw.insights?.data?.[0];
+  return {
+    campaignId: raw.id ?? campaignId,
+    dailyBudgetPence: parseNumOrNull(raw.daily_budget),
+    lifetimeBudgetPence: parseNumOrNull(raw.lifetime_budget),
+    ...metricsFromInsight(insightRow),
+  };
 }

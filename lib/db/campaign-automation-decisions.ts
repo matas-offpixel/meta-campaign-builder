@@ -138,9 +138,11 @@ export async function insertAutomationDecision(
 ): Promise<void> {
   const sb = anySb(supabase);
   const channel = decision.channel ?? "meta";
+  const scope = decision.scope ?? "ad_set";
   const row = {
     campaign_id: decision.campaignId,
     adset_id: decision.adsetId,
+    scope,
     ad_account_id: decision.adAccountId,
     draft_id: decision.draftId,
     metric: decision.metric,
@@ -160,6 +162,25 @@ export async function insertAutomationDecision(
     channel,
   };
   const { error } = await sb.from("campaign_automation_decisions").insert(row);
+
+  if (error && isUndefinedColumnError(error, "scope")) {
+    const withoutScope = { ...row };
+    delete (withoutScope as { scope?: string }).scope;
+    const retryScope = await sb.from("campaign_automation_decisions").insert(withoutScope);
+    if (retryScope.error && isUndefinedColumnError(retryScope.error, "channel")) {
+      const withoutBoth = { ...withoutScope };
+      delete (withoutBoth as { channel?: string }).channel;
+      const retry = await sb.from("campaign_automation_decisions").insert(withoutBoth);
+      if (retry.error) {
+        throw new Error(`insertAutomationDecision: insert failed: ${retry.error.message}`);
+      }
+      return;
+    }
+    if (retryScope.error) {
+      throw new Error(`insertAutomationDecision: insert failed: ${retryScope.error.message}`);
+    }
+    return;
+  }
 
   if (error && isUndefinedColumnError(error, "channel")) {
     const withoutChannel = { ...row };

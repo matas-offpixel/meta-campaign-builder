@@ -43,10 +43,20 @@ export interface ApplyOptimisationInput {
 export interface ApplyOptimisationDeps {
   readAdSetDailyBudget: (adsetId: string) => Promise<number | null>;
   updateAdSetDailyBudget: (adsetId: string, dailyBudgetPence: number) => Promise<unknown>;
+  readCampaignDailyBudget: (campaignId: string) => Promise<number | null>;
+  updateCampaignDailyBudget: (campaignId: string, dailyBudgetPence: number) => Promise<unknown>;
   insertDecision: (row: DecisionToInsert) => Promise<void>;
   notify: (opts: NotifyOptions) => Promise<NotifyResult>;
   now?: Date;
   log?: (message: string) => void;
+}
+
+function isCampaignScope(decision: DecisionToInsert): boolean {
+  return decision.scope === "campaign";
+}
+
+function targetId(decision: DecisionToInsert): string {
+  return isCampaignScope(decision) ? decision.campaignId : decision.adsetId;
 }
 
 function logLine(deps: ApplyOptimisationDeps, message: string): void {
@@ -149,21 +159,25 @@ export async function applyOptimisationDecision(
     await persist(deps, row);
     logLine(
       deps,
-      `[optimisation-tick] write cap reached — shadowing adset=${decision.adsetId} (MAX_WRITES_PER_RUN)`,
+      `[optimisation-tick] write cap reached — shadowing target=${targetId(decision)} (MAX_WRITES_PER_RUN)`,
     );
     return { kind: "cap_reached", decision: row, wrote: false };
   }
 
   // Re-read live daily_budget immediately before writing so a mid-flight
   // operator change is not clobbered.
+  const target = targetId(decision);
+  const campaignScoped = isCampaignScope(decision);
   let liveBudget: number | null;
   try {
-    liveBudget = await deps.readAdSetDailyBudget(decision.adsetId);
+    liveBudget = campaignScoped
+      ? await deps.readCampaignDailyBudget(decision.campaignId)
+      : await deps.readAdSetDailyBudget(decision.adsetId);
   } catch (err) {
     const payload = metaErrorPayload(err);
     logLine(
       deps,
-      `[optimisation-tick] re-read failed adset=${decision.adsetId} meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
+      `[optimisation-tick] re-read failed target=${target} meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
     );
     const row: DecisionToInsert = {
       ...decision,
@@ -176,8 +190,8 @@ export async function applyOptimisationDecision(
       channel: "ads_urgent",
       text:
         `Optimisation write failed (re-read) — campaign="${campaignName}" ` +
-        `ad set="${adsetName}" (${decision.adsetId}) meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
-      dedupeKey: `optimisation_write_error:${decision.adsetId}`,
+        `${campaignScoped ? "campaign" : `ad set="${adsetName}"`} (${target}) meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
+      dedupeKey: `optimisation_write_error:${target}`,
     });
     return { kind: "write_failed", decision: row, wrote: false };
   }
@@ -195,16 +209,15 @@ export async function applyOptimisationDecision(
     await persist(deps, row);
     logLine(
       deps,
-      `[optimisation-tick] budget_changed_underfoot adset=${decision.adsetId} live=${liveBudget} evaluated=${decision.budgetBeforePence}`,
+      `[optimisation-tick] budget_changed_underfoot target=${target} live=${liveBudget} evaluated=${decision.budgetBeforePence}`,
     );
     return { kind: "aborted_underfoot", decision: row, wrote: false };
   }
 
   try {
-    const response = await deps.updateAdSetDailyBudget(
-      decision.adsetId,
-      decision.budgetAfterPence,
-    );
+    const response = campaignScoped
+      ? await deps.updateCampaignDailyBudget(decision.campaignId, decision.budgetAfterPence)
+      : await deps.updateAdSetDailyBudget(decision.adsetId, decision.budgetAfterPence);
     const now = deps.now ?? new Date();
     const row: DecisionToInsert = {
       ...decision,
@@ -219,7 +232,7 @@ export async function applyOptimisationDecision(
     const payload = metaErrorPayload(err);
     logLine(
       deps,
-      `[optimisation-tick] write failed adset=${decision.adsetId} meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
+      `[optimisation-tick] write failed target=${target} meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
     );
     const row: DecisionToInsert = {
       ...decision,
@@ -232,10 +245,10 @@ export async function applyOptimisationDecision(
       channel: "ads_urgent",
       text:
         `Optimisation write failed — campaign="${campaignName}" ` +
-        `ad set="${adsetName}" (${decision.adsetId}) ` +
+        `${campaignScoped ? "campaign" : `ad set="${adsetName}"`} (${target}) ` +
         `${decision.budgetBeforePence} → ${decision.budgetAfterPence} ` +
         `meta_code=${readMetaCode(err) ?? "?"}: ${payload.error}`,
-      dedupeKey: `optimisation_write_error:${decision.adsetId}`,
+      dedupeKey: `optimisation_write_error:${target}`,
     });
     return { kind: "write_failed", decision: row, wrote: false };
   }

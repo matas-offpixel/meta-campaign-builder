@@ -3,7 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { graphGetWithToken, graphPostWithToken, getLastKnownMetaAppUsage } from "@/lib/meta/client";
 import { appUsageBadgePercent } from "@/lib/meta/app-usage";
-import { fetchCampaignAdSetInsights, type OptimisationGraphFetcher } from "@/lib/optimisation/insights-fetch";
+import {
+  fetchCampaignAdSetInsights,
+  fetchCampaignBudgetInsights,
+  type OptimisationGraphFetcher,
+  type OptimisationNodeFetcher,
+} from "@/lib/optimisation/insights-fetch";
 import { runOptimisationTick, type OptimisationTickSummary } from "@/lib/optimisation/tick-runner";
 import { isOptimisationWritesEnabledFromEnv } from "@/lib/optimisation/gates";
 import {
@@ -26,7 +31,8 @@ import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
  * `status = 'published' AND optimisation_automation_enabled = true`
  * campaign against `evaluate.ts` (the single source of decision logic)
  * and, when the three-of-three live gate is open, applies
- * `scale_up` / `scale_down` via `POST /{adset_id}` `daily_budget`.
+ * `scale_up` / `scale_down` via `POST /{adset_id}` `daily_budget`
+ * (ABO) or `POST /{campaign_id}` `daily_budget` (CBO).
  *
  * Three-of-three (mirrors D2C `shouldD2CDryRun`):
  *   a) `ENABLE_OPTIMISATION_WRITES === "1"`
@@ -121,6 +127,13 @@ export async function GET(req: NextRequest) {
           token as string,
           window,
         ),
+      fetchCampaignInsights: (campaignId, window) =>
+        fetchCampaignBudgetInsights(
+          graphGetWithToken as OptimisationNodeFetcher,
+          campaignId,
+          token as string,
+          window,
+        ),
       readAdSetDailyBudget: async (adsetId) => {
         const res = await graphGetWithToken<{ daily_budget?: string }>(
           `/${adsetId}`,
@@ -133,6 +146,18 @@ export async function GET(req: NextRequest) {
       },
       updateAdSetDailyBudget: (adsetId, dailyBudgetPence) =>
         graphPostWithToken(`/${adsetId}`, { daily_budget: dailyBudgetPence }, token as string),
+      readCampaignDailyBudget: async (campaignId) => {
+        const res = await graphGetWithToken<{ daily_budget?: string }>(
+          `/${campaignId}`,
+          { fields: "daily_budget" },
+          token as string,
+          { maxAttempts: 1 },
+        );
+        const n = Number(res.daily_budget);
+        return Number.isFinite(n) ? n : null;
+      },
+      updateCampaignDailyBudget: (campaignId, dailyBudgetPence) =>
+        graphPostWithToken(`/${campaignId}`, { daily_budget: dailyBudgetPence }, token as string),
       notify: (opts) => notify(opts, notifyDeps),
       writesEnabled,
       loadCrossChannelSubjects: (metaCampaigns) =>

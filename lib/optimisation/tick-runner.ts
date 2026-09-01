@@ -17,9 +17,12 @@
  *      is inside `cooldownHours`. For shadow mode that is
  *      `applied_at ?? decided_at`. For live writes it is `applied_at` only
  *      — a shadow recommendation must not start the write cooldown.
- *   2. CBO ad sets (`dailyBudgetPence === null`, no per-adset daily budget)
- *      can't have a budget proposed — insert a `maintain` decision saying so
- *      rather than silently dropping the ad set from the audit trail.
+ *   2. When every ad set has `dailyBudgetPence === null`, the campaign is
+ *      CBO (or lifetime). Evaluate once at campaign grain if Meta reports
+ *      a campaign `daily_budget`. Lifetime-only campaigns get a named skip
+ *      — never a daily-percentage scale. Mixed ABO still evaluates per
+ *      ad set; leftover no-daily rows are named skips (lifetime or
+ *      unsupported), not a generic CBO refusal.
  *   3. Metric resolution failure (e.g. no conversions yet this window) —
  *      same treatment: a `maintain` decision with an honest reason, not a
  *      silent skip.
@@ -36,9 +39,23 @@ import type {
 } from "../types.ts";
 import { OBJECTIVE_METRIC_PRIORITY } from "../optimisation-rules.ts";
 import { DEFAULT_DEDUPE_WINDOW_MS, type NotifyOptions, type NotifyResult } from "../notify/slack.ts";
-import { evaluateAdSet, resolveLastTouchedAt, type AutomationAction, type GuardrailNote } from "./evaluate.ts";
+import {
+  cboMetricUnavailableReason,
+  evaluateAdSet,
+  evaluateCampaign,
+  LIFETIME_BUDGET_SKIP_REASON,
+  lifetimeAdSetSkipReason,
+  resolveLastTouchedAt,
+  unsupportedNoDailyBudgetReason,
+  type AutomationAction,
+  type GuardrailNote,
+} from "./evaluate.ts";
 import { resolvePrimaryLiveMetric } from "./live-metric.ts";
-import type { AdSetInsightRow } from "./insights-fetch.ts";
+import {
+  isCboAdSetRoster,
+  type AdSetInsightRow,
+  type CampaignBudgetInsight,
+} from "./insights-fetch.ts";
 import { applyOptimisationDecision, MAX_WRITES_PER_RUN } from "./apply.ts";
 import { optimisationDryRunGates } from "./gates.ts";
 import {
@@ -64,11 +81,15 @@ export interface CampaignAutomationInput {
   campaignName: string;
 }
 
+export type AutomationScope = "ad_set" | "campaign";
+
 export interface DecisionToInsert {
   campaignId: string;
   adsetId: string;
   adAccountId: string;
   draftId: string;
+  /** Target object. Default ad_set. CBO writes use campaign. */
+  scope?: AutomationScope;
   /** Ledger channel. Default meta for the existing evaluator path. */
   channel?: AutomationChannel;
   metric: RuleMetric;
@@ -99,8 +120,15 @@ export interface OptimisationTickDeps {
   getAdSetState: (adsetId: string, sinceISO: string) => Promise<AdSetAutomationState>;
   insertDecision: (row: DecisionToInsert) => Promise<void>;
   fetchInsights: (campaignId: string, window: RuleTimeWindow) => Promise<AdSetInsightRow[]>;
+  /**
+   * Campaign-grain budget + insights. Called only when the ad-set roster
+   * has no per-ad-set daily_budget (CBO / lifetime).
+   */
+  fetchCampaignInsights: (campaignId: string, window: RuleTimeWindow) => Promise<CampaignBudgetInsight>;
   readAdSetDailyBudget: (adsetId: string) => Promise<number | null>;
   updateAdSetDailyBudget: (adsetId: string, dailyBudgetPence: number) => Promise<unknown>;
+  readCampaignDailyBudget: (campaignId: string) => Promise<number | null>;
+  updateCampaignDailyBudget: (campaignId: string, dailyBudgetPence: number) => Promise<unknown>;
   /**
    * Slack notify seam — fired when a single campaign evaluation throws so
    * silent per-campaign failures (e.g. invalid Meta date_preset) surface in
@@ -220,6 +248,83 @@ export async function runOptimisationTick(
         campaign.optimisationAutomationLive,
       );
 
+      if (isCboAdSetRoster(rows)) {
+        const campaignInsight = await deps.fetchCampaignInsights(campaign.campaignId, window);
+        const targetId = campaign.campaignId;
+        summary.adSetsConsidered += 1;
+        try {
+          const state = await deps.getAdSetState(targetId, sinceISO);
+          const lastTouchedAt = gates.dryRun
+            ? resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt)
+            : state.lastAppliedAt;
+          const cooldownHours =
+            campaign.optimisationStrategy.guardrails.cooldownHours ?? lookbackHours;
+          if (
+            lastTouchedAt &&
+            Math.abs(now.getTime() - lastTouchedAt.getTime()) < cooldownHours * 60 * 60 * 1000
+          ) {
+            summary.adSetsSkippedRecentDecision += 1;
+          } else {
+            const decision = buildCampaignDecision(
+              campaign,
+              campaignInsight,
+              window,
+              now,
+              lastTouchedAt,
+              state.appliedIncreasePercentLast24h,
+            );
+            const writesRemaining = maxWrites - summary.writesApplied;
+            const outcome = await applyOptimisationDecision(
+              {
+                decision,
+                campaignName: campaign.campaignName,
+                adsetName: campaign.campaignName,
+                gates,
+                writesRemaining,
+              },
+              {
+                readAdSetDailyBudget: deps.readAdSetDailyBudget,
+                updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+                readCampaignDailyBudget: deps.readCampaignDailyBudget,
+                updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
+                insertDecision: deps.insertDecision,
+                notify: deps.notify,
+                now,
+              },
+            );
+            summary.decisionsInserted += 1;
+            summary.decisionsByAction[outcome.decision.actionRecommended] =
+              (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
+            if (outcome.kind === "applied") {
+              summary.writesApplied += 1;
+              summary.appliedWriteDetails.push({
+                campaignName: campaign.campaignName,
+                adsetName: campaign.campaignName,
+                budgetBeforePence: outcome.decision.budgetBeforePence,
+                budgetAfterPence: outcome.decision.budgetAfterPence,
+                ruleMatched: outcome.decision.ruleMatched,
+              });
+            } else if (outcome.kind === "write_failed") {
+              summary.writesFailed += 1;
+            } else if (outcome.kind === "aborted_underfoot") {
+              summary.writesAbortedUnderfoot += 1;
+            } else if (outcome.kind === "pause_recommended") {
+              summary.pausesRecommended += 1;
+            } else if (outcome.kind === "cap_reached") {
+              summary.writesCapReached = true;
+            }
+          }
+        } catch (campaignEvalErr) {
+          const message =
+            campaignEvalErr instanceof Error ? campaignEvalErr.message : String(campaignEvalErr);
+          console.error(
+            `[optimisation-tick] campaign=${campaign.campaignId} cbo threw: ${message}`,
+          );
+          summary.writesFailed += 1;
+        }
+        continue;
+      }
+
       for (const row of rows) {
         summary.adSetsConsidered += 1;
 
@@ -262,6 +367,8 @@ export async function runOptimisationTick(
             {
               readAdSetDailyBudget: deps.readAdSetDailyBudget,
               updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+              readCampaignDailyBudget: deps.readCampaignDailyBudget,
+              updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
               insertDecision: deps.insertDecision,
               notify: deps.notify,
               now,
@@ -354,6 +461,8 @@ export async function runOptimisationTick(
             {
               readAdSetDailyBudget: deps.readAdSetDailyBudget,
               updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+              readCampaignDailyBudget: deps.readCampaignDailyBudget,
+              updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
               insertDecision: deps.insertDecision,
               notify: deps.notify,
               now,
@@ -423,9 +532,11 @@ function buildDecision(
     channel: "meta" as const,
     metric: primaryMetric,
     metricWindow: window,
+    scope: "ad_set" as const,
   };
 
   if (row.dailyBudgetPence === null) {
+    const lifetime = row.lifetimeBudgetPence != null && row.lifetimeBudgetPence > 0;
     return {
       ...base,
       metricValue: null,
@@ -435,7 +546,9 @@ function buildDecision(
       budgetBeforePence: 0,
       budgetAfterPence: 0,
       guardrailNote: null,
-      reasonText: `Ad set "${row.adsetName}" has no per-ad-set daily_budget (campaign budget optimisation) — PR A does not propose CBO changes.`,
+      reasonText: lifetime
+        ? lifetimeAdSetSkipReason(row.adsetName)
+        : unsupportedNoDailyBudgetReason(row.adsetName),
     };
   }
 
@@ -472,6 +585,98 @@ function buildDecision(
     actionRecommended: result.action,
     actionDelta: result.deltaPercent,
     budgetBeforePence: row.dailyBudgetPence,
+    budgetAfterPence: result.budgetAfterPence,
+    guardrailNote: result.guardrailNote,
+    reasonText: result.reason,
+  };
+}
+
+function buildCampaignDecision(
+  campaign: CampaignAutomationInput,
+  insight: CampaignBudgetInsight,
+  window: RuleTimeWindow,
+  now: Date,
+  lastTouchedAt: Date | null,
+  appliedIncreasePercentLast24h: number,
+): DecisionToInsert {
+  const primaryMetric = OBJECTIVE_METRIC_PRIORITY[campaign.objective].primary;
+  const base = {
+    campaignId: campaign.campaignId,
+    adsetId: campaign.campaignId,
+    adAccountId: campaign.adAccountId,
+    draftId: campaign.draftId,
+    scope: "campaign" as const,
+    channel: "meta" as const,
+    metric: primaryMetric,
+    metricWindow: window,
+  };
+
+  const hasDaily = insight.dailyBudgetPence != null && insight.dailyBudgetPence > 0;
+  const hasLifetime = insight.lifetimeBudgetPence != null && insight.lifetimeBudgetPence > 0;
+
+  if (!hasDaily && hasLifetime) {
+    return {
+      ...base,
+      metricValue: null,
+      ruleMatched: null,
+      actionRecommended: "maintain",
+      actionDelta: null,
+      budgetBeforePence: insight.lifetimeBudgetPence ?? 0,
+      budgetAfterPence: insight.lifetimeBudgetPence ?? 0,
+      guardrailNote: null,
+      reasonText: LIFETIME_BUDGET_SKIP_REASON,
+    };
+  }
+
+  if (!hasDaily) {
+    return {
+      ...base,
+      metricValue: null,
+      ruleMatched: null,
+      actionRecommended: "maintain",
+      actionDelta: null,
+      budgetBeforePence: 0,
+      budgetAfterPence: 0,
+      guardrailNote: null,
+      reasonText:
+        "Campaign has no daily_budget to evaluate — skipping (not a daily CBO campaign).",
+    };
+  }
+
+  const dailyBudgetPence = insight.dailyBudgetPence as number;
+  const liveMetric = resolvePrimaryLiveMetric(campaign.objective, insight, window);
+  if (!liveMetric) {
+    return {
+      ...base,
+      metricValue: null,
+      ruleMatched: null,
+      actionRecommended: "metric_unavailable",
+      actionDelta: null,
+      budgetBeforePence: dailyBudgetPence,
+      budgetAfterPence: dailyBudgetPence,
+      guardrailNote: null,
+      reasonText: cboMetricUnavailableReason(primaryMetric, window, campaign.campaignName),
+    };
+  }
+
+  const result = evaluateCampaign({
+    rules: campaign.optimisationStrategy.rules,
+    guardrails: campaign.optimisationStrategy.guardrails,
+    currentBudgetPence: dailyBudgetPence,
+    liveMetric,
+    lastTouchedAt,
+    appliedIncreasePercentLast24h,
+    impressions: insight.impressions,
+    now,
+  });
+
+  return {
+    ...base,
+    metricValue: liveMetric.value,
+    ruleMatched: result.ruleMatched,
+    actionRecommended: result.action,
+    actionDelta: result.deltaPercent,
+    budgetBeforePence: dailyBudgetPence,
     budgetAfterPence: result.budgetAfterPence,
     guardrailNote: result.guardrailNote,
     reasonText: result.reason,
