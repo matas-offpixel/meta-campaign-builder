@@ -57,24 +57,24 @@ export async function loadCampaignAutomationState(
   const { data: decisionRows, error: decErr } = await sb
     .from("campaign_automation_decisions")
     .select(
-      "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, channel, meta_response_json",
+      "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, channel, scope, campaign_id, adset_id, meta_response_json",
     )
     .eq("draft_id", draftId)
     .order("decided_at", { ascending: false })
     .limit(40);
 
   if (decErr) {
-    const missingChannel =
+    const missingOptionalColumn =
       decErr.code === "42703" ||
-      (/channel/i.test(decErr.message ?? "") &&
+      (/(channel|scope)/i.test(decErr.message ?? "") &&
         /does not exist|schema cache|could not find/i.test(decErr.message ?? ""));
-    if (!missingChannel) {
+    if (!missingOptionalColumn) {
       throw new Error(`loadCampaignAutomationState: decisions query failed: ${decErr.message}`);
     }
     const retry = await sb
       .from("campaign_automation_decisions")
       .select(
-        "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, meta_response_json",
+        "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, campaign_id, adset_id, meta_response_json",
       )
       .eq("draft_id", draftId)
       .order("decided_at", { ascending: false })

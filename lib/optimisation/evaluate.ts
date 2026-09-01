@@ -84,6 +84,8 @@ export interface EvaluateAdSetInput {
   appliedIncreasePercentLast24h?: number;
   /** Injectable for deterministic tests; defaults to `new Date()`. */
   now?: Date;
+  /** Noun in skip/maintain copy. CBO path uses "campaign". */
+  subjectNoun?: "ad set" | "campaign";
 }
 
 export interface EvaluateAdSetResult {
@@ -142,9 +144,51 @@ function round(pence: number): number {
   return Math.round(pence);
 }
 
+/** Campaign-level path: same ceilings, but the ad-set-only cap does not bind. */
+export function campaignGuardrails(guardrails: BudgetGuardrails): BudgetGuardrails {
+  return {
+    ...guardrails,
+    maxSingleAdSetBudget: undefined,
+    maxSingleAdSetBudgetType: undefined,
+  };
+}
+
+/**
+ * CBO / campaign-daily evaluation. Decision logic is still
+ * {@link evaluateAdSet}; this only drops the ad-set-only cap and labels
+ * the subject as a campaign.
+ */
+export function evaluateCampaign(input: EvaluateAdSetInput): EvaluateAdSetResult {
+  return evaluateAdSet({
+    ...input,
+    guardrails: campaignGuardrails(input.guardrails),
+    subjectNoun: "campaign",
+  });
+}
+
+export const LIFETIME_BUDGET_SKIP_REASON =
+  "Campaign uses a lifetime_budget — daily-percentage rules cannot scale a lifetime budget.";
+
+export function lifetimeAdSetSkipReason(adsetName: string): string {
+  return `Ad set "${adsetName}" uses a lifetime_budget — daily-percentage rules cannot scale a lifetime budget.`;
+}
+
+export function unsupportedNoDailyBudgetReason(adsetName: string): string {
+  return `Ad set "${adsetName}" has no daily_budget and the campaign is not using campaign-level daily budget — skipping.`;
+}
+
+export function cboMetricUnavailableReason(
+  primaryMetric: string,
+  window: RuleTimeWindow,
+  campaignName: string,
+): string {
+  return `No ${primaryMetric} data in the ${window} window yet for campaign "${campaignName}" — metric_unavailable, not a guessed rate.`;
+}
+
 export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
   const now = input.now ?? new Date();
   const { rules, guardrails, currentBudgetPence, liveMetric, lastTouchedAt, impressions } = input;
+  const noun = input.subjectNoun ?? "ad set";
 
   // ── Dormant filter — 0 impressions means there's no signal to act on ────
   if (impressions <= 0) {
@@ -154,7 +198,7 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
       budgetAfterPence: currentBudgetPence,
       ruleMatched: null,
       guardrailNote: null,
-      reason: `0 impressions in the ${liveMetric.window} window — dormant ad set, no metric signal to act on.`,
+      reason: `0 impressions in the ${liveMetric.window} window — dormant ${noun}, no metric signal to act on.`,
     };
   }
 

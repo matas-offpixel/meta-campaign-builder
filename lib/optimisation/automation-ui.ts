@@ -78,8 +78,13 @@ export type DecisionRowInput = {
   dry_run: boolean | null;
   reason_text: string | null;
   channel?: string | null;
+  scope?: string | null;
+  campaign_id?: string | null;
+  adset_id?: string | null;
   meta_response_json?: unknown;
 };
+
+export type AutomationScopeView = "ad_set" | "campaign";
 
 export type DecisionRowView = {
   decidedAt: string;
@@ -94,7 +99,16 @@ export type DecisionRowView = {
   reasonText: string;
   kind: "applied" | "dry_run";
   channel: AutomationChannelView;
+  scope: AutomationScopeView;
 };
+
+function resolveDecisionScope(row: DecisionRowInput): AutomationScopeView {
+  if (row.scope === "campaign" || row.scope === "ad_set") return row.scope;
+  if (row.campaign_id && row.adset_id && row.campaign_id === row.adset_id) {
+    return "campaign";
+  }
+  return "ad_set";
+}
 
 function resolveDecisionChannel(row: DecisionRowInput): AutomationChannelView {
   if (row.channel === "tiktok" || row.channel === "google" || row.channel === "meta") {
@@ -130,6 +144,7 @@ export function presentDecisionRow(row: DecisionRowInput): DecisionRowView {
     reasonText: row.reason_text ?? "",
     kind: applied ? "applied" : "dry_run",
     channel: resolveDecisionChannel(row),
+    scope: resolveDecisionScope(row),
   };
 }
 

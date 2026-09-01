@@ -59,6 +59,7 @@ function insightRow(overrides: Partial<AdSetInsightRow> = {}): AdSetInsightRow {
     adsetId: "adset_1",
     adsetName: "Ad Set 1",
     dailyBudgetPence: 10000,
+    lifetimeBudgetPence: null,
     effectiveStatus: "ACTIVE",
     impressions: 1000,
     cpc: null,
@@ -79,11 +80,20 @@ function makeDeps(overrides: Partial<OptimisationTickDeps> = {}): OptimisationTi
     }),
     insertDecision: async () => {},
     fetchInsights: async () => [insightRow()],
+    fetchCampaignInsights: async () => {
+      throw new Error("fetchCampaignInsights must not be called for ABO");
+    },
     readAdSetDailyBudget: async () => {
       throw new Error("readAdSetDailyBudget must not be called in shadow mode");
     },
     updateAdSetDailyBudget: async () => {
       throw new Error("updateAdSetDailyBudget must not be called in shadow mode");
+    },
+    readCampaignDailyBudget: async () => {
+      throw new Error("readCampaignDailyBudget must not be called in shadow mode");
+    },
+    updateCampaignDailyBudget: async () => {
+      throw new Error("updateCampaignDailyBudget must not be called in shadow mode");
     },
     notify: async () => ({ sent: true }),
     now: new Date("2026-08-07T12:00:00Z"),
@@ -178,15 +188,61 @@ describe("runOptimisationTick — dry-run decisions", () => {
     assert.equal(inserted[0].budgetAfterPence, inserted[0].budgetBeforePence);
   });
 
-  it("CBO ad set (no per-adset daily_budget) gets a maintain decision, not a crash", async () => {
+  it("CBO roster evaluates once at campaign grain when daily_budget is present", async () => {
+    const lpvRule: OptimisationRule = {
+      id: tid(),
+      name: "LPV",
+      metric: "lpv_cost",
+      timeWindow: "24h",
+      enabled: true,
+      thresholds: [
+        {
+          id: tid(),
+          operator: "between",
+          value: 0.14,
+          valueTo: 0.23,
+          action: "increase_budget",
+          actionValue: 15,
+          label: "£0.14–£0.23 CPLPV → scale moderately (+15%)",
+        },
+      ],
+    };
     const inserted: DecisionToInsert[] = [];
     const deps = makeDeps({
-      fetchInsights: async () => [insightRow({ dailyBudgetPence: null })],
+      loadOptedInCampaigns: async () => [
+        campaign({
+          objective: "traffic",
+          campaignName: "[NX26-DOD] DOD - Signup - Artist",
+          optimisationStrategy: { mode: "custom", rules: [lpvRule], guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({ adsetId: "disco", adsetName: "Disco Pages", dailyBudgetPence: null }),
+        insightRow({ adsetId: "wide", adsetName: "WIDE", dailyBudgetPence: null }),
+      ],
+      fetchCampaignInsights: async () => ({
+        campaignId: "camp_1",
+        dailyBudgetPence: 15000,
+        lifetimeBudgetPence: null,
+        impressions: 8000,
+        cpc: null,
+        cpm: null,
+        ctr: null,
+        costPerActionType: { landing_page_view: 0.18 },
+      }),
       insertDecision: async (row) => void inserted.push(row),
     });
-    await runOptimisationTick(true, false, deps);
-    assert.equal(inserted[0].actionRecommended, "maintain");
-    assert.match(inserted[0].reasonText, /campaign budget optimisation/);
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.decisionsInserted, 1);
+    assert.equal(inserted[0].scope, "campaign");
+    assert.equal(inserted[0].adsetId, "camp_1");
+    assert.equal(inserted[0].metric, "lpv_cost");
+    assert.equal(inserted[0].metricValue, 0.18);
+    assert.equal(inserted[0].actionRecommended, "scale_up");
+    assert.equal(inserted[0].actionDelta, 15);
+    assert.equal(inserted[0].budgetBeforePence, 15000);
+    assert.equal(inserted[0].budgetAfterPence, 17250);
+    assert.doesNotMatch(inserted[0].reasonText, /PR A does not propose CBO/);
   });
 
   it("no live metric data yet → maintain with an honest reason, not a false 0", async () => {

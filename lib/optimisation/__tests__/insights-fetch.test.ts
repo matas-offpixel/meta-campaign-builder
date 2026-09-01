@@ -7,7 +7,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchCampaignAdSetInsights, type OptimisationGraphFetcher } from "../insights-fetch.ts";
+import {
+  fetchCampaignAdSetInsights,
+  fetchCampaignBudgetInsights,
+  isCboAdSetRoster,
+  type OptimisationGraphFetcher,
+  type OptimisationNodeFetcher,
+} from "../insights-fetch.ts";
 
 describe("fetchCampaignAdSetInsights", () => {
   it("parses budget, status, and metrics from a single field-expansion response", async () => {
@@ -47,6 +53,7 @@ describe("fetchCampaignAdSetInsights", () => {
       adsetId: "adset_1",
       adsetName: "Newcastle 25-45",
       dailyBudgetPence: 5000,
+      lifetimeBudgetPence: null,
       effectiveStatus: "ACTIVE",
       impressions: 12000,
       cpc: 0.32,
@@ -96,5 +103,73 @@ describe("fetchCampaignAdSetInsights", () => {
     const rows = await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "24h");
     assert.deepEqual(rows.map((r) => r.adsetId), ["adset_a", "adset_b"]);
     assert.equal(call, 2);
+  });
+});
+
+describe("fetchCampaignBudgetInsights", () => {
+  it("reads campaign daily_budget and Meta-reported campaign insights (not a sum)", async () => {
+    const fetcher: OptimisationNodeFetcher = async (path, params, token) => {
+      assert.equal(path, "/camp_dod");
+      assert.equal(token, "tok");
+      assert.match(params.fields, /daily_budget/);
+      assert.match(params.fields, /lifetime_budget/);
+      assert.match(params.fields, /insights\.date_preset\(yesterday\)/);
+      return {
+        id: "camp_dod",
+        daily_budget: "15000",
+        insights: {
+          data: [
+            {
+              impressions: "12000",
+              cost_per_action_type: [{ action_type: "landing_page_view", value: "0.18" }],
+            },
+          ],
+        },
+      } as never;
+    };
+    const row = await fetchCampaignBudgetInsights(fetcher, "camp_dod", "tok", "24h");
+    assert.equal(row.dailyBudgetPence, 15000);
+    assert.equal(row.lifetimeBudgetPence, null);
+    assert.equal(row.impressions, 12000);
+    assert.equal(row.costPerActionType.landing_page_view, 0.18);
+  });
+});
+
+describe("isCboAdSetRoster", () => {
+  it("is true only when every ad set lacks daily_budget", () => {
+    assert.equal(
+      isCboAdSetRoster([
+        {
+          adsetId: "a",
+          adsetName: "A",
+          dailyBudgetPence: null,
+          lifetimeBudgetPence: null,
+          effectiveStatus: "ACTIVE",
+          impressions: 0,
+          cpc: null,
+          cpm: null,
+          ctr: null,
+          costPerActionType: {},
+        },
+      ]),
+      true,
+    );
+    assert.equal(
+      isCboAdSetRoster([
+        {
+          adsetId: "a",
+          adsetName: "A",
+          dailyBudgetPence: 1000,
+          lifetimeBudgetPence: null,
+          effectiveStatus: "ACTIVE",
+          impressions: 0,
+          cpc: null,
+          cpm: null,
+          ctr: null,
+          costPerActionType: {},
+        },
+      ]),
+      false,
+    );
   });
 });
