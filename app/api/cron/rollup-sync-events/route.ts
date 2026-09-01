@@ -4,6 +4,10 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { loadRollupSyncCronEligibility } from "@/lib/dashboard/cron-eligibility";
 import { warnMetaReconcileDriftForTopRollupEvents } from "@/lib/dashboard/rollup-meta-reconcile-log";
 import { runRollupSyncForEvent } from "@/lib/dashboard/rollup-sync-runner";
+import {
+  runUnmatchedCampaignCodeGuard,
+  type AdAccountScanTarget,
+} from "@/lib/dashboard/unmatched-campaign-code-scan";
 import { loadRollupTicketsFreshnessInput } from "@/lib/db/rollup-tickets-freshness-load";
 import { syncMailchimpAudienceDailyHistory } from "@/lib/mailchimp/sync";
 import { notify } from "@/lib/notify/slack";
@@ -199,6 +203,7 @@ export async function GET(req: NextRequest) {
   const results: EventSyncResult[] = [];
   let totalRowsUpserted = 0;
   const venueAllocatorCompletedKeys = new Set<string>();
+  const unmatchedScanAccounts: AdAccountScanTarget[] = [];
 
   for (const event of events) {
     const t0 = Date.now();
@@ -222,6 +227,9 @@ export async function GET(req: NextRequest) {
         : (clientRel?.meta_ad_account_id ?? null);
       const adAccountId =
         (event.meta_ad_account_id?.trim() || null) ?? clientAdAccount;
+      if (adAccountId) {
+        unmatchedScanAccounts.push({ adAccountId, userId: event.user_id });
+      }
       const clientTikTokAccountId = Array.isArray(clientRel)
         ? (clientRel[0]?.tiktok_account_id ?? null)
         : (clientRel?.tiktok_account_id ?? null);
@@ -383,6 +391,23 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.warn(
       `[cron rollup-sync-events] tickets freshness alarm skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  try {
+    const unmatched = await runUnmatchedCampaignCodeGuard({
+      supabase,
+      accounts: unmatchedScanAccounts,
+      notify: (opts) => notify(opts, buildLiveNotifyDeps(supabase)),
+    });
+    console.log(
+      `[cron rollup-sync-events] unmatched campaigns accounts=${unmatched.accountsScanned} campaigns=${unmatched.campaignsConsidered} findings=${unmatched.findings.length} alarmed=${unmatched.alarmed} sent=${unmatched.sent}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[cron rollup-sync-events] unmatched-campaign guard skipped: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );

@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 
 import { CronHealthRefreshButton } from "@/components/admin/cron-health-refresh-button";
 import { createClient } from "@/lib/supabase/server";
+import { loadUnmatchedCampaignSnapshot } from "@/lib/db/unmatched-campaign-findings";
+import { UNMATCHED_CAMPAIGN_SPEND_FLOOR_MAJOR } from "@/lib/insights/unmatched-campaign-code";
 import type { CronHealthStatus } from "@/lib/reporting/cron-health-monitor";
 
 /**
@@ -73,6 +75,7 @@ export default async function CronHealthPage() {
 
   const report = (data ?? null) as ReportRow | null;
   const tables = report?.report_jsonb?.tables ?? [];
+  const unmatched = await loadUnmatchedCampaignSnapshot(supabase);
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
@@ -150,6 +153,56 @@ export default async function CronHealthPage() {
           </div>
         </div>
       )}
+
+      <section className="space-y-3 pt-10">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold tracking-tight">Unmatched campaigns</h2>
+          <p className="text-sm text-muted-foreground">
+            Meta campaigns whose <span className="font-mono">[CODE]</span> matches
+            no active event. Spend in the last 7 days is contributing to
+            nothing. Nearest codes are hints only.
+          </p>
+        </div>
+        {unmatched.findings.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {unmatched.scannedAt
+              ? `Last scan ${formatTimestamp(unmatched.scannedAt)} — none above the £${UNMATCHED_CAMPAIGN_SPEND_FLOOR_MAJOR} floor.`
+              : "No scan yet. The rollup-sync cron writes this list."}
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2.5 font-medium">Campaign</th>
+                  <th className="px-4 py-2.5 font-medium">Code</th>
+                  <th className="px-4 py-2.5 font-medium">Spend (7d)</th>
+                  <th className="px-4 py-2.5 font-medium">Nearest codes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {unmatched.findings.map((row) => (
+                  <tr key={`${row.campaignId}-${row.parsedCode}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium">{row.campaignName}</div>
+                      <div className="font-mono text-[11px] text-muted-foreground">
+                        {row.adAccountId}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-xs">{row.parsedCode}</td>
+                    <td className="px-4 py-2.5">£{row.spendMajor.toFixed(2)}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                      {row.nearestEventCodes.length > 0
+                        ? row.nearestEventCodes.join(", ")
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
