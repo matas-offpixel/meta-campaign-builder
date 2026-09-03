@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 875
+- **URL:** 875
 - **Branch:** `cursor/optimisation-evaluation-window`
 
 ## Summary
