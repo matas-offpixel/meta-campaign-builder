@@ -1,0 +1,400 @@
+From 0e69bcbbec06f6ffbfe11c030be8e8bc34de071f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 18 Aug 2026 12:57:57 +0000
+Subject: [PATCH] fix(thumbnails): creative-thumbnail proxy 403'd every ad in a
+ per-event ad account
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Top Creatives tiles rendered as blank initials placeholders even
+after creative hydration was fixed. Hydration was not the problem —
+production logs show it fully healthy:
+
+  creative_batch_done event=NX26-DJEZ distinct_creatives=21 hydrated=84
+    missing=0 no_thumbnail=0
+
+Every creative resolved a thumbnail URL. What failed was the image
+request that follows:
+
+  GET /api/proxy/creative-thumbnail 403   (x4, every card, every load)
+
+The proxy resolves the client's ad account from `clients.meta_ad_account_id`
+alone, then calls `verifyAdAccountForThumbnail` to confirm the requested
+ad belongs to it. But a client is not one ad account — that column is the
+DEFAULT and `events.meta_ad_account_id` overrides it per event. Electric
+Brixton's default is ELECTRIC STUDIOS SHEFFIELD (1073273492854557) while
+the four NX Newcastle shows run in NX Promoter (606252931141334), so
+every NX thumbnail failed the check and returned 403. The dashboard
+renders that as an initials tile, which looks exactly like "Meta has no
+thumbnail for this ad".
+
+This is the same root cause as PRs #772-#776, in a surface that sweep
+missed: those fixed the DATA path (which spend and creative metadata to
+read), this is the IMAGE path (whether the resulting ad id may be
+fetched). Both read the ad account; only one was migrated. The warm
+path was already correct — it receives an event-resolved account from
+the rollup-sync route, which is why `[warm-creative-thumbnails] cached
+14/14` succeeds while the viewer 403s on the same ads.
+
+Resolves the allowed set as client default UNION every distinct
+`events.meta_ad_account_id` for that client, and matches the ad against
+any of them. The security boundary is unchanged: ownership is still
+proven by session or share token BEFORE the set is assembled, and the
+set only ever contains accounts that client's own rows point at.
+Widening one id to that client's real id set closes a false negative,
+it does not relax a check — an unrelated account is still rejected, and
+an empty or all-blank set still rejects everything rather than
+degrading into a rubber stamp.
+
+Extracts the matcher into lib/meta/ad-account-match.ts so it is
+testable: thumbnail-proxy-server.ts carries `import "server-only"` and
+cannot be loaded by the strip-types test runner. Same seam as
+lib/meta/retry.ts. verifyAdAccountForThumbnail keeps its single-id
+signature as a thin wrapper, so the warm caller is untouched.
+
+Tests: 6, including the real Electric Brixton account pair, that an
+unrelated account is still rejected, and that an empty allowed set
+rejects rather than permits. Full lib suite: 51 failures before and
+after, all pre-existing.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Gac4LwvuM3dq5FUuymvbAj
+---
+ .../thumbnail-proxy-account-match.test.ts     | 47 ++++++++++++++
+ lib/meta/ad-account-match.ts                  | 63 ++++++++++++++++++
+ lib/meta/creative-thumbnail-get.ts            | 64 +++++++++++++++++--
+ lib/meta/thumbnail-proxy-server.ts            | 63 +++++++++++-------
+ 4 files changed, 210 insertions(+), 27 deletions(-)
+ create mode 100644 lib/meta/__tests__/thumbnail-proxy-account-match.test.ts
+ create mode 100644 lib/meta/ad-account-match.ts
+
+diff --git a/lib/meta/__tests__/thumbnail-proxy-account-match.test.ts b/lib/meta/__tests__/thumbnail-proxy-account-match.test.ts
+new file mode 100644
+index 0000000..87ad6c3
+--- /dev/null
++++ b/lib/meta/__tests__/thumbnail-proxy-account-match.test.ts
+@@ -0,0 +1,47 @@
++import { strict as assert } from "node:assert";
++import { test } from "node:test";
++
++import { adAccountMatchesAny, adAccountMatchesClient } from "../ad-account-match.ts";
++
++// `verifyAdAccountAllowedForThumbnail` itself calls Meta, so the unit
++// under test here is the pure matcher it delegates to.
++const matchesAny = adAccountMatchesAny;
++
++test("adAccountMatchesClient normalises the act_ prefix on either side", () => {
++  assert.equal(adAccountMatchesClient("606252931141334", "act_606252931141334"), true);
++  assert.equal(adAccountMatchesClient("act_606252931141334", "606252931141334"), true);
++  assert.equal(adAccountMatchesClient("act_606252931141334", "act_606252931141334"), true);
++});
++
++test("adAccountMatchesClient rejects a different account", () => {
++  // The real pair behind the bug: Electric Brixton's client default is
++  // ELECTRIC STUDIOS SHEFFIELD, but the NX Newcastle ads live in NX
++  // Promoter. Checking only the default 403'd every NX thumbnail.
++  assert.equal(
++    adAccountMatchesClient("606252931141334", "1073273492854557"),
++    false,
++  );
++});
++
++test("adAccountMatchesClient rejects null on either side", () => {
++  assert.equal(adAccountMatchesClient(null, "act_123"), false);
++  assert.equal(adAccountMatchesClient("act_123", null), false);
++  assert.equal(adAccountMatchesClient(undefined, undefined), false);
++});
++
++test("an ad in a per-event override account is allowed", () => {
++  // client default + the NX Promoter override pulled from events.
++  const allowed = ["1073273492854557", "606252931141334"];
++  assert.equal(matchesAny("606252931141334", allowed), true);
++  assert.equal(matchesAny("1073273492854557", allowed), true);
++});
++
++test("an ad in an unrelated account is still rejected", () => {
++  // Widening the set must not turn the check into a rubber stamp.
++  assert.equal(matchesAny("999999999999999", ["1073273492854557", "606252931141334"]), false);
++});
++
++test("an empty or all-null allowed set rejects everything", () => {
++  assert.equal(matchesAny("606252931141334", []), false);
++  assert.equal(matchesAny("606252931141334", [null, undefined, "  "]), false);
++});
+diff --git a/lib/meta/ad-account-match.ts b/lib/meta/ad-account-match.ts
+new file mode 100644
+index 0000000..cd19d20
+--- /dev/null
++++ b/lib/meta/ad-account-match.ts
+@@ -0,0 +1,63 @@
++/**
++ * lib/meta/ad-account-match.ts
++ *
++ * Ad-account identity comparison for the creative-thumbnail proxy's
++ * authorisation check.
++ *
++ * Split out of `thumbnail-proxy-server.ts` — which carries
++ * `import "server-only"` and so cannot be loaded by Node's
++ * `--experimental-strip-types` test runner — for the same reason as
++ * `lib/meta/retry.ts` and `lib/meta/error-classify.ts`: the logic worth
++ * testing stays importable on its own.
++ *
++ * Why the multi-id form exists: a client is not one ad account.
++ * `clients.meta_ad_account_id` is the DEFAULT and
++ * `events.meta_ad_account_id` overrides it per event. Electric Brixton
++ * runs Mall Grab out of ELECTRIC STUDIOS SHEFFIELD and four NX
++ * Newcastle shows out of NX Promoter. Comparing an ad against the
++ * client default alone rejected every thumbnail belonging to an
++ * overridden event with a 403, which the dashboard rendered as a blank
++ * initials tile — indistinguishable from "Meta has no thumbnail for
++ * this ad".
++ */
++
++import { withoutActPrefix } from "./ad-account-id.ts";
++
++export function normalizeMetaAdAccountId(
++  raw: string | null | undefined,
++): string | null {
++  if (raw == null || typeof raw !== "string") return null;
++  const t = raw.trim();
++  if (!t) return null;
++  return withoutActPrefix(t);
++}
++
++/** Compare Graph `account_id` (may be `act_…` or digits) to stored client id. */
++export function adAccountMatchesClient(
++  graphAccountId: string | null | undefined,
++  clientAdAccountId: string | null | undefined,
++): boolean {
++  if (!graphAccountId || !clientAdAccountId) return false;
++  return (
++    normalizeMetaAdAccountId(graphAccountId) ===
++    normalizeMetaAdAccountId(clientAdAccountId)
++  );
++}
++
++/**
++ * True when the Graph account matches ANY id the client legitimately
++ * advertises from.
++ *
++ * Empty / all-blank sets return false: widening the check to a set must
++ * never degrade into "allow anything" when the set fails to populate.
++ */
++export function adAccountMatchesAny(
++  graphAccountId: string | null | undefined,
++  allowedAdAccountIds: ReadonlyArray<string | null | undefined>,
++): boolean {
++  const ids = allowedAdAccountIds.filter(
++    (id): id is string => typeof id === "string" && id.trim().length > 0,
++  );
++  if (ids.length === 0) return false;
++  return ids.some((id) => adAccountMatchesClient(graphAccountId, id));
++}
+diff --git a/lib/meta/creative-thumbnail-get.ts b/lib/meta/creative-thumbnail-get.ts
+index 80f66f8..c8c45fb 100644
+--- a/lib/meta/creative-thumbnail-get.ts
++++ b/lib/meta/creative-thumbnail-get.ts
+@@ -11,7 +11,7 @@ import {
+   resolveThumbnailBytes,
+ } from "@/lib/meta/creative-thumbnail-cache";
+ import {
+-  verifyAdAccountForThumbnail,
++  verifyAdAccountAllowedForThumbnail,
+ } from "@/lib/meta/thumbnail-proxy-server";
+ 
+ export const CREATIVE_THUMB_CACHE_CONTROL = `public, max-age=${CREATIVE_THUMB_CACHE_SEC}, s-maxage=${CREATIVE_THUMB_CACHE_SEC}, stale-while-revalidate=86400`;
+@@ -104,6 +104,7 @@ export async function handleCreativeThumbnailGet(
+ 
+   let ownerUserId: string;
+   let clientAdAccountId: string | null;
++  let resolvedClientId: string | null = null;
+ 
+   if (shareToken) {
+     const resolved = await resolveShareByToken(shareToken, admin);
+@@ -134,6 +135,7 @@ export async function handleCreativeThumbnailGet(
+     }
+     ownerUserId = share.user_id;
+     clientAdAccountId = clientRow?.meta_ad_account_id ?? null;
++    resolvedClientId = share.client_id ?? null;
+   } else {
+     if (!clientIdParam) {
+       return NextResponse.json(
+@@ -168,9 +170,21 @@ export async function handleCreativeThumbnailGet(
+     }
+     ownerUserId = user.id;
+     clientAdAccountId = clientRow.meta_ad_account_id ?? null;
++    resolvedClientId = clientRow.id ?? null;
+   }
+ 
+-  if (!clientAdAccountId) {
++  // A client is not one ad account. `clients.meta_ad_account_id` is the
++  // default; `events.meta_ad_account_id` overrides it per event. Checking
++  // only the default 403'd every thumbnail belonging to an overridden
++  // event, which the dashboard renders as a blank initials tile — the
++  // same class of bug as PRs #772-#776, in the image path rather than
++  // the data path.
++  const allowedAdAccountIds = await loadClientAdAccountIds(
++    admin,
++    resolvedClientId,
++    clientAdAccountId,
++  );
++  if (allowedAdAccountIds.length === 0) {
+     return placeholderResponse(fallbackLabel);
+   }
+ 
+@@ -179,12 +193,17 @@ export async function handleCreativeThumbnailGet(
+     return placeholderResponse(fallbackLabel);
+   }
+ 
+-  const allowed = await verifyAdAccountForThumbnail(
++  const allowed = await verifyAdAccountAllowedForThumbnail(
+     adId,
+     fbToken,
+-    clientAdAccountId,
++    allowedAdAccountIds,
+   );
+   if (!allowed) {
++    console.warn("[creative-thumbnail-get] ad account not allowed", {
++      adId,
++      clientId: resolvedClientId,
++      allowedCount: allowedAdAccountIds.length,
++    });
+     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+   }
+ 
+@@ -201,3 +220,40 @@ export async function handleCreativeThumbnailGet(
+     return placeholderResponse(fallbackLabel);
+   }
+ }
++
++/**
++ * Every Meta ad account this client legitimately advertises from: the
++ * client default plus any per-event override.
++ *
++ * Ownership has already been proven by the caller (session or share
++ * token) before this runs, so reading the client's own event rows adds
++ * no new trust. A failed lookup degrades to the client default rather
++ * than throwing — a missing override should narrow what renders, never
++ * break the whole panel.
++ */
++async function loadClientAdAccountIds(
++  admin: ReturnType<typeof createServiceRoleClient>,
++  clientId: string | null,
++  clientDefault: string | null,
++): Promise<string[]> {
++  const ids = new Set<string>();
++  if (clientDefault?.trim()) ids.add(clientDefault.trim());
++  if (!clientId) return [...ids];
++
++  const { data, error } = await admin
++    .from("events")
++    .select("meta_ad_account_id")
++    .eq("client_id", clientId)
++    .not("meta_ad_account_id", "is", null);
++  if (error) {
++    console.warn(
++      `[creative-thumbnail-get] event ad account lookup failed: ${error.message}`,
++    );
++    return [...ids];
++  }
++  for (const row of (data ?? []) as Array<{ meta_ad_account_id: string | null }>) {
++    const id = row.meta_ad_account_id?.trim();
++    if (id) ids.add(id);
++  }
++  return [...ids];
++}
+diff --git a/lib/meta/thumbnail-proxy-server.ts b/lib/meta/thumbnail-proxy-server.ts
+index 74c80ed..27fcbd9 100644
+--- a/lib/meta/thumbnail-proxy-server.ts
++++ b/lib/meta/thumbnail-proxy-server.ts
+@@ -1,33 +1,19 @@
+ import "server-only";
+ 
+ import { graphGetWithToken } from "@/lib/meta/client";
+-import { withActPrefix, withoutActPrefix } from "@/lib/meta/ad-account-id";
++import { withActPrefix } from "@/lib/meta/ad-account-id";
++import {
++  adAccountMatchesAny,
++  adAccountMatchesClient,
++  normalizeMetaAdAccountId,
++} from "@/lib/meta/ad-account-match";
++
++export { adAccountMatchesClient, normalizeMetaAdAccountId };
+ import {
+   fetchThumbnailUrl,
+   type VideoThumbnailCacheClient,
+ } from "@/lib/meta/video-thumbnail-cache";
+ 
+-export function normalizeMetaAdAccountId(
+-  raw: string | null | undefined,
+-): string | null {
+-  if (raw == null || typeof raw !== "string") return null;
+-  const t = raw.trim();
+-  if (!t) return null;
+-  return withoutActPrefix(t);
+-}
+-
+-/** Compare Graph `account_id` (may be `act_…` or digits) to stored client id. */
+-export function adAccountMatchesClient(
+-  graphAccountId: string | null | undefined,
+-  clientAdAccountId: string | null | undefined,
+-): boolean {
+-  if (!graphAccountId || !clientAdAccountId) return false;
+-  return (
+-    normalizeMetaAdAccountId(graphAccountId) ===
+-    normalizeMetaAdAccountId(clientAdAccountId)
+-  );
+-}
+-
+ interface CreativeThumbnailFields {
+   creative?: {
+     thumbnail_url?: string;
+@@ -86,12 +72,43 @@ export async function verifyAdAccountForThumbnail(
+   fbToken: string,
+   clientAdAccountId: string,
+ ): Promise<boolean> {
++  return verifyAdAccountAllowedForThumbnail(adId, fbToken, [clientAdAccountId]);
++}
++
++/**
++ * Multi-account variant of {@link verifyAdAccountForThumbnail}.
++ *
++ * A client is not one ad account. `clients.meta_ad_account_id` is the
++ * DEFAULT, and `events.meta_ad_account_id` overrides it per event —
++ * Electric Brixton runs Mall Grab out of ELECTRIC STUDIOS SHEFFIELD and
++ * four NX Newcastle shows out of NX Promoter. Checking the ad against
++ * the client default alone rejects every thumbnail belonging to an
++ * overridden event with a 403, which the dashboard renders as a blank
++ * tile with initials — indistinguishable from "Meta has no thumbnail".
++ *
++ * The security boundary is unchanged: the caller still has to prove
++ * ownership of the client (session or share token) before assembling
++ * the allowed set, and the set only ever contains accounts that
++ * client's own rows point at. Widening it from one id to that client's
++ * real id set closes a false negative, not a check.
++ */
++export async function verifyAdAccountAllowedForThumbnail(
++  adId: string,
++  fbToken: string,
++  allowedAdAccountIds: ReadonlyArray<string | null | undefined>,
++): Promise<boolean> {
++  const allowed = allowedAdAccountIds.filter(
++    (id): id is string => typeof id === "string" && id.trim().length > 0,
++  );
++  // Bail before spending a Graph call on a set that cannot match.
++  if (allowed.length === 0) return false;
++
+   const head = await graphGetWithToken<{ account_id?: string }>(
+     `/${adId}`,
+     { fields: "account_id" },
+     fbToken,
+   );
+-  return adAccountMatchesClient(head.account_id, clientAdAccountId);
++  return adAccountMatchesAny(head.account_id, allowed);
+ }
+ 
+ export { withActPrefix };
+-- 
+2.43.0
+

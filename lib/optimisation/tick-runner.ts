@@ -40,6 +40,11 @@ import type {
 import { OBJECTIVE_METRIC_PRIORITY } from "../optimisation-rules.ts";
 import { DEFAULT_DEDUPE_WINDOW_MS, type NotifyOptions, type NotifyResult } from "../notify/slack.ts";
 import {
+  defaultWindowForMetric,
+  effectiveCooldownHours,
+  maxWindow,
+} from "./evaluate-windows.ts";
+import {
   cboMetricUnavailableReason,
   evaluateAdSet,
   evaluateCampaign,
@@ -98,6 +103,13 @@ export interface DecisionToInsert {
   ruleMatched: string | null;
   actionRecommended: AutomationAction;
   actionDelta: number | null;
+  /**
+   * Raw conversion count within the evaluation window — from Meta's
+   * `actions` field, NOT `cost_per_action_type`. Null for direct-field
+   * metrics (cpm, cpc, ctr). Stored in `meta_response_json` for display
+   * in the chip ("£1.72 from 9 regs / 7d") — no new DB column needed.
+   */
+  resultCount?: number | null;
   budgetBeforePence: number;
   budgetAfterPence: number;
   guardrailNote: GuardrailNote;
@@ -205,8 +217,13 @@ function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]):
 /** The enabled rule (if any) matching the objective's primary metric — used for its `timeWindow`. */
 function primaryWindowFor(objective: CampaignObjective, strategy: OptimisationStrategySettings): RuleTimeWindow {
   const primaryMetric = OBJECTIVE_METRIC_PRIORITY[objective].primary;
+  const metricDefault = defaultWindowForMetric(primaryMetric);
   const rule = strategy.rules.find((r) => r.enabled && r.metric === primaryMetric);
-  return rule?.timeWindow ?? "24h";
+  // Enforce minimum window per metric class: conversion metrics need at least
+  // 7d regardless of the operator's rule setting (the rule may still carry
+  // the old 24h default). `maxWindow` picks the wider of the two without
+  // silently discarding a deliberately-wider operator setting.
+  return maxWindow(rule?.timeWindow ?? metricDefault, metricDefault);
 }
 
 export async function runOptimisationTick(
@@ -257,8 +274,11 @@ export async function runOptimisationTick(
           const lastTouchedAt = gates.dryRun
             ? resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt)
             : state.lastAppliedAt;
-          const cooldownHours =
-            campaign.optimisationStrategy.guardrails.cooldownHours ?? lookbackHours;
+          // Outer cooldown: enforce cooldown ≥ window (same as ABO path).
+          const cooldownHours = effectiveCooldownHours(
+            window,
+            campaign.optimisationStrategy.guardrails.cooldownHours,
+          );
           if (
             lastTouchedAt &&
             Math.abs(now.getTime() - lastTouchedAt.getTime()) < cooldownHours * 60 * 60 * 1000
@@ -336,8 +356,12 @@ export async function runOptimisationTick(
           const lastTouchedAt = gates.dryRun
             ? resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt)
             : state.lastAppliedAt;
-          const cooldownHours =
-            campaign.optimisationStrategy.guardrails.cooldownHours ?? lookbackHours;
+          // Outer cooldown: enforce cooldown ≥ window so budget changes
+          // aren't stacked faster than the window can absorb them.
+          const cooldownHours = effectiveCooldownHours(
+            window,
+            campaign.optimisationStrategy.guardrails.cooldownHours,
+          );
           if (
             lastTouchedAt &&
             Math.abs(now.getTime() - lastTouchedAt.getTime()) < cooldownHours * 60 * 60 * 1000
@@ -581,6 +605,7 @@ function buildDecision(
   return {
     ...base,
     metricValue: liveMetric.value,
+    resultCount: liveMetric.resultCount,
     ruleMatched: result.ruleMatched,
     actionRecommended: result.action,
     actionDelta: result.deltaPercent,
@@ -673,6 +698,7 @@ function buildCampaignDecision(
   return {
     ...base,
     metricValue: liveMetric.value,
+    resultCount: liveMetric.resultCount,
     ruleMatched: result.ruleMatched,
     actionRecommended: result.action,
     actionDelta: result.deltaPercent,

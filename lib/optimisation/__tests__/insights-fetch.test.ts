@@ -60,6 +60,8 @@ describe("fetchCampaignAdSetInsights", () => {
       cpm: 4.5,
       ctr: 1.8,
       costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 1.25 },
+      // `actions` (raw counts) parsed into actionCountByType for minimum-evidence check.
+      actionCountByType: { landing_page_view: 40 },
     });
 
     assert.equal(calls[0].path, "/camp_1/adsets");
@@ -87,6 +89,7 @@ describe("fetchCampaignAdSetInsights", () => {
     const rows = await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "24h");
     assert.equal(rows[0].dailyBudgetPence, null);
     assert.equal(rows[0].impressions, 0);
+    assert.deepEqual(rows[0].actionCountByType, {});
   });
 
   it("follows pagination cursors across multiple pages", async () => {
@@ -137,38 +140,23 @@ describe("fetchCampaignBudgetInsights", () => {
 
 describe("isCboAdSetRoster", () => {
   it("is true only when every ad set lacks daily_budget", () => {
+    const baseAdSet = {
+      adsetName: "A",
+      lifetimeBudgetPence: null as null,
+      effectiveStatus: "ACTIVE",
+      impressions: 0,
+      cpc: null as null,
+      cpm: null as null,
+      ctr: null as null,
+      costPerActionType: {} as Record<string, number>,
+      actionCountByType: {} as Record<string, number>,
+    };
     assert.equal(
-      isCboAdSetRoster([
-        {
-          adsetId: "a",
-          adsetName: "A",
-          dailyBudgetPence: null,
-          lifetimeBudgetPence: null,
-          effectiveStatus: "ACTIVE",
-          impressions: 0,
-          cpc: null,
-          cpm: null,
-          ctr: null,
-          costPerActionType: {},
-        },
-      ]),
+      isCboAdSetRoster([{ adsetId: "a", ...baseAdSet, dailyBudgetPence: null }]),
       true,
     );
     assert.equal(
-      isCboAdSetRoster([
-        {
-          adsetId: "a",
-          adsetName: "A",
-          dailyBudgetPence: 1000,
-          lifetimeBudgetPence: null,
-          effectiveStatus: "ACTIVE",
-          impressions: 0,
-          cpc: null,
-          cpm: null,
-          ctr: null,
-          costPerActionType: {},
-        },
-      ]),
+      isCboAdSetRoster([{ adsetId: "a", ...baseAdSet, dailyBudgetPence: 1000 }]),
       false,
     );
   });

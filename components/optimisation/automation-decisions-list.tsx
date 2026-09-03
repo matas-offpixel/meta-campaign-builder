@@ -48,13 +48,20 @@ export function AutomationDecisionsList({
                   filled={row.kind === "applied"}
                 />
                 {row.metricValue != null ? (
-                  <MetricChip label={`${row.metric || "metric"} ${row.metricValue}`}>
+                  <MetricChip
+                    label={`${row.metric || "metric"} ${row.metricValue}${row.resultCount != null ? ` from ${row.resultCount} / ${row.metricWindow}` : ""}`}
+                  >
                     {row.metric || "cpr"} {row.metricValue}
+                    {row.resultCount != null ? (
+                      <span className="opacity-60">
+                        {" "}from {row.resultCount} / {row.metricWindow}
+                      </span>
+                    ) : null}
                     {delta != null && delta !== 0
                       ? ` ${delta > 0 ? "+" : ""}${formatPenceAsMajor(delta, sym)}`
                       : ""}
                   </MetricChip>
-                ) : row.action === "metric_unavailable" ? (
+                ) : row.action === "metric_unavailable" || row.action === "insufficient_conversions" ? (
                   <InfoTip label={row.reasonText || "Metric unavailable"} />
                 ) : null}
                 <span className="min-w-24 flex-1">

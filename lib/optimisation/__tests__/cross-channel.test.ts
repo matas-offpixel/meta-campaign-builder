@@ -84,6 +84,7 @@ function insightRow(): AdSetInsightRow {
     cpm: null,
     ctr: null,
     costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.5 },
+    actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
   };
 }
 

@@ -36,6 +36,10 @@ import type {
   RuleMetric,
   RuleTimeWindow,
 } from "@/lib/types";
+import {
+  effectiveCooldownHours,
+  MIN_CONVERSION_RESULT_COUNT,
+} from "./evaluate-windows.ts";
 
 export type AutomationAction =
   | "scale_up"
@@ -44,7 +48,14 @@ export type AutomationAction =
   | "maintain"
   | "skip_dormant"
   | "skip_recent_touch"
-  | "metric_unavailable";
+  | "metric_unavailable"
+  /**
+   * Conversion metric has data but the result count is below the
+   * minimum-evidence threshold. Named rather than silently maintaining so
+   * the operator can see exactly how far the ad set is from actionability.
+   * See `MIN_CONVERSION_RESULT_COUNT` in evaluate-windows.ts.
+   */
+  | "insufficient_conversions";
 
 export type GuardrailNote =
   | "hit_hard_ceiling"
@@ -58,6 +69,13 @@ export interface LiveMetricReading {
   name: RuleMetric;
   value: number;
   window: RuleTimeWindow;
+  /**
+   * Raw result count from Meta's `actions` field over the same window.
+   * Present for conversion-style metrics (cpr, cpa) where the insight row
+   * has `actionCountByType` entries. Null for direct-field metrics (cpc,
+   * cpm, ctr) — the minimum-evidence check is skipped when this is null.
+   */
+  resultCount: number | null;
 }
 
 export interface EvaluateAdSetInput {
@@ -208,7 +226,12 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
   // complete, independently-testable decision unit and PR B (which may feed
   // a Meta-sourced "last budget update" timestamp instead of our own audit
   // log) doesn't need new logic. ────────────────────────────────────────────
-  const cooldownHours = guardrails.cooldownHours ?? DEFAULT_COOLDOWN_HOURS;
+  //
+  // Cooldown ≥ window: a budget change made D days ago is still inside the
+  // measured period when the evaluation window is 7d. Using a shorter
+  // cooldown would stack changes whose effects haven't yet washed out of the
+  // metric. `effectiveCooldownHours` enforces max(configured, windowHours).
+  const cooldownHours = effectiveCooldownHours(liveMetric.window, guardrails.cooldownHours);
   if (lastTouchedAt && hoursBetween(now, lastTouchedAt) < cooldownHours) {
     return {
       action: "skip_recent_touch",
@@ -217,6 +240,27 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
       ruleMatched: null,
       guardrailNote: null,
       reason: `Touched ${hoursBetween(now, lastTouchedAt).toFixed(1)}h ago — inside the ${cooldownHours}h cooldown window.`,
+    };
+  }
+
+  // ── Minimum-evidence guard — conversion metrics only ─────────────────────
+  // `resultCount` is null for direct-field metrics (cpm, cpc, ctr) where
+  // there is no countable event, so the check is skipped for those.
+  // For conversion metrics: a rate derived from 1–4 conversions has too
+  // wide a confidence interval to act on. Record the count in reason_text
+  // so the operator can see how close the ad set is to the threshold —
+  // "4/5 conversions" is actionable context, "maintaining budget" is not.
+  if (
+    liveMetric.resultCount !== null &&
+    liveMetric.resultCount < MIN_CONVERSION_RESULT_COUNT
+  ) {
+    return {
+      action: "insufficient_conversions",
+      deltaPercent: null,
+      budgetAfterPence: currentBudgetPence,
+      ruleMatched: null,
+      guardrailNote: null,
+      reason: `${liveMetric.resultCount}/${MIN_CONVERSION_RESULT_COUNT} conversions in the ${liveMetric.window} window for ${noun} — insufficient evidence, no budget change.`,
     };
   }
 

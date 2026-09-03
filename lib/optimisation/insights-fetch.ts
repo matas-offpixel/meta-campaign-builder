@@ -110,6 +110,10 @@ function metricsFromInsight(insightRow: RawInsightRow | undefined): AdSetInsight
     cpm: parseNumOrNull(insightRow?.cpm),
     ctr: parseNumOrNull(insightRow?.ctr),
     costPerActionType: costPerActionTypeMap(insightRow?.cost_per_action_type),
+    // `actions` holds raw counts; `cost_per_action_type` holds the rate.
+    // Both use the same `action_type` keys, so the minimum-evidence check
+    // can look up the count by the same candidate action_type string.
+    actionCountByType: costPerActionTypeMap(insightRow?.actions),
   };
 }
 

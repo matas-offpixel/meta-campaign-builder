@@ -70,6 +70,7 @@ export type DecisionRowInput = {
   decided_at: string;
   metric: string | null;
   metric_value: number | string | null;
+  metric_window?: string | null;
   rule_matched: string | null;
   action_recommended: string | null;
   budget_before_pence: number | null;
@@ -90,6 +91,14 @@ export type DecisionRowView = {
   decidedAt: string;
   metric: string;
   metricValue: number | null;
+  /**
+   * Raw conversion count from `meta_response_json.resultCount` — null when
+   * the metric is a direct-field type (cpm, cpc, ctr) or when the row was
+   * written before this field was added.
+   */
+  resultCount: number | null;
+  /** Evaluation window from `metric_window` column — e.g. "7d" or "24h". */
+  metricWindow: string;
   ruleMatched: string;
   action: string;
   budgetBeforePence: number | null;
@@ -128,6 +137,14 @@ function asNumber(value: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function resolveResultCount(row: DecisionRowInput): number | null {
+  const json = row.meta_response_json;
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
+  const val = (json as Record<string, unknown>).resultCount;
+  if (typeof val === "number" && Number.isFinite(val)) return val;
+  return null;
+}
+
 export function presentDecisionRow(row: DecisionRowInput): DecisionRowView {
   const applied = row.applied === true;
   const dryRun = row.dry_run !== false && !applied;
@@ -135,6 +152,8 @@ export function presentDecisionRow(row: DecisionRowInput): DecisionRowView {
     decidedAt: row.decided_at,
     metric: row.metric ?? "",
     metricValue: asNumber(row.metric_value),
+    resultCount: resolveResultCount(row),
+    metricWindow: row.metric_window ?? "24h",
     ruleMatched: row.rule_matched ?? "",
     action: row.action_recommended ?? "",
     budgetBeforePence: asNumber(row.budget_before_pence),

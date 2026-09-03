@@ -347,7 +347,10 @@ export function evaluateCrossChannelSubject(
     rules: subject.optimisationStrategy.rules,
     guardrails: subject.optimisationStrategy.guardrails,
     currentBudgetPence: dailyBudgetPence,
-    liveMetric: { name: primaryMetric, value: cpr, window },
+    // Cross-channel path doesn't have raw action counts (event_daily_rollups
+    // stores aggregated spend + results, not the per-conversion counts Meta's
+    // `actions` field gives). resultCount: null skips the min-evidence check.
+    liveMetric: { name: primaryMetric, value: cpr, window, resultCount: null },
     lastTouchedAt,
     appliedIncreasePercentLast24h,
     // CPR is already trustworthy; don't hide it behind a 0-impression skip.
