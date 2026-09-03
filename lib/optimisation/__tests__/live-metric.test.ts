@@ -52,27 +52,46 @@ function metrics(overrides: Partial<AdSetInsightMetrics> = {}): AdSetInsightMetr
     cpm: null,
     ctr: null,
     costPerActionType: {},
+    actionCountByType: {},
     ...overrides,
   };
 }
 
 describe("resolvePrimaryLiveMetric", () => {
-  it("registration objective resolves cpr from cost_per_action_type", () => {
+  it("registration objective resolves cpr from cost_per_action_type, resultCount from actions", () => {
     const result = resolvePrimaryLiveMetric(
       "registration",
-      metrics({ costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 1.25 } }),
+      metrics({
+        costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 1.25 },
+        actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 7 },
+      }),
       "24h",
     );
-    assert.deepEqual(result, { name: "cpr", value: 1.25, window: "24h" });
+    assert.deepEqual(result, { name: "cpr", value: 1.25, window: "24h", resultCount: 7 });
+  });
+
+  it("resultCount is null when actions has no matching entry for the resolved action_type", () => {
+    const result = resolvePrimaryLiveMetric(
+      "registration",
+      metrics({
+        costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 1.25 },
+        actionCountByType: {}, // no matching entry
+      }),
+      "24h",
+    );
+    assert.equal(result?.resultCount, null);
   });
 
   it("registration objective falls back through candidate action types in order", () => {
     const result = resolvePrimaryLiveMetric(
       "registration",
-      metrics({ costPerActionType: { complete_registration: 2.5 } }),
+      metrics({
+        costPerActionType: { complete_registration: 2.5 },
+        actionCountByType: { complete_registration: 3 },
+      }),
       "24h",
     );
-    assert.deepEqual(result, { name: "cpr", value: 2.5, window: "24h" });
+    assert.deepEqual(result, { name: "cpr", value: 2.5, window: "24h", resultCount: 3 });
   });
 
   it("registration objective with no matching action type returns null (not 0)", () => {
@@ -80,32 +99,39 @@ describe("resolvePrimaryLiveMetric", () => {
     assert.equal(result, null);
   });
 
-  it("traffic objective resolves lpv_cost from landing_page_view", () => {
+  it("traffic objective resolves lpv_cost from landing_page_view, resultCount null (direct-field style)", () => {
     const result = resolvePrimaryLiveMetric(
       "traffic",
-      metrics({ costPerActionType: { landing_page_view: 0.3 } }),
+      metrics({
+        costPerActionType: { landing_page_view: 0.3 },
+        actionCountByType: { landing_page_view: 42 },
+      }),
       "24h",
     );
-    assert.deepEqual(result, { name: "lpv_cost", value: 0.3, window: "24h" });
+    // lpv_cost resolved from ACTION_TYPE_CANDIDATES, not DIRECT_FIELD —
+    // resultCount comes from actionCountByType for it.
+    assert.equal(result?.name, "lpv_cost");
+    assert.equal(result?.value, 0.3);
+    assert.equal(result?.resultCount, 42);
   });
 
   it("purchase objective resolves cpa (never the secondary roas metric)", () => {
     const result = resolvePrimaryLiveMetric(
       "purchase",
-      metrics({ costPerActionType: { purchase: 15 } }),
+      metrics({ costPerActionType: { purchase: 15 }, actionCountByType: { purchase: 2 } }),
       "3d",
     );
-    assert.deepEqual(result, { name: "cpa", value: 15, window: "3d" });
+    assert.deepEqual(result, { name: "cpa", value: 15, window: "3d", resultCount: 2 });
   });
 
-  it("awareness objective resolves cpm directly (no action_type lookup)", () => {
+  it("awareness objective resolves cpm directly — resultCount is null", () => {
     const result = resolvePrimaryLiveMetric("awareness", metrics({ cpm: 4.2 }), "24h");
-    assert.deepEqual(result, { name: "cpm", value: 4.2, window: "24h" });
+    assert.deepEqual(result, { name: "cpm", value: 4.2, window: "24h", resultCount: null });
   });
 
-  it("engagement objective resolves cpc directly", () => {
+  it("engagement objective resolves cpc directly — resultCount is null", () => {
     const result = resolvePrimaryLiveMetric("engagement", metrics({ cpc: 0.08 }), "24h");
-    assert.deepEqual(result, { name: "cpc", value: 0.08, window: "24h" });
+    assert.deepEqual(result, { name: "cpc", value: 0.08, window: "24h", resultCount: null });
   });
 
   it("direct-field metric with a null value returns null", () => {

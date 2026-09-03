@@ -66,6 +66,7 @@ function insightRow(overrides: Partial<AdSetInsightRow> = {}): AdSetInsightRow {
     cpm: null,
     ctr: null,
     costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.5 },
+    actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
     ...overrides,
   };
 }
@@ -229,6 +230,7 @@ describe("runOptimisationTick — dry-run decisions", () => {
         cpm: null,
         ctr: null,
         costPerActionType: { landing_page_view: 0.18 },
+        actionCountByType: { landing_page_view: 120 },
       }),
       insertDecision: async (row) => void inserted.push(row),
     });

@@ -36,11 +36,17 @@ function isUndefinedColumnError(
   );
 }
 
-function mergeChannelJson(existing: unknown, channel: string): unknown {
+function mergeInsightJson(
+  existing: unknown,
+  channel: string,
+  resultCount: number | null | undefined,
+): unknown {
+  const extra: Record<string, unknown> = { channel };
+  if (resultCount != null) extra.resultCount = resultCount;
   if (existing && typeof existing === "object" && !Array.isArray(existing)) {
-    return { ...(existing as Record<string, unknown>), channel };
+    return { ...(existing as Record<string, unknown>), ...extra };
   }
-  if (existing == null) return { channel };
+  if (existing == null) return extra;
   return existing;
 }
 
@@ -158,7 +164,7 @@ export async function insertAutomationDecision(
     dry_run: decision.dryRun ?? true,
     applied: decision.applied ?? false,
     applied_at: decision.appliedAt ?? null,
-    meta_response_json: mergeChannelJson(decision.metaResponseJson, channel),
+    meta_response_json: mergeInsightJson(decision.metaResponseJson, channel, decision.resultCount),
     channel,
   };
   const { error } = await sb.from("campaign_automation_decisions").insert(row);

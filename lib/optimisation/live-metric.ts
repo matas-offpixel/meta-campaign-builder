@@ -23,6 +23,17 @@ export interface AdSetInsightMetrics {
   ctr: number | null;
   /** Meta's `cost_per_action_type`, keyed by `action_type`, already cost-per-conversion (not raw counts). */
   costPerActionType: Record<string, number>;
+  /**
+   * Raw action counts from Meta's `actions` field (distinct from
+   * `cost_per_action_type`). Used to enforce the minimum-evidence threshold
+   * before acting on a conversion rate — a rate from 1–4 conversions is noise.
+   * Keys match `action_type` exactly as returned by the Graph API.
+   */
+  /**
+   * Optional — absent means resultCount will be null (evidence check skipped).
+   * Backwards-compatible with code that constructs AdSetInsightMetrics directly.
+   */
+  actionCountByType?: Record<string, number>;
 }
 
 /**
@@ -73,14 +84,19 @@ export function resolvePrimaryLiveMetric(
   if (directField) {
     const value = insight[directField];
     if (typeof value !== "number" || !Number.isFinite(value)) return null;
-    return { name: metric, value, window };
+    // Direct-field metrics (cpm, cpc, ctr) have no countable event — resultCount is null.
+    return { name: metric, value, window, resultCount: null };
   }
 
   const candidates = ACTION_TYPE_CANDIDATES[metric] ?? [];
   for (const actionType of candidates) {
     const value = insight.costPerActionType[actionType];
     if (typeof value === "number" && Number.isFinite(value)) {
-      return { name: metric, value, window };
+      // Resolve the raw count from `actionCountByType` using the same candidate list.
+      // The count comes from Meta's `actions` field; the rate from `cost_per_action_type`.
+      // null when actionCountByType is absent (e.g. old callers) — evidence check skipped.
+      const resultCount = insight.actionCountByType?.[actionType] ?? null;
+      return { name: metric, value, window, resultCount };
     }
   }
   return null;

@@ -1,0 +1,1795 @@
+From 98339c2fd65c9f2c6338b2dcdfb1df5ac835b3cd Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 17 Aug 2026 20:20:42 +0000
+Subject: [PATCH 1/2] =?UTF-8?q?fix(creatives):=20Meta=20removed=20=3Fids?=
+ =?UTF-8?q?=3D=20in=20v26.0=20=E2=80=94=20creative=20hydration=20has=20bee?=
+ =?UTF-8?q?n=20dead=20since=20late=20July?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Phase-2 creative hydration used Meta's multi-read endpoint,
+GET /?ids=<id,id,…>&fields=<…>. Meta removed the `ids` query parameter
+in Graph API v26.0, so every batch came back with
+
+  meta_code=100 "The ids query parameter is deprecated in v26.0+."
+
+fetchCreativeBatch swallows per-batch failures by design (a degraded
+batch beats a dropped event), so this surfaced nowhere: hydration
+returned an empty map on every event and every ad kept its phase-1
+nulls. Cron logs show `creative_batch_done hydrated=0 missing=44` on
+every event since.
+
+Two visible symptoms, one dead transport:
+
+  - Top Creatives tiles render initials placeholders instead of
+    previews, because no image_url / video_id / thumbnail_url ever
+    reaches the grouper.
+  - The AI auto-tagger skips every creative for want of a thumbnail.
+    creative_tag_assignments has not been written since 2026-07-28.
+
+Swaps the transport to Meta's Batch API (POST / with a `batch` array),
+the documented replacement. Same per-call ID budget, so
+CREATIVE_BATCH_SIZE chunking is unchanged. The batch response is an
+array of {code, body} where body is a JSON *string* and a sub-request
+can fail inside a 200 envelope, so the parser rejects error envelopes
+and id-less bodies rather than letting them land in the map as
+creatives with every field undefined.
+
+graphPostWithToken has no built-in retry unlike the graphGetWithToken
+this used to go through, so the transient-retry posture is restored
+explicitly rather than silently dropped along with the old transport.
+
+Also in this change, both discovered while tracing the same symptom:
+
+  - The cron 504s. It walks 131 eligible events sequentially at ~4 Meta
+    round trips each, far past maxDuration=800. Every invocation was
+    killed with no response body, no health signal, and no staleness
+    alarm — active_creatives_snapshots looked fresh because manual
+    dashboard refreshes kept writing to it. Adds a 600s wall-clock
+    budget plus least-recently-refreshed ordering, so a capped run
+    drains the stalest slice and consecutive runs rotate through the
+    whole set instead of re-doing the head forever. eventsSkippedTimeBudget
+    is reported on the response — a silently truncated run reading
+    identically to a complete one is how this went unnoticed for three
+    weeks.
+  - The two live venue-creatives routes that feed the Top Creatives
+    strip never passed enrichVideoThumbnails, so even once hydration
+    works they would serve Meta's 64x64 asset-feed posters. Both already
+    hold a service-role client; the helper is Storage-cache-first, so on
+    the warm path this is one Storage read per video and zero Meta calls.
+
+Tests: 14 new, covering the batch request builder (including a guard
+against reverting to ids=), the sub-response parser's rejection
+branches, and the rotation invariant that a drained slice moves to the
+back. Typecheck clean on all changed files.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Gac4LwvuM3dq5FUuymvbAj
+---
+ .../cron/refresh-active-creatives/route.ts    | 94 +++++++++++++++++-
+ .../venue-creatives/[event_code]/route.ts     |  8 ++
+ .../venue-creatives/[event_code]/route.ts     |  5 +
+ lib/dashboard/__tests__/cron-rotation.test.ts | 76 ++++++++++++++
+ lib/dashboard/cron-rotation.ts                | 53 ++++++++++
+ .../__tests__/creative-batch-response.test.ts | 89 +++++++++++++++++
+ lib/reporting/active-creatives-fetch.ts       | 91 ++++++++++++++---
+ lib/reporting/creative-batch-response.ts      | 98 +++++++++++++++++++
+ 8 files changed, 496 insertions(+), 18 deletions(-)
+ create mode 100644 lib/dashboard/__tests__/cron-rotation.test.ts
+ create mode 100644 lib/dashboard/cron-rotation.ts
+ create mode 100644 lib/reporting/__tests__/creative-batch-response.test.ts
+ create mode 100644 lib/reporting/creative-batch-response.ts
+
+diff --git a/app/api/cron/refresh-active-creatives/route.ts b/app/api/cron/refresh-active-creatives/route.ts
+index 31b1622..e5630e2 100644
+--- a/app/api/cron/refresh-active-creatives/route.ts
++++ b/app/api/cron/refresh-active-creatives/route.ts
+@@ -29,6 +29,7 @@ import {
+   type RefreshResult,
+ } from "@/lib/reporting/active-creatives-refresh-runner";
+ import { loadActiveCreativesCronEligibility } from "@/lib/dashboard/cron-eligibility";
++import { orderByStalestFirst } from "@/lib/dashboard/cron-rotation";
+ import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
+ import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
+ import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
+@@ -88,6 +89,27 @@ import { resolveEventAdAccountId } from "@/lib/meta/ad-account";
+ export const maxDuration = 800;
+ export const dynamic = "force-dynamic";
+ 
++/**
++ * Wall-clock budget for the whole run, in ms. Deliberately short of
++ * `maxDuration` so the route returns its own summary instead of
++ * being killed mid-event by the platform.
++ *
++ * Why this exists: the loop below walks every eligible event
++ * sequentially, ~4 Meta round trips each. At 131 eligible events
++ * that is far more than 800s of work, so every invocation was
++ * terminated with a 504 — no response body, no `cron_health` signal,
++ * and (because `active_creatives_snapshots` still looked fresh from
++ * manual dashboard refreshes) no staleness alarm either. The cron
++ * had been dead since late July before anyone noticed.
++ *
++ * A budget alone would just move the cliff, so it is paired with the
++ * least-recently-refreshed ordering in `orderByStalestFirst`: each
++ * run drains the oldest slice, so consecutive runs rotate through
++ * the whole eligible set instead of re-doing the same head of the
++ * list and never reaching the tail.
++ */
++const RUN_TIME_BUDGET_MS = 600_000;
++
+ const AI_AUTOTAG_CONCURRENCY = 3;
+ 
+ /**
+@@ -132,6 +154,15 @@ interface CronResponse {
+   cadence_tier: "base" | "burst";
+   eventsConsidered: number;
+   eventsProcessed: number;
++  /**
++   * Events that were eligible but never attempted because the run
++   * hit {@link RUN_TIME_BUDGET_MS}. Non-zero means the eligible set
++   * no longer fits one invocation — see the budget note above.
++   * NEVER omit this: a silently truncated run reads identically to
++   * a complete one, which is exactly how this cron 504'd unnoticed
++   * for three weeks.
++   */
++  eventsSkippedTimeBudget: number;
+   totalPresetsRefreshed: number;
+   results: EventRefreshSummary[];
+ }
+@@ -195,6 +226,42 @@ function isAutoTagEnabled(): boolean {
+   return process.env.ENABLE_AI_AUTOTAG === "1";
+ }
+ 
++/**
++ * Newest `fetched_at` per event across every preset. One row per
++ * (event, preset) exists, so we reduce to the max rather than
++ * assuming a single row.
++ */
++async function loadLastRefreshedAt(
++  supabase: ReturnType<typeof createServiceRoleClient>,
++  eventIds: readonly string[],
++): Promise<Map<string, number>> {
++  const out = new Map<string, number>();
++  if (eventIds.length === 0) return out;
++  const { data, error } = await supabase
++    .from("active_creatives_snapshots")
++    .select("event_id, fetched_at")
++    .in("event_id", [...eventIds]);
++  if (error) {
++    // Non-fatal: without this the run still works, it just loses
++    // the rotation guarantee for this invocation.
++    console.warn(
++      `[cron refresh-active-creatives] stalest_first_lookup_failed: ${error.message}`,
++    );
++    return out;
++  }
++  for (const row of (data ?? []) as Array<{
++    event_id: string | null;
++    fetched_at: string | null;
++  }>) {
++    if (!row.event_id) continue;
++    const ms = row.fetched_at ? Date.parse(row.fetched_at) : NaN;
++    if (!Number.isFinite(ms)) continue;
++    const prev = out.get(row.event_id);
++    if (prev === undefined || ms > prev) out.set(row.event_id, ms);
++  }
++  return out;
++}
++
+ function createAutoTagSummary(enabled: boolean): AutoTagCronSummary {
+   return {
+     enabled,
+@@ -282,6 +349,7 @@ export async function GET(req: NextRequest) {
+       cadence_tier: "base",
+       eventsConsidered: 0,
+       eventsProcessed: 0,
++      eventsSkippedTimeBudget: 0,
+       totalPresetsRefreshed: 0,
+       results: [],
+     };
+@@ -309,10 +377,17 @@ export async function GET(req: NextRequest) {
+       { status: 500 },
+     );
+   }
+-  const events = (rawEvents ?? []) as unknown as EventToRefresh[];
++  const unorderedEvents = (rawEvents ?? []) as unknown as EventToRefresh[];
++  const events = orderByStalestFirst(
++    unorderedEvents,
++    await loadLastRefreshedAt(
++      supabase,
++      unorderedEvents.map((e) => e.id),
++    ),
++  );
+ 
+   console.log(
+-    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO}`,
++    `[cron refresh-active-creatives] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO} time_budget_ms=${RUN_TIME_BUDGET_MS}`,
+   );
+ 
+   const results: EventRefreshSummary[] = [];
+@@ -332,7 +407,17 @@ export async function GET(req: NextRequest) {
+     );
+   }
+ 
+-  for (const event of events) {
++  const runStartedMs = Date.now();
++  let eventsSkippedTimeBudget = 0;
++
++  for (const [index, event] of events.entries()) {
++    if (Date.now() - runStartedMs >= RUN_TIME_BUDGET_MS) {
++      eventsSkippedTimeBudget = events.length - index;
++      console.warn(
++        `[cron refresh-active-creatives] time_budget_reached processed=${index} skipped=${eventsSkippedTimeBudget} of=${events.length} — remaining events roll to the next run (stalest-first ordering means they lead it)`,
++      );
++      break;
++    }
+     const t0 = Date.now();
+     const aiAutoTag = createAutoTagSummary(autoTagEnabled);
+     try {
+@@ -419,12 +504,13 @@ export async function GET(req: NextRequest) {
+     cadence_tier: "base",
+     eventsConsidered: events.length,
+     eventsProcessed: results.length,
++    eventsSkippedTimeBudget,
+     totalPresetsRefreshed,
+     results,
+   };
+ 
+   console.log(
+-    `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed}`,
++    `[cron refresh-active-creatives] cadence=base done events=${results.length} all_ok=${allOk} presets_written=${totalPresetsRefreshed} skipped_time_budget=${eventsSkippedTimeBudget} elapsed_ms=${Date.now() - runStartedMs}`,
+   );
+ 
+   if (autoTagEnabled) {
+diff --git a/app/api/internal/clients/[clientId]/venue-creatives/[event_code]/route.ts b/app/api/internal/clients/[clientId]/venue-creatives/[event_code]/route.ts
+index ea0d852..20db156 100644
+--- a/app/api/internal/clients/[clientId]/venue-creatives/[event_code]/route.ts
++++ b/app/api/internal/clients/[clientId]/venue-creatives/[event_code]/route.ts
+@@ -213,6 +213,14 @@ export async function GET(
+       // single in-flight /ads call per card keeps us under Meta's
+       // per-account rate budget even with four cards open.
+       concurrency: 1,
++      // Upgrade the 64x64 asset-feed video posters to real
++      // thumbnails. `fetchThumbnailUrl` is Storage-cache-first
++      // (migration 068e, `video-thumb/` prefix), so on the warm
++      // path this costs one Storage read per video and zero Meta
++      // calls — the cron and the post-rollup-sync warm have
++      // usually already populated it.
++      enrichVideoThumbnails: true,
++      admin,
+     });
+ 
+     if (result.meta.campaigns_total === 0) {
+diff --git a/app/api/share/client/[token]/venue-creatives/[event_code]/route.ts b/app/api/share/client/[token]/venue-creatives/[event_code]/route.ts
+index fa1a4a8..37d9cfa 100644
+--- a/app/api/share/client/[token]/venue-creatives/[event_code]/route.ts
++++ b/app/api/share/client/[token]/venue-creatives/[event_code]/route.ts
+@@ -203,6 +203,11 @@ export async function GET(
+       // would already fan six /ads requests; concurrency=1 keeps the
+       // per-account rate budget predictable.
+       concurrency: 1,
++      // Same as the internal twin: upgrade 64x64 asset-feed video
++      // posters via the Storage-cache-first thumbnail helper, so
++      // the client-facing strip matches what the operator sees.
++      enrichVideoThumbnails: true,
++      admin,
+     });
+ 
+     if (result.meta.campaigns_total === 0) {
+diff --git a/lib/dashboard/__tests__/cron-rotation.test.ts b/lib/dashboard/__tests__/cron-rotation.test.ts
+new file mode 100644
+index 0000000..6d8492e
+--- /dev/null
++++ b/lib/dashboard/__tests__/cron-rotation.test.ts
+@@ -0,0 +1,76 @@
++import { strict as assert } from "node:assert";
++import { test } from "node:test";
++
++import { orderByStalestFirst } from "../cron-rotation.ts";
++
++const ids = (rows: Array<{ id: string }>) => rows.map((r) => r.id);
++
++test("orderByStalestFirst puts the least-recently-refreshed event first", () => {
++  const events = [{ id: "c" }, { id: "a" }, { id: "b" }];
++  const seen = new Map([
++    ["a", 3_000],
++    ["b", 1_000],
++    ["c", 2_000],
++  ]);
++  assert.deepEqual(ids(orderByStalestFirst(events, seen)), ["b", "c", "a"]);
++});
++
++test("orderByStalestFirst puts never-refreshed events at the very front", () => {
++  // A newly added event has no snapshot row. It must lead the next
++  // run rather than queue behind every event already being
++  // maintained — otherwise a new show waits out the whole rotation
++  // before its creatives are ever fetched.
++  const events = [{ id: "old" }, { id: "new" }];
++  const seen = new Map([["old", 5_000]]);
++  assert.deepEqual(ids(orderByStalestFirst(events, seen)), ["new", "old"]);
++});
++
++test("orderByStalestFirst breaks ties on id so the order is deterministic", () => {
++  const events = [{ id: "z" }, { id: "m" }, { id: "a" }];
++  const seen = new Map([
++    ["z", 1_000],
++    ["m", 1_000],
++    ["a", 1_000],
++  ]);
++  assert.deepEqual(ids(orderByStalestFirst(events, seen)), ["a", "m", "z"]);
++});
++
++test("orderByStalestFirst rotates: draining a slice moves it to the back", () => {
++  // The whole point of the ordering. Simulate a run that can only
++  // process two events, then stamp those two as just-refreshed — the
++  // next run must pick up the two it never reached, not repeat the
++  // head of the list.
++  const events = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
++  const seen = new Map([
++    ["a", 100],
++    ["b", 200],
++    ["c", 300],
++    ["d", 400],
++  ]);
++
++  const runOne = orderByStalestFirst(events, seen).slice(0, 2);
++  assert.deepEqual(ids(runOne), ["a", "b"]);
++
++  for (const e of runOne) seen.set(e.id, 1_000);
++
++  const runTwo = orderByStalestFirst(events, seen).slice(0, 2);
++  assert.deepEqual(ids(runTwo), ["c", "d"]);
++});
++
++test("orderByStalestFirst does not mutate its input", () => {
++  const events = [{ id: "b" }, { id: "a" }];
++  const seen = new Map([
++    ["a", 1 ],
++    ["b", 2 ],
++  ]);
++  orderByStalestFirst(events, seen);
++  assert.deepEqual(ids(events), ["b", "a"]);
++});
++
++test("orderByStalestFirst handles an empty list and an empty map", () => {
++  assert.deepEqual(orderByStalestFirst([], new Map()), []);
++  assert.deepEqual(
++    ids(orderByStalestFirst([{ id: "a" }, { id: "b" }], new Map())),
++    ["a", "b"],
++  );
++});
+diff --git a/lib/dashboard/cron-rotation.ts b/lib/dashboard/cron-rotation.ts
+new file mode 100644
+index 0000000..cb78de4
+--- /dev/null
++++ b/lib/dashboard/cron-rotation.ts
+@@ -0,0 +1,53 @@
++/**
++ * lib/dashboard/cron-rotation.ts
++ *
++ * Ordering primitive for time-budgeted cron loops that can no longer
++ * process their whole eligible set in one invocation.
++ *
++ * Why this exists: `/api/cron/refresh-active-creatives` walks every
++ * eligible event sequentially, ~4 Meta round trips each. Once the
++ * eligible set grew past ~130 events, a run could not finish inside
++ * `maxDuration` and every invocation was killed with a 504 — no
++ * response body, no health signal, and no staleness alarm (the
++ * snapshot table still looked fresh thanks to manual dashboard
++ * refreshes). The cron was dead for three weeks before anyone noticed.
++ *
++ * Capping the run on wall-clock alone would only move the cliff: the
++ * loop consumed events in PostgREST's return order, which is stable
++ * across runs, so the head of the list would be refreshed three times
++ * a day forever while the tail was never refreshed at all. Sorting
++ * least-recently-refreshed first turns the cap into a rotation —
++ * each run drains the stalest slice and the next run picks up where
++ * it left off.
++ *
++ * Kept separate from `cron-eligibility.ts` (which decides WHICH
++ * events qualify) because this decides ORDER among already-eligible
++ * events — and separate from the route itself so it stays importable
++ * under Node's `--experimental-strip-types` test runner.
++ */
++
++/**
++ * Order events least-recently-refreshed first.
++ *
++ * Events with no recorded refresh sort first (treated as epoch 0):
++ * a newly added event should be picked up on the next run rather than
++ * queued behind everything already being maintained.
++ *
++ * Ties break on `id` so the order is deterministic for a given input
++ * rather than dependent on the sort implementation — two runs seeing
++ * identical state must produce identical order, or the rotation
++ * guarantee is only probabilistic.
++ *
++ * Pure and non-mutating: the input array is copied before sorting.
++ */
++export function orderByStalestFirst<T extends { id: string }>(
++  events: readonly T[],
++  lastRefreshedAtByEventId: ReadonlyMap<string, number>,
++): T[] {
++  return [...events].sort((a, b) => {
++    const aAt = lastRefreshedAtByEventId.get(a.id) ?? 0;
++    const bAt = lastRefreshedAtByEventId.get(b.id) ?? 0;
++    if (aAt !== bAt) return aAt - bAt;
++    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
++  });
++}
+diff --git a/lib/reporting/__tests__/creative-batch-response.test.ts b/lib/reporting/__tests__/creative-batch-response.test.ts
+new file mode 100644
+index 0000000..a0fa93e
+--- /dev/null
++++ b/lib/reporting/__tests__/creative-batch-response.test.ts
+@@ -0,0 +1,89 @@
++import { strict as assert } from "node:assert";
++import { test } from "node:test";
++
++import {
++  buildCreativeBatchRequest,
++  parseCreativeBatchSubResponse,
++} from "../creative-batch-response.ts";
++
++const FIELDS = "id,name,image_url,video_id,object_story_spec";
++
++test("buildCreativeBatchRequest emits one GET sub-request per id", () => {
++  const req = buildCreativeBatchRequest(["111", "222"], FIELDS);
++  assert.deepEqual(req, [
++    { method: "GET", relative_url: `111?fields=${FIELDS}` },
++    { method: "GET", relative_url: `222?fields=${FIELDS}` },
++  ]);
++});
++
++test("buildCreativeBatchRequest does NOT use the ids= multi-read removed in v26.0", () => {
++  // Guard against a well-meaning revert to `GET /?ids=…`, which Meta
++  // removed in Graph API v26.0. That call fails with meta_code=100 and
++  // the caller swallows per-batch failures by design, so a regression
++  // here is silent: hydration returns an empty map, creative previews
++  // fall back to initials placeholders, and the AI auto-tagger skips
++  // every creative for want of a thumbnail.
++  const req = buildCreativeBatchRequest(["111", "222"], FIELDS);
++  for (const sub of req) {
++    assert.equal(
++      sub.relative_url.includes("ids="),
++      false,
++      "relative_url must address a single creative, not an ids= list",
++    );
++  }
++});
++
++test("buildCreativeBatchRequest returns an empty array for no ids", () => {
++  assert.deepEqual(buildCreativeBatchRequest([], FIELDS), []);
++});
++
++test("parseCreativeBatchSubResponse parses a successful sub-response", () => {
++  const parsed = parseCreativeBatchSubResponse({
++    code: 200,
++    body: JSON.stringify({ id: "111", name: "Promo Video", video_id: "999" }),
++  });
++  assert.equal(parsed?.id, "111");
++  assert.equal(parsed?.name, "Promo Video");
++  assert.equal(parsed?.video_id, "999");
++});
++
++test("parseCreativeBatchSubResponse rejects an error envelope", () => {
++  // A failed sub-request rides inside the batch's own HTTP 200. Without
++  // this branch it would land in the map as a creative whose every
++  // field is undefined — worse than a miss, because the caller would
++  // stop treating it as unhydrated.
++  assert.equal(
++    parseCreativeBatchSubResponse({
++      code: 400,
++      body: JSON.stringify({
++        error: { message: "Unsupported get request.", code: 100 },
++      }),
++    }),
++    null,
++  );
++});
++
++test("parseCreativeBatchSubResponse rejects a body with no id", () => {
++  assert.equal(
++    parseCreativeBatchSubResponse({ code: 200, body: JSON.stringify({ name: "x" }) }),
++    null,
++  );
++  assert.equal(
++    parseCreativeBatchSubResponse({ code: 200, body: JSON.stringify({ id: "" }) }),
++    null,
++  );
++});
++
++test("parseCreativeBatchSubResponse rejects malformed and non-object bodies", () => {
++  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "{not json" }), null);
++  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "true" }), null);
++  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "[]" }), null);
++  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "null" }), null);
++});
++
++test("parseCreativeBatchSubResponse rejects missing / empty sub-responses", () => {
++  assert.equal(parseCreativeBatchSubResponse(null), null);
++  assert.equal(parseCreativeBatchSubResponse(undefined), null);
++  assert.equal(parseCreativeBatchSubResponse({}), null);
++  assert.equal(parseCreativeBatchSubResponse({ code: 500, body: "" }), null);
++});
+diff --git a/lib/reporting/active-creatives-fetch.ts b/lib/reporting/active-creatives-fetch.ts
+index e953523..f094854 100644
+--- a/lib/reporting/active-creatives-fetch.ts
++++ b/lib/reporting/active-creatives-fetch.ts
+@@ -1,6 +1,10 @@
+ import "server-only";
+ 
+-import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
++import {
++  graphGetWithToken,
++  graphPostWithToken,
++  MetaApiError,
++} from "@/lib/meta/client";
+ import {
+   fetchThumbnailUrlsBatch,
+   type VideoThumbnailCacheClient,
+@@ -18,6 +22,11 @@ import {
+   type CreativeRow,
+ } from "@/lib/reporting/active-creatives-group";
+ import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
++import {
++  buildCreativeBatchRequest,
++  parseCreativeBatchSubResponse,
++  type GraphBatchSubResponse,
++} from "@/lib/reporting/creative-batch-response";
+ import { buildTimeParams } from "@/lib/insights/meta";
+ import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+ import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
+@@ -834,6 +843,13 @@ const ADS_OUTER_RETRY_DELAY_MS = 500;
+ // risk rate-limit 429s.
+ const CREATIVE_BATCH_SIZE = 25;
+ 
++/**
++ * Pause before the single retry of a creative batch that came back
++ * with a transient rate-limit. Matches `ADS_OUTER_RETRY_DELAY_MS` —
++ * same "ride out the moment" posture at a different boundary.
++ */
++const CREATIVE_BATCH_RETRY_DELAY_MS = 500;
++
+ /**
+  * Field list pulled per creative in phase 2. Mirrors the bulky
+  * subtree the old single-phase /ads call requested inline — same
+@@ -901,12 +917,40 @@ const CREATIVE_BATCH_FIELDS = [
+  * failure still surfaces because the very first batch throws and
+  * the calling site's outer try/catch records it.
+  *
++ * Transport: Meta's Batch API (`POST /` with a `batch` array),
++ * NOT the `GET /?ids=…&fields=…` multi-read this helper used
++ * until v26.0.
++ *
++ *   Meta removed the `ids` query parameter in Graph API v26.0.
++ *   Every batch started failing with
++ *   `meta_code=100 "The ids query parameter is deprecated in
++ *   v26.0+."`, which this helper's per-batch catch swallowed by
++ *   design — so hydration silently returned an EMPTY map on every
++ *   event. Downstream, each ad kept its phase-1 nulls, meaning no
++ *   `image_url`, no `video_id`, no `thumbnail_url`: the dashboard's
++ *   Top Creatives tiles rendered initials placeholders instead of
++ *   previews, and the `refresh-active-creatives` cron's AI
++ *   auto-tagger skipped every creative for want of a thumbnail
++ *   (`creativesSkippedNoThumbnail`). The failure looked like two
++ *   unrelated feature regressions; it was one dead transport.
++ *   Diagnosed from cron logs showing `creative_batch_done
++ *   hydrated=0 missing=44` on every event.
++ *
++ * The Batch API is the documented replacement and takes the same
++ * per-call ID budget, so `CREATIVE_BATCH_SIZE` chunking is
++ * unchanged. Its response is an ARRAY of sub-responses positionally
++ * matching the request array, each `{ code, body }` where `body` is
++ * a JSON *string* — so a sub-request can fail on its own (deleted
++ * creative, permissions) without failing the batch. We map by the
++ * `id` in each parsed body rather than by array position, so a
++ * sub-response for an ID Meta rewrote still lands on the right key.
++ *
+  * Why a fresh helper rather than wrapping `graphGetWithToken`
+- * directly: the batched endpoint returns an OBJECT keyed by ID
+- * (not a paged array), so the existing `PagedResponse<T>` shape
+- * doesn't fit. Keeping the deserialisation local makes the type
+- * explicit and avoids leaking `Record<string, RawCreative>` into
+- * the rest of the module.
++ * directly: the response shape is neither a paged array nor a
++ * keyed object, so the existing `PagedResponse<T>` shape doesn't
++ * fit. Keeping the deserialisation local makes the type explicit
++ * and avoids leaking the batch envelope into the rest of the
++ * module.
+  */
+ async function fetchCreativeBatch(
+   creativeIds: readonly string[],
+@@ -922,27 +966,46 @@ async function fetchCreativeBatch(
+   for (let i = 0; i < unique.length; i += CREATIVE_BATCH_SIZE) {
+     chunks.push(unique.slice(i, i + CREATIVE_BATCH_SIZE));
+   }
+-  type BatchResponse = Record<string, RawCreative>;
+   const results = await Promise.all(
+     chunks.map((batch, idx) =>
+-      graphGetWithToken<BatchResponse>(
+-        "",
+-        { ids: batch.join(","), fields: CREATIVE_BATCH_FIELDS },
+-        token,
++      // `graphPostWithToken` has no built-in retry, unlike the
++      // `graphGetWithToken` this call used to go through — so the
++      // transient-retry posture is restored explicitly here rather
++      // than silently dropped along with the old transport.
++      retryOnceOnTransient(
++        () =>
++          graphPostWithToken<GraphBatchSubResponse[]>(
++            "",
++            {
++              batch: buildCreativeBatchRequest(batch, CREATIVE_BATCH_FIELDS),
++              include_headers: false,
++            },
++            token,
++          ),
++        isTransientRateLimit,
++        CREATIVE_BATCH_RETRY_DELAY_MS,
+       ).catch((err) => {
+         const e = err as { code?: number; message?: string };
+         console.warn(
+           `[active-creatives] creative_batch_failed batch=${idx + 1}/${chunks.length} ids=${batch.length} meta_code=${e.code ?? "n/a"} message=${JSON.stringify(e.message ?? String(err))}`,
+         );
+-        return {} as BatchResponse;
++        return [] as GraphBatchSubResponse[];
+       }),
+     ),
+   );
++  let subFailures = 0;
+   for (const batchResult of results) {
+-    for (const [id, creative] of Object.entries(batchResult)) {
+-      if (id && creative) out.set(id, creative);
++    for (const sub of Array.isArray(batchResult) ? batchResult : []) {
++      const parsed = parseCreativeBatchSubResponse(sub);
++      if (parsed) out.set(parsed.id as string, parsed as RawCreative);
++      else subFailures += 1;
+     }
+   }
++  if (subFailures > 0) {
++    console.warn(
++      `[active-creatives] creative_batch_sub_failures count=${subFailures} requested=${unique.length} hydrated=${out.size}`,
++    );
++  }
+   return out;
+ }
+ 
+diff --git a/lib/reporting/creative-batch-response.ts b/lib/reporting/creative-batch-response.ts
+new file mode 100644
+index 0000000..5c3015b
+--- /dev/null
++++ b/lib/reporting/creative-batch-response.ts
+@@ -0,0 +1,98 @@
++/**
++ * lib/reporting/creative-batch-response.ts
++ *
++ * Request builder + response parser for the phase-2 creative
++ * hydration call in `lib/reporting/active-creatives-fetch.ts`.
++ *
++ * Lives in its own module for the same reason `lib/meta/retry.ts` and
++ * `lib/meta/error-classify.ts` do: the fetch module carries
++ * `import "server-only"`, which blows up under Node's
++ * `--experimental-strip-types` test runner, so anything that needs
++ * unit coverage has to be importable on its own.
++ *
++ * Background — why this shape exists at all:
++ *
++ *   Hydration used to use Meta's multi-read endpoint,
++ *   `GET /?ids=<id,id,…>&fields=<…>`, which returned a plain object
++ *   keyed by creative id. Meta REMOVED the `ids` query parameter in
++ *   Graph API v26.0; every call started coming back with
++ *   `meta_code=100 "The ids query parameter is deprecated in
++ *   v26.0+."`. The caller's per-batch catch swallowed that by design
++ *   (a degraded batch beats a dropped event), so hydration returned
++ *   an empty map on every event with no error surfaced anywhere —
++ *   the dashboard's Top Creatives tiles fell back to initials
++ *   placeholders and the AI auto-tagger skipped every creative for
++ *   want of a thumbnail.
++ *
++ * The replacement is the Batch API: `POST /` with a `batch` array of
++ * `{method, relative_url}` sub-requests. Its response is an ARRAY
++ * positionally matching the request, where each entry carries the
++ * sub-response's HTTP `code` and a `body` that is a JSON *string* —
++ * not a nested object. A sub-request can fail on its own (deleted
++ * creative, revoked permission) and still arrive inside a 200
++ * envelope, so "did this one succeed" has to be decided per entry.
++ */
++
++export interface GraphBatchSubResponse {
++  code?: number;
++  body?: string;
++}
++
++export interface GraphBatchSubRequest {
++  method: "GET";
++  relative_url: string;
++}
++
++/**
++ * Build the `batch` array for a chunk of creative ids.
++ *
++ * `fields` is passed through verbatim as a comma-joined list.
++ * Commas are legal unencoded in a query-string value and Meta's own
++ * batch examples use them that way, so no escaping is applied — the
++ * caller owns the field list and it contains no user input.
++ */
++export function buildCreativeBatchRequest(
++  creativeIds: readonly string[],
++  fields: string,
++): GraphBatchSubRequest[] {
++  return creativeIds.map((id) => ({
++    method: "GET" as const,
++    relative_url: `${id}?fields=${fields}`,
++  }));
++}
++
++/**
++ * Parse one batch sub-response into a creative-shaped object, or
++ * `null` when the sub-request did not yield a usable creative.
++ *
++ * Returns `null` — never a partially-populated object — for:
++ *   - a missing / empty `body`
++ *   - a `body` that isn't valid JSON
++ *   - a `body` that isn't a JSON object (Meta returns `true` for
++ *     some write shapes; not expected here, but cheap to exclude)
++ *   - an error envelope (`{"error": {...}}`), which arrives with the
++ *     batch's own HTTP 200 and would otherwise masquerade as a
++ *     creative with every field `undefined`
++ *   - a body with no `id`, which can't be keyed into the result map
++ *
++ * Typed loosely (`Record<string, unknown>`) so this module stays
++ * free of the fetch module's `RawCreative` import; the caller casts.
++ */
++export function parseCreativeBatchSubResponse(
++  sub: GraphBatchSubResponse | null | undefined,
++): Record<string, unknown> | null {
++  if (!sub?.body) return null;
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(sub.body);
++  } catch {
++    return null;
++  }
++  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
++    return null;
++  }
++  const obj = parsed as Record<string, unknown>;
++  if ("error" in obj) return null;
++  if (typeof obj.id !== "string" || obj.id.length === 0) return null;
++  return obj;
++}
+-- 
+2.43.0
+
+
+From 29a72e5ab9f46f0836ba866f28867e4bfe437f5a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 17 Aug 2026 21:46:11 +0000
+Subject: [PATCH 2/2] fix(meta): migrate every remaining ?ids= caller off the
+ endpoint Meta removed in v26.0
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The creative-hydration fix in the previous commit was one of EIGHT call
+sites using `GET /?ids=<csv>&fields=<…>`. Meta removed the `ids` query
+parameter in Graph API v26.0 (released 29 July 2026), so all eight have
+been failing with meta_code=100 since 28-29 July. Every one of them
+wraps the call in a try/catch that degrades to "no data" — correct for
+one bad batch, catastrophic when every batch fails — so none of it
+surfaced anywhere.
+
+Confirmed dead, beyond creative hydration:
+
+  - lib/audiences/sources.ts — page enrichment and video hydration for
+    the audience builder. `audience_source_cache` last wrote 2026-07-27.
+  - lib/budget-pacing/spend-fetch.ts — the hourly budget-pacing cron's
+    lifetime-spend read on its >20-campaign path. Spend read as £0, so
+    no 25/50/60/70/80/90/100% Slack alert has fired since. Alerts that
+    never fire look exactly like alerts with nothing to say.
+  - lib/meta/client.ts — ad-set dynamic-creative guards and custom
+    audience availability. Both degrade to "unknown", which callers
+    treat as permissive.
+  - lib/reporting/event-insights.ts — campaign effective_status lookup.
+  - app/api/meta/pages/enrich/route.ts — page enrichment, raw fetch.
+
+Adds lib/meta/graph-multi-get{,-parse}.ts. `graphMultiGetByIds` is
+signature-compatible with `graphGetWithToken` — same (path, params,
+token), same `Record<string, T>` return — so seven of the eight sites
+migrate by changing one identifier and no surrounding "look up res[id],
+treat missing as unknown" logic needed re-reasoning about. Batch API
+under the hood; sub-request failures are filtered rather than keyed, so
+a `{error:{…}}` riding inside the batch's HTTP 200 can't masquerade as
+a node with every field undefined.
+
+Two sites needed more than an identifier swap:
+
+  - spend-fetch.ts multiplexes two call shapes through one injected
+    fetcher: a real GET on /{id}/insights (≤20 campaigns) and the
+    multi-node read (>20). Only the second is affected, so
+    fetchCampaignSpendPence takes an optional second fetcher,
+    defaulting to the first for existing callers and tests.
+  - pages/enrich builds its URL by hand and needed the POST envelope
+    plus an array-vs-error-object narrowing on the response.
+
+Field lists are now percent-encoded. Not cosmetic: budget pacing sends
+`insights.date_preset(maximum){spend}` and the ad-set guard sends
+`ads.limit(0).summary(true)`. Braces and parens are not legal raw in a
+URL and `relative_url` is parsed as path+query, so unencoded they risk
+a truncated field list — silently, in the same way as everything else
+here.
+
+Folds the previous commit's creative-batch-response.ts into the shared
+module so there is one home for this, not two.
+
+Tests: 20, replacing the 8 from the previous commit — including the
+percent-encoding of both real-world field-expansion strings, the
+error-envelope rejection, id-keyed collection, and a guard against
+anyone reverting to ids=. Full lib suite: 51 failures before and after,
+all pre-existing. Typecheck clean on all changed files.
+
+Not fixed here, flagged: META_API_VERSION is unset, so lib/meta/client.ts
+defaults to v21.0, which expires 21 January 2027. The `ids=` removal was
+not gated on the version in the request URL — these calls failed on
+v21.0 regardless — so pinning would not have prevented this. It is still
+worth pinning to a supported version deliberately rather than finding
+out at expiry.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Gac4LwvuM3dq5FUuymvbAj
+---
+ app/api/cron/budget-pacing-check/route.ts     |  12 +-
+ app/api/meta/pages/enrich/route.ts            |  39 ++++-
+ lib/audiences/batch-fetch-video-metadata.ts   |   8 +-
+ lib/audiences/sources.ts                      |  15 +-
+ lib/budget-pacing/spend-fetch.ts              |  26 ++-
+ .../__tests__/graph-multi-get-parse.test.ts   | 149 ++++++++++++++++++
+ lib/meta/client.ts                            |  30 +++-
+ lib/meta/graph-multi-get-parse.ts             | 148 +++++++++++++++++
+ lib/meta/graph-multi-get.ts                   |  84 ++++++++++
+ .../__tests__/creative-batch-response.test.ts |  89 -----------
+ lib/reporting/active-creatives-fetch.ts       |  10 +-
+ lib/reporting/creative-batch-response.ts      |  98 ------------
+ lib/reporting/event-insights.ts               |   8 +-
+ 13 files changed, 500 insertions(+), 216 deletions(-)
+ create mode 100644 lib/meta/__tests__/graph-multi-get-parse.test.ts
+ create mode 100644 lib/meta/graph-multi-get-parse.ts
+ create mode 100644 lib/meta/graph-multi-get.ts
+ delete mode 100644 lib/reporting/__tests__/creative-batch-response.test.ts
+ delete mode 100644 lib/reporting/creative-batch-response.ts
+
+diff --git a/app/api/cron/budget-pacing-check/route.ts b/app/api/cron/budget-pacing-check/route.ts
+index 9790530..2f1d6ef 100644
+--- a/app/api/cron/budget-pacing-check/route.ts
++++ b/app/api/cron/budget-pacing-check/route.ts
+@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
+ 
+ import { createServiceRoleClient } from "@/lib/supabase/server";
+ import { graphGetWithToken } from "@/lib/meta/client";
++import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
+ import { fetchCampaignSpendPence, type BudgetPacingGraphFetcher } from "@/lib/budget-pacing/spend-fetch";
+ import { runBudgetPacingTick, type BudgetPacingTickSummary } from "@/lib/budget-pacing/tick-runner";
+ import { loadPublishedCampaignsForBudgetPacing } from "@/lib/db/budget-pacing-campaigns";
+@@ -83,7 +84,16 @@ export async function GET(req: NextRequest) {
+     summary = await runBudgetPacingTick(enabled, {
+       loadPublishedCampaigns: () => loadPublishedCampaignsForBudgetPacing(supabase),
+       fetchSpendPence: (campaignIds) =>
+-        fetchCampaignSpendPence(graphGetWithToken as BudgetPacingGraphFetcher, campaignIds, token as string),
++        // Two fetchers: the ≤20 path is a real GET per campaign, the
++        // >20 path reads many nodes at once and can no longer use the
++        // `ids=` multi-read Meta removed in v26.0. See
++        // lib/meta/graph-multi-get-parse.ts.
++        fetchCampaignSpendPence(
++          graphGetWithToken as BudgetPacingGraphFetcher,
++          campaignIds,
++          token as string,
++          graphMultiGetByIds as BudgetPacingGraphFetcher,
++        ),
+       notify: (opts) => notify(opts, notifyDeps),
+     });
+   } catch (err) {
+diff --git a/app/api/meta/pages/enrich/route.ts b/app/api/meta/pages/enrich/route.ts
+index f959a47..d10511a 100644
+--- a/app/api/meta/pages/enrich/route.ts
++++ b/app/api/meta/pages/enrich/route.ts
+@@ -20,6 +20,11 @@
+ 
+ import { type NextRequest } from "next/server";
+ import { createClient } from "@/lib/supabase/server";
++import {
++  buildMultiGetBatch,
++  collectMultiGetResponses,
++  type GraphBatchSubResponse,
++} from "@/lib/meta/graph-multi-get-parse";
+ 
+ const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
+ const BASE = `https://graph.facebook.com/${API_VERSION}`;
+@@ -112,16 +117,24 @@ async function fetchEnrichment(
+   token: string,
+   fields: string,
+ ): Promise<{ ok: true; map: Record<string, RawEnrichedPage> } | { ok: false; error: string; rawError?: unknown }> {
+-  const params = new URLSearchParams({
+-    ids: ids.join(","),
+-    fields,
+-    access_token: token,
+-  });
++  // Was `GET /?ids=<csv>&fields=…`. Meta removed the `ids` query
++  // parameter in v26.0, so this now POSTs a Batch API request and
++  // collapses the sub-responses back into the same id-keyed map this
++  // function has always returned. See lib/meta/graph-multi-get-parse.ts.
++  const params = new URLSearchParams({ access_token: token });
+   const url = `${BASE}/?${params.toString()}`;
+ 
+   let res: Response;
+   try {
+-    res = await fetch(url, { cache: "no-store" });
++    res = await fetch(url, {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify({
++        batch: buildMultiGetBatch(ids, fields),
++        include_headers: false,
++      }),
++      cache: "no-store",
++    });
+   } catch (e) {
+     return { ok: false, error: "Network error reaching Graph API", rawError: e };
+   }
+@@ -134,12 +147,22 @@ async function fetchEnrichment(
+     return { ok: false, error: "Non-JSON response from Meta", rawError: text.slice(0, 200) };
+   }
+ 
+-  if (!res.ok || (json && typeof json === "object" && "error" in json)) {
++  // Envelope-level failure (auth, rate limit, malformed batch). Individual
++  // sub-request failures ride inside a 200 and are filtered out by
++  // collectMultiGetResponses instead.
++  if (!res.ok || (json && typeof json === "object" && !Array.isArray(json) && "error" in json)) {
+     const err = (json as Record<string, unknown>).error ?? {};
+     return { ok: false, error: String((err as Record<string, unknown>).message ?? `HTTP ${res.status}`), rawError: err };
+   }
+ 
+-  return { ok: true, map: json as Record<string, RawEnrichedPage> };
++  if (!Array.isArray(json)) {
++    return { ok: false, error: "Unexpected batch response shape from Meta", rawError: text.slice(0, 200) };
++  }
++
++  return {
++    ok: true,
++    map: collectMultiGetResponses<RawEnrichedPage>(json as GraphBatchSubResponse[]),
++  };
+ }
+ 
+ export async function POST(req: NextRequest): Promise<Response> {
+diff --git a/lib/audiences/batch-fetch-video-metadata.ts b/lib/audiences/batch-fetch-video-metadata.ts
+index 08f2d82..14e73ca 100644
+--- a/lib/audiences/batch-fetch-video-metadata.ts
++++ b/lib/audiences/batch-fetch-video-metadata.ts
+@@ -1,6 +1,12 @@
+ /**
+- * Hydrate video metadata via Meta's batched `GET /?ids=...` endpoint.
++ * Hydrate video metadata for many video ids at once.
+  * Cuts N video-metadata round-trips down to ceil(N / VIDEO_BATCH_SIZE) calls.
++ *
++ * The injected `fetcher` used to be `graphGetWithToken` against Meta's
++ * `GET /?ids=...` multi-read. Meta removed the `ids` query parameter in
++ * Graph API v26.0, so production now injects `graphMultiGetByIds`
++ * (Batch API under the hood, identical signature and identical
++ * id-keyed return shape). See lib/meta/graph-multi-get-parse.ts.
+  * Falls back gracefully on per-batch errors so one bad video ID does not kill
+  * the whole request — the parent caller receives undefined for those IDs.
+  *
+diff --git a/lib/audiences/sources.ts b/lib/audiences/sources.ts
+index d41755a..5327aa8 100644
+--- a/lib/audiences/sources.ts
++++ b/lib/audiences/sources.ts
+@@ -14,6 +14,7 @@ import {
+   graphGetWithToken,
+   type RawMetaCampaign,
+ } from "../meta/client.ts";
++import { graphMultiGetByIds } from "../meta/graph-multi-get.ts";
+ import { fetchThumbnailUrl } from "../meta/video-thumbnail-cache.ts";
+ import type { Database } from "../db/database.types.ts";
+ 
+@@ -237,7 +238,8 @@ export async function fetchPagesByIds(
+ 
+   let response: Record<string, RawPage>;
+   try {
+-    response = await graphGetWithToken<Record<string, RawPage>>(
++    // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
++    response = await graphMultiGetByIds<RawPage>(
+       "",
+       { ids: pageIds.join(","), fields },
+       token,
+@@ -359,8 +361,12 @@ function makeSemaphore(concurrency: number): <T>(fn: () => Promise<T>) => Promis
+ 
+ /**
+  * Bound wrapper around `batchFetchVideoMetadata` from the utility module,
+- * supplying `graphGetWithToken` as the fetcher. Cuts N per-video Graph
++ * supplying `graphMultiGetByIds` as the fetcher. Cuts N per-video Graph
+  * calls down to ceil(N/25) batched calls.
++ *
++ * Was `graphGetWithToken` until Meta removed the `ids=` multi-read in
++ * v26.0 — see lib/meta/graph-multi-get-parse.ts. The replacement is
++ * signature-compatible, so only this identifier changed.
+  */
+ async function batchFetchVideoMetadata(
+   videoIds: readonly string[],
+@@ -369,7 +375,7 @@ async function batchFetchVideoMetadata(
+   return _batchFetchVideoMetadata(
+     videoIds,
+     token,
+-    graphGetWithToken as (
++    graphMultiGetByIds as (
+       path: string,
+       params: Record<string, string>,
+       token: string,
+@@ -812,7 +818,8 @@ export async function hydrateVideoMetadataConcurrent(
+ 
+   await runWithConcurrency(chunks, VIDEO_HYDRATE_CONCURRENCY, async (chunk): Promise<void> => {
+     try {
+-      const response = await graphGetWithToken<Record<string, RawVideo>>(
++      // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
++      const response = await graphMultiGetByIds<RawVideo>(
+         "",
+         { ids: chunk.join(","), fields: "id,picture,title,length,from" },
+         token,
+diff --git a/lib/budget-pacing/spend-fetch.ts b/lib/budget-pacing/spend-fetch.ts
+index aaae639..c69385b 100644
+--- a/lib/budget-pacing/spend-fetch.ts
++++ b/lib/budget-pacing/spend-fetch.ts
+@@ -35,7 +35,22 @@ interface RawBatchedNode {
+   insights?: { data?: { spend?: string }[] };
+ }
+ 
+-/** Injected Graph fetcher — the production wrapper supplies `graphGetWithToken`. */
++/**
++ * Injected Graph fetcher.
++ *
++ * TWO distinct call shapes go through this type, and since v26.0 they
++ * need two different production implementations:
++ *
++ *   - the ≤20 path issues a real GET on `/{campaignId}/insights` and
++ *     is still served by `graphGetWithToken`;
++ *   - the >20 path reads many campaign nodes at once, which used to be
++ *     `GET /?ids=…` — removed by Meta in v26.0 — and is now served by
++ *     `graphMultiGetByIds` (see lib/meta/graph-multi-get-parse.ts).
++ *
++ * Hence the separate `multiGetFetcher` parameter on
++ * `fetchCampaignSpendPence`. It defaults to the single-GET fetcher so
++ * existing callers and tests that stub one function keep working.
++ */
+ export type BudgetPacingGraphFetcher = <T>(
+   path: string,
+   params: Record<string, string>,
+@@ -99,10 +114,17 @@ export async function fetchCampaignSpendPence(
+   fetcher: BudgetPacingGraphFetcher,
+   campaignIds: string[],
+   token: string,
++  /**
++   * Fetcher for the >20 multi-node path. Defaults to `fetcher` for
++   * backwards compatibility; production MUST pass `graphMultiGetByIds`
++   * or every hourly tick over 20 campaigns reads spend as £0 and the
++   * pacing alerts silently never fire.
++   */
++  multiGetFetcher: BudgetPacingGraphFetcher = fetcher,
+ ): Promise<Record<string, number>> {
+   if (campaignIds.length === 0) return {};
+   if (campaignIds.length <= SINGLE_CALL_THRESHOLD) {
+     return fetchSpendIndividually(fetcher, campaignIds, token);
+   }
+-  return fetchSpendBatched(fetcher, campaignIds, token);
++  return fetchSpendBatched(multiGetFetcher, campaignIds, token);
+ }
+diff --git a/lib/meta/__tests__/graph-multi-get-parse.test.ts b/lib/meta/__tests__/graph-multi-get-parse.test.ts
+new file mode 100644
+index 0000000..21e0d3b
+--- /dev/null
++++ b/lib/meta/__tests__/graph-multi-get-parse.test.ts
+@@ -0,0 +1,149 @@
++import { strict as assert } from "node:assert";
++import { test } from "node:test";
++
++import {
++  buildMultiGetBatch,
++  collectMultiGetResponses,
++  parseMultiGetSubResponse,
++} from "../graph-multi-get-parse.ts";
++
++test("buildMultiGetBatch emits one GET sub-request per id", () => {
++  const req = buildMultiGetBatch(["111", "222"], "id,name");
++  assert.deepEqual(req, [
++    { method: "GET", relative_url: "111?fields=id%2Cname" },
++    { method: "GET", relative_url: "222?fields=id%2Cname" },
++  ]);
++});
++
++test("buildMultiGetBatch never emits the ids= multi-read Meta removed in v26.0", () => {
++  // The regression this whole module exists to prevent. Reverting to
++  // `GET /?ids=…` fails with meta_code=100, and every caller swallows
++  // failures by design — so the breakage is silent: blank creative
++  // previews, no AI tags, a frozen audience cache, and budget-pacing
++  // spend reading as zero.
++  for (const sub of buildMultiGetBatch(["111", "222"], "id,name")) {
++    assert.equal(sub.relative_url.includes("ids="), false);
++  }
++});
++
++test("buildMultiGetBatch percent-encodes field-expansion syntax", () => {
++  // Real field lists from budget pacing and the ad-set guard. Braces
++  // and parens are not legal raw in a URL; Meta decodes before parsing.
++  const [pacing] = buildMultiGetBatch(
++    ["123"],
++    "insights.date_preset(maximum){spend}",
++  );
++  assert.equal(
++    pacing.relative_url,
++    "123?fields=insights.date_preset(maximum)%7Bspend%7D",
++  );
++
++  const [guard] = buildMultiGetBatch(
++    ["456"],
++    "id,is_dynamic_creative,ads.limit(0).summary(true)",
++  );
++  assert.equal(
++    guard.relative_url,
++    "456?fields=id%2Cis_dynamic_creative%2Cads.limit(0).summary(true)",
++  );
++});
++
++test("buildMultiGetBatch omits the query string when no fields are requested", () => {
++  assert.deepEqual(buildMultiGetBatch(["111"], ""), [
++    { method: "GET", relative_url: "111" },
++  ]);
++});
++
++test("buildMultiGetBatch returns an empty array for no ids", () => {
++  assert.deepEqual(buildMultiGetBatch([], "id,name"), []);
++});
++
++test("parseMultiGetSubResponse parses a successful sub-response", () => {
++  const parsed = parseMultiGetSubResponse({
++    code: 200,
++    body: JSON.stringify({ id: "111", name: "Promo Video", video_id: "999" }),
++  });
++  assert.equal(parsed?.id, "111");
++  assert.equal(parsed?.name, "Promo Video");
++  assert.equal(parsed?.video_id, "999");
++});
++
++test("parseMultiGetSubResponse rejects an error envelope", () => {
++  // A failed sub-request rides inside the batch's own HTTP 200. Without
++  // this branch it lands in the map as a node whose every field is
++  // undefined — worse than a miss, because every caller treats "key
++  // present" as "Meta answered".
++  assert.equal(
++    parseMultiGetSubResponse({
++      code: 400,
++      body: JSON.stringify({
++        error: { message: "Unsupported get request.", code: 100 },
++      }),
++    }),
++    null,
++  );
++});
++
++test("parseMultiGetSubResponse rejects bodies with no usable id", () => {
++  assert.equal(
++    parseMultiGetSubResponse({ code: 200, body: JSON.stringify({ name: "x" }) }),
++    null,
++  );
++  assert.equal(
++    parseMultiGetSubResponse({ code: 200, body: JSON.stringify({ id: "" }) }),
++    null,
++  );
++  assert.equal(
++    parseMultiGetSubResponse({ code: 200, body: JSON.stringify({ id: 111 }) }),
++    null,
++  );
++});
++
++test("parseMultiGetSubResponse rejects malformed and non-object bodies", () => {
++  assert.equal(parseMultiGetSubResponse({ code: 200, body: "{not json" }), null);
++  assert.equal(parseMultiGetSubResponse({ code: 200, body: "true" }), null);
++  assert.equal(parseMultiGetSubResponse({ code: 200, body: "[]" }), null);
++  assert.equal(parseMultiGetSubResponse({ code: 200, body: "null" }), null);
++});
++
++test("parseMultiGetSubResponse rejects missing / empty sub-responses", () => {
++  assert.equal(parseMultiGetSubResponse(null), null);
++  assert.equal(parseMultiGetSubResponse(undefined), null);
++  assert.equal(parseMultiGetSubResponse({}), null);
++  assert.equal(parseMultiGetSubResponse({ code: 500, body: "" }), null);
++});
++
++test("collectMultiGetResponses returns the id-keyed shape the ids= endpoint returned", () => {
++  // Callers were all written against `Record<string, T>` and index it
++  // as `res[id]`. Keeping that exact shape is what makes every call
++  // site a one-identifier swap.
++  const map = collectMultiGetResponses<{ id: string; name?: string }>([
++    { code: 200, body: JSON.stringify({ id: "a", name: "Alpha" }) },
++    { code: 200, body: JSON.stringify({ id: "b", name: "Beta" }) },
++  ]);
++  assert.deepEqual(Object.keys(map).sort(), ["a", "b"]);
++  assert.equal(map.a.name, "Alpha");
++});
++
++test("collectMultiGetResponses drops failed sub-responses instead of keying them", () => {
++  const map = collectMultiGetResponses<{ id: string }>([
++    { code: 200, body: JSON.stringify({ id: "ok" }) },
++    { code: 400, body: JSON.stringify({ error: { message: "gone" } }) },
++    { code: 200, body: "{malformed" },
++    null,
++  ]);
++  assert.deepEqual(Object.keys(map), ["ok"]);
++});
++
++test("collectMultiGetResponses keys by the body id, not array position", () => {
++  const map = collectMultiGetResponses<{ id: string }>([
++    { code: 200, body: JSON.stringify({ id: "second" }) },
++    { code: 200, body: JSON.stringify({ id: "first" }) },
++  ]);
++  assert.equal(map.first.id, "first");
++  assert.equal(map.second.id, "second");
++});
++
++test("collectMultiGetResponses returns an empty object for an empty batch", () => {
++  assert.deepEqual(collectMultiGetResponses([]), {});
++});
+diff --git a/lib/meta/client.ts b/lib/meta/client.ts
+index 1b8a79f..2c2780e 100644
+--- a/lib/meta/client.ts
++++ b/lib/meta/client.ts
+@@ -896,9 +896,19 @@ export async function fetchAdSetGuardInfo(
+   };
+ 
+   try {
+-    const res = token
+-      ? await graphGetWithToken<Record<string, RawAdSetGuardRow>>("/", params, token)
+-      : await graphGet<Record<string, RawAdSetGuardRow>>("/", params);
++    // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
++    // Dynamic import: graph-multi-get.ts imports this module, so a static
++    // import here would close a cycle.
++    const { graphMultiGetByIds } = await import("@/lib/meta/graph-multi-get");
++    const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
++    if (!effectiveToken) {
++      throw new MetaApiError("META_ACCESS_TOKEN is not configured.");
++    }
++    const res = await graphMultiGetByIds<RawAdSetGuardRow>(
++      "/",
++      params,
++      effectiveToken,
++    );
+ 
+     for (const id of uniqueIds) {
+       const row = res[id];
+@@ -972,9 +982,17 @@ export async function fetchCustomAudienceAvailability(
+   };
+ 
+   try {
+-    const res = token
+-      ? await graphGetWithToken<Record<string, RawCustomAudienceStatusRow>>("/", params, token)
+-      : await graphGet<Record<string, RawCustomAudienceStatusRow>>("/", params);
++    // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
++    const { graphMultiGetByIds } = await import("@/lib/meta/graph-multi-get");
++    const effectiveToken = token ?? process.env.META_ACCESS_TOKEN;
++    if (!effectiveToken) {
++      throw new MetaApiError("META_ACCESS_TOKEN is not configured.");
++    }
++    const res = await graphMultiGetByIds<RawCustomAudienceStatusRow>(
++      "/",
++      params,
++      effectiveToken,
++    );
+ 
+     return uniqueIds.map((id) => {
+       const row = res[id];
+diff --git a/lib/meta/graph-multi-get-parse.ts b/lib/meta/graph-multi-get-parse.ts
+new file mode 100644
+index 0000000..5823dde
+--- /dev/null
++++ b/lib/meta/graph-multi-get-parse.ts
+@@ -0,0 +1,148 @@
++/**
++ * lib/meta/graph-multi-get-parse.ts
++ *
++ * Drop-in replacement for Meta's removed multi-read endpoint.
++ *
++ * WHAT BROKE
++ *
++ *   Reading many nodes in one call used to be
++ *   `GET /?ids=<id,id,…>&fields=<…>`, which returned a plain object
++ *   keyed by node id. Meta REMOVED the `ids` query parameter with
++ *   Graph API v26.0 (released 29 July 2026). Every such call now
++ *   fails with:
++ *
++ *     meta_code=100 "The ids query parameter is deprecated in v26.0+."
++ *
++ *   The removal is not gated on the version in the request URL — this
++ *   app pins nothing (`META_API_VERSION` is unset, so `lib/meta/client.ts`
++ *   defaults to v21.0) and its calls started failing on 28–29 July 2026
++ *   regardless.
++ *
++ *   Every caller of the old endpoint wrapped it in a try/catch that
++ *   degraded to "no data" rather than throwing — a sensible posture
++ *   for one bad batch, catastrophic when EVERY batch fails. So the
++ *   removal surfaced nowhere: creative previews went blank, AI
++ *   auto-tagging stopped writing, the audience source cache froze,
++ *   and budget-pacing spend silently read as £0. No alarms, because
++ *   "empty result" and "endpoint gone" are indistinguishable to a
++ *   caller that swallows errors.
++ *
++ * WHAT REPLACES IT
++ *
++ *   Meta's Batch API: `POST /` with a `batch` array of
++ *   `{method, relative_url}` sub-requests. Its response is an ARRAY
++ *   positionally matching the request, each entry `{code, body}`
++ *   where `body` is a JSON *string*, and a sub-request can fail on
++ *   its own inside an HTTP 200 envelope.
++ *
++ *   `graphMultiGetByIds` hides all of that and returns the SAME
++ *   `Record<string, T>` shape the old endpoint returned, with the
++ *   SAME `(path, params, token)` call signature as
++ *   `graphGetWithToken`. That is deliberate: every call site swaps by
++ *   changing one identifier, and none of the surrounding
++ *   "look up `res[id]`, treat missing as unknown" logic has to be
++ *   re-reasoned about. `path` is accepted and ignored (callers passed
++ *   `""` or `"/"`); `params.ids` is the CSV id list and
++ *   `params.fields` the field list.
++ *
++ * WHY THIS MODULE IS SPLIT FROM THE FETCHER
++ *
++ *   These are the pure pieces — request shaping and response
++ *   parsing — with no imports at all. The fetcher lives in
++ *   `graph-multi-get.ts` because it imports `lib/meta/client.ts`,
++ *   whose TS parameter-property classes cannot be parsed by Node's
++ *   `--experimental-strip-types` test runner. Same seam as
++ *   `lib/meta/retry.ts` and `lib/meta/error-classify.ts`: the logic
++ *   worth testing stays importable on its own.
++ */
++
++/** Meta's documented per-batch sub-request cap. */
++export const GRAPH_BATCH_MAX = 50;
++
++export interface GraphBatchSubResponse {
++  code?: number;
++  body?: string;
++}
++
++export interface GraphBatchSubRequest {
++  method: "GET";
++  relative_url: string;
++}
++
++/**
++ * Build the `batch` array for a chunk of node ids.
++ *
++ * `fields` is percent-encoded. This is not merely defensive: callers
++ * pass Graph field-expansion syntax such as
++ * `insights.date_preset(maximum){spend}` (budget pacing) and
++ * `ads.limit(0).summary(true)` (ad-set guards). Braces and parens are
++ * not legal raw in a URL, and `relative_url` is parsed by Meta as a
++ * path+query, so leaving them unencoded risks a truncated or rejected
++ * field list — which, given every caller swallows failures, would fail
++ * silently in exactly the way this whole module exists to stop.
++ * Meta percent-decodes before parsing, so the round trip is lossless.
++ */
++export function buildMultiGetBatch(
++  ids: readonly string[],
++  fields: string,
++): GraphBatchSubRequest[] {
++  const encodedFields = fields ? encodeURIComponent(fields) : "";
++  return ids.map((id) => ({
++    method: "GET" as const,
++    relative_url: encodedFields
++      ? `${encodeURIComponent(id)}?fields=${encodedFields}`
++      : encodeURIComponent(id),
++  }));
++}
++
++/**
++ * Parse one batch sub-response into a node object, or `null` when the
++ * sub-request did not yield a usable node.
++ *
++ * Returns `null` — never a partially-populated object — for a
++ * missing/empty body, a body that isn't valid JSON, a body that isn't
++ * a JSON object, an error envelope, or a body with no `id`.
++ *
++ * The error-envelope branch is the one that matters: a failed
++ * sub-request rides inside the batch's own HTTP 200, so without it a
++ * `{"error":{…}}` would land in the result map as a node whose every
++ * field is `undefined`. Callers uniformly treat "key present" as
++ * "Meta answered", so that is strictly worse than a miss.
++ */
++export function parseMultiGetSubResponse(
++  sub: GraphBatchSubResponse | null | undefined,
++): Record<string, unknown> | null {
++  if (!sub?.body) return null;
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(sub.body);
++  } catch {
++    return null;
++  }
++  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
++    return null;
++  }
++  const obj = parsed as Record<string, unknown>;
++  if ("error" in obj) return null;
++  if (typeof obj.id !== "string" || obj.id.length === 0) return null;
++  return obj;
++}
++
++/**
++ * Collapse a batch response array into the id-keyed object the old
++ * `ids=` endpoint returned. Keyed by the `id` inside each parsed body
++ * rather than by array position, so a sub-response for an id Meta
++ * canonicalised still lands on a correct key.
++ */
++export function collectMultiGetResponses<T>(
++  subResponses: ReadonlyArray<GraphBatchSubResponse | null | undefined>,
++): Record<string, T> {
++  const out: Record<string, T> = {};
++  for (const sub of subResponses) {
++    const parsed = parseMultiGetSubResponse(sub);
++    if (!parsed) continue;
++    out[parsed.id as string] = parsed as T;
++  }
++  return out;
++}
++
+diff --git a/lib/meta/graph-multi-get.ts b/lib/meta/graph-multi-get.ts
+new file mode 100644
+index 0000000..7e98c3d
+--- /dev/null
++++ b/lib/meta/graph-multi-get.ts
+@@ -0,0 +1,84 @@
++/**
++ * lib/meta/graph-multi-get.ts
++ *
++ * The network half of the `ids=` replacement. Pure request-shaping and
++ * response-parsing live in `./graph-multi-get-parse.ts`; see that
++ * module's header for the full background on what Meta removed in
++ * Graph API v26.0 and why every caller of the old endpoint failed
++ * silently.
++ *
++ * CHUNKING
++ *
++ *   Meta caps a batch at 50 sub-requests. Callers already chunk to
++ *   their own budgets (20-25), but this helper re-chunks defensively
++ *   so a caller passing more than the cap degrades into extra calls
++ *   rather than an error.
++ */
++
++import { graphPostWithToken } from "@/lib/meta/client";
++import {
++  buildMultiGetBatch,
++  collectMultiGetResponses,
++  GRAPH_BATCH_MAX,
++  type GraphBatchSubResponse,
++} from "@/lib/meta/graph-multi-get-parse";
++
++export {
++  buildMultiGetBatch,
++  collectMultiGetResponses,
++  parseMultiGetSubResponse,
++  GRAPH_BATCH_MAX,
++  type GraphBatchSubRequest,
++  type GraphBatchSubResponse,
++} from "@/lib/meta/graph-multi-get-parse";
++
++function chunk<T>(items: readonly T[], size: number): T[][] {
++  const out: T[][] = [];
++  for (let i = 0; i < items.length; i += size) {
++    out.push(items.slice(i, i + size));
++  }
++  return out;
++}
++
++/**
++ * Read many nodes by id in one round trip per chunk.
++ *
++ * Signature-compatible with `graphGetWithToken` so call sites migrate
++ * by swapping the identifier and nothing else. `path` is ignored.
++ *
++ * Throws on a whole-batch failure (auth, rate limit) so callers'
++ * existing try/catch keeps behaving as it did. Individual sub-request
++ * failures are simply absent from the returned record — the same way
++ * the old endpoint omitted ids it could not resolve.
++ */
++export async function graphMultiGetByIds<T>(
++  _path: string,
++  params: Record<string, string>,
++  token: string,
++): Promise<Record<string, T>> {
++  const ids = (params.ids ?? "")
++    .split(",")
++    .map((s) => s.trim())
++    .filter(Boolean);
++  if (ids.length === 0) return {};
++  const fields = params.fields ?? "";
++
++  const batches = await Promise.all(
++    chunk([...new Set(ids)], GRAPH_BATCH_MAX).map((idChunk) =>
++      graphPostWithToken<GraphBatchSubResponse[]>(
++        "",
++        {
++          batch: buildMultiGetBatch(idChunk, fields),
++          include_headers: false,
++        },
++        token,
++      ),
++    ),
++  );
++
++  const out: Record<string, T> = {};
++  for (const batch of batches) {
++    Object.assign(out, collectMultiGetResponses<T>(Array.isArray(batch) ? batch : []));
++  }
++  return out;
++}
+diff --git a/lib/reporting/__tests__/creative-batch-response.test.ts b/lib/reporting/__tests__/creative-batch-response.test.ts
+deleted file mode 100644
+index a0fa93e..0000000
+--- a/lib/reporting/__tests__/creative-batch-response.test.ts
++++ /dev/null
+@@ -1,89 +0,0 @@
+-import { strict as assert } from "node:assert";
+-import { test } from "node:test";
+-
+-import {
+-  buildCreativeBatchRequest,
+-  parseCreativeBatchSubResponse,
+-} from "../creative-batch-response.ts";
+-
+-const FIELDS = "id,name,image_url,video_id,object_story_spec";
+-
+-test("buildCreativeBatchRequest emits one GET sub-request per id", () => {
+-  const req = buildCreativeBatchRequest(["111", "222"], FIELDS);
+-  assert.deepEqual(req, [
+-    { method: "GET", relative_url: `111?fields=${FIELDS}` },
+-    { method: "GET", relative_url: `222?fields=${FIELDS}` },
+-  ]);
+-});
+-
+-test("buildCreativeBatchRequest does NOT use the ids= multi-read removed in v26.0", () => {
+-  // Guard against a well-meaning revert to `GET /?ids=…`, which Meta
+-  // removed in Graph API v26.0. That call fails with meta_code=100 and
+-  // the caller swallows per-batch failures by design, so a regression
+-  // here is silent: hydration returns an empty map, creative previews
+-  // fall back to initials placeholders, and the AI auto-tagger skips
+-  // every creative for want of a thumbnail.
+-  const req = buildCreativeBatchRequest(["111", "222"], FIELDS);
+-  for (const sub of req) {
+-    assert.equal(
+-      sub.relative_url.includes("ids="),
+-      false,
+-      "relative_url must address a single creative, not an ids= list",
+-    );
+-  }
+-});
+-
+-test("buildCreativeBatchRequest returns an empty array for no ids", () => {
+-  assert.deepEqual(buildCreativeBatchRequest([], FIELDS), []);
+-});
+-
+-test("parseCreativeBatchSubResponse parses a successful sub-response", () => {
+-  const parsed = parseCreativeBatchSubResponse({
+-    code: 200,
+-    body: JSON.stringify({ id: "111", name: "Promo Video", video_id: "999" }),
+-  });
+-  assert.equal(parsed?.id, "111");
+-  assert.equal(parsed?.name, "Promo Video");
+-  assert.equal(parsed?.video_id, "999");
+-});
+-
+-test("parseCreativeBatchSubResponse rejects an error envelope", () => {
+-  // A failed sub-request rides inside the batch's own HTTP 200. Without
+-  // this branch it would land in the map as a creative whose every
+-  // field is undefined — worse than a miss, because the caller would
+-  // stop treating it as unhydrated.
+-  assert.equal(
+-    parseCreativeBatchSubResponse({
+-      code: 400,
+-      body: JSON.stringify({
+-        error: { message: "Unsupported get request.", code: 100 },
+-      }),
+-    }),
+-    null,
+-  );
+-});
+-
+-test("parseCreativeBatchSubResponse rejects a body with no id", () => {
+-  assert.equal(
+-    parseCreativeBatchSubResponse({ code: 200, body: JSON.stringify({ name: "x" }) }),
+-    null,
+-  );
+-  assert.equal(
+-    parseCreativeBatchSubResponse({ code: 200, body: JSON.stringify({ id: "" }) }),
+-    null,
+-  );
+-});
+-
+-test("parseCreativeBatchSubResponse rejects malformed and non-object bodies", () => {
+-  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "{not json" }), null);
+-  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "true" }), null);
+-  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "[]" }), null);
+-  assert.equal(parseCreativeBatchSubResponse({ code: 200, body: "null" }), null);
+-});
+-
+-test("parseCreativeBatchSubResponse rejects missing / empty sub-responses", () => {
+-  assert.equal(parseCreativeBatchSubResponse(null), null);
+-  assert.equal(parseCreativeBatchSubResponse(undefined), null);
+-  assert.equal(parseCreativeBatchSubResponse({}), null);
+-  assert.equal(parseCreativeBatchSubResponse({ code: 500, body: "" }), null);
+-});
+diff --git a/lib/reporting/active-creatives-fetch.ts b/lib/reporting/active-creatives-fetch.ts
+index f094854..c2c3769 100644
+--- a/lib/reporting/active-creatives-fetch.ts
++++ b/lib/reporting/active-creatives-fetch.ts
+@@ -23,10 +23,10 @@ import {
+ } from "@/lib/reporting/active-creatives-group";
+ import { dedupAdsByAdId } from "@/lib/reporting/active-creatives-dedup";
+ import {
+-  buildCreativeBatchRequest,
+-  parseCreativeBatchSubResponse,
++  buildMultiGetBatch,
++  parseMultiGetSubResponse,
+   type GraphBatchSubResponse,
+-} from "@/lib/reporting/creative-batch-response";
++} from "@/lib/meta/graph-multi-get-parse";
+ import { buildTimeParams } from "@/lib/insights/meta";
+ import { resolvePresetToDays } from "@/lib/insights/date-chunks";
+ import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
+@@ -977,7 +977,7 @@ async function fetchCreativeBatch(
+           graphPostWithToken<GraphBatchSubResponse[]>(
+             "",
+             {
+-              batch: buildCreativeBatchRequest(batch, CREATIVE_BATCH_FIELDS),
++              batch: buildMultiGetBatch(batch, CREATIVE_BATCH_FIELDS),
+               include_headers: false,
+             },
+             token,
+@@ -996,7 +996,7 @@ async function fetchCreativeBatch(
+   let subFailures = 0;
+   for (const batchResult of results) {
+     for (const sub of Array.isArray(batchResult) ? batchResult : []) {
+-      const parsed = parseCreativeBatchSubResponse(sub);
++      const parsed = parseMultiGetSubResponse(sub);
+       if (parsed) out.set(parsed.id as string, parsed as RawCreative);
+       else subFailures += 1;
+     }
+diff --git a/lib/reporting/creative-batch-response.ts b/lib/reporting/creative-batch-response.ts
+deleted file mode 100644
+index 5c3015b..0000000
+--- a/lib/reporting/creative-batch-response.ts
++++ /dev/null
+@@ -1,98 +0,0 @@
+-/**
+- * lib/reporting/creative-batch-response.ts
+- *
+- * Request builder + response parser for the phase-2 creative
+- * hydration call in `lib/reporting/active-creatives-fetch.ts`.
+- *
+- * Lives in its own module for the same reason `lib/meta/retry.ts` and
+- * `lib/meta/error-classify.ts` do: the fetch module carries
+- * `import "server-only"`, which blows up under Node's
+- * `--experimental-strip-types` test runner, so anything that needs
+- * unit coverage has to be importable on its own.
+- *
+- * Background — why this shape exists at all:
+- *
+- *   Hydration used to use Meta's multi-read endpoint,
+- *   `GET /?ids=<id,id,…>&fields=<…>`, which returned a plain object
+- *   keyed by creative id. Meta REMOVED the `ids` query parameter in
+- *   Graph API v26.0; every call started coming back with
+- *   `meta_code=100 "The ids query parameter is deprecated in
+- *   v26.0+."`. The caller's per-batch catch swallowed that by design
+- *   (a degraded batch beats a dropped event), so hydration returned
+- *   an empty map on every event with no error surfaced anywhere —
+- *   the dashboard's Top Creatives tiles fell back to initials
+- *   placeholders and the AI auto-tagger skipped every creative for
+- *   want of a thumbnail.
+- *
+- * The replacement is the Batch API: `POST /` with a `batch` array of
+- * `{method, relative_url}` sub-requests. Its response is an ARRAY
+- * positionally matching the request, where each entry carries the
+- * sub-response's HTTP `code` and a `body` that is a JSON *string* —
+- * not a nested object. A sub-request can fail on its own (deleted
+- * creative, revoked permission) and still arrive inside a 200
+- * envelope, so "did this one succeed" has to be decided per entry.
+- */
+-
+-export interface GraphBatchSubResponse {
+-  code?: number;
+-  body?: string;
+-}
+-
+-export interface GraphBatchSubRequest {
+-  method: "GET";
+-  relative_url: string;
+-}
+-
+-/**
+- * Build the `batch` array for a chunk of creative ids.
+- *
+- * `fields` is passed through verbatim as a comma-joined list.
+- * Commas are legal unencoded in a query-string value and Meta's own
+- * batch examples use them that way, so no escaping is applied — the
+- * caller owns the field list and it contains no user input.
+- */
+-export function buildCreativeBatchRequest(
+-  creativeIds: readonly string[],
+-  fields: string,
+-): GraphBatchSubRequest[] {
+-  return creativeIds.map((id) => ({
+-    method: "GET" as const,
+-    relative_url: `${id}?fields=${fields}`,
+-  }));
+-}
+-
+-/**
+- * Parse one batch sub-response into a creative-shaped object, or
+- * `null` when the sub-request did not yield a usable creative.
+- *
+- * Returns `null` — never a partially-populated object — for:
+- *   - a missing / empty `body`
+- *   - a `body` that isn't valid JSON
+- *   - a `body` that isn't a JSON object (Meta returns `true` for
+- *     some write shapes; not expected here, but cheap to exclude)
+- *   - an error envelope (`{"error": {...}}`), which arrives with the
+- *     batch's own HTTP 200 and would otherwise masquerade as a
+- *     creative with every field `undefined`
+- *   - a body with no `id`, which can't be keyed into the result map
+- *
+- * Typed loosely (`Record<string, unknown>`) so this module stays
+- * free of the fetch module's `RawCreative` import; the caller casts.
+- */
+-export function parseCreativeBatchSubResponse(
+-  sub: GraphBatchSubResponse | null | undefined,
+-): Record<string, unknown> | null {
+-  if (!sub?.body) return null;
+-  let parsed: unknown;
+-  try {
+-    parsed = JSON.parse(sub.body);
+-  } catch {
+-    return null;
+-  }
+-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+-    return null;
+-  }
+-  const obj = parsed as Record<string, unknown>;
+-  if ("error" in obj) return null;
+-  if (typeof obj.id !== "string" || obj.id.length === 0) return null;
+-  return obj;
+-}
+diff --git a/lib/reporting/event-insights.ts b/lib/reporting/event-insights.ts
+index a1922cc..324faae 100644
+--- a/lib/reporting/event-insights.ts
++++ b/lib/reporting/event-insights.ts
+@@ -9,6 +9,7 @@ import type {
+   CampaignStatusReason,
+ } from "@/lib/insights/campaign-status";
+ import { graphGetWithToken, MetaApiError } from "@/lib/meta/client";
++import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
+ import { fetchGoogleAdsEventCampaignInsights } from "@/lib/google-ads/insights";
+ import { campaignNameMatchesEventCode } from "@/lib/reporting/campaign-matching";
+ 
+@@ -224,8 +225,11 @@ export async function fetchEventCampaignInsights(
+   const statuses = new Map<string, CampaignDisplayStatus>();
+   if (matchedIds.length > 0) {
+     try {
+-      const res = await graphGetWithToken<{
+-        data?: Array<{ id: string; effective_status?: string; status?: string }>;
++      // Meta removed `ids=` in v26.0 — see lib/meta/graph-multi-get-parse.ts.
++      const res = await graphMultiGetByIds<{
++        id: string;
++        effective_status?: string;
++        status?: string;
+       }>(
+         `/`,
+         {
+-- 
+2.43.0
+

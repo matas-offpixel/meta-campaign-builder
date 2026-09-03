@@ -42,12 +42,17 @@ const GUARDRAILS: BudgetGuardrails = {
   ceilingBehaviour: "stop",
 };
 
+function lm(name: "cpr" | "cpc" | "cpm" | "cpa" | "lpv_cost" | "ctr" | "roas", value: number, window: "24h" | "3d" | "7d" = "24h", resultCount: number | null = null) {
+  return { name, value, window, resultCount };
+}
+
 function baseInput(overrides: Partial<EvaluateAdSetInput> = {}): EvaluateAdSetInput {
   return {
     rules: [CPR_RULE],
     guardrails: GUARDRAILS,
     currentBudgetPence: 10000, // £100/day
-    liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+    // resultCount: null → minimum-evidence check skipped (null = not a conversion-count metric)
+    liveMetric: lm("cpr", 0.5),
     lastTouchedAt: null,
     impressions: 1000,
     now: new Date("2026-08-07T12:00:00Z"),
@@ -57,7 +62,7 @@ function baseInput(overrides: Partial<EvaluateAdSetInput> = {}): EvaluateAdSetIn
 
 describe("evaluateAdSet — rule band matching", () => {
   it("below threshold → scale_up with the matched threshold's actionValue", () => {
-    const result = evaluateAdSet(baseInput({ liveMetric: { name: "cpr", value: 0.5, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 0.5) }));
     assert.equal(result.action, "scale_up");
     assert.equal(result.deltaPercent, 30);
     assert.equal(result.budgetAfterPence, 13000);
@@ -66,28 +71,28 @@ describe("evaluateAdSet — rule band matching", () => {
   });
 
   it("between threshold → scale_up with the moderate band", () => {
-    const result = evaluateAdSet(baseInput({ liveMetric: { name: "cpr", value: 1.5, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 1.5) }));
     assert.equal(result.action, "scale_up");
     assert.equal(result.deltaPercent, 10);
     assert.equal(result.budgetAfterPence, 11000);
   });
 
   it("between threshold with actionValue 0 → maintain", () => {
-    const result = evaluateAdSet(baseInput({ liveMetric: { name: "cpr", value: 2.5, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 2.5) }));
     assert.equal(result.action, "maintain");
     assert.equal(result.deltaPercent, 0);
     assert.equal(result.budgetAfterPence, 10000);
   });
 
   it("between threshold with a real decrease → scale_down", () => {
-    const result = evaluateAdSet(baseInput({ liveMetric: { name: "cpr", value: 4, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 4) }));
     assert.equal(result.action, "scale_down");
     assert.equal(result.deltaPercent, -25);
     assert.equal(result.budgetAfterPence, 7500);
   });
 
   it("above threshold → pause, budget unchanged", () => {
-    const result = evaluateAdSet(baseInput({ liveMetric: { name: "cpr", value: 6, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 6) }));
     assert.equal(result.action, "pause");
     assert.equal(result.deltaPercent, null);
     assert.equal(result.budgetAfterPence, 10000);
@@ -102,7 +107,7 @@ describe("evaluateAdSet — rule band matching", () => {
         { id: tid(), operator: "above", value: 999, action: "pause", label: "high" },
       ],
     };
-    const result = evaluateAdSet(baseInput({ rules: [gappyRule], liveMetric: { name: "cpr", value: 50, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ rules: [gappyRule], liveMetric: lm("cpr", 50) }));
     assert.equal(result.action, "maintain");
     assert.equal(result.ruleMatched, null);
   });
@@ -126,7 +131,7 @@ describe("evaluateAdSet — guardrails", () => {
     };
     // £100 budget +30% = £130, which exceeds the £120 hard ceiling.
     const result = evaluateAdSet(
-      baseInput({ guardrails, currentBudgetPence: 10000, liveMetric: { name: "cpr", value: 0.5, window: "24h" } }),
+      baseInput({ guardrails, currentBudgetPence: 10000, liveMetric: lm("cpr", 0.5) }),
     );
     assert.equal(result.action, "scale_up");
     assert.equal(result.budgetAfterPence, 12000); // clamped to £120
@@ -141,7 +146,7 @@ describe("evaluateAdSet — guardrails", () => {
       ceilingBehaviour: "partial",
     };
     const result = evaluateAdSet(
-      baseInput({ guardrails, currentBudgetPence: 10000, liveMetric: { name: "cpr", value: 0.5, window: "24h" } }),
+      baseInput({ guardrails, currentBudgetPence: 10000, liveMetric: lm("cpr", 0.5) }),
     );
     assert.equal(result.action, "scale_up");
     assert.equal(result.budgetAfterPence, 11000); // clamped to £110
@@ -166,7 +171,7 @@ describe("evaluateAdSet — guardrails", () => {
 
   it("scale_down never consults the ceiling guardrails", () => {
     const guardrails: BudgetGuardrails = { ...GUARDRAILS, hardBudgetCeiling: 1, maxExpansionPercent: 1 };
-    const result = evaluateAdSet(baseInput({ guardrails, liveMetric: { name: "cpr", value: 4, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ guardrails, liveMetric: lm("cpr", 4) }));
     assert.equal(result.action, "scale_down");
     assert.equal(result.guardrailNote, null);
   });
@@ -267,7 +272,7 @@ describe("evaluateAdSet — guardrails", () => {
 
 describe("evaluateAdSet — dormant / recent-touch skips", () => {
   it("0 impressions → skip_dormant regardless of the metric value", () => {
-    const result = evaluateAdSet(baseInput({ impressions: 0, liveMetric: { name: "cpr", value: 0.1, window: "24h" } }));
+    const result = evaluateAdSet(baseInput({ impressions: 0, liveMetric: lm("cpr", 0.1) }));
     assert.equal(result.action, "skip_dormant");
     assert.equal(result.budgetAfterPence, 10000);
     assert.equal(result.ruleMatched, null);
@@ -287,13 +292,27 @@ describe("evaluateAdSet — dormant / recent-touch skips", () => {
     assert.equal(result.action, "scale_up");
   });
 
-  it("respects a custom guardrails.cooldownHours over the 24h default", () => {
+  it("custom cooldownHours above the window floor is honored", () => {
+    // effectiveCooldownHours = max(configuredHours, windowHours).
+    // For cpr at 24h window: floor = 24h. A config of 48h > 24h, so 48h binds.
+    // lastTouchedAt 30h ago: outside the 24h window floor, but inside the 48h config → skip.
+    const now = new Date("2026-08-07T12:00:00Z");
+    const lastTouchedAt = new Date("2026-08-06T06:00:00Z"); // 30h ago
+    const guardrails: BudgetGuardrails = { ...GUARDRAILS, cooldownHours: 48 };
+    const result = evaluateAdSet(baseInput({ now, lastTouchedAt, guardrails }));
+    assert.equal(result.action, "skip_recent_touch");
+    assert.match(result.reason, /48h cooldown/);
+  });
+
+  it("custom cooldownHours below the window floor is silently promoted to the window length", () => {
+    // A 2h config for a 24h-window cpr metric → effective = max(2, 24) = 24h.
+    // lastTouchedAt 3h ago is inside 24h (the promoted floor) → skip.
     const now = new Date("2026-08-07T12:00:00Z");
     const lastTouchedAt = new Date("2026-08-07T09:00:00Z"); // 3h ago
     const guardrails: BudgetGuardrails = { ...GUARDRAILS, cooldownHours: 2 };
     const result = evaluateAdSet(baseInput({ now, lastTouchedAt, guardrails }));
-    // 3h ago is outside a 2h cooldown → evaluates normally, not skipped.
-    assert.equal(result.action, "scale_up");
+    // 3h < effective 24h cooldown → still skipped.
+    assert.equal(result.action, "skip_recent_touch");
   });
 
   it("dormant check takes precedence over recent-touch", () => {
@@ -328,7 +347,7 @@ describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
       baseInput({
         guardrails,
         currentBudgetPence: 10000,
-        liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+        liveMetric: lm("cpr", 0.5),
       }),
     );
     assert.equal(result.action, "scale_up");
@@ -349,7 +368,7 @@ describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
       baseInput({
         guardrails,
         currentBudgetPence: 10000,
-        liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+        liveMetric: lm("cpr", 0.5),
       }),
     );
     assert.equal(adSet.guardrailNote, "capped_by_max_single_adset_budget");
@@ -357,7 +376,7 @@ describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
       baseInput({
         guardrails,
         currentBudgetPence: 10000,
-        liveMetric: { name: "cpr", value: 0.5, window: "24h" },
+        liveMetric: lm("cpr", 0.5),
       }),
     );
     assert.equal(campaign.action, "scale_up");

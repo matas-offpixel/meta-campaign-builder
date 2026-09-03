@@ -96,6 +96,7 @@ function cboAdSet(name: string, id: string): AdSetInsightRow {
     cpm: null,
     ctr: null,
     costPerActionType: { landing_page_view: 0.18 },
+    actionCountByType: { landing_page_view: 150 },
   };
 }
 
@@ -109,6 +110,7 @@ function campaignInsight(overrides: Partial<CampaignBudgetInsight> = {}): Campai
     cpm: null,
     ctr: null,
     costPerActionType: { landing_page_view: 0.18 },
+    actionCountByType: { landing_page_view: 200 },
     ...overrides,
   };
 }
@@ -212,7 +214,7 @@ describe("result-type isolation", () => {
   it("a traffic campaign never matches a registration ladder", async () => {
     const trafficMetric = resolvePrimaryLiveMetric(
       "traffic",
-      { impressions: 1000, cpc: null, cpm: null, ctr: null, costPerActionType: { landing_page_view: 0.18 } },
+      { impressions: 1000, cpc: null, cpm: null, ctr: null, costPerActionType: { landing_page_view: 0.18 }, actionCountByType: { landing_page_view: 100 } },
       "24h",
     );
     assert.equal(trafficMetric?.name, "lpv_cost");
