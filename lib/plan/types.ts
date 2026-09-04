@@ -6,6 +6,8 @@
  * `platform: 'meta' | …` list.
  */
 
+import type { PlanTargetUnit } from "../types.ts";
+
 export const CAMPAIGN_PLAN_STATUSES = [
   "draft",
   "launching",
@@ -47,10 +49,23 @@ export interface CampaignPlanBudgetSplit {
   googleDaily: number;
 }
 
+/**
+ * Zone D's one field (migration 165). `value` is a cost per one `unit` in
+ * the plan currency; both null on a plan whose operator never set a target,
+ * in which case preset materialisation falls back to the preset's own
+ * benchmark and marks provenance "industry seed".
+ */
+export interface CampaignPlanTarget {
+  value: number | null;
+  unit: PlanTargetUnit | null;
+}
+
 export interface CampaignPlanIntent {
   eventId: string;
   objectiveIntent: CampaignPlanObjectiveIntent;
   budget: CampaignPlanBudgetSplit;
+  /** Zone D. PR 3 renders the editor; prepare-draft already reads it. */
+  target: CampaignPlanTarget;
   /** Any URL (v2.1) — event LP or operator-pasted destination. */
   destinationUrl: string;
   /** ClusterLabel string or null. Not a FK. */

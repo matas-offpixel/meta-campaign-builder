@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createGoogleSearchPlanTreeFromDraft } from "@/lib/db/google-search-plans";
+import { listPresetsForClient } from "@/lib/db/optimisation-presets";
 import { upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { planToGoogleDraft } from "@/lib/plan/adapters/google";
 import {
@@ -201,10 +202,15 @@ export async function POST(
   }
 
   if (adapter === "meta") {
+    // Client optimisation policy is materialised here and nowhere else —
+    // the draft carries its own copy from this point on.
+    const presets = clientId
+      ? await listPresetsForClient(supabase, clientId)
+      : null;
     const draft = await withMetaDefaults(
       supabase,
       plan.intent.eventId,
-      buildPrefillMetaDraft(plan, clientId),
+      buildPrefillMetaDraft(plan, clientId, presets),
     );
     const saved = await upsertLinkedMetaDraft(supabase, draft, user.id);
     if (!saved.ok) {

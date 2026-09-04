@@ -18,6 +18,10 @@ import { listCreativeTemplatesForUser } from "@/lib/db/creative-templates";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { loadClientCampaignsData } from "@/lib/dashboard/campaigns-loader";
 import {
+  listObjectivesForClient,
+  listPresetsForClient,
+} from "@/lib/db/optimisation-presets";
+import {
   isBannerbearEnabled,
   isCanvaEnabled,
   isPlacidEnabled,
@@ -37,6 +41,7 @@ const ALLOWED_TABS = new Set([
   "ticketing",
   "d2c",
   "campaigns",
+  "optimisation",
   "creatives",
   "invoicing",
   "asset-queue",
@@ -48,6 +53,7 @@ type ClientTab =
   | "ticketing"
   | "d2c"
   | "campaigns"
+  | "optimisation"
   | "creatives"
   | "invoicing"
   | "asset-queue";
@@ -99,6 +105,14 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
     listCreativeTemplatesForUser(supabase),
     clientHasTaggedEvents(id),
     loadClientPortalByClientId(id),
+  ]);
+
+  // Optimisation presets (migration 165). Both reads are additive-safe:
+  // an unapplied migration returns `[]`, which the panel renders as the
+  // industry seed rather than an error.
+  const [optimisationPresets, objectivesInUse] = await Promise.all([
+    listPresetsForClient(supabase, id),
+    listObjectivesForClient(supabase, id),
   ]);
 
   if (!client) notFound();
@@ -238,6 +252,8 @@ export default async function ClientDetailPage({ params, searchParams }: Props) 
       portal={portal.ok ? portal : null}
       hasTaggedEvents={hasTaggedEvents}
       campaignsData={campaignsData}
+      optimisationPresets={optimisationPresets}
+      optimisationObjectivesInUse={objectivesInUse}
     />
   );
 }

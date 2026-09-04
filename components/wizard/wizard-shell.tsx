@@ -589,6 +589,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             onChange={updateOptimisationStrategy}
             draftId={draftId}
             campaignStatus={draft.status}
+            clientId={draft.settings.clientId}
           />
         )}
         {step === 3 && (

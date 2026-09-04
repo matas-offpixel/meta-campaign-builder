@@ -23,8 +23,13 @@ import {
   SlidersHorizontal,
   RotateCcw,
 } from "lucide-react";
+import Link from "next/link";
 import { Card, CardTitle, CardDescription } from "@/components/ui/card";
 import { ThresholdBand } from "@/components/viz/threshold-band";
+import { InfoTip } from "@/components/viz/info-tip";
+import { MetricChip } from "@/components/viz/metric-chip";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
+import { StatusDot } from "@/components/viz/status-dot";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
@@ -51,6 +56,14 @@ import {
   OBJECTIVE_METRIC_PRIORITY,
 } from "@/lib/optimisation-rules";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
+import {
+  applyTargetToStrategy,
+  currentTarget,
+  presetEditHref,
+  presetStepView,
+  presetVersionLabel,
+  targetRuleIndex,
+} from "@/lib/optimisation/presets";
 
 interface OptimisationStrategyProps {
   strategy: OptimisationStrategySettings;
@@ -60,6 +73,8 @@ interface OptimisationStrategyProps {
   onChange: (strategy: OptimisationStrategySettings) => void;
   draftId: string;
   campaignStatus: "draft" | "published" | "archived";
+  /** Set when the draft is client-linked — the preset badge's edit target. */
+  clientId?: string;
 }
 
 const MODE_OPTIONS: { id: OptimisationStrategySettings["mode"]; label: string; description: string; icon: typeof Ban }[] = [
@@ -856,6 +871,188 @@ function BudgetGuardrailsCard({
   );
 }
 
+const PRESET_TIP =
+  "The ladder, window and guardrails are this client's policy for this objective. The target is the one thing that belongs to this campaign — change it and the bands rescale around it.";
+const PRESET_VERSION_TIP =
+  "The preset version this campaign materialised. Editing the preset later does not change this campaign.";
+const PRESET_ARM_TIP =
+  "The arm the preset suggests for new campaigns. The Automation card below is what actually arms this one, and Live is still its own decision.";
+const PRESET_SEEDED_TARGET_TIP =
+  "Nobody set this target — it is the preset's benchmark standing in for a plan target. Type the real one and the bands rescale around it.";
+const PRESET_SEEDED_LADDER_TIP =
+  "This client has no saved preset for this objective yet, so the ladder is the industry seed. Saving one at /clients replaces it for future campaigns, not for this one.";
+
+/**
+ * Read-only view of a materialised client preset, with the target as the
+ * single editable field (redesign §5 row 5 — 13 of the 14 fields moved to
+ * `/clients/[id]`, the target stayed).
+ *
+ * Rendered only when `strategy.preset` is present. Drafts without it fall
+ * through to the full editor below, unchanged, so the standalone wizard
+ * keeps parity while the canvas is built.
+ */
+function PresetStrategyView({
+  strategy,
+  objective,
+  currency,
+  onChange,
+  clientId,
+}: {
+  strategy: OptimisationStrategySettings;
+  objective: CampaignObjective;
+  currency: string;
+  onChange: (strategy: OptimisationStrategySettings) => void;
+  clientId?: string;
+}) {
+  const preset = strategy.preset;
+  const primaryIdx = targetRuleIndex(strategy, objective);
+  const primary = primaryIdx >= 0 ? strategy.rules[primaryIdx] : null;
+
+  const isRoas = primary?.metric === "roas";
+  const sym = isRoas ? "" : currency === "GBP" ? "£" : currency === "USD" ? "$" : currency === "EUR" ? "€" : currency;
+  const suffix = isRoas ? "×" : "";
+
+  const target = currentTarget(strategy, objective);
+  const [draft, setDraft] = useState(target != null ? String(target) : "");
+
+  const unitLabel = preset?.targetUnit ?? null;
+  const editHref = presetEditHref(clientId);
+
+  function commitTarget() {
+    const trimmed = draft.trim();
+    const next = trimmed === "" ? NaN : Number(trimmed);
+    if (!Number.isFinite(next) || next <= 0) {
+      setDraft(target != null ? String(target) : "");
+      return;
+    }
+    onChange(applyTargetToStrategy(strategy, objective, next));
+  }
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* ⌁ — this strategy is derived from a preset. Whether the preset
+            itself is the client's or a seed is the badge beside the ladder. */}
+        <ProvenanceBadge provenance="derived" />
+        <CardTitle className="text-sm">preset</CardTitle>
+        {preset ? (
+          <MetricChip label="preset version" size="sm">
+            {presetVersionLabel(preset.presetVersion)}
+          </MetricChip>
+        ) : null}
+        <InfoTip label={PRESET_VERSION_TIP} />
+        {preset ? (
+          <>
+            <StatusDot status={preset.defaultArm === "shadow" ? "in-progress" : "idle"} />
+            <InfoTip label={PRESET_ARM_TIP} />
+          </>
+        ) : null}
+        {editHref ? (
+          <Link
+            href={editHref}
+            className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:text-primary-hover"
+          >
+            edit
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Link>
+        ) : null}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-3">
+        <label className="flex items-center gap-2">
+          <Crosshair className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <span className="relative inline-flex items-center">
+            {sym ? (
+              <span className="absolute left-2 text-sm text-muted-foreground">{sym}</span>
+            ) : null}
+            <input
+              type="number"
+              step="any"
+              min={0}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitTarget}
+              aria-label="target"
+              className={`h-11 w-28 rounded-md border border-border-strong bg-background text-xl font-semibold tabular-nums text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring ${sym ? "pl-6" : "pl-2"} pr-2`}
+            />
+            {suffix ? (
+              <span className="absolute right-2 text-sm text-muted-foreground">{suffix}</span>
+            ) : null}
+          </span>
+        </label>
+        {unitLabel ? (
+          <span className="pb-2 text-sm text-muted-foreground">/ {unitLabel}</span>
+        ) : null}
+        {/* Nobody set this number — it is the preset's benchmark standing in
+            for a plan target, and a big bare figure would read as a decision. */}
+        {preset?.targetSource === "industry seed" ? (
+          <span className="mb-2 inline-flex items-center gap-1.5">
+            <ProvenanceBadge provenance="modelled" />
+            <InfoTip label={PRESET_SEEDED_TARGET_TIP} />
+          </span>
+        ) : null}
+        <InfoTip className="mb-3" label={PRESET_TIP} />
+        {primary ? (
+          <MetricChip label={`ladder metric · ${METRIC_LABELS[primary.metric] ?? primary.metric}`} className="mb-2">
+            {METRIC_LABELS[primary.metric] ?? primary.metric}
+          </MetricChip>
+        ) : null}
+        {primary ? (
+          <MetricChip label={`window · ${TIME_WINDOW_LABELS[primary.timeWindow]}`} className="mb-2">
+            {primary.timeWindow}
+          </MetricChip>
+        ) : null}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {preset?.source === "industry seed" ? (
+          <span className="inline-flex items-center gap-1.5">
+            <ProvenanceBadge provenance="modelled" />
+            <InfoTip label={PRESET_SEEDED_LADDER_TIP} />
+          </span>
+        ) : null}
+        {strategy.rules
+          .filter((r) => r.enabled && r.thresholds.length > 0)
+          .map((rule) => (
+            <div key={rule.id} className="flex items-center gap-2">
+              <MetricChip label={`metric · ${METRIC_LABELS[rule.metric] ?? rule.metric}`} size="sm">
+                {METRIC_LABELS[rule.metric] ?? rule.metric}
+              </MetricChip>
+              <span className="flex-1">
+                <ThresholdBand rule={rule} currentValue={null} />
+              </span>
+            </div>
+          ))}
+      </div>
+
+      {strategy.guardrails ? (
+        <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
+          <MetricChip label="max expansion" size="sm">
+            +{strategy.guardrails.maxExpansionPercent}%
+          </MetricChip>
+          <MetricChip label="hard ceiling" size="sm">
+            {sym || "£"}
+            {strategy.guardrails.hardBudgetCeiling.toLocaleString()}
+          </MetricChip>
+          <MetricChip label="at ceiling" size="sm">
+            {strategy.guardrails.ceilingBehaviour}
+          </MetricChip>
+          {strategy.guardrails.maxDailyIncreasePercent != null ? (
+            <MetricChip label="max daily increase" size="sm">
+              +{strategy.guardrails.maxDailyIncreasePercent}%/24h
+            </MetricChip>
+          ) : null}
+          {strategy.guardrails.cooldownHours != null ? (
+            <MetricChip label="cooldown" size="sm">
+              {strategy.guardrails.cooldownHours}h
+            </MetricChip>
+          ) : null}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
 export function OptimisationStrategy({
   strategy,
   objective,
@@ -864,6 +1061,7 @@ export function OptimisationStrategy({
   onChange,
   draftId,
   campaignStatus,
+  clientId,
 }: OptimisationStrategyProps) {
   const benchmarks = useMemo(() => ACCOUNT_BENCHMARKS[objective] ?? [], [objective]);
   const [prevObjective, setPrevObjective] = useState(objective);
@@ -885,7 +1083,12 @@ export function OptimisationStrategy({
   useEffect(() => {
     if (objective !== prevObjective) {
       setPrevObjective(objective);
-      if (strategy.mode === "benchmarks") {
+      // A materialised preset owns its rules. Regenerating from benchmarks
+      // here would silently discard the client's policy and the target it
+      // was scaled to — the objective change has to go through
+      // `resolvePreset` for the new objective instead, which is plan
+      // prepare's job, not this step's.
+      if (strategy.mode === "benchmarks" && !strategy.preset) {
         onChange({ ...strategy, rules: generateRulesForObjective(objective) });
       }
     }
@@ -951,6 +1154,37 @@ export function OptimisationStrategy({
   const totalThresholds = strategy.rules
     .filter((r) => r.enabled)
     .reduce((sum, r) => sum + r.thresholds.length, 0);
+
+  // Preset-linked draft: the 13 policy fields are the client's, so this step
+  // shows them read-only and offers the one field that is this campaign's.
+  if (presetStepView(strategy) === "preset") {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div>
+          <h2 className="font-heading text-2xl tracking-wide">Optimisation Strategy</h2>
+        </div>
+
+        <PresetStrategyView
+          strategy={strategy}
+          objective={objective}
+          currency={currency}
+          onChange={onChange}
+          clientId={clientId}
+        />
+
+        <AutomationArmControl
+          draftId={draftId}
+          currency={currency}
+          baseCampaignBudget={strategy.guardrails?.baseCampaignBudget ?? budgetAmount}
+          hardBudgetCeiling={
+            strategy.guardrails?.hardBudgetCeiling ??
+            Math.round((strategy.guardrails?.baseCampaignBudget ?? budgetAmount) * 2)
+          }
+          showDecisions={campaignStatus === "published"}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

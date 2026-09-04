@@ -18,6 +18,9 @@ export function createEmptyCampaignPlan(input: {
     intent: {
       eventId: input.eventId,
       objectiveIntent: "registration",
+      // Zone D starts empty: materialisation falls back to the preset's own
+      // benchmark and labels it "industry seed" until an operator sets one.
+      target: { value: null, unit: null },
       budget: {
         totalDaily: 0,
         metaDaily: 0,

@@ -294,6 +294,14 @@ function fmt(v: number): string {
   return v.toFixed(2);
 }
 
+/**
+ * Exported so `lib/optimisation/presets.ts` can scale preset multipliers
+ * into band values and labels that match `regenerateThresholdsFromTarget`
+ * exactly — a guard test asserts the two agree on the default ladder.
+ */
+export const roundThresholdValue = round;
+export const formatThresholdValue = fmt;
+
 export const METRIC_LABELS: Record<string, string> = {
   cpr: "CPR",
   cpc: "CPC",

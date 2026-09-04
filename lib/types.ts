@@ -329,6 +329,14 @@ export type OptimisationGoal =
   | "post_engagement"
   | "video_views";
 
+/**
+ * Zone D's target unit (campaign creator redesign §2). Lives here rather
+ * than in `lib/plan/target-unit.ts` so `OptimisationStrategySettings` can
+ * reference it without a circular import; that module owns the mapping
+ * table from unit → objective / optimisation goal / ladder metric.
+ */
+export type PlanTargetUnit = "reg" | "click" | "lpv" | "purchase" | "view";
+
 export type AssetRatio = "1:1" | "4:5" | "9:16";
 
 export type AssetMode = "single" | "dual" | "full";
@@ -938,10 +946,47 @@ export interface BudgetGuardrails {
   cooldownHours?: number;
 }
 
+/**
+ * Where a campaign's optimisation strategy came from, when a client
+ * preset materialised it. Absent on drafts authored in the standalone
+ * wizard — `migrateDraft` tolerates absence and the wizard keeps its
+ * pre-preset behaviour in that case.
+ *
+ * This is a record, not a live link: changing the preset never touches a
+ * published campaign. `presetVersion` is the version at materialise time,
+ * so preset drift is visible without mutating anything.
+ */
+export interface OptimisationPresetProvenance {
+  presetId: string;
+  presetVersion: number;
+  materialisedAt: string;
+  /**
+   * `"manual entry"` when a saved client preset supplied the ladder,
+   * `"industry seed"` when it fell back to `generateRulesForObjective`
+   * benchmarks — same wording as the funnel card.
+   */
+  source: "manual entry" | "industry seed";
+  /** The target the ladder was scaled from, and its unit. Null when the plan had none. */
+  targetValue: number | null;
+  targetUnit: PlanTargetUnit | null;
+  /**
+   * Where the NUMBER came from, which is a separate question from where the
+   * ladder shape came from: a client's hand-tuned ladder scaled by a
+   * benchmark stand-in is `source: "manual entry"` with
+   * `targetSource: "industry seed"`. Overloading one field would have the
+   * badge claim a target nobody set.
+   */
+  targetSource: "plan" | "industry seed";
+  /** `off` / `shadow` the preset suggests. Live is never preset-armed. */
+  defaultArm: "off" | "shadow";
+}
+
 export interface OptimisationStrategySettings {
   mode: OptimisationStrategyMode;
   rules: OptimisationRule[];
   guardrails: BudgetGuardrails;
+  /** Set only by `materialiseStrategy`. Optional — no DDL, no migration. */
+  preset?: OptimisationPresetProvenance;
 }
 
 // ─── Campaign settings ───
