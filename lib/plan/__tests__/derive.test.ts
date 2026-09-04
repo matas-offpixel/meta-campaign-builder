@@ -572,7 +572,7 @@ describe("plan page guards (extends #852)", () => {
       "components/plan/asset-routing-matrix.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
-      "components/plan/plan-datetime-field.tsx",
+      "components/plan/canvas-window.tsx",
       "components/library/campaign-library-picker.tsx",
       "components/library/plan-library.tsx",
       "components/library/library-rows.tsx",
@@ -581,7 +581,7 @@ describe("plan page guards (extends #852)", () => {
       "components/viz/overflow-menu.tsx",
       "lib/viz/overflow-menu.ts",
       "lib/plan/surface.ts",
-      "components/plan/plan-budget-controls.tsx",
+      "components/plan/canvas-budget.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
@@ -606,7 +606,9 @@ describe("plan page guards (extends #852)", () => {
       /CLUSTER_LABELS\.map/,
       "cluster is no longer an authored primary input",
     );
-    assert.match(workspace, /authoring surface|plan-meta/);
-    assert.match(workspace, /Re-derive from Meta/);
+    // Re-derive lost its button; it is now the stale chip's own click.
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /onRederive/);
+    assert.match(channels, /stale/);
   });
 });

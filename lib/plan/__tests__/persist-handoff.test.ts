@@ -230,13 +230,16 @@ describe("plan page guards", () => {
   it("workspace no longer hardcodes the 157 persist disclaimer", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
-    assert.match(workspace, /Saved to campaign_plans|persistState/);
+    /**
+     * A successful save says nothing — silence is the signal. A failed one
+     * surfaces the server's own message, which is why there is no
+     * hardcoded sentence about migrations left to go stale.
+     */
+    assert.match(workspace, /setError\(json\.error \?\? null\)/);
     assert.match(workspace, /shouldPersistPlanOnChange/);
-    assert.match(workspace, /New from plan/);
-    assert.match(workspace, /From existing campaign/);
-    assert.match(workspace, /Continue in wizard/);
-    assert.match(workspace, /Automation decisions/);
-    assert.match(workspace, /\/campaign\/\$\{plan\.launches\.meta\.draftId\}/);
+    // Row click opens the wizard route until PR 4 lands the drawers.
+    assert.match(workspace, /goWizard/);
+    assert.match(workspace, /wizardHrefForDraft/);
   });
 
   it("plan pages do not grow account pickers or asset upload", () => {
@@ -245,7 +248,7 @@ describe("plan page guards", () => {
       "components/plan/asset-routing-matrix.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
-      "components/plan/plan-datetime-field.tsx",
+      "components/plan/canvas-window.tsx",
       "components/plan/plan-identity-chips.tsx",
       "components/library/campaign-library-picker.tsx",
       "components/library/plan-library.tsx",
@@ -256,7 +259,7 @@ describe("plan page guards", () => {
       "components/viz/overflow-menu.tsx",
       "lib/viz/overflow-menu.ts",
       "lib/plan/surface.ts",
-      "components/plan/plan-budget-controls.tsx",
+      "components/plan/canvas-budget.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

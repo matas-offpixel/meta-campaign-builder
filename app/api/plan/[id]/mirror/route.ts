@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadGoogleSearchPlanTree } from "@/lib/db/google-search-plans";
+import {
+  googleChannelFacts,
+  metaChannelFacts,
+  tiktokChannelFacts,
+} from "@/lib/plan/canvas-facts";
 import { googleLastDerivedAt } from "@/lib/plan/derive/google";
 import { formatMetaStaleChip, isDerivedStale } from "@/lib/plan/live-mirror";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
@@ -28,9 +33,10 @@ export async function GET(
   const metaUpdatedAt = linked.meta?.updatedAt ?? null;
   const tiktokLastDerivedAt = linked.tiktok?.lastDerivedAt ?? null;
   let googleLast = null as string | null;
+  let googleTree = null as Awaited<ReturnType<typeof loadGoogleSearchPlanTree>>;
   if (plan.launches.google.draftId) {
-    const tree = await loadGoogleSearchPlanTree(supabase, plan.launches.google.draftId);
-    googleLast = tree ? googleLastDerivedAt(tree) : null;
+    googleTree = await loadGoogleSearchPlanTree(supabase, plan.launches.google.draftId);
+    googleLast = googleTree ? googleLastDerivedAt(googleTree) : null;
   }
 
   const now = new Date();
@@ -53,6 +59,16 @@ export async function GET(
       lastDerivedAt: googleLast,
       stale: isDerivedStale(metaUpdatedAt, googleLast),
       chip: googleChip,
+    },
+    /**
+     * Zone E counts. They ride the mirror because the mirror already
+     * loads exactly the three sources they are read from — a second
+     * endpoint would be a second round trip for the same three reads.
+     */
+    facts: {
+      meta: metaChannelFacts(linked.meta),
+      tiktok: tiktokChannelFacts(linked.tiktok),
+      google: googleChannelFacts(googleTree),
     },
   });
 }

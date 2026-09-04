@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { planToGoogleDraft } from "../adapters/google.ts";
 import { planToMetaDraft } from "../adapters/meta.ts";
 import { planToTikTokDraft } from "../adapters/tiktok.ts";
+import { planWindowFromHandles } from "../canvas-inputs.ts";
 import { campaignPlanToRow, upsertPlanLaunchRow } from "../persist.ts";
 import { recordWizardMetaLaunch } from "../record-wizard-launch.ts";
 import {
@@ -298,19 +299,32 @@ describe("continuation link only for plan-linked drafts", () => {
 });
 
 describe("plan page time inputs and ACTIVE vs PAUSED warning", () => {
-  it("workspace collects times and warns before Prepare", () => {
+  it("the window bar carries the times the datetime fields used to", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /PlanDateTimeField/);
-    assert.match(workspace, /label="Start"/);
-    assert.match(workspace, /label="End"/);
-    const field = readFileSync("components/plan/plan-datetime-field.tsx", "utf8");
-    assert.match(field, /type="date"/);
-    assert.match(field, /type="time"/);
-    assert.match(field, /Clear time/);
-    assert.match(field, /planTimeFromInput/);
-    assert.match(workspace, /WIZARD_ACTIVE_VS_PLAN_PAUSED/);
-    assert.match(workspace, /GOOGLE_DATE_ONLY_NOTE/);
+    assert.doesNotMatch(workspace, /PlanDateTimeField/);
+    assert.match(workspace, /CanvasWindow/);
     assert.match(workspace, /id=\{PLAN_STEP2_HASH\}/);
+
+    const window = readFileSync("components/plan/canvas-window.tsx", "utf8");
+    assert.match(window, /WindowBar/);
+    assert.match(window, /planWindowFromHandles/);
+
+    // Times still round-trip — the handles write the same four fields.
+    // Built from local parts so the assertion holds in any TZ.
+    const dates = planWindowFromHandles({
+      start: new Date(2026, 8, 4, 18, 30),
+      end: new Date(2026, 8, 27, 23, 0),
+    });
+    assert.equal(dates.startDate, "2026-09-04");
+    assert.equal(dates.startTime, "18:30");
+    assert.equal(dates.endDate, "2026-09-27");
+    assert.equal(dates.endTime, "23:00");
+
+    // Both notes moved into a zone's tip rather than being deleted: the
+    // Google one to the bar, the ACTIVE/PAUSED one to the launch button.
+    assert.match(window, /GOOGLE_DATE_ONLY_NOTE/);
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.match(launch, /WIZARD_ACTIVE_VS_PLAN_PAUSED/);
     assert.ok(WIZARD_ACTIVE_VS_PLAN_PAUSED.includes("ACTIVE"));
     assert.ok(WIZARD_ACTIVE_VS_PLAN_PAUSED.includes("PAUSED"));
     assert.match(GOOGLE_DATE_ONLY_NOTE, /date-level/);

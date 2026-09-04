@@ -51,6 +51,7 @@ npm run lint     # ESLint
 | `/login` | Magic link, invite-only email allowlist |
 | `/auth/callback` | Supabase code exchange |
 | `/auth/logout` | Sign out |
+| `/plan/[id]` | Campaign **canvas** — one screen, seven zones (header · window · budget · target · three channel rows · assets · one `⏸ Launch`), one button. Everything not one of the three adjustable inputs is a badge or is derived: name from the event + phase, objective from `target_unit`, destination from `events.ticket_url` / `signup_url`, and a platform at £0 is off. Four states (READY / BLOCKED / LAUNCHED / LIVE) plus `waiting` before a Meta draft exists. Row `open ▸` navigates to the wizard until PR 4 lands the drawers. See `docs/CAMPAIGN_CREATOR_REDESIGN_2026-09-04.md` §2 |
 | `/d2c/brief-ingest` | Upload a PDF (or paste text) brief → background parse into a scheduled D2C campaign |
 | `/d2c/event/[id]` | D2C orchestration: resolved artwork, WhatsApp community URL paste, per-send Matas approval |
 | `/l/[clientSlug]/[eventSlug]` | Public fan-facing event landing page (Supreme renderer) |
@@ -361,7 +362,7 @@ ENABLE_BUDGET_PACING_ALERTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `154_optimisation_automation_live.sql`.
+**Latest migration:** `165_client_optimisation_presets.sql`.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default

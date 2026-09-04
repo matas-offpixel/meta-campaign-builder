@@ -9,7 +9,7 @@ import { describe, it } from "node:test";
 
 import { shortBlockerLabel, blockerRowFromIssue } from "../blockers.ts";
 import { eventInitials, firstHttpUrl, resolveEventArtwork } from "../event-artwork.ts";
-import { pipelineNodeStatus, statusFromLaunchRecord } from "../status.ts";
+import { statusFromLaunchAndBlockers, statusFromLaunchRecord } from "../status.ts";
 import {
   bandFromRule,
   zoneKindAtValue,
@@ -153,31 +153,33 @@ describe("launch record → status", () => {
     assert.equal(statusFromLaunchRecord({ status: "failed", draftId: "d1" }), "failed");
   });
 
-  it("pipeline nodes follow Meta → derive → assets → launch", () => {
-    const idle = { status: "idle" as const, draftId: null, platformCampaignId: null, error: null };
-    const ready = { status: "idle" as const, draftId: "d1", platformCampaignId: null, error: null };
-    assert.equal(
-      pipelineNodeStatus("assets", { meta: idle, tiktok: idle, google: idle }),
-      "idle",
-    );
-    assert.equal(
-      pipelineNodeStatus("assets", { meta: ready, tiktok: idle, google: idle }),
-      "ready",
-    );
+  it("a prepared draft with blockers is blocked, a launched one is not", () => {
+    const ready = { status: "idle" as const, draftId: "d1" };
+    assert.equal(statusFromLaunchAndBlockers(ready, 0), "ready");
+    assert.equal(statusFromLaunchAndBlockers(ready, 2), "blocked");
+    assert.equal(statusFromLaunchAndBlockers({ status: "live", draftId: "d1" }, 2), "live");
+    assert.equal(statusFromLaunchAndBlockers({ status: "skipped", draftId: "d1" }, 2), "paused");
   });
 });
 
 describe("plan surfaces keep grep-guards and demote furniture", () => {
-  it("workspace no longer stands the Step 1 / Launch Status sentences", () => {
+  it("workspace stands the seven canvas zones, not the stepper", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.doesNotMatch(workspace, /Step 1 — Build the Meta campaign/);
     assert.doesNotMatch(workspace, /Launch status/);
-    assert.match(workspace, /PipelineStepper/);
-    assert.match(workspace, /InfoTip/);
-    assert.match(workspace, /Continue in wizard/);
-    assert.match(workspace, /New from plan/);
-    assert.match(workspace, /From existing campaign/);
-    assert.match(workspace, /Automation decisions/);
+    assert.doesNotMatch(workspace, /PipelineStepper/);
+    assert.doesNotMatch(workspace, /New from plan/);
+    for (const zone of [
+      "CanvasHeader",
+      "CanvasWindow",
+      "CanvasBudget",
+      "CanvasTarget",
+      "CanvasChannels",
+      "CanvasAssets",
+      "CanvasLaunch",
+    ]) {
+      assert.match(workspace, new RegExp(zone), `canvas stands ${zone}`);
+    }
   });
 
   it("decisions list uses glyphs not Applied/Dry run words", () => {

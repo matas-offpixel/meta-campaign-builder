@@ -129,7 +129,9 @@ describe("plan event picker wiring vs parent sha", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
     assert.match(workspace, /from "@\/components\/ui\/combobox"/);
-    assert.match(workspace, /Show past events/);
+    // The past-events checkbox is gone — the typeahead ranks them last.
+    assert.doesNotMatch(workspace, /Show past events/);
+    assert.match(workspace, /showPast: true/);
     assert.doesNotMatch(workspace, /<select[\s\S]*event\.name/);
     assert.match(page, /event_date/);
     assert.match(page, /presale_at/);

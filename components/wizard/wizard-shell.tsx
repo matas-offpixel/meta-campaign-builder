@@ -45,7 +45,7 @@ import {
   WizardEventContextProvider,
   useWizardEventContext,
 } from "@/lib/wizard/use-event-context";
-import { derivePhase } from "@/lib/wizard/phase";
+import { derivePlanName } from "@/lib/plan/plan-name";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
 
 interface WizardShellProps {
@@ -793,11 +793,16 @@ function EventDefaultsApplier({ updateDraft }: DefaultsApplierProps) {
       }
 
       if (event) {
-        const phase = derivePhase(event);
-        const suggestedName =
-          phase === "Campaign" ? event.name : `${event.name} — ${phase}`;
         if (!s.campaignName) {
-          s.campaignName = suggestedName;
+          // Same rule as the plan canvas header — see lib/plan/plan-name.ts.
+          s.campaignName = derivePlanName({
+            name: event.name,
+            announcementAt: event.announcement_at,
+            presaleAt: event.presale_at,
+            generalSaleAt: event.general_sale_at,
+            eventDate: event.event_date,
+            eventStartAt: event.event_start_at,
+          });
         }
         if (!s.campaignCode && event.event_code) {
           s.campaignCode = event.event_code;

@@ -84,12 +84,15 @@ describe("1 — /plan/new does not persist without an operator edit", () => {
     assert.equal(db.plans.size, 0, "no Untitled plan row");
   });
 
-  it("workspace derived lifetime sync no longer flips hasUserEdit", () => {
+  /**
+   * Stronger than the original guard: there is no derived-lifetime effect
+   * left to flip the flag. Lifetime is now local state written only by
+   * `onMode` / `onLifetime`, both of which are operator gestures.
+   */
+  it("no derived lifetime effect exists to flip hasUserEdit", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    const start = workspace.indexOf('if (budgetMode !== "lifetime")');
-    assert.ok(start >= 0);
-    const effect = workspace.slice(start, workspace.indexOf("}, [", start) + 20);
-    assert.doesNotMatch(effect, /setHasUserEdit\(true\)/);
+    assert.doesNotMatch(workspace, /if \(budgetMode !== "lifetime"\)/);
+    assert.match(workspace, /setLifetimeTotal/);
     assert.match(workspace, /shouldPersistPlanOnChange/);
     assert.equal(shouldMarkUserEdit("operator"), true);
     assert.equal(

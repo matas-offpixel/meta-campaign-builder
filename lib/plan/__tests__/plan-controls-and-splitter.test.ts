@@ -19,7 +19,10 @@ import {
   splitLockedEdit,
   zeroPlatform,
 } from "../budget-split.ts";
+import { planChannelRows } from "../canvas.ts";
+import { planSplitToBudget } from "../canvas-inputs.ts";
 import { resolveEventEndAnchors } from "../event-end-dates.ts";
+import { FIXTURE_HREFS, factsBundle, readyPlan } from "./canvas-fixtures.ts";
 import {
   PLAN_START_BUFFER_MINUTES,
   composeTikTokScheduleAt,
@@ -90,12 +93,35 @@ describe("deselect zeroes budget, skips fan-out, preserves draft", () => {
     assert.ok(budgetedLaunchAdapters(next).includes("meta"));
   });
 
-  it("workspace collapse hides the card and never clears draftId", () => {
+  /**
+   * The collapse-on-deselect card is gone with the toggle row: a platform
+   * at 0% is skipped, and its row stays on the canvas showing `skipped`
+   * so the operator can see the draft is still there.
+   */
+  it("a zeroed platform keeps its draft and reads skipped", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /collapsed=\{!budgetSelected\.meta\}/);
-    assert.match(workspace, /collapsed=\{!budgetSelected\[adapter\]\}/);
-    assert.doesNotMatch(workspace, /draftId:\s*null.*deselect|launches\[adapter\]\s*=\s*\{\s*\.\.\.IDLE/);
-    assert.match(workspace, /draftId=\{plan\.launches/);
+    assert.doesNotMatch(workspace, /collapsed=\{!budgetSelected/);
+    assert.doesNotMatch(
+      workspace,
+      /draftId:\s*null.*deselect|launches\[adapter\]\s*=\s*\{\s*\.\.\.IDLE/,
+    );
+
+    const plan = readyPlan();
+    const rows = planChannelRows({
+      plan: {
+        ...plan,
+        intent: {
+          ...plan.intent,
+          budget: { totalDaily: 100, metaDaily: 100, tiktokDaily: 0, googleDaily: 0 },
+        },
+      },
+      issues: [],
+      facts: factsBundle(),
+      hrefs: FIXTURE_HREFS,
+    });
+    const google = rows.find((row) => row.adapter === "google")!;
+    assert.equal(google.skipped, true);
+    assert.equal(google.draftId, "google-draft");
   });
 });
 
@@ -179,16 +205,34 @@ describe("locked splitter sum-invariance and exact-penny rounding", () => {
   });
 });
 
-describe("unlocked variance chip", () => {
-  it("is zero at parity and nonzero when over/under", () => {
-    const budget = { totalDaily: 100, metaDaily: 40, tiktokDaily: 30, googleDaily: 30 };
-    assert.equal(budgetVariancePence(budget, 100), 0);
-    assert.equal(budgetVariancePence({ ...budget, googleDaily: 35 }, 100), 500);
-    assert.equal(budgetVariancePence({ ...budget, googleDaily: 20 }, 100), -1000);
-    const controls = readFileSync("components/plan/plan-budget-controls.tsx", "utf8");
-    assert.match(controls, /variance !== 0/);
-    assert.match(controls, /Over the total|Under the total/);
-    assert.match(controls, /border-warning/);
+describe("variance is structurally impossible on the canvas", () => {
+  /**
+   * The three number inputs are gone, so the operator can no longer type a
+   * split that misses the total. `SplitBar` moves boundaries within 100%,
+   * and `planSplitToBudget` re-derives £ from pct against the same total —
+   * `budgetVariancePence` survives only as the proof of that invariant.
+   */
+  it("every split the bar can produce is at parity with the total", () => {
+    const total = 120;
+    for (const pcts of [
+      [90, 5, 5],
+      [80, 15, 5],
+      [70, 20, 10],
+      [50, 40, 10],
+      [100, 0, 0],
+      [0, 0, 100],
+      [34, 33, 33],
+    ]) {
+      const budget = planSplitToBudget(
+        [
+          { platform: "meta", pct: pcts[0]! },
+          { platform: "tiktok", pct: pcts[1]! },
+          { platform: "google", pct: pcts[2]! },
+        ],
+        total,
+      );
+      assert.equal(budgetVariancePence(budget, total), 0, pcts.join("/"));
+    }
   });
 });
 

@@ -108,13 +108,16 @@ describe("not-instrumented stays visible and dashed", () => {
 });
 
 describe("advisory single-render", () => {
-  it("workspace folds notes into the badge and does not print them under the button", () => {
+  it("the row model folds notes into the badge, never standing text", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /collectBadgeRows/);
-    assert.match(workspace, /kind: "advisory"|advisories/);
     assert.doesNotMatch(workspace, /split\.notes\.map/);
-    assert.match(workspace, /GOOGLE_DATE_ONLY_NOTE/);
-    assert.match(workspace, /issue\.href/);
+    assert.doesNotMatch(workspace, /\{issue\.message\}/);
+
+    // The fold moved out of JSX into the row model that feeds each row.
+    const canvas = readFileSync("lib/plan/canvas.ts", "utf8");
+    assert.match(canvas, /collectBadgeRows/);
+    assert.match(canvas, /split\.notes/);
+    assert.match(canvas, /issue\.href/);
   });
 
   it("badge treats advisories as neutral and blockers as amber", () => {
@@ -166,7 +169,10 @@ describe("card grep-guards and kit reuse", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(matrix, /SectionAnchor/);
     assert.match(matrix, /kind="assets"/);
-    assert.match(workspace, /kind="derive"/);
+    // Zone E is the derive section now; the anchor moved with it.
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /kind="derive"/);
+    assert.match(workspace, /CanvasChannels/);
   });
 
   it("falsify: parent has no funnel scale helper", () => {
