@@ -25,8 +25,9 @@ export type DrawerTab = { id: string; glyph: ReactNode; label: string };
 export function Drawer({
   open,
   platform,
-  tabs,
-  activeTab,
+  title,
+  tabs = [],
+  activeTab = "",
   onTabChange,
   status,
   onDone,
@@ -39,11 +40,16 @@ export function Drawer({
   children,
 }: {
   open: boolean;
-  platform: VizPlatform;
-  tabs: DrawerTab[];
-  activeTab: string;
-  onTabChange: (id: string) => void;
-  status: VizStatus;
+  /**
+   * Omit for a platform-less sheet (decisions): header is `◐` + `title`,
+   * no tabs, no status dot, ✕ in the header, no footer Done.
+   */
+  platform?: VizPlatform;
+  title?: string;
+  tabs?: DrawerTab[];
+  activeTab?: string;
+  onTabChange?: (id: string) => void;
+  status?: VizStatus;
   onDone: () => void;
   onLoadTemplate?: () => void;
   triggerRef?: RefObject<Element | null>;
@@ -115,6 +121,7 @@ export function Drawer({
 
   if (!open) return null;
   const page = variant === "page";
+  const platformless = platform == null;
   if (!page && typeof document === "undefined") return null;
 
   const sheet = (
@@ -132,30 +139,44 @@ export function Drawer({
       onPointerDown={(event) => event.stopPropagation()}
     >
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <span id={titleId}>
-          <PlatformGlyph platform={platform} size="md" />
-        </span>
-        <nav className="flex min-w-0 flex-1 items-center gap-1" aria-label="drawer tabs">
-          {tabs.map((tab) => {
-            const active = tab.id === activeTab;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-[11px] ${
-                  active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"
-                }`}
-                aria-current={active ? "page" : undefined}
-                onClick={() => onTabChange(tab.id)}
-              >
-                <span aria-hidden="true">{tab.glyph}</span>
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
+        {platform ? (
+          <span id={titleId}>
+            <PlatformGlyph platform={platform} size="md" />
+          </span>
+        ) : (
+          <span
+            id={titleId}
+            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+          >
+            <span aria-hidden="true">◐</span>
+            {title ?? "decisions · last 7d"}
+          </span>
+        )}
+        {platformless ? (
+          <span className="min-w-0 flex-1" />
+        ) : (
+          <nav className="flex min-w-0 flex-1 items-center gap-1" aria-label="drawer tabs">
+            {tabs.map((tab) => {
+              const active = tab.id === activeTab;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-[11px] ${
+                    active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"
+                  }`}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => onTabChange?.(tab.id)}
+                >
+                  <span aria-hidden="true">{tab.glyph}</span>
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        )}
         {header}
-        <StatusDot status={status} />
+        {status ? <StatusDot status={status} /> : null}
         {onLoadTemplate ? (
           <button
             type="button"
@@ -163,6 +184,16 @@ export function Drawer({
             onClick={onLoadTemplate}
           >
             ⌁ template ▸
+          </button>
+        ) : null}
+        {platformless && !page ? (
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={onDone}
+            aria-label="close"
+          >
+            ✕
           </button>
         ) : null}
       </header>
@@ -173,16 +204,24 @@ export function Drawer({
       >
         {children}
       </div>
-      <footer className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
-        {footer}
-        <button
-          type="button"
-          className="rounded-sm border border-border px-3 py-1 text-sm hover:bg-muted"
-          onClick={onDone}
-        >
-          {doneLabel}
-        </button>
-      </footer>
+      {platformless ? (
+        footer ? (
+          <footer className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
+            {footer}
+          </footer>
+        ) : null
+      ) : (
+        <footer className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
+          {footer}
+          <button
+            type="button"
+            className="rounded-sm border border-border px-3 py-1 text-sm hover:bg-muted"
+            onClick={onDone}
+          >
+            {doneLabel}
+          </button>
+        </footer>
+      )}
     </div>
   );
 

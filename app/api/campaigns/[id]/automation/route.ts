@@ -38,6 +38,7 @@ export async function GET(
     status: state.status,
     lastEvaluatedAt: state.lastEvaluatedAt,
     decisions: state.decisions,
+    materialisedPreset: state.materialisedPreset,
     writesEnabled: gate.writesEnabled,
     skippedReason: gate.skippedReason,
   });
@@ -93,6 +94,7 @@ export async function POST(
     status: state?.status ?? "draft",
     lastEvaluatedAt: state?.lastEvaluatedAt ?? null,
     decisions: state?.decisions ?? [],
+    materialisedPreset: state?.materialisedPreset ?? null,
     writesEnabled: gate.writesEnabled,
     skippedReason: gate.skippedReason,
   });

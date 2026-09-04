@@ -26,6 +26,7 @@ export type CampaignAutomationState = {
   status: string;
   lastEvaluatedAt: string | null;
   decisions: DecisionRowView[];
+  materialisedPreset: { presetId: string; presetVersion: number } | null;
 };
 
 interface DraftFlagRow {
@@ -34,6 +35,7 @@ interface DraftFlagRow {
   status: string | null;
   optimisation_automation_enabled: boolean | null;
   optimisation_automation_live: boolean | null;
+  draft_json?: unknown;
 }
 
 export async function loadCampaignAutomationState(
@@ -45,7 +47,7 @@ export async function loadCampaignAutomationState(
   const { data, error } = await sb
     .from("campaign_drafts")
     .select(
-      "id, user_id, status, optimisation_automation_enabled, optimisation_automation_live",
+      "id, user_id, status, optimisation_automation_enabled, optimisation_automation_live, draft_json",
     )
     .eq("id", draftId)
     .eq("user_id", userId)
@@ -57,7 +59,7 @@ export async function loadCampaignAutomationState(
   const { data: decisionRows, error: decErr } = await sb
     .from("campaign_automation_decisions")
     .select(
-      "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, channel, scope, campaign_id, adset_id, meta_response_json",
+      "decided_at, metric, metric_value, metric_window, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, channel, scope, campaign_id, adset_id, meta_response_json",
     )
     .eq("draft_id", draftId)
     .order("decided_at", { ascending: false })
@@ -74,7 +76,7 @@ export async function loadCampaignAutomationState(
     const retry = await sb
       .from("campaign_automation_decisions")
       .select(
-        "decided_at, metric, metric_value, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, campaign_id, adset_id, meta_response_json",
+        "decided_at, metric, metric_value, metric_window, rule_matched, action_recommended, budget_before_pence, budget_after_pence, applied, dry_run, reason_text, campaign_id, adset_id, meta_response_json",
       )
       .eq("draft_id", draftId)
       .order("decided_at", { ascending: false })
@@ -90,6 +92,7 @@ export async function loadCampaignAutomationState(
       status: row.status ?? "draft",
       lastEvaluatedAt,
       decisions,
+      materialisedPreset: materialisedFromDraftJson(row.draft_json),
     };
   }
 
@@ -102,7 +105,22 @@ export async function loadCampaignAutomationState(
     status: row.status ?? "draft",
     lastEvaluatedAt,
     decisions,
+    materialisedPreset: materialisedFromDraftJson(row.draft_json),
   };
+}
+
+function materialisedFromDraftJson(
+  json: unknown,
+): { presetId: string; presetVersion: number } | null {
+  if (!json || typeof json !== "object") return null;
+  const strategy = (json as { optimisationStrategy?: { preset?: { presetId?: unknown; presetVersion?: unknown } } })
+    .optimisationStrategy;
+  const preset = strategy?.preset;
+  if (!preset || typeof preset.presetId !== "string") return null;
+  if (typeof preset.presetVersion !== "number" || !Number.isFinite(preset.presetVersion)) {
+    return null;
+  }
+  return { presetId: preset.presetId, presetVersion: preset.presetVersion };
 }
 
 export async function updateCampaignAutomationFlags(

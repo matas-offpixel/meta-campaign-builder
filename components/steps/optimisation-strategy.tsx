@@ -57,6 +57,7 @@ import {
   OBJECTIVE_METRIC_PRIORITY,
 } from "@/lib/optimisation-rules";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
+import { DecisionsSheet } from "@/components/plan/decisions-sheet";
 import {
   applyTargetToStrategy,
   currentTarget,
@@ -1068,7 +1069,7 @@ export function OptimisationStrategy({
   currency,
   onChange,
   draftId,
-  campaignStatus,
+  campaignStatus: _campaignStatus,
   clientId,
 }: OptimisationStrategyProps) {
   const benchmarks = useMemo(() => ACCOUNT_BENCHMARKS[objective] ?? [], [objective]);
@@ -1188,8 +1189,18 @@ export function OptimisationStrategy({
             strategy.guardrails?.hardBudgetCeiling ??
             Math.round((strategy.guardrails?.baseCampaignBudget ?? budgetAmount) * 2)
           }
-          showDecisions={campaignStatus === "published"}
         />
+        {draftId ? (
+          <DecisionsSheet
+            draftId={draftId}
+            clientId={clientId}
+            objective={objective}
+            materialised={strategy.preset ?? null}
+            variant="page"
+            open
+            onDone={() => undefined}
+          />
+        ) : null}
       </div>
     );
   }
@@ -1253,8 +1264,18 @@ export function OptimisationStrategy({
           strategy.guardrails?.hardBudgetCeiling ??
           Math.round((strategy.guardrails?.baseCampaignBudget ?? budgetAmount) * 2)
         }
-        showDecisions={campaignStatus === "published"}
       />
+      {draftId ? (
+        <DecisionsSheet
+          draftId={draftId}
+          clientId={clientId}
+          objective={objective}
+          materialised={strategy.preset ?? null}
+          variant="page"
+          open
+          onDone={() => undefined}
+        />
+      ) : null}
 
       {/* Rules section */}
       {strategy.mode !== "none" && (

@@ -387,7 +387,7 @@ describe("UI scope + parent-sha falsify + grep-guards", () => {
     const apply = readFileSync("lib/optimisation/apply.ts", "utf8");
     assert.match(apply, /updateCampaignDailyBudget/);
     assert.match(apply, /scope === "campaign"/);
-    const list = readFileSync("components/optimisation/automation-decisions-list.tsx", "utf8");
+    const list = readFileSync("components/plan/decisions-sheet.tsx", "utf8");
     assert.match(list, /ScopeGlyph/);
     const sql = readFileSync("supabase/migrations/164_campaign_automation_decisions_scope.sql", "utf8");
     assert.match(sql, /add column if not exists scope/);

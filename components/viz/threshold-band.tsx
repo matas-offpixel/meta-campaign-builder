@@ -12,12 +12,15 @@ export function ThresholdBand({
   rule,
   action,
   currentValue,
+  dashed = false,
   size = "md",
 }: {
   model?: ThresholdBandModel;
   rule?: Pick<OptimisationRule, "thresholds">;
   action?: string;
   currentValue?: number | null;
+  /** Honest empty — no colour, a dashed track (brief §5.7). */
+  dashed?: boolean;
   size?: "sm" | "md";
 }) {
   const resolved =
@@ -26,6 +29,16 @@ export function ThresholdBand({
       ? bandFromRule(rule, currentValue ?? null)
       : bandFromAction(action ?? "maintain", currentValue ?? null));
   const height = size === "sm" ? "h-1.5" : "h-2.5";
+
+  if (dashed) {
+    return (
+      <div
+        className={`relative w-full overflow-hidden rounded-full border border-dashed border-muted-foreground/40 ${height}`}
+        role="img"
+        aria-label="no reads yet"
+      />
+    );
+  }
 
   return (
     <div

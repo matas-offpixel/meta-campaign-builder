@@ -11,6 +11,7 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { DecisionsSheet } from "@/components/plan/decisions-sheet";
 import { GoogleDrawerMount } from "@/components/plan/google-drawer";
 import { MetaDrawerMount } from "@/components/plan/meta-drawer";
 import { TikTokDrawerMount } from "@/components/plan/tiktok-drawer";
@@ -145,6 +146,8 @@ export function PlanWorkspace({
   const metaOpenRef = useRef<HTMLButtonElement | null>(null);
   const tiktokOpenRef = useRef<HTMLButtonElement | null>(null);
   const googleOpenRef = useRef<HTMLButtonElement | null>(null);
+  const decisionsOpenRef = useRef<HTMLButtonElement | null>(null);
+  const [decisionsOpen, setDecisionsOpen] = useState(false);
 
   /**
    * Restore an open drawer after a refresh, once. The plan's draft ids are
@@ -157,6 +160,10 @@ export function PlanWorkspace({
     if (restoredDrawer.current) return;
     restoredDrawer.current = true;
     const fromUrl = readDrawerUrl(searchParams);
+    if (fromUrl.sheet === "decisions") {
+      setDecisionsOpen(true);
+      return;
+    }
     if (!fromUrl.adapter) return;
     const draftId = plan.launches[fromUrl.adapter].draftId;
     if (!draftId) return;
@@ -174,18 +181,20 @@ export function PlanWorkspace({
   useEffect(() => {
     const next = drawerUrl(
       pathname,
-      drawer
-        ? {
-            adapter: drawer.adapter,
-            tab: drawer.tab ?? tabForAnchor(drawer.adapter, drawer.anchor),
-          }
-        : { adapter: null, tab: null },
+      decisionsOpen
+        ? { adapter: null, tab: null, sheet: "decisions" }
+        : drawer
+          ? {
+              adapter: drawer.adapter,
+              tab: drawer.tab ?? tabForAnchor(drawer.adapter, drawer.anchor),
+            }
+          : { adapter: null, tab: null },
       searchParams,
     );
     const current = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
     if (next !== current) router.replace(next, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParams is the comparison basis, not a trigger
-  }, [drawer, pathname, router]);
+  }, [drawer, decisionsOpen, pathname, router]);
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId) ?? null;
@@ -204,6 +213,7 @@ export function PlanWorkspace({
     draftId: string,
     anchor?: BlockerAnchor | null,
   ) {
+    setDecisionsOpen(false);
     setDrawer({
       adapter,
       draftId,
@@ -693,10 +703,12 @@ export function PlanWorkspace({
         destination={destination}
         onDestination={(url) => patchIntent({ destinationUrl: url })}
         decisionCount={decisionCount}
-        decisionsHref={metaDraftId ? `/campaign/${metaDraftId}` : null}
+        decisionsRef={decisionsOpenRef}
         onDecisionsOpen={() => {
           window.localStorage.setItem(planLastOpenedKey(plan.id), new Date().toISOString());
           setDecisionCount(0);
+          setDrawer(null);
+          setDecisionsOpen(true);
         }}
         menuItems={menuItems}
         resolved={resolved}
@@ -835,6 +847,18 @@ export function PlanWorkspace({
           }
           planId={plan.id}
           onClose={() => setDrawer(null)}
+        />
+      ) : null}
+
+      {metaDraftId ? (
+        <DecisionsSheet
+          draftId={metaDraftId}
+          clientId={selectedEvent?.clientId ?? null}
+          objective={plan.intent.objectiveIntent}
+          variant="sheet"
+          open={decisionsOpen}
+          triggerRef={decisionsOpenRef}
+          onDone={() => setDecisionsOpen(false)}
         />
       ) : null}
 

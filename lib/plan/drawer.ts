@@ -86,15 +86,23 @@ const ADAPTER_BY_QUERY: Record<string, PlanAdapterName> = {
   g: "google",
 };
 
+/** Platform-less sheet — not an adapter. `?drawer=decisions`. */
+export const DECISIONS_QUERY_VALUE = "decisions";
+
 export interface DrawerUrlState {
   adapter: PlanAdapterName | null;
   tab: string | null;
+  /** Set when the decisions sheet is open. Omitted for channel drawers. */
+  sheet?: "decisions";
 }
 
 export function readDrawerUrl(search: {
   get(key: string): string | null;
 }): DrawerUrlState {
   const raw = search.get(DRAWER_QUERY_KEY);
+  if (raw === DECISIONS_QUERY_VALUE) {
+    return { adapter: null, tab: null, sheet: "decisions" };
+  }
   const adapter = raw ? (ADAPTER_BY_QUERY[raw] ?? null) : null;
   if (!adapter) return { adapter: null, tab: null };
   const tab = search.get(DRAWER_TAB_QUERY_KEY);
@@ -114,7 +122,9 @@ export function drawerUrl(
   const params = new URLSearchParams(existing ? existing.toString() : "");
   params.delete(DRAWER_QUERY_KEY);
   params.delete(DRAWER_TAB_QUERY_KEY);
-  if (state.adapter) {
+  if (state.sheet === "decisions") {
+    params.set(DRAWER_QUERY_KEY, DECISIONS_QUERY_VALUE);
+  } else if (state.adapter) {
     params.set(DRAWER_QUERY_KEY, DRAWER_QUERY_VALUE[state.adapter]);
     if (state.tab) params.set(DRAWER_TAB_QUERY_KEY, state.tab);
   }

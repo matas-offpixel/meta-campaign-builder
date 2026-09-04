@@ -108,6 +108,7 @@ export const VIZ_ACTIONS = [
   "pause",
   "skip_dormant",
   "skip_recent_touch",
+  "insufficient_conversions",
   "metric_unavailable",
 ] as const;
 
@@ -120,6 +121,7 @@ export const VIZ_ACTION_LABEL: Record<VizAction, string> = {
   pause: "Pause",
   skip_dormant: "Dormant",
   skip_recent_touch: "Recent touch",
+  insufficient_conversions: "Insufficient conversions",
   metric_unavailable: "Metric unavailable",
 };
 
@@ -130,6 +132,7 @@ export const VIZ_ACTION_TOKEN: Record<VizAction, string> = {
   pause: "text-destructive",
   skip_dormant: "text-muted-foreground",
   skip_recent_touch: "text-muted-foreground",
+  insufficient_conversions: "text-muted-foreground",
   metric_unavailable: "text-muted-foreground",
 };
 
@@ -140,6 +143,7 @@ export const VIZ_ACTION_GLYPH: Record<VizAction, string> = {
   pause: "⏸",
   skip_dormant: "·",
   skip_recent_touch: "·",
+  insufficient_conversions: "·",
   metric_unavailable: "◌",
 };
 
