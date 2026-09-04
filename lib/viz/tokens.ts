@@ -2,7 +2,52 @@
  * Shared visual language — colour tokens and aria copy for every
  * StatusDot / ActionGlyph / PlatformGlyph. One map so surfaces cannot
  * invent a second palette.
+ *
+ * Dates: `lib/viz/format-moment.ts` (not this file).
  */
+
+/**
+ * Four sizes, and only four. `display` is reserved for the one big
+ * number a zone exists to answer — budget, target, and a LIVE
+ * cost-per-stage. Anything else at display size destroys the hierarchy
+ * it is there to create.
+ */
+export const VIZ_TYPE = {
+  display: "text-[32px] font-semibold leading-none tracking-[-0.02em] tabular-nums",
+  body: "text-[14px] font-normal leading-[1.35]",
+  label: "text-[12px] font-medium leading-[1.25] tracking-[0.01em]",
+  micro: "text-[10px] font-medium uppercase leading-none tracking-[0.08em]",
+} as const;
+
+/** Same sizes with tabular figures — every numeric read. */
+export const VIZ_TYPE_NUM = {
+  body: `${VIZ_TYPE.body} tabular-nums`,
+  label: `${VIZ_TYPE.label} tabular-nums`,
+  micro: `${VIZ_TYPE.micro} tabular-nums`,
+} as const;
+
+/** Per-zone gutters — consumed by the canvas in PR 8b. */
+export const VIZ_ZONE_GUTTER = {
+  tight: "mt-4",
+  normal: "mt-5",
+  loose: "mt-6",
+} as const;
+
+/** Sand / ink hex — contrast tests measure against these, not Tailwind. */
+export const VIZ_SAND_HEX = "#F0C9A8";
+export const VIZ_INK_HEX = "#1e1810";
+
+export const VIZ_PLATFORM_FILL: Record<"meta" | "tiktok" | "google", string> = {
+  meta: "#759FBD",
+  tiktok: "#BE7E9E",
+  google: "#9E7AB8",
+};
+
+export const VIZ_PLATFORM_INK_HEX: Record<"meta" | "tiktok" | "google", string> = {
+  meta: "#3F6783",
+  tiktok: "#884466",
+  google: "#66447E",
+};
 
 export const VIZ_STATUSES = [
   "idle",
@@ -49,12 +94,32 @@ export const VIZ_PLATFORM_LABEL: Record<VizPlatform, string> = {
   google: "Google",
 };
 
-/** Fill tokens for stacked bars — distinct from status / action colours. */
+/**
+ * Platform identity — the ONE decorative use of colour left on the
+ * canvas, and only on PlatformGlyph, SplitBar segments and the
+ * ChannelRow glyph. 30–35% saturation so three tints sit in the sand
+ * palette without shouting; L 60–62 so an ink label on a fill clears
+ * 4.5:1. Google's brand quadcolour is unusable here — each of its four
+ * collides with sand, --warning, --success or --destructive — so its
+ * identity is the glyph plus a hue nobody else holds.
+ *
+ * Literals must stay complete (`bg-[#759FBD]`) so Tailwind sees them.
+ */
 export const VIZ_PLATFORM_BAR: Record<VizPlatform, string> = {
-  meta: "bg-sky-500",
-  tiktok: "bg-fuchsia-500",
-  google: "bg-amber-500",
+  meta: "bg-[#759FBD]",
+  tiktok: "bg-[#BE7E9E]",
+  google: "bg-[#9E7AB8]",
 };
+
+/** Darker same-hue for a 1.6px glyph stroke on sand (≥ 3:1 as a graphic). */
+export const VIZ_PLATFORM_INK: Record<VizPlatform, string> = {
+  meta: "text-[#3F6783]",
+  tiktok: "text-[#884466]",
+  google: "text-[#66447E]",
+};
+
+/** In-segment labels sit on the fill, so they are ink — never sand. */
+export const VIZ_ON_PLATFORM_INK = "text-[#1e1810]";
 
 export const VIZ_PROVENANCES = [
   "platform-reported",
@@ -80,13 +145,14 @@ export const VIZ_PROVENANCE_MARK: Record<VizProvenance, string> = {
   "not instrumented": "—",
 };
 
+/** Monochrome — the mark carries the distinction, not a hue. */
 export const VIZ_PROVENANCE_TOKEN: Record<VizProvenance, string> = {
-  "platform-reported": "bg-sky-500/15 text-sky-800 dark:text-sky-200",
-  "first-party": "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
-  "manual entry": "bg-amber-500/15 text-amber-900 dark:text-amber-200",
-  modelled: "bg-violet-500/15 text-violet-800 dark:text-violet-200",
-  derived: "bg-violet-400/15 text-violet-700 dark:text-violet-300",
-  "industry seed": "bg-slate-500/15 text-slate-700 dark:text-slate-300",
+  "platform-reported": "bg-foreground/10 text-foreground/70",
+  "first-party": "bg-foreground/10 text-foreground/70",
+  "manual entry": "bg-foreground/[0.06] text-foreground/60",
+  modelled: "bg-foreground/[0.06] text-foreground/60",
+  derived: "bg-foreground/[0.06] text-foreground/60",
+  "industry seed": "bg-transparent text-foreground/50 border border-border",
   "not instrumented":
     "border border-dashed border-border bg-transparent text-muted-foreground",
 };

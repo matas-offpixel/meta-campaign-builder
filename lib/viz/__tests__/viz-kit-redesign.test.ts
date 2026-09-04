@@ -4,7 +4,8 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { TIKTOK_IMAGE_UNSUPPORTED_REASON } from "../../plan/asset-routing.ts";
@@ -26,13 +27,23 @@ import {
 import {
   applySplitPreset,
   moveSplitBoundary,
+  splitBarLegendPlacement,
   splitProvenance,
 } from "../split-bar.ts";
 import {
+  VIZ_INK_HEX,
+  VIZ_PLATFORMS,
+  VIZ_PLATFORM_BAR,
+  VIZ_PLATFORM_FILL,
+  VIZ_PLATFORM_INK,
+  VIZ_PLATFORM_INK_HEX,
   VIZ_PROVENANCE_MARK,
   VIZ_PROVENANCE_TOKEN,
+  VIZ_SAND_HEX,
   VIZ_STATUSES,
   VIZ_STATUS_TOKEN,
+  VIZ_TYPE,
+  VIZ_TYPE_NUM,
 } from "../tokens.ts";
 import {
   applyWindowHandle,
@@ -40,8 +51,37 @@ import {
   nudgeWindowHandle,
   relativeMomentLabel,
   snapToMoments,
+  windowPlaceholders,
   WINDOW_SNAP_PX,
 } from "../window-bar.ts";
+
+function walkVizTsx(dir = "components/viz"): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkVizTsx(path));
+    else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) out.push(path);
+  }
+  return out;
+}
+
+function lin(channel: number): number {
+  const s = channel / 255;
+  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+}
+
+function luminance(hex: string): number {
+  const r = Number.parseInt(hex.slice(1, 3), 16);
+  const g = Number.parseInt(hex.slice(3, 5), 16);
+  const b = Number.parseInt(hex.slice(5, 7), 16);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function wcagContrast(a: string, b: string): number {
+  const light = Math.max(luminance(a), luminance(b));
+  const dark = Math.min(luminance(a), luminance(b));
+  return (light + 0.05) / (dark + 0.05);
+}
 
 describe("StatusDot / VIZ_STATUSES — blocked", () => {
   it("blocked is a status token and is not idle", () => {
@@ -58,25 +98,77 @@ describe("StatusDot / VIZ_STATUSES — blocked", () => {
 });
 
 describe("ProvenanceBadge / derived", () => {
-  it("derived mark is ⌁ and never reuses modelled", () => {
+  it("derived mark is ⌁ and never reuses modelled; tokens stay monochrome", () => {
     assert.equal(VIZ_PROVENANCE_MARK.derived, "⌁");
     assert.equal(VIZ_PROVENANCE_MARK.modelled, "mod");
     assert.notEqual(VIZ_PROVENANCE_MARK.derived, VIZ_PROVENANCE_MARK.modelled);
-    assert.match(VIZ_PROVENANCE_TOKEN.derived, /violet/);
-    assert.match(VIZ_PROVENANCE_TOKEN.modelled, /violet/);
-    assert.notEqual(VIZ_PROVENANCE_TOKEN.derived, VIZ_PROVENANCE_TOKEN.modelled);
+    for (const token of Object.values(VIZ_PROVENANCE_TOKEN)) {
+      assert.doesNotMatch(token, /sky-|emerald-|amber-|violet-|slate-/);
+    }
   });
 });
 
 describe("MetricChip sizes", () => {
-  it("exposes sm md lg and lg is tabular-nums + big", () => {
+  it("exposes sm md lg and lg is the display token", () => {
     const source = readFileSync("components/viz/metric-chip.tsx", "utf8");
     assert.match(source, /size\?: /);
     assert.match(source, /sm:/);
     assert.match(source, /md:/);
     assert.match(source, /lg:/);
-    assert.match(source, /text-2xl/);
+    assert.match(source, /VIZ_TYPE\.display/);
     assert.match(source, /tabular-nums/);
+  });
+});
+
+describe("type scale — components/viz uses only named tokens", () => {
+  it("forbids raw text-[Npx] / text-sm / text-xs / text-2xl", () => {
+    const banned = /text-\[\d+px\]|\btext-(?:xs|sm|2xl)\b/;
+    const hits: string[] = [];
+    for (const file of walkVizTsx()) {
+      if (banned.test(readFileSync(file, "utf8"))) hits.push(file);
+    }
+    assert.deepEqual(hits, [], hits.join("\n"));
+  });
+
+  it("names the four sizes", () => {
+    assert.match(VIZ_TYPE.display, /text-\[32px\]/);
+    assert.match(VIZ_TYPE.body, /text-\[14px\]/);
+    assert.match(VIZ_TYPE.label, /text-\[12px\]/);
+    assert.match(VIZ_TYPE.micro, /text-\[10px\]/);
+    assert.match(VIZ_TYPE_NUM.body, /tabular-nums/);
+  });
+});
+
+describe("platform tint contrast", () => {
+  it("ink-on-fill ≥ 4.5 and glyph-on-sand ≥ 3.0; fill-vs-sand is recorded", () => {
+    const fillVsSand: Record<string, number> = {};
+    for (const platform of VIZ_PLATFORMS) {
+      const fill = VIZ_PLATFORM_FILL[platform];
+      const ink = VIZ_PLATFORM_INK_HEX[platform];
+      assert.ok(wcagContrast(VIZ_INK_HEX, fill) >= 4.5, `${platform} ink-on-fill`);
+      assert.ok(wcagContrast(ink, VIZ_SAND_HEX) >= 3, `${platform} glyph-on-sand`);
+      fillVsSand[platform] = wcagContrast(fill, VIZ_SAND_HEX);
+      assert.ok(fillVsSand[platform] > 1, `${platform} fill-vs-sand recorded`);
+      assert.match(VIZ_PLATFORM_BAR[platform], new RegExp(fill.replace("#", "\\#")));
+      assert.match(VIZ_PLATFORM_INK[platform], new RegExp(ink.replace("#", "\\#")));
+    }
+    assert.equal(Object.keys(fillVsSand).length, 3);
+  });
+
+  it("hex lives in tokens — not in components/viz", () => {
+    const hex = /#[0-9a-fA-F]{6}\b/;
+    const tokenSource = readFileSync("lib/viz/tokens.ts", "utf8");
+    for (const value of [...Object.values(VIZ_PLATFORM_FILL), ...Object.values(VIZ_PLATFORM_INK_HEX)]) {
+      assert.match(tokenSource, new RegExp(value.replace("#", "\\#")));
+    }
+    const hits: string[] = [];
+    for (const file of walkVizTsx()) {
+      const body = readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      if (hex.test(body)) hits.push(file);
+    }
+    assert.deepEqual(hits, [], hits.join("\n"));
   });
 });
 
@@ -126,7 +218,13 @@ describe("SplitBar — preset / manual + linked adjustment", () => {
   it("composes FunnelBarSegments — does not copy the track", () => {
     const source = readFileSync("components/viz/split-bar.tsx", "utf8");
     assert.match(source, /FunnelBarSegments/);
-    assert.doesNotMatch(source, /VIZ_PLATFORM_BAR/);
+    assert.match(source, /splitBarLegendPlacement/);
+    assert.match(source, /PresetChip/);
+  });
+
+  it("places the legend inside at 12% and outside below", () => {
+    assert.equal(splitBarLegendPlacement(12), "inside");
+    assert.equal(splitBarLegendPlacement(11.9), "outside");
   });
 });
 
@@ -182,10 +280,31 @@ describe("WindowBar named states + snap / keyboard", () => {
   ];
 
   it("moment glyphs", () => {
-    assert.equal(momentGlyph("now"), "●");
-    assert.equal(momentGlyph("presale"), "○");
-    assert.equal(momentGlyph("gen sale"), "○");
-    assert.equal(momentGlyph("show"), "◆");
+    assert.equal(momentGlyph("now"), "◐");
+    assert.equal(momentGlyph("presale"), "⊙");
+    assert.equal(momentGlyph("gen sale"), "★");
+    assert.equal(momentGlyph("show"), "▲");
+  });
+
+  it("missing presale / gen-sale become dashed placeholders, never absent", () => {
+    const from = now.getTime();
+    const to = show.getTime();
+    const onlyNowShow = [
+      { id: "now", label: "now", at: now },
+      { id: "show", label: "show", at: show },
+    ];
+    const placeholders = windowPlaceholders(onlyNowShow, from, to);
+    assert.deepEqual(
+      placeholders.map((row) => row.label),
+      ["presale", "gen sale"],
+    );
+    assert.ok(placeholders.every((row) => row.tip.length > 0));
+    assert.ok(placeholders[0]!.ratio > 0 && placeholders[0]!.ratio < 1);
+    const source = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.match(source, /formatVizMoment/);
+    assert.match(source, /formatVizRelative/);
+    assert.match(source, /placeholder/);
+    assert.doesNotMatch(source, /\d{4}-\d{2}-\d{2}T/);
   });
 
   it("relative time is tabular-ready (in 2d)", () => {

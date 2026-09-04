@@ -4,6 +4,8 @@
  * on one. Keyboard: 1h, shift = 1d.
  */
 
+import { formatVizRelative } from "./format-moment.ts";
+
 export const WINDOW_SNAP_PX = 8;
 export const WINDOW_ARROW_MS = 60 * 60 * 1000;
 export const WINDOW_SHIFT_ARROW_MS = 24 * 60 * 60 * 1000;
@@ -19,11 +21,71 @@ export type WindowMoment = {
 export type WindowHandle = "start" | "end";
 
 export const WINDOW_MOMENT_GLYPH: Record<string, string> = {
-  now: "●",
-  presale: "○",
-  "gen sale": "○",
-  show: "◆",
+  now: "◐",
+  presale: "⊙",
+  "gen sale": "★",
+  show: "▲",
 };
+
+export const WINDOW_PLACEHOLDER_KINDS = ["presale", "gen sale"] as const;
+export type WindowPlaceholderKind = (typeof WINDOW_PLACEHOLDER_KINDS)[number];
+
+export type WindowPlaceholder = {
+  id: string;
+  label: WindowPlaceholderKind;
+  ratio: number;
+  tip: string;
+};
+
+function momentMatches(moment: WindowMoment, kind: string): boolean {
+  return moment.label === kind || moment.id === kind || moment.id === kind.replace(" ", "-");
+}
+
+function existingRatio(
+  moments: WindowMoment[],
+  kind: string,
+  from: number,
+  to: number,
+): number | null {
+  const found = moments.find((moment) => momentMatches(moment, kind));
+  return found ? dateToRatio(found.at, from, to) : null;
+}
+
+export function placeholderRatio(
+  kind: WindowPlaceholderKind,
+  moments: WindowMoment[],
+  from: number,
+  to: number,
+): number {
+  const now = existingRatio(moments, "now", from, to);
+  const show = existingRatio(moments, "show", from, to);
+  const presale = existingRatio(moments, "presale", from, to);
+  const genSale = existingRatio(moments, "gen sale", from, to);
+  if (kind === "presale") {
+    if (now == null && genSale == null && show == null) return 1 / 3;
+    return ((now ?? 0) + (genSale ?? show ?? 1)) / 2;
+  }
+  if (presale == null && now == null && show == null) return 2 / 3;
+  return ((presale ?? now ?? 0) + (show ?? 1)) / 2;
+}
+
+export function windowPlaceholders(
+  moments: WindowMoment[],
+  from: number,
+  to: number,
+): WindowPlaceholder[] {
+  return WINDOW_PLACEHOLDER_KINDS.filter(
+    (kind) => !moments.some((moment) => momentMatches(moment, kind)),
+  ).map((kind) => ({
+    id: `placeholder-${kind.replace(" ", "-")}`,
+    label: kind,
+    ratio: placeholderRatio(kind, moments, from, to),
+    tip:
+      kind === "presale"
+        ? "this event has no presale time set — add it on the event to snap the window to it"
+        : "this event has no gen-sale time set — add it on the event to snap the window to it",
+  }));
+}
 
 export function momentGlyph(label: string): string {
   return WINDOW_MOMENT_GLYPH[label] ?? "○";
@@ -100,19 +162,9 @@ export function nudgeWindowHandle(
   return applyWindowHandle(handle, new Date(base.getTime() + delta), current, min);
 }
 
-/** Relative time under a moment — "in 2d" / "2d ago", tabular-nums ready. */
+/** Relative time under a moment — delegates to formatVizRelative. */
 export function relativeMomentLabel(at: Date, now: Date): string {
-  const ms = at.getTime() - now.getTime();
-  const abs = Math.abs(ms);
-  const day = 86_400_000;
-  const hour = 3_600_000;
-  if (abs < hour) return ms >= 0 ? "now" : "now";
-  if (abs < day) {
-    const hours = Math.round(abs / hour);
-    return ms >= 0 ? `in ${hours}h` : `${hours}h ago`;
-  }
-  const days = Math.round(abs / day);
-  return ms >= 0 ? `in ${days}d` : `${days}d ago`;
+  return formatVizRelative(at, now);
 }
 
 export type WindowBarState = "default" | "dragging" | "clamped";

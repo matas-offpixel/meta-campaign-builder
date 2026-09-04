@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { MoreHorizontal } from "lucide-react";
 
 import { visibleOverflowMenuItems } from "@/lib/viz/overflow-menu";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 export interface OverflowMenuItem {
   id: string;
@@ -105,7 +106,7 @@ export function OverflowMenu({
             <button
               type="button"
               role="menuitem"
-              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
+              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left ${VIZ_TYPE.body} ${
                 item.destructive
                   ? "text-destructive hover:bg-destructive/10"
                   : "text-foreground hover:bg-muted"

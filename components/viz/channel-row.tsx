@@ -4,7 +4,7 @@ import type { ReactNode, RefObject } from "react";
 
 import { channelRowView, type ChannelFact } from "@/lib/viz/channel-row";
 import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
-import type { VizPlatform, VizStatus } from "@/lib/viz/tokens";
+import { VIZ_TYPE, VIZ_TYPE_NUM, type VizPlatform, type VizStatus } from "@/lib/viz/tokens";
 
 import { BlockerBadge } from "./blocker-badge";
 import { PlatformGlyph } from "./platform-glyph";
@@ -59,15 +59,15 @@ export function ChannelRow({
         : status;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex h-10 flex-wrap items-center gap-2">
       <PlatformGlyph platform={platform} size="sm" />
       <StatusDot status={dotStatus} />
       {view.state === "waiting" ? (
-        <span className="text-[11px] text-muted-foreground">{view.waitingText}</span>
+        <span className={`${VIZ_TYPE.body} text-muted-foreground`}>{view.waitingText}</span>
       ) : null}
       {view.showDerived ? <ProvenanceBadge provenance="derived" /> : null}
       {view.showFactsText ? (
-        <span className="text-[11px] tabular-nums text-foreground">{view.factsText}</span>
+        <span className={`${VIZ_TYPE_NUM.body} text-foreground`}>{view.factsText}</span>
       ) : null}
       {view.showLiveFacts ? <span className="inline-flex items-center gap-1">{liveFacts}</span> : null}
       {blockers && blockers.length > 0 ? (
@@ -76,7 +76,7 @@ export function ChannelRow({
       {view.showResume && onResume ? (
         <button
           type="button"
-          className="text-[11px] text-muted-foreground hover:text-foreground"
+          className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
           onClick={onResume}
         >
           ▷ resume
@@ -84,7 +84,7 @@ export function ChannelRow({
       ) : null}
       <button
         type="button"
-        className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
+        className={`ml-auto ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
         ref={openRef}
         onClick={onOpen}
       >

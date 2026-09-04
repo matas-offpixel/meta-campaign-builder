@@ -3,6 +3,7 @@ import {
   VIZ_ACTION_GLYPH,
   VIZ_ACTION_LABEL,
   VIZ_ACTION_TOKEN,
+  VIZ_TYPE,
   type VizAction,
 } from "@/lib/viz/tokens";
 
@@ -19,7 +20,7 @@ export function ActionGlyph({
   const dashed = key === "metric_unavailable";
   return (
     <span
-      className={`inline-flex h-6 w-6 items-center justify-center rounded text-[11px] leading-none ${VIZ_ACTION_TOKEN[key]} ${
+      className={`inline-flex h-6 w-6 items-center justify-center rounded ${VIZ_TYPE.label} leading-none ${VIZ_ACTION_TOKEN[key]} ${
         filled ? "bg-current/10" : "border border-current/40 bg-transparent"
       } ${dashed ? "border-dashed" : ""} ${className}`}
       aria-label={VIZ_ACTION_LABEL[key]}

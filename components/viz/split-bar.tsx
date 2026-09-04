@@ -6,11 +6,20 @@ import {
   applySplitPreset,
   boundaryCount,
   moveSplitBoundary,
+  splitBarLegendPlacement,
   splitProvenance,
   type SplitBarPreset,
   type SplitBarSegment,
 } from "@/lib/viz/split-bar";
-import { VIZ_PLATFORMS, type VizPlatform } from "@/lib/viz/tokens";
+import {
+  VIZ_ON_PLATFORM_INK,
+  VIZ_PLATFORMS,
+  VIZ_PLATFORM_BAR,
+  VIZ_PLATFORM_INK,
+  VIZ_TYPE,
+  VIZ_TYPE_NUM,
+  type VizPlatform,
+} from "@/lib/viz/tokens";
 
 import { FunnelBarSegments } from "./funnel-stage-bar";
 import { InfoTip } from "./info-tip";
@@ -47,6 +56,7 @@ export function SplitBar({
   );
 
   const boundaries = boundaryCount(segments);
+  const outside = segments.filter((segment) => splitBarLegendPlacement(segment.pct) === "outside");
 
   function emit(next: SplitBarSegment[]) {
     onChange?.(next);
@@ -85,60 +95,124 @@ export function SplitBar({
     setDragging(null);
   }
 
+  let leftAcc = 0;
+  const legendSlots = segments.map((segment) => {
+    const left = leftAcc;
+    leftAcc += segment.pct;
+    return { segment, left };
+  });
+
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-end gap-1.5">
+      <div className="flex items-center gap-2">
         <ProvenanceBadge provenance={provenance} />
         {tip ? <InfoTip label={tip} /> : null}
-      </div>
-      <div
-        className="relative h-6 overflow-hidden rounded-sm bg-muted/50"
-        role="img"
-        aria-label={segments.map((s) => `${s.platform} ${Math.round(s.pct)}`).join(" · ")}
-      >
-        <FunnelBarSegments segments={trackSegments} />
-        {editable
-          ? Array.from({ length: boundaries }, (_, index) => {
-              const left = segments.slice(0, index + 1).reduce((sum, segment) => sum + segment.pct, 0);
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  className="absolute top-0 z-10 h-full w-2 -translate-x-1 cursor-ew-resize bg-transparent"
-                  style={{ left: `${left}%` }}
-                  aria-label={`split boundary ${index + 1}`}
-                  aria-valuenow={Math.round(segments[index]!.pct)}
-                  tabIndex={focusBoundary === index ? 0 : -1}
-                  onFocus={() => setFocusBoundary(index)}
-                  onKeyDown={(event) => onBoundaryKey(event, index)}
-                  onPointerDown={(event) => onBoundaryPointerDown(event, index)}
-                  onPointerMove={(event) => onBoundaryPointerMove(event, index)}
-                  onPointerUp={onBoundaryPointerUp}
-                />
-              );
-            })
-          : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {segments.map((segment) => (
-          <span key={segment.platform} className="inline-flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
-            <PlatformGlyph platform={segment.platform} size="sm" />
-            {Math.round(segment.pct)}
-          </span>
-        ))}
-        {editable && presets
-          ? presets.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground hover:bg-muted"
-                onClick={() => emit(applySplitPreset(platforms, preset.pct))}
+        <div
+          className="relative h-7 min-w-0 flex-1"
+          role="img"
+          aria-label={segments.map((s) => `${s.platform} ${Math.round(s.pct)}`).join(" · ")}
+        >
+          <div className="absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 overflow-hidden rounded-sm border border-border bg-foreground/[0.06]">
+            <FunnelBarSegments segments={trackSegments} />
+          </div>
+          {legendSlots
+            .filter(({ segment }) => splitBarLegendPlacement(segment.pct) === "inside")
+            .map(({ segment, left }) => (
+              <span
+                key={segment.platform}
+                className={`pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1 px-1.5 ${VIZ_TYPE_NUM.body} ${VIZ_ON_PLATFORM_INK}`}
+                style={{ left: `${left}%`, width: `${segment.pct}%` }}
               >
-                {preset.label}
-              </button>
-            ))
-          : null}
+                <PlatformGlyph platform={segment.platform} size="sm" className={VIZ_ON_PLATFORM_INK} />
+                {Math.round(segment.pct)}%
+              </span>
+            ))}
+          {editable
+            ? Array.from({ length: boundaries }, (_, index) => {
+                const left = segments.slice(0, index + 1).reduce((sum, segment) => sum + segment.pct, 0);
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    className="absolute top-1/2 z-10 h-2.5 w-3 -translate-x-1.5 -translate-y-1/2 cursor-ew-resize bg-transparent"
+                    style={{ left: `${left}%` }}
+                    aria-label={`split boundary ${index + 1}`}
+                    aria-valuenow={Math.round(segments[index]!.pct)}
+                    tabIndex={focusBoundary === index ? 0 : -1}
+                    onFocus={() => setFocusBoundary(index)}
+                    onKeyDown={(event) => onBoundaryKey(event, index)}
+                    onPointerDown={(event) => onBoundaryPointerDown(event, index)}
+                    onPointerMove={(event) => onBoundaryPointerMove(event, index)}
+                    onPointerUp={onBoundaryPointerUp}
+                  >
+                    <span className="absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 bg-foreground/60" />
+                  </button>
+                );
+              })
+            : null}
+        </div>
+        {outside.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {outside.map((segment) => (
+              <span
+                key={segment.platform}
+                className={`inline-flex items-center gap-1 ${VIZ_TYPE_NUM.body} ${VIZ_PLATFORM_INK[segment.platform]}`}
+              >
+                ◄
+                <PlatformGlyph platform={segment.platform} size="sm" />
+                {Math.round(segment.pct)}%
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
+      {editable && presets ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {presets.map((preset) => (
+            <PresetChip
+              key={preset.label}
+              preset={preset}
+              platforms={platforms}
+              onClick={() => emit(applySplitPreset(platforms, preset.pct))}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function PresetChip({
+  preset,
+  platforms,
+  onClick,
+}: {
+  preset: SplitBarPreset;
+  platforms: VizPlatform[];
+  onClick: () => void;
+}) {
+  const shaped = preset.pct.length > 0 && platforms.length > 0;
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center rounded-sm border border-border p-1 hover:bg-muted"
+      aria-label={preset.label}
+      title={preset.label}
+      onClick={onClick}
+    >
+      {shaped ? (
+        <span className="inline-flex h-2.5 w-4 overflow-hidden rounded-[1px]">
+          {platforms.map((platform, index) => (
+            <span
+              key={platform}
+              className={`h-full ${VIZ_PLATFORM_BAR[platform]}`}
+              style={{ width: `${preset.pct[index] ?? 0}%` }}
+            />
+          ))}
+        </span>
+      ) : (
+        <span className={VIZ_TYPE.label}>{preset.label}</span>
+      )}
+    </button>
   );
 }

@@ -1,18 +1,20 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
+import { formatVizMoment, formatVizRelative } from "@/lib/viz/format-moment";
 import {
   applyWindowHandle,
   dateToRatio,
   momentGlyph,
   nudgeWindowHandle,
-  relativeMomentLabel,
   snapToMoments,
+  windowPlaceholders,
   windowSpanMs,
   type WindowHandle,
   type WindowMoment,
 } from "@/lib/viz/window-bar";
+import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 import { InfoTip } from "./info-tip";
 
@@ -36,8 +38,17 @@ export function WindowBar({
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<WindowHandle | null>(null);
   const [clamped, setClamped] = useState(false);
+  const [flash, setFlash] = useState(false);
   const clock = now ?? new Date();
   const { from, to } = windowSpanMs(start, end, min);
+  const placeholders = windowPlaceholders(moments, from, to);
+
+  useEffect(() => {
+    if (!clamped) return;
+    setFlash(true);
+    const timer = window.setTimeout(() => setFlash(false), 400);
+    return () => window.clearTimeout(timer);
+  }, [clamped]);
 
   function commit(handle: WindowHandle, raw: Date) {
     const trackPx = trackRef.current?.getBoundingClientRect().width ?? 0;
@@ -88,35 +99,43 @@ export function WindowBar({
   const endPct = dateToRatio(end, from, to) * 100;
 
   return (
-    <div className="space-y-2" data-state={clamped ? "clamped" : dragging ? "dragging" : "default"}>
+    <div className="space-y-1" data-state={clamped ? "clamped" : dragging ? "dragging" : "default"}>
       <div className="flex justify-end">{tip ? <InfoTip label={tip} /> : null}</div>
-      <div ref={trackRef} className="relative h-8">
-        <div className="absolute inset-x-0 top-3.5 h-px bg-border" />
+      <div ref={trackRef} className="relative h-16">
         <div
-          className="absolute top-3.5 h-px bg-foreground/40"
+          className={`absolute inset-x-0 top-[26px] h-1 rounded-full bg-foreground/10 ${
+            flash ? "shadow-[inset_0_0_0_2px_var(--warning)]" : ""
+          }`}
+        />
+        <div
+          className="absolute top-[26px] h-1 rounded-full bg-foreground/45"
           style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
         />
         {moments.map((moment) => {
           const pct = dateToRatio(moment.at, from, to) * 100;
           return (
-            <div
+            <MomentMark
               key={moment.id}
-              className="absolute top-0 -translate-x-1/2 text-center"
-              style={{ left: `${pct}%` }}
-            >
-              <span className="block text-[11px] leading-none" aria-hidden="true">
-                {momentGlyph(moment.label)}
-              </span>
-              <span className="mt-3 block text-[10px] text-muted-foreground">{moment.label}</span>
-              <span className="block text-[10px] tabular-nums text-muted-foreground">
-                {relativeMomentLabel(moment.at, clock)}
-              </span>
-            </div>
+              pct={pct}
+              glyph={momentGlyph(moment.label)}
+              noun={moment.label}
+            />
           );
         })}
+        {placeholders.map((placeholder) => (
+          <MomentMark
+            key={placeholder.id}
+            pct={placeholder.ratio * 100}
+            glyph={momentGlyph(placeholder.label)}
+            noun={placeholder.label}
+            missing
+            tip={placeholder.tip}
+          />
+        ))}
         <Handle
           name="start"
           pct={startPct}
+          at={start}
           dragging={dragging === "start"}
           onPointerDown={(event) => onHandlePointerDown(event, "start")}
           onPointerMove={(event) => onHandlePointerMove(event, "start")}
@@ -126,6 +145,8 @@ export function WindowBar({
         <Handle
           name="end"
           pct={endPct}
+          at={end}
+          relative={formatVizRelative(end, clock)}
           dragging={dragging === "end"}
           onPointerDown={(event) => onHandlePointerDown(event, "end")}
           onPointerMove={(event) => onHandlePointerMove(event, "end")}
@@ -137,9 +158,45 @@ export function WindowBar({
   );
 }
 
+function MomentMark({
+  pct,
+  glyph,
+  noun,
+  missing = false,
+  tip,
+}: {
+  pct: number;
+  glyph: string;
+  noun: string;
+  missing?: boolean;
+  tip?: string;
+}) {
+  return (
+    <div
+      className={`absolute top-0 -translate-x-1/2 text-center ${missing ? "opacity-35" : "text-foreground/70"}`}
+      style={{ left: `${pct}%` }}
+    >
+      <span className={`block ${VIZ_TYPE.body} leading-none`} aria-hidden="true">
+        {glyph}
+      </span>
+      {missing ? (
+        <span className="mx-auto mt-0.5 block h-3 border-l border-dashed border-border" />
+      ) : (
+        <span className="mx-auto mt-0.5 block h-3 border-l border-border" />
+      )}
+      <span className={`mt-0.5 flex items-center justify-center gap-0.5 ${VIZ_TYPE.label}`}>
+        {noun}
+        {missing && tip ? <InfoTip label={tip} /> : null}
+      </span>
+    </div>
+  );
+}
+
 function Handle({
   name,
   pct,
+  at,
+  relative,
   dragging,
   onPointerDown,
   onPointerMove,
@@ -148,23 +205,42 @@ function Handle({
 }: {
   name: WindowHandle;
   pct: number;
+  at: Date;
+  relative?: string;
   dragging: boolean;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
 }) {
+  const end = name === "end";
   return (
-    <button
-      type="button"
-      aria-label={name}
-      aria-pressed={dragging}
-      className="absolute top-2 h-3 w-3 -translate-x-1/2 rounded-full border border-foreground bg-background"
-      style={{ left: `${pct}%` }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onKeyDown={onKeyDown}
-    />
+    <>
+      <button
+        type="button"
+        aria-label={name}
+        aria-pressed={dragging}
+        className="absolute top-5 flex h-6 w-[27px] -translate-x-1/2 items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground"
+        style={{ left: `${pct}%` }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onKeyDown={onKeyDown}
+      >
+        <span className="h-4 w-[3px] bg-foreground" aria-hidden="true" />
+      </button>
+      <div
+        className={`absolute top-11 ${end ? "-translate-x-full text-right" : "text-left"}`}
+        style={{ left: `${pct}%` }}
+      >
+        <span className={`block ${VIZ_TYPE.label}`}>{name}</span>
+        <span className={`block ${VIZ_TYPE_NUM.body}`}>
+          {formatVizMoment(at)}
+          {end && relative ? (
+            <span className={`ml-1 ${VIZ_TYPE_NUM.micro} text-muted-foreground`}>· {relative}</span>
+          ) : null}
+        </span>
+      </div>
+    </>
   );
 }

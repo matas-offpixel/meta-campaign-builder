@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 
+import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
+
 const SIZE_CLASS = {
-  sm: "rounded-full border border-border bg-muted/40 px-1.5 py-0 text-[10px]",
-  md: "rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px]",
-  lg: "rounded-md px-0 py-0 text-2xl font-semibold",
+  sm: `rounded-full border border-border bg-muted/40 px-1.5 py-0 ${VIZ_TYPE.micro}`,
+  md: `rounded-full border border-border bg-muted/40 px-2 py-0.5 ${VIZ_TYPE_NUM.body}`,
+  lg: `rounded-md px-0 py-0 ${VIZ_TYPE.display}`,
 } as const;
 
 export function MetricChip({
@@ -42,7 +44,7 @@ export function AspectChip({
           ? "h-3.5 w-2.5"
           : "h-2.5 w-3.5";
   return (
-    <MetricChip label={ratio}>
+    <MetricChip label={ratio} size="sm">
       <span className={`rounded-[1px] border border-current ${shape}`} aria-hidden="true" />
       <span className="sr-only">{ratio}</span>
     </MetricChip>

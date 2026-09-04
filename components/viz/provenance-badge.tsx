@@ -1,6 +1,7 @@
 import {
   VIZ_PROVENANCE_MARK,
   VIZ_PROVENANCE_TOKEN,
+  VIZ_TYPE,
   type VizProvenance,
 } from "@/lib/viz/tokens";
 
@@ -15,8 +16,8 @@ export function ProvenanceBadge({
   const mark = label ?? VIZ_PROVENANCE_MARK[provenance];
   return (
     <span
-      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium ${
-        label ? "normal-case tracking-normal" : "uppercase tracking-[0.14em]"
+      className={`inline-flex items-center rounded-full px-1.5 py-0.5 ${
+        label ? `${VIZ_TYPE.label} normal-case tracking-normal` : VIZ_TYPE.micro
       } ${VIZ_PROVENANCE_TOKEN[provenance]}`}
       title={provenance}
       aria-label={label ?? provenance}

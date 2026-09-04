@@ -30,6 +30,7 @@ const HEX = /#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/;
 const RGB = /\brgba?\(/;
 const HSL = /\bhsla?\(/;
 const BG_ARBITRARY = /\bbg-\[/;
+const BANNED_HUE = /\b(?:sky|fuchsia|amber|emerald|violet|slate)-\d/;
 
 describe("no inline colour in components/viz", () => {
   const files = walkTsx("components/viz");
@@ -46,6 +47,15 @@ describe("no inline colour in components/viz", () => {
       if (RGB.test(body)) hits.push(`${file}: rgb`);
       if (HSL.test(body)) hits.push(`${file}: hsl`);
       if (BG_ARBITRARY.test(body)) hits.push(`${file}: bg-[`);
+    }
+    assert.deepEqual(hits, [], hits.join("\n"));
+  });
+
+  it("forbids the removed Tailwind hue classes (sky / fuchsia / amber / …)", () => {
+    const hits: string[] = [];
+    for (const file of files) {
+      const body = stripComments(readFileSync(file, "utf8"));
+      if (BANNED_HUE.test(body)) hits.push(file);
     }
     assert.deepEqual(hits, [], hits.join("\n"));
   });

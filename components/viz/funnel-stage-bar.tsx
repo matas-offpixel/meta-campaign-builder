@@ -1,5 +1,7 @@
 import {
   VIZ_PLATFORM_BAR,
+  VIZ_TYPE,
+  VIZ_TYPE_NUM,
   isVizPlatform,
   type VizPlatform,
   type VizProvenance,
@@ -17,7 +19,7 @@ export function FunnelBarSegments({
 }) {
   if (segments.length === 0) return null;
   return (
-    <div className="flex h-full w-full">
+    <div className="flex h-full w-full gap-[2px]">
       {segments.map((segment) => {
         const platform = isVizPlatform(segment.platform)
           ? (segment.platform as VizPlatform)
@@ -25,7 +27,7 @@ export function FunnelBarSegments({
         return (
           <span
             key={segment.platform}
-            className={`h-full ${platform ? VIZ_PLATFORM_BAR[platform] : "bg-muted-foreground/40"}`}
+            className={`h-full overflow-hidden rounded-sm ${platform ? VIZ_PLATFORM_BAR[platform] : "bg-muted-foreground/40"}`}
             style={{ width: `${segment.pct}%` }}
             title={`${segment.label} ${segment.pct.toFixed(0)}%`}
           />
@@ -56,19 +58,17 @@ export function FunnelStageBar({
   return (
     <div className="space-y-1" title={title}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-          {label}
-        </span>
+        <span className={`${VIZ_TYPE.micro} text-muted-foreground`}>{label}</span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="text-sm tabular-nums">{valueLabel}</span>
+          <span className={VIZ_TYPE_NUM.body}>{valueLabel}</span>
           <ProvenanceBadge provenance={provenance} />
         </span>
       </div>
       <div
-        className={`h-6 overflow-hidden rounded-sm ${
+        className={`h-2.5 overflow-hidden rounded-sm ${
           dashed
             ? "border border-dashed border-border bg-transparent"
-            : "bg-muted/50"
+            : "border border-border bg-foreground/[0.06]"
         }`}
         style={{ width: dashed ? `${Math.max(width, 16)}%` : `${Math.max(width, 2)}%` }}
         role="img"
