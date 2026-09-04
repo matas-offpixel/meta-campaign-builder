@@ -46,7 +46,7 @@ import {
 import { applyTemplate } from "@/lib/templates";
 import { validateStep } from "@/lib/validation";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
-import type { VizStatus } from "@/lib/viz/tokens";
+import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
 
 import { MetaDrawerDetails } from "./meta-drawer-details";
 
@@ -295,7 +295,7 @@ export function MetaDrawer({
         triggerRef={triggerRef}
         header={<ModeChip mode={mode} />}
         footer={
-          <span className="text-[11px] text-muted-foreground" role="status">
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`} role="status">
             {saveStatus === "saving" ? "◌" : saveStatus === "saved" ? "✓" : null}
           </span>
         }
@@ -417,7 +417,7 @@ function ModeChip({ mode }: { mode: string }) {
           : META_DRAWER_COPY.modeNew;
   return (
     <span className="inline-flex shrink-0 items-center gap-1">
-      <span className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+      <span className={`rounded-sm border border-border px-1.5 py-0.5 ${VIZ_TYPE.label} text-muted-foreground`}>
         {label}
       </span>
       {mode === "new" ? null : <InfoTip label={META_DRAWER_COPY.modeTip} />}
@@ -469,7 +469,7 @@ function AdSetsTab({
         <span aria-hidden="true" className="text-muted-foreground">
           ○
         </span>
-        <span className="text-[11px] text-muted-foreground">{waitingLabel}</span>
+        <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{waitingLabel}</span>
         <InfoTip label={META_DRAWER_COPY.adsetsWaitingTip} />
       </div>
     );
@@ -536,7 +536,7 @@ function LaunchIssues({
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>

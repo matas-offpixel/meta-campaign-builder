@@ -35,7 +35,7 @@ import {
 } from "@/lib/plan/drawer";
 import { applyTikTokTemplate, type TikTokCampaignTemplate } from "@/lib/tiktok-wizard/templates";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
-import type { VizStatus } from "@/lib/viz/tokens";
+import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
 import {
   useTikTokDraft,
   type TikTokDraftController,
@@ -225,7 +225,7 @@ export function TikTokDrawer({
         }}
         triggerRef={triggerRef}
         footer={
-          <span className="text-[11px] text-muted-foreground" role="status">
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`} role="status">
             {saveStatus === "saving" ? "◌" : saveStatus === "saved" ? "✓" : null}
           </span>
         }

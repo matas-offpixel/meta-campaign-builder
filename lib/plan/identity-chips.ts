@@ -11,8 +11,30 @@ export type PlanIdentityChip = {
   platform: VizPlatform;
   field: string;
   value: string | null;
+  /** Resolved display name from a stored cache. Null until known. */
+  name: string | null;
   provenance: ChannelDefaultProvenance;
   href: string | null;
+};
+
+export type IdentityNameMap = {
+  metaAdAccount: Record<string, string>;
+  metaPixel: Record<string, string>;
+  facebookPage: Record<string, string>;
+  instagramActor: Record<string, string>;
+  tiktokAdvertiser: Record<string, string>;
+  tiktokIdentity: Record<string, string>;
+  googleCustomer: Record<string, string>;
+};
+
+export const EMPTY_IDENTITY_NAMES: IdentityNameMap = {
+  metaAdAccount: {},
+  metaPixel: {},
+  facebookPage: {},
+  instagramActor: {},
+  tiktokAdvertiser: {},
+  tiktokIdentity: {},
+  googleCustomer: {},
 };
 
 function chip(
@@ -28,6 +50,7 @@ function chip(
     platform,
     field,
     value: resolved.value,
+    name: null,
     provenance: unset ? "unset" : resolved.provenance,
     href: unset ? clientSettingsHref(clientId) : null,
   };
@@ -60,7 +83,79 @@ export function planIdentityChips(
   ];
 }
 
-export function identityChipDisplay(value: string | null): string {
-  if (!value) return "—";
+/** Look up a stored name under the raw id, `act_` form, or bare digits. */
+export function lookupStoredName(
+  map: Record<string, string>,
+  value: string | null,
+): string | null {
+  if (!value) return null;
+  if (map[value]) return map[value];
+  if (value.startsWith("act_")) {
+    const bare = value.slice(4);
+    if (map[bare]) return map[bare];
+  } else if (map[`act_${value}`]) {
+    return map[`act_${value}`];
+  }
+  return null;
+}
+
+function mapForChip(id: string, names: IdentityNameMap): Record<string, string> {
+  switch (id) {
+    case "meta-ad-account":
+      return names.metaAdAccount;
+    case "meta-pixel":
+      return names.metaPixel;
+    case "meta-page":
+      return names.facebookPage;
+    case "meta-ig":
+      return names.instagramActor;
+    case "tiktok-advertiser":
+      return names.tiktokAdvertiser;
+    case "tiktok-identity":
+      return names.tiktokIdentity;
+    case "google-customer":
+      return names.googleCustomer;
+    default:
+      return {};
+  }
+}
+
+export function withIdentityNames(
+  chips: PlanIdentityChip[],
+  names: IdentityNameMap,
+): PlanIdentityChip[] {
+  return chips.map((row) => ({
+    ...row,
+    name: lookupStoredName(mapForChip(row.id, names), row.value),
+  }));
+}
+
+/**
+ * Name → id → `null`. `null` is the dashed chip; an id without a name
+ * stays the id (unresolved), never blank.
+ */
+export function identityChipDisplay(
+  value: string | null,
+  name?: string | null,
+): string | null {
+  if (!value) return null;
+  if (name) return name;
   return value;
+}
+
+export function identityChipTip(chip: PlanIdentityChip): string {
+  return `${chip.field} · ${chip.name ?? "—"} · ${chip.value ?? "—"} · ${chip.provenance}`;
+}
+
+/** Google shows name and customer id together — the id is how operators recognise the account. */
+export function identityChipVisibleLabel(chip: PlanIdentityChip): string | null {
+  const display = identityChipDisplay(chip.value, chip.name);
+  if (display == null) return null;
+  if (chip.id === "google-customer" && chip.name && chip.value) {
+    return `${chip.name} — ${chip.value}`;
+  }
+  if (chip.id === "meta-ig" && chip.name && !chip.name.startsWith("@")) {
+    return `@${chip.name}`;
+  }
+  return display;
 }

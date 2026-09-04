@@ -25,7 +25,7 @@ import {
   type GoogleDrawerTab,
 } from "@/lib/plan/drawer";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
-import type { VizStatus } from "@/lib/viz/tokens";
+import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
 import {
   useGoogleSearchTree,
   type GoogleSearchTreeController,
@@ -141,7 +141,7 @@ export function GoogleDrawer({
         doneLabel={doneLabel}
         triggerRef={triggerRef}
       >
-        <span className="text-[11px] text-muted-foreground">○</span>
+        <span className={`${VIZ_TYPE.label} text-muted-foreground`}>○</span>
       </Drawer>
     );
   }
@@ -165,13 +165,13 @@ export function GoogleDrawer({
       doneLabel={doneLabel}
       triggerRef={triggerRef}
       header={
-        <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+        <span className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground`}>
           <span aria-disabled="true">⌁ template ▸</span>
           <InfoTip label={GOOGLE_DRAWER_COPY.noTemplatesTip} />
         </span>
       }
       footer={
-        <span className="text-[11px] text-muted-foreground" role="status">
+        <span className={`${VIZ_TYPE.label} text-muted-foreground`} role="status">
           {saveStatus === "saving" ? "◌" : saveStatus === "saved" ? "✓" : null}
         </span>
       }

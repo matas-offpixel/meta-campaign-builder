@@ -11,7 +11,7 @@ import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { GOOGLE_DRAWER_COPY, googleDetailRows, resolveDetailField } from "@/lib/plan/drawer";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
-import type { VizProvenance } from "@/lib/viz/tokens";
+import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
 
 export function GoogleDrawerDetails({
   tree,
@@ -64,7 +64,7 @@ export function GoogleDrawerDetails({
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
@@ -73,22 +73,22 @@ export function GoogleDrawerDetails({
       <InfoTip label={GOOGLE_DRAWER_COPY.detailsTip} />
 
       {open ? (
-        <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">
+        <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-0">
           {rows.map((row) => (
             <div
               key={row.id}
-              className="col-span-3 grid grid-cols-subgrid items-center"
+              className="col-span-3 grid h-9 grid-cols-subgrid items-center border-b border-border"
               data-row={row.id}
             >
-              <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
-              <dd className="min-w-0 truncate text-[11px]">{row.value ?? "—"}</dd>
+              <dt className={`${VIZ_TYPE.label} text-muted-foreground`}>{row.label}</dt>
+              <dd className={`min-w-0 truncate ${VIZ_TYPE_NUM.body}`}>{row.value ?? "—"}</dd>
               <dd>
                 <ProvenanceBadge provenance={row.provenance} />
               </dd>
             </div>
           ))}
           {planId ? (
-            <div className="col-span-3 mt-1 text-[11px]">
+            <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
               <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
                 canvas ↗
               </a>
@@ -138,7 +138,7 @@ function StepDisclosure({
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>

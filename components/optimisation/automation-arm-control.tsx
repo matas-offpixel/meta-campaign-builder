@@ -22,7 +22,8 @@ import {
   type AutomationArm,
   type DecisionRowView,
 } from "@/lib/optimisation/automation-ui";
-import type { VizStatus } from "@/lib/viz/tokens";
+import { formatVizMoment } from "@/lib/viz/format-moment";
+import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
 
 type GatePayload = {
   ok?: boolean;
@@ -61,13 +62,7 @@ const ARM_GATE_TIP =
 
 function formatEvaluatedAt(iso: string | null): string {
   if (!iso) return "Never — no tick has evaluated this draft yet.";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Europe/London",
-  });
+  return formatVizMoment(iso);
 }
 
 export function AutomationArmControl({
@@ -169,7 +164,7 @@ export function AutomationArmControl({
           <InfoTip label={ARM_GATE_TIP} />
         </div>
 
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <div className={`mb-3 flex flex-wrap items-center gap-2 ${VIZ_TYPE.label}`}>
           <span className="text-muted-foreground">ENABLE_OPTIMISATION_WRITES</span>
           <InfoTip label={ARM_GATE_TIP} />
           {writesEnabled === null ? (
@@ -198,19 +193,19 @@ export function AutomationArmControl({
                   }`}
               >
                 <StatusDot status={ARM_DOT[opt.id]} />
-                <span className="text-sm font-medium">{opt.label}</span>
+                <span className={`${VIZ_TYPE.body} font-medium`}>{opt.label}</span>
                 <InfoTip label={opt.tip} />
               </button>
             );
           })}
         </div>
 
-        <StatusLine className="mt-3 text-[11px] text-muted-foreground">
+        <StatusLine className={`mt-3 ${VIZ_TYPE.label} text-muted-foreground`}>
           Last optimisation-tick evaluation: {formatEvaluatedAt(lastEvaluatedAt)}
         </StatusLine>
 
         {error ? (
-          <StatusLine tone="alert" className="mt-2 text-xs text-destructive">
+          <StatusLine tone="alert" className={`mt-2 ${VIZ_TYPE.label} text-destructive`}>
             {error}
           </StatusLine>
         ) : null}
@@ -231,7 +226,7 @@ export function AutomationArmControl({
                   : "."}
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 text-sm">
+          <div className={`rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 ${VIZ_TYPE.body}`}>
             <Datum className="mb-1 flex items-center gap-1.5 font-medium text-warning">
               <AlertTriangle className="h-3.5 w-3.5" />
               Guardrails that will bound writes

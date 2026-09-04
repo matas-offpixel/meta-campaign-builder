@@ -34,7 +34,7 @@ export function CanvasLaunch({
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
 
   return (
-    <section aria-label="launch" className="space-y-3">
+    <section aria-label="launch" className="min-h-[48px] space-y-3">
       {stages && stages.length > 0 ? (
         <div className="space-y-2">
           {stages.map((stage, index) => {

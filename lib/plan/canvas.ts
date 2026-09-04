@@ -386,6 +386,28 @@ export function decisionsHandleLabel(count: number): string | null {
  * in an `InfoTip`; keeping the strings here also keeps them out of the
  * components the grep-guard scans for long literals.
  */
+/**
+ * Spec §2 height budget at the 1372 × 883 viewport. App chrome is ~72px;
+ * Launch's bottom edge lands at y ≈ 744. Numbers are the contract the
+ * workspace gutters + min-heights implement — not a runtime measure.
+ */
+export function planCanvasHeightBudget() {
+  const zones = { A: 88, B: 64, C: 80, D: 80, E: 120, F: 72, G: 48 } as const;
+  const gutters = { AB: 20, BC: 16, CD: 16, DE: 24, EF: 20, FG: 24 } as const;
+  const content = zones.A + zones.B + zones.C + zones.D + zones.E + zones.F + zones.G;
+  const guttersTotal = gutters.AB + gutters.BC + gutters.CD + gutters.DE + gutters.EF + gutters.FG;
+  const chrome = 72;
+  return {
+    chrome,
+    zones,
+    gutters,
+    content,
+    guttersTotal,
+    canvas: content + guttersTotal,
+    launchY: chrome + content + guttersTotal,
+  };
+}
+
 export const PLAN_CANVAS_COPY = {
   fanoutOff: "Launch is off — ENABLE_PLAN_FANOUT is not \"1\".",
   noEvent: "Choose an event first.",

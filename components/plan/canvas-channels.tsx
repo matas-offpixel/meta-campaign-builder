@@ -11,6 +11,7 @@ import type { PlanAdapterName } from "@/lib/plan/types";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import type { EventFunnelPlatformCosts } from "@/lib/dashboard/event-funnel";
 import { funnelCostLabel } from "@/lib/dashboard/event-funnel";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
  * Zone E — what is each channel's state, in one glance.
@@ -43,7 +44,7 @@ export function CanvasChannels({
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
 }) {
   return (
-    <section aria-label="channels" className="space-y-1.5">
+    <section aria-label="channels" className="min-h-[120px] space-y-1.5">
       <SectionAnchor kind="derive" label="derive" tip={PLAN_CANVAS_COPY.derive} />
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
@@ -84,7 +85,7 @@ export function CanvasChannels({
                 <button
                   type="button"
                   disabled
-                  className="text-[11px] text-muted-foreground"
+                  className={`${VIZ_TYPE.label} text-muted-foreground`}
                   aria-label="resume"
                 >
                   ▷
@@ -96,7 +97,7 @@ export function CanvasChannels({
                     target="_blank"
                     rel="noreferrer"
                     aria-label="ads manager"
-                    className="text-[11px] text-muted-foreground underline"
+                    className={`${VIZ_TYPE.label} text-muted-foreground underline`}
                   >
                     ↗
                   </a>
@@ -106,7 +107,7 @@ export function CanvasChannels({
             {row.staleChip ? (
               <button
                 type="button"
-                className="rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 text-[10px]"
+                className={`rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 ${VIZ_TYPE.label}`}
                 disabled={busy}
                 title={row.staleChip}
                 onClick={() => onRederive(row)}

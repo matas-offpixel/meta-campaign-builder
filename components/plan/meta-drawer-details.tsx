@@ -11,13 +11,14 @@ import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { META_DRAWER_COPY, detailRows, resolveDetailField, type DetailRowId } from "@/lib/plan/drawer";
+import { formatPlanScheduleRange } from "@/lib/plan/format-schedule";
 import type {
   BudgetScheduleSettings,
   CampaignDraft,
   CampaignSettings,
   OptimisationStrategySettings,
 } from "@/lib/types";
-import type { VizProvenance } from "@/lib/viz/tokens";
+import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
 
 /**
  * `▸ details` — everything the redesign demoted out of steps 0, 1, 5 and
@@ -91,7 +92,7 @@ export function MetaDrawerDetails({
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
@@ -100,11 +101,11 @@ export function MetaDrawerDetails({
       <InfoTip label={META_DRAWER_COPY.detailsTip} />
 
       {open ? (
-        <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1">
+        <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-0">
           {rows.map((row) => (
-            <div key={row.id} className="col-span-3 grid grid-cols-subgrid items-center" data-row={row.id}>
-              <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
-              <dd className="min-w-0 truncate text-[11px]">
+            <div key={row.id} className="col-span-3 grid h-9 grid-cols-subgrid items-center border-b border-border" data-row={row.id}>
+              <dt className={`${VIZ_TYPE.label} text-muted-foreground`}>{row.label}</dt>
+              <dd className={`min-w-0 truncate ${VIZ_TYPE_NUM.body}`}>
                 {row.editable ? (
                   <EditableValue
                     id={row.id}
@@ -126,7 +127,7 @@ export function MetaDrawerDetails({
             </div>
           ) : null}
           {planId ? (
-            <div className="col-span-3 mt-1 text-[11px]">
+            <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
               <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
                 canvas ↗
               </a>
@@ -208,7 +209,7 @@ function StepDisclosure({
       <button
         type="button"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
         onClick={() => setOpen((prev) => !prev)}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
@@ -251,7 +252,7 @@ function EditableValue({
     <input
       autoFocus
       aria-label={id}
-      className="w-full rounded-sm border border-border bg-background px-1 py-0.5 text-[11px]"
+      className={`w-full rounded-sm border border-border bg-background px-1 py-0.5 ${VIZ_TYPE.body}`}
       value={text}
       onChange={(event) => setText(event.target.value)}
       onBlur={() => {
@@ -349,5 +350,5 @@ function budgetSummary(bs: BudgetScheduleSettings | undefined): string | null {
 
 function scheduleSummary(bs: BudgetScheduleSettings | undefined): string | null {
   if (!bs?.startDate) return null;
-  return bs.endDate ? `${bs.startDate} → ${bs.endDate}` : bs.startDate;
+  return formatPlanScheduleRange(bs.startDate, bs.endDate);
 }

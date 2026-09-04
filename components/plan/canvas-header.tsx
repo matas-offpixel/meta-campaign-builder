@@ -2,15 +2,17 @@
 
 import { useState, type RefObject } from "react";
 
+import { PlanIdentityChips } from "@/components/plan/plan-identity-chips";
 import { EventThumb } from "@/components/viz/event-thumb";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { OverflowMenu, type OverflowMenuItem } from "@/components/viz/overflow-menu";
-import { PlanIdentityChips } from "@/components/plan/plan-identity-chips";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { PLAN_CANVAS_COPY, decisionsHandleLabel } from "@/lib/plan/canvas";
 import { destinationSourceLabel, type ResolvedPlanDestination } from "@/lib/plan/destination";
-import { formatPlanEventDate } from "@/lib/plan/event-picker";
+import type { IdentityNameMap } from "@/lib/plan/identity-chips";
+import { formatVizDay } from "@/lib/viz/format-moment";
+import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 /**
  * Zone A — which show is this. Nothing here is editable: the event picks
@@ -32,6 +34,7 @@ export function CanvasHeader({
   decisionsRef,
   menuItems,
   resolved,
+  identityNames,
 }: {
   name: string;
   clientName: string | null;
@@ -46,17 +49,18 @@ export function CanvasHeader({
   menuItems: OverflowMenuItem[];
   /** Ad account / page / pixel, with where each one came from. */
   resolved: ResolvedChannelDefaults | null;
+  identityNames?: IdentityNameMap;
 }) {
   const [draft, setDraft] = useState(destination.url);
   const handle = decisionsHandleLabel(decisionCount);
-  const date = formatPlanEventDate(eventDate);
+  const date = eventDate ? formatVizDay(eventDate) : null;
 
   return (
-    <header className="flex items-start gap-3">
+    <header className="flex min-h-[88px] items-start gap-3">
       <EventThumb url={thumbUrl} name={name} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <h1 className="min-w-0 truncate font-heading text-lg tracking-wide">{name}</h1>
+          <h1 className={`min-w-0 truncate ${VIZ_TYPE.body}`}>{name}</h1>
           <InfoTip
             label={
               destination.url
@@ -65,16 +69,16 @@ export function CanvasHeader({
             }
           />
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className={`mt-0.5 flex flex-wrap items-center gap-1.5 ${VIZ_TYPE.label} text-muted-foreground`}>
           {clientName ? <span className="truncate">{clientName}</span> : null}
-          {date ? <span className="tabular-nums">{date}</span> : null}
+          {date && date !== "—" ? <span className={VIZ_TYPE_NUM.body}>{date}</span> : null}
           {eventCode ? <MetricChip label={eventCode} size="sm">{eventCode}</MetricChip> : null}
         </div>
         {destination.overridable ? (
           <label className="mt-1.5 flex items-center gap-1.5">
             <span className="sr-only">Destination URL</span>
             <input
-              className="w-full max-w-md rounded-sm border border-dashed border-border bg-transparent px-2 py-1 text-[11px]"
+              className={`w-full max-w-md rounded-sm border border-dashed border-border bg-transparent px-2 py-1 ${VIZ_TYPE.body}`}
               placeholder="https://"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -83,14 +87,14 @@ export function CanvasHeader({
             <InfoTip label={PLAN_CANVAS_COPY.destination} />
           </label>
         ) : null}
-        <PlanIdentityChips resolved={resolved} />
+        <PlanIdentityChips resolved={resolved} names={identityNames} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {handle ? (
           <button
             ref={decisionsRef}
             type="button"
-            className="text-[11px] tabular-nums text-muted-foreground hover:text-foreground"
+            className={`${VIZ_TYPE_NUM.label} text-muted-foreground hover:text-foreground`}
             onClick={onDecisionsOpen}
           >
             {handle}

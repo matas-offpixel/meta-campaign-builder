@@ -102,7 +102,7 @@ export function CanvasAssets({
   }
 
   return (
-    <section aria-label="assets" className="flex flex-wrap items-center gap-2">
+    <section aria-label="assets" className="flex min-h-[72px] flex-wrap items-center gap-2">
       <AssetStrip
         assets={view.assets}
         routing={view.routing}

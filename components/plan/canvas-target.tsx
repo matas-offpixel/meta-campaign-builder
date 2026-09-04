@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { SegmentedControl } from "@/components/plan/segmented-control";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
@@ -13,9 +14,10 @@ import {
   planTargetChip,
 } from "@/lib/plan/canvas-inputs";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
-import { targetUnitSpec } from "@/lib/plan/target-unit";
+import { PLAN_TARGET_UNIT_GLYPH, targetUnitSpec } from "@/lib/plan/target-unit";
 import type { CampaignPlanObjectiveIntent } from "@/lib/plan/types";
 import type { PlanTargetUnit } from "@/lib/types";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
  * Zone D — what are we aiming for. The one per-campaign answer of the
@@ -49,6 +51,7 @@ export function CanvasTarget({
   const chip = planTargetChip({ value, unit: effective.unit, benchmark });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value ?? benchmark ?? ""));
+  const unitLabel = effective.unit ? targetUnitSpec(effective.unit).label : null;
 
   function commit() {
     const next = Number(draft);
@@ -57,13 +60,13 @@ export function CanvasTarget({
   }
 
   return (
-    <section aria-label="target" className="flex flex-wrap items-center gap-1.5">
+    <section aria-label="target" className="flex min-h-[80px] flex-wrap items-center gap-1.5">
       {editing && effective.unit ? (
         <MetricChip label="target" size="lg">
-          <span>◎ £</span>
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎ £</span>
           <input
             autoFocus
-            className="w-20 border-0 bg-transparent p-0 text-right tabular-nums outline-none"
+            className={`w-20 border-0 bg-transparent p-0 text-right outline-none ${VIZ_TYPE.display}`}
             aria-label="target value"
             inputMode="decimal"
             value={draft}
@@ -74,7 +77,7 @@ export function CanvasTarget({
               if (event.key === "Escape") setEditing(false);
             }}
           />
-          <span className="text-[11px] text-muted-foreground">/ {targetUnitSpec(effective.unit).label}</span>
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>/ {unitLabel}</span>
         </MetricChip>
       ) : (
         <button
@@ -87,7 +90,17 @@ export function CanvasTarget({
           disabled={!effective.unit}
         >
           <MetricChip label="target" size="lg">
-            {chip.label}
+            {chip.needsObjective ? (
+              <span className={VIZ_TYPE.label}>{chip.label}</span>
+            ) : (
+              <>
+                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎</span>
+                <span>{chip.label.replace(/^◎\s*/, "").replace(/\s*\/\s*\S+$/, "")}</span>
+                {unitLabel ? (
+                  <span className={`${VIZ_TYPE.label} text-muted-foreground`}>/ {unitLabel}</span>
+                ) : null}
+              </>
+            )}
           </MetricChip>
         </button>
       )}
@@ -97,21 +110,17 @@ export function CanvasTarget({
       {chip.seeded && effective.unit ? <InfoTip label={PLAN_CANVAS_COPY.targetSeed} /> : null}
 
       <span className="inline-flex items-center gap-1">
-        {PLAN_TARGET_UNITS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={effective.unit === option}
-            className={`rounded-sm border px-1.5 py-0.5 text-[10px] ${
-              effective.unit === option
-                ? "border-foreground bg-foreground text-background"
-                : "border-border text-muted-foreground"
-            }`}
-            onClick={() => onUnit(effective.unit === option ? null : option)}
-          >
-            {targetUnitSpec(option).label}
-          </button>
-        ))}
+        <SegmentedControl
+          ariaLabel="target unit"
+          value={effective.unit}
+          allowDeselect
+          onChange={onUnit}
+          options={PLAN_TARGET_UNITS.map((option) => ({
+            id: option,
+            label: targetUnitSpec(option).label,
+            glyph: PLAN_TARGET_UNIT_GLYPH[option],
+          }))}
+        />
         <InfoTip
           label={
             effective.inferred
@@ -125,7 +134,7 @@ export function CanvasTarget({
         <label className="inline-flex items-center gap-1">
           <span className="sr-only">Objective</span>
           <select
-            className="rounded-sm border border-border bg-background px-1.5 py-0.5 text-[10px]"
+            className={`rounded-sm border border-border bg-background px-1.5 py-0.5 ${VIZ_TYPE.label}`}
             value={objectiveIntent}
             onChange={(event) =>
               onObjective(event.target.value as CampaignPlanObjectiveIntent)
@@ -144,9 +153,9 @@ export function CanvasTarget({
       {presetHref ? (
         <a
           href={presetHref}
-          className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          className={`${VIZ_TYPE.label} text-muted-foreground underline underline-offset-2 hover:text-foreground`}
         >
-          edit
+          ⌁ preset · edit
         </a>
       ) : null}
     </section>
