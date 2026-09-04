@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 876
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/876
 - **Branch:** `cursor/viz-kit-redesign-primitives`
 
 ## Summary
