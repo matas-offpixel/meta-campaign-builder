@@ -495,9 +495,9 @@ describe("source-guards — consumers and settings reuse existing pickers", () =
     const creatives = readFileSync("components/steps/creatives.tsx", "utf8");
     assert.match(creatives, /Auto-picked from client defaults/);
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /issue\.href/);
-    assert.match(workspace, /set it in client settings|issue\.href/);
-    assert.match(workspace, /PlanIdentityChips/);
     assert.match(workspace, /json\.resolved/);
+    // The chips moved into zone A; the cure href into the row model.
+    assert.match(readFileSync("components/plan/canvas-header.tsx", "utf8"), /PlanIdentityChips/);
+    assert.match(readFileSync("lib/plan/canvas.ts", "utf8"), /issue\.href/);
   });
 });

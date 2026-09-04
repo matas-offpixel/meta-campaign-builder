@@ -1,279 +1,135 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
-import { AssetRoutingMatrix } from "@/components/plan/asset-routing-matrix";
-import { PlanBudgetControls } from "@/components/plan/plan-budget-controls";
-import { PlanDateTimeField } from "@/components/plan/plan-datetime-field";
+import { CanvasAssets } from "@/components/plan/canvas-assets";
+import { CanvasBudget } from "@/components/plan/canvas-budget";
+import { CanvasChannels } from "@/components/plan/canvas-channels";
+import { CanvasHeader } from "@/components/plan/canvas-header";
+import { CanvasLaunch } from "@/components/plan/canvas-launch";
+import { CanvasTarget } from "@/components/plan/canvas-target";
+import { CanvasWindow } from "@/components/plan/canvas-window";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
-import { PlanIdentityChips } from "@/components/plan/plan-identity-chips";
-import { BlockerBadge } from "@/components/viz/blocker-badge";
-import { InfoTip } from "@/components/viz/info-tip";
-import { MetricChip } from "@/components/viz/metric-chip";
-import { PipelineStepper } from "@/components/viz/pipeline-stepper";
-import { PlatformGlyph } from "@/components/viz/platform-glyph";
-import { SectionAnchor } from "@/components/viz/section-anchor";
-import { StatusDot } from "@/components/viz/status-dot";
-import { StatusStrip } from "@/components/viz/status-strip";
-import { collectBadgeRows } from "@/lib/viz/blockers";
 import { Combobox } from "@/components/ui/combobox";
-import { Button } from "@/components/ui/button";
-import { statusFromLaunchRecord } from "@/lib/viz/status";
-import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
-import { splitPlanBlockers } from "@/lib/plan/blockers";
-import { planLaunchStatusIsIdle } from "@/lib/plan/from-existing";
-import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
+import { InfoTip } from "@/components/viz/info-tip";
+import type { OverflowMenuItem } from "@/components/viz/overflow-menu";
+import {
+  PLAN_CANVAS_COPY,
+  countDecisionsSince,
+  planCanvasMenuItemSpecs,
+  planCanvasState,
+  planChannelRows,
+  planLastOpenedKey,
+  planLaunchButton,
+  type PlanChannelRowModel,
+} from "@/lib/plan/canvas";
+import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
+import { planDefaultWindow, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
+import { planDisposalAction } from "@/lib/plan/delete-policy";
+import { resolvePlanDestination } from "@/lib/plan/destination";
+import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
+import { wizardHrefForDraft } from "@/lib/plan/prepare-draft";
 import {
   planEventPickerRows,
   todayIsoDate,
   visiblePlanEvents,
   type PlanEventOption,
 } from "@/lib/plan/event-picker";
-import { GOOGLE_PREPARE_REASON, wizardHrefForDraft } from "@/lib/plan/prepare-draft";
+import { scheduledDayCount } from "@/lib/plan/budget-split";
+import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
+import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
+import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
+import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
-import { eventEndDateSourceFromOption, resolveEventEndAnchors } from "@/lib/plan/event-end-dates";
-import {
-  applyPreset,
-  lifetimeToDaily,
-  scheduledDayCount,
-  selectionFromBudget,
-  type PlanBudgetPresetId,
-  type PlanBudgetSelection,
-} from "@/lib/plan/budget-split";
-import {
-  endOfDayLocal,
-  GOOGLE_DATE_ONLY_NOTE,
-  PLAN_STEP2_HASH,
-  resolveStartNow,
-  WIZARD_ACTIVE_VS_PLAN_PAUSED,
-} from "@/lib/plan/schedule";
-import type { CampaignPlan, CampaignPlanObjectiveIntent, PlanAdapterName } from "@/lib/plan/types";
+import type { PlanTargetUnit } from "@/lib/types";
+import { isCampaignPlanObjectiveIntent, type CampaignPlan, type PlanAdapterName } from "@/lib/plan/types";
 
 export type { PlanEventOption };
-
-/**
- * One platform card. Blockers are split by where they are actually fixed:
- * wizard-owned bindings (accounts, identities, creatives, keywords) sit next
- * to the Prepare/Continue button so they read as the next step, while the
- * shared inputs this page owns are called out separately. A single flat red
- * list reads as a dead end.
- */
-function PlatformCard({
-  adapter,
-  preview,
-  issues,
-  draftId,
-  launchStatus,
-  prepareLabel,
-  fromExistingLabel,
-  busy,
-  disabled,
-  disabledReason,
-  note,
-  warning,
-  warningChips,
-  onPrepare,
-  onPrepareFromExisting,
-  onRederive,
-  staleChip,
-  collapsed,
-}: {
-  adapter: PlanAdapterName;
-  preview?: Preview;
-  issues: PlanPreflightIssue[];
-  draftId: string | null;
-  launchStatus: CampaignPlan["launches"]["meta"];
-  prepareLabel: string;
-  fromExistingLabel?: string;
-  busy: boolean;
-  disabled: boolean;
-  disabledReason?: string | null;
-  note?: string;
-  warning?: string;
-  warningChips?: { wizard: string; plan: string; tip: string };
-  onPrepare: () => void;
-  onPrepareFromExisting?: () => void;
-  onRederive?: () => void;
-  staleChip?: string | null;
-  collapsed?: boolean;
-}) {
-  const split = splitPlanBlockers(issues, adapter);
-  const href = draftId ? wizardHrefForDraft(adapter, draftId) : null;
-  const blockers = [...split.wizard, ...split.plan];
-  const advisories = [
-    ...split.notes,
-    ...(warning ? [{ id: `${adapter}:warning`, message: warning, href: undefined }] : []),
-    ...(disabledReason
-      ? [{ id: `${adapter}:disabled`, message: disabledReason, href: undefined }]
-      : []),
-  ];
-  if (collapsed) {
-    return (
-      <article className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
-        <PlatformGlyph platform={adapter} size="md" className="text-muted-foreground" />
-      </article>
-    );
-  }
-
-  const badgeRows = collectBadgeRows(
-    blockers.map((issue) => ({
-      id: issue.id,
-      message: issue.message,
-      href: issue.href,
-    })),
-    advisories,
-  );
-
-  return (
-    <article className="rounded-lg border border-border bg-card p-3 text-sm shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-1.5">
-          <PlatformGlyph platform={adapter} size="md" />
-          <StatusDot status={statusFromLaunchRecord(launchStatus)} />
-        </span>
-        <BlockerBadge rows={badgeRows} />
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {preview?.dailyBudget != null ? (
-          <MetricChip label={`${preview.dailyBudget} per day`}>£{preview.dailyBudget}/d</MetricChip>
-        ) : null}
-        {preview?.name ? (
-          <MetricChip label={preview.name}>{preview.name}</MetricChip>
-        ) : null}
-        {preview?.objective ? (
-          <MetricChip label={preview.objective}>{preview.objective}</MetricChip>
-        ) : null}
-        {warningChips ? (
-          <span className="inline-flex items-center gap-1" title={warningChips.tip}>
-            <MetricChip label={`Wizard ${warningChips.wizard}`}>{warningChips.wizard}</MetricChip>
-            <span aria-hidden="true">→</span>
-            <MetricChip label={`Plan ${warningChips.plan}`}>{warningChips.plan}</MetricChip>
-            <InfoTip label={warningChips.tip} />
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {href ? (
-          <Link
-            href={href}
-            className="inline-flex h-8 items-center justify-center rounded-md bg-surface px-3 text-xs font-medium text-foreground transition-colors hover:bg-card"
-          >
-            Continue in wizard
-          </Link>
-        ) : (
-          <Button type="button" size="sm" disabled={busy || disabled} onClick={onPrepare}>
-            {prepareLabel}
-          </Button>
-        )}
-        {onPrepareFromExisting && fromExistingLabel ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={busy || disabled}
-            onClick={onPrepareFromExisting}
-          >
-            {fromExistingLabel}
-          </Button>
-        ) : null}
-        {href && onRederive ? (
-          <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={onRederive}>
-            Re-derive from Meta
-          </Button>
-        ) : null}
-        {staleChip && onRederive ? (
-          <button
-            type="button"
-            className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-left text-xs"
-            disabled={busy}
-            onClick={onRederive}
-            title={staleChip}
-          >
-            {staleChip}
-          </button>
-        ) : null}
-      </div>
-      {note ? <p className="mt-2 text-xs text-muted-foreground">{note}</p> : null}
-    </article>
-  );
-}
 
 interface GateState {
   enabled: boolean;
   skippedReason: string | null;
 }
 
-interface Preview {
-  name: string;
-  objective: string | null;
-  dailyBudget: number | null;
-  destinationUrl: string | null;
+interface MirrorFacts {
+  meta: { n: number; noun: string }[];
+  tiktok: { n: number; noun: string }[];
+  google: { n: number; noun: string }[];
 }
 
+/**
+ * `/plan/[id]` — the canvas (§2). Seven zones top to bottom, one button.
+ *
+ * Everything that used to be a form control on this page is either a
+ * zone, a badge, or gone: the name comes from the event, the objective
+ * from the target unit, the destination from the event, and a platform
+ * at £0 is simply off. The five step-views this replaces are listed in
+ * §5 rows 5, 8, 10, 14, 17, 19, 23, 27, 28, 29.
+ *
+ * Drawers are PR 4/5. Until then a row click prepares the draft and
+ * navigates to the wizard, while `row.anchor` already carries the drawer
+ * coordinate PR 4 will use.
+ */
 export function PlanWorkspace({
   initialPlan,
   events,
   tiktokAdvertiserId,
   isNew = false,
+  funnel = null,
+  liveSpend = null,
+  thumbUrl = null,
+  targetBenchmark = null,
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
   tiktokAdvertiserId?: string | null;
   isNew?: boolean;
+  /** LIVE state only — resolved on the server from event_daily_rollups. */
+  funnel?: EventFunnelView | null;
+  liveSpend?: number | null;
+  thumbUrl?: string | null;
+  /**
+   * The client preset's benchmark for this plan's objective. Zone D shows
+   * it with the seed badge when the plan has no target of its own, so the
+   * field is never empty (§2 zone D).
+   */
+  targetBenchmark?: number | null;
 }) {
   const [plan, setPlan] = useState(initialPlan);
   const [hasUserEdit, setHasUserEdit] = useState(false);
   const [persisted, setPersisted] = useState(!isNew);
-  const [staleChips, setStaleChips] = useState<{ tiktok: string | null; google: string | null }>({
-    tiktok: null,
-    google: null,
-  });
+  const [staleChips, setStaleChips] = useState<Partial<Record<PlanAdapterName, string | null>>>({});
+  const [facts, setFacts] = useState<MirrorFacts>(EMPTY_CHANNEL_FACTS);
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
   const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(null);
-  const [previews, setPreviews] = useState<Record<"meta" | "tiktok" | "google", Preview> | null>(
-    null,
-  );
   const [preflightOk, setPreflightOk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [persistState, setPersistState] = useState<string>(
-    isNew ? "Not saved yet" : "Saved to campaign_plans",
-  );
-  const [preparing, setPreparing] = useState<PlanAdapterName | null>(null);
-  const [deriving, setDeriving] = useState<PlanAdapterName | null>(null);
-  const [notes, setNotes] = useState<Partial<Record<PlanAdapterName, string>>>({});
-  const [showPastEvents, setShowPastEvents] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [budgetSelected, setBudgetSelected] = useState<PlanBudgetSelection>(() =>
-    selectionFromBudget(initialPlan.intent.budget),
-  );
-  const [budgetPreset, setBudgetPreset] = useState<PlanBudgetPresetId | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [budgetMode, setBudgetMode] = useState<"daily" | "lifetime">("daily");
   const [lifetimeTotal, setLifetimeTotal] = useState(0);
+  const [decisionCount, setDecisionCount] = useState(0);
+  const [unregisteredAssets, setUnregisteredAssets] = useState(0);
   const router = useRouter();
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
-  /**
-   * The audience cluster is no longer an authored input — Meta owns targeting.
-   * Existing plans keep the value, and it only means anything while there is
-   * no Meta draft to read the real vocabulary from.
-   */
-  const metaFallbackHint =
-    !hasMetaDraft && plan.intent.audienceClusterRef
-      ? `Fallback hint from this plan: audience cluster "${plan.intent.audienceClusterRef}". Once a Meta draft exists, its page groups and interests replace it.`
-      : null;
+  const selectedEvent = events.find((event) => event.id === plan.intent.eventId) ?? null;
 
   function markPlan(updater: (current: CampaignPlan) => CampaignPlan) {
     setHasUserEdit(true);
     setPlan(updater);
+  }
+
+  /** Row click is still the wizard route until PR 4 lands the drawers. */
+  function goWizard(adapter: PlanAdapterName, draftId: string) {
+    const href = wizardHrefForDraft(adapter, draftId);
+    if (href) router.push(href);
   }
 
   function patchIntent(patch: Partial<CampaignPlan["intent"]>) {
@@ -303,6 +159,7 @@ export function PlanWorkspace({
     };
   }, []);
 
+  /** Staleness chip + zone E facts share one round trip. */
   const refreshMirror = useCallback(async () => {
     if (!persisted) return;
     const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/mirror`);
@@ -310,12 +167,14 @@ export function PlanWorkspace({
       ok?: boolean;
       tiktok?: { chip?: string | null };
       google?: { chip?: string | null };
+      facts?: MirrorFacts;
     };
     if (!res.ok || !json.ok) return;
     setStaleChips({
       tiktok: json.tiktok?.chip ?? null,
       google: json.google?.chip ?? null,
     });
+    if (json.facts) setFacts(json.facts);
   }, [persisted, plan.id]);
 
   useEffect(() => {
@@ -337,6 +196,30 @@ export function PlanWorkspace({
     };
   }, [refreshMirror]);
 
+  /**
+   * `◐ n ▸` — decisions since this operator last opened the plan.
+   * "Last opened" is one browser's fact, so it lives in localStorage.
+   */
+  const metaDraftId = plan.launches.meta.draftId;
+  useEffect(() => {
+    if (!metaDraftId) return;
+    let cancelled = false;
+    const lastOpened =
+      typeof window === "undefined"
+        ? null
+        : window.localStorage.getItem(planLastOpenedKey(plan.id));
+    fetch(`/api/campaigns/${encodeURIComponent(metaDraftId)}/automation`)
+      .then((res) => res.json())
+      .then((json: { ok?: boolean; decisions?: { decidedAt?: string | null }[] }) => {
+        if (cancelled || !json.ok) return;
+        setDecisionCount(countDecisionsSince(json.decisions ?? [], lastOpened));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [metaDraftId, plan.id]);
+
   useEffect(() => {
     if (!shouldPersistPlanOnChange({ hasUserEdit, eventId: plan.intent.eventId })) return;
     const handle = window.setTimeout(() => {
@@ -346,23 +229,18 @@ export function PlanWorkspace({
         body: JSON.stringify({ plan }),
       })
         .then((res) => res.json())
-        .then((json: { ok?: boolean; tableMissing?: boolean; error?: string }) => {
+        .then((json: { ok?: boolean; error?: string }) => {
           if (json.ok) {
-            setPersistState("Saved to campaign_plans");
             setPersisted(true);
             if (window.location.pathname === "/plan/new") {
               router.replace(`/plan/${plan.id}`);
             }
             return;
           }
-          if (json.tableMissing) {
-            setPersistState("campaign_plans is missing (migration 157)");
-            return;
-          }
-          setPersistState(json.error ?? "Save failed");
+          setError(json.error ?? null);
         })
         .catch((err: unknown) => {
-          setPersistState(err instanceof Error ? err.message : "Save failed");
+          setError(err instanceof Error ? err.message : null);
         });
     }, 400);
     return () => window.clearTimeout(handle);
@@ -381,11 +259,9 @@ export function PlanWorkspace({
             ok?: boolean;
             issues?: PlanPreflightIssue[];
             resolved?: ResolvedChannelDefaults;
-            previews?: Record<"meta" | "tiktok" | "google", Preview>;
           }) => {
             setIssues(json.issues ?? []);
             setResolved(json.resolved ?? null);
-            setPreviews(json.previews ?? null);
             setPreflightOk(json.ok === true);
           },
         )
@@ -397,46 +273,110 @@ export function PlanWorkspace({
     return () => window.clearTimeout(handle);
   }, [plan]);
 
-  const launchDisabledReason = useMemo(() => {
-    if (!gate) return "Checking fan-out gate…";
-    if (!gate.enabled) {
-      return `Launch all (paused) is disabled — ${gate.skippedReason ?? "killswitch"} (ENABLE_PLAN_FANOUT is not \"1\")`;
-    }
-    if (!plan.intent.eventId) return "Choose an event first";
-    if (!plan.intent.destinationUrl.trim()) return "Destination URL is required";
-    if (!preflightOk) return "Launch all (paused) is disabled — preflight still has blockers";
-    if (busy) return "Launch in progress";
-    return null;
-  }, [busy, gate, plan.intent.destinationUrl, plan.intent.eventId, preflightOk]);
+  const destination = useMemo(
+    () =>
+      resolvePlanDestination(
+        selectedEvent,
+        plan.intent.target.unit,
+        plan.intent.destinationUrl,
+      ),
+    [plan.intent.destinationUrl, plan.intent.target.unit, selectedEvent],
+  );
 
-  async function prepareDraft(
-    adapter: PlanAdapterName,
-    source?: LibraryPick,
-  ) {
-    setPreparing(adapter);
+  /** Whatever the event resolves to is the URL the adapters must send. */
+  useEffect(() => {
+    if (destination.source === "manual" || destination.source === "none") return;
+    if (plan.intent.destinationUrl === destination.url) return;
+    setPlan((current) => ({
+      ...current,
+      intent: { ...current.intent, destinationUrl: destination.url },
+    }));
+  }, [destination.source, destination.url, plan.intent.destinationUrl]);
+
+  const rows = useMemo(
+    () =>
+      planChannelRows({
+        plan,
+        issues,
+        facts,
+        hrefs: {
+          meta: plan.launches.meta.draftId
+            ? wizardHrefForDraft("meta", plan.launches.meta.draftId)
+            : null,
+          tiktok: plan.launches.tiktok.draftId
+            ? wizardHrefForDraft("tiktok", plan.launches.tiktok.draftId)
+            : null,
+          google: plan.launches.google.draftId
+            ? wizardHrefForDraft("google", plan.launches.google.draftId)
+            : null,
+        },
+        adsManagerLinks: planAdsManagerLinks(plan, {
+          metaAdAccountId: selectedEvent?.metaAdAccountId,
+          googleCustomerId: selectedEvent?.googleCustomerId,
+          tiktokAdvertiserId,
+        }),
+        staleChips,
+        delivering: (liveSpend ?? 0) > 0,
+      }),
+    [facts, issues, liveSpend, plan, selectedEvent, staleChips, tiktokAdvertiserId],
+  );
+
+  const state = useMemo(
+    () => planCanvasState({ plan, rows, liveSpend }),
+    [liveSpend, plan, rows],
+  );
+
+  const launchButton = useMemo(
+    () =>
+      planLaunchButton({
+        state,
+        rows,
+        gateEnabled: gate?.enabled === true,
+        gateReason: gate
+          ? gate.enabled
+            ? null
+            : PLAN_CANVAS_COPY.fanoutOff
+          : PLAN_CANVAS_COPY.fanoutOff,
+        hasEvent: Boolean(plan.intent.eventId),
+        hasDestination: destination.url.trim().length > 0,
+        preflightOk,
+        busy,
+      }),
+    [busy, destination.url, gate, plan.intent.eventId, preflightOk, rows, state],
+  );
+
+  async function persistNow(): Promise<boolean> {
+    const res = await fetch("/api/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan }),
+    });
+    const json = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? null);
+      return false;
+    }
+    setHasUserEdit(true);
+    setPersisted(true);
+    if (window.location.pathname === "/plan/new") router.replace(`/plan/${plan.id}`);
+    return true;
+  }
+
+  /** Row click = open. The draft is created on first open, not by a button. */
+  async function openChannel(row: PlanChannelRowModel, source?: LibraryPick) {
+    if (row.href && !source) {
+      router.push(row.href);
+      return;
+    }
+    setBusy(true);
     setError(null);
     try {
-      const persistRes = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
-      });
-      const persistJson = (await persistRes.json()) as { ok?: boolean; error?: string };
-      if (!persistRes.ok || !persistJson.ok) {
-        setError(persistJson.error ?? "Save the plan before preparing a draft");
-        return;
-      }
-      setHasUserEdit(true);
-      setPersisted(true);
-      setPersistState("Saved to campaign_plans");
-      if (window.location.pathname === "/plan/new") {
-        router.replace(`/plan/${plan.id}`);
-      }
+      if (!(await persistNow())) return;
       const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/prepare-draft`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          adapter,
+          adapter: row.adapter,
           clientId: selectedEvent?.clientId ?? null,
           source: source ?? { kind: "plan" },
         }),
@@ -444,33 +384,26 @@ export function PlanWorkspace({
       const json = (await res.json()) as {
         ok?: boolean;
         error?: string;
-        draftId?: string;
         launches?: CampaignPlan["launches"];
-        derived?: { added: number; skippedReason?: string | null; negatives?: number };
       };
       if (!res.ok || !json.ok || !json.launches) {
-        setError(json.error ?? "Could not prepare draft");
+        setError(json.error ?? null);
         return;
       }
-      setPlan((current) => ({ ...current, launches: json.launches! }));
+      const launches = json.launches;
+      setPlan((current) => ({ ...current, launches }));
       setLibraryOpen(false);
-      if (json.derived) {
-        setNotes((current) => ({
-          ...current,
-          [adapter]: json.derived!.skippedReason
-            ? `Derivation skipped: ${json.derived!.skippedReason}`
-            : `Derived ${json.derived!.added} term${json.derived!.added === 1 ? "" : "s"} from Meta.`,
-        }));
-      }
+      const draftId = launches[row.adapter].draftId;
+      if (draftId) goWizard(row.adapter, draftId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not prepare draft");
+      setError(err instanceof Error ? err.message : null);
     } finally {
-      setPreparing(null);
+      setBusy(false);
     }
   }
 
   async function rederive(adapter: PlanAdapterName) {
-    setDeriving(adapter);
+    setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/derive`, {
@@ -478,29 +411,17 @@ export function PlanWorkspace({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ adapter }),
       });
-      const json = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        added?: number;
-        keptOperatorItems?: number;
-      };
+      const json = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !json.ok) {
-        setNotes((current) => ({
-          ...current,
-          [adapter]: json.error ?? "Could not re-derive from Meta",
-        }));
+        setError(json.error ?? null);
         return;
       }
-      setNotes((current) => ({
-        ...current,
-        [adapter]: `Re-derived ${json.added ?? 0} term${json.added === 1 ? "" : "s"} from Meta; kept ${json.keptOperatorItems ?? 0} you edited in the wizard.`,
-      }));
       setStaleChips((current) => ({ ...current, [adapter]: null }));
       void refreshMirror();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not re-derive from Meta");
+      setError(err instanceof Error ? err.message : null);
     } finally {
-      setDeriving(null);
+      setBusy(false);
     }
   }
 
@@ -520,338 +441,286 @@ export function PlanWorkspace({
         plan?: CampaignPlan | null;
       };
       if (json.skippedReason) {
-        setError(`Fan-out skipped: ${json.skippedReason}`);
+        setError(json.skippedReason);
         return;
       }
       if (!res.ok || !json.plan) {
-        setError(json.error ?? "Launch failed");
+        setError(json.error ?? null);
         return;
       }
       setPlan(json.plan);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Launch failed");
+      setError(err instanceof Error ? err.message : null);
     } finally {
       setBusy(false);
     }
   }
 
+  async function resume(adapters: PlanAdapterName[]) {
+    setBusy(true);
+    setError(null);
+    try {
+      for (const adapter of adapters) {
+        const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/resume`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ adapter }),
+        });
+        const json = (await res.json()) as { ok?: boolean; error?: string };
+        if (!res.ok || !json.ok) {
+          setError(json.error ?? null);
+          return;
+        }
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Changing the unit changes the objective (§2 zone D). Writing both in
+   * one patch is what makes preflight re-run and the preset re-resolve —
+   * `prepare-draft` reads the unit first and the intent second (#877).
+   */
+  function setTargetUnit(unit: PlanTargetUnit | null) {
+    const objective = unit ? objectiveForTargetUnit(unit) : null;
+    patchIntent({
+      target: { value: plan.intent.target.value, unit },
+      objectiveIntent:
+        objective && isCampaignPlanObjectiveIntent(objective)
+          ? objective
+          : plan.intent.objectiveIntent,
+    });
+  }
+
+  function setWindow(next: PlanWindowDates) {
+    patchIntent(next);
+  }
+
   const today = todayIsoDate();
-  const pickerEvents = useMemo(
-    () =>
-      visiblePlanEvents(events, {
-        today,
-        showPast: showPastEvents,
-        selectedId: plan.intent.eventId,
-      }),
-    [events, plan.intent.eventId, showPastEvents, today],
-  );
+  /**
+   * The past-events checkbox is gone with the rest of the form furniture:
+   * `Combobox` is a typeahead and `sortPlanEvents` already ranks past
+   * events last, so including them costs nothing to read.
+   */
   const pickerOptions = useMemo(
     () =>
-      planEventPickerRows(pickerEvents).map((row) => ({
+      planEventPickerRows(
+        visiblePlanEvents(events, {
+          today,
+          showPast: true,
+          selectedId: plan.intent.eventId,
+        }),
+      ).map((row) => ({
         value: row.id,
         label: row.label,
         sublabel: row.sublabel || undefined,
         keywords: row.keywords || undefined,
       })),
-    [pickerEvents],
+    [events, plan.intent.eventId, today],
   );
-  const selectedEvent = events.find((event) => event.id === plan.intent.eventId);
 
-  useEffect(() => {
-    if (budgetMode !== "lifetime") return;
-    const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
-    if (days == null || lifetimeTotal <= 0 || !budgetPreset) return;
-    const next = applyPreset(lifetimeToDaily(lifetimeTotal, days), budgetPreset, budgetSelected);
-    setPlan((current) => ({
-      ...current,
-      intent: { ...current.intent, budget: next },
-      updatedAt: new Date().toISOString(),
-    }));
-  }, [
-    budgetMode,
-    budgetPreset,
-    budgetSelected,
-    lifetimeTotal,
-    plan.intent.endDate,
-    plan.intent.startDate,
-  ]);
-  const links = planAdsManagerLinks(plan, {
-    metaAdAccountId: selectedEvent?.metaAdAccountId,
-    googleCustomerId: selectedEvent?.googleCustomerId,
-    tiktokAdvertiserId,
-  });
-  const noEvents = events.length === 0;
-  const launchIdle = planLaunchStatusIsIdle(plan);
+  const menuItems: OverflowMenuItem[] = planCanvasMenuItemSpecs({
+    status: plan.status,
+    disposal: planDisposalAction(plan.launches),
+    hasMetaDraft,
+    unregisteredAssets,
+  }).map((spec) => ({
+    id: spec.id,
+    icon: <span aria-hidden="true">·</span>,
+    label: spec.label,
+    hidden: spec.hidden,
+    destructive: spec.destructive,
+    onSelect: () => {
+      if (spec.id === "from-existing") setLibraryOpen(true);
+      if (spec.id === "register-assets") void registerAssets();
+      if (spec.id === "duplicate") void duplicate();
+      if (spec.id === "template") void saveAsTemplate();
+      if (spec.id === "unarchive") void unarchive();
+      if (spec.id === "delete") setDeleteOpen(true);
+    },
+  }));
+
+  async function registerAssets() {
+    await fetch(`/api/plan/${encodeURIComponent(plan.id)}/asset-backfill`, { method: "POST" });
+    setUnregisteredAssets(0);
+    void refreshMirror();
+  }
+
+  async function duplicate() {
+    const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/duplicate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId: plan.intent.eventId }),
+    });
+    const json = (await res.json()) as { ok?: boolean; plan?: { id: string } };
+    if (res.ok && json.ok && json.plan) router.push(`/plan/${json.plan.id}`);
+  }
+
+  async function saveAsTemplate() {
+    await fetch("/api/plan/templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ planId: plan.id, name: headerName, description: "", tags: [] }),
+    });
+  }
+
+  async function unarchive() {
+    await fetch(`/api/plan/${encodeURIComponent(plan.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "draft" }),
+    });
+    router.refresh();
+  }
+
+  const headerName = planHeaderName(plan.name, selectedEvent);
+  const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
+  const defaults = planDefaultWindow(selectedEvent);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <PipelineStepper launches={plan.launches} />
-        <InfoTip label="Shared inputs, three adapter previews, one paused launch." />
-      </div>
-      {noEvents ? (
-        <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-          No events yet.
-        </p>
-      ) : null}
+    <div className="space-y-5">
+      <CanvasHeader
+        name={headerName}
+        clientName={selectedEvent?.clientName ?? null}
+        eventDate={selectedEvent?.eventDate ?? null}
+        eventCode={selectedEvent?.eventCode ?? null}
+        thumbUrl={thumbUrl}
+        destination={destination}
+        onDestination={(url) => patchIntent({ destinationUrl: url })}
+        decisionCount={decisionCount}
+        decisionsHref={metaDraftId ? `/campaign/${metaDraftId}` : null}
+        onDecisionsOpen={() => {
+          window.localStorage.setItem(planLastOpenedKey(plan.id), new Date().toISOString());
+          setDecisionCount(0);
+        }}
+        menuItems={menuItems}
+        resolved={resolved}
+      />
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <div className="block text-sm">
+      {!plan.intent.eventId ? (
+        <div className="max-w-md">
           <Combobox
             label="Event"
             value={plan.intent.eventId}
-            onChange={(eventId) => patchIntent({ eventId })}
+            onChange={(eventId) => patchIntent({ eventId, ...planDefaultWindow(events.find((e) => e.id === eventId) ?? null) })}
             options={pickerOptions}
             placeholder="Select an event"
             emptyText="No matching events"
           />
-          {plan.intent.eventId ? <PlanIdentityChips resolved={resolved} /> : null}
-          <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={showPastEvents}
-              onChange={(e) => setShowPastEvents(e.target.checked)}
-            />
-            Show past events
-          </label>
         </div>
-        <label className="block text-sm">
-          <span className="text-muted-foreground">Plan name</span>
-          <input
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-            value={plan.name ?? ""}
-            onChange={(e) =>
-              markPlan((current) => ({ ...current, name: e.target.value || null }))
-            }
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-muted-foreground">Objective intent</span>
-          <select
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-            value={plan.intent.objectiveIntent}
-            onChange={(e) =>
-              patchIntent({
-                objectiveIntent: e.target.value as CampaignPlanObjectiveIntent,
-              })
-            }
-          >
-            {PLAN_OBJECTIVE_OPTIONS.map((objective) => (
-              <option key={objective} value={objective}>
-                {objective}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm">
-          <span className="text-muted-foreground">Destination URL</span>
-          <input
-            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2"
-            placeholder="https://"
-            value={plan.intent.destinationUrl}
-            onChange={(e) => patchIntent({ destinationUrl: e.target.value })}
-          />
-        </label>
-        <PlanBudgetControls
-          budget={plan.intent.budget}
-          startDate={plan.intent.startDate}
-          endDate={plan.intent.endDate}
-          selected={budgetSelected}
-          presetId={budgetPreset}
-          mode={budgetMode}
-          lifetime={lifetimeTotal}
-          onBudget={(budget) => patchIntent({ budget })}
-          onSelected={setBudgetSelected}
-          onPreset={setBudgetPreset}
-          onMode={(mode) => {
-            setBudgetMode(mode);
-            if (mode === "lifetime") {
-              const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
-              if (days != null && lifetimeTotal > 0 && budgetPreset) {
-                patchIntent({ budget: applyPreset(lifetimeToDaily(lifetimeTotal, days), budgetPreset, budgetSelected) });
-              }
-            }
-          }}
-          onLifetime={setLifetimeTotal}
-        />
-        <PlanDateTimeField
-          label="Start"
-          date={plan.intent.startDate}
-          time={plan.intent.startTime}
-          onChange={({ date, time }) => patchIntent({ startDate: date, startTime: time })}
-          extras={
-            <button
-              type="button"
-              className="rounded-full border border-border px-2.5 py-0.5 text-[11px]"
-              onClick={() => {
-                const next = resolveStartNow();
-                patchIntent({ startDate: next.date, startTime: next.time });
-              }}
-            >
-              Now
-            </button>
-          }
-        />
-        <PlanDateTimeField
-          label="End"
-          date={plan.intent.endDate}
-          time={plan.intent.endTime}
-          onChange={({ date, time }) => patchIntent({ endDate: date, endTime: time })}
-          extras={resolveEventEndAnchors(eventEndDateSourceFromOption(selectedEvent)).map((anchor) => {
-            const active = plan.intent.endDate === anchor.date;
-            return (
-              <button
-                key={anchor.id}
-                type="button"
-                className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
-                  active
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border text-muted-foreground"
-                }`}
-                onClick={() => {
-                  const end = endOfDayLocal(anchor.date);
-                  patchIntent({ endDate: end.date, endTime: end.time });
-                }}
-              >
-                {anchor.label}
-              </button>
+      ) : null}
+
+      <CanvasWindow
+        event={selectedEvent}
+        dates={{
+          startDate: plan.intent.startDate ?? defaults.startDate,
+          startTime: plan.intent.startTime ?? defaults.startTime,
+          endDate: plan.intent.endDate ?? defaults.endDate,
+          endTime: plan.intent.endTime ?? defaults.endTime,
+        }}
+        onChange={setWindow}
+        googleBudgeted={plan.intent.budget.googleDaily > 0}
+      />
+
+      <CanvasBudget
+        budget={plan.intent.budget}
+        mode={budgetMode}
+        lifetime={lifetimeTotal}
+        startDate={plan.intent.startDate}
+        endDate={plan.intent.endDate}
+        hasUserEdit={hasUserEdit}
+        onBudget={(budget) => patchIntent({ budget })}
+        onMode={(mode) => {
+          setBudgetMode(mode);
+          if (mode === "lifetime" && days) {
+            setLifetimeTotal(
+              Math.round(
+                (plan.intent.budget.metaDaily +
+                  plan.intent.budget.tiktokDaily +
+                  plan.intent.budget.googleDaily) *
+                  days,
+              ),
             );
-          })}
-        />
-      </section>
-
-      <section id="plan-meta" className="space-y-3">
-        <div className="flex items-center gap-2">
-          <PlatformGlyph platform="meta" size="sm" />
-          <InfoTip label="Meta is the authoring surface. Artist pages, similar-page groups, custom audiences and lookalikes are built in the full Meta wizard; TikTok and Google then derive their targeting vocabulary from it." />
-        </div>
-        <PlatformCard
-          adapter="meta"
-          preview={previews?.meta}
-          issues={issues}
-          draftId={plan.launches.meta.draftId}
-          launchStatus={plan.launches.meta}
-          prepareLabel="New from plan"
-          fromExistingLabel="From existing campaign…"
-          busy={preparing != null || deriving != null}
-          disabled={!plan.intent.eventId}
-          note={notes.meta}
-          warningChips={{
-            wizard: "ACTIVE",
-            plan: "PAUSED",
-            tip: WIZARD_ACTIVE_VS_PLAN_PAUSED,
-          }}
-          onPrepare={() => void prepareDraft("meta")}
-          onPrepareFromExisting={() => setLibraryOpen(true)}
-          collapsed={!budgetSelected.meta}
-        />
-        {metaFallbackHint ? <InfoTip label={metaFallbackHint} /> : null}
-        {plan.launches.meta.draftId ? (
-          <Link
-            href={`/campaign/${plan.launches.meta.draftId}`}
-            className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
-          >
-            Automation decisions
-            <InfoTip label="The same Optimisation Strategy shadows TikTok and Google. No separate rules editor here." />
-          </Link>
-        ) : null}
-      </section>
-
-      <AssetRoutingMatrix planId={plan.id} hasMetaDraft={hasMetaDraft} />
-
-      <section id={PLAN_STEP2_HASH} className="space-y-3">
-        <SectionAnchor
-          kind="derive"
-          label="Derive"
-          tip={
-            hasMetaDraft
-              ? "Preparing a draft runs derivation automatically. Re-derive after Meta edits — terms you changed in the TikTok or Google wizard are never overwritten."
-              : "Locked until a Meta draft exists — there is no targeting vocabulary to derive from yet."
           }
-        />
-        <div className="grid gap-3 md:grid-cols-2">
-          {(["tiktok", "google"] as const).map((adapter) => (
-            <PlatformCard
-              key={adapter}
-              adapter={adapter}
-              preview={previews?.[adapter]}
-              issues={issues}
-              draftId={plan.launches[adapter].draftId}
-              launchStatus={plan.launches[adapter]}
-              prepareLabel={
-                adapter === "tiktok" ? "Prepare TikTok draft" : "Prepare Google plan"
+        }}
+        onLifetime={setLifetimeTotal}
+      />
+
+      <CanvasTarget
+        value={plan.intent.target.value}
+        unit={plan.intent.target.unit}
+        benchmark={targetBenchmark}
+        objectiveIntent={plan.intent.objectiveIntent}
+        presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
+        onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
+        onUnit={setTargetUnit}
+        onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+      />
+
+      {/* The wizard's PlanLinkBanner still lands here. */}
+      <div id={PLAN_STEP2_HASH} />
+      <CanvasChannels
+        rows={rows}
+        costs={
+          funnel
+            ? {
+                meta: funnel.costs.platforms.find((row) => row.platform === "meta"),
+                tiktok: funnel.costs.platforms.find((row) => row.platform === "tiktok"),
+                google: funnel.costs.platforms.find((row) => row.platform === "google"),
               }
-              busy={preparing != null || deriving != null}
-              disabled={!plan.intent.eventId || !hasMetaDraft}
-              disabledReason={hasMetaDraft ? null : GOOGLE_PREPARE_REASON}
-              note={notes[adapter]}
-              warning={adapter === "google" ? GOOGLE_DATE_ONLY_NOTE : undefined}
-              staleChip={staleChips[adapter]}
-              onPrepare={() => void prepareDraft(adapter)}
-              onRederive={hasMetaDraft ? () => void rederive(adapter) : undefined}
-              collapsed={!budgetSelected[adapter]}
-            />
-          ))}
-        </div>
-      </section>
+            : undefined
+        }
+        onOpen={(row) => void openChannel(row)}
+        onResume={(row) => void resume([row.adapter])}
+        onRederive={(row) => void rederive(row.adapter)}
+        busy={busy}
+      />
 
-      <section id="plan-launch" className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Button
-            type="button"
-            disabled={launchDisabledReason != null}
-            onClick={() => void launchAll()}
-          >
-            Launch all (paused)
-          </Button>
-          <StatusStrip launches={plan.launches} />
-          {launchDisabledReason ? <InfoTip label={launchDisabledReason} /> : null}
-        </div>
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        {launchIdle ? (
-          <p className="text-sm text-muted-foreground">Nothing prepared yet.</p>
-        ) : (
-          <ul className="flex flex-wrap gap-3 text-xs">
-            {(["meta", "tiktok", "google"] as const).map((adapter) => {
-              const record = plan.launches[adapter];
-              const link = links.find((item) => item.adapter === adapter);
-              return (
-                <li key={adapter} className="inline-flex items-center gap-1.5">
-                  <PlatformGlyph platform={adapter} size="sm" />
-                  <StatusDot status={statusFromLaunchRecord(record)} />
-                  {record.error ? (
-                    <span className="text-destructive" title={record.error}>
-                      {record.error}
-                    </span>
-                  ) : null}
-                  {link?.href ? (
-                    <a href={link.href} className="underline" target="_blank" rel="noreferrer">
-                      Open in Ads Manager
-                    </a>
-                  ) : link?.unavailableReason ? (
-                    <InfoTip label={link.unavailableReason} />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      <CanvasAssets
+        planId={plan.id}
+        hasMetaDraft={hasMetaDraft}
+        onUpload={() => {
+          if (metaDraftId) goWizard("meta", metaDraftId);
+        }}
+        onUnregistered={setUnregisteredAssets}
+      />
 
+      <CanvasLaunch
+        button={launchButton}
+        stages={state === "live" ? funnel?.stages : undefined}
+        error={error}
+        onLaunch={() => void launchAll()}
+        onResumeAll={() =>
+          void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
+        }
+      />
+
+      {/* "From existing campaign…" only ever seeds the Meta draft. */}
       <CampaignLibraryPicker
         open={libraryOpen}
         onClose={() => setLibraryOpen(false)}
-        busy={preparing === "meta"}
-        onPick={(pick) => void prepareDraft("meta", pick)}
+        busy={busy}
+        onPick={(pick) => {
+          const meta = rows.find((row) => row.adapter === "meta");
+          if (meta) void openChannel(meta, pick);
+        }}
       />
 
-      <p className="text-xs text-muted-foreground">
-        <Link href="/plans" className="underline">
-          Back to plans
-        </Link>
-        . {persistState}.{" "}
-        <PlanDeleteAction planId={plan.id} launches={plan.launches} persisted={persisted} />
-      </p>
+      <PlanDeleteAction
+        planId={plan.id}
+        launches={plan.launches}
+        persisted={persisted}
+        trigger="none"
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDeleted={() => router.push("/plans")}
+      />
+
+      {events.length === 0 ? <InfoTip label="No events yet." /> : null}
     </div>
   );
 }

@@ -189,15 +189,24 @@ describe("from-existing wiring and density", () => {
     assert.match(route, /draftId: copy\.id/);
   });
 
-  it("Meta card offers New from plan and the library picker", () => {
+  /**
+   * The four buttons collapsed into the row itself: opening a row prepares
+   * the draft, and the only branch left — seeding from an existing
+   * campaign — moved into the header's overflow menu.
+   */
+  it("the library picker is reachable from the menu and only seeds Meta", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /New from plan/);
-    assert.match(workspace, /From existing campaign/);
     assert.match(workspace, /CampaignLibraryPicker/);
-    assert.match(workspace, /Nothing prepared yet/);
-    assert.match(workspace, /planLaunchStatusIsIdle/);
+    assert.match(workspace, /planCanvasMenuItemSpecs/);
+    assert.match(workspace, /row\.adapter === "meta"/);
+    assert.doesNotMatch(workspace, /New from plan/);
+    assert.doesNotMatch(workspace, /Nothing prepared yet/);
     assert.doesNotMatch(workspace, /Preview not ready yet/);
     assert.doesNotMatch(workspace, /Prepare the draft to see what is left/);
+
+    const menu = readFileSync("lib/plan/canvas.ts", "utf8");
+    assert.match(menu, /"from-existing"/);
+    assert.match(menu, /From existing campaign/);
     assert.equal(planLaunchStatusIsIdle(goldenPlan()), true);
   });
 

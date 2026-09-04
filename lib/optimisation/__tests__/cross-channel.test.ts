@@ -324,8 +324,10 @@ describe("M.4 grep-guards — no new rules UI, migration 162 unapplied", () => {
       const source = readFileSync(file, "utf8");
       assert.doesNotMatch(source, /AutomationArmControl|optimisation-strategy|evaluateAdSet/);
     }
+    // The decisions surface is a `◐ n ▸` handle now, and its label is copy.
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /Automation decisions/);
+    assert.match(workspace, /decisionCount/);
+    assert.match(readFileSync("lib/plan/canvas.ts", "utf8"), /Automation decisions/);
   });
 
   it("decisions list renders a channel badge", () => {

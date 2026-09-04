@@ -2,6 +2,10 @@ import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
+import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
+import { listPresetsForClient } from "@/lib/db/optimisation-presets";
+import { presetPrimaryRule, resolvePreset } from "@/lib/optimisation/presets";
+import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
 import { createEmptyCampaignPlan } from "@/lib/plan/empty-plan";
 import {
   defaultPlanEventId,
@@ -10,6 +14,7 @@ import {
 } from "@/lib/plan/event-picker";
 import { loadPlanLaunchRecords } from "@/lib/plan/load";
 import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
+import { planLadderObjective } from "@/lib/plan/prepare-draft";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
 import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
@@ -29,9 +34,17 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
+  /**
+   * `ticket_url` / `signup_url` back zone A's `ⓘ` — the typed Destination
+   * URL field is gone, so the destination is read off the event.
+   * `announcement_at` / `event_start_at` are what `derivePhase` needs for
+   * the derived plan name, now that the name input is gone too.
+   */
   const { data: events } = await supabase
     .from("events")
-    .select("id, name, client_id, event_date, presale_at, general_sale_at, event_code, venue_name, venue_city, kind")
+    .select(
+      "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, event_code, venue_name, venue_city, kind, ticket_url, signup_url",
+    )
     .eq("user_id", user.id)
     .order("event_date", { ascending: false });
 
@@ -40,12 +53,16 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     name: string;
     client_id: string | null;
     event_date: string | null;
+    event_start_at: string | null;
+    announcement_at: string | null;
     presale_at: string | null;
     general_sale_at: string | null;
     event_code: string | null;
     venue_name: string | null;
     venue_city: string | null;
     kind: string | null;
+    ticket_url: string | null;
+    signup_url: string | null;
   }[];
   const clientIds = [
     ...new Set(eventRows.map((event) => event.client_id).filter(Boolean)),
@@ -86,12 +103,16 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       clientName: client?.name ?? null,
       venueName: event.venue_name?.trim() || event.venue_city?.trim() || null,
       eventDate: event.event_date,
+      eventStartAt: event.event_start_at,
+      announcementAt: event.announcement_at,
       presaleAt: event.presale_at,
       generalSaleAt: event.general_sale_at,
       eventCode: event.event_code,
       kind: event.kind,
       metaAdAccountId: client?.meta_ad_account_id ?? null,
       googleCustomerId: client?.google_ads_customer_id ?? null,
+      ticketUrl: event.ticket_url,
+      signupUrl: event.signup_url,
     };
   });
 
@@ -138,6 +159,49 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       name: "",
     });
 
+  const selectedEvent = eventOptions.find(
+    (event) => event.id === workspacePlan.intent.eventId,
+  );
+
+  const thumbs = workspacePlan.intent.eventId
+    ? await loadEventThumbSources(
+        supabase,
+        [workspacePlan.intent.eventId],
+        new Map(eventRows.map((event) => [event.id, event.name])),
+      )
+    : null;
+
+  /**
+   * Zone D never shows an empty field: with no `target_value` the chip
+   * renders the client preset's benchmark behind an `industry seed` badge.
+   */
+  let targetBenchmark: number | null = null;
+  if (selectedEvent?.clientId) {
+    const presets = await listPresetsForClient(supabase, selectedEvent.clientId);
+    const resolved = resolvePreset(
+      selectedEvent.clientId,
+      planLadderObjective(workspacePlan),
+      presets,
+    );
+    targetBenchmark = presetPrimaryRule(resolved.preset)?.benchmarkTarget ?? null;
+  }
+
+  /**
+   * LIVE state only. `platformCampaignId` is the cheap test for "there is
+   * something on a platform to have delivered"; without one, the rollup
+   * read would be a full funnel query for a plan that has never launched.
+   */
+  const hasPlatformCampaign = (["meta", "tiktok", "google"] as const).some(
+    (adapter) => workspacePlan.launches[adapter].platformCampaignId != null,
+  );
+  const funnel =
+    hasPlatformCampaign && workspacePlan.intent.eventId
+      ? await loadEventFunnelView(supabase, workspacePlan.intent.eventId)
+      : null;
+  const liveSpend = funnel
+    ? funnel.costs.platforms.reduce((sum, row) => sum + row.spend, 0)
+    : null;
+
   return (
     <>
       <PageHeader
@@ -158,6 +222,10 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             events={eventOptions}
             tiktokAdvertiserId={advertiserIds.length === 1 ? advertiserIds[0] : null}
             isNew={id === "new"}
+            funnel={funnel}
+            liveSpend={liveSpend}
+            thumbUrl={thumbs?.get(workspacePlan.intent.eventId)?.url ?? null}
+            targetBenchmark={targetBenchmark}
           />
         </div>
       </main>

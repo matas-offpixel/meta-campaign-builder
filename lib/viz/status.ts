@@ -13,6 +13,21 @@ export function statusFromLaunchRecord(
   return "idle";
 }
 
+/**
+ * Same mapping, plus the state a launch record cannot know about: a
+ * prepared draft with unresolved preflight blockers is `blocked`, not
+ * `ready`. A record that already reached the platform outranks blockers —
+ * once it is live or paused on Meta, a stale blocker must not recolour it.
+ */
+export function statusFromLaunchAndBlockers(
+  record: Pick<CampaignPlanLaunchRecord, "status" | "draftId">,
+  blockerCount: number,
+): VizStatus {
+  const base = statusFromLaunchRecord(record);
+  if (blockerCount <= 0) return base;
+  return base === "ready" || base === "idle" ? "blocked" : base;
+}
+
 export function statusStripFromLaunches(launches: CampaignPlanLaunches): {
   meta: VizStatus;
   tiktok: VizStatus;
@@ -23,30 +38,4 @@ export function statusStripFromLaunches(launches: CampaignPlanLaunches): {
     tiktok: statusFromLaunchRecord(launches.tiktok),
     google: statusFromLaunchRecord(launches.google),
   };
-}
-
-export type PipelineNodeId = "meta" | "derive" | "assets" | "launch";
-
-export function pipelineNodeStatus(
-  node: PipelineNodeId,
-  launches: CampaignPlanLaunches,
-): VizStatus {
-  if (node === "meta") return statusFromLaunchRecord(launches.meta);
-  if (node === "assets") {
-    return launches.meta.draftId ? "ready" : "idle";
-  }
-  if (node === "derive") {
-    if (!launches.meta.draftId) return "idle";
-    const tiktok = statusFromLaunchRecord(launches.tiktok);
-    const google = statusFromLaunchRecord(launches.google);
-    if (tiktok === "failed" || google === "failed") return "failed";
-    if (tiktok === "in-progress" || google === "in-progress") return "in-progress";
-    if (tiktok !== "idle" || google !== "idle") return "ready";
-    return "idle";
-  }
-  const records = [launches.meta, launches.tiktok, launches.google];
-  if (records.some((r) => r.status === "launching")) return "in-progress";
-  if (records.some((r) => r.status === "failed")) return "failed";
-  if (records.some((r) => r.status === "live")) return "live";
-  return "idle";
 }

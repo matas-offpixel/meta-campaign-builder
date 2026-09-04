@@ -90,12 +90,17 @@ describe("plan UI honest copy", () => {
     assert.match(list, /Migration 157 has not been applied/);
     assert.match(`${list}\n${library}`, /No plans yet/);
     assert.match(nav, /href: "\/plans"/);
-    assert.match(workspace, /Launch all \(paused\)/);
-    assert.match(workspace, /ENABLE_PLAN_FANOUT/);
     assert.match(workspace, /No events yet/);
-    assert.match(workspace, /Open in Ads Manager/);
-    assert.match(workspace, /Show past events/);
-    assert.match(workspace, /PlanIdentityChips/);
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
+
+    /**
+     * The launch verb, the killswitch reason and the Ads Manager escape
+     * hatch are all copy now, and copy lives in one place so the canvas
+     * components carry no long string literals of their own.
+     */
+    const copy = readFileSync("lib/plan/canvas.ts", "utf8");
+    assert.match(copy, /Launch all \(paused\)|⏸ Launch/);
+    assert.match(copy, /ENABLE_PLAN_FANOUT/);
+    assert.match(copy, /Ads Manager/);
   });
 });
