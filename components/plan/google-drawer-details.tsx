@@ -8,7 +8,8 @@ import { TargetingBudgetStep } from "@/components/google-search-wizard/steps/tar
 import type { GoogleSearchWizardContext } from "@/components/google-search-wizard/wizard-shell";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
-import { GOOGLE_DRAWER_COPY, googleDetailRows } from "@/lib/plan/drawer";
+import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
+import { GOOGLE_DRAWER_COPY, googleDetailRows, resolveDetailField } from "@/lib/plan/drawer";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 import type { VizProvenance } from "@/lib/viz/tokens";
 
@@ -17,11 +18,15 @@ export function GoogleDrawerDetails({
   onChange,
   planId,
   wizardContext,
+  destinationUrl = "",
+  channelDefaults = null,
 }: {
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
   planId?: string | null;
   wizardContext?: GoogleSearchWizardContext;
+  destinationUrl?: string;
+  channelDefaults?: ResolvedChannelDefaults | null;
 }) {
   const [open, setOpen] = useState(false);
   const p = tree.plan;
@@ -30,15 +35,24 @@ export function GoogleDrawerDetails({
   const geo = p.geo_targets?.[0];
 
   const rows = googleDetailRows({
-    account: value(account?.account_name ?? p.google_ads_account_id, "derived"),
-    customer: value(account?.google_customer_id, "derived"),
+    account: resolveDetailField(
+      account?.account_name ?? p.google_ads_account_id,
+      channelDefaults?.googleAdsAccount,
+    ),
+    customer: resolveDetailField(
+      account?.google_customer_id,
+      channelDefaults?.googleAdsCustomer,
+    ),
     structure: value(p.structure_mode === "single_campaign" ? "single" : p.structure_mode, "derived"),
     bidding: value(p.bidding_strategy, "industry seed"),
     geo: value(
       geo?.resolved_name ?? geo?.location ?? null,
       "derived",
     ),
-    url: value(campaign?.ad_groups[0]?.rsas[0]?.final_url ?? null, "derived"),
+    url: resolveDetailField(
+      campaign?.ad_groups[0]?.rsas[0]?.final_url,
+      { value: destinationUrl || null },
+    ),
     budget: value(
       campaign?.daily_budget != null ? `${campaign.daily_budget} /day` : null,
       "derived",

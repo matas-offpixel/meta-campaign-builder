@@ -9,7 +9,8 @@ import { OptimisationStrategy } from "@/components/steps/optimisation-strategy";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { ThresholdBand } from "@/components/viz/threshold-band";
-import { META_DRAWER_COPY, detailRows, type DetailRowId } from "@/lib/plan/drawer";
+import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
+import { META_DRAWER_COPY, detailRows, resolveDetailField, type DetailRowId } from "@/lib/plan/drawer";
 import type {
   BudgetScheduleSettings,
   CampaignDraft,
@@ -35,6 +36,7 @@ export function MetaDrawerDetails({
   onStrategyChange,
   showCampaignSetup = true,
   planId,
+  channelDefaults = null,
 }: {
   draft: CampaignDraft;
   onSettingsChange: (settings: CampaignSettings) => void;
@@ -47,6 +49,7 @@ export function MetaDrawerDetails({
    */
   showCampaignSetup?: boolean;
   planId?: string | null;
+  channelDefaults?: ResolvedChannelDefaults | null;
 }) {
   const [open, setOpen] = useState(false);
   const s = draft.settings;
@@ -54,10 +57,13 @@ export function MetaDrawerDetails({
   const preset = draft.optimisationStrategy?.preset ?? null;
 
   const rows = detailRows({
-    account: value(s.metaAdAccountId || s.adAccountId, "client-default"),
-    pixel: value(s.metaPixelId || s.pixelId, "client-default"),
-    page: value(pageOf(draft), "client-default"),
-    instagram: value(igOf(draft), "client-default"),
+    account: resolveDetailField(
+      s.metaAdAccountId || s.adAccountId,
+      channelDefaults?.metaAdAccount,
+    ),
+    pixel: resolveDetailField(s.metaPixelId || s.pixelId, channelDefaults?.metaPixel),
+    page: resolveDetailField(pageOf(draft), channelDefaults?.facebookPage),
+    instagram: resolveDetailField(igOf(draft), channelDefaults?.instagramActor),
     code: value(s.campaignCode, "event"),
     name: value(s.campaignName, "event"),
     objective: value(s.objective, "target"),

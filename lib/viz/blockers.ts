@@ -22,6 +22,77 @@ export interface BlockerRowModel {
   anchor?: BlockerAnchor;
 }
 
+/** Drawer open (and Done) dismiss every portaled blocker popover. */
+export const BLOCKER_BADGE_DISMISS = "offpixel:blocker-badge-dismiss";
+
+export function dismissBlockerBadges(): void {
+  if (typeof document === "undefined") return;
+  document.dispatchEvent(new Event(BLOCKER_BADGE_DISMISS));
+}
+
+/**
+ * The click path a blocker badge must honour (#871, Chrome pass).
+ * `open-other-row` is a click on another channel's `open ▸` while the
+ * popover is up: the drawer opens and the popover is gone, and the
+ * closer must not swallow that click.
+ */
+export type BlockerBadgeGesture =
+  | "trigger"
+  | "row"
+  | "outside"
+  | "escape"
+  | "open-other-row"
+  | "drawer-open";
+
+export function blockerBadgeAfterGesture(
+  gesture: BlockerBadgeGesture,
+  row?: BlockerRowModel,
+): {
+  popoverOpen: boolean;
+  openedAnchor: BlockerAnchor | null;
+  openedDrawer: boolean;
+  swallowsNextClick: boolean;
+} {
+  switch (gesture) {
+    case "trigger":
+      return {
+        popoverOpen: true,
+        openedAnchor: null,
+        openedDrawer: false,
+        swallowsNextClick: false,
+      };
+    case "row":
+      return {
+        popoverOpen: false,
+        openedAnchor: row?.anchor ?? null,
+        openedDrawer: Boolean(row?.anchor),
+        swallowsNextClick: false,
+      };
+    case "outside":
+    case "escape":
+      return {
+        popoverOpen: false,
+        openedAnchor: null,
+        openedDrawer: false,
+        swallowsNextClick: false,
+      };
+    case "open-other-row":
+      return {
+        popoverOpen: false,
+        openedAnchor: null,
+        openedDrawer: true,
+        swallowsNextClick: false,
+      };
+    case "drawer-open":
+      return {
+        popoverOpen: false,
+        openedAnchor: null,
+        openedDrawer: true,
+        swallowsNextClick: false,
+      };
+  }
+}
+
 export function blockerRowFromIssue(issue: {
   id: string;
   message: string;

@@ -323,7 +323,9 @@ describe("Drawer — #871 reachable after a real click", () => {
      */
     assert.match(source, /doneLabel = "Done"/);
     assert.match(source, />\s*\{doneLabel\}\s*</);
-    assert.match(source, /max-md:inset-0/);
+    assert.match(source, /max-lg:inset-0/);
+    assert.match(source, /lg:w-\[min\(880px,64vw\)\]/);
+    assert.match(source, /bg-black\/40/);
     assert.match(source, /onLoadTemplate/);
     assert.match(source, /#871/);
   });

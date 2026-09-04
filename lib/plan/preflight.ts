@@ -63,9 +63,9 @@ export function collectPlanPreflight(
 ): PlanPreflightResult {
   const resolved = resolveChannelDefaults(channel?.stored ?? null, channel?.overrides ?? {});
   const drafts = {
-    meta: linked?.meta ?? applyMetaChannelDefaults(planToMetaDraft(plan), resolved),
-    tiktok: linked?.tiktok ?? applyTikTokChannelDefaults(planToTikTokDraft(plan), resolved),
-    google: linked?.google ?? applyGoogleChannelDefaults(planToGoogleDraft(plan), resolved),
+    meta: applyMetaChannelDefaults(linked?.meta ?? planToMetaDraft(plan), resolved),
+    tiktok: applyTikTokChannelDefaults(linked?.tiktok ?? planToTikTokDraft(plan), resolved),
+    google: applyGoogleChannelDefaults(linked?.google ?? planToGoogleDraft(plan), resolved),
   };
   const budgeted = new Set(budgetedLaunchAdapters(plan.intent.budget));
   const issues: PlanPreflightIssue[] = [];

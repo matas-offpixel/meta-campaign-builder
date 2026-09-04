@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { AssignCreativesStep } from "@/components/tiktok-wizard/steps/assign-creatives";
 import { AudiencesStep } from "@/components/tiktok-wizard/steps/audiences";
@@ -13,6 +13,10 @@ import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
 import { Drawer } from "@/components/viz/drawer";
 import { InfoTip } from "@/components/viz/info-tip";
+import {
+  fillTikTokChannelDefaultsIfEmpty,
+  type ResolvedChannelDefaults,
+} from "@/lib/clients/channel-defaults";
 import { listClients } from "@/lib/db/clients";
 import {
   deleteTikTokTemplateFromDb,
@@ -74,6 +78,8 @@ export function TikTokDrawer({
   doneLabel,
   onTabChange,
   wizardContext,
+  destinationUrl = "",
+  channelDefaults = null,
 }: {
   open: boolean;
   controller: TikTokDraftController;
@@ -86,8 +92,20 @@ export function TikTokDrawer({
   doneLabel?: string;
   onTabChange?: (tab: string) => void;
   wizardContext?: TikTokWizardContext;
+  destinationUrl?: string;
+  channelDefaults?: ResolvedChannelDefaults | null;
 }) {
-  const { draft, saveStatus, flush, saveDraft, setDraft, draftRef } = controller;
+  const { draft, hydrated, saveStatus, flush, saveDraft, setDraft, draftRef } = controller;
+
+  const appliedDefaults = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !channelDefaults || appliedDefaults.current) return;
+    const next = fillTikTokChannelDefaultsIfEmpty(draft, channelDefaults);
+    appliedDefaults.current = true;
+    if (!next) return;
+    setDraft(next);
+    void saveDraft(next);
+  }, [hydrated, channelDefaults, draft, setDraft, saveDraft]);
 
   const [tab, setTabState] = useState<TikTokDrawerTab>(() => {
     const from = tabForAnchor("tiktok", initialAnchor);
@@ -221,7 +239,12 @@ export function TikTokDrawer({
           ) : null}
 
           {tab === "tt-video" ? (
-            <CreativesStep surface="drawer" draft={draft} onSave={saveDraft} />
+            <CreativesStep
+              surface="drawer"
+              draft={draft}
+              onSave={saveDraft}
+              planDestinationUrl={destinationUrl}
+            />
           ) : null}
 
           {tab === "tt-refine" ? (
@@ -232,7 +255,12 @@ export function TikTokDrawer({
             <AssignCreativesStep surface="drawer" draft={draft} onSave={saveDraft} />
           ) : null}
 
-          <TikTokDrawerDetails draft={draft} onSave={saveDraft} planId={planId} />
+          <TikTokDrawerDetails
+            draft={draft}
+            onSave={saveDraft}
+            planId={planId}
+            channelDefaults={channelDefaults}
+          />
 
           {/*
             Standalone `/tiktok-campaign/[id]` keeps Launch. A plan-linked

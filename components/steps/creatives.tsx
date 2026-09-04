@@ -85,6 +85,7 @@ interface CreativesProps {
   adAccountId?: string;
   queueLibrary?: QueueLibraryItem[];
   onResetQueueBinding?: () => void;
+  planDestinationUrl?: string;
 }
 
 const ASSET_MODES: { value: AssetMode; label: string; desc: string }[] = [
@@ -142,6 +143,7 @@ function CreativesBody({
   adAccountId,
   queueLibrary,
   onResetQueueBinding,
+  planDestinationUrl = "",
 }: CreativesProps) {
   const drawer = useIsDrawer();
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>({});
@@ -814,7 +816,7 @@ function CreativesBody({
                   
 
                   {/* Identity: Page + IG */}
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
                     <div>
                       <Combobox
                         label="Facebook Page"
@@ -1166,7 +1168,7 @@ function CreativesBody({
                         </div>
                       ))}
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
                         <Input
                           label="Headline"
                           value={active.headline}
@@ -1181,9 +1183,9 @@ function CreativesBody({
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
                         {drawer ? (
-                          <DestinationBadge url={active.destinationUrl} />
+                          <DestinationBadge url={active.destinationUrl || planDestinationUrl} />
                         ) : (
                           <DestinationUrlField
                             fieldId="meta-creative-destination-url"
@@ -1695,7 +1697,7 @@ function CreativesBody({
                           Placements
                         </Datum>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
                           {/* Instagram */}
                           <div className="space-y-2">
                             <Datum className="text-xs font-medium text-foreground">Instagram</Datum>
@@ -2438,6 +2440,7 @@ function AssetVariationCard({
   onRemove: () => void;
   onQueueAssetDrop?: (slotAssetId: string, libraryId: string) => void;
 }) {
+  const drawer = useIsDrawer();
   const [expanded, setExpanded] = useState(index === 0);
   const slots = variation.assets ?? [];
   const uploadedCount = slots.filter((a) => a.uploadStatus === "uploaded").length;
@@ -2503,7 +2506,7 @@ function AssetVariationCard({
           />
           
           <div className={`grid gap-4 ${
-            slots.length === 1
+            slots.length === 1 || drawer
               ? "max-w-[150px] grid-cols-1"
               : slots.length === 2
                 ? "max-w-[320px] grid-cols-2"

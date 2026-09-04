@@ -58,15 +58,20 @@ export function CreativesStep({
   draft,
   onSave,
   surface = "wizard",
+  planDestinationUrl = "",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   surface?: StepSurface;
+  planDestinationUrl?: string;
 }) {
+  const first = draft.creatives.items[0];
   const [baseName, setBaseName] = useState("TikTok creative");
   const [videoInput, setVideoInput] = useState("");
-  const [adText, setAdText] = useState("");
-  const [landingPageUrl, setLandingPageUrl] = useState("");
+  const [adText, setAdText] = useState(() => first?.adText || first?.caption || "");
+  const [landingPageUrl, setLandingPageUrl] = useState(
+    () => first?.landingPageUrl || planDestinationUrl || "",
+  );
   const [cta, setCta] = useState("LEARN_MORE");
   const [variationCount, setVariationCount] = useState("1");
   const [saving, setSaving] = useState(false);
@@ -79,6 +84,14 @@ export function CreativesStep({
   const itemsRef = useRef(draft.creatives.items);
   itemsRef.current = draft.creatives.items;
   const refreshingRef = useRef(false);
+
+  useEffect(() => {
+    const seeded = draft.creatives.items[0];
+    setAdText((current) => current || seeded?.adText || seeded?.caption || "");
+    setLandingPageUrl(
+      (current) => current || seeded?.landingPageUrl || planDestinationUrl || "",
+    );
+  }, [draft.creatives.items, planDestinationUrl]);
 
   async function persist(items: TikTokCreativeDraft[]): Promise<void> {
     setSaving(true);
@@ -469,7 +482,7 @@ export function CreativesStep({
           {adText.length}/100 characters
         </Datum>
         {drawer ? (
-          <DestinationBadge url={landingPageUrl} />
+          <DestinationBadge url={landingPageUrl || planDestinationUrl} />
         ) : (
         <div>
           <Input

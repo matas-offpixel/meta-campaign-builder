@@ -35,6 +35,7 @@ import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
 import { planDefaultWindow, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
+import { dismissBlockerBadges } from "@/lib/viz/blockers";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
@@ -231,6 +232,7 @@ export function PlanWorkspace({
     draftId: string,
     anchor?: BlockerAnchor | null,
   ) {
+    dismissBlockerBadges();
     setDecisionsOpen(false);
     setDrawer({
       adapter,
@@ -519,7 +521,7 @@ export function PlanWorkspace({
       setPlan((current) => ({ ...current, launches }));
       setLibraryOpen(false);
       const draftId = launches[row.adapter].draftId;
-      if (draftId) openDrawerOrWizard(row.adapter, draftId, row.anchor);
+      if (draftId) openDrawerOrWizard(row.adapter, draftId, anchor ?? row.anchor);
     } catch (err) {
       setError(err instanceof Error ? err.message : null);
     } finally {
@@ -832,7 +834,12 @@ export function PlanWorkspace({
             setDrawer((current) => (current ? { ...current, tab } : current))
           }
           planId={plan.id}
-          onClose={() => setDrawer(null)}
+          destinationUrl={destination.url}
+          channelDefaults={resolved}
+          onClose={() => {
+            dismissBlockerBadges();
+            setDrawer(null);
+          }}
         />
       ) : null}
 
@@ -846,7 +853,12 @@ export function PlanWorkspace({
             setDrawer((current) => (current ? { ...current, tab } : current))
           }
           planId={plan.id}
-          onClose={() => setDrawer(null)}
+          destinationUrl={destination.url}
+          channelDefaults={resolved}
+          onClose={() => {
+            dismissBlockerBadges();
+            setDrawer(null);
+          }}
         />
       ) : null}
 
@@ -861,7 +873,12 @@ export function PlanWorkspace({
           }
           planId={plan.id}
           wizardContext={googleWizardContext}
-          onClose={() => setDrawer(null)}
+          destinationUrl={destination.url}
+          channelDefaults={resolved}
+          onClose={() => {
+            dismissBlockerBadges();
+            setDrawer(null);
+          }}
         />
       ) : null}
 

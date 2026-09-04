@@ -35,12 +35,18 @@ interface Props {
   surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
+  planDestinationUrl?: string;
 }
 
 const MAX_HEADLINES = 15;
 const MAX_DESCRIPTIONS = 4;
 
-export function AdCopyStep({ surface = "wizard", tree, onChange }: Props) {
+export function AdCopyStep({
+  surface = "wizard",
+  tree,
+  onChange,
+  planDestinationUrl = "",
+}: Props) {
   if (tree.campaigns.length === 0) {
     return (
       <StepSurfaceProvider surface={surface}>
@@ -61,7 +67,13 @@ export function AdCopyStep({ surface = "wizard", tree, onChange }: Props) {
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-4">
       {tree.campaigns.map((c) => (
-        <CampaignSection key={c.id} campaign={c} tree={tree} onChange={onChange} />
+        <CampaignSection
+          key={c.id}
+          campaign={c}
+          tree={tree}
+          onChange={onChange}
+          planDestinationUrl={planDestinationUrl}
+        />
       ))}
       <SitelinksSection tree={tree} onChange={onChange} />
     </div>
@@ -73,10 +85,12 @@ function CampaignSection({
   campaign,
   tree,
   onChange,
+  planDestinationUrl,
 }: {
   campaign: GoogleSearchCampaignNode;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
+  planDestinationUrl: string;
 }) {
   return (
     <Card>
@@ -101,6 +115,7 @@ function CampaignSection({
               adGroup={ag}
               tree={tree}
               onChange={onChange}
+              planDestinationUrl={planDestinationUrl}
             />
           ))}
         </div>
@@ -114,11 +129,13 @@ function AdGroupRsaBlock({
   adGroup,
   tree,
   onChange,
+  planDestinationUrl,
 }: {
   campaignId: string;
   adGroup: GoogleSearchAdGroupNode;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
+  planDestinationUrl: string;
 }) {
   return (
     <section className="rounded-md border border-border bg-background p-4">
@@ -150,6 +167,7 @@ function AdGroupRsaBlock({
               key={rsa.id}
               index={idx}
               rsa={rsa}
+              planDestinationUrl={planDestinationUrl}
               onPatch={(patch) => onChange(updateRsa(tree, campaignId, adGroup.id, rsa.id, patch))}
               onHeadlines={(hl) =>
                 onChange(setRsaHeadlines(tree, campaignId, adGroup.id, rsa.id, hl))
@@ -169,6 +187,7 @@ function AdGroupRsaBlock({
 function RsaEditor({
   index,
   rsa,
+  planDestinationUrl,
   onPatch,
   onHeadlines,
   onDescriptions,
@@ -176,6 +195,7 @@ function RsaEditor({
 }: {
   index: number;
   rsa: GoogleSearchRsa;
+  planDestinationUrl: string;
   onPatch: (patch: Partial<GoogleSearchRsa>) => void;
   onHeadlines: (hl: RsaHeadline[]) => void;
   onDescriptions: (dl: RsaDescription[]) => void;
@@ -280,10 +300,17 @@ function RsaEditor({
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">final URL</span>
             <span className="flex min-w-0 items-center gap-1">
-              <span className="truncate text-xs" title={rsa.final_url ?? undefined}>
-                {rsa.final_url || "—"}
+              <span
+                className="truncate text-xs"
+                title={(rsa.final_url || planDestinationUrl) || undefined}
+              >
+                {rsa.final_url || planDestinationUrl || "—"}
               </span>
-              <ProvenanceBadge provenance={rsa.final_url ? "derived" : "not instrumented"} />
+              <ProvenanceBadge
+                provenance={
+                  rsa.final_url || planDestinationUrl ? "derived" : "not instrumented"
+                }
+              />
               <InfoTip label={GOOGLE_DRAWER_COPY.destinationTip} />
             </span>
           </div>

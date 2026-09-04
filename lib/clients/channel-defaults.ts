@@ -439,6 +439,29 @@ export function applyMetaChannelDefaults(
   return next;
 }
 
+/** `null` when every field already has a value — nothing to persist. */
+export function fillMetaChannelDefaultsIfEmpty(
+  draft: CampaignDraft,
+  resolved: ResolvedChannelDefaults,
+): CampaignDraft | null {
+  const next = applyMetaChannelDefaults(draft, resolved);
+  const changed =
+    next.settings.adAccountId !== draft.settings.adAccountId ||
+    next.settings.metaAdAccountId !== draft.settings.metaAdAccountId ||
+    next.settings.pixelId !== draft.settings.pixelId ||
+    next.settings.metaPixelId !== draft.settings.metaPixelId ||
+    next.settings.metaPageId !== draft.settings.metaPageId ||
+    next.settings.metaIGAccountId !== draft.settings.metaIGAccountId ||
+    next.creatives.some((creative, index) => {
+      const prev = draft.creatives[index];
+      return (
+        creative.identity?.pageId !== prev?.identity?.pageId ||
+        creative.identity?.instagramAccountId !== prev?.identity?.instagramAccountId
+      );
+    });
+  return changed ? next : null;
+}
+
 export function applyTikTokChannelDefaults(
   draft: TikTokCampaignDraft,
   resolved: ResolvedChannelDefaults,
@@ -458,6 +481,18 @@ export function applyTikTokChannelDefaults(
   return { ...draft, accountSetup: setup };
 }
 
+export function fillTikTokChannelDefaultsIfEmpty(
+  draft: TikTokCampaignDraft,
+  resolved: ResolvedChannelDefaults,
+): TikTokCampaignDraft | null {
+  const next = applyTikTokChannelDefaults(draft, resolved);
+  const changed =
+    next.accountSetup.tiktokAccountId !== draft.accountSetup.tiktokAccountId ||
+    next.accountSetup.advertiserId !== draft.accountSetup.advertiserId ||
+    next.accountSetup.identityId !== draft.accountSetup.identityId;
+  return changed ? next : null;
+}
+
 export function applyGoogleChannelDefaults(
   tree: GoogleSearchPlanTree,
   resolved: ResolvedChannelDefaults,
@@ -467,6 +502,14 @@ export function applyGoogleChannelDefaults(
     ...tree,
     plan: { ...tree.plan, google_ads_account_id: resolved.googleAdsAccount.value },
   };
+}
+
+export function fillGoogleChannelDefaultsIfEmpty(
+  tree: GoogleSearchPlanTree,
+  resolved: ResolvedChannelDefaults,
+): GoogleSearchPlanTree | null {
+  const next = applyGoogleChannelDefaults(tree, resolved);
+  return next.plan.google_ads_account_id !== tree.plan.google_ads_account_id ? next : null;
 }
 
 export function clientSettingsHref(clientId: string | null | undefined): string | null {

@@ -34,6 +34,7 @@ import {
   blockerRowsFromValidation,
   detailRows,
   drawerUrl,
+  resolveDetailField,
   googleKeywordBlockers,
   isGoogleDrawerTab,
   isMetaDrawerTab,
@@ -46,6 +47,7 @@ import {
 } from "../drawer.ts";
 import { planTargetChip } from "../canvas-inputs.ts";
 import { VIZ_PROVENANCE_MARK } from "../../viz/tokens.ts";
+import { blockerBadgeAfterGesture } from "../../viz/blockers.ts";
 import { FIXTURE_HREFS, basePlan, blockingIssues, factsBundle } from "./canvas-fixtures.ts";
 
 const ROOT = join(import.meta.dirname, "..", "..", "..");
@@ -378,6 +380,16 @@ describe("details disclosure", () => {
     });
     assert.equal(rows.find((r) => r.id === "account")!.provenance, "derived");
     assert.equal(rows.find((r) => r.id === "preset")!.provenance, "industry seed");
+  });
+
+  it("empty draft + client default shows the default as derived (⌁)", () => {
+    const row = resolveDetailField("", { value: "act_1967530076312" });
+    assert.equal(row?.value, "act_1967530076312");
+    assert.equal(row?.provenance, "derived");
+    assert.equal(VIZ_PROVENANCE_MARK.derived, "⌁");
+    const draftWins = resolveDetailField("act_other", { value: "act_1967530076312" });
+    assert.equal(draftWins?.value, "act_other");
+    assert.equal(resolveDetailField("", { value: null }), undefined);
   });
 
   /**
@@ -765,6 +777,97 @@ describe("TikTok and Google drawers open at each anchor", () => {
     const src = read("components/plan/plan-workspace.tsx");
     assert.match(src, /onOpenAnchor=\{\(row, anchor\) => void openChannel\(row, undefined, anchor\)\}/);
     assert.match(src, /openDrawerOrWizard\(row\.adapter, row\.draftId, anchor \?\? row\.anchor\)/);
+    assert.match(src, /dismissBlockerBadges\(\)/);
+    assert.match(src, /channelDefaults=\{resolved\}/);
+    assert.match(src, /destinationUrl=\{destination\.url\}/);
+  });
+});
+
+describe("blocker badge click path (Chrome pass)", () => {
+  it("after the trigger, a click on another row's open ▸ opens that drawer and the popover is gone", () => {
+    const afterTrigger = blockerBadgeAfterGesture("trigger");
+    assert.equal(afterTrigger.popoverOpen, true);
+    assert.equal(afterTrigger.swallowsNextClick, false);
+    const afterOpen = blockerBadgeAfterGesture("open-other-row");
+    assert.equal(afterOpen.openedDrawer, true);
+    assert.equal(afterOpen.popoverOpen, false);
+    assert.equal(afterOpen.swallowsNextClick, false);
+  });
+
+  it("a blocker row click opens the drawer at the row's anchor and closes the popover", () => {
+    const result = blockerBadgeAfterGesture("row", {
+      id: "audience",
+      label: "Select at least one audience",
+      full: "Select at least one audience",
+      href: null,
+      anchor: { drawer: "meta", section: "f-audiences" },
+    });
+    assert.deepEqual(result.openedAnchor, { drawer: "meta", section: "f-audiences" });
+    assert.equal(result.openedDrawer, true);
+    assert.equal(result.popoverOpen, false);
+    assert.equal(result.swallowsNextClick, false);
+  });
+
+  it("Escape, outside click, and drawer-open all close without swallowing the next click", () => {
+    for (const gesture of ["escape", "outside", "drawer-open"] as const) {
+      const result = blockerBadgeAfterGesture(gesture);
+      assert.equal(result.popoverOpen, false, gesture);
+      assert.equal(result.swallowsNextClick, false, gesture);
+    }
+  });
+
+  it("the badge uses the #871 portal closer and calls onOpenAnchor on a row", () => {
+    const badge = read("components/viz/blocker-badge.tsx");
+    assert.match(badge, /createPortal/);
+    assert.match(badge, /setTimeout/);
+    assert.match(badge, /pointerdown/);
+    assert.match(badge, /Escape/);
+    assert.match(badge, /BLOCKER_BADGE_DISMISS/);
+    assert.match(badge, /onOpenAnchor\(row\.anchor/);
+    assert.doesNotMatch(badge, /className="absolute /);
+  });
+});
+
+describe("drawer width and drawer-surface creatives (Chrome pass)", () => {
+  it("sheet is min(880px, 64vw) on ≥1024px, full-height below, canvas dimmed", () => {
+    const src = read("components/viz/drawer.tsx");
+    assert.match(src, /lg:w-\[min\(880px,64vw\)\]/);
+    assert.match(src, /max-lg:inset-0/);
+    assert.match(src, /bg-black\/40/);
+    assert.doesNotMatch(src, /md:w-\[34rem\]/);
+  });
+
+  it("creatives layout is a single column inside the drawer", () => {
+    const src = read("components/steps/creatives.tsx");
+    assert.match(src, /drawer \? "grid-cols-1" : "grid-cols-2"/);
+    assert.match(src, /slots\.length === 1 \|\| drawer/);
+  });
+
+  it("empty states are nouns, not instructions", () => {
+    const src = read("components/steps/audiences/page-audiences-panel.tsx");
+    assert.match(src, /no page groups/);
+    assert.match(src, /no lookalike groups/);
+    assert.doesNotMatch(src, /Create a page group to start/);
+    assert.doesNotMatch(src, /Click .Add group./);
+  });
+
+  it("TikTok and Google destination badges fall back to the plan URL", () => {
+    const tiktok = read("components/tiktok-wizard/steps/creatives.tsx");
+    assert.match(tiktok, /planDestinationUrl/);
+    assert.match(tiktok, /landingPageUrl \|\| planDestinationUrl/);
+    const google = read("components/google-search-wizard/steps/ad-copy.tsx");
+    assert.match(google, /rsa\.final_url \|\| planDestinationUrl/);
+    const workspace = read("components/plan/plan-workspace.tsx");
+    assert.match(workspace, /destinationUrl=\{destination\.url\}/);
+  });
+
+  it("first drawer open writes empty draft fields from client defaults", () => {
+    assert.match(read("components/plan/meta-drawer.tsx"), /fillMetaChannelDefaultsIfEmpty/);
+    assert.match(read("components/plan/tiktok-drawer.tsx"), /fillTikTokChannelDefaultsIfEmpty/);
+    assert.match(read("components/plan/google-drawer.tsx"), /fillGoogleChannelDefaultsIfEmpty/);
+    const mirror = read("app/api/plan/[id]/mirror/route.ts");
+    assert.match(mirror, /loadChannelDefaultsForEvent/);
+    assert.match(mirror, /validateStep\(step, linked\.meta!, resolved\)/);
   });
 });
 

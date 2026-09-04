@@ -135,7 +135,7 @@ export function Drawer({
       className={
         page
           ? "flex min-h-0 flex-col rounded-md border border-border bg-background"
-          : "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-md md:w-[34rem] max-md:inset-0"
+          : "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-md lg:w-[min(880px,64vw)] max-lg:inset-0"
       }
       onKeyDown={onSheetKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
@@ -210,7 +210,7 @@ export function Drawer({
       </header>
       <div
         className={
-          page ? "px-3 py-3" : "min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          page ? "px-3 py-3" : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3"
         }
       >
         {children}
@@ -236,5 +236,13 @@ export function Drawer({
     </div>
   );
 
-  return page ? sheet : createPortal(sheet, document.body);
+  return page
+    ? sheet
+    : createPortal(
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" aria-hidden="true" />
+          {sheet}
+        </>,
+        document.body,
+      );
 }

@@ -930,7 +930,7 @@ export function PageAudiencesPanel({
       {groups.length === 0 && (
         <Card className="py-8 text-center">
           <StatusLine className="text-sm text-muted-foreground">
-            Create a page group to start adding targeting audiences.
+            no page groups
           </StatusLine>
           <Button size="sm" className="mt-3" onClick={addGroup}>
             <Plus className="h-3.5 w-3.5" />
@@ -2156,8 +2156,8 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
       </div>
 
       {splalGroups.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-          No lookalike groups yet. Click &ldquo;Add group&rdquo; to create one.
+        <div className="rounded-lg border border-dashed border-border p-4 text-center">
+          <StatusLine className="text-xs text-muted-foreground">no lookalike groups</StatusLine>
         </div>
       )}
 
