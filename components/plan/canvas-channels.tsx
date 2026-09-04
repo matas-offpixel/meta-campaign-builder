@@ -1,38 +1,46 @@
 "use client";
 
+import type { RefObject } from "react";
+
 import { ChannelRow } from "@/components/viz/channel-row";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { SectionAnchor } from "@/components/viz/section-anchor";
 import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
 import type { PlanAdapterName } from "@/lib/plan/types";
+import type { BlockerAnchor } from "@/lib/viz/blockers";
 import type { EventFunnelPlatformCosts } from "@/lib/dashboard/event-funnel";
 import { funnelCostLabel } from "@/lib/dashboard/event-funnel";
 
 /**
  * Zone E — what is each channel's state, in one glance.
  *
- * PR 4 replaces `onOpen` with a drawer; the `anchor` on every row and
- * every blocker is already the drawer coordinate, so that swap does not
- * touch this file's shape. Until then a row click prepares the draft on
- * first open and then navigates to the wizard, which is why there is no
- * separate Prepare button.
+ * A row click prepares the draft on first open and then opens that
+ * channel's drawer at the row's own section — there is no separate Prepare
+ * button, and no route change. A blocker click opens the same drawer at
+ * the section the blocker names.
  */
 export function CanvasChannels({
   rows,
   costs,
   onOpen,
+  onOpenAnchor,
   onResume,
   onRederive,
   busy,
+  openRefs,
 }: {
   rows: PlanChannelRowModel[];
   /** LIVE state — one cost-per-stage chip per row instead of the noun facts. */
   costs?: Partial<Record<PlanAdapterName, EventFunnelPlatformCosts>>;
   onOpen: (row: PlanChannelRowModel) => void;
+  /** A blocker click opens the drawer at the section the blocker names. */
+  onOpenAnchor?: (row: PlanChannelRowModel, anchor: BlockerAnchor) => void;
   onResume: (row: PlanChannelRowModel) => void;
   onRederive: (row: PlanChannelRowModel) => void;
   busy: boolean;
+  /** Per-adapter `open ▸` refs, so each drawer can exempt its own trigger. */
+  openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
 }) {
   return (
     <section aria-label="channels" className="space-y-1.5">
@@ -64,6 +72,10 @@ export function CanvasChannels({
                   ) : null
                 }
                 onOpen={() => onOpen(row)}
+                onOpenAnchor={
+                  onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
+                }
+                openRef={openRefs?.[row.adapter]}
                 onResume={resume.supported && !busy ? () => onResume(row) : undefined}
               />
             </div>

@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { MetaAdSetSummary } from "@/lib/types";
 import { useFetchAdSets } from "@/lib/hooks/useMeta";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 interface CrossCampaignAdSetPickerProps {
   /** Campaigns to show ad sets for — order determines section order. */
@@ -125,9 +126,9 @@ function CampaignSection({
               <div className="flex items-start gap-2 text-destructive">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div className="flex-1">
-                  <p className="font-medium">Couldn&rsquo;t load ad sets.</p>
+                  <StatusLine className="font-medium">Couldn&rsquo;t load ad sets.</StatusLine>
                   {adSets.error && (
-                    <p className="mt-0.5 text-xs opacity-80">{adSets.error}</p>
+                    <Datum className="mt-0.5 text-xs opacity-80">{adSets.error}</Datum>
                   )}
                 </div>
               </div>
@@ -213,9 +214,9 @@ function CampaignSection({
                         )}
                       </div>
                       {disabled && disabledReason && (
-                        <p className="mt-1 text-[11px] text-warning">
+                        <StatusLine className="mt-1 text-[11px] text-warning">
                           {disabledReason}
-                        </p>
+                        </StatusLine>
                       )}
                     </div>
                   </button>
@@ -279,9 +280,9 @@ export function CrossCampaignAdSetPicker({
       )}
 
       {atCap && (
-        <p className="text-[11px] text-warning">
+        <StatusLine className="text-[11px] text-warning">
           Maximum {maxTotal} ad sets reached. Deselect one to pick a different one.
-        </p>
+        </StatusLine>
       )}
 
       <div className="space-y-2">

@@ -62,6 +62,8 @@ export const VIZ_PROVENANCES = [
   "manual entry",
   "modelled",
   "derived",
+  /** `lib/optimisation/presets.ts`'s fallback — a benchmark, not this client's. */
+  "industry seed",
   "not instrumented",
 ] as const;
 
@@ -74,6 +76,7 @@ export const VIZ_PROVENANCE_MARK: Record<VizProvenance, string> = {
   modelled: "mod",
   /** Derived keyword/creative — never reuse modelled (`mod`) for this. */
   derived: "⌁",
+  "industry seed": "seed",
   "not instrumented": "—",
 };
 
@@ -83,6 +86,7 @@ export const VIZ_PROVENANCE_TOKEN: Record<VizProvenance, string> = {
   "manual entry": "bg-amber-500/15 text-amber-900 dark:text-amber-200",
   modelled: "bg-violet-500/15 text-violet-800 dark:text-violet-200",
   derived: "bg-violet-400/15 text-violet-700 dark:text-violet-300",
+  "industry seed": "bg-slate-500/15 text-slate-700 dark:text-slate-300",
   "not instrumented":
     "border border-dashed border-border bg-transparent text-muted-foreground",
 };

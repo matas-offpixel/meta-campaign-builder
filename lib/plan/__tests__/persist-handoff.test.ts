@@ -237,8 +237,14 @@ describe("plan page guards", () => {
      */
     assert.match(workspace, /setError\(json\.error \?\? null\)/);
     assert.match(workspace, /shouldPersistPlanOnChange/);
-    // Row click opens the wizard route until PR 4 lands the drawers.
-    assert.match(workspace, /goWizard/);
+    /**
+     * PR 4 landed the Meta drawer, so a Meta row no longer navigates —
+     * it opens the drawer in state and records it in the query. TikTok
+     * and Google still route to their wizards until PR 5, which is why
+     * one function decides between the two.
+     */
+    assert.match(workspace, /openDrawerOrWizard/);
+    assert.match(workspace, /wizardHrefForDraft/);
     assert.match(workspace, /wizardHrefForDraft/);
   });
 

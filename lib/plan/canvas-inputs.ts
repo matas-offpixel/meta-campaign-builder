@@ -259,7 +259,8 @@ export function planTargetChip(input: {
   }
   return {
     label: `◎ ${symbol}${formatTarget(amount)} / ${spec.label}`,
-    provenance: seeded ? "modelled" : "manual entry",
+    // A benchmark stands in until the operator types one — it is a seed, not a model.
+    provenance: seeded ? "industry seed" : "manual entry",
     needsObjective: false,
     seeded,
   };

@@ -21,8 +21,20 @@ import {
   PageInstagramOverridesPanel,
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
+import {
+  Chrome,
+  StatusLine,
+  StepSurfaceProvider,
+  type StepSurface,
+} from "@/components/steps/step-surface";
 
 interface AudiencesStepProps {
+  /**
+   * `drawer` mounts this step inside the Meta drawer: the canvas above it
+   * already names the event and the plan, so this step's own header, its
+   * callouts and its sentences go. Every control stays.
+   */
+  surface?: StepSurface;
   audiences: AudienceSettings;
   onChange: (audiences: AudienceSettings) => void;
   settings: CampaignSettings;
@@ -39,6 +51,7 @@ interface AudiencesStepProps {
 }
 
 export function AudiencesStep({
+  surface = "wizard",
   audiences,
   onChange,
   settings,
@@ -111,39 +124,44 @@ export function AudiencesStep({
   ];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-heading text-2xl tracking-wide">Audiences</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Build your targeting by combining page audiences, custom audiences, saved audiences, and interests.
-          </p>
+    <StepSurfaceProvider surface={surface}>
+    <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-5"}>
+      <Chrome>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-heading text-2xl tracking-wide">Audiences</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Build your targeting by combining page audiences, custom audiences, saved audiences, and interests.
+            </p>
+          </div>
+          {hasPages && (
+            <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5">
+              <span className="text-xs text-muted-foreground">Suggested age:</span>
+              <Badge variant="primary">{suggestedAge.min}–{suggestedAge.max}</Badge>
+            </div>
+          )}
         </div>
-        {hasPages && (
-          <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">Suggested age:</span>
-            <Badge variant="primary">{suggestedAge.min}–{suggestedAge.max}</Badge>
+      </Chrome>
+
+      <Chrome>
+        {clientId && (
+          <div className="rounded-md border border-border bg-card p-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-muted-foreground">
+                Need a new custom audience? Open the Audience Creator in a new tab.
+              </p>
+              <Link
+                href={`/audiences/${clientId}/new${eventId ? `?event_id=${eventId}&return_to=wizard` : "?return_to=wizard"}`}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                Create new audience
+              </Link>
+            </div>
           </div>
         )}
-      </div>
-
-      {clientId && (
-        <div className="rounded-md border border-border bg-card p-3 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-muted-foreground">
-              Need a new custom audience? Open the Audience Creator in a new tab.
-            </p>
-            <Link
-              href={`/audiences/${clientId}/new${eventId ? `?event_id=${eventId}&return_to=wizard` : "?return_to=wizard"}`}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-            >
-              Create new audience
-            </Link>
-          </div>
-        </div>
-      )}
+      </Chrome>
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as AudienceTab)} />
 
@@ -181,9 +199,9 @@ export function AudiencesStep({
             }
           />
         ) : (
-          <p className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
+          <StatusLine className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
             Select a client in Account Setup before choosing Off/Pixel audiences.
-          </p>
+          </StatusLine>
         )}
       </TabPanel>
       <TabPanel active={activeTab === "saved"}>
@@ -202,6 +220,7 @@ export function AudiencesStep({
         />
       </TabPanel>
     </div>
+    </StepSurfaceProvider>
   );
 }
 
@@ -264,12 +283,14 @@ function OffPixelCustomAudiencesPanel({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">Off/Pixel Custom Audiences</h3>
-          <p className="text-xs text-muted-foreground">
-            Ready audiences created in the Audience Builder, grouped by funnel stage.
-          </p>
-        </div>
+        <Chrome>
+          <div>
+            <h3 className="text-sm font-semibold">Off/Pixel Custom Audiences</h3>
+            <p className="text-xs text-muted-foreground">
+              Ready audiences created in the Audience Builder, grouped by funnel stage.
+            </p>
+          </div>
+        </Chrome>
         <Link
           href={`/audiences/${clientId}`}
           target="_blank"
@@ -279,12 +300,12 @@ function OffPixelCustomAudiencesPanel({
           Open Audience Builder
         </Link>
       </div>
-      {loading && <p className="text-sm text-muted-foreground">Loading audiences...</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {loading && <StatusLine className="text-sm text-muted-foreground">Loading audiences...</StatusLine>}
+      {error && <StatusLine tone="alert" className="text-sm text-destructive">{error}</StatusLine>}
       {!loading && !error && audiences.length === 0 && (
-        <p className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
+        <StatusLine className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
           No ready Off/Pixel audiences yet.
-        </p>
+        </StatusLine>
       )}
       {Object.entries(grouped).map(([stage, rows]) => (
         <section key={stage} className="rounded-md border border-border bg-card">

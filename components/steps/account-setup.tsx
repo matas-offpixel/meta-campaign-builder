@@ -3,7 +3,8 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2, Info } from "lucide-react";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
@@ -37,25 +38,25 @@ function FieldStatus({
 }) {
   if (loading) {
     return (
-      <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+      <StatusLine className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
         <Spinner />
         Loading…
-      </p>
+      </StatusLine>
     );
   }
   if (error) {
     return (
-      <p className="mt-1.5 flex items-center gap-1.5 text-xs text-destructive">
+      <StatusLine tone="alert" className="mt-1.5 flex items-center gap-1.5 text-xs text-destructive">
         <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
         {error}
-      </p>
+      </StatusLine>
     );
   }
   if (count === 0) {
     return (
-      <p className="mt-1.5 text-xs text-muted-foreground">
+      <Datum className="mt-1.5 text-xs text-muted-foreground">
         No items found for this account.
-      </p>
+      </Datum>
     );
   }
   return null;
@@ -64,13 +65,20 @@ function FieldStatus({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface AccountSetupProps {
+  /** `drawer` mounts this inside the Meta drawer's `details` disclosure. */
+  surface?: StepSurface;
   settings: CampaignSettings;
   onChange: (settings: CampaignSettings) => void;
   /** Used as OAuth return path after linking Facebook */
   campaignId?: string;
 }
 
-export function AccountSetup({ settings, onChange, campaignId }: AccountSetupProps) {
+export function AccountSetup({
+  surface = "wizard",
+  settings,
+  onChange,
+  campaignId,
+}: AccountSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
 
@@ -202,14 +210,17 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
     : "/settings";
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <h2 className="font-heading text-2xl tracking-wide">Account Setup</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Select your Meta ad account and optional conversion pixel.
-          Facebook page and Instagram account are chosen per ad in the Creatives step.
-        </p>
-      </div>
+    <StepSurfaceProvider surface={surface}>
+    <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-2xl space-y-6"}>
+      <Chrome>
+        <div>
+          <h2 className="font-heading text-2xl tracking-wide">Account Setup</h2>
+          <Prose className="mt-1 text-sm text-muted-foreground">
+            Select your Meta ad account and optional conversion pixel.
+            Facebook page and Instagram account are chosen per ad in the Creatives step.
+          </Prose>
+        </div>
+      </Chrome>
 
       {showPrefillBanner && client && (
         <div className="flex items-start gap-2.5 rounded-md border border-primary/30 bg-primary-light/40 px-3 py-2 text-xs text-foreground">
@@ -233,16 +244,16 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
         <div className="flex items-start gap-3 rounded-lg border border-warning/50 bg-warning/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-warning-foreground">
+            <StatusLine className="text-sm font-medium text-warning-foreground">
               {fbTokenExpired
                 ? "Facebook connection issue"
                 : "No Meta connection"}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            </StatusLine>
+            <Datum className="mt-0.5 text-xs text-muted-foreground">
               {fbTokenExpired
                 ? "Fix your Facebook connection in Settings to reload ad accounts and pixels."
                 : "No Meta connection. Connect in Settings to load ad accounts and pixels."}
-            </p>
+            </Datum>
           </div>
           <Link
             href={settingsHref}
@@ -271,12 +282,12 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
           <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning-foreground">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <div className="flex-1 space-y-1">
-              <p className="font-medium">
+              <Datum className="font-medium">
                 {storedAccount?.unavailableReason === "rate_limited"
                   ? "Ad account rate-limited"
                   : "Stale ad account"}
-              </p>
-              <p className="text-xs text-muted-foreground">
+              </Datum>
+              <StatusLine className="text-xs text-muted-foreground">
                 This draft was saved with account{" "}
                 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                   {storedId}
@@ -284,7 +295,7 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
                 {storedAccount?.unavailableReason === "rate_limited"
                   ? "which Meta is currently rate-limiting. Pick another account below, or try again later."
                   : "which is not accessible under your current Meta token. Please select the correct account below."}
-              </p>
+              </StatusLine>
             </div>
             <Button
               variant="outline"
@@ -334,7 +345,7 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
             count={facebookConnectionIssue ? 0 : accounts.data.length}
           />
           {accounts.stale && !accounts.loading && accounts.data.length > 0 && (
-            <p className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+            <StatusLine className="mt-1.5 flex items-start gap-1.5 text-xs text-muted-foreground">
               <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
                 Showing your last-loaded account list — Meta is rate-limiting
@@ -344,12 +355,12 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
                   : ""}
                 .
               </span>
-            </p>
+            </StatusLine>
           )}
           {settings.metaAdAccountId && (
-            <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
+            <Datum className="mt-1 font-mono text-[10px] text-muted-foreground/60">
               {settings.metaAdAccountId}
-            </p>
+            </Datum>
           )}
         </div>
       </Card>
@@ -395,5 +406,6 @@ export function AccountSetup({ settings, onChange, campaignId }: AccountSetupPro
         </div>
       </Card>
     </div>
+    </StepSurfaceProvider>
   );
 }

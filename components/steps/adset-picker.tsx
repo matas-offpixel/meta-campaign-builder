@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import type { MetaAdSetSummary } from "@/lib/types";
 import { useFetchAdSets } from "@/lib/hooks/useMeta";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 type StatusFilter = "active" | "paused" | "all";
 
@@ -150,13 +151,13 @@ export function AdSetPicker({
         </Button>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <Datum className="text-[11px] text-muted-foreground">
         {statusFilter === "active"
           ? "Showing ACTIVE ad sets, most recent first. Switch to Paused or All if you don't see the one you want."
           : statusFilter === "paused"
             ? "Showing PAUSED ad sets, most recent first."
             : "Showing all ad sets in this campaign — including archived/deleted."}
-      </p>
+      </Datum>
 
       {adSets.status === "loading" && (
         <div className="flex items-center justify-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-8 text-sm text-muted-foreground">
@@ -169,14 +170,14 @@ export function AdSetPicker({
           <div className="flex items-start gap-2 text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="flex-1">
-              <p className="font-medium">Couldn&rsquo;t load ad sets.</p>
+              <StatusLine className="font-medium">Couldn&rsquo;t load ad sets.</StatusLine>
               {adSets.error && (
-                <p className="mt-0.5 text-xs opacity-80">{adSets.error}</p>
+                <Datum className="mt-0.5 text-xs opacity-80">{adSets.error}</Datum>
               )}
-              <p className="mt-1 text-[11px] opacity-70">
+              <StatusLine className="mt-1 text-[11px] opacity-70">
                 If this is a permission error, the connected token may be
                 missing <code>ads_read</code> for this campaign.
-              </p>
+              </StatusLine>
             </div>
           </div>
           <div className="mt-3 flex justify-end">
@@ -195,24 +196,24 @@ export function AdSetPicker({
         <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
           {debouncedSearch ? (
             <>
-              <p>No ad sets match &ldquo;{debouncedSearch}&rdquo;.</p>
-              <p className="mt-1 text-xs">
+              <StatusLine>No ad sets match &ldquo;{debouncedSearch}&rdquo;.</StatusLine>
+              <StatusLine className="mt-1 text-xs">
                 Try a different search, or switch to{" "}
                 <span className="font-medium">All</span>.
-              </p>
+              </StatusLine>
             </>
           ) : statusFilter === "active" ? (
             <>
-              <p>No active ad sets in this campaign.</p>
-              <p className="mt-1 text-xs">
+              <StatusLine>No active ad sets in this campaign.</StatusLine>
+              <StatusLine className="mt-1 text-xs">
                 Switch to <span className="font-medium">Paused</span> or{" "}
                 <span className="font-medium">All</span>.
-              </p>
+              </StatusLine>
             </>
           ) : statusFilter === "paused" ? (
-            <p>No paused ad sets in this campaign.</p>
+            <StatusLine>No paused ad sets in this campaign.</StatusLine>
           ) : (
-            <p>No ad sets found in this campaign.</p>
+            <StatusLine>No ad sets found in this campaign.</StatusLine>
           )}
         </div>
       )}
@@ -302,9 +303,9 @@ export function AdSetPicker({
                       </code>
 
                       {disabled && a.incompatibleReason && (
-                        <p className="mt-1 text-[11px] text-warning">
+                        <StatusLine className="mt-1 text-[11px] text-warning">
                           {a.incompatibleReason}
-                        </p>
+                        </StatusLine>
                       )}
                     </div>
                   </div>
@@ -314,7 +315,7 @@ export function AdSetPicker({
           </div>
 
           {adSets.error && (
-            <p className="text-xs text-destructive">{adSets.error}</p>
+            <StatusLine tone="alert" className="text-xs text-destructive">{adSets.error}</StatusLine>
           )}
 
           {adSets.hasMore && (

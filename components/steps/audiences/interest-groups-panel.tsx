@@ -46,6 +46,7 @@ import {
   validateInterestsTargetability,
   type InterestValidateRequestItem,
 } from "@/lib/interest-targetability";
+import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -396,18 +397,18 @@ function UnresolvedInterestChip({
           className="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-border bg-popover p-2 text-xs shadow-lg"
         >
           <div className="mb-2">
-            <p className="truncate text-[12px] font-semibold text-foreground" title={interest.name}>
+            <Datum className="truncate text-[12px] font-semibold text-foreground" title={interest.name}>
               {interest.name}
-            </p>
-            <p className="text-[10px] text-muted-foreground">
+            </Datum>
+            <StatusLine className="text-[10px] text-muted-foreground">
               Not currently available in Meta targeting. Will be skipped at launch unless replaced or resolved.
-            </p>
+            </StatusLine>
           </div>
           {replacements.length > 0 ? (
             <div className="space-y-0.5">
-              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
+              <Datum className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">
                 Replace with…
-              </p>
+              </Datum>
               {replacements.slice(0, 5).map((r) => (
                 <button
                   key={r.id}
@@ -429,9 +430,9 @@ function UnresolvedInterestChip({
               ))}
             </div>
           ) : (
-            <p className="text-[10px] italic text-muted-foreground">
+            <Datum className="text-[10px] italic text-muted-foreground">
               No replacement suggestions available. Try Re-check, or remove this chip.
-            </p>
+            </Datum>
           )}
           <div className="mt-2 flex items-center justify-between border-t border-border pt-1.5">
             <button
@@ -609,9 +610,9 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove, onReplace, onRe
             })}
           </div>
           {group.interests.some((i) => isLikelyDeprecated(i.name) || i.status === "deprecated") && (
-            <p className="mt-1.5 text-[10px] text-warning/80">
+            <StatusLine className="mt-1.5 text-[10px] text-warning/80">
               ⚠ Some interests may be deprecated and will be automatically replaced or removed at launch.
-            </p>
+            </StatusLine>
           )}
           {(() => {
             const unresolvedCount = group.interests.filter(
@@ -619,9 +620,9 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove, onReplace, onRe
             ).length;
             if (unresolvedCount === 0) return null;
             return (
-              <p className="mt-1.5 text-[10px] text-warning/80">
+              <StatusLine className="mt-1.5 text-[10px] text-warning/80">
                 ⚠ {unresolvedCount} interest{unresolvedCount !== 1 ? "s" : ""} not currently available in Meta targeting — click each chip to swap in a replacement, re-check, or remove. Skipped at launch unless resolved.
-              </p>
+              </StatusLine>
             );
           })()}
         </div>
@@ -702,9 +703,9 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove, onReplace, onRe
               })}
             </div>
           ) : sugLoading ? (
-            <p className="text-[10px] text-muted-foreground">Fetching suggestions from Meta…</p>
+            <StatusLine className="text-[10px] text-muted-foreground">Fetching suggestions from Meta…</StatusLine>
           ) : backendError ? (
-            <p className="text-[10px] text-destructive/70">
+            <StatusLine tone="alert" className="text-[10px] text-destructive/70">
               {emptyReason === "token_permission"
                 ? "Suggestions unavailable — token lacks ads_management permission"
                 : emptyReason === "token_expired"
@@ -712,27 +713,27 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove, onReplace, onRe
                   : emptyReason === "invalid_request"
                     ? "Suggestions unavailable — invalid request to Meta"
                     : `Suggestions unavailable: ${backendError}`}
-            </p>
+            </StatusLine>
           ) : emptyReason === "meta_returned_empty" ? (
-            <p className="text-[10px] text-muted-foreground/60">
+            <Datum className="text-[10px] text-muted-foreground/60">
               No suggestions returned by Meta for this selection.
-            </p>
+            </Datum>
           ) : emptyReason === "blocklist_filtered" ? (
-            <p className="text-[10px] text-muted-foreground/60">
+            <StatusLine className="text-[10px] text-muted-foreground/60">
               Suggestions were filtered out by cluster rules — try searching manually above.
-            </p>
+            </StatusLine>
           ) : emptyReason === "no_valid_ids" ? (
-            <p className="text-[10px] text-warning/70">
+            <StatusLine className="text-[10px] text-warning/70">
               Selected interests have no valid Meta IDs yet — suggestions will appear after using Search or Discover.
-            </p>
+            </StatusLine>
           ) : (
-            <p className="text-[10px] text-muted-foreground/60">
+            <Datum className="text-[10px] text-muted-foreground/60">
               No suggestions available — try searching manually above.
-            </p>
+            </Datum>
           )}
-          <p className="text-[9px] text-muted-foreground/40 italic">
+          <StatusLine className="text-[9px] text-muted-foreground/40 italic">
             Some suggestions may be replaced or removed at launch if Meta no longer supports them.
-          </p>
+          </StatusLine>
         </div>
       )}
     </div>
@@ -1328,17 +1329,17 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold">Interest Groups ({groups.length})</h3>
-          <p className="text-xs text-muted-foreground">
+          <Prose className="text-xs text-muted-foreground">
             Search Meta&apos;s interest database and group interests for targeted ad sets.
-          </p>
+          </Prose>
           {(pageContext.length > 0 || customAudienceSignals.length > 0 || Object.keys(genreDistribution).length > 0) && (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
+            <Datum className="mt-0.5 text-[11px] text-muted-foreground">
               <span className="font-medium text-primary">Discover from Pages</span> pooling{" "}
               {pageContext.length > 0 && <><span className="font-medium text-foreground">{pageContext.length}</span> pages</>}
               {customAudienceSignals.length > 0 && <> · <span className="font-medium text-foreground">{customAudienceSignals.length}</span> CA groups</>}
               {engagementTypesPresent.length > 0 && <> · <span className="font-medium text-success">{engagementTypesPresent.length}</span> engagement type{engagementTypesPresent.length !== 1 ? "s" : ""}</>}
               {Object.keys(genreDistribution).length > 0 && <> · <span className="font-medium text-foreground">{Object.keys(genreDistribution).length}</span> genre buckets</>}
-            </p>
+            </Datum>
           )}
         </div>
         <div className="flex shrink-0 gap-2">
@@ -1360,12 +1361,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
         <Card className="py-8 text-center">
           {hasPageAudiences ? (
             <>
-              <p className="text-sm text-muted-foreground">
+              <Prose className="text-sm text-muted-foreground">
                 Auto-generate interest groups based on your page audiences.
-              </p>
-              <p className="mt-1 text-xs text-warning">
+              </Prose>
+              <StatusLine className="mt-1 text-xs text-warning">
                 Auto-generated suggestions use heuristic genre mapping — search Meta&apos;s interest database for real targeting IDs.
-              </p>
+              </StatusLine>
               <div className="mt-3 flex justify-center gap-2">
                 <Button size="sm" variant="outline" onClick={handleAutoGenerate}>
                   <Wand2 className="h-3.5 w-3.5" />
@@ -1379,9 +1380,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
             </>
           ) : (
             <>
-              <p className="text-sm text-muted-foreground">
+              <StatusLine className="text-sm text-muted-foreground">
                 Add an interest group to target users by interests.
-              </p>
+              </StatusLine>
               <Button size="sm" className="mt-3" onClick={addGroup}>
                 <Plus className="h-3.5 w-3.5" />
                 New Group
@@ -1437,12 +1438,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                 className="border-t border-border p-4 space-y-2"
                 onClick={(e) => e.stopPropagation()}
               >
-                <p className="text-sm font-medium text-warning">
+                <StatusLine className="text-sm font-medium text-warning">
                   {CLUSTER_CHOOSER_PROMPT}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
+                </StatusLine>
+                <Prose className="text-[11px] text-muted-foreground">
                   Scene-hint presets appear after you pick a category.
-                </p>
+                </Prose>
                 <ClusterChooserButtons
                   selected={group.clusterType}
                   inferred={inferClusterFromName(group.name)}
@@ -1504,7 +1505,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                     placeholder="Search Meta interest database (min 2 chars)…"
                   />
                   {searchError && (
-                    <p className="mt-1 text-xs text-destructive">{searchError}</p>
+                    <StatusLine tone="alert" className="mt-1 text-xs text-destructive">{searchError}</StatusLine>
                   )}
                   {search.length >= 2 && (
                     <div className="mt-1.5 max-h-48 overflow-y-auto rounded-lg border border-border">
@@ -1545,9 +1546,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                           <span className="text-xs text-muted-foreground">Searching Meta…</span>
                         </div>
                       ) : (
-                        <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+                        <Datum className="px-3 py-3 text-center text-xs text-muted-foreground">
                           No interests found for &ldquo;{search}&rdquo;
-                        </p>
+                        </Datum>
                       )}
                     </div>
                   )}
@@ -1570,20 +1571,20 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         )}
                       </div>
                       {effectiveCluster ? (
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        <Prose className="mt-0.5 text-[11px] text-muted-foreground">
                           Generates <span className="font-medium">{effectiveCluster}</span> interests based on fans of your selected pages.
                           Irrelevant categories filtered out.
-                        </p>
+                        </Prose>
                       ) : (
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        <Prose className="mt-0.5 text-[11px] text-muted-foreground">
                           Select a cluster above to get targeted suggestions, or discover across all categories.
-                        </p>
+                        </Prose>
                       )}
-                      <p className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
+                      <Prose className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
                         Suggestions are tailored to each cluster using selected page audience signals.
-                      </p>
+                      </Prose>
                       {pageContext.length > 0 ? (
-                        <p className="mt-1 text-[11px] text-muted-foreground/80">
+                        <Datum className="mt-1 text-[11px] text-muted-foreground/80">
                           Seeded by: <span className="font-medium text-foreground">
                             {pageContext.slice(0, 3).map((p) => p.name).join(", ")}
                             {pageContext.length > 3 && ` +${pageContext.length - 3} more`}
@@ -1594,11 +1595,11 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                           {engagementTypesPresent.length > 0 && (
                             <span className="ml-1 text-success">· {engagementTypesPresent.length} engagement type{engagementTypesPresent.length !== 1 ? "s" : ""}</span>
                           )}
-                        </p>
+                        </Datum>
                       ) : (
-                        <p className="mt-1 text-[11px] text-warning">
+                        <StatusLine className="mt-1 text-[11px] text-warning">
                           Load your Facebook pages in the Pages tab to improve suggestions.
-                        </p>
+                        </StatusLine>
                       )}
                     </div>
                     {(discoverClusters[group.id]?.length ?? 0) > 0 && (
@@ -1697,7 +1698,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                               style={{ width: `${fp.confidence}%` }}
                             />
                           </div>
-                          <p className="mt-1 text-[10px] opacity-60">
+                          <Datum className="mt-1 text-[10px] opacity-60">
                             {fp.specificity === "very_high"
                               ? "High confidence — interests will be highly specific, generic suggestions removed."
                               : fp.specificity === "high"
@@ -1705,7 +1706,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                                 : fp.specificity === "moderate"
                                   ? "Moderate signal — some curated seeds included alongside entity matches."
                                   : "Low signal — broad curated suggestions shown. Add more pages or custom audiences to improve."}
-                          </p>
+                          </Datum>
                         </div>
 
                         {/* Age recommendation */}
@@ -1729,9 +1730,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                                 peak ~{fp.ageRecommendation.peakAge}
                               </span>
                             </div>
-                            <p className="mt-1 text-[9px] opacity-50 leading-tight">
+                            <Datum className="mt-1 text-[9px] opacity-50 leading-tight">
                               {fp.ageRecommendation.rationale}
-                            </p>
+                            </Datum>
                           </div>
                         )}
                       </div>
@@ -1756,9 +1757,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       }}
                       placeholder="e.g. hard_techno, queer_underground, avant_garde_fashion"
                     />
-                    <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+                    <Datum className="mt-0.5 text-[10px] text-muted-foreground/70">
                       Comma-separated scene tags to bias discovery. Helps when page names don&apos;t clearly signal the niche (e.g. <span className="font-mono">hard_techno</span>, <span className="font-mono">editorial_fashion</span>, <span className="font-mono">psy_trance</span>).
-                    </p>
+                    </Datum>
 
                     {/* Suggested scene hints — quick-pick chips per cluster.
                         Unclustered groups used to return null here, which is
@@ -1767,12 +1768,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       if (presetSurface.kind === "cluster-chooser") {
                         return (
                           <div className="mt-2 rounded-lg border border-warning/40 bg-warning/5 p-3 space-y-2">
-                            <p className="text-sm font-medium text-warning">
+                            <StatusLine className="text-sm font-medium text-warning">
                               {presetSurface.prompt}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground">
+                            </StatusLine>
+                            <Prose className="text-[11px] text-muted-foreground">
                               Scene-hint presets appear after you pick a category.
-                            </p>
+                            </Prose>
                             <ClusterChooserButtons
                               selected={group.clusterType}
                               inferred={inferClusterFromName(group.name)}
@@ -1803,9 +1804,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       const isBusy = discoveringFromPages === group.id;
                       return (
                         <div className="mt-2">
-                          <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                          <Datum className="text-[10px] font-medium text-muted-foreground mb-1">
                             Suggested scene hints
-                          </p>
+                          </Datum>
                           <div className="flex flex-wrap gap-1.5">
                             {presets.map((preset) => {
                               const isActive = activeId === preset.id;
@@ -1863,12 +1864,12 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         if (!emptyLabel) return null;
                         return (
                           <div className="mt-2">
-                            <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                            <Datum className="text-[10px] font-medium text-muted-foreground mb-1">
                               Suggested audience personas
-                            </p>
-                            <p className="text-[11px] text-muted-foreground/80 italic">
+                            </Datum>
+                            <Datum className="text-[11px] text-muted-foreground/80 italic">
                               {emptyLabel}
-                            </p>
+                            </Datum>
                           </div>
                         );
                       }
@@ -1882,9 +1883,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       const isBusy = discoveringFromPages === group.id;
                       return (
                         <div className="mt-2">
-                          <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                          <Datum className="text-[10px] font-medium text-muted-foreground mb-1">
                             Suggested audience personas
-                          </p>
+                          </Datum>
                           <div className="flex flex-wrap gap-1.5">
                             {personaPresets.map((preset) => {
                               const isActive = activeId === preset.id;
@@ -1938,7 +1939,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                   </Button>
 
                   {discoverFromPagesError[group.id] && (
-                    <p className="text-xs text-destructive">{discoverFromPagesError[group.id]}</p>
+                    <StatusLine tone="alert" className="text-xs text-destructive">{discoverFromPagesError[group.id]}</StatusLine>
                   )}
 
                   {/* Discovery results — single-cluster or multi-cluster */}
@@ -1961,10 +1962,10 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         )}
                       </div>
                       {discoveryMetaByGroup[group.id]?.emergencyFallbackUsed && (
-                        <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <StatusLine className="text-[11px] text-muted-foreground flex items-center gap-1">
                           <Info className="h-3 w-3 shrink-0" />
                           Showing broader fallback interests — add more pages or scene hints for targeted suggestions.
-                        </p>
+                        </StatusLine>
                       )}
 
                       {discoverClusters[group.id]!.map((cluster) => {
@@ -1979,9 +1980,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                                     {cluster.label}
                                   </span>
                                   {cluster.description && (
-                                    <p className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
+                                    <Datum className="text-[10px] text-muted-foreground/70 leading-tight mt-0.5">
                                       {cluster.description}
-                                    </p>
+                                    </Datum>
                                   )}
                                 </div>
                                 <button
@@ -1995,9 +1996,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                             )}
                             {isSingleCluster && cluster.description && (
                               <div className="px-3 py-1.5 bg-muted/20 border-b border-border flex items-start justify-between">
-                                <p className="text-[10px] text-muted-foreground/80 italic">
+                                <Datum className="text-[10px] text-muted-foreground/80 italic">
                                   {cluster.description}
-                                </p>
+                                </Datum>
                                 <button
                                   type="button"
                                   onClick={() => selectAllInCluster(group.id, cluster)}
@@ -2076,9 +2077,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         </div>
                       )}
                       {(discoverSearchTerms[group.id]?.length ?? 0) > 0 && (
-                        <p className="text-[10px] text-muted-foreground/60">
+                        <Datum className="text-[10px] text-muted-foreground/60">
                           Searched {discoverSearchTerms[group.id]!.length} entity terms
-                        </p>
+                        </Datum>
                       )}
                     </div>
                   )}
@@ -2089,9 +2090,9 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                       Manual keyword search
                     </summary>
                     <div className="mt-2 space-y-2">
-                      <p className="text-[11px] text-muted-foreground">
+                      <Datum className="text-[11px] text-muted-foreground">
                         Enter comma-separated keywords to search Meta&apos;s interest database directly.
-                      </p>
+                      </Datum>
                       <textarea
                         value={group.aiPrompt || ""}
                         onChange={(e) => updateGroup(group.id, { aiPrompt: e.target.value })}
@@ -2113,7 +2114,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         )}
                       </Button>
                       {discoveryError[group.id] && (
-                        <p className="text-xs text-destructive">{discoveryError[group.id]}</p>
+                        <StatusLine tone="alert" className="text-xs text-destructive">{discoveryError[group.id]}</StatusLine>
                       )}
                       {(discoveredSuggestions[group.id]?.length ?? 0) > 0 && (
                         <div className="space-y-2">
@@ -2149,7 +2150,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                         </div>
                       )}
                       {(discoveredUnmatched[group.id]?.length ?? 0) > 0 && (
-                        <p className="text-[10px] text-muted-foreground">No match for: {discoveredUnmatched[group.id]!.join(", ")}</p>
+                        <Datum className="text-[10px] text-muted-foreground">No match for: {discoveredUnmatched[group.id]!.join(", ")}</Datum>
                       )}
                     </div>
                   </details>

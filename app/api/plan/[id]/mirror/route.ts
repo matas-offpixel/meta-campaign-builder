@@ -7,10 +7,13 @@ import {
   tiktokChannelFacts,
 } from "@/lib/plan/canvas-facts";
 import { googleLastDerivedAt } from "@/lib/plan/derive/google";
+import { blockerRowsFromValidation } from "@/lib/plan/drawer";
 import { formatMetaStaleChip, isDerivedStale } from "@/lib/plan/live-mirror";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { loadPlanForUser } from "@/lib/plan/load";
 import { createClient } from "@/lib/supabase/server";
+import { getVisibleSteps } from "@/lib/types";
+import { validateStep } from "@/lib/validation";
 
 export async function GET(
   _req: NextRequest,
@@ -69,6 +72,26 @@ export async function GET(
       meta: metaChannelFacts(linked.meta),
       tiktok: tiktokChannelFacts(linked.tiktok),
       google: googleChannelFacts(googleTree),
+    },
+    /**
+     * Step-level blockers for the Meta row, anchored at the drawer section
+     * that owns the fix. They ride the mirror for the same reason the
+     * facts do — this handler has already loaded the draft, and the canvas
+     * deliberately does not (it opens the draft only when the drawer opens).
+     * Review is excluded: it re-asserts the other steps, and the plan
+     * launches from the canvas rather than from review.
+     */
+    drawerBlockers: {
+      meta: linked.meta
+        ? blockerRowsFromValidation(
+            getVisibleSteps(linked.meta.settings.wizardMode ?? "new")
+              .filter((step) => step !== 7)
+              .map((step) => ({
+                step,
+                errors: validateStep(step, linked.meta!).errors,
+              })),
+          )
+        : [],
     },
   });
 }

@@ -41,6 +41,7 @@ import {
 import { type RateLimitUiState } from "@/lib/meta/rate-limit-ui";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 function formatLaunchRateLimitMessage(
   state: RateLimitUiState,
@@ -998,7 +999,12 @@ function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
 
 // ── Retry failed ads (ledger-gated) ───────────────────────────────────────────
 
-function RetryFailedAdsPanel({
+/**
+ * Exported for the Meta drawer's `⊞` tab, where launch remediation lives
+ * for a plan-linked published draft: the plan launches from the canvas, so
+ * the review step never renders and these panels would be unreachable.
+ */
+export function RetryFailedAdsPanel({
   draftId,
   launchSummary,
   onRetryFailedAds,
@@ -1007,7 +1013,8 @@ function RetryFailedAdsPanel({
   cooldownLabel,
 }: {
   draftId: string;
-  launchSummary: LaunchSummary;
+  /** Absent when the draft is reopened after the launch session ended. */
+  launchSummary?: LaunchSummary | null;
   onRetryFailedAds: () => void;
   isLaunching?: boolean;
   cooldownBlocked?: boolean;
@@ -1038,14 +1045,14 @@ function RetryFailedAdsPanel({
   if (failedLedgerCount === 0) return null;
   if (failedLedgerCount === null) return null;
 
-  const labels = failedAdLabelsFromSummary(launchSummary);
+  const labels = launchSummary ? failedAdLabelsFromSummary(launchSummary) : [];
   const count = labels.length > 0 ? labels.length : failedLedgerCount;
 
   return (
     <div className="mt-3 rounded-lg border border-amber-300/50 bg-amber-50/50 p-3">
-      <p className="text-sm font-semibold text-amber-900">
+      <StatusLine className="text-sm font-semibold text-amber-900">
         {count} ad{count === 1 ? "" : "s"} failed
-      </p>
+      </StatusLine>
       {labels.length > 0 ? (
         <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-amber-900/90">
           {labels.map((label) => (
@@ -1053,16 +1060,16 @@ function RetryFailedAdsPanel({
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-xs text-amber-900/80">
+        <StatusLine className="mt-1 text-xs text-amber-900/80">
           {count} failed ad or ad-set write{count === 1 ? "" : "s"} on the ledger.
-        </p>
+        </StatusLine>
       )}
 
       {confirming ? (
         <div className="mt-3 space-y-2">
-          <p className="text-xs font-medium text-amber-950">
+          <Datum className="text-xs font-medium text-amber-950">
             These ads will be re-attempted:
-          </p>
+          </Datum>
           <ul className="list-disc space-y-0.5 pl-5 text-xs text-amber-900/90">
             {(labels.length > 0 ? labels : [`${count} failed ledger write${count === 1 ? "" : "s"}`]).map(
               (label) => (
@@ -1070,7 +1077,7 @@ function RetryFailedAdsPanel({
               ),
             )}
           </ul>
-          <p className="text-xs text-amber-950">{RETRY_FAILED_ADS_CONFIRM}</p>
+          <Datum className="text-xs text-amber-950">{RETRY_FAILED_ADS_CONFIRM}</Datum>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
@@ -1121,7 +1128,7 @@ function RetryFailedAdsPanel({
 
 // ── Retry lookalikes panel ────────────────────────────────────────────────────
 
-function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
+export function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<{
     created: Array<{ name: string; id: string; range: string }>;
@@ -1155,10 +1162,10 @@ function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
         <Clock className="h-4 w-4 text-amber-500 shrink-0" />
         <span className="text-sm font-semibold text-amber-800">Lookalikes deferred — source audiences still populating</span>
       </div>
-      <p className="text-xs text-amber-700 mb-3">
+      <Datum className="text-xs text-amber-700 mb-3">
         Meta needs time to build the source engagement audiences before lookalikes can be created.
         Come back in a few minutes and use the button below to retry.
-      </p>
+      </Datum>
 
       {status === "idle" && (
         <Button variant="outline" size="sm" onClick={handleRetry} className="border-amber-400 text-amber-700 hover:bg-amber-100">
@@ -1179,30 +1186,30 @@ function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
           {result.created.length > 0 && (
             <div className="space-y-0.5">
               {result.created.map((c) => (
-                <p key={c.id} className="text-xs text-success flex items-center gap-1">
+                <Datum key={c.id} className="text-xs text-success flex items-center gap-1">
                   <CheckCheck className="h-3 w-3 inline" />
                   {c.name} created · ID {c.id}
-                </p>
+                </Datum>
               ))}
             </div>
           )}
           {result.deferred.length > 0 && (
             <div className="space-y-0.5">
               {result.deferred.map((d, i) => (
-                <p key={i} className="text-xs text-amber-600 flex items-center gap-1">
+                <Datum key={i} className="text-xs text-amber-600 flex items-center gap-1">
                   <Clock className="h-3 w-3 inline" />
                   {d.name} still populating (code {d.code}) — try again later
-                </p>
+                </Datum>
               ))}
             </div>
           )}
           {result.failed.length > 0 && (
             <div className="space-y-0.5">
               {result.failed.map((f, i) => (
-                <p key={i} className="text-xs text-destructive flex items-center gap-1">
+                <Datum key={i} className="text-xs text-destructive flex items-center gap-1">
                   <TriangleAlert className="h-3 w-3 inline" />
                   {f.name} failed: {f.error}
-                </p>
+                </Datum>
               ))}
             </div>
           )}
@@ -1217,7 +1224,7 @@ function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
 
       {status === "error" && (
         <div className="space-y-2">
-          <p className="text-xs text-destructive">Request failed. Check console for details.</p>
+          <Datum className="text-xs text-destructive">Request failed. Check console for details.</Datum>
           <Button variant="outline" size="sm" onClick={handleRetry} className="border-amber-400 text-amber-700 hover:bg-amber-100">
             <RefreshCw className="h-3.5 w-3.5" />
             Try again

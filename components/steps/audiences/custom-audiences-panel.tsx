@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ChevronDown, ChevronUp, XCircle, Loader2, Download, Shuffle } from "lucide-react";
 import type { CustomAudienceGroup, CustomAudience, LookalikeRange } from "@/lib/types";
 import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
+import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
 
 interface CustomAudiencesPanelProps {
   groups: CustomAudienceGroup[];
@@ -127,9 +128,9 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Custom Audience Groups</h3>
-          <p className="text-xs text-muted-foreground">
+          <Datum className="text-xs text-muted-foreground">
             Load real custom audiences from your ad account, then organise them into groups.
-          </p>
+          </Datum>
         </div>
         <div className="flex items-center gap-2">
           {totalSelected > 0 && !confirmClearAll && (
@@ -161,10 +162,10 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
               : "0 loaded"}
           </span>
           {!adAccountId && (
-            <p className="text-xs text-muted-foreground">Select an ad account first.</p>
+            <Datum className="text-xs text-muted-foreground">Select an ad account first.</Datum>
           )}
           {caState.error && (
-            <p className="text-xs text-destructive">{caState.error}</p>
+            <StatusLine tone="alert" className="text-xs text-destructive">{caState.error}</StatusLine>
           )}
         </div>
         <Button
@@ -183,7 +184,7 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
 
       {groups.length === 0 && (
         <Card className="py-8 text-center">
-          <p className="text-sm text-muted-foreground">Create a group to start selecting custom audiences.</p>
+          <StatusLine className="text-sm text-muted-foreground">Create a group to start selecting custom audiences.</StatusLine>
           <Button size="sm" className="mt-3" onClick={addGroup}>
             <Plus className="h-3.5 w-3.5" />
             New Group
@@ -254,9 +255,9 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                 </div>
 
                 {!caState.loaded ? (
-                  <p className="text-xs text-muted-foreground">Load custom audiences above to select them here.</p>
+                  <StatusLine className="text-xs text-muted-foreground">Load custom audiences above to select them here.</StatusLine>
                 ) : caState.data.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No custom audiences found in this ad account.</p>
+                  <Datum className="text-xs text-muted-foreground">No custom audiences found in this ad account.</Datum>
                 ) : (
                   <>
                     <SearchInput
@@ -337,7 +338,7 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                         </label>
                       ))}
                       {filtered.length === 0 && (
-                        <p className="px-4 py-6 text-center text-sm text-muted-foreground">No audiences found.</p>
+                        <Datum className="px-4 py-6 text-center text-sm text-muted-foreground">No audiences found.</Datum>
                       )}
                     </div>
                   </>
@@ -388,9 +389,9 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                   {group.lookalike && (
                     <div className="space-y-2">
                       <div>
-                        <p className="mb-1.5 text-[11px] text-muted-foreground">
+                        <Prose className="mb-1.5 text-[11px] text-muted-foreground">
                           Lookalike tiers — one ad set per tier, sourced from the {group.audienceIds.length || "selected"} audience{group.audienceIds.length !== 1 ? "s" : ""} above
-                        </p>
+                        </Prose>
                         <div className="flex gap-1.5">
                           {LOOKALIKE_RANGES.map((r) => {
                             const active = (group.lookalikeRanges ?? []).includes(r);
@@ -418,13 +419,13 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                         </div>
                       </div>
                       {group.audienceIds.length === 0 && (
-                        <p className="text-[11px] text-warning">Select at least one source audience above to enable lookalike creation.</p>
+                        <StatusLine className="text-[11px] text-warning">Select at least one source audience above to enable lookalike creation.</StatusLine>
                       )}
                       {group.audienceIds.length > 0 && (
-                        <p className="text-[11px] text-muted-foreground">
+                        <Prose className="text-[11px] text-muted-foreground">
                           Will create {(group.lookalikeRanges ?? ["0-1%"]).map((r) => RANGE_LABELS[r as LookalikeRange] ?? r).join(", ")} lookalike ad set{(group.lookalikeRanges?.length ?? 1) !== 1 ? "s" : ""} at launch using existing audiences as seeds.
                           {" "}Audiences are already in Meta — no waiting for code 441.
-                        </p>
+                        </Prose>
                       )}
                     </div>
                   )}

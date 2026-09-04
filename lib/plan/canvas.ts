@@ -128,6 +128,14 @@ export function planChannelRows(input: {
    * delivery is the only honest evidence that it is actually running.
    */
   delivering?: boolean;
+  /**
+   * `validateStep` results per adapter, from the mirror — the blockers the
+   * drawer's own steps raise, which preflight does not see because it
+   * reads the plan rather than the draft's internals. Appended to the
+   * preflight rows so the row's badge is the whole truth about that
+   * channel, and anchored by the drawer rather than by a preflight field.
+   */
+  drawerBlockers?: Partial<Record<PlanAdapterName, readonly BlockerRowModel[]>>;
 }): PlanChannelRowModel[] {
   const hasMetaDraft = input.plan.launches.meta.draftId != null;
   const budgeted = new Set(budgetedLaunchAdapters(input.plan.intent.budget));
@@ -164,8 +172,21 @@ export function planChannelRows(input: {
           };
         });
 
+    /**
+     * Preflight first, then the step-level blockers, deduped on the same
+     * message: "Select at least one audience" can be raised by both, and
+     * the operator should see one row, anchored at the drawer section.
+     */
+    const seen = new Set(blockers.map((row) => row.full));
+    const allBlockers = skipped
+      ? blockers
+      : [
+          ...blockers,
+          ...(input.drawerBlockers?.[adapter] ?? []).filter((row) => !seen.has(row.full)),
+        ];
+
     /** Advisories ride the same badge but must not recolour the dot. */
-    const blockerCount = blockers.filter((row) => row.kind === "blocker").length;
+    const blockerCount = allBlockers.filter((row) => row.kind === "blocker").length;
     const base = statusFromLaunchAndBlockers(record, blockerCount);
     const status: VizStatus =
       record.platformCampaignId != null && !input.delivering ? "paused" : base;
@@ -177,7 +198,7 @@ export function planChannelRows(input: {
       derived: adapter !== "meta",
       waiting,
       waitingFor: "meta" as VizPlatform,
-      blockers,
+      blockers: allBlockers,
       anchor: defaultAnchorFor(adapter),
       href: input.hrefs[adapter] ?? null,
       adsManagerHref:

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 
 import { channelRowView, type ChannelFact } from "@/lib/viz/channel-row";
 import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
@@ -23,6 +23,7 @@ export function ChannelRow({
   onOpen,
   onResume,
   onOpenAnchor,
+  openRef,
 }: {
   platform: VizPlatform;
   status: VizStatus;
@@ -36,6 +37,11 @@ export function ChannelRow({
   onOpen: () => void;
   onResume?: () => void;
   onOpenAnchor?: (anchor: BlockerAnchor) => void;
+  /**
+   * The `open ▸` button, so a drawer opened from this row can exempt its
+   * own trigger from the outside-click closer (#876).
+   */
+  openRef?: RefObject<HTMLButtonElement | null>;
 }) {
   const view = channelRowView({
     status,
@@ -79,6 +85,7 @@ export function ChannelRow({
       <button
         type="button"
         className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
+        ref={openRef}
         onClick={onOpen}
       >
         open ▸

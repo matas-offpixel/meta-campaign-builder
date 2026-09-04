@@ -315,7 +315,14 @@ describe("Drawer — #871 reachable after a real click", () => {
     assert.match(source, /pointerdown/);
     assert.match(source, /triggerRef/);
     assert.match(source, /Escape/);
-    assert.match(source, />\s*Done\s*</);
+    /**
+     * PR 4 made the label a prop so `/campaign/[id]` can read
+     * "Campaign Library" — closing a page-variant drawer goes somewhere,
+     * where closing a sheet goes back to the canvas behind it. The
+     * default is still Done, which is what this guards.
+     */
+    assert.match(source, /doneLabel = "Done"/);
+    assert.match(source, />\s*\{doneLabel\}\s*</);
     assert.match(source, /max-md:inset-0/);
     assert.match(source, /onLoadTemplate/);
     assert.match(source, /#871/);
