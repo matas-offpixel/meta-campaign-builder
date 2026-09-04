@@ -24,7 +24,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { Card, CardTitle } from "@/components/ui/card";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
@@ -66,6 +67,12 @@ import {
 } from "@/lib/optimisation/presets";
 
 interface OptimisationStrategyProps {
+  /**
+   * `drawer` mounts this inside the Meta drawer's `details` disclosure,
+   * where the preset #877 resolved is the record and this step is the
+   * per-campaign override rather than the first decision.
+   */
+  surface?: StepSurface;
   strategy: OptimisationStrategySettings;
   objective: CampaignObjective;
   budgetAmount: number;
@@ -159,20 +166,20 @@ function BenchmarkCard({ benchmarks }: { benchmarks: BenchmarkPercentile[] }) {
                 <Badge variant={style.badge} className="shrink-0 text-[10px] uppercase tracking-wider">
                   {t}
                 </Badge>
-                <p className="text-sm font-medium text-foreground">{b.metricLabel}</p>
+                <Datum className="text-sm font-medium text-foreground">{b.metricLabel}</Datum>
               </div>
               <div className="flex items-center gap-6 text-sm">
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-0.5">Top 25%</p>
-                  <p className="font-semibold text-success">{formatBenchmark(b.top25, b)}</p>
+                  <Datum className="text-xs text-muted-foreground mb-0.5">Top 25%</Datum>
+                  <Datum className="font-semibold text-success">{formatBenchmark(b.top25, b)}</Datum>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-0.5">Median</p>
-                  <p className="font-semibold text-foreground">{formatBenchmark(b.median, b)}</p>
+                  <Datum className="text-xs text-muted-foreground mb-0.5">Median</Datum>
+                  <Datum className="font-semibold text-foreground">{formatBenchmark(b.median, b)}</Datum>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-0.5">Bottom 25%</p>
-                  <p className="font-semibold text-warning">{formatBenchmark(b.bottom25, b)}</p>
+                  <Datum className="text-xs text-muted-foreground mb-0.5">Bottom 25%</Datum>
+                  <StatusLine className="font-semibold text-warning">{formatBenchmark(b.bottom25, b)}</StatusLine>
                 </div>
               </div>
             </div>
@@ -465,14 +472,14 @@ function RuleCard({
             </div>
             <div className="flex items-center gap-4">
               <div className="flex-1">
-                <p className="text-xs text-muted-foreground mb-0.5">Account benchmark</p>
-                <p className="text-sm font-medium text-foreground">
+                <Datum className="text-xs text-muted-foreground mb-0.5">Account benchmark</Datum>
+                <Datum className="text-sm font-medium text-foreground">
                   {accountBenchmark != null ? `${metricSym}${accountBenchmark}${metricSuffix}` : "—"}
-                </p>
+                </Datum>
               </div>
               {rule.useOverride ? (
                 <div className="flex-1">
-                  <p className="text-xs text-warning mb-0.5 font-medium">Campaign override</p>
+                  <StatusLine className="text-xs text-warning mb-0.5 font-medium">Campaign override</StatusLine>
                   <div className="relative">
                     {!isRoas && <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{metricSym}</span>}
                     <input
@@ -490,22 +497,22 @@ function RuleCard({
                 </div>
               ) : (
                 <div className="flex-1">
-                  <p className="text-xs text-muted-foreground mb-0.5">Active target</p>
-                  <p className="text-sm font-medium text-foreground">
+                  <Datum className="text-xs text-muted-foreground mb-0.5">Active target</Datum>
+                  <Datum className="text-sm font-medium text-foreground">
                     {accountBenchmark != null ? `${metricSym}${accountBenchmark}${metricSuffix}` : "—"}
                     <span className="text-xs text-muted-foreground ml-1">(account)</span>
-                  </p>
+                  </Datum>
                 </div>
               )}
             </div>
             {rule.useOverride && accountBenchmark != null && rule.campaignTargetValue != null && (
-              <p className="text-xs text-warning mt-1.5">
+              <StatusLine className="text-xs text-warning mt-1.5">
                 {rule.campaignTargetValue > accountBenchmark
                   ? `Target is ${isRoas ? "above" : "above"} account benchmark — thresholds tuned for ${isRoas ? "higher return" : "higher cost"} economics`
                   : rule.campaignTargetValue < accountBenchmark
                     ? `Target is below account benchmark — tighter ${isRoas ? "return" : "cost"} expectations`
                     : "Target matches account benchmark"}
-              </p>
+              </StatusLine>
             )}
           </div>
 
@@ -723,9 +730,9 @@ function BudgetGuardrailsCard({
               style={{ width: `${usagePct}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-foreground">
+          <Prose className="mt-2 text-xs text-foreground">
             Automation can scale budgets up to <strong>{sym}{ceiling.toLocaleString()}</strong> total, but no further.
-          </p>
+          </Prose>
         </div>
 
         {/* Ceiling behaviour */}
@@ -805,9 +812,9 @@ function BudgetGuardrailsCard({
                   </div>
                 </div>
                 {guardrails.maxSingleAdSetBudget != null && (guardrails.maxSingleAdSetBudgetType ?? "fixed") === "percent" && (
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <Datum className="mt-1 text-xs text-muted-foreground">
                     = {sym}{Math.round(base * (guardrails.maxSingleAdSetBudget / 100)).toLocaleString()} per ad set
-                  </p>
+                  </Datum>
                 )}
               </div>
 
@@ -831,9 +838,9 @@ function BudgetGuardrailsCard({
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
                 </div>
                 {guardrails.maxDailyIncreasePercent != null && (
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <Prose className="mt-1 text-xs text-muted-foreground">
                     No single ad set can increase more than +{guardrails.maxDailyIncreasePercent}% in one adjustment cycle.
-                  </p>
+                  </Prose>
                 )}
               </div>
 
@@ -858,9 +865,9 @@ function BudgetGuardrailsCard({
                   </select>
                 </div>
                 {guardrails.cooldownHours != null && (
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <Datum className="mt-1 text-xs text-muted-foreground">
                     Wait {guardrails.cooldownHours}h after any budget change before allowing the next increase.
-                  </p>
+                  </Datum>
                 )}
               </div>
             </div>
@@ -1054,6 +1061,7 @@ function PresetStrategyView({
 }
 
 export function OptimisationStrategy({
+  surface = "wizard",
   strategy,
   objective,
   budgetAmount,
@@ -1187,13 +1195,16 @@ export function OptimisationStrategy({
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h2 className="font-heading text-2xl tracking-wide">Optimisation Strategy</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Configure performance-based rules that automatically scale, reduce, or pause ad sets based on live metrics.
-        </p>
-      </div>
+    <StepSurfaceProvider surface={surface}>
+    <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-6"}>
+      <Chrome>
+        <div>
+          <h2 className="font-heading text-2xl tracking-wide">Optimisation Strategy</h2>
+          <Prose className="mt-1 text-sm text-muted-foreground">
+            Configure performance-based rules that automatically scale, reduce, or pause ad sets based on live metrics.
+          </Prose>
+        </div>
+      </Chrome>
 
       <BenchmarkCard benchmarks={benchmarks} />
 
@@ -1219,10 +1230,10 @@ export function OptimisationStrategy({
                   <Icon className="h-4 w-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${isActive ? "text-foreground" : "text-foreground"}`}>
+                  <Datum className={`text-sm font-medium ${isActive ? "text-foreground" : "text-foreground"}`}>
                     {opt.label}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{opt.description}</p>
+                  </Datum>
+                  <Datum className="text-xs text-muted-foreground mt-0.5">{opt.description}</Datum>
                 </div>
                 <div className={`mt-1 h-4 w-4 shrink-0 rounded-full border-2 transition-colors
                   ${isActive ? "border-primary bg-primary" : "border-border"}`}>
@@ -1256,9 +1267,9 @@ export function OptimisationStrategy({
                   {strategy.mode === "benchmarks" ? "Benchmark-Generated Rules" : "Custom Rules"}
                 </CardTitle>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <Datum className="text-xs text-muted-foreground mt-1">
                 {activeRuleCount} active rule{activeRuleCount !== 1 ? "s" : ""} · {totalThresholds} threshold{totalThresholds !== 1 ? "s" : ""}
-              </p>
+              </Datum>
             </div>
             <div className="flex items-center gap-2">
               {strategy.mode === "benchmarks" && (
@@ -1290,7 +1301,7 @@ export function OptimisationStrategy({
 
             {strategy.rules.length === 0 && (
               <div className="rounded-lg border border-dashed border-border py-8 text-center">
-                <p className="text-sm text-muted-foreground">No rules configured</p>
+                <StatusLine className="text-sm text-muted-foreground">No rules configured</StatusLine>
                 {strategy.mode === "custom" && (
                   <Button variant="ghost" size="sm" className="mt-2" onClick={addCustomRule}>
                     <Plus className="h-3.5 w-3.5" />
@@ -1324,9 +1335,9 @@ export function OptimisationStrategy({
             {/* Guardrails summary */}
             {strategy.guardrails && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
+                <Datum className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
                   Budget Guardrails
-                </p>
+                </Datum>
                 <div className="space-y-1 text-sm">
                   <div className="flex items-center gap-2">
                     <Shield className="h-3.5 w-3.5 text-primary" />
@@ -1365,9 +1376,9 @@ export function OptimisationStrategy({
               const prio = OBJECTIVE_METRIC_PRIORITY[objective];
               return (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
+                  <Datum className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
                     Metric Priority
-                  </p>
+                  </Datum>
                   <div className="space-y-1 text-sm">
                     <div className="flex items-center gap-2">
                       <Badge variant="primary" className="text-[10px] uppercase tracking-wider shrink-0">Primary</Badge>
@@ -1379,7 +1390,7 @@ export function OptimisationStrategy({
                         <span>{prio.secondaryLabel}</span>
                       </div>
                     )}
-                    <p className="text-xs text-muted-foreground mt-1">{prio.summaryLine}</p>
+                    <Datum className="text-xs text-muted-foreground mt-1">{prio.summaryLine}</Datum>
                   </div>
                 </div>
               );
@@ -1403,9 +1414,9 @@ export function OptimisationStrategy({
                           {rule.priority}
                         </Badge>
                       )}
-                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      <Datum className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                         {rule.name} · {TIME_WINDOW_LABELS[rule.timeWindow]} window
-                      </p>
+                      </Datum>
                     </div>
                     {/* Benchmark vs target */}
                     {abm != null && (
@@ -1427,5 +1438,6 @@ export function OptimisationStrategy({
         </Card>
       )}
     </div>
+    </StepSurfaceProvider>
   );
 }

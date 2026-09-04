@@ -32,6 +32,10 @@ export function Drawer({
   onDone,
   onLoadTemplate,
   triggerRef,
+  variant = "sheet",
+  header,
+  footer,
+  doneLabel = "Done",
   children,
 }: {
   open: boolean;
@@ -43,13 +47,25 @@ export function Drawer({
   onDone: () => void;
   onLoadTemplate?: () => void;
   triggerRef?: RefObject<Element | null>;
+  /**
+   * `sheet` is the side sheet over the canvas. `page` is the same shell
+   * rendered in the document flow, for a draft with no canvas behind it
+   * (`/campaign/[id]`) — no portal, no modal semantics, no esc-to-close,
+   * because there is nothing underneath to go back to.
+   */
+  variant?: "sheet" | "page";
+  /** Extra header content, right of the tabs — e.g. the attach mode. */
+  header?: ReactNode;
+  /** Extra footer content, left of Done — e.g. a save-status indicator. */
+  footer?: ReactNode;
+  doneLabel?: string;
   children: ReactNode;
 }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || variant === "page") return;
     const sheet = sheetRef.current;
     const first = sheet?.querySelector<HTMLElement>(
       "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
@@ -74,9 +90,11 @@ export function Drawer({
       document.removeEventListener("pointerdown", onPointer, true);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open, onDone, triggerRef]);
+  }, [open, onDone, triggerRef, variant]);
 
   function onSheetKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    // A page has somewhere else to tab to; a sheet does not.
+    if (variant === "page") return;
     if (event.key !== "Tab" || !sheetRef.current) return;
     const focusable = [
       ...sheetRef.current.querySelectorAll<HTMLElement>(
@@ -95,15 +113,21 @@ export function Drawer({
     }
   }
 
-  if (!open || typeof document === "undefined") return null;
+  if (!open) return null;
+  const page = variant === "page";
+  if (!page && typeof document === "undefined") return null;
 
   const sheet = (
     <div
       ref={sheetRef}
-      role="dialog"
-      aria-modal="true"
+      role={page ? "region" : "dialog"}
+      aria-modal={page ? undefined : "true"}
       aria-labelledby={titleId}
-      className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-md md:w-[28rem] max-md:inset-0"
+      className={
+        page
+          ? "flex min-h-0 flex-col rounded-md border border-border bg-background"
+          : "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-md md:w-[34rem] max-md:inset-0"
+      }
       onKeyDown={onSheetKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -130,6 +154,7 @@ export function Drawer({
             );
           })}
         </nav>
+        {header}
         <StatusDot status={status} />
         {onLoadTemplate ? (
           <button
@@ -141,18 +166,25 @@ export function Drawer({
           </button>
         ) : null}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">{children}</div>
-      <footer className="flex justify-end border-t border-border px-3 py-2">
+      <div
+        className={
+          page ? "px-3 py-3" : "min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        }
+      >
+        {children}
+      </div>
+      <footer className="flex items-center justify-end gap-2 border-t border-border px-3 py-2">
+        {footer}
         <button
           type="button"
           className="rounded-sm border border-border px-3 py-1 text-sm hover:bg-muted"
           onClick={onDone}
         >
-          Done
+          {doneLabel}
         </button>
       </footer>
     </div>
   );
 
-  return createPortal(sheet, document.body);
+  return page ? sheet : createPortal(sheet, document.body);
 }

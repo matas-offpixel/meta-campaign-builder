@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,7 @@ import {
   isAdvantageAudienceSupportedForObjective,
   objectiveDisplayName,
 } from "@/lib/meta/advantage-plus-compat";
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
 // Presets are resolved at runtime via the same Meta location-search API
@@ -271,6 +272,15 @@ function deduplicateLocationGroups(groups: LocationTargetingGroup[]): LocationTa
 // ─── Ad set generation ───────────────────────────────────────────────────────
 
 interface BudgetScheduleProps {
+  /**
+   * `drawer` splits this step in two, per `variant`. Budget, schedule,
+   * placements and location are demoted to the drawer's `details`
+   * disclosure, because the plan, the preset and the event already
+   * decided them (§3a row 6); the ad-set rows stay in the `⊞` tab.
+   */
+  surface?: StepSurface;
+  /** Which half to render. Ignored on the wizard, which renders both. */
+  variant?: "adsets" | "details";
   budgetSchedule: BudgetScheduleSettings;
   adSetSuggestions: AdSetSuggestion[];
   audiences: AudienceSettings;
@@ -553,7 +563,7 @@ function LocationPicker({
           })}
         </div>
         {presetError && (
-          <p className="mt-1 text-xs text-destructive">{presetError}</p>
+          <StatusLine tone="alert" className="mt-1 text-xs text-destructive">{presetError}</StatusLine>
         )}
       </div>
 
@@ -616,10 +626,10 @@ function LocationPicker({
           </div>
         )}
         {searchQuery.length >= 2 && !locationSearch.loading && locationSearch.results.length === 0 && (
-          <p className="mt-1 text-xs text-muted-foreground">No results for &ldquo;{searchQuery}&rdquo;</p>
+          <StatusLine className="mt-1 text-xs text-muted-foreground">No results for &ldquo;{searchQuery}&rdquo;</StatusLine>
         )}
         {locationSearch.error && (
-          <p className="mt-1 text-xs text-destructive">{locationSearch.error}</p>
+          <StatusLine tone="alert" className="mt-1 text-xs text-destructive">{locationSearch.error}</StatusLine>
         )}
       </div>
 
@@ -671,17 +681,17 @@ function LocationPicker({
             ))}
           </div>
           {groups.length > 1 && (
-            <p className="mt-2 text-[11px] text-muted-foreground">
+            <StatusLine className="mt-2 text-[11px] text-muted-foreground">
               {groups.length} groups — each audience will produce {groups.length} ad sets (one per location group).
-            </p>
+            </StatusLine>
           )}
         </div>
       )}
 
       {groups.length === 0 && (
-        <p className="text-xs text-muted-foreground">
+        <StatusLine className="text-xs text-muted-foreground">
           No locations selected — ad sets will default to UK nationwide targeting.
-        </p>
+        </StatusLine>
       )}
     </div>
   );
@@ -978,15 +988,15 @@ function PlacementPicker({
           </div>
 
           {validation.errors.length > 0 && (
-            <p className="text-xs text-destructive">{validation.errors[0]}</p>
+            <StatusLine tone="alert" className="text-xs text-destructive">{validation.errors[0]}</StatusLine>
           )}
           {validation.valid && validation.warnings.length > 0 && (
-            <p className="text-[11px] text-muted-foreground">{validation.warnings[0]}</p>
+            <Datum className="text-[11px] text-muted-foreground">{validation.warnings[0]}</Datum>
           )}
           {validation.valid && targeting && (
-            <p className="text-[11px] text-muted-foreground">
+            <Datum className="text-[11px] text-muted-foreground">
               Sends to Meta as: <code className="text-foreground">publisher_platforms={JSON.stringify(targeting.publisher_platforms)}</code>
-            </p>
+            </Datum>
           )}
         </div>
       )}
@@ -1041,12 +1051,12 @@ function ScheduleCard({
         </div>
       </div>
       {days > 0 && (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <Datum className="mt-2 text-xs text-muted-foreground">
           Duration: <span className="font-medium text-foreground">{days} days</span>
           {bs.budgetType === "daily" && (
             <> · Total estimated spend: <span className="font-medium text-foreground">{bs.currency} {(bs.budgetAmount * days).toFixed(2)}</span></>
           )}
-        </p>
+        </Datum>
       )}
     </Card>
   );
@@ -1106,9 +1116,9 @@ function BulkAgeModal({
           />
         </div>
         {invalid && (
-          <p className="mt-2 text-xs text-destructive">
+          <StatusLine tone="alert" className="mt-2 text-xs text-destructive">
             Min must be less than max, both between 13 and 65.
-          </p>
+          </StatusLine>
         )}
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
@@ -1158,7 +1168,7 @@ function BulkBudgetModal({
           step={0.01}
         />
         {invalid && (
-          <p className="mt-2 text-xs text-destructive">Budget must be greater than 0.</p>
+          <StatusLine tone="alert" className="mt-2 text-xs text-destructive">Budget must be greater than 0.</StatusLine>
         )}
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
@@ -1174,6 +1184,8 @@ function BulkBudgetModal({
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export function BudgetSchedule({
+  surface = "wizard",
+  variant = "adsets",
   budgetSchedule: bs,
   adSetSuggestions,
   audiences,
@@ -1363,15 +1375,34 @@ export function BudgetSchedule({
     blank: "blank",
   };
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h2 className="font-heading text-2xl tracking-wide">Budget & Schedule</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Configure spending, timing, and ad set structure.
-        </p>
-      </div>
+  /**
+   * The drawer splits this step across two surfaces: the `⊞` tab takes the
+   * ad-set rows, `details` takes the budget, schedule, geo and placements
+   * §3a demoted. One mount each, so neither table renders twice.
+   */
+  const showDemoted = surface !== "drawer" || variant === "details";
+  const showAdSets = surface !== "drawer" || variant === "adsets";
 
+  return (
+    <StepSurfaceProvider surface={surface}>
+    <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-6"}>
+      <Chrome>
+        <div>
+          <h2 className="font-heading text-2xl tracking-wide">Budget & Schedule</h2>
+          <Prose className="mt-1 text-sm text-muted-foreground">
+            Configure spending, timing, and ad set structure.
+          </Prose>
+        </div>
+      </Chrome>
+
+      {/*
+        Budget, schedule, location and placements are demoted to the drawer's
+        `details` disclosure (§3a rows 1 and 6): the plan owns the budget and
+        the window, the client preset owns placements and age, the event owns
+        the geo. Only the ad-set rows below are still judgement.
+      */}
+      {showDemoted ? (
+      <>
       {/* Budget */}
       <Card>
         <CardTitle>Budget</CardTitle>
@@ -1501,15 +1532,20 @@ export function BudgetSchedule({
           />
         </div>
       </Card>
+      </>
+      ) : null}
 
       {/* Ad Sets — renamed from "Ad Set Suggestions": these are commitments, not
           suggestions, once the operator has fine-tuned them below. */}
+      {showAdSets ? (
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle>Ad Sets</CardTitle>
-            <CardDescription>Generated from your audiences. Fine-tune each ad set.</CardDescription>
-          </div>
+          <Chrome>
+            <div>
+              <CardTitle>Ad Sets</CardTitle>
+              <CardDescription>Generated from your audiences. Fine-tune each ad set.</CardDescription>
+            </div>
+          </Chrome>
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" onClick={addBlankAdSet}>
               <Plus className="h-3.5 w-3.5" />
@@ -1591,10 +1627,10 @@ export function BudgetSchedule({
 
         {adSetSuggestions.length === 0 ? (
           <div className="mt-4 rounded-lg border border-dashed border-border py-8 text-center">
-            <p className="text-sm text-muted-foreground">
+            <StatusLine className="text-sm text-muted-foreground">
               Click &quot;Generate Suggestions&quot; to create ad sets from your audiences, or add a
               &quot;Blank ad set&quot; for pure Advantage+ prospecting.
-            </p>
+            </StatusLine>
           </div>
         ) : (
           <div className="mt-4 space-y-2">
@@ -1610,7 +1646,7 @@ export function BudgetSchedule({
               <div className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                 <div className="text-xs text-warning">
-                  <p>
+                  <StatusLine>
                     {oversizedBudgetAdSets.length === 1 ? (
                       <>
                         <span className="font-medium">{oversizedBudgetAdSets[0].name}</span>
@@ -1634,10 +1670,10 @@ export function BudgetSchedule({
                         .
                       </>
                     )}
-                  </p>
-                  <p className="mt-0.5 text-warning/80">
+                  </StatusLine>
+                  <StatusLine className="mt-0.5 text-warning/80">
                     Review before launch — a single oversized blank/Wide set can outspend the rest of the campaign.
-                  </p>
+                  </StatusLine>
                 </div>
               </div>
             )}
@@ -1833,10 +1869,10 @@ export function BudgetSchedule({
                     {/* ── Per-ad-set placement override (task #117) ─────────── */}
                     {expandedPlacementAdSetId === s.id && (
                       <div className="border-t border-border bg-muted/30 px-4 py-3">
-                        <p className="mb-2 text-[11px] text-muted-foreground">
+                        <StatusLine className="mb-2 text-[11px] text-muted-foreground">
                           Override placements for this ad set only — otherwise it uses the campaign-wide
                           Placements config above.
-                        </p>
+                        </StatusLine>
                         <PlacementPicker
                           compact
                           value={s.placementConfig ?? settings.placementConfig}
@@ -1856,6 +1892,7 @@ export function BudgetSchedule({
           </div>
         )}
       </Card>
+      ) : null}
 
       <BulkAgeModal
         open={ageModalOpen}
@@ -1874,5 +1911,6 @@ export function BudgetSchedule({
         rowCount={adSetSuggestions.length}
       />
     </div>
+    </StepSurfaceProvider>
   );
 }

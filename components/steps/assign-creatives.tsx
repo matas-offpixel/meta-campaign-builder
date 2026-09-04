@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Check, Info } from "lucide-react";
@@ -12,8 +12,11 @@ import type {
 } from "@/lib/types";
 import { ATTACHED_AD_SET_KEY_PREFIX } from "@/lib/types";
 import { findAdSetsWithMixedBoostAndLinkCreatives } from "@/lib/meta/adset";
+import { CardDescription, Chrome, Datum, Prose, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 
 interface AssignCreativesProps {
+  /** `drawer` drops the step heading; the `⊞` tab already names the surface. */
+  surface?: StepSurface;
   adSets: AdSetSuggestion[];
   creatives: AdCreativeDraft[];
   assignments: CreativeAssignmentMatrix;
@@ -27,7 +30,15 @@ interface AssignCreativesProps {
   attachAdSetMode?: boolean;
 }
 
-export function AssignCreatives({
+export function AssignCreatives(props: AssignCreativesProps) {
+  return (
+    <StepSurfaceProvider surface={props.surface ?? "wizard"}>
+      <AssignCreativesBody {...props} />
+    </StepSurfaceProvider>
+  );
+}
+
+function AssignCreativesBody({
   adSets,
   creatives,
   assignments,
@@ -141,21 +152,23 @@ export function AssignCreatives({
     return (
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <Chrome>
+            <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
+          </Chrome>
+          <Datum className="mt-1 text-sm text-muted-foreground">
             {attachAdSetMode
               ? "Pick one or more existing ad sets in Step 1, then add creatives in Step 4."
               : "Mix and match creatives with ad sets before launch."}
-          </p>
+          </Datum>
         </div>
         <Card className="py-10 text-center">
-          <p className="text-sm text-muted-foreground">
+          <Datum className="text-sm text-muted-foreground">
             {creatives.length === 0
               ? "Add creatives first, then assign them to ad sets."
               : attachAdSetMode
                 ? "Pick at least one existing ad set in Step 1 to continue."
                 : "Generate and enable ad sets in Budget & Schedule first."}
-          </p>
+          </Datum>
         </Card>
       </div>
     );
@@ -174,12 +187,12 @@ export function AssignCreatives({
       <div className="mx-auto max-w-4xl space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="font-heading text-2xl tracking-wide">
-              Assign Creatives
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <Chrome>
+              <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
+            </Chrome>
+            <Prose className="mt-1 text-sm text-muted-foreground">
               Tick which existing ad sets each new ad should be added to.
-            </p>
+            </Prose>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={assignAll}>
@@ -217,14 +230,14 @@ export function AssignCreatives({
                           : "new"}
                       </Badge>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <Datum className="mt-0.5 text-[11px] text-muted-foreground">
                       Added to{" "}
                       <span className="font-medium text-foreground">
                         {assignedCount}
                       </span>{" "}
                       of {enabledSets.length} ad set
                       {enabledSets.length !== 1 ? "s" : ""}
-                    </p>
+                    </Datum>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <button
@@ -313,10 +326,12 @@ export function AssignCreatives({
     <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <Chrome>
+            <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
+          </Chrome>
+          <Prose className="mt-1 text-sm text-muted-foreground">
             Choose which creatives run in each ad set.
-          </p>
+          </Prose>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={assignAll}>Assign All</Button>

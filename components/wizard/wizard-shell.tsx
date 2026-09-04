@@ -1,42 +1,16 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, X, ArrowLeft } from "lucide-react";
-import { WizardStepper } from "./wizard-stepper";
-import { WizardFooter, type SaveStatus } from "./wizard-footer";
-import { AccountSetup } from "@/components/steps/account-setup";
-import { CampaignSetup } from "@/components/steps/campaign-setup";
-import { OptimisationStrategy } from "@/components/steps/optimisation-strategy";
-import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
-import { Creatives } from "@/components/steps/creatives";
-import { BudgetSchedule } from "@/components/steps/budget-schedule";
-import { AssignCreatives } from "@/components/steps/assign-creatives";
+import { ArrowLeft } from "lucide-react";
+import { WizardFooter } from "./wizard-footer";
+import { MetaDrawer } from "@/components/plan/meta-drawer";
 import { ReviewLaunch } from "@/components/steps/review-launch";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
-import { LoadTemplateModal } from "@/components/templates/load-template-modal";
-import type {
-  CampaignDraft,
-  WizardStep,
-  CampaignSettings,
-  AudienceSettings,
-  AdCreativeDraft,
-  BudgetScheduleSettings,
-  AdSetSuggestion,
-  CreativeAssignmentMatrix,
-  OptimisationStrategySettings,
-  CampaignTemplate,
-  LaunchSummary,
-} from "@/lib/types";
-import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
-import { createDefaultDraft } from "@/lib/campaign-defaults";
+import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
-import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
-import { saveDraftToStorage, loadDraftFromStorage } from "@/lib/autosave";
-import { applyTemplate } from "@/lib/templates";
-import { createClient } from "@/lib/supabase/client";
-import { loadDraftById, saveDraftToDb } from "@/lib/db/drafts";
-import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
+import { saveDraftToStorage } from "@/lib/autosave";
+import { saveTemplateToDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
@@ -46,6 +20,7 @@ import {
   useWizardEventContext,
 } from "@/lib/wizard/use-event-context";
 import { derivePlanName } from "@/lib/plan/plan-name";
+import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
 
 interface WizardShellProps {
@@ -56,15 +31,20 @@ interface WizardShellProps {
 
 export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const router = useRouter();
-  const [step, setStep] = useState<WizardStep>(0);
-  const [draft, setDraft] = useState<CampaignDraft>(createDefaultDraft);
-  const [hydrated, setHydrated] = useState(false);
-  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [userId, setUserId] = useState<string | null>(null);
-  const userIdRef = useRef<string | null>(null);
+  /** One loader, one autosave, shared with the drawer on `/plan/[id]`. */
+  const draftController = useCampaignDraft(draftId);
+  const {
+    draft,
+    setDraft,
+    draftRef,
+    hydrated,
+    userId,
+    saveStatus,
+    autosave,
+    updateDraft,
+    updateSettings,
+    updateAudiences,
+  } = draftController;
 
   // Launch state
   const { mutate: launchCampaign, loading: launching, error: launchError, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
@@ -154,217 +134,17 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
 
   // Template state
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
-  const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
   const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
-  const [loadedTemplateName, setLoadedTemplateName] = useState<string | null>(null);
 
-  // ─── Initialisation ─────────────────────────────────────────────────────────
-  useEffect(() => {
-    async function init() {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (user) {
-        setUserId(user.id);
-        userIdRef.current = user.id;
-
-        // Load specific draft by ID from Supabase
-        const remoteDraft = await loadDraftById(draftId);
-        if (remoteDraft) {
-          console.log(
-            "[WizardShell] Loaded draft", draftId,
-            "| adAccountId:", remoteDraft.settings.adAccountId || "(empty)",
-            "| metaAdAccountId:", remoteDraft.settings.metaAdAccountId || "(empty)",
-          );
-          setDraft(remoteDraft);
-          saveDraftToStorage(remoteDraft);
-        } else {
-          // New campaign — create a fresh draft with this ID
-          console.log("[WizardShell] No draft found — creating fresh draft", draftId);
-          const fresh = createDefaultDraft();
-          fresh.id = draftId;
-          setDraft(fresh);
-        }
-      } else {
-        const localDraft = loadDraftFromStorage();
-        if (localDraft) setDraft(localDraft);
-      }
-
-      setHydrated(true);
-    }
-
-    init();
-  }, [draftId]);
-
-  // ─── Autosave ────────────────────────────────────────────────────────────────
-  const autosave = useCallback((d: CampaignDraft) => {
-    setSaveStatus("saving");
-    saveDraftToStorage(d);
-
-    if (userIdRef.current) {
-      saveDraftToDb(d, userIdRef.current).catch(console.warn);
-    }
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      setSaveStatus("saved");
-      saveTimeoutRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
-    }, 400);
-  }, []);
-
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
-  const debounceSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const scheduleAutosave = useCallback(() => {
-    if (debounceSaveRef.current) clearTimeout(debounceSaveRef.current);
-    debounceSaveRef.current = setTimeout(() => {
-      autosave(draftRef.current);
-    }, 1500);
-  }, [autosave]);
-
-  const updateDraft = useCallback(
-    (updater: (d: CampaignDraft) => CampaignDraft) => {
-      setDraft((prev) => {
-        const next = { ...updater(prev), updatedAt: new Date().toISOString() };
-        return next;
-      });
-      scheduleAutosave();
-    },
-    [scheduleAutosave],
-  );
-
-  // ─── Field updaters ──────────────────────────────────────────────────────────
-  const updateSettings = useCallback(
-    (settings: CampaignSettings) => updateDraft((d) => ({ ...d, settings })),
-    [updateDraft],
-  );
-
-  const updateAudiences = useCallback(
-    (audiences: AudienceSettings) => updateDraft((d) => ({ ...d, audiences })),
-    [updateDraft],
-  );
-
-  const updateCreatives = useCallback(
-    (creatives: AdCreativeDraft[]) => updateDraft((d) => ({ ...d, creatives })),
-    [updateDraft],
-  );
-
-  /** Sync settings.pageInstagramOverrides AND per-creative identity ids. */
-  const handlePageInstagramOverride = useCallback(
-    (pageId: string, igId: string) => {
-      updateDraft((d) => {
-        const overrides = { ...(d.settings.pageInstagramOverrides ?? {}) };
-        if (igId) overrides[pageId] = igId;
-        else delete overrides[pageId];
-
-        const creatives = d.creatives.map((c) => {
-          if (c.identity?.pageId !== pageId) return c;
-          if (!igId) {
-            return {
-              ...c,
-              identity: {
-                ...(c.identity ?? { pageId, instagramAccountId: "" }),
-                pageId,
-                instagramAccountId: "",
-                instagramActorId: "",
-              },
-            };
-          }
-          return applyPageInstagramOverrideToCreative(c, { [pageId]: igId });
-        });
-
-        return {
-          ...d,
-          settings: { ...d.settings, pageInstagramOverrides: overrides },
-          creatives,
-        };
-      });
-    },
-    [updateDraft],
-  );
-
-  const updateBudgetSchedule = useCallback(
-    (budgetSchedule: BudgetScheduleSettings) => updateDraft((d) => ({ ...d, budgetSchedule })),
-    [updateDraft],
-  );
-
-  const updateAdSetSuggestions = useCallback(
-    (adSetSuggestions: AdSetSuggestion[]) => updateDraft((d) => ({ ...d, adSetSuggestions })),
-    [updateDraft],
-  );
-
-  const updateOptimisationStrategy = useCallback(
-    (optimisationStrategy: OptimisationStrategySettings) =>
-      updateDraft((d) => ({ ...d, optimisationStrategy })),
-    [updateDraft],
-  );
-
-  const updateCreativeAssignments = useCallback(
-    (creativeAssignments: CreativeAssignmentMatrix) =>
-      updateDraft((d) => ({ ...d, creativeAssignments })),
-    [updateDraft],
-  );
-
-  // ─── Navigation ─────────────────────────────────────────────────────────────
-  const currentValidation = useMemo(() => validateStep(step, draft), [step, draft]);
-
-  // Visible step list for the current wizard mode. attach_adset hides
-  // Optimisation, Audiences and Budget — those are inherited from the
-  // existing live ad set. Anything the user lands on via direct URL
-  // / template load that isn't visible is treated as if they clicked the
-  // closest preceding visible step.
-  const visibleSteps = useMemo(
-    () => getVisibleSteps(draft.settings.wizardMode),
-    [draft.settings.wizardMode],
-  );
-
-  const changeStep = useCallback(
-    (newStep: WizardStep) => {
-      autosave(draft);
-      setStep(newStep);
-    },
-    [autosave, draft],
-  );
-
-  // Defensive: if the wizard mode changes while the user is on a now-hidden
-  // step, snap them back to the closest visible step.
-  useEffect(() => {
-    if (!visibleSteps.includes(step)) {
-      const fallback =
-        [...visibleSteps].reverse().find((s) => s <= step) ?? visibleSteps[0] ?? 0;
-      console.log(
-        `[WizardShell] step ${step} hidden in mode "${draft.settings.wizardMode ?? "new"}" — snapping to ${fallback}`,
-      );
-      setStep(fallback as WizardStep);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleSteps]);
-
-  const handleContinue = () => {
-    const idx = visibleSteps.indexOf(step);
-    if (idx === -1 || idx >= visibleSteps.length - 1) return;
-    setCompletedSteps((prev) => new Set([...prev, step]));
-    changeStep(visibleSteps[idx + 1]!);
-  };
-
-  const handleBack = () => {
-    const idx = visibleSteps.indexOf(step);
-    if (idx <= 0) return;
-    changeStep(visibleSteps[idx - 1]!);
-  };
-
-  const handleStepClick = (targetStep: WizardStep) => {
-    if (!visibleSteps.includes(targetStep)) return;
-    changeStep(targetStep);
-  };
+  // ─── Validation ─────────────────────────────────────────────────────────────
+  /**
+   * Step 7 aggregates every visible step, so with the stepper gone this one
+   * call is the whole draft's readiness — the same value the old footer
+   * showed on the last step, now shown always.
+   */
+  const currentValidation = useMemo(() => validateStep(7, draft), [draft]);
 
   const handleSaveDraft = () => autosave(draft);
 
@@ -470,48 +250,13 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     }
   };
 
-  // ─── Template: load modal ────────────────────────────────────────────────────
-  const handleOpenLoadModal = async () => {
-    setLoadTemplateOpen(true);
-    if (!userId) return;
-    setTemplatesLoading(true);
-    try {
-      const fetched = await loadTemplatesFromDb(userId);
-      setTemplates(fetched);
-    } catch (err) {
-      console.warn("Failed to fetch templates:", err);
-    } finally {
-      setTemplatesLoading(false);
-    }
-  };
-
-  const handleLoadTemplate = (template: CampaignTemplate) => {
-    const newDraft = applyTemplate(template);
-    newDraft.id = draftId; // keep same URL / row
-    setDraft(newDraft);
-    autosave(newDraft);
-    setCompletedSteps(new Set());
-    setStep(0);
-    setLoadedTemplateName(template.name);
-    setLoadTemplateOpen(false);
-  };
-
-  // ─── Template: delete ────────────────────────────────────────────────────────
-  const handleDeleteTemplate = async (id: string) => {
-    setTemplates((prev) => prev.filter((t) => t.id !== id));
-    setDeletingTemplateId(id);
-    try {
-      await deleteTemplateFromDb(id);
-    } catch (err) {
-      console.warn("Failed to delete template:", err);
-      if (userId) {
-        const fetched = await loadTemplatesFromDb(userId);
-        setTemplates(fetched);
-      }
-    } finally {
-      setDeletingTemplateId(null);
-    }
-  };
+  /*
+    The template loader moved into the drawer header (§3 build D) — one
+    `⌁ template ▸`, reading the same `lib/db/templates.ts`. The wizard's
+    own Load-Template modal, its footer button and the "Loaded from
+    template" banner all stop rendering here rather than becoming a
+    second way to do it.
+  */
 
   // ─── Loading gate ────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -541,131 +286,31 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         </div>
       </div>
 
-      <WizardStepper
-        currentStep={step}
-        completedSteps={completedSteps}
-        visibleSteps={visibleSteps}
-        onStepClick={handleStepClick}
-      />
+      <FacebookConnectionBanner onGoToAccountSetup={() => undefined} />
 
-      {step > 0 && (
-        <FacebookConnectionBanner onGoToAccountSetup={() => setStep(0)} />
-      )}
+      <main className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-6 py-6">
+        {/*
+          The drawer is the Meta wizard (§3a). Rendered `variant="page"`
+          there is no canvas behind it, but it is the same shell, the same
+          three tabs and the same `details` — `/plan/[id]` and
+          `/campaign/[id]` do not fork.
+        */}
+        <MetaDrawer
+          open
+          variant="page"
+          controller={draftController}
+          planId={linkedPlan?.id ?? null}
+          onClose={handleBackToLibrary}
+          doneLabel="Campaign Library"
+        />
 
-      {/* Template indicator */}
-      {loadedTemplateName && (
-        <div className="border-b border-border bg-primary/10 px-6 py-2">
-          <div className="mx-auto flex max-w-5xl items-center gap-2">
-            <FileText className="h-3.5 w-3.5 text-primary" />
-            <span className="text-xs text-foreground">
-              Loaded from template: <span className="font-medium">{loadedTemplateName}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setLoadedTemplateName(null)}
-              className="ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      <main className="flex-1 overflow-y-auto px-6 py-6">
-        {step === 0 && (
-          <AccountSetup
-            settings={draft.settings}
-            onChange={updateSettings}
-            campaignId={draftId}
-          />
-        )}
-        {step === 1 && <CampaignSetup settings={draft.settings} onChange={updateSettings} />}
-        {step === 2 && (
-          <OptimisationStrategy
-            strategy={draft.optimisationStrategy}
-            objective={draft.settings.objective}
-            budgetAmount={draft.budgetSchedule.budgetAmount}
-            currency={draft.budgetSchedule.currency}
-            onChange={updateOptimisationStrategy}
-            draftId={draftId}
-            campaignStatus={draft.status}
-            clientId={draft.settings.clientId}
-          />
-        )}
-        {step === 3 && (
-          <AudiencesStep
-            audiences={draft.audiences}
-            onChange={updateAudiences}
-            settings={draft.settings}
-            onSettingsChange={updateSettings}
-            onPageInstagramOverride={handlePageInstagramOverride}
-            adAccountId={draft.settings.metaAdAccountId}
-            clientId={draft.settings.clientId}
-            eventId={draft.settings.eventId}
-            campaignName={draft.settings.campaignName}
-          />
-        )}
-        {step === 4 && (
-          <Creatives
-            creatives={draft.creatives}
-            onChange={updateCreatives}
-            settings={draft.settings}
-            onSettingsChange={updateSettings}
-            adAccountId={draft.settings.metaAdAccountId}
-          />
-        )}
-        {step === 5 && (
-          <BudgetSchedule
-            budgetSchedule={draft.budgetSchedule}
-            adSetSuggestions={draft.adSetSuggestions}
-            audiences={draft.audiences}
-            settings={draft.settings}
-            onBudgetChange={updateBudgetSchedule}
-            onSuggestionsChange={updateAdSetSuggestions}
-            onSettingsChange={updateSettings}
-          />
-        )}
-        {step === 6 && (() => {
-          // attach_adset mode: derive one synthetic ad set entry per selected
-          // live ad set so the existing assign matrix has rows to work with.
-          // We never persist these into draft.adSetSuggestions — purely a
-          // render-time projection. The matrix is keyed by
-          // `attachedAdSetKey(metaAdSetId)` so per-ad-set assignments survive
-          // across re-renders and re-launches.
-          const selectedAdSets =
-            draft.settings.existingMetaAdSets ??
-            (draft.settings.existingMetaAdSet
-              ? [draft.settings.existingMetaAdSet]
-              : []);
-          const isAttachAdSet =
-            draft.settings.wizardMode === "attach_adset" &&
-            selectedAdSets.length > 0;
-          const adSetsForAssign: AdSetSuggestion[] = isAttachAdSet
-            ? selectedAdSets.map((s) => ({
-                id: attachedAdSetKey(s.id),
-                name: s.name,
-                sourceType: "page_group",
-                sourceId: s.id,
-                sourceName: s.name,
-                ageMin: 18,
-                ageMax: 65,
-                budgetPerDay: 0,
-                advantagePlus: false,
-                enabled: true,
-                metaAdSetId: s.id,
-              }))
-            : draft.adSetSuggestions;
-          return (
-            <AssignCreatives
-              adSets={adSetsForAssign}
-              creatives={draft.creatives}
-              assignments={draft.creativeAssignments}
-              onChange={updateCreativeAssignments}
-              attachAdSetMode={isAttachAdSet}
-            />
-          );
-        })()}
-        {step === 7 && (
+        {/*
+          Launch stays here for a standalone draft and only there: a
+          plan-linked draft launches from the canvas with the other
+          channels, so rendering Launch twice would be two ways to start
+          the same campaign (§3a row 8, friction #6).
+        */}
+        {!linkedPlan && (
           <ReviewLaunch
             draft={draft}
             isLaunching={launching}
@@ -683,19 +328,17 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       </main>
 
       <WizardFooter
-        currentStep={step}
-        visibleSteps={visibleSteps}
         canContinue={currentValidation.valid}
         validationErrors={currentValidation.errors}
         saveStatus={saveStatus}
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
-        onBack={handleBack}
-        onContinue={handleContinue}
+        /* A plan-linked draft launches from the canvas, never from here. */
+        showLaunch={!linkedPlan}
+        planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
         onSaveDraft={handleSaveDraft}
         onLaunch={handleLaunch}
         onSaveTemplate={() => setSaveTemplateOpen(true)}
-        onLoadTemplate={handleOpenLoadModal}
       />
 
       <SaveTemplateModal
@@ -711,15 +354,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         onSave={handleSaveTemplate}
       />
 
-      <LoadTemplateModal
-        open={loadTemplateOpen}
-        templates={templates}
-        loading={templatesLoading}
-        deletingId={deletingTemplateId}
-        onClose={() => setLoadTemplateOpen(false)}
-        onSelect={handleLoadTemplate}
-        onDelete={handleDeleteTemplate}
-      />
       </div>
     </WizardEventContextProvider>
   );

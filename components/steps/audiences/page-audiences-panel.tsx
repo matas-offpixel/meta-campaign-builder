@@ -35,6 +35,7 @@ import {
   type GenreBucket,
   type PageGenreClassification,
 } from "@/lib/genre-classification";
+import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
 
 interface PageAudiencesPanelProps {
   groups: PageAudienceGroup[];
@@ -214,20 +215,20 @@ function PageRow({
       <Checkbox checked={selected} onChange={onToggle} className="mt-0.5 shrink-0" />
       <PageThumbnail page={page} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium leading-snug">{page.name}</p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <Datum className="truncate text-sm font-medium leading-snug">{page.name}</Datum>
+        <StatusLine className="mt-0.5 text-[11px] text-muted-foreground">
           {fbFollowersFmt
             ? <span>FB: {fbFollowersFmt} followers</span>
             : <span className="italic">Followers unavailable</span>
           }
-        </p>
+        </StatusLine>
         {hasIg ? (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <Datum className="mt-0.5 text-[11px] text-muted-foreground">
             IG: {igHandle ? `@${igHandle}` : "(no username)"}
             {igFollowers && <span> · {igFollowers} followers</span>}
-          </p>
+          </Datum>
         ) : (
-          <p className="mt-0.5 text-[11px] text-muted-foreground/50 italic">No linked Instagram</p>
+          <Datum className="mt-0.5 text-[11px] text-muted-foreground/50 italic">No linked Instagram</Datum>
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1 self-start">
@@ -483,10 +484,10 @@ function IgDiagnosticPanel({
       {open && (
         <div className="border-t border-border px-3 py-2 space-y-2">
           {error && (
-            <p className="text-destructive">{error}</p>
+            <StatusLine tone="alert" className="text-destructive">{error}</StatusLine>
           )}
           {loading && (
-            <p className="text-muted-foreground italic">Running diagnostic…</p>
+            <Datum className="text-muted-foreground italic">Running diagnostic…</Datum>
           )}
           {results && results.map((r) => (
             <div
@@ -529,41 +530,41 @@ function IgDiagnosticPanel({
 
               {/* Resolved result */}
               {r.resolvedIgId && (
-                <p className="text-success">
+                <Datum className="text-success">
                   ✓ Resolved IG: <strong>{r.resolvedIgId}</strong>
                   <span className="ml-1.5 text-muted-foreground">via {r.resolvedIgSource}</span>
-                </p>
+                </Datum>
               )}
 
               {/* Token context */}
-              <p className="text-muted-foreground/70">
+              <Datum className="text-muted-foreground/70">
                 Token: <span className="font-mono">{r.tokenType}</span>
-              </p>
+              </Datum>
 
               {/* Diagnosis text */}
-              <p className={`leading-snug ${r.status === "not_linked" || r.status === "api_error" ? "text-warning" : "text-muted-foreground"}`}>
+              <StatusLine className={`leading-snug ${r.status === "not_linked" || r.status === "api_error" ? "text-warning" : "text-muted-foreground"}`}>
                 {r.diagnosis}
-              </p>
+              </StatusLine>
 
               {/* Page token comparison (if different result) */}
               {r.pageTokenResult && (
                 <div className="rounded border border-primary/20 bg-primary/5 px-2 py-1.5 space-y-0.5">
-                  <p className="font-medium text-primary">Page token result (different from user token):</p>
-                  <p>
+                  <Datum className="font-medium text-primary">Page token result (different from user token):</Datum>
+                  <Datum>
                     <span className="text-muted-foreground">instagram_business_account: </span>
                     {r.pageTokenResult.instagramBusinessAccount
                       ? <span className="text-success">id={r.pageTokenResult.instagramBusinessAccount.id}</span>
                       : <span className="italic text-muted-foreground/50">null</span>
                     }
-                  </p>
-                  <p>
+                  </Datum>
+                  <Datum>
                     <span className="text-muted-foreground">connected_instagram_account: </span>
                     {r.pageTokenResult.connectedInstagramAccount
                       ? <span className="text-primary">id={r.pageTokenResult.connectedInstagramAccount.id}</span>
                       : <span className="italic text-muted-foreground/50">null</span>
                     }
-                  </p>
-                  <p className="text-muted-foreground">{r.pageTokenResult.diagnosis}</p>
+                  </Datum>
+                  <Datum className="text-muted-foreground">{r.pageTokenResult.diagnosis}</Datum>
                 </div>
               )}
 
@@ -891,13 +892,13 @@ export function PageAudiencesPanel({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Page Groups</h3>
-          <p className="text-xs text-muted-foreground">
+          <StatusLine className="text-xs text-muted-foreground">
             {totalPagesAvailable > 0
               ? `${totalPagesAvailable} pages loaded`
               : businessPages.loading
               ? "Loading pages…"
               : "No pages loaded"}
-          </p>
+          </StatusLine>
         </div>
         <div className="flex items-center gap-2">
           {totalSelectedPages > 0 && !confirmClearAll && (
@@ -928,9 +929,9 @@ export function PageAudiencesPanel({
 
       {groups.length === 0 && (
         <Card className="py-8 text-center">
-          <p className="text-sm text-muted-foreground">
+          <StatusLine className="text-sm text-muted-foreground">
             Create a page group to start adding targeting audiences.
-          </p>
+          </StatusLine>
           <Button size="sm" className="mt-3" onClick={addGroup}>
             <Plus className="h-3.5 w-3.5" />
             New Group
@@ -1038,24 +1039,24 @@ export function PageAudiencesPanel({
 
                   return (
                     <div className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs space-y-1">
-                      <p className="font-medium text-foreground flex items-center gap-1.5">
+                      <Datum className="font-medium text-foreground flex items-center gap-1.5">
                         <AlertCircle className="h-3.5 w-3.5 text-warning shrink-0" />
                         Capability notes for {selectedPageObjs.length} selected page{selectedPageObjs.length !== 1 ? "s" : ""}
-                      </p>
+                      </Datum>
                       {noIg.length > 0 && (
-                        <p className="text-muted-foreground">
+                        <StatusLine className="text-muted-foreground">
                           <span className="font-medium">{noIg.length}</span> page{noIg.length !== 1 ? "s have" : " has"} no linked Instagram — IG source audiences will be skipped automatically.
-                        </p>
+                        </StatusLine>
                       )}
                       {fbFailed.length > 0 && (
-                        <p className="text-muted-foreground">
+                        <StatusLine className="text-muted-foreground">
                           <span className="font-medium">{fbFailed.length}</span> page{fbFailed.length !== 1 ? "s" : ""} previously failed FB source audience creation (event-source permission missing). Consider disabling engagement audiences below.
-                        </p>
+                        </StatusLine>
                       )}
                       {noIg.length === selectedPageObjs.length && !group.lookalike && (
-                        <p className="text-muted-foreground/80 italic text-[10px]">
+                        <StatusLine className="text-muted-foreground/80 italic text-[10px]">
                           No IG-capable pages — lookalike seeding will rely solely on FB sources.
-                        </p>
+                        </StatusLine>
                       )}
                     </div>
                   );
@@ -1304,14 +1305,14 @@ export function PageAudiencesPanel({
                           />
                         ))}
                         {!businessPages.loading && filteredBusiness.length === 0 && businessPages.data.length > 0 && (
-                          <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+                          <Datum className="px-3 py-3 text-center text-xs text-muted-foreground">
                             No Business Manager pages match the filter.
-                          </p>
+                          </Datum>
                         )}
                         {!businessPages.loading && !businessPages.error && businessPages.data.length === 0 && !adAccountId && (
-                          <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+                          <StatusLine className="px-3 py-3 text-center text-xs text-muted-foreground">
                             Select an ad account to load Business Manager pages.
-                          </p>
+                          </StatusLine>
                         )}
                       </div>
                     )}
@@ -1344,9 +1345,9 @@ export function PageAudiencesPanel({
                       filteredBusiness.length === 0 &&
                       filteredAdditional.length === 0 &&
                       allPages.length > 0 && (
-                        <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        <Datum className="px-3 py-4 text-center text-xs text-muted-foreground">
                           No pages match your search.
-                        </p>
+                        </Datum>
                       )}
                   </div>
 
@@ -1366,10 +1367,10 @@ export function PageAudiencesPanel({
                       </Button>
                     )}
                     {additionalPages.error && (
-                      <p className="flex items-center gap-1 text-xs text-destructive">
+                      <StatusLine tone="alert" className="flex items-center gap-1 text-xs text-destructive">
                         <AlertCircle className="h-3 w-3" />
                         {additionalPages.error}
-                      </p>
+                      </StatusLine>
                     )}
                     {!additionalPages.hasMore && additionalPages.pages.length > 0 && (
                       <span className="text-xs text-muted-foreground">
@@ -1449,9 +1450,9 @@ export function PageAudiencesPanel({
 
                     {/* Rate-limit note */}
                     {!userPages.loading && (
-                      <p className="mt-1 text-[10px] text-muted-foreground/70">
+                      <StatusLine className="mt-1 text-[10px] text-muted-foreground/70">
                         Use smaller loads for testing to avoid rate-limit issues.
-                      </p>
+                      </StatusLine>
                     )}
 
                     {/* ── Live progress panel ─────────────────────────────── */}
@@ -1535,7 +1536,7 @@ export function PageAudiencesPanel({
                         : userPages.loadMode === "sample" ? "sample" : "all pages";
                       return (
                         <div className="mt-1.5 space-y-1">
-                          <p className="text-xs text-muted-foreground">
+                          <Datum className="text-xs text-muted-foreground">
                             {userPages.fromCache && !userPages.loaded ? "Cached: " : "Loaded "}
                             <span className="font-medium text-foreground">{userPages.count}</span> pages
                             {" "}(<span className="font-medium">{modeLabel}</span>)
@@ -1548,7 +1549,7 @@ export function PageAudiencesPanel({
                             {userPages.enrichFallback && (
                               <span className="ml-1 text-warning"> (Instagram details unavailable — scope restricted)</span>
                             )}
-                          </p>
+                          </Datum>
                           {/* Test mode notice + enrich button */}
                           {userPages.enrichmentSkipped && (
                             <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary-light px-2.5 py-1.5 text-xs">
@@ -1571,22 +1572,22 @@ export function PageAudiencesPanel({
                     {/* ── Partial failure ──────────────────────────────────── */}
                     {!userPages.loading && userPages.loadStatus === "partial" && !userPages.fromCache && (
                       <div className="mt-1.5 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2 text-xs">
-                        <p className="font-medium text-foreground">
+                        <Datum className="font-medium text-foreground">
                           Loaded {userPages.count} pages (stopped at batch {userPages.failedAtBatch ?? "?"}).
-                        </p>
+                        </Datum>
                         {userPages.error && (
-                          <p className="mt-0.5 text-muted-foreground">{userPages.error}</p>
+                          <Datum className="mt-0.5 text-muted-foreground">{userPages.error}</Datum>
                         )}
-                        <p className="mt-0.5 text-muted-foreground">Pages collected so far are still selectable.</p>
+                        <StatusLine className="mt-0.5 text-muted-foreground">Pages collected so far are still selectable.</StatusLine>
                       </div>
                     )}
 
                     {/* ── Hard error ───────────────────────────────────────── */}
                     {!userPages.loading && userPages.loadStatus === "error" && userPages.error && (
-                      <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+                      <StatusLine tone="alert" className="mt-1 flex items-center gap-1 text-xs text-destructive">
                         <AlertCircle className="h-3 w-3 shrink-0" />
                         {userPages.error}
-                      </p>
+                      </StatusLine>
                     )}
 
                     {/* ── Search input (shown once we have pages) ──────────── */}
@@ -1715,9 +1716,9 @@ export function PageAudiencesPanel({
 
                         {/* Result count */}
                         {(userPagesSearch.trim() || activeGenreFilters.length > 0) && (
-                          <p className="text-[11px] text-muted-foreground">
+                          <Datum className="text-[11px] text-muted-foreground">
                             Showing {filteredUserPages.length} of {uniqueUserPages.length}
-                          </p>
+                          </Datum>
                         )}
                       </div>
                     )}
@@ -1733,7 +1734,7 @@ export function PageAudiencesPanel({
                             <span className="font-medium text-foreground">{page.name} — genre override</span>
                             <button type="button" onClick={() => setEditingPageGenre(null)} className="text-muted-foreground hover:text-foreground">✕</button>
                           </div>
-                          <p className="text-muted-foreground">Click a genre to set as primary. Auto-classification will be replaced.</p>
+                          <Prose className="text-muted-foreground">Click a genre to set as primary. Auto-classification will be replaced.</Prose>
                           <div className="flex flex-wrap gap-1">
                             {ALL_GENRE_BUCKETS.map((b) => {
                               const isActive = current?.primaryBucket === b || current?.secondaryBucket === b || current?.tertiaryBucket === b;
@@ -1785,13 +1786,13 @@ export function PageAudiencesPanel({
 
                     {/* ── Empty state ───────────────────────────────────────── */}
                     {!userPages.loading && userPages.loaded && filteredUserPages.length === 0 && !userPages.error && (
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <Datum className="mt-2 text-xs text-muted-foreground">
                         {userPages.count === 0
                           ? "No pages found — reconnect Facebook with correct permissions."
                           : userPagesSearch || activeGenreFilters.length > 0
                             ? "No pages match your search or genre filter."
                             : "All your Facebook pages are already shown above."}
-                      </p>
+                      </Datum>
                     )}
 
                     {/* ── Page list ─────────────────────────────────────────── */}
@@ -1827,9 +1828,9 @@ export function PageAudiencesPanel({
                         </button>
                         {otherPagesExpanded && (
                           <div className="border-t border-border/50 px-3 py-2">
-                            <p className="mb-1.5 text-[10px] text-muted-foreground">
+                            <Prose className="mb-1.5 text-[10px] text-muted-foreground">
                               Click a category to filter + bulk-select all pages from it.
-                            </p>
+                            </Prose>
                             <div className="flex flex-wrap gap-1.5">
                               {nonArtistCategories.map((cat) => {
                                 const total = categoryCounts[cat] ?? 0;
@@ -1927,10 +1928,10 @@ export function PageAudiencesPanel({
 
                   {/* Error */}
                   {customAudiences.error && (
-                    <p className="flex items-center gap-1.5 text-xs text-destructive">
+                    <StatusLine tone="alert" className="flex items-center gap-1.5 text-xs text-destructive">
                       <AlertCircle className="h-3 w-3 shrink-0" />
                       {customAudiences.error}
-                    </p>
+                    </StatusLine>
                   )}
 
                   {/* List — only shown after a successful load */}
@@ -1970,9 +1971,9 @@ export function PageAudiencesPanel({
 
                       <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-card">
                         {filteredCA.length === 0 ? (
-                          <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                          <Datum className="px-3 py-4 text-center text-xs text-muted-foreground">
                             {caSearch ? "No audiences match your search." : "No custom audiences found."}
-                          </p>
+                          </Datum>
                         ) : (
                           filteredCA.map((ca) => (
                             <label
@@ -2041,9 +2042,9 @@ export function PageAudiencesPanel({
 
                   {/* Engagement audiences note */}
                   {(group.engagementAudienceIds?.length ?? 0) > 0 && (
-                    <p className="text-[11px] text-muted-foreground">
+                    <Datum className="text-[11px] text-muted-foreground">
                       {group.engagementAudienceIds!.length} engagement audience{group.engagementAudienceIds!.length !== 1 ? "s" : ""} auto-created from previous launch (stored separately from your selection).
-                    </p>
+                    </Datum>
                   )}
                 </div>
               </div>
@@ -2143,9 +2144,9 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Selected Pages Lookalike</h3>
-          <p className="text-xs text-muted-foreground">
+          <Prose className="text-xs text-muted-foreground">
             Create lookalike audiences from your loaded Facebook pages — combined into one ad set per percentage tier.
-          </p>
+          </Prose>
         </div>
         <Button
           variant="outline"
@@ -2279,9 +2280,9 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                       </button>
                     ))}
                   </div>
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  <Prose className="mt-1.5 text-[11px] text-muted-foreground">
                     Each selected tier creates one ad set containing all valid lookalike audiences from the pages below.
-                  </p>
+                  </Prose>
                 </div>
 
                 {/* Page selection */}
@@ -2307,9 +2308,9 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                   </div>
 
                   {!userPages.loaded && userPages.count === 0 ? (
-                    <p className="rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+                    <Datum className="rounded-lg border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
                       Load your Facebook pages first using the &ldquo;My Facebook Pages&rdquo; section above.
-                    </p>
+                    </Datum>
                   ) : (
                     <>
                       <SearchInput
@@ -2319,15 +2320,15 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                         placeholder="Search pages…"
                       />
                       {search && (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
+                        <Datum className="mt-1 text-[11px] text-muted-foreground">
                           Showing {availablePages.length} of {userPages.data.length}
-                        </p>
+                        </Datum>
                       )}
                       <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-border bg-card">
                         {availablePages.length === 0 ? (
-                          <p className="px-3 py-4 text-center text-xs text-muted-foreground">
+                          <Datum className="px-3 py-4 text-center text-xs text-muted-foreground">
                             {search ? "No pages match your search." : "No pages loaded yet."}
-                          </p>
+                          </Datum>
                         ) : (
                           availablePages.map((p) => {
                             const selected = group.selectedPageIds.includes(p.id);
@@ -2352,9 +2353,9 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0">
-                                  <p className="truncate text-sm">{p.name}</p>
+                                  <Datum className="truncate text-sm">{p.name}</Datum>
                                   {p.instagramUsername && (
-                                    <p className="text-[10px] text-muted-foreground">@{p.instagramUsername}</p>
+                                    <Datum className="text-[10px] text-muted-foreground">@{p.instagramUsername}</Datum>
                                   )}
                                 </div>
                                 {p.facebookFollowers != null && (
@@ -2399,18 +2400,18 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                 {/* Preview */}
                 {pageCount > 0 && (
                   <div className="rounded-lg bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground space-y-1">
-                    <p className="font-medium text-foreground">Launch preview</p>
-                    <p>
+                    <Datum className="font-medium text-foreground">Launch preview</Datum>
+                    <Datum>
                       Up to <span className="font-medium text-foreground">{expectedSourceAudiences}</span> source audiences
                       ({pageCount} pages × {engCount} engagement type{engCount !== 1 ? "s" : ""})
-                    </p>
-                    <p>
+                    </Datum>
+                    <Datum>
                       <span className="font-medium text-foreground">{expectedAdSets}</span> lookalike ad set{expectedAdSets !== 1 ? "s" : ""}
                       {" "}({group.lookalikeRanges.map((r) => `"${group.name || "Selected Pages"} — ${RANGE_LABELS[r]} Lookalike"`).join(", ")})
-                    </p>
-                    <p className="text-[11px]">
+                    </Datum>
+                    <Prose className="text-[11px]">
                       Pages without linked Instagram will skip IG engagement types. Skipped pages do not block the rest.
-                    </p>
+                    </Prose>
                   </div>
                 )}
               </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useMemo, useEffect, useId } from "react";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -62,10 +62,21 @@ import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { InfoTip } from "@/components/viz/info-tip";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
+import { META_DRAWER_COPY } from "@/lib/plan/drawer";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
 interface CreativesProps {
+  /**
+   * `drawer` drops the fields §3a demotes: the per-ad destination URL (the
+   * plan owns one URL for every ad), the two secondary CTA pickers (one CTA
+   * per ad, applied to its variations), and the campaign-level Instagram
+   * override panel, which the audiences tab already renders.
+   */
+  surface?: StepSurface;
   creatives: AdCreativeDraft[];
   onChange: (creatives: AdCreativeDraft[]) => void;
   /** When omitted (e.g. bulk-attach), overrides are kept in component state only. */
@@ -104,19 +115,27 @@ function Spinner() {
 
 function FieldStatus({ loading, error }: { loading: boolean; error: string | null }) {
   if (loading) return (
-    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+    <StatusLine className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
       <Spinner /> Loading…
-    </p>
+    </StatusLine>
   );
   if (error) return (
-    <p className="mt-1 flex items-center gap-1 text-xs text-destructive">
+    <StatusLine tone="alert" className="mt-1 flex items-center gap-1 text-xs text-destructive">
       <AlertCircle className="h-3 w-3 flex-shrink-0" /> {error}
-    </p>
+    </StatusLine>
   );
   return null;
 }
 
-export function Creatives({
+export function Creatives(props: CreativesProps) {
+  return (
+    <StepSurfaceProvider surface={props.surface ?? "wizard"}>
+      <CreativesBody {...props} />
+    </StepSurfaceProvider>
+  );
+}
+
+function CreativesBody({
   creatives,
   onChange,
   settings,
@@ -125,6 +144,7 @@ export function Creatives({
   queueLibrary,
   onResetQueueBinding,
 }: CreativesProps) {
+  const drawer = useIsDrawer();
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>({});
   const pageInstagramOverrides =
     settings?.pageInstagramOverrides ?? localOverrides;
@@ -660,11 +680,16 @@ export function Creatives({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-2xl tracking-wide">Creatives</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Build ads with page identity, assets, and copy.{" "}
-            <span className="font-medium text-foreground">{creatives.length} ad{creatives.length !== 1 ? "s" : ""}</span>
-          </p>
+          <Chrome>
+            <h2 className="font-heading text-2xl tracking-wide">Creatives</h2>
+          </Chrome>
+          <Prose className="mt-1 text-sm text-muted-foreground">
+            Build ads with page identity, assets, and copy.
+          </Prose>
+          {/* The count is a fact about the draft, so it survives the drawer. */}
+          <Datum className="mt-1 text-sm font-medium text-foreground">
+            {creatives.length} ad{creatives.length !== 1 ? "s" : ""}
+          </Datum>
         </div>
         <Button size="sm" onClick={addAd}>
           <Plus className="h-3.5 w-3.5" />
@@ -695,7 +720,7 @@ export function Creatives({
 
       {creatives.length === 0 ? (
         <Card className="py-10 text-center">
-          <p className="text-sm text-muted-foreground">No ads yet. Add your first ad or drag files above.</p>
+          <StatusLine className="text-sm text-muted-foreground">No ads yet. Add your first ad or drag files above.</StatusLine>
           <Button size="sm" className="mt-3" onClick={addAd}>
             <Plus className="h-3.5 w-3.5" />
             Add Ad
@@ -790,15 +815,18 @@ export function Creatives({
                     </div>
                   </div>
 
-                  <PageInstagramOverridesPanel
-                    pageIds={creativePageIds}
-                    igAccounts={igAccounts.data}
-                    pageNames={pageNameById}
-                    overrides={pageInstagramOverrides}
-                    onOverrideChange={setPageInstagramOverride}
-                    loading={igAccounts.loading}
-                    error={igAccounts.error}
-                  />
+                  {/* The drawer renders this once, on the audiences tab. */}
+                  <Chrome>
+                    <PageInstagramOverridesPanel
+                      pageIds={creativePageIds}
+                      igAccounts={igAccounts.data}
+                      pageNames={pageNameById}
+                      overrides={pageInstagramOverrides}
+                      onOverrideChange={setPageInstagramOverride}
+                      loading={igAccounts.loading}
+                      error={igAccounts.error}
+                    />
+                  </Chrome>
 
                   {/* Identity: Page + IG */}
                   <div className="grid grid-cols-2 gap-4">
@@ -822,17 +850,17 @@ export function Creatives({
                         }))}
                       />
                       {settings?.channelDefaultsApplied?.facebookPage ? (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
+                        <Prose className="mt-1 text-[11px] text-muted-foreground">
                           Auto-picked from client defaults — you can change it.
-                        </p>
+                        </Prose>
                       ) : null}
                       {fbTokenExpired ? (
-                        <p className="mt-1 flex items-center gap-1 text-xs text-warning">
+                        <StatusLine className="mt-1 flex items-center gap-1 text-xs text-warning">
                           <AlertCircle className="h-3 w-3 flex-shrink-0" />
                           Facebook session expired — reconnect in Account Setup.
-                        </p>
+                        </StatusLine>
                       ) : pages.degraded || pages.error ? (
-                        <p className="mt-1 flex items-center gap-1 text-xs text-warning">
+                        <StatusLine className="mt-1 flex items-center gap-1 text-xs text-warning">
                           <AlertCircle className="h-3 w-3 flex-shrink-0" />
                           {pages.error ?? "couldn't load all pages — retry"}
                           <button
@@ -842,7 +870,7 @@ export function Creatives({
                           >
                             Retry
                           </button>
-                        </p>
+                        </StatusLine>
                       ) : (
                         <FieldStatus
                           loading={pages.loading && pages.data.length === 0}
@@ -954,14 +982,14 @@ export function Creatives({
                               ]}
                             />
                             {settings?.channelDefaultsApplied?.instagramActor ? (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
+                              <Prose className="mt-1 text-[11px] text-muted-foreground">
                                 Auto-picked from client defaults — you can change it.
-                              </p>
+                              </Prose>
                             ) : null}
                             {selectedPageId && mergedIG.length >= 2 && !active.identity?.instagramAccountId && (
-                              <p className="mt-1 text-[11px] text-destructive">
+                              <StatusLine tone="alert" className="mt-1 text-[11px] text-destructive">
                                 Required — this page has {mergedIG.length} linked Instagram accounts. Pick the correct handle before continuing.
-                              </p>
+                              </StatusLine>
                             )}
                             <FieldStatus
                               loading={igAccounts.loading || identityLoading}
@@ -969,24 +997,24 @@ export function Creatives({
                             />
                             {/* Definitive: page exists, no IG linked. */}
                             {selectedPageId && igDefinitivelyAbsent && (
-                              <p className="mt-1 text-[11px] text-warning">
+                              <StatusLine className="mt-1 text-[11px] text-warning">
                                 No linked Instagram account found for this page. Ads will use the Facebook Page identity only.
-                              </p>
+                              </StatusLine>
                             )}
                             {/* Soft: lookup failed, do NOT claim the page has no IG. */}
                             {selectedPageId && igUnresolved && (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
+                              <StatusLine className="mt-1 text-[11px] text-muted-foreground">
                                 Couldn&rsquo;t verify Instagram linkage for this page
                                 {identityState.data?.ig.state === "unresolved" &&
                                 identityState.data.ig.reason
                                   ? ` (${identityState.data.ig.reason})`
                                   : ""}
                                 . Reconnect Facebook if this is unexpected.
-                              </p>
+                              </StatusLine>
                             )}
                             {/* Resolved + linked — surface where it came from for debugging. */}
                             {identityIg && (
-                              <p className="mt-1 text-[11px] text-muted-foreground">
+                              <Datum className="mt-1 text-[11px] text-muted-foreground">
                                 Linked via{" "}
                                 {identityState.data?.ig.state === "linked"
                                   ? identityState.data.ig.account.source ===
@@ -995,7 +1023,7 @@ export function Creatives({
                                     : "Connected Instagram Account"
                                   : "—"}
                                 .
-                              </p>
+                              </Datum>
                             )}
                           </>
                         );
@@ -1169,13 +1197,18 @@ export function Creatives({
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
-                        <DestinationUrlField
-                          fieldId="meta-creative-destination-url"
-                          label="Destination URL"
-                          eventId={linkedEventId}
-                          value={active.destinationUrl}
-                          onChange={(url) => updateAd(active.id, { destinationUrl: url })}
-                        />
+                        {drawer ? (
+                          <DestinationBadge url={active.destinationUrl} />
+                        ) : (
+                          <DestinationUrlField
+                            fieldId="meta-creative-destination-url"
+                            label="Destination URL"
+                            eventId={linkedEventId}
+                            value={active.destinationUrl}
+                            onChange={(url) => updateAd(active.id, { destinationUrl: url })}
+                          />
+                        )}
+                        {/* The one CTA per ad — §3a keeps this and drops the two re-entries. */}
                         <Select
                           label="Call to Action"
                           value={active.cta}
@@ -1184,14 +1217,14 @@ export function Creatives({
                         />
                       </div>
                       {creativeHasBookNowMultiPlacementConflict(active) && (
-                        <p className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
+                        <StatusLine tone="alert" className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
                           Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                        </p>
+                        </StatusLine>
                       )}
                       {active.cta === "book_now" && active.assetMode === "single" && (active.assetVariations ?? []).length >= 2 && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                        <StatusLine className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                           <strong>Book Now blocks variation rotation:</strong> Only variation 1 will run. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to rotate all {(active.assetVariations ?? []).length} variations.
-                        </p>
+                        </StatusLine>
                       )}
                     </div>
                   </Card>
@@ -1203,16 +1236,18 @@ export function Creatives({
                 <Card>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <CardTitle>Select Existing Post</CardTitle>
-                      <CardDescription>
-                        {existingPostSource === "instagram"
-                          ? igUserId
-                            ? "Choose a published post from the linked Instagram account."
-                            : "No linked Instagram account on the selected Page — switch to Facebook below or pick a Page with a connected IG account."
-                          : active.identity?.pageId
-                            ? "Choose a published post from the selected Facebook Page's feed."
-                            : "Select a Facebook Page above to see available posts."}
-                      </CardDescription>
+                      <Chrome>
+                        <CardTitle>Select Existing Post</CardTitle>
+                        <CardDescription>
+                          {existingPostSource === "instagram"
+                            ? igUserId
+                              ? "Choose a published post from the linked Instagram account."
+                              : "No linked Instagram account on the selected Page — switch to Facebook below or pick a Page with a connected IG account."
+                            : active.identity?.pageId
+                              ? "Choose a published post from the selected Facebook Page's feed."
+                              : "Select a Facebook Page above to see available posts."}
+                        </CardDescription>
+                      </Chrome>
                     </div>
                     {/* Source toggle — Instagram (default) | Facebook */}
                     <div
@@ -1273,11 +1308,11 @@ export function Creatives({
                           <div className="flex items-start gap-2 text-destructive">
                             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                             <div className="flex-1">
-                              <p className="font-medium">
+                              <Datum className="font-medium">
                                 Couldn&rsquo;t load Instagram posts.
-                              </p>
+                              </Datum>
                               {igPosts.error && (
-                                <p className="mt-0.5 text-xs opacity-80">{igPosts.error}</p>
+                                <Datum className="mt-0.5 text-xs opacity-80">{igPosts.error}</Datum>
                               )}
                             </div>
                           </div>
@@ -1297,18 +1332,18 @@ export function Creatives({
                           <div className="flex items-start gap-2">
                             <Lock className="mt-0.5 h-4 w-4 shrink-0" />
                             <div className="flex-1">
-                              <p className="font-medium">
+                              <Datum className="font-medium">
                                 Instagram account linked, but this app session
                                 doesn&rsquo;t have permission to read its posts.
-                              </p>
-                              <p className="mt-1 text-xs opacity-90">
+                              </Datum>
+                              <StatusLine className="mt-1 text-xs opacity-90">
                                 Reconnect Facebook/Instagram and grant access to
                                 Instagram content to use this account&rsquo;s posts.
-                              </p>
+                              </StatusLine>
                               {igPosts.missingScopes && igPosts.missingScopes.length > 0 && (
-                                <p className="mt-1 font-mono text-[11px] opacity-70">
+                                <StatusLine className="mt-1 font-mono text-[11px] opacity-70">
                                   Missing: {igPosts.missingScopes.join(", ")}
-                                </p>
+                                </StatusLine>
                               )}
                             </div>
                           </div>
@@ -1343,25 +1378,25 @@ export function Creatives({
                           <div className="flex items-start gap-2">
                             <UserX className="mt-0.5 h-4 w-4 shrink-0" />
                             <div className="flex-1">
-                              <p className="font-medium">
+                              <StatusLine className="font-medium">
                                 The linked Instagram account is a Personal account.
-                              </p>
-                              <p className="mt-1 text-xs opacity-90">
+                              </StatusLine>
+                              <StatusLine className="mt-1 text-xs opacity-90">
                                 The Instagram Graph API only returns posts for
                                 Business or Creator accounts. Convert the account
                                 in the Instagram app, then reconnect Facebook —
                                 or switch to the Facebook tab to use a Page post.
-                              </p>
+                              </StatusLine>
                             </div>
                           </div>
                         </div>
                       )}
                       {igPosts.status === "empty" && (
                         <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-                          <p>No published Instagram posts found.</p>
-                          <p className="mt-1 text-xs">
+                          <Datum>No published Instagram posts found.</Datum>
+                          <Datum className="mt-1 text-xs">
                             Publish a post on the IG account first, or switch to Facebook.
-                          </p>
+                          </Datum>
                         </div>
                       )}
                       {igPosts.status === "success" && (
@@ -1387,9 +1422,9 @@ export function Creatives({
 
                           <div className="max-h-80 space-y-2 overflow-y-auto">
                             {filteredIgPosts.length === 0 ? (
-                              <p className="py-4 text-center text-sm text-muted-foreground">
+                              <Datum className="py-4 text-center text-sm text-muted-foreground">
                                 No posts match &ldquo;{postSearch}&rdquo;.
-                              </p>
+                              </Datum>
                             ) : (
                               filteredIgPosts.map((post) => {
                                 const isSelected =
@@ -1432,7 +1467,7 @@ export function Creatives({
                                         )}
                                       </div>
                                       <div className="min-w-0 flex-1">
-                                        <p className="line-clamp-2 text-sm">{post.caption}</p>
+                                        <Datum className="line-clamp-2 text-sm">{post.caption}</Datum>
                                         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                                           <span>
                                             {new Date(post.timestamp).toLocaleDateString()}
@@ -1461,21 +1496,23 @@ export function Creatives({
                             )}
                           </div>
 
-                          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
-                            <DestinationUrlField
-                              fieldId="meta-existing-ig-destination-url"
-                              label="Destination URL (optional)"
-                              eventId={linkedEventId}
-                              value={active.destinationUrl}
-                              onChange={(url) => updateAd(active.id, { destinationUrl: url })}
-                            />
-                            <Select
-                              label="CTA (optional)"
-                              value={active.cta}
-                              onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
-                              options={CTA_OPTIONS}
-                            />
-                          </div>
+                          <Chrome>
+                            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+                              <DestinationUrlField
+                                fieldId="meta-existing-ig-destination-url"
+                                label="Destination URL (optional)"
+                                eventId={linkedEventId}
+                                value={active.destinationUrl}
+                                onChange={(url) => updateAd(active.id, { destinationUrl: url })}
+                              />
+                              <Select
+                                label="CTA (optional)"
+                                value={active.cta}
+                                onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
+                                options={CTA_OPTIONS}
+                              />
+                            </div>
+                          </Chrome>
                         </>
                       )}
                     </div>
@@ -1504,9 +1541,9 @@ export function Creatives({
                         <div className="flex items-start gap-2 text-destructive">
                           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                           <div className="flex-1">
-                            <p className="font-medium">Couldn&rsquo;t load posts for this page.</p>
+                            <Datum className="font-medium">Couldn&rsquo;t load posts for this page.</Datum>
                             {pagePosts.error && (
-                              <p className="mt-0.5 text-xs opacity-80">{pagePosts.error}</p>
+                              <Datum className="mt-0.5 text-xs opacity-80">{pagePosts.error}</Datum>
                             )}
                           </div>
                         </div>
@@ -1525,10 +1562,10 @@ export function Creatives({
                     {/* empty */}
                     {pagePosts.status === "empty" && (
                       <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-                        <p>No eligible published posts found for this page.</p>
-                        <p className="mt-1 text-xs">
+                        <Datum>No eligible published posts found for this page.</Datum>
+                        <StatusLine className="mt-1 text-xs">
                           Publish a post on the Page first, or pick a different Page.
-                        </p>
+                        </StatusLine>
                       </div>
                     )}
 
@@ -1556,9 +1593,9 @@ export function Creatives({
 
                         <div className="max-h-80 space-y-2 overflow-y-auto">
                           {filteredPosts.length === 0 ? (
-                            <p className="py-4 text-center text-sm text-muted-foreground">
+                            <Datum className="py-4 text-center text-sm text-muted-foreground">
                               No posts match &ldquo;{postSearch}&rdquo;.
-                            </p>
+                            </Datum>
                           ) : (
                             filteredPosts.map((post) => {
                               const isSelected = active.existingPost?.postId === post.id;
@@ -1593,7 +1630,7 @@ export function Creatives({
                                       )}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                      <p className="line-clamp-2 text-sm">{post.message}</p>
+                                      <Datum className="line-clamp-2 text-sm">{post.message}</Datum>
                                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                                         <span>{new Date(post.createdAt).toLocaleDateString()}</span>
                                         {post.permalinkUrl && (
@@ -1614,9 +1651,9 @@ export function Creatives({
                                         )}
                                       </div>
                                       {ineligible && post.ineligibleReason && (
-                                        <p className="mt-1 text-[11px] text-amber-700/80">
+                                        <StatusLine className="mt-1 text-[11px] text-amber-700/80">
                                           {post.ineligibleReason}
-                                        </p>
+                                        </StatusLine>
                                       )}
                                     </div>
                                     {isSelected && <Badge variant="primary">Selected</Badge>}
@@ -1628,21 +1665,23 @@ export function Creatives({
                         </div>
 
                         {/* Optional CTA/URL override for existing posts — preserved from prior UI */}
-                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
-                          <DestinationUrlField
-                            fieldId="meta-existing-fb-destination-url"
-                            label="Destination URL (optional)"
-                            eventId={linkedEventId}
-                            value={active.destinationUrl}
-                            onChange={(url) => updateAd(active.id, { destinationUrl: url })}
-                          />
-                          <Select
-                            label="CTA (optional)"
-                            value={active.cta}
-                            onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
-                            options={CTA_OPTIONS}
-                          />
-                        </div>
+                        <Chrome>
+                          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+                            <DestinationUrlField
+                              fieldId="meta-existing-fb-destination-url"
+                              label="Destination URL (optional)"
+                              eventId={linkedEventId}
+                              value={active.destinationUrl}
+                              onChange={(url) => updateAd(active.id, { destinationUrl: url })}
+                            />
+                            <Select
+                              label="CTA (optional)"
+                              value={active.cta}
+                              onChange={(e) => updateAd(active.id, { cta: e.target.value as CTAType })}
+                              options={CTA_OPTIONS}
+                            />
+                          </div>
+                        </Chrome>
                       </>
                     )}
                   </div>
@@ -1679,14 +1718,14 @@ export function Creatives({
 
                     return (
                       <div className="mt-4 border-t border-border pt-4 space-y-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        <Datum className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                           Placements
-                        </p>
+                        </Datum>
 
                         <div className="grid grid-cols-2 gap-4">
                           {/* Instagram */}
                           <div className="space-y-2">
-                            <p className="text-xs font-medium text-foreground">Instagram</p>
+                            <Datum className="text-xs font-medium text-foreground">Instagram</Datum>
                             {igRows.map(({ key, label }) => (
                               <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
                                 <input
@@ -1702,7 +1741,7 @@ export function Creatives({
 
                           {/* Facebook */}
                           <div className="space-y-2">
-                            <p className="text-xs font-medium text-foreground">Facebook</p>
+                            <Datum className="text-xs font-medium text-foreground">Facebook</Datum>
                             {fbRows.map(({ key, label }) => (
                               <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
                                 <input
@@ -1733,9 +1772,9 @@ export function Creatives({
                         {validation.warnings
                           .filter((w) => w.includes("crop"))
                           .map((w) => (
-                            <p key={w} className="text-[11px] text-amber-700/90">
+                            <StatusLine key={w} className="text-[11px] text-amber-700/90">
                               ⚠ {w}
-                            </p>
+                            </StatusLine>
                           ))}
                       </div>
                     );
@@ -1750,16 +1789,18 @@ export function Creatives({
                   <span className="text-sm font-medium">Creative Enhancements</span>
                   <Badge variant="outline" className="text-[10px]">All OFF</Badge>
                 </div>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <Prose className="mt-1 text-xs text-muted-foreground">
                   Text optimizations, visual enhancements, music, and auto-variations are disabled. Ads will publish exactly as configured.
-                </p>
+                </Prose>
               </div>
 
               {/* ─── Bulk apply ─── */}
               {creatives.length > 1 && (
                 <Card>
-                  <CardTitle>Apply to All Ads</CardTitle>
-                  <CardDescription>Copy a field from this ad to every other ad.</CardDescription>
+                  <Chrome>
+                    <CardTitle>Apply to All Ads</CardTitle>
+                    <CardDescription>Copy a field from this ad to every other ad.</CardDescription>
+                  </Chrome>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {([
                       { field: "headline" as BulkField, label: "Headline" },
@@ -1795,6 +1836,26 @@ export function Creatives({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The plan owns one destination for every ad (§3a), so inside a drawer the
+ * per-ad field is a badge showing where the ad points. It is changed on the
+ * canvas, where the one URL lives.
+ */
+function DestinationBadge({ url }: { url: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">destination</span>
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="truncate text-xs" title={url || undefined}>
+          {url || "—"}
+        </span>
+        <ProvenanceBadge provenance={url ? "derived" : "not instrumented"} />
+        <InfoTip label={META_DRAWER_COPY.destinationTip} />
+      </span>
     </div>
   );
 }
@@ -1843,10 +1904,10 @@ function QueueAssetLibrary({
     <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-medium">Auto-uploaded Library</p>
-          <p className="text-[11px] text-muted-foreground">
+          <Datum className="text-sm font-medium">Auto-uploaded Library</Datum>
+          <Datum className="text-[11px] text-muted-foreground">
             Drag assets onto variation slots below. Cards stay here after binding.
-          </p>
+          </Datum>
         </div>
         {onReset && (
           <Button variant="outline" size="sm" onClick={onReset}>
@@ -1910,9 +1971,9 @@ function QueueAssetLibrary({
                 {item.aspect}
               </Badge>
             </div>
-            <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+            <Datum className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
               {item.fileName}
-            </p>
+            </Datum>
           </div>
         ))}
       </div>
@@ -2171,7 +2232,7 @@ function AssetSlot({
               preload="auto"
             />
             {framePickerError && (
-              <p className="text-[10px] leading-snug text-red-300">{framePickerError}</p>
+              <StatusLine tone="alert" className="text-[10px] leading-snug text-red-300">{framePickerError}</StatusLine>
             )}
             <div className="flex gap-1.5">
               <Button
@@ -2327,9 +2388,9 @@ function AssetSlot({
         {/* ── Error state ── */}
         {isError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 p-3">
-            <p className="text-center text-[10px] leading-snug text-destructive">
+            <StatusLine tone="alert" className="text-center text-[10px] leading-snug text-destructive">
               {asset.error ?? "Upload failed"}
-            </p>
+            </StatusLine>
             {adAccountId && (
               <label
                 htmlFor={`${inputId}-retry`}
@@ -2473,13 +2534,13 @@ function AssetVariationCard({
             placeholder={`Variation ${index + 1}`}
           />
           {slots.length > 1 && (
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <Prose className="text-[11px] leading-relaxed text-muted-foreground">
               Each aspect ratio renders in its matching placement: the{" "}
               <span className="font-medium text-foreground">4:5</span> asset shows in
               Feed placements (Facebook Feed, Instagram Feed), and the{" "}
               <span className="font-medium text-foreground">9:16</span> asset shows in
               Stories and Reels.
-            </p>
+            </Prose>
           )}
           <div className={`grid gap-4 ${
             slots.length === 1
@@ -2599,15 +2660,15 @@ function MediaViewerModal({
                   <Play className="h-8 w-8 fill-white text-white" style={{ marginLeft: 3 }} />
                 </div>
               </div>
-              <p className="mt-2 text-center text-[11px] text-white/40">
+              <Datum className="mt-2 text-center text-[11px] text-white/40">
                 Video uploaded to Meta · thumbnail preview only
-              </p>
+              </Datum>
             </div>
           ) : (
             // ── No preview at all ───────────────────────────────────────────
             <div className="flex h-48 w-48 flex-col items-center justify-center gap-3 rounded-xl bg-white/5">
               <Video className="h-12 w-12 text-white/25" />
-              <p className="text-sm text-white/40">No preview available</p>
+              <Datum className="text-sm text-white/40">No preview available</Datum>
             </div>
           )
         ) : imageUrl ? (
@@ -2623,14 +2684,14 @@ function MediaViewerModal({
           // ── No image URL ────────────────────────────────────────────────
           <div className="flex h-48 w-48 flex-col items-center justify-center gap-3 rounded-xl bg-white/5">
             <ImageIcon className="h-12 w-12 text-white/25" />
-            <p className="text-sm text-white/40">No preview available</p>
+            <Datum className="text-sm text-white/40">No preview available</Datum>
           </div>
         )}
 
         {/* Ratio label */}
-        <p className="text-[11px] text-white/40">
+        <Datum className="text-[11px] text-white/40">
           {RATIO_LABELS[aspectRatio]?.label} · {RATIO_LABELS[aspectRatio]?.desc}
-        </p>
+        </Datum>
       </div>
     </div>
   );

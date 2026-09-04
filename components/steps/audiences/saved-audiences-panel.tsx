@@ -9,6 +9,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { SavedAudienceSelection } from "@/lib/types";
 import { useFetchSavedAudiences } from "@/lib/hooks/useMeta";
+import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
 
 interface SavedAudiencesPanelProps {
   selection: SavedAudienceSelection;
@@ -55,9 +56,9 @@ export function SavedAudiencesPanel({
     <div className="space-y-4">
       <div>
         <h3 className="text-sm font-semibold">Saved Audiences</h3>
-        <p className="text-xs text-muted-foreground">
+        <Prose className="text-xs text-muted-foreground">
           Select saved audiences from your ad account. Each generates a separate ad set.
-        </p>
+        </Prose>
       </div>
 
       {/* ── Load control ─────────────────────────────────────────────────── */}
@@ -106,10 +107,10 @@ export function SavedAudiencesPanel({
         <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <div>
-            <p className="text-sm font-medium text-destructive">
+            <StatusLine tone="alert" className="text-sm font-medium text-destructive">
               Failed to load saved audiences
-            </p>
-            <p className="text-xs text-muted-foreground">{audiences.error}</p>
+            </StatusLine>
+            <Datum className="text-xs text-muted-foreground">{audiences.error}</Datum>
           </div>
         </div>
       )}
@@ -127,11 +128,11 @@ export function SavedAudiencesPanel({
           <Card className="overflow-hidden p-0">
             <div className="max-h-72 overflow-y-auto">
               {filtered.length === 0 ? (
-                <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                <Datum className="px-4 py-6 text-center text-sm text-muted-foreground">
                   {search
                     ? "No saved audiences match your search."
                     : "No saved audiences found in this ad account."}
-                </p>
+                </Datum>
               ) : (
                 filtered.map((audience) => (
                   <label
@@ -159,9 +160,9 @@ export function SavedAudiencesPanel({
       {/* ── Selected chips ─────────────────────────────────────────────────── */}
       {selectedAudiences.length > 0 && (
         <div>
-          <p className="mb-1.5 text-sm font-medium">
+          <Datum className="mb-1.5 text-sm font-medium">
             Selected ({selectedAudiences.length})
-          </p>
+          </Datum>
           <div className="space-y-1.5">
             {selectedAudiences.map((a) => (
               <div
@@ -197,10 +198,10 @@ export function SavedAudiencesPanel({
         ).length > 0 && (
           <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2.5">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <p className="text-xs text-muted-foreground">
+            <StatusLine className="text-xs text-muted-foreground">
               Some selected audience IDs were not found in this ad account and
               will be ignored at launch.
-            </p>
+            </StatusLine>
           </div>
         )}
     </div>

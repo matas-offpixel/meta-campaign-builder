@@ -24,6 +24,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import { isCampaignRuntimeActive } from "@/lib/bulk-attach/campaign-active";
 import type { MetaCampaignSummary } from "@/lib/types";
 import { useFetchCampaigns } from "@/lib/hooks/useMeta";
+import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
 
 interface CampaignMultiPickerProps {
   adAccountId: string | undefined;
@@ -173,10 +174,10 @@ export function CampaignMultiPicker({
       </div>
 
       {filter === "relevant" && (
-        <p className="text-[11px] text-muted-foreground">
+        <Prose className="text-[11px] text-muted-foreground">
           Showing active &amp; paused campaigns, most recent first. Switch to{" "}
           <span className="font-medium">All</span> to include archived campaigns.
-        </p>
+        </Prose>
       )}
 
       {/* Body */}
@@ -191,9 +192,9 @@ export function CampaignMultiPicker({
           <div className="flex items-start gap-2 text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              <p className="font-medium">Couldn&rsquo;t load campaigns.</p>
+              <StatusLine className="font-medium">Couldn&rsquo;t load campaigns.</StatusLine>
               {campaigns.error && (
-                <p className="mt-0.5 text-xs opacity-80">{campaigns.error}</p>
+                <Datum className="mt-0.5 text-xs opacity-80">{campaigns.error}</Datum>
               )}
             </div>
           </div>
@@ -208,9 +209,9 @@ export function CampaignMultiPicker({
       {campaigns.status === "empty" && (
         <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
           {debouncedSearch ? (
-            <p>No campaigns match &ldquo;{debouncedSearch}&rdquo;.</p>
+            <StatusLine>No campaigns match &ldquo;{debouncedSearch}&rdquo;.</StatusLine>
           ) : (
-            <p>No campaigns found in this ad account.</p>
+            <StatusLine>No campaigns found in this ad account.</StatusLine>
           )}
         </div>
       )}
@@ -266,9 +267,9 @@ export function CampaignMultiPicker({
                         )}
                       </div>
                       {disabled && disabledReason && (
-                        <p className="mt-1 text-[11px] text-warning">
+                        <StatusLine className="mt-1 text-[11px] text-warning">
                           {disabledReason}
-                        </p>
+                        </StatusLine>
                       )}
                     </div>
                   </label>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo } from "react";
-import { Card, CardTitle, CardDescription } from "@/components/ui/card";
+import { CardDescription, Chrome, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import type {
@@ -25,6 +26,11 @@ import { AdSetPicker } from "./adset-picker";
 import { CrossCampaignAdSetPicker } from "./cross-campaign-adset-picker";
 
 interface CampaignSetupProps {
+  /**
+   * `drawer` mounts this in the Meta drawer — the mode toggle and the
+   * attach pickers in the `⊞` tab, everything else in `details`.
+   */
+  surface?: StepSurface;
   settings: CampaignSettings;
   onChange: (settings: CampaignSettings) => void;
 }
@@ -55,7 +61,11 @@ function suggestCampaignName(code: string, objective: CampaignObjective): string
   return `[${code}] ${OBJECTIVE_LABELS[objective]}`;
 }
 
-export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
+export function CampaignSetup({
+  surface = "wizard",
+  settings,
+  onChange,
+}: CampaignSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
 
@@ -370,10 +380,12 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
   );
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <StepSurfaceProvider surface={surface}>
+    <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-2xl space-y-6"}>
+      <Chrome>
       <div>
         <h2 className="font-heading text-2xl tracking-wide">Campaign Config</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <Datum className="mt-1 text-sm text-muted-foreground">
           {isAttachAdSet
             ? "Pick the existing campaign(s) and ad set(s) you want to add new ads to."
             : isAttachAllAdSets
@@ -381,8 +393,9 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
             : isAttachCampaign
             ? "Pick the existing campaign(s) you want to add a new ad set under."
             : "Choose your campaign objective, name, and optimisation goal."}
-        </p>
+        </Datum>
       </div>
+      </Chrome>
 
       {/* Mode toggle */}
       <Card>
@@ -443,8 +456,8 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
               >
                 <Icon className={`mt-0.5 h-4 w-4 ${selected ? "text-foreground" : "text-muted-foreground"}`} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{label}</p>
-                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</p>
+                  <Datum className="text-sm font-medium">{label}</Datum>
+                  <Datum className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</Datum>
                 </div>
               </button>
             );
@@ -601,8 +614,8 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
                       >
                         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${isSubSelected ? "text-foreground" : "text-muted-foreground"}`} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">{label}</p>
-                          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</p>
+                          <Datum className="text-sm font-medium">{label}</Datum>
+                          <Datum className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</Datum>
                         </div>
                       </button>
                     );
@@ -869,5 +882,6 @@ export function CampaignSetup({ settings, onChange }: CampaignSetupProps) {
         </>
       )}
     </div>
+    </StepSurfaceProvider>
   );
 }

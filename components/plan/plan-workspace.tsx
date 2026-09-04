@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
 import { CanvasAssets } from "@/components/plan/canvas-assets";
@@ -11,6 +11,7 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { MetaDrawerMount } from "@/components/plan/meta-drawer";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { Combobox } from "@/components/ui/combobox";
 import { InfoTip } from "@/components/viz/info-tip";
@@ -18,6 +19,7 @@ import type { OverflowMenuItem } from "@/components/viz/overflow-menu";
 import {
   PLAN_CANVAS_COPY,
   countDecisionsSince,
+  defaultAnchorFor,
   planCanvasMenuItemSpecs,
   planCanvasState,
   planChannelRows,
@@ -28,10 +30,13 @@ import {
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
 import { planDefaultWindow, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
+import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
 import { wizardHrefForDraft } from "@/lib/plan/prepare-draft";
+import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
+import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
 import {
   planEventPickerRows,
   todayIsoDate,
@@ -104,6 +109,10 @@ export function PlanWorkspace({
   const [persisted, setPersisted] = useState(!isNew);
   const [staleChips, setStaleChips] = useState<Partial<Record<PlanAdapterName, string | null>>>({});
   const [facts, setFacts] = useState<MirrorFacts>(EMPTY_CHANNEL_FACTS);
+  /** `validateStep` rows for the Meta row's badge — see the mirror route. */
+  const [drawerBlockers, setDrawerBlockers] = useState<
+    Partial<Record<PlanAdapterName, readonly BlockerRowModel[]>>
+  >({});
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
   const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(null);
@@ -117,6 +126,62 @@ export function PlanWorkspace({
   const [decisionCount, setDecisionCount] = useState(0);
   const [unregisteredAssets, setUnregisteredAssets] = useState(0);
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  /**
+   * The open drawer. A drawer is not a route, so this is component state;
+   * the URL carries `?drawer=f&tab=…` only so a refresh can restore it.
+   */
+  const [drawer, setDrawer] = useState<{
+    adapter: PlanAdapterName;
+    draftId: string;
+    anchor: BlockerAnchor | null;
+    /** The tab actually open, which diverges from `anchor` once tabs are used. */
+    tab: string | null;
+  } | null>(null);
+  const metaOpenRef = useRef<HTMLButtonElement | null>(null);
+
+  /**
+   * Restore an open drawer after a refresh, once. The plan's draft ids are
+   * not in the URL — only which drawer and which tab — so the id comes
+   * from the plan, which means a `?drawer=f` on a plan with no Meta draft
+   * yet simply does nothing.
+   */
+  const restoredDrawer = useRef(false);
+  useEffect(() => {
+    if (restoredDrawer.current) return;
+    restoredDrawer.current = true;
+    const fromUrl = readDrawerUrl(searchParams);
+    if (!fromUrl.adapter) return;
+    const draftId = plan.launches[fromUrl.adapter].draftId;
+    if (!draftId) return;
+    setDrawer({
+      adapter: fromUrl.adapter,
+      draftId,
+      anchor: fromUrl.tab
+        ? { drawer: fromUrl.adapter, section: fromUrl.tab }
+        : defaultAnchorFor(fromUrl.adapter),
+      tab: fromUrl.tab,
+    });
+  }, [searchParams, plan.launches]);
+
+  /** Shallow replace — the route stays `/plan/[id]`; only the query moves. */
+  useEffect(() => {
+    const next = drawerUrl(
+      pathname,
+      drawer
+        ? {
+            adapter: drawer.adapter,
+            tab: drawer.tab ?? tabForAnchor(drawer.adapter, drawer.anchor),
+          }
+        : { adapter: null, tab: null },
+      searchParams,
+    );
+    const current = `${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`;
+    if (next !== current) router.replace(next, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- searchParams is the comparison basis, not a trigger
+  }, [drawer, pathname, router]);
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId) ?? null;
@@ -126,8 +191,25 @@ export function PlanWorkspace({
     setPlan(updater);
   }
 
-  /** Row click is still the wizard route until PR 4 lands the drawers. */
-  function goWizard(adapter: PlanAdapterName, draftId: string) {
+  /**
+   * Meta opens in a drawer over the canvas — no route change, the URL only
+   * gains `?drawer=f&tab=…` so a refresh reopens it. TikTok and Google
+   * still navigate to their wizards until PR 5 gives them the same shell.
+   */
+  function openDrawerOrWizard(
+    adapter: PlanAdapterName,
+    draftId: string,
+    anchor?: BlockerAnchor | null,
+  ) {
+    if (adapter === "meta") {
+      setDrawer({
+        adapter: "meta",
+        draftId,
+        anchor: anchor ?? defaultAnchorFor("meta"),
+        tab: null,
+      });
+      return;
+    }
     const href = wizardHrefForDraft(adapter, draftId);
     if (href) router.push(href);
   }
@@ -168,6 +250,7 @@ export function PlanWorkspace({
       tiktok?: { chip?: string | null };
       google?: { chip?: string | null };
       facts?: MirrorFacts;
+      drawerBlockers?: Partial<Record<PlanAdapterName, readonly BlockerRowModel[]>>;
     };
     if (!res.ok || !json.ok) return;
     setStaleChips({
@@ -175,6 +258,7 @@ export function PlanWorkspace({
       google: json.google?.chip ?? null,
     });
     if (json.facts) setFacts(json.facts);
+    if (json.drawerBlockers) setDrawerBlockers(json.drawerBlockers);
   }, [persisted, plan.id]);
 
   useEffect(() => {
@@ -299,6 +383,7 @@ export function PlanWorkspace({
         plan,
         issues,
         facts,
+        drawerBlockers,
         hrefs: {
           meta: plan.launches.meta.draftId
             ? wizardHrefForDraft("meta", plan.launches.meta.draftId)
@@ -318,7 +403,16 @@ export function PlanWorkspace({
         staleChips,
         delivering: (liveSpend ?? 0) > 0,
       }),
-    [facts, issues, liveSpend, plan, selectedEvent, staleChips, tiktokAdvertiserId],
+    [
+      drawerBlockers,
+      facts,
+      issues,
+      liveSpend,
+      plan,
+      selectedEvent,
+      staleChips,
+      tiktokAdvertiserId,
+    ],
   );
 
   const state = useMemo(
@@ -363,7 +457,16 @@ export function PlanWorkspace({
   }
 
   /** Row click = open. The draft is created on first open, not by a button. */
-  async function openChannel(row: PlanChannelRowModel, source?: LibraryPick) {
+  async function openChannel(
+    row: PlanChannelRowModel,
+    source?: LibraryPick,
+    anchor?: BlockerAnchor | null,
+  ) {
+    // An existing draft opens straight away; only a first open prepares one.
+    if (row.draftId && !source) {
+      openDrawerOrWizard(row.adapter, row.draftId, anchor ?? row.anchor);
+      return;
+    }
     if (row.href && !source) {
       router.push(row.href);
       return;
@@ -394,7 +497,7 @@ export function PlanWorkspace({
       setPlan((current) => ({ ...current, launches }));
       setLibraryOpen(false);
       const draftId = launches[row.adapter].draftId;
-      if (draftId) goWizard(row.adapter, draftId);
+      if (draftId) openDrawerOrWizard(row.adapter, draftId, row.anchor);
     } catch (err) {
       setError(err instanceof Error ? err.message : null);
     } finally {
@@ -675,6 +778,8 @@ export function PlanWorkspace({
             : undefined
         }
         onOpen={(row) => void openChannel(row)}
+        onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
+        openRefs={{ meta: metaOpenRef }}
         onResume={(row) => void resume([row.adapter])}
         onRederive={(row) => void rederive(row.adapter)}
         busy={busy}
@@ -684,10 +789,24 @@ export function PlanWorkspace({
         planId={plan.id}
         hasMetaDraft={hasMetaDraft}
         onUpload={() => {
-          if (metaDraftId) goWizard("meta", metaDraftId);
+          if (metaDraftId) openDrawerOrWizard("meta", metaDraftId);
         }}
         onUnregistered={setUnregisteredAssets}
       />
+
+      {drawer?.adapter === "meta" ? (
+        <MetaDrawerMount
+          open
+          draftId={drawer.draftId}
+          initialAnchor={drawer.anchor}
+          triggerRef={metaOpenRef}
+          onTabChange={(tab) =>
+            setDrawer((current) => (current ? { ...current, tab } : current))
+          }
+          planId={plan.id}
+          onClose={() => setDrawer(null)}
+        />
+      ) : null}
 
       <CanvasLaunch
         button={launchButton}
