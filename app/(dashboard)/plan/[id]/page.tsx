@@ -86,6 +86,20 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     .from("tiktok_accounts")
     .select("tiktok_advertiser_id")
     .eq("user_id", user.id);
+  const { data: googleAdsAccountRows } = await supabase
+    .from("google_ads_accounts")
+    .select("id, account_name, google_customer_id")
+    .eq("user_id", user.id)
+    .order("account_name", { ascending: true });
+  const googleAdsAccounts = ((googleAdsAccountRows ?? []) as Array<{
+    id: string;
+    account_name: string | null;
+    google_customer_id: string | null;
+  }>).map((row) => ({
+    id: row.id,
+    account_name: row.account_name,
+    google_customer_id: row.google_customer_id ?? "—",
+  }));
   const advertiserIds = [
     ...new Set(
       ((tiktokAccounts ?? []) as { tiktok_advertiser_id: string | null }[])
@@ -221,6 +235,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             initialPlan={workspacePlan}
             events={eventOptions}
             tiktokAdvertiserId={advertiserIds.length === 1 ? advertiserIds[0] : null}
+            googleAdsAccounts={googleAdsAccounts}
             isNew={id === "new"}
             funnel={funnel}
             liveSpend={liveSpend}

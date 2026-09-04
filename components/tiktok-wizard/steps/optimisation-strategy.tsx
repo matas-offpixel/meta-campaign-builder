@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -95,15 +95,7 @@ export function OptimisationStrategyStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Optimisation strategy</h2>
-        <Datum className="mt-2 text-sm text-muted-foreground">
-          Configure Smart+, pacing, benchmarks, and guardrails for the future
-          pre-flight checks.
-        </Datum>
-      </div>
-      </Chrome>
+      
 
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -161,10 +153,7 @@ export function OptimisationStrategyStep({
                 void saveMoneyField("targetCostPerResult", value)
               }
             />
-            <Prose className="text-sm text-muted-foreground">
-              Conversion and value goals send this as the ad-group bid. Click,
-              view, and reach still use Target CPC / CPV / CPM.
-            </Prose>
+            
           </div>
         )}
       </div>

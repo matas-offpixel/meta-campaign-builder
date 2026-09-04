@@ -21,12 +21,7 @@ import {
   PageInstagramOverridesPanel,
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
-import {
-  Chrome,
-  StatusLine,
-  StepSurfaceProvider,
-  type StepSurface,
-} from "@/components/steps/step-surface";
+import { StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 
 interface AudiencesStepProps {
   /**
@@ -126,42 +121,9 @@ export function AudiencesStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-5"}>
-      <Chrome>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-heading text-2xl tracking-wide">Audiences</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Build your targeting by combining page audiences, custom audiences, saved audiences, and interests.
-            </p>
-          </div>
-          {hasPages && (
-            <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-1.5">
-              <span className="text-xs text-muted-foreground">Suggested age:</span>
-              <Badge variant="primary">{suggestedAge.min}–{suggestedAge.max}</Badge>
-            </div>
-          )}
-        </div>
-      </Chrome>
+      
 
-      <Chrome>
-        {clientId && (
-          <div className="rounded-md border border-border bg-card p-3 text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-muted-foreground">
-                Need a new custom audience? Open the Audience Creator in a new tab.
-              </p>
-              <Link
-                href={`/audiences/${clientId}/new${eventId ? `?event_id=${eventId}&return_to=wizard` : "?return_to=wizard"}`}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-md border border-border-strong px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-              >
-                Create new audience
-              </Link>
-            </div>
-          </div>
-        )}
-      </Chrome>
+      
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as AudienceTab)} />
 
@@ -283,14 +245,7 @@ function OffPixelCustomAudiencesPanel({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <Chrome>
-          <div>
-            <h3 className="text-sm font-semibold">Off/Pixel Custom Audiences</h3>
-            <p className="text-xs text-muted-foreground">
-              Ready audiences created in the Audience Builder, grouped by funnel stage.
-            </p>
-          </div>
-        </Chrome>
+        
         <Link
           href={`/audiences/${clientId}`}
           target="_blank"

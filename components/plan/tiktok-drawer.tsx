@@ -7,6 +7,7 @@ import { AudiencesStep } from "@/components/tiktok-wizard/steps/audiences";
 import { CreativesStep } from "@/components/tiktok-wizard/steps/creatives";
 import { ReviewLaunchStep } from "@/components/tiktok-wizard/steps/review-launch";
 import { TikTokLoadTemplateModal } from "@/components/tiktok-wizard/load-template-modal";
+import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
@@ -16,6 +17,7 @@ import { listClients } from "@/lib/db/clients";
 import {
   deleteTikTokTemplateFromDb,
   loadTikTokTemplatesFromDb,
+  saveTikTokTemplateToDb,
 } from "@/lib/db/tiktok-templates";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -103,6 +105,10 @@ export function TikTokDrawer({
   const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
   const [templateClientNameById, setTemplateClientNameById] = useState<
     Record<string, string>
   >({});
@@ -194,6 +200,11 @@ export function TikTokDrawer({
         onDone={done}
         doneLabel={doneLabel}
         onLoadTemplate={() => void openTemplates()}
+        onSaveTemplate={() => {
+          setSaveTemplateOpen(true);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
         triggerRef={triggerRef}
         footer={
           <span className="text-[11px] text-muted-foreground" role="status">
@@ -252,6 +263,40 @@ export function TikTokDrawer({
           void deleteTikTokTemplateFromDb(id)
             .then(() => setTemplates((prev) => prev.filter((t) => t.id !== id)))
             .finally(() => setDeletingTemplateId(null));
+        }}
+      />
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        saving={templateSaving}
+        savedSuccessfully={templateSaveSuccess}
+        error={templateSaveError}
+        onClose={() => {
+          setSaveTemplateOpen(false);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
+        onSave={async (name, description, tags) => {
+          const supabase = createClient();
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (!user) {
+            setTemplateSaveError("Not signed in");
+            return;
+          }
+          setTemplateSaving(true);
+          setTemplateSaveError(null);
+          setTemplateSaveSuccess(false);
+          try {
+            await saveTikTokTemplateToDb(draftRef.current, name, description, tags, user.id);
+            setTemplateSaveSuccess(true);
+          } catch (err) {
+            setTemplateSaveError(
+              err instanceof Error ? err.message : "Unknown error saving template",
+            );
+          } finally {
+            setTemplateSaving(false);
+          }
         }}
       />
     </>

@@ -4,14 +4,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Rocket, Save, Loader2, CheckCircle2,
-  BookmarkPlus, AlertTriangle, ChevronDown, ChevronUp,
+  AlertTriangle, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { LAUNCH_ON_CANVAS_LABEL } from "@/lib/plan/drawer";
 
 export type SaveStatus = "idle" | "saving" | "saved";
 
 interface WizardFooterProps {
-  canContinue: boolean;
+  canLaunch: boolean;
   validationErrors?: string[];
   saveStatus: SaveStatus;
   /** True while the Meta campaign creation API call is in flight */
@@ -27,11 +27,10 @@ interface WizardFooterProps {
   planHref?: string | null;
   onSaveDraft: () => void;
   onLaunch: () => void;
-  onSaveTemplate: () => void;
 }
 
 export function WizardFooter({
-  canContinue,
+  canLaunch,
   validationErrors = [],
   saveStatus,
   launching = false,
@@ -40,11 +39,10 @@ export function WizardFooter({
   planHref = null,
   onSaveDraft,
   onLaunch,
-  onSaveTemplate,
 }: WizardFooterProps) {
   // Expand/collapse the error list — starts expanded so errors are visible immediately
   const [errorsExpanded, setErrorsExpanded] = useState(true);
-  const showErrors = !canContinue && validationErrors.length > 0;
+  const showErrors = !canLaunch && validationErrors.length > 0;
 
   return (
     <footer className="sticky bottom-0 z-10 border-t border-border bg-card">
@@ -99,10 +97,6 @@ export function WizardFooter({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onSaveTemplate}>
-              <BookmarkPlus className="h-4 w-4" />
-              Save as Template
-            </Button>
             <Button variant="ghost" onClick={onSaveDraft}>
               <Save className="h-4 w-4" />
               Save Draft
@@ -111,7 +105,7 @@ export function WizardFooter({
             {showLaunch ? (
               <Button
                 onClick={onLaunch}
-                disabled={!canContinue || launching || Boolean(launchCooldownLabel)}
+                disabled={!canLaunch || launching || Boolean(launchCooldownLabel)}
               >
                 {launching ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

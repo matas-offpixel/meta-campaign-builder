@@ -47,11 +47,13 @@ npm run lint     # ESLint
 | Path | Purpose |
 |------|---------|
 | `/` | Campaign Library (Drafts / Published / Archived / Templates tabs) |
-| `/campaign/[id]` | Wizard for a single campaign UUID |
+| `/campaign/[id]` | Standalone Meta draft — same `Drawer` as the canvas (`variant="page"`), plus Launch |
 | `/login` | Magic link, invite-only email allowlist |
 | `/auth/callback` | Supabase code exchange |
 | `/auth/logout` | Sign out |
-| `/plan/[id]` | Campaign **canvas** — one screen, seven zones (header · window · budget · target · three channel rows · assets · one `⏸ Launch`), one button. Everything not one of the three adjustable inputs is a badge or is derived: name from the event + phase, objective from `target_unit`, destination from `events.ticket_url` / `signup_url`, and a platform at £0 is off. Four states (READY / BLOCKED / LAUNCHED / LIVE) plus `waiting` before a Meta draft exists. Row `open ▸` navigates to the wizard until PR 4 lands the drawers. See `docs/CAMPAIGN_CREATOR_REDESIGN_2026-09-04.md` §2 |
+| `/plan/[id]` | Campaign **canvas** — one screen, seven zones (header · window · budget · target · three channel rows · assets · one `⏸ Launch`), one button. Everything not one of the three adjustable inputs is a badge or is derived. Row `open ▸` opens a `Drawer` (`?drawer=f\|tt\|g`). See `docs/CAMPAIGN_CREATOR_REDESIGN_2026-09-04.md` §2 |
+| `/tiktok-campaign/[id]` | Standalone TikTok draft — same TikTok `Drawer` (`variant="page"`), plus Launch |
+| `/google-search/[id]` | Standalone Google Search tree — same Google `Drawer` (`variant="page"`), plus Push |
 | `/d2c/brief-ingest` | Upload a PDF (or paste text) brief → background parse into a scheduled D2C campaign |
 | `/d2c/event/[id]` | D2C orchestration: resolved artwork, WhatsApp community URL paste, per-send Matas approval |
 | `/l/[clientSlug]/[eventSlug]` | Public fan-facing event landing page (Supreme renderer) |
@@ -59,20 +61,17 @@ npm run lint     # ESLint
 | `/admin/login` + `/admin/auth/callback` | CLIENT dashboard magic-link login (OP909 — distinct from operator `/login`) |
 | `/admin/[clientSlug]/*` | Client self-service dashboard: pages, fans, insights, integrations, settings. Auth = session + `client_users` membership + slug match (403 on mismatch). See `docs/ADMIN_DASHBOARD_ARCHITECTURE.md` |
 
-### Wizard (8 steps, indices 0–7)
+### Canvas + drawers
 
-Managed by `components/wizard/wizard-shell.tsx`, receives `draftId` from `/campaign/[id]`:
+`/plan/[id]`, `/campaign/[id]`, `/tiktok-campaign/[id]`, and `/google-search/[id]` all mount `components/viz/drawer.tsx`. The old eight-step ladders are gone; each drawer is a tab bar.
 
-| # | Component | Purpose |
-|---|-----------|---------|
-| 0 | `steps/account-setup.tsx` | Client, ad account, pixel |
-| 1 | `steps/campaign-setup.tsx` | Code, name, objective, optimisation goal |
-| 2 | `steps/optimisation-strategy.tsx` | Benchmarks, rules, guardrails |
-| 3 | `steps/audiences/` | Page / Custom / Saved / Interest tabs |
-| 4 | `steps/creatives.tsx` | Asset modes, variations, captions |
-| 5 | `steps/budget-schedule.tsx` | Schedule, ad set suggestions |
-| 6 | `steps/assign-creatives.tsx` | Creative ↔ ad set matrix |
-| 7 | `steps/review-launch.tsx` | Summary + launch |
+| Route | Drawer | Tabs |
+|---|---|---|
+| `/plan/[id]` + `/campaign/[id]` | Meta (`components/plan/meta-drawer.tsx`) | `👥 audiences` · `▤ creatives` · `⊞ ad sets` · `details` disclosure |
+| `/plan/[id]` + `/tiktok-campaign/[id]` | TikTok (`components/plan/tiktok-drawer.tsx`) | `▶ video` · `👥 refine` · `⊞ assign` (only when videos > 1) · `details` |
+| `/plan/[id]` + `/google-search/[id]` | Google (`components/plan/google-drawer.tsx`) | `⌕ keywords` · `¶ copy` · `details` |
+
+Standalone Meta still launches ACTIVE from `ReviewLaunch` (launch panel only). Standalone TikTok keeps `ReviewLaunchStep`. Standalone Google keeps `PushStep`. Plan-linked drafts launch from the canvas, paused. `validateStep` still gates drawer blockers. The chrome codemod (`scripts/codemod-step-chrome.mjs`) is gone — chrome is deleted, not hidden.
 
 ### Key types (`lib/types.ts`)
 

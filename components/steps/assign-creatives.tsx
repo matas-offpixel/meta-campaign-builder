@@ -12,7 +12,7 @@ import type {
 } from "@/lib/types";
 import { ATTACHED_AD_SET_KEY_PREFIX } from "@/lib/types";
 import { findAdSetsWithMixedBoostAndLinkCreatives } from "@/lib/meta/adset";
-import { CardDescription, Chrome, Datum, Prose, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 
 interface AssignCreativesProps {
   /** `drawer` drops the step heading; the `⊞` tab already names the surface. */
@@ -152,9 +152,7 @@ function AssignCreativesBody({
     return (
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <Chrome>
-            <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
-          </Chrome>
+          
           <Datum className="mt-1 text-sm text-muted-foreground">
             {attachAdSetMode
               ? "Pick one or more existing ad sets in Step 1, then add creatives in Step 4."
@@ -187,12 +185,8 @@ function AssignCreativesBody({
       <div className="mx-auto max-w-4xl space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <Chrome>
-              <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
-            </Chrome>
-            <Prose className="mt-1 text-sm text-muted-foreground">
-              Tick which existing ad sets each new ad should be added to.
-            </Prose>
+            
+            
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={assignAll}>
@@ -326,12 +320,8 @@ function AssignCreativesBody({
     <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <Chrome>
-            <h2 className="font-heading text-2xl tracking-wide">Assign Creatives</h2>
-          </Chrome>
-          <Prose className="mt-1 text-sm text-muted-foreground">
-            Choose which creatives run in each ad set.
-          </Prose>
+          
+          
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={assignAll}>Assign All</Button>

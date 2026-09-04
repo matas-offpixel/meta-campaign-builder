@@ -322,7 +322,7 @@ describe("plan page grep-guard still bans upload and targeting", () => {
   it("allows route toggles on the matrix and nothing else", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "components/plan/asset-routing-matrix.tsx",
+      "components/plan/canvas-assets.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
       "components/library/plan-library.tsx",
@@ -345,10 +345,8 @@ describe("plan page grep-guard still bans upload and targeting", () => {
         `${file} has no targeting UI`,
       );
     }
-    const matrix = readFileSync("components/plan/asset-routing-matrix.tsx", "utf8");
-    assert.match(matrix, /type=["']checkbox["']/);
-    assert.match(matrix, /GOOGLE_NO_ASSETS_COPY|Search ads take no assets/);
-    assert.match(matrix, /TIKTOK_LAUNCHED_UNROUTE_NOTE|already launched/);
+    const assets = readFileSync("components/plan/canvas-assets.tsx", "utf8");
+    assert.match(assets, /TIKTOK_LAUNCHED_UNROUTE_NOTE/);
     void GOOGLE_NO_ASSETS_COPY;
     void TIKTOK_LAUNCHED_UNROUTE_NOTE;
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -356,16 +356,7 @@ export function AccountSetupStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Account setup</h2>
-        <Prose className="mt-2 text-sm text-muted-foreground">
-          Choose the TikTok advertiser, identity, and pixel for this draft.
-          Conversions launches also need an optimisation event from that pixel.
-          One advertiser is stored per draft.
-        </Prose>
-      </div>
-      </Chrome>
+      
 
       {saveError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">

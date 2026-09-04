@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo } from "react";
-import { CardDescription, Chrome, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -382,20 +382,7 @@ export function CampaignSetup({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-2xl space-y-6"}>
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-2xl tracking-wide">Campaign Config</h2>
-        <Datum className="mt-1 text-sm text-muted-foreground">
-          {isAttachAdSet
-            ? "Pick the existing campaign(s) and ad set(s) you want to add new ads to."
-            : isAttachAllAdSets
-            ? "New ads will be attached to ALL active/paused ad sets across selected campaigns at launch."
-            : isAttachCampaign
-            ? "Pick the existing campaign(s) you want to add a new ad set under."
-            : "Choose your campaign objective, name, and optimisation goal."}
-        </Datum>
-      </div>
-      </Chrome>
+      
 
       {/* Mode toggle */}
       <Card>

@@ -533,21 +533,11 @@ describe("zone G · one button", () => {
 
 // ── grep-guard ────────────────────────────────────────────────────────
 
-/**
- * `asset-routing-matrix.tsx` is off the canvas but kept on disk until
- * PR 5 decides whether the drawer wants it. It is the one file here the
- * guard does not hold for, and it is named rather than pattern-matched
- * so deleting it in PR 5 fails this test loudly.
- */
-const RETAINED_UNTIL_PR5 = "components/plan/asset-routing-matrix.tsx";
-
 function planComponentFiles(): string[] {
   const dir = "components/plan";
-  const files = readdirSync(dir)
+  return readdirSync(dir)
     .map((name) => join(dir, name))
     .filter((path) => statSync(path).isFile() && path.endsWith(".tsx"));
-  assert.ok(files.includes(RETAINED_UNTIL_PR5), "PR 5 should retire the matrix");
-  return files.filter((path) => path !== RETAINED_UNTIL_PR5);
 }
 
 describe("components/plan grep-guard", () => {

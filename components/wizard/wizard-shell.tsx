@@ -6,11 +6,9 @@ import { ArrowLeft } from "lucide-react";
 import { WizardFooter } from "./wizard-footer";
 import { MetaDrawer } from "@/components/plan/meta-drawer";
 import { ReviewLaunch } from "@/components/steps/review-launch";
-import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
 import { saveDraftToStorage } from "@/lib/autosave";
-import { saveTemplateToDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
@@ -132,12 +130,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launchSummary]);
 
-  // Template state
-  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
-  const [templateSaving, setTemplateSaving] = useState(false);
-  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
-  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
-
   // ─── Validation ─────────────────────────────────────────────────────────────
   /**
    * Step 7 aggregates every visible step, so with the stepper gone this one
@@ -232,24 +224,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     router.push("/");
   };
 
-  // ─── Template: save ──────────────────────────────────────────────────────────
-  const handleSaveTemplate = async (name: string, description: string, tags: string[]) => {
-    if (!userId) return;
-    setTemplateSaving(true);
-    setTemplateSaveError(null);
-    setTemplateSaveSuccess(false);
-    try {
-      await saveTemplateToDb(draft, name, description, tags, userId);
-      setTemplateSaveSuccess(true);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Unknown error saving template";
-      console.error("Failed to save template:", err);
-      setTemplateSaveError(msg);
-    } finally {
-      setTemplateSaving(false);
-    }
-  };
-
   /*
     The template loader moved into the drawer header (§3 build D) — one
     `⌁ template ▸`, reading the same `lib/db/templates.ts`. The wizard's
@@ -328,7 +302,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       </main>
 
       <WizardFooter
-        canContinue={currentValidation.valid}
+        canLaunch={currentValidation.valid}
         validationErrors={currentValidation.errors}
         saveStatus={saveStatus}
         launching={launching}
@@ -338,20 +312,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
         onSaveDraft={handleSaveDraft}
         onLaunch={handleLaunch}
-        onSaveTemplate={() => setSaveTemplateOpen(true)}
-      />
-
-      <SaveTemplateModal
-        open={saveTemplateOpen}
-        saving={templateSaving}
-        savedSuccessfully={templateSaveSuccess}
-        error={templateSaveError}
-        onClose={() => {
-          setSaveTemplateOpen(false);
-          setTemplateSaveSuccess(false);
-          setTemplateSaveError(null);
-        }}
-        onSave={handleSaveTemplate}
       />
 
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 
@@ -128,7 +128,6 @@ function AdGroupCard({
   onChange: (next: GoogleSearchPlanTree) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const drawer = useIsDrawer();
 
   return (
     <section className="rounded-md border border-border bg-background">
@@ -190,12 +189,6 @@ function AdGroupCard({
                 <tr>
                   <th className="px-2 py-1">Keyword</th>
                   <th className="w-28 px-2 py-1">Match</th>
-                  {drawer ? null : (
-                    <>
-                      <th className="w-32 px-2 py-1">Intent</th>
-                      <th className="w-28 px-2 py-1">Est. CPC £</th>
-                    </>
-                  )}
                   <th className="w-10 px-2 py-1"></th>
                 </tr>
               </thead>
@@ -221,21 +214,6 @@ function AdGroupCard({
   );
 }
 
-const INTENT_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "", label: "— none —" },
-  { value: "transactional", label: "Transactional" },
-  { value: "brand", label: "Brand" },
-  { value: "discovery", label: "Discovery" },
-  { value: "competitor", label: "Competitor" },
-];
-
-const INTENT_BADGE: Record<string, string> = {
-  transactional: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  brand: "bg-blue-100 text-blue-900 border-blue-200",
-  discovery: "bg-amber-100 text-amber-900 border-amber-200",
-  competitor: "bg-purple-100 text-purple-900 border-purple-200",
-};
-
 function KeywordRow({
   keyword,
   onPatch,
@@ -245,7 +223,6 @@ function KeywordRow({
   onPatch: (patch: Partial<GoogleSearchKeyword>) => void;
   onRemove: () => void;
 }) {
-  const drawer = useIsDrawer();
   const derived = isDerivedGoogleNote(keyword.notes);
   const cpcRange =
     keyword.est_cpc_low != null && keyword.est_cpc_high != null
@@ -266,7 +243,7 @@ function KeywordRow({
             placeholder="event tickets london"
           />
           {derived ? <ProvenanceBadge provenance="derived" /> : null}
-          {drawer && tip ? <InfoTip label={`${GOOGLE_DRAWER_COPY.intentCpcTip} ${tip}`} /> : null}
+          {tip ? <InfoTip label={`${GOOGLE_DRAWER_COPY.intentCpcTip} ${tip}`} /> : null}
         </div>
       </td>
       <td className="px-2 py-1">
@@ -277,40 +254,6 @@ function KeywordRow({
           onChange={(e) => onPatch({ match_type: e.target.value as GoogleSearchMatchType })}
         />
       </td>
-      {drawer ? null : (
-        <>
-          <td className="px-2 py-1">
-            <div className="flex items-center gap-2">
-              <Select
-                aria-label="Intent"
-                value={keyword.intent ?? ""}
-                options={INTENT_OPTIONS}
-                onChange={(e) => onPatch({ intent: e.target.value || null })}
-              />
-              {keyword.intent && INTENT_BADGE[keyword.intent] && (
-                <span
-                  className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
-                    INTENT_BADGE[keyword.intent]
-                  }`}
-                >
-                  {keyword.intent}
-                </span>
-              )}
-            </div>
-          </td>
-          <td className="px-2 py-1">
-            <Input
-              aria-label="Est CPC range"
-              value={cpcRange}
-              placeholder="0.50 – 1.20"
-              onChange={(e) => {
-                const parsed = parseRange(e.target.value);
-                onPatch({ est_cpc_low: parsed?.low ?? null, est_cpc_high: parsed?.high ?? null });
-              }}
-            />
-          </td>
-        </>
-      )}
       <td className="px-2 py-1 text-right">
         <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove keyword">
           <Trash2 className="h-3.5 w-3.5" />
@@ -320,11 +263,3 @@ function KeywordRow({
   );
 }
 
-function parseRange(raw: string): { low: number; high: number } | null {
-  const match = raw.match(/(\d+(?:\.\d+)?)\s*[-–to]+\s*(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-  const low = Number(match[1]);
-  const high = Number(match[2]);
-  if (!Number.isFinite(low) || !Number.isFinite(high)) return null;
-  return { low, high };
-}

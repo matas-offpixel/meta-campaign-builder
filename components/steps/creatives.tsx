@@ -54,7 +54,6 @@ import {
   type QueueLibraryItem,
 } from "@/lib/clients/asset-queue/queue-creative-bind";
 import {
-  PageInstagramOverridesPanel,
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
@@ -62,7 +61,7 @@ import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { META_DRAWER_COPY } from "@/lib/plan/drawer";
@@ -680,12 +679,8 @@ function CreativesBody({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Chrome>
-            <h2 className="font-heading text-2xl tracking-wide">Creatives</h2>
-          </Chrome>
-          <Prose className="mt-1 text-sm text-muted-foreground">
-            Build ads with page identity, assets, and copy.
-          </Prose>
+          
+          
           {/* The count is a fact about the draft, so it survives the drawer. */}
           <Datum className="mt-1 text-sm font-medium text-foreground">
             {creatives.length} ad{creatives.length !== 1 ? "s" : ""}
@@ -816,17 +811,7 @@ function CreativesBody({
                   </div>
 
                   {/* The drawer renders this once, on the audiences tab. */}
-                  <Chrome>
-                    <PageInstagramOverridesPanel
-                      pageIds={creativePageIds}
-                      igAccounts={igAccounts.data}
-                      pageNames={pageNameById}
-                      overrides={pageInstagramOverrides}
-                      onOverrideChange={setPageInstagramOverride}
-                      loading={igAccounts.loading}
-                      error={igAccounts.error}
-                    />
-                  </Chrome>
+                  
 
                   {/* Identity: Page + IG */}
                   <div className="grid grid-cols-2 gap-4">
@@ -850,9 +835,9 @@ function CreativesBody({
                         }))}
                       />
                       {settings?.channelDefaultsApplied?.facebookPage ? (
-                        <Prose className="mt-1 text-[11px] text-muted-foreground">
+                        <StatusLine className="mt-1 text-[11px] text-muted-foreground">
                           Auto-picked from client defaults — you can change it.
-                        </Prose>
+                        </StatusLine>
                       ) : null}
                       {fbTokenExpired ? (
                         <StatusLine className="mt-1 flex items-center gap-1 text-xs text-warning">
@@ -982,9 +967,9 @@ function CreativesBody({
                               ]}
                             />
                             {settings?.channelDefaultsApplied?.instagramActor ? (
-                              <Prose className="mt-1 text-[11px] text-muted-foreground">
+                              <StatusLine className="mt-1 text-[11px] text-muted-foreground">
                                 Auto-picked from client defaults — you can change it.
-                              </Prose>
+                              </StatusLine>
                             ) : null}
                             {selectedPageId && mergedIG.length >= 2 && !active.identity?.instagramAccountId && (
                               <StatusLine tone="alert" className="mt-1 text-[11px] text-destructive">
@@ -1236,18 +1221,7 @@ function CreativesBody({
                 <Card>
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <Chrome>
-                        <CardTitle>Select Existing Post</CardTitle>
-                        <CardDescription>
-                          {existingPostSource === "instagram"
-                            ? igUserId
-                              ? "Choose a published post from the linked Instagram account."
-                              : "No linked Instagram account on the selected Page — switch to Facebook below or pick a Page with a connected IG account."
-                            : active.identity?.pageId
-                              ? "Choose a published post from the selected Facebook Page's feed."
-                              : "Select a Facebook Page above to see available posts."}
-                        </CardDescription>
-                      </Chrome>
+                      
                     </div>
                     {/* Source toggle — Instagram (default) | Facebook */}
                     <div
@@ -1496,7 +1470,7 @@ function CreativesBody({
                             )}
                           </div>
 
-                          <Chrome>
+                          {!drawer && (
                             <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
                               <DestinationUrlField
                                 fieldId="meta-existing-ig-destination-url"
@@ -1512,7 +1486,7 @@ function CreativesBody({
                                 options={CTA_OPTIONS}
                               />
                             </div>
-                          </Chrome>
+                          )}
                         </>
                       )}
                     </div>
@@ -1664,8 +1638,7 @@ function CreativesBody({
                           )}
                         </div>
 
-                        {/* Optional CTA/URL override for existing posts — preserved from prior UI */}
-                        <Chrome>
+                        {!drawer && (
                           <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
                             <DestinationUrlField
                               fieldId="meta-existing-fb-destination-url"
@@ -1681,7 +1654,7 @@ function CreativesBody({
                               options={CTA_OPTIONS}
                             />
                           </div>
-                        </Chrome>
+                        )}
                       </>
                     )}
                   </div>
@@ -1789,18 +1762,13 @@ function CreativesBody({
                   <span className="text-sm font-medium">Creative Enhancements</span>
                   <Badge variant="outline" className="text-[10px]">All OFF</Badge>
                 </div>
-                <Prose className="mt-1 text-xs text-muted-foreground">
-                  Text optimizations, visual enhancements, music, and auto-variations are disabled. Ads will publish exactly as configured.
-                </Prose>
+                
               </div>
 
               {/* ─── Bulk apply ─── */}
               {creatives.length > 1 && (
                 <Card>
-                  <Chrome>
-                    <CardTitle>Apply to All Ads</CardTitle>
-                    <CardDescription>Copy a field from this ad to every other ad.</CardDescription>
-                  </Chrome>
+                  
                   <div className="mt-3 flex flex-wrap gap-2">
                     {([
                       { field: "headline" as BulkField, label: "Headline" },
@@ -2533,15 +2501,7 @@ function AssetVariationCard({
             onChange={(e) => onUpdate({ name: e.target.value })}
             placeholder={`Variation ${index + 1}`}
           />
-          {slots.length > 1 && (
-            <Prose className="text-[11px] leading-relaxed text-muted-foreground">
-              Each aspect ratio renders in its matching placement: the{" "}
-              <span className="font-medium text-foreground">4:5</span> asset shows in
-              Feed placements (Facebook Feed, Instagram Feed), and the{" "}
-              <span className="font-medium text-foreground">9:16</span> asset shows in
-              Stories and Reels.
-            </Prose>
-          )}
+          
           <div className={`grid gap-4 ${
             slots.length === 1
               ? "max-w-[150px] grid-cols-1"

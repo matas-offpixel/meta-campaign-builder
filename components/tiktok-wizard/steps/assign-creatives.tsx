@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -95,15 +95,7 @@ export function AssignCreativesStep({
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <Chrome>
-        <div>
-          <h2 className="font-heading text-xl">Assign creatives</h2>
-          <StatusLine className="mt-2 text-sm text-muted-foreground">
-            Assign each creative to at least one suggested ad group. Every ad
-            group must also have at least one creative before review.
-          </StatusLine>
-        </div>
-        </Chrome>
+        
         {draft.creatives.items.length > 0 && adGroups.length > 0 && (
           <div className="flex items-center gap-2">
             <Button

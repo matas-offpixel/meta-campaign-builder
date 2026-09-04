@@ -2,7 +2,7 @@
 
 import React, { useMemo, useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { markPageCapabilityFailures, getCachedUserPages } from "@/lib/hooks/useMeta";
+import { markPageCapabilityFailures } from "@/lib/hooks/useMeta";
 import { planContinuationHref } from "@/lib/plan/schedule";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ThresholdBand } from "@/components/viz/threshold-band";
@@ -28,7 +28,6 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
-import { validateStep } from "@/lib/validation";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
   failedAdLabelsFromSummary,
@@ -476,7 +475,7 @@ function EventRow({ event }: { event: LaunchEvent }) {
             </span>
           )}
         </div>
-        <p
+        <Datum
           className={`mt-0.5 text-xs ${
             event.status === "failed"
               ? "text-destructive"
@@ -495,22 +494,13 @@ function EventRow({ event }: { event: LaunchEvent }) {
               ID {event.metaId}
             </span>
           )}
-        </p>
+        </Datum>
         {event.detail && event.detail !== event.label && (
-          <p className="mt-0.5 text-[11px] text-muted-foreground/70 break-all">
+          <Datum className="mt-0.5 text-[11px] text-muted-foreground/70 break-all">
             {event.detail}
-          </p>
+          </Datum>
         )}
       </div>
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start justify-between gap-4 py-1.5">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-right text-sm font-medium">{value || "—"}</span>
     </div>
   );
 }
@@ -645,365 +635,6 @@ function buildMetaLink(
   return `https://adsmanager.facebook.com/adsmanager/manage/campaigns`;
 }
 
-// ── Pre-launch health summary ─────────────────────────────────────────────────
-
-// Client-side replica of the real-Meta-ID check (mirrors isRealMetaId in adset.ts).
-function isRealId(id: string) { return /^\d{10,}$/.test(id); }
-
-function PreLaunchHealthCard({ draft }: { draft: CampaignDraft }) {
-  const cachedPages = getCachedUserPages();
-
-  // ── Interest group health ────────────────────────────────────────────────
-  const interestHealth = draft.audiences.interestGroups.map((g) => {
-    const realCount = g.interests.filter((i) => isRealId(i.id)).length;
-    return {
-      id: g.id,
-      name: g.name || "Untitled",
-      total: g.interests.length,
-      realCount,
-      empty: g.interests.length === 0,
-      allInvalid: g.interests.length > 0 && realCount === 0,
-    };
-  });
-
-  // ── Page group health ─────────────────────────────────────────────────────
-  const pageGroupHealth = draft.audiences.pageGroups.map((g) => {
-    const noTypesSelected = !g.engagementTypes || g.engagementTypes.length === 0;
-    const hasManualAudiences = (g.customAudienceIds ?? []).some(isRealId);
-
-    const selectedPages = g.pageIds
-      .map((id) => cachedPages.find((p) => p.id === id))
-      .filter(Boolean);
-
-    const hasIg = (p: (typeof selectedPages)[number]) => {
-      if (!p) return false;
-      if (p.capabilities?.igFollowersSource === false) return false;
-      return !!(p.hasInstagramLinked ?? (p.instagram_business_account?.id ?? p.connected_instagram_account?.id));
-    };
-    const allPagesNoIg = selectedPages.length > 0 && selectedPages.every((p) => !hasIg(p));
-    const fbCapFailed =
-      selectedPages.some((p) => p?.capabilities?.fbLikesSource === false) ||
-      selectedPages.some((p) => p?.capabilities?.fbEngagementSource === false);
-
-    // Per engagement-type prediction
-    const igTypesSelected =
-      g.engagementTypes.includes("ig_followers") ||
-      g.engagementTypes.includes("ig_engagement_365d");
-    const fbTypesSelected =
-      g.engagementTypes.includes("fb_likes") ||
-      g.engagementTypes.includes("fb_engagement_365d");
-
-    const typeHealth = {
-      fb_likes: g.engagementTypes.includes("fb_likes")
-        ? (selectedPages.some((p) => p?.capabilities?.fbLikesSource === false) ? "cap_failed" : "ok")
-        : "not_selected",
-      fb_engagement_365d: g.engagementTypes.includes("fb_engagement_365d")
-        ? (selectedPages.some((p) => p?.capabilities?.fbEngagementSource === false) ? "cap_failed" : "ok")
-        : "not_selected",
-      ig_followers: g.engagementTypes.includes("ig_followers")
-        ? (allPagesNoIg ? "no_ig" : "ok")
-        : "not_selected",
-      ig_engagement_365d: g.engagementTypes.includes("ig_engagement_365d")
-        ? (allPagesNoIg ? "no_ig" : "ok")
-        : "not_selected",
-    } as Record<string, "ok" | "cap_failed" | "no_ig" | "not_selected">;
-
-    // Any type expected to produce an audience?
-    const anyTypeWillSucceed =
-      typeHealth.fb_likes === "ok" ||
-      typeHealth.fb_engagement_365d === "ok" ||
-      typeHealth.ig_followers === "ok" ||
-      typeHealth.ig_engagement_365d === "ok";
-
-    const lookalikesExpected = !!(g.lookalike && !noTypesSelected);
-    const lookalikeBlocked =
-      lookalikesExpected &&
-      !anyTypeWillSucceed;
-
-    // Group will have empty targeting if no types selected AND no manual audiences
-    const willHaveEmptyTargeting = noTypesSelected && !hasManualAudiences;
-
-    return {
-      id: g.id,
-      name: g.name || "Untitled",
-      pageCount: g.pageIds.length,
-      noTypesSelected,
-      hasManualAudiences,
-      willHaveEmptyTargeting,
-      lookalikesExpected,
-      lookalikeBlocked,
-      allPagesNoIg,
-      fbCapFailed,
-      fbTypesSelected,
-      igTypesSelected,
-      anyTypeWillSucceed,
-      typeHealth,
-    };
-  });
-
-  // ── Ad set targeting health ───────────────────────────────────────────────
-  // Predict whether each enabled ad set will have audience targeting at launch.
-  const adSetHealth = draft.adSetSuggestions
-    .filter((s) => s.enabled)
-    .map((s) => {
-      let audiencesOk = true;
-      let reason = "";
-      let detail = "";
-
-      switch (s.sourceType) {
-        case "interest_group": {
-          const g = draft.audiences.interestGroups.find((x) => x.id === s.sourceId);
-          if (!g || g.interests.length === 0) {
-            audiencesOk = false;
-            reason = "No interests — will be ABORTED at launch";
-            detail = g ? "Interest group is empty" : "Interest group not found";
-          } else {
-            const real = g.interests.filter((i) => isRealId(i.id)).length;
-            if (real === 0) {
-              audiencesOk = false;
-              reason = "All interests invalid — will be ABORTED at launch";
-              detail = `${g.interests.length} interests but none have valid Meta IDs`;
-            } else {
-              detail = `${real}/${g.interests.length} valid interests`;
-            }
-          }
-          break;
-        }
-        case "page_group": {
-          const g = draft.audiences.pageGroups.find((x) => x.id === s.sourceId);
-          if (!g) { audiencesOk = false; reason = "Group not found"; break; }
-          const hasManual = (g.customAudienceIds ?? []).some(isRealId);
-          const noTypes = !g.engagementTypes || g.engagementTypes.length === 0;
-          if (noTypes && !hasManual) {
-            audiencesOk = false;
-            reason = "No engagement types selected + no custom audiences — will be ABORTED";
-            detail = "Select at least one engagement type or add a custom audience";
-          } else if (g.pageIds.length === 0 && !hasManual) {
-            audiencesOk = false;
-            reason = "No pages selected and no custom audiences";
-          } else {
-            detail = noTypes
-              ? `Standard-only (${g.customAudienceIds?.length ?? 0} manual audiences)`
-              : `${g.pageIds.length} page${g.pageIds.length !== 1 ? "s" : ""} — ${g.engagementTypes.length} type${g.engagementTypes.length !== 1 ? "s" : ""} selected`;
-          }
-          break;
-        }
-        case "custom_group": {
-          const g = draft.audiences.customAudienceGroups.find((x) => x.id === s.sourceId);
-          const realCount = (g?.audienceIds ?? []).filter(isRealId).length;
-          if (realCount === 0) {
-            audiencesOk = false;
-            reason = "No valid custom audience IDs — will be ABORTED";
-          } else {
-            detail = `${realCount} custom audience${realCount !== 1 ? "s" : ""}`;
-          }
-          break;
-        }
-        case "lookalike_group":
-        case "selected_pages_lookalike":
-          detail = "Lookalike audiences created at launch (requires source audiences)";
-          break;
-        case "saved_audience":
-          detail = isRealId(s.sourceId) ? "Saved audience" : "Invalid saved audience ID";
-          if (!isRealId(s.sourceId)) { audiencesOk = false; reason = "Invalid saved audience ID"; }
-          break;
-        case "blank":
-          detail = "No audience source — Advantage+ Audience finds people from location + demographics alone";
-          break;
-      }
-
-      return { id: s.id, name: s.name, sourceType: s.sourceType, audiencesOk, reason, detail };
-    });
-
-  const hasInterestWarnings = interestHealth.some((g) => g.empty || g.allInvalid);
-  const hasPageWarnings = pageGroupHealth.some(
-    (g) => g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed ||
-           Object.values(g.typeHealth).some((s) => s === "cap_failed" || s === "no_ig"),
-  );
-  const hasAdSetWarnings = adSetHealth.some((s) => !s.audiencesOk);
-  const hasAnyWarning = hasInterestWarnings || hasPageWarnings || hasAdSetWarnings;
-
-  const criticalCount = adSetHealth.filter((s) => !s.audiencesOk).length;
-
-  if (!hasAnyWarning && interestHealth.length === 0 && pageGroupHealth.length === 0) {
-    return null;
-  }
-
-  return (
-    <Card className={hasAnyWarning ? "border-warning/40 bg-warning/5" : "border-success/40 bg-success/5"}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Info className={`h-4 w-4 shrink-0 ${hasAnyWarning ? "text-warning" : "text-success"}`} />
-          <CardTitle className={`text-sm ${hasAnyWarning ? "text-warning" : "text-success"}`}>
-            Pre-launch health check
-          </CardTitle>
-        </div>
-        {criticalCount > 0 && (
-          <Badge variant="destructive" className="text-[10px]">
-            {criticalCount} ad set{criticalCount !== 1 ? "s" : ""} will be aborted
-          </Badge>
-        )}
-      </div>
-
-      <div className="mt-3 space-y-4">
-        {/* Ad set targeting health — shown first and prominently */}
-        {adSetHealth.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Ad Set Targeting
-            </p>
-            <div className="space-y-1">
-              {adSetHealth.map((s) => (
-                <div key={s.id} className="flex items-start gap-2">
-                  {s.audiencesOk ? (
-                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-                  ) : (
-                    <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
-                  )}
-                  <div className="text-xs">
-                    <span className="font-medium">{s.name}</span>
-                    <span className="ml-1.5 text-[10px] text-muted-foreground uppercase tracking-wide">
-                      {s.sourceType.replace(/_/g, " ")}
-                    </span>
-                    {s.audiencesOk ? (
-                      <span className="ml-1 text-muted-foreground"> — {s.detail}</span>
-                    ) : (
-                      <>
-                        <div className="mt-0.5 font-medium text-destructive">{s.reason}</div>
-                        {s.detail && <div className="text-[11px] text-muted-foreground">{s.detail}</div>}
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Interest groups */}
-        {interestHealth.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Interest Groups
-            </p>
-            <div className="space-y-1">
-              {interestHealth.map((g) => (
-                <div key={g.id} className="flex items-start gap-2">
-                  {g.empty || g.allInvalid ? (
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                  ) : (
-                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-                  )}
-                  <span className="text-xs">
-                    <span className="font-medium">{g.name}</span>
-                    {g.empty ? (
-                      <span className="text-warning"> — no interests added</span>
-                    ) : g.allInvalid ? (
-                      <span className="text-warning"> — {g.total} interests but all have invalid IDs</span>
-                    ) : (
-                      <span className="text-muted-foreground"> — {g.realCount}/{g.total} valid</span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Page groups */}
-        {pageGroupHealth.length > 0 && (
-          <div>
-            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Page Groups
-            </p>
-            <div className="space-y-3">
-              {pageGroupHealth.map((g) => {
-                const warn = g.willHaveEmptyTargeting || g.lookalikeBlocked || g.allPagesNoIg || g.fbCapFailed;
-                const TYPE_LABELS: Record<string, string> = {
-                  fb_likes: "FB Likes",
-                  fb_engagement_365d: "FB Engagement",
-                  ig_followers: "IG Followers",
-                  ig_engagement_365d: "IG Engagement",
-                };
-                const statusIcon = (s: string) => {
-                  if (s === "ok") return <span className="text-success font-medium">✓</span>;
-                  if (s === "not_selected") return <span className="text-muted-foreground">—</span>;
-                  return <span className="text-warning font-medium">✗</span>;
-                };
-                const statusNote = (key: string, s: string) => {
-                  if (s === "cap_failed") return " (permission failure)";
-                  if (s === "no_ig") return " (no linked IG)";
-                  if (s === "not_selected") return " (not selected)";
-                  return "";
-                };
-                return (
-                  <div key={g.id} className="flex items-start gap-2">
-                    {g.willHaveEmptyTargeting ? (
-                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
-                    ) : warn ? (
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                    ) : (
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-                    )}
-                    <div className="text-xs">
-                      <span className="font-medium">{g.name}</span>
-                      <span className="text-muted-foreground">
-                        {" "}({g.pageCount} page{g.pageCount !== 1 ? "s" : ""})
-                      </span>
-                      {g.willHaveEmptyTargeting && (
-                        <div className="mt-0.5 font-medium text-destructive">
-                          Will be ABORTED — no engagement types selected and no custom audiences
-                        </div>
-                      )}
-                      {/* Per-type status grid */}
-                      {!g.willHaveEmptyTargeting && (
-                        <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[11px]">
-                          {(["fb_likes", "fb_engagement_365d", "ig_followers", "ig_engagement_365d"] as const).map((key) => {
-                            const s = g.typeHealth[key];
-                            return (
-                              <span
-                                key={key}
-                                className={
-                                  s === "ok" ? "text-success" :
-                                  s === "not_selected" ? "text-muted-foreground/60" :
-                                  "text-warning"
-                                }
-                              >
-                                {statusIcon(s)} {TYPE_LABELS[key]}{statusNote(key, s)}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {!g.noTypesSelected && g.lookalikeBlocked && (
-                        <div className="mt-0.5 text-[11px] text-warning">
-                          ✗ Lookalikes blocked — no types predicted to succeed
-                        </div>
-                      )}
-                      {g.noTypesSelected && g.hasManualAudiences && (
-                        <div className="mt-0.5 text-[11px] text-muted-foreground">
-                          Standard-only (manual audiences selected)
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-// ── Retry failed ads (ledger-gated) ───────────────────────────────────────────
-
-/**
- * Exported for the Meta drawer's `⊞` tab, where launch remediation lives
- * for a plan-linked published draft: the plan launches from the canvas, so
- * the review step never renders and these panels would be unreachable.
- */
 export function RetryFailedAdsPanel({
   draftId,
   launchSummary,
@@ -1126,8 +757,6 @@ export function RetryFailedAdsPanel({
   );
 }
 
-// ── Retry lookalikes panel ────────────────────────────────────────────────────
-
 export function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [result, setResult] = useState<{
@@ -1145,7 +774,7 @@ export function RetryLookalikesPanel({ draft }: { draft: CampaignDraft }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ draft }),
       });
-      const data = await res.json() as typeof result & { error?: string };
+      const data = (await res.json()) as typeof result & { error?: string };
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       setResult(data);
       setStatus("done");
@@ -1248,23 +877,9 @@ export function ReviewLaunch({
   onUpdateSettings,
   onRetryFailedAds,
 }: ReviewLaunchProps) {
-  const allValidation = validateStep(7, draft);
-  const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
   const bs = draft.budgetSchedule;
   const wizardMode = draft.settings.wizardMode ?? "new";
   const isAttachAdSet = wizardMode === "attach_adset";
-
-  // Multi-select existing campaigns (with legacy fallback). Used by the
-  // attach_campaign summary card.
-  const attachedCampaigns =
-    draft.settings.existingMetaCampaigns ??
-    (draft.settings.existingMetaCampaign ? [draft.settings.existingMetaCampaign] : []);
-
-  // Multi-select existing ad sets (with legacy fallback). Used by the
-  // attach_adset summary card + the assignment summary section.
-  const attachedAdSetSnapshots =
-    draft.settings.existingMetaAdSets ??
-    (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : []);
 
   // Creative Integrity Mode — defaults to ON for any draft missing the flag.
   // The toggle below mirrors the wizard default so launches always disclose
@@ -1313,33 +928,6 @@ export function ReviewLaunch({
     };
   }, [adAccountId, launchSummary]);
 
-  const days = useMemo(() => {
-    if (!bs.startDate || !bs.endDate) return 0;
-    return Math.ceil(
-      (new Date(bs.endDate).getTime() - new Date(bs.startDate).getTime()) /
-        (1000 * 60 * 60 * 24),
-    );
-  }, [bs.startDate, bs.endDate]);
-
-  const totalDaily = enabledSets.reduce((sum, s) => sum + s.budgetPerDay, 0);
-  const totalAds = Object.values(draft.creativeAssignments).reduce(
-    (sum, ids) => sum + ids.length,
-    0,
-  );
-
-  const newAdCount = draft.creatives.filter(
-    (c) => (c.sourceType ?? "new") === "new",
-  ).length;
-  const postAdCount = draft.creatives.filter(
-    (c) => (c.sourceType ?? "new") === "existing_post",
-  ).length;
-  const totalVariations = draft.creatives.reduce(
-    (sum, c) =>
-      sum +
-      ((c.sourceType ?? "new") === "new" ? (c.assetVariations ?? []).length : 0),
-    0,
-  );
-
   // Events to display in the feed
   const launchEvents = useMemo<LaunchEvent[]>(() => {
     if (isLaunching) return PENDING_EVENTS;
@@ -1380,27 +968,23 @@ export function ReviewLaunch({
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h2 className="font-heading text-2xl tracking-wide">Review & Launch</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Review your campaign configuration before launching.
-        </p>
         {prelaunchUsage?.warn && prelaunchUsage.bucket && (
           <div
             className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2"
             role="status"
             data-testid="buc-prelaunch-warning"
           >
-            <p className="text-sm font-medium text-amber-950">
+            <Datum className="text-sm font-medium text-amber-950">
               {formatBusinessUseCaseLimitMessage(
                 prelaunchUsage.bucket,
                 prelaunchUsage.accountName,
               )}
-            </p>
-            <p className="mt-0.5 text-xs text-amber-900/80">
+            </Datum>
+            <Datum className="mt-0.5 text-xs text-amber-900/80">
               This ad account&apos;s ads_management budget is already above{" "}
               {Math.round(prelaunchUsage.bucket.maxPercent)}%. A launch that
               creates many audiences can hit the ceiling before it finishes.
-            </p>
+            </Datum>
           </div>
         )}
       </div>
@@ -1414,19 +998,19 @@ export function ReviewLaunch({
               {isLaunching ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                  <p className="font-heading text-lg tracking-wide">Launching…</p>
+                  <Datum className="font-heading text-lg tracking-wide">Launching…</Datum>
                 </>
               ) : hasFailures ? (
                 <>
                   <TriangleAlert className="h-5 w-5 text-warning" />
-                  <p className="font-heading text-lg tracking-wide">Partially launched</p>
+                  <Datum className="font-heading text-lg tracking-wide">Partially launched</Datum>
                 </>
               ) : (
                 <>
                   <Rocket className="h-5 w-5 text-success" />
-                  <p className="font-heading text-lg tracking-wide text-success">
+                  <Datum className="font-heading text-lg tracking-wide text-success">
                     Campaign created
-                  </p>
+                  </Datum>
                 </>
               )}
             </div>
@@ -1463,9 +1047,9 @@ export function ReviewLaunch({
             <div className="mt-3 space-y-2">
               <SummaryCounts summary={launchSummary} />
               {launchSummary.totalDurationMs != null && (
-                <p className="text-xs text-muted-foreground">
+                <Datum className="text-xs text-muted-foreground">
                   Total launch time: {(launchSummary.totalDurationMs / 1000).toFixed(1)}s
-                </p>
+                </Datum>
               )}
 
               {/* App mode blocking banner */}
@@ -1474,12 +1058,12 @@ export function ReviewLaunch({
                   <div className="flex items-start gap-2">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                     <div>
-                      <p className="text-sm font-semibold text-destructive">
+                      <Datum className="text-sm font-semibold text-destructive">
                         {allCreativesBlocked
                           ? "Campaign structure created — creatives not launched"
                           : `${appModeBlockedCreatives.length} creative${appModeBlockedCreatives.length !== 1 ? "s" : ""} blocked by Meta app mode`}
-                      </p>
-                      <p className="mt-1 text-xs text-destructive/80">
+                      </Datum>
+                      <Datum className="mt-1 text-xs text-destructive/80">
                         {allCreativesBlocked
                           ? "Your campaign and ad sets were created in Meta, but no creatives were launched because "
                           : "Some creatives could not launch because "}
@@ -1491,7 +1075,7 @@ export function ReviewLaunch({
                             The campaign structure is live in Meta Ads Manager — you can relaunch creatives once the app is in Live mode.
                           </span>
                         )}
-                      </p>
+                      </Datum>
                     </div>
                   </div>
                 </div>
@@ -1537,37 +1121,6 @@ export function ReviewLaunch({
         </Card>
       )}
 
-      {/* Validation */}
-      {allValidation.errors.length > 0 ? (
-        <Card className="border-warning bg-warning/10">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-            <div>
-              <CardTitle className="text-warning">Validation Warnings</CardTitle>
-              <ul className="mt-2 space-y-1">
-                {allValidation.errors.map((err, i) => (
-                  <li key={i} className="text-sm text-warning">
-                    • {err}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <Card className="border-success bg-success/10">
-          <div className="flex items-center gap-3">
-            <CheckCircle2 className="h-5 w-5 text-success" />
-            <span className="text-sm font-medium text-success">
-              All steps validated. Ready to launch.
-            </span>
-          </div>
-        </Card>
-      )}
-
-      {/* Pre-launch health — only before first launch */}
-      {!launchSummary && !isLaunching && <PreLaunchHealthCard draft={draft} />}
-
       {/* Creative Integrity Mode — global publish-as-uploaded safeguard */}
       <Card>
         <div className="flex items-start justify-between gap-4">
@@ -1587,16 +1140,16 @@ export function ReviewLaunch({
                   {creativeIntegrityMode ? "ON" : "OFF"}
                 </Badge>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <Datum className="mt-1 text-xs text-muted-foreground">
                 Publish ads exactly as uploaded. Disables AI enhancements and
                 automatic creative changes — no Advantage+, no music, no auto
                 sitelinks, no dynamic creative, no catalog attachments.
-              </p>
+              </Datum>
               {!creativeIntegrityMode && (
-                <p className="mt-1.5 text-[11px] text-amber-700">
+                <Datum className="mt-1.5 text-[11px] text-amber-700">
                   Meta may automatically apply Advantage+ enhancements to your
                   creatives.
-                </p>
+                </Datum>
               )}
             </div>
           </div>
@@ -1620,336 +1173,6 @@ export function ReviewLaunch({
         </div>
       </Card>
 
-      {/* Campaign Summary */}
-      <Card>
-        <CardTitle>
-          {wizardMode === "attach_adset"
-            ? `Adding ads to ${attachedAdSetSnapshots.length === 1 ? "existing ad set" : `${attachedAdSetSnapshots.length} existing ad sets`}`
-            : "Campaign Summary"}
-        </CardTitle>
-        {wizardMode === "attach_adset" &&
-        draft.settings.existingMetaCampaign &&
-        attachedAdSetSnapshots.length > 0 ? (
-          <div className="mt-3 space-y-3">
-            <p className="text-xs text-muted-foreground">
-              This launch will only create new ads — no campaign or ad set will
-              be created. These ads will inherit each selected ad set&rsquo;s
-              existing{" "}
-              <span className="font-medium text-foreground">
-                audience, budget, schedule and optimisation
-              </span>{" "}
-              settings.
-            </p>
-            <div className="divide-y divide-border">
-              <SummaryRow
-                label="Existing Campaign"
-                value={draft.settings.existingMetaCampaign.name}
-              />
-              <SummaryRow
-                label="Campaign ID"
-                value={draft.settings.existingMetaCampaign.id}
-              />
-              <SummaryRow
-                label="Ad Account"
-                value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Selected ad sets ({attachedAdSetSnapshots.length})
-              </p>
-              <ul className="space-y-2">
-                {attachedAdSetSnapshots.map((adSet) => (
-                  <li
-                    key={adSet.id}
-                    className="rounded-md border border-border bg-muted/30 p-3 text-xs"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">
-                        {adSet.name}
-                      </span>
-                      <Badge variant="outline" className="text-[10px]">
-                        {adSet.effectiveStatus ?? adSet.status}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                      <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
-                        {adSet.id}
-                      </code>
-                      {adSet.optimizationGoal && (
-                        <span>
-                          Optimisation:{" "}
-                          {adSet.optimizationGoal.replace(/_/g, " ")}
-                        </span>
-                      )}
-                      {adSet.billingEvent && (
-                        <span>
-                          Billing: {adSet.billingEvent.replace(/_/g, " ")}
-                        </span>
-                      )}
-                    </div>
-                    {adSet.targetingSummary && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {adSet.targetingSummary}
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        ) : wizardMode === "attach_campaign" && attachedCampaigns.length > 0 ? (
-          <div className="mt-3 space-y-2">
-            {attachedCampaigns.length > 1 ? (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  This launch will create{" "}
-                  <span className="font-medium text-foreground">
-                    1 new ad set per campaign ({attachedCampaigns.length} total)
-                  </span>{" "}
-                  and ads under each. Campaigns are launched serially with a 1-second gap.
-                </p>
-                <div className="divide-y divide-border">
-                  <SummaryRow
-                    label="Optimisation"
-                    value={draft.settings.optimisationGoal.replace(/_/g, " ")}
-                  />
-                  <SummaryRow
-                    label="Ad Account"
-                    value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Selected campaigns ({attachedCampaigns.length})
-                  </p>
-                  <ul className="space-y-1.5">
-                    {attachedCampaigns.map((camp, idx) => (
-                      <li
-                        key={camp.id}
-                        className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-medium text-muted-foreground">
-                            #{idx + 1}
-                          </span>
-                          <span className="font-medium text-foreground">{camp.name}</span>
-                          {camp.effectiveStatus && (
-                            <Badge variant="outline" className="text-[10px]">
-                              {camp.effectiveStatus}
-                            </Badge>
-                          )}
-                        </div>
-                        <code className="mt-0.5 block text-[10px] text-muted-foreground">
-                          {camp.id}
-                        </code>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  This launch will create <span className="font-medium text-foreground">1 new ad set</span> and its ads under an
-                  existing campaign in your ad account. The campaign itself will not be modified.
-                </p>
-                <div className="divide-y divide-border">
-                  <SummaryRow
-                    label="Existing Campaign"
-                    value={attachedCampaigns[0].name}
-                  />
-                  <SummaryRow
-                    label="Campaign ID"
-                    value={attachedCampaigns[0].id}
-                  />
-                  <SummaryRow
-                    label="Objective"
-                    value={
-                      draft.settings.objective.charAt(0).toUpperCase() +
-                      draft.settings.objective.slice(1) +
-                      ` (${attachedCampaigns[0].objective})`
-                    }
-                  />
-                  <SummaryRow
-                    label="Optimisation"
-                    value={draft.settings.optimisationGoal.replace(/_/g, " ")}
-                  />
-                  <SummaryRow
-                    label="Ad Account"
-                    value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="mt-3 divide-y divide-border">
-            <SummaryRow label="Campaign" value={draft.settings.campaignName} />
-            <SummaryRow label="Code" value={draft.settings.campaignCode} />
-            <SummaryRow
-              label="Objective"
-              value={
-                draft.settings.objective.charAt(0).toUpperCase() +
-                draft.settings.objective.slice(1)
-              }
-            />
-            <SummaryRow
-              label="Optimisation"
-              value={draft.settings.optimisationGoal.replace(/_/g, " ")}
-            />
-            <SummaryRow
-              label="Ad Account"
-              value={adAccountId ? adAccountId.replace(/^act_/, "") : "—"}
-            />
-          </div>
-        )}
-      </Card>
-
-      {/* Optimisation Strategy Summary — hidden in attach_adset mode (inherited) */}
-      {!isAttachAdSet && (
-      <Card>
-        <div className="flex items-center gap-2">
-          <Zap className="h-4 w-4 text-primary" />
-          <CardTitle>Optimisation Strategy</CardTitle>
-          <Badge
-            variant={
-              draft.optimisationStrategy?.mode === "none" ? "default" : "success"
-            }
-          >
-            {draft.optimisationStrategy?.mode === "none"
-              ? "Manual"
-              : draft.optimisationStrategy?.mode === "benchmarks"
-                ? "Benchmark Rules"
-                : "Custom Rules"}
-          </Badge>
-        </div>
-        {draft.optimisationStrategy?.mode !== "none" &&
-        (draft.optimisationStrategy?.rules ?? []).length > 0 ? (
-          <div className="mt-3 space-y-2">
-            {(draft.optimisationStrategy?.rules ?? [])
-              .filter((r) => r.enabled)
-              .map((rule) => (
-                <div
-                  key={rule.id}
-                  className={`rounded-lg border px-3 py-2 ${
-                    rule.priority === "primary"
-                      ? "border-primary/30"
-                      : rule.priority === "secondary"
-                        ? "border-warning/20"
-                        : "border-border"
-                  }`}
-                >
-                  <div className="mb-1 flex flex-wrap items-center gap-2">
-                    {rule.priority && (
-                      <Badge
-                        variant={
-                          rule.priority === "primary" ? "primary" : "warning"
-                        }
-                        className="text-[10px] uppercase tracking-wider"
-                      >
-                        {rule.priority}
-                      </Badge>
-                    )}
-                    <span className="text-sm font-medium">{rule.name}</span>
-                    <Badge variant="outline">{METRIC_LABELS[rule.metric]}</Badge>
-                    <Badge variant="outline">
-                      {TIME_WINDOW_LABELS[rule.timeWindow]}
-                    </Badge>
-                    {rule.useOverride && rule.campaignTargetValue != null && (
-                      <Badge variant="warning" className="text-[10px]">
-                        Target:{" "}
-                        {rule.metric === "roas" ? "" : "£"}
-                        {rule.campaignTargetValue}
-                        {rule.metric === "roas" ? "×" : ""}
-                      </Badge>
-                    )}
-                  </div>
-                  {rule.useOverride &&
-                    rule.accountBenchmarkValue != null &&
-                    rule.campaignTargetValue != null && (
-                      <p className="mb-0.5 text-xs text-warning">
-                        Account:{" "}
-                        {rule.metric === "roas" ? "" : "£"}
-                        {rule.accountBenchmarkValue}
-                        {rule.metric === "roas" ? "×" : ""} → Campaign:{" "}
-                        {rule.metric === "roas" ? "" : "£"}
-                        {rule.campaignTargetValue}
-                        {rule.metric === "roas" ? "×" : ""}
-                      </p>
-                    )}
-                  <ThresholdBand rule={rule} />
-                </div>
-              ))}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">
-            {draft.optimisationStrategy?.mode === "none"
-              ? "No automated rules — manual optimisation only."
-              : "No rules configured."}
-          </p>
-        )}
-
-        {/* Guardrails summary */}
-        {draft.optimisationStrategy?.guardrails &&
-          draft.optimisationStrategy.mode !== "none" &&
-          (() => {
-            const g = draft.optimisationStrategy.guardrails;
-            const sym =
-              bs.currency === "GBP"
-                ? "£"
-                : bs.currency === "USD"
-                  ? "$"
-                  : bs.currency === "EUR"
-                    ? "€"
-                    : bs.currency;
-            const behaviourLabel =
-              g.ceilingBehaviour === "stop"
-                ? "Stop increases"
-                : g.ceilingBehaviour === "partial"
-                  ? "Partially apply"
-                  : "Pause scaling";
-            return (
-              <div className="mt-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-                <div className="mb-1.5 flex items-center gap-2">
-                  <Shield className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Budget Guardrails
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-                  <SummaryRow
-                    label="Base budget"
-                    value={`${sym}${g.baseCampaignBudget.toLocaleString()}`}
-                  />
-                  <SummaryRow
-                    label="Max expansion"
-                    value={`${g.maxExpansionPercent}%`}
-                  />
-                  <SummaryRow
-                    label="Hard ceiling"
-                    value={`${sym}${g.hardBudgetCeiling.toLocaleString()}`}
-                  />
-                  <SummaryRow label="At ceiling" value={behaviourLabel} />
-                  {g.maxDailyIncreasePercent != null && (
-                    <SummaryRow
-                      label="Max daily increase"
-                      value={`+${g.maxDailyIncreasePercent}%`}
-                    />
-                  )}
-                  {g.cooldownHours != null && (
-                    <SummaryRow
-                      label="Cooldown"
-                      value={`${g.cooldownHours}h`}
-                    />
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-      </Card>
-      )}
-
       {!isAttachAdSet && (
         <AutomationArmControl
           draftId={draft.id}
@@ -1969,262 +1192,6 @@ export function ReviewLaunch({
         />
       )}
 
-      {/* Audience Summary — hidden in attach_adset mode (inherited) */}
-      {!isAttachAdSet && (
-      <Card>
-        <CardTitle>Audience Summary</CardTitle>
-        <div className="mt-3 space-y-3">
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Page Groups ({draft.audiences.pageGroups.length})
-            </span>
-            {draft.audiences.pageGroups.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {draft.audiences.pageGroups.map((g) => (
-                  <Badge key={g.id} variant="primary">
-                    {g.name || "Untitled"} ({g.pageIds.length} pages)
-                    {g.customAudienceIds.length > 0 &&
-                      ` + ${g.customAudienceIds.length} custom`}
-                    {g.lookalike && ` · ${(g.lookalikeRanges ?? []).join(", ") || "0-1%"} LAL`}
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-1 text-sm text-muted-foreground">None</p>
-            )}
-          </div>
-
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Custom Audience Groups ({draft.audiences.customAudienceGroups.length})
-            </span>
-            {draft.audiences.customAudienceGroups.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {draft.audiences.customAudienceGroups.map((g) => (
-                  <Badge key={g.id} variant="warning">
-                    {g.name || "Untitled"} ({g.audienceIds.length})
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-1 text-sm text-muted-foreground">None</p>
-            )}
-          </div>
-
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Saved Audiences ({draft.audiences.savedAudiences.audienceIds.length})
-            </span>
-            {draft.audiences.savedAudiences.audienceIds.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {draft.audiences.savedAudiences.audienceIds.map((id) => (
-                  <Badge key={id} variant="default">
-                    {id}
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-1 text-sm text-muted-foreground">None</p>
-            )}
-          </div>
-
-          <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Interest Groups ({draft.audiences.interestGroups.length})
-            </span>
-            {draft.audiences.interestGroups.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1.5">
-                {draft.audiences.interestGroups.map((g) => (
-                  <Badge key={g.id} variant="default">
-                    {g.name || "Untitled"} ({g.interests.length} interests)
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-1 text-sm text-muted-foreground">None</p>
-            )}
-          </div>
-        </div>
-      </Card>
-      )}
-
-      {/* Creatives Summary */}
-      <Card>
-        <div className="flex items-center gap-2">
-          <CardTitle>Ads ({draft.creatives.length})</CardTitle>
-          {newAdCount > 0 && <Badge variant="primary">{newAdCount} new</Badge>}
-          {postAdCount > 0 && (
-            <Badge variant="warning">{postAdCount} existing post</Badge>
-          )}
-          {totalVariations > 0 && (
-            <Badge variant="outline">{totalVariations} asset variations</Badge>
-          )}
-        </div>
-        {draft.creatives.length > 0 ? (
-          <div className="mt-3 space-y-2">
-            {draft.creatives.map((c, i) => {
-              const varCount =
-                (c.sourceType ?? "new") === "new"
-                  ? (c.assetVariations ?? []).length
-                  : 0;
-              const captionCount = (c.captions ?? []).length;
-              return (
-                <div
-                  key={c.id}
-                  className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      #{i + 1}
-                    </span>
-                    <span className="text-sm font-medium">{c.name || "Untitled"}</span>
-                    {c.identity?.pageId && (
-                      <span className="text-xs text-muted-foreground">
-                        · Page {c.identity.pageId}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant={
-                        (c.sourceType ?? "new") === "existing_post"
-                          ? "warning"
-                          : "primary"
-                      }
-                    >
-                      {(c.sourceType ?? "new") === "existing_post"
-                        ? "post"
-                        : (c.assetMode ?? "dual")}
-                    </Badge>
-                    {(c.sourceType ?? "new") === "new" && (
-                      <>
-                        <Badge variant="outline">{varCount} var</Badge>
-                        {captionCount > 1 && (
-                          <Badge variant="outline">{captionCount} captions</Badge>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-muted-foreground">No ads added.</p>
-        )}
-
-        {/* Enhancements policy */}
-        <div className="mt-3 flex items-center gap-2 rounded border border-border bg-muted/30 px-3 py-2">
-          <ShieldOff className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">
-            All Meta AI creative enhancements are OFF
-          </span>
-        </div>
-      </Card>
-
-      {/* Budget Breakdown — hidden in attach_adset mode (inherited) */}
-      {!isAttachAdSet && (
-      <Card>
-        <CardTitle>Budget & Schedule</CardTitle>
-        <div className="mt-3 divide-y divide-border">
-          <SummaryRow
-            label="Budget Type"
-            value={`${bs.budgetType === "daily" ? "Daily" : "Lifetime"} · ${bs.budgetLevel === "ad_set" ? "Ad Set Level" : "CBO"}`}
-          />
-          <SummaryRow
-            label="Daily Total"
-            value={`${bs.currency} ${totalDaily.toFixed(2)}/day`}
-          />
-          <SummaryRow label="Duration" value={days > 0 ? `${days} days` : "—"} />
-          <SummaryRow
-            label="Total Estimated Spend"
-            value={
-              days > 0 ? `${bs.currency} ${(totalDaily * days).toFixed(2)}` : "—"
-            }
-          />
-        </div>
-        {enabledSets.length > 0 && (
-          <div className="mt-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Per Ad Set
-            </span>
-            <div className="mt-1 space-y-1">
-              {enabledSets.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span>{s.name}</span>
-                  <span className="font-medium">
-                    {bs.currency} {s.budgetPerDay.toFixed(2)}/day
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </Card>
-      )}
-
-      {/* Assignment Summary */}
-      <Card>
-        <CardTitle>Assignment Summary</CardTitle>
-        {isAttachAdSet && attachedAdSetSnapshots.length > 0 ? (
-          <div className="mt-3 space-y-3">
-            <div className="divide-y divide-border">
-              <SummaryRow
-                label="Selected ad sets"
-                value={String(attachedAdSetSnapshots.length)}
-              />
-              <SummaryRow label="Ads" value={String(draft.creatives.length)} />
-              <SummaryRow label="Total Assigned" value={String(totalAds)} />
-            </div>
-            <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Per ad set
-              </p>
-              <ul className="space-y-1.5 text-xs">
-                {attachedAdSetSnapshots.map((adSet) => {
-                  const key = `attached:${adSet.id}`;
-                  const assignedIds = draft.creativeAssignments[key] ?? [];
-                  const ads = draft.creatives.filter((c) =>
-                    assignedIds.includes(c.id),
-                  );
-                  return (
-                    <li
-                      key={adSet.id}
-                      className="flex items-start justify-between gap-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate font-medium text-foreground">
-                          {adSet.name}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {ads.length === 0
-                            ? "no ads assigned"
-                            : ads
-                                .map((c, i) => c.name?.trim() || `Ad #${i + 1}`)
-                                .join(", ")}
-                        </span>
-                      </div>
-                      <Badge variant="outline" className="text-[10px]">
-                        {ads.length} ad{ads.length !== 1 ? "s" : ""}
-                      </Badge>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-3 divide-y divide-border">
-            <SummaryRow label="Ad Sets" value={String(enabledSets.length)} />
-            <SummaryRow label="Ads" value={String(draft.creatives.length)} />
-            <SummaryRow label="Total Assigned" value={String(totalAds)} />
-          </div>
-        )}
-      </Card>
-
       {/* ── Launch error modal ─────────────────────────────────────────────── */}
       {launchError && (
         <div
@@ -2238,12 +1205,12 @@ export function ReviewLaunch({
               <div className="flex items-start gap-3">
                 <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
                 <div>
-                  <p className="font-heading text-lg tracking-wide">
+                  <Datum className="font-heading text-lg tracking-wide">
                     Launch Failed
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  </Datum>
+                  <Datum className="mt-1 text-sm text-muted-foreground">
                     Meta returned an error. Your draft has not been changed.
-                  </p>
+                  </Datum>
                 </div>
               </div>
               {onDismissLaunchError && (
@@ -2259,11 +1226,11 @@ export function ReviewLaunch({
             </div>
 
             <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive" data-testid="launch-error-message">
+              <Datum className="text-sm text-destructive" data-testid="launch-error-message">
                 {launchRateLimit
                   ? formatLaunchRateLimitMessage(launchRateLimit, prelaunchUsage?.accountName)
                   : launchError}
-              </p>
+              </Datum>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">

@@ -19,10 +19,11 @@ import {
 } from "@/components/steps/review-launch";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { LoadTemplateModal } from "@/components/templates/load-template-modal";
+import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
 import { Drawer } from "@/components/viz/drawer";
 import { InfoTip } from "@/components/viz/info-tip";
-import { deleteTemplateFromDb, loadTemplatesFromDb } from "@/lib/db/templates";
+import { deleteTemplateFromDb, loadTemplatesFromDb, saveTemplateToDb } from "@/lib/db/templates";
 import {
   META_DRAWER_COPY,
   META_DRAWER_TABS,
@@ -131,6 +132,10 @@ export function MetaDrawer({
   const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
 
   const settings = draft.settings;
   const mode = settings.wizardMode ?? "new";
@@ -263,6 +268,11 @@ export function MetaDrawer({
         onDone={done}
         doneLabel={doneLabel}
         onLoadTemplate={() => void openTemplates()}
+        onSaveTemplate={() => {
+          setSaveTemplateOpen(true);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
         triggerRef={triggerRef}
         header={<ModeChip mode={mode} />}
         footer={
@@ -342,6 +352,33 @@ export function MetaDrawer({
         onClose={() => setTemplateOpen(false)}
         onSelect={loadTemplate}
         onDelete={(id) => void removeTemplate(id)}
+      />
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        saving={templateSaving}
+        savedSuccessfully={templateSaveSuccess}
+        error={templateSaveError}
+        onClose={() => {
+          setSaveTemplateOpen(false);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
+        onSave={async (name, description, tags) => {
+          if (!userId) return;
+          setTemplateSaving(true);
+          setTemplateSaveError(null);
+          setTemplateSaveSuccess(false);
+          try {
+            await saveTemplateToDb(draft, name, description, tags, userId);
+            setTemplateSaveSuccess(true);
+          } catch (err) {
+            setTemplateSaveError(
+              err instanceof Error ? err.message : "Unknown error saving template",
+            );
+          } finally {
+            setTemplateSaving(false);
+          }
+        }}
       />
     </>
   );

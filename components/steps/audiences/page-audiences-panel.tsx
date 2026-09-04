@@ -35,7 +35,7 @@ import {
   type GenreBucket,
   type PageGenreClassification,
 } from "@/lib/genre-classification";
-import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 interface PageAudiencesPanelProps {
   groups: PageAudienceGroup[];
@@ -1734,7 +1734,7 @@ export function PageAudiencesPanel({
                             <span className="font-medium text-foreground">{page.name} — genre override</span>
                             <button type="button" onClick={() => setEditingPageGenre(null)} className="text-muted-foreground hover:text-foreground">✕</button>
                           </div>
-                          <Prose className="text-muted-foreground">Click a genre to set as primary. Auto-classification will be replaced.</Prose>
+                          
                           <div className="flex flex-wrap gap-1">
                             {ALL_GENRE_BUCKETS.map((b) => {
                               const isActive = current?.primaryBucket === b || current?.secondaryBucket === b || current?.tertiaryBucket === b;
@@ -1828,9 +1828,7 @@ export function PageAudiencesPanel({
                         </button>
                         {otherPagesExpanded && (
                           <div className="border-t border-border/50 px-3 py-2">
-                            <Prose className="mb-1.5 text-[10px] text-muted-foreground">
-                              Click a category to filter + bulk-select all pages from it.
-                            </Prose>
+                            
                             <div className="flex flex-wrap gap-1.5">
                               {nonArtistCategories.map((cat) => {
                                 const total = categoryCounts[cat] ?? 0;
@@ -2144,9 +2142,7 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Selected Pages Lookalike</h3>
-          <Prose className="text-xs text-muted-foreground">
-            Create lookalike audiences from your loaded Facebook pages — combined into one ad set per percentage tier.
-          </Prose>
+          
         </div>
         <Button
           variant="outline"
@@ -2280,9 +2276,7 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                       </button>
                     ))}
                   </div>
-                  <Prose className="mt-1.5 text-[11px] text-muted-foreground">
-                    Each selected tier creates one ad set containing all valid lookalike audiences from the pages below.
-                  </Prose>
+                  
                 </div>
 
                 {/* Page selection */}
@@ -2409,9 +2403,7 @@ function SelectedPagesLookalikeSection({ splalGroups, onChange, userPages }: Spl
                       <span className="font-medium text-foreground">{expectedAdSets}</span> lookalike ad set{expectedAdSets !== 1 ? "s" : ""}
                       {" "}({group.lookalikeRanges.map((r) => `"${group.name || "Selected Pages"} — ${RANGE_LABELS[r]} Lookalike"`).join(", ")})
                     </Datum>
-                    <Prose className="text-[11px]">
-                      Pages without linked Instagram will skip IG engagement types. Skipped pages do not block the rest.
-                    </Prose>
+                    
                   </div>
                 )}
               </div>

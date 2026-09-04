@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ChevronDown, ChevronUp, XCircle, Loader2, Download, Shuffle } from "lucide-react";
 import type { CustomAudienceGroup, CustomAudience, LookalikeRange } from "@/lib/types";
 import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
-import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 interface CustomAudiencesPanelProps {
   groups: CustomAudienceGroup[];
@@ -389,9 +389,7 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                   {group.lookalike && (
                     <div className="space-y-2">
                       <div>
-                        <Prose className="mb-1.5 text-[11px] text-muted-foreground">
-                          Lookalike tiers — one ad set per tier, sourced from the {group.audienceIds.length || "selected"} audience{group.audienceIds.length !== 1 ? "s" : ""} above
-                        </Prose>
+                        
                         <div className="flex gap-1.5">
                           {LOOKALIKE_RANGES.map((r) => {
                             const active = (group.lookalikeRanges ?? []).includes(r);
@@ -421,12 +419,7 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                       {group.audienceIds.length === 0 && (
                         <StatusLine className="text-[11px] text-warning">Select at least one source audience above to enable lookalike creation.</StatusLine>
                       )}
-                      {group.audienceIds.length > 0 && (
-                        <Prose className="text-[11px] text-muted-foreground">
-                          Will create {(group.lookalikeRanges ?? ["0-1%"]).map((r) => RANGE_LABELS[r as LookalikeRange] ?? r).join(", ")} lookalike ad set{(group.lookalikeRanges?.length ?? 1) !== 1 ? "s" : ""} at launch using existing audiences as seeds.
-                          {" "}Audiences are already in Meta — no waiting for code 441.
-                        </Prose>
-                      )}
+                      
                     </div>
                   )}
                 </div>

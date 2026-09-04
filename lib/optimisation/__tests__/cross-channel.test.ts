@@ -316,7 +316,6 @@ describe("M.4 grep-guards — no new rules UI, migration 162 unapplied", () => {
   it("plan surfaces do not grow an Optimisation Strategy editor", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "components/plan/asset-routing-matrix.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
     ];

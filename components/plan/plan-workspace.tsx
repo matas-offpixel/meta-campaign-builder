@@ -13,6 +13,7 @@ import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
 import { DecisionsSheet } from "@/components/plan/decisions-sheet";
 import { GoogleDrawerMount } from "@/components/plan/google-drawer";
+import type { GoogleSearchWizardContext } from "@/components/google-search-wizard/wizard-shell";
 import { MetaDrawerMount } from "@/components/plan/meta-drawer";
 import { TikTokDrawerMount } from "@/components/plan/tiktok-drawer";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
@@ -86,6 +87,7 @@ export function PlanWorkspace({
   initialPlan,
   events,
   tiktokAdvertiserId,
+  googleAdsAccounts = [],
   isNew = false,
   funnel = null,
   liveSpend = null,
@@ -95,6 +97,7 @@ export function PlanWorkspace({
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
   tiktokAdvertiserId?: string | null;
+  googleAdsAccounts?: GoogleSearchWizardContext["googleAdsAccounts"];
   isNew?: boolean;
   /** LIVE state only — resolved on the server from event_daily_rollups. */
   funnel?: EventFunnelView | null;
@@ -198,6 +201,21 @@ export function PlanWorkspace({
 
   const hasMetaDraft = plan.launches.meta.draftId != null;
   const selectedEvent = events.find((event) => event.id === plan.intent.eventId) ?? null;
+  const googleWizardContext = useMemo<GoogleSearchWizardContext>(
+    () => ({
+      eventName: selectedEvent?.name ?? null,
+      eventCode: selectedEvent?.eventCode ?? null,
+      clientName: selectedEvent?.clientName ?? null,
+      googleAdsAccounts,
+      events: events.map((event) => ({
+        id: event.id,
+        name: event.name,
+        event_code: event.eventCode ?? null,
+        client_id: event.clientId ?? null,
+      })),
+    }),
+    [events, googleAdsAccounts, selectedEvent],
+  );
 
   function markPlan(updater: (current: CampaignPlan) => CampaignPlan) {
     setHasUserEdit(true);
@@ -396,12 +414,8 @@ export function PlanWorkspace({
           meta: plan.launches.meta.draftId
             ? wizardHrefForDraft("meta", plan.launches.meta.draftId)
             : null,
-          tiktok: plan.launches.tiktok.draftId
-            ? wizardHrefForDraft("tiktok", plan.launches.tiktok.draftId)
-            : null,
-          google: plan.launches.google.draftId
-            ? wizardHrefForDraft("google", plan.launches.google.draftId)
-            : null,
+          tiktok: null,
+          google: null,
         },
         adsManagerLinks: planAdsManagerLinks(plan, {
           metaAdAccountId: selectedEvent?.metaAdAccountId,
@@ -846,6 +860,7 @@ export function PlanWorkspace({
             setDrawer((current) => (current ? { ...current, tab } : current))
           }
           planId={plan.id}
+          wizardContext={googleWizardContext}
           onClose={() => setDrawer(null)}
         />
       ) : null}

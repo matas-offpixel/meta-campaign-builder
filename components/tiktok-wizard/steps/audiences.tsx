@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -773,17 +773,7 @@ export function AudiencesStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Audiences</h2>
-        <Prose className="mt-2 text-sm text-muted-foreground">
-          Name one interest group per intended ad group. A named group with
-          nothing selected is a valid broad audience. Seed TikTok for
-          recommended interests and hashtags only if you want to narrow a
-          group, then add locations and languages.
-        </Prose>
-      </div>
-      </Chrome>
+      
 
       {!advertiserId && (
         <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-warning-foreground">
@@ -820,11 +810,7 @@ export function AudiencesStep({
             Add group
           </Button>
         </div>
-        {groups.length === 0 ? (
-          <Prose className="text-sm text-muted-foreground">
-            Add a named group. Each non-empty group becomes one ad group.
-          </Prose>
-        ) : (
+        {groups.length > 0 && (
           <div className="space-y-2">
             {groups.map((group) => {
               const isActive = group.id === activeGroup?.id;
@@ -927,21 +913,8 @@ export function AudiencesStep({
                           {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
                         </button>
                       ))}
-                      {isTikTokInterestGroupBroad(group) && (
-                        <Prose className="text-xs text-muted-foreground">
-                          Broad audience — no interests, hashtags, or
-                          behaviours. Geo, language, age and gender still
-                          apply. Add targeting below only if you want to
-                          narrow this group.
-                        </Prose>
-                      )}
-                      {!isTikTokInterestGroupNamed(group) &&
-                        !isTikTokInterestGroupNonEmpty(group) && (
-                        <Prose className="text-xs text-muted-foreground">
-                          Name this group to use it as a broad ad group, or
-                          add targeting below.
-                        </Prose>
-                      )}
+                      
+                      
                     </div>
                   )}
                 </div>
@@ -967,11 +940,7 @@ export function AudiencesStep({
           </button>
         ))}
       </div>
-      <Prose className="text-sm text-muted-foreground">
-        {activeGroup
-          ? `Selecting for ${activeGroup.name || "Untitled group"}.`
-          : "Add a group to enable the pickers."}
-      </Prose>
+      
 
       {activeTab === "interests" && (
         <div className="space-y-4">
@@ -1000,28 +969,7 @@ export function AudiencesStep({
           {presetTaxonomyNote && (
             <StatusLine className="text-sm text-warning-foreground">{presetTaxonomyNote}</StatusLine>
           )}
-          <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-            <Chrome>
-            <SearchInput
-              value={seed}
-              onChange={(event) => {
-                clearPresetMode();
-                setKeywordSource(event.target.value.trim() ? "typed" : "idle");
-                setKeywordProvenance({});
-                setShowUnfilteredKeywords(false);
-                setSeed(event.target.value);
-              }}
-              placeholder="Seed keyword — TikTok recommends related interests"
-              onClear={() => {
-                clearPresetMode();
-                setKeywordSource("idle");
-                setKeywordProvenance({});
-                setShowUnfilteredKeywords(false);
-                setSeed("");
-              }}
-              disabled={!advertiserId || !activeGroup}
-            />
-            </Chrome>
+          <div className="grid gap-3 md:grid-cols-[auto_auto]">
             <select
               className="h-9 rounded-md border border-border bg-background px-2 text-sm"
               value={keywordMode}
@@ -1054,11 +1002,7 @@ export function AudiencesStep({
           {loadingKeywords && <Datum className="text-sm text-muted-foreground">Loading recommendations…</Datum>}
           {keywordSource === "typed" && seed.trim() && keywordResults.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Prose className="text-xs text-muted-foreground">
-                {showUnfilteredKeywords
-                  ? `Showing all ${keywordResults.length} recommend results for “${seed.trim()}”, including substring noise.`
-                  : `Showing whole-word matches for “${seed.trim()}” (${visibleKeywordResults.length} of ${keywordResults.length}). Substring hits like technology for techno are hidden.`}
-              </Prose>
+              
               <button
                 type="button"
                 className="text-xs text-primary underline-offset-2 hover:underline"

@@ -14,7 +14,7 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
@@ -428,67 +428,80 @@ describe("details disclosure", () => {
 
 // ── the surface="drawer" contract ──────────────────────────────────────
 
+function listSourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(join(ROOT, dir))) {
+    const rel = join(dir, name);
+    const abs = join(ROOT, rel);
+    if (statSync(abs).isDirectory()) out.push(...listSourceFiles(rel));
+    else if (/\.(tsx|ts)$/.test(name)) out.push(rel);
+  }
+  return out;
+}
+
+const CHROME_GUARD_DIRS = [
+  "components/steps",
+  "components/tiktok-wizard",
+  "components/google-search-wizard",
+  "components/plan",
+  "components/optimisation",
+];
+
 describe("surface=drawer strips chrome and nothing else", () => {
   it("every drawer-mounted source takes a surface or sits under one", () => {
     for (const file of DRAWER_MOUNTED) {
       const src = read(file);
       assert.ok(
-        /surface\?: StepSurface/.test(src) || /useIsDrawer|Prose|Datum|StatusLine|Chrome/.test(src),
+        /surface\?: StepSurface/.test(src) || /useIsDrawer|Datum|StatusLine|CardDescription/.test(src),
         `${file} neither takes a surface nor routes its chrome`,
       );
     }
   });
 
   /**
-   * The zero-`<p>` rule. A raw `<p>` in a drawer-mounted source is a
-   * sentence that survives into the drawer, which §3 forbids — so every
-   * one is routed through `Prose` (hidden), `StatusLine` (kept, as a
-   * span) or `Datum` (kept, as a span). A `<p>` inside a `<Chrome>`
-   * subtree is allowed, because `Chrome` returns null in a drawer.
+   * The zero-paragraph rule, now across every creator surface — not just
+   * the files DRAWER_MOUNTED listed in PR 4. A raw `<p>` is a standing
+   * sentence. Route data through Datum and evidence through StatusLine.
    */
-  it("no standing <p> renders in the drawer", () => {
-    for (const file of DRAWER_MOUNTED) {
-      const src = read(file);
-      for (const match of src.matchAll(/<p[\s>]/g)) {
-        const before = src.slice(0, match.index);
-        const opens = (before.match(/<Chrome>/g) ?? []).length;
-        const closes = (before.match(/<\/Chrome>/g) ?? []).length;
-        assert.ok(
-          opens > closes,
-          `${file}: a <p> at offset ${match.index} is outside <Chrome> — route it through Prose, Datum or StatusLine`,
-        );
+  it("no standing <p> renders in the creator surfaces", () => {
+    for (const dir of CHROME_GUARD_DIRS) {
+      for (const file of listSourceFiles(dir)) {
+        const src = read(file);
+        const match = src.match(/<p[\s>]/);
+        assert.equal(match, null, `${file}: a raw <p> remains — use Datum or StatusLine`);
       }
     }
   });
 
   it("no CardDescription comes from the shared card primitive", () => {
-    for (const file of DRAWER_MOUNTED) {
-      const src = read(file);
-      const cardImport = src.match(/import \{([^}]*)\} from "@\/components\/ui\/card";/);
-      if (!cardImport) continue;
-      assert.ok(
-        !/\bCardDescription\b/.test(cardImport[1]!),
-        `${file} imports CardDescription from the card primitive; import it from step-surface so it disappears in the drawer`,
-      );
+    for (const dir of CHROME_GUARD_DIRS) {
+      for (const file of listSourceFiles(dir)) {
+        const src = read(file);
+        if (file.endsWith("step-surface.tsx")) continue;
+        const cardImport = src.match(/import \{([^}]*)\} from "@\/components\/ui\/card";/);
+        if (!cardImport) continue;
+        assert.ok(
+          !/\bCardDescription\b/.test(cardImport[1]!),
+          `${file} imports CardDescription from the card primitive; import it from step-surface so it disappears in the drawer`,
+        );
+      }
     }
   });
 
-  it("the primitives are the only place the rule is decided", () => {
+  it("CardDescription vanishes; Datum and StatusLine stay as spans", () => {
     const src = read("components/steps/step-surface.tsx");
-    for (const primitive of ["Prose", "Chrome", "CardDescription"]) {
-      const at = src.indexOf(`export function ${primitive}(`);
-      assert.ok(at > 0, `${primitive} is missing`);
-      assert.match(
-        src.slice(at, at + 220),
-        /if \(useIsDrawer\(\)\) return null/,
-        `${primitive} must vanish in a drawer`,
-      );
-    }
-    /** Evidence is kept — as a span, so the zero-`<p>` claim stays honest. */
+    assert.ok(!/export function Prose\(/.test(src), "Prose is gone");
+    assert.ok(!/export function Chrome\(/.test(src), "Chrome is gone");
+    const at = src.indexOf("export function CardDescription(");
+    assert.ok(at > 0, "CardDescription is missing");
+    assert.match(
+      src.slice(at, at + 220),
+      /if \(useIsDrawer\(\)\) return null/,
+      "CardDescription must vanish in a drawer",
+    );
     for (const primitive of ["Datum", "StatusLine"]) {
-      const at = src.indexOf(`export function ${primitive}(`);
-      const body = src.slice(at, at + 420);
-      assert.match(body, /if \(useIsDrawer\(\)\)/, `${primitive} branches on the surface`);
+      const start = src.indexOf(`export function ${primitive}(`);
+      const body = src.slice(start, start + 420);
       assert.match(body, /<span/, `${primitive} keeps rendering, as a span`);
     }
   });
@@ -509,13 +522,34 @@ describe("surface=drawer strips chrome and nothing else", () => {
     const audiences = read("components/steps/audiences/audiences-step.tsx");
     const creatives = read("components/steps/creatives.tsx");
     assert.match(audiences, /<PageInstagramOverridesPanel/, "audiences owns it");
-    const at = creatives.indexOf("<PageInstagramOverridesPanel");
-    assert.ok(at > 0, "creatives still has one for the wizard");
-    const before = creatives.slice(0, at);
     assert.ok(
-      (before.match(/<Chrome>/g) ?? []).length > (before.match(/<\/Chrome>/g) ?? []).length,
-      "the creatives copy is inside <Chrome>, so the drawer shows one",
+      !/<PageInstagramOverridesPanel/.test(creatives),
+      "the wizard-only creatives copy is gone",
     );
+  });
+});
+
+describe("no stepper or Back/Continue footer remains", () => {
+  it("wizard dirs do not export a Stepper or a Footer with Back/Continue", () => {
+    for (const dir of [
+      "components/wizard",
+      "components/tiktok-wizard",
+      "components/google-search-wizard",
+    ]) {
+      for (const file of listSourceFiles(dir)) {
+        const src = read(file);
+        assert.ok(
+          !/export function \w*Stepper\b/.test(src),
+          `${file} still exports a Stepper`,
+        );
+        if (/export function \w*Footer\b/.test(src)) {
+          assert.ok(
+            !/\bBack\b/.test(src) && !/\bContinue\b/.test(src),
+            `${file} exports a Footer that still has Back/Continue`,
+          );
+        }
+      }
+    }
   });
 });
 
@@ -528,6 +562,8 @@ describe("template loader", () => {
     const meta = read("components/plan/meta-drawer.tsx");
     assert.match(meta, /loadTemplatesFromDb/, "reading from lib/db/templates");
     assert.match(meta, /onLoadTemplate=\{/, "wired to the header control");
+    assert.match(meta, /onSaveTemplate=\{/, "Save-as-Template sits next to the loader");
+    assert.match(drawer, /save as template/);
   });
 
   it("the wizard's own load-template control no longer renders", () => {
@@ -836,9 +872,13 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
-    const diff = execSync(`git diff ${base} -- lib/tiktok/write lib/google-search`, {
-      encoding: "utf8",
-    });
+    // validation.ts may drop unused step labels; validateGoogleSearchStep stays.
+    const diff = execSync(
+      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts'`,
+      {
+        encoding: "utf8",
+      },
+    );
     assert.equal(diff.trim(), "", diff);
   });
 

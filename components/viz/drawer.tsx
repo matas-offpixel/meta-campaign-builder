@@ -32,6 +32,7 @@ export function Drawer({
   status,
   onDone,
   onLoadTemplate,
+  onSaveTemplate,
   triggerRef,
   variant = "sheet",
   header,
@@ -52,6 +53,7 @@ export function Drawer({
   status?: VizStatus;
   onDone: () => void;
   onLoadTemplate?: () => void;
+  onSaveTemplate?: () => void;
   triggerRef?: RefObject<Element | null>;
   /**
    * `sheet` is the side sheet over the canvas. `page` is the same shell
@@ -184,6 +186,15 @@ export function Drawer({
             onClick={onLoadTemplate}
           >
             ⌁ template ▸
+          </button>
+        ) : null}
+        {onSaveTemplate ? (
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={onSaveTemplate}
+          >
+            save as template
           </button>
         ) : null}
         {platformless && !page ? (

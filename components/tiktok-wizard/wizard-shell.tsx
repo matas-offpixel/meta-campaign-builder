@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { TikTokDrawer } from "@/components/plan/tiktok-drawer";
-import { SaveTemplateModal } from "@/components/templates/save-template-modal";
+import { StatusLine } from "@/components/steps/step-surface";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
-import { createClient } from "@/lib/supabase/client";
 import {
   resolveTikTokDraftIdentityBcIdOnLoad,
   tikTokIdentityBcIdIsServerResolvable,
@@ -16,7 +15,6 @@ import {
 import {
   consumeTikTokTemplateAccountNotice,
 } from "@/lib/tiktok-wizard/templates";
-import { saveTikTokTemplateToDb } from "@/lib/db/tiktok-templates";
 import type { TikTokIdentity } from "@/lib/tiktok/identity";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 import { useTikTokDraft } from "@/lib/wizard/use-tiktok-draft";
@@ -50,10 +48,6 @@ export function TikTokWizardShell({
   const [templateAccountNotice, setTemplateAccountNotice] = useState<string | null>(
     () => consumeTikTokTemplateAccountNotice(draft.id),
   );
-  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
-  const [templateSaving, setTemplateSaving] = useState(false);
-  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
-  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
   const identityHealStarted = useRef(false);
 
   useEffect(() => {
@@ -83,30 +77,6 @@ export function TikTokWizardShell({
     });
   }, [controller]);
 
-  async function handleSaveTemplate(name: string, description: string, tags: string[]) {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setTemplateSaveError("Not signed in");
-      return;
-    }
-    setTemplateSaving(true);
-    setTemplateSaveError(null);
-    setTemplateSaveSuccess(false);
-    try {
-      await saveTikTokTemplateToDb(controller.draftRef.current, name, description, tags, user.id);
-      setTemplateSaveSuccess(true);
-    } catch (err) {
-      setTemplateSaveError(
-        err instanceof Error ? err.message : "Unknown error saving template",
-      );
-    } finally {
-      setTemplateSaving(false);
-    }
-  }
-
   const wizardContext: TikTokWizardContext = {
     ...context,
     identityBcIdResolution,
@@ -131,7 +101,7 @@ export function TikTokWizardShell({
 
       <main className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-6 py-6">
         {templateAccountNotice ? (
-          <p className="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm">
+          <StatusLine className="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm">
             {templateAccountNotice}
             <button
               type="button"
@@ -140,7 +110,7 @@ export function TikTokWizardShell({
             >
               dismiss
             </button>
-          </p>
+          </StatusLine>
         ) : null}
 
         <TikTokDrawer
@@ -153,35 +123,7 @@ export function TikTokWizardShell({
           doneLabel="Campaign Library"
         />
 
-        {!linkedPlan ? (
-          <div className="mt-4">
-            <button
-              type="button"
-              className="text-[11px] text-muted-foreground underline"
-              onClick={() => {
-                setSaveTemplateOpen(true);
-                setTemplateSaveSuccess(false);
-                setTemplateSaveError(null);
-              }}
-            >
-              Save as template
-            </button>
-          </div>
-        ) : null}
       </main>
-
-      <SaveTemplateModal
-        open={saveTemplateOpen}
-        saving={templateSaving}
-        savedSuccessfully={templateSaveSuccess}
-        error={templateSaveError}
-        onClose={() => {
-          setSaveTemplateOpen(false);
-          setTemplateSaveSuccess(false);
-          setTemplateSaveError(null);
-        }}
-        onSave={handleSaveTemplate}
-      />
     </div>
   );
 }

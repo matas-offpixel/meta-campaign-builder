@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -139,12 +139,7 @@ export function PlanSetupStep({
           options={STRUCTURE_MODES.map((s) => ({ value: s, label: STRUCTURE_MODE_LABELS[s] }))}
           onChange={(e) => updateField("structure_mode", e.target.value as GoogleSearchStructureMode)}
         />
-        {plan.structure_mode === "single_campaign" ? (
-          <Prose className="mt-1 text-xs text-muted-foreground">
-            All C-codes are ad groups inside one campaign. One budget flows to the best-performing
-            themes — optimal for single events.
-          </Prose>
-        ) : (
+        {plan.structure_mode !== "single_campaign" && (
           <StatusLine className="mt-1 text-xs text-amber-700">
             Each C-code is a separate campaign with its own budget. More granular control, higher
             management overhead. Original behaviour.
@@ -201,12 +196,7 @@ export function PlanSetupStep({
                     : undefined
                 }
               />
-              {finalUrl.mixed && (
-                <Prose className="text-xs text-muted-foreground">
-                  Some RSAs override the plan default. Typing here overwrites every RSA; leave
-                  blank to keep per-RSA overrides set in Ad Copy.
-                </Prose>
-              )}
+              
               {finalUrl.httpCount > 0 && (
                 <StatusLine className="text-xs text-amber-700">
                   {finalUrl.httpCount} RSA{finalUrl.httpCount === 1 ? "" : "s"} use http:// —

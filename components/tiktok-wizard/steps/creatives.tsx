@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -338,16 +338,7 @@ export function CreativesStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Creatives</h2>
-        <Prose className="mt-2 text-sm text-muted-foreground">
-          Upload a video to the TikTok Asset Library, or paste an existing
-          video URL / video_id. Spark Ads are a v2 placeholder and are not
-          wired.
-        </Prose>
-      </div>
-      </Chrome>
+      
 
       {error && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
@@ -367,39 +358,9 @@ export function CreativesStep({
         </div>
       )}
 
-      <Chrome>
-      <fieldset className="space-y-4 rounded-md border border-border bg-background p-4">
-        <legend className="px-1 text-sm font-medium">Creative mode</legend>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="radio" checked readOnly />
-          Video reference
-        </label>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input type="radio" disabled />
-          Spark Ad — Coming in v2: boost an existing organic post.
-        </label>
-      </fieldset>
-      </Chrome>
+      
 
-      <Chrome>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Input
-          id="creative-base-name"
-          label="Base creative name"
-          value={baseName}
-          onChange={(event) => setBaseName(event.target.value)}
-          placeholder="Prospecting video"
-        />
-        <Input
-          id="creative-variation-count"
-          label="Variations"
-          inputMode="numeric"
-          value={variationCount}
-          onChange={(event) => setVariationCount(event.target.value)}
-          placeholder="1"
-        />
-      </div>
-      </Chrome>
+      
 
       <div
         onDragOver={(event) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -165,17 +165,7 @@ export function CampaignSetupStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Campaign setup</h2>
-        <Prose className="mt-2 text-sm text-muted-foreground">
-          Set the TikTok campaign name, objective, optimisation goal, and bid
-          strategy. TikTok retired Conversions from Ads Manager — website
-          registration now runs under Lead generation. Instant Form is not
-          yet supported.
-        </Prose>
-      </div>
-      </Chrome>
+      
 
       {saveError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -261,11 +251,7 @@ export function CampaignSetupStep({
       {draft.campaignSetup.objective === "LEAD_GENERATION" && (
         <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
           <Datum className="font-medium text-foreground">Optimization location</Datum>
-          <Prose className="mt-1 text-muted-foreground">
-            Website — uses the TikTok pixel and optimisation event from Step 1.
-            TikTok Instant Form is a second location in Ads Manager and is not
-            yet supported here.
-          </Prose>
+          
         </div>
       )}
 

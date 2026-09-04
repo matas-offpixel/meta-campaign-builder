@@ -1,5 +1,6 @@
 import { CheckCircle2, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
 
+import { Datum } from "@/components/steps/step-surface";
 import { Button } from "@/components/ui/button";
 import type { TikTokLaunchPanelModel } from "@/lib/tiktok-wizard/launch-progress";
 
@@ -35,7 +36,7 @@ export function TikTokLaunchPanel({ model }: { model: TikTokLaunchPanelModel }) 
           </Button>
         ) : null}
       </div>
-      <p className="mt-2 text-sm text-muted-foreground">{model.description}</p>
+      <Datum className="mt-2 text-sm text-muted-foreground">{model.description}</Datum>
 
       {model.state === "in-flight" && (
         <ol className="mt-3 space-y-2 text-sm">
@@ -73,14 +74,14 @@ export function TikTokLaunchPanel({ model }: { model: TikTokLaunchPanelModel }) 
 
       {model.state === "failed" && (
         <div className="mt-3 space-y-2 text-sm">
-          <p className="text-red-700">{model.errorMessage}</p>
+          <Datum className="text-red-700">{model.errorMessage}</Datum>
           {model.tiktokMessage && model.tiktokMessage !== model.errorMessage ? (
-            <p className="text-muted-foreground">{model.tiktokMessage}</p>
+            <Datum className="text-muted-foreground">{model.tiktokMessage}</Datum>
           ) : null}
           {model.requestId ? (
-            <p data-request-id={model.requestId} className="font-mono text-xs">
+            <Datum data-request-id={model.requestId} className="font-mono text-xs">
               request_id {model.requestId}
-            </p>
+            </Datum>
           ) : null}
         </div>
       )}
