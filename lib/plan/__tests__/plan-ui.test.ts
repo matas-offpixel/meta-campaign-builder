@@ -16,6 +16,7 @@ function plan(): CampaignPlan {
     intent: {
       eventId: "e1",
       objectiveIntent: "registration",
+      target: { value: null, unit: null },
       budget: { totalDaily: 50, metaDaily: 50, tiktokDaily: 0, googleDaily: 0 },
       destinationUrl: "https://example.com",
       audienceClusterRef: null,

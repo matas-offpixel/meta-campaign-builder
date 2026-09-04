@@ -363,6 +363,7 @@ function goldenPlan(): CampaignPlan {
     intent: {
       eventId: "event-1",
       objectiveIntent: "registration",
+      target: { value: null, unit: null },
       budget: { totalDaily: 40, metaDaily: 20, tiktokDaily: 20, googleDaily: 0 },
       destinationUrl: "https://tickets.example.com",
       audienceClusterRef: null,

@@ -29,6 +29,7 @@ function goldenPlan(overrides: Partial<CampaignPlan["intent"]> = {}): CampaignPl
     intent: {
       eventId: "33333333-3333-4333-8333-333333333333",
       objectiveIntent: "registration",
+      target: { value: null, unit: null },
       budget: { totalDaily: 90, metaDaily: 40, tiktokDaily: 30, googleDaily: 20 },
       destinationUrl: "https://tickets.example.com/bb26",
       audienceClusterRef: "Music & Nightlife",

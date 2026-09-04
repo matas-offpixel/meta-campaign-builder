@@ -1,5 +1,6 @@
 import { isRelationMissing } from "./schema-probe.ts";
 import { normalizePlanTime } from "./schedule.ts";
+import { isPlanTargetUnit } from "./target-unit.ts";
 import type {
   CampaignPlan,
   CampaignPlanLaunchRecord,
@@ -35,6 +36,13 @@ export function campaignPlanToRow(plan: CampaignPlan) {
   // set time returns the row to date-only. `00:00` is midnight, not null.
   row.start_time = normalizePlanTime(plan.intent.startTime);
   row.end_time = normalizePlanTime(plan.intent.endTime);
+  // Zone D. Written only when set, so a deploy that lands before migration
+  // 165 is applied cannot break every plan upsert on a missing column.
+  // PR 3 ships the target editor and owns the clear-back-to-null path.
+  if (plan.intent.target.unit != null) {
+    row.target_unit = plan.intent.target.unit;
+    row.target_value = plan.intent.target.value;
+  }
   return row;
 }
 
@@ -52,10 +60,19 @@ export function rowToCampaignPlanIntent(row: {
   end_date: string | null;
   start_time?: string | null;
   end_time?: string | null;
+  target_value?: number | string | null;
+  target_unit?: string | null;
 }): CampaignPlan["intent"] {
   return {
     eventId: row.event_id,
     objectiveIntent: row.objective_intent,
+    target: {
+      value:
+        row.target_value == null || Number.isNaN(Number(row.target_value))
+          ? null
+          : Number(row.target_value),
+      unit: isPlanTargetUnit(row.target_unit) ? row.target_unit : null,
+    },
     budget: {
       totalDaily: Number(row.total_daily_budget),
       metaDaily: Number(row.daily_budget_meta),

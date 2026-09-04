@@ -38,6 +38,9 @@ import { ClientPortal } from "@/components/share/client-portal";
 import { ClientCampaignsTab } from "@/components/dashboard/campaigns/client-campaigns-tab";
 import type { ClientCampaignsData } from "@/lib/dashboard/campaigns-loader";
 import { AssetQueuePanel } from "@/components/dashboard/clients/asset-queue-panel";
+import { OptimisationPresetsPanel } from "@/components/dashboard/clients/optimisation-presets-panel";
+import type { ClientOptimisationPreset } from "@/lib/optimisation/presets";
+import type { CampaignObjective } from "@/lib/types";
 import type {
   AdditionalSpendRow,
   DailyEntry,
@@ -71,6 +74,7 @@ type ClientTab =
   | "ticketing"
   | "d2c"
   | "campaigns"
+  | "optimisation"
   | "creatives"
   | "invoicing"
   | "asset-queue";
@@ -190,6 +194,14 @@ interface Props {
    * Campaigns tab render its own empty state.
    */
   campaignsData?: ClientCampaignsData | null;
+  /**
+   * Client × objective optimisation policy (migration 165). Empty until
+   * the migration is applied or the backfill has run — the panel falls
+   * back to the industry seed ladder per objective.
+   */
+  optimisationPresets?: ClientOptimisationPreset[];
+  /** Objectives this client's campaigns use — which preset cards to show. */
+  optimisationObjectivesInUse?: CampaignObjective[];
 }
 
 /**
@@ -217,6 +229,8 @@ export function ClientDetail({
   portal,
   hasTaggedEvents = false,
   campaignsData = null,
+  optimisationPresets = [],
+  optimisationObjectivesInUse = [],
 }: Props) {
   const router = useRouter();
   const [client, setClient] = useState<ClientRow>(initial);
@@ -420,6 +434,7 @@ export function ClientDetail({
                 label: "Campaigns",
                 count: campaignsData?.rows.length ?? 0,
               },
+              { id: "optimisation", label: "Optimisation" },
               {
                 id: "creatives",
                 label: "Creatives Templates",
@@ -729,6 +744,14 @@ export function ClientDetail({
               data={campaignsData}
               eventIds={events.map((e) => e.id)}
               adAccountId={client.meta_ad_account_id ?? null}
+            />
+          </TabPanel>
+
+          <TabPanel active={activeTab === "optimisation"}>
+            <OptimisationPresetsPanel
+              clientId={client.id}
+              initialPresets={optimisationPresets}
+              objectivesInUse={optimisationObjectivesInUse}
             />
           </TabPanel>
 

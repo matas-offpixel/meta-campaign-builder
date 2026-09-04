@@ -61,6 +61,7 @@ function livePlan(eventId: string): CampaignPlan {
     intent: {
       eventId,
       objectiveIntent: "registration",
+      target: { value: null, unit: null },
       budget: { totalDaily: 100, metaDaily: 90, tiktokDaily: 5, googleDaily: 5 },
       destinationUrl: "https://tickets.ironworks.example/iw",
       audienceClusterRef: "Music & Nightlife",
