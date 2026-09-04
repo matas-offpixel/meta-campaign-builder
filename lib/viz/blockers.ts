@@ -6,12 +6,20 @@ export function shortBlockerLabel(message: string, maxWords = 5): string {
 
 export type BadgeRowKind = "blocker" | "advisory";
 
+/** Drawer landing for a blocker row — click opens the sheet, not a route. */
+export interface BlockerAnchor {
+  drawer: import("./tokens.ts").VizPlatform;
+  section: string;
+}
+
 export interface BlockerRowModel {
   id: string;
   label: string;
   full: string;
   href: string | null;
   kind?: BadgeRowKind;
+  /** When set, BlockerBadge calls onOpenAnchor instead of navigating href. */
+  anchor?: BlockerAnchor;
 }
 
 export function blockerRowFromIssue(issue: {

@@ -12,6 +12,7 @@ export const VIZ_STATUSES = [
   "failed",
   "live",
   "paused",
+  "blocked",
 ] as const;
 
 export type VizStatus = (typeof VIZ_STATUSES)[number];
@@ -24,6 +25,8 @@ export const VIZ_STATUS_TOKEN: Record<VizStatus, string> = {
   failed: "bg-destructive",
   live: "bg-success",
   paused: "bg-warning",
+  /** Blocked is not idle — idle reads "not started". Warning family, lighter than paused. */
+  blocked: "bg-warning/70",
 };
 
 export const VIZ_STATUS_LABEL: Record<VizStatus, string> = {
@@ -34,6 +37,7 @@ export const VIZ_STATUS_LABEL: Record<VizStatus, string> = {
   failed: "Failed",
   live: "Live",
   paused: "Paused",
+  blocked: "Blocked",
 };
 
 export const VIZ_PLATFORMS = ["meta", "tiktok", "google"] as const;
@@ -57,6 +61,7 @@ export const VIZ_PROVENANCES = [
   "first-party",
   "manual entry",
   "modelled",
+  "derived",
   "not instrumented",
 ] as const;
 
@@ -67,6 +72,8 @@ export const VIZ_PROVENANCE_MARK: Record<VizProvenance, string> = {
   "first-party": "1P",
   "manual entry": "man",
   modelled: "mod",
+  /** Derived keyword/creative — never reuse modelled (`mod`) for this. */
+  derived: "⌁",
   "not instrumented": "—",
 };
 
@@ -75,6 +82,7 @@ export const VIZ_PROVENANCE_TOKEN: Record<VizProvenance, string> = {
   "first-party": "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
   "manual entry": "bg-amber-500/15 text-amber-900 dark:text-amber-200",
   modelled: "bg-violet-500/15 text-violet-800 dark:text-violet-200",
+  derived: "bg-violet-400/15 text-violet-700 dark:text-violet-300",
   "not instrumented":
     "border border-dashed border-border bg-transparent text-muted-foreground",
 };

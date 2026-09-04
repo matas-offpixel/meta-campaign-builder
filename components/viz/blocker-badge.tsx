@@ -6,15 +6,19 @@ import { ArrowUpRight, CircleAlert, Info } from "lucide-react";
 
 import {
   blockerRowFromIssue,
+  type BlockerAnchor,
   type BlockerRowModel,
 } from "@/lib/viz/blockers";
 
 export function BlockerBadge({
   issues,
   rows,
+  onOpenAnchor,
 }: {
   issues?: Array<{ id: string; message: string; href?: string | null }>;
   rows?: BlockerRowModel[];
+  /** Drawer landing — when a row has `anchor`, click this instead of href. */
+  onOpenAnchor?: (anchor: BlockerAnchor) => void;
 }) {
   const [open, setOpen] = useState(false);
   const items = rows ?? (issues ?? []).map(blockerRowFromIssue);
@@ -57,7 +61,7 @@ export function BlockerBadge({
                 <span className={advisory ? "text-muted-foreground" : "text-foreground"}>
                   {row.label}
                 </span>
-                {row.href ? (
+                {row.href || row.anchor ? (
                   <ArrowUpRight className="h-3 w-3 shrink-0" aria-hidden="true" />
                 ) : null}
                 <span className="sr-only">{row.full}</span>
@@ -65,7 +69,19 @@ export function BlockerBadge({
             );
             return (
               <li key={row.id}>
-                {row.href ? (
+                {row.anchor && onOpenAnchor ? (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-1.5 text-left text-xs hover:underline"
+                    title={row.full}
+                    onClick={() => {
+                      setOpen(false);
+                      onOpenAnchor(row.anchor!);
+                    }}
+                  >
+                    {body}
+                  </button>
+                ) : row.href ? (
                   <Link
                     href={row.href}
                     className="flex items-center gap-1.5 text-xs hover:underline"
