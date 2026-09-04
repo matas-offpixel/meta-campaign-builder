@@ -54,3 +54,63 @@ export async function loadPlanForMetaDraft(
     name: (plan.data.name as string | null) ?? null,
   };
 }
+
+/** Same reverse lookup for a TikTok draft (`campaign_plan_tiktok_launch`). */
+export async function loadPlanForTikTokDraft(
+  supabase: unknown,
+  draftId: string,
+  userId: string,
+): Promise<LinkedPlanSummary | null> {
+  return loadPlanForLaunchDraft(supabase, "campaign_plan_tiktok_launch", draftId, userId);
+}
+
+/** Same reverse lookup for a Google Search plan (`campaign_plan_google_launch`). */
+export async function loadPlanForGoogleDraft(
+  supabase: unknown,
+  draftId: string,
+  userId: string,
+): Promise<LinkedPlanSummary | null> {
+  return loadPlanForLaunchDraft(supabase, "campaign_plan_google_launch", draftId, userId);
+}
+
+async function loadPlanForLaunchDraft(
+  supabase: unknown,
+  table: string,
+  draftId: string,
+  userId: string,
+): Promise<LinkedPlanSummary | null> {
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          maybeSingle: () => Promise<{
+            data: Record<string, unknown> | null;
+            error: unknown;
+          }>;
+          eq: (col: string, value: string) => {
+            maybeSingle: () => Promise<{
+              data: Record<string, unknown> | null;
+              error: unknown;
+            }>;
+          };
+        };
+      };
+    };
+  };
+
+  const link = await client.from(table).select("plan_id").eq("draft_id", draftId).maybeSingle();
+  const planId = (link.data?.plan_id as string | undefined) ?? null;
+  if (link.error || !planId) return null;
+
+  const plan = await client
+    .from("campaign_plans")
+    .select("id, name")
+    .eq("id", planId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (plan.error || !plan.data) return null;
+  return {
+    id: plan.data.id as string,
+    name: (plan.data.name as string | null) ?? null,
+  };
+}

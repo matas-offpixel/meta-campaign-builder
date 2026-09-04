@@ -207,7 +207,7 @@ function shortLabel(message: string, maxWords = 5): string {
  * field, because a drawer never asks the operator to confirm a default.
  */
 export interface DetailRow {
-  id: DetailRowId;
+  id: string;
   label: string;
   value: string | null;
   provenance: VizProvenance;
@@ -317,3 +317,212 @@ export const META_DRAWER_COPY = {
 
 /** The pointer that replaces wizard Launch on a plan-linked draft. */
 export const LAUNCH_ON_CANVAS_LABEL = "Launch on the plan canvas";
+
+// ── TikTok / Google tabs (PR 5) ────────────────────────────────────────
+
+export const TIKTOK_DRAWER_TABS = DRAWER_TABS.tiktok;
+export const GOOGLE_DRAWER_TABS = DRAWER_TABS.google;
+
+export type TikTokDrawerTab = (typeof TIKTOK_DRAWER_TABS)[number]["id"];
+export type GoogleDrawerTab = (typeof GOOGLE_DRAWER_TABS)[number]["id"];
+
+export function isTikTokDrawerTab(value: unknown): value is TikTokDrawerTab {
+  return TIKTOK_DRAWER_TABS.some((tab) => tab.id === value);
+}
+
+export function isGoogleDrawerTab(value: unknown): value is GoogleDrawerTab {
+  return GOOGLE_DRAWER_TABS.some((tab) => tab.id === value);
+}
+
+/**
+ * The ⊞ tab on TikTok only exists when assignment is not implicit —
+ * one video is one ad. More than one routed video is the only case
+ * that needs a matrix.
+ */
+export function tiktokAssignTabVisible(videoCount: number): boolean {
+  return videoCount > 1;
+}
+
+/**
+ * `♪ needs a video` — the canvas badge and the drawer both read this.
+ * A placeholder creative with no `videoId` (what the adapter prefills)
+ * is not a video.
+ */
+export function tiktokNeedsVideoBlockers(input: {
+  items: ReadonlyArray<{ videoId?: string | null }>;
+}): BlockerRowModel[] {
+  const videos = input.items.filter((item) => Boolean(item.videoId)).length;
+  if (videos > 0) return [];
+  return [
+    {
+      id: "tt-needs-1",
+      label: "needs 1",
+      full: "♪ needs a video",
+      href: null,
+      kind: "blocker",
+      anchor: { drawer: "tiktok", section: "tt-video" },
+    },
+  ];
+}
+
+/**
+ * Keyword rows that cannot push: empty text, or a missing match type.
+ * The index is 1-based across the whole tree so "fix ▸" names the row
+ * the operator can see without opening a campaign disclosure.
+ */
+export function googleKeywordBlockers(input: {
+  campaigns: ReadonlyArray<{
+    ad_groups: ReadonlyArray<{
+      keywords: ReadonlyArray<{
+        id: string;
+        keyword: string;
+        match_type?: string | null;
+      }>;
+    }>;
+  }>;
+}): BlockerRowModel[] {
+  const rows: BlockerRowModel[] = [];
+  let index = 0;
+  for (const campaign of input.campaigns) {
+    for (const group of campaign.ad_groups) {
+      for (const keyword of group.keywords) {
+        index += 1;
+        const text = keyword.keyword.trim();
+        if (!text) {
+          rows.push({
+            id: `g-kw-${keyword.id}:empty`,
+            label: `${index} — no text`,
+            full: `row ${index} — no keyword text`,
+            href: null,
+            kind: "blocker",
+            anchor: { drawer: "google", section: "g-keywords" },
+          });
+          continue;
+        }
+        if (!keyword.match_type) {
+          rows.push({
+            id: `g-kw-${keyword.id}:match`,
+            label: `${text} — no match type → fix ▸`,
+            full: `${index}: ${text} — no match type → fix ▸`,
+            href: null,
+            kind: "blocker",
+            anchor: { drawer: "google", section: "g-keywords" },
+          });
+        }
+      }
+    }
+  }
+  return rows;
+}
+
+/** TikTok details — everything §3b demoted. */
+export const TIKTOK_DETAIL_ROW_ORDER = [
+  "advertiser",
+  "identity",
+  "pixel",
+  "event",
+  "objective",
+  "goal",
+  "bid",
+  "budget",
+  "schedule",
+  "frequency",
+  "pacing",
+] as const;
+
+export type TikTokDetailRowId = (typeof TIKTOK_DETAIL_ROW_ORDER)[number];
+
+const TIKTOK_DETAIL_LABELS: Record<TikTokDetailRowId, string> = {
+  advertiser: "advertiser",
+  identity: "identity",
+  pixel: "pixel",
+  event: "event",
+  objective: "objective",
+  goal: "goal",
+  bid: "bid",
+  budget: "budget",
+  schedule: "schedule",
+  frequency: "cap",
+  pacing: "pacing",
+};
+
+export function tiktokDetailRows(
+  values: Partial<Record<TikTokDetailRowId, { value: string | null; provenance: VizProvenance }>>,
+): DetailRow[] {
+  return TIKTOK_DETAIL_ROW_ORDER.map((id) => {
+    const entry = values[id];
+    return {
+      id,
+      label: TIKTOK_DETAIL_LABELS[id],
+      value: entry?.value ?? null,
+      provenance: entry?.provenance ?? "not instrumented",
+      editable: false,
+    };
+  });
+}
+
+/** Google details — everything §3c demoted. */
+export const GOOGLE_DETAIL_ROW_ORDER = [
+  "account",
+  "customer",
+  "structure",
+  "bidding",
+  "geo",
+  "url",
+  "budget",
+] as const;
+
+export type GoogleDetailRowId = (typeof GOOGLE_DETAIL_ROW_ORDER)[number];
+
+const GOOGLE_DETAIL_LABELS: Record<GoogleDetailRowId, string> = {
+  account: "account",
+  customer: "customer",
+  structure: "structure",
+  bidding: "bidding",
+  geo: "geo",
+  url: "final URL",
+  budget: "budget",
+};
+
+export function googleDetailRows(
+  values: Partial<Record<GoogleDetailRowId, { value: string | null; provenance: VizProvenance }>>,
+): DetailRow[] {
+  return GOOGLE_DETAIL_ROW_ORDER.map((id) => {
+    const entry = values[id];
+    return {
+      id,
+      label: GOOGLE_DETAIL_LABELS[id],
+      value: entry?.value ?? null,
+      provenance: entry?.provenance ?? "not instrumented",
+      editable: false,
+    };
+  });
+}
+
+export const TIKTOK_DRAWER_COPY = {
+  detailsTip:
+    "Resolved from the client, the event and the plan. Everything here was decided once.",
+  destinationTip:
+    "The plan's destination. Change it on the canvas — one URL serves every ad.",
+  derivedCreativeTip: "Prefills from the Meta creative this video was routed from.",
+  derivedInterestTip: "Derived from the Meta audiences. Re-derive replaces only ⌁ rows.",
+  seedHiddenTip: "Derivation is the seed. Add or remove interests; do not re-seed.",
+  assignTip: "More than one video — pick which ad group each goes in.",
+  templateTip: "Load a saved TikTok campaign template into this draft.",
+  manualIdentityTip:
+    "The BC_AUTH_TT escape hatch. Client defaults already picked the identity; type these only when TikTok did not resolve one.",
+  launchOnCanvasTip:
+    "This draft belongs to a plan, so it launches from the plan canvas with the other channels — paused, all at once.",
+  needsVideoTip: "Upload or paste a TikTok video. A routed placeholder is not a video yet.",
+} as const;
+
+export const GOOGLE_DRAWER_COPY = {
+  detailsTip:
+    "Resolved from the client, the event and the plan. Everything here was decided once.",
+  destinationTip:
+    "The plan's destination. Change it on the canvas — one URL serves every ad.",
+  derivedKeywordTip: "Plan-derived from the Meta vocabulary. Re-derive replaces only ⌁ rows.",
+  noiseNegativesTip: "The standard noise list (GOOGLE_NOISE_NEGATIVES). Shared across campaigns.",
+  noTemplatesTip: "Google has no campaign templates. The loader is here so every drawer looks the same.",
+  intentCpcTip: "Intent and estimated CPC — hover a keyword. They are not a decision.",
+} as const;

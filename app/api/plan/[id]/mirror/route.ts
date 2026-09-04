@@ -7,7 +7,11 @@ import {
   tiktokChannelFacts,
 } from "@/lib/plan/canvas-facts";
 import { googleLastDerivedAt } from "@/lib/plan/derive/google";
-import { blockerRowsFromValidation } from "@/lib/plan/drawer";
+import {
+  blockerRowsFromValidation,
+  googleKeywordBlockers,
+  tiktokNeedsVideoBlockers,
+} from "@/lib/plan/drawer";
 import { formatMetaStaleChip, isDerivedStale } from "@/lib/plan/live-mirror";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { loadPlanForUser } from "@/lib/plan/load";
@@ -92,6 +96,10 @@ export async function GET(
               })),
           )
         : [],
+      tiktok: linked.tiktok
+        ? tiktokNeedsVideoBlockers({ items: linked.tiktok.creatives.items })
+        : [],
+      google: googleTree ? googleKeywordBlockers(googleTree) : [],
     },
   });
 }

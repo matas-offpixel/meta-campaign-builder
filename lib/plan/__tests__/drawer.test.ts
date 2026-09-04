@@ -19,20 +19,29 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import { planChannelRows } from "../canvas.ts";
+import { execSync } from "node:child_process";
+
 import {
   DETAIL_ROW_ORDER,
   DRAWER_QUERY_KEY,
   DRAWER_TABS,
+  GOOGLE_DRAWER_TABS,
   LAUNCH_ON_CANVAS_LABEL,
   META_DRAWER_TABS,
+  TIKTOK_DRAWER_TABS,
   adsetsTabWaiting,
   blockerRowsFromValidation,
   detailRows,
   drawerUrl,
+  googleKeywordBlockers,
+  isGoogleDrawerTab,
   isMetaDrawerTab,
+  isTikTokDrawerTab,
   readDrawerUrl,
   sectionForStep,
   tabForAnchor,
+  tiktokAssignTabVisible,
+  tiktokNeedsVideoBlockers,
 } from "../drawer.ts";
 import { planTargetChip } from "../canvas-inputs.ts";
 import { VIZ_PROVENANCE_MARK } from "../../viz/tokens.ts";
@@ -61,6 +70,21 @@ const DRAWER_MOUNTED = [
   "components/steps/adset-picker.tsx",
   "components/steps/cross-campaign-adset-picker.tsx",
   "components/bulk-attach/campaign-multi-picker.tsx",
+  "components/tiktok-wizard/steps/creatives.tsx",
+  "components/tiktok-wizard/steps/audiences.tsx",
+  "components/tiktok-wizard/steps/assign-creatives.tsx",
+  "components/tiktok-wizard/steps/account-setup.tsx",
+  "components/tiktok-wizard/steps/campaign-setup.tsx",
+  "components/tiktok-wizard/steps/optimisation-strategy.tsx",
+  "components/tiktok-wizard/steps/budget-schedule.tsx",
+  "components/tiktok-wizard/steps/review-launch.tsx",
+  "components/google-search-wizard/steps/ad-groups-keywords.tsx",
+  "components/google-search-wizard/steps/negatives.tsx",
+  "components/google-search-wizard/steps/ad-copy.tsx",
+  "components/google-search-wizard/steps/plan-setup.tsx",
+  "components/google-search-wizard/steps/campaigns.tsx",
+  "components/google-search-wizard/steps/targeting-budget.tsx",
+  "components/google-search-wizard/steps/push.tsx",
 ];
 
 // ── A. the drawer opens at the section a row or a blocker names ────────
@@ -158,7 +182,9 @@ describe("drawer URL", () => {
      */
     const opens = src.slice(src.indexOf("function openDrawerOrWizard"));
     const body = opens.slice(0, opens.indexOf("\n  }"));
-    assert.match(body, /setDrawer\(/, "Meta rows open the drawer in state");
+    assert.match(body, /setDrawer\(/, "every adapter opens the drawer in state");
+    assert.ok(!/adapter === "meta"/.test(body), "the Meta-only gate is gone");
+    assert.ok(!/router\.push/.test(body), "no adapter navigates to a wizard");
     assert.match(
       src,
       new RegExp(`router\\.replace\\([^)]*drawerUrl|drawerUrl\\(`),
@@ -626,5 +652,149 @@ describe("the drawer query key is the one PR 5 will reuse", () => {
     assert.equal(DRAWER_QUERY_KEY, "drawer");
     assert.equal(drawerUrl("/plan/p1", { adapter: "tiktok", tab: "tt-video" }), "/plan/p1?drawer=tt&tab=tt-video");
     assert.equal(drawerUrl("/plan/p1", { adapter: "google", tab: "g-copy" }), "/plan/p1?drawer=g&tab=g-copy");
+  });
+
+  it("?drawer=tt&tab=tt-video and ?drawer=g&tab=g-copy round-trip", () => {
+    assert.deepEqual(readDrawerUrl(new URLSearchParams("drawer=tt&tab=tt-video")), {
+      adapter: "tiktok",
+      tab: "tt-video",
+    });
+    assert.deepEqual(readDrawerUrl(new URLSearchParams("drawer=g&tab=g-copy")), {
+      adapter: "google",
+      tab: "g-copy",
+    });
+  });
+});
+
+// ── PR 5. TikTok + Google drawers ──────────────────────────────────────
+
+describe("TikTok and Google drawers open at each anchor", () => {
+  it("each TikTok tab is its own landing", () => {
+    for (const tab of TIKTOK_DRAWER_TABS) {
+      assert.equal(tabForAnchor("tiktok", { drawer: "tiktok", section: tab.id }), tab.id);
+      assert.ok(isTikTokDrawerTab(tab.id));
+    }
+  });
+
+  it("each Google tab is its own landing", () => {
+    for (const tab of GOOGLE_DRAWER_TABS) {
+      assert.equal(tabForAnchor("google", { drawer: "google", section: tab.id }), tab.id);
+      assert.ok(isGoogleDrawerTab(tab.id));
+    }
+  });
+
+  it("a row with no more specific anchor opens the first tab", () => {
+    assert.equal(tabForAnchor("tiktok", null), "tt-video");
+    assert.equal(tabForAnchor("google", null), "g-keywords");
+  });
+
+  it("the canvas mounts both drawers and wires a ref per adapter", () => {
+    const src = read("components/plan/plan-workspace.tsx");
+    assert.match(src, /<TikTokDrawerMount/);
+    assert.match(src, /<GoogleDrawerMount/);
+    assert.match(src, /tiktok: tiktokOpenRef/);
+    assert.match(src, /google: googleOpenRef/);
+    assert.match(src, /drawer\?\.adapter === "tiktok"/);
+    assert.match(src, /drawer\?\.adapter === "google"/);
+  });
+
+  it("a blocker click uses the same openDrawerOrWizard as a row", () => {
+    const src = read("components/plan/plan-workspace.tsx");
+    assert.match(src, /onOpenAnchor=\{\(row, anchor\) => void openChannel\(row, undefined, anchor\)\}/);
+    assert.match(src, /openDrawerOrWizard\(row\.adapter, row\.draftId, anchor \?\? row\.anchor\)/);
+  });
+});
+
+describe("TikTok needs-1 blocker", () => {
+  it("anchors tt-video when no videoId is present", () => {
+    const rows = tiktokNeedsVideoBlockers({ items: [{ videoId: null }, { videoId: "" }] });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.label, "needs 1");
+    assert.deepEqual(rows[0]!.anchor, { drawer: "tiktok", section: "tt-video" });
+  });
+
+  it("is silent once a real video exists", () => {
+    assert.equal(tiktokNeedsVideoBlockers({ items: [{ videoId: "v1" }] }).length, 0);
+  });
+
+  it("assign appears only when there is more than one routed video", () => {
+    assert.equal(tiktokAssignTabVisible(1), false);
+    assert.equal(tiktokAssignTabVisible(2), true);
+  });
+});
+
+describe("Google keyword blockers", () => {
+  it("anchors g-keywords with the row index", () => {
+    const rows = googleKeywordBlockers({
+      campaigns: [
+        {
+          ad_groups: [
+            {
+              keywords: [
+                { id: "k1", keyword: "hard techno", match_type: null },
+                { id: "k2", keyword: "  ", match_type: "PHRASE" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]!.label, "hard techno — no match type → fix ▸");
+    assert.ok(rows[0]!.full?.includes("1:"));
+    assert.deepEqual(rows[0]!.anchor, { drawer: "google", section: "g-keywords" });
+    assert.match(rows[1]!.label, /no text/);
+    assert.deepEqual(rows[1]!.anchor, { drawer: "google", section: "g-keywords" });
+  });
+});
+
+describe("standalone pages keep Launch / Push", () => {
+  it("/tiktok-campaign/[id] is the same drawer, page variant", () => {
+    const shell = read("components/tiktok-wizard/wizard-shell.tsx");
+    assert.match(shell, /<TikTokDrawer/);
+    assert.match(shell, /variant="page"/);
+    assert.ok(!/TikTokWizardFooter/.test(shell), "the stepper footer is gone");
+    assert.ok(!/TIKTOK_WIZARD_STEPS\.map/.test(shell), "the eight-step stepper is gone");
+  });
+
+  it("a standalone TikTok draft still renders ReviewLaunch", () => {
+    const drawer = read("components/plan/tiktok-drawer.tsx");
+    assert.match(drawer, /variant === "page" && !planId/);
+    assert.match(drawer, /<ReviewLaunchStep/);
+  });
+
+  it("/google-search/[id] is the same drawer, page variant", () => {
+    const shell = read("components/google-search-wizard/wizard-shell.tsx");
+    assert.match(shell, /<GoogleDrawer/);
+    assert.match(shell, /variant="page"/);
+    assert.ok(!/GOOGLE_SEARCH_WIZARD_STEPS\.map/.test(shell), "the eight-step stepper is gone");
+  });
+
+  it("a standalone Google tree still renders Push", () => {
+    const drawer = read("components/plan/google-drawer.tsx");
+    assert.match(drawer, /variant === "page" && !planId/);
+    assert.match(drawer, /<PushStep/);
+  });
+
+  it("Google has no templates — the loader is present and disabled", () => {
+    const drawer = read("components/plan/google-drawer.tsx");
+    assert.match(drawer, /noTemplatesTip/);
+    assert.match(drawer, /aria-disabled="true"/);
+    assert.ok(!/onLoadTemplate/.test(drawer), "the header control is not wired");
+  });
+
+  it("TikTok loads templates from lib/db/tiktok-templates", () => {
+    const drawer = read("components/plan/tiktok-drawer.tsx");
+    assert.match(drawer, /loadTikTokTemplatesFromDb/);
+    assert.match(drawer, /onLoadTemplate=/);
+  });
+});
+
+describe("write paths are untouched", () => {
+  it("lib/tiktok/write and lib/google-search have no diff against main", () => {
+    const diff = execSync("git diff main -- lib/tiktok/write lib/google-search", {
+      encoding: "utf8",
+    });
+    assert.equal(diff.trim(), "", diff);
   });
 });

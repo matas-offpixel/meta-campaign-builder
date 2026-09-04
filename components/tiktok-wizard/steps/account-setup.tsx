@@ -1,7 +1,8 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,8 @@ import {
 } from "@/lib/tiktok/optimisation-event";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import { InfoTip } from "@/components/viz/info-tip";
+import { TIKTOK_DRAWER_COPY } from "@/lib/plan/drawer";
 
 interface TikTokIdentityOption {
   identity_id: string;
@@ -44,9 +47,11 @@ const MANUAL_IDENTITY_TYPES: TikTokIdentityType[] = [
 export function AccountSetupStep({
   draft,
   onSave,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
 }) {
   const [accounts, setAccounts] = useState<TikTokAccount[]>([]);
   const [identities, setIdentities] = useState<TikTokIdentityOption[]>([]);
@@ -349,15 +354,18 @@ export function AccountSetupStep({
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Account setup</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Prose className="mt-2 text-sm text-muted-foreground">
           Choose the TikTok advertiser, identity, and pixel for this draft.
           Conversions launches also need an optimisation event from that pixel.
           One advertiser is stored per draft.
-        </p>
+        </Prose>
       </div>
+      </Chrome>
 
       {saveError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -391,13 +399,13 @@ export function AccountSetupStep({
       </div>
 
       {!loadingAccounts && accounts.filter((account) => Boolean(account.tiktok_advertiser_id)).length === 0 && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+        <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           Connect a TikTok account first in{" "}
           <Link className="underline" href="/settings">
             Settings
           </Link>
           .
-        </p>
+        </StatusLine>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -415,13 +423,14 @@ export function AccountSetupStep({
             }))}
           />
           {selectedIdentityNeedsType && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">
+            <StatusLine className="text-sm text-amber-700 dark:text-amber-300">
               TikTok did not report a type for this identity. Pick AUTH_CODE,
               BC_AUTH_TT, CUSTOMIZED_USER, or TT_USER from the type select
               before continuing.
-            </p>
+            </StatusLine>
           )}
         </div>
+        <ManualIdentityHatch>
         <div className="space-y-2">
           <Input
             id="tiktok-manual-identity-id"
@@ -463,11 +472,12 @@ export function AccountSetupStep({
             Save manual identity
           </Button>
         </div>
+        </ManualIdentityHatch>
       </div>
 
       {identityFailed && identityWarning && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          <p>{identityWarning}</p>
+          <Datum>{identityWarning}</Datum>
           <Button
             type="button"
             variant="outline"
@@ -480,9 +490,9 @@ export function AccountSetupStep({
         </div>
       )}
       {!identityFailed && identityWarning && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+        <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           {identityWarning}
-        </p>
+        </StatusLine>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -537,15 +547,15 @@ export function AccountSetupStep({
         )?.name,
       ) &&
         draft.accountSetup.optimisationEvent && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <StatusLine tone="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             {tikTokUnsupportedOptimisationEventMessage(
               draft.accountSetup.optimisationEvent,
             )}
-          </p>
+          </StatusLine>
         )}
 
       {pixelWarning && (
-        <p className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+        <Datum className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
           {pixelWarning}{" "}
           {!pixelApiFailed && (
             <a
@@ -557,7 +567,7 @@ export function AccountSetupStep({
               Open TikTok Events Manager
             </a>
           )}
-        </p>
+        </Datum>
       )}
 
       {pixelApiFailed && (
@@ -581,6 +591,7 @@ export function AccountSetupStep({
         </div>
       )}
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -588,6 +599,27 @@ function isListedIdentityType(
   value: TikTokIdentityType | "MANUAL" | null | undefined,
 ): value is TikTokIdentityType {
   return MANUAL_IDENTITY_TYPES.includes(value as TikTokIdentityType);
+}
+
+function ManualIdentityHatch({ children }: { children: ReactNode }) {
+  const drawer = useIsDrawer();
+  const [open, setOpen] = useState(false);
+  if (!drawer) return <>{children}</>;
+  return (
+    <div data-hatch="BC_AUTH_TT">
+      <button
+        type="button"
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        BC_AUTH_TT
+      </button>
+      <InfoTip label={TIKTOK_DRAWER_COPY.manualIdentityTip} />
+      {open ? <div className="mt-2">{children}</div> : null}
+    </div>
+  );
 }
 
 function ReadOnlySummary({
@@ -599,8 +631,8 @@ function ReadOnlySummary({
 }) {
   return (
     <div className="rounded-md border border-border bg-background p-3">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-sm text-foreground">{value || "Not selected"}</p>
+      <Datum className="text-xs uppercase tracking-wide text-muted-foreground">{label}</Datum>
+      <Datum className="mt-1 text-sm text-foreground">{value || "Not selected"}</Datum>
     </div>
   );
 }

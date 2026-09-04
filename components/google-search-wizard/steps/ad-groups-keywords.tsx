@@ -1,10 +1,11 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -23,25 +24,33 @@ import {
   type GoogleSearchMatchType,
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
+import { isDerivedGoogleNote } from "@/lib/plan/derive/google";
+import { InfoTip } from "@/components/viz/info-tip";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
+import { GOOGLE_DRAWER_COPY } from "@/lib/plan/drawer";
 
 interface Props {
+  surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
 }
 
-export function AdGroupsKeywordsStep({ tree, onChange }: Props) {
+export function AdGroupsKeywordsStep({ surface = "wizard", tree, onChange }: Props) {
   if (tree.campaigns.length === 0) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Ad groups & keywords</CardTitle>
-          <CardDescription>Add a campaign in the previous step before defining ad groups.</CardDescription>
-        </CardHeader>
-      </Card>
+      <StepSurfaceProvider surface={surface}>
+        <Card>
+          <CardHeader>
+            <CardTitle>Ad groups & keywords</CardTitle>
+            <CardDescription>Add a campaign in the previous step before defining ad groups.</CardDescription>
+          </CardHeader>
+        </Card>
+      </StepSurfaceProvider>
     );
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-4">
       {tree.campaigns.map((campaign) => (
         <CampaignBlock
@@ -52,6 +61,7 @@ export function AdGroupsKeywordsStep({ tree, onChange }: Props) {
         />
       ))}
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -83,9 +93,9 @@ function CampaignBlock({
       </CardHeader>
 
       {campaign.ad_groups.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+        <Datum className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
           No ad groups in this campaign yet.
-        </p>
+        </Datum>
       ) : (
         <div className="space-y-3">
           {campaign.ad_groups.map((adGroup) => (
@@ -118,6 +128,7 @@ function AdGroupCard({
   onChange: (next: GoogleSearchPlanTree) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const drawer = useIsDrawer();
 
   return (
     <section className="rounded-md border border-border bg-background">
@@ -170,17 +181,21 @@ function AdGroupCard({
       {expanded && (
         <div className="p-3">
           {adGroup.keywords.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            <StatusLine className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
               No keywords yet. Add one to get going.
-            </p>
+            </StatusLine>
           ) : (
             <table className="min-w-full text-sm">
               <thead className="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-2 py-1">Keyword</th>
                   <th className="w-28 px-2 py-1">Match</th>
-                  <th className="w-32 px-2 py-1">Intent</th>
-                  <th className="w-28 px-2 py-1">Est. CPC £</th>
+                  {drawer ? null : (
+                    <>
+                      <th className="w-32 px-2 py-1">Intent</th>
+                      <th className="w-28 px-2 py-1">Est. CPC £</th>
+                    </>
+                  )}
                   <th className="w-10 px-2 py-1"></th>
                 </tr>
               </thead>
@@ -230,20 +245,29 @@ function KeywordRow({
   onPatch: (patch: Partial<GoogleSearchKeyword>) => void;
   onRemove: () => void;
 }) {
+  const drawer = useIsDrawer();
+  const derived = isDerivedGoogleNote(keyword.notes);
   const cpcRange =
     keyword.est_cpc_low != null && keyword.est_cpc_high != null
       ? `${keyword.est_cpc_low.toFixed(2)} – ${keyword.est_cpc_high.toFixed(2)}`
       : "";
+  const tip = [keyword.intent, cpcRange ? `£${cpcRange}` : null]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <tr className="border-t border-border align-middle">
       <td className="px-2 py-1">
-        <Input
-          aria-label="Keyword text"
-          value={keyword.keyword}
-          onChange={(e) => onPatch({ keyword: e.target.value })}
-          placeholder="event tickets london"
-        />
+        <div className="flex items-center gap-1">
+          <Input
+            aria-label="Keyword text"
+            value={keyword.keyword}
+            onChange={(e) => onPatch({ keyword: e.target.value })}
+            placeholder="event tickets london"
+          />
+          {derived ? <ProvenanceBadge provenance="derived" /> : null}
+          {drawer && tip ? <InfoTip label={`${GOOGLE_DRAWER_COPY.intentCpcTip} ${tip}`} /> : null}
+        </div>
       </td>
       <td className="px-2 py-1">
         <Select
@@ -253,36 +277,40 @@ function KeywordRow({
           onChange={(e) => onPatch({ match_type: e.target.value as GoogleSearchMatchType })}
         />
       </td>
-      <td className="px-2 py-1">
-        <div className="flex items-center gap-2">
-          <Select
-            aria-label="Intent"
-            value={keyword.intent ?? ""}
-            options={INTENT_OPTIONS}
-            onChange={(e) => onPatch({ intent: e.target.value || null })}
-          />
-          {keyword.intent && INTENT_BADGE[keyword.intent] && (
-            <span
-              className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
-                INTENT_BADGE[keyword.intent]
-              }`}
-            >
-              {keyword.intent}
-            </span>
-          )}
-        </div>
-      </td>
-      <td className="px-2 py-1">
-        <Input
-          aria-label="Est CPC range"
-          value={cpcRange}
-          placeholder="0.50 – 1.20"
-          onChange={(e) => {
-            const parsed = parseRange(e.target.value);
-            onPatch({ est_cpc_low: parsed?.low ?? null, est_cpc_high: parsed?.high ?? null });
-          }}
-        />
-      </td>
+      {drawer ? null : (
+        <>
+          <td className="px-2 py-1">
+            <div className="flex items-center gap-2">
+              <Select
+                aria-label="Intent"
+                value={keyword.intent ?? ""}
+                options={INTENT_OPTIONS}
+                onChange={(e) => onPatch({ intent: e.target.value || null })}
+              />
+              {keyword.intent && INTENT_BADGE[keyword.intent] && (
+                <span
+                  className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${
+                    INTENT_BADGE[keyword.intent]
+                  }`}
+                >
+                  {keyword.intent}
+                </span>
+              )}
+            </div>
+          </td>
+          <td className="px-2 py-1">
+            <Input
+              aria-label="Est CPC range"
+              value={cpcRange}
+              placeholder="0.50 – 1.20"
+              onChange={(e) => {
+                const parsed = parseRange(e.target.value);
+                onPatch({ est_cpc_low: parsed?.low ?? null, est_cpc_high: parsed?.high ?? null });
+              }}
+            />
+          </td>
+        </>
+      )}
       <td className="px-2 py-1 text-right">
         <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove keyword">
           <Trash2 className="h-3.5 w-3.5" />

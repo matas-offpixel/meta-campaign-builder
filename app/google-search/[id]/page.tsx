@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { GoogleSearchWizardShell } from "@/components/google-search-wizard/wizard-shell";
 import { loadGoogleSearchPlanTree } from "@/lib/db/google-search-plans";
 import { createClient } from "@/lib/supabase/server";
+import { loadPlanForGoogleDraft } from "@/lib/plan/linked-plan";
 
 /**
  * /google-search/[id]
@@ -78,9 +79,12 @@ export default async function GoogleSearchPlanPage({
     | null
     | undefined;
 
+  const linkedPlan = await loadPlanForGoogleDraft(supabase, tree.plan.id, user.id);
+
   return (
     <GoogleSearchWizardShell
       initialTree={tree}
+      linkedPlan={linkedPlan}
       context={{
         eventName: linkedEvent?.name ?? null,
         eventCode: linkedEvent?.event_code ?? null,

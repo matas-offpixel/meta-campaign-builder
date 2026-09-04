@@ -11,7 +11,9 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { GoogleDrawerMount } from "@/components/plan/google-drawer";
 import { MetaDrawerMount } from "@/components/plan/meta-drawer";
+import { TikTokDrawerMount } from "@/components/plan/tiktok-drawer";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
 import { Combobox } from "@/components/ui/combobox";
 import { InfoTip } from "@/components/viz/info-tip";
@@ -141,6 +143,8 @@ export function PlanWorkspace({
     tab: string | null;
   } | null>(null);
   const metaOpenRef = useRef<HTMLButtonElement | null>(null);
+  const tiktokOpenRef = useRef<HTMLButtonElement | null>(null);
+  const googleOpenRef = useRef<HTMLButtonElement | null>(null);
 
   /**
    * Restore an open drawer after a refresh, once. The plan's draft ids are
@@ -192,26 +196,20 @@ export function PlanWorkspace({
   }
 
   /**
-   * Meta opens in a drawer over the canvas — no route change, the URL only
-   * gains `?drawer=f&tab=…` so a refresh reopens it. TikTok and Google
-   * still navigate to their wizards until PR 5 gives them the same shell.
+   * Every channel opens in a drawer over the canvas — no route change.
+   * The URL only gains `?drawer=f|tt|g&tab=…` so a refresh reopens it.
    */
   function openDrawerOrWizard(
     adapter: PlanAdapterName,
     draftId: string,
     anchor?: BlockerAnchor | null,
   ) {
-    if (adapter === "meta") {
-      setDrawer({
-        adapter: "meta",
-        draftId,
-        anchor: anchor ?? defaultAnchorFor("meta"),
-        tab: null,
-      });
-      return;
-    }
-    const href = wizardHrefForDraft(adapter, draftId);
-    if (href) router.push(href);
+    setDrawer({
+      adapter,
+      draftId,
+      anchor: anchor ?? defaultAnchorFor(adapter),
+      tab: null,
+    });
   }
 
   function patchIntent(patch: Partial<CampaignPlan["intent"]>) {
@@ -779,7 +777,11 @@ export function PlanWorkspace({
         }
         onOpen={(row) => void openChannel(row)}
         onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
-        openRefs={{ meta: metaOpenRef }}
+        openRefs={{
+          meta: metaOpenRef,
+          tiktok: tiktokOpenRef,
+          google: googleOpenRef,
+        }}
         onResume={(row) => void resume([row.adapter])}
         onRederive={(row) => void rederive(row.adapter)}
         busy={busy}
@@ -800,6 +802,34 @@ export function PlanWorkspace({
           draftId={drawer.draftId}
           initialAnchor={drawer.anchor}
           triggerRef={metaOpenRef}
+          onTabChange={(tab) =>
+            setDrawer((current) => (current ? { ...current, tab } : current))
+          }
+          planId={plan.id}
+          onClose={() => setDrawer(null)}
+        />
+      ) : null}
+
+      {drawer?.adapter === "tiktok" ? (
+        <TikTokDrawerMount
+          open
+          draftId={drawer.draftId}
+          initialAnchor={drawer.anchor}
+          triggerRef={tiktokOpenRef}
+          onTabChange={(tab) =>
+            setDrawer((current) => (current ? { ...current, tab } : current))
+          }
+          planId={plan.id}
+          onClose={() => setDrawer(null)}
+        />
+      ) : null}
+
+      {drawer?.adapter === "google" ? (
+        <GoogleDrawerMount
+          open
+          draftId={drawer.draftId}
+          initialAnchor={drawer.anchor}
+          triggerRef={googleOpenRef}
           onTabChange={(tab) =>
             setDrawer((current) => (current ? { ...current, tab } : current))
           }

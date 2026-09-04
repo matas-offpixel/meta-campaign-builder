@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -32,10 +33,12 @@ export function PlanSetupStep({
   tree,
   onChange,
   context,
+  surface = "wizard",
 }: {
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
   context: GoogleSearchWizardContext;
+  surface?: StepSurface;
 }) {
   const plan = tree.plan;
 
@@ -67,6 +70,7 @@ export function PlanSetupStep({
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-5">
       <Card>
         <CardHeader>
@@ -136,15 +140,15 @@ export function PlanSetupStep({
           onChange={(e) => updateField("structure_mode", e.target.value as GoogleSearchStructureMode)}
         />
         {plan.structure_mode === "single_campaign" ? (
-          <p className="mt-1 text-xs text-muted-foreground">
+          <Prose className="mt-1 text-xs text-muted-foreground">
             All C-codes are ad groups inside one campaign. One budget flows to the best-performing
             themes — optimal for single events.
-          </p>
+          </Prose>
         ) : (
-          <p className="mt-1 text-xs text-amber-700">
+          <StatusLine className="mt-1 text-xs text-amber-700">
             Each C-code is a separate campaign with its own budget. More granular control, higher
             management overhead. Original behaviour.
-          </p>
+          </StatusLine>
         )}
       </Card>
 
@@ -198,23 +202,23 @@ export function PlanSetupStep({
                 }
               />
               {finalUrl.mixed && (
-                <p className="text-xs text-muted-foreground">
+                <Prose className="text-xs text-muted-foreground">
                   Some RSAs override the plan default. Typing here overwrites every RSA; leave
                   blank to keep per-RSA overrides set in Ad Copy.
-                </p>
+                </Prose>
               )}
               {finalUrl.httpCount > 0 && (
-                <p className="text-xs text-amber-700">
+                <StatusLine className="text-xs text-amber-700">
                   {finalUrl.httpCount} RSA{finalUrl.httpCount === 1 ? "" : "s"} use http:// —
                   Google warns about insecure landing pages. Prefer https://.
-                </p>
+                </StatusLine>
               )}
               {finalUrl.invalidCount > 0 && (
-                <p className="text-xs text-destructive">
+                <StatusLine tone="alert" className="text-xs text-destructive">
                   {finalUrl.invalidCount} RSA{finalUrl.invalidCount === 1 ? "" : "s"}{" "}
                   {finalUrl.invalidCount === 1 ? "has" : "have"} a URL that doesn&apos;t start
                   with http(s):// — push will skip.
-                </p>
+                </StatusLine>
               )}
             </div>
           );
@@ -251,6 +255,7 @@ export function PlanSetupStep({
         </div>
       </Card>
     </div>
+      </StepSurfaceProvider>
   );
 }
 

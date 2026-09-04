@@ -1,10 +1,11 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   addCampaign,
@@ -18,17 +19,22 @@ import type {
 } from "@/lib/google-search/types";
 
 interface Props {
+  surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
   /** Quick deep link to the keywords step from each row. */
   onJumpToKeywords: () => void;
 }
 
-export function CampaignsStep({ tree, onChange, onJumpToKeywords }: Props) {
+export function CampaignsStep({surface = "wizard",  tree, onChange, onJumpToKeywords }: Props) {
   const isSingleCampaign = tree.plan.structure_mode === "single_campaign";
-  return isSingleCampaign
+  return (
+    <StepSurfaceProvider surface={surface}>
+      {isSingleCampaign
     ? <SingleCampaignView tree={tree} onChange={onChange} onJumpToKeywords={onJumpToKeywords} />
-    : <MultiCampaignView tree={tree} onChange={onChange} onJumpToKeywords={onJumpToKeywords} />;
+    : <MultiCampaignView tree={tree} onChange={onChange} onJumpToKeywords={onJumpToKeywords} />}
+    </StepSurfaceProvider>
+  );
 }
 
 // ─── Single-campaign view ─────────────────────────────────────────────
@@ -49,7 +55,7 @@ function SingleCampaignView({ tree, onChange, onJumpToKeywords }: Props) {
 
         {!campaign ? (
           <div className="rounded-md border border-dashed border-border p-6 text-center">
-            <p className="text-sm text-muted-foreground">No campaign yet.</p>
+            <Datum className="text-sm text-muted-foreground">No campaign yet.</Datum>
             <div className="mt-3 flex justify-center">
               <Button onClick={() => onChange(addCampaign(tree))}>
                 <Plus className="h-4 w-4" />
@@ -192,15 +198,15 @@ function MultiCampaignView({ tree, onChange, onJumpToKeywords }: Props) {
           >
             Apply to all
           </Button>
-          <p className="text-xs text-muted-foreground">
+          <Prose className="text-xs text-muted-foreground">
             Google Ads budgets are <strong>daily</strong>. Use £1/day for a smoke test, then raise per campaign.
-          </p>
+          </Prose>
         </div>
       ) : null}
 
       {tree.campaigns.length === 0 ? (
         <div className="rounded-md border border-dashed border-border p-6 text-center">
-          <p className="text-sm text-muted-foreground">No campaigns yet.</p>
+          <Datum className="text-sm text-muted-foreground">No campaigns yet.</Datum>
           <div className="mt-3 flex justify-center">
             <Button onClick={() => onChange(addCampaign(tree))}>
               <Plus className="h-4 w-4" />
@@ -326,9 +332,9 @@ function CampaignRow({
           }}
         />
         {campaign.monthly_budget != null && campaign.monthly_budget > 0 ? (
-          <p className="mt-1 text-[10px] text-muted-foreground" title="Imported monthly figure from the plan — reference only, push uses daily.">
+          <Datum className="mt-1 text-[10px] text-muted-foreground" title="Imported monthly figure from the plan — reference only, push uses daily.">
             plan: £{Math.round(campaign.monthly_budget)}/mo
-          </p>
+          </Datum>
         ) : null}
       </td>
       <td className="p-2">

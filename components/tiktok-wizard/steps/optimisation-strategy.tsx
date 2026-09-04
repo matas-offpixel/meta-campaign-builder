@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -22,9 +23,11 @@ import type {
 export function OptimisationStrategyStep({
   draft,
   onSave,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,14 +93,17 @@ export function OptimisationStrategyStep({
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Optimisation strategy</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Datum className="mt-2 text-sm text-muted-foreground">
           Configure Smart+, pacing, benchmarks, and guardrails for the future
           pre-flight checks.
-        </p>
+        </Datum>
       </div>
+      </Chrome>
 
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -155,10 +161,10 @@ export function OptimisationStrategyStep({
                 void saveMoneyField("targetCostPerResult", value)
               }
             />
-            <p className="text-sm text-muted-foreground">
+            <Prose className="text-sm text-muted-foreground">
               Conversion and value goals send this as the ad-group bid. Click,
               view, and reach still use Target CPC / CPV / CPM.
-            </p>
+            </Prose>
           </div>
         )}
       </div>
@@ -226,15 +232,16 @@ export function OptimisationStrategyStep({
       {warnings.length > 0 && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           {warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
+            <Datum key={warning}>{warning}</Datum>
           ))}
         </div>
       )}
 
-      <p className="mt-2 text-sm text-muted-foreground">
+      <Datum className="mt-2 text-sm text-muted-foreground">
         Smart+ is {draft.optimisation.smartPlusEnabled ? "enabled" : "disabled"}.
-      </p>
+      </Datum>
     </div>
+      </StepSurfaceProvider>
   );
 }
 

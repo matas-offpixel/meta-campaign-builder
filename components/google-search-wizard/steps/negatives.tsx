@@ -1,9 +1,10 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
@@ -17,14 +18,19 @@ import {
   type GoogleSearchNegative,
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
+import { isDerivedGoogleNote } from "@/lib/plan/derive/google";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 
 interface Props {
+  surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
 }
 
-export function NegativesStep({ tree, onChange }: Props) {
+export function NegativesStep({ surface = "wizard", tree, onChange }: Props) {
+  const drawer = useIsDrawer();
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-5">
       <Card>
         <CardHeader>
@@ -43,6 +49,33 @@ export function NegativesStep({ tree, onChange }: Props) {
         />
       </Card>
 
+      {drawer ? (
+        <div className="space-y-2">
+          {tree.campaigns.map((campaign) => (
+            <div key={campaign.id} className="space-y-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  onChange(addNegative(tree, { kind: "campaign", campaign_id: campaign.id }))
+                }
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add negative · {campaign.name || "(unnamed)"}
+              </Button>
+              {campaign.negatives.length > 0 ? (
+                <NegativeTable
+                  rows={campaign.negatives}
+                  onPatch={(id, patch) => onChange(updateNegative(tree, id, patch))}
+                  onRemove={(id) => onChange(removeNegative(tree, id))}
+                  emptyText="No campaign-scoped negatives."
+                />
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+      <Chrome>
       <Card>
         <CardHeader>
           <CardTitle>Campaign overrides</CardTitle>
@@ -53,7 +86,7 @@ export function NegativesStep({ tree, onChange }: Props) {
         </CardHeader>
 
         {tree.campaigns.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Add a campaign in step 2 before defining overrides.</p>
+          <Prose className="text-xs text-muted-foreground">Add a campaign in step 2 before defining overrides.</Prose>
         ) : (
           <div className="space-y-4">
             {tree.campaigns.map((campaign) => (
@@ -62,7 +95,7 @@ export function NegativesStep({ tree, onChange }: Props) {
                 className="rounded-md border border-border bg-background p-3"
               >
                 <header className="mb-2 flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium">{campaign.name || "(unnamed)"}</p>
+                  <Datum className="text-sm font-medium">{campaign.name || "(unnamed)"}</Datum>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -85,7 +118,10 @@ export function NegativesStep({ tree, onChange }: Props) {
           </div>
         )}
       </Card>
+      </Chrome>
+      )}
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -102,6 +138,7 @@ function NegativeTable({
   emptyText: string;
   onAdd?: () => void;
 }) {
+  const drawer = useIsDrawer();
   if (rows.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
@@ -124,7 +161,7 @@ function NegativeTable({
           <tr>
             <th className="px-2 py-1">Keyword</th>
             <th className="w-28 px-2 py-1">Match</th>
-            <th className="px-2 py-1">Reason</th>
+            {drawer ? null : <th className="px-2 py-1">Reason</th>}
             <th className="w-10 px-2 py-1"></th>
           </tr>
         </thead>
@@ -132,11 +169,16 @@ function NegativeTable({
           {rows.map((n) => (
             <tr key={n.id} className="border-t border-border align-middle">
               <td className="px-2 py-1">
-                <Input
-                  aria-label="Negative keyword"
-                  value={n.keyword}
-                  onChange={(e) => onPatch(n.id, { keyword: e.target.value })}
-                />
+                <div className="flex items-center gap-1">
+                  <Input
+                    aria-label="Negative keyword"
+                    value={n.keyword}
+                    onChange={(e) => onPatch(n.id, { keyword: e.target.value })}
+                  />
+                  {isDerivedGoogleNote(n.reason) ? (
+                    <ProvenanceBadge provenance="derived" />
+                  ) : null}
+                </div>
               </td>
               <td className="px-2 py-1">
                 <Select
@@ -146,6 +188,7 @@ function NegativeTable({
                   onChange={(e) => onPatch(n.id, { match_type: e.target.value as GoogleSearchMatchType })}
                 />
               </td>
+              {drawer ? null : (
               <td className="px-2 py-1">
                 <Input
                   aria-label="Negative reason"
@@ -154,6 +197,7 @@ function NegativeTable({
                   placeholder="e.g. noise / cannibalisation"
                 />
               </td>
+              )}
               <td className="px-2 py-1 text-right">
                 <Button variant="ghost" size="sm" onClick={() => onRemove(n.id)} aria-label="Remove">
                   <Trash2 className="h-3.5 w-3.5" />

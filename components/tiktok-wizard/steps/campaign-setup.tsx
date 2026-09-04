@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -33,10 +34,12 @@ export function CampaignSetupStep({
   draft,
   onSave,
   context,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   context?: TikTokWizardContext;
+  surface?: StepSurface;
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -160,16 +163,19 @@ export function CampaignSetupStep({
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Campaign setup</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Prose className="mt-2 text-sm text-muted-foreground">
           Set the TikTok campaign name, objective, optimisation goal, and bid
           strategy. TikTok retired Conversions from Ads Manager — website
           registration now runs under Lead generation. Instant Form is not
           yet supported.
-        </p>
+        </Prose>
       </div>
+      </Chrome>
 
       {saveError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -197,7 +203,7 @@ export function CampaignSetupStep({
           />
         </div>
         {!eventCode && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <StatusLine tone="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             Set an event_code on the event row before creating a campaign.
             {context?.eventEditPath ? (
               <>
@@ -208,13 +214,13 @@ export function CampaignSetupStep({
                 .
               </>
             ) : null}
-          </p>
+          </StatusLine>
         )}
         {invalidObjectiveGoal && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <StatusLine tone="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
             The saved objective and optimisation goal are invalid together.
             Choose a valid optimisation goal for this objective.
-          </p>
+          </StatusLine>
         )}
       </div>
 
@@ -244,22 +250,22 @@ export function CampaignSetupStep({
       </div>
 
       {isRetiredTikTokObjective(draft.campaignSetup.objective) && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+        <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           Conversions is retired in TikTok Ads Manager. Website registration
           now runs as an optimization location under Lead generation. Existing
           drafts still load and launch, but new campaigns should use Lead
           generation. This draft was not changed.
-        </p>
+        </StatusLine>
       )}
 
       {draft.campaignSetup.objective === "LEAD_GENERATION" && (
         <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
-          <p className="font-medium text-foreground">Optimization location</p>
-          <p className="mt-1 text-muted-foreground">
+          <Datum className="font-medium text-foreground">Optimization location</Datum>
+          <Prose className="mt-1 text-muted-foreground">
             Website — uses the TikTok pixel and optimisation event from Step 1.
             TikTok Instant Form is a second location in Ads Manager and is not
             yet supported here.
-          </p>
+          </Prose>
         </div>
       )}
 
@@ -288,10 +294,10 @@ export function CampaignSetupStep({
           {!draft.optimisation.smartPlusEnabled &&
             !draft.campaignSetup.bidStrategy &&
             !draft.optimisation.bidStrategy && (
-              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+              <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
                 Bid strategy is not set. Launch will publish the ad group with
                 no bid.
-              </p>
+              </StatusLine>
             )}
         </div>
         <Input
@@ -306,5 +312,6 @@ export function CampaignSetupStep({
         />
       </div>
     </div>
+      </StepSurfaceProvider>
   );
 }

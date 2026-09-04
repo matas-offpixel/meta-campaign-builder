@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -31,6 +32,9 @@ import type {
   TikTokCreativeDraft,
 } from "@/lib/types/tiktok-draft";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
+import { InfoTip } from "@/components/viz/info-tip";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
+import { TIKTOK_DRAWER_COPY } from "@/lib/plan/drawer";
 
 interface UploadJob {
   id: string;
@@ -53,9 +57,11 @@ const CTA_OPTIONS = [
 export function CreativesStep({
   draft,
   onSave,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
 }) {
   const [baseName, setBaseName] = useState("TikTok creative");
   const [videoInput, setVideoInput] = useState("");
@@ -327,20 +333,25 @@ export function CreativesStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.accountSetup.advertiserId, draft.creatives.items]);
 
+  const drawer = useIsDrawer();
+
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Creatives</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Prose className="mt-2 text-sm text-muted-foreground">
           Upload a video to the TikTok Asset Library, or paste an existing
           video URL / video_id. Spark Ads are a v2 placeholder and are not
           wired.
-        </p>
+        </Prose>
       </div>
+      </Chrome>
 
       {error && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          <p>{error}</p>
+          <Datum>{error}</Datum>
           {retryVideoId && (
             <Button
               type="button"
@@ -356,6 +367,7 @@ export function CreativesStep({
         </div>
       )}
 
+      <Chrome>
       <fieldset className="space-y-4 rounded-md border border-border bg-background p-4">
         <legend className="px-1 text-sm font-medium">Creative mode</legend>
         <label className="flex items-center gap-2 text-sm">
@@ -367,7 +379,9 @@ export function CreativesStep({
           Spark Ad — Coming in v2: boost an existing organic post.
         </label>
       </fieldset>
+      </Chrome>
 
+      <Chrome>
       <div className="grid gap-4 md:grid-cols-2">
         <Input
           id="creative-base-name"
@@ -385,6 +399,7 @@ export function CreativesStep({
           placeholder="1"
         />
       </div>
+      </Chrome>
 
       <div
         onDragOver={(event) => {
@@ -416,9 +431,9 @@ export function CreativesStep({
           >
             browse
           </button>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <Datum className="mt-1 text-xs text-muted-foreground">
             .mp4, .mov, .mpeg, .avi · up to 200 MB (Storage ceiling)
-          </p>
+          </Datum>
         </div>
         <input
           ref={fileInputRef}
@@ -454,17 +469,17 @@ export function CreativesStep({
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{job.fileName}</p>
-                <p className="truncate text-xs text-muted-foreground">
+                <Datum className="truncate text-sm font-medium">{job.fileName}</Datum>
+                <Datum className="truncate text-xs text-muted-foreground">
                   {job.sizeLabel} · {jobStageLabel(job)}
-                </p>
+                </Datum>
                 {job.videoId && (
-                  <p className="truncate text-xs text-muted-foreground">
+                  <Datum className="truncate text-xs text-muted-foreground">
                     video_id {job.videoId}
-                  </p>
+                  </Datum>
                 )}
                 {job.error && (
-                  <p className="text-xs text-amber-700 dark:text-amber-300">{job.error}</p>
+                  <StatusLine className="text-xs text-amber-700 dark:text-amber-300">{job.error}</StatusLine>
                 )}
               </div>
             </div>
@@ -489,9 +504,12 @@ export function CreativesStep({
           onChange={(event) => setAdText(event.target.value)}
           placeholder="Book tickets now"
         />
-        <p className="self-end text-xs text-muted-foreground">
+        <Datum className="self-end text-xs text-muted-foreground">
           {adText.length}/100 characters
-        </p>
+        </Datum>
+        {drawer ? (
+          <DestinationBadge url={landingPageUrl} />
+        ) : (
         <div>
           <Input
             id="creative-landing-page"
@@ -507,6 +525,7 @@ export function CreativesStep({
             onChange={setLandingPageUrl}
           />
         </div>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -557,13 +576,16 @@ export function CreativesStep({
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{item.name}</p>
-              <p className="truncate text-xs text-muted-foreground">
+              <Datum className="flex min-w-0 items-center gap-1 truncate text-sm font-medium">
+                <span className="truncate">{item.name}</span>
+                {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
+              </Datum>
+              <Datum className="truncate text-xs text-muted-foreground">
                 {item.videoId} · {item.cta ?? "No CTA"}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
+              </Datum>
+              <Datum className="truncate text-xs text-muted-foreground">
                 {item.adText || "No ad text"}
-              </p>
+              </Datum>
             </div>
             <Button
               type="button"
@@ -577,10 +599,11 @@ export function CreativesStep({
           </div>
         ))}
         {draft.creatives.items.length === 0 && (
-          <p className="text-sm text-muted-foreground">No creatives added yet.</p>
+          <StatusLine className="text-sm text-muted-foreground">No creatives added yet.</StatusLine>
         )}
       </div>
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -609,4 +632,19 @@ function isRateLimitMessage(message: string): boolean {
 function isVideoNotFoundMessage(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.includes("404") || lower.includes("not found");
+}
+
+function DestinationBadge({ url }: { url: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">destination</span>
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="truncate text-xs" title={url || undefined}>
+          {url || "—"}
+        </span>
+        <ProvenanceBadge provenance={url ? "derived" : "not instrumented"} />
+        <InfoTip label={TIKTOK_DRAWER_COPY.destinationTip} />
+      </span>
+    </div>
+  );
 }
