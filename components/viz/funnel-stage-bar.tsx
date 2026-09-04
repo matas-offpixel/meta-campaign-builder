@@ -7,6 +7,34 @@ import {
 
 import { ProvenanceBadge } from "./provenance-badge";
 
+export type FunnelBarSegment = { platform: string; pct: number; label: string };
+
+/** Shared segment track — SplitBar composes this; do not copy. */
+export function FunnelBarSegments({
+  segments,
+}: {
+  segments: FunnelBarSegment[];
+}) {
+  if (segments.length === 0) return null;
+  return (
+    <div className="flex h-full w-full">
+      {segments.map((segment) => {
+        const platform = isVizPlatform(segment.platform)
+          ? (segment.platform as VizPlatform)
+          : null;
+        return (
+          <span
+            key={segment.platform}
+            className={`h-full ${platform ? VIZ_PLATFORM_BAR[platform] : "bg-muted-foreground/40"}`}
+            style={{ width: `${segment.pct}%` }}
+            title={`${segment.label} ${segment.pct.toFixed(0)}%`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function FunnelStageBar({
   label,
   valueLabel,
@@ -20,7 +48,7 @@ export function FunnelStageBar({
   valueLabel: string;
   widthPct: number;
   dashed: boolean;
-  segments?: Array<{ platform: string; pct: number; label: string }>;
+  segments?: FunnelBarSegment[];
   provenance: VizProvenance;
   title?: string;
 }) {
@@ -46,23 +74,7 @@ export function FunnelStageBar({
         role="img"
         aria-label={`${label} ${valueLabel}${dashed ? ", not instrumented" : ""}`}
       >
-        {dashed || segments.length === 0 ? null : (
-          <div className="flex h-full w-full">
-            {segments.map((segment) => {
-              const platform = isVizPlatform(segment.platform)
-                ? (segment.platform as VizPlatform)
-                : null;
-              return (
-                <span
-                  key={segment.platform}
-                  className={`h-full ${platform ? VIZ_PLATFORM_BAR[platform] : "bg-muted-foreground/40"}`}
-                  style={{ width: `${segment.pct}%` }}
-                  title={`${segment.label} ${segment.pct.toFixed(0)}%`}
-                />
-              );
-            })}
-          </div>
-        )}
+        {dashed ? null : <FunnelBarSegments segments={segments} />}
       </div>
     </div>
   );

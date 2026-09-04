@@ -1,17 +1,25 @@
 import type { ReactNode } from "react";
 
+const SIZE_CLASS = {
+  sm: "rounded-full border border-border bg-muted/40 px-1.5 py-0 text-[10px]",
+  md: "rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px]",
+  lg: "rounded-md px-0 py-0 text-2xl font-semibold",
+} as const;
+
 export function MetricChip({
   label,
   children,
   className = "",
+  size = "md",
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  size?: keyof typeof SIZE_CLASS;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] tabular-nums ${className}`}
+      className={`inline-flex items-center gap-1 tabular-nums ${SIZE_CLASS[size]} ${className}`}
       aria-label={label}
       title={label}
     >
