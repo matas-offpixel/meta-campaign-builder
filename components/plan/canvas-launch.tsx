@@ -3,7 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { FunnelStageBar } from "@/components/viz/funnel-stage-bar";
 import { InfoTip } from "@/components/viz/info-tip";
-import { type PlanLaunchButtonModel } from "@/lib/plan/canvas";
+import { joinInfoTips, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
 import { WIZARD_ACTIVE_VS_PLAN_PAUSED } from "@/lib/plan/schedule";
 import type { EventFunnelStage } from "@/lib/dashboard/event-funnel";
 import { platformSharePercents, proportionalBarWidths } from "@/lib/viz/funnel-scale";
@@ -32,6 +32,11 @@ export function CanvasLaunch({
   onResumeAll: () => void;
 }) {
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
+  const tip = joinInfoTips(
+    button.reason,
+    button.kind === "launch" && WIZARD_ACTIVE_VS_PLAN_PAUSED,
+    error,
+  );
 
   return (
     <section aria-label="launch" className="min-h-[48px] space-y-3">
@@ -58,8 +63,7 @@ export function CanvasLaunch({
       ) : null}
 
       <div className="flex items-center justify-end gap-1.5">
-        {button.reason ? <InfoTip label={button.reason} /> : null}
-        {button.kind === "launch" ? <InfoTip label={WIZARD_ACTIVE_VS_PLAN_PAUSED} /> : null}
+        {tip ? <InfoTip label={tip} /> : null}
         {button.kind === "none" ? null : (
           <Button
             type="button"
@@ -70,7 +74,6 @@ export function CanvasLaunch({
           </Button>
         )}
       </div>
-      {error ? <InfoTip label={error} /> : null}
     </section>
   );
 }

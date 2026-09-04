@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AssetStrip } from "@/components/viz/asset-strip";
 import { InfoTip } from "@/components/viz/info-tip";
+import { joinInfoTips } from "@/lib/plan/canvas";
 import { assetStripFromMatrix } from "@/lib/plan/canvas-inputs";
 import { TIKTOK_LAUNCHED_UNROUTE_NOTE, type RoutingMatrixRow } from "@/lib/plan/asset-routing";
 import type { VizPlatform } from "@/lib/viz/tokens";
@@ -77,6 +78,7 @@ export function CanvasAssets({
   }, [refresh]);
 
   const view = useMemo(() => assetStripFromMatrix(rows), [rows]);
+  const tip = joinInfoTips(launched && TIKTOK_LAUNCHED_UNROUTE_NOTE, note, error);
 
   async function toggle(assetId: string, platform: VizPlatform) {
     if (platform !== "tiktok") return;
@@ -110,9 +112,7 @@ export function CanvasAssets({
         onUpload={onUpload}
         onToggle={(assetId, platform) => void toggle(assetId, platform)}
       />
-      {launched ? <InfoTip label={TIKTOK_LAUNCHED_UNROUTE_NOTE} /> : null}
-      {note ? <InfoTip label={note} /> : null}
-      {error ? <InfoTip label={error} /> : null}
+      {tip ? <InfoTip label={tip} /> : null}
     </section>
   );
 }

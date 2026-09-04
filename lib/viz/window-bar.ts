@@ -168,3 +168,57 @@ export function relativeMomentLabel(at: Date, now: Date): string {
 }
 
 export type WindowBarState = "default" | "dragging" | "clamped";
+
+/**
+ * Moment-lane + rail + handle-label lane. The label row is in-flow so
+ * the B→C gutter is measured from beneath the labels, not the rail.
+ */
+export const WINDOW_BAR_HEIGHT_PX = 80;
+export const WINDOW_MOMENT_LANE_PX = 28;
+export const WINDOW_RAIL_LANE_PX = 16;
+export const WINDOW_HANDLE_LABEL_LANE_PX = 36;
+export const WINDOW_MOMENT_LABEL_WIDTH = 56;
+
+export function boxesIntersect(
+  a: { x: number; w: number },
+  b: { x: number; w: number },
+): boolean {
+  return Math.abs(a.x - b.x) < (a.w + b.w) / 2;
+}
+
+/** Hide later moment nouns when their label boxes intersect an earlier kept one. */
+export function collapseOverlappingMomentLabels(
+  marks: { id: string; x: number; width: number }[],
+): Set<string> {
+  const hidden = new Set<string>();
+  const sorted = [...marks].sort((a, b) => a.x - b.x || a.id.localeCompare(b.id));
+  let kept: { x: number; w: number } | null = null;
+  for (const mark of sorted) {
+    if (kept && boxesIntersect({ x: kept.x, w: kept.w }, { x: mark.x, w: mark.width })) {
+      hidden.add(mark.id);
+      continue;
+    }
+    kept = { x: mark.x, w: mark.width };
+  }
+  return hidden;
+}
+
+/**
+ * Left edge of a nowrap handle-label box. Start left-aligns on the handle;
+ * end right-aligns. Both clamp so the box stays inside `[0, barWidth]`.
+ */
+export function handleLabelLeftPx(input: {
+  handlePx: number;
+  labelWidth: number;
+  barWidth: number;
+  align: "start" | "end";
+}): number {
+  const width = Math.min(input.labelWidth, input.barWidth);
+  const raw = input.align === "end" ? input.handlePx - width : input.handlePx;
+  const maxLeft = Math.max(0, input.barWidth - width);
+  return Math.max(0, Math.min(raw, maxLeft));
+}
+
+export function estimateHandleLabelWidth(text: string): number {
+  return Math.ceil(text.length * 8) + 8;
+}

@@ -3,10 +3,9 @@
 import type { RefObject } from "react";
 
 import { ChannelRow } from "@/components/viz/channel-row";
-import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { SectionAnchor } from "@/components/viz/section-anchor";
-import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
+import { PLAN_CANVAS_COPY, joinInfoTips, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
 import type { PlanAdapterName } from "@/lib/plan/types";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import type { EventFunnelPlatformCosts } from "@/lib/dashboard/event-funnel";
@@ -43,9 +42,22 @@ export function CanvasChannels({
   /** Per-adapter `open ▸` refs, so each drawer can exempt its own trigger. */
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
 }) {
+  const resumeTips = [
+    ...new Set(
+      rows
+        .filter((row) => row.state === "paused" && !resumeSupport(row.adapter).supported)
+        .map((row) => resumeSupport(row.adapter).reason ?? PLAN_CANVAS_COPY.resumeElsewhere),
+    ),
+  ];
+  const tip = joinInfoTips(
+    PLAN_CANVAS_COPY.derive,
+    ...resumeTips,
+    rows.some((row) => row.skipped) && PLAN_CANVAS_COPY.splitZeroIsOff,
+  );
+
   return (
     <section aria-label="channels" className="min-h-[120px] space-y-1.5">
-      <SectionAnchor kind="derive" label="derive" tip={PLAN_CANVAS_COPY.derive} />
+      <SectionAnchor kind="derive" label="derive" tip={tip} />
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
         const cost = costs?.[row.adapter];
@@ -90,7 +102,6 @@ export function CanvasChannels({
                 >
                   ▷
                 </button>
-                <InfoTip label={resume.reason ?? PLAN_CANVAS_COPY.resumeElsewhere} />
                 {row.adsManagerHref ? (
                   <a
                     href={row.adsManagerHref}
@@ -115,7 +126,6 @@ export function CanvasChannels({
                 {row.staleChip}
               </button>
             ) : null}
-            {row.skipped ? <InfoTip label={PLAN_CANVAS_COPY.splitZeroIsOff} /> : null}
           </div>
         );
       })}

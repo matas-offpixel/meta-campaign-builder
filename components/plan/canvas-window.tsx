@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import { WindowBar } from "@/components/viz/window-bar";
 import { PLAN_CANVAS_COPY } from "@/lib/plan/canvas";
+import { WINDOW_BAR_HEIGHT_PX } from "@/lib/viz/window-bar";
 import {
   planWindowFromHandles,
   planWindowHandles,
@@ -37,7 +38,7 @@ export function CanvasWindow({
   const handles = useMemo(() => planWindowHandles(dates, event, clock), [dates, event, clock]);
 
   return (
-    <section aria-label="window" className="min-h-[64px]">
+    <section aria-label="window" style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}>
       <WindowBar
         moments={moments}
         start={handles.start}

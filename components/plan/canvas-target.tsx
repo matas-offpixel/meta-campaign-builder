@@ -7,7 +7,7 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { OPTIMISATION_PRESET_SEED_LABEL } from "@/lib/optimisation/presets";
-import { PLAN_CANVAS_COPY } from "@/lib/plan/canvas";
+import { PLAN_CANVAS_COPY, joinInfoTips } from "@/lib/plan/canvas";
 import {
   PLAN_TARGET_UNITS,
   planEffectiveTargetUnit,
@@ -52,6 +52,12 @@ export function CanvasTarget({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value ?? benchmark ?? ""));
   const unitLabel = effective.unit ? targetUnitSpec(effective.unit).label : null;
+  const tip = joinInfoTips(
+    chip.seeded && OPTIMISATION_PRESET_SEED_LABEL,
+    chip.seeded && effective.unit && PLAN_CANVAS_COPY.targetSeed,
+    effective.inferred ? PLAN_CANVAS_COPY.unitInferred : PLAN_CANVAS_COPY.unitChangesObjective,
+    chip.needsObjective && PLAN_CANVAS_COPY.noUnit,
+  );
 
   function commit() {
     const next = Number(draft);
@@ -104,10 +110,9 @@ export function CanvasTarget({
           </MetricChip>
         </button>
       )}
+      <InfoTip label={tip} />
 
       <ProvenanceBadge provenance={chip.provenance} />
-      {chip.seeded ? <InfoTip label={OPTIMISATION_PRESET_SEED_LABEL} /> : null}
-      {chip.seeded && effective.unit ? <InfoTip label={PLAN_CANVAS_COPY.targetSeed} /> : null}
 
       <span className="inline-flex items-center gap-1">
         <SegmentedControl
@@ -120,13 +125,6 @@ export function CanvasTarget({
             label: targetUnitSpec(option).label,
             glyph: PLAN_TARGET_UNIT_GLYPH[option],
           }))}
-        />
-        <InfoTip
-          label={
-            effective.inferred
-              ? PLAN_CANVAS_COPY.unitInferred
-              : PLAN_CANVAS_COPY.unitChangesObjective
-          }
         />
       </span>
 
@@ -146,7 +144,6 @@ export function CanvasTarget({
               </option>
             ))}
           </select>
-          <InfoTip label={PLAN_CANVAS_COPY.noUnit} />
         </label>
       ) : null}
 

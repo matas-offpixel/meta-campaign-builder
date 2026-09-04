@@ -1019,6 +1019,22 @@ describe("PR 8b — canvas-zone-rhythm guards", () => {
     assert.doesNotMatch(src, /identityChipDisplay\(chip\.value\)(?!\s*\??\.)/);
   });
 
+  it("at most one InfoTip per canvas zone file", () => {
+    const zones = [
+      "components/plan/canvas-header.tsx",
+      "components/plan/canvas-window.tsx",
+      "components/plan/canvas-budget.tsx",
+      "components/plan/canvas-target.tsx",
+      "components/plan/canvas-channels.tsx",
+      "components/plan/canvas-assets.tsx",
+      "components/plan/canvas-launch.tsx",
+    ];
+    for (const file of zones) {
+      const count = (read(file).match(/<InfoTip/g) ?? []).length;
+      assert.ok(count <= 1, `${file} has ${count} <InfoTip> (max 1)`);
+    }
+  });
+
   it("no raw text-[Npx] / text-xs / text-sm / text-2xl in plan or optimisation components", () => {
     const dirs = [
       "components/plan",
