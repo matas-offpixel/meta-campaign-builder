@@ -382,17 +382,12 @@ export function decisionsHandleLabel(count: number): string | null {
 }
 
 /**
- * Every sentence the canvas can show, in one place. §6 puts explanation
- * in an `InfoTip`; keeping the strings here also keeps them out of the
- * components the grep-guard scans for long literals.
- */
-/**
- * Spec §2 height budget at the 1372 × 883 viewport. App chrome is ~72px;
- * Launch's bottom edge lands at y ≈ 744. Numbers are the contract the
- * workspace gutters + min-heights implement — not a runtime measure.
+ * Spec §2 height budget at the 1372 × 883 viewport. App chrome is ~72px.
+ * Zone B is 80 once the handle-label lane is in-flow. Numbers are the
+ * contract the workspace gutters + min-heights implement — not a runtime measure.
  */
 export function planCanvasHeightBudget() {
-  const zones = { A: 88, B: 64, C: 80, D: 80, E: 120, F: 72, G: 48 } as const;
+  const zones = { A: 88, B: 80, C: 80, D: 80, E: 120, F: 72, G: 48 } as const;
   const gutters = { AB: 20, BC: 16, CD: 16, DE: 24, EF: 20, FG: 24 } as const;
   const content = zones.A + zones.B + zones.C + zones.D + zones.E + zones.F + zones.G;
   const guttersTotal = gutters.AB + gutters.BC + gutters.CD + gutters.DE + gutters.EF + gutters.FG;
@@ -408,6 +403,16 @@ export function planCanvasHeightBudget() {
   };
 }
 
+/** Join former per-control tips into the zone's one ⓘ. */
+export function joinInfoTips(...parts: Array<string | null | undefined | false>): string {
+  return parts.filter((part): part is string => typeof part === "string" && part.trim().length > 0).join(" · ");
+}
+
+/**
+ * Every sentence the canvas can show, in one place. §6 puts explanation
+ * in an `InfoTip`; keeping the strings here also keeps them out of the
+ * components the grep-guard scans for long literals.
+ */
 export const PLAN_CANVAS_COPY = {
   fanoutOff: "Launch is off — ENABLE_PLAN_FANOUT is not \"1\".",
   noEvent: "Choose an event first.",

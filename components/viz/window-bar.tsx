@@ -4,8 +4,16 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 
 import { formatVizMoment, formatVizRelative } from "@/lib/viz/format-moment";
 import {
+  WINDOW_BAR_HEIGHT_PX,
+  WINDOW_HANDLE_LABEL_LANE_PX,
+  WINDOW_MOMENT_LABEL_WIDTH,
+  WINDOW_MOMENT_LANE_PX,
+  WINDOW_RAIL_LANE_PX,
   applyWindowHandle,
+  collapseOverlappingMomentLabels,
   dateToRatio,
+  estimateHandleLabelWidth,
+  handleLabelLeftPx,
   momentGlyph,
   nudgeWindowHandle,
   snapToMoments,
@@ -36,12 +44,23 @@ export function WindowBar({
   tip?: string;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const [barWidth, setBarWidth] = useState(0);
   const [dragging, setDragging] = useState<WindowHandle | null>(null);
   const [clamped, setClamped] = useState(false);
   const [flash, setFlash] = useState(false);
   const clock = now ?? new Date();
   const { from, to } = windowSpanMs(start, end, min);
   const placeholders = windowPlaceholders(moments, from, to);
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const measure = () => setBarWidth(el.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!clamped) return;
@@ -97,62 +116,122 @@ export function WindowBar({
 
   const startPct = dateToRatio(start, from, to) * 100;
   const endPct = dateToRatio(end, from, to) * 100;
+  const width = barWidth || 1;
+  const marks = [
+    ...moments.map((moment) => ({
+      id: moment.id,
+      noun: moment.label,
+      x: dateToRatio(moment.at, from, to) * width,
+      width: WINDOW_MOMENT_LABEL_WIDTH,
+      missing: false,
+      tip: undefined as string | undefined,
+    })),
+    ...placeholders.map((placeholder) => ({
+      id: placeholder.id,
+      noun: placeholder.label,
+      x: placeholder.ratio * width,
+      width: WINDOW_MOMENT_LABEL_WIDTH,
+      missing: true,
+      tip: placeholder.tip,
+    })),
+  ];
+  const hiddenNouns = collapseOverlappingMomentLabels(marks);
+
+  const startText = formatVizMoment(start);
+  const endRelative = formatVizRelative(end, clock);
+  const endText = `${formatVizMoment(end)} · ${endRelative}`;
+  const startLeft = handleLabelLeftPx({
+    handlePx: (startPct / 100) * width,
+    labelWidth: estimateHandleLabelWidth(startText),
+    barWidth: width,
+    align: "start",
+  });
+  const endLeft = handleLabelLeftPx({
+    handlePx: (endPct / 100) * width,
+    labelWidth: estimateHandleLabelWidth(endText),
+    barWidth: width,
+    align: "end",
+  });
 
   return (
-    <div className="space-y-1" data-state={clamped ? "clamped" : dragging ? "dragging" : "default"}>
-      <div className="flex justify-end">{tip ? <InfoTip label={tip} /> : null}</div>
-      <div ref={trackRef} className="relative h-16">
-        <div
-          className={`absolute inset-x-0 top-[26px] h-1 rounded-full bg-foreground/10 ${
-            flash ? "shadow-[inset_0_0_0_2px_var(--warning)]" : ""
-          }`}
-        />
-        <div
-          className="absolute top-[26px] h-1 rounded-full bg-foreground/45"
-          style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
-        />
-        {moments.map((moment) => {
-          const pct = dateToRatio(moment.at, from, to) * 100;
-          return (
+    <div
+      className="relative"
+      data-state={clamped ? "clamped" : dragging ? "dragging" : "default"}
+      style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}
+    >
+      <div
+        ref={trackRef}
+        className="relative"
+        style={{ height: WINDOW_MOMENT_LANE_PX + WINDOW_RAIL_LANE_PX + WINDOW_HANDLE_LABEL_LANE_PX }}
+      >
+        <div className="relative" style={{ height: WINDOW_MOMENT_LANE_PX }}>
+          {tip ? (
+            <div className="absolute right-0 top-0 z-10">
+              <InfoTip label={tip} />
+            </div>
+          ) : null}
+          {marks.map((mark) => (
             <MomentMark
-              key={moment.id}
-              pct={pct}
-              glyph={momentGlyph(moment.label)}
-              noun={moment.label}
+              key={mark.id}
+              pct={width > 1 ? (mark.x / width) * 100 : 0}
+              glyph={momentGlyph(mark.noun)}
+              noun={mark.noun}
+              missing={mark.missing}
+              hideNoun={hiddenNouns.has(mark.id)}
+              tip={
+                hiddenNouns.has(mark.id)
+                  ? [mark.noun, mark.tip].filter(Boolean).join(" · ")
+                  : mark.tip
+              }
             />
-          );
-        })}
-        {placeholders.map((placeholder) => (
-          <MomentMark
-            key={placeholder.id}
-            pct={placeholder.ratio * 100}
-            glyph={momentGlyph(placeholder.label)}
-            noun={placeholder.label}
-            missing
-            tip={placeholder.tip}
+          ))}
+        </div>
+
+        <div className="relative" style={{ height: WINDOW_RAIL_LANE_PX }}>
+          <div
+            className={`absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/10 ${
+              flash ? "shadow-[inset_0_0_0_2px_var(--warning)]" : ""
+            }`}
           />
-        ))}
-        <Handle
-          name="start"
-          pct={startPct}
-          at={start}
-          dragging={dragging === "start"}
-          onPointerDown={(event) => onHandlePointerDown(event, "start")}
-          onPointerMove={(event) => onHandlePointerMove(event, "start")}
-          onPointerUp={onHandlePointerUp}
-          onKeyDown={(event) => onHandleKey(event, "start")}
-        />
-        <Handle
-          name="end"
-          pct={endPct}
-          at={end}
-          relative={formatVizRelative(end, clock)}
-          dragging={dragging === "end"}
-          onPointerDown={(event) => onHandlePointerDown(event, "end")}
-          onPointerMove={(event) => onHandlePointerMove(event, "end")}
-          onPointerUp={onHandlePointerUp}
-          onKeyDown={(event) => onHandleKey(event, "end")}
-        />
+          <div
+            className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/45"
+            style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
+          />
+          <HandleButton
+            name="start"
+            pct={startPct}
+            dragging={dragging === "start"}
+            onPointerDown={(event) => onHandlePointerDown(event, "start")}
+            onPointerMove={(event) => onHandlePointerMove(event, "start")}
+            onPointerUp={onHandlePointerUp}
+            onKeyDown={(event) => onHandleKey(event, "start")}
+          />
+          <HandleButton
+            name="end"
+            pct={endPct}
+            dragging={dragging === "end"}
+            onPointerDown={(event) => onHandlePointerDown(event, "end")}
+            onPointerMove={(event) => onHandlePointerMove(event, "end")}
+            onPointerUp={onHandlePointerUp}
+            onKeyDown={(event) => onHandleKey(event, "end")}
+          />
+        </div>
+
+        <div className="relative" style={{ height: WINDOW_HANDLE_LABEL_LANE_PX }}>
+          <HandleLabel
+            name="start"
+            left={startLeft}
+            width={estimateHandleLabelWidth(startText)}
+            at={start}
+          />
+          <HandleLabel
+            name="end"
+            left={endLeft}
+            width={estimateHandleLabelWidth(endText)}
+            at={end}
+            relative={endRelative}
+          />
+        </div>
       </div>
     </div>
   );
@@ -163,12 +242,14 @@ function MomentMark({
   glyph,
   noun,
   missing = false,
+  hideNoun = false,
   tip,
 }: {
   pct: number;
   glyph: string;
   noun: string;
   missing?: boolean;
+  hideNoun?: boolean;
   tip?: string;
 }) {
   return (
@@ -179,24 +260,21 @@ function MomentMark({
       <span className={`block ${VIZ_TYPE.body} leading-none`} aria-hidden="true">
         {glyph}
       </span>
-      {missing ? (
-        <span className="mx-auto mt-0.5 block h-3 border-l border-dashed border-border" />
+      {hideNoun ? (
+        tip ? <InfoTip label={tip} /> : null
       ) : (
-        <span className="mx-auto mt-0.5 block h-3 border-l border-border" />
+        <span className={`mt-0.5 flex items-center justify-center gap-0.5 whitespace-nowrap ${VIZ_TYPE.label}`}>
+          {noun}
+          {missing && tip ? <InfoTip label={tip} /> : null}
+        </span>
       )}
-      <span className={`mt-0.5 flex items-center justify-center gap-0.5 ${VIZ_TYPE.label}`}>
-        {noun}
-        {missing && tip ? <InfoTip label={tip} /> : null}
-      </span>
     </div>
   );
 }
 
-function Handle({
+function HandleButton({
   name,
   pct,
-  at,
-  relative,
   dragging,
   onPointerDown,
   onPointerMove,
@@ -205,42 +283,58 @@ function Handle({
 }: {
   name: WindowHandle;
   pct: number;
-  at: Date;
-  relative?: string;
   dragging: boolean;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
 }) {
+  return (
+    <button
+      type="button"
+      aria-label={name}
+      aria-pressed={dragging}
+      className="absolute top-1/2 flex h-6 w-[27px] -translate-x-1/2 -translate-y-1/2 items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground"
+      style={{ left: `${pct}%` }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onKeyDown={onKeyDown}
+    >
+      <span className="h-4 w-[3px] bg-foreground" aria-hidden="true" />
+    </button>
+  );
+}
+
+function HandleLabel({
+  name,
+  left,
+  width,
+  at,
+  relative,
+}: {
+  name: WindowHandle;
+  left: number;
+  width: number;
+  at: Date;
+  relative?: string;
+}) {
   const end = name === "end";
   return (
-    <>
-      <button
-        type="button"
-        aria-label={name}
-        aria-pressed={dragging}
-        className="absolute top-5 flex h-6 w-[27px] -translate-x-1/2 items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground"
-        style={{ left: `${pct}%` }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onKeyDown={onKeyDown}
-      >
-        <span className="h-4 w-[3px] bg-foreground" aria-hidden="true" />
-      </button>
-      <div
-        className={`absolute top-11 ${end ? "-translate-x-full text-right" : "text-left"}`}
-        style={{ left: `${pct}%` }}
-      >
-        <span className={`block ${VIZ_TYPE.label}`}>{name}</span>
-        <span className={`block ${VIZ_TYPE_NUM.body}`}>
-          {formatVizMoment(at)}
-          {end && relative ? (
-            <span className={`ml-1 ${VIZ_TYPE_NUM.micro} text-muted-foreground`}>· {relative}</span>
-          ) : null}
-        </span>
-      </div>
-    </>
+    <div
+      data-window-handle-label={name}
+      className={`absolute top-0 whitespace-nowrap ${end ? "text-right" : "text-left"}`}
+      style={{ left, width }}
+    >
+      <span className={`block whitespace-nowrap ${VIZ_TYPE.label}`}>{name}</span>
+      <span className={`block whitespace-nowrap ${VIZ_TYPE_NUM.body}`}>
+        {formatVizMoment(at)}
+        {end && relative ? (
+          <span className={`ml-1 whitespace-nowrap ${VIZ_TYPE_NUM.micro} text-muted-foreground`}>
+            · {relative}
+          </span>
+        ) : null}
+      </span>
+    </div>
   );
 }

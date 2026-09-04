@@ -27,7 +27,7 @@ export function CanvasBudget({
   lifetime,
   startDate,
   endDate,
-  hasUserEdit,
+  hasUserEdit: _hasUserEdit,
   onBudget,
   onMode,
   onLifetime,
@@ -96,7 +96,6 @@ export function CanvasBudget({
         editable
         presets={PLAN_SPLIT_PRESETS}
         onChange={(segments) => onBudget(planSplitToBudget(segments, derivedDaily))}
-        tip={hasUserEdit ? undefined : PLAN_CANVAS_COPY.splitZeroIsOff}
       />
       <div className={`${VIZ_TYPE_NUM.body} text-muted-foreground`}>
         {planSplitAmountsLine(budget)}
