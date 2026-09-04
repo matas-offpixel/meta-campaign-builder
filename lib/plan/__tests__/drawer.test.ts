@@ -792,7 +792,24 @@ describe("standalone pages keep Launch / Push", () => {
 
 describe("write paths are untouched", () => {
   it("lib/tiktok/write and lib/google-search have no diff against main", () => {
-    const diff = execSync("git diff main -- lib/tiktok/write lib/google-search", {
+    /**
+     * CI's pull_request checkout has `origin/main` and no local `main`
+     * (`fatal: bad revision 'main'`). Resolve either, then diff.
+     */
+    let base = "";
+    for (const ref of ["origin/main", "main"] as const) {
+      try {
+        base = execSync(`git rev-parse --verify ${ref}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        break;
+      } catch {
+        continue;
+      }
+    }
+    assert.ok(base, "neither origin/main nor main exists");
+    const diff = execSync(`git diff ${base} -- lib/tiktok/write lib/google-search`, {
       encoding: "utf8",
     });
     assert.equal(diff.trim(), "", diff);

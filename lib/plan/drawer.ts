@@ -200,21 +200,6 @@ function shortLabel(message: string, maxWords = 5): string {
 
 // ── details disclosure ─────────────────────────────────────────────────
 
-/**
- * Everything demoted out of steps 0, 1, 5 and 6 (§3a): shown DONE with a
- * provenance badge, editable inline where the wizard allowed it. A row
- * whose value is null reads as not-yet-resolved rather than as an empty
- * field, because a drawer never asks the operator to confirm a default.
- */
-export interface DetailRow {
-  id: string;
-  label: string;
-  value: string | null;
-  provenance: VizProvenance;
-  /** Where the value can be changed, when it can be changed here at all. */
-  editable: boolean;
-}
-
 export const DETAIL_ROW_ORDER = [
   "account",
   "pixel",
@@ -234,6 +219,21 @@ export const DETAIL_ROW_ORDER = [
 ] as const;
 
 export type DetailRowId = (typeof DETAIL_ROW_ORDER)[number];
+
+/**
+ * Everything demoted out of steps 0, 1, 5 and 6 (§3a): shown DONE with a
+ * provenance badge, editable inline where the wizard allowed it. A row
+ * whose value is null reads as not-yet-resolved rather than as an empty
+ * field, because a drawer never asks the operator to confirm a default.
+ */
+export interface DetailRow<Id extends string = DetailRowId> {
+  id: Id;
+  label: string;
+  value: string | null;
+  provenance: VizProvenance;
+  /** Where the value can be changed, when it can be changed here at all. */
+  editable: boolean;
+}
 
 const DETAIL_LABELS: Record<DetailRowId, string> = {
   account: "account",
@@ -271,7 +271,7 @@ const DETAIL_EDITABLE: ReadonlySet<DetailRowId> = new Set<DetailRowId>([
 
 export function detailRows(
   values: Partial<Record<DetailRowId, { value: string | null; provenance: VizProvenance }>>,
-): DetailRow[] {
+): DetailRow<DetailRowId>[] {
   return DETAIL_ROW_ORDER.map((id) => {
     const entry = values[id];
     return {
@@ -448,7 +448,7 @@ const TIKTOK_DETAIL_LABELS: Record<TikTokDetailRowId, string> = {
 
 export function tiktokDetailRows(
   values: Partial<Record<TikTokDetailRowId, { value: string | null; provenance: VizProvenance }>>,
-): DetailRow[] {
+): DetailRow<TikTokDetailRowId>[] {
   return TIKTOK_DETAIL_ROW_ORDER.map((id) => {
     const entry = values[id];
     return {
@@ -486,7 +486,7 @@ const GOOGLE_DETAIL_LABELS: Record<GoogleDetailRowId, string> = {
 
 export function googleDetailRows(
   values: Partial<Record<GoogleDetailRowId, { value: string | null; provenance: VizProvenance }>>,
-): DetailRow[] {
+): DetailRow<GoogleDetailRowId>[] {
   return GOOGLE_DETAIL_ROW_ORDER.map((id) => {
     const entry = values[id];
     return {
