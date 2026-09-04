@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 886
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/886
 - **Branch:** `cursor/window-bar-labels`
 
 ## Summary
