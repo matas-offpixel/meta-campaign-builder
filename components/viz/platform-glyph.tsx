@@ -1,4 +1,4 @@
-import { VIZ_PLATFORM_LABEL, type VizPlatform } from "@/lib/viz/tokens";
+import { VIZ_PLATFORM_INK, VIZ_PLATFORM_LABEL, type VizPlatform } from "@/lib/viz/tokens";
 
 const SIZE = { sm: 12, md: 16, lg: 22 } as const;
 
@@ -18,7 +18,7 @@ export function PlatformGlyph({
       width={px}
       height={px}
       viewBox="0 0 16 16"
-      className={`shrink-0 ${className}`}
+      className={`shrink-0 ${VIZ_PLATFORM_INK[platform]} ${className}`}
       role="img"
       aria-label={label}
     >

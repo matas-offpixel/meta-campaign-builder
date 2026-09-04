@@ -8,7 +8,7 @@ import {
   tiktokDisabledReason,
   type AssetStripItem,
 } from "@/lib/viz/asset-strip";
-import { VIZ_PLATFORMS, type VizPlatform } from "@/lib/viz/tokens";
+import { VIZ_PLATFORMS, VIZ_TYPE, type VizPlatform } from "@/lib/viz/tokens";
 
 import { AspectChip } from "./metric-chip";
 import { BlockerBadge } from "./blocker-badge";
@@ -48,7 +48,7 @@ export function AssetStrip({
               </span>
               <span className="sr-only">{asset.label}</span>
             </span>
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground`}>
               →
               {VIZ_PLATFORMS.map((platform) => {
                 if (platform === "google") {

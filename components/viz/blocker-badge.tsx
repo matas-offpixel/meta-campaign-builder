@@ -11,6 +11,7 @@ import {
   type BlockerAnchor,
   type BlockerRowModel,
 } from "@/lib/viz/blockers";
+import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 /**
  * Same #871 closer as OverflowMenu: portal, exempt trigger + panel,
@@ -134,7 +135,7 @@ export function BlockerBadge({
               {row.anchor && onOpenAnchor ? (
                 <button
                   type="button"
-                  className="flex w-full items-center gap-1.5 text-left text-xs hover:underline"
+                  className={`flex w-full items-center gap-1.5 text-left ${VIZ_TYPE.body} hover:underline`}
                   title={row.full}
                   onClick={() => {
                     setOpen(false);
@@ -146,14 +147,14 @@ export function BlockerBadge({
               ) : row.href ? (
                 <Link
                   href={row.href}
-                  className="flex items-center gap-1.5 text-xs hover:underline"
+                  className={`flex items-center gap-1.5 ${VIZ_TYPE.body} hover:underline`}
                   title={row.full}
                   onClick={() => setOpen(false)}
                 >
                   {body}
                 </Link>
               ) : (
-                <span className="flex items-center gap-1.5 text-xs" title={row.full}>
+                <span className={`flex items-center gap-1.5 ${VIZ_TYPE.body}`} title={row.full}>
                   {body}
                 </span>
               )}
@@ -173,7 +174,7 @@ export function BlockerBadge({
       <button
         ref={triggerRef}
         type="button"
-        className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-semibold ${
+        className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 ${VIZ_TYPE_NUM.micro} ${
           amber
             ? "bg-warning text-warning-foreground"
             : "bg-muted text-muted-foreground"

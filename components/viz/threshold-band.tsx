@@ -28,12 +28,12 @@ export function ThresholdBand({
     (rule
       ? bandFromRule(rule, currentValue ?? null)
       : bandFromAction(action ?? "maintain", currentValue ?? null));
-  const height = size === "sm" ? "h-1.5" : "h-2.5";
+  const height = size === "sm" ? "h-2" : "h-3";
 
   if (dashed) {
     return (
       <div
-        className={`relative w-full overflow-hidden rounded-full border border-dashed border-muted-foreground/40 ${height}`}
+        className={`relative min-w-[96px] max-w-[160px] w-full overflow-hidden rounded-full border border-dashed border-muted-foreground/40 ${height}`}
         role="img"
         aria-label="no reads yet"
       />
@@ -42,7 +42,7 @@ export function ThresholdBand({
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-full ${height}`}
+      className={`relative min-w-[96px] max-w-[160px] w-full overflow-hidden rounded-full ${height}`}
       role="img"
       aria-label={resolved.zones.map((z) => BAND_ZONE_LABEL[z.kind]).join(", ")}
     >
@@ -62,7 +62,7 @@ export function ThresholdBand({
       </div>
       {resolved.markerRatio != null ? (
         <span
-          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground bg-card"
+          className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground bg-card shadow-sm"
           style={{ left: `${resolved.markerRatio * 100}%` }}
           aria-label={
             currentValue != null ? `Current ${currentValue}` : "Current zone"

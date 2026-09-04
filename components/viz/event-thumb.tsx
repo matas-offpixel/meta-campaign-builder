@@ -1,4 +1,5 @@
 import { eventInitials } from "@/lib/viz/event-artwork";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 export function EventThumb({
   url,
@@ -9,7 +10,7 @@ export function EventThumb({
   name: string | null | undefined;
   size?: "sm" | "md";
 }) {
-  const px = size === "sm" ? "h-8 w-8 text-[10px]" : "h-10 w-10 text-xs";
+  const px = size === "sm" ? `h-8 w-8 ${VIZ_TYPE.micro}` : `h-10 w-10 ${VIZ_TYPE.micro}`;
   const initials = eventInitials(name);
   if (url) {
     return (

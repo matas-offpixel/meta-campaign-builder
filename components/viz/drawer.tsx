@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { VizPlatform, VizStatus } from "@/lib/viz/tokens";
+import { VIZ_TYPE, type VizPlatform, type VizStatus } from "@/lib/viz/tokens";
 
 import { PlatformGlyph } from "./platform-glyph";
 import { StatusDot } from "./status-dot";
@@ -148,7 +148,7 @@ export function Drawer({
         ) : (
           <span
             id={titleId}
-            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+            className={`inline-flex items-center gap-1.5 ${VIZ_TYPE.label} text-muted-foreground`}
           >
             <span aria-hidden="true">◐</span>
             {title ?? "decisions · last 7d"}
@@ -164,7 +164,7 @@ export function Drawer({
                 <button
                   key={tab.id}
                   type="button"
-                  className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-1 text-[11px] ${
+                  className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-1 ${VIZ_TYPE.label} ${
                     active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60"
                   }`}
                   aria-current={active ? "page" : undefined}
@@ -182,7 +182,7 @@ export function Drawer({
         {onLoadTemplate ? (
           <button
             type="button"
-            className="text-[11px] text-muted-foreground hover:text-foreground"
+            className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
             onClick={onLoadTemplate}
           >
             ⌁ template ▸
@@ -191,7 +191,7 @@ export function Drawer({
         {onSaveTemplate ? (
           <button
             type="button"
-            className="text-[11px] text-muted-foreground hover:text-foreground"
+            className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
             onClick={onSaveTemplate}
           >
             save as template
@@ -200,7 +200,7 @@ export function Drawer({
         {platformless && !page ? (
           <button
             type="button"
-            className="text-[11px] text-muted-foreground hover:text-foreground"
+            className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
             onClick={onDone}
             aria-label="close"
           >
@@ -226,7 +226,7 @@ export function Drawer({
           {footer}
           <button
             type="button"
-            className="rounded-sm border border-border px-3 py-1 text-sm hover:bg-muted"
+            className={`rounded-sm border border-border px-3 py-1 ${VIZ_TYPE.label} hover:bg-muted`}
             onClick={onDone}
           >
             {doneLabel}

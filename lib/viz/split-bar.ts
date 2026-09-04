@@ -108,3 +108,10 @@ export function splitProvenance(
 export function boundaryCount(segments: SplitBarSegment[]): number {
   return Math.max(0, segments.length - 1);
 }
+
+/** In-segment legend at ≥ 12%; narrower segments sit outside the bar. */
+export const SPLIT_LEGEND_INSIDE_PCT = 12;
+
+export function splitBarLegendPlacement(pct: number): "inside" | "outside" {
+  return pct >= SPLIT_LEGEND_INSIDE_PCT ? "inside" : "outside";
+}
