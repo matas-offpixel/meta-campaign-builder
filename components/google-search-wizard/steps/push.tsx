@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useState } from "react";
 import {
   AlertTriangle,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   hasHardErrors,
   validateGoogleSearchPlan,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/google-ads/campaign-writer-types";
 
 interface Props {
+  surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
 }
@@ -35,7 +37,7 @@ type PushState =
   | { phase: "refused"; reason: string; details?: string }
   | { phase: "complete"; summary: GoogleSearchLaunchSummary };
 
-export function PushStep({ tree, onChange }: Props) {
+export function PushStep({surface = "wizard",  tree, onChange }: Props) {
   const [state, setState] = useState<PushState>({ phase: "idle" });
   const issues = validateGoogleSearchPlan(tree);
   const blocking = hasHardErrors(issues);
@@ -107,6 +109,7 @@ export function PushStep({ tree, onChange }: Props) {
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-5">
       <Card>
         <CardHeader>
@@ -128,12 +131,12 @@ export function PushStep({ tree, onChange }: Props) {
 
         {blocking && (
           <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <p className="flex items-center gap-2 text-xs font-medium text-destructive">
+            <StatusLine tone="alert" className="flex items-center gap-2 text-xs font-medium text-destructive">
               <XCircle className="h-3.5 w-3.5" />
               {issues.filter((i) => i.severity === "error").length} hard error
               {issues.filter((i) => i.severity === "error").length === 1 ? "" : "s"} — fix in Review
               before pushing.
-            </p>
+            </StatusLine>
           </div>
         )}
 
@@ -188,6 +191,7 @@ export function PushStep({ tree, onChange }: Props) {
         <ResultsCard summary={state.summary} eventCodeMissing={!tree.plan.event_id} />
       )}
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -279,11 +283,11 @@ function ResultsCard({
                   className="flex items-start justify-between gap-3 rounded-md border border-border bg-background p-2"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{c.name ?? c.resourceName}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground truncate">
+                    <Datum className="truncate text-sm font-medium">{c.name ?? c.resourceName}</Datum>
+                    <Datum className="font-mono text-[10px] text-muted-foreground truncate">
                       {c.resourceName}
                       {c.reused && <span className="ml-2 text-amber-700">already-pushed</span>}
-                    </p>
+                    </Datum>
                   </div>
                   {link && (
                     <a
@@ -399,9 +403,9 @@ function FailureSection({
   if (rows.length === 0) return null;
   return (
     <section className="mt-2">
-      <p className="mb-1 text-xs font-medium text-foreground">
+      <Datum className="mb-1 text-xs font-medium text-foreground">
         {title} <span className="text-muted-foreground">({rows.length})</span>
-      </p>
+      </Datum>
       <ul className="space-y-0.5 pl-3 text-[11px] text-muted-foreground">
         {rows.map((r) => (
           <li key={r.localId}>
@@ -446,8 +450,8 @@ function humanReason(reason: string): string {
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-md border border-border bg-background p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="mt-1 font-heading text-xl tabular-nums">{value}</p>
+      <Datum className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</Datum>
+      <Datum className="mt-1 font-heading text-xl tabular-nums">{value}</Datum>
     </div>
   );
 }

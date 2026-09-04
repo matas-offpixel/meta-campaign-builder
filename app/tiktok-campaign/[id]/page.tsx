@@ -14,6 +14,7 @@ import {
   TIKTOK_WRITES_DISABLED_REASON,
 } from "@/lib/tiktok/write/feature-flag";
 import { createDefaultTikTokDraft } from "@/lib/types/tiktok-draft";
+import { loadPlanForTikTokDraft } from "@/lib/plan/linked-plan";
 
 export default async function TikTokCampaignPage(props: {
   params: Promise<{ id: string }>;
@@ -95,9 +96,12 @@ export default async function TikTokCampaignPage(props: {
       : Promise.resolve({ data: null }),
   ]);
 
+  const linkedPlan = await loadPlanForTikTokDraft(supabase, draft.id, data.user.id);
+
   return (
     <TikTokWizardShell
       draft={draft}
+      linkedPlan={linkedPlan}
       context={{
         eventName: event?.name ?? null,
         eventDate: event?.event_date ?? null,

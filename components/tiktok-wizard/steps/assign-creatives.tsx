@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -27,9 +28,11 @@ import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 export function AssignCreativesStep({
   draft,
   onSave,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
 }) {
   const [saving, setSaving] = useState(false);
   const [reconcileNotice, setReconcileNotice] = useState<string | null>(null);
@@ -89,15 +92,18 @@ export function AssignCreativesStep({
   const current = draft.creativeAssignments.byAdGroupId;
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
+        <Chrome>
         <div>
           <h2 className="font-heading text-xl">Assign creatives</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <StatusLine className="mt-2 text-sm text-muted-foreground">
             Assign each creative to at least one suggested ad group. Every ad
             group must also have at least one creative before review.
-          </p>
+          </StatusLine>
         </div>
+        </Chrome>
         {draft.creatives.items.length > 0 && adGroups.length > 0 && (
           <div className="flex items-center gap-2">
             <Button
@@ -130,7 +136,7 @@ export function AssignCreativesStep({
 
       {reconcileNotice && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          <p>{reconcileNotice}</p>
+          <Datum>{reconcileNotice}</Datum>
           <Button
             type="button"
             size="sm"
@@ -154,15 +160,15 @@ export function AssignCreativesStep({
       </div>
 
       {draft.creatives.items.length > 0 && !everyAdGroupHasCreative(draft) && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <StatusLine tone="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           Assign at least one creative to each ad group.
-        </p>
+        </StatusLine>
       )}
 
       {draft.creatives.items.length === 0 ? (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+        <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           Add at least one creative in Step 4 before assigning.
-        </p>
+        </StatusLine>
       ) : (
         <div className="overflow-x-auto rounded-md border border-border">
           <table className="min-w-full text-sm">
@@ -305,7 +311,7 @@ export function AssignCreativesStep({
       )}
 
       <div className="rounded-md border border-border bg-background p-4">
-        <p className="text-sm font-medium">Suggested ad groups</p>
+        <Datum className="text-sm font-medium">Suggested ad groups</Datum>
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {adGroups.map((adGroup) => (
             <div key={adGroup.id} className="rounded border border-border p-3 text-sm">
@@ -314,13 +320,13 @@ export function AssignCreativesStep({
                 disabled={saving}
                 onChange={(name) => void persistAdGroupName(adGroup.id, name)}
               />
-              <p className="text-xs text-muted-foreground">
+              <Datum className="text-xs text-muted-foreground">
                 Budget: {adGroup.budget == null ? "—" : `£${adGroup.budget}`}
-              </p>
-              <p className="text-xs text-muted-foreground">
+              </Datum>
+              <Datum className="text-xs text-muted-foreground">
                 {draft.budgetSchedule.scheduleStartAt ?? "No start"} →{" "}
                 {draft.budgetSchedule.scheduleEndAt ?? "No end"}
-              </p>
+              </Datum>
             </div>
           ))}
         </div>
@@ -330,6 +336,7 @@ export function AssignCreativesStep({
         Manual ad-group count coming soon
       </Button>
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -358,9 +365,9 @@ function AdGroupNameInput({
         }`}
       />
       {blank ? (
-        <p className="mt-1 text-[10px] font-normal normal-case tracking-normal text-red-700">
+        <StatusLine tone="alert" className="mt-1 text-[10px] font-normal normal-case tracking-normal text-red-700">
           Name cannot be empty
-        </p>
+        </StatusLine>
       ) : null}
     </div>
   );

@@ -1,10 +1,12 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchInput } from "@/components/ui/search-input";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import {
   buildTikTokLocationLookup,
   filterTikTokRegions,
@@ -101,9 +103,11 @@ interface CategoryFailed {
 export function AudiencesStep({
   draft,
   onSave,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
 }) {
   const audiences = draft.audiences;
   const [activeTab, setActiveTab] = useState<CatalogTab>("interests");
@@ -767,21 +771,24 @@ export function AudiencesStep({
   }, [languageOptions, languageQuery, audiences.languages]);
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Audiences</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Prose className="mt-2 text-sm text-muted-foreground">
           Name one interest group per intended ad group. A named group with
           nothing selected is a valid broad audience. Seed TikTok for
           recommended interests and hashtags only if you want to narrow a
           group, then add locations and languages.
-        </p>
+        </Prose>
       </div>
+      </Chrome>
 
       {!advertiserId && (
-        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-warning-foreground">
+        <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-warning-foreground">
           Select an advertiser in Step 0 to load TikTok audience options.
-        </p>
+        </StatusLine>
       )}
 
       {saveError && (
@@ -791,9 +798,9 @@ export function AudiencesStep({
       )}
 
       <div className="rounded-md border border-border bg-background p-4">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+        <Datum className="text-xs uppercase tracking-wide text-muted-foreground">
           Targeting summary
-        </p>
+        </Datum>
         <div className="mt-3 flex flex-wrap gap-2">
           {summaryChips(draft, locationLookup, languageOptions).map((chip) => (
             <span key={chip} className="rounded-full bg-muted px-3 py-1 text-xs text-foreground">
@@ -814,9 +821,9 @@ export function AudiencesStep({
           </Button>
         </div>
         {groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <Prose className="text-sm text-muted-foreground">
             Add a named group. Each non-empty group becomes one ad group.
-          </p>
+          </Prose>
         ) : (
           <div className="space-y-2">
             {groups.map((group) => {
@@ -891,46 +898,49 @@ export function AudiencesStep({
                         <button
                           key={`${group.id}-interest-${item.id}`}
                           type="button"
-                          className="rounded-full bg-muted px-3 py-1 text-xs"
+                          className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs"
                           onClick={() => void toggleGroupItem("interestIds", item)}
                         >
                           Interest · {item.name} ×
+                          {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
                         </button>
                       ))}
                       {group.hashtagIds.map((item) => (
                         <button
                           key={`${group.id}-hashtag-${item.id}`}
                           type="button"
-                          className="rounded-full bg-muted px-3 py-1 text-xs"
+                          className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs"
                           onClick={() => void toggleGroupItem("hashtagIds", item)}
                         >
                           Hashtag · {item.name} ×
+                          {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
                         </button>
                       ))}
                       {group.behaviourIds.map((item) => (
                         <button
                           key={`${group.id}-behaviour-${item.id}`}
                           type="button"
-                          className="rounded-full bg-muted px-3 py-1 text-xs"
+                          className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs"
                           onClick={() => void toggleGroupItem("behaviourIds", item)}
                         >
                           Behaviour · {item.name} ×
+                          {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
                         </button>
                       ))}
                       {isTikTokInterestGroupBroad(group) && (
-                        <p className="text-xs text-muted-foreground">
+                        <Prose className="text-xs text-muted-foreground">
                           Broad audience — no interests, hashtags, or
                           behaviours. Geo, language, age and gender still
                           apply. Add targeting below only if you want to
                           narrow this group.
-                        </p>
+                        </Prose>
                       )}
                       {!isTikTokInterestGroupNamed(group) &&
                         !isTikTokInterestGroupNonEmpty(group) && (
-                        <p className="text-xs text-muted-foreground">
+                        <Prose className="text-xs text-muted-foreground">
                           Name this group to use it as a broad ad group, or
                           add targeting below.
-                        </p>
+                        </Prose>
                       )}
                     </div>
                   )}
@@ -957,11 +967,11 @@ export function AudiencesStep({
           </button>
         ))}
       </div>
-      <p className="text-sm text-muted-foreground">
+      <Prose className="text-sm text-muted-foreground">
         {activeGroup
           ? `Selecting for ${activeGroup.name || "Untitled group"}.`
           : "Add a group to enable the pickers."}
-      </p>
+      </Prose>
 
       {activeTab === "interests" && (
         <div className="space-y-4">
@@ -982,15 +992,16 @@ export function AudiencesStep({
             onCreateGroup={(preset) => void applyPreset(preset, "new")}
           />
           {presetResolutionNote && (
-            <p className="text-sm text-foreground">{presetResolutionNote}</p>
+            <Datum className="text-sm text-foreground">{presetResolutionNote}</Datum>
           )}
           {presetPartialNote && (
-            <p className="text-sm text-warning-foreground">{presetPartialNote}</p>
+            <StatusLine className="text-sm text-warning-foreground">{presetPartialNote}</StatusLine>
           )}
           {presetTaxonomyNote && (
-            <p className="text-sm text-warning-foreground">{presetTaxonomyNote}</p>
+            <StatusLine className="text-sm text-warning-foreground">{presetTaxonomyNote}</StatusLine>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+            <Chrome>
             <SearchInput
               value={seed}
               onChange={(event) => {
@@ -1010,6 +1021,7 @@ export function AudiencesStep({
               }}
               disabled={!advertiserId || !activeGroup}
             />
+            </Chrome>
             <select
               className="h-9 rounded-md border border-border bg-background px-2 text-sm"
               value={keywordMode}
@@ -1032,21 +1044,21 @@ export function AudiencesStep({
             </select>
           </div>
           {keywordFailed && (
-            <p className="text-sm text-warning-foreground">{keywordFailed}</p>
+            <StatusLine className="text-sm text-warning-foreground">{keywordFailed}</StatusLine>
           )}
           {keywordSemanticFallback && visibleKeywordResults.length > 0 && (
-            <p className="text-sm text-warning-foreground">
+            <StatusLine className="text-sm text-warning-foreground">
               {TIKTOK_SEMANTIC_FALLBACK_NOTE}
-            </p>
+            </StatusLine>
           )}
-          {loadingKeywords && <p className="text-sm text-muted-foreground">Loading recommendations…</p>}
+          {loadingKeywords && <Datum className="text-sm text-muted-foreground">Loading recommendations…</Datum>}
           {keywordSource === "typed" && seed.trim() && keywordResults.length > 0 && (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
+              <Prose className="text-xs text-muted-foreground">
                 {showUnfilteredKeywords
                   ? `Showing all ${keywordResults.length} recommend results for “${seed.trim()}”, including substring noise.`
                   : `Showing whole-word matches for “${seed.trim()}” (${visibleKeywordResults.length} of ${keywordResults.length}). Substring hits like technology for techno are hidden.`}
-              </p>
+              </Prose>
               <button
                 type="button"
                 className="text-xs text-primary underline-offset-2 hover:underline"
@@ -1150,9 +1162,9 @@ export function AudiencesStep({
 
       {activeTab === "hashtags" && (
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
+          <Datum className="text-sm text-muted-foreground">
             Up to 10 keywords. AND with unrelated keywords often returns nothing.
-          </p>
+          </Datum>
           <GenrePresetRow
             activePresetId={activePresetId}
             disabled={!advertiserId || !activeGroup}
@@ -1161,10 +1173,10 @@ export function AudiencesStep({
             }
           />
           {presetPartialNote && (
-            <p className="text-sm text-warning-foreground">{presetPartialNote}</p>
+            <StatusLine className="text-sm text-warning-foreground">{presetPartialNote}</StatusLine>
           )}
           {presetTaxonomyNote && (
-            <p className="text-sm text-warning-foreground">{presetTaxonomyNote}</p>
+            <StatusLine className="text-sm text-warning-foreground">{presetTaxonomyNote}</StatusLine>
           )}
           <div className="grid gap-3 md:grid-cols-[1fr_auto]">
             <SearchInput
@@ -1192,13 +1204,13 @@ export function AudiencesStep({
               <option value="AND">AND</option>
             </select>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <Datum className="text-xs text-muted-foreground">
             {parseHashtagSeeds(hashtagSeeds).length}/10 keywords
-          </p>
+          </Datum>
           {hashtagFailed && (
-            <p className="text-sm text-warning-foreground">{hashtagFailed}</p>
+            <StatusLine className="text-sm text-warning-foreground">{hashtagFailed}</StatusLine>
           )}
-          {loadingHashtags && <p className="text-sm text-muted-foreground">Loading hashtags…</p>}
+          {loadingHashtags && <Datum className="text-sm text-muted-foreground">Loading hashtags…</Datum>}
           <RecommendList
             rows={hashtagResults}
             selectedIds={activeGroup?.hashtagIds.map((item) => item.id) ?? []}
@@ -1288,13 +1300,13 @@ export function AudiencesStep({
       <section className="space-y-4 rounded-md border border-border bg-background p-4">
         <div>
           <h3 className="text-sm font-medium">Campaign-wide audiences</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <Datum className="mt-1 text-sm text-muted-foreground">
             {TIKTOK_CAMPAIGN_WIDE_AUDIENCE_NOTE}
-          </p>
+          </Datum>
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <p className="text-sm font-medium">Custom audiences</p>
+            <Datum className="text-sm font-medium">Custom audiences</Datum>
             {catalogFailed.customAudiences ? (
               failedBanner(
                 true,
@@ -1319,15 +1331,15 @@ export function AudiencesStep({
             )}
           </div>
           <div className="space-y-2">
-            <p className="text-sm font-medium">Lookalikes</p>
-            <p className="text-xs text-muted-foreground">
+            <Datum className="text-sm font-medium">Lookalikes</Datum>
+            <Datum className="text-xs text-muted-foreground">
               {TIKTOK_SAVED_AUDIENCE_SINGLE_NOTE}
-            </p>
+            </Datum>
             {audiences.lookalikeAudienceIds.length > 1 && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+              <StatusLine tone="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
                 {audiences.lookalikeAudienceIds.length} lookalikes selected —
                 launch is blocked until one remains.
-              </p>
+              </StatusLine>
             )}
             {catalogFailed.savedAudiences ? (
               failedBanner(
@@ -1357,7 +1369,7 @@ export function AudiencesStep({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <p className="text-sm font-medium">Locations</p>
+          <Datum className="text-sm font-medium">Locations</Datum>
           {failedBanner(
             regionsFailed,
             regionsError ?? "Locations failed to load.",
@@ -1372,13 +1384,13 @@ export function AudiencesStep({
           />
           <div className="max-h-40 overflow-auto rounded-md border border-border">
             {!locationQuery.trim() ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground">
+              <Datum className="px-3 py-2 text-sm text-muted-foreground">
                 Search for a location
-              </p>
+              </Datum>
             ) : filteredRegions.rows.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground">
+              <Datum className="px-3 py-2 text-sm text-muted-foreground">
                 No locations match that search.
-              </p>
+              </Datum>
             ) : (
               filteredRegions.rows.map((region) => (
                 <button
@@ -1409,9 +1421,9 @@ export function AudiencesStep({
             )}
           </div>
           {locationQuery.trim() && filteredRegions.total > filteredRegions.rows.length && (
-            <p className="text-xs text-muted-foreground">
+            <Datum className="text-xs text-muted-foreground">
               Showing {filteredRegions.rows.length} of {filteredRegions.total} — refine your search
-            </p>
+            </Datum>
           )}
           <div className="flex flex-wrap gap-2">
             {audiences.locationCodes.map((code) => (
@@ -1434,7 +1446,7 @@ export function AudiencesStep({
           </div>
         </div>
         <div className="space-y-2">
-          <p className="text-sm font-medium">Languages</p>
+          <Datum className="text-sm font-medium">Languages</Datum>
           {failedBanner(
             languagesFailed,
             languagesError ?? "Languages failed to load.",
@@ -1511,7 +1523,7 @@ export function AudiencesStep({
             onBlur={() => void persist({ ageMax: clampAge(ageMax, 65) })}
           />
           {ageNote && (
-            <p className="text-xs text-warning-foreground">{ageNote}</p>
+            <StatusLine className="text-xs text-warning-foreground">{ageNote}</StatusLine>
           )}
         </div>
         <div className="space-y-1.5">
@@ -1531,11 +1543,12 @@ export function AudiencesStep({
             }
           />
           {genderNote && (
-            <p className="text-xs text-warning-foreground">{genderNote}</p>
+            <StatusLine className="text-xs text-warning-foreground">{genderNote}</StatusLine>
           )}
         </div>
       </div>
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -1569,7 +1582,7 @@ function failedBanner(failed: boolean, message: string, retry: () => void) {
   if (!failed) return null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-      <p>{message}</p>
+      <Datum>{message}</Datum>
       <Button type="button" size="sm" variant="outline" onClick={retry}>
         Retry
       </Button>
@@ -1658,7 +1671,7 @@ function CategoryList({
   });
 
   if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">{empty}</p>;
+    return <StatusLine className="text-sm text-muted-foreground">{empty}</StatusLine>;
   }
   return (
     <div className="space-y-2">
@@ -1680,9 +1693,9 @@ function CategoryList({
       )}
       <div className="max-h-72 overflow-auto rounded-md border border-border bg-background p-2">
         {visible.rows.length === 0 ? (
-          <p className="px-2 py-1.5 text-sm text-muted-foreground">
+          <Datum className="px-2 py-1.5 text-sm text-muted-foreground">
             No categories match that search.
-          </p>
+          </Datum>
         ) : (
           visible.rows.map((row) => {
             const expanded = expandedIds.includes(row.id);
@@ -1725,9 +1738,9 @@ function CategoryList({
         )}
       </div>
       {visible.capped && (
-        <p className="text-xs text-muted-foreground">
+        <Datum className="text-xs text-muted-foreground">
           Showing {visible.rows.length} of {visible.total} — refine your search
-        </p>
+        </Datum>
       )}
     </div>
   );
@@ -1792,9 +1805,9 @@ function AudiencePresetPanel({
         ))}
       </div>
       {picked && (
-        <p className="text-xs text-muted-foreground">
+        <Datum className="text-xs text-muted-foreground">
           Keyword terms: {picked.seeds.join(", ")}
-        </p>
+        </Datum>
       )}
       <div className="flex flex-wrap gap-2">
         <Button
@@ -1817,13 +1830,13 @@ function AudiencePresetPanel({
         </Button>
       </div>
       {activePresetId && (
-        <p className="text-xs text-muted-foreground">
+        <Datum className="text-xs text-muted-foreground">
           Last applied: {tikTokPresetById(activePresetId)?.label ?? activePresetId}
-        </p>
+        </Datum>
       )}
-      <p className="text-xs text-muted-foreground">
+      <Datum className="text-xs text-muted-foreground">
         {TIKTOK_GENRE_PRESET_LIMITATION_NOTE}
-      </p>
+      </Datum>
     </div>
   );
 }
@@ -1854,13 +1867,13 @@ function GenrePresetRow({
         </button>
       </div>
       {selected && (
-        <p className="text-xs text-muted-foreground">
+        <Datum className="text-xs text-muted-foreground">
           Keyword terms: {electronic.seeds.join(", ")}
-        </p>
+        </Datum>
       )}
-      <p className="text-xs text-muted-foreground">
+      <Datum className="text-xs text-muted-foreground">
         {TIKTOK_GENRE_PRESET_LIMITATION_NOTE}
-      </p>
+      </Datum>
     </div>
   );
 }
@@ -1953,7 +1966,7 @@ function RecommendList({
   onAddAll: (rows: TikTokAudienceRecommendItem[]) => void;
   onClearAll: (rows: TikTokAudienceRecommendItem[]) => void;
 }) {
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
+  if (rows.length === 0) return <StatusLine className="text-sm text-muted-foreground">{empty}</StatusLine>;
   return (
     <div className="space-y-2">
       {showBulkActions && (
@@ -2005,7 +2018,7 @@ function AudienceList({
   empty: string;
   onToggle: (row: TikTokAudienceListItem) => void;
 }) {
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
+  if (rows.length === 0) return <StatusLine className="text-sm text-muted-foreground">{empty}</StatusLine>;
   return (
     <div className="space-y-2">
       {rows.map((row) => (
@@ -2046,7 +2059,7 @@ function MultiToggle({
 }) {
   return (
     <div className="rounded-md border border-border bg-background p-3">
-      <p className="text-sm font-medium">{title}</p>
+      <Datum className="text-sm font-medium">{title}</Datum>
       <div className="mt-2 flex flex-wrap gap-2">
         {values.map((value) => {
           const active = selected.includes(value);

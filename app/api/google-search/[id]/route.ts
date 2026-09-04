@@ -23,6 +23,25 @@ export const maxDuration = 60;
  * match the URL id — otherwise we return 400 to prevent cross-plan
  * writes via a stale tree object.
  */
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const { id } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
+  }
+  const tree = await loadGoogleSearchPlanTree(supabase, id);
+  if (!tree) {
+    return NextResponse.json({ ok: false, error: "Plan not found" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, tree }, { status: 200 });
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

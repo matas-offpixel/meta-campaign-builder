@@ -1,10 +1,14 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/viz/info-tip";
+import { ProvenanceBadge } from "@/components/viz/provenance-badge";
+import { GOOGLE_DRAWER_COPY } from "@/lib/plan/drawer";
 import {
   addRsa,
   addSitelink,
@@ -28,6 +32,7 @@ import {
 } from "@/lib/google-search/types";
 
 interface Props {
+  surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
 }
@@ -35,28 +40,32 @@ interface Props {
 const MAX_HEADLINES = 15;
 const MAX_DESCRIPTIONS = 4;
 
-export function AdCopyStep({ tree, onChange }: Props) {
+export function AdCopyStep({ surface = "wizard", tree, onChange }: Props) {
   if (tree.campaigns.length === 0) {
     return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Ad copy</CardTitle>
-            <CardDescription>Add a campaign + ad group before writing ad copy.</CardDescription>
-          </CardHeader>
-        </Card>
-        <SitelinksSection tree={tree} onChange={onChange} />
-      </div>
+      <StepSurfaceProvider surface={surface}>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Ad copy</CardTitle>
+              <CardDescription>Add a campaign + ad group before writing ad copy.</CardDescription>
+            </CardHeader>
+          </Card>
+          <SitelinksSection tree={tree} onChange={onChange} />
+        </div>
+      </StepSurfaceProvider>
     );
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-4">
       {tree.campaigns.map((c) => (
         <CampaignSection key={c.id} campaign={c} tree={tree} onChange={onChange} />
       ))}
       <SitelinksSection tree={tree} onChange={onChange} />
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -80,9 +89,9 @@ function CampaignSection({
       </CardHeader>
 
       {campaign.ad_groups.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+        <Datum className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
           No ad groups in this campaign.
-        </p>
+        </Datum>
       ) : (
         <div className="space-y-3">
           {campaign.ad_groups.map((ag) => (
@@ -115,10 +124,10 @@ function AdGroupRsaBlock({
     <section className="rounded-md border border-border bg-background p-4">
       <header className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-medium">{adGroup.name}</p>
-          <p className="text-xs text-muted-foreground">
+          <Datum className="text-sm font-medium">{adGroup.name}</Datum>
+          <Datum className="text-xs text-muted-foreground">
             {adGroup.rsas.length} RSA{adGroup.rsas.length === 1 ? "" : "s"}
-          </p>
+          </Datum>
         </div>
         <Button
           variant="outline"
@@ -131,9 +140,9 @@ function AdGroupRsaBlock({
       </header>
 
       {adGroup.rsas.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
+        <StatusLine className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
           No RSA copy yet for this ad group.
-        </p>
+        </StatusLine>
       ) : (
         <div className="space-y-4">
           {adGroup.rsas.map((rsa, idx) => (
@@ -172,6 +181,7 @@ function RsaEditor({
   onDescriptions: (dl: RsaDescription[]) => void;
   onRemove: () => void;
 }) {
+  const drawer = useIsDrawer();
   function setHeadline(i: number, text: string) {
     const next = [...rsa.headlines];
     next[i] = { ...(next[i] ?? { text: "" }), text };
@@ -200,9 +210,9 @@ function RsaEditor({
   return (
     <div className="rounded-md border border-border bg-card p-3">
       <header className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+        <Datum className="text-xs uppercase tracking-wider text-muted-foreground">
           RSA {index + 1}
-        </p>
+        </Datum>
         <Button variant="ghost" size="sm" onClick={onRemove} aria-label="Remove RSA">
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -210,12 +220,12 @@ function RsaEditor({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <p className="mb-1.5 text-xs font-medium text-foreground">
+          <StatusLine className="mb-1.5 text-xs font-medium text-foreground">
             Headlines{" "}
             <span className="text-muted-foreground">
               ({rsa.headlines.length} / {MAX_HEADLINES}, ≥{GOOGLE_SEARCH_LIMITS.MIN_HEADLINES_PER_RSA} required)
             </span>
-          </p>
+          </StatusLine>
           <div className="space-y-1.5">
             {rsa.headlines.map((h, i) => (
               <CharLimitedRow
@@ -237,13 +247,13 @@ function RsaEditor({
         </div>
 
         <div>
-          <p className="mb-1.5 text-xs font-medium text-foreground">
+          <StatusLine className="mb-1.5 text-xs font-medium text-foreground">
             Descriptions{" "}
             <span className="text-muted-foreground">
               ({rsa.descriptions.length} / {MAX_DESCRIPTIONS}, ≥
               {GOOGLE_SEARCH_LIMITS.MIN_DESCRIPTIONS_PER_RSA} required)
             </span>
-          </p>
+          </StatusLine>
           <div className="space-y-1.5">
             {rsa.descriptions.map((d, i) => (
               <CharLimitedRow
@@ -266,12 +276,25 @@ function RsaEditor({
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {drawer ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">final URL</span>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="truncate text-xs" title={rsa.final_url ?? undefined}>
+                {rsa.final_url || "—"}
+              </span>
+              <ProvenanceBadge provenance={rsa.final_url ? "derived" : "not instrumented"} />
+              <InfoTip label={GOOGLE_DRAWER_COPY.destinationTip} />
+            </span>
+          </div>
+        ) : (
         <Input
           label="Final URL"
           value={rsa.final_url ?? ""}
           onChange={(e) => onPatch({ final_url: e.target.value || null })}
           placeholder="https://example.com/tickets"
         />
+        )}
         <Input
           label={`Display path 1 (≤${GOOGLE_SEARCH_LIMITS.PATH_MAX_CHARS} chars)`}
           value={rsa.path1 ?? ""}
@@ -325,9 +348,9 @@ function SitelinksSection({
       </CardHeader>
 
       {tree.sitelinks.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+        <StatusLine className="rounded-md border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
           No sitelinks yet. Click &quot;Add sitelink&quot; to start.
-        </p>
+        </StatusLine>
       ) : (
         <div className="space-y-3">
           {tree.sitelinks.map((sl, idx) => (
@@ -375,14 +398,14 @@ function SitelinkEditor({
   return (
     <div className="rounded-md border border-border bg-card p-3">
       <header className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+        <Datum className="text-xs uppercase tracking-wider text-muted-foreground">
           Sitelink {index + 1}
           {sitelink.pushed_resource_name ? (
             <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
               pushed
             </span>
           ) : null}
-        </p>
+        </Datum>
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"

@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -15,9 +16,11 @@ import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 export function BudgetScheduleStep({
   draft,
   onSave,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
 }) {
   const [budgetDraft, setBudgetDraft] = useState(
     draft.budgetSchedule.budgetAmount == null
@@ -117,14 +120,17 @@ export function BudgetScheduleStep({
   }, [draft.accountSetup.timezone, draft.budgetSchedule, onSave, smartPlus]);
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Budget & schedule</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Prose className="mt-2 text-sm text-muted-foreground">
           Set daily or lifetime budget, schedule, and optional frequency cap.
           Smart+ locks this step to lifetime budget mode and automatic schedule.
-        </p>
+        </Prose>
       </div>
+      </Chrome>
 
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -167,10 +173,10 @@ export function BudgetScheduleStep({
       </div>
 
       {smartPlus && (
-        <p className="rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
+        <Prose className="rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
           Smart+ is enabled, so budget mode is locked to lifetime and schedule
           is automatic.
-        </p>
+        </Prose>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -213,16 +219,17 @@ export function BudgetScheduleStep({
       {warnings.length > 0 && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           {warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
+            <Datum key={warning}>{warning}</Datum>
           ))}
         </div>
       )}
 
-      <p className="text-sm text-muted-foreground">
+      <Prose className="text-sm text-muted-foreground">
         {plannedAdGroups.length} ad group
         {plannedAdGroups.length === 1 ? "" : "s"} planned. Names and budgets
         can be edited in Step 7.
-      </p>
+      </Prose>
     </div>
+      </StepSurfaceProvider>
   );
 }

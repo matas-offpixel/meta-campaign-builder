@@ -1,5 +1,6 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -81,10 +82,12 @@ export function ReviewLaunchStep({
   draft,
   onSave,
   context,
+  surface = "wizard",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   context?: TikTokWizardContext;
+  surface?: StepSurface;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -260,15 +263,18 @@ export function ReviewLaunchStep({
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
+      <Chrome>
       <div>
         <h2 className="font-heading text-xl">Review & launch</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <Prose className="mt-2 text-sm text-muted-foreground">
           Review the full TikTok plan. This launcher never enables Smart+ or
           automated ads — campaigns are created paused so you can inspect them
           before spend starts.
-        </p>
+        </Prose>
       </div>
+      </Chrome>
 
       <button
         type="button"
@@ -286,11 +292,11 @@ export function ReviewLaunchStep({
         <div className="space-y-4 rounded-md border border-border bg-background p-4">
           {!alreadyLaunched && (
           <div>
-            <p className="text-sm font-medium">Launch blockers</p>
+            <Datum className="text-sm font-medium">Launch blockers</Datum>
             {clientIssues.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">
+              <Datum className="mt-2 text-sm text-muted-foreground">
                 No launch blockers.
-              </p>
+              </Datum>
             ) : (
               <ul className="mt-2 space-y-2 text-sm">
                 {clientIssues.map((issue) => (
@@ -304,15 +310,15 @@ export function ReviewLaunchStep({
           )}
           {!alreadyLaunched && (
           <div>
-            <p className="text-sm font-medium">Wizard validation</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <Datum className="text-sm font-medium">Wizard validation</Datum>
+            <Prose className="mt-1 text-xs text-muted-foreground">
               Step issues from the wizard. These are not launch preflight
               blockers.
-            </p>
+            </Prose>
             {wizardIssues.length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">
+              <Datum className="mt-2 text-sm text-muted-foreground">
                 No wizard validation issues.
-              </p>
+              </Datum>
             ) : (
               <ul className="mt-2 space-y-2 text-sm">
                 {wizardIssues.map((issue) => (
@@ -330,12 +336,12 @@ export function ReviewLaunchStep({
       {!alreadyLaunched && (
       <section className="space-y-3">
         <div>
-          <p className="text-sm font-medium">
+          <Datum className="text-sm font-medium">
             Wizard checks (not launch blockers)
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          </Datum>
+          <Datum className="mt-1 text-xs text-muted-foreground">
             Informational wizard cards. They do not disable Launch.
-          </p>
+          </Datum>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {checks.map((check) => (
@@ -347,8 +353,8 @@ export function ReviewLaunchStep({
                   : "border-red-500/30 bg-red-500/10"
               }`}
             >
-              <p className="text-sm font-medium">{check.label}</p>
-              <p className="text-xs text-muted-foreground">{check.detail}</p>
+              <Datum className="text-sm font-medium">{check.label}</Datum>
+              <Datum className="text-xs text-muted-foreground">{check.detail}</Datum>
             </div>
           ))}
         </div>
@@ -357,11 +363,11 @@ export function ReviewLaunchStep({
 
       {!alreadyLaunched && wizardIssues.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
-          <p className="text-sm font-medium">Wizard validation</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <Datum className="text-sm font-medium">Wizard validation</Datum>
+          <Prose className="mt-1 text-xs text-muted-foreground">
             Step issues from the wizard. These are not launch preflight
             blockers.
-          </p>
+          </Prose>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {wizardIssues.map((issue) => (
               <li key={issue.id}>
@@ -374,7 +380,7 @@ export function ReviewLaunchStep({
 
       {!alreadyLaunched && !clientPreflightOk && (
         <section className="rounded-md border border-red-500/30 bg-red-500/10 p-4">
-          <p className="text-sm font-medium">Launch blockers</p>
+          <Datum className="text-sm font-medium">Launch blockers</Datum>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {clientIssues.map((issue) => (
               <li key={issue.id}>
@@ -387,7 +393,7 @@ export function ReviewLaunchStep({
 
       {!alreadyLaunched && launchPreflight.warnings.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
-          <p className="text-sm font-medium">Launch warnings</p>
+          <Datum className="text-sm font-medium">Launch warnings</Datum>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {launchPreflight.warnings.map((warning) => (
               <li key={warning.id}>{warning.message}</li>
@@ -403,13 +409,13 @@ export function ReviewLaunchStep({
             ALWAYS ON
           </span>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <Prose className="mt-1 text-xs text-muted-foreground">
           This launcher always publishes ads exactly as uploaded. Every ad is
           created with <code>is_aco=false</code> and{" "}
           <code>creative_authorized=false</code> — no Smart+, no Smart
           Creative, no automated ads. Campaign, ad groups, and ads are all
           created paused.
-        </p>
+        </Prose>
       </section>
 
       <ReviewPanel title="Account">
@@ -513,12 +519,12 @@ export function ReviewLaunchStep({
         <div className="space-y-2">
           {draft.creatives.items.map((creative) => (
             <div key={creative.id} className="rounded border border-border p-3">
-              <p className="font-medium">{creative.name}</p>
-              <p className="text-xs text-muted-foreground">{creative.adText}</p>
-              <p className="text-xs text-muted-foreground">
+              <Datum className="font-medium">{creative.name}</Datum>
+              <Datum className="text-xs text-muted-foreground">{creative.adText}</Datum>
+              <Datum className="text-xs text-muted-foreground">
                 {creative.displayName} · {creative.landingPageUrl || "No landing page"} ·{" "}
                 {creative.cta ?? "No CTA"}
-              </p>
+              </Datum>
             </div>
           ))}
           {draft.creatives.items.length === 0 && <Empty />}
@@ -555,12 +561,12 @@ export function ReviewLaunchStep({
         <div className="space-y-2">
           {adGroups.map((adGroup) => (
             <div key={adGroup.id} className="rounded border border-border p-3">
-              <p className="font-medium">{adGroup.name}</p>
-              <p className="text-xs text-muted-foreground">
+              <Datum className="font-medium">{adGroup.name}</Datum>
+              <Datum className="text-xs text-muted-foreground">
                 {(draft.creativeAssignments.byAdGroupId[adGroup.id] ?? [])
                   .map((id) => draft.creatives.items.find((item) => item.id === id)?.name ?? id)
                   .join(", ") || "No creatives assigned"}
-              </p>
+              </Datum>
             </div>
           ))}
         </div>
@@ -633,27 +639,28 @@ export function ReviewLaunchStep({
           </Button>
         </div>
         {!alreadyLaunched && firstLaunchBlocker ? (
-          <p className="text-sm text-red-700">{firstLaunchBlocker}</p>
+          <StatusLine tone="alert" className="text-sm text-red-700">{firstLaunchBlocker}</StatusLine>
         ) : null}
         {relaunchError ? (
-          <p className="text-sm text-red-700">{relaunchError}</p>
+          <StatusLine tone="alert" className="text-sm text-red-700">{relaunchError}</StatusLine>
         ) : null}
         {!alreadyLaunched && !writesEnabled && (
-          <p className="text-sm text-muted-foreground">
+          <Prose className="text-sm text-muted-foreground">
             TikTok launches are behind a killswitch that is intentionally off.
             Download as brief / Mark review ready are the available actions.
-          </p>
+          </Prose>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">
+      <StatusLine className="text-xs text-muted-foreground">
         {draft.reviewReadyAt
           ? `Marked review ready at ${draft.reviewReadyAt}.`
           : "Review-ready state is stored inside the draft JSON; no status migration required."}
         {draft.publishedIds?.campaignId
           ? ` Published TikTok campaign ${draft.publishedIds.campaignId}.`
           : ""}
-      </p>
+      </StatusLine>
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -738,5 +745,5 @@ function ChipList({ values }: { values: string[] }) {
 }
 
 function Empty() {
-  return <p className="text-sm text-muted-foreground">—</p>;
+  return <Datum className="text-sm text-muted-foreground">—</Datum>;
 }

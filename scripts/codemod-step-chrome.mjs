@@ -29,6 +29,21 @@ const FILES = [
   // The live multi-campaign picker for `attach_campaign` /
   // `attach_all_adsets`, reached from campaign-setup in the `⊞` tab.
   "components/bulk-attach/campaign-multi-picker.tsx",
+  "components/tiktok-wizard/steps/account-setup.tsx",
+  "components/tiktok-wizard/steps/campaign-setup.tsx",
+  "components/tiktok-wizard/steps/optimisation-strategy.tsx",
+  "components/tiktok-wizard/steps/audiences.tsx",
+  "components/tiktok-wizard/steps/creatives.tsx",
+  "components/tiktok-wizard/steps/budget-schedule.tsx",
+  "components/tiktok-wizard/steps/assign-creatives.tsx",
+  "components/tiktok-wizard/steps/review-launch.tsx",
+  "components/google-search-wizard/steps/plan-setup.tsx",
+  "components/google-search-wizard/steps/campaigns.tsx",
+  "components/google-search-wizard/steps/ad-groups-keywords.tsx",
+  "components/google-search-wizard/steps/negatives.tsx",
+  "components/google-search-wizard/steps/ad-copy.tsx",
+  "components/google-search-wizard/steps/targeting-budget.tsx",
+  "components/google-search-wizard/steps/push.tsx",
 ];
 
 /** Evidence the operator must not lose when the sentences go. */

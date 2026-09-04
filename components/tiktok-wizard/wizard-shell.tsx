@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
+import { TikTokDrawer } from "@/components/plan/tiktok-drawer";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
-import { listClients } from "@/lib/db/clients";
-import {
-  deleteTikTokTemplateFromDb,
-  loadTikTokTemplatesFromDb,
-  saveTikTokTemplateToDb,
-} from "@/lib/db/tiktok-templates";
+import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
 import { createClient } from "@/lib/supabase/client";
 import {
   resolveTikTokDraftIdentityBcIdOnLoad,
@@ -16,29 +14,12 @@ import {
   type TikTokIdentityBcIdResolution,
 } from "@/lib/tiktok-wizard/migrate-draft";
 import {
-  applyTikTokTemplate,
   consumeTikTokTemplateAccountNotice,
-  type TikTokCampaignTemplate,
 } from "@/lib/tiktok-wizard/templates";
+import { saveTikTokTemplateToDb } from "@/lib/db/tiktok-templates";
 import type { TikTokIdentity } from "@/lib/tiktok/identity";
-import {
-  validateTikTokWizardStep,
-  type TikTokWizardValidationIssue,
-} from "@/lib/tiktok-wizard/validation";
-import {
-  TIKTOK_WIZARD_STEPS,
-  type TikTokCampaignDraft,
-} from "@/lib/types/tiktok-draft";
-import { TikTokLoadTemplateModal } from "./load-template-modal";
-import { AccountSetupStep } from "./steps/account-setup";
-import { CampaignSetupStep } from "./steps/campaign-setup";
-import { OptimisationStrategyStep } from "./steps/optimisation-strategy";
-import { AudiencesStep } from "./steps/audiences";
-import { CreativesStep } from "./steps/creatives";
-import { BudgetScheduleStep } from "./steps/budget-schedule";
-import { AssignCreativesStep } from "./steps/assign-creatives";
-import { ReviewLaunchStep } from "./steps/review-launch";
-import { TikTokWizardFooter, type TikTokSaveStatus } from "./wizard-footer";
+import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import { useTikTokDraft } from "@/lib/wizard/use-tiktok-draft";
 
 export interface TikTokWizardContext {
   eventName?: string | null;
@@ -56,49 +37,28 @@ export interface TikTokWizardContext {
 export function TikTokWizardShell({
   draft,
   context,
+  linkedPlan = null,
 }: {
   draft: TikTokCampaignDraft;
   context?: TikTokWizardContext;
+  linkedPlan?: LinkedPlanSummary | null;
 }) {
-  const [step, setStep] = useState(0);
-  const [workingDraft, setWorkingDraft] = useState(draft);
-  const workingDraftRef = useRef(workingDraft);
-  workingDraftRef.current = workingDraft;
-  const saveQueue = useRef(Promise.resolve());
-  const [saveStatus, setSaveStatus] = useState<TikTokSaveStatus>("idle");
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const router = useRouter();
+  const controller = useTikTokDraft(draft.id, draft);
+  const [identityBcIdResolution, setIdentityBcIdResolution] =
+    useState<TikTokIdentityBcIdResolution>("idle");
+  const [templateAccountNotice, setTemplateAccountNotice] = useState<string | null>(
+    () => consumeTikTokTemplateAccountNotice(draft.id),
+  );
   const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
-  const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
   const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<TikTokCampaignTemplate[]>([]);
-  const [templateClientNameById, setTemplateClientNameById] = useState<
-    Record<string, string>
-  >({});
-  const [identityBcIdResolution, setIdentityBcIdResolution] =
-    useState<TikTokIdentityBcIdResolution>("idle");
-  const [templateAccountNotice, setTemplateAccountNotice] = useState<
-    string | null
-  >(() => consumeTikTokTemplateAccountNotice(draft.id));
   const identityHealStarted = useRef(false);
-  const CurrentStep = useMemo(
-    () => STEP_COMPONENTS[step] ?? AccountSetupStep,
-    [step],
-  );
-  const validationContext = { eventEditPath: context?.eventEditPath ?? null };
-  const currentIssues = validateTikTokWizardStep(
-    workingDraft,
-    step,
-    validationContext,
-  );
-  const blocksNext = currentIssues.some((issue) => issue.blocksContinue);
 
   useEffect(() => {
     if (identityHealStarted.current) return;
-    const current = workingDraftRef.current;
+    const current = controller.draftRef.current;
     if (!tikTokIdentityBcIdIsServerResolvable(current)) return;
     const advertiserId = current.accountSetup.advertiserId;
     if (!advertiserId) return;
@@ -116,71 +76,19 @@ export function TikTokWizardShell({
         return json?.identities ?? [];
       },
       persist: async (next) => {
-        await saveDraftNow({
-          accountSetup: next.accountSetup,
-        });
+        await controller.saveDraft({ accountSetup: next.accountSetup });
       },
     }).then((status) => {
       setIdentityBcIdResolution(status === "resolved" ? "idle" : "unresolved");
     });
-  }, []);
+  }, [controller]);
 
-  async function saveDraftNow(patch: Partial<TikTokCampaignDraft>) {
-    const current = workingDraftRef.current;
-    const optimistic = mergeDraft(current, patch);
-    workingDraftRef.current = optimistic;
-    setWorkingDraft(optimistic);
-    const res = await fetch(`/api/tiktok/drafts/${current.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    const json = (await res.json().catch(() => null)) as
-      | { ok: true; draft: TikTokCampaignDraft }
-      | { ok: false; error: string }
-      | null;
-    if (!res.ok || !json?.ok) {
-      workingDraftRef.current = current;
-      setWorkingDraft(current);
-      throw new Error(json && !json.ok ? json.error : "Failed to save draft");
-    }
-    workingDraftRef.current = json.draft;
-    setWorkingDraft(json.draft);
-  }
-
-  function saveDraft(patch: Partial<TikTokCampaignDraft>) {
-    const run = saveQueue.current.then(() => saveDraftNow(patch));
-    saveQueue.current = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-
-  async function currentUserId(): Promise<string | null> {
+  async function handleSaveTemplate(name: string, description: string, tags: string[]) {
     const supabase = createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    return user?.id ?? null;
-  }
-
-  async function handleSaveDraft() {
-    setSaveStatus("saving");
-    setSaveError(null);
-    try {
-      await saveDraft({});
-      setSaveStatus("saved");
-      window.setTimeout(() => setSaveStatus("idle"), 2000);
-    } catch (err) {
-      setSaveStatus("idle");
-      setSaveError(err instanceof Error ? err.message : "Failed to save draft");
-    }
-  }
-
-  async function handleSaveTemplate(name: string, description: string, tags: string[]) {
-    const userId = await currentUserId();
-    if (!userId) {
+    if (!user) {
       setTemplateSaveError("Not signed in");
       return;
     }
@@ -188,7 +96,7 @@ export function TikTokWizardShell({
     setTemplateSaveError(null);
     setTemplateSaveSuccess(false);
     try {
-      await saveTikTokTemplateToDb(workingDraftRef.current, name, description, tags, userId);
+      await saveTikTokTemplateToDb(controller.draftRef.current, name, description, tags, user.id);
       setTemplateSaveSuccess(true);
     } catch (err) {
       setTemplateSaveError(
@@ -199,145 +107,68 @@ export function TikTokWizardShell({
     }
   }
 
-  async function handleOpenLoadModal() {
-    setLoadTemplateOpen(true);
-    const userId = await currentUserId();
-    if (!userId) return;
-    setTemplatesLoading(true);
-    try {
-      const [fetched, clients] = await Promise.all([
-        loadTikTokTemplatesFromDb(userId),
-        listClients(userId),
-      ]);
-      setTemplates(fetched);
-      setTemplateClientNameById(
-        Object.fromEntries(clients.map((client) => [client.id, client.name])),
-      );
-    } catch (err) {
-      console.warn("Failed to fetch TikTok templates:", err);
-    } finally {
-      setTemplatesLoading(false);
-    }
-  }
-
-  async function handleLoadTemplate(template: TikTokCampaignTemplate) {
-    const previous = workingDraftRef.current;
-    const applied = applyTikTokTemplate(
-      template,
-      previous.id,
-      previous.clientId,
-      previous.eventId,
-    );
-    const next = {
-      ...applied.draft,
-      campaignSetup: {
-        ...applied.draft.campaignSetup,
-        eventCode: previous.campaignSetup.eventCode,
-      },
-    };
-    setWorkingDraft(next);
-    workingDraftRef.current = next;
-    try {
-      await saveDraft(next);
-      setStep(0);
-      setLoadTemplateOpen(false);
-      setSaveError(null);
-      setTemplateAccountNotice(applied.accountNotice);
-    } catch (err) {
-      workingDraftRef.current = previous;
-      setWorkingDraft(previous);
-      setSaveError(
-        err instanceof Error ? err.message : "Failed to load template",
-      );
-    }
-  }
-
-  async function handleDeleteTemplate(id: string) {
-    setTemplates((prev) => prev.filter((template) => template.id !== id));
-    setDeletingTemplateId(id);
-    try {
-      await deleteTikTokTemplateFromDb(id);
-    } catch (err) {
-      console.error("Failed to delete TikTok template:", err);
-      const userId = await currentUserId();
-      if (userId) setTemplates(await loadTikTokTemplatesFromDb(userId));
-    } finally {
-      setDeletingTemplateId(null);
-    }
-  }
+  const wizardContext: TikTokWizardContext = {
+    ...context,
+    identityBcIdResolution,
+    flushPendingSaves: controller.flush,
+    readWorkingDraft: () => controller.draftRef.current,
+  };
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-8">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">
-            TikTok campaign creator
-          </p>
-          <h1 className="mt-2 font-heading text-3xl">TikTok campaign draft</h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Build the TikTok campaign configuration step by step. Launch writes
-            stay behind OFFPIXEL_TIKTOK_WRITES_ENABLED and never enable Smart+
-            or automated-ad enhancements.
-          </p>
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <div className="border-b border-border bg-card px-6 py-2">
+        <div className="mx-auto max-w-5xl">
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Campaign Library
+          </button>
         </div>
-
-        <ol className="mb-8 grid gap-2 md:grid-cols-4">
-          {TIKTOK_WIZARD_STEPS.map((label, index) => (
-            <li key={label}>
-              <button
-                id={`tiktok-step-${index}`}
-                type="button"
-                onClick={() => setStep(index)}
-                className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
-                  index === step
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border bg-card text-muted-foreground"
-                }`}
-              >
-                <span className="mr-2 tabular-nums">{index + 1}.</span>
-                {label}
-              </button>
-            </li>
-          ))}
-        </ol>
-
-        <section className="rounded-lg border border-border bg-card p-6">
-          {templateAccountNotice && (
-            <p className="mb-6 rounded-md border border-border bg-muted/40 p-3 text-sm">
-              {templateAccountNotice}
-            </p>
-          )}
-          <StepValidationMessages issues={currentIssues} />
-          <CurrentStep
-            draft={workingDraft}
-            onSave={saveDraft}
-            context={{
-              ...context,
-              identityBcIdResolution,
-              flushPendingSaves: () => saveQueue.current,
-              readWorkingDraft: () => workingDraftRef.current,
-            }}
-          />
-        </section>
-
-        <TikTokWizardFooter
-          currentStep={step}
-          canContinue={!blocksNext}
-          saveStatus={saveStatus}
-          saveError={saveError}
-          onBack={() => setStep((s) => Math.max(0, s - 1))}
-          onContinue={() =>
-            setStep((s) => Math.min(TIKTOK_WIZARD_STEPS.length - 1, s + 1))
-          }
-          onSaveDraft={() => void handleSaveDraft()}
-          onSaveTemplate={() => {
-            setSaveTemplateOpen(true);
-            setTemplateSaveSuccess(false);
-            setTemplateSaveError(null);
-          }}
-          onLoadTemplate={() => void handleOpenLoadModal()}
-        />
       </div>
+
+      <main className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-6 py-6">
+        {templateAccountNotice ? (
+          <p className="mb-4 rounded-md border border-border bg-muted/40 p-3 text-sm">
+            {templateAccountNotice}
+            <button
+              type="button"
+              className="ml-2 underline"
+              onClick={() => setTemplateAccountNotice(null)}
+            >
+              dismiss
+            </button>
+          </p>
+        ) : null}
+
+        <TikTokDrawer
+          open
+          variant="page"
+          controller={controller}
+          planId={linkedPlan?.id ?? null}
+          wizardContext={wizardContext}
+          onClose={() => router.push("/")}
+          doneLabel="Campaign Library"
+        />
+
+        {!linkedPlan ? (
+          <div className="mt-4">
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground underline"
+              onClick={() => {
+                setSaveTemplateOpen(true);
+                setTemplateSaveSuccess(false);
+                setTemplateSaveError(null);
+              }}
+            >
+              Save as template
+            </button>
+          </div>
+        ) : null}
+      </main>
 
       <SaveTemplateModal
         open={saveTemplateOpen}
@@ -351,81 +182,6 @@ export function TikTokWizardShell({
         }}
         onSave={handleSaveTemplate}
       />
-      <TikTokLoadTemplateModal
-        open={loadTemplateOpen}
-        templates={templates}
-        clientNameById={templateClientNameById}
-        loading={templatesLoading}
-        deletingId={deletingTemplateId}
-        onClose={() => setLoadTemplateOpen(false)}
-        onSelect={(template) => void handleLoadTemplate(template)}
-        onDelete={(id) => void handleDeleteTemplate(id)}
-      />
-    </main>
-  );
-}
-
-type StepProps = {
-  draft: TikTokCampaignDraft;
-  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
-  context?: TikTokWizardContext;
-};
-
-const STEP_COMPONENTS: Array<(props: StepProps) => React.ReactNode> = [
-  AccountSetupStep,
-  CampaignSetupStep,
-  OptimisationStrategyStep,
-  AudiencesStep,
-  CreativesStep,
-  BudgetScheduleStep,
-  AssignCreativesStep,
-  ReviewLaunchStep,
-];
-
-function mergeDraft(
-  current: TikTokCampaignDraft,
-  patch: Partial<TikTokCampaignDraft>,
-): TikTokCampaignDraft {
-  return {
-    ...current,
-    ...patch,
-    accountSetup: { ...current.accountSetup, ...(patch.accountSetup ?? {}) },
-    campaignSetup: { ...current.campaignSetup, ...(patch.campaignSetup ?? {}) },
-    optimisation: { ...current.optimisation, ...(patch.optimisation ?? {}) },
-    audiences: { ...current.audiences, ...(patch.audiences ?? {}) },
-    creatives: { ...current.creatives, ...(patch.creatives ?? {}) },
-    budgetSchedule: {
-      ...current.budgetSchedule,
-      ...(patch.budgetSchedule ?? {}),
-    },
-    creativeAssignments: {
-      ...current.creativeAssignments,
-      ...(patch.creativeAssignments ?? {}),
-    },
-  };
-}
-
-function StepValidationMessages({
-  issues,
-}: {
-  issues: TikTokWizardValidationIssue[];
-}) {
-  if (issues.length === 0) return null;
-  return (
-    <div className="mb-6 space-y-2">
-      {issues.map((issue) => (
-        <p
-          key={issue.id}
-          className={`rounded-md border p-3 text-sm ${
-            issue.severity === "error"
-              ? "border-destructive/40 bg-destructive/10 text-destructive"
-              : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-          }`}
-        >
-          <span className="font-medium">{issue.label}: </span>
-          {issue.message}
-        </p>
-      ))}
     </div>
   );
 }

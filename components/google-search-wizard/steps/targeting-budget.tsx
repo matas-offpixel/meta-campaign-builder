@@ -1,10 +1,11 @@
 "use client";
 
+import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { CheckCircle2, AlertTriangle, Loader2, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { parseBidModifierInput } from "@/lib/google-search/bid-modifier";
 import { updateCampaign, updatePlan } from "@/lib/google-search/tree-mutations";
@@ -15,11 +16,12 @@ import {
 } from "@/lib/google-search/types";
 
 interface Props {
+  surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
 }
 
-export function TargetingBudgetStep({ tree, onChange }: Props) {
+export function TargetingBudgetStep({surface = "wizard",  tree, onChange }: Props) {
   const total = tree.plan.total_budget ?? 0;
   const allocated = tree.campaigns.reduce((s, c) => s + (c.monthly_budget ?? 0), 0);
   const remaining = total - allocated;
@@ -39,6 +41,7 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
   }
 
   return (
+    <StepSurfaceProvider surface={surface}>
     <div className="space-y-5">
       <Card>
         <CardHeader>
@@ -123,7 +126,7 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
         </CardHeader>
 
         {tree.campaigns.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No campaigns yet.</p>
+          <Datum className="text-xs text-muted-foreground">No campaigns yet.</Datum>
         ) : (
           <table className="min-w-full text-sm">
             <thead className="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -182,6 +185,7 @@ export function TargetingBudgetStep({ tree, onChange }: Props) {
         )}
       </Card>
     </div>
+      </StepSurfaceProvider>
   );
 }
 
@@ -333,36 +337,36 @@ function GeoResolveHint({ state }: { state: ResolveState }) {
 
   if (state.status === "loading") {
     return (
-      <p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+      <Datum className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
         <Loader2 className="h-2.5 w-2.5 animate-spin" />
         Resolving…
-      </p>
+      </Datum>
     );
   }
 
   if (state.status === "matched") {
     return (
-      <p className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-700">
+      <Datum className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-700">
         <CheckCircle2 className="h-2.5 w-2.5" />
         {state.canonicalName}
-      </p>
+      </Datum>
     );
   }
 
   if (state.status === "no_match") {
     return (
-      <p className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700">
+      <StatusLine className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700">
         <AlertTriangle className="h-2.5 w-2.5" />
         No match for &ldquo;{state.attempted}&rdquo; — check spelling
-      </p>
+      </StatusLine>
     );
   }
 
   if (state.status === "no_account") {
     return (
-      <p className="mt-0.5 text-[10px] text-muted-foreground">
+      <Datum className="mt-0.5 text-[10px] text-muted-foreground">
         Link a Google Ads account to preview resolution
-      </p>
+      </Datum>
     );
   }
 
@@ -422,7 +426,7 @@ function GeoTargetTypeToggle({
                 </span>
               ) : null}
             </div>
-            <p className="text-xs">{opt.subtitle}</p>
+            <Datum className="text-xs">{opt.subtitle}</Datum>
           </button>
         );
       })}
