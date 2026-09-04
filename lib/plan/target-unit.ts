@@ -120,6 +120,15 @@ export const UNIT_LESS_OPTIMISATION_GOALS: Record<string, string> = {
   value: "Value optimises for revenue, so the target is a ROAS ratio, not a cost per unit.",
 };
 
+/** Zone D segmented-control glyphs — distinguish the five units at a glance. */
+export const PLAN_TARGET_UNIT_GLYPH: Record<PlanTargetUnit, string> = {
+  reg: "⊕",
+  click: "↗",
+  lpv: "▢",
+  purchase: "◆",
+  view: "◉",
+};
+
 export function targetUnitSpec(unit: PlanTargetUnit): PlanTargetUnitSpec {
   return PLAN_TARGET_UNIT_TABLE[unit];
 }

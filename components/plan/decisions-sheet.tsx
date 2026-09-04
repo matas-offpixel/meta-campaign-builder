@@ -12,6 +12,7 @@ import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { ScopeGlyph } from "@/components/viz/scope-glyph";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import { StatusLine, StepSurfaceProvider } from "@/components/steps/step-surface";
+import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 import type { DecisionRowView } from "@/lib/optimisation/automation-ui";
 import {
   presetEditHref,
@@ -100,7 +101,7 @@ export function DecisionsSheet({
       header={
         <button
           type="button"
-          className="text-[11px] text-muted-foreground hover:text-foreground"
+          className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
           onClick={() => setPresetOpen((current) => !current)}
           aria-expanded={presetOpen}
         >
@@ -142,11 +143,11 @@ export function DecisionsSheetRows({
   const grouped = groupDecisions(decisions, clock);
 
   if (loading) {
-    return <StatusLine className="text-[11px] text-muted-foreground">…</StatusLine>;
+    return <StatusLine className={`${VIZ_TYPE.label} text-muted-foreground`}>…</StatusLine>;
   }
   if (decisions.length === 0) {
     return (
-      <StatusLine className="text-[11px] text-muted-foreground">
+      <StatusLine className={`${VIZ_TYPE.label} text-muted-foreground`}>
         {emptyDecisionsStatus(lastEvaluatedAt ?? null, clock)}
       </StatusLine>
     );
@@ -161,7 +162,7 @@ export function DecisionsSheetRows({
         <div>
           <button
             type="button"
-            className="text-[11px] text-muted-foreground hover:text-foreground"
+            className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
             aria-expanded={olderOpen}
             onClick={() => setOlderOpen((current) => !current)}
           >
@@ -180,7 +181,7 @@ export function DecisionsSheetRows({
 
 function DayGroup({ rows, now }: { rows: DecisionRowView[]; now: Date }) {
   return (
-    <ul className="space-y-1.5">
+    <ul className="space-y-0">
       {rows.map((decision, idx) => (
         <DecisionRow
           key={`${decision.decidedAt}-${decision.action}-${idx}`}
@@ -199,18 +200,22 @@ function DecisionRow({ row, now }: { row: DecisionRowView; now: Date }) {
   const dashed = bandDashedFor(row.action);
 
   return (
-    <li className="flex flex-wrap items-center gap-1.5 text-[11px] text-foreground">
-      <PlatformGlyph platform={row.channel} size="sm" />
+    <li className={`flex h-9 items-center gap-2 border-b border-border ${VIZ_TYPE_NUM.body} text-foreground`}>
+      <span className="inline-flex w-5 shrink-0 items-center justify-center">
+        <PlatformGlyph platform={row.channel} size="sm" />
+      </span>
       <ActionGlyph
         action={glyph}
         filled={row.kind === "applied"}
         className="text-muted-foreground"
       />
       {row.scope === "campaign" ? <ScopeGlyph scope="campaign" size="sm" /> : null}
-      <MetricChip label={chip} size="sm">
-        {chip}
-      </MetricChip>
-      <span className="min-w-20 flex-1">
+      <span className="w-[88px] shrink-0">
+        <MetricChip label={chip} size="sm">
+          {chip}
+        </MetricChip>
+      </span>
+      <span className="min-w-[96px] max-w-[160px] flex-1">
         <ThresholdBand
           action={row.action}
           currentValue={row.metricValue}
@@ -218,14 +223,14 @@ function DecisionRow({ row, now }: { row: DecisionRowView; now: Date }) {
           size="sm"
         />
       </span>
-      <span className="max-w-[14rem] truncate text-muted-foreground">{why}</span>
-      <time className="tabular-nums text-muted-foreground" dateTime={row.decidedAt}>
-        {compactRelative(row.decidedAt, now)}
-      </time>
+      <span className="w-16 shrink-0 truncate text-muted-foreground">{why}</span>
       <ProvenanceBadge
         provenance={provenanceForDecision(row)}
         label={provenanceMarkForDecision(row)}
       />
+      <time className={`w-12 shrink-0 ${VIZ_TYPE_NUM.micro} text-muted-foreground`} dateTime={row.decidedAt}>
+        {compactRelative(row.decidedAt, now)}
+      </time>
     </li>
   );
 }
@@ -275,7 +280,7 @@ function PresetRead({
         {editHref ? (
           <Link
             href={editHref}
-            className="ml-auto text-[11px] text-muted-foreground hover:text-foreground"
+            className={`ml-auto ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
           >
             {DECISIONS_SHEET_COPY.edit}
           </Link>

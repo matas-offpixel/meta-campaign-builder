@@ -18,6 +18,7 @@ import {
   planDisposalAction,
 } from "@/lib/plan/delete-policy";
 import type { CampaignPlanLaunches } from "@/lib/plan/types";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 export function PlanDeleteAction({
   planId,
@@ -87,7 +88,7 @@ export function PlanDeleteAction({
           {label}
         </Button>
       ) : null}
-      {error ? <span className="text-xs text-destructive">{error}</span> : null}
+      {error ? <span className={`${VIZ_TYPE.label} text-destructive`}>{error}</span> : null}
       <Dialog open={open} onClose={() => (!busy ? setOpen(false) : undefined)}>
         <DialogContent>
           <DialogHeader onClose={() => (!busy ? setOpen(false) : undefined)}>

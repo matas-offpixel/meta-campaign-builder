@@ -18,7 +18,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { planChannelRows } from "../canvas.ts";
+import { planCanvasHeightBudget, planChannelRows } from "../canvas.ts";
 import { execSync } from "node:child_process";
 
 import {
@@ -840,7 +840,8 @@ describe("drawer width and drawer-surface creatives (Chrome pass)", () => {
   it("creatives layout is a single column inside the drawer", () => {
     const src = read("components/steps/creatives.tsx");
     assert.match(src, /drawer \? "grid-cols-1" : "grid-cols-2"/);
-    assert.match(src, /slots\.length === 1 \|\| drawer/);
+    assert.match(src, /min-\[720px\]:grid-cols-2/);
+    assert.match(src, /hero=\{drawer\}/);
   });
 
   it("empty states are nouns, not instructions", () => {
@@ -956,6 +957,96 @@ describe("standalone pages keep Launch / Push", () => {
   });
 });
 
+describe("PR 8b — canvas-zone-rhythm guards", () => {
+  it("no ISO literal rendered in canvas or drawer-mounted sources", () => {
+    const sources = [
+      "components/plan/plan-workspace.tsx",
+      "components/plan/canvas-window.tsx",
+      "components/plan/canvas-budget.tsx",
+      "components/plan/canvas-target.tsx",
+      "components/plan/canvas-header.tsx",
+      "components/plan/canvas-channels.tsx",
+      "components/plan/meta-drawer-details.tsx",
+      "components/plan/tiktok-drawer-details.tsx",
+      "components/plan/google-drawer-details.tsx",
+      "components/plan/decisions-sheet.tsx",
+    ];
+    const isoPattern = /\d{4}-\d{2}-\d{2}T/;
+    for (const src of sources) {
+      const content = read(src);
+      assert.doesNotMatch(content, isoPattern, `${src} contains a raw ISO literal`);
+    }
+  });
+
+  it("plan-workspace root has no space-y- and each zone uses VIZ_ZONE_GUTTER", () => {
+    const src = read("components/plan/plan-workspace.tsx");
+    assert.doesNotMatch(src, /className="space-y-\d/, "root div has space-y-");
+    assert.match(src, /VIZ_ZONE_GUTTER\.tight/);
+    assert.match(src, /VIZ_ZONE_GUTTER\.normal/);
+    assert.match(src, /VIZ_ZONE_GUTTER\.loose/);
+  });
+
+  it("planCanvasHeightBudget sums to 620–700px and launchY ≈ 744", () => {
+    const b = planCanvasHeightBudget();
+    assert.ok(b.canvas >= 620 && b.canvas <= 700, `canvas=${b.canvas} outside 620-700`);
+    assert.equal(b.canvas, b.content + b.guttersTotal);
+    assert.equal(b.launchY, b.chrome + b.canvas);
+    assert.ok(b.launchY >= 700 && b.launchY <= 800, `launchY=${b.launchY} outside 700-800`);
+  });
+
+  it("audiences-step does not import @/components/ui/tabs and has five edit ▸ handles", () => {
+    const src = read("components/steps/audiences/audiences-step.tsx");
+    assert.doesNotMatch(src, /@\/components\/ui\/tabs/, "still imports tabs");
+    assert.match(src, /edit ▸/);
+    assert.match(src, /glyph: "▦"/);
+    assert.match(src, /glyph: "◨"/);
+    assert.match(src, /glyph: "◫"/);
+    assert.match(src, /glyph: "◇"/);
+    assert.match(src, /glyph: "✳"/);
+    assert.match(src, /rows\.map/);
+  });
+
+  it("identity chips: unresolved shows id, missing shows dashed, neither empty", () => {
+    const src = read("components/plan/plan-identity-chips.tsx");
+    // Unresolved: id with opacity-60
+    assert.match(src, /opacity-60/);
+    // Missing: dashed border chip
+    assert.match(src, /border-dashed/);
+    assert.match(src, /┄/);
+    // InfoTip carries the id
+    assert.match(src, /identityChipTip/);
+    // Never blank
+    assert.doesNotMatch(src, /identityChipDisplay\(chip\.value\)(?!\s*\??\.)/);
+  });
+
+  it("no raw text-[Npx] / text-xs / text-sm / text-2xl in plan or optimisation components", () => {
+    const dirs = [
+      "components/plan",
+      "components/optimisation",
+    ];
+    const rawSizePattern = /text-\[\d+px\]|text-xs\b|text-sm\b|text-2xl\b/;
+    for (const dir of dirs) {
+      const files = readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(".tsx"));
+      for (const file of files) {
+        const content = readFileSync(join(ROOT, dir, file), "utf8");
+        assert.doesNotMatch(
+          content,
+          rawSizePattern,
+          `${dir}/${file} contains a raw text-size class`,
+        );
+      }
+    }
+  });
+
+  it("components/plan does not import Meta or TikTok fetch clients", () => {
+    for (const file of listSourceFiles("components/plan")) {
+      const src = read(file);
+      assert.doesNotMatch(src, /from ["']@\/lib\/meta\//);
+      assert.doesNotMatch(src, /from ["']@\/lib\/tiktok\//);
+    }
+  });
+});
+
 describe("write paths are untouched", () => {
   it("lib/tiktok/write and lib/google-search have no diff against main", () => {
     /**
@@ -1006,3 +1097,4 @@ describe("write paths are untouched", () => {
     assert.equal(diff.trim(), "", diff);
   });
 });
+

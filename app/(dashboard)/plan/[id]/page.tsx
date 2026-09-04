@@ -18,6 +18,7 @@ import { planLadderObjective } from "@/lib/plan/prepare-draft";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
 import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
+import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -216,6 +217,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     ? funnel.costs.platforms.reduce((sum, row) => sum + row.spend, 0)
     : null;
 
+  const identityNames = await loadIdentityNameMap(supabase, user.id, googleAdsAccounts);
+
   return (
     <>
       <PageHeader
@@ -241,6 +244,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             liveSpend={liveSpend}
             thumbUrl={thumbs?.get(workspacePlan.intent.eventId)?.url ?? null}
             targetBenchmark={targetBenchmark}
+            identityNames={identityNames}
           />
         </div>
       </main>

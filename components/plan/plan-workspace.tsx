@@ -31,11 +31,13 @@ import {
   planLaunchButton,
   type PlanChannelRowModel,
 } from "@/lib/plan/canvas";
+import type { IdentityNameMap } from "@/lib/plan/identity-chips";
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
 import { planDefaultWindow, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
+import { VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
@@ -94,6 +96,7 @@ export function PlanWorkspace({
   liveSpend = null,
   thumbUrl = null,
   targetBenchmark = null,
+  identityNames,
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
@@ -110,6 +113,8 @@ export function PlanWorkspace({
    * field is never empty (§2 zone D).
    */
   targetBenchmark?: number | null;
+  /** Stored cache names for the identity chips — loaded on the page, never fetched here. */
+  identityNames?: IdentityNameMap;
 }) {
   const [plan, setPlan] = useState(initialPlan);
   const [hasUserEdit, setHasUserEdit] = useState(false);
@@ -709,7 +714,7 @@ export function PlanWorkspace({
   const defaults = planDefaultWindow(selectedEvent);
 
   return (
-    <div className="space-y-5">
+    <div>
       <CanvasHeader
         name={headerName}
         clientName={selectedEvent?.clientName ?? null}
@@ -728,10 +733,11 @@ export function PlanWorkspace({
         }}
         menuItems={menuItems}
         resolved={resolved}
+        identityNames={identityNames}
       />
 
       {!plan.intent.eventId ? (
-        <div className="max-w-md">
+        <div className={`max-w-md ${VIZ_ZONE_GUTTER.normal}`}>
           <Combobox
             label="Event"
             value={plan.intent.eventId}
@@ -743,55 +749,62 @@ export function PlanWorkspace({
         </div>
       ) : null}
 
-      <CanvasWindow
-        event={selectedEvent}
-        dates={{
-          startDate: plan.intent.startDate ?? defaults.startDate,
-          startTime: plan.intent.startTime ?? defaults.startTime,
-          endDate: plan.intent.endDate ?? defaults.endDate,
-          endTime: plan.intent.endTime ?? defaults.endTime,
-        }}
-        onChange={setWindow}
-        googleBudgeted={plan.intent.budget.googleDaily > 0}
-      />
+      <div className={VIZ_ZONE_GUTTER.normal}>
+        <CanvasWindow
+          event={selectedEvent}
+          dates={{
+            startDate: plan.intent.startDate ?? defaults.startDate,
+            startTime: plan.intent.startTime ?? defaults.startTime,
+            endDate: plan.intent.endDate ?? defaults.endDate,
+            endTime: plan.intent.endTime ?? defaults.endTime,
+          }}
+          onChange={setWindow}
+          googleBudgeted={plan.intent.budget.googleDaily > 0}
+        />
+      </div>
 
-      <CanvasBudget
-        budget={plan.intent.budget}
-        mode={budgetMode}
-        lifetime={lifetimeTotal}
-        startDate={plan.intent.startDate}
-        endDate={plan.intent.endDate}
-        hasUserEdit={hasUserEdit}
-        onBudget={(budget) => patchIntent({ budget })}
-        onMode={(mode) => {
-          setBudgetMode(mode);
-          if (mode === "lifetime" && days) {
-            setLifetimeTotal(
-              Math.round(
-                (plan.intent.budget.metaDaily +
-                  plan.intent.budget.tiktokDaily +
-                  plan.intent.budget.googleDaily) *
-                  days,
-              ),
-            );
-          }
-        }}
-        onLifetime={setLifetimeTotal}
-      />
+      <div className={VIZ_ZONE_GUTTER.tight}>
+        <CanvasBudget
+          budget={plan.intent.budget}
+          mode={budgetMode}
+          lifetime={lifetimeTotal}
+          startDate={plan.intent.startDate}
+          endDate={plan.intent.endDate}
+          hasUserEdit={hasUserEdit}
+          onBudget={(budget) => patchIntent({ budget })}
+          onMode={(mode) => {
+            setBudgetMode(mode);
+            if (mode === "lifetime" && days) {
+              setLifetimeTotal(
+                Math.round(
+                  (plan.intent.budget.metaDaily +
+                    plan.intent.budget.tiktokDaily +
+                    plan.intent.budget.googleDaily) *
+                    days,
+                ),
+              );
+            }
+          }}
+          onLifetime={setLifetimeTotal}
+        />
+      </div>
 
-      <CanvasTarget
-        value={plan.intent.target.value}
-        unit={plan.intent.target.unit}
-        benchmark={targetBenchmark}
-        objectiveIntent={plan.intent.objectiveIntent}
-        presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
-        onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
-        onUnit={setTargetUnit}
-        onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
-      />
+      <div className={VIZ_ZONE_GUTTER.tight}>
+        <CanvasTarget
+          value={plan.intent.target.value}
+          unit={plan.intent.target.unit}
+          benchmark={targetBenchmark}
+          objectiveIntent={plan.intent.objectiveIntent}
+          presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
+          onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
+          onUnit={setTargetUnit}
+          onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+        />
+      </div>
 
       {/* The wizard's PlanLinkBanner still lands here. */}
       <div id={PLAN_STEP2_HASH} />
+      <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasChannels
         rows={rows}
         costs={
@@ -814,7 +827,9 @@ export function PlanWorkspace({
         onRederive={(row) => void rederive(row.adapter)}
         busy={busy}
       />
+      </div>
 
+      <div className={VIZ_ZONE_GUTTER.normal}>
       <CanvasAssets
         planId={plan.id}
         hasMetaDraft={hasMetaDraft}
@@ -823,6 +838,7 @@ export function PlanWorkspace({
         }}
         onUnregistered={setUnregisteredAssets}
       />
+      </div>
 
       {drawer?.adapter === "meta" ? (
         <MetaDrawerMount
@@ -894,6 +910,7 @@ export function PlanWorkspace({
         />
       ) : null}
 
+      <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasLaunch
         button={launchButton}
         stages={state === "live" ? funnel?.stages : undefined}
@@ -903,6 +920,7 @@ export function PlanWorkspace({
           void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
         }
       />
+      </div>
 
       {/* "From existing campaign…" only ever seeds the Meta draft. */}
       <CampaignLibraryPicker

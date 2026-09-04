@@ -37,7 +37,7 @@ export function CanvasWindow({
   const handles = useMemo(() => planWindowHandles(dates, event, clock), [dates, event, clock]);
 
   return (
-    <section aria-label="window">
+    <section aria-label="window" className="min-h-[64px]">
       <WindowBar
         moments={moments}
         start={handles.start}

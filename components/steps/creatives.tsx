@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo, useEffect, useId } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, useId, type ReactNode } from "react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -65,6 +65,7 @@ import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurfa
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { META_DRAWER_COPY } from "@/lib/plan/drawer";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
@@ -815,8 +816,9 @@ function CreativesBody({
                   {/* The drawer renders this once, on the audiences tab. */}
                   
 
-                  {/* Identity: Page + IG */}
-                  <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
+                  {/* Identity: Page + IG — wizard keeps it here; drawer demotes it. */}
+                  {!drawer ? (
+                  <div className="grid gap-4 grid-cols-2">
                     <div>
                       <Combobox
                         label="Facebook Page"
@@ -1017,6 +1019,7 @@ function CreativesBody({
                       })()}
                     </div>
                   </div>
+                  ) : null}
                 </div>
               </Card>
 
@@ -1168,7 +1171,7 @@ function CreativesBody({
                         </div>
                       ))}
 
-                      <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
+                      <div className="grid grid-cols-2 gap-4">
                         <Input
                           label="Headline"
                           value={active.headline}
@@ -1215,6 +1218,71 @@ function CreativesBody({
                       )}
                     </div>
                   </Card>
+                  {drawer ? (
+                    <IdentityDisclosure
+                      pageName={
+                        pages.data.find((p) => p.id === active.identity?.pageId)?.name ??
+                        active.identity?.pageId ??
+                        null
+                      }
+                      igHandle={
+                        igAccounts.data.find((ig) => ig.id === active.identity?.instagramAccountId)
+                          ?.username ??
+                        active.identity?.instagramAccountId ??
+                        null
+                      }
+                      fromDefaults={Boolean(
+                        settings?.channelDefaultsApplied?.facebookPage ||
+                          settings?.channelDefaultsApplied?.instagramActor,
+                      )}
+                    >
+                      <div className="grid gap-4 grid-cols-1">
+                        {/* Identity fields remounted in the drawer disclosure */}
+                        <Combobox
+                          label="Facebook Page"
+                          value={active.identity?.pageId ?? ""}
+                          onChange={(pageId) => handlePageChange(active.id, pageId)}
+                          placeholder={
+                            fbTokenExpired
+                              ? "Reconnect Facebook in Account Setup"
+                              : "Select page…"
+                          }
+                          loading={pages.loading && pages.data.length === 0}
+                          disabled={fbTokenExpired}
+                          emptyText="No pages found"
+                          options={pages.data.map((p) => ({
+                            value: p.id,
+                            label: p.name,
+                            sublabel: p.category ?? undefined,
+                          }))}
+                        />
+                        <Select
+                          label="Instagram Account"
+                          value={active.identity?.instagramAccountId ?? ""}
+                          onChange={(e) => {
+                            const igId = e.target.value;
+                            updateAd(active.id, {
+                              identity: {
+                                ...(active.identity ?? { pageId: "", instagramAccountId: "" }),
+                                instagramAccountId: igId,
+                              },
+                            });
+                            clearChannelDefaultMark("instagramActor");
+                            if (active.identity?.pageId) {
+                              setPageInstagramOverride(active.identity.pageId, igId);
+                            }
+                          }}
+                          options={[
+                            { value: "", label: "— Select account —" },
+                            ...igAccounts.data.map((ig) => ({
+                              value: ig.id,
+                              label: ig.username ? `@${ig.username.replace(/^@/, "")}` : (ig.name ?? ig.id),
+                            })),
+                          ]}
+                        />
+                      </div>
+                    </IdentityDisclosure>
+                  ) : null}
                 </>
               )}
 
@@ -1968,18 +2036,58 @@ const blobUrlRegistry = new Map<string, string>();
 
 // ─── Single asset upload slot ─────────────────────────────────────────────────
 
+function IdentityDisclosure({
+  pageName,
+  igHandle,
+  fromDefaults,
+  children,
+}: {
+  pageName: string | null;
+  igHandle: string | null;
+  fromDefaults: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const page = pageName ? `f ${pageName}` : "f —";
+  const ig = igHandle
+    ? `@${igHandle.replace(/^@/, "")}`
+    : "—";
+  return (
+    <div className="border-t border-border pt-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        ⊞ identity
+      </button>
+      {!open ? (
+        <span className={`ml-2 ${VIZ_TYPE.body} text-muted-foreground`}>
+          {page} · {ig}
+        </span>
+      ) : null}
+      {fromDefaults ? <ProvenanceBadge provenance="derived" /> : null}
+      {open ? <div className="mt-2">{children}</div> : null}
+    </div>
+  );
+}
+
 function AssetSlot({
   asset,
   mediaType,
   adAccountId,
   onUpdate,
   onQueueAssetDrop,
+  hero = false,
 }: {
   asset: Asset;
   mediaType: "image" | "video";
   adAccountId?: string;
   onUpdate: (patch: Partial<Asset>) => void;
   onQueueAssetDrop?: (libraryId: string) => void;
+  hero?: boolean;
 }) {
   const { mutate: upload } = useUploadAsset();
   const inputId = useId();
@@ -2169,15 +2277,15 @@ function AssetSlot({
         onDragOver={handleDragOver}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
-        className={`group/slot relative ${aspectClass} w-full overflow-hidden rounded-xl border-2 border-dashed transition-colors
-          ${isUploaded
+        className={`group/slot relative ${hero ? "h-40 w-full" : `${aspectClass} w-full`} overflow-hidden rounded-xl border-2 border-dashed transition-colors ${
+          isUploaded
             ? "border-primary/40 bg-primary-light"
             : isDragOver
               ? "border-primary bg-primary-light/50"
               : isError
                 ? "border-destructive/40 bg-destructive/5"
                 : "border-border bg-muted/30 hover:border-border-strong"
-          }`}
+        }`}
       >
         {/* ── Uploading spinner ── */}
         {isUploading && (
@@ -2505,12 +2613,16 @@ function AssetVariationCard({
             placeholder={`Variation ${index + 1}`}
           />
           
-          <div className={`grid gap-4 ${
-            slots.length === 1 || drawer
-              ? "max-w-[150px] grid-cols-1"
-              : slots.length === 2
-                ? "max-w-[320px] grid-cols-2"
-                : "max-w-[480px] grid-cols-3"
+          <div className={`grid gap-3 ${
+            drawer
+              ? slots.length === 2
+                ? "max-w-none grid-cols-1 min-[720px]:grid-cols-2"
+                : "max-w-none grid-cols-1"
+              : slots.length === 1
+                ? "max-w-[150px] grid-cols-1"
+                : slots.length === 2
+                  ? "max-w-[320px] grid-cols-2"
+                  : "max-w-[480px] grid-cols-3"
           }`}>
             {slots.map((asset) => (
               <AssetSlot
@@ -2518,6 +2630,7 @@ function AssetVariationCard({
                 asset={asset}
                 mediaType={mediaType}
                 adAccountId={adAccountId}
+                hero={drawer}
                 onUpdate={(patch) => updateAsset(asset.id, patch)}
                 onQueueAssetDrop={
                   onQueueAssetDrop

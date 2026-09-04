@@ -1,5 +1,6 @@
 "use client";
 
+import { SegmentedControl } from "@/components/plan/segmented-control";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { SplitBar } from "@/components/viz/split-bar";
@@ -12,6 +13,7 @@ import {
 } from "@/lib/plan/canvas-inputs";
 import { lifetimeToDaily, scheduledDayCount } from "@/lib/plan/budget-split";
 import type { CampaignPlanBudgetSplit } from "@/lib/plan/types";
+import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 /**
  * Zone C — how much, and how is it shared. Two chips for the daily /
@@ -55,36 +57,32 @@ export function CanvasBudget({
   }
 
   return (
-    <section aria-label="budget" className="space-y-1.5">
+    <section aria-label="budget" className="min-h-[80px] space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
         <MetricChip label={mode === "lifetime" ? "total" : "per day"} size="lg">
-          <span className="tabular-nums">£</span>
+          <span className={VIZ_TYPE.display}>£</span>
           <input
-            className="w-20 border-0 bg-transparent p-0 text-right tabular-nums outline-none"
+            className={`w-20 border-0 bg-transparent p-0 text-right outline-none ${VIZ_TYPE.display}`}
             aria-label={mode === "lifetime" ? "budget total" : "budget per day"}
             inputMode="decimal"
             value={total || ""}
             onChange={(event) => commitTotal(Number(event.target.value) || 0)}
           />
-          <span className="text-[11px] text-muted-foreground">
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
             {mode === "lifetime" ? "total" : "/day"}
           </span>
         </MetricChip>
-        {(["daily", "lifetime"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            aria-pressed={mode === option}
-            className={`rounded-sm border px-1.5 py-0.5 text-[10px] ${
-              mode === option
-                ? "border-foreground bg-foreground text-background"
-                : "border-border text-muted-foreground"
-            }`}
-            onClick={() => onMode(option)}
-          >
-            {option}
-          </button>
-        ))}
+        <SegmentedControl
+          ariaLabel="budget mode"
+          value={mode}
+          onChange={(next) => {
+            if (next) onMode(next);
+          }}
+          options={[
+            { id: "daily", label: "daily" },
+            { id: "lifetime", label: "lifetime" },
+          ]}
+        />
         {mode === "lifetime" ? (
           <MetricChip label="derived per day" size="sm">
             £{Math.round(derivedDaily)}/d
@@ -100,7 +98,7 @@ export function CanvasBudget({
         onChange={(segments) => onBudget(planSplitToBudget(segments, derivedDaily))}
         tip={hasUserEdit ? undefined : PLAN_CANVAS_COPY.splitZeroIsOff}
       />
-      <div className="text-[11px] tabular-nums text-muted-foreground">
+      <div className={`${VIZ_TYPE_NUM.body} text-muted-foreground`}>
         {planSplitAmountsLine(budget)}
       </div>
     </section>
