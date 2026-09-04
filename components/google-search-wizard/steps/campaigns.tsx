@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
@@ -198,9 +198,7 @@ function MultiCampaignView({ tree, onChange, onJumpToKeywords }: Props) {
           >
             Apply to all
           </Button>
-          <Prose className="text-xs text-muted-foreground">
-            Google Ads budgets are <strong>daily</strong>. Use £1/day for a smoke test, then raise per campaign.
-          </Prose>
+          
         </div>
       ) : null}
 

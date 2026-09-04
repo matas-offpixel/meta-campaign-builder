@@ -46,7 +46,7 @@ import {
   validateInterestsTargetability,
   type InterestValidateRequestItem,
 } from "@/lib/interest-targetability";
-import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -1329,9 +1329,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold">Interest Groups ({groups.length})</h3>
-          <Prose className="text-xs text-muted-foreground">
-            Search Meta&apos;s interest database and group interests for targeted ad sets.
-          </Prose>
+          
           {(pageContext.length > 0 || customAudienceSignals.length > 0 || Object.keys(genreDistribution).length > 0) && (
             <Datum className="mt-0.5 text-[11px] text-muted-foreground">
               <span className="font-medium text-primary">Discover from Pages</span> pooling{" "}
@@ -1361,9 +1359,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
         <Card className="py-8 text-center">
           {hasPageAudiences ? (
             <>
-              <Prose className="text-sm text-muted-foreground">
-                Auto-generate interest groups based on your page audiences.
-              </Prose>
+              
               <StatusLine className="mt-1 text-xs text-warning">
                 Auto-generated suggestions use heuristic genre mapping — search Meta&apos;s interest database for real targeting IDs.
               </StatusLine>
@@ -1441,9 +1437,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                 <StatusLine className="text-sm font-medium text-warning">
                   {CLUSTER_CHOOSER_PROMPT}
                 </StatusLine>
-                <Prose className="text-[11px] text-muted-foreground">
-                  Scene-hint presets appear after you pick a category.
-                </Prose>
+                
                 <ClusterChooserButtons
                   selected={group.clusterType}
                   inferred={inferClusterFromName(group.name)}
@@ -1570,19 +1564,8 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                           </span>
                         )}
                       </div>
-                      {effectiveCluster ? (
-                        <Prose className="mt-0.5 text-[11px] text-muted-foreground">
-                          Generates <span className="font-medium">{effectiveCluster}</span> interests based on fans of your selected pages.
-                          Irrelevant categories filtered out.
-                        </Prose>
-                      ) : (
-                        <Prose className="mt-0.5 text-[11px] text-muted-foreground">
-                          Select a cluster above to get targeted suggestions, or discover across all categories.
-                        </Prose>
-                      )}
-                      <Prose className="mt-0.5 text-[10px] text-muted-foreground/70 italic">
-                        Suggestions are tailored to each cluster using selected page audience signals.
-                      </Prose>
+                      
+                      
                       {pageContext.length > 0 ? (
                         <Datum className="mt-1 text-[11px] text-muted-foreground/80">
                           Seeded by: <span className="font-medium text-foreground">
@@ -1771,9 +1754,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                             <StatusLine className="text-sm font-medium text-warning">
                               {presetSurface.prompt}
                             </StatusLine>
-                            <Prose className="text-[11px] text-muted-foreground">
-                              Scene-hint presets appear after you pick a category.
-                            </Prose>
+                            
                             <ClusterChooserButtons
                               selected={group.clusterType}
                               inferred={inferClusterFromName(group.name)}

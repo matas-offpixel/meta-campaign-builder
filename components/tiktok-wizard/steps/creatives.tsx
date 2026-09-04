@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -58,15 +58,20 @@ export function CreativesStep({
   draft,
   onSave,
   surface = "wizard",
+  planDestinationUrl = "",
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   surface?: StepSurface;
+  planDestinationUrl?: string;
 }) {
+  const first = draft.creatives.items[0];
   const [baseName, setBaseName] = useState("TikTok creative");
   const [videoInput, setVideoInput] = useState("");
-  const [adText, setAdText] = useState("");
-  const [landingPageUrl, setLandingPageUrl] = useState("");
+  const [adText, setAdText] = useState(() => first?.adText || first?.caption || "");
+  const [landingPageUrl, setLandingPageUrl] = useState(
+    () => first?.landingPageUrl || planDestinationUrl || "",
+  );
   const [cta, setCta] = useState("LEARN_MORE");
   const [variationCount, setVariationCount] = useState("1");
   const [saving, setSaving] = useState(false);
@@ -79,6 +84,14 @@ export function CreativesStep({
   const itemsRef = useRef(draft.creatives.items);
   itemsRef.current = draft.creatives.items;
   const refreshingRef = useRef(false);
+
+  useEffect(() => {
+    const seeded = draft.creatives.items[0];
+    setAdText((current) => current || seeded?.adText || seeded?.caption || "");
+    setLandingPageUrl(
+      (current) => current || seeded?.landingPageUrl || planDestinationUrl || "",
+    );
+  }, [draft.creatives.items, planDestinationUrl]);
 
   async function persist(items: TikTokCreativeDraft[]): Promise<void> {
     setSaving(true);
@@ -338,16 +351,7 @@ export function CreativesStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Creatives</h2>
-        <Prose className="mt-2 text-sm text-muted-foreground">
-          Upload a video to the TikTok Asset Library, or paste an existing
-          video URL / video_id. Spark Ads are a v2 placeholder and are not
-          wired.
-        </Prose>
-      </div>
-      </Chrome>
+      
 
       {error && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
@@ -367,39 +371,9 @@ export function CreativesStep({
         </div>
       )}
 
-      <Chrome>
-      <fieldset className="space-y-4 rounded-md border border-border bg-background p-4">
-        <legend className="px-1 text-sm font-medium">Creative mode</legend>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="radio" checked readOnly />
-          Video reference
-        </label>
-        <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input type="radio" disabled />
-          Spark Ad — Coming in v2: boost an existing organic post.
-        </label>
-      </fieldset>
-      </Chrome>
+      
 
-      <Chrome>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Input
-          id="creative-base-name"
-          label="Base creative name"
-          value={baseName}
-          onChange={(event) => setBaseName(event.target.value)}
-          placeholder="Prospecting video"
-        />
-        <Input
-          id="creative-variation-count"
-          label="Variations"
-          inputMode="numeric"
-          value={variationCount}
-          onChange={(event) => setVariationCount(event.target.value)}
-          placeholder="1"
-        />
-      </div>
-      </Chrome>
+      
 
       <div
         onDragOver={(event) => {
@@ -508,7 +482,7 @@ export function CreativesStep({
           {adText.length}/100 characters
         </Datum>
         {drawer ? (
-          <DestinationBadge url={landingPageUrl} />
+          <DestinationBadge url={landingPageUrl || planDestinationUrl} />
         ) : (
         <div>
           <Input

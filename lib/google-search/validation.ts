@@ -39,17 +39,6 @@ export interface GoogleSearchValidationIssue {
 
 export type GoogleSearchWizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-export const GOOGLE_SEARCH_WIZARD_STEPS = [
-  { label: "Plan Setup", description: "Event + Google Ads account" },
-  { label: "Campaigns", description: "Define campaigns" },
-  { label: "Ad Groups & Keywords", description: "Per campaign" },
-  { label: "Negatives", description: "Plan + campaign-scoped" },
-  { label: "Ad Copy", description: "RSA headlines + descriptions" },
-  { label: "Targeting & Budget", description: "Geo, devices, budget" },
-  { label: "Review", description: "Pre-push checklist" },
-  { label: "Push", description: "Send to Google Ads" },
-] as const;
-
 export function validateGoogleSearchStep(
   step: GoogleSearchWizardStep,
   tree: GoogleSearchPlanTree,

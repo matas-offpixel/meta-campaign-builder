@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Clock, FileText, Search, Tag, Trash2, X } from "lucide-react";
 
+import { Datum } from "@/components/steps/step-surface";
 import { Button } from "@/components/ui/button";
 import {
   tikTokTemplateClientLabel,
@@ -103,11 +104,11 @@ function TikTokLoadTemplateModalBody({
           ) : filtered.length === 0 ? (
             <div className="py-12 text-center">
               <FileText className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">
+              <Datum className="text-sm text-muted-foreground">
                 {templates.length === 0
                   ? "No templates saved yet."
                   : "No templates match your search."}
-              </p>
+              </Datum>
             </div>
           ) : (
             <div className="mt-2 space-y-2">
@@ -122,13 +123,13 @@ function TikTokLoadTemplateModalBody({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">
+                        <Datum className="truncate text-sm font-medium text-foreground">
                           {template.name}
-                        </p>
+                        </Datum>
                         {template.description && (
-                          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                          <Datum className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                             {template.description}
-                          </p>
+                          </Datum>
                         )}
                         <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
                           <span className="font-medium text-foreground">

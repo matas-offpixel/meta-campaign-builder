@@ -396,13 +396,3 @@ function asStringRecord(value: unknown): Record<string, string> {
   );
 }
 
-export const TIKTOK_WIZARD_STEPS = [
-  "Account setup",
-  "Campaign setup",
-  "Optimisation strategy",
-  "Audiences",
-  "Creatives",
-  "Budget & schedule",
-  "Assign creatives",
-  "Review & launch",
-] as const;

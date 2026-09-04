@@ -1,3 +1,7 @@
+import {
+  applyMetaChannelDefaults,
+  type ResolvedChannelDefaults,
+} from "./clients/channel-defaults.ts";
 import type { CampaignDraft, WizardStep } from "./types.ts";
 import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
@@ -9,16 +13,21 @@ export interface ValidationResult {
   errors: string[];
 }
 
-export function validateStep(step: WizardStep, draft: CampaignDraft): ValidationResult {
+export function validateStep(
+  step: WizardStep,
+  draft: CampaignDraft,
+  defaults?: ResolvedChannelDefaults | null,
+): ValidationResult {
+  const effective = defaults ? applyMetaChannelDefaults(draft, defaults) : draft;
   switch (step) {
-    case 0: return validateAccountSetup(draft);
-    case 1: return validateCampaignSetup(draft);
-    case 2: return validateOptimisationStrategy(draft);
-    case 3: return validateAudiences(draft);
-    case 4: return validateCreatives(draft);
-    case 5: return validateBudgetSchedule(draft);
-    case 6: return validateAssignCreatives(draft);
-    case 7: return validateReview(draft);
+    case 0: return validateAccountSetup(effective);
+    case 1: return validateCampaignSetup(effective);
+    case 2: return validateOptimisationStrategy(effective);
+    case 3: return validateAudiences(effective);
+    case 4: return validateCreatives(effective);
+    case 5: return validateBudgetSchedule(effective);
+    case 6: return validateAssignCreatives(effective);
+    case 7: return validateReview(effective);
     default: return { valid: true, errors: [] };
   }
 }

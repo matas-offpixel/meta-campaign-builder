@@ -279,6 +279,21 @@ const DETAIL_EDITABLE: ReadonlySet<DetailRowId> = new Set<DetailRowId>([
   "goal",
 ]);
 
+/**
+ * Draft value first; a resolvable client default second, badged ⌁.
+ * Empty + unset stays null so the row reads "—" / not-instrumented.
+ */
+export function resolveDetailField(
+  draftValue: string | null | undefined,
+  fallback: { value: string | null } | null | undefined,
+): { value: string | null; provenance: VizProvenance } | undefined {
+  const draft = draftValue?.trim() ?? "";
+  if (draft) return { value: draft, provenance: "derived" };
+  const fromDefault = fallback?.value?.trim() ?? "";
+  if (fromDefault) return { value: fromDefault, provenance: "derived" };
+  return undefined;
+}
+
 export function detailRows(
   values: Partial<Record<DetailRowId, { value: string | null; provenance: VizProvenance }>>,
 ): DetailRow<DetailRowId>[] {

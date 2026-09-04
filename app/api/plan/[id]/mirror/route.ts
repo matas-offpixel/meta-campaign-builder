@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  loadChannelDefaultsForEvent,
+  resolveChannelDefaults,
+} from "@/lib/clients/channel-defaults";
 import { loadGoogleSearchPlanTree } from "@/lib/db/google-search-plans";
 import {
   googleChannelFacts,
@@ -37,6 +41,8 @@ export async function GET(
   }
 
   const linked = await loadLinkedDraftsForPlan(supabase, plan);
+  const channel = await loadChannelDefaultsForEvent(supabase, plan.intent.eventId);
+  const resolved = resolveChannelDefaults(channel?.stored ?? null, channel?.overrides ?? {});
   const metaUpdatedAt = linked.meta?.updatedAt ?? null;
   const tiktokLastDerivedAt = linked.tiktok?.lastDerivedAt ?? null;
   let googleLast = null as string | null;
@@ -92,7 +98,7 @@ export async function GET(
               .filter((step) => step !== 7)
               .map((step) => ({
                 step,
-                errors: validateStep(step, linked.meta!).errors,
+                errors: validateStep(step, linked.meta!, resolved).errors,
               })),
           )
         : [],

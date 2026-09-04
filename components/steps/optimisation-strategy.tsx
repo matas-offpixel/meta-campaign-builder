@@ -24,7 +24,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { Card, CardTitle } from "@/components/ui/card";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import { InfoTip } from "@/components/viz/info-tip";
@@ -731,9 +731,7 @@ function BudgetGuardrailsCard({
               style={{ width: `${usagePct}%` }}
             />
           </div>
-          <Prose className="mt-2 text-xs text-foreground">
-            Automation can scale budgets up to <strong>{sym}{ceiling.toLocaleString()}</strong> total, but no further.
-          </Prose>
+          
         </div>
 
         {/* Ceiling behaviour */}
@@ -838,11 +836,7 @@ function BudgetGuardrailsCard({
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
                 </div>
-                {guardrails.maxDailyIncreasePercent != null && (
-                  <Prose className="mt-1 text-xs text-muted-foreground">
-                    No single ad set can increase more than +{guardrails.maxDailyIncreasePercent}% in one adjustment cycle.
-                  </Prose>
-                )}
+                
               </div>
 
               {/* Cooldown */}
@@ -1208,14 +1202,7 @@ export function OptimisationStrategy({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-6"}>
-      <Chrome>
-        <div>
-          <h2 className="font-heading text-2xl tracking-wide">Optimisation Strategy</h2>
-          <Prose className="mt-1 text-sm text-muted-foreground">
-            Configure performance-based rules that automatically scale, reduce, or pause ad sets based on live metrics.
-          </Prose>
-        </div>
-      </Chrome>
+      
 
       <BenchmarkCard benchmarks={benchmarks} />
 

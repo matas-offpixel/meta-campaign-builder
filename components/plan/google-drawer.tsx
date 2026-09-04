@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import { AdCopyStep } from "@/components/google-search-wizard/steps/ad-copy";
 import { AdGroupsKeywordsStep } from "@/components/google-search-wizard/steps/ad-groups-keywords";
@@ -11,6 +11,11 @@ import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
 import { Drawer } from "@/components/viz/drawer";
 import { InfoTip } from "@/components/viz/info-tip";
+import {
+  fillGoogleChannelDefaultsIfEmpty,
+  type ResolvedChannelDefaults,
+} from "@/lib/clients/channel-defaults";
+import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 import {
   GOOGLE_DRAWER_COPY,
   GOOGLE_DRAWER_TABS,
@@ -58,6 +63,8 @@ export function GoogleDrawer({
   doneLabel,
   onTabChange,
   wizardContext,
+  destinationUrl = "",
+  channelDefaults = null,
 }: {
   open: boolean;
   controller: GoogleSearchTreeController;
@@ -70,8 +77,22 @@ export function GoogleDrawer({
   doneLabel?: string;
   onTabChange?: (tab: GoogleDrawerTab) => void;
   wizardContext?: GoogleSearchWizardContext;
+  destinationUrl?: string;
+  channelDefaults?: ResolvedChannelDefaults | null;
 }) {
-  const { tree, saveStatus, onChange, flush } = controller;
+  const { tree, hydrated, saveStatus, onChange, flush } = controller;
+
+  const appliedDefaults = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !tree || appliedDefaults.current) return;
+    appliedDefaults.current = true;
+    const filled = channelDefaults
+      ? fillGoogleChannelDefaultsIfEmpty(tree, channelDefaults)
+      : null;
+    const withUrls = fillEmptyRsaFinalUrls(filled ?? tree, destinationUrl);
+    const next = withUrls ?? filled;
+    if (next) onChange(next);
+  }, [hydrated, tree, channelDefaults, destinationUrl, onChange]);
 
   const [tab, setTabState] = useState<GoogleDrawerTab>(() => {
     const from = tabForAnchor("google", initialAnchor);
@@ -170,7 +191,12 @@ export function GoogleDrawer({
         ) : null}
 
         {tab === "g-copy" ? (
-          <AdCopyStep surface="drawer" tree={tree} onChange={onChange} />
+          <AdCopyStep
+            surface="drawer"
+            tree={tree}
+            onChange={onChange}
+            planDestinationUrl={destinationUrl}
+          />
         ) : null}
 
         <GoogleDrawerDetails
@@ -178,6 +204,8 @@ export function GoogleDrawer({
           onChange={onChange}
           planId={planId}
           wizardContext={wizardContext}
+          destinationUrl={destinationUrl}
+          channelDefaults={channelDefaults}
         />
 
         {variant === "page" && !planId ? (
@@ -186,4 +214,25 @@ export function GoogleDrawer({
       </StepSurfaceProvider>
     </Drawer>
   );
+}
+
+function fillEmptyRsaFinalUrls(
+  tree: GoogleSearchPlanTree,
+  url: string,
+): GoogleSearchPlanTree | null {
+  const dest = url.trim();
+  if (!dest) return null;
+  let changed = false;
+  const campaigns = tree.campaigns.map((campaign) => ({
+    ...campaign,
+    ad_groups: campaign.ad_groups.map((group) => ({
+      ...group,
+      rsas: group.rsas.map((rsa) => {
+        if (rsa.final_url?.trim()) return rsa;
+        changed = true;
+        return { ...rsa, final_url: dest };
+      }),
+    })),
+  }));
+  return changed ? { ...tree, campaigns } : null;
 }

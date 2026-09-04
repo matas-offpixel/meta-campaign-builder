@@ -32,6 +32,7 @@ export function Drawer({
   status,
   onDone,
   onLoadTemplate,
+  onSaveTemplate,
   triggerRef,
   variant = "sheet",
   header,
@@ -52,6 +53,7 @@ export function Drawer({
   status?: VizStatus;
   onDone: () => void;
   onLoadTemplate?: () => void;
+  onSaveTemplate?: () => void;
   triggerRef?: RefObject<Element | null>;
   /**
    * `sheet` is the side sheet over the canvas. `page` is the same shell
@@ -133,7 +135,7 @@ export function Drawer({
       className={
         page
           ? "flex min-h-0 flex-col rounded-md border border-border bg-background"
-          : "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-md md:w-[34rem] max-md:inset-0"
+          : "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-background shadow-md lg:w-[min(880px,64vw)] max-lg:inset-0"
       }
       onKeyDown={onSheetKeyDown}
       onPointerDown={(event) => event.stopPropagation()}
@@ -186,6 +188,15 @@ export function Drawer({
             ⌁ template ▸
           </button>
         ) : null}
+        {onSaveTemplate ? (
+          <button
+            type="button"
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={onSaveTemplate}
+          >
+            save as template
+          </button>
+        ) : null}
         {platformless && !page ? (
           <button
             type="button"
@@ -199,7 +210,7 @@ export function Drawer({
       </header>
       <div
         className={
-          page ? "px-3 py-3" : "min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          page ? "px-3 py-3" : "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3"
         }
       >
         {children}
@@ -225,5 +236,13 @@ export function Drawer({
     </div>
   );
 
-  return page ? sheet : createPortal(sheet, document.body);
+  return page
+    ? sheet
+    : createPortal(
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" aria-hidden="true" />
+          {sheet}
+        </>,
+        document.body,
+      );
 }

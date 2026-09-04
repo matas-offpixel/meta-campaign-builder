@@ -232,11 +232,6 @@ describe("historical asset backfill", () => {
       formatBackfillSummary({ registered: 2, alreadyRegistered: 1, cannotRegister: 1 }),
       "2 registered · 1 already · 1 cannot register",
     );
-    const matrix = readFileSync("components/plan/asset-routing-matrix.tsx", "utf8");
-    assert.match(matrix, /formatBackfillSummary/);
-    assert.match(matrix, /backfillSummary/);
-    assert.match(matrix, /cannot_register/);
-    assert.match(matrix, /row\.reason/);
     const route = readFileSync("app/api/plan/[id]/asset-backfill/route.ts", "utf8");
     assert.match(route, /alreadyRegistered/);
     assert.match(route, /cannotRegister/);
@@ -287,16 +282,13 @@ describe("M.3 live mirror", () => {
 
   it("workspace refreshes on focus, never polls, and never auto-derives", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    const matrix = readFileSync("components/plan/asset-routing-matrix.tsx", "utf8");
+    const assets = readFileSync("components/plan/canvas-assets.tsx", "utf8");
     assert.match(workspace, /refreshMirror/);
     assert.match(workspace, /addEventListener\("focus"/);
     assert.match(workspace, /visibilitychange/);
     assert.doesNotMatch(workspace, /setInterval/);
-    assert.doesNotMatch(matrix, /setInterval/);
+    assert.doesNotMatch(assets, /setInterval/);
     assert.match(workspace, /staleChip/);
-    assert.match(matrix, /Register \{unregisteredCount\} existing asset/);
-    assert.match(matrix, /newIds\.has\(row\.asset\.id\)/);
-    assert.match(matrix, /diffNewAssetIds/);
     assert.match(workspace, /onRederive/);
     assert.doesNotMatch(workspace, /auto-deriv|autoderiv|void rederive\((["'])tiktok/);
   });

@@ -441,3 +441,19 @@ Nothing else is new. If a fifth primitive appears during build, it should be arg
 7. **Delete** — the 11 zero-information steps, the review steps, the three steppers, the template modals. Copy census (§6) enforced by a test that fails on any `<p>` or `CardDescription` inside `components/plan/**` and the drawers.
 
 Each PR ships alone. Nothing in §6 of the brief is touched by any of them.
+
+---
+
+## Shipped
+
+PRs that built this document, in order. Click count is the honest canvas path from #881: **15** (Meta + TikTok + Google), **3** for TikTok alone (open · upload · Done).
+
+| PR | What shipped |
+|---|---|
+| [#876](https://github.com/off-pixel/meta-campaign-builder/pull/876) | Tokens + primitives (`StatusDot` blocked, `derived ⌁`, `BlockerBadge` anchors, `SplitBar`). |
+| [#877](https://github.com/off-pixel/meta-campaign-builder/pull/877) | Client optimisation presets — the 13 policy fields leave the campaign. |
+| [#878](https://github.com/off-pixel/meta-campaign-builder/pull/878) | Canvas — `/plan/[id]` is the home; `PipelineStepper` retired. |
+| [#879](https://github.com/off-pixel/meta-campaign-builder/pull/879) | Meta drawer — audiences / creatives / ad sets as tabs; plan-linked Launch leaves the wizard. |
+| [#881](https://github.com/off-pixel/meta-campaign-builder/pull/881) | TikTok + Google drawers; click count **15** / **3**. |
+| [#882](https://github.com/off-pixel/meta-campaign-builder/pull/882) | Decisions sheet — read surface over `DecisionRowView`; `◐ n` handle. |
+| [#883](https://github.com/off-pixel/meta-campaign-builder/pull/883) | Deletions — steppers, dead steps, Prose/Chrome, the chrome codemod. |

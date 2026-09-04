@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2, Info } from "lucide-react";
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
@@ -212,15 +212,7 @@ export function AccountSetup({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-2xl space-y-6"}>
-      <Chrome>
-        <div>
-          <h2 className="font-heading text-2xl tracking-wide">Account Setup</h2>
-          <Prose className="mt-1 text-sm text-muted-foreground">
-            Select your Meta ad account and optional conversion pixel.
-            Facebook page and Instagram account are chosen per ad in the Creatives step.
-          </Prose>
-        </div>
-      </Chrome>
+      
 
       {showPrefillBanner && client && (
         <div className="flex items-start gap-2.5 rounded-md border border-primary/30 bg-primary-light/40 px-3 py-2 text-xs text-foreground">

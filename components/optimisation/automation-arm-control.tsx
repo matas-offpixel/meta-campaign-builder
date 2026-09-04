@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { InfoTip } from "@/components/viz/info-tip";
 import { StatusDot } from "@/components/viz/status-dot";
-import { StatusLine } from "@/components/steps/step-surface";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 import {
   armFromFlags,
   currencySymbol,
@@ -232,15 +232,15 @@ export function AutomationArmControl({
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 text-sm">
-            <p className="mb-1 flex items-center gap-1.5 font-medium text-warning">
+            <Datum className="mb-1 flex items-center gap-1.5 font-medium text-warning">
               <AlertTriangle className="h-3.5 w-3.5" />
               Guardrails that will bound writes
-            </p>
-            <p className="text-foreground">
+            </Datum>
+            <Datum className="text-foreground">
               Base budget {sym}
               {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
               {hardBudgetCeiling.toLocaleString()}
-            </p>
+            </Datum>
           </div>
           <DialogFooter>
             <Button

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import {
   useCampaignDraft,
@@ -19,10 +19,15 @@ import {
 } from "@/components/steps/review-launch";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import { LoadTemplateModal } from "@/components/templates/load-template-modal";
+import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { BlockerBadge } from "@/components/viz/blocker-badge";
 import { Drawer } from "@/components/viz/drawer";
 import { InfoTip } from "@/components/viz/info-tip";
-import { deleteTemplateFromDb, loadTemplatesFromDb } from "@/lib/db/templates";
+import {
+  fillMetaChannelDefaultsIfEmpty,
+  type ResolvedChannelDefaults,
+} from "@/lib/clients/channel-defaults";
+import { deleteTemplateFromDb, loadTemplatesFromDb, saveTemplateToDb } from "@/lib/db/templates";
 import {
   META_DRAWER_COPY,
   META_DRAWER_TABS,
@@ -85,6 +90,8 @@ export function MetaDrawer({
   planId = null,
   doneLabel,
   onTabChange,
+  destinationUrl = "",
+  channelDefaults = null,
 }: {
   open: boolean;
   controller: DraftController;
@@ -98,9 +105,12 @@ export function MetaDrawer({
   doneLabel?: string;
   /** Reported up so the canvas can keep `?tab=` on the tab actually open. */
   onTabChange?: (tab: MetaDrawerTab) => void;
+  destinationUrl?: string;
+  channelDefaults?: ResolvedChannelDefaults | null;
 }) {
   const {
     draft,
+    hydrated,
     userId,
     saveStatus,
     flush,
@@ -131,6 +141,10 @@ export function MetaDrawer({
   const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
 
   const settings = draft.settings;
   const mode = settings.wizardMode ?? "new";
@@ -147,10 +161,20 @@ export function MetaDrawer({
       blockerRowsFromValidation(
         visibleSteps
           .filter((step) => step !== 7)
-          .map((step) => ({ step, errors: validateStep(step, draft).errors })),
+          .map((step) => ({ step, errors: validateStep(step, draft, channelDefaults).errors })),
       ),
-    [visibleSteps, draft],
+    [visibleSteps, draft, channelDefaults],
   );
+
+  const appliedDefaults = useRef(false);
+  useEffect(() => {
+    if (!hydrated || !channelDefaults || appliedDefaults.current) return;
+    const next = fillMetaChannelDefaultsIfEmpty(draft, channelDefaults);
+    appliedDefaults.current = true;
+    if (!next) return;
+    setDraft(next);
+    autosave(next);
+  }, [hydrated, channelDefaults, draft, setDraft, autosave]);
 
   const audienceCount = useMemo(() => {
     const a = draft.audiences;
@@ -263,6 +287,11 @@ export function MetaDrawer({
         onDone={done}
         doneLabel={doneLabel}
         onLoadTemplate={() => void openTemplates()}
+        onSaveTemplate={() => {
+          setSaveTemplateOpen(true);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
         triggerRef={triggerRef}
         header={<ModeChip mode={mode} />}
         footer={
@@ -301,6 +330,7 @@ export function MetaDrawer({
               settings={settings}
               onSettingsChange={updateSettings}
               adAccountId={settings.metaAdAccountId || settings.adAccountId}
+              planDestinationUrl={destinationUrl}
             />
           ) : null}
 
@@ -330,6 +360,7 @@ export function MetaDrawer({
             /* In an attach mode the pickers own the `⊞` tab (decision 2). */
             showCampaignSetup={mode === "new"}
             planId={planId}
+            channelDefaults={channelDefaults}
           />
         </StepSurfaceProvider>
       </Drawer>
@@ -342,6 +373,33 @@ export function MetaDrawer({
         onClose={() => setTemplateOpen(false)}
         onSelect={loadTemplate}
         onDelete={(id) => void removeTemplate(id)}
+      />
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        saving={templateSaving}
+        savedSuccessfully={templateSaveSuccess}
+        error={templateSaveError}
+        onClose={() => {
+          setSaveTemplateOpen(false);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
+        onSave={async (name, description, tags) => {
+          if (!userId) return;
+          setTemplateSaving(true);
+          setTemplateSaveError(null);
+          setTemplateSaveSuccess(false);
+          try {
+            await saveTemplateToDb(draft, name, description, tags, userId);
+            setTemplateSaveSuccess(true);
+          } catch (err) {
+            setTemplateSaveError(
+              err instanceof Error ? err.message : "Unknown error saving template",
+            );
+          } finally {
+            setTemplateSaving(false);
+          }
+        }}
       />
     </>
   );

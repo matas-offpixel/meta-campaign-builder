@@ -1552,17 +1552,6 @@ export interface CampaignListItem {
 
 export type WizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
-export const WIZARD_STEPS = [
-  { label: "Account", description: "Setup accounts" },
-  { label: "Campaign", description: "Configure campaign" },
-  { label: "Optimisation", description: "Performance rules" },
-  { label: "Audiences", description: "Build audiences" },
-  { label: "Creatives", description: "Create ads" },
-  { label: "Budget", description: "Budget & schedule" },
-  { label: "Assign", description: "Assign creatives" },
-  { label: "Review", description: "Review & launch" },
-] as const;
-
 /**
  * Legacy single-ad-set sentinel used as the matrix key when the wizard was
  * limited to one existing ad set. Multi-select drafts now key the assignment

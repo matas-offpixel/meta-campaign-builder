@@ -8,7 +8,8 @@ import { CampaignSetupStep } from "@/components/tiktok-wizard/steps/campaign-set
 import { OptimisationStrategyStep } from "@/components/tiktok-wizard/steps/optimisation-strategy";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
-import { TIKTOK_DRAWER_COPY, tiktokDetailRows } from "@/lib/plan/drawer";
+import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
+import { TIKTOK_DRAWER_COPY, resolveDetailField, tiktokDetailRows } from "@/lib/plan/drawer";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 import type { VizProvenance } from "@/lib/viz/tokens";
 
@@ -16,10 +17,12 @@ export function TikTokDrawerDetails({
   draft,
   onSave,
   planId,
+  channelDefaults = null,
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   planId?: string | null;
+  channelDefaults?: ResolvedChannelDefaults | null;
 }) {
   const [open, setOpen] = useState(false);
   const a = draft.accountSetup;
@@ -28,8 +31,11 @@ export function TikTokDrawerDetails({
   const b = draft.budgetSchedule;
 
   const rows = tiktokDetailRows({
-    advertiser: value(a.advertiserId, "derived"),
-    identity: value(a.identityDisplayName ?? a.identityId, "derived"),
+    advertiser: resolveDetailField(a.advertiserId, channelDefaults?.tiktokAdvertiser),
+    identity: resolveDetailField(
+      a.identityDisplayName ?? a.identityId,
+      { value: channelDefaults?.tiktokIdentity.value?.id ?? null },
+    ),
     pixel: value(a.pixelId, "derived"),
     event: value(a.optimisationEvent, "derived"),
     objective: value(c.objective, "derived"),

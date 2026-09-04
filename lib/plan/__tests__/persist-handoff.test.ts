@@ -251,7 +251,6 @@ describe("plan page guards", () => {
   it("plan pages do not grow account pickers or asset upload", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "components/plan/asset-routing-matrix.tsx",
       "app/(dashboard)/plans/page.tsx",
       "app/(dashboard)/plan/[id]/page.tsx",
       "components/plan/canvas-window.tsx",

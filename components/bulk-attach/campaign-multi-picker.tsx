@@ -24,7 +24,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import { isCampaignRuntimeActive } from "@/lib/bulk-attach/campaign-active";
 import type { MetaCampaignSummary } from "@/lib/types";
 import { useFetchCampaigns } from "@/lib/hooks/useMeta";
-import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 interface CampaignMultiPickerProps {
   adAccountId: string | undefined;
@@ -173,12 +173,7 @@ export function CampaignMultiPicker({
         </Button>
       </div>
 
-      {filter === "relevant" && (
-        <Prose className="text-[11px] text-muted-foreground">
-          Showing active &amp; paused campaigns, most recent first. Switch to{" "}
-          <span className="font-medium">All</span> to include archived campaigns.
-        </Prose>
-      )}
+      
 
       {/* Body */}
       {campaigns.status === "loading" && (

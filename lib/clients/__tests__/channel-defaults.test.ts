@@ -6,12 +6,14 @@ import { planToGoogleDraft } from "../../plan/adapters/google.ts";
 import { planToMetaDraft } from "../../plan/adapters/meta.ts";
 import { planToTikTokDraft } from "../../plan/adapters/tiktok.ts";
 import { collectPlanPreflight } from "../../plan/preflight.ts";
+import { validateStep } from "../../validation.ts";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan } from "../../plan/types.ts";
 import {
   annotateChannelDefaultCures,
   applyGoogleChannelDefaults,
   applyMetaChannelDefaults,
   applyTikTokChannelDefaults,
+  fillMetaChannelDefaultsIfEmpty,
   emptyChannelDefaultsRow,
   isClientChannelDefaultsColumnMissing,
   loadChannelDefaultsForEvent,
@@ -245,6 +247,29 @@ describe("preflight consumes defaults and names the cure when unset", () => {
     assert.equal(google?.href, "/clients/client-1");
     assert.equal(page?.href, "/clients/client-1");
     assert.equal(adAccount?.href, "/clients/client-1");
+  });
+
+  it("an empty linked Meta draft still consumes client defaults (Chrome pass)", () => {
+    const linked = planToMetaDraft(goldenPlan());
+    linked.settings.adAccountId = "";
+    linked.settings.metaAdAccountId = "";
+    linked.settings.pixelId = "";
+    linked.settings.metaPixelId = "";
+    const resolved = resolveChannelDefaults(filledRow());
+    const result = collectPlanPreflight(goldenPlan(), { meta: linked }, { stored: filledRow() });
+    assert.equal(result.drafts.meta.settings.metaAdAccountId, "act_111111");
+    assert.equal(
+      result.issues.some((issue) =>
+        /no default Meta ad account|Ad account is required|Ad account ID is required/i.test(
+          issue.message,
+        ),
+      ),
+      false,
+    );
+    assert.equal(validateStep(0, linked).valid, false);
+    assert.equal(validateStep(0, linked, resolved).valid, true);
+    const filled = fillMetaChannelDefaultsIfEmpty(linked, resolved);
+    assert.equal(filled?.settings.metaAdAccountId, "act_111111");
   });
 
   it("linked drafts are not re-applied — overrides already on the draft win", () => {

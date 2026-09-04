@@ -165,10 +165,9 @@ describe("card grep-guards and kit reuse", () => {
   });
 
   it("section anchors are icon + tip, never an orphan ⓘ", () => {
-    const matrix = readFileSync("components/plan/asset-routing-matrix.tsx", "utf8");
+    const assets = readFileSync("components/plan/canvas-assets.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(matrix, /SectionAnchor/);
-    assert.match(matrix, /kind="assets"/);
+    assert.match(assets, /AssetStrip/);
     // Zone E is the derive section now; the anchor moved with it.
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.match(channels, /kind="derive"/);

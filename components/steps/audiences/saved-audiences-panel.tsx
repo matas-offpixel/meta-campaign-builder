@@ -9,7 +9,7 @@ import { SearchInput } from "@/components/ui/search-input";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { SavedAudienceSelection } from "@/lib/types";
 import { useFetchSavedAudiences } from "@/lib/hooks/useMeta";
-import { Datum, Prose, StatusLine } from "@/components/steps/step-surface";
+import { Datum, StatusLine } from "@/components/steps/step-surface";
 
 interface SavedAudiencesPanelProps {
   selection: SavedAudienceSelection;
@@ -56,9 +56,7 @@ export function SavedAudiencesPanel({
     <div className="space-y-4">
       <div>
         <h3 className="text-sm font-semibold">Saved Audiences</h3>
-        <Prose className="text-xs text-muted-foreground">
-          Select saved audiences from your ad account. Each generates a separate ad set.
-        </Prose>
+        
       </div>
 
       {/* ── Load control ─────────────────────────────────────────────────── */}

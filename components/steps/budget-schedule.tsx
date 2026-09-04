@@ -79,7 +79,7 @@ import {
   isAdvantageAudienceSupportedForObjective,
   objectiveDisplayName,
 } from "@/lib/meta/advantage-plus-compat";
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 
 // ─── Preset definitions ──────────────────────────────────────────────────────
 // Presets are resolved at runtime via the same Meta location-search API
@@ -1386,14 +1386,7 @@ export function BudgetSchedule({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-6"}>
-      <Chrome>
-        <div>
-          <h2 className="font-heading text-2xl tracking-wide">Budget & Schedule</h2>
-          <Prose className="mt-1 text-sm text-muted-foreground">
-            Configure spending, timing, and ad set structure.
-          </Prose>
-        </div>
-      </Chrome>
+      
 
       {/*
         Budget, schedule, location and placements are demoted to the drawer's
@@ -1540,12 +1533,7 @@ export function BudgetSchedule({
       {showAdSets ? (
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <Chrome>
-            <div>
-              <CardTitle>Ad Sets</CardTitle>
-              <CardDescription>Generated from your audiences. Fine-tune each ad set.</CardDescription>
-            </div>
-          </Chrome>
+          
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" onClick={addBlankAdSet}>
               <Plus className="h-3.5 w-3.5" />

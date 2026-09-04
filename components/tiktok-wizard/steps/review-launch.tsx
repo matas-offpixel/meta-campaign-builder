@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Chrome, Datum, Prose, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -265,16 +265,7 @@ export function ReviewLaunchStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      <Chrome>
-      <div>
-        <h2 className="font-heading text-xl">Review & launch</h2>
-        <Prose className="mt-2 text-sm text-muted-foreground">
-          Review the full TikTok plan. This launcher never enables Smart+ or
-          automated ads — campaigns are created paused so you can inspect them
-          before spend starts.
-        </Prose>
-      </div>
-      </Chrome>
+      
 
       <button
         type="button"
@@ -311,10 +302,7 @@ export function ReviewLaunchStep({
           {!alreadyLaunched && (
           <div>
             <Datum className="text-sm font-medium">Wizard validation</Datum>
-            <Prose className="mt-1 text-xs text-muted-foreground">
-              Step issues from the wizard. These are not launch preflight
-              blockers.
-            </Prose>
+            
             {wizardIssues.length === 0 ? (
               <Datum className="mt-2 text-sm text-muted-foreground">
                 No wizard validation issues.
@@ -364,10 +352,7 @@ export function ReviewLaunchStep({
       {!alreadyLaunched && wizardIssues.length > 0 && (
         <section className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
           <Datum className="text-sm font-medium">Wizard validation</Datum>
-          <Prose className="mt-1 text-xs text-muted-foreground">
-            Step issues from the wizard. These are not launch preflight
-            blockers.
-          </Prose>
+          
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {wizardIssues.map((issue) => (
               <li key={issue.id}>
@@ -409,13 +394,7 @@ export function ReviewLaunchStep({
             ALWAYS ON
           </span>
         </div>
-        <Prose className="mt-1 text-xs text-muted-foreground">
-          This launcher always publishes ads exactly as uploaded. Every ad is
-          created with <code>is_aco=false</code> and{" "}
-          <code>creative_authorized=false</code> — no Smart+, no Smart
-          Creative, no automated ads. Campaign, ad groups, and ads are all
-          created paused.
-        </Prose>
+        
       </section>
 
       <ReviewPanel title="Account">
@@ -644,12 +623,7 @@ export function ReviewLaunchStep({
         {relaunchError ? (
           <StatusLine tone="alert" className="text-sm text-red-700">{relaunchError}</StatusLine>
         ) : null}
-        {!alreadyLaunched && !writesEnabled && (
-          <Prose className="text-sm text-muted-foreground">
-            TikTok launches are behind a killswitch that is intentionally off.
-            Download as brief / Mark review ready are the available actions.
-          </Prose>
-        )}
+        
       </div>
       <StatusLine className="text-xs text-muted-foreground">
         {draft.reviewReadyAt
