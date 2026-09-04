@@ -19,6 +19,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The parent-sha "falsify" tests (grep `const PARENT =` under
+          # lib/**/__tests__) run `git show <sha>:<path>` against a PINNED
+          # ancestor commit — the PR's own parent at the time it was written,
+          # 6–14 commits behind main today — not HEAD's parent. The default
+          # depth-1 clone has none of those objects, so all of them fail with
+          # `fatal: invalid object name`; depth 2 would still lack them. Full
+          # history is the only depth that always has every pinned sha. The
+          # tests keep failing loudly on a missing object — never skip them.
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version-file: .nvmrc
