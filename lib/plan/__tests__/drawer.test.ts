@@ -23,6 +23,7 @@ import { execSync } from "node:child_process";
 
 import {
   DETAIL_ROW_ORDER,
+  DECISIONS_QUERY_VALUE,
   DRAWER_QUERY_KEY,
   DRAWER_TABS,
   GOOGLE_DRAWER_TABS,
@@ -85,6 +86,7 @@ const DRAWER_MOUNTED = [
   "components/google-search-wizard/steps/campaigns.tsx",
   "components/google-search-wizard/steps/targeting-budget.tsx",
   "components/google-search-wizard/steps/push.tsx",
+  "components/plan/decisions-sheet.tsx",
 ];
 
 // ── A. the drawer opens at the section a row or a blocker names ────────
@@ -172,6 +174,31 @@ describe("drawer URL", () => {
       adapter: null,
       tab: null,
     });
+  });
+
+  it("decisions sheet round-trips as ?drawer=decisions", () => {
+    const url = drawerUrl("/plan/p1", { adapter: null, tab: null, sheet: "decisions" });
+    assert.equal(url, `/plan/p1?${DRAWER_QUERY_KEY}=${DECISIONS_QUERY_VALUE}`);
+    assert.deepEqual(readDrawerUrl(new URLSearchParams(`${DRAWER_QUERY_KEY}=${DECISIONS_QUERY_VALUE}`)), {
+      adapter: null,
+      tab: null,
+      sheet: "decisions",
+    });
+  });
+
+  it("decisions does not steal a channel drawer", () => {
+    assert.deepEqual(readDrawerUrl(new URLSearchParams("drawer=f")), {
+      adapter: "meta",
+      tab: null,
+    });
+  });
+
+  it("the canvas restores and writes the decisions sheet", () => {
+    const src = read("components/plan/plan-workspace.tsx");
+    assert.match(src, /fromUrl\.sheet === "decisions"/);
+    assert.match(src, /sheet: "decisions"/);
+    assert.match(src, /<DecisionsSheet/);
+    assert.match(src, /setDecisionsOpen\(true\)/);
   });
 
   it("the canvas replaces the URL rather than pushing a route", () => {
@@ -812,6 +839,27 @@ describe("write paths are untouched", () => {
     const diff = execSync(`git diff ${base} -- lib/tiktok/write lib/google-search`, {
       encoding: "utf8",
     });
+    assert.equal(diff.trim(), "", diff);
+  });
+
+  it("evaluate.ts tick-runner.ts gates.ts apply.ts have no diff against main", () => {
+    let base = "";
+    for (const ref of ["origin/main", "main"] as const) {
+      try {
+        base = execSync(`git rev-parse --verify ${ref}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        break;
+      } catch {
+        continue;
+      }
+    }
+    assert.ok(base, "neither origin/main nor main exists");
+    const diff = execSync(
+      `git diff ${base} -- lib/optimisation/evaluate.ts lib/optimisation/tick-runner.ts lib/optimisation/gates.ts lib/optimisation/apply.ts`,
+      { encoding: "utf8" },
+    );
     assert.equal(diff.trim(), "", diff);
   });
 });

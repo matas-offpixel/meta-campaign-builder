@@ -331,7 +331,7 @@ describe("M.4 grep-guards — no new rules UI, migration 162 unapplied", () => {
   });
 
   it("decisions list renders a channel badge", () => {
-    const list = readFileSync("components/optimisation/automation-decisions-list.tsx", "utf8");
+    const list = readFileSync("components/plan/decisions-sheet.tsx", "utf8");
     assert.match(list, /row\.channel/);
     assert.match(list, /PlatformGlyph/);
   });

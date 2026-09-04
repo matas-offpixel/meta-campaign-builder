@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Clock } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { InfoTip } from "@/components/viz/info-tip";
+import { StatusDot } from "@/components/viz/status-dot";
+import { StatusLine } from "@/components/steps/step-surface";
 import {
   armFromFlags,
   currencySymbol,
   type AutomationArm,
   type DecisionRowView,
 } from "@/lib/optimisation/automation-ui";
-import { AutomationDecisionsList } from "@/components/optimisation/automation-decisions-list";
+import type { VizStatus } from "@/lib/viz/tokens";
 
 type GatePayload = {
   ok?: boolean;
@@ -33,19 +36,28 @@ type GatePayload = {
   error?: string;
 };
 
-const ARMS: Array<{ id: AutomationArm; label: string; description: string }> = [
-  { id: "off", label: "Off", description: "Default. The tick will not evaluate this campaign." },
+const ARM_DOT: Record<AutomationArm, VizStatus> = {
+  off: "idle",
+  shadow: "in-progress",
+  live: "live",
+};
+
+const ARMS: Array<{ id: AutomationArm; label: string; tip: string }> = [
+  { id: "off", label: "Off", tip: "Default. The tick will not evaluate this campaign." },
   {
     id: "shadow",
     label: "Shadow",
-    description: "Log what the rules would do, change nothing.",
+    tip: "Log what the rules would do, change nothing.",
   },
   {
     id: "live",
     label: "Live",
-    description: "Apply budget changes within guardrails.",
+    tip: "Apply budget changes within guardrails.",
   },
 ];
+
+const ARM_GATE_TIP =
+  "Arms the existing tick. Off / Shadow / Live map to optimisation_automation_enabled and optimisation_automation_live. Live also requires the account-level ENABLE_OPTIMISATION_WRITES env gate.";
 
 function formatEvaluatedAt(iso: string | null): string {
   if (!iso) return "Never — no tick has evaluated this draft yet.";
@@ -63,18 +75,17 @@ export function AutomationArmControl({
   currency,
   baseCampaignBudget,
   hardBudgetCeiling,
-  showDecisions,
 }: {
   draftId: string;
   currency: string;
   baseCampaignBudget: number;
   hardBudgetCeiling: number;
-  showDecisions: boolean;
+  /** @deprecated Decisions moved to the decisions sheet. Ignored. */
+  showDecisions?: boolean;
 }) {
   const [arm, setArm] = useState<AutomationArm>("off");
   const [writesEnabled, setWritesEnabled] = useState<boolean | null>(null);
   const [lastEvaluatedAt, setLastEvaluatedAt] = useState<string | null>(null);
-  const [decisions, setDecisions] = useState<DecisionRowView[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +96,6 @@ export function AutomationArmControl({
     setArm(armFromFlags(json.enabled === true, json.live === true));
     setWritesEnabled(json.writesEnabled === true);
     setLastEvaluatedAt(json.lastEvaluatedAt ?? null);
-    setDecisions(json.decisions ?? []);
   }, []);
 
   useEffect(() => {
@@ -154,17 +164,14 @@ export function AutomationArmControl({
   return (
     <>
       <Card>
-        <CardTitle className="mb-1">Automation</CardTitle>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Arms the existing tick. Off / Shadow / Live map to{" "}
-          <span className="font-mono text-[11px]">optimisation_automation_enabled</span> and{" "}
-          <span className="font-mono text-[11px]">optimisation_automation_live</span>. Live
-          also requires the account-level{" "}
-          <span className="font-mono text-[11px]">ENABLE_OPTIMISATION_WRITES</span> env gate.
-        </p>
+        <div className="mb-3 flex items-center gap-1.5">
+          <CardTitle className="mb-0">Automation</CardTitle>
+          <InfoTip label={ARM_GATE_TIP} />
+        </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">ENABLE_OPTIMISATION_WRITES</span>
+          <InfoTip label={ARM_GATE_TIP} />
           {writesEnabled === null ? (
             <Badge variant="outline">checking…</Badge>
           ) : writesEnabled ? (
@@ -183,43 +190,30 @@ export function AutomationArmControl({
                 type="button"
                 disabled={loading || saving}
                 onClick={() => onSelect(opt.id)}
-                className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-all
+                className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all
                   ${
                     isActive
                       ? "border-primary bg-primary-light ring-1 ring-primary/20"
                       : "border-border bg-card hover:border-border-strong hover:bg-muted/40"
                   }`}
               >
-                <div>
-                  <p className="text-sm font-medium">{opt.label}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{opt.description}</p>
-                </div>
+                <StatusDot status={ARM_DOT[opt.id]} />
+                <span className="text-sm font-medium">{opt.label}</span>
+                <InfoTip label={opt.tip} />
               </button>
             );
           })}
         </div>
 
-        <p className="mt-3 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-          <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            Last optimisation-tick evaluation:{" "}
-            <span className="text-foreground">{formatEvaluatedAt(lastEvaluatedAt)}</span>
-          </span>
-        </p>
+        <StatusLine className="mt-3 text-[11px] text-muted-foreground">
+          Last optimisation-tick evaluation: {formatEvaluatedAt(lastEvaluatedAt)}
+        </StatusLine>
 
-        {error && (
-          <p className="mt-2 text-xs text-destructive">{error}</p>
-        )}
-
-        {showDecisions && (
-          <div className="mt-4 border-t border-border pt-4">
-            <AutomationDecisionsList
-              decisions={decisions}
-              currency={currency}
-              loading={loading}
-            />
-          </div>
-        )}
+        {error ? (
+          <StatusLine tone="alert" className="mt-2 text-xs text-destructive">
+            {error}
+          </StatusLine>
+        ) : null}
       </Card>
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>

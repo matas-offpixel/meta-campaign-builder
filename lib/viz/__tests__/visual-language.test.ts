@@ -183,10 +183,11 @@ describe("plan surfaces keep grep-guards and demote furniture", () => {
   });
 
   it("decisions list uses glyphs not Applied/Dry run words", () => {
-    const list = readFileSync("components/optimisation/automation-decisions-list.tsx", "utf8");
+    const list = readFileSync("components/plan/decisions-sheet.tsx", "utf8");
     assert.match(list, /ActionGlyph/);
     assert.match(list, /PlatformGlyph/);
     assert.match(list, /ThresholdBand/);
     assert.match(list, /filled=\{row\.kind === "applied"\}/);
+    assert.doesNotMatch(list, /Applied|Dry run/);
   });
 });

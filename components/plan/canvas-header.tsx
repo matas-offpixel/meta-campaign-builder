@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 
 import { EventThumb } from "@/components/viz/event-thumb";
 import { InfoTip } from "@/components/viz/info-tip";
@@ -29,8 +28,8 @@ export function CanvasHeader({
   destination,
   onDestination,
   decisionCount,
-  decisionsHref,
   onDecisionsOpen,
+  decisionsRef,
   menuItems,
   resolved,
 }: {
@@ -42,8 +41,8 @@ export function CanvasHeader({
   destination: ResolvedPlanDestination;
   onDestination: (url: string) => void;
   decisionCount: number;
-  decisionsHref: string | null;
   onDecisionsOpen: () => void;
+  decisionsRef?: RefObject<HTMLButtonElement | null>;
   menuItems: OverflowMenuItem[];
   /** Ad account / page / pixel, with where each one came from. */
   resolved: ResolvedChannelDefaults | null;
@@ -87,14 +86,15 @@ export function CanvasHeader({
         <PlanIdentityChips resolved={resolved} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
-        {handle && decisionsHref ? (
-          <Link
-            href={decisionsHref}
+        {handle ? (
+          <button
+            ref={decisionsRef}
+            type="button"
             className="text-[11px] tabular-nums text-muted-foreground hover:text-foreground"
             onClick={onDecisionsOpen}
           >
             {handle}
-          </Link>
+          </button>
         ) : null}
         {handle ? <InfoTip label={PLAN_CANVAS_COPY.decisions} /> : null}
         <OverflowMenu items={menuItems} />
