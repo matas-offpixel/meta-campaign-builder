@@ -15,8 +15,9 @@
  * design choice):
  *   1. Loop-prevention / cooldown: skip (no DB write) if `lastTouchedAt`
  *      is inside `cooldownHours`. For shadow mode that is
- *      `applied_at ?? decided_at`. For live writes it is `applied_at` only
- *      — a shadow recommendation must not start the write cooldown.
+ *      `applied_at ?? last CHANGE decided_at` (scale_up / scale_down /
+ *      pause only). For live writes it is `applied_at` only — a maintain
+ *      or skip row must not start the write cooldown.
  *   2. When every ad set has `dailyBudgetPence === null`, the campaign is
  *      CBO (or lifetime). Evaluate once at campaign grain if Meta reports
  *      a campaign `daily_budget`. Lifetime-only campaigns get a named skip
@@ -123,6 +124,7 @@ export interface DecisionToInsert {
 
 export interface AdSetAutomationState {
   lastAppliedAt: Date | null;
+  /** Last scale_up / scale_down / pause `decided_at` — never the last row of any kind. */
   lastDecidedAt: Date | null;
   appliedIncreasePercentLast24h: number;
 }
@@ -351,8 +353,8 @@ export async function runOptimisationTick(
         try {
           const state = await deps.getAdSetState(row.adsetId, sinceISO);
           // Live writes: cooldown from last APPLIED write only, so a shadow
-          // recommendation cannot start the clock. Shadow mode still falls
-          // back to decided_at so we don't flood 6 rows/day.
+          // recommendation cannot start the clock. Shadow mode falls back
+          // to the last CHANGE decided_at (not the last maintain/skip).
           const lastTouchedAt = gates.dryRun
             ? resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt)
             : state.lastAppliedAt;

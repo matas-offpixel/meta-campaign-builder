@@ -26,7 +26,9 @@
  * (tightest cap binds; ties favour hard ceiling, then expansion, then
  * single-ad-set, then daily-increase). `cooldownHours` remains the
  * recent-touch window. Callers must pass `lastTouchedAt` from the last
- * APPLIED write (`applied_at`) so a shadow row cannot start the cooldown.
+ * APPLIED write (`applied_at`) or, in shadow, the last CHANGE decision
+ * (`scale_up` / `scale_down` / `pause`). A maintain / skip / insufficient
+ * / metric_unavailable row must not start or extend the cooldown.
  */
 
 import type {
@@ -86,10 +88,11 @@ export interface EvaluateAdSetInput {
   currentBudgetPence: number;
   liveMetric: LiveMetricReading;
   /**
-   * Most recent touch used for `cooldownHours`. PR B: prefer
-   * `max(applied_at) where applied=true`, falling back to `decided_at`
-   * only when the ad set has never been written — see
-   * {@link resolveLastTouchedAt}. Null if never touched.
+   * Most recent CHANGE used for `cooldownHours`. Prefer
+   * `max(applied_at) where applied=true`, falling back to the last
+   * `scale_up` / `scale_down` / `pause` `decided_at` — see
+   * {@link resolveLastTouchedAt} / {@link lastChangeDecidedAt}.
+   * Null if never changed.
    */
   lastTouchedAt: Date | null;
   /** Impressions over the SAME window as `liveMetric` — 0 means the ad set is dormant. */
@@ -118,19 +121,40 @@ export interface EvaluateAdSetResult {
 /** Default recent-touch cooldown when `guardrails.cooldownHours` is unset — matches the cron's own 24h loop-prevention window. */
 export const DEFAULT_COOLDOWN_HOURS = 24;
 
+/** Actions that would change budget — only these start or extend cooldown. */
+export const BUDGET_CHANGE_ACTIONS = ["scale_up", "scale_down", "pause"] as const;
+
+export function isBudgetChangeAction(action: string): boolean {
+  return (BUDGET_CHANGE_ACTIONS as readonly string[]).includes(action);
+}
+
+/**
+ * Latest `decidedAt` among change actions only. maintain / skip_* /
+ * insufficient_conversions / metric_unavailable never start cooldown.
+ */
+export function lastChangeDecidedAt(
+  rows: ReadonlyArray<{ action: string; decidedAt: Date }>,
+): Date | null {
+  let latest: Date | null = null;
+  for (const row of rows) {
+    if (!isBudgetChangeAction(row.action)) continue;
+    if (!latest || row.decidedAt.getTime() > latest.getTime()) latest = row.decidedAt;
+  }
+  return latest;
+}
+
 /**
  * Cooldown clock for {@link EvaluateAdSetInput.lastTouchedAt}.
- * Prefer the last successful Meta write; fall back to the last decision
- * row only when the ad set has never been written. A shadow-only
- * `decided_at` must not be treated as an applied write — callers that
- * are about to write should pass `lastDecidedAt = null` so a shadow
- * recommendation cannot start the write cooldown.
+ * Prefer the last successful Meta write; fall back to the last CHANGE
+ * decision only when the ad set has never been written. Live callers
+ * pass `lastChangeDecidedAt = null` so a shadow recommendation cannot
+ * start the write cooldown.
  */
 export function resolveLastTouchedAt(
   lastAppliedAt: Date | null,
-  lastDecidedAt: Date | null,
+  lastChangeDecidedAtValue: Date | null,
 ): Date | null {
-  return lastAppliedAt ?? lastDecidedAt;
+  return lastAppliedAt ?? lastChangeDecidedAtValue;
 }
 
 function hoursBetween(a: Date, b: Date): number {
