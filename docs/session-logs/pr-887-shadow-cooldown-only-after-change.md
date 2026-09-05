@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 887
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/887
 - **Branch:** `cursor/shadow-cooldown-only-after-change`
 
 ## Summary
@@ -20,7 +20,7 @@ Cooldown starts only from a decision that would change budget (`scale_up` / `sca
 
 ## Validation
 
-- [x] `npm test` (5108 pass, 3 skipped)
+- [x] `npm test` (5106 pass, 3 skipped)
 - [x] `npm run build`
 
 ## Notes
