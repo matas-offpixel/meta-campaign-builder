@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 888
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/888
 - **Branch:** `cursor/shadow-named-skips`
 
 ## Summary
