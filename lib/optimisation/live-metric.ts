@@ -43,6 +43,13 @@ export interface AdSetInsightMetrics {
  * PURCHASE_ACTION_TYPES) — kept as a separate, smaller list here since this
  * module only needs the PRIMARY metric per objective, not the full
  * multi-action reporting taxonomy that module resolves.
+ *
+ * Observed 2026-09-05 (`scripts/audit-conversion-action-types.mjs`, Woraklis
+ * last_7d): `actions[]` keys the pixel type
+ * (`offsite_conversion.fb_pixel_complete_registration`) while
+ * `cost_per_action_type[]` keys the short name (`complete_registration`).
+ * This list already covers both. Aliases such as `omni_complete_registration`
+ * carried the same count and were not added.
  */
 const ACTION_TYPE_CANDIDATES: Partial<Record<RuleMetric, string[]>> = {
   cpr: [
