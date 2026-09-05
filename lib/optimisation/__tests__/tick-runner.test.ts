@@ -137,6 +137,68 @@ describe("runOptimisationTick — killswitch / quota", () => {
   });
 });
 
+describe("runOptimisationTick — skip_no_rules", () => {
+  it("mode=none writes one campaign-level skip and never fetches ad sets", async () => {
+    const inserted: DecisionToInsert[] = [];
+    let fetchCalled = false;
+    const notifyCalls: NotifyOptions[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationStrategy: { mode: "none", rules: [], guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => {
+        fetchCalled = true;
+        return [insightRow(), insightRow({ adsetId: "adset_2" })];
+      },
+      insertDecision: async (row) => void inserted.push(row),
+      notify: async (opts) => {
+        notifyCalls.push(opts);
+        return { sent: true };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(fetchCalled, false);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0].actionRecommended, "skip_no_rules");
+    assert.equal(inserted[0].scope, "campaign");
+    assert.equal(inserted[0].adsetId, "camp_1");
+    assert.equal(inserted[0].dryRun, true);
+    assert.equal(inserted[0].applied, false);
+    assert.equal(summary.decisionsInserted, 1);
+    assert.equal(notifyCalls.length, 0);
+  });
+
+  it("zero enabled rules is the same named skip — not 13 maintains", async () => {
+    const inserted: DecisionToInsert[] = [];
+    let fetchCalled = false;
+    const notifyCalls: NotifyOptions[] = [];
+    const disabled = { ...CPR_RULE, enabled: false };
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationStrategy: { mode: "custom", rules: [disabled], guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => {
+        fetchCalled = true;
+        return [insightRow(), insightRow({ adsetId: "b" })];
+      },
+      insertDecision: async (row) => void inserted.push(row),
+      notify: async (opts) => {
+        notifyCalls.push(opts);
+        return { sent: true };
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(fetchCalled, false);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0].actionRecommended, "skip_no_rules");
+    assert.equal(notifyCalls.length, 0);
+  });
+});
+
 describe("runOptimisationTick — dry-run decisions", () => {
   it("writes exactly one decision row per opted-in ad set and never mutates Meta", async () => {
     const inserted: DecisionToInsert[] = [];

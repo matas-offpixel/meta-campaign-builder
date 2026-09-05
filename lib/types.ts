@@ -894,7 +894,7 @@ export type RuleMetric = "cpr" | "cpc" | "cpa" | "roas" | "cpm" | "lpv_cost" | "
 
 export type RuleTimeWindow = "24h" | "3d" | "7d";
 
-export type RuleAction = "increase_budget" | "decrease_budget" | "pause";
+export type RuleAction = "increase_budget" | "decrease_budget" | "maintain" | "pause";
 
 export interface OptimisationThreshold {
   id: string;

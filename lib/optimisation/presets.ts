@@ -171,7 +171,7 @@ export interface MaterialiseTarget {
 export const DEFAULT_COST_LADDER: readonly PresetThreshold[] = [
   { operator: "below", multiplier: 0.4, action: "increase_budget", actionValue: 30 },
   { operator: "between", multiplier: 0.4, multiplierTo: 0.65, action: "increase_budget", actionValue: 15 },
-  { operator: "between", multiplier: 0.65, multiplierTo: 1.25, action: "decrease_budget", actionValue: 0 },
+  { operator: "between", multiplier: 0.65, multiplierTo: 1.25, action: "maintain", actionValue: 0 },
   { operator: "between", multiplier: 1.25, multiplierTo: 1.75, action: "decrease_budget", actionValue: 25 },
   { operator: "above", multiplier: 1.75, action: "pause" },
 ];
@@ -180,7 +180,7 @@ export const DEFAULT_COST_LADDER: readonly PresetThreshold[] = [
 export const DEFAULT_INVERSE_LADDER: readonly PresetThreshold[] = [
   { operator: "above", multiplier: 1.8, action: "increase_budget", actionValue: 30 },
   { operator: "between", multiplier: 1.3, multiplierTo: 1.8, action: "increase_budget", actionValue: 15 },
-  { operator: "between", multiplier: 0.7, multiplierTo: 1.3, action: "decrease_budget", actionValue: 0 },
+  { operator: "between", multiplier: 0.7, multiplierTo: 1.3, action: "maintain", actionValue: 0 },
   { operator: "below", multiplier: 0.7, action: "decrease_budget", actionValue: 30 },
   { operator: "below", multiplier: 0.4, action: "pause" },
 ];

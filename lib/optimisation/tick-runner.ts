@@ -49,9 +49,11 @@ import {
   cboMetricUnavailableReason,
   evaluateAdSet,
   evaluateCampaign,
+  hasEnabledRules,
   LIFETIME_BUDGET_SKIP_REASON,
   lifetimeAdSetSkipReason,
   resolveLastTouchedAt,
+  skipNoRulesReason,
   unsupportedNoDailyBudgetReason,
   type AutomationAction,
   type GuardrailNote,
@@ -259,6 +261,35 @@ export async function runOptimisationTick(
 
   for (const campaign of campaigns) {
     try {
+      if (!hasEnabledRules(campaign.optimisationStrategy)) {
+        const primaryMetric = OBJECTIVE_METRIC_PRIORITY[campaign.objective].primary;
+        const window = primaryWindowFor(campaign.objective, campaign.optimisationStrategy);
+        await deps.insertDecision({
+          campaignId: campaign.campaignId,
+          adsetId: campaign.campaignId,
+          adAccountId: campaign.adAccountId,
+          draftId: campaign.draftId,
+          scope: "campaign",
+          channel: "meta",
+          metric: primaryMetric,
+          metricValue: null,
+          metricWindow: window,
+          ruleMatched: null,
+          actionRecommended: "skip_no_rules",
+          actionDelta: null,
+          budgetBeforePence: 0,
+          budgetAfterPence: 0,
+          guardrailNote: null,
+          reasonText: skipNoRulesReason(campaign.optimisationStrategy.mode),
+          dryRun: true,
+          applied: false,
+        });
+        summary.decisionsInserted += 1;
+        summary.decisionsByAction.skip_no_rules =
+          (summary.decisionsByAction.skip_no_rules ?? 0) + 1;
+        continue;
+      }
+
       const window = primaryWindowFor(campaign.objective, campaign.optimisationStrategy);
       const rows = await deps.fetchInsights(campaign.campaignId, window);
       const gates = optimisationDryRunGates(

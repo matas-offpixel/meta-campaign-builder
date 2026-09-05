@@ -109,6 +109,17 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(whyForDecision(decision, NOW), "pause");
   });
 
+  it("skip_no_rules · no rules", () => {
+    const decision = row({
+      action: "skip_no_rules",
+      decidedAt: "2026-09-04T16:00:00.000Z",
+      reasonText: "Optimisation mode is none — skip_no_rules, no per-ad-set evaluation.",
+    });
+    assert.equal(glyphActionFor(decision.action), "skip_no_rules");
+    assert.equal(whyForDecision(decision, NOW), "no rules");
+    assert.equal(metricChipText(decision), "—");
+  });
+
   it("skip_dormant · dormant", () => {
     const decision = row({
       action: "skip_dormant",

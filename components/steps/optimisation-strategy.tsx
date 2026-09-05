@@ -110,6 +110,7 @@ const TIME_WINDOW_OPTIONS: { value: RuleTimeWindow; label: string }[] = [
 const ACTION_OPTIONS: { value: RuleAction; label: string }[] = [
   { value: "increase_budget", label: "Increase budget" },
   { value: "decrease_budget", label: "Decrease budget" },
+  { value: "maintain", label: "Maintain" },
   { value: "pause", label: "Pause ad set" },
 ];
 
@@ -117,6 +118,7 @@ function actionIcon(action: RuleAction) {
   switch (action) {
     case "increase_budget": return <TrendingUp className="h-3.5 w-3.5 text-success" />;
     case "decrease_budget": return <TrendingDown className="h-3.5 w-3.5 text-warning" />;
+    case "maintain": return <TrendingDown className="h-3.5 w-3.5 text-muted-foreground" />;
     case "pause": return <Pause className="h-3.5 w-3.5 text-destructive" />;
   }
 }
@@ -125,6 +127,7 @@ function actionColor(action: RuleAction) {
   switch (action) {
     case "increase_budget": return "bg-success/10 border-success/30 text-success";
     case "decrease_budget": return "bg-warning/10 border-warning/30 text-warning";
+    case "maintain": return "bg-muted/40 border-border text-muted-foreground";
     case "pause": return "bg-destructive/10 border-destructive/30 text-destructive";
   }
 }

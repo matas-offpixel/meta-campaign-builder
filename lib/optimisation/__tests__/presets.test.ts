@@ -161,9 +161,27 @@ describe("ruleToPresetRule — absolute bands become multipliers", () => {
     assert.deepEqual(defaultLadderFor("roas"), DEFAULT_INVERSE_LADDER);
     assert.deepEqual(defaultLadderFor("cpa"), DEFAULT_COST_LADDER);
   });
+
+  it("generateRulesForObjective emits action maintain for the hold band", () => {
+    const hold = generateRulesForObjective("traffic")[0]!.thresholds.find((t) =>
+      t.label.includes("maintain"),
+    );
+    assert.equal(hold?.action, "maintain");
+  });
 });
 
 describe("materialiseStrategy", () => {
+  it("emits action maintain for the hold band", () => {
+    const strategy = materialiseStrategy(industrySeedPreset("client-1", "traffic"), {
+      value: 0.4,
+      unit: "lpv",
+      budgetAmount: 40,
+      materialisedAt: AT,
+    });
+    const hold = strategy.rules[0]!.thresholds.find((t) => t.label.includes("maintain"));
+    assert.equal(hold?.action, "maintain");
+  });
+
   it("is idempotent — same preset + target is deep-equal, ids included", () => {
     const preset = savedPreset();
     const target = { value: 1.2, unit: "reg" as const, budgetAmount: 120, materialisedAt: AT };
