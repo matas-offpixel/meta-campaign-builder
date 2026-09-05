@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { lastChangeDecidedAt } from "../evaluate.ts";
 import { runOptimisationTick, type CampaignAutomationInput, type DecisionToInsert, type OptimisationTickDeps } from "../tick-runner.ts";
 import type { AdSetInsightRow } from "../insights-fetch.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
@@ -160,6 +161,49 @@ describe("runOptimisationTick — dry-run decisions", () => {
     assert.equal(decision.actionDelta, 30);
     assert.equal(decision.budgetBeforePence, 10000);
     assert.equal(decision.budgetAfterPence, 13000);
+  });
+
+  it("maintain 2h ago + scale_up 200h ago evaluates — cooldown reads last change", async () => {
+    const now = new Date("2026-09-05T00:00:00Z");
+    const lastDecidedAt = lastChangeDecidedAt([
+      { action: "maintain", decidedAt: new Date(now.getTime() - 2 * 3600 * 1000) },
+      { action: "scale_up", decidedAt: new Date(now.getTime() - 200 * 3600 * 1000) },
+    ]);
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      now,
+      getAdSetState: async () => ({
+        lastAppliedAt: null,
+        lastDecidedAt,
+        appliedIncreasePercentLast24h: 0,
+      }),
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.adSetsSkippedRecentDecision, 0);
+    assert.equal(summary.decisionsInserted, 1);
+    assert.notEqual(inserted[0]?.actionRecommended, "skip_recent_touch");
+  });
+
+  it("scale_up 100h ago is inside the 168h conversion cooldown — no insert", async () => {
+    const now = new Date("2026-09-05T00:00:00Z");
+    const lastDecidedAt = lastChangeDecidedAt([
+      { action: "scale_up", decidedAt: new Date(now.getTime() - 100 * 3600 * 1000) },
+    ]);
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      now,
+      getAdSetState: async () => ({
+        lastAppliedAt: null,
+        lastDecidedAt,
+        appliedIncreasePercentLast24h: 0,
+      }),
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.adSetsSkippedRecentDecision, 1);
+    assert.equal(summary.decisionsInserted, 0);
+    assert.equal(inserted.length, 0);
   });
 
   it("skips (no insert) an ad set with a decision inside the 24h lookback", async () => {

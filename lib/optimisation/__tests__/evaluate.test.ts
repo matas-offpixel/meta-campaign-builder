@@ -5,11 +5,14 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
   evaluateAdSet,
   evaluateCampaign,
+  isBudgetChangeAction,
+  lastChangeDecidedAt,
   resolveLastTouchedAt,
   type EvaluateAdSetInput,
 } from "../evaluate.ts";
@@ -333,6 +336,49 @@ describe("evaluateAdSet — dormant / recent-touch skips", () => {
     assert.equal(resolveLastTouchedAt(null, decided), decided);
     assert.equal(resolveLastTouchedAt(null, null), null);
   });
+
+  it("maintain 2h ago + scale_up 200h ago is not in cooldown", () => {
+    const now = new Date("2026-09-05T00:00:00Z");
+    const lastChange = lastChangeDecidedAt([
+      { action: "maintain", decidedAt: new Date(now.getTime() - 2 * 3600 * 1000) },
+      { action: "scale_up", decidedAt: new Date(now.getTime() - 200 * 3600 * 1000) },
+    ]);
+    const lastTouchedAt = resolveLastTouchedAt(null, lastChange);
+    const result = evaluateAdSet(
+      baseInput({ now, lastTouchedAt, liveMetric: lm("cpr", 0.5, "7d") }),
+    );
+    assert.notEqual(result.action, "skip_recent_touch");
+    assert.equal(result.action, "scale_up");
+  });
+
+  it("scale_up 100h ago is inside the 168h conversion cooldown", () => {
+    const now = new Date("2026-09-05T00:00:00Z");
+    const lastTouchedAt = lastChangeDecidedAt([
+      { action: "scale_up", decidedAt: new Date(now.getTime() - 100 * 3600 * 1000) },
+    ]);
+    const result = evaluateAdSet(
+      baseInput({ now, lastTouchedAt, liveMetric: lm("cpr", 0.5, "7d") }),
+    );
+    assert.equal(result.action, "skip_recent_touch");
+  });
+
+  it("FALSIFY — maintain / skip / insufficient never start cooldown", () => {
+    assert.equal(isBudgetChangeAction("maintain"), false);
+    assert.equal(isBudgetChangeAction("skip_recent_touch"), false);
+    assert.equal(isBudgetChangeAction("skip_dormant"), false);
+    assert.equal(isBudgetChangeAction("insufficient_conversions"), false);
+    assert.equal(isBudgetChangeAction("metric_unavailable"), false);
+    assert.equal(isBudgetChangeAction("scale_up"), true);
+    assert.equal(isBudgetChangeAction("scale_down"), true);
+    assert.equal(isBudgetChangeAction("pause"), true);
+    const now = new Date("2026-09-05T00:00:00Z");
+    assert.equal(
+      lastChangeDecidedAt([
+        { action: "maintain", decidedAt: new Date(now.getTime() - 2 * 3600 * 1000) },
+      ]),
+      null,
+    );
+  });
 });
 
 describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
@@ -382,5 +428,20 @@ describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
     assert.equal(campaign.action, "scale_up");
     assert.equal(campaign.budgetAfterPence, 13000);
     assert.equal(campaign.guardrailNote, null);
+  });
+});
+
+describe("cooldown last-change grep-guard", () => {
+  it("nothing else reads last decision of any kind for cooldown", () => {
+    const db = readFileSync("lib/db/optimisation-decisions.ts", "utf8");
+    assert.match(db, /BUDGET_CHANGE_ACTIONS/);
+    assert.match(db, /\.in\("action_recommended"/);
+    const leftover = readFileSync("lib/db/campaign-automation-decisions.ts", "utf8");
+    assert.match(leftover, /\.in\("action_recommended"/);
+    const route = readFileSync("app/api/cron/optimisation-tick/route.ts", "utf8");
+    assert.doesNotMatch(route, /hasRecentDecisionForAdSet/);
+    const runner = readFileSync("lib/optimisation/tick-runner.ts", "utf8");
+    assert.match(runner, /resolveLastTouchedAt\(state\.lastAppliedAt, state\.lastDecidedAt\)/);
+    assert.match(runner, /last CHANGE decided_at/);
   });
 });

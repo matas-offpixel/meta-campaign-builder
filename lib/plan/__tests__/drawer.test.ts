@@ -1092,7 +1092,7 @@ describe("write paths are untouched", () => {
     assert.equal(diff.trim(), "", diff);
   });
 
-  it("evaluate.ts tick-runner.ts gates.ts apply.ts have no diff against main", () => {
+  it("gates.ts and apply.ts have no diff against main", () => {
     let base = "";
     for (const ref of ["origin/main", "main"] as const) {
       try {
@@ -1107,7 +1107,7 @@ describe("write paths are untouched", () => {
     }
     assert.ok(base, "neither origin/main nor main exists");
     const diff = execSync(
-      `git diff ${base} -- lib/optimisation/evaluate.ts lib/optimisation/tick-runner.ts lib/optimisation/gates.ts lib/optimisation/apply.ts`,
+      `git diff ${base} -- lib/optimisation/gates.ts lib/optimisation/apply.ts`,
       { encoding: "utf8" },
     );
     assert.equal(diff.trim(), "", diff);

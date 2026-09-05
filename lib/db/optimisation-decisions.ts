@@ -10,6 +10,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { BUDGET_CHANGE_ACTIONS } from "@/lib/optimisation/evaluate";
 import type { AdSetAutomationState } from "@/lib/optimisation/tick-runner";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,8 +22,10 @@ function anySb(supabase: SupabaseClient): AnySupabase {
 }
 
 /**
- * Last applied write + last decision + sum of applied positive deltas
- * since `sinceISO` for one ad set.
+ * Last applied write + last CHANGE decision + sum of applied positive
+ * deltas since `sinceISO` for one ad set. `lastDecidedAt` is the latest
+ * scale_up / scale_down / pause only — maintain and skip_* never start
+ * cooldown.
  */
 export async function getAdSetAutomationState(
   supabase: SupabaseClient,
@@ -48,6 +51,7 @@ export async function getAdSetAutomationState(
     .from("campaign_automation_decisions")
     .select("decided_at")
     .eq("adset_id", adsetId)
+    .in("action_recommended", [...BUDGET_CHANGE_ACTIONS])
     .order("decided_at", { ascending: false })
     .limit(1);
 

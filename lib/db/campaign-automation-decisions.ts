@@ -116,7 +116,11 @@ export async function loadOptedInCampaignsForAutomation(
   return campaigns;
 }
 
-/** True if `adsetId` has any decision row with `decided_at` newer than `sinceISO` — the 24h loop-prevention check. */
+/**
+ * True if `adsetId` has a CHANGE decision newer than `sinceISO`.
+ * Unused by the tick (cooldown reads `getAdSetAutomationState`); kept
+ * filtered so a future caller cannot treat maintain/skip as a touch.
+ */
 export async function hasRecentDecisionForAdSet(
   supabase: SupabaseClient,
   adsetId: string,
@@ -127,6 +131,7 @@ export async function hasRecentDecisionForAdSet(
     .from("campaign_automation_decisions")
     .select("id")
     .eq("adset_id", adsetId)
+    .in("action_recommended", ["scale_up", "scale_down", "pause"])
     .gt("decided_at", sinceISO)
     .limit(1)
     .maybeSingle();
