@@ -87,6 +87,29 @@ describe("evaluateAdSet — rule band matching", () => {
     assert.equal(result.budgetAfterPence, 10000);
   });
 
+  it("explicit action maintain matches the same as decrease_budget/0", () => {
+    const named: OptimisationRule = {
+      ...CPR_RULE,
+      thresholds: [
+        {
+          id: tid(),
+          operator: "between",
+          value: 2,
+          valueTo: 3,
+          action: "maintain",
+          actionValue: 0,
+          label: "£2–£3 CPR → maintain",
+        },
+      ],
+    };
+    const legacy = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 2.5) }));
+    const next = evaluateAdSet(baseInput({ rules: [named], liveMetric: lm("cpr", 2.5) }));
+    assert.equal(legacy.action, "maintain");
+    assert.equal(next.action, "maintain");
+    assert.equal(next.deltaPercent, legacy.deltaPercent);
+    assert.equal(next.budgetAfterPence, legacy.budgetAfterPence);
+  });
+
   it("between threshold with a real decrease → scale_down", () => {
     const result = evaluateAdSet(baseInput({ liveMetric: lm("cpr", 4) }));
     assert.equal(result.action, "scale_down");

@@ -115,7 +115,7 @@ function registrationRules(): OptimisationRule[] {
       thresholds: [
         { id: tid(), operator: "below", value: 1, action: "increase_budget", actionValue: 30, label: "Below £1 CPR → scale aggressively (+30%)" },
         { id: tid(), operator: "between", value: 1, valueTo: 2, action: "increase_budget", actionValue: 10, label: "£1–£2 CPR → scale moderately (+10%)" },
-        { id: tid(), operator: "between", value: 2, valueTo: 3, action: "decrease_budget", actionValue: 0, label: "£2–£3 CPR → maintain" },
+        { id: tid(), operator: "between", value: 2, valueTo: 3, action: "maintain", actionValue: 0, label: "£2–£3 CPR → maintain" },
         { id: tid(), operator: "between", value: 3, valueTo: 5, action: "decrease_budget", actionValue: 25, label: "£3–£5 CPR → reduce (-25%)" },
         { id: tid(), operator: "above", value: 5, action: "pause", label: "Above £5 CPR → pause ad set" },
       ],
@@ -135,7 +135,7 @@ function trafficRules(): OptimisationRule[] {
       thresholds: [
         { id: tid(), operator: "below", value: 0.20, action: "increase_budget", actionValue: 30, label: "Below £0.20 CPLPV → scale aggressively (+30%)" },
         { id: tid(), operator: "between", value: 0.20, valueTo: 0.35, action: "increase_budget", actionValue: 10, label: "£0.20–£0.35 CPLPV → scale moderately (+10%)" },
-        { id: tid(), operator: "between", value: 0.35, valueTo: 0.55, action: "decrease_budget", actionValue: 0, label: "£0.35–£0.55 CPLPV → maintain" },
+        { id: tid(), operator: "between", value: 0.35, valueTo: 0.55, action: "maintain", actionValue: 0, label: "£0.35–£0.55 CPLPV → maintain" },
         { id: tid(), operator: "between", value: 0.55, valueTo: 0.70, action: "decrease_budget", actionValue: 25, label: "£0.55–£0.70 CPLPV → reduce (-25%)" },
         { id: tid(), operator: "above", value: 0.70, action: "pause", label: "Above £0.70 CPLPV → pause ad set" },
       ],
@@ -155,7 +155,7 @@ function purchaseRules(): OptimisationRule[] {
       thresholds: [
         { id: tid(), operator: "below", value: 10, action: "increase_budget", actionValue: 30, label: "Below £10 CPP → scale aggressively (+30%)" },
         { id: tid(), operator: "between", value: 10, valueTo: 18, action: "increase_budget", actionValue: 10, label: "£10–£18 CPP → scale moderately (+10%)" },
-        { id: tid(), operator: "between", value: 18, valueTo: 30, action: "decrease_budget", actionValue: 0, label: "£18–£30 CPP → maintain" },
+        { id: tid(), operator: "between", value: 18, valueTo: 30, action: "maintain", actionValue: 0, label: "£18–£30 CPP → maintain" },
         { id: tid(), operator: "between", value: 30, valueTo: 45, action: "decrease_budget", actionValue: 25, label: "£30–£45 CPP → reduce (-25%)" },
         { id: tid(), operator: "above", value: 45, action: "pause", label: "Above £45 CPP → pause ad set" },
       ],
@@ -169,7 +169,7 @@ function purchaseRules(): OptimisationRule[] {
       priority: "secondary",
       thresholds: [
         { id: tid(), operator: "above", value: 5, action: "increase_budget", actionValue: 15, label: "ROAS above 5× → scale (+15%)" },
-        { id: tid(), operator: "between", value: 3, valueTo: 5, action: "decrease_budget", actionValue: 0, label: "ROAS 3–5× → maintain" },
+        { id: tid(), operator: "between", value: 3, valueTo: 5, action: "maintain", actionValue: 0, label: "ROAS 3–5× → maintain" },
         { id: tid(), operator: "below", value: 1.5, action: "decrease_budget", actionValue: 30, label: "ROAS below 1.5× → reduce (-30%)" },
         { id: tid(), operator: "below", value: 0.8, action: "pause", label: "ROAS below 0.8× → pause" },
       ],
@@ -188,7 +188,7 @@ function awarenessRules(): OptimisationRule[] {
       priority: "primary",
       thresholds: [
         { id: tid(), operator: "below", value: 3, action: "increase_budget", actionValue: 20, label: "Below £3 CPM → scale (+20%)" },
-        { id: tid(), operator: "between", value: 3, valueTo: 6, action: "decrease_budget", actionValue: 0, label: "£3–£6 CPM → maintain" },
+        { id: tid(), operator: "between", value: 3, valueTo: 6, action: "maintain", actionValue: 0, label: "£3–£6 CPM → maintain" },
         { id: tid(), operator: "above", value: 8, action: "decrease_budget", actionValue: 25, label: "Above £8 CPM → reduce (-25%)" },
       ],
     },
@@ -207,7 +207,7 @@ function engagementRules(): OptimisationRule[] {
       thresholds: [
         { id: tid(), operator: "below", value: 0.05, action: "increase_budget", actionValue: 25, label: "Below £0.05 CPE → scale aggressively (+25%)" },
         { id: tid(), operator: "between", value: 0.05, valueTo: 0.12, action: "increase_budget", actionValue: 10, label: "£0.05–£0.12 CPE → scale (+10%)" },
-        { id: tid(), operator: "between", value: 0.12, valueTo: 0.25, action: "decrease_budget", actionValue: 0, label: "£0.12–£0.25 CPE → maintain" },
+        { id: tid(), operator: "between", value: 0.12, valueTo: 0.25, action: "maintain", actionValue: 0, label: "£0.12–£0.25 CPE → maintain" },
         { id: tid(), operator: "above", value: 0.25, action: "decrease_budget", actionValue: 30, label: "Above £0.25 CPE → reduce (-30%)" },
       ],
     },
@@ -261,7 +261,7 @@ export function regenerateThresholdsFromTarget(
     return [
       { id: tid(), operator: "above", value: high, action: "increase_budget", actionValue: 30, label: `${label} above ${high}× → scale aggressively (+30%)` },
       { id: tid(), operator: "between", value: midHigh, valueTo: high, action: "increase_budget", actionValue: 15, label: `${label} ${midHigh}–${high}× → scale moderately (+15%)` },
-      { id: tid(), operator: "between", value: midLow, valueTo: midHigh, action: "decrease_budget", actionValue: 0, label: `${label} ${midLow}–${midHigh}× → maintain` },
+      { id: tid(), operator: "between", value: midLow, valueTo: midHigh, action: "maintain", actionValue: 0, label: `${label} ${midLow}–${midHigh}× → maintain` },
       { id: tid(), operator: "below", value: midLow, action: "decrease_budget", actionValue: 30, label: `${label} below ${midLow}× → reduce (-30%)` },
       { id: tid(), operator: "below", value: low, action: "pause", label: `${label} below ${low}× → pause` },
     ];
@@ -276,7 +276,7 @@ export function regenerateThresholdsFromTarget(
   return [
     { id: tid(), operator: "below", value: veryLow, action: "increase_budget", actionValue: 30, label: `Below ${sym}${fmt(veryLow)} ${label} → scale aggressively (+30%)` },
     { id: tid(), operator: "between", value: veryLow, valueTo: low, action: "increase_budget", actionValue: 15, label: `${sym}${fmt(veryLow)}–${sym}${fmt(low)} ${label} → scale moderately (+15%)` },
-    { id: tid(), operator: "between", value: low, valueTo: midHigh, action: "decrease_budget", actionValue: 0, label: `${sym}${fmt(low)}–${sym}${fmt(midHigh)} ${label} → maintain` },
+    { id: tid(), operator: "between", value: low, valueTo: midHigh, action: "maintain", actionValue: 0, label: `${sym}${fmt(low)}–${sym}${fmt(midHigh)} ${label} → maintain` },
     { id: tid(), operator: "between", value: midHigh, valueTo: high, action: "decrease_budget", actionValue: 25, label: `${sym}${fmt(midHigh)}–${sym}${fmt(high)} ${label} → reduce (-25%)` },
     { id: tid(), operator: "above", value: high, action: "pause", label: `Above ${sym}${fmt(high)} ${label} → pause` },
   ];

@@ -38,6 +38,7 @@ export interface GroupedDecisions {
 
 export function glyphActionFor(action: string): VizAction {
   if (action === "skipped_cooldown") return "skip_recent_touch";
+  if (action.startsWith("skip_")) return isVizAction(action) ? action : "skip_dormant";
   if (isVizAction(action)) return action;
   return "maintain";
 }
@@ -48,7 +49,9 @@ export function isHonestEmptyAction(action: string): boolean {
     action === "insufficient_conversions" ||
     action === "skip_recent_touch" ||
     action === "skipped_cooldown" ||
-    action === "skip_dormant"
+    action === "skip_dormant" ||
+    action === "skip_no_rules" ||
+    action.startsWith("skip_")
   );
 }
 
@@ -78,6 +81,7 @@ export function whyForDecision(row: DecisionRowView, now: Date = new Date()): st
       : "cooldown";
   }
   if (row.action === "skip_dormant") return "dormant";
+  if (row.action === "skip_no_rules") return "no rules";
 
   const ceiling = /ceiling/i.test(row.reasonText);
   const delta = deltaLabel(row);
@@ -110,7 +114,8 @@ export function metricChipText(row: DecisionRowView): string {
     row.action === "insufficient_conversions" ||
     row.action === "skip_recent_touch" ||
     row.action === "skipped_cooldown" ||
-    row.action === "skip_dormant"
+    row.action === "skip_dormant" ||
+    row.action === "skip_no_rules"
   ) {
     return "—";
   }

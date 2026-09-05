@@ -50,6 +50,7 @@ export type AutomationAction =
   | "maintain"
   | "skip_dormant"
   | "skip_recent_touch"
+  | "skip_no_rules"
   | "metric_unavailable"
   /**
    * Conversion metric has data but the result count is below the
@@ -141,6 +142,32 @@ export function lastChangeDecidedAt(
     if (!latest || row.decidedAt.getTime() > latest.getTime()) latest = row.decidedAt;
   }
   return latest;
+}
+
+/** mode=none or zero enabled rules — one campaign-level skip, no ad-set rows. */
+export function hasEnabledRules(strategy: {
+  mode: string;
+  rules: ReadonlyArray<{ enabled: boolean }>;
+}): boolean {
+  if (strategy.mode === "none") return false;
+  return strategy.rules.some((rule) => rule.enabled);
+}
+
+export function skipNoRulesReason(mode: string): string {
+  return mode === "none"
+    ? "Optimisation mode is none — skip_no_rules, no per-ad-set evaluation."
+    : "No enabled rules configured — skip_no_rules, no per-ad-set evaluation.";
+}
+
+export function isMaintainThreshold(threshold: {
+  action: string;
+  actionValue?: number;
+}): boolean {
+  if (threshold.action === "maintain") return true;
+  return (
+    (threshold.action === "decrease_budget" || threshold.action === "increase_budget") &&
+    (threshold.actionValue ?? 0) === 0
+  );
 }
 
 /**
@@ -314,6 +341,17 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
   }
 
   // ── Translate the matched band into a raw (pre-guardrail) proposal ──────
+  if (isMaintainThreshold(threshold)) {
+    return {
+      action: "maintain",
+      deltaPercent: 0,
+      budgetAfterPence: currentBudgetPence,
+      ruleMatched: threshold.label,
+      guardrailNote: null,
+      reason: `${liveMetric.name}=${liveMetric.value} matched "${threshold.label}" → maintain.`,
+    };
+  }
+
   if (threshold.action === "pause") {
     return {
       action: "pause",
@@ -329,17 +367,6 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
     threshold.action === "increase_budget"
       ? (threshold.actionValue ?? 0)
       : -(threshold.actionValue ?? 0);
-
-  if (rawDeltaPercent === 0) {
-    return {
-      action: "maintain",
-      deltaPercent: 0,
-      budgetAfterPence: currentBudgetPence,
-      ruleMatched: threshold.label,
-      guardrailNote: null,
-      reason: `${liveMetric.name}=${liveMetric.value} matched "${threshold.label}" → maintain.`,
-    };
-  }
 
   if (rawDeltaPercent < 0) {
     // Scaling down never hits an upper ceiling — guardrails below only cap increases.
