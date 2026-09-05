@@ -147,6 +147,14 @@ export function identityChipTip(chip: PlanIdentityChip): string {
   return `${chip.field} · ${chip.name ?? "—"} · ${chip.value ?? "—"} · ${chip.provenance}`;
 }
 
+/** Unset chips: their words, never `advertiser` / `identity` / `customer`. */
+export function identityChipEmptyLabel(chip: Pick<PlanIdentityChip, "id" | "field">): string {
+  if (chip.id === "tiktok-advertiser") return "TikTok account not connected — connect";
+  if (chip.id === "tiktok-identity") return "TikTok profile not set — set";
+  if (chip.id === "google-customer") return "Google account not connected — connect";
+  return `${chip.field} not set`;
+}
+
 /** Google shows name and customer id together — the id is how operators recognise the account. */
 export function identityChipVisibleLabel(chip: PlanIdentityChip): string | null {
   const display = identityChipDisplay(chip.value, chip.name);

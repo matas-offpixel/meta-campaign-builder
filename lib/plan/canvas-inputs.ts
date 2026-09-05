@@ -104,6 +104,50 @@ export function planWindowHandles(
   return { start, end: end > start ? end : new Date(start.getTime() + 3_600_000) };
 }
 
+const DAY_MS = 86_400_000;
+
+export type PlanWindowValidity = {
+  ok: boolean;
+  reason: "set start and end" | null;
+};
+
+/**
+ * Stored window only — never invents or rewrites dates.
+ * end > start + 1 day; start not more than a day before creation;
+ * end ≤ show. Missing or unparseable dates fail the same way.
+ */
+export function planWindowValidity(
+  dates: PlanWindowDates,
+  event: PlanWindowEvent | null | undefined,
+  opts: { now?: Date; createdAt?: Date | string | null } = {},
+): PlanWindowValidity {
+  const now = opts.now ?? new Date();
+  const start = parseMoment(composeLocal(dates.startDate, dates.startTime));
+  const end = parseMoment(composeLocal(dates.endDate, dates.endTime));
+  const fail: PlanWindowValidity = { ok: false, reason: "set start and end" };
+  if (!start || !end) return fail;
+  if (end.getTime() <= start.getTime() + DAY_MS) return fail;
+  const created =
+    opts.createdAt instanceof Date
+      ? (Number.isNaN(opts.createdAt.getTime()) ? null : opts.createdAt)
+      : parseMoment(opts.createdAt ?? null);
+  const creation = created ?? now;
+  if (start.getTime() < creation.getTime() - DAY_MS) return fail;
+  const show = parseShowLatest(event?.eventDate);
+  if (show && end.getTime() > show.getTime()) return fail;
+  return { ok: true, reason: null };
+}
+
+/** Date-only show days count as the end of that day, so 23:59 on the show is valid. */
+function parseShowLatest(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return parseMoment(`${trimmed}T23:59:00`);
+  }
+  return parseMoment(trimmed);
+}
+
 function composeLocal(date: string | null, time: string | null): string | null {
   if (!date) return null;
   return `${date.slice(0, 10)}T${time?.trim() || "00:00"}:00`;

@@ -6,9 +6,11 @@ import { WindowBar } from "@/components/viz/window-bar";
 import { PLAN_CANVAS_COPY } from "@/lib/plan/canvas";
 import { WINDOW_BAR_HEIGHT_PX } from "@/lib/viz/window-bar";
 import {
+  planDefaultWindow,
   planWindowFromHandles,
   planWindowHandles,
   planWindowMoments,
+  planWindowValidity,
   type PlanWindowDates,
   type PlanWindowEvent,
 } from "@/lib/plan/canvas-inputs";
@@ -26,16 +28,26 @@ export function CanvasWindow({
   onChange,
   googleBudgeted,
   now,
+  createdAt,
 }: {
   event: PlanWindowEvent | null;
   dates: PlanWindowDates;
   onChange: (next: PlanWindowDates) => void;
   googleBudgeted: boolean;
   now?: Date;
+  createdAt?: Date | string | null;
 }) {
   const clock = useMemo(() => now ?? new Date(), [now]);
   const moments = useMemo(() => planWindowMoments(event, clock), [event, clock]);
-  const handles = useMemo(() => planWindowHandles(dates, event, clock), [dates, event, clock]);
+  const validity = useMemo(
+    () => planWindowValidity(dates, event, { now: clock, createdAt }),
+    [dates, event, clock, createdAt],
+  );
+  const handles = useMemo(() => {
+    if (validity.ok) return planWindowHandles(dates, event, clock);
+    const fallback = planDefaultWindow(event, clock);
+    return planWindowHandles(fallback, event, clock);
+  }, [dates, event, clock, validity.ok]);
 
   return (
     <section aria-label="window" style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}>
@@ -45,6 +57,8 @@ export function CanvasWindow({
         end={handles.end}
         min={clock}
         now={clock}
+        empty={!validity.ok}
+        emptyLabel={PLAN_CANVAS_COPY.windowUnset}
         tip={googleBudgeted ? GOOGLE_DATE_ONLY_NOTE : PLAN_CANVAS_COPY.window}
         onChange={(next) => onChange(planWindowFromHandles(next))}
       />

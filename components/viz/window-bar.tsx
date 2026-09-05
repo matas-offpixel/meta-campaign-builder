@@ -34,6 +34,8 @@ export function WindowBar({
   min,
   now,
   tip,
+  empty = false,
+  emptyLabel = "set start and end",
 }: {
   moments: WindowMoment[];
   start: Date;
@@ -42,6 +44,8 @@ export function WindowBar({
   min?: Date;
   now?: Date;
   tip?: string;
+  empty?: boolean;
+  emptyLabel?: string;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
@@ -156,7 +160,7 @@ export function WindowBar({
   return (
     <div
       className="relative"
-      data-state={clamped ? "clamped" : dragging ? "dragging" : "default"}
+      data-state={empty ? "empty" : clamped ? "clamped" : dragging ? "dragging" : "default"}
       style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}
     >
       <div
@@ -189,14 +193,16 @@ export function WindowBar({
 
         <div className="relative" style={{ height: WINDOW_RAIL_LANE_PX }}>
           <div
-            className={`absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/10 ${
-              flash ? "shadow-[inset_0_0_0_2px_var(--warning)]" : ""
-            }`}
+            className={`absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full ${
+              empty ? "border border-dashed border-muted-foreground/40 bg-transparent" : "bg-foreground/10"
+            } ${flash ? "shadow-[inset_0_0_0_2px_var(--warning)]" : ""}`}
           />
-          <div
-            className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/45"
-            style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
-          />
+          {empty ? null : (
+            <div
+              className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/45"
+              style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
+            />
+          )}
           <HandleButton
             name="start"
             pct={startPct}
@@ -218,19 +224,27 @@ export function WindowBar({
         </div>
 
         <div className="relative" style={{ height: WINDOW_HANDLE_LABEL_LANE_PX }}>
-          <HandleLabel
-            name="start"
-            left={startLeft}
-            width={estimateHandleLabelWidth(startText)}
-            at={start}
-          />
-          <HandleLabel
-            name="end"
-            left={endLeft}
-            width={estimateHandleLabelWidth(endText)}
-            at={end}
-            relative={endRelative}
-          />
+          {empty ? (
+            <span className={`absolute left-0 top-0 ${VIZ_TYPE.label} text-muted-foreground`}>
+              {emptyLabel}
+            </span>
+          ) : (
+            <>
+              <HandleLabel
+                name="start"
+                left={startLeft}
+                width={estimateHandleLabelWidth(startText)}
+                at={start}
+              />
+              <HandleLabel
+                name="end"
+                left={endLeft}
+                width={estimateHandleLabelWidth(endText)}
+                at={end}
+                relative={endRelative}
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

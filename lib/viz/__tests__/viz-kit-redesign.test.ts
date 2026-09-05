@@ -370,6 +370,15 @@ describe("AssetStrip named states", () => {
     assert.equal(assetStripState([video], { v1: [] }), "unrouted");
   });
 
+  it("a failed thumb is a dashed slot plus the filename, never a broken-image icon", () => {
+    const source = readFileSync("components/viz/asset-strip.tsx", "utf8");
+    assert.match(source, /onError/);
+    assert.match(source, /setBroken\(true\)/);
+    assert.match(source, /border-dashed/);
+    assert.match(source, /asset\.label/);
+    assert.doesNotMatch(source, /broken-image|BrokenImage/);
+  });
+
   it("Google is always the not-instrumented dash, never a cross", () => {
     assert.equal(googleRoutingMark(), "—");
     const source = readFileSync("components/viz/asset-strip.tsx", "utf8");

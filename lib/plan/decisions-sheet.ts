@@ -59,6 +59,63 @@ export function bandDashedFor(action: string): boolean {
   return action === "metric_unavailable";
 }
 
+export function isRefusalAction(action: string): boolean {
+  return isHonestEmptyAction(action);
+}
+
+export function isChangeAction(action: string): boolean {
+  return action === "scale_up" || action === "scale_down" || action === "pause";
+}
+
+export function decisionHasReading(row: Pick<DecisionRowView, "metricValue">): boolean {
+  return row.metricValue != null;
+}
+
+export function decisionCountUnavailable(
+  row: Pick<DecisionRowView, "action" | "resultCount">,
+): boolean {
+  return isChangeAction(row.action) && row.resultCount == null;
+}
+
+export const DECISION_COUNT_UNAVAILABLE = "count unavailable";
+
+export function leftAloneLabel(count: number): string {
+  return `${count} ad sets left alone`;
+}
+
+/**
+ * G7: rows with no reading collapse to one line, except refusals
+ * (they keep their reason). Changes with a missing evidence count
+ * stay as rows (G8).
+ */
+export function presentDecisionRows(rows: readonly DecisionRowView[]): {
+  rows: DecisionRowView[];
+  leftAlone: number;
+} {
+  const visible: DecisionRowView[] = [];
+  let leftAlone = 0;
+  for (const row of rows) {
+    if (isRefusalAction(row.action) || decisionCountUnavailable(row)) {
+      visible.push(row);
+      continue;
+    }
+    if (!decisionHasReading(row)) {
+      leftAlone += 1;
+      continue;
+    }
+    visible.push(row);
+  }
+  return { rows: visible, leftAlone };
+}
+
+export function decisionBandKind(
+  row: Pick<DecisionRowView, "action" | "metricValue" | "resultCount">,
+): "solid" | "dashed" | "none" {
+  if (decisionCountUnavailable(row)) return "dashed";
+  if (!decisionHasReading(row)) return "none";
+  return "solid";
+}
+
 /**
  * Why-cell — the rule's own terms, one line, no verb phrase.
  *

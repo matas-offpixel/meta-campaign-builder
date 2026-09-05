@@ -3,10 +3,11 @@
 import { Button } from "@/components/ui/button";
 import { FunnelStageBar } from "@/components/viz/funnel-stage-bar";
 import { InfoTip } from "@/components/viz/info-tip";
-import { joinInfoTips, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
+import { joinInfoTips, PLAN_CANVAS_COPY, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
 import { WIZARD_ACTIVE_VS_PLAN_PAUSED } from "@/lib/plan/schedule";
 import type { EventFunnelStage } from "@/lib/dashboard/event-funnel";
 import { platformSharePercents, proportionalBarWidths } from "@/lib/viz/funnel-scale";
+import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
  * Zone G — can I go. One button. `Launch` is enabled only when preflight
@@ -32,8 +33,9 @@ export function CanvasLaunch({
   onResumeAll: () => void;
 }) {
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
+  const fanoutOff = button.reason === PLAN_CANVAS_COPY.fanoutOff;
   const tip = joinInfoTips(
-    button.reason,
+    fanoutOff ? PLAN_CANVAS_COPY.fanoutOffTip : button.reason,
     button.kind === "launch" && WIZARD_ACTIVE_VS_PLAN_PAUSED,
     error,
   );
@@ -63,6 +65,9 @@ export function CanvasLaunch({
       ) : null}
 
       <div className="flex items-center justify-end gap-1.5">
+        {fanoutOff ? (
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{PLAN_CANVAS_COPY.fanoutOff}</span>
+        ) : null}
         {tip ? <InfoTip label={tip} /> : null}
         {button.kind === "none" ? null : (
           <Button

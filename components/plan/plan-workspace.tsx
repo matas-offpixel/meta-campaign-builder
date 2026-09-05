@@ -33,7 +33,7 @@ import {
 } from "@/lib/plan/canvas";
 import type { IdentityNameMap } from "@/lib/plan/identity-chips";
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
-import { planDefaultWindow, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
+import { planDefaultWindow, planWindowValidity, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
@@ -449,6 +449,28 @@ export function PlanWorkspace({
     [liveSpend, plan, rows],
   );
 
+  const windowOk = useMemo(
+    () =>
+      planWindowValidity(
+        {
+          startDate: plan.intent.startDate,
+          startTime: plan.intent.startTime,
+          endDate: plan.intent.endDate,
+          endTime: plan.intent.endTime,
+        },
+        selectedEvent,
+        { createdAt: plan.createdAt },
+      ).ok,
+    [
+      plan.createdAt,
+      plan.intent.endDate,
+      plan.intent.endTime,
+      plan.intent.startDate,
+      plan.intent.startTime,
+      selectedEvent,
+    ],
+  );
+
   const launchButton = useMemo(
     () =>
       planLaunchButton({
@@ -462,10 +484,11 @@ export function PlanWorkspace({
           : PLAN_CANVAS_COPY.fanoutOff,
         hasEvent: Boolean(plan.intent.eventId),
         hasDestination: destination.url.trim().length > 0,
+        windowOk,
         preflightOk,
         busy,
       }),
-    [busy, destination.url, gate, plan.intent.eventId, preflightOk, rows, state],
+    [busy, destination.url, gate, plan.intent.eventId, preflightOk, rows, state, windowOk],
   );
 
   async function persistNow(): Promise<boolean> {
@@ -711,7 +734,6 @@ export function PlanWorkspace({
 
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
-  const defaults = planDefaultWindow(selectedEvent);
 
   return (
     <div>
@@ -753,11 +775,12 @@ export function PlanWorkspace({
         <CanvasWindow
           event={selectedEvent}
           dates={{
-            startDate: plan.intent.startDate ?? defaults.startDate,
-            startTime: plan.intent.startTime ?? defaults.startTime,
-            endDate: plan.intent.endDate ?? defaults.endDate,
-            endTime: plan.intent.endTime ?? defaults.endTime,
+            startDate: plan.intent.startDate,
+            startTime: plan.intent.startTime,
+            endDate: plan.intent.endDate,
+            endTime: plan.intent.endTime,
           }}
+          createdAt={plan.createdAt}
           onChange={setWindow}
           googleBudgeted={plan.intent.budget.googleDaily > 0}
         />

@@ -11,12 +11,15 @@ import { describe, it } from "node:test";
 
 import type { DecisionRowView } from "../../optimisation/automation-ui.ts";
 import {
-  bandDashedFor,
+  DECISION_COUNT_UNAVAILABLE,
   compactRelative,
+  decisionBandKind,
   emptyDecisionsStatus,
   glyphActionFor,
   groupDecisions,
+  leftAloneLabel,
   metricChipText,
+  presentDecisionRows,
   presetDriftLabel,
   provenanceMarkForDecision,
   whyForDecision,
@@ -59,7 +62,7 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(glyphActionFor(decision.action), "scale_up");
     assert.equal(whyForDecision(decision, NOW), "+20% · 38 conv ≥ 5");
     assert.equal(metricChipText(decision), "cpr 1.72 · 38 / 7d");
-    assert.equal(bandDashedFor(decision.action), false);
+    assert.equal(decisionBandKind(decision), "solid");
     assert.equal(provenanceMarkForDecision(decision), "plat");
   });
 
@@ -143,7 +146,7 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(glyphActionFor(decision.action), "metric_unavailable");
     assert.equal(whyForDecision(decision, NOW), "no reads yet");
     assert.equal(metricChipText(decision), "lpv_cost · — / 24h");
-    assert.equal(bandDashedFor(decision.action), true);
+    assert.equal(decisionBandKind(decision), "none");
     assert.equal(provenanceMarkForDecision(decision), "┄");
   });
 
@@ -159,7 +162,7 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(glyphActionFor(decision.action), "insufficient_conversions");
     assert.equal(whyForDecision(decision, NOW), "3/5 conv · insufficient");
     assert.equal(metricChipText(decision), "—");
-    assert.equal(bandDashedFor(decision.action), false);
+    assert.equal(decisionBandKind(decision), "none");
     assert.equal(provenanceMarkForDecision(decision), "┄");
   });
 
@@ -241,6 +244,56 @@ describe("zero-decisions StatusLine", () => {
       emptyDecisionsStatus("2026-09-04T10:00:00.000Z", NOW),
       "◌ no decisions yet · next tick soon",
     );
+  });
+});
+
+describe("G7 — no band without a reading; left-alone collapse", () => {
+  it("collapses no-reading maintain rows and keeps refusals", () => {
+    const rows = [
+      row({ action: "maintain", decidedAt: "2026-09-04T12:00:00.000Z" }),
+      row({ action: "maintain", decidedAt: "2026-09-04T12:01:00.000Z" }),
+      row({
+        action: "maintain",
+        decidedAt: "2026-09-04T12:02:00.000Z",
+        metricValue: 0.26,
+        resultCount: 10,
+      }),
+      row({
+        action: "skip_dormant",
+        decidedAt: "2026-09-04T12:03:00.000Z",
+        reasonText: "No meta spend in the 24h window — dormant.",
+      }),
+    ];
+    const presented = presentDecisionRows(rows);
+    assert.equal(presented.leftAlone, 2);
+    assert.equal(leftAloneLabel(presented.leftAlone), "2 ad sets left alone");
+    assert.deepEqual(
+      presented.rows.map((item) => item.action),
+      ["maintain", "skip_dormant"],
+    );
+    assert.equal(decisionBandKind(presented.rows[0]!), "solid");
+    assert.equal(decisionBandKind(presented.rows[1]!), "none");
+  });
+});
+
+describe("G8 — change with count — is dashed, no colour", () => {
+  it("keeps the scale_down row and marks the band dashed", () => {
+    const decision = row({
+      action: "scale_down",
+      decidedAt: "2026-09-04T16:00:00.000Z",
+      metric: "cpr",
+      metricValue: 1.3,
+      resultCount: null,
+      metricWindow: "24h",
+      budgetBeforePence: 10000,
+      budgetAfterPence: 7500,
+      reasonText: "cpr=1.3 matched \"above\" → scale_down −25%.",
+    });
+    const presented = presentDecisionRows([decision]);
+    assert.equal(presented.leftAlone, 0);
+    assert.equal(presented.rows.length, 1);
+    assert.equal(decisionBandKind(decision), "dashed");
+    assert.equal(DECISION_COUNT_UNAVAILABLE, "count unavailable");
   });
 });
 

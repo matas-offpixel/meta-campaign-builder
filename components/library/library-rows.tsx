@@ -18,6 +18,7 @@ import { MetricChip } from "@/components/viz/metric-chip";
 import { OverflowMenu } from "@/components/viz/overflow-menu";
 import { StatusStrip } from "@/components/viz/status-strip";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
+import { formatPlanListBudget, formatPlanListRange } from "@/lib/plan/format-schedule";
 import { planRowMenuItemSpecs } from "@/lib/viz/overflow-menu";
 import { formatLibraryDate, formatLibraryRelativeDate } from "@/lib/library/format-date";
 import {
@@ -330,12 +331,6 @@ export function TemplateRow({
   );
 }
 
-function dateRangeLabel(start: string | null, end: string | null): string | null {
-  if (!start && !end) return null;
-  if (start && end) return `${start}–${end}`;
-  return start ?? end;
-}
-
 export function PlanRow({
   plan,
   isLoading = false,
@@ -354,7 +349,7 @@ export function PlanRow({
   onDeleted?: () => void;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const range = dateRangeLabel(plan.startDate, plan.endDate);
+  const range = formatPlanListRange(plan.startDate, plan.endDate);
   const budget = plan.totalDaily;
   const disposal = planDisposalAction(plan.launches);
   const planLabel = plan.name || "Untitled plan";
@@ -395,7 +390,7 @@ export function PlanRow({
       </span>
       {Number.isFinite(budget) && budget > 0 ? (
         <span className="pointer-events-none relative z-[1] shrink-0">
-          <MetricChip label={`${budget} pounds per day`}>£{budget}/d</MetricChip>
+          <MetricChip label={formatPlanListBudget(budget)}>{formatPlanListBudget(budget)}</MetricChip>
         </span>
       ) : null}
       {range ? (
@@ -452,8 +447,8 @@ export function PlanTemplateRow({
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{objective}</span>
             {template.snapshot.budget.totalDaily > 0 ? (
-              <MetricChip label={`${template.snapshot.budget.totalDaily} pounds per day`}>
-                £{template.snapshot.budget.totalDaily}/d
+              <MetricChip label={formatPlanListBudget(template.snapshot.budget.totalDaily)}>
+                {formatPlanListBudget(template.snapshot.budget.totalDaily)}
               </MetricChip>
             ) : null}
             {template.snapshot.splitPreset ? (
