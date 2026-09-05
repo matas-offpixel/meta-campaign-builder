@@ -7,6 +7,7 @@ import { StatusDot } from "@/components/viz/status-dot";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import {
   EMPTY_IDENTITY_NAMES,
+  identityChipEmptyLabel,
   identityChipTip,
   identityChipVisibleLabel,
   planIdentityChips,
@@ -33,7 +34,7 @@ function IdentityChip({ chip }: { chip: PlanIdentityChip }) {
         className={`inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 ${VIZ_TYPE.label} text-muted-foreground`}
       >
         <span aria-hidden="true">┄</span>
-        {chip.field} not set
+        {identityChipEmptyLabel(chip)}
       </span>
     );
     if (chip.href) {

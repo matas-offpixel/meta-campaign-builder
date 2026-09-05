@@ -259,6 +259,7 @@ export function planLaunchButton(input: {
   gateReason?: string | null;
   hasEvent: boolean;
   hasDestination: boolean;
+  windowOk?: boolean;
   preflightOk: boolean;
   busy: boolean;
 }): PlanLaunchButtonModel {
@@ -299,11 +300,13 @@ export function planLaunchButton(input: {
       ? PLAN_CANVAS_COPY.noEvent
       : !input.hasDestination
         ? PLAN_CANVAS_COPY.noDestination
-        : !input.preflightOk
-          ? PLAN_CANVAS_COPY.blockers
-          : input.busy
-            ? PLAN_CANVAS_COPY.launchBusy
-            : null;
+        : input.windowOk === false
+          ? PLAN_CANVAS_COPY.windowUnset
+          : !input.preflightOk
+            ? PLAN_CANVAS_COPY.blockers
+            : input.busy
+              ? PLAN_CANVAS_COPY.launchBusy
+              : null;
   return {
     kind: "launch",
     label: "⏸ Launch",
@@ -414,7 +417,9 @@ export function joinInfoTips(...parts: Array<string | null | undefined | false>)
  * components the grep-guard scans for long literals.
  */
 export const PLAN_CANVAS_COPY = {
-  fanoutOff: "Launch is off — ENABLE_PLAN_FANOUT is not \"1\".",
+  fanoutOff: "Launch is switched off for this account",
+  fanoutOffTip: "ENABLE_PLAN_FANOUT is not \"1\".",
+  windowUnset: "set start and end",
   noEvent: "Choose an event first.",
   noDestination:
     "No destination — this event has no ticket_url or signup_url. Paste one in the ⓘ.",

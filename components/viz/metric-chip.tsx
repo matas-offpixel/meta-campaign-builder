@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { aspectChipRatio } from "@/lib/viz/aspect-chip";
 import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 const SIZE_CLASS = {
@@ -35,18 +36,19 @@ export function AspectChip({
 }: {
   ratio: string;
 }) {
+  const label = aspectChipRatio(ratio);
   const shape =
-    ratio === "9:16"
+    label === "9:16"
       ? "h-3.5 w-2"
-      : ratio === "1:1"
+      : label === "1:1"
         ? "h-3 w-3"
-        : ratio === "4:5"
+        : label === "4:5"
           ? "h-3.5 w-2.5"
           : "h-2.5 w-3.5";
   return (
-    <MetricChip label={ratio} size="sm">
+    <MetricChip label={label} size="sm">
       <span className={`rounded-[1px] border border-current ${shape}`} aria-hidden="true" />
-      <span className="sr-only">{ratio}</span>
+      <span>{label}</span>
     </MetricChip>
   );
 }

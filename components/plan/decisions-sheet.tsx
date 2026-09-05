@@ -22,12 +22,15 @@ import {
 } from "@/lib/optimisation/presets";
 import {
   DECISIONS_SHEET_COPY,
-  bandDashedFor,
+  DECISION_COUNT_UNAVAILABLE,
   compactRelative,
+  decisionBandKind,
   emptyDecisionsStatus,
   glyphActionFor,
   groupDecisions,
+  leftAloneLabel,
   metricChipText,
+  presentDecisionRows,
   presetDriftLabel,
   provenanceForDecision,
   provenanceMarkForDecision,
@@ -180,9 +183,15 @@ export function DecisionsSheetRows({
 }
 
 function DayGroup({ rows, now }: { rows: DecisionRowView[]; now: Date }) {
+  const presented = presentDecisionRows(rows);
   return (
     <ul className="space-y-0">
-      {rows.map((decision, idx) => (
+      {presented.leftAlone > 0 ? (
+        <li className={`flex h-9 items-center border-b border-border ${VIZ_TYPE.label} text-muted-foreground`}>
+          {leftAloneLabel(presented.leftAlone)}
+        </li>
+      ) : null}
+      {presented.rows.map((decision, idx) => (
         <DecisionRow
           key={`${decision.decidedAt}-${decision.action}-${idx}`}
           row={decision}
@@ -197,7 +206,8 @@ function DecisionRow({ row, now }: { row: DecisionRowView; now: Date }) {
   const glyph = glyphActionFor(row.action);
   const chip = metricChipText(row);
   const why = whyForDecision(row, now);
-  const dashed = bandDashedFor(row.action);
+  const band = decisionBandKind(row);
+  const countUnavailable = band === "dashed";
 
   return (
     <li className={`flex h-9 items-center gap-2 border-b border-border ${VIZ_TYPE_NUM.body} text-foreground`}>
@@ -216,14 +226,17 @@ function DecisionRow({ row, now }: { row: DecisionRowView; now: Date }) {
         </MetricChip>
       </span>
       <span className="min-w-[96px] max-w-[160px] flex-1">
-        <ThresholdBand
-          action={row.action}
-          currentValue={row.metricValue}
-          dashed={dashed}
-          size="sm"
-        />
+        {band === "none" ? null : (
+          <ThresholdBand
+            action={row.action}
+            currentValue={band === "solid" ? row.metricValue : null}
+            dashed={band === "dashed"}
+            size="sm"
+          />
+        )}
       </span>
       <span className="w-16 shrink-0 truncate text-muted-foreground">{why}</span>
+      {countUnavailable ? <InfoTip label={DECISION_COUNT_UNAVAILABLE} /> : null}
       <ProvenanceBadge
         provenance={provenanceForDecision(row)}
         label={provenanceMarkForDecision(row)}

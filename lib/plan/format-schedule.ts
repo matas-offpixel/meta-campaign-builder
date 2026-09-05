@@ -25,3 +25,18 @@ export function formatPlanScheduleRange(
   if (!end) return left;
   return `${left} → ${formatPlanScheduleInstant(end, endTime)}`;
 }
+
+/** `/plans` row: `Wed 26 Aug → Sun 6 Sep`. Never an ISO date. */
+export function formatPlanListRange(
+  start: string | null | undefined,
+  end?: string | null,
+): string | null {
+  if (!start && !end) return null;
+  if (start && end) return `${formatVizDay(start)} → ${formatVizDay(end)}`;
+  return formatVizDay((start ?? end)!);
+}
+
+/** `/plans` row: `£40 per day`. */
+export function formatPlanListBudget(amount: number): string {
+  return `£${amount} per day`;
+}

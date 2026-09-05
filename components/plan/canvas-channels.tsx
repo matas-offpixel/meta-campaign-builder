@@ -9,7 +9,7 @@ import { PLAN_CANVAS_COPY, joinInfoTips, resumeSupport, type PlanChannelRowModel
 import type { PlanAdapterName } from "@/lib/plan/types";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import type { EventFunnelPlatformCosts } from "@/lib/dashboard/event-funnel";
-import { funnelCostLabel } from "@/lib/dashboard/event-funnel";
+import { channelLiveCostLabel } from "@/lib/plan/channel-costs";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
@@ -76,10 +76,10 @@ export function CanvasChannels({
                   cost ? (
                     <>
                       <MetricChip label="cost per mille" size="sm">
-                        {funnelCostLabel(cost.cpm)}
+                        {channelLiveCostLabel(cost.cpm, "thousand")}
                       </MetricChip>
                       <MetricChip label="cost per click" size="sm">
-                        {funnelCostLabel(cost.cpc)}
+                        {channelLiveCostLabel(cost.cpc, "click")}
                       </MetricChip>
                     </>
                   ) : null

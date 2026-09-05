@@ -14,6 +14,7 @@ import {
   planRowMenuItemSpecs,
   planRowPointerOutcome,
 } from "../../viz/overflow-menu.ts";
+import { formatPlanListBudget, formatPlanListRange } from "../format-schedule.ts";
 
 const PARENT = "67f9a4f";
 
@@ -138,6 +139,26 @@ describe("3 — no unnamed interactive elements on the plan row", () => {
 
     const thumb = readFileSync("components/viz/event-thumb.tsx", "utf8");
     assert.doesNotMatch(thumb, /<button/);
+  });
+});
+
+describe("G11 — /plans dates and £ per day", () => {
+  it("formats through formatVizDay and says per day, never ISO", () => {
+    const range = formatPlanListRange("2026-08-26", "2026-09-06");
+    assert.equal(range, "Wed 26 Aug → Sun 6 Sep");
+    assert.doesNotMatch(range!, /\d{4}-\d{2}-\d{2}/);
+    assert.equal(formatPlanListBudget(40), "£40 per day");
+
+    const rows = readFileSync("components/library/library-rows.tsx", "utf8");
+    const planRow = rows.slice(
+      rows.indexOf("export function PlanRow"),
+      rows.indexOf("export function PlanTemplateRow"),
+    );
+    assert.match(planRow, /formatPlanListRange/);
+    assert.match(planRow, /formatPlanListBudget/);
+    assert.doesNotMatch(planRow, /£\{budget\}\/d/);
+    assert.doesNotMatch(planRow, /\$\{start\}–\$\{end\}/);
+    assert.doesNotMatch(planRow, /\d{4}-\d{2}-\d{2}/);
   });
 });
 

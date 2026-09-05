@@ -100,7 +100,11 @@ describe("plan UI honest copy", () => {
      */
     const copy = readFileSync("lib/plan/canvas.ts", "utf8");
     assert.match(copy, /Launch all \(paused\)|⏸ Launch/);
+    assert.match(copy, /Launch is switched off for this account/);
     assert.match(copy, /ENABLE_PLAN_FANOUT/);
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.match(launch, /fanoutOff \?/);
+    assert.match(launch, /fanoutOffTip/);
     assert.match(copy, /Ads Manager/);
   });
 });

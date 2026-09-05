@@ -32,6 +32,7 @@ import {
   planWindowFromHandles,
   planWindowHandles,
   planWindowMoments,
+  planWindowValidity,
 } from "../canvas-inputs.ts";
 import { resolvePreset } from "../../optimisation/presets.ts";
 import { resolvePlanDestination } from "../destination.ts";
@@ -193,6 +194,54 @@ describe("zone B · window", () => {
       endDate: "2026-09-27",
       endTime: "23:59",
     });
+  });
+
+  it("rejects a 46-minute window and a start more than a day before creation", () => {
+    const junk = {
+      startDate: "2026-08-27",
+      startTime: "10:00",
+      endDate: "2026-08-27",
+      endTime: "10:46",
+    };
+    const before = { ...junk };
+    const createdAt = new Date("2026-09-04T12:00:00.000Z");
+    assert.equal(planWindowValidity(junk, DOD, { now: FIXTURE_NOW, createdAt }).ok, false);
+    assert.equal(planWindowValidity(junk, DOD, { now: FIXTURE_NOW, createdAt }).reason, "set start and end");
+    assert.deepEqual(junk, before, "validation must not rewrite stored dates");
+
+    const pastStart = {
+      startDate: "2026-08-26",
+      startTime: "18:00",
+      endDate: "2026-09-20",
+      endTime: "23:59",
+    };
+    assert.equal(
+      planWindowValidity(pastStart, DOD, { now: FIXTURE_NOW, createdAt }).ok,
+      false,
+    );
+
+    const pastShow = {
+      startDate: "2026-09-04",
+      startTime: "18:00",
+      endDate: "2026-09-28",
+      endTime: "23:59",
+    };
+    assert.equal(
+      planWindowValidity(pastShow, DOD, { now: FIXTURE_NOW, createdAt: "2026-09-04T12:00:00.000Z" }).ok,
+      false,
+    );
+
+    const ok = planWindowValidity(
+      { startDate: "2026-09-04", startTime: "18:00", endDate: "2026-09-27", endTime: "23:59" },
+      DOD,
+      { now: FIXTURE_NOW, createdAt: "2026-09-04T12:00:00.000Z" },
+    );
+    assert.equal(ok.ok, true);
+
+    const windowSource = readFileSync("components/plan/canvas-window.tsx", "utf8");
+    assert.match(windowSource, /planWindowValidity/);
+    assert.match(windowSource, /empty=\{!validity\.ok\}/);
+    assert.match(windowSource, /emptyLabel=\{PLAN_CANVAS_COPY\.windowUnset\}/);
   });
 });
 
@@ -473,7 +522,22 @@ describe("zone G · one button", () => {
       preflightOk: true,
     });
     assert.equal(button.disabled, true);
-    assert.match(button.reason!, /ENABLE_PLAN_FANOUT/);
+    assert.equal(button.reason, PLAN_CANVAS_COPY.fanoutOff);
+    assert.doesNotMatch(button.reason!, /ENABLE_PLAN_FANOUT/);
+    assert.match(PLAN_CANVAS_COPY.fanoutOffTip, /ENABLE_PLAN_FANOUT/);
+  });
+
+  it("disables launch when the stored window is junk", () => {
+    const rows = rowsFor();
+    const button = planLaunchButton({
+      ...open,
+      windowOk: false,
+      state: "ready",
+      rows,
+      preflightOk: true,
+    });
+    assert.equal(button.disabled, true);
+    assert.equal(button.reason, PLAN_CANVAS_COPY.windowUnset);
   });
 
   it("becomes Resume 3 once the platforms hold paused campaigns", () => {

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { emptyChannelDefaultsRow, resolveChannelDefaults } from "../../clients/channel-defaults.ts";
 import {
   identityChipDisplay,
+  identityChipEmptyLabel,
   identityChipVisibleLabel,
   lookupStoredName,
   planIdentityChips,
@@ -59,6 +60,13 @@ describe("withIdentityNames", () => {
       assert.equal(chip.value, null);
       assert.equal(identityChipDisplay(chip.value, chip.name), null);
     }
+    const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip]));
+    assert.equal(identityChipEmptyLabel(byId["tiktok-advertiser"]!), "TikTok account not connected — connect");
+    assert.equal(identityChipEmptyLabel(byId["tiktok-identity"]!), "TikTok profile not set — set");
+    assert.equal(identityChipEmptyLabel(byId["google-customer"]!), "Google account not connected — connect");
+    assert.doesNotMatch(identityChipEmptyLabel(byId["tiktok-advertiser"]!), /\badvertiser\b/);
+    assert.doesNotMatch(identityChipEmptyLabel(byId["tiktok-identity"]!), /\bidentity\b/);
+    assert.doesNotMatch(identityChipEmptyLabel(byId["google-customer"]!), /\bcustomer\b/);
   });
 });
 
