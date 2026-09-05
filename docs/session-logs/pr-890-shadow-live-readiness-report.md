@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 890
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/890
 - **Branch:** `cursor/shadow-live-readiness-report`
 
 ## Summary

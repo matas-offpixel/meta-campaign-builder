@@ -9,7 +9,7 @@ Unattended stacked run. One PR per step. Decision logic stays in `evaluate.ts`. 
 | 1 cooldown-only-after-change | `cursor/shadow-cooldown-only-after-change` | [#887](https://github.com/matas-offpixel/meta-campaign-builder/pull/887) | opened |
 | 2 named skips | `cursor/shadow-named-skips` | [#888](https://github.com/matas-offpixel/meta-campaign-builder/pull/888) | opened (stacked on #887) |
 | 3 conversion-metric audit | `cursor/shadow-conversion-metric-audit` | [#889](https://github.com/matas-offpixel/meta-campaign-builder/pull/889) | opened (off main) |
-| 4 Live-readiness report | `cursor/shadow-live-readiness-report` | pending | this PR |
+| 4 Live-readiness report | `cursor/shadow-live-readiness-report` | [#890](https://github.com/matas-offpixel/meta-campaign-builder/pull/890) | opened (off main) |
 
 ## What each changed
 
@@ -22,7 +22,7 @@ Cooldown reads the last `scale_up` / `scale_down` / `pause` decision, not the la
 ### #889 — conversion-metric audit
 Read-only last-7d insights with `META_ACCESS_TOKEN`. Token could read. **No resolver mapping change.** See table below.
 
-### PR 4 — Live-readiness report
+### #890 — Live-readiness report
 `scripts/shadow-readiness-report.mjs` → `docs/session-logs/shadow-readiness-2026-09-05.md`. Generated **before** two post-merge ticks of #887–#889; says so.
 
 ## PR 3 action_type table
