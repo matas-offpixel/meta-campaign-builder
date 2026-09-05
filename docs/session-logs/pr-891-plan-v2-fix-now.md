@@ -1,11 +1,9 @@
-# Session log template
-
-Copy to `docs/session-logs/pr-{number}-{branch-slug}.md` (use `pr-pending-{branch-slug}.md` until the PR exists).
+# Session log
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 891
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/891
 - **Branch:** `cursor/plan-v2-fix-now`
 
 ## Summary
