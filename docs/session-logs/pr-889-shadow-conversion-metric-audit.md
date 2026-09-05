@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 889
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/889
 - **Branch:** `cursor/shadow-conversion-metric-audit`
 
 ## Summary
