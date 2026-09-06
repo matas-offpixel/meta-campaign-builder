@@ -39,6 +39,7 @@ export type CampaignPlanPrediction = {
   n: number;
   runsUsed: string[];
   sourceKind: PredictionSourceKind;
+  actual?: number | null;
 };
 
 export function rungFromBenchmark(benchmark: MetricChipBenchmark | undefined): PredictionRung {
@@ -127,6 +128,88 @@ export async function writePredictionsAtLaunch(
     };
   }
   return { ok: true };
+}
+
+export async function loadPlanPredictions(
+  supabase: unknown,
+  planId: string,
+): Promise<CampaignPlanPrediction[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = supabase as any;
+  const { data, error } = await client
+    .from(PREDICTIONS_TABLE)
+    .select("user_id, plan_id, metric, unit, value, line_kind, benchmark_rung, n, runs_used, source_kind, actual")
+    .eq("plan_id", planId);
+  if (error) {
+    if (!isRelationMissing(error)) {
+      console.warn("[predictions] load failed", error.message);
+    }
+    return [];
+  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    userId: String(row.user_id ?? ""),
+    planId: String(row.plan_id ?? ""),
+    metric: row.metric as PredictionMetric,
+    unit: (row.unit as PredictionUnit | null) ?? null,
+    value: Number(row.value ?? 0),
+    lineKind: row.line_kind as PredictionLineKind,
+    benchmarkRung: (row.benchmark_rung as PredictionRung | null) ?? null,
+    n: Number(row.n ?? 0),
+    runsUsed: Array.isArray(row.runs_used) ? row.runs_used.map(String) : [],
+    sourceKind: row.source_kind as PredictionSourceKind,
+    actual: row.actual == null ? null : Number(row.actual),
+  }));
+}
+
+export function planWindowActual(input: {
+  spend: number;
+  regs: number;
+  purchases: number;
+  reach: number;
+  unit: PredictionUnit | null;
+}): number | null {
+  const denom =
+    input.unit === "purchase"
+      ? input.purchases
+      : input.unit === "view"
+        ? input.reach / 1000
+        : input.regs;
+  if (denom <= 0 || input.spend < 0) return null;
+  return Math.round((input.spend / denom) * 100) / 100;
+}
+
+export async function loadPlanWindowActual(
+  supabase: unknown,
+  input: { eventId: string; sinceDate?: string | null; unit: PredictionUnit | null },
+): Promise<number | null> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const client = supabase as any;
+  let query = client
+    .from("event_daily_rollups")
+    .select("ad_spend, tiktok_spend, google_ads_spend, meta_regs, meta_purchases, meta_reach")
+    .eq("event_id", input.eventId);
+  if (input.sinceDate) query = query.gte("date", input.sinceDate);
+  const { data, error } = await query;
+  if (error || !data || data.length === 0) return null;
+  const totals = (data as Array<Record<string, unknown>>).reduce<{
+    spend: number;
+    regs: number;
+    purchases: number;
+    reach: number;
+  }>(
+    (sum, row) => ({
+      spend:
+        sum.spend +
+        Number(row.ad_spend ?? 0) +
+        Number(row.tiktok_spend ?? 0) +
+        Number(row.google_ads_spend ?? 0),
+      regs: sum.regs + Number(row.meta_regs ?? 0),
+      purchases: sum.purchases + Number(row.meta_purchases ?? 0),
+      reach: sum.reach + Number(row.meta_reach ?? 0),
+    }),
+    { spend: 0, regs: 0, purchases: 0, reach: 0 },
+  );
+  return planWindowActual({ ...totals, unit: input.unit });
 }
 
 export async function writePredictionActualsAtClose(

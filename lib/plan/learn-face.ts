@@ -17,13 +17,25 @@ import type { CampaignPlanPrediction as StoredPrediction } from "./predictions.t
 export type CampaignPlanPrediction = Pick<
   StoredPrediction,
   "planId" | "metric" | "unit" | "value" | "n" | "runsUsed"
->;
+> & { actual?: number | null };
 
 export const LEARN_INFO_VARIANT = "card" as const;
 export const LEARN_PHASE_LABEL = "before general sale" as const;
 export const LEARN_NO_PREDICTION =
   "no prediction was stored for this plan — it launched before predictions were kept";
-export const LEARN_PACE_KEPT = "£35 per day, kept";
+export function formatPaceKept(daily: number): string {
+  return `${formatGbp(daily)} per day, kept`;
+}
+
+export function formatPaceValues(input: {
+  planSaid: number;
+  spent: number;
+  eventName: string;
+  nextDaily: number;
+}): string {
+  return `${LEARN_PACE_HEADS.plan} ${formatGbp(input.planSaid)} · ${input.eventName} ${LEARN_PACE_HEADS.spent} ${formatGbp(input.spent)} · ${LEARN_PACE_HEADS.next} ${formatPaceKept(input.nextDaily)}`;
+}
+
 export const LEARN_PACE_KEPT_TIP =
   "pace is a setting, not a prediction — the daily amount is kept";
 export const LEARN_CREATIVE_LOCK = VIZ_LOCKED_CLIENT_CREATIVE;
@@ -112,8 +124,17 @@ export function formatDateLock(eventName: string, days: number): string {
   return `opens when ${eventName} closes (${days} days)`;
 }
 
-export function formatCountLock(venueLabel: string, n: number, of: number): string {
-  return `opens after your ${ordinal(of)} ${venueLabel} show (${n} so far)`;
+export function formatCountLockSentence(
+  venueLabel: string | null | undefined,
+  of: number,
+): string {
+  const venue = venueLabel?.trim();
+  const show = venue ? `${ordinal(of)} ${venue} show` : `${ordinal(of)} show`;
+  return `opens after your ${show}`;
+}
+
+export function formatCountLock(venueLabel: string | null | undefined, n: number, of: number): string {
+  return `${formatCountLockSentence(venueLabel, of)} (${n} of ${of})`;
 }
 
 export function learnControlsVisible(role: "operator" | "client"): {
@@ -163,7 +184,7 @@ export function learnFaceSentences(state: LearnEState): string[] {
     case "E3":
       return [formatDateLock("D.O.D", 89), formatCountLock("NX", 1, 3)];
     case "E4":
-      return [formatCountLock("NX", 1, 3)];
+      return [formatCountLock(null, 1, 3)];
     case "E5":
       return [LEARN_CREATIVE_LOCK];
     case "E6":

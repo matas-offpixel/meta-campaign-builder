@@ -54,6 +54,23 @@ None that stop the face. Draft because #896 is unapplied. G34 decides whether E1
 
 Readings:
 
-1. Live wiring passes `prediction={null}` — E2 until 166 + a read path exist.
-2. E7 uses `campaign_plans.updated_at` when `status = archived` (no `archived_at` column).
-3. Canon example `Fri 6 Sep` is not 2026-09-06 (that day is Sunday). The header follows `formatVizDay`.
+1. E7 uses `campaign_plans.updated_at` when `status = archived` (no `archived_at` column).
+2. Canon example `Fri 6 Sep` is not 2026-09-06 (that day is Sunday). The header follows `formatVizDay`.
+
+## Review round 2 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| `LEARN_PACE_KEPT` was a constant | `formatPaceKept(plan.intent.budget.totalDaily)`; `formatPaceValues` | `pace kept is built from the plan daily` — `the plan said £3,465 · D.O.D spent £5,544 · next time £35 per day, kept` |
+| Every Locked child was the word `Locked` | `LearnLockedSkeleton` (heads at 35% ink + dashed bar) | `Locked children are the exhibit skeleton` |
+| `venueLabel = "NX"`; `(1 so far)` | no default; `formatCountLock` is `(1 of 3)` | `opens after your 3rd show (1 of 3)` |
+| `prediction={null}` hard-wired | `page.tsx` `loadPlanPredictions`; workspace `learnPrediction` | `page reads campaign_plan_predictions`; workspace no longer `prediction={null}` |
+| `actual` never written | archive route `loadPlanWindowActual` → `archiveCampaignPlan(..., actual)` | `archive writes actual`; `planWindowActual(554/1086)` → 0.51 |
+
+**Open item:** show-close writer on `rollup-sync-events` (day after `event_date`, once, DB-only). Out of scope for this PR — archive writes the actual now.
+
+## Validation
+
+- [x] `npm test` (round 1)
+- [x] `npm test` (round 2) — 5210 pass, 4 skipped
+- [x] `npm run build` (round 2)

@@ -7,14 +7,16 @@ import {
   LEARN_CREATIVE_LOCK,
   LEARN_INFO_VARIANT,
   LEARN_NO_PREDICTION,
-  LEARN_PACE_KEPT,
   LEARN_PACE_KEPT_TIP,
   LEARN_PHASE_LABEL,
   formatArchiveHeader,
   formatColumnHeads,
+  formatCountLockSentence,
   formatGbp,
   formatLearnSentence,
   formatPaceHeads,
+  formatPaceKept,
+  formatPaceValues,
   formatPastIdentity,
   learnControlsVisible,
   learnCreativeLock,
@@ -22,14 +24,24 @@ import {
 } from "@/lib/plan/learn-face";
 import { VIZ_TYPE, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
 
+function LearnLockedSkeleton({ heads }: { heads: string }) {
+  return (
+    <>
+      <span className={`block ${VIZ_TYPE.label} text-foreground/35`} aria-hidden="true">
+        {heads}
+      </span>
+      <span className="mt-1 block h-2 w-24 border-b border-dashed border-foreground/20" aria-hidden="true" />
+    </>
+  );
+}
+
 /**
  * LEARN — after close. Predicted → actual → next-time.
- * PR 3 unmerged: the prediction row is passed as a fixture-shaped prop.
  */
 export function CanvasLearn({
   role = "operator",
   eventName,
-  venueLabel = "NX",
+  venueLabel,
   unitWord = "signup",
   prediction = null,
   actual = null,
@@ -39,12 +51,14 @@ export function CanvasLearn({
   archivedAt = null,
   identity = null,
   locked = null,
-  paceDaily = 35,
+  paceDaily,
+  pacePlanSaid = null,
+  paceSpent = null,
   extrapolatedTitle = null,
 }: {
   role?: "operator" | "client";
   eventName: string;
-  venueLabel?: string;
+  venueLabel?: string | null;
   unitWord?: string;
   prediction?: CampaignPlanPrediction | null;
   actual?: number | null;
@@ -54,13 +68,16 @@ export function CanvasLearn({
   archivedAt?: Date | string | null;
   identity?: { metaName: string | null; tiktokRan: boolean; googleRan: boolean } | null;
   locked?: { days?: number; n?: number; of?: number } | null;
-  paceDaily?: number;
+  paceDaily: number;
+  pacePlanSaid?: number | null;
+  paceSpent?: number | null;
   extrapolatedTitle?: string | null;
 }) {
   const controls = learnControlsVisible(role);
   const heads = formatColumnHeads(eventName);
   const paceHeads = formatPaceHeads(eventName);
   const closed = locked == null;
+  const venue = venueLabel?.trim() || null;
 
   return (
     <section aria-label="learn" className={`space-y-4 ${VIZ_ZONE_GUTTER.normal}`}>
@@ -84,24 +101,24 @@ export function CanvasLearn({
               progress: locked.days != null ? { days: locked.days } : undefined,
             }}
           >
-            <span className={VIZ_TYPE.label}>Locked</span>
+            <LearnLockedSkeleton heads={`${heads.assumed} · ${heads.cameIn} · ${heads.next}`} />
           </Locked>
           <Locked
             role={role}
             reason={{
               kind: "history",
-              sentence: `opens after your 3rd ${venueLabel} show`,
+              sentence: formatCountLockSentence(venue, locked.of ?? 3),
               progress:
                 locked.n != null && locked.of != null ? { n: locked.n, of: locked.of } : undefined,
             }}
           >
-            <span className={VIZ_TYPE.label}>Locked</span>
+            <LearnLockedSkeleton heads={formatCountLockSentence(venue, locked.of ?? 3)} />
           </Locked>
           <Locked
             role={role}
             reason={{ kind: "system", sentence: learnCreativeLock(role) }}
           >
-            <span className={VIZ_TYPE.label}>Locked</span>
+            <LearnLockedSkeleton heads="by creative name" />
           </Locked>
         </div>
       ) : null}
@@ -126,13 +143,13 @@ export function CanvasLearn({
           ) : (
             <span className={`block ${VIZ_TYPE.body}`}>{LEARN_NO_PREDICTION}</span>
           )}
-          {prediction && actual != null && nextTime != null ? (
+          {prediction && actual != null && nextTime != null && venue ? (
             <span className={`block ${VIZ_TYPE.body}`}>
               {formatLearnSentence({
                 predicted: prediction.value,
                 unitWord,
                 n: prediction.n,
-                venueLabel,
+                venueLabel: venue,
                 eventName,
                 actual,
                 phaseLabel: LEARN_PHASE_LABEL,
@@ -149,7 +166,7 @@ export function CanvasLearn({
                 value: nextTime ?? 0,
                 band: nextBand,
                 lineKind: "estimated",
-                sentence: `from ${nextN} other shows at ${venueLabel}`,
+                sentence: venue ? `from ${nextN} other shows at ${venue}` : `from ${nextN} other shows`,
                 runsUsed: prediction?.runsUsed ?? [],
                 bandWord: "your middle half",
                 n: nextN,
@@ -168,14 +185,25 @@ export function CanvasLearn({
             <span>{paceHeads.spent}</span>
             {controls.nextTimeColumn ? <span>{paceHeads.next}</span> : null}
           </div>
-          <span className={VIZ_TYPE.body}>{LEARN_PACE_KEPT}</span>
-          <InfoTip variant={LEARN_INFO_VARIANT} label={`${LEARN_PACE_KEPT_TIP} · ${formatGbp(paceDaily)} per day`} />
+          {pacePlanSaid != null && paceSpent != null ? (
+            <span className={VIZ_TYPE.body}>
+              {formatPaceValues({
+                planSaid: pacePlanSaid,
+                spent: paceSpent,
+                eventName,
+                nextDaily: paceDaily,
+              })}
+            </span>
+          ) : (
+            <span className={VIZ_TYPE.body}>{formatPaceKept(paceDaily)}</span>
+          )}
+          <InfoTip variant={LEARN_INFO_VARIANT} label={`${LEARN_PACE_KEPT_TIP} · ${formatPaceKept(paceDaily)}`} />
         </div>
       ) : null}
 
       {closed ? (
         <Locked role={role} reason={{ kind: "system", sentence: LEARN_CREATIVE_LOCK }}>
-          <span className={VIZ_TYPE.label}>Locked</span>
+          <LearnLockedSkeleton heads="by creative name" />
         </Locked>
       ) : null}
     </section>

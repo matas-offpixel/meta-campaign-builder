@@ -7,6 +7,7 @@ import {
   PREDICTIONS_REMOVAL,
   PREDICTIONS_TABLE,
   lineKindFromBenchmark,
+  planWindowActual,
   predictionFromBenchmark,
   rungFromBenchmark,
 } from "../predictions.ts";
@@ -61,6 +62,10 @@ describe("§1.5 removal — predictions table", () => {
     const dispose = readFileSync("lib/plan/dispose.ts", "utf8");
     assert.match(dispose, /writePredictionActualsAtClose/);
     assert.match(dispose, /closedReason: "archived"/);
+    assert.equal(
+      planWindowActual({ spend: 554, regs: 1086, purchases: 0, reach: 0, unit: "reg" }),
+      0.51,
+    );
   });
 
   it("166 is the audit DDL and says the window is days", () => {

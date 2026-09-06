@@ -5,7 +5,9 @@ import { describe, it } from "node:test";
 import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE } from "../../viz/tokens.ts";
 import {
   LEARN_NO_PREDICTION,
-  LEARN_PACE_KEPT,
+  formatCountLockSentence,
+  formatPaceKept,
+  formatPaceValues,
   formatArchiveHeader,
   formatCountLock,
   formatDateLock,
@@ -87,7 +89,10 @@ describe("LEARN E-states — sentences", () => {
 
   it("E3 date-lock is days; count-lock is (1 of 3)", () => {
     assert.equal(formatDateLock("D.O.D", 89), "opens when D.O.D closes (89 days)");
-    assert.equal(formatCountLock("NX", 1, 3), "opens after your 3rd NX show (1 so far)");
+    assert.equal(formatCountLock("NX", 1, 3), "opens after your 3rd NX show (1 of 3)");
+    assert.equal(formatCountLock(null, 1, 3), "opens after your 3rd show (1 of 3)");
+    assert.equal(formatCountLockSentence(null, 3), "opens after your 3rd show");
+    assert.doesNotMatch(formatCountLock("NX", 1, 3), /so far/);
     const source = readFileSync("components/plan/canvas-learn.tsx", "utf8");
     assert.match(source, /progress: locked\.days != null \? \{ days: locked\.days \}/);
     assert.match(source, /n: locked\.n, of: locked\.of/);
@@ -114,8 +119,17 @@ describe("LEARN E-states — sentences", () => {
     );
   });
 
-  it("pace kept", () => {
-    assert.equal(LEARN_PACE_KEPT, "£35 per day, kept");
+  it("pace kept is built from the plan daily", () => {
+    assert.equal(formatPaceKept(35), "£35 per day, kept");
+    assert.equal(
+      formatPaceValues({
+        planSaid: 3465,
+        spent: 5544,
+        eventName: "D.O.D",
+        nextDaily: 35,
+      }),
+      "the plan said £3,465 · D.O.D spent £5,544 · next time £35 per day, kept",
+    );
   });
 
   it("closed after the show or on archive", () => {
@@ -143,6 +157,27 @@ describe("LEARN surface guards", () => {
     const source = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(source, /CanvasLearn/);
     assert.match(source, /isLearnFace/);
-    assert.match(source, /prediction=\{null\}/);
+    assert.match(source, /prediction=\{learnPrediction\}/);
+    assert.doesNotMatch(source, /prediction=\{null\}/);
+  });
+
+  it("Locked children are the exhibit skeleton, not the word Locked", () => {
+    const source = readFileSync("components/plan/canvas-learn.tsx", "utf8");
+    assert.match(source, /LearnLockedSkeleton/);
+    assert.match(source, /text-foreground\/35/);
+    assert.match(source, /border-dashed/);
+    assert.doesNotMatch(source, />Locked</);
+    assert.doesNotMatch(source, /venueLabel = "NX"/);
+  });
+
+  it("page reads campaign_plan_predictions; archive writes actual", () => {
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /loadPlanPredictions/);
+    const route = readFileSync("app/api/plan/[id]/route.ts", "utf8");
+    assert.match(route, /loadPlanWindowActual/);
+    assert.match(route, /archiveCampaignPlan\(supabase, id, user.id, actual/);
+    const predictions = readFileSync("lib/plan/predictions.ts", "utf8");
+    assert.match(predictions, /export function planWindowActual/);
+    assert.doesNotMatch(predictions, /rollup-sync-events/);
   });
 });

@@ -50,7 +50,7 @@ import {
   type AdjustWindowReads,
 } from "@/lib/plan/adjust-face";
 import { VIZ_UNIT_WORD } from "@/lib/viz/tokens";
-import { planBenchmark, type BenchmarkRow } from "@/lib/plan/benchmarks";
+import { planBenchmark, runFromViewRow, selectBenchmarkRows, type BenchmarkRow } from "@/lib/plan/benchmarks";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
@@ -70,7 +70,11 @@ import {
 import { scheduledDayCount } from "@/lib/plan/budget-split";
 import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
-import { planIsClosed } from "@/lib/plan/learn-face";
+import {
+  learnNextTime,
+  planIsClosed,
+  type CampaignPlanPrediction,
+} from "@/lib/plan/learn-face";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
   launchBlockedLine,
@@ -127,6 +131,7 @@ export function PlanWorkspace({
   targetBenchmark: _targetBenchmark = null,
   identityNames,
   rollupDays = [],
+  predictions = [],
   benchmarkRows = [],
 }: {
   initialPlan: CampaignPlan;
@@ -148,6 +153,7 @@ export function PlanWorkspace({
   /** Stored cache names for the identity chips — loaded on the page, never fetched here. */
   identityNames?: IdentityNameMap;
   rollupDays?: readonly LaunchRollupDay[];
+  predictions?: readonly CampaignPlanPrediction[];
   benchmarkRows?: readonly BenchmarkRow[];
 }) {
   void _targetBenchmark;
@@ -900,6 +906,35 @@ export function PlanWorkspace({
     eventDate: selectedEvent?.eventDate,
   });
   const learnEventName = selectedEvent?.name ?? headerName;
+  const learnPrediction =
+    predictions.find((row) => row.metric === "cost_per_unit") ?? null;
+  const learnActual = learnPrediction?.actual ?? null;
+  const learnUnit =
+    plan.intent.target.unit === "reg" || !plan.intent.target.unit
+      ? "signup"
+      : plan.intent.target.unit === "click" ||
+          plan.intent.target.unit === "lpv" ||
+          plan.intent.target.unit === "purchase" ||
+          plan.intent.target.unit === "view"
+        ? plan.intent.target.unit
+        : "signup";
+  const learnNext =
+    selectedEvent?.clientId && selectedEvent.venueKey && learnActual != null
+      ? learnNextTime({
+          priorRuns: selectBenchmarkRows(benchmarkRows, {
+            clientId: selectedEvent.clientId,
+            venueKey: selectedEvent.venueKey,
+            unit: learnUnit === "signup" ? "signup" : learnUnit,
+          }).map(runFromViewRow),
+          closed: {
+            eventId: selectedEvent.id,
+            eventCode: selectedEvent.eventCode ?? selectedEvent.id,
+            eventDate: selectedEvent.eventDate ?? null,
+            cost: learnActual,
+          },
+          venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
+        })
+      : undefined;
   const metaAccountId = selectedEvent?.metaAdAccountId ?? resolved?.metaAdAccount.value ?? null;
   const learnMetaName = metaAccountId
     ? identityNames?.metaAdAccount[metaAccountId] ?? metaAccountId
@@ -948,8 +983,19 @@ export function PlanWorkspace({
       {isLearnFace ? (
         <CanvasLearn
           eventName={learnEventName}
-          venueLabel={selectedEvent?.venueName ?? "the venue"}
-          prediction={null}
+          venueLabel={selectedEvent?.venueName ?? null}
+          prediction={learnPrediction}
+          actual={learnActual}
+          nextTime={learnNext?.value ?? null}
+          nextN={learnNext?.n ?? 0}
+          nextBand={learnNext?.band ?? null}
+          paceDaily={plan.intent.budget.totalDaily}
+          pacePlanSaid={
+            days
+              ? plan.intent.budget.totalDaily * days
+              : plan.intent.budget.totalDaily
+          }
+          paceSpent={liveSpend ?? 0}
           archivedAt={plan.status === "archived" ? plan.updatedAt : null}
           identity={{
             metaName: learnMetaName,
