@@ -13,6 +13,7 @@ import { syncMailchimpAudienceDailyHistory } from "@/lib/mailchimp/sync";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { notifyRollupTicketsDeadIfNeeded } from "@/lib/ticketing/rollup-tickets-freshness";
+import { closeDueShowPredictions } from "@/lib/plan/show-close";
 
 /**
  * GET /api/cron/rollup-sync-events
@@ -115,6 +116,23 @@ interface CronResponse {
   results: EventSyncResult[];
 }
 
+async function runShowClosePass(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+): Promise<void> {
+  try {
+    const closed = await closeDueShowPredictions(supabase);
+    console.log(
+      `[cron rollup-sync-events] show-close considered=${closed.considered} written=${closed.written}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[cron rollup-sync-events] show-close skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
   if (!expected) return false;
@@ -178,6 +196,7 @@ export async function GET(req: NextRequest) {
     console.log(
       `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
     );
+    await runShowClosePass(supabase);
     return NextResponse.json(empty);
   }
 
@@ -412,6 +431,8 @@ export async function GET(req: NextRequest) {
       }`,
     );
   }
+
+  await runShowClosePass(supabase);
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }
