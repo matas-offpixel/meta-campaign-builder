@@ -117,14 +117,22 @@ export function identityAccountLabel(
   return act;
 }
 
-/** After launch: ledger account. Draft: resolver (event, then client default). */
+/**
+ * After launch: ledger account, then the linked draft's adAccountId.
+ * The resolver is never a leg after launch. Draft plans use the resolver.
+ */
 export function planIdentityMetaId(input: {
   launchedMeta: CampaignPlanLaunchRecord;
+  draftAdAccountId?: string | null;
   resolvedMetaId: string | null;
 }): string | null {
   if (isLaunchedLedgerRow(input.launchedMeta)) {
-    const fromLedger = input.launchedMeta.platformAdAccountId?.trim();
-    if (fromLedger) return fromLedger;
+    return (
+      input.launchedMeta.platformAdAccountId?.trim() ||
+      input.draftAdAccountId?.trim() ||
+      input.launchedMeta.draftAdAccountId?.trim() ||
+      null
+    );
   }
   return input.resolvedMetaId;
 }

@@ -158,6 +158,30 @@ describe("LAUNCH identity sentence", () => {
     assert.match(tip, /dod-newcastle\.com/);
   });
 
+  it("launched with a null ledger falls back to the linked draft, never the resolver (D.O.D)", () => {
+    const launchedMeta = {
+      ...IDLE_PLAN_LAUNCH,
+      status: "live" as const,
+      platformCampaignId: "120251576269510755",
+      draftId: "645ed600-0000-4000-8000-000000000000",
+      platformAdAccountId: null,
+    };
+    const metaId = planIdentityMetaId({
+      launchedMeta,
+      draftAdAccountId: "act_606252931141334",
+      resolvedMetaId: "act_1073273492854557",
+    });
+    assert.equal(metaId, "act_606252931141334");
+    assert.equal(
+      planIdentityMetaId({
+        launchedMeta,
+        draftAdAccountId: null,
+        resolvedMetaId: "act_1073273492854557",
+      }),
+      null,
+    );
+  });
+
   it("draft plan identity is the resolver id; ⓘ names the other client default", () => {
     const metaId = planIdentityMetaId({
       launchedMeta: IDLE_PLAN_LAUNCH,
@@ -531,8 +555,14 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
     assert.match(header, /planIdentityMetaId/);
+    assert.match(header, /draftAdAccountId: launchedMeta.draftAdAccountId/);
     assert.match(header, /formatIdentitySentence/);
+    assert.match(workspace, /draftAdAccountId: plan.launches.meta.draftAdAccountId/);
     assert.match(workspace, /clientDefaultMetaId=\{selectedEvent\?\.metaAdAccountId/);
+    const load = readFileSync("lib/plan/load.ts", "utf8");
+    assert.match(load, /from\("campaign_drafts"\)/);
+    assert.match(load, /draft_json/);
+    assert.match(load, /settings\?\.adAccountId/);
     assert.match(page, /eventMetaAdAccountId: event\.meta_ad_account_id/);
     const tip = formatIdentityTip({
       metaId: "act_606252931141334",

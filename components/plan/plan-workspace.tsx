@@ -947,6 +947,7 @@ export function PlanWorkspace({
       : undefined;
   const metaAccountId = planIdentityMetaId({
     launchedMeta: plan.launches.meta,
+    draftAdAccountId: plan.launches.meta.draftAdAccountId,
     resolvedMetaId:
       resolved?.metaAdAccount.value ??
       selectedEvent?.eventMetaAdAccountId ??

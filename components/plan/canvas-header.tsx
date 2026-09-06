@@ -71,6 +71,7 @@ export function CanvasHeader({
   const date = eventDate ? formatVizDay(eventDate) : null;
   const metaId = planIdentityMetaId({
     launchedMeta,
+    draftAdAccountId: launchedMeta.draftAdAccountId,
     resolvedMetaId: resolved?.metaAdAccount.value ?? null,
   });
   const identity = resolved

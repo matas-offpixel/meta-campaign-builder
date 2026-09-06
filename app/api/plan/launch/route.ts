@@ -6,6 +6,7 @@ import { upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { handleTikTokLaunch } from "@/lib/tiktok/write/launch";
 import { planFanoutGateState } from "@/lib/plan/gate";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
+import { loadGoogleCustomerIdForSearchPlan } from "@/lib/plan/load";
 import { orchestratePlanLaunch, type PlanAdapterOutcome } from "@/lib/plan/orchestrator";
 import { upsertCampaignPlan, upsertPlanLaunchRow } from "@/lib/plan/persist";
 import {
@@ -115,9 +116,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   const linked = await loadLinkedDraftsForPlan(supabase, plan);
+  const googleCustomerId = plan.launches.google.draftId
+    ? await loadGoogleCustomerIdForSearchPlan(supabase, plan.launches.google.draftId)
+    : null;
   const result = await orchestratePlanLaunch({
     plan,
     linkedDrafts: linked,
+    googleCustomerId,
     persistLaunch: async (adapter, record) => {
       const write = await upsertPlanLaunchRow(supabase, {
         planId: plan.id,

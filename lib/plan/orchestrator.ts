@@ -4,6 +4,7 @@ import type { GoogleSearchPlanTree } from "../google-search/types.ts";
 import { planToGoogleDraft } from "./adapters/google.ts";
 import { planToMetaDraft } from "./adapters/meta.ts";
 import { planToTikTokDraft } from "./adapters/tiktok.ts";
+import { googleCustomerIdForLedger } from "./ads-manager-links.ts";
 import { planFanoutGateState } from "./gate.ts";
 import {
   budgetedLaunchAdapters,
@@ -42,6 +43,8 @@ export interface OrchestratePlanLaunchInput {
   ) => Promise<void>;
   logOutgoing?: (adapter: PlanAdapterName, payload: unknown) => void;
   env?: NodeJS.ProcessEnv;
+  /** Joined `google_ads_accounts.google_customer_id`. Never the uuid FK. */
+  googleCustomerId?: string | null;
 }
 
 export interface OrchestratePlanLaunchResult {
@@ -54,6 +57,7 @@ const ADAPTER_ORDER: PlanAdapterName[] = ["meta", "tiktok", "google"];
 function platformAccountFromDraft(
   adapter: PlanAdapterName,
   payload: CampaignDraft | TikTokCampaignDraft | GoogleSearchPlanTree,
+  googleCustomerId?: string | null,
 ): string | null {
   if (adapter === "meta") {
     const draft = payload as CampaignDraft;
@@ -65,9 +69,10 @@ function platformAccountFromDraft(
     const id = draft.accountSetup?.advertiserId || null;
     return typeof id === "string" && id.trim() ? id.trim() : null;
   }
-  const tree = payload as GoogleSearchPlanTree;
-  const id = tree.plan?.google_ads_account_id ?? null;
-  return typeof id === "string" && id.trim() ? id.trim() : null;
+  return (
+    googleCustomerIdForLedger(googleCustomerId) ??
+    googleCustomerIdForLedger((payload as GoogleSearchPlanTree).plan?.google_ads_account_id)
+  );
 }
 
 function applyOutcome(
@@ -139,7 +144,7 @@ export async function orchestratePlanLaunch(
 
     const payload = drafts[adapter];
     input.logOutgoing?.(adapter, payload);
-    const account = platformAccountFromDraft(adapter, payload);
+    const account = platformAccountFromDraft(adapter, payload, input.googleCustomerId);
 
     try {
       const outcome = await input.launchers[adapter](payload as never);
