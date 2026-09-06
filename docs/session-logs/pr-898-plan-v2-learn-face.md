@@ -74,3 +74,21 @@ Readings:
 - [x] `npm test` (round 1)
 - [x] `npm test` (round 2) — 5210 pass, 4 skipped
 - [x] `npm run build` (round 2)
+
+## Round 3 — rebase onto main + next-time once
+
+Rebased onto `f236e37`. Dropped the re-applied #896 commits. Page loads the benchmark view once via `loadPlanBenchmarkRows` (same as LAUNCH) and passes the rows to both faces.
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| Next-time double-counted the closed show (view row + stored actual) | `learnNextTime({ excludeEventId })` drops the view row, then appends the stored actual | fixture includes D.O.D's view row £0.54; without exclude n=7; with exclude n=6 median £1.10 |
+| `paceSpent={liveSpend ?? 0}` printed spent £0 | `paceSpent={liveSpend}`; `formatPaceValues` uses `no reads yet` when spent is null | `D.O.D spent no reads yet` |
+| `phaseLabel` / ⓘ header hard-coded to signup | `learnPhaseLabel(unitWord)` / `learnInfoHeader(unitWord)` | purchase → `META'S PURCHASE COUNT`; view → `META'S REACH` |
+| `loadPlanWindowActual` had no upper bound | launch-ledger day → close (`planLaunchedAt` + `todayIsoDate`) | archive route greps `untilDate: todayIsoDate()` |
+
+**Open item (unchanged):** show-close writer on `rollup-sync-events`.
+
+## Validation
+
+- [x] `npm test` (round 3: 5241 pass, 4 skipped)
+- [x] `npm run build` (round 3)

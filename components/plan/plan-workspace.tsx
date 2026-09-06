@@ -54,7 +54,7 @@ import { planBenchmark, runFromViewRow, selectBenchmarkRows, type BenchmarkRow }
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
-import { VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
+import { VIZ_UNIT_WORD, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
@@ -932,6 +932,7 @@ export function PlanWorkspace({
             eventDate: selectedEvent.eventDate ?? null,
             cost: learnActual,
           },
+          excludeEventId: selectedEvent.id,
           venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
         })
       : undefined;
@@ -984,6 +985,15 @@ export function PlanWorkspace({
         <CanvasLearn
           eventName={learnEventName}
           venueLabel={selectedEvent?.venueName ?? null}
+          unitWord={
+            plan.intent.target.unit === "reg" ||
+            plan.intent.target.unit === "click" ||
+            plan.intent.target.unit === "lpv" ||
+            plan.intent.target.unit === "purchase" ||
+            plan.intent.target.unit === "view"
+              ? VIZ_UNIT_WORD[plan.intent.target.unit]
+              : "signup"
+          }
           prediction={learnPrediction}
           actual={learnActual}
           nextTime={learnNext?.value ?? null}
@@ -995,7 +1005,7 @@ export function PlanWorkspace({
               ? plan.intent.budget.totalDaily * days
               : plan.intent.budget.totalDaily
           }
-          paceSpent={liveSpend ?? 0}
+          paceSpent={liveSpend}
           archivedAt={plan.status === "archived" ? plan.updatedAt : null}
           identity={{
             metaName: learnMetaName,

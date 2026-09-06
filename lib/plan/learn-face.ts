@@ -27,13 +27,30 @@ export function formatPaceKept(daily: number): string {
   return `${formatGbp(daily)} per day, kept`;
 }
 
+export const LEARN_PACE_NO_READS = "no reads yet";
+
 export function formatPaceValues(input: {
   planSaid: number;
-  spent: number;
+  spent: number | null;
   eventName: string;
   nextDaily: number;
 }): string {
-  return `${LEARN_PACE_HEADS.plan} ${formatGbp(input.planSaid)} · ${input.eventName} ${LEARN_PACE_HEADS.spent} ${formatGbp(input.spent)} · ${LEARN_PACE_HEADS.next} ${formatPaceKept(input.nextDaily)}`;
+  const spentText = input.spent == null ? LEARN_PACE_NO_READS : formatGbp(input.spent);
+  return `${LEARN_PACE_HEADS.plan} ${formatGbp(input.planSaid)} · ${input.eventName} ${LEARN_PACE_HEADS.spent} ${spentText} · ${LEARN_PACE_HEADS.next} ${formatPaceKept(input.nextDaily)}`;
+}
+
+export function learnInfoHeader(unitWord: string): string {
+  if (unitWord === "purchase") return "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND";
+  if (unitWord === "thousand reached" || unitWord === "view") {
+    return "ESTIMATED · META'S REACH, YOUR SPEND";
+  }
+  return "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND";
+}
+
+export function learnPhaseLabel(unitWord: string): string {
+  if (unitWord === "purchase") return "after general sale";
+  if (unitWord === "thousand reached" || unitWord === "view") return "over the run";
+  return LEARN_PHASE_LABEL;
 }
 
 export const LEARN_PACE_KEPT_TIP =
@@ -155,9 +172,11 @@ export function learnNextTime(input: {
   priorRuns: readonly BenchmarkRun[];
   closed: BenchmarkRun;
   venueLabel: string;
+  excludeEventId?: string | null;
 }): MetricChipBenchmark | undefined {
+  const priors = input.priorRuns.filter((run) => run.eventId !== input.excludeEventId);
   return metricChipBenchmarkFromRuns({
-    runs: [...input.priorRuns, input.closed],
+    runs: [...priors, input.closed],
     venueLabel: input.venueLabel,
   });
 }

@@ -5,9 +5,12 @@ import { describe, it } from "node:test";
 import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE } from "../../viz/tokens.ts";
 import {
   LEARN_NO_PREDICTION,
+  LEARN_PACE_NO_READS,
   formatCountLockSentence,
   formatPaceKept,
   formatPaceValues,
+  learnInfoHeader,
+  learnPhaseLabel,
   formatArchiveHeader,
   formatCountLock,
   formatDateLock,
@@ -57,6 +60,7 @@ describe("LEARN E-states — sentences", () => {
       { client_id: "c", venue_key: "nx newcastle", event_id: "folamour", event_code: "NX26-FOLAMOUR", event_date: "2026-10-23", unit: "signup", channel: "meta", cost: 0.87 },
       { client_id: "c", venue_key: "nx newcastle", event_id: "eed", event_code: "NX26-EED", event_date: "2026-11-13", unit: "signup", channel: "meta", cost: 1.67 },
       { client_id: "c", venue_key: "nx newcastle", event_id: "ipc", event_code: "NX26-IPC", event_date: "2026-11-21", unit: "signup", channel: "meta", cost: 0.54 },
+      { client_id: "c", venue_key: "nx newcastle", event_id: "dod", event_code: "DOD", event_date: "2026-09-26", unit: "signup", channel: "meta", cost: 0.54 },
     ];
     const prior = planBenchmark({
       rows: windowed,
@@ -64,11 +68,19 @@ describe("LEARN E-states — sentences", () => {
       venueKey: "nx newcastle",
       venueLabel: "NX",
       unit: "signup",
+      excludeEventId: "dod",
     });
     assert.equal(prior?.value, 1.32);
+    const doubled = learnNextTime({
+      priorRuns: windowed.map(runFromViewRow),
+      closed: { eventId: "dod", eventCode: "DOD", eventDate: "2026-09-26", cost: 0.51 },
+      venueLabel: "NX",
+    });
+    assert.equal(doubled?.n, 7);
     const next = learnNextTime({
       priorRuns: windowed.map(runFromViewRow),
       closed: { eventId: "dod", eventCode: "DOD", eventDate: "2026-09-26", cost: 0.51 },
+      excludeEventId: "dod",
       venueLabel: "NX",
     });
     assert.ok(next);
@@ -76,7 +88,8 @@ describe("LEARN E-states — sentences", () => {
     assert.equal(next.value, 1.1);
     assert.deepEqual(next.band, [0.62, 1.58]);
     const source = readFileSync("lib/plan/learn-face.ts", "utf8");
-    assert.match(source, /metricChipBenchmarkFromRuns/);
+    assert.match(source, /excludeEventId/);
+    assert.match(readFileSync("components/plan/plan-workspace.tsx", "utf8"), /excludeEventId: selectedEvent\.id/);
     assert.doesNotMatch(source, /E1_CLOSED_RUNS|nextTimeFromRuns/);
   });
 
@@ -130,6 +143,29 @@ describe("LEARN E-states — sentences", () => {
       }),
       "the plan said £3,465 · D.O.D spent £5,544 · next time £35 per day, kept",
     );
+    assert.equal(
+      formatPaceValues({
+        planSaid: 3465,
+        spent: null,
+        eventName: "D.O.D",
+        nextDaily: 35,
+      }),
+      "the plan said £3,465 · D.O.D spent no reads yet · next time £35 per day, kept",
+    );
+    assert.equal(LEARN_PACE_NO_READS, "no reads yet");
+    assert.doesNotMatch(
+      readFileSync("components/plan/plan-workspace.tsx", "utf8"),
+      /paceSpent=\{liveSpend \?\? 0\}/,
+    );
+    assert.equal(learnInfoHeader("signup"), "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND");
+    assert.equal(learnInfoHeader("purchase"), "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND");
+    assert.equal(learnInfoHeader("thousand reached"), "ESTIMATED · META'S REACH, YOUR SPEND");
+    assert.equal(learnPhaseLabel("signup"), "before general sale");
+    assert.equal(learnPhaseLabel("purchase"), "after general sale");
+    const canvas = readFileSync("components/plan/canvas-learn.tsx", "utf8");
+    assert.match(canvas, /learnInfoHeader\(unitWord\)/);
+    assert.match(canvas, /learnPhaseLabel\(unitWord\)/);
+    assert.doesNotMatch(canvas, /META'S SIGNUP COUNT, YOUR SPEND"/);
   });
 
   it("closed after the show or on archive", () => {
@@ -175,6 +211,8 @@ describe("LEARN surface guards", () => {
     assert.match(page, /loadPlanPredictions/);
     const route = readFileSync("app/api/plan/[id]/route.ts", "utf8");
     assert.match(route, /loadPlanWindowActual/);
+    assert.match(route, /planLaunchedAt\(plan\.launches\)/);
+    assert.match(route, /untilDate: todayIsoDate\(\)/);
     assert.match(route, /archiveCampaignPlan\(supabase, id, user.id, actual/);
     const predictions = readFileSync("lib/plan/predictions.ts", "utf8");
     assert.match(predictions, /export function planWindowActual/);

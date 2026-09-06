@@ -180,7 +180,12 @@ export function planWindowActual(input: {
 
 export async function loadPlanWindowActual(
   supabase: unknown,
-  input: { eventId: string; sinceDate?: string | null; unit: PredictionUnit | null },
+  input: {
+    eventId: string;
+    sinceDate?: string | null;
+    untilDate?: string | null;
+    unit: PredictionUnit | null;
+  },
 ): Promise<number | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const client = supabase as any;
@@ -189,6 +194,7 @@ export async function loadPlanWindowActual(
     .select("ad_spend, tiktok_spend, google_ads_spend, meta_regs, meta_purchases, meta_reach")
     .eq("event_id", input.eventId);
   if (input.sinceDate) query = query.gte("date", input.sinceDate);
+  if (input.untilDate) query = query.lte("date", input.untilDate);
   const { data, error } = await query;
   if (error || !data || data.length === 0) return null;
   const totals = (data as Array<Record<string, unknown>>).reduce<{

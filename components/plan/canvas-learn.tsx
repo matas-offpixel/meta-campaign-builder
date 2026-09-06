@@ -8,7 +8,6 @@ import {
   LEARN_INFO_VARIANT,
   LEARN_NO_PREDICTION,
   LEARN_PACE_KEPT_TIP,
-  LEARN_PHASE_LABEL,
   formatArchiveHeader,
   formatColumnHeads,
   formatCountLockSentence,
@@ -20,6 +19,8 @@ import {
   formatPastIdentity,
   learnControlsVisible,
   learnCreativeLock,
+  learnInfoHeader,
+  learnPhaseLabel,
   type CampaignPlanPrediction,
 } from "@/lib/plan/learn-face";
 import { VIZ_TYPE, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
@@ -152,7 +153,7 @@ export function CanvasLearn({
                 venueLabel: venue,
                 eventName,
                 actual,
-                phaseLabel: LEARN_PHASE_LABEL,
+                phaseLabel: learnPhaseLabel(unitWord),
                 nextTime,
                 nextN,
               })}
@@ -172,7 +173,7 @@ export function CanvasLearn({
                 n: nextN,
                 direction: "lower-is-better",
               }}
-              infoHeader="ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND"
+              infoHeader={learnInfoHeader(unitWord)}
             />
           ) : null}
         </div>
@@ -185,7 +186,7 @@ export function CanvasLearn({
             <span>{paceHeads.spent}</span>
             {controls.nextTimeColumn ? <span>{paceHeads.next}</span> : null}
           </div>
-          {pacePlanSaid != null && paceSpent != null ? (
+          {pacePlanSaid != null ? (
             <span className={VIZ_TYPE.body}>
               {formatPaceValues({
                 planSaid: pacePlanSaid,
