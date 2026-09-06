@@ -50,15 +50,20 @@ export function PlanLibrary({
   templates: initialTemplates,
   tableMissing,
   templatesMissing,
+  now: nowProp,
+  initialTab = null,
 }: {
   plans: PlanLibraryItem[];
   events: PlanEventOption[];
   templates: CampaignPlanTemplate[];
   tableMissing: boolean;
   templatesMissing: boolean;
+  /** Pinned clock for frame screenshots. Live `/plans` leaves this unset. */
+  now?: Date;
+  initialTab?: PlanListChromeTab | null;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<PlanListChromeTab | null>(null);
+  const [tab, setTab] = useState<PlanListChromeTab | null>(initialTab);
   const [search, setSearch] = useState("");
   const [items, setItems] = useState(plans);
   const [templates, setTemplates] = useState(initialTemplates);
@@ -72,7 +77,7 @@ export function PlanLibrary({
   } | null>(null);
   const [pickedEventId, setPickedEventId] = useState("");
 
-  const now = useMemo(() => new Date(), []);
+  const now = useMemo(() => nowProp ?? new Date(), [nowProp]);
   const counts = countPlanListTabs(items, templates.length, now);
   const resolvedTab: PlanListChromeTab =
     tab ?? (counts.running > 0 ? "running" : counts.drafts > 0 ? "drafts" : counts.done > 0 ? "done" : "running");

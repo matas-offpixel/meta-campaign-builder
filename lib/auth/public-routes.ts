@@ -66,6 +66,9 @@ const PUBLIC_PREFIXES: readonly string[] = [
   // tenant resolution → service-role insert into a table with NO write
   // policies). Trailing slash for the same /login-adjacent reason as "/l/".
   "/api/l/",
+  // `/frames/[id]` — plan-v2 screenshot harness. The page 404s unless
+  // ENABLE_PLAN_FRAMES=1 (off on Vercel prod). Fixtures only; no database.
+  "/frames/",
 ];
 
 /**

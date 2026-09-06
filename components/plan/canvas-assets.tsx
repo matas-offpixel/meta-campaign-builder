@@ -21,19 +21,27 @@ export function CanvasAssets({
   onUpload,
   onUnregistered,
   readOnly = false,
+  fixtureRows,
 }: {
   planId: string;
   hasMetaDraft: boolean;
   onUpload: () => void;
   onUnregistered: (count: number) => void;
   readOnly?: boolean;
+  /** Frame harness — skip the asset-routes fetch. */
+  fixtureRows?: readonly RoutingMatrixRow[];
 }) {
-  const [rows, setRows] = useState<RoutingMatrixRow[]>([]);
+  const [rows, setRows] = useState<RoutingMatrixRow[]>(() => [...(fixtureRows ?? [])]);
   const [note, setNote] = useState<string | null>(null);
   const [launched, setLaunched] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (fixtureRows) {
+      setRows([...fixtureRows]);
+      onUnregistered(0);
+      return;
+    }
     if (readOnly || !hasMetaDraft) {
       setRows([]);
       onUnregistered(0);
@@ -57,7 +65,7 @@ export function CanvasAssets({
     setLaunched(json.launched === true);
     setError(null);
     onUnregistered(json.unregisteredCount ?? 0);
-  }, [hasMetaDraft, onUnregistered, planId, readOnly]);
+  }, [fixtureRows, hasMetaDraft, onUnregistered, planId, readOnly]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch lifecycle when the Meta draft appears
