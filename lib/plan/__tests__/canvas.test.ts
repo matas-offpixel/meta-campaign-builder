@@ -90,8 +90,9 @@ describe("zone A · header", () => {
     // Before presale, DOD is in its announce phase.
     const name = derivePlanName(DOD, new Date("2026-09-04T12:00:00.000Z"));
     assert.match(name, /^Defected On Deck/);
-    // A plan named before this PR keeps the name it was given.
-    assert.equal(planHeaderName("Legacy name", DOD), "Legacy name");
+    assert.equal(planHeaderName("DOD Plan", DOD), "Defected On Deck");
+    assert.equal(planHeaderName("Test", { name: "Jamie Jones" }), "Jamie Jones");
+    assert.equal(planHeaderName("Legacy name", null), "Legacy name");
     assert.equal(planHeaderName("", null), "New plan");
   });
 

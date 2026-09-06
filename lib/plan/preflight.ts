@@ -34,6 +34,16 @@ export interface PlanPreflightIssue {
   href?: string;
 }
 
+export function collectPlanPreflightBlockers(
+  issues: readonly PlanPreflightIssue[],
+): PlanPreflightIssue[] {
+  return issues.filter((issue) => issue.blocking);
+}
+
+export function planPreflightBlockerCount(issues: readonly PlanPreflightIssue[]): number {
+  return collectPlanPreflightBlockers(issues).length;
+}
+
 export interface PlanPreflightResult {
   ok: boolean;
   issues: PlanPreflightIssue[];

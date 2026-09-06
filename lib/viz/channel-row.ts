@@ -4,8 +4,23 @@ export type ChannelRowState = "waiting" | "ready" | "blocked" | "paused" | "live
 
 export type ChannelFact = { n: number; noun: string };
 
+const FACT_NOUN: Record<string, [string, string]> = {
+  audiences: ["audience", "audiences"],
+  creatives: ["creative", "creatives"],
+  "ad sets": ["ad set", "ad sets"],
+  videos: ["video", "videos"],
+  keywords: ["keyword", "keywords"],
+  negatives: ["negative", "negatives"],
+};
+
+export function formatFactNoun(n: number, noun: string): string {
+  const pair = FACT_NOUN[noun];
+  const word = pair ? (n === 1 ? pair[0] : pair[1]) : noun;
+  return `${n} ${word}`;
+}
+
 export function formatChannelFacts(facts: ChannelFact[]): string {
-  return facts.map((fact) => `${fact.n} ${fact.noun}`).join(" · ");
+  return facts.map((fact) => formatFactNoun(fact.n, fact.noun)).join(" · ");
 }
 
 export function channelRowState(input: {

@@ -1,4 +1,3 @@
-import { eventInitials } from "@/lib/viz/event-artwork";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 export function EventThumb({
@@ -10,8 +9,7 @@ export function EventThumb({
   name: string | null | undefined;
   size?: "sm" | "md";
 }) {
-  const px = size === "sm" ? `h-8 w-8 ${VIZ_TYPE.micro}` : `h-10 w-10 ${VIZ_TYPE.micro}`;
-  const initials = eventInitials(name);
+  const px = size === "sm" ? "h-8 w-8" : "h-10 w-10";
   if (url) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -24,10 +22,8 @@ export function EventThumb({
   }
   return (
     <span
-      className={`${px} inline-flex shrink-0 items-center justify-center rounded bg-muted font-medium text-muted-foreground`}
+      className={`${px} inline-flex shrink-0 items-center justify-center rounded border border-dashed border-border bg-muted ${VIZ_TYPE.micro}`}
       aria-label={name ? `${name} (no artwork)` : "No artwork"}
-    >
-      {initials}
-    </span>
+    />
   );
 }

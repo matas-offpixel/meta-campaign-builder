@@ -41,18 +41,19 @@ export function derivePlanName(
 }
 
 /**
- * What the header renders. A stored `plan.name` wins so plans named before
- * this PR keep their name; otherwise the derived one, then a placeholder
- * the operator can read as "no event chosen yet".
+ * What the header renders. The event name is verbatim (§2.2 A). The
+ * stored plan title, if any, lives in the ⓘ — not on the face.
  */
 export function planHeaderName(
   storedName: string | null | undefined,
   event: PlanNameEvent | null | undefined,
-  now: Date = new Date(),
+  _now: Date = new Date(),
 ): string {
+  const eventName = event?.name?.trim() ?? "";
+  if (eventName) return eventName;
   const stored = storedName?.trim() ?? "";
   if (stored) return stored;
-  return derivePlanName(event, now) || PLAN_UNNAMED_LABEL;
+  return PLAN_UNNAMED_LABEL;
 }
 
 export const PLAN_UNNAMED_LABEL = "New plan";

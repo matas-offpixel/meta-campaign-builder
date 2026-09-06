@@ -5,9 +5,8 @@
 
 import { formatVizDay } from "../viz/format-moment.ts";
 import { VIZ_PLATFORM_LABEL, VIZ_STATE_WORD, type VizPlatform } from "../viz/tokens.ts";
-import { blockerFixSurface } from "./blockers.ts";
 import { planWindowValidity } from "./canvas-inputs.ts";
-import type { PlanPreflightIssue } from "./preflight.ts";
+import { collectPlanPreflightBlockers, type PlanPreflightIssue } from "./preflight.ts";
 import type { CampaignPlanStatus } from "./types.ts";
 
 export const PLAN_LIST_TABS = ["running", "drafts", "done", "templates"] as const;
@@ -209,6 +208,9 @@ export function planListTab(
   if (status === "live" || status === "live_partial") {
     return eventIsClosed(eventDate, now) ? "done" : "running";
   }
+  if (eventIsClosed(eventDate, now) && !nextListMoment({ eventDate }, now)) {
+    return "done";
+  }
   return "drafts";
 }
 
@@ -373,18 +375,12 @@ export function foldCostAboveBand(_input: PlanListItemInput): PlanListFold | nul
 }
 
 export function drawerFixFromPreflight(issues: PlanPreflightIssue[]): PlanListDrawerFix | null {
-  const wizard = issues.filter(
-    (issue) =>
-      issue.blocking &&
-      blockerFixSurface(issue) === "wizard" &&
-      !issue.id.endsWith(":skipped_zero_budget"),
-  );
-  const first = wizard[0];
+  const blocking = collectPlanPreflightBlockers(issues);
+  const first = blocking[0];
   if (!first) return null;
-  const count = wizard.filter((issue) => issue.adapter === first.adapter).length;
   const platform = first.adapter as VizPlatform;
   return {
-    count,
+    count: blocking.length,
     channel: VIZ_PLATFORM_LABEL[platform] ?? first.adapter,
   };
 }
@@ -472,7 +468,9 @@ export type PlanListStateWord =
 export function planListStateWord(input: PlanListItemInput, now: Date = new Date()): PlanListStateWord {
   if (!listHasEvent(input)) return VIZ_STATE_WORD.needsYou;
   if (input.status === "archived") return VIZ_STATE_WORD.done;
-  if (isPlanRunning(input.status) && eventIsClosed(input.eventDate, now)) return VIZ_STATE_WORD.done;
+  if (eventIsClosed(input.eventDate, now) && !nextListMoment(input, now)) {
+    return VIZ_STATE_WORD.done;
+  }
   if (isPlanRunning(input.status)) return VIZ_STATE_WORD.running;
   if (input.drawerFix && input.drawerFix.count > 0) return VIZ_STATE_WORD.needsYou;
   if (listWindowIsJunk(input, now)) return VIZ_STATE_WORD.needsYou;
@@ -499,7 +497,7 @@ export function planListRowView(input: PlanListItemInput, now: Date): PlanListRo
     momentLine: formatNextMomentLine(input, now) ?? formatPassedMomentLine(input, now),
     stateWord: planListStateWord(input, now),
     openLabel: PLAN_LIST_OPEN,
-    dashedTrack: planListTab(input.status, input.eventDate, now) === "drafts" || junk,
+    dashedTrack: planListTab(input.status, input.eventDate, now) === "drafts",
     junk,
     junkLabel: junk ? PLAN_LIST_JUNK : null,
   };

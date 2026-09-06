@@ -31,6 +31,7 @@ import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
  */
 export function CanvasHeader({
   name,
+  planTitle,
   clientName,
   venueName,
   eventDate,
@@ -52,6 +53,7 @@ export function CanvasHeader({
   shareAction,
 }: {
   name: string;
+  planTitle?: string | null;
   clientName: string | null;
   venueName?: string | null;
   eventDate: string | null;
@@ -95,6 +97,7 @@ export function CanvasHeader({
       clientDefaultMetaId,
       destinationUrl: destination.url || null,
       clientName,
+      planTitle: planTitle && planTitle !== name ? planTitle : null,
     }),
     destination.url
       ? destinationSourceLabel(destination.source)
@@ -126,16 +129,19 @@ export function CanvasHeader({
           </span>
         ) : null}
         {destination.overridable ? (
-          <label className="mt-1.5 flex items-center gap-1.5">
-            <span className="sr-only">Destination URL</span>
-            <input
-              className={`w-full max-w-md rounded-sm border border-dashed border-border bg-transparent px-2 py-1 ${VIZ_TYPE.body}`}
-              placeholder="https://"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={() => onDestination(draft)}
-            />
-          </label>
+          <details className={`mt-1.5 ${VIZ_TYPE.label} text-muted-foreground`}>
+            <summary>details</summary>
+            <label className="mt-1 flex items-center gap-1.5">
+              <span className="sr-only">Destination URL</span>
+              <input
+                className={`w-full max-w-md rounded-sm border border-dashed border-border bg-transparent px-2 py-1 ${VIZ_TYPE.body}`}
+                placeholder="https://"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => onDestination(draft)}
+              />
+            </label>
+          </details>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
