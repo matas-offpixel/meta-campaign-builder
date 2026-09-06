@@ -6,8 +6,12 @@ import { VIZ_STATE_WORD } from "../../viz/tokens.ts";
 import type { PlanPreflightIssue } from "../preflight.ts";
 import {
   PLAN_LIST_EMPTY,
+  PLAN_LIST_JUNK,
+  PLAN_LIST_NO_MATCH,
   PLAN_LIST_OPEN,
   chooseFold,
+  momentIsWithin24h,
+  planListEmptySentence,
   countPlanListTabs,
   drawerFixFromPreflight,
   filterPlanList,
@@ -114,6 +118,28 @@ describe("plan list next-moment copy", () => {
     assert.equal(formatPassedMomentLine(dod, NOW), "gen sale passed Fri 4 Sep");
     assert.match(formatNextMomentLine(dod, NOW)!, /^show in \d+ days · Fri 4 Dec$/);
   });
+
+  it("planListRowView uses the passed-moment line when every moment is past", () => {
+    const view = planListRowView(
+      plan({
+        id: "past",
+        eventName: "Closed show",
+        status: "live",
+        eventDate: "2026-08-20",
+        generalSaleAt: "2026-09-04T14:00:00+01:00",
+        presaleAt: "2026-08-01T10:00:00+01:00",
+      }),
+      NOW,
+    );
+    assert.equal(formatNextMomentLine({
+      eventDate: "2026-08-20",
+      generalSaleAt: "2026-09-04T14:00:00+01:00",
+      presaleAt: "2026-08-01T10:00:00+01:00",
+    }, NOW), null);
+    assert.equal(view.momentLine, "gen sale passed Fri 4 Sep");
+    assert.match(readFileSync("lib/plan/list.ts", "utf8"), /formatNextMomentLine\(input, now\) \?\? formatPassedMomentLine/);
+    assert.match(readFileSync("components/library/library-rows.tsx", "utf8"), /view\.momentLine/);
+  });
 });
 
 describe("plan list tabs", () => {
@@ -184,11 +210,54 @@ describe("plan list fold", () => {
     assert.equal(planListStateWord(dod, NOW), VIZ_STATE_WORD.running);
   });
 
-  it("rule 4 — moment tomorrow and nothing running", () => {
-    const fold = chooseFold([schak], NOW);
+  it("rule 4 — 18:00 today folds", () => {
+    const at = new Date("2026-09-06T18:00:00+01:00");
+    assert.equal(momentIsWithin24h(at, NOW), true);
+    const fold = chooseFold(
+      [plan({ id: "today", eventName: "Schak", eventId: "evt-today", presaleAt: "2026-09-06T18:00:00+01:00" })],
+      NOW,
+    );
+    assert.equal(fold?.kind, "moment-soon");
+    assert.equal(fold?.sentence, "Schak: presale is tomorrow and nothing is running");
+  });
+
+  it("rule 4 — 09:00 tomorrow folds", () => {
+    const at = new Date("2026-09-07T09:00:00+01:00");
+    assert.equal(momentIsWithin24h(at, NOW), true);
+    const fold = chooseFold(
+      [plan({ id: "morning", eventName: "Schak", presaleAt: "2026-09-07T09:00:00+01:00" })],
+      NOW,
+    );
     assert.equal(fold?.kind, "moment-soon");
     assert.equal(fold?.sentence, "Schak: presale is tomorrow and nothing is running");
     assert.equal(formatMomentSoonFold("Schak", "presale"), fold?.sentence);
+  });
+
+  it("rule 4 — 26 hours ahead does not fold", () => {
+    const at = new Date(NOW.getTime() + 26 * 60 * 60 * 1000);
+    assert.equal(momentIsWithin24h(at, NOW), false);
+    const fold = chooseFold(
+      [plan({ id: "later", eventName: "Later", presaleAt: at.toISOString() })],
+      NOW,
+    );
+    assert.equal(fold, null);
+  });
+
+  it("rule 4 — a draft beside a live sibling on the same event does not fold", () => {
+    const live = plan({
+      id: "live",
+      eventId: "evt-schak",
+      eventName: "Schak",
+      status: "live",
+      eventDate: "2026-12-18",
+    });
+    const draft = plan({
+      id: "draft",
+      eventId: "evt-schak",
+      eventName: "Schak",
+      presaleAt: "2026-09-06T18:00:00+01:00",
+    });
+    assert.equal(chooseFold([draft, live], NOW), null);
   });
 
   it("precedence: launch blocked beats over pace beats moment soon", () => {
@@ -196,6 +265,14 @@ describe("plan list fold", () => {
     assert.equal(fold?.kind, "launch-blocked");
     assert.equal(fold?.planId, "ez");
     assert.equal(chooseFold([schak, dod], NOW)?.kind, "over-pace");
+  });
+
+  it("search with plans but no matches uses the not-yet empty", () => {
+    assert.equal(
+      planListEmptySentence({ hasPlans: true, search: "zzzz" }),
+      PLAN_LIST_NO_MATCH,
+    );
+    assert.equal(planListEmptySentence({ hasPlans: false, search: "" }), PLAN_LIST_EMPTY.sentence);
   });
 
   it("L6 — no fold when nothing matches, and no all-good banner", () => {
@@ -250,6 +327,7 @@ describe("plan list state words", () => {
     const view = planListRowView(junk, NOW);
     assert.equal(view.stateWord, VIZ_STATE_WORD.needsYou);
     assert.equal(view.junk, true);
+    assert.equal(view.junkLabel, PLAN_LIST_JUNK);
     assert.equal(view.dashedTrack, true);
   });
 
@@ -337,7 +415,8 @@ describe("plan list surfaces pin L1–L6 words and 768 classes", () => {
     assert.match(library, /drafts/);
     assert.match(library, /done/);
     assert.match(library, /templates/);
-    assert.match(library, /PLAN_LIST_EMPTY/);
+    assert.match(library, /planListEmptySentence/);
+    assert.match(library, /filteredPlans\.length === 0/);
     assert.match(library, /chooseFold|fold\./);
     assert.match(library, /max-md:/);
     assert.doesNotMatch(library, /Published/);
@@ -351,7 +430,8 @@ describe("plan list surfaces pin L1–L6 words and 768 classes", () => {
       rows.indexOf("function PlanListThumb"),
       rows.indexOf("export function PlanTemplateRow"),
     );
-    assert.match(planRow, /planListRowView|formatNextMomentLine/);
+    assert.match(planRow, /planListRowView/);
+    assert.match(planRow, /PLAN_LIST_JUNK/);
     assert.match(planRow, /open ▸|PLAN_LIST_OPEN/);
     assert.match(planRow, /min-h-\[44px\]/);
     assert.match(planRow, /border-dashed/);

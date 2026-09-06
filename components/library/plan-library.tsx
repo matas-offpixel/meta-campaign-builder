@@ -24,6 +24,7 @@ import {
 import {
   PLAN_LIST_EMPTY,
   PLAN_LIST_OPEN,
+  planListEmptySentence,
   PLAN_LIST_TABS,
   PLAN_LIST_TAB_WORD,
   chooseFold,
@@ -284,9 +285,9 @@ export function PlanLibrary({
               ))}
             </div>
           )
-        ) : items.length === 0 ? (
+        ) : items.length === 0 || filteredPlans.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-            {PLAN_LIST_EMPTY.sentence}
+            {planListEmptySentence({ hasPlans: items.length > 0, search })}
           </p>
         ) : (
           <div className="space-y-2">

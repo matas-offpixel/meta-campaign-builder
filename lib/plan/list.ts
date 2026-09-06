@@ -29,6 +29,7 @@ export const PLAN_LIST_EMPTY = {
 export const PLAN_LIST_OPEN = "open ▸";
 export const PLAN_LIST_CHOOSE_EVENT = "choose an event";
 export const PLAN_LIST_JUNK = "set start and end";
+export const PLAN_LIST_NO_MATCH = "no plans match";
 
 export const PLAN_LIST_PACE_PLAN_LINE = 0.6;
 export const PLAN_LIST_PACE_CAP = 1.5;
@@ -427,15 +428,23 @@ function ruleOverPace(plans: PlanListItemInput[], now: Date): PlanListFold | nul
   return null;
 }
 
-function momentIsTomorrow(at: Date, now: Date): boolean {
-  return londonCalendarDaysBetween(now, at) === 1;
+/** Rule 4: a moment still ahead and within 24 hours — not calendar-tomorrow. */
+export function momentIsWithin24h(at: Date, now: Date): boolean {
+  const delta = at.getTime() - now.getTime();
+  return delta > 0 && delta <= DAY_MS;
+}
+
+function eventHasLivePlan(plans: PlanListItemInput[], eventId: string | null): boolean {
+  if (!eventId) return false;
+  return plans.some((plan) => plan.eventId === eventId && isPlanRunning(plan.status));
 }
 
 function ruleMomentSoon(plans: PlanListItemInput[], now: Date): PlanListFold | null {
   for (const plan of plans) {
     if (isPlanRunning(plan.status) || plan.status === "archived") continue;
+    if (eventHasLivePlan(plans, plan.eventId)) continue;
     const next = nextListMoment(plan, now);
-    if (!next || !momentIsTomorrow(next.at, now)) continue;
+    if (!next || !momentIsWithin24h(next.at, now)) continue;
     return {
       kind: "moment-soon",
       planId: plan.id,
@@ -479,6 +488,7 @@ export type PlanListRowView = {
   openLabel: typeof PLAN_LIST_OPEN;
   dashedTrack: boolean;
   junk: boolean;
+  junkLabel: typeof PLAN_LIST_JUNK | null;
 };
 
 export function planListRowView(input: PlanListItemInput, now: Date): PlanListRowView {
@@ -486,12 +496,18 @@ export function planListRowView(input: PlanListItemInput, now: Date): PlanListRo
   return {
     name: input.eventName?.trim() || PLAN_LIST_CHOOSE_EVENT,
     secondLine: formatRowSecondLine(input.eventCode, input.venueName),
-    momentLine: formatNextMomentLine(input, now),
+    momentLine: formatNextMomentLine(input, now) ?? formatPassedMomentLine(input, now),
     stateWord: planListStateWord(input, now),
     openLabel: PLAN_LIST_OPEN,
     dashedTrack: planListTab(input.status, input.eventDate, now) === "drafts" || junk,
     junk,
+    junkLabel: junk ? PLAN_LIST_JUNK : null,
   };
+}
+
+export function planListEmptySentence(input: { hasPlans: boolean; search: string }): string {
+  if (input.hasPlans && input.search.trim()) return PLAN_LIST_NO_MATCH;
+  return PLAN_LIST_EMPTY.sentence;
 }
 
 export type DailySpendRow = {

@@ -31,7 +31,7 @@ Plan v2 list face from canon §2.1 and frames L1–L6 / L3-768. `/plans` sorts b
 | fold rule 1 launch blocked | §2.1 | L3 | `rule 1 — launch blocked with a drawer fix` |
 | fold rule 2 over pace; row stays `running` | §2.1 / §7.1 item 9 | L4 | `rule 2 — live over pace…; L4 over-pace live stays running` |
 | fold rule 3 band | §2.1 | — | skipped `TODO(plan-v2-benchmarks)` |
-| fold rule 4 moment tomorrow | §2.1 | L3 | `rule 4 — moment tomorrow and nothing running` |
+| fold rule 4 moment within 24h | §2.1 | L3 | `rule 4 — 18:00 today` / `09:00 tomorrow` / `26 hours` / `live sibling` |
 | no fold / no all-good | §2.1 | L6 | `L6 — no fold when nothing matches` |
 | L1 empty | §3.1 | L1 | `PLAN_LIST_EMPTY` |
 | L5 junk window `needs you` | §3.1 | L5 | `L5 junk window on a draft is needs you` |
@@ -42,11 +42,21 @@ Plan v2 list face from canon §2.1 and frames L1–L6 / L3-768. `/plans` sorts b
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5163 pass, 4 skipped)
+- [x] `npm test` (5168 pass, 4 skipped; leftover untracked `learn-face.test.ts` excluded)
 
 ## Contradictions
 
 None that stop the PR. Fold rule 3 is typed `TODO(plan-v2-benchmarks)` because PR 3 is unmerged — do not fake a band.
+
+## Review round 1 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| `formatPassedMomentLine` never rendered — row only wired `formatNextMomentLine` | `lib/plan/list.ts:499` | `planListRowView uses the passed-moment line when every moment is past` → `gen sale passed Fri 4 Sep` |
+| Fold rule 4 used calendar-tomorrow (`momentIsTomorrow`), not 24h | `lib/plan/list.ts:432–446` | `rule 4 — 18:00 today folds`; `09:00 tomorrow folds`; `26 hours ahead does not fold` |
+| A draft beside a live sibling on the same event still folded | `lib/plan/list.ts:437–445` | `rule 4 — a draft beside a live sibling on the same event does not fold` |
+| Search with plans but no matches rendered an empty div | `components/library/plan-library.tsx:288–290` | `search with plans but no matches uses the not-yet empty` → `no plans match` |
+| `PLAN_LIST_JUNK` defined and unused | `components/library/library-rows.tsx:388` | `row is artwork · name · code/venue · next moment · pace · state · open` matches `PLAN_LIST_JUNK` |
 
 ## Walk
 

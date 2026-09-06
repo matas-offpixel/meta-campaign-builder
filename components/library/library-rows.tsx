@@ -19,6 +19,7 @@ import { OverflowMenu } from "@/components/viz/overflow-menu";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { formatPlanListBudget } from "@/lib/plan/format-schedule";
 import {
+  PLAN_LIST_JUNK,
   PLAN_LIST_OPEN,
   formatPaceSums,
   listPaceFillPercent,
@@ -383,7 +384,11 @@ function PlanListPaceBar({
         ) : null}
         <span className="absolute inset-y-0 w-px bg-foreground" style={{ left: "60%" }} />
       </span>
-      {sums ? <InfoTip variant="card" label={sums} /> : null}
+      {junk ? (
+        <InfoTip variant="card" label={PLAN_LIST_JUNK} />
+      ) : sums ? (
+        <InfoTip variant="card" label={sums} />
+      ) : null}
     </span>
   );
 }
