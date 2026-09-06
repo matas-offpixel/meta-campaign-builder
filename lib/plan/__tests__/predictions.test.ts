@@ -62,6 +62,9 @@ describe("§1.5 removal — predictions table", () => {
     const dispose = readFileSync("lib/plan/dispose.ts", "utf8");
     assert.match(dispose, /writePredictionActualsAtClose/);
     assert.match(dispose, /closedReason: "archived"/);
+    const showClose = readFileSync("lib/plan/show-close.ts", "utf8");
+    assert.match(showClose, /closedReason: "show"/);
+    assert.match(showClose, /untilDate: eventDate/);
     assert.equal(
       planWindowActual({ spend: 554, regs: 1086, purchases: 0, reach: 0, unit: "reg" }),
       0.51,
