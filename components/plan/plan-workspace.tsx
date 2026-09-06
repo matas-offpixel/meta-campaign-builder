@@ -81,6 +81,7 @@ import {
   launchBlockedLine,
   launchBlockers,
   launchChannelRunning,
+  launchReadingUnit,
   planIdentityMetaId,
   planLaunchedAt,
   planLaunchStamp,
@@ -800,9 +801,16 @@ export function PlanWorkspace({
     plan.intent.budget.metaDaily + plan.intent.budget.tiktokDaily + plan.intent.budget.googleDaily;
   const launchedAt = planLaunchedAt(plan.launches);
   const sinceLaunch = launchedAt ? new Date(launchedAt) : adjustHandles.start;
+  const readingUnit = launchReadingUnit({
+    now: adjustClock,
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    kind: selectedEvent?.kind,
+  });
   const adjustReadingUnit = adjustPrimaryReadingUnit({
     now: adjustClock,
     generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
     launchedAt,
     kind: selectedEvent?.kind,
   });
@@ -914,7 +922,6 @@ export function PlanWorkspace({
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
   const launchStamp = planLaunchStamp(plan.launches);
-  const readingUnit = adjustReadingUnit;
   const usual = selectedEvent?.clientId && selectedEvent.venueKey
     ? planBenchmark({
         rows: benchmarkRows,
@@ -1092,6 +1099,7 @@ export function PlanWorkspace({
           launchedAt={launchedAt}
           venueName={selectedEvent?.venueName ?? null}
           generalSaleAt={selectedEvent?.generalSaleAt ?? null}
+          presaleAt={selectedEvent?.presaleAt ?? null}
           lastCreativeSnapshotAt={adjustReads?.lastCreativeSnapshotAt ?? null}
           trend={adjustReads?.dailyCostPerSignup ?? null}
           reach={adjustReads?.reach ?? null}

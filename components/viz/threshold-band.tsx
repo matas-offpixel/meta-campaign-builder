@@ -49,7 +49,7 @@ export function ThresholdBand({
 
   if (!dashed && resolved.markerRatio == null) return null;
 
-  const height = size === "sm" ? "h-0.5" : "h-1";
+  const height = size === "sm" ? "h-2" : zonesFrom === "client-iqr" ? "h-1" : "h-3";
   const kindClass = lineKind ? VIZ_LINE_TOKEN[lineKind] : "";
 
   if (dashed) {

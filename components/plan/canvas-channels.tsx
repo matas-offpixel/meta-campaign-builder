@@ -82,7 +82,7 @@ export function CanvasChannels({
                   usual: runningRead.usual,
                 })}`
               : null;
-        const hideStateWord = Boolean(runningFact && stateWord === "running");
+        const hideStateWord = Boolean(runningFact);
         const needsYou = drawerEdit && stateWord === "needs you" && blockers.length > 0;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">

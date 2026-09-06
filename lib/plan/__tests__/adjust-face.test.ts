@@ -49,7 +49,7 @@ import {
   adjustLogFromDecisions,
   emptyAdjustReads,
 } from "../adjust-face.ts";
-import { planLaunchedAt } from "../launch-face.ts";
+import { launchReadingUnit, planLaunchedAt } from "../launch-face.ts";
 import { IDLE_PLAN_LAUNCH } from "../types.ts";
 import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
 
@@ -286,12 +286,19 @@ describe("ADJUST surface guards", () => {
     assert.match(source, /adjustControlsVisible/);
     assert.match(source, /by creative name/);
     assert.doesNotMatch(source, />Locked</);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /hideStateWord = Boolean\(runningFact\)/);
+    assert.doesNotMatch(channels, /stateWord === "running"/);
+    const row = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.doesNotMatch(row, /StatusDot/);
   });
 
   it("workspace mounts ADJUST as the live morning read", () => {
     const source = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(source, /CanvasAdjust/);
     assert.match(source, /adjustPrimaryReadingUnit/);
+    assert.match(source, /launchReadingUnit\(\{/);
+    assert.match(source, /presaleAt: selectedEvent\?\.presaleAt/);
     assert.doesNotMatch(source, /unitWord=\{unitWord\}/);
     assert.match(source, /state === "live" \|\| state === "launched"/);
     assert.match(source, /stages=\{undefined\}/);
@@ -685,8 +692,12 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     assert.equal(ADJUST_LIFETIME_TIP, "over the whole campaign");
     const canvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
     assert.match(canvas, /ADJUST_LIFETIME_TIP/);
-    assert.match(canvas, /ADJUST_APPLY_NEXT_CHECK/);
+    assert.match(canvas, /AdjustSuggestion/);
+    assert.doesNotMatch(canvas, /ADJUST_APPLY_NEXT_CHECK/);
     assert.doesNotMatch(canvas, /tipParts\.join/);
+    const suggestion = readFileSync("components/plan/adjust-suggestion.tsx", "utf8");
+    assert.match(suggestion, /ADJUST_INFO_VARIANT|variant=["']card["']/);
+    assert.match(suggestion, /applyTip/);
     const source = readFileSync("lib/plan/adjust-face.ts", "utf8");
     assert.doesNotMatch(source, /export function adSetNameFromReason/);
     assert.doesNotMatch(source, /ADJUST_LOG_EMPTY|ADJUST_CREATIVE_STALE/);
@@ -805,6 +816,35 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     assert.equal(rendered.some((line) => line === "12 ad sets left alone"), true);
     assert.equal(face.channelLines[1], `TikTok · ${ADJUST_CHANNEL_NOT_CONNECTED}`);
     assert.equal(face.channelLines[2], `Google · ${ADJUST_CHANNEL_NOT_CONNECTED}`);
+  });
+
+  it("presale earlier than general sale reads purchase on ADJUST, same gate as LAUNCH", () => {
+    const now = new Date("2026-09-03T12:00:00.000Z");
+    const generalSaleAt = "2026-09-04T13:00:00.000Z";
+    const presaleAt = "2026-09-01T10:00:00.000Z";
+    assert.equal(
+      launchReadingUnit({ now, generalSaleAt, presaleAt, kind: "event" }),
+      "purchase",
+    );
+    assert.equal(
+      adjustPrimaryReadingUnit({ now, generalSaleAt, presaleAt, kind: "event" }),
+      "purchase",
+    );
+    const face = adjustFaceView({
+      spent: 100,
+      planned: 50,
+      metaSignups: 80,
+      metaPurchases: 10,
+      tickets: null,
+      ticketSource: "none",
+      now,
+      generalSaleAt,
+      presaleAt,
+      kind: "event",
+    });
+    assert.equal(face.costLabel, "cost per purchase");
+    assert.match(face.signupLine ?? "", /per purchase/);
+    assert.doesNotMatch(face.signupLine ?? "", /per signup/);
   });
 });
 

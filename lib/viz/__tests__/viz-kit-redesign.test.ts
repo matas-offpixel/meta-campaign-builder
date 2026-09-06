@@ -117,6 +117,11 @@ describe("StatusDot / VIZ_STATUSES — blocked", () => {
     const source = readFileSync("components/viz/status-dot.tsx", "utf8");
     assert.match(source, /VIZ_STATUS_LABEL\[status\]/);
   });
+
+  it("ChannelRow does not mount StatusDot", () => {
+    const source = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.doesNotMatch(source, /StatusDot/);
+  });
 });
 
 describe("ProvenanceBadge / derived", () => {
@@ -139,6 +144,17 @@ describe("MetricChip sizes", () => {
     assert.match(source, /lg:/);
     assert.match(source, /VIZ_TYPE\.display/);
     assert.match(source, /tabular-nums/);
+  });
+});
+
+describe("ThresholdBand sizes", () => {
+  it("keeps sm / client-iqr / default as three heights", () => {
+    const source = readFileSync("components/viz/threshold-band.tsx", "utf8");
+    assert.match(
+      source,
+      /size === "sm" \? "h-2" : zonesFrom === "client-iqr" \? "h-1" : "h-3"/,
+    );
+    assert.doesNotMatch(source, /h-0\.5/);
   });
 });
 

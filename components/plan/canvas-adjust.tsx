@@ -1,11 +1,11 @@
 "use client";
 
+import { AdjustSuggestion } from "@/components/plan/adjust-suggestion";
 import { InfoTip } from "@/components/viz/info-tip";
 import { Locked } from "@/components/viz/locked";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { WindowBar } from "@/components/viz/window-bar";
 import {
-  ADJUST_APPLY_NEXT_CHECK,
   ADJUST_INFO_VARIANT,
   ADJUST_LIFETIME_TIP,
   ADJUST_LOG_TITLE,
@@ -53,6 +53,7 @@ export function CanvasAdjust({
   launchedAt = null,
   venueName = null,
   generalSaleAt = null,
+  presaleAt = null,
   lastCreativeSnapshotAt = null,
   trend = null,
   reach = null,
@@ -87,6 +88,7 @@ export function CanvasAdjust({
   launchedAt?: string | null;
   venueName?: string | null;
   generalSaleAt?: string | Date | null;
+  presaleAt?: string | Date | null;
   lastCreativeSnapshotAt?: string | null;
   trend?: number[] | null;
   reach?: number | null;
@@ -110,6 +112,7 @@ export function CanvasAdjust({
     launchedAt,
     now,
     generalSaleAt,
+    presaleAt,
     benchmark: suggestionUsual != null && !benchmark
       ? undefined
       : benchmark,
@@ -207,26 +210,14 @@ export function CanvasAdjust({
       </div>
 
       {face.suggestionSentence ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className={VIZ_TYPE.body}>{face.suggestionSentence}</span>
-          {face.doIt ? (
-            <button type="button" className={`min-h-11 px-2 ${VIZ_TYPE.label}`} onClick={onDoIt}>
-              do it
-            </button>
-          ) : null}
-          {face.notNow ? (
-            <button type="button" className={`min-h-11 px-2 ${VIZ_TYPE.label}`} onClick={onNotNow}>
-              not now
-            </button>
-          ) : null}
-          {face.applyTip ? (
-            <InfoTip
-              variant={ADJUST_INFO_VARIANT}
-              header="SUGGESTION · NEXT OPTIMISATION CHECK"
-              label={ADJUST_APPLY_NEXT_CHECK}
-            />
-          ) : null}
-        </div>
+        <AdjustSuggestion
+          sentence={face.suggestionSentence}
+          applyTip={face.applyTip}
+          doIt={face.doIt}
+          notNow={face.notNow}
+          onDoIt={onDoIt}
+          onNotNow={onNotNow}
+        />
       ) : null}
 
       {face.earnedNothingSentence ? (

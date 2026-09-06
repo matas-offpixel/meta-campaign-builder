@@ -23,6 +23,7 @@ Live-walk fix for the ADJUST face (D.O.D / frame J2). The reading unit follows t
 - [x] `node --test` on adjust-face, window-bar-labels, automation-ui, canvas, viz-kit-redesign, launch-face
 - [ ] `npx tsc --noEmit` (pre-existing test-file errors only; no errors in this PR's paths)
 - [x] Targeted `node --test` (161 pass on the first slice, 111 on the second)
+- [ ] Review round 1: suggestion ⓘ in `adjust-suggestion.tsx`; `presaleAt` on `launchReadingUnit`; ThresholdBand sizes restored; `hideStateWord` whenever a running fact is present
 - [ ] Screenshots: D.O.D plan, Chrome 1176
 
 ## Notes

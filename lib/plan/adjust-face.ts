@@ -362,6 +362,7 @@ export function formatDecisionClock(iso: string): string {
 export function adjustPrimaryReadingUnit(input: {
   now: Date;
   generalSaleAt?: string | Date | null;
+  presaleAt?: string | Date | null;
   launchedAt?: string | Date | null;
   kind?: string | null;
 }): "reg" | "purchase" | "view" {
@@ -369,9 +370,14 @@ export function adjustPrimaryReadingUnit(input: {
     input.generalSaleAt instanceof Date
       ? input.generalSaleAt.toISOString()
       : (input.generalSaleAt ?? null);
+  const presaleAt =
+    input.presaleAt instanceof Date
+      ? input.presaleAt.toISOString()
+      : (input.presaleAt ?? null);
   const phase = launchReadingUnit({
     now: input.now,
     generalSaleAt,
+    presaleAt,
     kind: input.kind,
   });
   if (phase === "view") return "view";
@@ -628,6 +634,7 @@ export type AdjustFaceInput = {
   launchedAt?: string | null;
   now?: Date;
   generalSaleAt?: string | Date | null;
+  presaleAt?: string | Date | null;
   benchmark?: MetricChipBenchmark;
   decisions?: readonly AdjustDecisionRow[];
   writeGates?: { writesEnabled: boolean; enabled: boolean; live: boolean };
@@ -787,6 +794,7 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
   const primaryUnit = adjustPrimaryReadingUnit({
     now,
     generalSaleAt: input.generalSaleAt,
+    presaleAt: input.presaleAt,
     launchedAt: input.launchedAt,
     kind: input.kind,
   });
