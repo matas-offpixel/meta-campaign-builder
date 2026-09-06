@@ -11,6 +11,8 @@ export interface PlanEventOption {
   eventCode?: string | null;
   kind?: string | null;
   metaAdAccountId?: string | null;
+  /** `events.meta_ad_account_id` — the event's own account, not the client default. */
+  eventMetaAdAccountId?: string | null;
   googleCustomerId?: string | null;
   ticketUrl?: string | null;
   signupUrl?: string | null;

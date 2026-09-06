@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 
 import { EMPTY_IDENTITY_NAMES } from "../identity-chips.ts";
 import { VIZ_STATE_WORD, VIZ_TICKET_LINE_WORD } from "../../viz/tokens.ts";
+import { IDLE_PLAN_LAUNCH } from "../types.ts";
 import {
   LAUNCH_INFO_VARIANT,
   decisionsChangesLabel,
@@ -17,14 +18,22 @@ import {
   formatMissingMomentTip,
   formatPurchaseTicketLine,
   formatResumeWord,
+  formatRunningFact,
   formatSkippedShare,
   formatStartingPoint,
   formatTargetFromShows,
   identityAccountLabel,
+  launchBlockedLine,
+  launchBlockers,
+  launchChannelRunning,
   launchChannelStateWord,
   launchReadingUnit,
+  launchTargetInfoHeader,
+  launchTargetView,
+  planLaunchedAt,
   readyLaunchAdapters,
 } from "../launch-face.ts";
+import { planBenchmark } from "../benchmarks.ts";
 
 describe("LAUNCH identity sentence", () => {
   it("resolved name is verbatim", () => {
@@ -94,6 +103,14 @@ describe("LAUNCH unit by phase", () => {
       launchReadingUnit({ now: new Date("2026-09-03T12:00:00.000Z"), kind: "brand" }),
       "view",
     );
+    assert.equal(
+      launchReadingUnit({
+        now: new Date("2026-09-03T12:00:00.000Z"),
+        generalSaleAt: gen,
+        presaleAt: "2026-09-01T10:00:00.000Z",
+      }),
+      "purchase",
+    );
   });
 });
 
@@ -122,6 +139,7 @@ describe("LAUNCH split / channels / button", () => {
 
   it("0% is skipped", () => {
     assert.equal(formatSkippedShare(0), "0% of the budget — skipped");
+    assert.equal(formatSkippedShare(0, "google"), "Google · 0% of the budget — skipped");
   });
 
   it("each channel state word", () => {
@@ -231,5 +249,194 @@ describe("LAUNCH chrome", () => {
     const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
     assert.match(launch, /role\s*[:=]\s*["']client["']|role === "client"|role !== "client"/);
     assert.match(launch, /formatLaunchCreatesLine|creates/);
+  });
+});
+
+describe("LAUNCH review round 1 — surface wiring", () => {
+  it("target view is one source: n = 0 starting point, never a preset, unit word matches", () => {
+    assert.equal(planBenchmark(), undefined);
+    const view = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      venueName: "NX Newcastle",
+    });
+    assert.equal(view.unit, "reg");
+    assert.equal(view.unitWord, "signup");
+    assert.equal(view.chipValue, 1.6);
+    assert.equal(view.evidence, "£1.60 per signup · Off Pixel's starting point");
+    assert.equal(view.lineKind, "estimated");
+    assert.equal(view.benchmark, undefined);
+    assert.equal(view.showComputedToday, false);
+    assert.doesNotMatch(view.evidence, /this venue/);
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /launchTargetView/);
+    assert.match(target, /view\.evidence/);
+    assert.match(target, /per \{view\.unitWord\}/);
+    assert.doesNotMatch(target, /historyN/);
+    assert.doesNotMatch(target, /this venue/);
+  });
+
+  it("presale earlier than general sale flips the phase unit and mounts the tickets line", () => {
+    const view = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      presaleAt: "2026-09-01T10:00:00.000Z",
+    });
+    assert.equal(view.unit, "purchase");
+    assert.equal(view.unitWord, "purchase");
+    assert.equal(view.infoHeader, "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND");
+    assert.match(view.purchaseLine!, /not entered yet/);
+    assert.equal(
+      launchTargetInfoHeader("view"),
+      "ESTIMATED · META'S REACH, YOUR SPEND",
+    );
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /presaleAt/);
+    assert.match(target, /view\.purchaseLine/);
+    assert.match(target, /onUnit/);
+    assert.match(target, /<details/);
+  });
+
+  it("needs you counts blockers only; running fact is cost per reading unit", () => {
+    assert.deepEqual(
+      launchBlockers([
+        { kind: "blocker" },
+        { kind: "advisory" },
+        { kind: "blocker" },
+      ]),
+      [{ kind: "blocker" }, { kind: "blocker" }],
+    );
+    assert.equal(formatRunningFact({ cost: 0.51, unit: "reg" }), "£0.51 per signup");
+    assert.equal(
+      formatRunningFact({ cost: 0.51, unit: "reg", usual: 2.03 }),
+      "£0.51 per signup · under your usual £2.03",
+    );
+    const running = launchChannelRunning(
+      [
+        {
+          key: "signups",
+          platformSplit: [{ platform: "meta", spend: 554, value: 1086 }],
+        },
+      ],
+      "reg",
+    );
+    assert.ok(running.meta);
+    assert.equal(formatRunningFact({ cost: running.meta!.cost, unit: "reg" }), "£0.51 per signup");
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /launchBlockers/);
+    assert.match(channels, /formatRunningFact/);
+    assert.match(channels, /formatChannelNeedsYou/);
+    assert.doesNotMatch(channels, /BlockerBadge/);
+    assert.doesNotMatch(channels, /cost per mille|cost per click/);
+  });
+
+  it("header launched stamp reads the ledger, never plan.createdAt", () => {
+    assert.equal(
+      planLaunchedAt({
+        meta: { ...IDLE_PLAN_LAUNCH, createdAt: "2026-07-24T09:14:00.000Z" },
+        tiktok: { ...IDLE_PLAN_LAUNCH },
+        google: { ...IDLE_PLAN_LAUNCH },
+      }),
+      "2026-07-24T09:14:00.000Z",
+    );
+    assert.equal(
+      planLaunchedAt({
+        meta: { ...IDLE_PLAN_LAUNCH },
+        tiktok: { ...IDLE_PLAN_LAUNCH },
+        google: { ...IDLE_PLAN_LAUNCH },
+      }),
+      null,
+    );
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /planLaunchedAt\(plan\.launches\)/);
+    assert.doesNotMatch(workspace, /launchedAt=\{plan\.createdAt\}/);
+  });
+
+  it("event account id is the event's own column, not the client default", () => {
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /meta_ad_account_id/);
+    assert.match(page, /eventMetaAdAccountId: event\.meta_ad_account_id/);
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /eventMetaAdAccountId=\{selectedEvent\?\.eventMetaAdAccountId/);
+    const tip = formatIdentityTip({
+      metaId: "1073273492854557",
+      eventMetaAdAccountId: "606252931141334",
+    });
+    assert.match(tip, /event account 606252931141334/);
+  });
+
+  it("usual outline is the client preset; skip and history name the channel", () => {
+    const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
+    assert.match(budget, /usual: \{[\s\S]*PLAN_SPLIT_PRESETS\[1\]/);
+    assert.match(budget, /formatHistoryEmpty\("tiktok"/);
+    assert.match(budget, /formatHistoryEmpty\("google"/);
+    assert.match(budget, /formatSkippedShare\(0, segment\.platform\)/);
+    assert.equal(
+      formatHistoryEmpty("google", "Junction 2"),
+      "no Google history yet for Junction 2 — opens after your first Google run",
+    );
+  });
+
+  it("blocked line is derived from the issue list, never a string sniff", () => {
+    assert.equal(
+      launchBlockedLine({
+        hasEvent: false,
+        busy: false,
+        windowOk: true,
+        issues: [],
+        blockerCount: 0,
+      }),
+      "choose an event",
+    );
+    assert.equal(
+      launchBlockedLine({
+        hasEvent: true,
+        busy: true,
+        windowOk: true,
+        issues: [],
+        blockerCount: 0,
+      }),
+      "launch in progress",
+    );
+    assert.equal(
+      launchBlockedLine({
+        hasEvent: true,
+        busy: false,
+        windowOk: true,
+        issues: [
+          {
+            adapter: "tiktok",
+            id: "plan:unconnected_share",
+            field: "account",
+            message: "TikTok has 29% of the budget but no account — connect, or set TikTok to 0",
+            blocking: true,
+          },
+        ],
+        blockerCount: 0,
+      }),
+      "TikTok has 29% of the budget but no account — connect, or set TikTok to 0",
+    );
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.doesNotMatch(launch, /includes\(["']no account["']\)/);
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /launchBlockedLine/);
+  });
+
+  it("ⓘ uses the ratified derive sentence; Ads Manager reason stays on the handle", () => {
+    const canvas = readFileSync("lib/plan/canvas.ts", "utf8");
+    assert.match(canvas, /TikTok and Google start from your Meta campaign/);
+    assert.doesNotMatch(canvas, /Preflight still has blockers/);
+    assert.doesNotMatch(canvas, /derived from the Meta draft, never authored first/);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.doesNotMatch(channels, /resumeTips/);
+    assert.match(channels, /title=\{PLAN_CANVAS_COPY\.resumeElsewhere\}/);
+  });
+
+  it("waiting is one spelling", () => {
+    const row = readFileSync("lib/viz/channel-row.ts", "utf8");
+    assert.match(row, /waiting for Meta/);
+    assert.doesNotMatch(row, /waiting for \$\{glyph\}/);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /hideWaitingText/);
   });
 });

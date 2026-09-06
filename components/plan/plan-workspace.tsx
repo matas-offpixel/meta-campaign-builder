@@ -55,9 +55,12 @@ import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
-  formatLaunchBlockerSentence,
+  launchBlockedLine,
+  launchBlockers,
+  launchChannelRunning,
+  launchReadingUnit,
+  planLaunchedAt,
   readyLaunchAdapters,
-  unconnectedMessage,
 } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
@@ -100,7 +103,7 @@ export function PlanWorkspace({
   funnel = null,
   liveSpend = null,
   thumbUrl = null,
-  targetBenchmark = null,
+  targetBenchmark: _targetBenchmark = null,
   identityNames,
 }: {
   initialPlan: CampaignPlan;
@@ -121,6 +124,7 @@ export function PlanWorkspace({
   /** Stored cache names for the identity chips — loaded on the page, never fetched here. */
   identityNames?: IdentityNameMap;
 }) {
+  void _targetBenchmark;
   const [plan, setPlan] = useState(initialPlan);
   const [hasUserEdit, setHasUserEdit] = useState(false);
   const [persisted, setPersisted] = useState(!isNew);
@@ -748,7 +752,8 @@ export function PlanWorkspace({
         venueName={selectedEvent?.venueName ?? null}
         eventDate={selectedEvent?.eventDate ?? null}
         eventCode={selectedEvent?.eventCode ?? null}
-        eventMetaAdAccountId={selectedEvent?.metaAdAccountId ?? null}
+        eventMetaAdAccountId={selectedEvent?.eventMetaAdAccountId ?? null}
+        launchedAt={planLaunchedAt(plan.launches)}
         thumbUrl={thumbUrl}
         destination={destination}
         onDestination={(url) => patchIntent({ destinationUrl: url })}
@@ -824,15 +829,14 @@ export function PlanWorkspace({
         <CanvasTarget
           value={plan.intent.target.value}
           unit={plan.intent.target.unit}
-          benchmark={targetBenchmark}
           objectiveIntent={plan.intent.objectiveIntent}
           presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
           onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
           onUnit={setTargetUnit}
           onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
           generalSaleAt={selectedEvent?.generalSaleAt}
+          presaleAt={selectedEvent?.presaleAt}
           kind={selectedEvent?.kind}
-          historyN={0}
           venueName={selectedEvent?.venueName}
         />
       </div>
@@ -842,13 +846,20 @@ export function PlanWorkspace({
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasChannels
         rows={rows}
-        costs={
+        readingUnit={launchReadingUnit({
+          now: new Date(),
+          generalSaleAt: selectedEvent?.generalSaleAt,
+          presaleAt: selectedEvent?.presaleAt,
+          kind: selectedEvent?.kind,
+        })}
+        running={
           funnel
-            ? {
-                meta: funnel.costs.platforms.find((row) => row.platform === "meta"),
-                tiktok: funnel.costs.platforms.find((row) => row.platform === "tiktok"),
-                google: funnel.costs.platforms.find((row) => row.platform === "google"),
-              }
+            ? launchChannelRunning(funnel.stages, launchReadingUnit({
+                now: new Date(),
+                generalSaleAt: selectedEvent?.generalSaleAt,
+                presaleAt: selectedEvent?.presaleAt,
+                kind: selectedEvent?.kind,
+              }))
             : undefined
         }
         onOpen={(row) => void openChannel(row)}
@@ -955,14 +966,15 @@ export function PlanWorkspace({
           void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
         }
         readyAdapters={readyLaunchAdapters(rows)}
-        blockerSentence={formatLaunchBlockerSentence({
+        blockerSentence={launchBlockedLine({
+          hasEvent: Boolean(plan.intent.eventId),
+          busy,
           windowOk,
+          issues,
           blockerCount: rows.reduce(
-            (count, row) =>
-              count + row.blockers.filter((blocker) => blocker.kind === "blocker").length,
+            (count, row) => count + launchBlockers(row.blockers).length,
             0,
           ),
-          unconnected: unconnectedMessage(issues),
         })}
       />
       </div>

@@ -42,7 +42,7 @@ export function basePlan(): CampaignPlan {
   };
 }
 
-/** No Meta draft — TikTok and Google read `○ waiting for f`. */
+/** No Meta draft — TikTok and Google read `waiting for Meta`. */
 export function waitingPlan(): CampaignPlan {
   return basePlan();
 }

@@ -109,14 +109,16 @@ export function CanvasBudget({
         presets={PLAN_SPLIT_PRESETS}
         outlines={{
           usual: {
-            pct: planSplitSegments(budget).map((segment) => segment.pct),
-            source: hasUserEdit ? "last-choice" : "client-preset",
+            pct: PLAN_SPLIT_PRESETS[1]!.pct,
+            source: "client-preset",
           },
           history: null,
         }}
         historySentence={
           clientName
-            ? formatHistoryEmpty("tiktok", clientName)
+            ? [formatHistoryEmpty("tiktok", clientName), formatHistoryEmpty("google", clientName)].join(
+                " · ",
+              )
             : undefined
         }
         onChange={(segments) => onBudget(planSplitToBudget(segments, derivedDaily))}
@@ -125,7 +127,7 @@ export function CanvasBudget({
         .filter((segment) => segment.pct === 0)
         .map((segment) => (
           <span key={segment.platform} className={`block ${VIZ_TYPE_NUM.body} text-muted-foreground`}>
-            {formatSkippedShare(0)}
+            {formatSkippedShare(0, segment.platform)}
           </span>
         ))}
     </section>

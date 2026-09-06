@@ -3,11 +3,13 @@
  * Structure stays seven zones; this file is what it says.
  */
 
+import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
 import { formatVizDay, formatVizMoment } from "../viz/format-moment.ts";
 import { VIZ_PLATFORM_LABEL, VIZ_STATE_WORD, VIZ_TICKET_LINE_WORD, type VizPlatform } from "../viz/tokens.ts";
+import { planBenchmark } from "./benchmarks.ts";
 import type { IdentityNameMap } from "./identity-chips.ts";
 import type { PlanPreflightIssue } from "./preflight.ts";
-import type { CampaignPlan, PlanAdapterName } from "./types.ts";
+import type { CampaignPlan, CampaignPlanLaunches, PlanAdapterName } from "./types.ts";
 import { budgetedLaunchAdapters } from "./types.ts";
 
 export const LAUNCH_STARTING_POINT = {
@@ -120,8 +122,142 @@ export function formatLaunchedLine(launchedAt: string): string {
   return time ? `paused · launched ${day} · ${time}` : `paused · launched ${day}`;
 }
 
-export function formatSkippedShare(pct: number): string {
-  return `${pct}% of the budget — skipped`;
+export function formatSkippedShare(pct: number, platform?: VizPlatform): string {
+  const body = `${pct}% of the budget — skipped`;
+  return platform ? `${VIZ_PLATFORM_LABEL[platform]} · ${body}` : body;
+}
+
+export function planLaunchedAt(launches: CampaignPlanLaunches): string | null {
+  const stamps = (["meta", "tiktok", "google"] as const)
+    .map((adapter) => launches[adapter].createdAt)
+    .filter((value): value is string => Boolean(value?.trim()));
+  return stamps.sort()[0] ?? null;
+}
+
+export function launchBlockers<T extends { kind?: string }>(
+  blockers: readonly T[],
+): T[] {
+  return blockers.filter((blocker) => blocker.kind === "blocker");
+}
+
+export function launchTargetInfoHeader(unit: LaunchReadingUnit): string {
+  if (unit === "purchase") return "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND";
+  if (unit === "view") return "ESTIMATED · META'S REACH, YOUR SPEND";
+  return "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND";
+}
+
+export function formatRunningFact(input: {
+  cost: number;
+  unit: LaunchReadingUnit;
+  usual?: number | null;
+}): string {
+  const number = `${formatGbp(input.cost)} per ${launchUnitWord(input.unit)}`;
+  if (input.usual == null) return number;
+  const cmp = input.cost < input.usual ? "under" : input.cost > input.usual ? "above" : "at";
+  return `${number} · ${cmp} your usual ${formatGbp(input.usual)}`;
+}
+
+export function launchChannelRunning(
+  stages: ReadonlyArray<{
+    key: string;
+    platformSplit:
+      | ReadonlyArray<{ platform: string; spend: number; value: number | null }>
+      | null;
+  }>,
+  unit: LaunchReadingUnit,
+  usual?: number | null,
+): Partial<Record<PlanAdapterName, { cost: number; usual?: number | null } | null>> {
+  const key = unit === "purchase" ? "purchases" : unit === "view" ? "reach" : "signups";
+  const stage = stages.find((row) => row.key === key);
+  const out: Partial<Record<PlanAdapterName, { cost: number; usual?: number | null } | null>> = {};
+  for (const adapter of ["meta", "tiktok", "google"] as const) {
+    const split = stage?.platformSplit?.find((row) => row.platform === adapter);
+    const cost = split
+      ? platformUnitCost({ spend: split.spend, results: split.value, unit })
+      : null;
+    out[adapter] = cost == null ? null : { cost, usual: usual ?? null };
+  }
+  return out;
+}
+
+export function platformUnitCost(input: {
+  spend: number;
+  results: number | null;
+  unit: LaunchReadingUnit;
+}): number | null {
+  if (input.results == null || input.results <= 0 || input.spend < 0) return null;
+  const denom = input.unit === "view" ? input.results / 1000 : input.results;
+  if (denom <= 0) return null;
+  return input.spend / denom;
+}
+
+export function launchBlockedLine(input: {
+  hasEvent: boolean;
+  busy: boolean;
+  windowOk: boolean;
+  issues: PlanPreflightIssue[];
+  blockerCount: number;
+}): string | null {
+  if (!input.hasEvent) return "choose an event";
+  if (input.busy) return "launch in progress";
+  return formatLaunchBlockerSentence({
+    windowOk: input.windowOk,
+    blockerCount: input.blockerCount,
+    unconnected: unconnectedMessage(input.issues),
+  });
+}
+
+export type LaunchTargetView = {
+  unit: LaunchReadingUnit;
+  unitWord: string;
+  chipValue: number;
+  evidence: string;
+  lineKind: MetricChipBenchmark["lineKind"];
+  benchmark: MetricChipBenchmark | undefined;
+  infoHeader: string;
+  showComputedToday: boolean;
+  purchaseLine: string | null;
+};
+
+export function launchTargetView(input: {
+  now: Date;
+  generalSaleAt?: string | null;
+  presaleAt?: string | null;
+  kind?: string | null;
+  venueName?: string | null;
+  operatorTarget?: number | null;
+  ticketSource?: keyof typeof VIZ_TICKET_LINE_WORD;
+}): LaunchTargetView {
+  const unit = launchReadingUnit({
+    now: input.now,
+    generalSaleAt: input.generalSaleAt,
+    presaleAt: input.presaleAt,
+    kind: input.kind,
+  });
+  const venue = input.venueName?.trim() || null;
+  const benchmark = planBenchmark({
+    venueLabel: venue,
+    unit: unit === "reg" ? "signup" : unit,
+  });
+  const n = benchmark?.n ?? 0;
+  const evidence =
+    n <= 0
+      ? formatStartingPoint(unit)
+      : venue
+        ? formatTargetFromShows(n, venue)
+        : formatStartingPoint(unit);
+  const starting = LAUNCH_STARTING_POINT[unit];
+  return {
+    unit,
+    unitWord: launchUnitWord(unit),
+    chipValue: input.operatorTarget ?? benchmark?.value ?? starting,
+    evidence,
+    lineKind: benchmark?.lineKind ?? "estimated",
+    benchmark,
+    infoHeader: launchTargetInfoHeader(unit),
+    showComputedToday: benchmark != null,
+    purchaseLine: unit === "purchase" ? formatPurchaseTicketLine(input.ticketSource ?? "none") : null,
+  };
 }
 
 export function formatHistoryEmpty(platform: VizPlatform, clientName: string): string {
@@ -189,7 +325,7 @@ export function readyLaunchAdapters(
       const word = launchChannelStateWord({
         skipped: false,
         waiting: row.waiting,
-        blockerCount: row.blockers.filter((blocker) => blocker.kind === "blocker").length,
+        blockerCount: launchBlockers(row.blockers).length,
         status:
           row.status === "paused"
             ? "paused"

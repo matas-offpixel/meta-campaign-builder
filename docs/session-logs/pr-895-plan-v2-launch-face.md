@@ -37,6 +37,29 @@ LAUNCH face re-wording from canon §2.2 and frames A1–A15. Structure stays sev
 | History empty; 0% skipped; channel state words; creates / blockers; resume words; A6 tip | §2.2 | A6, A9, A13–A15 | same file · LAUNCH split / channels / button |
 | Card ⓘ; chips leave the header; client role hides the button only | §2.2, A19 reading | A1–A15 | same file · LAUNCH chrome; viz-kit-redesign §4.7 |
 
+## Review round 1 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| Target chip used the preset number; evidence was the starting-point line with `historyN = 0` | `lib/plan/launch-face.ts` `launchTargetView`; `components/plan/canvas-target.tsx` | `target view is one source: n = 0 starting point, never a preset, unit word matches` |
+| Phase unit ignored `presale_at` | `lib/plan/launch-face.ts` `launchReadingUnit`; `canvas-target.tsx` `presaleAt` | `presale earlier than general sale flips the phase unit and mounts the tickets line` |
+| Unit picker deleted, not moved | `canvas-target.tsx` `<details>` + `onUnit` | same test matches `onUnit` and `<details` |
+| `needs you` counted advisories; blocker was a span; row still showed CPM/CPC | `canvas-channels.tsx` `launchBlockers` / `formatRunningFact` | `needs you counts blockers only; running fact is cost per reading unit` → `£0.51 per signup` |
+| Header after launch never rendered — `launchedAt` not passed | `plan-workspace.tsx` `planLaunchedAt(plan.launches)` | `header launched stamp reads the ledger, never plan.createdAt` |
+| Identity ⓘ "event account differs" could not fire — page passed the client default | `page.tsx` `eventMetaAdAccountId: event.meta_ad_account_id` | `event account id is the event's own column, not the client default` |
+| Split usual was the current segments (always coincident) | `canvas-budget.tsx` `PLAN_SPLIT_PRESETS[1]` | `usual outline is the client preset; skip and history name the channel` |
+| 0% skip unnamed; Google had no history sentence | `formatSkippedShare(0, "google")` | `Google · 0% of the budget — skipped` |
+| Blocked-button fallback sniffed `reason.includes("no account")` | `launchBlockedLine` + `canvas-launch.tsx` | `blocked line is derived from the issue list, never a string sniff` |
+| Struck ⓘ sentences still mounted | `PLAN_CANVAS_COPY.derive`; Ads Manager reason on the handle `title` | `ⓘ uses the ratified derive sentence; Ads Manager reason stays on the handle` |
+| `formatPurchaseTicketLine` never mounted | `launchTargetView.purchaseLine` | presale test + `view.purchaseLine` |
+| ⓘ header did not follow the unit; `computed today` always on | `launchTargetInfoHeader` / `showComputedToday` | `ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND` / `REACH`; `showComputedToday === false` at n = 0 |
+| `waiting for f` beside `waiting for Meta` | `lib/viz/channel-row.ts` `waitingCopy` | `waiting is one spelling` |
+| Canon §2.6 ratification | `docs/CAMPAIGN_PLAN_V2_CANON_2026-09-05.md` | `Meta account not connected — connect`; `event account <id>` in the ⓘ |
+
+`campaign_plans` has no status-transition timestamp. The header uses `campaign_plan_meta_launch.created_at` (and the TikTok/Google ledger siblings). When those rows are missing, it renders nothing — never `plan.createdAt`.
+
+Until #896 merges, `lib/plan/benchmarks.ts` is a stub that returns `undefined` (`TODO(plan-v2-benchmarks)`). Every plan is rung 0. Running-fact "under/above your usual" is absent for the same reason.
+
 ## Walk
 
 Open `/plan/[id]` against the frames:
@@ -50,16 +73,16 @@ Open `/plan/[id]` against the frames:
 
 ## Validation
 
-- [x] `npm test` (5159 pass, 3 skipped)
+- [x] `npm test` (5168 pass, 3 skipped; leftover untracked `learn-face.test.ts` excluded)
 - [x] `npm run build`
 
 ## Readings (not stop-the-PR)
 
 - **A19 vs this sprint.** Canon A19 hides LAUNCH under `role=client`. The sprint says hide nothing on LAUNCH except the button. This PR follows the sprint (PR 6 will render LAUNCH read-only). Flagged for Matas if A19 still stands.
-- **A15 launched stamp.** `campaign_plans` has no `launched_at`. The formatter is pinned; the header renders the line only when a real timestamp is passed. We do not use `updatedAt`.
-- **Benchmark rungs.** Until PR 3 merges, `historyN` is 0 and the target draws the starting point. No median is computed inline.
-- **Split history.** `history: null` for every client on TikTok / Google (and Meta until PR 3), with `no TikTok history yet for [client] — opens after your first TikTok run`.
-- **Usual outline.** Drawn from the current split (client-preset when untouched, last-choice when edited). No separate stored usual percentages exist today — none invented.
+- **A15 launched stamp.** `campaign_plans` has no `launched_at`. The header now reads `campaign_plan_*_launch.created_at` via `planLaunchedAt`. Missing ledger → no line (not `createdAt`).
+- **Benchmark rungs.** `#896` is unmerged. `planBenchmark()` returns `undefined`. n = 0 starting point; no band; no `computed today`.
+- **Split history.** `history: null` with TikTok and Google empty sentences. Usual outline is `PLAN_SPLIT_PRESETS[1]` (80/15/5), not the current segments.
+- **Usual outline.** Client-preset shape from `PLAN_SPLIT_PRESETS`, so an edited split can differ from the outline.
 - **Identity when connected.** A connected TikTok / Google account is omitted from the sentence (not "connected"). Unconnected clauses stay.
 
 ## Contradiction — needs a ruling

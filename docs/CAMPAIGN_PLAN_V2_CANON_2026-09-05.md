@@ -225,7 +225,8 @@ The plan doc's §3 table, plus every code found on the live app and in the shipp
 | `daily / lifetime` | `per day / for the run` | word |
 | `reg · click · lpv · purchase · view` | `signup · click · page view · ticket · thousand reached` | word; chosen by phase, picker in details |
 | `/ reg` · `/ click` | `per signup` · `per click` | word |
-| `advertiser not set · identity not set · customer not set` | `TikTok account not connected — connect` · `TikTok profile not set — set` · `Google account not connected — connect` | word (rare) |
+| `advertiser not set · identity not set · customer not set` | `Meta account not connected — connect` · `TikTok account not connected — connect` · `TikTok profile not set — set` · `Google account not connected — connect` | word (rare) |
+| event vs resolved Meta account | `event account <id>` in the ⓘ when `events.meta_ad_account_id` differs from the resolved account | word, `ⓘ` |
 | `ELECTRIC STUDIOS SHE…` (truncated chip) | `Running as ELECTRIC STUDIOS SHEFFIELD on Meta` — full, verbatim | word, one sentence |
 | `Electric Brixton` in the header line | the venue (`NX Newcastle`); the client name moves to `ⓘ` | word |
 | `Destination URL` | `tickets at dod-newcastle.com` in the `ⓘ` | word, `ⓘ` |

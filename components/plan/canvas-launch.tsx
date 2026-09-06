@@ -6,7 +6,6 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { joinInfoTips, PLAN_CANVAS_COPY, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
 import {
   LAUNCH_INFO_VARIANT,
-  formatLaunchBlockerSentence,
   formatLaunchCreatesLine,
 } from "@/lib/plan/launch-face";
 import type { PlanAdapterName } from "@/lib/plan/types";
@@ -47,7 +46,11 @@ export function CanvasLaunch({
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
   const fanoutOff = button.reason === PLAN_CANVAS_COPY.fanoutOff;
   const tip = joinInfoTips(
-    fanoutOff ? PLAN_CANVAS_COPY.fanoutOffTip : button.reason,
+    fanoutOff
+      ? PLAN_CANVAS_COPY.fanoutOffTip
+      : button.reason === PLAN_CANVAS_COPY.blockers
+        ? null
+        : button.reason,
     button.kind === "launch" && WIZARD_ACTIVE_VS_PLAN_PAUSED,
     error,
   );
@@ -85,12 +88,7 @@ export function CanvasLaunch({
           </span>
         ) : button.kind === "launch" && button.disabled ? (
           <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-            {blockerSentence ??
-              formatLaunchBlockerSentence({
-                windowOk: button.reason !== PLAN_CANVAS_COPY.windowUnset,
-                blockerCount: button.reason ? 1 : 0,
-                unconnected: button.reason?.includes("no account") ? button.reason : null,
-              })}
+            {blockerSentence}
           </span>
         ) : null}
         {tip ? <InfoTip variant={LAUNCH_INFO_VARIANT} label={tip} /> : null}

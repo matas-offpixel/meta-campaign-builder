@@ -264,10 +264,10 @@ describe("ChannelRow named states", () => {
     { n: 3, noun: "creatives" },
   ];
 
-  it("waiting — ○ waiting for f, no derived badge", () => {
+  it("waiting — waiting for Meta, no derived badge", () => {
     const view = channelRowView({ status: "idle", facts, waiting: true, derived: true });
     assert.equal(view.state, "waiting");
-    assert.equal(view.waitingText, "waiting for f");
+    assert.equal(view.waitingText, "waiting for Meta");
     assert.equal(view.showDerived, false);
     assert.equal(view.showFactsText, false);
   });

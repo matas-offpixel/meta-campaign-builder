@@ -3,20 +3,20 @@
 import type { RefObject } from "react";
 
 import { ChannelRow } from "@/components/viz/channel-row";
-import { MetricChip } from "@/components/viz/metric-chip";
 import { SectionAnchor } from "@/components/viz/section-anchor";
-import { PLAN_CANVAS_COPY, joinInfoTips, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
+import { joinInfoTips, PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
 import {
   LAUNCH_INFO_VARIANT,
   formatChannelNeedsYou,
   formatResumeWord,
+  formatRunningFact,
+  launchBlockers,
   launchChannelStateWord,
+  type LaunchReadingUnit,
 } from "@/lib/plan/launch-face";
 import { VIZ_PLATFORM_LABEL } from "@/lib/viz/tokens";
 import type { PlanAdapterName } from "@/lib/plan/types";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
-import type { EventFunnelPlatformCosts } from "@/lib/dashboard/event-funnel";
-import { channelLiveCostLabel } from "@/lib/plan/channel-costs";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
@@ -24,12 +24,13 @@ import { VIZ_TYPE } from "@/lib/viz/tokens";
  *
  * A row click prepares the draft on first open and then opens that
  * channel's drawer at the row's own section — there is no separate Prepare
- * button, and no route change. A blocker click opens the same drawer at
- * the section the blocker names.
+ * button, and no route change. The needs-you sentence is the control that
+ * opens the drawer at the first blocker.
  */
 export function CanvasChannels({
   rows,
-  costs,
+  readingUnit,
+  running,
   onOpen,
   onOpenAnchor,
   onResume,
@@ -38,27 +39,17 @@ export function CanvasChannels({
   openRefs,
 }: {
   rows: PlanChannelRowModel[];
-  /** LIVE state — one cost-per-stage chip per row instead of the noun facts. */
-  costs?: Partial<Record<PlanAdapterName, EventFunnelPlatformCosts>>;
+  readingUnit?: LaunchReadingUnit;
+  running?: Partial<Record<PlanAdapterName, { cost: number; usual?: number | null } | null>>;
   onOpen: (row: PlanChannelRowModel) => void;
-  /** A blocker click opens the drawer at the section the blocker names. */
   onOpenAnchor?: (row: PlanChannelRowModel, anchor: BlockerAnchor) => void;
   onResume: (row: PlanChannelRowModel) => void;
   onRederive: (row: PlanChannelRowModel) => void;
   busy: boolean;
-  /** Per-adapter `open ▸` refs, so each drawer can exempt its own trigger. */
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
 }) {
-  const resumeTips = [
-    ...new Set(
-      rows
-        .filter((row) => row.state === "paused" && !resumeSupport(row.adapter).supported)
-        .map((row) => resumeSupport(row.adapter).reason ?? PLAN_CANVAS_COPY.resumeElsewhere),
-    ),
-  ];
   const tip = joinInfoTips(
     PLAN_CANVAS_COPY.derive,
-    ...resumeTips,
     rows.some((row) => row.skipped) && PLAN_CANVAS_COPY.splitZeroIsOff,
   );
 
@@ -67,20 +58,39 @@ export function CanvasChannels({
       <SectionAnchor kind="derive" label="derive" tip={tip} tipVariant={LAUNCH_INFO_VARIANT} />
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
-        const cost = costs?.[row.adapter];
+        const blockers = launchBlockers(row.blockers);
         const stateWord = launchChannelStateWord({
           skipped: row.skipped,
           waiting: row.waiting,
-          blockerCount: row.blockers.length,
+          blockerCount: blockers.length,
           status: row.status === "paused" ? "paused" : row.status === "live" ? "live" : "idle",
         });
+        const first = blockers[0];
+        const runningRead = running?.[row.adapter];
+        const runningFact =
+          readingUnit && runningRead
+            ? formatRunningFact({
+                cost: runningRead.cost,
+                unit: readingUnit,
+                usual: runningRead.usual,
+              })
+            : null;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
-            <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-              {stateWord === "needs you" && row.blockers.length > 0
-                ? formatChannelNeedsYou(row.blockers.length, VIZ_PLATFORM_LABEL[row.adapter])
-                : stateWord}
-            </span>
+            {stateWord === "needs you" && blockers.length > 0 ? (
+              <button
+                type="button"
+                className={`${VIZ_TYPE.label} text-foreground`}
+                onClick={() => {
+                  if (first?.anchor && onOpenAnchor) onOpenAnchor(row, first.anchor);
+                  else onOpen(row);
+                }}
+              >
+                {formatChannelNeedsYou(blockers.length, VIZ_PLATFORM_LABEL[row.adapter])}
+              </button>
+            ) : (
+              <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{stateWord}</span>
+            )}
             <div className="min-w-0 flex-1">
               <ChannelRow
                 platform={row.adapter}
@@ -89,17 +99,10 @@ export function CanvasChannels({
                 derived={row.derived}
                 waiting={row.waiting}
                 waitingFor={row.waitingFor}
-                blockers={row.blockers}
+                hideWaitingText
                 liveFacts={
-                  cost ? (
-                    <>
-                      <MetricChip label="cost per mille" size="sm">
-                        {channelLiveCostLabel(cost.cpm, "thousand")}
-                      </MetricChip>
-                      <MetricChip label="cost per click" size="sm">
-                        {channelLiveCostLabel(cost.cpc, "click")}
-                      </MetricChip>
-                    </>
+                  runningFact ? (
+                    <span className={VIZ_TYPE.body}>{runningFact}</span>
                   ) : null
                 }
                 onOpen={() => onOpen(row)}
@@ -123,6 +126,7 @@ export function CanvasChannels({
                   href={row.adsManagerHref}
                   target="_blank"
                   rel="noreferrer"
+                  title={PLAN_CANVAS_COPY.resumeElsewhere}
                   className={`${VIZ_TYPE.label} text-muted-foreground underline`}
                 >
                   {formatResumeWord(row.adapter)}

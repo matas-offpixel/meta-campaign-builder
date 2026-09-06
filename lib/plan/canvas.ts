@@ -420,11 +420,11 @@ export const PLAN_CANVAS_COPY = {
   fanoutOff: "Launch is switched off for this account",
   fanoutOffTip: "ENABLE_PLAN_FANOUT is not \"1\".",
   windowUnset: "set start and end",
-  noEvent: "Choose an event first.",
+  noEvent: "choose an event",
   noDestination:
     "No destination — this event has no ticket_url or signup_url. Paste one in the ⓘ.",
-  blockers: "Preflight still has blockers.",
-  launchBusy: "Launch in progress.",
+  blockers: "things to fix before you can launch",
+  launchBusy: "launch in progress",
   nothingPaused: "Nothing paused to resume.",
   resumeElsewhere: "Resume in Ads Manager — this app writes status on Meta only.",
   destination:
@@ -438,7 +438,7 @@ export const PLAN_CANVAS_COPY = {
     "Engagement has no cost-per unit, so the objective is picked directly here.",
   targetSeed: "No target set — this is the client preset's benchmark.",
   splitZeroIsOff: "A platform at 0% is skipped at launch.",
-  derive: "TikTok and Google are derived from the Meta draft, never authored first.",
+  derive: "TikTok and Google start from your Meta campaign",
   window: "Start defaults to now plus a 15-minute buffer so Meta never sees a past start.",
   assetsRegister: "Register assets already on the linked Meta draft.",
 } as const;

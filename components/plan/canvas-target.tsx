@@ -6,16 +6,14 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { PLAN_CANVAS_COPY, joinInfoTips } from "@/lib/plan/canvas";
 import {
+  PLAN_TARGET_UNITS,
   planEffectiveTargetUnit,
-  planTargetChip,
 } from "@/lib/plan/canvas-inputs";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
 import {
   LAUNCH_INFO_VARIANT,
-  formatStartingPoint,
-  formatTargetFromShows,
-  launchReadingUnit,
-  launchUnitWord,
+  formatGbp,
+  launchTargetView,
 } from "@/lib/plan/launch-face";
 import { targetUnitSpec } from "@/lib/plan/target-unit";
 import type { CampaignPlanObjectiveIntent } from "@/lib/plan/types";
@@ -23,62 +21,54 @@ import type { PlanTargetUnit } from "@/lib/types";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
- * Zone D — what are we aiming for. The one per-campaign answer of the
- * fourteen Optimisation Strategy fields; the other thirteen are the
- * client preset, reachable through the `⌁` badge (#877).
- *
- * The objective select only exists in the no-unit state. Every unit
- * implies an objective, so exposing both would let the operator declare
- * a contradiction the preset cannot price.
+ * Zone D — what are we aiming for. Chip and evidence line share
+ * `launchTargetView` — never a preset number beside a starting-point line.
  */
 export function CanvasTarget({
   value,
   unit,
-  benchmark,
   objectiveIntent,
   presetHref,
   onTarget,
-  onUnit: _onUnit,
+  onUnit,
   onObjective,
   generalSaleAt,
+  presaleAt,
   kind,
-  historyN = 0,
   venueName,
+  now,
+  ticketSource,
 }: {
   value: number | null;
   unit: PlanTargetUnit | null;
-  benchmark: number | null;
   objectiveIntent: CampaignPlanObjectiveIntent;
   presetHref: string | null;
   onTarget: (next: number | null) => void;
   onUnit: (next: PlanTargetUnit | null) => void;
   onObjective: (next: CampaignPlanObjectiveIntent) => void;
   generalSaleAt?: string | null;
+  presaleAt?: string | null;
   kind?: string | null;
-  /** Other runs with spend and results. 0 until the benchmark view exists. */
-  historyN?: number;
   venueName?: string | null;
+  now?: Date;
+  ticketSource?: "none" | "manual" | "xlsx_import" | "eventbrite" | "fourthefans" | "unknown";
 }) {
-  void _onUnit;
-  const phaseUnit = launchReadingUnit({
-    now: new Date(),
+  const view = launchTargetView({
+    now: now ?? new Date(),
     generalSaleAt,
+    presaleAt,
     kind,
+    venueName,
+    operatorTarget: value,
+    ticketSource,
   });
   const effective = planEffectiveTargetUnit(unit, objectiveIntent);
-  const chip = planTargetChip({ value, unit: effective.unit, benchmark });
-  const evidence =
-    historyN <= 0
-      ? formatStartingPoint(phaseUnit)
-      : formatTargetFromShows(historyN, venueName?.trim() || "this venue");
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(value ?? benchmark ?? ""));
-  const unitLabel = effective.unit ? targetUnitSpec(effective.unit).label : null;
+  const [draft, setDraft] = useState(String(value ?? view.chipValue));
   const tip = joinInfoTips(
-    chip.seeded && evidence,
-    "computed today",
+    view.showComputedToday && "computed today",
     effective.inferred ? PLAN_CANVAS_COPY.unitInferred : PLAN_CANVAS_COPY.unitChangesObjective,
-    chip.needsObjective && PLAN_CANVAS_COPY.noUnit,
+    !effective.unit && PLAN_CANVAS_COPY.noUnit,
   );
 
   function commit() {
@@ -105,14 +95,16 @@ export function CanvasTarget({
               if (event.key === "Escape") setEditing(false);
             }}
           />
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>/ {unitLabel}</span>
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+            per {view.unitWord}
+          </span>
         </MetricChip>
       ) : (
         <button
           type="button"
           aria-label="edit target"
           onClick={() => {
-            setDraft(String(value ?? benchmark ?? ""));
+            setDraft(String(value ?? view.chipValue));
             setEditing(true);
           }}
           disabled={!effective.unit}
@@ -120,29 +112,32 @@ export function CanvasTarget({
           <MetricChip
             label="target"
             size="lg"
-            lineKind={historyN < 3 ? "estimated" : "measured"}
+            value={view.chipValue}
+            benchmark={view.benchmark}
+            lineKind={view.lineKind}
+            infoHeader={view.infoHeader}
           >
-            {chip.needsObjective ? (
-              <span className={VIZ_TYPE.label}>{chip.label}</span>
-            ) : (
+            {effective.unit ? (
               <>
                 <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎</span>
-                <span>{chip.label.replace(/^◎\s*/, "").replace(/\s*\/\s*\S+$/, "")}</span>
+                <span>{formatGbp(view.chipValue)}</span>
                 <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-                  per {launchUnitWord(phaseUnit)}
+                  per {view.unitWord}
                 </span>
               </>
+            ) : (
+              <span className={VIZ_TYPE.label}>— · no unit</span>
             )}
           </MetricChip>
         </button>
       )}
       <InfoTip
         variant={LAUNCH_INFO_VARIANT}
-        header={chip.seeded ? "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND" : undefined}
+        header={view.infoHeader}
         label={tip}
       />
 
-      {chip.needsObjective ? (
+      {effective.unit ? null : (
         <label className="inline-flex items-center gap-1">
           <span className="sr-only">Objective</span>
           <select
@@ -159,9 +154,34 @@ export function CanvasTarget({
             ))}
           </select>
         </label>
+      )}
+
+      <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{view.evidence}</span>
+      {view.purchaseLine ? (
+        <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{view.purchaseLine}</span>
       ) : null}
 
-      <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{evidence}</span>
+      <details className={`${VIZ_TYPE.label} text-muted-foreground`}>
+        <summary>details</summary>
+        <label className="mt-1 inline-flex items-center gap-1">
+          <span>unit</span>
+          <select
+            className={`rounded-sm border border-border bg-background px-1.5 py-0.5 ${VIZ_TYPE.label}`}
+            aria-label="target unit"
+            value={unit ?? ""}
+            onChange={(event) =>
+              onUnit((event.target.value || null) as PlanTargetUnit | null)
+            }
+          >
+            <option value="">phase</option>
+            {PLAN_TARGET_UNITS.map((option) => (
+              <option key={option} value={option}>
+                {targetUnitSpec(option).label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </details>
 
       {presetHref ? (
         <a
