@@ -4,10 +4,11 @@ import { notFound } from "next/navigation";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { loadSharedPlanWorkspace } from "@/lib/plan/share-load";
+import { resolvePlanShareToken } from "@/lib/plan/share-tokens";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 
 interface Props {
-  params: Promise<{ id: string }>;
+  params: Promise<{ token: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -22,12 +23,15 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * Canon §1.6 — a client's share link opens one plan, never the list.
  * Same canvas under `role=client`. `/share/` is already public; this
- * route does not widen PUBLIC_PREFIXES. The plan id is the credential.
+ * route does not widen PUBLIC_PREFIXES. The token is the credential.
+ * Unknown, disabled, or a raw plan id → generic 404.
  */
 export default async function PlanSharePage({ params }: Props) {
-  const { id } = await params;
+  const { token } = await params;
   const supabase = createServiceRoleClient();
-  const loaded = await loadSharedPlanWorkspace(supabase, id);
+  const resolved = await resolvePlanShareToken(supabase, token);
+  if (!resolved) notFound();
+  const loaded = await loadSharedPlanWorkspace(supabase, resolved.planId);
   if (!loaded) notFound();
 
   return (

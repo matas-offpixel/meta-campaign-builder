@@ -9,13 +9,26 @@ import { learnControlsVisible } from "./learn-face.ts";
 
 export type PlanRole = "operator" | "client";
 
-export function planSharePath(planId: string): string {
-  return `/share/plan/${planId}`;
+export function planSharePath(token: string): string {
+  return `/share/plan/${token}`;
+}
+
+export function planShareHref(token: string, origin?: string): string {
+  const path = planSharePath(token);
+  return origin ? `${origin}${path}` : path;
+}
+
+/** 16-char base64url — same shape as report_shares. A plan uuid is not a token. */
+const PLAN_SHARE_TOKEN = /^[A-Za-z0-9_-]{16}$/;
+
+export function isPlanShareToken(value: string): boolean {
+  return PLAN_SHARE_TOKEN.test(value);
 }
 
 const PLAN_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Internal plan id after a token resolve. Never a URL credential. */
 export function isPlanShareId(value: string): boolean {
   return PLAN_ID.test(value);
 }

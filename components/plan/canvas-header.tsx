@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type RefObject } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 
 import { EventThumb } from "@/components/viz/event-thumb";
 import { InfoTip } from "@/components/viz/info-tip";
@@ -49,6 +49,7 @@ export function CanvasHeader({
   launchedAt,
   launchedWord,
   launchedAtSource,
+  shareAction,
 }: {
   name: string;
   clientName: string | null;
@@ -69,6 +70,7 @@ export function CanvasHeader({
   launchedAt?: string | null;
   launchedWord?: PlanLaunchedWord;
   launchedAtSource?: PlanLaunchedAtSource | null;
+  shareAction?: ReactNode;
 }) {
   const [draft, setDraft] = useState(destination.url);
   const handle = decisionsChangesLabel(decisionCount);
@@ -137,6 +139,7 @@ export function CanvasHeader({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {shareAction}
         {handle ? (
           <button
             ref={decisionsRef}

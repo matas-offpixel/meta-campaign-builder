@@ -86,6 +86,7 @@ import {
   planLaunchStamp,
   readyLaunchAdapters,
 } from "@/lib/plan/launch-face";
+import { PlanShareAction } from "@/components/plan/plan-share-action";
 import { planShareControls, type PlanRole } from "@/lib/plan/share-role";
 import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
@@ -138,6 +139,8 @@ export function PlanWorkspace({
   role = "operator",
   initialResolved = null,
   initialDecisions = [],
+  initialShareToken = null,
+  initialShareEnabled,
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
@@ -163,6 +166,8 @@ export function PlanWorkspace({
   rollupDays?: readonly LaunchRollupDay[];
   predictions?: readonly CampaignPlanPrediction[];
   benchmarkRows?: readonly BenchmarkRow[];
+  initialShareToken?: string | null;
+  initialShareEnabled?: boolean;
 }) {
   void _targetBenchmark;
   const [plan, setPlan] = useState(initialPlan);
@@ -1006,6 +1011,15 @@ export function PlanWorkspace({
         menuItems={menuItems}
         resolved={resolved}
         identityNames={identityNames}
+        shareAction={
+          role === "operator" && persisted ? (
+            <PlanShareAction
+              planId={plan.id}
+              initialToken={initialShareToken}
+              initialEnabled={initialShareEnabled}
+            />
+          ) : null
+        }
       />
 
       {!plan.intent.eventId && share.switcher ? (

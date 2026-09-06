@@ -1,6 +1,7 @@
 /**
- * Server load for `/share/plan/[id]`. Service-role, one plan, never the list.
- * No Meta / TikTok / Google calls.
+ * Server load for `/share/plan/[token]` after the token has resolved to a
+ * plan id. Service-role, one plan, never the list. No Meta / TikTok / Google
+ * calls. The URL credential is the token — never this plan id.
  */
 
 import "server-only";

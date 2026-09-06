@@ -16,6 +16,7 @@ import {
 } from "@/lib/plan/event-picker";
 import { loadDraftAdAccountId, loadPlanLaunchRecords } from "@/lib/plan/load";
 import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
+import { loadOwnerPlanShare } from "@/lib/plan/share-tokens";
 import { planLadderObjective } from "@/lib/plan/prepare-draft";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
@@ -265,6 +266,10 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   const predictions = await loadPlanPredictions(supabase, workspacePlan.id);
 
   const identityNames = await loadIdentityNameMap(supabase, user.id, googleAdsAccounts);
+  const share =
+    id !== "new" && plan
+      ? await loadOwnerPlanShare(supabase, plan.id, user.id)
+      : null;
 
   return (
     <>
@@ -296,6 +301,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             rollupDays={rollupDays}
             predictions={predictions}
             benchmarkRows={benchmarkRows}
+            initialShareToken={share?.token ?? null}
+            initialShareEnabled={share?.enabled}
           />
         </div>
       </main>

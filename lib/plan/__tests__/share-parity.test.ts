@@ -7,7 +7,18 @@ import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE } from "../../viz/tokens.ts
 import { adjustControlsVisible } from "../adjust-face.ts";
 import { launchControlsVisible } from "../launch-face.ts";
 import { learnControlsVisible } from "../learn-face.ts";
-import { isPlanShareId, planShareControls, planSharePath } from "../share-role.ts";
+import {
+  isPlanShareId,
+  isPlanShareToken,
+  planShareControls,
+  planShareHref,
+  planSharePath,
+} from "../share-role.ts";
+import {
+  mintPlanShareToken,
+  resolvePlanShareToken,
+  revokePlanShareToken,
+} from "../share-tokens.ts";
 
 describe("share role — view function the surface calls", () => {
   it("client strips every control and never adds a marker", () => {
@@ -54,10 +65,13 @@ describe("share role — view function the surface calls", () => {
     );
   });
 
-  it("share path is one plan under /share/", () => {
-    assert.equal(planSharePath("299dd4e5-0000-0000-0000-000000000001"), "/share/plan/299dd4e5-0000-0000-0000-000000000001");
+  it("share path is a 16-char token, never a plan uuid", () => {
+    const token = "abcdefghijklmnop";
+    assert.equal(planSharePath(token), "/share/plan/abcdefghijklmnop");
+    assert.equal(planShareHref(token, "https://app.example"), "https://app.example/share/plan/abcdefghijklmnop");
+    assert.equal(isPlanShareToken(token), true);
+    assert.equal(isPlanShareToken("299dd4e5-0000-0000-0000-000000000001"), false);
     assert.equal(isPlanShareId("299dd4e5-0000-0000-0000-000000000001"), true);
-    assert.equal(isPlanShareId("not-a-uuid"), false);
   });
 });
 
@@ -96,18 +110,119 @@ describe("share role — surfaces call the view", () => {
 });
 
 describe("share route — one plan, existing allow-list", () => {
-  it("is under /share/ and does not widen PUBLIC_PREFIXES", () => {
-    const page = readFileSync("app/share/plan/[id]/page.tsx", "utf8");
+  it("is under /share/plan/[token] and does not widen PUBLIC_PREFIXES", () => {
+    const page = readFileSync("app/share/plan/[token]/page.tsx", "utf8");
     assert.match(page, /role="client"/);
     assert.match(page, /PlanWorkspace/);
+    assert.match(page, /resolvePlanShareToken/);
     assert.match(page, /loadSharedPlanWorkspace/);
     assert.doesNotMatch(page, /PageHeader/);
     assert.doesNotMatch(page, /\/plans/);
+    assert.doesNotMatch(page, /the plan id is the credential/i);
 
     const prefixes = readFileSync("lib/auth/public-routes.ts", "utf8");
     assert.match(prefixes, /"\/share\/"/);
     assert.doesNotMatch(prefixes, /"\/share\/plan/);
-    assert.equal(isPublicPath("/share/plan/299dd4e5-0000-0000-0000-000000000001"), true);
+    assert.equal(isPublicPath("/share/plan/abcdefghijklmnop"), true);
     assert.equal(isPublicPath("/plan/299dd4e5-0000-0000-0000-000000000001"), false);
+    const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(header, /shareAction/);
+    assert.match(workspace, /PlanShareAction/);
+    assert.match(readFileSync("components/plan/plan-share-action.tsx", "utf8"), /share ↗/);
+    assert.match(
+      readFileSync("supabase/migrations/171_plan_share_tokens.sql", "utf8"),
+      /can_edit   boolean     not null default false/,
+    );
+  });
+});
+
+function shareMemory() {
+  const rows = new Map<string, { token: string; plan_id: string; user_id: string; enabled: boolean; can_edit: boolean }>();
+  return {
+    rows,
+    from() {
+      return {
+        select() {
+          return {
+            eq(col: string, value: string) {
+              return {
+                maybeSingle: async () => {
+                  const row = [...rows.values()].find((item) =>
+                    col === "token" ? item.token === value : item.plan_id === value,
+                  );
+                  return { data: row ?? null, error: null };
+                },
+              };
+            },
+          };
+        },
+        insert(row: { token: string; plan_id: string; user_id: string; enabled: boolean; can_edit: boolean }) {
+          return {
+            select() {
+              return {
+                single: async () => {
+                  rows.set(row.plan_id, row);
+                  return { data: row, error: null };
+                },
+              };
+            },
+          };
+        },
+        update(patch: { enabled?: boolean }) {
+          return {
+            eq(_col: string, value: string) {
+              return {
+                eq() {
+                  return {
+                    select() {
+                      return {
+                        maybeSingle: async () => {
+                          const row = [...rows.values()].find(
+                            (item) => item.plan_id === value || item.token === value,
+                          );
+                          if (row) Object.assign(row, patch);
+                          return { data: row ?? null, error: null };
+                        },
+                      };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+describe("plan share tokens — credential is the token", () => {
+  it("resolves an enabled token and 404s uuid / disabled / unknown", async () => {
+    const db = shareMemory();
+    const minted = await mintPlanShareToken(db, {
+      planId: "299dd4e5-0000-0000-0000-000000000001",
+      userId: "user-1",
+    });
+    assert.ok(!("error" in minted));
+    assert.equal(isPlanShareToken(minted.token), true);
+    assert.equal((await resolvePlanShareToken(db, minted.token))?.planId, minted.planId);
+    assert.equal(await resolvePlanShareToken(db, "299dd4e5-0000-0000-0000-000000000001"), null);
+    assert.equal(await resolvePlanShareToken(db, "not-a-token"), null);
+
+    const revoked = await revokePlanShareToken(db, {
+      planId: minted.planId,
+      userId: "user-1",
+    });
+    assert.deepEqual(revoked, { ok: true });
+    assert.equal(await resolvePlanShareToken(db, minted.token), null);
+
+    const reenabled = await mintPlanShareToken(db, {
+      planId: minted.planId,
+      userId: "user-1",
+    });
+    assert.ok(!("error" in reenabled));
+    assert.equal(reenabled.token, minted.token);
+    assert.equal((await resolvePlanShareToken(db, reenabled.token))?.planId, minted.planId);
   });
 });
