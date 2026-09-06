@@ -21,4 +21,4 @@ Docs only. Canon dated block for the 2026-09-06 live walks, G35, and the sprint 
 
 ## Notes
 
-Do not merge until the overnight report names every PR.
+Overnight report is on this branch. Do not merge.

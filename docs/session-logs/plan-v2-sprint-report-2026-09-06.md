@@ -69,4 +69,4 @@ Operator walk of production on 2026-09-06. Four PRs, all merged. `npm test` was 
 | 3 | [#906](https://github.com/matas-offpixel/meta-campaign-builder/pull/906) | `cursor/plan-v2-live-fix-round3` | Placeholders off the rail. Usual outline = two ticks + hairline. End date stays inside. Asset slots carry the filename. Skeleton until reads settle. |
 | 4 | [#907](https://github.com/matas-offpixel/meta-campaign-builder/pull/907) | `cursor/plan-v2-live-fix-round4` | When now joins end, one label `end · now`. A moment outside the window never draws. Merged as `main` `ad5beb2`. |
 
-#907 is the last live defect and is already on `main`. The overnight sprint's remaining PRs are the frame harness, this amendment, and G35.
+#907 is the last live defect and is already on `main`. Overnight: [#908](https://github.com/matas-offpixel/meta-campaign-builder/pull/908) frames, [#909](https://github.com/matas-offpixel/meta-campaign-builder/pull/909) this amendment, [#910](https://github.com/matas-offpixel/meta-campaign-builder/pull/910) G35. Report: `docs/session-logs/plan-v2-overnight-report-2026-09-06.md`.
