@@ -56,3 +56,17 @@ After #896 lands: pull `main`, rebase #895 / #897 / #898, drop #895's stub `benc
 ### Merge order
 
 #897 → #898. After #897 lands, rebase #898 once more so ADJUST loaders and LEARN share the same `page.tsx` / workspace.
+
+## Live walk — rounds 1–4
+
+Operator walk of production on 2026-09-06. Four PRs, all merged. `npm test` was green while the screen was wrong — every test pinned a view function and nothing rendered a frame.
+
+| Round | PR | Branch | What the screen ruled |
+|---|---|---|---|
+| 1 ADJUST | [#903](https://github.com/matas-offpixel/meta-campaign-builder/pull/903) | `cursor/plan-v2-live-fix-adjust` | Reading unit follows the phase, never stored `target_unit`. After gen sale, if launched before sale, primary unit stays signup. |
+| 1 LAUNCH / list | [#904](https://github.com/matas-offpixel/meta-campaign-builder/pull/904) | `cursor/plan-v2-live-fix-launch-list` | Header is `events.name`. Budget `£40 per day / for the run`. One preflight blocker count. Facts singularise. Past-show draft is `done`. List pace is a solid bar. |
+| 2 | [#905](https://github.com/matas-offpixel/meta-campaign-builder/pull/905) | `cursor/plan-v2-live-fix-round2` | Page titles = event names. Empty chip `£—`. Meta row in the phase unit. Sparkline own row. Fold `before you can launch`. `£40 per day / for the run`. |
+| 3 | [#906](https://github.com/matas-offpixel/meta-campaign-builder/pull/906) | `cursor/plan-v2-live-fix-round3` | Placeholders off the rail. Usual outline = two ticks + hairline. End date stays inside. Asset slots carry the filename. Skeleton until reads settle. |
+| 4 | [#907](https://github.com/matas-offpixel/meta-campaign-builder/pull/907) | `cursor/plan-v2-live-fix-round4` | When now joins end, one label `end · now`. A moment outside the window never draws. Merged as `main` `ad5beb2`. |
+
+#907 is the last live defect and is already on `main`. The overnight sprint's remaining PRs are the frame harness, this amendment, and G35.
