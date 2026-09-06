@@ -970,6 +970,7 @@ export function PlanWorkspace({
         clientDefaultMetaId={selectedEvent?.metaAdAccountId ?? null}
         launchedAt={launchStamp?.at ?? null}
         launchedWord={launchStamp?.word}
+        launchedAtSource={launchStamp?.source}
         thumbUrl={thumbUrl}
         destination={destination}
         onDestination={(url) => patchIntent({ destinationUrl: url })}

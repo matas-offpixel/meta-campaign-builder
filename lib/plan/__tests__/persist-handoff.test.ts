@@ -81,12 +81,25 @@ function memoryDb(opts: { tableMissing?: boolean; extraError?: { code?: string; 
             return { error: { code: "42P01", message: "relation does not exist" } };
           }
           if (table === "campaign_plans") {
-            plans.set(String(row.id), row);
+            plans.set(String(row.id), { ...plans.get(String(row.id)), ...row });
           } else {
-            launches.set(`${table}:${String(row.plan_id)}`, row);
+            const key = `${table}:${String(row.plan_id)}`;
+            launches.set(key, { ...launches.get(key), ...row });
           }
           return { error: null };
         },
+        update: (row: Record<string, unknown>) => ({
+          eq: (_col: string, value: string) => ({
+            is: async (col: string, expected: null) => {
+              const key = `${table}:${value}`;
+              const existing = launches.get(key);
+              if (existing && existing[col] == null) {
+                Object.assign(existing, row);
+              }
+              return { error: null };
+            },
+          }),
+        }),
       };
     },
   };
@@ -328,6 +341,44 @@ describe("linked-draft preflight and fan-out persist", () => {
     assert.match(page, /loadDraftAdAccountId/);
     assert.match(page, /try \{/);
   });
+
+  it("live upsert writes launched_at once and never overwrites it", async () => {
+    const plan = goldenPlan();
+    const db = memoryDb();
+    const first = await upsertPlanLaunchRow(db, {
+      planId: plan.id,
+      userId: plan.userId,
+      adapter: "meta",
+      record: {
+        ...IDLE_PLAN_LAUNCH,
+        status: "live",
+        platformCampaignId: "120",
+        draftId: "d1",
+        launchedAt: "2026-09-05T09:14:00.000Z",
+        launchedAtSource: "ledger",
+      },
+    });
+    assert.equal(first.ok, true);
+    const row = db.launches.get(`campaign_plan_meta_launch:${plan.id}`);
+    assert.equal(row?.launched_at, "2026-09-05T09:14:00.000Z");
+    assert.equal(row?.launched_at_source, "ledger");
+    const second = await upsertPlanLaunchRow(db, {
+      planId: plan.id,
+      userId: plan.userId,
+      adapter: "meta",
+      record: {
+        ...IDLE_PLAN_LAUNCH,
+        status: "live",
+        platformCampaignId: "120",
+        draftId: "d1",
+        launchedAt: "2026-09-06T12:00:00.000Z",
+        launchedAtSource: "ledger",
+      },
+    });
+    assert.equal(second.ok, true);
+    const kept = db.launches.get(`campaign_plan_meta_launch:${plan.id}`);
+    assert.equal(kept?.launched_at, "2026-09-05T09:14:00.000Z");
+  });
 });
 
 describe("plan page guards", () => {
@@ -402,5 +453,16 @@ describe("plan page guards", () => {
     assert.match(sql, /Do not apply in this run/);
     const persist = readFileSync("lib/plan/persist.ts", "utf8");
     assert.match(persist, /platform_ad_account_id/);
+  });
+
+  it("migration 170 adds launched_at and does not apply in this run", () => {
+    const sql = readFileSync("supabase/migrations/170_campaign_plan_launched_at.sql", "utf8");
+    assert.match(sql, /launched_at timestamptz/);
+    assert.match(sql, /launched_at_source/);
+    assert.match(sql, /plan_start/);
+    assert.match(sql, /Do not apply in this run/);
+    const persist = readFileSync("lib/plan/persist.ts", "utf8");
+    assert.match(persist, /launched_at/);
+    assert.match(persist, /\.is\("launched_at", null\)/);
   });
 });

@@ -87,7 +87,7 @@ export interface CampaignPlanLaunchRecord {
   platformCampaignId: string | null;
   draftId: string | null;
   error: string | null;
-  /** Ledger `created_at`. Absent on idle rows and older constructors. */
+  /** Ledger `created_at`. Absent on idle rows and older constructors. Not a launch time. */
   createdAt?: string | null;
   /**
    * Account the campaign actually launched in (draft settings). Identity
@@ -100,6 +100,10 @@ export interface CampaignPlanLaunchRecord {
    * not applied). Persist must not write this field.
    */
   draftAdAccountId?: string | null;
+  /** Written once on the transition to live. `planLaunchStamp` reads this. */
+  launchedAt?: string | null;
+  /** `ledger` = live upsert. `plan_start` = backfilled from the plan window. */
+  launchedAtSource?: "ledger" | "plan_start" | null;
 }
 
 export interface CampaignPlanLaunches {
@@ -129,6 +133,8 @@ export const IDLE_PLAN_LAUNCH: CampaignPlanLaunchRecord = {
   createdAt: null,
   platformAdAccountId: null,
   draftAdAccountId: null,
+  launchedAt: null,
+  launchedAtSource: null,
 };
 
 export function isCampaignPlanStatus(value: string): value is CampaignPlanStatus {

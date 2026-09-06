@@ -190,20 +190,35 @@ export function isLaunchedLedgerRow(record: CampaignPlanLaunchRecord): boolean {
   return record.status === "live" || Boolean(record.platformCampaignId);
 }
 
+export type PlanLaunchedAtSource = "ledger" | "plan_start";
+
+export const LAUNCH_STAMP_PLAN_START_TIP = "launch time taken from the plan's start";
+
+export function formatLaunchStampTip(
+  source: PlanLaunchedAtSource | null | undefined,
+): string | null {
+  return source === "plan_start" ? LAUNCH_STAMP_PLAN_START_TIP : null;
+}
+
 export function planLaunchStamp(launches: CampaignPlanLaunches): {
   at: string | null;
   word: PlanLaunchedWord;
+  source: PlanLaunchedAtSource | null;
 } | null {
   const rows = (["meta", "tiktok", "google"] as const)
     .map((adapter) => launches[adapter])
     .filter(isLaunchedLedgerRow);
   if (rows.length === 0) return null;
-  const stamps = rows
-    .map((row) => row.createdAt)
-    .filter((value): value is string => Boolean(value?.trim()));
+  const stamped = rows
+    .filter((row): row is CampaignPlanLaunchRecord & { launchedAt: string } =>
+      Boolean(row.launchedAt?.trim()),
+    )
+    .sort((a, b) => (a.launchedAt < b.launchedAt ? -1 : 1));
+  const first = stamped[0];
   return {
-    at: stamps.sort()[0] ?? null,
+    at: first?.launchedAt ?? null,
     word: rows.some((row) => row.status === "live") ? "live" : "paused",
+    source: first?.launchedAtSource === "plan_start" ? "plan_start" : first ? "ledger" : null,
   };
 }
 

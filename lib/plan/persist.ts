@@ -101,7 +101,22 @@ export interface PersistClient {
       row: Record<string, unknown>,
       opts?: { onConflict?: string },
     ) => Promise<{ error: { code?: string; message?: string } | null }>;
+    update?: (row: Record<string, unknown>) => {
+      eq: (col: string, value: string) => {
+        is: (
+          col: string,
+          value: null,
+        ) => Promise<{ error: { code?: string; message?: string } | null }>;
+      };
+    };
   };
+}
+
+function isColumnMissing(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = (error.message ?? "").toLowerCase();
+  return message.includes("column") && message.includes("does not exist");
 }
 
 export async function probeCampaignPlansTable(
@@ -145,6 +160,7 @@ export async function upsertPlanLaunchRow(
   },
 ): Promise<{ ok: true } | { ok: false; tableMissing: boolean; error: string }> {
   const client = supabase as PersistClient;
+  const table = PLAN_LAUNCH_TABLE[input.adapter];
   const row: Record<string, unknown> = {
     plan_id: input.planId,
     user_id: input.userId,
@@ -158,15 +174,30 @@ export async function upsertPlanLaunchRow(
   if (input.record.platformAdAccountId) {
     row.platform_ad_account_id = input.record.platformAdAccountId;
   }
-  const { error } = await client.from(PLAN_LAUNCH_TABLE[input.adapter]).upsert(
-    row,
-    { onConflict: "plan_id" },
-  );
-  if (!error) return { ok: true };
-  return {
-    ok: false,
-    tableMissing: isRelationMissing(error),
-    error: error.message ?? `${input.adapter} launch row upsert failed`,
-  };
+  const { error } = await client.from(table).upsert(row, { onConflict: "plan_id" });
+  if (error) {
+    return {
+      ok: false,
+      tableMissing: isRelationMissing(error),
+      error: error.message ?? `${input.adapter} launch row upsert failed`,
+    };
+  }
+  if (input.record.status === "live") {
+    const stamp = client.from(table).update?.({
+      launched_at: input.record.launchedAt ?? new Date().toISOString(),
+      launched_at_source: input.record.launchedAtSource ?? "ledger",
+    });
+    if (stamp) {
+      const written = await stamp.eq("plan_id", input.planId).is("launched_at", null);
+      if (written.error && !isColumnMissing(written.error)) {
+        return {
+          ok: false,
+          tableMissing: isRelationMissing(written.error),
+          error: written.error.message ?? `${input.adapter} launched_at write failed`,
+        };
+      }
+    }
+  }
+  return { ok: true };
 }
 

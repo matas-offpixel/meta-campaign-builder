@@ -179,13 +179,32 @@ describe("wizard launch writes the plan child row", () => {
             };
           },
           upsert: async (row: Record<string, unknown>) => {
-            rows.set(`${table}:${row.plan_id}`, row);
+            const key = `${table}:${row.plan_id}`;
+            rows.set(key, { ...rows.get(key), ...row });
             return { error: null };
           },
           update: (row: Record<string, unknown>) => ({
-            eq: async () => {
-              updates.push({ table, row });
-              return { error: null };
+            eq: (_col: string, value: string) => {
+              const apply = async () => {
+                updates.push({ table, row });
+                const existing = rows.get(`${table}:${value}`);
+                if (existing) Object.assign(existing, row);
+                return { error: null };
+              };
+              return {
+                is: async (col: string) => {
+                  updates.push({ table, row });
+                  const existing = rows.get(`${table}:${value}`);
+                  if (existing && existing[col] == null) {
+                    Object.assign(existing, row);
+                  }
+                  return { error: null };
+                },
+                then: (
+                  resolve: (value: { error: null }) => unknown,
+                  reject?: (reason: unknown) => unknown,
+                ) => apply().then(resolve, reject),
+              };
             },
           }),
         };
