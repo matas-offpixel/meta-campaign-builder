@@ -30,8 +30,15 @@ import {
   splitBarLegendPlacement,
   splitProvenance,
 } from "../split-bar.ts";
+import { emptyMetricDisplay, metricChipTone } from "../metric-chip.ts";
+import { formatPaceSentence } from "../pace.ts";
 import {
+  VIZ_ACTION_LABEL,
+  VIZ_CLIENT_SAFE,
+  VIZ_INK_FILL,
   VIZ_INK_HEX,
+  VIZ_LINE_TOKEN,
+  VIZ_LOCKED_CLIENT_CREATIVE,
   VIZ_PLATFORMS,
   VIZ_PLATFORM_BAR,
   VIZ_PLATFORM_FILL,
@@ -40,6 +47,7 @@ import {
   VIZ_PROVENANCE_MARK,
   VIZ_PROVENANCE_TOKEN,
   VIZ_SAND_HEX,
+  VIZ_STATUS_LABEL,
   VIZ_STATUSES,
   VIZ_STATUS_TOKEN,
   VIZ_TYPE,
@@ -55,14 +63,28 @@ import {
   WINDOW_SNAP_PX,
 } from "../window-bar.ts";
 
-function walkVizTsx(dir = "components/viz"): string[] {
-  const out: string[] = [];
+function walkTs(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".next") continue;
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walkVizTsx(path));
-    else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) out.push(path);
+    if (entry.isDirectory()) walkTs(path, acc);
+    else if (entry.name.endsWith(".tsx") || entry.name.endsWith(".ts")) acc.push(path);
   }
-  return out;
+  return acc;
+}
+
+function walkVizTsx(dir = "components/viz"): string[] {
+  return walkTs(dir);
+}
+
+function mixInkOnSand(alpha: number): string {
+  const ink = { r: 0x1e, g: 0x18, b: 0x10 };
+  const sand = { r: 0xf0, g: 0xc9, b: 0xa8 };
+  const hex = (n: number) => n.toString(16).padStart(2, "0");
+  const r = Math.round(ink.r * alpha + sand.r * (1 - alpha));
+  const g = Math.round(ink.g * alpha + sand.g * (1 - alpha));
+  const b = Math.round(ink.b * alpha + sand.b * (1 - alpha));
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
 }
 
 function lin(channel: number): number {
@@ -153,6 +175,14 @@ describe("platform tint contrast", () => {
       assert.match(VIZ_PLATFORM_INK[platform], new RegExp(ink.replace("#", "\\#")));
     }
     assert.equal(Object.keys(fillVsSand).length, 3);
+
+    for (const [name, alpha] of Object.entries(VIZ_INK_FILL)) {
+      const mixed = mixInkOnSand(alpha);
+      const contrast = wcagContrast(mixed, VIZ_SAND_HEX);
+      assert.ok(contrast > 1, `${name} ink fill vs sand recorded (${contrast.toFixed(2)})`);
+    }
+    assert.ok(wcagContrast(mixInkOnSand(VIZ_INK_FILL.outline), VIZ_SAND_HEX) >
+      wcagContrast(mixInkOnSand(VIZ_INK_FILL.muted), VIZ_SAND_HEX));
   });
 
   it("hex lives in tokens — not in components/viz", () => {
@@ -492,5 +522,129 @@ describe("leaf modules — no wizard / meta imports", () => {
     }
     assert.match(readFileSync("components/viz/split-bar.tsx", "utf8"), /tip\?:/);
     assert.match(readFileSync("components/viz/window-bar.tsx", "utf8"), /tip\?:/);
+  });
+});
+
+describe("§4.7 plan v2 token guards", () => {
+  it("no VIZ_LINE_TOKEN class outside components/viz/*", () => {
+    const hits: string[] = [];
+    for (const file of [...walkTs("app"), ...walkTs("components"), ...walkTs("lib")]) {
+      if (file.startsWith("components/viz/") || file.startsWith("lib/viz/")) continue;
+      if (file.includes("__tests__")) continue;
+      const body = readFileSync(file, "utf8");
+      if (body.includes("VIZ_LINE_TOKEN") || /border-solid {2}opacity-100/.test(body)) {
+        hits.push(file);
+      }
+    }
+    assert.deepEqual(hits, [], hits.join("\n"));
+    assert.equal(VIZ_LINE_TOKEN.measured, "border-solid  opacity-100");
+  });
+
+  it("no colour on a MetricChip without benchmark.band", () => {
+    const source = readFileSync("components/viz/metric-chip.tsx", "utf8");
+    assert.match(source, /benchmark\?\.band/);
+    assert.match(source, /metricChipTone/);
+    assert.equal(
+      metricChipTone({ value: 4.68, band: [1.94, 4.1], direction: "lower-is-better" }),
+      "below",
+    );
+    assert.equal(
+      metricChipTone({ value: 2.85, band: [1.94, 4.1], direction: "lower-is-better" }),
+      null,
+    );
+  });
+
+  it("a cost marker above the band renders the warning tone", () => {
+    assert.equal(
+      metricChipTone({ value: 4.68, band: [1.94, 4.1], direction: "lower-is-better" }),
+      "below",
+    );
+  });
+
+  it("a cost marker inside the band renders no tone", () => {
+    assert.equal(
+      metricChipTone({ value: 2.85, band: [1.94, 4.1], direction: "lower-is-better" }),
+      null,
+    );
+  });
+
+  it("no ThresholdBand without a marker", () => {
+    const source = readFileSync("components/viz/threshold-band.tsx", "utf8");
+    assert.match(source, /a band without a marker is never rendered/);
+    assert.match(source, /markerValue == null/);
+    assert.match(source, /return null/);
+  });
+
+  it("every Locked has a sentence", () => {
+    const source = readFileSync("components/viz/locked.tsx", "utf8");
+    assert.match(source, /reason\.sentence/);
+    assert.match(source, /\{sentence\}/);
+    assert.doesNotMatch(source, /reason\?:/);
+  });
+
+  it("VIZ_PROVENANCE_MARK is not mounted in components/plan/canvas-*.tsx", () => {
+    const files = [
+      "components/plan/canvas-launch.tsx",
+      "components/plan/canvas-channels.tsx",
+      "components/plan/canvas-header.tsx",
+      "components/plan/canvas-target.tsx",
+      "components/plan/canvas-assets.tsx",
+      "components/plan/canvas-budget.tsx",
+      "components/plan/canvas-window.tsx",
+    ];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.doesNotMatch(source, /VIZ_PROVENANCE_MARK/);
+      assert.doesNotMatch(source, /ProvenanceBadge/);
+    }
+  });
+
+  it("no ISO dates on /plans rows", () => {
+    const rows = readFileSync("components/library/library-rows.tsx", "utf8");
+    const planRow = rows.slice(
+      rows.indexOf("export function PlanRow"),
+      rows.indexOf("export function PlanTemplateRow"),
+    );
+    assert.doesNotMatch(planRow, /\d{4}-\d{2}-\d{2}/);
+    assert.match(planRow, /formatPlanListRange/);
+  });
+
+  it("VIZ_ACTION_LABEL and VIZ_STATUS_LABEL are aria-only", () => {
+    const files = [
+      "components/viz/status-dot.tsx",
+      "components/viz/action-glyph.tsx",
+    ];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.match(source, /aria-label=\{VIZ_(STATUS|ACTION)_LABEL/);
+      assert.doesNotMatch(source, />\{VIZ_(STATUS|ACTION)_LABEL/);
+    }
+    assert.ok(VIZ_ACTION_LABEL.scale_up.length > 0);
+    assert.ok(VIZ_STATUS_LABEL.live.length > 0);
+  });
+
+  it("role=client Locked system sentence contains no table, flag or pipeline name", () => {
+    const unsafe = "not measured yet — creative_scores table and ENABLE_AI_AUTOTAG flag, pipeline pending";
+    const safe = VIZ_CLIENT_SAFE(unsafe);
+    assert.doesNotMatch(safe, /table|flag|pipeline|ENABLE_/i);
+    assert.equal(safe, VIZ_LOCKED_CLIENT_CREATIVE);
+  });
+
+  it("£— never renders without a following sentence", () => {
+    const source = readFileSync("components/viz/metric-chip.tsx", "utf8");
+    assert.match(source, /emptyMetricDisplay/);
+    assert.match(source, /empty\.sentence/);
+    assert.equal(emptyMetricDisplay(), null);
+    assert.equal(emptyMetricDisplay("   "), null);
+    assert.deepEqual(emptyMetricDisplay("enter ticket sales on the event"), {
+      display: "£—",
+      sentence: "enter ticket sales on the event",
+    });
+  });
+
+  it("pace sentence is sums, never a percentage", () => {
+    const sentence = formatPaceSentence(2588, 3300);
+    assert.equal(sentence, "£2,588 spent since launch · plan said £3,300 by today");
+    assert.doesNotMatch(sentence, /%/);
   });
 });

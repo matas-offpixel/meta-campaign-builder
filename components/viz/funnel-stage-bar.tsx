@@ -1,13 +1,14 @@
 import {
+  VIZ_LINE_TOKEN,
   VIZ_PLATFORM_BAR,
+  VIZ_PROVENANCE_LINE_KIND,
   VIZ_TYPE,
   VIZ_TYPE_NUM,
   isVizPlatform,
+  type VizLineKind,
   type VizPlatform,
   type VizProvenance,
 } from "@/lib/viz/tokens";
-
-import { ProvenanceBadge } from "./provenance-badge";
 
 export type FunnelBarSegment = { platform: string; pct: number; label: string };
 
@@ -42,6 +43,7 @@ export function FunnelStageBar({
   valueLabel,
   widthPct,
   dashed,
+  lineKind,
   segments = [],
   provenance,
   title,
@@ -49,32 +51,33 @@ export function FunnelStageBar({
   label: string;
   valueLabel: string;
   widthPct: number;
-  dashed: boolean;
+  /** @deprecated alias for `lineKind: "estimated"` — removed when the last caller migrates. */
+  dashed?: boolean;
+  lineKind?: VizLineKind;
   segments?: FunnelBarSegment[];
   provenance: VizProvenance;
   title?: string;
 }) {
+  // not instrumented stays the empty slot (line kind not-yet).
+  const kind: VizLineKind =
+    lineKind ?? (dashed ? "estimated" : VIZ_PROVENANCE_LINE_KIND[provenance]);
   const width = Math.max(0, Math.min(100, widthPct));
+  const empty = kind === "not-yet";
   return (
     <div className="space-y-1" title={title}>
       <div className="flex items-baseline justify-between gap-2">
         <span className={`${VIZ_TYPE.micro} text-muted-foreground`}>{label}</span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className={VIZ_TYPE_NUM.body}>{valueLabel}</span>
-          <ProvenanceBadge provenance={provenance} />
-        </span>
+        <span className={VIZ_TYPE_NUM.body}>{valueLabel}</span>
       </div>
       <div
-        className={`h-2.5 overflow-hidden rounded-sm ${
-          dashed
-            ? "border border-dashed border-border bg-transparent"
-            : "border border-border bg-foreground/[0.06]"
+        className={`h-2.5 overflow-hidden rounded-sm border border-border ${VIZ_LINE_TOKEN[kind]} ${
+          empty ? "border-dashed bg-transparent" : "bg-foreground/[0.06]"
         }`}
-        style={{ width: dashed ? `${Math.max(width, 16)}%` : `${Math.max(width, 2)}%` }}
+        style={{ width: empty || kind === "estimated" ? `${Math.max(width, 16)}%` : `${Math.max(width, 2)}%` }}
         role="img"
-        aria-label={`${label} ${valueLabel}${dashed ? ", not instrumented" : ""}`}
+        aria-label={`${label} ${valueLabel}${empty ? ", not measured yet" : ""}`}
       >
-        {dashed ? null : <FunnelBarSegments segments={segments} />}
+        {empty ? null : <FunnelBarSegments segments={segments} />}
       </div>
     </div>
   );

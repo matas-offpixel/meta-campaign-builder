@@ -136,7 +136,12 @@ describe("plan-level preflight reuses platform validators", () => {
 
     const planMessages = (adapter: "meta" | "tiktok" | "google", blocking: boolean) =>
       result.issues
-        .filter((i) => i.adapter === adapter && i.blocking === blocking)
+        .filter(
+          (i) =>
+            i.adapter === adapter &&
+            i.blocking === blocking &&
+            i.id !== "plan:unconnected_share",
+        )
         .map((i) => i.message)
         .sort();
 

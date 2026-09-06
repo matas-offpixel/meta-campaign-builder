@@ -16,13 +16,15 @@ import {
   handleLabelLeftPx,
   momentGlyph,
   nudgeWindowHandle,
+  resolveMomentGlyphCollision,
   snapToMoments,
   windowPlaceholders,
   windowSpanMs,
   type WindowHandle,
   type WindowMoment,
 } from "@/lib/viz/window-bar";
-import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
+import { formatPaceSentence, paceFillRatio, windowPaceState, type WindowPace } from "@/lib/viz/pace";
+import { VIZ_LINE_TOKEN, VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 import { InfoTip } from "./info-tip";
 
@@ -36,6 +38,7 @@ export function WindowBar({
   tip,
   empty = false,
   emptyLabel = "set start and end",
+  pace,
 }: {
   moments: WindowMoment[];
   start: Date;
@@ -46,6 +49,7 @@ export function WindowBar({
   tip?: string;
   empty?: boolean;
   emptyLabel?: string;
+  pace?: WindowPace;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
@@ -140,6 +144,31 @@ export function WindowBar({
     })),
   ];
   const hiddenNouns = collapseOverlappingMomentLabels(marks);
+  const collision = resolveMomentGlyphCollision(
+    marks.map((mark) => ({
+      id: mark.id,
+      noun: mark.noun,
+      ratio: width > 1 ? mark.x / width : 0,
+    })),
+  );
+  const paceState = windowPaceState({
+    empty,
+    spent: pace?.spent,
+    planned: pace?.planned,
+    tone: pace?.tone,
+  });
+  const todayMoment = moments.find((moment) => moment.label === "now" || moment.id === "now");
+  const todayPct = dateToRatio(todayMoment?.at ?? clock, from, to) * 100;
+  const startToToday = Math.max(0, todayPct - startPct);
+  const paceWidth = startToToday * paceFillRatio(pace?.spent ?? 0, pace?.planned ?? 0);
+  const paceToneClass =
+    pace && paceState !== "no-reads" && paceState !== "junk-window"
+      ? pace.tone === "neutral" || pace.tone === "none"
+        ? "bg-foreground/45"
+        : pace.tone === "above"
+          ? "bg-success"
+          : "bg-warning"
+      : "";
 
   const startText = formatVizMoment(start);
   const endRelative = formatVizRelative(end, clock);
@@ -179,30 +208,47 @@ export function WindowBar({
               key={mark.id}
               pct={width > 1 ? (mark.x / width) * 100 : 0}
               glyph={momentGlyph(mark.noun)}
-              noun={mark.noun}
+              noun={collision.joinedLabel.get(mark.id) ?? mark.noun}
               missing={mark.missing}
               hideNoun={hiddenNouns.has(mark.id)}
+              hideGlyph={collision.hideGlyphIds.has(mark.id)}
               tip={
                 hiddenNouns.has(mark.id)
-                  ? [mark.noun, mark.tip].filter(Boolean).join(" · ")
+                  ? [collision.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
                   : mark.tip
               }
             />
           ))}
         </div>
 
-        <div className="relative" style={{ height: WINDOW_RAIL_LANE_PX }}>
+        <div className="relative" style={{ height: WINDOW_RAIL_LANE_PX }} data-pace={paceState}>
           <div
-            className={`absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full ${
+            className={`absolute inset-x-0 top-[3px] h-1 rounded-full ${
               empty ? "border border-dashed border-muted-foreground/40 bg-transparent" : "bg-foreground/10"
             } ${flash ? "shadow-[inset_0_0_0_2px_var(--warning)]" : ""}`}
           />
           {empty ? null : (
             <div
-              className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-foreground/45"
+              className="absolute top-[3px] h-1 rounded-full bg-foreground/45"
               style={{ left: `${startPct}%`, width: `${Math.max(0, endPct - startPct)}%` }}
             />
           )}
+          {pace && paceState !== "junk-window" ? (
+            <>
+              <div
+                className={`absolute bottom-0 h-1 rounded-full ${pace?.lineKind ? VIZ_LINE_TOKEN[pace.lineKind] : ""} ${
+                  paceState === "no-reads" ? "bg-transparent" : paceToneClass
+                }`}
+                style={{ left: `${startPct}%`, width: `${paceWidth}%` }}
+                aria-label={formatPaceSentence(pace.spent, pace.planned)}
+              />
+              <span
+                className="absolute bottom-0 w-0.5 bg-foreground"
+                style={{ left: `${todayPct}%`, height: 4 }}
+                aria-hidden="true"
+              />
+            </>
+          ) : null}
           <HandleButton
             name="start"
             pct={startPct}
@@ -257,6 +303,7 @@ function MomentMark({
   noun,
   missing = false,
   hideNoun = false,
+  hideGlyph = false,
   tip,
 }: {
   pct: number;
@@ -264,6 +311,7 @@ function MomentMark({
   noun: string;
   missing?: boolean;
   hideNoun?: boolean;
+  hideGlyph?: boolean;
   tip?: string;
 }) {
   return (
@@ -271,9 +319,11 @@ function MomentMark({
       className={`absolute top-0 -translate-x-1/2 text-center ${missing ? "opacity-35" : "text-foreground/70"}`}
       style={{ left: `${pct}%` }}
     >
+      {hideGlyph ? null : (
       <span className={`block ${VIZ_TYPE.body} leading-none`} aria-hidden="true">
         {glyph}
       </span>
+      )}
       {hideNoun ? (
         tip ? <InfoTip label={tip} /> : null
       ) : (

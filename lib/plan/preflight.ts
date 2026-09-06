@@ -20,6 +20,7 @@ import {
   type CampaignPlan,
   type PlanAdapterName,
 } from "./types.ts";
+import { unconnectedShareIssue } from "./unconnected-share.ts";
 
 export type { PlanAdapterName };
 
@@ -81,6 +82,9 @@ export function collectPlanPreflight(
       });
     }
   }
+
+  const unconnected = unconnectedShareIssue(plan, resolved);
+  if (unconnected) issues.push(unconnected);
 
   const metaCampaign = validateCampaignPayload({
     metaAdAccountId: drafts.meta.settings.metaAdAccountId || drafts.meta.settings.adAccountId,

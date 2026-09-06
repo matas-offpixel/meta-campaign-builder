@@ -2,7 +2,9 @@
 
 **Date:** 2026-09-05 · **Ratifies:** `docs/CAMPAIGN_PLAN_V2_REVAMP_2026-09-05.md` (§5 rulings, §2–§3 absorbed here) · **Applies:** `docs/HANDOVER_CIRQLIN_ETHOS_FOR_PAID_MEDIA_PLAN_2026-09-05.md` · **Sits beside:** `docs/CAMPAIGN_CREATOR_REDESIGN_2026-09-04.md` (the launcher — every structural decision kept: one canvas, seven zones, three drawers, one button, drawers open at the field, honest empties) and `docs/CAMPAIGN_CREATOR_POLISH_2026-09-04.md` (type scale, tints, formatter — kept).
 
-**Amended 2026-09-05 after audit two** (`docs/session-logs/plan-v2-audit-two-2026-09-05.md`, branch `cc/plan-v2-audit-two`): each affected section carries a dated block saying what changed and which audit finding forced it. Sentences changed in place are the ones the blocks name. §5 is re-issued whole.
+**Amended 2026-09-05 after Claude Design's gap list** (`Paid Media Plan v2.dc.html`, 33 frames): §7 holds the ratified list, the undeclared gaps found on the frames, and the redraw list; each affected section carries a second dated block. **Amended 2026-09-05 after audit two** (`docs/session-logs/plan-v2-audit-two-2026-09-05.md`, branch `cc/plan-v2-audit-two`): each affected section carries a dated block saying what changed and which audit finding forced it. Sentences changed in place are the ones the blocks name. §5 is re-issued whole.
+
+**Amended 2026-09-06 after the third issue** (`docs/Paid Media Plan v3.dc.html`; brief `docs/session-logs/plan-v2-third-issue-brief-2026-09-06.md`; walk `docs/session-logs/plan-v2-design-walk-2026-09-05.md`): §7.1 item 16 is struck and rewritten — every Junction 2 run's tickets stop on Mon 20 Apr, so per-ticket reads are windowed to ticket coverage (brief §2); G34 added (the benchmark view's window). Times in §2.2 written as `13:00` are UTC — production `general_sale_at` is 13:00 UTC and renders **14:00 London**; the frames are right and the prose is read as UTC. Frame reassignments (A2 → East End Dubs, J7 → Modern Funktion, J5 → Folamour shape only) are in brief §4.
 
 **Evidence used, beyond the three documents:** a promoter's walk of the live DOD Plan (`/plan/299dd4e5…`, its decisions sheet, its Meta drawer) and `/plans` on 2026-09-05; the shipped tokens (`lib/viz/tokens.ts`), copy tables (`lib/plan/canvas.ts` `PLAN_CANVAS_COPY`, `lib/plan/asset-routing.ts`, `lib/plan/decisions-sheet.ts`, `lib/dashboard/event-funnel.ts`); and read-only queries against production on 2026-09-05 (counts quoted where used, so every ruling below rests on a number, not a belief).
 
@@ -126,6 +128,8 @@ Sorted by the **next moment** — the earliest of `presale_at`, `general_sale_at
 
 **Role:** the list is operator-only. A client's share link opens one plan, never the list. No client frame.
 
+> **Amended after Claude Design's gap list — 2026-09-05.** **Rows are named by `events.name`, verbatim** — `DJ EZ` · `Modern Funktion` · `Folamour` · `East End Dubs` · `Interplanetary Criminal` · `D.O.D` · `Schak` (production, 2026-09-05); the code is the second line with the venue. Claude Design drew codes as names because the canon gave only codes; and `D.O.D NEWCASTLE` is not the event's name — the launcher doc invented it. **`NX26-FOLAMOUR` is the event code** and is spelled so on the list; `[NX26-FOLMAOUR]` is a Meta campaign name's typo and stays wherever a campaign name renders — two objects, each verbatim. **The list's pace bar is a ratio bar**: fill = `min(spent ÷ planned, 1.5) × 60%` of the track, the plan line fixed at 60% — a window-proportional bar is unreadable at 160px on day 9 of 99; the ⓘ carries the two sums. Drafts draw the track dashed (not-yet). **Over pace does not make a running row `needs you`** — the row stays `running`; the fold sentence names the decision (rule 2 of the fold set). `needs you` on a row means a blocker with a fix or a junk window. **The state words are one set for the list and the canvas rows** (§2.2 amendment). The fold row's `open ▸` and the row's `show in 27 days · Fri 2 Oct` are ratified as drawn.
+
 ### 2.2 LAUNCH — *what are we running, for how much, until when, and can we go?*
 
 The launcher canvas, unchanged in structure. What changes is what it says.
@@ -145,6 +149,8 @@ The launcher canvas, unchanged in structure. What changes is what it says.
 **Zone E — channels.** State in words: `ready` · `6 things to fix before TikTok can run →` · `waiting for Meta` · `running` · `paused`. Counts stay as facts, formatted. The blocker count is the sentence's number, not a badge. Running facts are one number per row in the reading unit against the line: `£0.51 per signup · under your usual £2.03` — never `4.2067751577548975`.
 
 **Zone F — assets.** Routing by name: each asset shows `Meta · TikTok` as toggled words; `not on Google — search ads take no assets` once, as a sentence at the strip's head. Aspect reads as the ratio (`9:16`) or `—`; the live `OTHER` chip is a code and goes. A broken thumbnail renders the dashed empty slot with the filename, never a broken-image icon.
+
+> **Amended after Claude Design's gap list — 2026-09-05.** Six rulings from the frames. **(1) Row state words:** the canvas channel rows use the list's set — `ready · needs you · waiting for Meta · running · paused` — with the row's fact beside it; `needs you` is the word for `blocked`. **(2) An unconnected channel that holds budget blocks Launch.** A1, A2 and A11 disagreed (A1/A2 disabled, A11 enabled with *"TikTok and Google will not be created until connected"*). Ruled: Launch is enabled only when every channel with a share > 0 is `ready`; an unconnected channel with a share is a blocker whose sentence names both remedies — `TikTok has 29% of the budget but no account — connect, or set TikTok to 0` — and `splitZeroIsOff` (a channel at 0% is skipped) is the rule that makes the second remedy honest. A11 is redrawn. **(3) Every frame carries an "as at" date in its title when it is not today**, and the event's moments, phase and readings are the record's as at that date. This is the general form of the A4 permission (A4 is D.O.D as at Thu 27 Aug, so its five `ⓘ` codes hold). It matters because **every NX event except Schak has passed its general sale** (DJ EZ 21 Aug, Modern Funktion 6 Aug, Folamour 3 Sep, East End Dubs 14 Aug, Interplanetary Criminal 14 Aug, D.O.D 4 Sep) — a LAUNCH frame reading *per signup* on any of them today is the wrong phase, and A1, A2, A6, A11 were drawn as if their sales were ahead. A1 becomes `Schak` (nothing set: presale · gen sale not set on the event, show Fri 18 Dec — the real first-plan state); A2 becomes `Modern Funktion` as at Tue 4 Aug; A6 becomes `Folamour` (presale not set, gen sale Thu 3 Sep) as at Tue 1 Sep. **(4) Resume is in-app for Meta only** (`resumeSupport` in `lib/plan/canvas.ts`: this app writes status on Meta only): Meta rows read `resume ▷`; TikTok and Google rows read `resume in TikTok Ads Manager ↗` / `resume in Google Ads ↗`. A15 had it inverted. **(5) The starting point is £1.60 per signup** (`lib/optimisation-rules.ts`, the registration ladder's median cpr) — not £1.87, and not "for club nights": the seed is per objective, not per event kind. Purchase £18.00, page view £0.35, thousand reached £5.50 (cpm). The code comment calls the table *Mock account benchmarks* — recorded in §6 as a fact. **(6) Identity names the surface cannot resolve render as the id** (polish §6, "unresolved id renders the id"): `Running as act_… on Meta` until the name request returns. `IRONWORKS LTD`, `JUNCTION 2`, `Junction 2 — 324-410-8450` were taken from the polish doc's example chips and are not production names; they are replaced by the id form in every frame. And a production fact: every NX event carries `meta_ad_account_id = 606252931141334` (the NX Promoter account) while the plan resolves ELECTRIC STUDIOS SHEFFIELD (1073273492854557) from the client default — the sentence prints what the plan resolves, and the `ⓘ` shows the event's own account when it differs. Whether the resolver should prefer the event's account is an engineering question (§6 G30), not a drawing one.
 
 **Zone G — the button.** `Launch` — paused. Beside it one line: `creates 3 campaigns, paused, on Meta · TikTok · Google`. When launch is switched off for the account the line says so in the promoter's words (`Launch is switched off for this account`) and the flag name (`ENABLE_PLAN_FANOUT`) lives in the `ⓘ` — the live copy prints the env var.
 
@@ -166,6 +172,8 @@ The mid-flight face, replacing the LIVE canvas state plus the decisions sheet as
 
 **Disagreement is shown, never resolved:** `Meta says 1,204 · our tag says 1,140 · 64 unexplained`. Both solid. The gap is a number, not a colour.
 
+> **Amended after Claude Design's gap list — 2026-09-05.** **Check times come from `vercel.json`, not from examples.** `optimisation-tick` runs every four hours at :00 UTC (01:00 · 05:00 · 09:00 · 13:00 · 17:00 · 21:00 London in summer); `rollup-sync-events` at 07:00 / 13:00 / 19:00 UTC (08:00 · 14:00 · 20:00 London). So the undo window reads `undo until the next check at 13:00`, day 0 reads `no reads yet — Meta's first day arrives at 08:00 tomorrow` and `nothing yet — the first check is at 13:00`. **Colour inside the band is none.** The marker takes a tone only outside the client's middle half — olive below it, ochre above it for a cost; inside, ink. The sentence still says `above your usual £12.89` when the marker is above the line but inside the band. **Direction is per unit** (§4.4): cost-per-unit → lower is better; share-of-results and pace → the plan line is the reference (over → ochre, under → olive for pace; a channel earning more than its share → olive). **A channel-agnostic result divides all-channel spend**: the per-ticket line reads `ad_spend + tiktok_spend + google_ads_spend` over `tickets_sold`; a channel's own result (`meta_regs`, `meta_purchases`, `tiktok_results`) divides that channel's spend. Junction 2 × Boston Manor Park × ticket, computed so: `£2.39 · £11.18 · £14.60 · £24.40 · £49.89` (UTB0042-New … UTB0046-New) — the audit's view uses Meta spend only and is amended (§6 G31). **J8's disagreement is real and is purchases, not signups**: `Junction 2: Melodic` (UTB0043-New) reads `Meta says 2,656 purchases · tickets 558` — two lines, the gap `2,098` unexplained; the signup version Claude Design drew (1,204 vs 1,140) was the plan doc's example, not a record. **J12's sentence** is ratified in the short form `Pause TikTok — 0 signups on £348 (29% of spend) since launch.` and its explanation (*zero counted is a measurement*) moves to the `ⓘ`. **J19's per-creative reading has no data today**: `creative_insight_snapshots` last captured `[NX26-DOD] DOD - Signup` on Tue 26 Aug with £0 spend across its 14 ads, so the block is the not-yet empty `by creative name · no reads since Tue 26 Aug` — a fact (§6 G32), never three invented costs.
+
 **The log of what the tool did**, past tense, newest first, with the undo window named: `Raised "Tech House Pages" to £28/day at 08:00 — undo until the next check at 12:00`. Rows that changed nothing collapse to one line: `36 ad sets left alone`. Refusals are rows with their reason in the rule's words: `"Disco Pages" left alone — 3 of 5 signups needed`. Glyphs for the action arrow only after the operator has seen a few (the frequency criterion, applied per element: §2.6).
 
 ### 2.4 LEARN — *what did we predict, what happened, and what will we assume next time?*
@@ -173,6 +181,8 @@ The mid-flight face, replacing the LIVE canvas state plus the decisions sheet as
 Exists only after close (§1.3). One exhibit per number the plan predicted: **predicted → actual → next-time assumption**, for cost per [unit], split, pace, and best creative type (locked, §1.4). Each with a sentence built from the prediction row: `We assumed £2.03 per signup from 5 other shows at NX; DOD came in at £0.51 before general sale; next NX plan will assume £1.75 (6 other shows)`. The next-time number is the new median, computed the same way (§1.2) — never a weighted "learning rate" nobody can explain to a promoter.
 
 **Plans launched before the prediction row exists** (DOD) show LEARN with the actual only and the fact: `no prediction was stored for this plan — it launched before predictions were kept`. Not a task.
+
+> **Amended after Claude Design's gap list — 2026-09-05.** E1 is the only frame allowed a date in the future, and its actual is the extrapolation at today's rate, stated in the title: `E1 · D.O.D as at Fri 4 Dec · spend extrapolated at £56 per day` (£558 over 10 days). £4,071 was invented and is replaced. The next-time band is recomputed with D.O.D's plan-window cost: six runs `0.51 · 0.90 · 1.46 · 2.03 · 2.12 · 5.63` → median **£1.75**, middle half **£1.04–£2.10** (interpolated; the `ⓘ` shows the six). The column heads `we assumed · D.O.D came in at · next time we will assume` and the pace row's `the plan said · D.O.D spent · next time` are ratified as their words; `£35 per day is kept — pace is a setting, not a prediction` becomes `£35 per day, kept` with the explanation in the `ⓘ`. The past-tense identity line `Ran as … on Meta · TikTok and Google did not run` is ratified. `(89 days)` is the progress form for a date lock (§4.5).
 
 **The sparse state is this face.** A client's first plan shows the three exhibits locked, dashed, with the history-kind sentence: `opens when DOD closes (Fri 4 Dec)` · `opens after your 3rd NX show (1 so far)`.
 
@@ -256,6 +266,19 @@ The plan doc's §3 table, plus every code found on the live app and in the shipp
 | `before general sale` | keep — the phase label on a reading kept after the phase changed | word (rare: once per plan) |
 | `venue names need tidying — [spellings]` | keep — system-kind, spellings verbatim | word (rare) |
 | `closed when you archived it` | keep — the LEARN header for a plan with no show date | word (rare) |
+| `starts from your Meta campaign` | ratified — the TikTok/Google row form of "from your Meta campaign" | word |
+| `set start and end before you can launch` · `7 things to fix before you can launch` · `TikTok has 29% of the budget but no account — connect, or set TikTok to 0` | ratified — the line beside a disabled Launch names the one thing in the way | word (rare) |
+| `paused · launched Sat 5 Sep · 10:14` | ratified — the header stamp after Launch | word |
+| `gen sale · passed Fri 4 Sep` · `now · gen sale passed Fri 4 Sep` | ratified — a passed moment keeps its noun; when it collides with `now` the two share one label | word + shape |
+| `daily cost since launch` | ratified — the sparkline's one word | word |
+| `this campaign on Meta · since launch` · `these campaigns · since launch` | ratified — the funnel's scope line | word |
+| `Meta says · placements as Meta reports them` | ratified — the placements source line | word (rare) |
+| `no reads since Tue 26 Aug` | ratified — the not-yet form when a read has stopped | word |
+| `this number is now stored — LEARN will compare it after the show` | struck from the surface → `ⓘ`: `stored at launch · compared after the show` | `ⓘ` |
+| `neither is blended` | struck — a sentence about ourselves; `64 unexplained` is the whole message | — |
+| `Electric Brixton ▾` (client switcher) · `Electric Brixton · shared ▾` | rejected — no client switcher exists; the list is every plan the operator has; a shared view has no switcher and no marker — the absence of controls is the marker | — |
+| `IRONWORKS LTD` · `JUNCTION 2` · `Junction 2 — 324-410-8450` | rejected — polish-doc example names; unresolved names render the id | data |
+| `for club nights` | rejected — the starting point is per objective | — |
 | `no impressions yet · no reach yet · no clicks yet · no signups yet` (`funnelCostLabel`) | keep — these are already their words | word |
 | `undo` | keep, with the window: `undo until 12:00` | word |
 
@@ -373,7 +396,7 @@ Every state the data can produce, per face. **Frame** = Claude Design draws it. 
 
 Frames: list 6 · LAUNCH 11 · ADJUST 12 · LEARN 4 = **33 frames** covering 60 enumerated states. The 27 no-frame states each name the frame whose shapes they reuse and what differs (copy, a line kind, a row state). Claude Design draws the 33 and nothing else; a state it meets that is not in this list is reported back as a canon gap, not drawn.
 
-> **Amended after audit two — 2026-09-05.** Four states added, no frames added: A20 (venue rung awaiting the key), J23 (phase changed mid-run), J24 (running with no valid end), E7 (closed by archive, no show date). J2's description was rewritten because DOD today *is* J23 and J24 at once, and the reference frame must show the state every future plan at NX will pass through — the signup reading labelled `before general sale`, the purchase reading with its two lines, pace since launch, end not set. A4 and A8 were re-worded for the runs definition and the unit table. The count stays at 33.
+> **Amended after audit two — 2026-09-05.** **After Claude Design's gap list:** frames redrawn and standing are listed in §7.4; the count stays at 33; A1, A2, A6 change event; A9, A11, A13, A14, A15, J1, J3, J5, J8, J12 change data or copy; J2, J9, J14, J18, J19, J22 and the two 768 frames take word-level fixes. Four states added, no frames added: A20 (venue rung awaiting the key), J23 (phase changed mid-run), J24 (running with no valid end), E7 (closed by archive, no show date). J2's description was rewritten because DOD today *is* J23 and J24 at once, and the reference frame must show the state every future plan at NX will pass through — the signup reading labelled `before general sale`, the purchase reading with its two lines, pace since launch, end not set. A4 and A8 were re-worded for the runs definition and the unit table. The count stays at 33.
 
 ---
 
@@ -451,6 +474,8 @@ Renders the line as a 1px rule under the display number with the benchmark value
 
 > **Amended after audit two — 2026-09-05.** `benchmark` reads `campaign_plan_benchmarks_v` (audit §1.3) and carries `runsUsed` so the `ⓘ` lists the runs verbatim with their show dates; at n = 3–4 the band is interpolated (audit §6.9), so the `ⓘ` word is fixed at `your middle half` and the runs are shown beside it. `MetricChip` also gains `phaseLabel?: "before general sale"` for the kept reading on J23, rendered at `micro` above the number.
 
+> **Amended after Claude Design's gap list — 2026-09-05.** **Band · marker · colour, ruled once.** The band requires n ≥ 3 (it is the client's middle half and exists before any reading — so it is drawn on A4 with the target as its marker, never on A1, and A2 draws a line with no band: one run has no middle half). The marker requires a reading or a target. Colour requires both a band and a marker *outside* it. `benchmark.direction: "lower-is-better" | "higher-is-better"` defaults per unit — every cost-per-unit → lower; share-of-results and pace → higher / at-line — and the tone is computed from the direction, never from the sign; `VIZ_DELTA_TOKEN`'s `above → success` is therefore consumed through this prop and never read raw on a cost. One test pins it: a cost marker above the band renders the warning tone. **The empty number** is `£—` at `display` size, 35% ink, a dashed rule beneath, and the sentence with the remedy as a link (`enter ticket sales on the event`) — the 10-year-old read `£—` alone as a broken screen and `£—` with a verb as a thing to click. **Glyph collision on the rail**: when two moments sit within 2% of the rail, the older yields its glyph and its noun joins the newer's label — `now · gen sale passed Fri 4 Sep`. **The `ⓘ` opens as a card** on `--card #e8d4c0` with a `micro` header naming the line kind and source (`ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND`). **Hairlines are `--border` = ink at 10%**, not 12%; `--muted` is ink at 6%. **768:** single column; the state word sits right of the row; `do it` / `not now` at 44px; the fold row and the suggestion keep first position; the funnel's two-line signups row keeps its separator (`Meta says` on its own line, `our tag` on the next — the 768 frame ran them together).
+
 ### 4.5 The locked exhibit — `Locked` (the one new primitive)
 
 ```ts
@@ -460,7 +485,7 @@ Renders the line as a 1px rule under the display number with the benchmark value
 </Locked>
 ```
 
-Renders the child at 35% ink inside a `VIZ_LINE_TOKEN["not-yet"]` frame, with the sentence at `body` beneath and, for `history`, the progress as `(1 of 3)` in `micro`. `system` never shows a count and never a verb aimed at the client. Under `role=client` the `system` sentence is filtered through `VIZ_CLIENT_SAFE` (no table, flag or pipeline names — a test asserts it). Argued against the list: no existing primitive wraps another; `FunnelStageBar dashed` is a line, not a frame. States: `history` · `system` · `client`.
+Renders the child at 35% ink inside a `VIZ_LINE_TOKEN["not-yet"]` frame, with the sentence at `body` beneath and, for `history`, the progress as `(1 of 3)` in `micro`. `system` never shows a count and never a verb aimed at the client. Under `role=client` the `system` sentence is filtered through `VIZ_CLIENT_SAFE` (no table, flag or pipeline names — a test asserts it). Argued against the list: no existing primitive wraps another; `FunnelStageBar dashed` is a line, not a frame. States: `history` · `system` · `client`. A date lock shows its progress as the days remaining, `(89 days)`, in place of `(n of 3)`. The client-safe creative sentence is fixed copy, not a filter's output: `not measured yet — creative results are scored after your first finished show`.
 
 ### 4.6 State and action words
 
@@ -491,7 +516,7 @@ No `VIZ_LINE_TOKEN` class outside `components/viz/*` · no colour on a `MetricCh
 
 ## 5 · Claude Design brief — one document
 
-*Re-issued 2026-09-05 after audit two. Supersedes the first issue in full.*
+*Re-issued 2026-09-05 after audit two. Supersedes the first issue in full. **§7 (the ratified gap list and the redraw list) governs the redraw; where §7 and this section differ, §7 wins.***
 
 **What you are drawing.** The paid media plan of an agency OS, in the sand palette and the four-size type scale already in `lib/viz/tokens.ts`, using only the primitives named in §4 and the launcher doc's §7. Four faces: the **list**, **LAUNCH**, **ADJUST**, **LEARN**. **Thirty-three frames** covering sixty enumerated states, listed in §3 with their numbers (L1…E7). Draw those thirty-three. Nothing else.
 
@@ -555,8 +580,123 @@ Each named, with the ruling. "Fix now" items are not design questions and go to 
 | G26 | "At this venue" has no key — `venue_id` null on 126 of 126 spend events; `venue_name` spelled three ways for one arena at 4theFans | data (audit §6.1) | Migration 167; until then the rung draws *estimated* with the spellings sentence (§1.2, §1.5). A fact for Electric Brixton (clean); a rule for 4theFans. |
 | G27 | Benchmarks are whole-campaign; the plan's actual is its window — different windows until every run is a plan | data (audit §6.4) | A fact, drawn as one: the `ⓘ` says `over the whole campaign` for runs that had no plan. No remedy is offered because none is owed. |
 | G28 | `source_kind` has one live value (`meta_said`) and `entered` has no column to be entered into on the plan | data (audit §6.7) | A fact. `you entered` is the ticketing snapshot's `manual` source, on the event, never a plan field. |
+| G29 | The starting-point table in `lib/optimisation-rules.ts` is commented *"Mock account benchmarks by objective"* | code | The surface calls it `Off Pixel's starting point`; the code calls it mock. Either the values are Off Pixel's chosen starting points (rename the comment and own them) or they are placeholders (then the seed rung is a system-kind not-yet, not an estimate). Matas decides; until then the `ⓘ` says `Off Pixel's starting point` and nothing more. |
+| G30 | Every NX event carries `meta_ad_account_id = 606252931141334`; the DOD plan resolves `1073273492854557` (ELECTRIC STUDIOS SHEFFIELD) from the client default | production | A fact for the identity sentence (it prints what resolves) and an engineering question for Cursor: should `lib/clients/channel-defaults.ts` prefer the event's account when set? Not a drawing question. |
+| G31 | The benchmark view divides Meta spend for every unit | audit §1.1 | Amended (§2.3): a channel-agnostic result (`tickets_sold`) divides all-channel spend; a channel's result divides its channel's spend. The view gains the case. |
+| G32 | `creative_insight_snapshots` last captured `[NX26-DOD] DOD - Signup` on 26 Aug with £0 spend on 14 ads; no per-ad cost exists for the plan's run | production | A fact: the per-creative reading is the not-yet empty `no reads since Tue 26 Aug`. Why the refresh stopped for that account is an ops question, not a task on the surface. |
+| G33 | `tickets_sold` on Junction 2's rollups exists with no `ticket_sales_snapshots` rows | production | The ticket line's source word cannot be `from Eventbrite` / `from the xlsx` for those runs — the source is unrecorded. Draw `tickets · 553 · source not recorded` (measured, solid, source unknown) — a fourth source word, added to `VIZ_TICKET_LINE_WORD` as `unknown: "source not recorded"`. |
+| G34 | The benchmark view has no stated window: audit two's NX per-signup values (£0.90 · £1.46 · £2.03 · £2.12 · £5.63) read the whole run; the same runs before general sale are £2.75 · £1.32 · £0.87 · £1.67 · £0.54; Junction 2's per-ticket values divided July spend by April tickets | production, `campaign_plan_benchmarks_v` (brief §2, §4) | The view states its window once and the ⓘ carries it as the phase label: per-signup costs read **before general sale**; per-ticket costs read **to the last ticket entry** (spend past it never divides by them). One exported constant names the window; a test pins that a per-ticket read with tickets ending on day N ignores spend after day N. Cursor's question at build; the frames show `computed today` until it ships. |
 
 **Facts with no remedy, recorded as facts:** the live DOD plan's Meta identity is the ELECTRIC STUDIOS SHEFFIELD ad account, not the NX Promoter account the D2C handover names for NX shows — the surface will make this visible; whether it is right is the operator's call. The DOD plan's stored window is 46 minutes long and nine days past while the plan is `live` — the honest empty will show it; what the window *should* be is the operator's. The Meta drawer's page list sat at `Loading pages…` for the whole walk — a read that never resolved; drawn as the dashed empty, reported as a fact.
+
+---
+
+## 7 · Ratification of Claude Design's gap list — 2026-09-05
+
+Read against `Paid Media Plan v2.dc.html` (33 frames, three flows, two 768 frames, the gap list, the person-test note). The design thread's word is final; Claude Design redraws only the frames in §7.4.
+
+### 7.1 The declared gaps — ratified, replaced, rejected
+
+| # | Item (frames) | Decision | Reason — canon section or production fact |
+|---|---|---|---|
+| 1 | Typeface — `system-ui` (all) | **ratify** | `app/globals.css`: `--font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` — every read and control. `--font-heading` (Bebas Neue, `next/font`) is page titles only; polish §1 rejected it for numbers. No third face exists. |
+| 2 | App chrome — `Off Pixel · plans · plan · client ▾` (all) | **reject** | The sidebar is out of scope and stays; the frame is the content column beside it. The `client ▾` switcher does not exist: `/plans` lists every plan the operator has. Redraw all frames without the top bar and without the switcher (§2.6). |
+| 3 | Hairline and card colours — ink 12%, `#e8d4c0` (all) | **replace** | `--border: rgba(30,24,16,0.10)` — ink at **10%**; `--border-strong` 18%; `--muted` 6%; `--card #e8d4c0` ✓ (§4.4 block). |
+| 4 | Colour direction for a cost marker (all) | **ratify, as a rule** | §4.4: `benchmark.direction` per unit; cost → lower is better (olive below the band, ochre above); pace → over is ochre; tone computed from direction, never from the sign; none inside the band. The frames drew it right; the token would have inverted it. |
+| 5 | DOD's code and event name — `NX26-DOD · "D.O.D NEWCASTLE"` | **replace** | Code ratified (`NX26-DOD`). Name is `events.name` = **`D.O.D`** (production); `D.O.D NEWCASTLE` was the launcher doc's invention. Every frame. |
+| 6 | Event names for DJEZ · MF · FOLAMOUR · EED · IPC — codes as names (L2–L6) | **replace** | `DJ EZ` · `Modern Funktion` · `Folamour` · `East End Dubs` · `Interplanetary Criminal` (production). Name first, code second with the venue (§2.1 block). |
+| 7 | `NX26-FOLAMOUR` vs `[NX26-FOLMAOUR]` (L3) | **ratify canon spelling** | Two objects: the event code is `NX26-FOLAMOUR` (events table); the typo is Meta's campaign name and renders only where a campaign name renders. Both verbatim in their own place. |
+| 8 | List pace bar — plan line fixed at 60%, fill = spent ÷ planned × 60% (L3–L6) | **ratify, with the cap** | §2.1 block: fill = `min(spent ÷ planned, 1.5) × 60%`; the ⓘ carries the sums; drafts draw the track dashed. |
+| 9 | Over pace and `needs you` (L4) | **ratify** | Row stays `running`; the fold sentence names the decision (§2.1 fold rule 2). |
+| 10 | A client with no history and the starting-point value — `NX26-DJEZ · £1.87 "for club nights"` (A1) | **replace** | Starting point is **£1.60 per signup** (`lib/optimisation-rules.ts` registration median cpr; purchase £18.00; thousand reached £5.50). "For club nights" struck — the seed is per objective. And DJ EZ passed its general sale on 21 Aug, so it is not a per-signup LAUNCH today: A1 is redrawn on **`Schak`** (NX26-SCHAK, Fri 18 Dec, presale and gen sale not set — the real first-plan state for this client). |
+| 11 | The n = 1 value — £2.12 (A2) | **replace** | A2 is redrawn on **`Modern Funktion` as at Tue 4 Aug** (gen sale 6 Aug). Its "1 other show" at that date is whichever NX run had spend and results by 4 Aug — Cursor's view answers that; Claude Design draws the shape with the ⓘ reading `computed today` (§7.3 rule). |
+| 12 | Presale / gen sale / show times for events other than DOD (A2 A6 A11 A13) | **replace** | From production: DJ EZ presale 21 Aug 11:00 · gen sale 21 Aug 13:00 · show 2 Oct; Modern Funktion 5 Aug 10:30 · 6 Aug 11:00 · 16 Oct; Folamour — · 3 Sep 13:00 · 23 Oct; East End Dubs 14 Aug 09:00 · 14 Aug 11:00 · 13 Nov; Interplanetary Criminal 13 Aug 11:00 · 14 Aug 11:00 · 21 Nov; D.O.D — · 4 Sep 13:00 · 4 Dec; Schak — · — · 18 Dec. All UTC; render London. Every one of these sales has passed except Schak's, hence the "as at" rule (§2.2 block (3)). |
+| 13 | The band on LAUNCH with no reading vs "no band without a marker" (A4) | **ratify the drawing; amend the guard** | §4.4 block: the band exists at n ≥ 3 before any reading; the *target* is its marker at launch; colour needs a marker outside the band. The guard becomes "no band without a marker" where the target counts as a marker. Never on A1; a line without a band on A2. |
+| 14 | A4 drawn as DOD at launch (Thu 27 Aug) | **ratify, and generalise** | Written into canon: every frame not at today carries "as at [date]" in its title and draws the record as of that date. A4's five ⓘ codes hold. |
+| 15 | A brand plan's numbers — `IRWOHD · IRONWORKS LTD · £40 · 70·20·10 · £4.21 · from 2 other runs` (A9) | **replace** | Event name verbatim `Brand Awareness (Always-On)`, venue Ironworks. Other runs at Ironworks with spend and reach: IRW0001 · IRW0002 · IRW0004 · IRW0005 · IRW0006 → cost per thousand reached `£5.16 · £4.51 · £7.93 · £8.09 · £6.00` → **£6.00 from 5 other runs at Ironworks**, middle half £5.16–£7.93. TikTok history at Ironworks excluding IRWOHD itself: IRW0001 only (£86, 64,070 reached) → the TikTok outline draws dashed, `from 1 other run`. Identity: `Running as act_… on Meta` (unresolved id; `IRONWORKS LTD` is a polish-doc example). £40 · 70·20·10 are inputs and stand. |
+| 16 | A Junction 2 plan to show connected TikTok and Google — `UTB0047-New · Boston Manor Park · Sat 6 Jun · £120 · 80·15·5 · £1.72 usual` (A13 A14 A15 J1 J3 J5 J8 J12) | **replace — struck and rewritten 2026-09-06** | ~~No future Junction 2 event exists and none of its runs had a plan. Ruled: a **hypothetical plan on a real run, titled as such** — `Junction 2: Hard Techno` (UTB0046-New, Boston Manor Park, show Sun 2 Aug), as at **Fri 24 Jul**, inputs stated (`£100 per day · 77·23·0` — inputs are the operator's and may be chosen), readings real: £12,625 spent (Meta £9,677 · TikTok £2,948), tickets 553 → **£22.83 per ticket**; `Meta says 234 purchases`; `TikTok says 114 results on £2,948`; reach 1,679,861; clicks 66,640; Meta page views 34,619. Unit is **per ticket** (Junction 2 sells tickets; its regs are 0–588) — `£1.72 per signup` was invented. Usual: **£12.89 per ticket from 4 other shows at Boston Manor Park** (UTB0042-New £2.39 · UTB0043-New £49.89 · UTB0044-New £11.18 · UTB0045-New £14.60, all-channel spend), middle half £8.98–£23.42 (interpolated). Split history: TikTok took 13–25% of spend and 31–40% of platform-said results on three of the four runs — the sentence is `TikTok earned 31% of your results at Boston Manor Park last time (Innervisions) on 18% of spend`. Google: `from 1 other show`, dashed (UTB0043-New, £113, 10 conversions).~~ **Rewritten (third issue, brief §2):** every Junction 2 run's `tickets_sold` is a weekly series that stops on Mon 20 Apr; the struck numbers divided spend to 24 Jul by tickets to 20 Apr. Windowed to ticket coverage (Meta only — no TikTok or Google spend on any run by then): **`Junction 2: Hard Techno` (UTB0046-New) as at Wed 18 Mar (day 0) for A13–A15 and J1, as at Mon 20 Apr for J3** — £2,588 spent · 553 tickets · **£22.83 → £4.68 per ticket** · `Meta says 84 purchases · Meta counts 469 fewer`. Usual **£2.85 per ticket from 4 other shows at Boston Manor Park** (Fabric £0.63 · Melodic £6.46 · Fragrance £2.38 · Innervisions £3.31), middle half £1.94–£4.10 (interpolated). J8 → `Junction 2: Melodic` as at Mon 20 Apr: £3,605 · 558 tickets · £6.46 · `Meta says 74 purchases · Meta counts 484 fewer`. TikTok and Google connected, no history at Boston Manor Park at these dates — outline null, `no TikTok history yet for Junction 2 — opens after your first TikTok run`; the TikTok share sentence is struck. Inputs remain the operator's (`£100 per day · 77·23·0`). |
+| 17 | The six TikTok blockers (A14) | **ratify** | Each maps to a real drawer field (video · ad text · profile · CTA · pixel · display name). The build reads the strings from `PlanPreflightIssue`; the count is canon. |
+| 18 | Which rows resume in the app (A15) | **replace** | Inverted. `resumeSupport` supports Meta only: Meta `resume ▷`; TikTok `resume in TikTok Ads Manager ↗`; Google `resume in Google Ads ↗`. |
+| 19 | Can Launch go with only Meta connected? (A11) | **replace** | No — an unconnected channel holding a share > 0 blocks Launch with `TikTok has 29% of the budget but no account — connect, or set TikTok to 0` (§2.2 block (2)). A1/A2 were right; A11 is redrawn. |
+| 20 | DOD's purchase reading since general sale — `no reads yet · 1 day · usual £33.56` (J2) | **ratify** | Correct reading of §2.2 D: the 4-run median is the usual, the reading is not-yet. |
+| 21 | 1,150 signups (funnel) vs 1,086 (cost read) (J2 J9) | **ratify** | Both, labelled: the funnel is the campaign (`this campaign on Meta · since launch` reads the plan window too — **amend the label**: funnel and cost read share the window, so the funnel's signups are **1,086**; 1,150 is lifetime and appears only in the ⓘ as `1,150 over the whole campaign`). Redraw the funnel number on J2, J9, J14, J18, J19, J22, J2-768. |
+| 22 | Placement split, per-creative costs, sparkline values (J2 J19) | **replace** | Placements: no production breakdown is at hand — draw `instagram · —` / `facebook · —` as not-yet until Cursor's read exists, never invented shares. Per-creative costs: no data (G32) — `by creative name · no reads since Tue 26 Aug`. Sparkline: DOD's daily cost per signup since launch is real and is `£0.42` on day 1; Cursor supplies the series; Claude Design draws a falling line without labelled values. |
+| 23 | `◐ now` and `★ gen sale` 1% apart (J2) | **ratify the 768 form for both widths** | §4.4 block: the older moment yields its glyph; `now · gen sale passed Fri 4 Sep`. Redraw J2's rail. |
+| 24 | A suggestion for a channel that earned nothing (J12) | **ratify, shortened** | `Pause TikTok — 0 signups on £348 (29% of spend) since launch.`; the explanation goes to the ⓘ. On the Junction 2 frame the unit is tickets and the numbers are the real ones from item 16 — TikTok did *not* earn nothing there (114 results), so **J12 moves to IRONWORKS' `Jamie Jones` (IRW0001)**: `TikTok says 43 results on £86`; `Meta · 0 signups on £6,657` is the channel that earned nothing in the plan's unit. Title as at today. |
+| 25 | What the log says on day 0 — 08:00 / 12:00 (J1) | **replace** | From `vercel.json`: checks at 09:00 · 13:00 · 17:00 · 21:00 London; rollups at 08:00 · 14:00 · 20:00. J1: `no reads yet — Meta's first day arrives at 08:00 tomorrow`; log: `nothing yet — the first check is at 13:00`. J14: `undo until the next check at 13:00`. |
+| 26 | The client-safe creative lock sentence (J22 E6) | **ratify** | Fixed copy (§4.5): `not measured yet — creative results are scored after your first finished show`. |
+| 27 | Pace actuals and the next-time band — `£4,071 · £1.18–£2.08` (E1 E2) | **replace** | E1's actual is the extrapolation at today's rate, titled so: £56 per day × 99 days = **£5,544** against the plan's £3,465. Next-time band **£1.04–£2.10**, median £1.75 (six runs with D.O.D at £0.51). E2 stands on the same numbers. |
+| 28 | Progress on the close lock — `(89 days)` (E3) | **ratify** | §4.5: a date lock shows days remaining. |
+| 29 | The narrow layout (768) | **ratify, with four rules** | §4.4 block: single column; state word right of the row; `do it` / `not now` at 44px; the two-line signups row keeps its separator. Redraw J2-768 for the run-together line and the funnel number. |
+| 30 | The person-test note — J2's two honest readings; `£—` alone read as broken | **ratify both findings as canon** | Order and words, not shapes: the suggestion first; the pace sentence says the sums, not a percentage; the phase label on the kept reading. `£—` always carries a verb (§4.4 block). |
+
+### 7.2 Undeclared gaps — strings and shapes on the frames that are not in the canon
+
+Found by walking every frame against §2.6 and §2.5. Each is now decided; none was silently adopted.
+
+| # | Where | What | Decision |
+|---|---|---|---|
+| U1 | A1 A2 A4 A11 rows | `needs you` as a canvas row state word | ratified — the one word set for list and rows (§2.2 block (1)) |
+| U2 | A9 A13 rows | `starts from your Meta campaign` | ratified (§2.6) |
+| U3 | A11 button line | `TikTok and Google will not be created until connected` | rejected — Launch is blocked; the blocker sentence replaces it (item 19) |
+| U4 | A10 A14 button lines | `set start and end before you can launch` · `7 things to fix before you can launch` | ratified (§2.6) |
+| U5 | A15 header | `paused · launched Sat 5 Sep · 10:14` | ratified |
+| U6 | A15 target line | `this number is now stored — LEARN will compare it after the show` | struck to ⓘ (§2.6) |
+| U7 | J1 | `no reads yet — first numbers arrive after Meta's first day` · `nothing yet — the first check runs at 08:00 tomorrow` | replaced with the schedule's times (item 25) |
+| U8 | J-frames | `daily cost since launch` · `daily cost — nothing yet` | ratified |
+| U9 | J-frames | `this campaign on Meta · since launch` · `these campaigns · since launch` | ratified; the window is the plan's (item 21) |
+| U10 | J-frames | `Meta says · placements as Meta reports them` | ratified |
+| U11 | J8 | `64 unexplained between Meta's count and ours · neither is blended` | `neither is blended` struck; and J8 is redrawn on the real disagreement — `Junction 2: Melodic`, `Meta says 2,656 purchases · tickets 558 · 2,098 unexplained` (§2.3 block) |
+| U12 | J12 | `zero counted is a measurement — TikTok's pixel fired 0 times on this show's page` | moved to ⓘ; frame moves to IRW0001 (item 24) |
+| U13 | J19 | `by creative name · Meta says · £0.44 "dod-lineup.mp4" …` | replaced by the not-yet `no reads since Tue 26 Aug` (G32); `names as Meta holds them` ratified as the ⓘ phrase |
+| U14 | J22 E6 header | `Electric Brixton · shared ▾` | rejected — no marker on the shared view (§2.6) |
+| U15 | E1 pace | `£35 per day is kept — pace is a setting, not a prediction` | `£35 per day, kept`; explanation to ⓘ |
+| U16 | E1 E2 | `above the plan line from day 3` | ratified as the pace sentence's form (a day count, not a percentage) |
+| U17 | E2 | `set an end at launch and the line is stored` | ratified — a remedy exists |
+| U18 | A8 J2 rail | `gen sale · passed Fri 4 Sep` | ratified (§2.6) |
+| U19 | A4 ⓘ | `ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND` header; `each run read over the whole campaign · none of the five has had its show yet` | ratified — the ⓘ card form (§4.4 block) |
+| U20 | A9 header | `Ironworks · always on · IRWOHD` | replaced — the event's name is `Brand Awareness (Always-On)`, verbatim |
+| U21 | A13 A14 A15 J-frames | `Running as JUNCTION 2 on Meta · … on TikTok · Junction 2 — 324-410-8450 on Google` | replaced by the id form (§2.2 block (6)) |
+| U22 | All funnel bars | fills in ink at 40%, not platform tints | ratified — the colour rule (§2.7) |
+| U23 | All | `£—` with dashed rule at display size | ratified (§4.4 block) |
+| U24 | L2–L6 | dashed track for a draft's pace bar | ratified — not-yet |
+| U25 | Flows | `£32/day at 09:41` after `do it` vs the log's `£28/day at 08:00` | consistent (automation at 08:00 → operator at 09:41), but the times move with item 25: automation at 09:00, operator at 09:41, `undo until 13:00` |
+| U26 | J2-768 | `1,150 · Meta saysour tag: …` run together | redraw (item 29) |
+| U27 | A4 | tooltip drawn open over the band | ratified as a frame device; one ⓘ open per frame at most |
+
+### 7.3 Two rules for every redraw
+
+**Dates.** A frame's title carries `as at [day]` unless it is today. The moments, the phase and every reading are the record's as at that date; the benchmark may be today's view, and its ⓘ then says `computed today`. E1 alone may sit in the future, with its extrapolation stated.
+
+**Numbers.** Inputs (budget, split, window) are the operator's and may be chosen; every reading is a production number quoted in this section or supplied by Cursor's view, or it is the not-yet empty. Nothing else.
+
+### 7.4 Frames — redrawn versus standing
+
+Two kinds of change. **Redrawn** means the frame's data, event or structure changes and Claude Design draws it again. **Substitution** means find-and-replace on a frame that otherwise stands — the chrome bar and switcher come off every frame, `D.O.D NEWCASTLE` → `D.O.D`, codes → event names, the funnel's `1,150` → `1,086`, the check times — applied by Claude Design without a design pass.
+
+**Redrawn (19):**
+
+| Frame | Why |
+|---|---|
+| A1 | → `Schak`, £1.60 starting point, no "club nights" (item 10) |
+| A2 | → `Modern Funktion` as at Tue 4 Aug (item 11) |
+| A6 | → `Folamour` as at Tue 1 Sep (item 12) |
+| A9 | `Brand Awareness (Always-On)`, £6.00 from 5 other runs, TikTok from 1, id identity (item 15) |
+| A11 | Launch blocked with the two-remedy sentence (item 19) |
+| A13 A14 A15 | → `Junction 2: Hard Techno` as at Fri 24 Jul, per ticket, real readings, id identity; A15's resume words (items 16, 18) |
+| J1 | Junction 2 data; schedule times (items 16, 25) |
+| J2 | rail collision form; placements as not-yet; sparkline unlabelled (items 22, 23) |
+| J3 | → Hard Techno as at 24 Jul: under a £100/day line by £275; £22.83 per ticket above the usual £12.89 but inside the band → ink |
+| J5 | → `Modern Funktion` as at Tue 4 Aug: £2.60 per signup; daily £5.14 · £3.71 · £2.83 — three days above the band's £2.12, real |
+| J8 | → `Junction 2: Melodic`: `Meta says 2,656 purchases · tickets 558 · 2,098 unexplained` (U11) |
+| J12 | → `Jamie Jones` (IRW0001); the short sentence (item 24) |
+| J19 | per-name block becomes the not-yet `no reads since Tue 26 Aug` (U13) |
+| E1 E2 E6 | £5,544 extrapolation, £1.04–£2.10 band, `£35 per day, kept` (item 27, U15) |
+| J2-768 | run-together line; plus the substitutions (item 29) |
+
+**Standing, with substitutions only (16):** L1 · L2 · L3 · L4 · L5 · L6 · A4 · A8 · A10 · J7 · J9 · J14 · J18 · J22 · E3 · L3-768. A4's target, band and ⓘ are the reference drawing for every band on every frame and are not touched.
+
+**Count:** 33 frames, unchanged. No frame is added; no state is added.
 
 ---
 

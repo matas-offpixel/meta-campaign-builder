@@ -4,11 +4,10 @@ import type { ReactNode, RefObject } from "react";
 
 import { channelRowView, type ChannelFact } from "@/lib/viz/channel-row";
 import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
-import { VIZ_TYPE, VIZ_TYPE_NUM, type VizPlatform, type VizStatus } from "@/lib/viz/tokens";
+import { VIZ_LINE_TOKEN, VIZ_TYPE, VIZ_TYPE_NUM, type VizLineKind, type VizPlatform, type VizStatus } from "@/lib/viz/tokens";
 
 import { BlockerBadge } from "./blocker-badge";
 import { PlatformGlyph } from "./platform-glyph";
-import { ProvenanceBadge } from "./provenance-badge";
 import { StatusDot } from "./status-dot";
 
 export function ChannelRow({
@@ -20,6 +19,7 @@ export function ChannelRow({
   waitingFor,
   blockers,
   liveFacts,
+  lineKind,
   onOpen,
   onResume,
   onOpenAnchor,
@@ -34,6 +34,7 @@ export function ChannelRow({
   blockers?: BlockerRowModel[];
   /** LIVE state — MetricChips replace the noun facts. */
   liveFacts?: ReactNode;
+  lineKind?: VizLineKind;
   onOpen: () => void;
   onResume?: () => void;
   onOpenAnchor?: (anchor: BlockerAnchor) => void;
@@ -65,11 +66,14 @@ export function ChannelRow({
       {view.state === "waiting" ? (
         <span className={`${VIZ_TYPE.body} text-muted-foreground`}>{view.waitingText}</span>
       ) : null}
-      {view.showDerived ? <ProvenanceBadge provenance="derived" /> : null}
       {view.showFactsText ? (
         <span className={`${VIZ_TYPE_NUM.body} text-foreground`}>{view.factsText}</span>
       ) : null}
-      {view.showLiveFacts ? <span className="inline-flex items-center gap-1">{liveFacts}</span> : null}
+      {view.showLiveFacts ? (
+        <span className={`inline-flex items-center gap-1 ${lineKind ? VIZ_LINE_TOKEN[lineKind] : ""}`}>
+          {liveFacts}
+        </span>
+      ) : null}
       {blockers && blockers.length > 0 ? (
         <BlockerBadge rows={blockers} onOpenAnchor={onOpenAnchor} />
       ) : null}

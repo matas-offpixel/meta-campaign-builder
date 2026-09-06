@@ -7,24 +7,54 @@ import {
   boundaryCount,
   moveSplitBoundary,
   splitBarLegendPlacement,
-  splitProvenance,
+  splitOutlineState,
+  type SplitBarOutlines,
   type SplitBarPreset,
   type SplitBarSegment,
 } from "@/lib/viz/split-bar";
 import {
+  VIZ_LINE_TOKEN,
   VIZ_ON_PLATFORM_INK,
   VIZ_PLATFORMS,
   VIZ_PLATFORM_BAR,
   VIZ_PLATFORM_INK,
   VIZ_TYPE,
   VIZ_TYPE_NUM,
+  type VizLineKind,
   type VizPlatform,
 } from "@/lib/viz/tokens";
 
 import { FunnelBarSegments } from "./funnel-stage-bar";
 import { InfoTip } from "./info-tip";
 import { PlatformGlyph } from "./platform-glyph";
-import { ProvenanceBadge } from "./provenance-badge";
+
+function OutlineStroke({
+  pcts,
+  lineKind,
+  offsetPx,
+}: {
+  pcts: number[];
+  lineKind: VizLineKind;
+  offsetPx: number;
+}) {
+  let left = 0;
+  return (
+    <div className="pointer-events-none absolute inset-x-0" style={{ top: offsetPx }}>
+      {pcts.map((pct, index) => {
+        const start = left;
+        left += pct;
+        if (pct <= 0) return null;
+        return (
+          <span
+            key={index}
+            className={`absolute h-0 border-t border-foreground/60 ${VIZ_LINE_TOKEN[lineKind]}`}
+            style={{ left: `${start}%`, width: `${pct}%` }}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 export function SplitBar({
   segments,
@@ -33,6 +63,8 @@ export function SplitBar({
   presets,
   platforms = [...VIZ_PLATFORMS],
   tip,
+  outlines,
+  historySentence,
 }: {
   segments: SplitBarSegment[];
   editable?: boolean;
@@ -40,10 +72,17 @@ export function SplitBar({
   presets?: SplitBarPreset[];
   platforms?: VizPlatform[];
   tip?: string;
+  outlines?: SplitBarOutlines;
+  historySentence?: string;
 }) {
-  const provenance = splitProvenance(segments, presets, platforms);
   const [focusBoundary, setFocusBoundary] = useState(0);
   const [dragging, setDragging] = useState<number | null>(null);
+  const outlineState = splitOutlineState({
+    usual: outlines?.usual,
+    history: outlines?.history,
+    dragging: dragging != null,
+  });
+  const historyCopy = outlines?.history?.sentence ?? historySentence;
 
   const trackSegments = useMemo(
     () =>
@@ -104,8 +143,7 @@ export function SplitBar({
 
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <ProvenanceBadge provenance={provenance} />
+      <div className="flex items-center gap-2" data-outline-state={outlineState}>
         {tip ? <InfoTip label={tip} /> : null}
         <div
           className="relative h-7 min-w-0 flex-1"
@@ -114,6 +152,16 @@ export function SplitBar({
         >
           <div className="absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 overflow-hidden rounded-sm border border-border bg-foreground/[0.06]">
             <FunnelBarSegments segments={trackSegments} />
+            {outlines?.usual ? (
+              <OutlineStroke pcts={outlines.usual.pct} lineKind="measured" offsetPx={0} />
+            ) : null}
+            {outlines?.history ? (
+              <OutlineStroke
+                pcts={outlines.history.pct}
+                lineKind={outlines.history.lineKind}
+                offsetPx={2}
+              />
+            ) : null}
           </div>
           {legendSlots
             .filter(({ segment }) => splitBarLegendPlacement(segment.pct) === "inside")
@@ -177,6 +225,9 @@ export function SplitBar({
             />
           ))}
         </div>
+      ) : null}
+      {historyCopy ? (
+        <span className={`${VIZ_TYPE.body} text-foreground/70`}>{historyCopy}</span>
       ) : null}
     </div>
   );

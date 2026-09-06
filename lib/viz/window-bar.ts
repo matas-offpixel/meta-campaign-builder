@@ -178,6 +178,8 @@ export const WINDOW_MOMENT_LANE_PX = 28;
 export const WINDOW_RAIL_LANE_PX = 16;
 export const WINDOW_HANDLE_LABEL_LANE_PX = 36;
 export const WINDOW_MOMENT_LABEL_WIDTH = 56;
+/** Within 2% of the rail the older yields its glyph (§4.4 / item 23). */
+export const WINDOW_GLYPH_COLLISION_PCT = 0.02;
 
 export function boxesIntersect(
   a: { x: number; w: number },
@@ -221,4 +223,28 @@ export function handleLabelLeftPx(input: {
 
 export function estimateHandleLabelWidth(text: string): number {
   return Math.ceil(text.length * 8) + 8;
+}
+
+/**
+ * When two moments sit within 2% of the rail, the older yields its
+ * glyph and its noun joins the newer's label
+ * (`now · gen sale passed Fri 4 Sep`). `now` always yields when present.
+ */
+export function resolveMomentGlyphCollision(
+  marks: { id: string; noun: string; ratio: number; extra?: string }[],
+): { hideGlyphIds: Set<string>; joinedLabel: Map<string, string> } {
+  const hideGlyphIds = new Set<string>();
+  const joinedLabel = new Map<string, string>();
+  const sorted = [...marks].sort((a, b) => a.ratio - b.ratio || a.id.localeCompare(b.id));
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const left = sorted[i]!;
+    const right = sorted[i + 1]!;
+    if (Math.abs(right.ratio - left.ratio) > WINDOW_GLYPH_COLLISION_PCT) continue;
+    const nowMark = left.noun === "now" ? left : right.noun === "now" ? right : left;
+    const keeper = nowMark === left ? right : left;
+    hideGlyphIds.add(nowMark.id);
+    const keeperExtra = keeper.extra ? ` ${keeper.extra}` : "";
+    joinedLabel.set(keeper.id, `${nowMark.noun} · ${keeper.noun}${keeperExtra}`);
+  }
+  return { hideGlyphIds, joinedLabel };
 }
