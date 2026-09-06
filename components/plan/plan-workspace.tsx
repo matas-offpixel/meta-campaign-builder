@@ -202,6 +202,10 @@ export function PlanWorkspace({
     enabled: false,
     live: false,
   });
+  const [mirrorSettled, setMirrorSettled] = useState(readOnly || !persisted);
+  const [automationSettled, setAutomationSettled] = useState(
+    readOnly || !initialPlan.launches.meta.draftId,
+  );
   const [unregisteredAssets, setUnregisteredAssets] = useState(0);
   const router = useRouter();
   const pathname = usePathname();
@@ -343,7 +347,10 @@ export function PlanWorkspace({
 
   /** Staleness chip + zone E facts share one round trip. */
   const refreshMirror = useCallback(async () => {
-    if (readOnly || !persisted) return;
+    if (readOnly || !persisted) {
+      setMirrorSettled(true);
+      return;
+    }
     const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/mirror`);
     const json = (await res.json()) as {
       ok?: boolean;
@@ -352,13 +359,17 @@ export function PlanWorkspace({
       facts?: MirrorFacts;
       drawerBlockers?: Partial<Record<PlanAdapterName, readonly BlockerRowModel[]>>;
     };
-    if (!res.ok || !json.ok) return;
+    if (!res.ok || !json.ok) {
+      setMirrorSettled(true);
+      return;
+    }
     setStaleChips({
       tiktok: json.tiktok?.chip ?? null,
       google: json.google?.chip ?? null,
     });
     if (json.facts) setFacts(json.facts);
     if (json.drawerBlockers) setDrawerBlockers(json.drawerBlockers);
+    setMirrorSettled(true);
   }, [persisted, plan.id, readOnly]);
 
   useEffect(() => {
@@ -416,7 +427,11 @@ export function PlanWorkspace({
           live?: boolean;
           writesEnabled?: boolean;
         }) => {
-        if (cancelled || !json.ok) return;
+        if (cancelled) return;
+        if (!json.ok) {
+          setAutomationSettled(true);
+          return;
+        }
         setDecisionCount(countDecisionsSince(json.decisions ?? [], lastOpened));
         setAdjustDecisions(
           (json.decisions ?? [])
@@ -443,9 +458,12 @@ export function PlanWorkspace({
           enabled: json.enabled === true,
           live: json.live === true,
         });
+        setAutomationSettled(true);
       },
       )
-      .catch(() => undefined);
+      .catch(() => {
+        setAutomationSettled(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -925,6 +943,8 @@ export function PlanWorkspace({
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
   const launchStamp = planLaunchStamp(plan.launches);
+  const readsPending =
+    !readOnly && (preflightOk === null || !automationSettled || !mirrorSettled);
   const channelReadingUnit = launchStamp ? adjustReadingUnit : readingUnit;
   const usual = selectedEvent?.clientId && selectedEvent.venueKey
     ? planBenchmark({
@@ -1111,6 +1131,7 @@ export function PlanWorkspace({
           clicks={adjustReads?.clicks ?? null}
           pageViews={adjustReads?.firstPartyLpv ?? lpvStage?.value ?? null}
           now={adjustClock}
+          readsPending={readsPending}
           onWindowChange={(next) => setWindow(planWindowFromHandles(next))}
         />
       ) : null}
@@ -1199,6 +1220,7 @@ export function PlanWorkspace({
             ? launchChannelRunning(rollupDays, channelReadingUnit, usual)
             : undefined
         }
+        readsPending={readsPending}
         onOpen={(row) => void openChannel(row)}
         onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
         drawerEdit={share.drawerEdit}

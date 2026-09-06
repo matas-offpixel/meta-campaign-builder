@@ -145,6 +145,17 @@ export function splitOutlineRects(pcts: readonly number[]): { left: number; widt
   });
 }
 
+/** Usual-outline tick positions — 80 and 95 for 80·15·5. */
+export function splitOutlineBoundaries(pcts: readonly number[]): number[] {
+  const bounds: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < pcts.length - 1; i += 1) {
+    acc += pcts[i]!;
+    if (acc > 0 && acc < 100) bounds.push(acc);
+  }
+  return bounds;
+}
+
 export function splitBarLegendPlacement(pct: number): "inside" | "outside" {
   return pct >= SPLIT_LEGEND_INSIDE_PCT ? "inside" : "outside";
 }

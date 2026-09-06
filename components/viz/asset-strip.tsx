@@ -120,27 +120,24 @@ function AssetThumb({ asset }: { asset: AssetStripItem }) {
   const failed = !asset.thumbUrl || broken;
   const fallback = assetFallbackLabel(asset.label);
   return (
-    <span className="inline-flex max-w-[8.5rem] flex-col items-center gap-0.5">
-      <span
-        className={`inline-flex h-10 w-8 items-center justify-center overflow-hidden rounded-sm border bg-muted ${
-          failed ? "border-dashed border-border" : "border-border"
-        }`}
-      >
-        {failed ? null : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={asset.thumbUrl!}
-            alt=""
-            className="h-full w-full object-cover"
-            onError={() => setBroken(true)}
-          />
-        )}
-      </span>
+    <span
+      className={`inline-flex h-10 min-w-24 max-w-[8.5rem] items-center justify-center overflow-hidden rounded-sm border px-1 ${
+        failed ? "border-dashed border-border bg-muted" : "border-border bg-muted"
+      }`}
+    >
       {failed ? (
-        <span className={`w-full break-words text-center leading-tight text-muted-foreground ${VIZ_TYPE.label}`}>
+        <span className={`w-full truncate text-center text-muted-foreground ${VIZ_TYPE.micro}`}>
           {fallback}
         </span>
-      ) : null}
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={asset.thumbUrl!}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setBroken(true)}
+        />
+      )}
       <span className="sr-only">{asset.label}</span>
     </span>
   );

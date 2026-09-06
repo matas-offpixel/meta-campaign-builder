@@ -73,6 +73,15 @@ export function placeholderRatio(
   return ((presale ?? now ?? 0) + (show ?? 1)) / 2;
 }
 
+export const WINDOW_MISSING_TIP = "not set on the event";
+
+/** Operator order on the missing line — not announcement-first. */
+const WINDOW_MISSING_LINE_ORDER: readonly WindowPlaceholderKind[] = [
+  "presale",
+  "announcement",
+  "gen sale",
+];
+
 export function windowPlaceholders(
   moments: WindowMoment[],
   from: number,
@@ -84,8 +93,25 @@ export function windowPlaceholders(
     id: `placeholder-${kind.replace(" ", "-")}`,
     label: kind,
     ratio: placeholderRatio(kind, moments, from, to),
-    tip: "not set on the event",
+    tip: WINDOW_MISSING_TIP,
   }));
+}
+
+/**
+ * Moments the event does not have — one dashed line beneath the rail,
+ * never marks on it. `presale · announcement — not set on the event`.
+ */
+export function windowMissingMomentsLine(
+  moments: readonly WindowMoment[],
+): { kinds: WindowPlaceholderKind[]; sentence: string } | null {
+  const missing = WINDOW_MISSING_LINE_ORDER.filter(
+    (kind) => !moments.some((moment) => momentMatches(moment, kind)),
+  );
+  if (missing.length === 0) return null;
+  return {
+    kinds: missing,
+    sentence: `${missing.join(" · ")} — ${WINDOW_MISSING_TIP}`,
+  };
 }
 
 export function momentGlyph(label: string): string {
