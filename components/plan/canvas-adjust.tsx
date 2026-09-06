@@ -61,6 +61,7 @@ export function CanvasAdjust({
   clicks = null,
   pageViews = null,
   now,
+  readsPending = false,
   onWindowChange,
   onDoIt,
   onNotNow,
@@ -96,6 +97,8 @@ export function CanvasAdjust({
   clicks?: number | null;
   pageViews?: number | null;
   now?: Date;
+  /** Until window reads resolve — Locked-style 35% ink, no words. */
+  readsPending?: boolean;
   onWindowChange?: (next: { start: Date; end: Date }) => void;
   onDoIt?: () => void;
   onNotNow?: () => void;
@@ -130,10 +133,39 @@ export function CanvasAdjust({
     endSet,
     windowStart: start,
     kind,
+    ...(readsPending ? { reads: undefined } : {}),
   });
   const controls = adjustControlsVisible(role);
   const nextCheck = nextCheckClock(now);
   const windowStart = face.windowStart ?? start;
+
+  if (face.pending) {
+    return (
+      <section aria-label="adjust" data-pending={true} className={`space-y-4 ${VIZ_ZONE_GUTTER.normal}`}>
+        {moments && windowStart && end ? (
+          <WindowBar
+            moments={moments}
+            start={windowStart}
+            end={end}
+            now={now ?? new Date()}
+            empty={false}
+            onChange={onWindowChange ?? (() => undefined)}
+          />
+        ) : (
+          <div className="h-20 w-full bg-foreground/35" aria-hidden="true" />
+        )}
+        <div className="space-y-2" aria-hidden="true">
+          <div className="h-2 w-2/3 bg-foreground/35" />
+          <div className="flex gap-4">
+            <div className="h-10 w-24 bg-foreground/35" />
+            <div className="h-10 w-24 bg-foreground/35" />
+          </div>
+          <div className="h-2 w-1/2 bg-foreground/35" />
+          <div className="h-2 w-2/5 bg-foreground/35" />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section aria-label="adjust" className={`space-y-4 ${VIZ_ZONE_GUTTER.normal}`}>

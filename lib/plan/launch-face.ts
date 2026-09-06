@@ -471,6 +471,54 @@ export function launchChannelStateWord(input: {
   return VIZ_STATE_WORD.ready;
 }
 
+export type LaunchChannelRowView = {
+  pending: boolean;
+  stateWord: LaunchChannelStateWord | null;
+  runningFact: string | null;
+};
+
+/**
+ * Channel row face. `reads: undefined` (key present) is the not-yet
+ * skeleton — no state word, no sentence.
+ */
+export function launchChannelRowView(input: {
+  reads?: LaunchChannelRunning | null;
+  skipped: boolean;
+  waiting: boolean;
+  blockerCount: number;
+  status: "idle" | "launching" | "live" | "failed" | "skipped" | "paused";
+  readingUnit?: LaunchReadingUnit;
+  adapter: PlanAdapterName;
+}): LaunchChannelRowView {
+  if (Object.prototype.hasOwnProperty.call(input, "reads") && input.reads === undefined) {
+    return { pending: true, stateWord: null, runningFact: null };
+  }
+  const stateWord = launchChannelStateWord({
+    skipped: input.skipped,
+    waiting: input.waiting,
+    blockerCount: input.blockerCount,
+    status: input.status,
+  });
+  const running = input.reads ?? undefined;
+  const runningRead = running?.byAdapter[input.adapter];
+  const runningFact = !running
+    ? null
+    : running.empty
+      ? LAUNCH_NO_READS
+      : input.readingUnit && runningRead
+        ? `${stateWord} · ${formatRunningFact({
+            cost: runningRead.cost,
+            unit: input.readingUnit,
+            usual: runningRead.usual,
+          })}`
+        : null;
+  return {
+    pending: false,
+    stateWord: runningFact ? null : stateWord,
+    runningFact,
+  };
+}
+
 export function formatChannelNeedsYou(count: number, channel: string): string {
   const things = count === 1 ? "1 thing" : `${count} things`;
   return `${things} to fix before ${channel} can run →`;

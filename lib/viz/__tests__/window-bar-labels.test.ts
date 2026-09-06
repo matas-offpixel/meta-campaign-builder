@@ -124,6 +124,8 @@ describe("WindowBar label layout", () => {
     assert.match(source, /momentMarkAlign/);
     assert.match(source, /data-mark-align/);
     assert.match(source, /w-full overflow-visible/);
+    assert.match(source, /translateX\(-100%\)/);
+    assert.match(source, /paddingRight/);
   });
 
   it("handle and moment labels are nowrap in the component", () => {

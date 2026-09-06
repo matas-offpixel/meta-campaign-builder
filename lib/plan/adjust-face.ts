@@ -653,9 +653,20 @@ export type AdjustFaceInput = {
   unitWord?: string;
   kind?: string | null;
   targetUnit?: string | null;
+  /**
+   * Unresolved reads. Passing the key as `undefined` is the not-yet
+   * skeleton — omitted `reads` stays a resolved empty face.
+   */
+  reads?: AdjustWindowReads | null;
 };
 
+function readsPending(input: AdjustFaceInput): boolean {
+  return Object.prototype.hasOwnProperty.call(input, "reads") && input.reads === undefined;
+}
+
 export type AdjustFaceView = {
+  pending: boolean;
+  stateWord: string | null;
   paceSentence: string;
   paceTone: VizDeltaTone;
   windowEmpty: false;
@@ -789,8 +800,45 @@ export function formatStageLines(input: {
   return lines;
 }
 
+function pendingAdjustFace(): AdjustFaceView {
+  return {
+    pending: true,
+    stateWord: null,
+    paceSentence: "",
+    paceTone: "none",
+    windowEmpty: false,
+    endLabel: undefined,
+    windowStart: null,
+    noReads: false,
+    signupCost: null,
+    signupLine: null,
+    costLabel: "",
+    signupPhaseLabel: undefined,
+    purchaseCost: null,
+    purchaseLine: null,
+    noUsual: null,
+    infoHeader: "",
+    purchaseInfoHeader: "",
+    suggestionSentence: null,
+    notNow: false,
+    doIt: false,
+    applyTip: null,
+    channelLines: [],
+    earnedNothingSentence: null,
+    creativeSentence: "",
+    stageLines: [],
+    ticketLine: "",
+    purchaseDisagreement: null,
+    logDays: [],
+    logEmpty: "",
+    trend: undefined,
+    lineKind: "not-yet",
+  };
+}
+
 /** The view the ADJUST surface renders. Tests assert these strings. */
 export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
+  if (readsPending(input)) return pendingAdjustFace();
   const now = input.now ?? new Date();
   const role = input.role ?? "operator";
   const primaryUnit = adjustPrimaryReadingUnit({
@@ -852,6 +900,8 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
     : null;
 
   return {
+    pending: false,
+    stateWord: null,
     paceSentence,
     paceTone: paceToneFor(input.spent, input.planned),
     windowEmpty: false,

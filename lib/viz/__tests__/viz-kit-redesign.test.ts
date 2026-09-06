@@ -29,6 +29,7 @@ import {
   applySplitPreset,
   moveSplitBoundary,
   splitBarLegendPlacement,
+  splitOutlineBoundaries,
   splitOutlineRects,
   splitProvenance,
 } from "../split-bar.ts";
@@ -61,6 +62,7 @@ import {
   nudgeWindowHandle,
   relativeMomentLabel,
   snapToMoments,
+  windowMissingMomentsLine,
   windowPlaceholders,
   WINDOW_SNAP_PX,
 } from "../window-bar.ts";
@@ -276,14 +278,15 @@ describe("SplitBar — preset / manual + linked adjustment", () => {
       { left: 80, width: 15 },
       { left: 95, width: 5 },
     ]);
+    assert.deepEqual(splitOutlineBoundaries([80, 15, 5]), [80, 95]);
     const source = readFileSync("components/viz/split-bar.tsx", "utf8");
-    assert.match(source, /data-split-outline=\{name\}/);
-    assert.match(source, /data-outline-pcts=\{pcts\.join\("/);
-    assert.match(source, /data-outline-left=\{rect\.left\}/);
-    assert.match(source, /data-outline-width=\{rect\.width\}/);
-    assert.match(source, /splitOutlineRects/);
-    assert.match(source, /name="usual"/);
-    assert.match(source, /pcts=\{outlines\.usual\.pct\}/);
+    assert.match(source, /data-split-outline="usual"/);
+    assert.match(source, /data-outline-hairline/);
+    assert.match(source, /data-outline-tick=\{at\}/);
+    assert.match(source, /splitOutlineBoundaries/);
+    assert.match(source, /UsualTicks/);
+    assert.match(source, /height: 6/);
+    assert.match(source, /top: -7/);
     assert.doesNotMatch(source, /top: 2 \+ offsetPx/);
   });
 
@@ -351,7 +354,7 @@ describe("WindowBar named states + snap / keyboard", () => {
     assert.equal(momentGlyph("show"), "▲");
   });
 
-  it("missing presale / gen-sale become dashed placeholders, never absent", () => {
+  it("missing presale / announcement sit on one dashed line, never on the rail", () => {
     const from = now.getTime();
     const to = show.getTime();
     const onlyNowShow = [
@@ -363,12 +366,21 @@ describe("WindowBar named states + snap / keyboard", () => {
       placeholders.map((row) => row.label),
       ["announcement", "presale", "gen sale"],
     );
-    assert.ok(placeholders.every((row) => row.tip.length > 0));
-    assert.ok(placeholders[0]!.ratio > 0 && placeholders[0]!.ratio < 1);
+    const missing = windowMissingMomentsLine(onlyNowShow);
+    assert.equal(missing?.sentence, "presale · announcement · gen sale — not set on the event");
+    const dod = [
+      { id: "now", label: "now", at: now },
+      { id: "gen-sale", label: "gen sale passed Fri 4 Sep", at: new Date("2026-09-04T10:00:00+01:00") },
+      { id: "show", label: "show", at: show },
+    ];
+    assert.equal(
+      windowMissingMomentsLine(dod)?.sentence,
+      "presale · announcement — not set on the event",
+    );
     const source = readFileSync("components/viz/window-bar.tsx", "utf8");
-    assert.match(source, /formatVizMoment/);
-    assert.match(source, /formatVizRelative/);
-    assert.match(source, /placeholder/);
+    assert.match(source, /windowMissingMomentsLine/);
+    assert.match(source, /data-window-missing/);
+    assert.doesNotMatch(source, /placeholders\.map/);
     assert.doesNotMatch(source, /\d{4}-\d{2}-\d{2}T/);
   });
 
@@ -715,6 +727,9 @@ describe("§4.7 plan v2 token guards", () => {
     assert.equal(assetFallbackLabel("TICKET-16x9.mp4"), "TICKET-16x9.mp4");
     assert.equal(assetFallbackLabel("a".repeat(25)), `${"a".repeat(24)}…`);
     assert.notEqual(assetFallbackLabel("TICKET-16x9.mp4").slice(0, 3), "TI…");
+    const strip = readFileSync("components/viz/asset-strip.tsx", "utf8");
+    assert.match(strip, /min-w-24/);
+    assert.match(strip, /VIZ_TYPE\.micro/);
     assert.deepEqual(emptyMetricDisplay("enter ticket sales on the event"), {
       display: "£—",
       sentence: "enter ticket sales on the event",

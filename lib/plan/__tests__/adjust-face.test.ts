@@ -288,7 +288,7 @@ describe("ADJUST surface guards", () => {
     assert.match(source, /by creative name/);
     assert.doesNotMatch(source, />Locked</);
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
-    assert.match(channels, /hideStateWord = Boolean\(runningFact\)/);
+    assert.match(channels, /hideStateWord = face.pending \|\| !stateWord/);
     assert.doesNotMatch(channels, /stateWord === "running"/);
     const row = readFileSync("components/viz/channel-row.tsx", "utf8");
     assert.doesNotMatch(row, /StatusDot/);
@@ -589,6 +589,29 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     );
     assert.equal(face.channelLines[0], "Meta · 100% of results · 57% of spend");
     assert.equal(face.channelLines[2], "Google · no reads yet");
+  });
+
+  it("reads: undefined renders no state word and no sentence", () => {
+    const face = adjustFaceView({
+      spent: 0,
+      planned: 0,
+      metaSignups: null,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      reads: undefined,
+    });
+    assert.equal(face.pending, true);
+    assert.equal(face.stateWord, null);
+    assert.equal(face.paceSentence, "");
+    assert.equal(face.logEmpty, "");
+    assert.deepEqual(face.channelLines, []);
+    assert.doesNotMatch(JSON.stringify(face), /ready|running|needs you|nothing yet|no reads yet/);
+    const source = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.match(source, /readsPending \? \{ reads: undefined \}/);
+    assert.match(source, /face\.pending/);
+    assert.match(source, /bg-foreground\/35/);
   });
 
   it("day-0 log empty uses nextCheckClock, not a constant 13:00", () => {

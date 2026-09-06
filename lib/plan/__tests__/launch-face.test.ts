@@ -31,6 +31,7 @@ import {
   launchBlockers,
   launchControlsVisible,
   launchChannelRunning,
+  launchChannelRowView,
   launchChannelStateWord,
   launchReadingUnit,
   launchTargetInfoHeader,
@@ -279,6 +280,25 @@ describe("LAUNCH split / channels / button", () => {
     assert.equal(formatSkippedShare(0, "google"), "Google · 0% of the budget — skipped");
   });
 
+  it("reads: undefined renders no state word", () => {
+    const view = launchChannelRowView({
+      reads: undefined,
+      skipped: false,
+      waiting: false,
+      blockerCount: 0,
+      status: "idle",
+      adapter: "tiktok",
+    });
+    assert.equal(view.pending, true);
+    assert.equal(view.stateWord, null);
+    assert.equal(view.runningFact, null);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /readsPending \? \{ reads: undefined \}/);
+    assert.match(channels, /data-pending=\{true\}/);
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /readsPending=\{readsPending\}/);
+  });
+
   it("each channel state word", () => {
     assert.equal(
       launchChannelStateWord({ skipped: false, waiting: false, blockerCount: 0, status: "idle" }),
@@ -515,15 +535,16 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.equal(LAUNCH_NO_READS, "no reads yet");
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.match(channels, /launchBlockers/);
-    assert.match(channels, /formatRunningFact/);
-    assert.match(channels, /LAUNCH_NO_READS/);
+    assert.match(channels, /launchChannelRowView/);
     assert.match(channels, /formatChannelNeedsYou/);
     assert.doesNotMatch(channels, /BlockerBadge/);
-    assert.match(channels, /stateWord\} · \$\{formatRunningFact/);
     assert.doesNotMatch(channels, /StatusDot/);
     assert.match(channels, /blockerCounts\?\.\[row\.adapter\]/);
     assert.doesNotMatch(channels, /cost per mille|cost per click/);
     assert.doesNotMatch(channels, /platformSplit/);
+    const face = readFileSync("lib/plan/launch-face.ts", "utf8");
+    assert.match(face, /LAUNCH_NO_READS/);
+    assert.match(face, /stateWord\} · \$\{formatRunningFact/);
   });
 
   it("header launched stamp ignores idle prepare-draft rows", () => {

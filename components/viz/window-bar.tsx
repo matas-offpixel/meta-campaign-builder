@@ -20,7 +20,7 @@ import {
   nudgeWindowHandle,
   resolveMomentGlyphCollision,
   snapToMoments,
-  windowPlaceholders,
+  windowMissingMomentsLine,
   windowSpanMs,
   type WindowHandle,
   type WindowMoment,
@@ -63,7 +63,7 @@ export function WindowBar({
   const [flash, setFlash] = useState(false);
   const clock = now ?? new Date();
   const { from, to } = windowSpanMs(start, end, min);
-  const placeholders = windowPlaceholders(moments, from, to);
+  const missingLine = windowMissingMomentsLine(moments);
 
   useEffect(() => {
     const el = trackRef.current;
@@ -130,24 +130,14 @@ export function WindowBar({
   const startPct = dateToRatio(start, from, to) * 100;
   const endPct = dateToRatio(end, from, to) * 100;
   const width = barWidth || 1;
-  const marks = [
-    ...moments.map((moment) => ({
-      id: moment.id,
-      noun: moment.label,
-      x: dateToRatio(moment.at, from, to) * width,
-      width: WINDOW_MOMENT_LABEL_WIDTH,
-      missing: false,
-      tip: undefined as string | undefined,
-    })),
-    ...placeholders.map((placeholder) => ({
-      id: placeholder.id,
-      noun: placeholder.label,
-      x: placeholder.ratio * width,
-      width: WINDOW_MOMENT_LABEL_WIDTH,
-      missing: true,
-      tip: placeholder.tip,
-    })),
-  ];
+  const marks = moments.map((moment) => ({
+    id: moment.id,
+    noun: moment.label,
+    x: dateToRatio(moment.at, from, to) * width,
+    width: WINDOW_MOMENT_LABEL_WIDTH,
+    missing: false,
+    tip: undefined as string | undefined,
+  }));
   const collision = resolveMomentGlyphCollision(
     marks.map((mark) => ({
       id: mark.id,
@@ -155,7 +145,6 @@ export function WindowBar({
       ratio: width > 1 ? mark.x / width : 0,
       x: mark.x,
       width: mark.width,
-      placeholder: mark.missing,
     })),
   );
   const remaining = marks.filter((mark) => !collision.hideNounIds.has(mark.id));
@@ -168,6 +157,7 @@ export function WindowBar({
         : mark.width,
     })),
   );
+  for (const id of collision.joinedLabel.keys()) hiddenNouns.delete(id);
   const paceState = windowPaceState({
     empty,
     spent: pace?.spent,
@@ -224,11 +214,13 @@ export function WindowBar({
           ) : null}
           {marks.map((mark) => {
             const ratio = width > 1 ? mark.x / width : 0;
+            const joined = collision.joinedLabel.has(mark.id);
             const hideNoun =
-              hiddenNouns.has(mark.id) ||
+              (!joined && hiddenNouns.has(mark.id)) ||
               collision.hideNounIds.has(mark.id) ||
-              (nowAtEnd && mark.id === "now");
-            const hideGlyph = collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now");
+              (nowAtEnd && mark.id === "now" && !joined);
+            const hideGlyph =
+              collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now" && !joined);
             const markTip =
               hideGlyph || collision.hideNounIds.has(mark.id)
                 ? undefined
@@ -299,7 +291,13 @@ export function WindowBar({
           />
         </div>
 
-        <div className="relative" style={{ height: WINDOW_HANDLE_LABEL_LANE_PX }}>
+        <div
+          className="relative overflow-visible"
+          style={{
+            height: WINDOW_HANDLE_LABEL_LANE_PX,
+            paddingRight: empty ? 0 : Math.ceil(estimateHandleLabelWidth(endText) / 2),
+          }}
+        >
           {empty ? (
             <span className={`absolute left-0 top-0 ${VIZ_TYPE.label} text-muted-foreground`}>
               {emptyLabel}
@@ -325,6 +323,15 @@ export function WindowBar({
           )}
         </div>
       </div>
+      {missingLine ? (
+        <p
+          data-window-missing
+          className={`mt-1 flex items-center gap-1 border-b border-dashed border-foreground/35 pb-0.5 text-foreground/35 ${VIZ_TYPE.label}`}
+        >
+          {missingLine.sentence}
+          <InfoTip variant="card" label="not set on the event" />
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -429,7 +436,11 @@ function HandleLabel({
     <div
       data-window-handle-label={name}
       className={`absolute top-0 whitespace-nowrap ${end ? "text-right" : "text-left"}`}
-      style={{ left, width }}
+      style={
+        end
+          ? { left: "100%", transform: "translateX(-100%)", width: "max-content" }
+          : { left, width }
+      }
     >
       <span className={`block whitespace-nowrap ${VIZ_TYPE.label}`}>{noun ?? name}</span>
       <span className={`block whitespace-nowrap ${VIZ_TYPE_NUM.body}`}>

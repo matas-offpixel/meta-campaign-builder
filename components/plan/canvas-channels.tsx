@@ -7,10 +7,8 @@ import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib
 import {
   formatChannelNeedsYou,
   formatResumeWord,
-  formatRunningFact,
   launchBlockers,
-  launchChannelStateWord,
-  LAUNCH_NO_READS,
+  launchChannelRowView,
   type LaunchChannelRunning,
   type LaunchReadingUnit,
 } from "@/lib/plan/launch-face";
@@ -32,6 +30,7 @@ export function CanvasChannels({
   blockerCounts,
   readingUnit,
   running,
+  readsPending = false,
   onOpen,
   onOpenAnchor,
   onResume,
@@ -44,6 +43,8 @@ export function CanvasChannels({
   blockerCounts?: Record<PlanAdapterName, number>;
   readingUnit?: LaunchReadingUnit;
   running?: LaunchChannelRunning;
+  /** Until reads resolve — 35% ink bars, no state word. */
+  readsPending?: boolean;
   onOpen: (row: PlanChannelRowModel) => void;
   onOpenAnchor?: (row: PlanChannelRowModel, anchor: BlockerAnchor) => void;
   onResume: (row: PlanChannelRowModel) => void;
@@ -58,27 +59,27 @@ export function CanvasChannels({
         const resume = resumeSupport(row.adapter);
         const blockers = launchBlockers(row.blockers);
         const blockerCount = blockerCounts?.[row.adapter] ?? 0;
-        const stateWord = launchChannelStateWord({
+        const face = launchChannelRowView({
+          ...(readsPending ? { reads: undefined } : { reads: running ?? null }),
           skipped: row.skipped,
           waiting: row.waiting,
           blockerCount,
           status: row.status === "paused" ? "paused" : row.status === "live" ? "live" : "idle",
+          readingUnit,
+          adapter: row.adapter,
         });
         const first = blockers[0];
-        const runningRead = running?.byAdapter[row.adapter];
-        const runningFact = !running
-          ? null
-          : running.empty
-            ? LAUNCH_NO_READS
-            : readingUnit && runningRead
-              ? `${stateWord} · ${formatRunningFact({
-                  cost: runningRead.cost,
-                  unit: readingUnit,
-                  usual: runningRead.usual,
-                })}`
-              : null;
-        const hideStateWord = Boolean(runningFact);
+        const stateWord = face.stateWord;
+        const runningFact = face.runningFact;
+        const hideStateWord = face.pending || !stateWord;
         const needsYou = drawerEdit && stateWord === "needs you" && blockerCount > 0;
+        if (face.pending) {
+          return (
+            <div key={row.adapter} data-pending={true} className="flex h-10 items-center gap-2">
+              <span className="h-2 w-24 bg-foreground/35" aria-hidden="true" />
+            </div>
+          );
+        }
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
             {hideStateWord ? null : needsYou ? (

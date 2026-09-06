@@ -7,6 +7,7 @@ import {
   boundaryCount,
   moveSplitBoundary,
   splitBarLegendPlacement,
+  splitOutlineBoundaries,
   splitOutlineRects,
   splitOutlineState,
   type SplitBarOutlines,
@@ -45,7 +46,7 @@ function OutlineStroke({
     <div
       data-split-outline={name}
       data-outline-pcts={pcts.join(",")}
-      className="pointer-events-none absolute inset-x-0"
+      className="pointer-events-none absolute inset-x-0 z-20 overflow-visible"
       style={{ top: `calc(50% - 7px - ${offsetPx}px)` }}
     >
       {rects.map((rect, index) => {
@@ -60,6 +61,45 @@ function OutlineStroke({
           />
         );
       })}
+    </div>
+  );
+}
+
+/** Two 1px ink ticks on the bar's top edge, hairline 2px above joining them. */
+function UsualTicks({ pcts }: { pcts: number[] }) {
+  const ticks = splitOutlineBoundaries(pcts);
+  if (ticks.length === 0) return null;
+  const left = ticks[0]!;
+  const right = ticks[ticks.length - 1]!;
+  return (
+    <div
+      data-split-outline="usual"
+      data-outline-pcts={pcts.join(",")}
+      className="pointer-events-none absolute inset-x-0 z-20 overflow-visible"
+      style={{ top: "50%", height: 0 }}
+    >
+      <span
+        data-outline-hairline
+        className="absolute h-px bg-foreground/60"
+        style={{
+          left: `${left}%`,
+          width: `${right - left}%`,
+          top: -7,
+        }}
+      />
+      {ticks.map((at) => (
+        <span
+          key={at}
+          data-outline-tick={at}
+          className="absolute w-px bg-foreground"
+          style={{
+            left: `${at}%`,
+            width: 1,
+            height: 6,
+            top: -11,
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -154,21 +194,14 @@ export function SplitBar({
       <div className="flex items-center gap-2" data-outline-state={outlineState}>
         {tip ? <InfoTip label={tip} /> : null}
         <div
-          className="relative h-7 min-w-0 flex-1"
+          className="relative h-7 min-w-0 flex-1 overflow-visible"
           role="img"
           aria-label={segments.map((s) => `${s.platform} ${Math.round(s.pct)}`).join(" · ")}
         >
           <div className="absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 overflow-hidden rounded-sm border border-border bg-foreground/[0.06]">
             <FunnelBarSegments segments={trackSegments} />
           </div>
-          {outlines?.usual ? (
-            <OutlineStroke
-              name="usual"
-              pcts={outlines.usual.pct}
-              lineKind="measured"
-              offsetPx={0}
-            />
-          ) : null}
+          {outlines?.usual ? <UsualTicks pcts={outlines.usual.pct} /> : null}
           {outlines?.history ? (
             <OutlineStroke
               name="history"
