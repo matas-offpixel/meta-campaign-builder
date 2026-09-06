@@ -8,6 +8,10 @@ import { planFanoutGateState } from "@/lib/plan/gate";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
 import { orchestratePlanLaunch, type PlanAdapterOutcome } from "@/lib/plan/orchestrator";
 import { upsertCampaignPlan, upsertPlanLaunchRow } from "@/lib/plan/persist";
+import {
+  predictionFromBenchmark,
+  writePredictionsAtLaunch,
+} from "@/lib/plan/predictions";
 import type { CampaignPlan } from "@/lib/plan/types";
 import type { CampaignDraft } from "@/lib/types";
 
@@ -165,6 +169,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (!result.skippedReason) {
     await upsertCampaignPlan(supabase, result.plan);
+    const unit = result.plan.intent.target.unit;
+    const targetValue = result.plan.intent.target.value;
+    if (unit && targetValue != null) {
+      const written = await writePredictionsAtLaunch(supabase, [
+        predictionFromBenchmark({
+          userId: user.id,
+          planId: result.plan.id,
+          unit,
+          benchmark: undefined,
+          startingPoint: targetValue,
+        }),
+      ]);
+      if (!written.ok && !written.tableMissing) {
+        console.error("[plan-fanout] prediction row failed", written.error);
+      }
+    }
   }
 
   return NextResponse.json({

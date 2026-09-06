@@ -1,5 +1,6 @@
 import { planChildRowsAllowHardDelete } from "./delete-policy.ts";
 import { loadPlanLaunchRecords } from "./load.ts";
+import { writePredictionActualsAtClose } from "./predictions.ts";
 import { isRelationMissing } from "./schema-probe.ts";
 import { deriveCampaignPlanStatus } from "./types.ts";
 
@@ -60,6 +61,7 @@ export async function archiveCampaignPlan(
   supabase: unknown,
   planId: string,
   userId: string,
+  actual?: number,
 ): Promise<{ ok: true } | { ok: false; tableMissing: boolean; error: string }> {
   const client = supabase as {
     from: (table: string) => {
@@ -71,12 +73,24 @@ export async function archiveCampaignPlan(
     .update({ status: "archived", updated_at: new Date().toISOString() })
     .eq("id", planId)
     .eq("user_id", userId);
-  if (!error) return { ok: true };
-  return {
-    ok: false,
-    tableMissing: isRelationMissing(error),
-    error: error.message ?? "campaign_plans archive failed",
-  };
+  if (error) {
+    return {
+      ok: false,
+      tableMissing: isRelationMissing(error),
+      error: error.message ?? "campaign_plans archive failed",
+    };
+  }
+  if (typeof actual === "number") {
+    const written = await writePredictionActualsAtClose(supabase, {
+      planId,
+      actual,
+      closedReason: "archived",
+    });
+    if (!written.ok && !written.tableMissing) {
+      return { ok: false, tableMissing: false, error: written.error };
+    }
+  }
+  return { ok: true };
 }
 
 export async function unarchiveCampaignPlan(
