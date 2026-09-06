@@ -45,6 +45,18 @@ their production timestamps:
 | `068d_ticket_sales_snapshots_fourthefans_source.sql` | 20260506_… | May 06, 2026 |
 | `068e_creative_thumbnails_bucket.sql` | 20260508_… | May 08, 2026 |
 
+## 166–168 — plan v2 (unapplied)
+
+Draft PR #896. Do **not** apply until Matas reviews. Numeric prefixes:
+
+| Filename | Purpose |
+|---|---|
+| `166_campaign_plan_predictions.sql` | prediction row at Launch / actual at close |
+| `167_events_venue_key.sql` | `events.venue_key` + backfill |
+| `168_campaign_plan_benchmarks_v.sql` | run-grain cost-per-result view; windows from `PLAN_BENCHMARK_WINDOW` |
+
+Windows in 168: `signup · click · lpv · lead` days before general sale; `purchase` on or after; `ticket` through last ticket day; `view` whole run (`meta_reach` ÷ 1000). TikTok: `click → tiktok_clicks` only.
+
 ## schema.sql
 
 `supabase/schema.sql` is **auto-regenerated from production** via
