@@ -5,7 +5,6 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { formatVizMoment, formatVizRelative } from "@/lib/viz/format-moment";
 import {
   WINDOW_BAR_HEIGHT_PX,
-  WINDOW_GLYPH_COLLISION_PCT,
   WINDOW_HANDLE_LABEL_LANE_PX,
   WINDOW_MOMENT_LABEL_WIDTH,
   WINDOW_MOMENT_LANE_PX,
@@ -21,6 +20,7 @@ import {
   resolveMomentGlyphCollision,
   snapToMoments,
   windowMissingMomentsLine,
+  windowRailView,
   windowSpanMs,
   type WindowHandle,
   type WindowMoment,
@@ -130,7 +130,8 @@ export function WindowBar({
   const startPct = dateToRatio(start, from, to) * 100;
   const endPct = dateToRatio(end, from, to) * 100;
   const width = barWidth || 1;
-  const marks = moments.map((moment) => ({
+  const rail = windowRailView({ start, end, now: clock, moments, min });
+  const marks = rail.moments.map((moment) => ({
     id: moment.id,
     noun: moment.label,
     x: dateToRatio(moment.at, from, to) * width,
@@ -178,8 +179,8 @@ export function WindowBar({
       : "";
 
   const startText = formatVizMoment(start);
-  const nowAtEnd = Math.abs(todayPct - endPct) <= WINDOW_GLYPH_COLLISION_PCT * 100;
-  const joinedEndLabel = nowAtEnd ? "end · now" : endLabel;
+  const nowAtEnd = rail.nowAtEnd;
+  const joinedEndLabel = nowAtEnd ? rail.endNoun : endLabel;
   const endRelative = joinedEndLabel ? undefined : formatVizRelative(end, clock);
   const endText = joinedEndLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
   const startLeft = handleLabelLeftPx({
@@ -218,9 +219,9 @@ export function WindowBar({
             const hideNoun =
               (!joined && hiddenNouns.has(mark.id)) ||
               collision.hideNounIds.has(mark.id) ||
-              (nowAtEnd && mark.id === "now" && !joined);
+              (nowAtEnd && mark.id === "now");
             const hideGlyph =
-              collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now" && !joined);
+              collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now");
             const markTip =
               hideGlyph || collision.hideNounIds.has(mark.id)
                 ? undefined
