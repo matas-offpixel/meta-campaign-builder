@@ -7,6 +7,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  attachAdsetNames,
   presentDecisionRow,
   type DecisionRowInput,
   type DecisionRowView,
@@ -84,7 +85,10 @@ export async function loadCampaignAutomationState(
     if (retry.error) {
       throw new Error(`loadCampaignAutomationState: decisions query failed: ${retry.error.message}`);
     }
-    const decisions = ((retry.data ?? []) as DecisionRowInput[]).map(presentDecisionRow);
+    const decisions = attachAdsetNames(
+      ((retry.data ?? []) as DecisionRowInput[]).map(presentDecisionRow),
+      adSetSuggestionsFromDraft(row.draft_json),
+    );
     const lastEvaluatedAt = decisions[0]?.decidedAt ?? null;
     return {
       enabled: row.optimisation_automation_enabled === true,
@@ -96,7 +100,10 @@ export async function loadCampaignAutomationState(
     };
   }
 
-  const decisions = ((decisionRows ?? []) as DecisionRowInput[]).map(presentDecisionRow);
+  const decisions = attachAdsetNames(
+    ((decisionRows ?? []) as DecisionRowInput[]).map(presentDecisionRow),
+    adSetSuggestionsFromDraft(row.draft_json),
+  );
   const lastEvaluatedAt = decisions[0]?.decidedAt ?? null;
 
   return {
@@ -107,6 +114,26 @@ export async function loadCampaignAutomationState(
     decisions,
     materialisedPreset: materialisedFromDraftJson(row.draft_json),
   };
+}
+
+function adSetSuggestionsFromDraft(
+  json: unknown,
+): Array<{ id: string; name: string; metaAdSetId?: string | null }> {
+  if (!json || typeof json !== "object") return [];
+  const raw = (json as { adSetSuggestions?: unknown }).adSetSuggestions;
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ id: string; name: string; metaAdSetId?: string | null }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { id?: unknown; name?: unknown; metaAdSetId?: unknown };
+    if (typeof row.id !== "string" || typeof row.name !== "string") continue;
+    out.push({
+      id: row.id,
+      name: row.name,
+      metaAdSetId: typeof row.metaAdSetId === "string" ? row.metaAdSetId : null,
+    });
+  }
+  return out;
 }
 
 function materialisedFromDraftJson(

@@ -42,6 +42,8 @@ function row(partial: Partial<DecisionRowView> & Pick<DecisionRowView, "action" 
     kind: "dry_run",
     channel: "meta",
     scope: "ad_set",
+    adsetId: null,
+    adsetName: null,
     ...partial,
   };
 }

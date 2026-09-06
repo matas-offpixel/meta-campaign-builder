@@ -109,6 +109,9 @@ export type DecisionRowView = {
   kind: "applied" | "dry_run";
   channel: AutomationChannelView;
   scope: AutomationScopeView;
+  adsetId: string | null;
+  /** Resolved at read time from the draft's adSetSuggestions — never from reason_text. */
+  adsetName: string | null;
 };
 
 function resolveDecisionScope(row: DecisionRowInput): AutomationScopeView {
@@ -164,7 +167,26 @@ export function presentDecisionRow(row: DecisionRowInput): DecisionRowView {
     kind: applied ? "applied" : "dry_run",
     channel: resolveDecisionChannel(row),
     scope: resolveDecisionScope(row),
+    adsetId: row.adset_id ?? null,
+    adsetName: null,
   };
+}
+
+export function attachAdsetNames(
+  rows: readonly DecisionRowView[],
+  suggestions: ReadonlyArray<{ id: string; name: string; metaAdSetId?: string | null }>,
+): DecisionRowView[] {
+  const byMeta = new Map<string, string>();
+  const byId = new Map<string, string>();
+  for (const suggestion of suggestions) {
+    if (suggestion.metaAdSetId) byMeta.set(suggestion.metaAdSetId, suggestion.name);
+    byId.set(suggestion.id, suggestion.name);
+  }
+  return rows.map((row) => {
+    if (!row.adsetId) return row;
+    const name = byMeta.get(row.adsetId) ?? byId.get(row.adsetId) ?? null;
+    return name ? { ...row, adsetName: name } : row;
+  });
 }
 
 export function formatPenceAsMajor(

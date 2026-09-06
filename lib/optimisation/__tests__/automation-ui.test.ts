@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { optimisationWritesGateState } from "../gates.ts";
 import {
+  attachAdsetNames,
   armFromFlags,
   flagsFromArm,
   parseAutomationFlagWrite,
@@ -128,6 +129,21 @@ describe("presentDecisionRow — dry-run vs applied", () => {
       presentDecisionRow({ ...base, applied: false, dry_run: true }).channel,
       "meta",
     );
+  });
+
+  it("passes adset_id through and attachAdsetNames resolves the draft name", () => {
+    const view = presentDecisionRow({
+      ...base,
+      applied: false,
+      dry_run: true,
+      adset_id: "120398",
+    });
+    assert.equal(view.adsetId, "120398");
+    assert.equal(view.adsetName, null);
+    const named = attachAdsetNames([view], [
+      { id: "local-1", name: "Tech House Pages", metaAdSetId: "120398" },
+    ]);
+    assert.equal(named[0]!.adsetName, "Tech House Pages");
   });
 });
 

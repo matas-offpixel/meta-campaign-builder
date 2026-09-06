@@ -38,6 +38,7 @@ export function WindowBar({
   tip,
   empty = false,
   emptyLabel = "set start and end",
+  endLabel,
   pace,
 }: {
   moments: WindowMoment[];
@@ -49,6 +50,8 @@ export function WindowBar({
   tip?: string;
   empty?: boolean;
   emptyLabel?: string;
+  /** Replaces the end handle's date when the plan has no valid end (J24). */
+  endLabel?: string;
   pace?: WindowPace;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -171,8 +174,8 @@ export function WindowBar({
       : "";
 
   const startText = formatVizMoment(start);
-  const endRelative = formatVizRelative(end, clock);
-  const endText = `${formatVizMoment(end)} · ${endRelative}`;
+  const endRelative = endLabel ? undefined : formatVizRelative(end, clock);
+  const endText = endLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
   const startLeft = handleLabelLeftPx({
     handlePx: (startPct / 100) * width,
     labelWidth: estimateHandleLabelWidth(startText),
@@ -288,6 +291,7 @@ export function WindowBar({
                 width={estimateHandleLabelWidth(endText)}
                 at={end}
                 relative={endRelative}
+                text={endLabel}
               />
             </>
           )}
@@ -376,12 +380,14 @@ function HandleLabel({
   width,
   at,
   relative,
+  text,
 }: {
   name: WindowHandle;
   left: number;
   width: number;
   at: Date;
   relative?: string;
+  text?: string;
 }) {
   const end = name === "end";
   return (
@@ -392,8 +398,8 @@ function HandleLabel({
     >
       <span className={`block whitespace-nowrap ${VIZ_TYPE.label}`}>{name}</span>
       <span className={`block whitespace-nowrap ${VIZ_TYPE_NUM.body}`}>
-        {formatVizMoment(at)}
-        {end && relative ? (
+        {text ?? formatVizMoment(at)}
+        {end && relative && !text ? (
           <span className={`ml-1 whitespace-nowrap ${VIZ_TYPE_NUM.micro} text-muted-foreground`}>
             · {relative}
           </span>

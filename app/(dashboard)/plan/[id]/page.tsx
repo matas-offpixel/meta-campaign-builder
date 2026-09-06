@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
+import { loadAdjustReads } from "@/lib/plan/adjust-reads";
+import { venueKey } from "@/lib/plan/venue-key";
 import { listPresetsForClient } from "@/lib/db/optimisation-presets";
 import { presetPrimaryRule, resolvePreset } from "@/lib/optimisation/presets";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
@@ -21,7 +23,6 @@ import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
 import { loadLaunchRollupDays, loadPlanBenchmarkRows } from "@/lib/plan/launch-reads";
 import { planLaunchedAt, planStampLondonDate } from "@/lib/plan/launch-face";
-import { venueKey } from "@/lib/plan/venue-key";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -226,8 +227,15 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   const liveSpend = funnel
     ? funnel.costs.platforms.reduce((sum, row) => sum + row.spend, 0)
     : null;
-
   const launchedAt = planLaunchedAt(workspacePlan.launches);
+  const adjustReads =
+    hasPlatformCampaign && workspacePlan.intent.eventId
+      ? await loadAdjustReads(supabase, {
+          eventId: workspacePlan.intent.eventId,
+          sinceDate: launchedAt ? launchedAt.slice(0, 10) : null,
+          campaignId: workspacePlan.launches.meta.platformCampaignId,
+        })
+      : null;
   const rollupDays =
     launchedAt && workspacePlan.intent.eventId
       ? await loadLaunchRollupDays(supabase, workspacePlan.intent.eventId, {
@@ -268,6 +276,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             isNew={id === "new"}
             funnel={funnel}
             liveSpend={liveSpend}
+            adjustReads={adjustReads}
             thumbUrl={thumbs?.get(workspacePlan.intent.eventId)?.url ?? null}
             targetBenchmark={targetBenchmark}
             identityNames={identityNames}
