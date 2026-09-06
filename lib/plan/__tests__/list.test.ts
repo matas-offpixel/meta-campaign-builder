@@ -390,7 +390,15 @@ describe("plan list helpers", () => {
       { adapter: "meta", id: "meta:page", field: "page", message: "z", blocking: true },
       { adapter: "tiktok", id: "tiktok:skipped_zero_budget", field: "budget", message: "skip", blocking: true },
     ];
-    assert.deepEqual(drawerFixFromPreflight(issues), { count: 4, channel: "TikTok" });
+    assert.deepEqual(drawerFixFromPreflight(issues), { count: 4, channel: null });
+    assert.equal(
+      formatLaunchBlockedFold("Jamie Jones", { count: 6, channel: null }),
+      "Jamie Jones: 6 things to fix before you can launch",
+    );
+    assert.equal(
+      formatLaunchBlockedFold("Jamie Jones", { count: 2, channel: "Meta" }),
+      "Jamie Jones: 2 things to fix before Meta can run",
+    );
   });
 
   it("a draft whose show has passed is done, not needs you", () => {

@@ -109,7 +109,7 @@ export function MetricChip({
         <span className={`${VIZ_TYPE_NUM.body} text-foreground/70`}>{formatGbp(benchmark.value)}</span>
       ) : null}
       {benchmark?.band && (value != null || benchmark.value != null) ? (
-        <span className="mt-1 block w-full">
+        <span className="mt-1 block w-full overflow-visible pb-2">
           <ThresholdBand
             zonesFrom="client-iqr"
             band={benchmark.band}
@@ -120,7 +120,7 @@ export function MetricChip({
         </span>
       ) : null}
       {trend ? (
-        <span className="block w-full">
+        <span className="mt-1 block h-3 w-10" data-sparkline="40x12" aria-hidden="true">
           <Sparkline values={trend} />
         </span>
       ) : null}

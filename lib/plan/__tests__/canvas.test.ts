@@ -36,7 +36,7 @@ import {
 } from "../canvas-inputs.ts";
 import { resolvePreset } from "../../optimisation/presets.ts";
 import { resolvePlanDestination } from "../destination.ts";
-import { derivePlanName, planHeaderName } from "../plan-name.ts";
+import { derivePlanName, planHeaderName, planPageTitle } from "../plan-name.ts";
 import {
   PLAN_TARGET_UNITS,
   PLAN_TARGET_UNIT_TABLE,
@@ -94,6 +94,12 @@ describe("zone A · header", () => {
     assert.equal(planHeaderName("Test", { name: "Jamie Jones" }), "Jamie Jones");
     assert.equal(planHeaderName("Legacy name", null), "Legacy name");
     assert.equal(planHeaderName("", null), "New plan");
+    assert.equal(planPageTitle({ name: "D.O.D" }), "D.O.D");
+    assert.equal(planPageTitle({ name: "Jamie Jones" }), "Jamie Jones");
+    assert.equal(planPageTitle(null), "");
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /planPageTitle\(selectedEvent\)/);
+    assert.doesNotMatch(page, /title=\{workspacePlan\.name/);
   });
 
   it("takes the destination off the event and refuses an override", () => {

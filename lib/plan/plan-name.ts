@@ -56,4 +56,12 @@ export function planHeaderName(
   return PLAN_UNNAMED_LABEL;
 }
 
+/**
+ * PageHeader chrome — event name or nothing. The stored plan title
+ * never appears above the canvas.
+ */
+export function planPageTitle(event: PlanNameEvent | null | undefined): string {
+  return event?.name?.trim() ?? "";
+}
+
 export const PLAN_UNNAMED_LABEL = "New plan";

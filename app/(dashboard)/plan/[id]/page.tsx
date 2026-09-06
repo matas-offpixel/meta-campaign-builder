@@ -20,6 +20,7 @@ import { loadOwnerPlanShare } from "@/lib/plan/share-tokens";
 import { planLadderObjective } from "@/lib/plan/prepare-draft";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
+import { planPageTitle } from "@/lib/plan/plan-name";
 import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
 import { loadLaunchRollupDays, loadPlanBenchmarkRows } from "@/lib/plan/launch-reads";
@@ -274,11 +275,11 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   return (
     <>
       <PageHeader
-        title={workspacePlan.name || "New plan"}
+        title={planPageTitle(selectedEvent)}
         contentClassName={PLAN_SURFACE_MAX_WIDTH_CLASS}
       />
       <main className="flex-1 px-6 py-6">
-        <div className={`mx-auto ${PLAN_SURFACE_MAX_WIDTH_CLASS}`}>
+        <div className={`mx-auto w-full ${PLAN_SURFACE_MAX_WIDTH_CLASS}`}>
           {id !== "new" && !plan ? (
             <p className="mb-4 rounded-lg border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
               {isRelationMissing(loadError)

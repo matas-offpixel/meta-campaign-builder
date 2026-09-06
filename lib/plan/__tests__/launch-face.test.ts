@@ -377,13 +377,13 @@ describe("LAUNCH chrome", () => {
     const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
     const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
     const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
-    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    const row = readFileSync("components/viz/channel-row.tsx", "utf8");
     const windowBar = readFileSync("components/viz/window-bar.tsx", "utf8");
     assert.doesNotMatch(header, /PlanIdentityChips/);
     assert.match(header, /venueName/);
     assert.match(header, /formatIdentitySentence/);
     assert.match(header, /decisionsChangesLabel|changes ▸/);
-    for (const source of [header, budget, target, launch, channels, windowBar]) {
+    for (const source of [header, budget, target, launch, row, windowBar]) {
       assert.match(source, /variant=\{?["']card["']\}?|LAUNCH_INFO_VARIANT/);
     }
     assert.equal(LAUNCH_INFO_VARIANT, "card");
@@ -475,6 +475,32 @@ describe("LAUNCH review round 1 — surface wiring", () => {
       "£0.51 per signup · under your usual £1.32",
     );
     const running = launchChannelRunning([DOD_ROLLUP], "reg", 1.32);
+    const dodWalk = launchChannelRunning(
+      [
+        {
+          date: "2026-09-05",
+          ad_spend: 715,
+          meta_regs: 1222,
+          meta_purchases: 0,
+          meta_reach: 0,
+          tiktok_spend: 0,
+          tiktok_results: 0,
+          google_ads_spend: 0,
+          google_ads_conversions: 0,
+        },
+      ],
+      "reg",
+      1.32,
+    );
+    assert.equal(
+      formatRunningFact({
+        cost: dodWalk.byAdapter.meta!.cost,
+        unit: "reg",
+        usual: 1.32,
+      }),
+      "£0.59 per signup · under your usual £1.32",
+    );
+    assert.equal(launchChannelRunning([DOD_ROLLUP], "purchase").byAdapter.meta, null);
     assert.equal(running.empty, false);
     assert.ok(running.byAdapter.meta);
     assert.equal(
@@ -692,12 +718,16 @@ describe("LAUNCH review round 1 — surface wiring", () => {
 
   it("ⓘ uses the ratified derive sentence; Ads Manager reason stays on the handle", () => {
     const canvas = readFileSync("lib/plan/canvas.ts", "utf8");
-    assert.match(canvas, /TikTok and Google start from your Meta campaign/);
+    assert.match(canvas, /start from your Meta campaign ↻/);
     assert.doesNotMatch(canvas, /Preflight still has blockers/);
     assert.doesNotMatch(canvas, /derived from the Meta draft, never authored first/);
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.doesNotMatch(channels, /resumeTips/);
     assert.match(channels, /title=\{PLAN_CANVAS_COPY\.resumeElsewhere\}/);
+    assert.doesNotMatch(channels, /SectionAnchor|kind="derive"/);
+    assert.match(channels, /PLAN_CANVAS_COPY\.derive/);
+    const row = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.match(row, /<InfoTip variant="card" label=\{tip\}/);
   });
 
   it("waiting is one spelling", () => {
@@ -749,6 +779,8 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(workspace, /blockerCounts=\{planPreflightBlockerCounts\(issues\)\}/);
     assert.match(workspace, /blockerCount: planPreflightBlockerCount\(issues\)/);
+    assert.match(workspace, /launchChannelRunning\(rollupDays, channelReadingUnit, usual\)/);
+    assert.match(workspace, /channelReadingUnit = launchStamp \? adjustReadingUnit : readingUnit/);
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.doesNotMatch(channels, /sharedBlockerCount/);
   });
@@ -785,6 +817,8 @@ describe("LAUNCH review round 1 — surface wiring", () => {
       budget,
       /text-muted-foreground\}>\s*\{mode === "lifetime" \? "for the run" : "per day"\}/,
     );
+    assert.match(budget, /inline-flex items-baseline/);
+    assert.doesNotMatch(budget, /text-right/);
     const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
     assert.match(target, /▸ details/);
     assert.match(target, /your usual/);
@@ -808,8 +842,9 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     const split = readFileSync("components/viz/split-bar.tsx", "utf8");
     assert.match(split, /data-split-outline=\{name\}/);
     assert.match(split, /data-outline-pcts=\{pcts\.join\("/);
-    assert.match(split, /top: 2 \+ offsetPx/);
-    assert.match(split, /border-foreground\/60/);
+    assert.match(split, /data-outline-left=\{rect\.left\}/);
+    assert.match(split, /data-outline-width=\{rect\.width\}/);
+    assert.match(split, /bg-foreground\/60/);
     const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
     assert.match(budget, /PLAN_SPLIT_PRESETS\[1\]!\.pct/);
   });

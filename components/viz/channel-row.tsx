@@ -7,6 +7,7 @@ import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
 import { VIZ_LINE_TOKEN, VIZ_TYPE, VIZ_TYPE_NUM, type VizLineKind, type VizPlatform, type VizStatus } from "@/lib/viz/tokens";
 
 import { BlockerBadge } from "./blocker-badge";
+import { InfoTip } from "./info-tip";
 import { PlatformGlyph } from "./platform-glyph";
 
 export function ChannelRow({
@@ -19,6 +20,7 @@ export function ChannelRow({
   blockers,
   hideWaitingText = false,
   liveFacts,
+  tip,
   lineKind,
   onOpen,
   onResume,
@@ -36,6 +38,7 @@ export function ChannelRow({
   hideWaitingText?: boolean;
   /** LIVE state — MetricChips replace the noun facts. */
   liveFacts?: ReactNode;
+  tip?: string;
   lineKind?: VizLineKind;
   onOpen?: () => void;
   onResume?: () => void;
@@ -58,6 +61,7 @@ export function ChannelRow({
   return (
     <div className="flex h-10 flex-wrap items-center gap-2">
       <PlatformGlyph platform={platform} size="sm" />
+      {tip ? <InfoTip variant="card" label={tip} /> : null}
       {view.state === "waiting" && !hideWaitingText ? (
         <span className={`${VIZ_TYPE.body} text-muted-foreground`}>{view.waitingText}</span>
       ) : null}

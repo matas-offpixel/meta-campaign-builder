@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { formatVizMoment } from "../format-moment.ts";
 import {
   WINDOW_BAR_HEIGHT_PX,
   WINDOW_HANDLE_LABEL_LANE_PX,
@@ -14,7 +15,9 @@ import {
   WINDOW_MOMENT_LANE_PX,
   WINDOW_RAIL_LANE_PX,
   collapseOverlappingMomentLabels,
+  estimateHandleLabelWidth,
   handleLabelLeftPx,
+  momentMarkAlign,
   resolveMomentGlyphCollision,
   WINDOW_GLYPH_COLLISION_PCT,
 } from "../window-bar.ts";
@@ -89,6 +92,38 @@ describe("WindowBar label layout", () => {
       "now · gen sale passed Fri 4 Sep",
     );
     assert.ok(collision.hideNounIds.has("gen-sale"));
+  });
+
+  it("placeholders never join now; a passed neighbour does", () => {
+    const collision = resolveMomentGlyphCollision([
+      { id: "now", noun: "now", ratio: 0.61 },
+      { id: "placeholder-presale", noun: "presale", ratio: 0.615, placeholder: true },
+      { id: "gen-sale", noun: "gen sale passed Fri 4 Sep", ratio: 0.62 },
+    ]);
+    assert.equal(collision.joinedLabel.get("now"), "now · gen sale passed Fri 4 Sep");
+    assert.ok(collision.hideNounIds.has("gen-sale"));
+    assert.equal(collision.joinedLabel.has("placeholder-presale"), false);
+    assert.equal(collision.hideNounIds.has("now"), false);
+  });
+
+  it("end at 100% right-aligns and keeps the full date inside the rail", () => {
+    const end = new Date("2026-09-06T23:00:00+01:00");
+    const text = formatVizMoment(end);
+    assert.equal(text, "Sun 6 Sep · 23:00");
+    assert.equal(momentMarkAlign(1), "end");
+    const barWidth = 640;
+    const labelWidth = estimateHandleLabelWidth(text);
+    const left = handleLabelLeftPx({
+      handlePx: barWidth,
+      labelWidth,
+      barWidth,
+      align: "end",
+    });
+    assert.equal(left + labelWidth, barWidth);
+    const source = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.match(source, /momentMarkAlign/);
+    assert.match(source, /data-mark-align/);
+    assert.match(source, /w-full overflow-visible/);
   });
 
   it("handle and moment labels are nowrap in the component", () => {
