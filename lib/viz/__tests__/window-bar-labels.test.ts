@@ -19,6 +19,7 @@ import {
   handleLabelLeftPx,
   momentMarkAlign,
   resolveMomentGlyphCollision,
+  windowRailView,
   WINDOW_GLYPH_COLLISION_PCT,
 } from "../window-bar.ts";
 
@@ -126,6 +127,29 @@ describe("WindowBar label layout", () => {
     assert.match(source, /w-full overflow-visible/);
     assert.match(source, /translateX\(-100%\)/);
     assert.match(source, /paddingRight/);
+  });
+
+  it("end === now && show > end → exactly one label, end · now", () => {
+    const now = new Date("2026-09-06T23:00:00+01:00");
+    const end = now;
+    const start = new Date("2026-08-20T12:00:00+01:00");
+    const show = new Date("2026-10-03T20:00:00+01:00");
+    const view = windowRailView({
+      start,
+      end,
+      now,
+      moments: [
+        { id: "now", label: "now", at: now },
+        { id: "show", label: "show", at: show },
+      ],
+    });
+    assert.equal(view.nowAtEnd, true);
+    assert.equal(view.endNoun, "end · now");
+    assert.deepEqual(view.moments, []);
+    assert.deepEqual(view.labels, ["end · now"]);
+    const source = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.match(source, /windowRailView/);
+    assert.match(source, /rail\.moments/);
   });
 
   it("handle and moment labels are nowrap in the component", () => {

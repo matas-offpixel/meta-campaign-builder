@@ -137,6 +137,76 @@ export function dateToRatio(at: Date, from: number, to: number): number {
   return Math.max(0, Math.min(1, (at.getTime() - from) / span));
 }
 
+/** Unclamped — < 0 is before the rail, > 1 is past the end. */
+export function dateToRatioRaw(at: Date, from: number, to: number): number {
+  const span = to - from;
+  if (span <= 0) return 0;
+  return (at.getTime() - from) / span;
+}
+
+function isNowMoment(moment: { id: string; label?: string; noun?: string }): boolean {
+  const word = moment.label ?? moment.noun ?? "";
+  return moment.id === "now" || word === "now" || word.startsWith("now ·");
+}
+
+/** Moments whose date sits outside `[start, end]` never draw on the rail. */
+export function windowMomentsOnRail(
+  moments: readonly WindowMoment[],
+  start: Date,
+  end: Date,
+  min?: Date,
+): WindowMoment[] {
+  const { from, to } = windowSpanMs(start, end, min);
+  return moments.filter((moment) => {
+    const ratio = dateToRatioRaw(moment.at, from, to);
+    return ratio >= 0 && ratio <= 1;
+  });
+}
+
+export function windowNowAtEnd(now: Date, start: Date, end: Date, min?: Date): boolean {
+  const { from, to } = windowSpanMs(start, end, min);
+  const nowPct = dateToRatio(now, from, to) * 100;
+  const endPct = dateToRatio(end, from, to) * 100;
+  return Math.abs(nowPct - endPct) <= WINDOW_GLYPH_COLLISION_PCT * 100;
+}
+
+export type WindowRailView = {
+  nowAtEnd: boolean;
+  endNoun: "end · now" | "end";
+  moments: WindowMoment[];
+  /** Printed nouns on the rail, including the end handle. */
+  labels: string[];
+};
+
+/**
+ * What the rail prints. When `now` sits on `end`, the now-mark is gone
+ * and the handle is `end · now`. A show past the window is not a mark.
+ */
+export function windowRailView(input: {
+  start: Date;
+  end: Date;
+  now: Date;
+  moments: readonly WindowMoment[];
+  min?: Date;
+}): WindowRailView {
+  const nowAtEnd = windowNowAtEnd(input.now, input.start, input.end, input.min);
+  const { from, to } = windowSpanMs(input.start, input.end, input.min);
+  const moments = windowMomentsOnRail(input.moments, input.start, input.end, input.min).filter(
+    (moment) => !(nowAtEnd && isNowMoment(moment)),
+  );
+  const marks = moments.map((moment) => ({
+    id: moment.id,
+    noun: moment.label,
+    ratio: dateToRatio(moment.at, from, to),
+  }));
+  const collision = resolveMomentGlyphCollision(marks);
+  const momentNouns = marks
+    .filter((mark) => !collision.hideNounIds.has(mark.id))
+    .map((mark) => collision.joinedLabel.get(mark.id) ?? mark.noun);
+  const endNoun = nowAtEnd ? "end · now" : "end";
+  return { nowAtEnd, endNoun, moments, labels: [...momentNouns, endNoun] };
+}
+
 export function ratioToDate(ratio: number, from: number, to: number): Date {
   const clamped = Math.max(0, Math.min(1, ratio));
   return new Date(from + clamped * (to - from));
