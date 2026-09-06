@@ -34,9 +34,20 @@ Prediction row, venue key, and benchmark view for plan v2 (audit two §1–§2, 
 | Read path is the only median | §1.5 rule 1 | `benchmarks.ts` | removal test |
 | Write at Launch; actual at close | §1.3 | launch route + dispose | `predictions.test.ts` + launch grep |
 
+## Review round 1 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| 168 windowed every non-ticket unit (including `purchase`) to before general sale | `lib/plan/benchmark-window.ts` `PLAN_BENCHMARK_WINDOW_FOR_UNIT`; `168_campaign_plan_benchmarks_v.sql` WHERE | `PLAN_BENCHMARK_WINDOW — one window per unit` · `purchase ignores pre-sale days` |
+| TikTok `click` mapped to `tiktok_results` | 168 units CTE `tiktok_clicks` | `168 mirrors PLAN_BENCHMARK_WINDOW and TikTok click → tiktok_clicks only` |
+| NX / Boston Manor Park / purchase fixtures not pinned from the view's window | `lib/plan/__tests__/benchmarks.test.ts` | `NX × signup from the view's window is n = 5, median £1.32, IQR £0.87–£1.67`; lifetime labelled `lifetime`; Hard Techno £4.68 / usual £2.85 |
+| `view` unit missing | 168 `meta_reach / 1000.0`; `PLAN_BENCHMARK_WINDOW_FOR_UNIT.view` | `${unit} uses whole-run` for `view` |
+
+TikTok purchase/signup stay not-yet — campaign objective is unknowable in the view.
+
 ## Validation
 
-- [x] `npm test` (5156 pass, 3 skipped)
+- [x] `npm test` (see Review round 1; leftover untracked `learn-face.test.ts` excluded)
 - [x] `npm run build`
 - [ ] migrations **not** applied
 
@@ -44,9 +55,9 @@ Prediction row, venue key, and benchmark view for plan v2 (audit two §1–§2, 
 
 **G34.** Audit two §1's Electric Brixton × NX × signup (lifetime / unwindowed) is n = 5, median **£2.03**, IQR **£1.46–£2.12** (costs £0.90 · £1.46 · £2.03 · £2.12 · £5.63).
 
-The same five runs, days strictly before `general_sale_at` (brief §4 / G34): **£2.75 · £1.32 · £0.87 · £1.67 · £0.54**. Median of that set is **£1.32**, not £2.03.
+The same five runs, days strictly before `general_sale_at` (brief §4 / G34): **£2.75 · £1.32 · £0.87 · £1.67 · £0.54**. Median of that set is **£1.32**, IQR **£0.87–£1.67**.
 
-The view keeps the canon window (`before general sale` for signup). The lifetime £2.03 set is pinned as a fixture of the audit query; it is not what the view will return once applied. Matas: which number is the line on A4 / J2 after 168 is applied?
+The view keeps the canon window (`before general sale` for signup). Both sets are pinned: windowed as what the view returns; lifetime labelled `lifetime`. Matas: which number is the line on A4 / J2 after 168 is applied?
 
 ## Readings (not stop-the-PR)
 

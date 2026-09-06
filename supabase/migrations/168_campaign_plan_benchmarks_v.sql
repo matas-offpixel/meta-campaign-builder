@@ -1,9 +1,14 @@
 -- Migration 168 — campaign_plan_benchmarks_v
 --
--- Audit two §1 query at the run grain, keyed on events.venue_key, with
--- PLAN_BENCHMARK_WINDOW applied (G34 / lib/plan/benchmark-window.ts):
---   per-signup (and other Meta-said units) — days strictly before general_sale_at
---   per-ticket — days through the last day that has a ticket entry
+-- Audit two §1 query at the run grain, keyed on events.venue_key.
+-- Windows are PLAN_BENCHMARK_WINDOW_FOR_UNIT (lib/plan/benchmark-window.ts):
+--   signup · click · lpv · lead  — before-general-sale (whole run when null)
+--   purchase                     — on-or-after-general-sale (whole run when null)
+--   ticket                       — to-last-ticket-entry
+--   view                         — whole-run; result = meta_reach / 1000
+--
+-- TikTok: click → tiktok_clicks only. purchase/signup on TikTok are not-yet
+-- (campaign objective is unknowable here). Do not map click to tiktok_results.
 --
 -- Spend (G31 / canon §2.3): a channel-agnostic result (tickets_sold) divides
 -- all-channel spend; a channel's own result divides that channel's spend.
@@ -25,7 +30,8 @@ with units(unit, channel, result_kind) as (
     ('purchase', 'meta',  'meta_purchases'),
     ('lead',     'meta',  'meta_leads'),
     ('lpv',      'meta',  'landing_page_views'),
-    ('click',    'tiktok','tiktok_results'),
+    ('view',     'meta',  'meta_reach_thousands'),
+    ('click',    'tiktok','tiktok_clicks'),
     ('purchase', 'google','google_conversions')
 ),
 win as (
@@ -74,7 +80,8 @@ run as (
         when 'meta_purchases' then r.meta_purchases
         when 'meta_leads' then r.meta_leads
         when 'landing_page_views' then r.landing_page_views
-        when 'tiktok_results' then r.tiktok_results
+        when 'meta_reach_thousands' then coalesce(r.meta_reach, 0) / 1000.0
+        when 'tiktok_clicks' then r.tiktok_clicks
         when 'google_conversions' then r.google_ads_conversions
       end
     ) as results
@@ -83,16 +90,26 @@ run as (
   cross join units u
   where
     (
+      u.unit in ('signup', 'click', 'lpv', 'lead')
+      and (
+        w.general_sale_at is null
+        or r.date < (w.general_sale_at at time zone 'Europe/London')::date
+      )
+    )
+    or (
+      u.unit = 'purchase'
+      and (
+        w.general_sale_at is null
+        or r.date >= (w.general_sale_at at time zone 'Europe/London')::date
+      )
+    )
+    or (
       u.unit = 'ticket'
       and w.last_ticket_day is not null
       and r.date <= w.last_ticket_day
     )
     or (
-      u.unit <> 'ticket'
-      and (
-        w.general_sale_at is null
-        or r.date < (w.general_sale_at at time zone 'Europe/London')::date
-      )
+      u.unit = 'view'
     )
   group by 1, 2, 3, 4, 5, 6, 7
 )
@@ -112,4 +129,4 @@ where spend > 0
   and results > 0;
 
 comment on view campaign_plan_benchmarks_v is
-  'Per-run cost-per-result (client × venue_key × event × unit × channel). Signup window: days before general sale. Ticket window: through last ticket day. Days only. Median/IQR in lib/plan/benchmarks.ts.';
+  'Per-run cost-per-result (client × venue_key × event × unit × channel). Windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (meta_reach/1000). TikTok click → tiktok_clicks only. Days only. Median/IQR in lib/plan/benchmarks.ts.';

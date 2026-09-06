@@ -11,7 +11,10 @@ import {
   type MetricChipBenchmark,
 } from "../viz/metric-chip.ts";
 import { formatVizDay } from "../viz/format-moment.ts";
-import { PLAN_BENCHMARK_WINDOW } from "./benchmark-window.ts";
+import {
+  PLAN_BENCHMARK_WINDOW_FOR_UNIT,
+  type PlanBenchmarkWindowUnit,
+} from "./benchmark-window.ts";
 
 export const BENCHMARK_VIEW = "campaign_plan_benchmarks_v" as const;
 
@@ -19,7 +22,7 @@ export const BENCHMARK_VIEW = "campaign_plan_benchmarks_v" as const;
 export const BENCHMARK_ON_READ_REMOVAL =
   "campaign_plan_benchmarks_v lands and lib/plan/benchmarks.ts is the only median";
 
-export type BenchmarkUnit = "signup" | "ticket" | "click" | "purchase" | "lead" | "lpv";
+export type BenchmarkUnit = PlanBenchmarkWindowUnit;
 export type BenchmarkChannel = "all" | "meta" | "tiktok" | "google";
 
 export type BenchmarkRun = {
@@ -53,7 +56,7 @@ export function defaultChannelForUnit(unit: BenchmarkUnit): BenchmarkChannel {
 }
 
 export function benchmarkWindowForUnit(unit: BenchmarkUnit) {
-  return unit === "ticket" ? PLAN_BENCHMARK_WINDOW.perTicket : PLAN_BENCHMARK_WINDOW.perSignup;
+  return PLAN_BENCHMARK_WINDOW_FOR_UNIT[unit];
 }
 
 function runLabel(run: BenchmarkRun): string {
