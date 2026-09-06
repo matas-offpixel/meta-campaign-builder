@@ -13,11 +13,13 @@ export function SectionAnchor({
   tip,
   icon,
   label,
+  tipVariant,
 }: {
   kind?: keyof typeof ICONS;
   tip: string;
   icon?: ReactNode;
   label: string;
+  tipVariant?: "tip" | "card";
 }) {
   const Glyph = kind ? ICONS[kind] : null;
   return (
@@ -26,7 +28,7 @@ export function SectionAnchor({
         {icon ??
           (Glyph ? <Glyph className="h-4 w-4" aria-hidden="true" /> : null)}
       </span>
-      <InfoTip label={tip} />
+      <InfoTip variant={tipVariant} label={tip} />
     </div>
   );
 }

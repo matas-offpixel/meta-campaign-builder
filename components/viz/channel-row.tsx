@@ -18,6 +18,7 @@ export function ChannelRow({
   waiting = false,
   waitingFor,
   blockers,
+  hideWaitingText = false,
   liveFacts,
   lineKind,
   onOpen,
@@ -32,6 +33,8 @@ export function ChannelRow({
   waiting?: boolean;
   waitingFor?: VizPlatform;
   blockers?: BlockerRowModel[];
+  /** Parent already spells the waiting state — do not print it twice. */
+  hideWaitingText?: boolean;
   /** LIVE state — MetricChips replace the noun facts. */
   liveFacts?: ReactNode;
   lineKind?: VizLineKind;
@@ -63,7 +66,7 @@ export function ChannelRow({
     <div className="flex h-10 flex-wrap items-center gap-2">
       <PlatformGlyph platform={platform} size="sm" />
       <StatusDot status={dotStatus} />
-      {view.state === "waiting" ? (
+      {view.state === "waiting" && !hideWaitingText ? (
         <span className={`${VIZ_TYPE.body} text-muted-foreground`}>{view.waitingText}</span>
       ) : null}
       {view.showFactsText ? (

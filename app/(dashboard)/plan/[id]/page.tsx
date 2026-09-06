@@ -19,6 +19,9 @@ import { isRelationMissing } from "@/lib/plan/schema-probe";
 import type { CampaignPlan } from "@/lib/plan/types";
 import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
+import { loadLaunchRollupDays, loadPlanBenchmarkRows } from "@/lib/plan/launch-reads";
+import { planLaunchedAt, planStampLondonDate } from "@/lib/plan/launch-face";
+import { venueKey } from "@/lib/plan/venue-key";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -44,7 +47,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   const { data: events } = await supabase
     .from("events")
     .select(
-      "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, event_code, venue_name, venue_city, kind, ticket_url, signup_url",
+      "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, event_code, venue_name, venue_city, venue_key, kind, ticket_url, signup_url, meta_ad_account_id",
     )
     .eq("user_id", user.id)
     .order("event_date", { ascending: false });
@@ -61,9 +64,11 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     event_code: string | null;
     venue_name: string | null;
     venue_city: string | null;
+    venue_key?: string | null;
     kind: string | null;
     ticket_url: string | null;
     signup_url: string | null;
+    meta_ad_account_id: string | null;
   }[];
   const clientIds = [
     ...new Set(eventRows.map((event) => event.client_id).filter(Boolean)),
@@ -117,6 +122,10 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       clientId: event.client_id,
       clientName: client?.name ?? null,
       venueName: event.venue_name?.trim() || event.venue_city?.trim() || null,
+      venueKey:
+        event.venue_key?.trim() ||
+        venueKey(event.venue_name) ||
+        venueKey(event.venue_city),
       eventDate: event.event_date,
       eventStartAt: event.event_start_at,
       announcementAt: event.announcement_at,
@@ -125,6 +134,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       eventCode: event.event_code,
       kind: event.kind,
       metaAdAccountId: client?.meta_ad_account_id ?? null,
+      eventMetaAdAccountId: event.meta_ad_account_id ?? null,
       googleCustomerId: client?.google_ads_customer_id ?? null,
       ticketUrl: event.ticket_url,
       signupUrl: event.signup_url,
@@ -217,6 +227,22 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     ? funnel.costs.platforms.reduce((sum, row) => sum + row.spend, 0)
     : null;
 
+  const launchedAt = planLaunchedAt(workspacePlan.launches);
+  const rollupDays =
+    launchedAt && workspacePlan.intent.eventId
+      ? await loadLaunchRollupDays(supabase, workspacePlan.intent.eventId, {
+          from: planStampLondonDate(launchedAt),
+          to: todayIsoDate(),
+        })
+      : [];
+  const benchmarkRows =
+    selectedEvent?.clientId && selectedEvent.venueKey
+      ? await loadPlanBenchmarkRows(supabase, {
+          clientId: selectedEvent.clientId,
+          venueKey: selectedEvent.venueKey,
+        })
+      : [];
+
   const identityNames = await loadIdentityNameMap(supabase, user.id, googleAdsAccounts);
 
   return (
@@ -245,6 +271,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             thumbUrl={thumbs?.get(workspacePlan.intent.eventId)?.url ?? null}
             targetBenchmark={targetBenchmark}
             identityNames={identityNames}
+            rollupDays={rollupDays}
+            benchmarkRows={benchmarkRows}
           />
         </div>
       </main>

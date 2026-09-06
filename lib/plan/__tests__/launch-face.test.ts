@@ -1,0 +1,557 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+
+import { EMPTY_IDENTITY_NAMES } from "../identity-chips.ts";
+import { VIZ_STATE_WORD, VIZ_TICKET_LINE_WORD } from "../../viz/tokens.ts";
+import { IDLE_PLAN_LAUNCH } from "../types.ts";
+import {
+  LAUNCH_INFO_VARIANT,
+  decisionsChangesLabel,
+  formatChannelNeedsYou,
+  formatHistoryEmpty,
+  formatIdentitySentence,
+  formatIdentityTip,
+  formatLaunchBlockerSentence,
+  formatLaunchCreatesLine,
+  formatLaunchedLine,
+  formatMissingMomentTip,
+  formatPurchaseTicketLine,
+  formatResumeWord,
+  formatRunningFact,
+  formatSkippedShare,
+  formatStartingPoint,
+  formatTargetFromShows,
+  identityAccountLabel,
+  launchBlockedLine,
+  launchBlockers,
+  launchChannelRunning,
+  launchChannelStateWord,
+  launchReadingUnit,
+  launchTargetInfoHeader,
+  launchTargetView,
+  LAUNCH_NO_READS,
+  planLaunchStamp,
+  planLaunchedAt,
+  readyLaunchAdapters,
+} from "../launch-face.ts";
+import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
+
+function nxRow(
+  event_id: string,
+  event_code: string,
+  event_date: string,
+  cost: number,
+): BenchmarkRow {
+  return {
+    client_id: "eb",
+    venue_key: "nx newcastle",
+    event_id,
+    event_code,
+    event_date,
+    unit: "signup",
+    channel: "meta",
+    cost,
+  };
+}
+
+const NX_WINDOWED_ROWS: BenchmarkRow[] = [
+  nxRow("djez", "NX26-DJEZ", "2026-10-02", 1.67),
+  nxRow("eed", "NX26-EED", "2026-11-13", 1.32),
+  nxRow("folamour", "NX26-FOLAMOUR", "2026-10-23", 0.82),
+  nxRow("ipc", "NX26-IPC", "2026-11-21", 0.87),
+  nxRow("mf", "NX26-MF", "2026-10-16", 2.75),
+];
+
+const DOD_ROLLUP = {
+  date: "2026-09-05",
+  ad_spend: 554,
+  meta_regs: 1086,
+  meta_purchases: 0,
+  meta_reach: 0,
+  tiktok_spend: 0,
+  tiktok_results: 0,
+  google_ads_spend: 0,
+  google_ads_conversions: 0,
+};
+
+describe("LAUNCH identity sentence", () => {
+  it("resolved name is verbatim", () => {
+    const names = {
+      ...EMPTY_IDENTITY_NAMES,
+      metaAdAccount: { "1073273492854557": "ELECTRIC STUDIOS SHEFFIELD" },
+    };
+    assert.equal(
+      formatIdentitySentence({
+        metaId: "1073273492854557",
+        metaConnected: true,
+        tiktokConnected: false,
+        googleConnected: false,
+        names,
+      }),
+      "Running as ELECTRIC STUDIOS SHEFFIELD on Meta · TikTok account not connected — connect · Google account not connected — connect",
+    );
+  });
+
+  it("unresolved name renders the id", () => {
+    assert.equal(
+      identityAccountLabel("1073273492854557", EMPTY_IDENTITY_NAMES),
+      "act_1073273492854557",
+    );
+    assert.match(
+      formatIdentitySentence({
+        metaId: "act_1967530076312",
+        metaConnected: true,
+        tiktokConnected: true,
+        googleConnected: true,
+        names: EMPTY_IDENTITY_NAMES,
+      }),
+      /^Running as act_1967530076312 on Meta$/,
+    );
+  });
+
+  it("ⓘ shows both accounts when the event's own id differs (G30)", () => {
+    const tip = formatIdentityTip({
+      metaId: "1073273492854557",
+      eventMetaAdAccountId: "606252931141334",
+      destinationUrl: "https://dod-newcastle.com",
+      clientName: "Electric Brixton",
+    });
+    assert.match(tip, /Electric Brixton/);
+    assert.match(tip, /1073273492854557/);
+    assert.match(tip, /606252931141334/);
+    assert.match(tip, /dod-newcastle\.com/);
+  });
+});
+
+describe("LAUNCH unit by phase", () => {
+  const gen = "2026-09-04T13:00:00.000Z";
+  it("signup before general sale, purchase after, thousand reached when kind ≠ event", () => {
+    assert.equal(
+      launchReadingUnit({ now: new Date("2026-09-03T12:00:00.000Z"), generalSaleAt: gen }),
+      "reg",
+    );
+    assert.equal(
+      launchReadingUnit({ now: new Date("2026-09-04T13:00:00.000Z"), generalSaleAt: gen }),
+      "purchase",
+    );
+    assert.equal(
+      launchReadingUnit({ now: new Date("2026-09-05T12:00:00.000Z"), generalSaleAt: gen }),
+      "purchase",
+    );
+    assert.equal(
+      launchReadingUnit({ now: new Date("2026-09-03T12:00:00.000Z"), kind: "brand" }),
+      "view",
+    );
+    assert.equal(
+      launchReadingUnit({
+        now: new Date("2026-09-03T12:00:00.000Z"),
+        generalSaleAt: gen,
+        presaleAt: "2026-09-01T10:00:00.000Z",
+      }),
+      "purchase",
+    );
+  });
+});
+
+describe("LAUNCH target rungs", () => {
+  it("n = 0 is Off Pixel's starting point, dashed, no band", () => {
+    assert.equal(formatStartingPoint("reg"), "£1.60 per signup · Off Pixel's starting point");
+    assert.equal(formatTargetFromShows(0, "NX"), "£1.60 per signup · Off Pixel's starting point");
+  });
+
+  it("n = 1 is from 1 other show, no band", () => {
+    assert.equal(formatTargetFromShows(1, "NX"), "from 1 other show at NX");
+  });
+
+  it("n ≥ 3 is from N other shows at the venue", () => {
+    assert.equal(formatTargetFromShows(5, "NX"), "from 5 other shows at NX");
+  });
+});
+
+describe("LAUNCH split / channels / button", () => {
+  it("history: null uses the empty sentence", () => {
+    assert.equal(
+      formatHistoryEmpty("tiktok", "Junction 2"),
+      "no TikTok history yet for Junction 2 — opens after your first TikTok run",
+    );
+  });
+
+  it("0% is skipped", () => {
+    assert.equal(formatSkippedShare(0), "0% of the budget — skipped");
+    assert.equal(formatSkippedShare(0, "google"), "Google · 0% of the budget — skipped");
+  });
+
+  it("each channel state word", () => {
+    assert.equal(
+      launchChannelStateWord({ skipped: false, waiting: false, blockerCount: 0, status: "idle" }),
+      VIZ_STATE_WORD.ready,
+    );
+    assert.equal(
+      launchChannelStateWord({ skipped: false, waiting: false, blockerCount: 6, status: "idle" }),
+      VIZ_STATE_WORD.needsYou,
+    );
+    assert.equal(
+      formatChannelNeedsYou(6, "TikTok"),
+      "6 things to fix before TikTok can run →",
+    );
+    assert.equal(
+      launchChannelStateWord({ skipped: false, waiting: true, blockerCount: 0, status: "idle" }),
+      "waiting for Meta",
+    );
+    assert.equal(
+      launchChannelStateWord({ skipped: false, waiting: false, blockerCount: 0, status: "live" }),
+      VIZ_STATE_WORD.running,
+    );
+    assert.equal(
+      launchChannelStateWord({ skipped: false, waiting: false, blockerCount: 0, status: "paused" }),
+      VIZ_STATE_WORD.paused,
+    );
+  });
+
+  it("button line for 1 / 2 / 3 ready channels and each blocker", () => {
+    assert.equal(formatLaunchCreatesLine(["meta"]), "creates 1 campaign, paused, on Meta");
+    assert.equal(
+      formatLaunchCreatesLine(["meta", "tiktok"]),
+      "creates 2 campaigns, paused, on Meta · TikTok",
+    );
+    assert.equal(
+      formatLaunchCreatesLine(["meta", "tiktok", "google"]),
+      "creates 3 campaigns, paused, on Meta · TikTok · Google",
+    );
+    assert.deepEqual(
+      readyLaunchAdapters([
+        { adapter: "meta", skipped: false, waiting: false, blockers: [], status: "idle" },
+        { adapter: "tiktok", skipped: true, waiting: false, blockers: [], status: "idle" },
+        { adapter: "google", skipped: false, waiting: false, blockers: [{ kind: "blocker" }], status: "idle" },
+      ]),
+      ["meta"],
+    );
+    assert.equal(
+      formatLaunchBlockerSentence({ windowOk: false, blockerCount: 0 }),
+      "set start and end",
+    );
+    assert.equal(
+      formatLaunchBlockerSentence({
+        windowOk: true,
+        blockerCount: 0,
+        unconnected: "TikTok has 29% of the budget but no account — connect, or set TikTok to 0",
+      }),
+      "TikTok has 29% of the budget but no account — connect, or set TikTok to 0",
+    );
+    assert.equal(
+      formatLaunchBlockerSentence({ windowOk: true, blockerCount: 6 }),
+      "6 things to fix before you can launch",
+    );
+  });
+
+  it("A15 resume words per platform", () => {
+    assert.equal(formatResumeWord("meta"), "resume ▷");
+    assert.equal(formatResumeWord("tiktok"), "resume in TikTok Ads Manager ↗");
+    assert.equal(formatResumeWord("google"), "resume in Google Ads ↗");
+  });
+
+  it("A6 missing-moment tick", () => {
+    assert.equal(formatMissingMomentTip(), "not set on the event");
+  });
+
+  it("purchase unit is two lines including source not recorded", () => {
+    assert.match(formatPurchaseTicketLine("none"), /not entered yet/);
+    assert.equal(VIZ_TICKET_LINE_WORD.unknown, "source not recorded");
+  });
+});
+
+describe("LAUNCH chrome", () => {
+  it("◐ 40 ▸ becomes 40 changes ▸; A15 launched line uses formatVizDay", () => {
+    assert.equal(decisionsChangesLabel(40), "40 changes ▸");
+    assert.equal(decisionsChangesLabel(0), null);
+    assert.equal(
+      formatLaunchedLine("2026-07-24T09:14:00.000Z", "paused"),
+      "paused · launched Fri 24 Jul · 10:14",
+    );
+    assert.equal(
+      formatLaunchedLine("2026-09-05T09:14:00.000Z", "live"),
+      "live · launched Sat 5 Sep · 10:14",
+    );
+  });
+
+  it("daily canvas ⓘ is the card form; identity chips leave the header", () => {
+    const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
+    const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    const windowBar = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.doesNotMatch(header, /PlanIdentityChips/);
+    assert.match(header, /venueName/);
+    assert.match(header, /formatIdentitySentence/);
+    assert.match(header, /decisionsChangesLabel|changes ▸/);
+    for (const source of [header, budget, target, launch, channels, windowBar]) {
+      assert.match(source, /variant=\{?["']card["']\}?|LAUNCH_INFO_VARIANT/);
+    }
+    assert.equal(LAUNCH_INFO_VARIANT, "card");
+  });
+
+  it("client role hides the Launch button only", () => {
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.match(launch, /role\s*[:=]\s*["']client["']|role === "client"|role !== "client"/);
+    assert.match(launch, /formatLaunchCreatesLine|creates/);
+  });
+});
+
+describe("LAUNCH review round 1 — surface wiring", () => {
+  it("target view is one source: n = 0 starting point, never a preset, unit word matches", () => {
+    assert.equal(
+      planBenchmark({
+        rows: [],
+        clientId: "eb",
+        venueKey: "nx newcastle",
+        venueLabel: "NX Newcastle",
+        unit: "signup",
+      }),
+      undefined,
+    );
+    const view = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      venueName: "NX Newcastle",
+    });
+    assert.equal(view.unit, "reg");
+    assert.equal(view.unitWord, "signup");
+    assert.equal(view.chipValue, 1.6);
+    assert.equal(view.evidence, "£1.60 per signup · Off Pixel's starting point");
+    assert.equal(view.lineKind, "estimated");
+    assert.equal(view.benchmark, undefined);
+    assert.equal(view.showComputedToday, false);
+    assert.doesNotMatch(view.evidence, /this venue/);
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /launchTargetView/);
+    assert.match(target, /view\.evidence/);
+    assert.match(target, /per \{view\.unitWord\}/);
+    assert.doesNotMatch(target, /historyN/);
+    assert.doesNotMatch(target, /this venue/);
+  });
+
+  it("presale earlier than general sale flips the phase unit and mounts the tickets line", () => {
+    const view = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      presaleAt: "2026-09-01T10:00:00.000Z",
+    });
+    assert.equal(view.unit, "purchase");
+    assert.equal(view.unitWord, "purchase");
+    assert.equal(view.infoHeader, "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND");
+    assert.match(view.purchaseLine!, /not entered yet/);
+    assert.equal(
+      launchTargetInfoHeader("view"),
+      "ESTIMATED · META'S REACH, YOUR SPEND",
+    );
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /presaleAt/);
+    assert.match(target, /view\.purchaseLine/);
+    assert.match(target, /onUnit/);
+    assert.match(target, /<details/);
+  });
+
+  it("needs you counts blockers only; running fact is cost per reading unit", () => {
+    assert.deepEqual(
+      launchBlockers([
+        { kind: "blocker" },
+        { kind: "advisory" },
+        { kind: "blocker" },
+      ]),
+      [{ kind: "blocker" }, { kind: "blocker" }],
+    );
+    assert.equal(formatRunningFact({ cost: 0.51, unit: "reg" }), "£0.51 per signup");
+    assert.equal(
+      formatRunningFact({ cost: 0.51, unit: "reg", usual: 1.32 }),
+      "£0.51 per signup · under your usual £1.32",
+    );
+    const running = launchChannelRunning([DOD_ROLLUP], "reg", 1.32);
+    assert.equal(running.empty, false);
+    assert.ok(running.byAdapter.meta);
+    assert.equal(
+      formatRunningFact({
+        cost: running.byAdapter.meta!.cost,
+        unit: "reg",
+        usual: 1.32,
+      }),
+      "£0.51 per signup · under your usual £1.32",
+    );
+    assert.equal(launchChannelRunning([], "reg").empty, true);
+    assert.equal(LAUNCH_NO_READS, "no reads yet");
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /launchBlockers/);
+    assert.match(channels, /formatRunningFact/);
+    assert.match(channels, /LAUNCH_NO_READS/);
+    assert.match(channels, /formatChannelNeedsYou/);
+    assert.doesNotMatch(channels, /BlockerBadge/);
+    assert.doesNotMatch(channels, /cost per mille|cost per click/);
+    assert.doesNotMatch(channels, /platformSplit/);
+  });
+
+  it("header launched stamp ignores idle prepare-draft rows", () => {
+    assert.equal(
+      planLaunchedAt({
+        meta: { ...IDLE_PLAN_LAUNCH, createdAt: "2026-07-24T09:14:00.000Z" },
+        tiktok: { ...IDLE_PLAN_LAUNCH },
+        google: { ...IDLE_PLAN_LAUNCH },
+      }),
+      null,
+    );
+    const live = planLaunchStamp({
+      meta: {
+        ...IDLE_PLAN_LAUNCH,
+        status: "live",
+        platformCampaignId: "120",
+        createdAt: "2026-09-05T09:14:00.000Z",
+      },
+      tiktok: { ...IDLE_PLAN_LAUNCH },
+      google: { ...IDLE_PLAN_LAUNCH },
+    });
+    assert.equal(live?.at, "2026-09-05T09:14:00.000Z");
+    assert.equal(live?.word, "live");
+    assert.equal(
+      formatLaunchedLine(live!.at!, live!.word),
+      "live · launched Sat 5 Sep · 10:14",
+    );
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /planLaunchStamp\(plan\.launches\)/);
+    assert.doesNotMatch(workspace, /launchedAt=\{plan\.createdAt\}/);
+  });
+
+  it("unit override wins on a draft and locks once launched", () => {
+    const view = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      unit: "purchase",
+    });
+    assert.equal(view.unit, "purchase");
+    assert.equal(view.unitWord, "purchase");
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /unit,/);
+    assert.match(target, /disabled=\{launched\}/);
+  });
+
+  it("A2 is a line without a band; A4 is the view band with the target as marker", () => {
+    const a2 = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      venueName: "NX Newcastle",
+      venueKey: "nx newcastle",
+      clientId: "eb",
+      excludeEventId: "dod",
+      benchmarkRows: [NX_WINDOWED_ROWS[1]!],
+    });
+    assert.equal(a2.benchmark?.n, 1);
+    assert.equal(a2.benchmark?.band, undefined);
+    assert.equal(a2.lineKind, "estimated");
+    assert.equal(a2.evidence, "from 1 other show at NX Newcastle");
+
+    const a4 = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      venueName: "NX Newcastle",
+      venueKey: "nx newcastle",
+      clientId: "eb",
+      excludeEventId: "dod",
+      operatorTarget: 0.51,
+      benchmarkRows: NX_WINDOWED_ROWS,
+    });
+    assert.equal(a4.benchmark?.n, 5);
+    assert.equal(a4.benchmark?.value, 1.32);
+    assert.deepEqual(a4.benchmark?.band, [0.87, 1.67]);
+    assert.equal(a4.chipValue, 0.51);
+    assert.equal(a4.lineKind, "measured");
+    const chip = readFileSync("components/viz/metric-chip.tsx", "utf8");
+    assert.match(chip, /marker=\{value \?\? benchmark\.value\}/);
+  });
+
+  it("event account id is the event's own column, not the client default", () => {
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /meta_ad_account_id/);
+    assert.match(page, /eventMetaAdAccountId: event\.meta_ad_account_id/);
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /eventMetaAdAccountId=\{selectedEvent\?\.eventMetaAdAccountId/);
+    const tip = formatIdentityTip({
+      metaId: "1073273492854557",
+      eventMetaAdAccountId: "606252931141334",
+    });
+    assert.match(tip, /event account 606252931141334/);
+  });
+
+  it("usual outline is the client preset; skip and history name the channel", () => {
+    const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
+    assert.match(budget, /usual: \{[\s\S]*PLAN_SPLIT_PRESETS\[1\]/);
+    assert.match(budget, /formatHistoryEmpty\("tiktok"/);
+    assert.match(budget, /formatHistoryEmpty\("google"/);
+    assert.match(budget, /formatSkippedShare\(0, segment\.platform\)/);
+    assert.equal(
+      formatHistoryEmpty("google", "Junction 2"),
+      "no Google history yet for Junction 2 — opens after your first Google run",
+    );
+  });
+
+  it("blocked line is derived from the issue list, never a string sniff", () => {
+    assert.equal(
+      launchBlockedLine({
+        hasEvent: false,
+        busy: false,
+        windowOk: true,
+        issues: [],
+        blockerCount: 0,
+      }),
+      "choose an event",
+    );
+    assert.equal(
+      launchBlockedLine({
+        hasEvent: true,
+        busy: true,
+        windowOk: true,
+        issues: [],
+        blockerCount: 0,
+      }),
+      "launch in progress",
+    );
+    assert.equal(
+      launchBlockedLine({
+        hasEvent: true,
+        busy: false,
+        windowOk: true,
+        issues: [
+          {
+            adapter: "tiktok",
+            id: "plan:unconnected_share",
+            field: "account",
+            message: "TikTok has 29% of the budget but no account — connect, or set TikTok to 0",
+            blocking: true,
+          },
+        ],
+        blockerCount: 0,
+      }),
+      "TikTok has 29% of the budget but no account — connect, or set TikTok to 0",
+    );
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.doesNotMatch(launch, /includes\(["']no account["']\)/);
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /launchBlockedLine/);
+  });
+
+  it("ⓘ uses the ratified derive sentence; Ads Manager reason stays on the handle", () => {
+    const canvas = readFileSync("lib/plan/canvas.ts", "utf8");
+    assert.match(canvas, /TikTok and Google start from your Meta campaign/);
+    assert.doesNotMatch(canvas, /Preflight still has blockers/);
+    assert.doesNotMatch(canvas, /derived from the Meta draft, never authored first/);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.doesNotMatch(channels, /resumeTips/);
+    assert.match(channels, /title=\{PLAN_CANVAS_COPY\.resumeElsewhere\}/);
+  });
+
+  it("waiting is one spelling", () => {
+    const row = readFileSync("lib/viz/channel-row.ts", "utf8");
+    assert.match(row, /waiting for Meta/);
+    assert.doesNotMatch(row, /waiting for \$\{glyph\}/);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /hideWaitingText/);
+  });
+});

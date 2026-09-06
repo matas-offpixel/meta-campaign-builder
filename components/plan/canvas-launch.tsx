@@ -4,6 +4,11 @@ import { Button } from "@/components/ui/button";
 import { FunnelStageBar } from "@/components/viz/funnel-stage-bar";
 import { InfoTip } from "@/components/viz/info-tip";
 import { joinInfoTips, PLAN_CANVAS_COPY, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
+import {
+  LAUNCH_INFO_VARIANT,
+  formatLaunchCreatesLine,
+} from "@/lib/plan/launch-face";
+import type { PlanAdapterName } from "@/lib/plan/types";
 import { WIZARD_ACTIVE_VS_PLAN_PAUSED } from "@/lib/plan/schedule";
 import type { EventFunnelStage } from "@/lib/dashboard/event-funnel";
 import { platformSharePercents, proportionalBarWidths } from "@/lib/viz/funnel-scale";
@@ -25,17 +30,30 @@ export function CanvasLaunch({
   error,
   onLaunch,
   onResumeAll,
+  role = "operator",
+  readyAdapters = [],
+  blockerSentence = null,
+  preflightSettled = true,
 }: {
   button: PlanLaunchButtonModel;
   stages?: EventFunnelStage[];
   error: string | null;
   onLaunch: () => void;
   onResumeAll: () => void;
+  role?: "operator" | "client";
+  readyAdapters?: PlanAdapterName[];
+  blockerSentence?: string | null;
+  /** First preflight response has arrived — until then, nothing beside the button. */
+  preflightSettled?: boolean;
 }) {
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
   const fanoutOff = button.reason === PLAN_CANVAS_COPY.fanoutOff;
   const tip = joinInfoTips(
-    fanoutOff ? PLAN_CANVAS_COPY.fanoutOffTip : button.reason,
+    fanoutOff
+      ? PLAN_CANVAS_COPY.fanoutOffTip
+      : button.reason === PLAN_CANVAS_COPY.blockers
+        ? null
+        : button.reason,
     button.kind === "launch" && WIZARD_ACTIVE_VS_PLAN_PAUSED,
     error,
   );
@@ -65,11 +83,19 @@ export function CanvasLaunch({
       ) : null}
 
       <div className="flex items-center justify-end gap-1.5">
-        {fanoutOff ? (
+        {!preflightSettled ? null : fanoutOff ? (
           <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{PLAN_CANVAS_COPY.fanoutOff}</span>
+        ) : button.kind === "launch" && !button.disabled && readyAdapters.length > 0 ? (
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+            {formatLaunchCreatesLine(readyAdapters)}
+          </span>
+        ) : button.kind === "launch" && button.disabled ? (
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+            {blockerSentence}
+          </span>
         ) : null}
-        {tip ? <InfoTip label={tip} /> : null}
-        {button.kind === "none" ? null : (
+        {tip ? <InfoTip variant={LAUNCH_INFO_VARIANT} label={tip} /> : null}
+        {role === "client" || button.kind === "none" ? null : (
           <Button
             type="button"
             disabled={button.disabled}

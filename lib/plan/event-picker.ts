@@ -4,12 +4,17 @@ export interface PlanEventOption {
   clientId?: string | null;
   clientName?: string | null;
   venueName?: string | null;
+  venueKey?: string | null;
   eventDate?: string | null;
+  eventStartAt?: string | null;
+  announcementAt?: string | null;
   presaleAt?: string | null;
   generalSaleAt?: string | null;
   eventCode?: string | null;
   kind?: string | null;
   metaAdAccountId?: string | null;
+  /** `events.meta_ad_account_id` — the event's own account, not the client default. */
+  eventMetaAdAccountId?: string | null;
   googleCustomerId?: string | null;
   ticketUrl?: string | null;
   signupUrl?: string | null;

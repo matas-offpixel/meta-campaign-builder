@@ -87,6 +87,8 @@ export interface CampaignPlanLaunchRecord {
   platformCampaignId: string | null;
   draftId: string | null;
   error: string | null;
+  /** Ledger `created_at`. Absent on idle rows and older constructors. */
+  createdAt?: string | null;
 }
 
 export interface CampaignPlanLaunches {
@@ -113,6 +115,7 @@ export const IDLE_PLAN_LAUNCH: CampaignPlanLaunchRecord = {
   platformCampaignId: null,
   draftId: null,
   error: null,
+  createdAt: null,
 };
 
 export function isCampaignPlanStatus(value: string): value is CampaignPlanStatus {

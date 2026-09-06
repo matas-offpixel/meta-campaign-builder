@@ -21,9 +21,8 @@ export function channelRowState(input: {
   return input.status === "idle" ? "waiting" : "ready";
 }
 
-export function waitingCopy(forPlatform: VizPlatform = "meta"): string {
-  const glyph = forPlatform === "meta" ? "f" : forPlatform === "tiktok" ? "♪" : "G";
-  return `waiting for ${glyph}`;
+export function waitingCopy(_forPlatform: VizPlatform = "meta"): string {
+  return "waiting for Meta";
 }
 
 export function channelRowView(input: {

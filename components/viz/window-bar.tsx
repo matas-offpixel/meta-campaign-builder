@@ -200,7 +200,7 @@ export function WindowBar({
         <div className="relative" style={{ height: WINDOW_MOMENT_LANE_PX }}>
           {tip ? (
             <div className="absolute right-0 top-0 z-10">
-              <InfoTip label={tip} />
+              <InfoTip variant="card" label={tip} />
             </div>
           ) : null}
           {marks.map((mark) => (
@@ -325,11 +325,11 @@ function MomentMark({
       </span>
       )}
       {hideNoun ? (
-        tip ? <InfoTip label={tip} /> : null
+        tip ? <InfoTip variant="card" label={tip} /> : null
       ) : (
         <span className={`mt-0.5 flex items-center justify-center gap-0.5 whitespace-nowrap ${VIZ_TYPE.label}`}>
           {noun}
-          {missing && tip ? <InfoTip label={tip} /> : null}
+          {missing && tip ? <InfoTip variant="card" label={tip} /> : null}
         </span>
       )}
     </div>

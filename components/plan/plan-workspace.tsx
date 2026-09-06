@@ -54,6 +54,16 @@ import { scheduledDayCount } from "@/lib/plan/budget-split";
 import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
+import {
+  launchBlockedLine,
+  launchBlockers,
+  launchChannelRunning,
+  launchReadingUnit,
+  planLaunchStamp,
+  readyLaunchAdapters,
+} from "@/lib/plan/launch-face";
+import { planBenchmark, type BenchmarkRow } from "@/lib/plan/benchmarks";
+import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
@@ -95,8 +105,10 @@ export function PlanWorkspace({
   funnel = null,
   liveSpend = null,
   thumbUrl = null,
-  targetBenchmark = null,
+  targetBenchmark: _targetBenchmark = null,
   identityNames,
+  rollupDays = [],
+  benchmarkRows = [],
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
@@ -115,7 +127,10 @@ export function PlanWorkspace({
   targetBenchmark?: number | null;
   /** Stored cache names for the identity chips — loaded on the page, never fetched here. */
   identityNames?: IdentityNameMap;
+  rollupDays?: readonly LaunchRollupDay[];
+  benchmarkRows?: readonly BenchmarkRow[];
 }) {
+  void _targetBenchmark;
   const [plan, setPlan] = useState(initialPlan);
   const [hasUserEdit, setHasUserEdit] = useState(false);
   const [persisted, setPersisted] = useState(!isNew);
@@ -128,7 +143,7 @@ export function PlanWorkspace({
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
   const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(null);
-  const [preflightOk, setPreflightOk] = useState(false);
+  const [preflightOk, setPreflightOk] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -364,6 +379,7 @@ export function PlanWorkspace({
   }, [plan, router, hasUserEdit]);
 
   useEffect(() => {
+    setPreflightOk(null);
     const handle = window.setTimeout(() => {
       void fetch("/api/plan/preflight", {
         method: "POST",
@@ -734,14 +750,35 @@ export function PlanWorkspace({
 
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
+  const launchStamp = planLaunchStamp(plan.launches);
+  const readingUnit = launchReadingUnit({
+    now: new Date(),
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    kind: selectedEvent?.kind,
+  });
+  const usual = selectedEvent?.clientId && selectedEvent.venueKey
+    ? planBenchmark({
+        rows: benchmarkRows,
+        clientId: selectedEvent.clientId,
+        venueKey: selectedEvent.venueKey,
+        venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
+        unit: readingUnit === "reg" ? "signup" : readingUnit,
+        excludeEventId: selectedEvent.id,
+      })?.value ?? null
+    : null;
 
   return (
     <div>
       <CanvasHeader
         name={headerName}
         clientName={selectedEvent?.clientName ?? null}
+        venueName={selectedEvent?.venueName ?? null}
         eventDate={selectedEvent?.eventDate ?? null}
         eventCode={selectedEvent?.eventCode ?? null}
+        eventMetaAdAccountId={selectedEvent?.eventMetaAdAccountId ?? null}
+        launchedAt={launchStamp?.at ?? null}
+        launchedWord={launchStamp?.word}
         thumbUrl={thumbUrl}
         destination={destination}
         onDestination={(url) => patchIntent({ destinationUrl: url })}
@@ -794,6 +831,7 @@ export function PlanWorkspace({
           startDate={plan.intent.startDate}
           endDate={plan.intent.endDate}
           hasUserEdit={hasUserEdit}
+          clientName={selectedEvent?.clientName ?? null}
           onBudget={(budget) => patchIntent({ budget })}
           onMode={(mode) => {
             setBudgetMode(mode);
@@ -816,12 +854,20 @@ export function PlanWorkspace({
         <CanvasTarget
           value={plan.intent.target.value}
           unit={plan.intent.target.unit}
-          benchmark={targetBenchmark}
           objectiveIntent={plan.intent.objectiveIntent}
           presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
           onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
           onUnit={setTargetUnit}
           onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+          generalSaleAt={selectedEvent?.generalSaleAt}
+          presaleAt={selectedEvent?.presaleAt}
+          kind={selectedEvent?.kind}
+          venueName={selectedEvent?.venueName}
+          venueKey={selectedEvent?.venueKey}
+          clientId={selectedEvent?.clientId}
+          excludeEventId={selectedEvent?.id}
+          launched={launchStamp != null}
+          benchmarkRows={benchmarkRows}
         />
       </div>
 
@@ -830,13 +876,10 @@ export function PlanWorkspace({
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasChannels
         rows={rows}
-        costs={
-          funnel
-            ? {
-                meta: funnel.costs.platforms.find((row) => row.platform === "meta"),
-                tiktok: funnel.costs.platforms.find((row) => row.platform === "tiktok"),
-                google: funnel.costs.platforms.find((row) => row.platform === "google"),
-              }
+        readingUnit={readingUnit}
+        running={
+          launchStamp
+            ? launchChannelRunning(rollupDays, readingUnit, usual)
             : undefined
         }
         onOpen={(row) => void openChannel(row)}
@@ -942,6 +985,18 @@ export function PlanWorkspace({
         onResumeAll={() =>
           void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
         }
+        readyAdapters={readyLaunchAdapters(rows)}
+        preflightSettled={preflightOk !== null}
+        blockerSentence={launchBlockedLine({
+          hasEvent: Boolean(plan.intent.eventId),
+          busy,
+          windowOk,
+          issues,
+          blockerCount: rows.reduce(
+            (count, row) => count + launchBlockers(row.blockers).length,
+            0,
+          ),
+        })}
       />
       </div>
 

@@ -264,10 +264,10 @@ describe("ChannelRow named states", () => {
     { n: 3, noun: "creatives" },
   ];
 
-  it("waiting — ○ waiting for f, no derived badge", () => {
+  it("waiting — waiting for Meta, no derived badge", () => {
     const view = channelRowView({ status: "idle", facts, waiting: true, derived: true });
     assert.equal(view.state, "waiting");
-    assert.equal(view.waitingText, "waiting for f");
+    assert.equal(view.waitingText, "waiting for Meta");
     assert.equal(view.showDerived, false);
     assert.equal(view.showFactsText, false);
   });
@@ -326,7 +326,7 @@ describe("WindowBar named states + snap / keyboard", () => {
     const placeholders = windowPlaceholders(onlyNowShow, from, to);
     assert.deepEqual(
       placeholders.map((row) => row.label),
-      ["presale", "gen sale"],
+      ["announcement", "presale", "gen sale"],
     );
     assert.ok(placeholders.every((row) => row.tip.length > 0));
     assert.ok(placeholders[0]!.ratio > 0 && placeholders[0]!.ratio < 1);
@@ -580,6 +580,26 @@ describe("§4.7 plan v2 token guards", () => {
     assert.match(source, /reason\.sentence/);
     assert.match(source, /\{sentence\}/);
     assert.doesNotMatch(source, /reason\?:/);
+  });
+
+  it("LAUNCH face uses their words and card ⓘ", () => {
+    const files = [
+      "lib/plan/launch-face.ts",
+      "components/plan/canvas-header.tsx",
+      "components/plan/canvas-budget.tsx",
+      "components/plan/canvas-target.tsx",
+      "components/plan/canvas-channels.tsx",
+      "components/plan/canvas-launch.tsx",
+    ];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.doesNotMatch(source, /VIZ_STATUS_LABEL|VIZ_ACTION_LABEL/);
+      assert.doesNotMatch(source, />\{VIZ_PROVENANCE/);
+      assert.doesNotMatch(source, /\d{4}-\d{2}-\d{2}T/);
+    }
+    const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
+    assert.doesNotMatch(header, /PlanIdentityChips/);
+    assert.match(header, /changes ▸|decisionsChangesLabel/);
   });
 
   it("VIZ_PROVENANCE_MARK is not mounted in components/plan/canvas-*.tsx", () => {
