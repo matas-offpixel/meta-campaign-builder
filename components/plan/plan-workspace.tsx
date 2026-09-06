@@ -925,13 +925,14 @@ export function PlanWorkspace({
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
   const launchStamp = planLaunchStamp(plan.launches);
+  const channelReadingUnit = launchStamp ? adjustReadingUnit : readingUnit;
   const usual = selectedEvent?.clientId && selectedEvent.venueKey
     ? planBenchmark({
         rows: benchmarkRows,
         clientId: selectedEvent.clientId,
         venueKey: selectedEvent.venueKey,
         venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
-        unit: readingUnit === "reg" ? "signup" : readingUnit,
+        unit: channelReadingUnit === "reg" ? "signup" : channelReadingUnit,
         excludeEventId: selectedEvent.id,
       })?.value ?? null
     : null;
@@ -1192,10 +1193,10 @@ export function PlanWorkspace({
       <CanvasChannels
         rows={rows}
         blockerCounts={planPreflightBlockerCounts(issues)}
-        readingUnit={readingUnit}
+        readingUnit={channelReadingUnit}
         running={
           launchStamp
-            ? launchChannelRunning(rollupDays, readingUnit, usual)
+            ? launchChannelRunning(rollupDays, channelReadingUnit, usual)
             : undefined
         }
         onOpen={(row) => void openChannel(row)}

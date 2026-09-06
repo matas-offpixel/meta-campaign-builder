@@ -25,6 +25,8 @@ export const ADJUST_CHANNEL_NO_READS = "no reads yet";
 export const ADJUST_CHANNEL_NOT_CONNECTED = "not connected";
 export const ADJUST_APPLY_NEXT_CHECK = "applied at the next check";
 export const ADJUST_NO_PURCHASES = "Meta says £— per purchase · no purchases yet";
+/** Empty-chip sentence — the £— is the display, not part of the line. */
+export const ADJUST_NO_PURCHASES_SENTENCE = "Meta says · no purchases yet";
 /** No operator apply route exists — `do it` must not call nothing. */
 export const ADJUST_OPERATOR_APPLY_PATH = false;
 

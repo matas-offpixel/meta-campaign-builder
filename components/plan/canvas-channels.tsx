@@ -3,10 +3,8 @@
 import type { RefObject } from "react";
 
 import { ChannelRow } from "@/components/viz/channel-row";
-import { SectionAnchor } from "@/components/viz/section-anchor";
-import { joinInfoTips, PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
+import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
 import {
-  LAUNCH_INFO_VARIANT,
   formatChannelNeedsYou,
   formatResumeWord,
   formatRunningFact,
@@ -54,14 +52,8 @@ export function CanvasChannels({
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
   drawerEdit?: boolean;
 }) {
-  const tip = joinInfoTips(
-    PLAN_CANVAS_COPY.derive,
-    rows.some((row) => row.skipped) && PLAN_CANVAS_COPY.splitZeroIsOff,
-  );
-
   return (
     <section aria-label="channels" className="min-h-[120px] space-y-1.5">
-      <SectionAnchor kind="derive" label="derive" tip={tip} tipVariant={LAUNCH_INFO_VARIANT} />
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
         const blockers = launchBlockers(row.blockers);
@@ -112,6 +104,11 @@ export function CanvasChannels({
                 waiting={row.waiting}
                 waitingFor={row.waitingFor}
                 hideWaitingText
+                tip={
+                  row.adapter === "tiktok" || row.adapter === "google"
+                    ? PLAN_CANVAS_COPY.derive
+                    : undefined
+                }
                 liveFacts={
                   runningFact ? (
                     <span className={VIZ_TYPE.body}>{runningFact}</span>

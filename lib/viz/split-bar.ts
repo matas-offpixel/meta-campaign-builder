@@ -135,6 +135,16 @@ export function boundaryCount(segments: SplitBarSegment[]): number {
 /** In-segment legend at ≥ 12%; narrower segments sit outside the bar. */
 export const SPLIT_LEGEND_INSIDE_PCT = 12;
 
+/** Cumulative left/width for an outline whose segments are `pcts`. */
+export function splitOutlineRects(pcts: readonly number[]): { left: number; width: number }[] {
+  let left = 0;
+  return pcts.map((width) => {
+    const rect = { left, width };
+    left += width;
+    return rect;
+  });
+}
+
 export function splitBarLegendPlacement(pct: number): "inside" | "outside" {
   return pct >= SPLIT_LEGEND_INSIDE_PCT ? "inside" : "outside";
 }

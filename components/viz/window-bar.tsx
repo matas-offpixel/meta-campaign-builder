@@ -16,6 +16,7 @@ import {
   estimateHandleLabelWidth,
   handleLabelLeftPx,
   momentGlyph,
+  momentMarkAlign,
   nudgeWindowHandle,
   resolveMomentGlyphCollision,
   snapToMoments,
@@ -154,6 +155,7 @@ export function WindowBar({
       ratio: width > 1 ? mark.x / width : 0,
       x: mark.x,
       width: mark.width,
+      placeholder: mark.missing,
     })),
   );
   const remaining = marks.filter((mark) => !collision.hideNounIds.has(mark.id));
@@ -205,43 +207,48 @@ export function WindowBar({
 
   return (
     <div
-      className="relative"
+      className="relative w-full overflow-visible"
       data-state={empty ? "empty" : clamped ? "clamped" : dragging ? "dragging" : "default"}
       style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}
     >
       <div
         ref={trackRef}
-        className="relative"
+        className="relative w-full overflow-visible"
         style={{ height: WINDOW_MOMENT_LANE_PX + WINDOW_RAIL_LANE_PX + WINDOW_HANDLE_LABEL_LANE_PX }}
       >
-        <div className="relative" style={{ height: WINDOW_MOMENT_LANE_PX }}>
+        <div className="relative overflow-visible" style={{ height: WINDOW_MOMENT_LANE_PX }}>
           {tip ? (
-            <div className="absolute right-0 top-0 z-10">
+            <div className="absolute left-0 top-0 z-10">
               <InfoTip variant="card" label={tip} />
             </div>
           ) : null}
-          {marks.map((mark) => (
-            <MomentMark
-              key={mark.id}
-              pct={width > 1 ? (mark.x / width) * 100 : 0}
-              glyph={momentGlyph(mark.noun)}
-              noun={collision.joinedLabel.get(mark.id) ?? mark.noun}
-              missing={mark.missing}
-              hideNoun={
-                hiddenNouns.has(mark.id) ||
-                collision.hideNounIds.has(mark.id) ||
-                (nowAtEnd && mark.id === "now")
-              }
-              hideGlyph={collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now")}
-              tip={
-                collision.hideNounIds.has(mark.id)
-                  ? undefined
-                  : hiddenNouns.has(mark.id)
-                    ? [collision.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
-                    : mark.tip
-              }
-            />
-          ))}
+          {marks.map((mark) => {
+            const ratio = width > 1 ? mark.x / width : 0;
+            const hideNoun =
+              hiddenNouns.has(mark.id) ||
+              collision.hideNounIds.has(mark.id) ||
+              (nowAtEnd && mark.id === "now");
+            const hideGlyph = collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now");
+            const markTip =
+              hideGlyph || collision.hideNounIds.has(mark.id)
+                ? undefined
+                : hiddenNouns.has(mark.id)
+                  ? [collision.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
+                  : mark.tip;
+            return (
+              <MomentMark
+                key={mark.id}
+                pct={ratio * 100}
+                align={momentMarkAlign(ratio)}
+                glyph={momentGlyph(mark.noun)}
+                noun={collision.joinedLabel.get(mark.id) ?? mark.noun}
+                missing={mark.missing}
+                hideNoun={hideNoun}
+                hideGlyph={hideGlyph}
+                tip={hideNoun && hideGlyph ? undefined : markTip}
+              />
+            );
+          })}
         </div>
 
         <div className="relative" style={{ height: WINDOW_RAIL_LANE_PX }} data-pace={paceState}>
@@ -324,6 +331,7 @@ export function WindowBar({
 
 function MomentMark({
   pct,
+  align = "center",
   glyph,
   noun,
   missing = false,
@@ -332,6 +340,7 @@ function MomentMark({
   tip,
 }: {
   pct: number;
+  align?: "start" | "center" | "end";
   glyph: string;
   noun: string;
   missing?: boolean;
@@ -339,9 +348,12 @@ function MomentMark({
   hideGlyph?: boolean;
   tip?: string;
 }) {
+  const origin =
+    align === "end" ? "-translate-x-full text-right" : align === "start" ? "text-left" : "-translate-x-1/2 text-center";
   return (
     <div
-      className={`absolute top-0 -translate-x-1/2 text-center ${missing ? "opacity-35" : "text-foreground/70"}`}
+      className={`absolute top-0 ${origin} ${missing ? "opacity-35" : "text-foreground/70"}`}
+      data-mark-align={align}
       style={{ left: `${pct}%` }}
     >
       {hideGlyph ? null : (

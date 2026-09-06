@@ -11,6 +11,7 @@ import { describe, it } from "node:test";
 import { TIKTOK_IMAGE_UNSUPPORTED_REASON } from "../../plan/asset-routing.ts";
 import {
   TIKTOK_IMAGE_DISABLED_REASON,
+  assetFallbackLabel,
   assetIsUnrouted,
   assetStripState,
   googleRoutingMark,
@@ -28,6 +29,7 @@ import {
   applySplitPreset,
   moveSplitBoundary,
   splitBarLegendPlacement,
+  splitOutlineRects,
   splitProvenance,
 } from "../split-bar.ts";
 import { emptyMetricDisplay, metricChipTone } from "../metric-chip.ts";
@@ -268,13 +270,21 @@ describe("SplitBar — preset / manual + linked adjustment", () => {
     assert.match(source, /PresetChip/);
   });
 
-  it("usual outline sits over the segments with the usual percentages", () => {
+  it("usual outline sits 2px above the segments with the usual percentages", () => {
+    assert.deepEqual(splitOutlineRects([80, 15, 5]), [
+      { left: 0, width: 80 },
+      { left: 80, width: 15 },
+      { left: 95, width: 5 },
+    ]);
     const source = readFileSync("components/viz/split-bar.tsx", "utf8");
     assert.match(source, /data-split-outline=\{name\}/);
     assert.match(source, /data-outline-pcts=\{pcts\.join\("/);
-    assert.match(source, /top: 2 \+ offsetPx/);
+    assert.match(source, /data-outline-left=\{rect\.left\}/);
+    assert.match(source, /data-outline-width=\{rect\.width\}/);
+    assert.match(source, /splitOutlineRects/);
     assert.match(source, /name="usual"/);
     assert.match(source, /pcts=\{outlines\.usual\.pct\}/);
+    assert.doesNotMatch(source, /top: 2 \+ offsetPx/);
   });
 
   it("places the legend inside at 12% and outside below", () => {
@@ -695,6 +705,16 @@ describe("§4.7 plan v2 token guards", () => {
     assert.match(source, /empty\.sentence/);
     assert.equal(emptyMetricDisplay(), null);
     assert.equal(emptyMetricDisplay("   "), null);
+    assert.deepEqual(emptyMetricDisplay("Meta says · no purchases yet"), {
+      display: "£—",
+      sentence: "Meta says · no purchases yet",
+    });
+    const chip = readFileSync("components/viz/metric-chip.tsx", "utf8");
+    assert.match(chip, /data-sparkline="40x12"/);
+    assert.match(chip, /text-foreground\/35/);
+    assert.equal(assetFallbackLabel("TICKET-16x9.mp4"), "TICKET-16x9.mp4");
+    assert.equal(assetFallbackLabel("a".repeat(25)), `${"a".repeat(24)}…`);
+    assert.notEqual(assetFallbackLabel("TICKET-16x9.mp4").slice(0, 3), "TI…");
     assert.deepEqual(emptyMetricDisplay("enter ticket sales on the event"), {
       display: "£—",
       sentence: "enter ticket sales on the event",

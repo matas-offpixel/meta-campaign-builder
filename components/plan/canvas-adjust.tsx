@@ -9,6 +9,7 @@ import {
   ADJUST_INFO_VARIANT,
   ADJUST_LIFETIME_TIP,
   ADJUST_LOG_TITLE,
+  ADJUST_NO_PURCHASES_SENTENCE,
   ADJUST_PLACEMENT_LINES,
   adjustControlsVisible,
   adjustFaceView,
@@ -198,10 +199,13 @@ export function CanvasAdjust({
           <MetricChip
             label="cost per purchase"
             value={face.purchaseCost}
-            lineKind="measured"
+            emptySentence={face.purchaseCost == null ? ADJUST_NO_PURCHASES_SENTENCE : undefined}
+            lineKind={face.purchaseCost == null ? "not-yet" : "measured"}
             infoHeader={face.purchaseInfoHeader}
           >
-            <span className={VIZ_TYPE.display}>{face.purchaseLine}</span>
+            {face.purchaseCost != null ? (
+              <span className={VIZ_TYPE.display}>{face.purchaseLine}</span>
+            ) : undefined}
           </MetricChip>
         ) : null}
         {face.noUsual && face.signupLine ? (

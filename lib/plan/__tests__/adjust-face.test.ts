@@ -17,6 +17,7 @@ import {
   ADJUST_PHASE_LABEL,
   ADJUST_CHANNEL_NOT_CONNECTED,
   ADJUST_NO_PURCHASES,
+  ADJUST_NO_PURCHASES_SENTENCE,
   ADJUST_PLACEMENT_EMPTY,
   ADJUST_PLACEMENT_FACEBOOK,
   ADJUST_PLACEMENT_LINES,
@@ -783,6 +784,10 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     );
     assert.doesNotMatch(face.signupLine ?? "", /per click/);
     assert.equal(face.purchaseLine, ADJUST_NO_PURCHASES);
+    assert.equal(ADJUST_NO_PURCHASES_SENTENCE, "Meta says · no purchases yet");
+    const adjustCanvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.match(adjustCanvas, /emptySentence=\{face\.purchaseCost == null \? ADJUST_NO_PURCHASES_SENTENCE/);
+    assert.match(adjustCanvas, /lineKind=\{face\.purchaseCost == null \? "not-yet"/);
     assert.equal(
       face.purchaseDisagreement,
       "Meta says 0 purchases · tickets not entered yet",

@@ -170,7 +170,9 @@ describe("card grep-guards and kit reuse", () => {
     assert.match(assets, /AssetStrip/);
     // Zone E is the derive section now; the anchor moved with it.
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
-    assert.match(channels, /kind="derive"/);
+    assert.doesNotMatch(channels, /kind="derive"/);
+    assert.doesNotMatch(channels, /SectionAnchor/);
+    assert.match(channels, /PLAN_CANVAS_COPY\.derive/);
     assert.match(workspace, /CanvasChannels/);
   });
 

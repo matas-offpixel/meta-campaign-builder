@@ -7,6 +7,7 @@ import {
   boundaryCount,
   moveSplitBoundary,
   splitBarLegendPlacement,
+  splitOutlineRects,
   splitOutlineState,
   type SplitBarOutlines,
   type SplitBarPreset,
@@ -39,23 +40,23 @@ function OutlineStroke({
   lineKind: VizLineKind;
   offsetPx: number;
 }) {
-  let left = 0;
+  const rects = splitOutlineRects(pcts);
   return (
     <div
       data-split-outline={name}
       data-outline-pcts={pcts.join(",")}
-      className="pointer-events-none absolute"
-      style={{ left: 2, right: 2, top: 2 + offsetPx }}
+      className="pointer-events-none absolute inset-x-0"
+      style={{ top: `calc(50% - 7px - ${offsetPx}px)` }}
     >
-      {pcts.map((pct, index) => {
-        const start = left;
-        left += pct;
-        if (pct <= 0) return null;
+      {rects.map((rect, index) => {
+        if (rect.width <= 0) return null;
         return (
           <span
             key={index}
-            className={`absolute h-0 border-t border-foreground/60 ${VIZ_LINE_TOKEN[lineKind]}`}
-            style={{ left: `${start}%`, width: `${pct}%` }}
+            data-outline-left={rect.left}
+            data-outline-width={rect.width}
+            className={`absolute h-px bg-foreground/60 ${VIZ_LINE_TOKEN[lineKind]}`}
+            style={{ left: `${rect.left}%`, width: `${rect.width}%` }}
           />
         );
       })}
@@ -159,23 +160,23 @@ export function SplitBar({
         >
           <div className="absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 overflow-hidden rounded-sm border border-border bg-foreground/[0.06]">
             <FunnelBarSegments segments={trackSegments} />
-            {outlines?.usual ? (
-              <OutlineStroke
-                name="usual"
-                pcts={outlines.usual.pct}
-                lineKind="measured"
-                offsetPx={0}
-              />
-            ) : null}
-            {outlines?.history ? (
-              <OutlineStroke
-                name="history"
-                pcts={outlines.history.pct}
-                lineKind={outlines.history.lineKind}
-                offsetPx={2}
-              />
-            ) : null}
           </div>
+          {outlines?.usual ? (
+            <OutlineStroke
+              name="usual"
+              pcts={outlines.usual.pct}
+              lineKind="measured"
+              offsetPx={0}
+            />
+          ) : null}
+          {outlines?.history ? (
+            <OutlineStroke
+              name="history"
+              pcts={outlines.history.pct}
+              lineKind={outlines.history.lineKind}
+              offsetPx={2}
+            />
+          ) : null}
           {legendSlots
             .filter(({ segment }) => splitBarLegendPlacement(segment.pct) === "inside")
             .map(({ segment, left }) => (

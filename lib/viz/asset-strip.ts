@@ -11,6 +11,14 @@ export const TIKTOK_IMAGE_DISABLED_REASON =
   "TikTok image ads not supported by the launcher yet";
 
 export const ASSET_STRIP_GOOGLE_HEAD = "not on Google — search ads take no assets";
+export const ASSET_FALLBACK_MAX = 24;
+
+/** Filename in the dashed slot — wrap or ellipsis after 24, never 3. */
+export function assetFallbackLabel(name: string, max = ASSET_FALLBACK_MAX): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}…`;
+}
 
 export type AssetStripItem = {
   id: string;

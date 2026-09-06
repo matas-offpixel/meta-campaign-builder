@@ -73,16 +73,16 @@ export function CanvasBudget({
               {total ? `£${total} ${mode === "lifetime" ? "for the run" : "per day"}` : "—"}
             </span>
           ) : (
-            <>
-              <span className={VIZ_TYPE.display}>£</span>
+            <span className={`inline-flex items-baseline ${VIZ_TYPE.display}`}>
+              <span>£</span>
               <input
-                className={`w-20 border-0 bg-transparent p-0 text-right outline-none ${VIZ_TYPE.display}`}
+                className={`w-16 border-0 bg-transparent p-0 outline-none ${VIZ_TYPE.display}`}
                 aria-label={mode === "lifetime" ? "budget for the run" : "budget per day"}
                 inputMode="decimal"
                 value={total || ""}
                 onChange={(event) => commitTotal(Number(event.target.value) || 0)}
               />
-            </>
+            </span>
           )}
         </MetricChip>
         {readOnly ? null : (

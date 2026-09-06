@@ -45,7 +45,8 @@ export type PlanListMoment = {
 
 export type PlanListDrawerFix = {
   count: number;
-  channel: string;
+  /** Set only when every blocker sits on one adapter. */
+  channel: string | null;
 };
 
 export type PlanListFoldKind =
@@ -359,6 +360,9 @@ export function formatOverPaceFold(eventName: string, spent: number, planned: nu
 
 export function formatLaunchBlockedFold(eventName: string, fix: PlanListDrawerFix): string {
   const things = fix.count === 1 ? "1 thing" : `${fix.count} things`;
+  if (!fix.channel) {
+    return `${eventName}: ${things} to fix before you can launch`;
+  }
   return `${eventName}: ${things} to fix before ${fix.channel} can run`;
 }
 
@@ -378,6 +382,10 @@ export function drawerFixFromPreflight(issues: PlanPreflightIssue[]): PlanListDr
   const blocking = collectPlanPreflightBlockers(issues);
   const first = blocking[0];
   if (!first) return null;
+  const adapters = new Set(blocking.map((issue) => issue.adapter));
+  if (adapters.size > 1) {
+    return { count: blocking.length, channel: null };
+  }
   const platform = first.adapter as VizPlatform;
   return {
     count: blocking.length,
