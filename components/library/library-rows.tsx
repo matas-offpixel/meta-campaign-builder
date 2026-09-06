@@ -368,13 +368,13 @@ function PlanListPaceBar({
   dashed: boolean;
   junk: boolean;
 }) {
-  const fill = junk || planned == null || spent == null ? 0 : listPaceFillPercent(spent, planned);
+  const fill = planned == null || spent == null ? 0 : listPaceFillPercent(spent, planned);
   const sums = spent != null && planned != null && spent > 0 ? formatPaceSums(spent, planned) : null;
   return (
     <span className="pointer-events-auto relative z-[1] flex w-[160px] shrink-0 items-center gap-1.5">
       <span className="relative h-2 flex-1 overflow-hidden rounded-sm border border-border bg-transparent">
         <span
-          className={`absolute inset-0 ${dashed || junk ? "border border-dashed border-border" : ""}`}
+          className={`absolute inset-0 ${dashed ? "border border-dashed border-border" : ""}`}
         />
         {fill > 0 ? (
           <span
@@ -384,10 +384,10 @@ function PlanListPaceBar({
         ) : null}
         <span className="absolute inset-y-0 w-px bg-foreground" style={{ left: "60%" }} />
       </span>
-      {junk ? (
-        <InfoTip variant="card" label={PLAN_LIST_JUNK} />
-      ) : sums ? (
+      {sums ? (
         <InfoTip variant="card" label={sums} />
+      ) : junk ? (
+        <InfoTip variant="card" label={PLAN_LIST_JUNK} />
       ) : null}
     </span>
   );

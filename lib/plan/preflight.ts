@@ -34,6 +34,26 @@ export interface PlanPreflightIssue {
   href?: string;
 }
 
+export function collectPlanPreflightBlockers(
+  issues: readonly PlanPreflightIssue[],
+): PlanPreflightIssue[] {
+  return issues.filter((issue) => issue.blocking);
+}
+
+export function planPreflightBlockerCount(issues: readonly PlanPreflightIssue[]): number {
+  return collectPlanPreflightBlockers(issues).length;
+}
+
+export function planPreflightBlockerCounts(
+  issues: readonly PlanPreflightIssue[],
+): Record<PlanAdapterName, number> {
+  const counts: Record<PlanAdapterName, number> = { meta: 0, tiktok: 0, google: 0 };
+  for (const issue of collectPlanPreflightBlockers(issues)) {
+    counts[issue.adapter] += 1;
+  }
+  return counts;
+}
+
 export interface PlanPreflightResult {
   ok: boolean;
   issues: PlanPreflightIssue[];

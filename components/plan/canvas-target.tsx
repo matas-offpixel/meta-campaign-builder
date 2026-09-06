@@ -97,59 +97,25 @@ export function CanvasTarget({
 
   return (
     <section aria-label="target" className="flex min-h-[80px] flex-wrap items-center gap-1.5">
-      {unitPicker && editing && effective.unit ? (
-        <MetricChip label="target" size="lg">
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎ £</span>
-          <input
-            autoFocus
-            className={`w-20 border-0 bg-transparent p-0 text-right outline-none ${VIZ_TYPE.display}`}
-            aria-label="target value"
-            inputMode="decimal"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={commit}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") commit();
-              if (event.key === "Escape") setEditing(false);
-            }}
-          />
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-            per {view.unitWord}
-          </span>
-        </MetricChip>
-      ) : (
-        <button
-          type="button"
-          aria-label="edit target"
-          onClick={() => {
-            if (!unitPicker) return;
-            setDraft(String(value ?? view.chipValue));
-            setEditing(true);
-          }}
-          disabled={!effective.unit || !unitPicker}
-        >
-          <MetricChip
-            label="target"
-            size="lg"
-            value={view.chipValue}
-            benchmark={view.benchmark}
-            lineKind={view.lineKind}
-            infoHeader={view.infoHeader}
-          >
-            {effective.unit ? (
-              <>
-                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎</span>
-                <span>{formatGbp(view.chipValue)}</span>
-                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-                  per {view.unitWord}
-                </span>
-              </>
-            ) : (
-              <span className={VIZ_TYPE.label}>— · no unit</span>
-            )}
-          </MetricChip>
-        </button>
-      )}
+      <MetricChip
+        label="target"
+        size="lg"
+        value={view.chipValue}
+        benchmark={view.benchmark}
+        lineKind={view.lineKind}
+        infoHeader={view.infoHeader}
+      >
+        {effective.unit ? (
+          <>
+            <span>{formatGbp(view.chipValue)}</span>
+            <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+              per {view.unitWord}
+            </span>
+          </>
+        ) : (
+          <span className={VIZ_TYPE.label}>— · no unit</span>
+        )}
+      </MetricChip>
       <InfoTip
         variant={LAUNCH_INFO_VARIANT}
         header={view.infoHeader}
@@ -181,7 +147,29 @@ export function CanvasTarget({
       ) : null}
 
       {unitPicker ? <details className={`${VIZ_TYPE.label} text-muted-foreground`}>
-        <summary>details</summary>
+        <summary>▸ details</summary>
+        {effective.unit ? (
+          <label className="mt-1 flex items-center gap-1">
+            <span>£</span>
+            <input
+              className={`w-20 rounded-sm border border-border bg-background px-1.5 py-0.5 ${VIZ_TYPE.body}`}
+              aria-label="target value"
+              inputMode="decimal"
+              value={editing ? draft : String(value ?? view.chipValue)}
+              onFocus={() => {
+                setDraft(String(value ?? view.chipValue));
+                setEditing(true);
+              }}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") commit();
+                if (event.key === "Escape") setEditing(false);
+              }}
+            />
+            <span>per {view.unitWord}</span>
+          </label>
+        ) : null}
         <label className="mt-1 inline-flex items-center gap-1">
           <span>unit</span>
           <select
@@ -201,16 +189,15 @@ export function CanvasTarget({
             ))}
           </select>
         </label>
+        {presetHref ? (
+          <a
+            href={presetHref}
+            className="mt-1 block underline underline-offset-2 hover:text-foreground"
+          >
+            your usual
+          </a>
+        ) : null}
       </details> : null}
-
-      {unitPicker && presetHref ? (
-        <a
-          href={presetHref}
-          className={`${VIZ_TYPE.label} text-muted-foreground underline underline-offset-2 hover:text-foreground`}
-        >
-          ⌁ preset · edit
-        </a>
-      ) : null}
     </section>
   );
 }

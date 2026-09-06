@@ -155,15 +155,28 @@ export function formatIdentitySentence(input: {
   return parts.join(" · ");
 }
 
+export function formatTicketsAt(url: string | null | undefined): string | null {
+  if (!url?.trim()) return null;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return host ? `tickets at ${host}` : null;
+  } catch {
+    return null;
+  }
+}
+
 export function formatIdentityTip(input: {
   metaId: string | null;
   clientDefaultMetaId?: string | null;
   destinationUrl?: string | null;
   clientName?: string | null;
+  planTitle?: string | null;
 }): string {
   const parts: string[] = [];
   if (input.clientName?.trim()) parts.push(input.clientName.trim());
-  if (input.destinationUrl?.trim()) parts.push(input.destinationUrl.trim());
+  if (input.planTitle?.trim()) parts.push(input.planTitle.trim());
+  const tickets = formatTicketsAt(input.destinationUrl);
+  if (tickets) parts.push(tickets);
   if (input.metaId) parts.push(input.metaId);
   const clientDefault = input.clientDefaultMetaId?.trim();
   const printed = input.metaId?.trim();

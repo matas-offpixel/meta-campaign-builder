@@ -79,7 +79,6 @@ import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
   identityAccountLabel,
   launchBlockedLine,
-  launchBlockers,
   launchChannelRunning,
   launchReadingUnit,
   planIdentityMetaId,
@@ -92,7 +91,11 @@ import { planShareControls, type PlanRole } from "@/lib/plan/share-role";
 import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
-import type { PlanPreflightIssue } from "@/lib/plan/preflight";
+import {
+  planPreflightBlockerCount,
+  planPreflightBlockerCounts,
+  type PlanPreflightIssue,
+} from "@/lib/plan/preflight";
 import type { PlanTargetUnit } from "@/lib/types";
 import { isCampaignPlanObjectiveIntent, type CampaignPlan, type PlanAdapterName } from "@/lib/plan/types";
 
@@ -984,6 +987,7 @@ export function PlanWorkspace({
     <div>
       <CanvasHeader
         name={headerName}
+        planTitle={plan.name}
         clientName={selectedEvent?.clientName ?? null}
         venueName={selectedEvent?.venueName ?? null}
         eventDate={selectedEvent?.eventDate ?? null}
@@ -1187,6 +1191,7 @@ export function PlanWorkspace({
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasChannels
         rows={rows}
+        blockerCounts={planPreflightBlockerCounts(issues)}
         readingUnit={readingUnit}
         running={
           launchStamp
@@ -1306,10 +1311,7 @@ export function PlanWorkspace({
           busy,
           windowOk,
           issues,
-          blockerCount: rows.reduce(
-            (count, row) => count + launchBlockers(row.blockers).length,
-            0,
-          ),
+          blockerCount: planPreflightBlockerCount(issues),
         })}
       />
       </div>

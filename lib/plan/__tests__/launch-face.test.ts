@@ -25,6 +25,7 @@ import {
   formatSkippedShare,
   formatStartingPoint,
   formatTargetFromShows,
+  formatTicketsAt,
   identityAccountLabel,
   launchBlockedLine,
   launchBlockers,
@@ -40,6 +41,14 @@ import {
   readyLaunchAdapters,
 } from "../launch-face.ts";
 import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
+import { formatChannelFacts } from "../../viz/channel-row.ts";
+import {
+  collectPlanPreflightBlockers,
+  planPreflightBlockerCount,
+  planPreflightBlockerCounts,
+  type PlanPreflightIssue,
+} from "../preflight.ts";
+import { drawerFixFromPreflight } from "../list.ts";
 
 function nxRow(
   event_id: string,
@@ -158,7 +167,9 @@ describe("LAUNCH identity sentence", () => {
     assert.match(tip, /Electric Brixton/);
     assert.match(tip, /act_606252931141334/);
     assert.match(tip, /client default act_1073273492854557/);
-    assert.match(tip, /dod-newcastle\.com/);
+    assert.match(tip, /tickets at dod-newcastle\.com/);
+    assert.doesNotMatch(tip, /https:\/\//);
+    assert.equal(formatTicketsAt("https://dod-newcastle.com/"), "tickets at dod-newcastle.com");
   });
 
   it("launched with a null ledger falls back to the linked draft, never the resolver (D.O.D)", () => {
@@ -484,6 +495,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.doesNotMatch(channels, /BlockerBadge/);
     assert.match(channels, /stateWord\} · \$\{formatRunningFact/);
     assert.doesNotMatch(channels, /StatusDot/);
+    assert.match(channels, /blockerCounts\?\.\[row\.adapter\]/);
     assert.doesNotMatch(channels, /cost per mille|cost per click/);
     assert.doesNotMatch(channels, /platformSplit/);
   });
@@ -694,5 +706,111 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.doesNotMatch(row, /waiting for \$\{glyph\}/);
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.match(channels, /hideWaitingText/);
+  });
+
+  it("list fold, channel row and launch button share one preflight count, split per adapter", () => {
+    const issues: PlanPreflightIssue[] = [
+      { adapter: "meta", id: "meta:page", field: "page", message: "page", blocking: true },
+      { adapter: "meta", id: "meta:pixel", field: "pixel", message: "pixel", blocking: true },
+      { adapter: "google", id: "google:keywords", field: "keywords", message: "kw", blocking: false },
+    ];
+    const counts = planPreflightBlockerCounts(issues);
+    const total = planPreflightBlockerCount(issues);
+    assert.deepEqual(counts, { meta: 2, tiktok: 0, google: 0 });
+    assert.equal(total, counts.meta + counts.tiktok + counts.google);
+    assert.equal(collectPlanPreflightBlockers(issues).length, total);
+    assert.equal(drawerFixFromPreflight(issues)?.count, total);
+    assert.equal(
+      formatChannelNeedsYou(counts.meta, "Meta"),
+      "2 things to fix before Meta can run →",
+    );
+    assert.equal(
+      launchChannelStateWord({
+        skipped: false,
+        waiting: false,
+        blockerCount: counts.tiktok,
+        status: "idle",
+      }),
+      VIZ_STATE_WORD.ready,
+    );
+    assert.equal(
+      launchChannelStateWord({
+        skipped: true,
+        waiting: false,
+        blockerCount: counts.google,
+        status: "idle",
+      }),
+      VIZ_STATE_WORD.ready,
+    );
+    assert.equal(
+      formatLaunchBlockerSentence({ windowOk: true, blockerCount: total }),
+      "2 things to fix before you can launch",
+    );
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /blockerCounts=\{planPreflightBlockerCounts\(issues\)\}/);
+    assert.match(workspace, /blockerCount: planPreflightBlockerCount\(issues\)/);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.doesNotMatch(channels, /sharedBlockerCount/);
+  });
+
+  it("row facts singularise by count", () => {
+    assert.equal(
+      formatChannelFacts([
+        { n: 0, noun: "audiences" },
+        { n: 1, noun: "creatives" },
+        { n: 1, noun: "ad sets" },
+      ]),
+      "0 audiences · 1 creative · 1 ad set",
+    );
+  });
+
+  it("header is the event name; tickets at lives in the ⓘ; dest edit is in details", () => {
+    const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    assert.match(workspace, /planHeaderName\(plan\.name, selectedEvent\)/);
+    assert.match(workspace, /planTitle=\{plan\.name\}/);
+    assert.match(header, /planTitle/);
+    assert.match(header, /formatTicketsAt|tickets at|destinationUrl/);
+    assert.match(header, /<details/);
+    assert.doesNotMatch(header, /SegmentedControl/);
+  });
+
+  it("budget chrome is words, not a pill; target edit lives under ▸ details", () => {
+    const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
+    assert.match(budget, /per day/);
+    assert.match(budget, /for the run/);
+    assert.doesNotMatch(budget, /SegmentedControl/);
+    assert.match(budget, /presets=\{undefined\}/);
+    assert.doesNotMatch(
+      budget,
+      /text-muted-foreground\}>\s*\{mode === "lifetime" \? "for the run" : "per day"\}/,
+    );
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /▸ details/);
+    assert.match(target, /your usual/);
+    assert.doesNotMatch(target, /aria-label="edit target"/);
+    assert.doesNotMatch(target, />preset</);
+  });
+
+  it("pins dashed thumb, end · now, in 2h, and no StatusDot on the row", () => {
+    const thumb = readFileSync("components/viz/event-thumb.tsx", "utf8");
+    assert.match(thumb, /border-dashed/);
+    assert.doesNotMatch(thumb, /eventInitials|initials/);
+    const rail = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.match(rail, /end · now/);
+    assert.match(rail, /VIZ_TYPE_NUM\.label/);
+    assert.doesNotMatch(rail, /VIZ_TYPE\.micro/);
+    const row = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.doesNotMatch(row, /StatusDot/);
+  });
+
+  it("usual outline is a hairline over the segments with the usual percentages", () => {
+    const split = readFileSync("components/viz/split-bar.tsx", "utf8");
+    assert.match(split, /data-split-outline=\{name\}/);
+    assert.match(split, /data-outline-pcts=\{pcts\.join\("/);
+    assert.match(split, /top: 2 \+ offsetPx/);
+    assert.match(split, /border-foreground\/60/);
+    const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
+    assert.match(budget, /PLAN_SPLIT_PRESETS\[1\]!\.pct/);
   });
 });

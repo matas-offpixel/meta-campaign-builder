@@ -1,6 +1,5 @@
 "use client";
 
-import { SegmentedControl } from "@/components/plan/segmented-control";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { SplitBar } from "@/components/viz/split-bar";
@@ -68,39 +67,46 @@ export function CanvasBudget({
   return (
     <section aria-label="budget" className="min-h-[80px] space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <MetricChip label={mode === "lifetime" ? "total" : "per day"} size="lg">
-          <span className={VIZ_TYPE.display}>£</span>
+        <MetricChip label={mode === "lifetime" ? "for the run" : "per day"} size="lg">
           {readOnly ? (
-            <span className={VIZ_TYPE.display}>{total || "—"}</span>
+            <span className={VIZ_TYPE.display}>
+              {total ? `£${total} ${mode === "lifetime" ? "for the run" : "per day"}` : "—"}
+            </span>
           ) : (
-            <input
-              className={`w-20 border-0 bg-transparent p-0 text-right outline-none ${VIZ_TYPE.display}`}
-              aria-label={mode === "lifetime" ? "budget total" : "budget per day"}
-              inputMode="decimal"
-              value={total || ""}
-              onChange={(event) => commitTotal(Number(event.target.value) || 0)}
-            />
+            <>
+              <span className={VIZ_TYPE.display}>£</span>
+              <input
+                className={`w-20 border-0 bg-transparent p-0 text-right outline-none ${VIZ_TYPE.display}`}
+                aria-label={mode === "lifetime" ? "budget for the run" : "budget per day"}
+                inputMode="decimal"
+                value={total || ""}
+                onChange={(event) => commitTotal(Number(event.target.value) || 0)}
+              />
+            </>
           )}
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-            {mode === "lifetime" ? "total" : "/day"}
-          </span>
         </MetricChip>
         {readOnly ? null : (
-          <SegmentedControl
-            ariaLabel="budget mode"
-            value={mode}
-            onChange={(next) => {
-              if (next) onMode(next);
-            }}
-            options={[
-              { id: "daily", label: "daily" },
-              { id: "lifetime", label: "lifetime" },
-            ]}
-          />
+          <div className={`flex items-center gap-1.5 ${VIZ_TYPE.label} text-muted-foreground`}>
+            <button
+              type="button"
+              className={mode === "daily" ? "text-foreground" : undefined}
+              onClick={() => onMode("daily")}
+            >
+              per day
+            </button>
+            <span aria-hidden="true">/</span>
+            <button
+              type="button"
+              className={mode === "lifetime" ? "text-foreground" : undefined}
+              onClick={() => onMode("lifetime")}
+            >
+              for the run
+            </button>
+          </div>
         )}
         {mode === "lifetime" ? (
           <MetricChip label="derived per day" size="sm">
-            £{Math.round(derivedDaily)}/d
+            £{Math.round(derivedDaily)} per day
           </MetricChip>
         ) : null}
         <InfoTip
@@ -114,7 +120,7 @@ export function CanvasBudget({
       <SplitBar
         segments={planSplitSegments(budget)}
         editable={!readOnly}
-        presets={readOnly ? undefined : PLAN_SPLIT_PRESETS}
+        presets={undefined}
         outlines={{
           usual: {
             pct: PLAN_SPLIT_PRESETS[1]!.pct,

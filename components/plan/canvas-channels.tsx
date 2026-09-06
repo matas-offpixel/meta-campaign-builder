@@ -31,6 +31,7 @@ import { VIZ_TYPE } from "@/lib/viz/tokens";
  */
 export function CanvasChannels({
   rows,
+  blockerCounts,
   readingUnit,
   running,
   onOpen,
@@ -42,6 +43,7 @@ export function CanvasChannels({
   drawerEdit = true,
 }: {
   rows: PlanChannelRowModel[];
+  blockerCounts?: Record<PlanAdapterName, number>;
   readingUnit?: LaunchReadingUnit;
   running?: LaunchChannelRunning;
   onOpen: (row: PlanChannelRowModel) => void;
@@ -63,10 +65,11 @@ export function CanvasChannels({
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
         const blockers = launchBlockers(row.blockers);
+        const blockerCount = blockerCounts?.[row.adapter] ?? 0;
         const stateWord = launchChannelStateWord({
           skipped: row.skipped,
           waiting: row.waiting,
-          blockerCount: blockers.length,
+          blockerCount,
           status: row.status === "paused" ? "paused" : row.status === "live" ? "live" : "idle",
         });
         const first = blockers[0];
@@ -83,7 +86,7 @@ export function CanvasChannels({
                 })}`
               : null;
         const hideStateWord = Boolean(runningFact);
-        const needsYou = drawerEdit && stateWord === "needs you" && blockers.length > 0;
+        const needsYou = drawerEdit && stateWord === "needs you" && blockerCount > 0;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
             {hideStateWord ? null : needsYou ? (
@@ -95,7 +98,7 @@ export function CanvasChannels({
                   else onOpen(row);
                 }}
               >
-                {formatChannelNeedsYou(blockers.length, VIZ_PLATFORM_LABEL[row.adapter])}
+                {formatChannelNeedsYou(blockerCount, VIZ_PLATFORM_LABEL[row.adapter])}
               </button>
             ) : (
               <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{stateWord}</span>

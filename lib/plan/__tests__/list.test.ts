@@ -383,14 +383,43 @@ describe("plan list helpers", () => {
     assert.equal(formatRowSecondLine("NX26-FOLAMOUR", "NX Newcastle"), "NX26-FOLAMOUR · NX Newcastle");
   });
 
-  it("drawerFixFromPreflight counts wizard blockers on the first channel", () => {
+  it("drawerFixFromPreflight counts every blocking issue, one source", () => {
     const issues: PlanPreflightIssue[] = [
       { adapter: "tiktok", id: "tiktok:identity", field: "identity", message: "x", blocking: true },
       { adapter: "tiktok", id: "tiktok:video", field: "video", message: "y", blocking: true },
       { adapter: "meta", id: "meta:page", field: "page", message: "z", blocking: true },
       { adapter: "tiktok", id: "tiktok:skipped_zero_budget", field: "budget", message: "skip", blocking: true },
     ];
-    assert.deepEqual(drawerFixFromPreflight(issues), { count: 2, channel: "TikTok" });
+    assert.deepEqual(drawerFixFromPreflight(issues), { count: 4, channel: "TikTok" });
+  });
+
+  it("a draft whose show has passed is done, not needs you", () => {
+    const mall = plan({
+      id: "mall",
+      eventName: "Mall Grab - Sheffield",
+      eventDate: "2026-09-04",
+      drawerFix: { count: 2, channel: "Meta" },
+    });
+    assert.equal(planListTab("draft", "2026-09-04", NOW), "done");
+    assert.equal(planListStateWord(mall, NOW), VIZ_STATE_WORD.done);
+    assert.equal(planListRowView(mall, NOW).stateWord, VIZ_STATE_WORD.done);
+  });
+
+  it("a running plan with a junk end still draws a solid pace bar", () => {
+    const dod = plan({
+      id: "dod-junk",
+      eventName: "D.O.D",
+      status: "live",
+      eventDate: "2026-12-04",
+      startDate: "2026-08-27",
+      endDate: "2026-08-27",
+      totalDaily: 35,
+      spent: 715,
+    });
+    const view = planListRowView(dod, NOW);
+    assert.equal(view.dashedTrack, false);
+    assert.equal(view.junk, true);
+    assert.equal(listPaceFillPercent(715, 350), 90);
   });
 
   it("sumAllChannelSpend ignores days outside the window", () => {
@@ -436,6 +465,9 @@ describe("plan list surfaces pin L1–L6 words and 768 classes", () => {
     assert.match(planRow, /min-h-\[44px\]/);
     assert.match(planRow, /border-dashed/);
     assert.match(planRow, /max-md:/);
+    assert.match(planRow, /listPaceFillPercent/);
+    assert.doesNotMatch(planRow, /junk \|\| planned/);
+    assert.doesNotMatch(planRow, /dashed \|\| junk/);
     assert.doesNotMatch(planRow, /eventInitials/);
     assert.doesNotMatch(planRow, /\d{4}-\d{2}-\d{2}/);
     assert.doesNotMatch(planRow, /VIZ_STATUS_LABEL|VIZ_ACTION_LABEL/);

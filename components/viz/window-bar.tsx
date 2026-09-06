@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { formatVizMoment, formatVizRelative } from "@/lib/viz/format-moment";
 import {
   WINDOW_BAR_HEIGHT_PX,
+  WINDOW_GLYPH_COLLISION_PCT,
   WINDOW_HANDLE_LABEL_LANE_PX,
   WINDOW_MOMENT_LABEL_WIDTH,
   WINDOW_MOMENT_LANE_PX,
@@ -185,8 +186,10 @@ export function WindowBar({
       : "";
 
   const startText = formatVizMoment(start);
-  const endRelative = endLabel ? undefined : formatVizRelative(end, clock);
-  const endText = endLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
+  const nowAtEnd = Math.abs(todayPct - endPct) <= WINDOW_GLYPH_COLLISION_PCT * 100;
+  const joinedEndLabel = nowAtEnd ? "end · now" : endLabel;
+  const endRelative = joinedEndLabel ? undefined : formatVizRelative(end, clock);
+  const endText = joinedEndLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
   const startLeft = handleLabelLeftPx({
     handlePx: (startPct / 100) * width,
     labelWidth: estimateHandleLabelWidth(startText),
@@ -224,8 +227,12 @@ export function WindowBar({
               glyph={momentGlyph(mark.noun)}
               noun={collision.joinedLabel.get(mark.id) ?? mark.noun}
               missing={mark.missing}
-              hideNoun={hiddenNouns.has(mark.id) || collision.hideNounIds.has(mark.id)}
-              hideGlyph={collision.hideGlyphIds.has(mark.id)}
+              hideNoun={
+                hiddenNouns.has(mark.id) ||
+                collision.hideNounIds.has(mark.id) ||
+                (nowAtEnd && mark.id === "now")
+              }
+              hideGlyph={collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now")}
               tip={
                 collision.hideNounIds.has(mark.id)
                   ? undefined
@@ -300,6 +307,7 @@ export function WindowBar({
               />
               <HandleLabel
                 name="end"
+                noun={nowAtEnd ? "end · now" : undefined}
                 left={endLeft}
                 width={estimateHandleLabelWidth(endText)}
                 at={end}
@@ -389,6 +397,7 @@ function HandleButton({
 
 function HandleLabel({
   name,
+  noun,
   left,
   width,
   at,
@@ -396,6 +405,7 @@ function HandleLabel({
   text,
 }: {
   name: WindowHandle;
+  noun?: string;
   left: number;
   width: number;
   at: Date;
@@ -409,11 +419,11 @@ function HandleLabel({
       className={`absolute top-0 whitespace-nowrap ${end ? "text-right" : "text-left"}`}
       style={{ left, width }}
     >
-      <span className={`block whitespace-nowrap ${VIZ_TYPE.label}`}>{name}</span>
+      <span className={`block whitespace-nowrap ${VIZ_TYPE.label}`}>{noun ?? name}</span>
       <span className={`block whitespace-nowrap ${VIZ_TYPE_NUM.body}`}>
         {text ?? formatVizMoment(at)}
         {end && relative && !text ? (
-          <span className={`ml-1 whitespace-nowrap ${VIZ_TYPE_NUM.micro} text-muted-foreground`}>
+          <span className={`ml-1 whitespace-nowrap ${VIZ_TYPE_NUM.label} text-muted-foreground`}>
             · {relative}
           </span>
         ) : null}

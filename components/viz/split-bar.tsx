@@ -29,17 +29,24 @@ import { InfoTip } from "./info-tip";
 import { PlatformGlyph } from "./platform-glyph";
 
 function OutlineStroke({
+  name,
   pcts,
   lineKind,
   offsetPx,
 }: {
+  name: "usual" | "history";
   pcts: number[];
   lineKind: VizLineKind;
   offsetPx: number;
 }) {
   let left = 0;
   return (
-    <div className="pointer-events-none absolute inset-x-0" style={{ top: offsetPx }}>
+    <div
+      data-split-outline={name}
+      data-outline-pcts={pcts.join(",")}
+      className="pointer-events-none absolute"
+      style={{ left: 2, right: 2, top: 2 + offsetPx }}
+    >
       {pcts.map((pct, index) => {
         const start = left;
         left += pct;
@@ -153,10 +160,16 @@ export function SplitBar({
           <div className="absolute inset-x-0 top-1/2 h-2.5 -translate-y-1/2 overflow-hidden rounded-sm border border-border bg-foreground/[0.06]">
             <FunnelBarSegments segments={trackSegments} />
             {outlines?.usual ? (
-              <OutlineStroke pcts={outlines.usual.pct} lineKind="measured" offsetPx={0} />
+              <OutlineStroke
+                name="usual"
+                pcts={outlines.usual.pct}
+                lineKind="measured"
+                offsetPx={0}
+              />
             ) : null}
             {outlines?.history ? (
               <OutlineStroke
+                name="history"
                 pcts={outlines.history.pct}
                 lineKind={outlines.history.lineKind}
                 offsetPx={2}
