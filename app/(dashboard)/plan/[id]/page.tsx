@@ -14,7 +14,7 @@ import {
   todayIsoDate,
   type PlanEventOption,
 } from "@/lib/plan/event-picker";
-import { loadPlanLaunchRecords } from "@/lib/plan/load";
+import { loadDraftAdAccountId, loadPlanLaunchRecords } from "@/lib/plan/load";
 import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
 import { planLadderObjective } from "@/lib/plan/prepare-draft";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
@@ -172,6 +172,17 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
+      const draftId = plan.launches.meta.draftId;
+      if (draftId) {
+        try {
+          plan.launches.meta.draftAdAccountId = await loadDraftAdAccountId(
+            supabase,
+            draftId,
+          );
+        } catch {
+          plan.launches.meta.draftAdAccountId = null;
+        }
+      }
     }
   }
 

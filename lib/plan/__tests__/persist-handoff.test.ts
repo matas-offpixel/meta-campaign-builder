@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { planToGoogleDraft } from "../adapters/google.ts";
-import { loadPlanLaunchRecords } from "../load.ts";
+import { loadDraftAdAccountId, loadPlanLaunchRecords } from "../load.ts";
 import { collectPlanPreflight } from "../preflight.ts";
 import { orchestratePlanLaunch } from "../orchestrator.ts";
 import {
@@ -272,7 +272,7 @@ describe("linked-draft preflight and fan-out persist", () => {
     assert.equal(uuidOnly.plan.launches.google.platformAdAccountId, null);
   });
 
-  it("load attaches the linked draft adAccountId when the ledger is still null (D.O.D)", async () => {
+  it("page loader reads the linked draft adAccountId; ledger load stays a launch-row read (D.O.D)", async () => {
     const draftId = "645ed600-0000-4000-8000-000000000000";
     const supabase = {
       from(table: string) {
@@ -314,9 +314,19 @@ describe("linked-draft preflight and fan-out persist", () => {
     };
     const launches = await loadPlanLaunchRecords(supabase, "plan-dod");
     assert.equal(launches.meta.platformAdAccountId, null);
-    assert.equal(launches.meta.draftAdAccountId, "act_606252931141334");
+    assert.equal(launches.meta.draftAdAccountId, null);
+    assert.equal(await loadDraftAdAccountId(supabase, draftId), "act_606252931141334");
     const persist = readFileSync("lib/plan/persist.ts", "utf8");
     assert.doesNotMatch(persist, /draftAdAccountId|draft_ad_account_id/);
+    const load = readFileSync("lib/plan/load.ts", "utf8");
+    const ledgerRead = load.slice(
+      load.indexOf("export async function loadPlanLaunchRecords"),
+      load.indexOf("export function emptyPlanLaunches"),
+    );
+    assert.doesNotMatch(ledgerRead, /campaign_drafts/);
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /loadDraftAdAccountId/);
+    assert.match(page, /try \{/);
   });
 });
 

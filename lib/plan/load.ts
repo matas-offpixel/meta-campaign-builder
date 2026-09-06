@@ -114,18 +114,11 @@ export async function loadPlanLaunchRecords(
     client.from("campaign_plan_tiktok_launch").select("*").eq("plan_id", planId).maybeSingle(),
     client.from("campaign_plan_google_launch").select("*").eq("plan_id", planId).maybeSingle(),
   ]);
-  const launches = {
+  return {
     meta: toLaunch(meta.data),
     tiktok: toLaunch(tiktok.data),
     google: toLaunch(google.data),
   };
-  if (launches.meta.draftId) {
-    launches.meta.draftAdAccountId = await loadDraftAdAccountId(
-      supabase,
-      launches.meta.draftId,
-    );
-  }
-  return launches;
 }
 
 export function emptyPlanLaunches(): CampaignPlanLaunches {

@@ -563,6 +563,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(load, /from\("campaign_drafts"\)/);
     assert.match(load, /draft_json/);
     assert.match(load, /settings\?\.adAccountId/);
+    assert.match(page, /loadDraftAdAccountId/);
     assert.match(page, /eventMetaAdAccountId: event\.meta_ad_account_id/);
     const tip = formatIdentityTip({
       metaId: "act_606252931141334",
