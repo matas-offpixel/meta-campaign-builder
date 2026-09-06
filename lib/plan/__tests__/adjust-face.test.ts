@@ -8,7 +8,7 @@ import { formatPaceSentence } from "../../viz/pace.ts";
 import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE, VIZ_TICKET_LINE_WORD } from "../../viz/tokens.ts";
 import {
   ADJUST_APPLY_NEXT_CHECK,
-  ADJUST_LOG_EMPTY,
+  ADJUST_LIFETIME_TIP,
   ADJUST_LOG_TITLE,
   ADJUST_NO_READS,
   ADJUST_NO_USUAL,
@@ -16,7 +16,6 @@ import {
   ADJUST_PAGE_VIEWS_EMPTY,
   ADJUST_PHASE_LABEL,
   ADJUST_PLACEMENT_EMPTY,
-  ADJUST_CREATIVE_STALE,
   adjustControlsVisible,
   adjustFaceView,
   formatAgainstUsual,
@@ -27,7 +26,9 @@ import {
   formatLogDid,
   formatLogEmpty,
   formatMetaSays,
+  formatCreativeStale,
   formatNoUsual,
+  formatUsualFromShows,
   formatOurTagNotMeasured,
   formatPurchaseDisagreement,
   formatRefusal,
@@ -40,12 +41,16 @@ import {
   plannedSpendByToday,
   writeGatesOpen,
   adjustLogFromDecisions,
+  emptyAdjustReads,
 } from "../adjust-face.ts";
+import { planLaunchedAt } from "../launch-face.ts";
+import { IDLE_PLAN_LAUNCH } from "../types.ts";
+import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
 
 describe("ADJUST J-states — sentences", () => {
   it("J1 day 0 — no reads and empty log", () => {
     assert.equal(ADJUST_NO_READS, "no reads yet — Meta's first day arrives at 08:00 tomorrow");
-    assert.equal(ADJUST_LOG_EMPTY, "nothing yet — the first check is at 13:00");
+    assert.equal(adjustFaceSentences("J1")[1], formatLogEmpty());
   });
 
   it("J2 / J24 pace is sums, never a percentage", () => {
@@ -59,7 +64,9 @@ describe("ADJUST J-states — sentences", () => {
   });
 
   it("J7 no usual", () => {
-    assert.equal(ADJUST_NO_USUAL, "no usual yet — opens after your first finished NX show");
+    assert.equal(ADJUST_NO_USUAL, "no usual yet — opens after your first finished show");
+    assert.equal(formatNoUsual(null), ADJUST_NO_USUAL);
+    assert.equal(formatNoUsual(""), ADJUST_NO_USUAL);
   });
 
   it("J8 two-source lines never merge; gap is unsigned", () => {
@@ -110,7 +117,7 @@ describe("ADJUST J-states — sentences", () => {
   });
 
   it("J19 creative locked; J22 client-safe", () => {
-    assert.equal(formatCreativeLocked("operator", "Tue 26 Aug"), ADJUST_CREATIVE_STALE);
+    assert.equal(formatCreativeLocked("operator", "Tue 26 Aug"), formatCreativeStale("Tue 26 Aug"));
     assert.equal(formatCreativeLocked("client", "Tue 26 Aug"), VIZ_LOCKED_CLIENT_CREATIVE);
     assert.equal(VIZ_LOCKED_CLIENT_CREATIVE, "not measured yet — creative results are scored after your first finished show");
     assert.doesNotMatch(VIZ_CLIENT_SAFE("creative_scores table and ENABLE_AI_AUTOTAG"), /table|ENABLE_/i);
@@ -269,6 +276,26 @@ describe("ADJUST surface guards", () => {
     assert.match(source, /stages=\{undefined\}/);
     assert.match(source, /metaSignups=\{adjustReads/);
     assert.match(source, /planLaunchedAt/);
+    assert.match(source, /from "@\/lib\/plan\/launch-face"/);
+  });
+
+  it("idle prepare-draft row does not set the ADJUST window start", () => {
+    assert.equal(
+      planLaunchedAt({
+        meta: { ...IDLE_PLAN_LAUNCH, createdAt: "2026-07-24T09:14:00.000Z" },
+        tiktok: { ...IDLE_PLAN_LAUNCH },
+        google: { ...IDLE_PLAN_LAUNCH },
+      }),
+      null,
+    );
+    const adjustFace = readFileSync("lib/plan/adjust-face.ts", "utf8");
+    assert.doesNotMatch(adjustFace, /export function planLaunchedAt/);
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /sinceDate: launchedAt \? launchedAt\.slice\(0, 10\) : null/);
+    assert.match(page, /from "@\/lib\/plan\/launch-face"/);
+    assert.match(page, /loadPlanBenchmarkRows/);
+    assert.doesNotMatch(readFileSync("lib/plan/adjust-reads.ts", "utf8"), /loadPlanBenchmarkRows/);
+    assert.match(readFileSync("lib/plan/launch-reads.ts", "utf8"), /export async function loadPlanBenchmarkRows/);
   });
 });
 
@@ -465,6 +492,16 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     });
     assert.equal(face.noUsual, formatNoUsual("Electric Brixton"));
     assert.doesNotMatch(face.noUsual ?? "", /\bNX\b/);
+    const emptyVenue = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+    });
+    assert.equal(emptyVenue.noUsual, "no usual yet — opens after your first finished show");
   });
 
   it("J23 renders both readings plus the tickets line", () => {
@@ -526,6 +563,118 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     const atNoonUtc = new Date("2026-09-06T11:00:00.000Z");
     assert.equal(formatLogEmpty(atNoonUtc), `nothing yet — the first check is at ${nextCheckClock(atNoonUtc)}`);
     const later = new Date("2026-09-06T14:00:00.000Z");
-    assert.notEqual(formatLogEmpty(later), ADJUST_LOG_EMPTY);
+    assert.notEqual(formatLogEmpty(later), "nothing yet — the first check is at 13:00");
+  });
+
+  it("day 0 with zero rollup rows renders J1, not £0 spent", () => {
+    const reads = emptyAdjustReads();
+    assert.equal(reads.metaRegs, null);
+    const face = adjustFaceView({
+      spent: reads.spend,
+      planned: 0,
+      metaSignups: reads.metaRegs,
+      metaPurchases: reads.metaPurchases,
+      tickets: reads.tickets,
+      ticketSource: "none",
+      now: NOW,
+    });
+    assert.equal(face.noReads, true);
+    assert.equal(face.paceSentence, ADJUST_NO_READS);
+    assert.doesNotMatch(face.paceSentence, /£0 spent/);
+    const source = readFileSync("lib/plan/adjust-reads.ts", "utf8");
+    assert.match(source, /rowCount === 0/);
+    assert.match(source, /emptyAdjustReads/);
+  });
+
+  it("a view plan reads META'S REACH and cost per thousand reached", () => {
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      unitWord: "thousand reached",
+    });
+    assert.equal(face.infoHeader, "ESTIMATED · META'S REACH, YOUR SPEND");
+    assert.equal(face.costLabel, "cost per thousand reached");
+    assert.equal(face.signupLine, "£0.51 per thousand reached");
+    const canvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.match(canvas, /face\.costLabel/);
+    assert.match(canvas, /face\.infoHeader/);
+  });
+
+  it("adjustFaceView passes the sparkline through", () => {
+    const trend = [0.9, 0.7, 0.51];
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      trend,
+    });
+    assert.deepEqual(face.trend, trend);
+    const canvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.match(canvas, /trend=\{face\.trend\}/);
+  });
+
+  it("D.O.D usual is the windowed view, lifetime only in the ⓘ", () => {
+    const rows: BenchmarkRow[] = [
+      row("djez", 1.67),
+      row("eed", 1.32),
+      row("folamour", 0.82),
+      row("ipc", 0.87),
+      row("mf", 2.75),
+    ];
+    const chip = planBenchmark({
+      rows,
+      clientId: "eb",
+      venueKey: "nx newcastle",
+      venueLabel: "NX Newcastle",
+      unit: "signup",
+      excludeEventId: "dod",
+    });
+    assert.ok(chip);
+    const face = adjustFaceView({
+      spent: 554,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      venueName: "NX Newcastle",
+      benchmark: chip,
+    });
+    assert.equal(
+      face.signupLine,
+      formatUsualFromShows(554 / 1086, "signup", 1.32, "from 5 other shows at NX Newcastle"),
+    );
+    assert.equal(face.signupLine, "£0.51 per signup · your usual £1.32 — from 5 other shows at NX Newcastle");
+    assert.deepEqual(chip.band, [0.87, 1.67]);
+    assert.equal(chip.value, 1.32);
+    assert.equal(ADJUST_LIFETIME_TIP, "over the whole campaign");
+    const canvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.match(canvas, /ADJUST_LIFETIME_TIP/);
+    const source = readFileSync("lib/plan/adjust-face.ts", "utf8");
+    assert.doesNotMatch(source, /export function adSetNameFromReason/);
+    assert.doesNotMatch(source, /ADJUST_LOG_EMPTY|ADJUST_CREATIVE_STALE/);
   });
 });
+
+function row(event_id: string, cost: number): BenchmarkRow {
+  return {
+    client_id: "eb",
+    venue_key: "nx newcastle",
+    event_id,
+    event_code: event_id,
+    event_date: "2026-10-02",
+    unit: "signup",
+    channel: "meta",
+    cost,
+  };
+}

@@ -2,9 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { AdjustWindowReads } from "./adjust-face.ts";
+import { emptyAdjustReads, type AdjustWindowReads } from "./adjust-face.ts";
 
 export type { AdjustWindowReads };
+export { emptyAdjustReads };
 
 function num(value: unknown): number {
   const n = Number(value ?? 0);
@@ -27,6 +28,7 @@ export async function loadAdjustReads(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
+  let rowCount = 0;
   let spend = 0;
   let metaRegs = 0;
   let metaPurchases = 0;
@@ -54,6 +56,7 @@ export async function loadAdjustReads(
       break;
     }
     const page = (data ?? []) as Array<Record<string, unknown>>;
+    rowCount += page.length;
     for (const row of page) {
       const dayMetaSpend = num(row.ad_spend);
       const dayTiktok = num(row.tiktok_spend);
@@ -92,6 +95,10 @@ export async function loadAdjustReads(
     if (!error && data?.snapshot_at) {
       lastCreativeSnapshotAt = String(data.snapshot_at);
     }
+  }
+
+  if (rowCount === 0) {
+    return emptyAdjustReads({ firstPartyLpv, lastCreativeSnapshotAt });
   }
 
   return {

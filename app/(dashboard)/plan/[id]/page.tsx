@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
 import { loadAdjustReads } from "@/lib/plan/adjust-reads";
-import { planLaunchedAt } from "@/lib/plan/adjust-face";
+import { venueKey } from "@/lib/plan/venue-key";
 import { listPresetsForClient } from "@/lib/db/optimisation-presets";
 import { presetPrimaryRule, resolvePreset } from "@/lib/optimisation/presets";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
@@ -23,7 +23,6 @@ import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
 import { loadLaunchRollupDays, loadPlanBenchmarkRows } from "@/lib/plan/launch-reads";
 import { planLaunchedAt, planStampLondonDate } from "@/lib/plan/launch-face";
-import { venueKey } from "@/lib/plan/venue-key";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -237,8 +236,6 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
           campaignId: workspacePlan.launches.meta.platformCampaignId,
         })
       : null;
-
-  const launchedAt = planLaunchedAt(workspacePlan.launches);
   const rollupDays =
     launchedAt && workspacePlan.intent.eventId
       ? await loadLaunchRollupDays(supabase, workspacePlan.intent.eventId, {

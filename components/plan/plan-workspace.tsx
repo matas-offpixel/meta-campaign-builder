@@ -44,12 +44,12 @@ import {
 } from "@/lib/plan/canvas-inputs";
 import {
   domainFromUrl,
-  planLaunchedAt,
   plannedSpendByToday,
   type AdjustDecisionRow,
   type AdjustWindowReads,
 } from "@/lib/plan/adjust-face";
 import { VIZ_UNIT_WORD } from "@/lib/viz/tokens";
+import { planBenchmark, type BenchmarkRow } from "@/lib/plan/benchmarks";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
@@ -75,10 +75,10 @@ import {
   launchBlockers,
   launchChannelRunning,
   launchReadingUnit,
+  planLaunchedAt,
   planLaunchStamp,
   readyLaunchAdapters,
 } from "@/lib/plan/launch-face";
-import { planBenchmark, type BenchmarkRow } from "@/lib/plan/benchmarks";
 import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
@@ -766,6 +766,22 @@ export function PlanWorkspace({
     unitKey === "reg" || unitKey === "click" || unitKey === "lpv" || unitKey === "purchase" || unitKey === "view"
       ? VIZ_UNIT_WORD[unitKey]
       : "signup";
+  const adjustBenchmark =
+    selectedEvent?.clientId && selectedEvent.venueKey
+      ? planBenchmark({
+          rows: benchmarkRows,
+          clientId: selectedEvent.clientId,
+          venueKey: selectedEvent.venueKey,
+          venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
+          unit:
+            unitKey === "reg" || !unitKey
+              ? "signup"
+              : unitKey === "click" || unitKey === "lpv" || unitKey === "purchase" || unitKey === "view"
+                ? unitKey
+                : "signup",
+          excludeEventId: selectedEvent.id,
+        })
+      : undefined;
   const ticketStage = funnel?.stages.find((stage) => stage.key === "purchases");
   const ticketSourceRaw = ticketStage?.provenanceDetail.match(
     /Winning snapshot source is (\w+)/,
@@ -923,7 +939,7 @@ export function PlanWorkspace({
           spent={adjustReads?.spend ?? liveSpend ?? 0}
           planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
           unitWord={unitWord}
-          benchmark={undefined}
+          benchmark={adjustBenchmark}
           writeGates={adjustGates}
           channels={adjustReads?.channels ?? []}
           metaSignups={adjustReads ? adjustReads.metaRegs : null}

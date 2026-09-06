@@ -6,6 +6,7 @@ import { MetricChip } from "@/components/viz/metric-chip";
 import { WindowBar } from "@/components/viz/window-bar";
 import {
   ADJUST_INFO_VARIANT,
+  ADJUST_LIFETIME_TIP,
   ADJUST_LOG_TITLE,
   ADJUST_PLACEMENT_EMPTY,
   adjustControlsVisible,
@@ -127,7 +128,12 @@ export function CanvasAdjust({
   });
   const controls = adjustControlsVisible(role);
   const nextCheck = nextCheckClock(now);
-  const tipParts = [face.paceSentence, funnelLifetimeTip, face.applyTip].filter(Boolean);
+  const tipParts = [
+    face.paceSentence,
+    funnelLifetimeTip,
+    benchmark ? ADJUST_LIFETIME_TIP : null,
+    face.applyTip,
+  ].filter(Boolean);
   const windowStart = face.windowStart ?? start;
 
   return (
@@ -163,7 +169,7 @@ export function CanvasAdjust({
       <div className="flex flex-wrap items-start gap-4 max-md:flex max-md:flex-col">
         {face.signupLine ? (
           <MetricChip
-            label="cost per signup"
+            label={face.costLabel}
             value={face.signupCost}
             benchmark={benchmark}
             phaseLabel={face.signupPhaseLabel}
@@ -176,7 +182,7 @@ export function CanvasAdjust({
           </MetricChip>
         ) : (
           <MetricChip
-            label="cost per signup"
+            label={face.costLabel}
             value={null}
             emptySentence={face.paceSentence}
             lineKind="not-yet"

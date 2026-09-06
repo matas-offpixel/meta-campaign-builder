@@ -14,7 +14,6 @@ import {
   type VizLineKind,
 } from "../viz/tokens.ts";
 import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
-import type { CampaignPlanLaunches } from "./types.ts";
 
 export const ADJUST_INFO_VARIANT = "card" as const;
 export const ADJUST_PHASE_LABEL = "before general sale" as const;
@@ -29,15 +28,12 @@ export const ADJUST_OPERATOR_APPLY_PATH = false;
 /** J1 — Meta's first rollup is 08:00 London the next morning (vercel.json rollup-sync). */
 export const ADJUST_NO_READS = "no reads yet — Meta's first day arrives at 08:00 tomorrow";
 
-/** J7 — brief §4 (Modern Funktion). n = 0 is undefined from planBenchmark. */
-export const ADJUST_NO_USUAL = "no usual yet — opens after your first finished NX show";
-
-/** J19 — last snapshot day is substituted at the view; this is the NX example. */
-export const ADJUST_CREATIVE_STALE = "by creative name · no reads since Tue 26 Aug";
+/** J7 — brief §4. n = 0 is undefined from planBenchmark. */
+export const ADJUST_NO_USUAL = "no usual yet — opens after your first finished show";
 
 export const ADJUST_PLACEMENT_EMPTY = "instagram · — · not read yet";
 
-export const ADJUST_LOG_EMPTY = "nothing yet — the first check is at 13:00";
+export const ADJUST_LIFETIME_TIP = "over the whole campaign";
 
 export const OPTIMISATION_TICK_UTC_HOURS = [0, 4, 8, 12, 16, 20] as const;
 
@@ -66,10 +62,19 @@ export function formatAgainstUsual(
   return `${formatCostPerUnit(value, unitWord)} · ${relation} your usual ${formatGbp(usual)}`;
 }
 
-export function formatNoUsual(venueLabel = "NX"): string {
-  return venueLabel === "NX"
-    ? ADJUST_NO_USUAL
-    : `no usual yet — opens after your first finished ${venueLabel} show`;
+export function formatNoUsual(venueLabel?: string | null): string {
+  const venue = venueLabel?.trim();
+  if (!venue) return ADJUST_NO_USUAL;
+  return `no usual yet — opens after your first finished ${venue} show`;
+}
+
+export function formatUsualFromShows(
+  value: number,
+  unitWord: string,
+  usual: number,
+  fromShows: string,
+): string {
+  return `${formatCostPerUnit(value, unitWord)} · your usual ${formatGbp(usual)} — ${fromShows}`;
 }
 
 export function formatSuggestion(input: {
@@ -248,13 +253,6 @@ export function adjustInfoHeader(unitWord: string): string {
   return "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND";
 }
 
-export function planLaunchedAt(launches: CampaignPlanLaunches): string | null {
-  const stamps = (["meta", "tiktok", "google"] as const)
-    .map((adapter) => launches[adapter].createdAt)
-    .filter((value): value is string => Boolean(value?.trim()));
-  return stamps.sort()[0] ?? null;
-}
-
 export function paceToneFor(spent: number, planned: number): VizDeltaTone {
   if (planned <= 0 || spent === planned) return "none";
   return spent > planned ? "below" : "above";
@@ -288,11 +286,6 @@ export function domainFromUrl(url: string | null | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-export function adSetNameFromReason(reasonText: string): string | null {
-  const match = reasonText.match(/"([^"]+)"/);
-  return match?.[1] ?? null;
 }
 
 export function decisionAdSetName(row: {
@@ -357,7 +350,7 @@ export type AdjustJState =
 export function adjustFaceSentences(state: AdjustJState): string[] {
   switch (state) {
     case "J1":
-      return [ADJUST_NO_READS, ADJUST_LOG_EMPTY];
+      return [ADJUST_NO_READS, formatLogEmpty()];
     case "J2":
     case "J24":
       return [formatPaceSums(558, 350), ADJUST_PHASE_LABEL];
@@ -402,7 +395,7 @@ export function adjustFaceSentences(state: AdjustJState): string[] {
     case "J18":
       return [formatRefusal("Disco Pages", 5, 3, "signup")];
     case "J19":
-      return [ADJUST_CREATIVE_STALE];
+      return [formatCreativeStale("Tue 26 Aug")];
     case "J22":
       return [VIZ_LOCKED_CLIENT_CREATIVE, formatCreativeLocked("client")];
     case "J23":
@@ -492,17 +485,42 @@ export type AdjustChannelRead = {
 
 export type AdjustWindowReads = {
   spend: number;
-  metaRegs: number;
-  metaPurchases: number;
-  tickets: number;
-  reach: number;
-  clicks: number;
-  landingPageViews: number;
+  metaRegs: number | null;
+  metaPurchases: number | null;
+  tickets: number | null;
+  reach: number | null;
+  clicks: number | null;
+  landingPageViews: number | null;
   firstPartyLpv: number | null;
   dailyCostPerSignup: number[];
   channels: AdjustChannelRead[];
   lastCreativeSnapshotAt: string | null;
 };
+
+export function emptyAdjustReads(
+  extras: Pick<AdjustWindowReads, "firstPartyLpv" | "lastCreativeSnapshotAt"> = {
+    firstPartyLpv: null,
+    lastCreativeSnapshotAt: null,
+  },
+): AdjustWindowReads {
+  return {
+    spend: 0,
+    metaRegs: null,
+    metaPurchases: null,
+    tickets: null,
+    reach: null,
+    clicks: null,
+    landingPageViews: null,
+    firstPartyLpv: extras.firstPartyLpv,
+    dailyCostPerSignup: [],
+    channels: [
+      { name: "Meta", spend: 0, results: null },
+      { name: "TikTok", spend: 0, results: null },
+      { name: "Google", spend: 0, results: null },
+    ],
+    lastCreativeSnapshotAt: extras.lastCreativeSnapshotAt,
+  };
+}
 
 export type AdjustFaceInput = {
   role?: "operator" | "client";
@@ -541,6 +559,7 @@ export type AdjustFaceView = {
   noReads: boolean;
   signupCost: number | null;
   signupLine: string | null;
+  costLabel: string;
   signupPhaseLabel: string | undefined;
   purchaseCost: number | null;
   purchaseLine: string | null;
@@ -684,7 +703,7 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
       launchedAt.getTime() < genSale.getTime(),
   );
   const showKeptSignup = salePassed && launchedBeforeSale;
-  const noUsual = input.benchmark ? null : formatNoUsual(input.venueName?.trim() || "NX");
+  const noUsual = input.benchmark ? null : formatNoUsual(input.venueName);
   const suggestion = suggestionFromDecisions(input.decisions ?? [], {
     unitWord,
     cost: signupCost ?? purchaseCost,
@@ -724,14 +743,20 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
     signupLine:
       signupCost != null
         ? input.benchmark
-          ? formatAgainstUsual(signupCost, "signup", input.benchmark.value)
-          : formatCostPerUnit(signupCost, "signup")
+          ? formatUsualFromShows(
+              signupCost,
+              unitWord,
+              input.benchmark.value,
+              input.benchmark.sentence,
+            )
+          : formatCostPerUnit(signupCost, unitWord)
         : null,
+    costLabel: `cost per ${unitWord}`,
     signupPhaseLabel: showKeptSignup ? ADJUST_PHASE_LABEL : undefined,
     purchaseCost,
     purchaseLine: purchaseCost != null ? formatMetaSaysCost(purchaseCost, "purchase") : null,
     noUsual,
-    infoHeader: adjustInfoHeader("signup"),
+    infoHeader: adjustInfoHeader(unitWord),
     purchaseInfoHeader: adjustInfoHeader("purchase"),
     suggestionSentence,
     notNow: Boolean(suggestionSentence && controls.notNow),

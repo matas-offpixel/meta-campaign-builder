@@ -88,4 +88,35 @@ Readings (not stop-the-PR):
 2. **Signups on ADJUST are `event_daily_rollups.meta_regs` over the plan window** (canon G1). Cost per signup is spend ÷ `meta_regs`. `event_signups` is unread.
 3. **No operator-triggered apply endpoint exists.** `ADJUST_OPERATOR_APPLY_PATH` is false. `do it` is not rendered. `not now` stays. The ⓘ says `applied at the next check`. This branch does not add a Meta write route.
 4. **Ad-set names** come from `adset_id` → the draft's `adSetSuggestions` at read time. Rule labels in `reason_text` are never used as names. Unnamed refusals still render as J18 (`"ad set"`).
-5. **J7 sentence** uses brief §4 (`first finished NX show`) when the venue is NX; otherwise the plan's venue. Not LEARN E3's `3rd show (1 so far)`.
+5. **J7 sentence** is `no usual yet — opens after your first finished show` when the venue is empty; otherwise the plan's venue. Not LEARN E3's `3rd show`.
+
+## Review round 2 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| `formatNoUsual` defaulted to NX; empty venue still said NX | `formatNoUsual` / `adjustFaceView` — no default | `venue substitution` empty-venue case → `no usual yet — opens after your first finished show` |
+| Dead `adSetNameFromReason`, `ADJUST_LOG_EMPTY`, `ADJUST_CREATIVE_STALE` | deleted; fixtures use `formatLogEmpty` / `formatCreativeStale` | D.O.D usual test greps them gone |
+| `infoHeader` / chip label / signup line ignored the unit | `adjustInfoHeader(unitWord)`; `costLabel` | `a view plan reads META'S REACH and cost per thousand reached` |
+| Zero rollup rows returned `metaRegs: 0` — J1 unreachable | `emptyAdjustReads` when `rowCount === 0` | `day 0 with zero rollup rows renders J1, not £0 spent` |
+| Sparkline wired, unpinned | `adjustFaceView.trend` | `adjustFaceView passes the sparkline through` |
+| Usual still stub | `planBenchmark` from the view into `adjustFaceView` | D.O.D `£0.51 per signup · your usual £1.32 — from 5 other shows at NX Newcastle`; band £0.87–£1.67; ⓘ `over the whole campaign` |
+
+## Validation
+
+- [x] `npm test` (round 1: 5186 pass, 3 skipped)
+- [x] `npm test` (round 2: 5236 pass, 4 skipped)
+- [x] `npm run build` (round 2)
+
+## Round 3 — rebase onto main
+
+Rebased onto `f236e37` (#895). Deduped the two copies that now exist on main.
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| `planLaunchedAt` in adjust-face used every ledger `createdAt` including idle | deleted; `sinceDate` / window start use `planLaunchStamp` via `lib/plan/launch-face.ts` | `idle prepare-draft row does not set the ADJUST window start` |
+| `loadPlanBenchmarkRows` duplicated in adjust-reads and launch-reads | keep `lib/plan/launch-reads.ts`; page loads the view once | same test — `adjust-reads` has no copy; page imports from `launch-reads` |
+
+## Validation
+
+- [ ] `npm test` (round 3)
+- [ ] `npm run build` (round 3)
