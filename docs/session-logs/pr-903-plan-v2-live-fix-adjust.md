@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 903
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/903
 - **Branch:** `cursor/plan-v2-live-fix-adjust`
 
 ## Summary
@@ -20,9 +20,9 @@ Live-walk fix for the ADJUST face (D.O.D / frame J2). The reading unit follows t
 
 ## Validation
 
-- [x] `node --test` on adjust-face, window-bar-labels, automation-ui, canvas, viz-kit-redesign
-- [ ] `npx tsc --noEmit`
-- [ ] `npm test` (when applicable)
+- [x] `node --test` on adjust-face, window-bar-labels, automation-ui, canvas, viz-kit-redesign, launch-face
+- [ ] `npx tsc --noEmit` (pre-existing test-file errors only; no errors in this PR's paths)
+- [x] Targeted `node --test` (161 pass on the first slice, 111 on the second)
 - [ ] Screenshots: D.O.D plan, Chrome 1176
 
 ## Notes
