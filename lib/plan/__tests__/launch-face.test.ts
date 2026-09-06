@@ -45,6 +45,7 @@ import { formatChannelFacts } from "../../viz/channel-row.ts";
 import {
   collectPlanPreflightBlockers,
   planPreflightBlockerCount,
+  planPreflightBlockerCounts,
   type PlanPreflightIssue,
 } from "../preflight.ts";
 import { drawerFixFromPreflight } from "../list.ts";
@@ -494,7 +495,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.doesNotMatch(channels, /BlockerBadge/);
     assert.match(channels, /stateWord\} · \$\{formatRunningFact/);
     assert.doesNotMatch(channels, /StatusDot/);
-    assert.match(channels, /sharedBlockerCount/);
+    assert.match(channels, /blockerCounts\?\.\[row\.adapter\]/);
     assert.doesNotMatch(channels, /cost per mille|cost per click/);
     assert.doesNotMatch(channels, /platformSplit/);
   });
@@ -707,28 +708,49 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(channels, /hideWaitingText/);
   });
 
-  it("list fold, channel row and launch button share one blocker count", () => {
+  it("list fold, channel row and launch button share one preflight count, split per adapter", () => {
     const issues: PlanPreflightIssue[] = [
       { adapter: "meta", id: "meta:page", field: "page", message: "page", blocking: true },
       { adapter: "meta", id: "meta:pixel", field: "pixel", message: "pixel", blocking: true },
-      { adapter: "tiktok", id: "tiktok:video", field: "video", message: "video", blocking: true },
       { adapter: "google", id: "google:keywords", field: "keywords", message: "kw", blocking: false },
     ];
-    const count = planPreflightBlockerCount(issues);
-    assert.equal(count, 3);
-    assert.equal(collectPlanPreflightBlockers(issues).length, count);
-    assert.equal(drawerFixFromPreflight(issues)?.count, count);
+    const counts = planPreflightBlockerCounts(issues);
+    const total = planPreflightBlockerCount(issues);
+    assert.deepEqual(counts, { meta: 2, tiktok: 0, google: 0 });
+    assert.equal(total, counts.meta + counts.tiktok + counts.google);
+    assert.equal(collectPlanPreflightBlockers(issues).length, total);
+    assert.equal(drawerFixFromPreflight(issues)?.count, total);
     assert.equal(
-      formatChannelNeedsYou(count, "Meta"),
-      "3 things to fix before Meta can run →",
+      formatChannelNeedsYou(counts.meta, "Meta"),
+      "2 things to fix before Meta can run →",
     );
     assert.equal(
-      formatLaunchBlockerSentence({ windowOk: true, blockerCount: count }),
-      "3 things to fix before you can launch",
+      launchChannelStateWord({
+        skipped: false,
+        waiting: false,
+        blockerCount: counts.tiktok,
+        status: "idle",
+      }),
+      VIZ_STATE_WORD.ready,
+    );
+    assert.equal(
+      launchChannelStateWord({
+        skipped: true,
+        waiting: false,
+        blockerCount: counts.google,
+        status: "idle",
+      }),
+      VIZ_STATE_WORD.ready,
+    );
+    assert.equal(
+      formatLaunchBlockerSentence({ windowOk: true, blockerCount: total }),
+      "2 things to fix before you can launch",
     );
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /sharedBlockerCount=\{planPreflightBlockerCount\(issues\)\}/);
+    assert.match(workspace, /blockerCounts=\{planPreflightBlockerCounts\(issues\)\}/);
     assert.match(workspace, /blockerCount: planPreflightBlockerCount\(issues\)/);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.doesNotMatch(channels, /sharedBlockerCount/);
   });
 
   it("row facts singularise by count", () => {
@@ -759,10 +781,36 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(budget, /for the run/);
     assert.doesNotMatch(budget, /SegmentedControl/);
     assert.match(budget, /presets=\{undefined\}/);
+    assert.doesNotMatch(
+      budget,
+      /text-muted-foreground\}>\s*\{mode === "lifetime" \? "for the run" : "per day"\}/,
+    );
     const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
     assert.match(target, /▸ details/);
     assert.match(target, /your usual/);
     assert.doesNotMatch(target, /aria-label="edit target"/);
     assert.doesNotMatch(target, />preset</);
+  });
+
+  it("pins dashed thumb, end · now, in 2h, and no StatusDot on the row", () => {
+    const thumb = readFileSync("components/viz/event-thumb.tsx", "utf8");
+    assert.match(thumb, /border-dashed/);
+    assert.doesNotMatch(thumb, /eventInitials|initials/);
+    const rail = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.match(rail, /end · now/);
+    assert.match(rail, /VIZ_TYPE_NUM\.label/);
+    assert.doesNotMatch(rail, /VIZ_TYPE\.micro/);
+    const row = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.doesNotMatch(row, /StatusDot/);
+  });
+
+  it("usual outline is a hairline over the segments with the usual percentages", () => {
+    const split = readFileSync("components/viz/split-bar.tsx", "utf8");
+    assert.match(split, /data-split-outline=\{name\}/);
+    assert.match(split, /data-outline-pcts=\{pcts\.join\("/);
+    assert.match(split, /top: 2 \+ offsetPx/);
+    assert.match(split, /border-foreground\/60/);
+    const budget = readFileSync("components/plan/canvas-budget.tsx", "utf8");
+    assert.match(budget, /PLAN_SPLIT_PRESETS\[1\]!\.pct/);
   });
 });

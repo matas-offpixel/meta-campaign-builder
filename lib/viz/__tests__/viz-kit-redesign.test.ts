@@ -268,6 +268,15 @@ describe("SplitBar — preset / manual + linked adjustment", () => {
     assert.match(source, /PresetChip/);
   });
 
+  it("usual outline sits over the segments with the usual percentages", () => {
+    const source = readFileSync("components/viz/split-bar.tsx", "utf8");
+    assert.match(source, /data-split-outline=\{name\}/);
+    assert.match(source, /data-outline-pcts=\{pcts\.join\("/);
+    assert.match(source, /top: 2 \+ offsetPx/);
+    assert.match(source, /name="usual"/);
+    assert.match(source, /pcts=\{outlines\.usual\.pct\}/);
+  });
+
   it("places the legend inside at 12% and outside below", () => {
     assert.equal(splitBarLegendPlacement(12), "inside");
     assert.equal(splitBarLegendPlacement(11.9), "outside");

@@ -82,9 +82,6 @@ export function CanvasBudget({
                 value={total || ""}
                 onChange={(event) => commitTotal(Number(event.target.value) || 0)}
               />
-              <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-                {mode === "lifetime" ? "for the run" : "per day"}
-              </span>
             </>
           )}
         </MetricChip>

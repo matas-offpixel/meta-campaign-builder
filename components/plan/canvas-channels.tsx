@@ -31,7 +31,7 @@ import { VIZ_TYPE } from "@/lib/viz/tokens";
  */
 export function CanvasChannels({
   rows,
-  sharedBlockerCount,
+  blockerCounts,
   readingUnit,
   running,
   onOpen,
@@ -43,7 +43,7 @@ export function CanvasChannels({
   drawerEdit = true,
 }: {
   rows: PlanChannelRowModel[];
-  sharedBlockerCount?: number;
+  blockerCounts?: Record<PlanAdapterName, number>;
   readingUnit?: LaunchReadingUnit;
   running?: LaunchChannelRunning;
   onOpen: (row: PlanChannelRowModel) => void;
@@ -65,7 +65,7 @@ export function CanvasChannels({
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
         const blockers = launchBlockers(row.blockers);
-        const blockerCount = sharedBlockerCount ?? blockers.length;
+        const blockerCount = blockerCounts?.[row.adapter] ?? 0;
         const stateWord = launchChannelStateWord({
           skipped: row.skipped,
           waiting: row.waiting,
@@ -86,7 +86,7 @@ export function CanvasChannels({
                 })}`
               : null;
         const hideStateWord = Boolean(runningFact);
-        const needsYou = drawerEdit && stateWord === "needs you" && blockers.length > 0;
+        const needsYou = drawerEdit && stateWord === "needs you" && blockerCount > 0;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
             {hideStateWord ? null : needsYou ? (

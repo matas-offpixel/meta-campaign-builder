@@ -91,7 +91,11 @@ import { planShareControls, type PlanRole } from "@/lib/plan/share-role";
 import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
-import { planPreflightBlockerCount, type PlanPreflightIssue } from "@/lib/plan/preflight";
+import {
+  planPreflightBlockerCount,
+  planPreflightBlockerCounts,
+  type PlanPreflightIssue,
+} from "@/lib/plan/preflight";
 import type { PlanTargetUnit } from "@/lib/types";
 import { isCampaignPlanObjectiveIntent, type CampaignPlan, type PlanAdapterName } from "@/lib/plan/types";
 
@@ -1187,7 +1191,7 @@ export function PlanWorkspace({
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasChannels
         rows={rows}
-        sharedBlockerCount={planPreflightBlockerCount(issues)}
+        blockerCounts={planPreflightBlockerCounts(issues)}
         readingUnit={readingUnit}
         running={
           launchStamp
