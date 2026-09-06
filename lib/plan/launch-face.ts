@@ -93,14 +93,40 @@ export function formatGbp(amount: number): string {
   return `£${text}`;
 }
 
+function actForm(id: string): string {
+  const trimmed = id.trim();
+  return trimmed.startsWith("act_") ? trimmed : `act_${trimmed}`;
+}
+
+function sameAdAccount(a: string, b: string): boolean {
+  return a.replace(/^act_/, "") === b.replace(/^act_/, "");
+}
+
 export function identityAccountLabel(
   resolvedId: string | null,
   names: IdentityNameMap | undefined,
 ): string {
   if (!resolvedId) return "";
-  const name = names?.metaAdAccount[resolvedId];
+  const bare = resolvedId.replace(/^act_/, "");
+  const act = actForm(resolvedId);
+  const name =
+    names?.metaAdAccount[resolvedId] ??
+    names?.metaAdAccount[bare] ??
+    names?.metaAdAccount[act];
   if (name?.trim()) return name.trim();
-  return resolvedId.startsWith("act_") ? resolvedId : `act_${resolvedId}`;
+  return act;
+}
+
+/** After launch: ledger account. Draft: resolver (event, then client default). */
+export function planIdentityMetaId(input: {
+  launchedMeta: CampaignPlanLaunchRecord;
+  resolvedMetaId: string | null;
+}): string | null {
+  if (isLaunchedLedgerRow(input.launchedMeta)) {
+    const fromLedger = input.launchedMeta.platformAdAccountId?.trim();
+    if (fromLedger) return fromLedger;
+  }
+  return input.resolvedMetaId;
 }
 
 export function formatIdentitySentence(input: {
@@ -123,7 +149,7 @@ export function formatIdentitySentence(input: {
 
 export function formatIdentityTip(input: {
   metaId: string | null;
-  eventMetaAdAccountId?: string | null;
+  clientDefaultMetaId?: string | null;
   destinationUrl?: string | null;
   clientName?: string | null;
 }): string {
@@ -131,9 +157,10 @@ export function formatIdentityTip(input: {
   if (input.clientName?.trim()) parts.push(input.clientName.trim());
   if (input.destinationUrl?.trim()) parts.push(input.destinationUrl.trim());
   if (input.metaId) parts.push(input.metaId);
-  const eventId = input.eventMetaAdAccountId?.trim();
-  if (eventId && eventId !== input.metaId) {
-    parts.push(`event account ${eventId}`);
+  const clientDefault = input.clientDefaultMetaId?.trim();
+  const printed = input.metaId?.trim();
+  if (clientDefault && printed && !sameAdAccount(clientDefault, printed)) {
+    parts.push(`client default ${actForm(clientDefault)}`);
   }
   return parts.join(" · ");
 }

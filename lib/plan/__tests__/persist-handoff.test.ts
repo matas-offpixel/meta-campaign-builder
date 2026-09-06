@@ -180,6 +180,8 @@ describe("linked-draft preflight and fan-out persist", () => {
   it("fan-out launches the linked draft and writes launch child rows", async () => {
     const plan = goldenPlan();
     const linked = buildPrefillMetaDraft(plan);
+    linked.settings.adAccountId = "act_606252931141334";
+    linked.settings.metaAdAccountId = "act_606252931141334";
     const persisted: Array<{ adapter: string; draftId: string | null; status: string }> = [];
     let launchedId: string | null = null;
     const result = await orchestratePlanLaunch({
@@ -210,6 +212,7 @@ describe("linked-draft preflight and fan-out persist", () => {
     });
     assert.equal(launchedId, linked.id);
     assert.equal(result.plan.launches.meta.draftId, linked.id);
+    assert.equal(result.plan.launches.meta.platformAdAccountId, "act_606252931141334");
     assert.ok(persisted.some((row) => row.adapter === "meta" && row.status === "live"));
     const db = memoryDb();
     const write = await upsertPlanLaunchRow(db, {
@@ -222,6 +225,10 @@ describe("linked-draft preflight and fan-out persist", () => {
     assert.equal(
       db.launches.get(`campaign_plan_meta_launch:${plan.id}`)?.platform_campaign_id,
       "meta_live",
+    );
+    assert.equal(
+      db.launches.get(`campaign_plan_meta_launch:${plan.id}`)?.platform_ad_account_id,
+      "act_606252931141334",
     );
   });
 });
@@ -278,5 +285,20 @@ describe("plan page guards", () => {
     const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
     assert.match(list, /isRelationMissing/);
     assert.doesNotMatch(list, /includes\("campaign_plans"\)/);
+  });
+
+  it("migration 169 stores the launched account on the ledger", () => {
+    const sql = readFileSync(
+      "supabase/migrations/169_campaign_plan_platform_ad_account.sql",
+      "utf8",
+    );
+    assert.match(sql, /platform_ad_account_id/);
+    assert.match(sql, /campaign_plan_meta_launch/);
+    assert.match(sql, /campaign_plan_tiktok_launch/);
+    assert.match(sql, /campaign_plan_google_launch/);
+    assert.match(sql, /settings->>'adAccountId'/);
+    assert.match(sql, /Do not apply in this run/);
+    const persist = readFileSync("lib/plan/persist.ts", "utf8");
+    assert.match(persist, /platform_ad_account_id/);
   });
 });

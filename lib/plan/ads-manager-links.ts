@@ -30,21 +30,25 @@ export function planAdsManagerLinks(
   } = {},
 ): PlanAdsManagerLink[] {
   const metaId = plan.launches.meta.platformCampaignId;
+  const metaAccount =
+    plan.launches.meta.platformAdAccountId ?? ids.metaAdAccountId;
   const metaHref =
-    metaId && ids.metaAdAccountId
-      ? metaCampaignUrl(ids.metaAdAccountId, metaId)
-      : null;
+    metaId && metaAccount ? metaCampaignUrl(metaAccount, metaId) : null;
 
-  const tiktokHref = buildTikTokAdsManagerUrl(ids.tiktokAdvertiserId);
+  const tiktokAdvertiser =
+    plan.launches.tiktok.platformAdAccountId ?? ids.tiktokAdvertiserId;
+  const tiktokHref = buildTikTokAdsManagerUrl(tiktokAdvertiser);
 
   const googleId = plan.launches.google.platformCampaignId;
+  const googleCustomer =
+    plan.launches.google.platformAdAccountId ?? ids.googleCustomerId;
   const googleHref =
-    googleId && ids.googleCustomerId
+    googleId && googleCustomer
       ? googleAdsCampaignDeepLink(
           googleId.includes("campaigns/")
             ? googleId
-            : `customers/${ids.googleCustomerId}/campaigns/${googleId}`,
-          ids.googleCustomerId,
+            : `customers/${googleCustomer}/campaigns/${googleId}`,
+          googleCustomer,
         )
       : null;
 

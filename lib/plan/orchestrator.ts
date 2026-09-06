@@ -51,16 +51,38 @@ export interface OrchestratePlanLaunchResult {
 
 const ADAPTER_ORDER: PlanAdapterName[] = ["meta", "tiktok", "google"];
 
+function platformAccountFromDraft(
+  adapter: PlanAdapterName,
+  payload: CampaignDraft | TikTokCampaignDraft | GoogleSearchPlanTree,
+): string | null {
+  if (adapter === "meta") {
+    const draft = payload as CampaignDraft;
+    const id = draft.settings?.adAccountId || draft.settings?.metaAdAccountId || null;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  if (adapter === "tiktok") {
+    const draft = payload as TikTokCampaignDraft;
+    const id = draft.accountSetup?.advertiserId || null;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  const tree = payload as GoogleSearchPlanTree;
+  const id = tree.plan?.google_ads_account_id ?? null;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
 function applyOutcome(
   previous: CampaignPlanLaunchRecord,
   outcome: PlanAdapterOutcome,
+  platformAdAccountId?: string | null,
 ): CampaignPlanLaunchRecord {
+  const account = platformAdAccountId ?? previous.platformAdAccountId ?? null;
   if (outcome.ok) {
     return {
       status: "live",
       platformCampaignId: outcome.campaignId ?? previous.platformCampaignId,
       draftId: outcome.draftId ?? previous.draftId,
       error: null,
+      platformAdAccountId: account,
     };
   }
   return {
@@ -68,6 +90,7 @@ function applyOutcome(
     platformCampaignId: previous.platformCampaignId,
     draftId: outcome.draftId ?? previous.draftId,
     error: outcome.error ?? "adapter launch failed",
+    platformAdAccountId: account,
   };
 }
 
@@ -116,15 +139,20 @@ export async function orchestratePlanLaunch(
 
     const payload = drafts[adapter];
     input.logOutgoing?.(adapter, payload);
+    const account = platformAccountFromDraft(adapter, payload);
 
     try {
       const outcome = await input.launchers[adapter](payload as never);
-      launches[adapter] = applyOutcome(launches[adapter], outcome);
+      launches[adapter] = applyOutcome(launches[adapter], outcome, account);
     } catch (err) {
-      launches[adapter] = applyOutcome(launches[adapter], {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      launches[adapter] = applyOutcome(
+        launches[adapter],
+        {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        account,
+      );
     }
     await input.persistLaunch?.(adapter, launches[adapter]);
   }

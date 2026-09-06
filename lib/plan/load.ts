@@ -12,6 +12,7 @@ interface LaunchRow {
   draft_id?: string | null;
   error?: string | null;
   created_at?: string | null;
+  platform_ad_account_id?: string | null;
 }
 
 function toLaunch(row: LaunchRow | null | undefined): CampaignPlanLaunchRecord {
@@ -22,6 +23,7 @@ function toLaunch(row: LaunchRow | null | undefined): CampaignPlanLaunchRecord {
     draftId: row.draft_id ?? null,
     error: row.error ?? null,
     createdAt: row.created_at ?? null,
+    platformAdAccountId: row.platform_ad_account_id ?? null,
   };
 }
 

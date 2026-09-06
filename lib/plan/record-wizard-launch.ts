@@ -17,6 +17,7 @@ export async function recordWizardMetaLaunch(
     campaignId: string | null;
     ok: boolean;
     error?: string | null;
+    platformAdAccountId?: string | null;
   },
 ): Promise<{ recorded: boolean; planId: string | null }> {
   const client = supabase as {
@@ -29,6 +30,7 @@ export async function recordWizardMetaLaunch(
               user_id?: string;
               draft_id?: string | null;
               platform_campaign_id?: string | null;
+              platform_ad_account_id?: string | null;
               status?: string;
               error?: string | null;
             } | null;
@@ -44,7 +46,7 @@ export async function recordWizardMetaLaunch(
 
   const { data, error } = await client
     .from("campaign_plan_meta_launch")
-    .select("plan_id, user_id, draft_id, platform_campaign_id, status, error")
+    .select("plan_id, user_id, draft_id, platform_campaign_id, platform_ad_account_id, status, error")
     .eq("draft_id", input.draftId)
     .maybeSingle();
   if (error || !data?.plan_id) return { recorded: false, planId: null };
@@ -57,6 +59,8 @@ export async function recordWizardMetaLaunch(
     platformCampaignId: input.campaignId ?? data.platform_campaign_id ?? null,
     draftId: input.draftId,
     error: input.ok ? null : (input.error ?? "Wizard launch failed"),
+    platformAdAccountId:
+      input.platformAdAccountId ?? data.platform_ad_account_id ?? null,
   };
 
   const write = await upsertPlanLaunchRow(supabase, {

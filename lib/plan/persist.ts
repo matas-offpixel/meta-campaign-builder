@@ -145,15 +145,21 @@ export async function upsertPlanLaunchRow(
   },
 ): Promise<{ ok: true } | { ok: false; tableMissing: boolean; error: string }> {
   const client = supabase as PersistClient;
+  const row: Record<string, unknown> = {
+    plan_id: input.planId,
+    user_id: input.userId,
+    draft_id: input.record.draftId,
+    platform_campaign_id: input.record.platformCampaignId,
+    status: input.record.status,
+    error: input.record.error,
+  };
+  // Written only when set so a deploy that lands before migration 169
+  // cannot break every launch upsert on a missing column.
+  if (input.record.platformAdAccountId) {
+    row.platform_ad_account_id = input.record.platformAdAccountId;
+  }
   const { error } = await client.from(PLAN_LAUNCH_TABLE[input.adapter]).upsert(
-    {
-      plan_id: input.planId,
-      user_id: input.userId,
-      draft_id: input.record.draftId,
-      platform_campaign_id: input.record.platformCampaignId,
-      status: input.record.status,
-      error: input.record.error,
-    },
+    row,
     { onConflict: "plan_id" },
   );
   if (!error) return { ok: true };

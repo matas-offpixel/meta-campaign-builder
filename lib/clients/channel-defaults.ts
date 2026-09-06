@@ -313,6 +313,7 @@ export async function loadChannelDefaultsForEvent(
           maybeSingle: () => Promise<{
             data: {
               client_id?: string | null;
+              meta_ad_account_id?: string | null;
               tiktok_account_id?: string | null;
               google_ads_account_id?: string | null;
             } | null;
@@ -324,12 +325,15 @@ export async function loadChannelDefaultsForEvent(
   };
   const { data: event, error } = await client
     .from("events")
-    .select("client_id, tiktok_account_id, google_ads_account_id")
+    .select("client_id, meta_ad_account_id, tiktok_account_id, google_ads_account_id")
     .eq("id", eventId)
     .maybeSingle();
   if (error || !event?.client_id) return null;
   let stored = await loadClientChannelDefaults(supabase, event.client_id);
   const overrides: ChannelDefaultOverrides = {};
+  if (event.meta_ad_account_id) {
+    overrides.metaAdAccountId = event.meta_ad_account_id;
+  }
   if (event.tiktok_account_id) {
     overrides.tiktokAccountId = event.tiktok_account_id;
     const advertiserId = await lookupJoinedId(

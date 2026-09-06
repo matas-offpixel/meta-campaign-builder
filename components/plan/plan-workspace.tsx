@@ -76,10 +76,12 @@ import {
 } from "@/lib/plan/learn-face";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
+  identityAccountLabel,
   launchBlockedLine,
   launchBlockers,
   launchChannelRunning,
   launchReadingUnit,
+  planIdentityMetaId,
   planLaunchedAt,
   planLaunchStamp,
   readyLaunchAdapters,
@@ -516,9 +518,16 @@ export function PlanWorkspace({
           google: null,
         },
         adsManagerLinks: planAdsManagerLinks(plan, {
-          metaAdAccountId: selectedEvent?.metaAdAccountId,
-          googleCustomerId: selectedEvent?.googleCustomerId,
-          tiktokAdvertiserId,
+          metaAdAccountId:
+            plan.launches.meta.platformAdAccountId ??
+            resolved?.metaAdAccount.value ??
+            selectedEvent?.eventMetaAdAccountId ??
+            selectedEvent?.metaAdAccountId,
+          googleCustomerId:
+            plan.launches.google.platformAdAccountId ??
+            selectedEvent?.googleCustomerId,
+          tiktokAdvertiserId:
+            plan.launches.tiktok.platformAdAccountId ?? tiktokAdvertiserId,
         }),
         staleChips,
         delivering: (liveSpend ?? 0) > 0,
@@ -529,6 +538,7 @@ export function PlanWorkspace({
       issues,
       liveSpend,
       plan,
+      resolved,
       selectedEvent,
       staleChips,
       tiktokAdvertiserId,
@@ -935,9 +945,16 @@ export function PlanWorkspace({
           venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
         })
       : undefined;
-  const metaAccountId = selectedEvent?.metaAdAccountId ?? resolved?.metaAdAccount.value ?? null;
+  const metaAccountId = planIdentityMetaId({
+    launchedMeta: plan.launches.meta,
+    resolvedMetaId:
+      resolved?.metaAdAccount.value ??
+      selectedEvent?.eventMetaAdAccountId ??
+      selectedEvent?.metaAdAccountId ??
+      null,
+  });
   const learnMetaName = metaAccountId
-    ? identityNames?.metaAdAccount[metaAccountId] ?? metaAccountId
+    ? identityAccountLabel(metaAccountId, identityNames) || metaAccountId
     : null;
 
   return (
@@ -948,7 +965,8 @@ export function PlanWorkspace({
         venueName={selectedEvent?.venueName ?? null}
         eventDate={selectedEvent?.eventDate ?? null}
         eventCode={selectedEvent?.eventCode ?? null}
-        eventMetaAdAccountId={selectedEvent?.eventMetaAdAccountId ?? null}
+        launchedMeta={plan.launches.meta}
+        clientDefaultMetaId={selectedEvent?.metaAdAccountId ?? null}
         launchedAt={launchStamp?.at ?? null}
         launchedWord={launchStamp?.word}
         thumbUrl={thumbUrl}
