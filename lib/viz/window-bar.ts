@@ -27,7 +27,7 @@ export const WINDOW_MOMENT_GLYPH: Record<string, string> = {
   show: "▲",
 };
 
-export const WINDOW_PLACEHOLDER_KINDS = ["presale", "gen sale"] as const;
+export const WINDOW_PLACEHOLDER_KINDS = ["announcement", "presale", "gen sale"] as const;
 export type WindowPlaceholderKind = (typeof WINDOW_PLACEHOLDER_KINDS)[number];
 
 export type WindowPlaceholder = {
@@ -61,6 +61,10 @@ export function placeholderRatio(
   const show = existingRatio(moments, "show", from, to);
   const presale = existingRatio(moments, "presale", from, to);
   const genSale = existingRatio(moments, "gen sale", from, to);
+  if (kind === "announcement") {
+    if (now == null && presale == null && genSale == null && show == null) return 1 / 6;
+    return ((now ?? 0) + (presale ?? genSale ?? show ?? 1)) / 2;
+  }
   if (kind === "presale") {
     if (now == null && genSale == null && show == null) return 1 / 3;
     return ((now ?? 0) + (genSale ?? show ?? 1)) / 2;
@@ -80,10 +84,7 @@ export function windowPlaceholders(
     id: `placeholder-${kind.replace(" ", "-")}`,
     label: kind,
     ratio: placeholderRatio(kind, moments, from, to),
-    tip:
-      kind === "presale"
-        ? "this event has no presale time set — add it on the event to snap the window to it"
-        : "this event has no gen-sale time set — add it on the event to snap the window to it",
+    tip: "not set on the event",
   }));
 }
 

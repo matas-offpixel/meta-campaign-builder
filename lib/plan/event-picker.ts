@@ -5,6 +5,7 @@ export interface PlanEventOption {
   clientName?: string | null;
   venueName?: string | null;
   eventDate?: string | null;
+  announcementAt?: string | null;
   presaleAt?: string | null;
   generalSaleAt?: string | null;
   eventCode?: string | null;

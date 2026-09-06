@@ -2,18 +2,22 @@
 
 import { useState } from "react";
 
-import { SegmentedControl } from "@/components/plan/segmented-control";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
-import { OPTIMISATION_PRESET_SEED_LABEL } from "@/lib/optimisation/presets";
 import { PLAN_CANVAS_COPY, joinInfoTips } from "@/lib/plan/canvas";
 import {
-  PLAN_TARGET_UNITS,
   planEffectiveTargetUnit,
   planTargetChip,
 } from "@/lib/plan/canvas-inputs";
 import { PLAN_OBJECTIVE_OPTIONS } from "@/lib/plan/empty-plan";
-import { PLAN_TARGET_UNIT_GLYPH, targetUnitSpec } from "@/lib/plan/target-unit";
+import {
+  LAUNCH_INFO_VARIANT,
+  formatStartingPoint,
+  formatTargetFromShows,
+  launchReadingUnit,
+  launchUnitWord,
+} from "@/lib/plan/launch-face";
+import { targetUnitSpec } from "@/lib/plan/target-unit";
 import type { CampaignPlanObjectiveIntent } from "@/lib/plan/types";
 import type { PlanTargetUnit } from "@/lib/types";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
@@ -34,8 +38,12 @@ export function CanvasTarget({
   objectiveIntent,
   presetHref,
   onTarget,
-  onUnit,
+  onUnit: _onUnit,
   onObjective,
+  generalSaleAt,
+  kind,
+  historyN = 0,
+  venueName,
 }: {
   value: number | null;
   unit: PlanTargetUnit | null;
@@ -45,15 +53,30 @@ export function CanvasTarget({
   onTarget: (next: number | null) => void;
   onUnit: (next: PlanTargetUnit | null) => void;
   onObjective: (next: CampaignPlanObjectiveIntent) => void;
+  generalSaleAt?: string | null;
+  kind?: string | null;
+  /** Other runs with spend and results. 0 until the benchmark view exists. */
+  historyN?: number;
+  venueName?: string | null;
 }) {
+  void _onUnit;
+  const phaseUnit = launchReadingUnit({
+    now: new Date(),
+    generalSaleAt,
+    kind,
+  });
   const effective = planEffectiveTargetUnit(unit, objectiveIntent);
   const chip = planTargetChip({ value, unit: effective.unit, benchmark });
+  const evidence =
+    historyN <= 0
+      ? formatStartingPoint(phaseUnit)
+      : formatTargetFromShows(historyN, venueName?.trim() || "this venue");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(String(value ?? benchmark ?? ""));
   const unitLabel = effective.unit ? targetUnitSpec(effective.unit).label : null;
   const tip = joinInfoTips(
-    chip.seeded && OPTIMISATION_PRESET_SEED_LABEL,
-    chip.seeded && effective.unit && PLAN_CANVAS_COPY.targetSeed,
+    chip.seeded && evidence,
+    "computed today",
     effective.inferred ? PLAN_CANVAS_COPY.unitInferred : PLAN_CANVAS_COPY.unitChangesObjective,
     chip.needsObjective && PLAN_CANVAS_COPY.noUnit,
   );
@@ -94,36 +117,30 @@ export function CanvasTarget({
           }}
           disabled={!effective.unit}
         >
-          <MetricChip label="target" size="lg">
+          <MetricChip
+            label="target"
+            size="lg"
+            lineKind={historyN < 3 ? "estimated" : "measured"}
+          >
             {chip.needsObjective ? (
               <span className={VIZ_TYPE.label}>{chip.label}</span>
             ) : (
               <>
                 <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎</span>
                 <span>{chip.label.replace(/^◎\s*/, "").replace(/\s*\/\s*\S+$/, "")}</span>
-                {unitLabel ? (
-                  <span className={`${VIZ_TYPE.label} text-muted-foreground`}>/ {unitLabel}</span>
-                ) : null}
+                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+                  per {launchUnitWord(phaseUnit)}
+                </span>
               </>
             )}
           </MetricChip>
         </button>
       )}
-      <InfoTip label={tip} />
-
-      <span className="inline-flex items-center gap-1">
-        <SegmentedControl
-          ariaLabel="target unit"
-          value={effective.unit}
-          allowDeselect
-          onChange={onUnit}
-          options={PLAN_TARGET_UNITS.map((option) => ({
-            id: option,
-            label: targetUnitSpec(option).label,
-            glyph: PLAN_TARGET_UNIT_GLYPH[option],
-          }))}
-        />
-      </span>
+      <InfoTip
+        variant={LAUNCH_INFO_VARIANT}
+        header={chip.seeded ? "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND" : undefined}
+        label={tip}
+      />
 
       {chip.needsObjective ? (
         <label className="inline-flex items-center gap-1">
@@ -143,6 +160,8 @@ export function CanvasTarget({
           </select>
         </label>
       ) : null}
+
+      <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{evidence}</span>
 
       {presetHref ? (
         <a

@@ -6,6 +6,13 @@ import { ChannelRow } from "@/components/viz/channel-row";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { SectionAnchor } from "@/components/viz/section-anchor";
 import { PLAN_CANVAS_COPY, joinInfoTips, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
+import {
+  LAUNCH_INFO_VARIANT,
+  formatChannelNeedsYou,
+  formatResumeWord,
+  launchChannelStateWord,
+} from "@/lib/plan/launch-face";
+import { VIZ_PLATFORM_LABEL } from "@/lib/viz/tokens";
 import type { PlanAdapterName } from "@/lib/plan/types";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import type { EventFunnelPlatformCosts } from "@/lib/dashboard/event-funnel";
@@ -57,12 +64,23 @@ export function CanvasChannels({
 
   return (
     <section aria-label="channels" className="min-h-[120px] space-y-1.5">
-      <SectionAnchor kind="derive" label="derive" tip={tip} />
+      <SectionAnchor kind="derive" label="derive" tip={tip} tipVariant={LAUNCH_INFO_VARIANT} />
       {rows.map((row) => {
         const resume = resumeSupport(row.adapter);
         const cost = costs?.[row.adapter];
+        const stateWord = launchChannelStateWord({
+          skipped: row.skipped,
+          waiting: row.waiting,
+          blockerCount: row.blockers.length,
+          status: row.status === "paused" ? "paused" : row.status === "live" ? "live" : "idle",
+        });
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
+            <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+              {stateWord === "needs you" && row.blockers.length > 0
+                ? formatChannelNeedsYou(row.blockers.length, VIZ_PLATFORM_LABEL[row.adapter])
+                : stateWord}
+            </span>
             <div className="min-w-0 flex-1">
               <ChannelRow
                 platform={row.adapter}
@@ -89,31 +107,31 @@ export function CanvasChannels({
                   onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
                 }
                 openRef={openRefs?.[row.adapter]}
-                onResume={resume.supported && !busy ? () => onResume(row) : undefined}
               />
             </div>
-            {row.state === "paused" && !resume.supported ? (
-              <span className="inline-flex items-center gap-1">
+            {row.state === "paused" ? (
+              resume.supported ? (
                 <button
                   type="button"
-                  disabled
-                  className={`${VIZ_TYPE.label} text-muted-foreground`}
-                  aria-label="resume"
+                  className={`${VIZ_TYPE.label} text-foreground`}
+                  onClick={() => onResume(row)}
                 >
-                  ▷
+                  {formatResumeWord(row.adapter)}
                 </button>
-                {row.adsManagerHref ? (
-                  <a
-                    href={row.adsManagerHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="ads manager"
-                    className={`${VIZ_TYPE.label} text-muted-foreground underline`}
-                  >
-                    ↗
-                  </a>
-                ) : null}
-              </span>
+              ) : row.adsManagerHref ? (
+                <a
+                  href={row.adsManagerHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`${VIZ_TYPE.label} text-muted-foreground underline`}
+                >
+                  {formatResumeWord(row.adapter)}
+                </a>
+              ) : (
+                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+                  {formatResumeWord(row.adapter)}
+                </span>
+              )
             ) : null}
             {row.staleChip ? (
               <button

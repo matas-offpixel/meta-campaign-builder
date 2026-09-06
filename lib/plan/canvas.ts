@@ -381,7 +381,7 @@ export function countDecisionsSince(
 
 /** Absent at zero (§2 table row A) — a zero badge is furniture. */
 export function decisionsHandleLabel(count: number): string | null {
-  return count > 0 ? `◐ ${count} ▸` : null;
+  return count > 0 ? `${count} changes ▸` : null;
 }
 
 /**

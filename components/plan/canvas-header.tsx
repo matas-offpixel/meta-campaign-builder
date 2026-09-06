@@ -2,28 +2,32 @@
 
 import { useState, type RefObject } from "react";
 
-import { PlanIdentityChips } from "@/components/plan/plan-identity-chips";
 import { EventThumb } from "@/components/viz/event-thumb";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { OverflowMenu, type OverflowMenuItem } from "@/components/viz/overflow-menu";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
-import { PLAN_CANVAS_COPY, decisionsHandleLabel, joinInfoTips } from "@/lib/plan/canvas";
+import { PLAN_CANVAS_COPY, joinInfoTips } from "@/lib/plan/canvas";
 import { destinationSourceLabel, type ResolvedPlanDestination } from "@/lib/plan/destination";
 import type { IdentityNameMap } from "@/lib/plan/identity-chips";
+import {
+  LAUNCH_INFO_VARIANT,
+  decisionsChangesLabel,
+  formatIdentitySentence,
+  formatIdentityTip,
+  formatLaunchedLine,
+} from "@/lib/plan/launch-face";
 import { formatVizDay } from "@/lib/viz/format-moment";
 import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 /**
- * Zone A — which show is this. Nothing here is editable: the event picks
- * the name, the code, the date and the destination (§2 "Change event =
- * new plan"). The one exception is an event with no ticket_url and no
- * signup_url, where the `ⓘ` accepts a pasted URL because otherwise the
- * plan can never launch.
+ * Zone A — which show is this. Venue on the line; client name in the ⓘ
+ * with the destination URL. Identity is one sentence, once.
  */
 export function CanvasHeader({
   name,
   clientName,
+  venueName,
   eventDate,
   eventCode,
   thumbUrl,
@@ -35,9 +39,12 @@ export function CanvasHeader({
   menuItems,
   resolved,
   identityNames,
+  eventMetaAdAccountId,
+  launchedAt,
 }: {
   name: string;
   clientName: string | null;
+  venueName?: string | null;
   eventDate: string | null;
   eventCode: string | null;
   thumbUrl: string | null;
@@ -47,16 +54,33 @@ export function CanvasHeader({
   onDecisionsOpen: () => void;
   decisionsRef?: RefObject<HTMLButtonElement | null>;
   menuItems: OverflowMenuItem[];
-  /** Ad account / page / pixel, with where each one came from. */
   resolved: ResolvedChannelDefaults | null;
   identityNames?: IdentityNameMap;
+  eventMetaAdAccountId?: string | null;
+  launchedAt?: string | null;
 }) {
   const [draft, setDraft] = useState(destination.url);
-  const handle = decisionsHandleLabel(decisionCount);
+  const handle = decisionsChangesLabel(decisionCount);
   const date = eventDate ? formatVizDay(eventDate) : null;
+  const metaId = resolved?.metaAdAccount.value ?? null;
+  const identity = resolved
+    ? formatIdentitySentence({
+        metaId,
+        metaConnected: Boolean(metaId),
+        tiktokConnected: Boolean(resolved.tiktokAdvertiser.value),
+        googleConnected: Boolean(resolved.googleAdsCustomer.value),
+        names: identityNames,
+      })
+    : null;
   const tip = joinInfoTips(
+    formatIdentityTip({
+      metaId,
+      eventMetaAdAccountId,
+      destinationUrl: destination.url || null,
+      clientName,
+    }),
     destination.url
-      ? `${destination.url} — ${destinationSourceLabel(destination.source)}`
+      ? destinationSourceLabel(destination.source)
       : PLAN_CANVAS_COPY.noDestination,
     destination.overridable && PLAN_CANVAS_COPY.destination,
     handle && PLAN_CANVAS_COPY.decisions,
@@ -68,13 +92,21 @@ export function CanvasHeader({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <h1 className={`min-w-0 truncate ${VIZ_TYPE.body}`}>{name}</h1>
-          <InfoTip label={tip} />
+          {tip ? <InfoTip variant={LAUNCH_INFO_VARIANT} label={tip} /> : null}
         </div>
         <div className={`mt-0.5 flex flex-wrap items-center gap-1.5 ${VIZ_TYPE.label} text-muted-foreground`}>
-          {clientName ? <span className="truncate">{clientName}</span> : null}
+          {venueName ? <span className="truncate">{venueName}</span> : null}
           {date && date !== "—" ? <span className={VIZ_TYPE_NUM.body}>{date}</span> : null}
           {eventCode ? <MetricChip label={eventCode} size="sm">{eventCode}</MetricChip> : null}
         </div>
+        {identity ? (
+          <span className={`mt-1 block ${VIZ_TYPE.body} text-muted-foreground`}>{identity}</span>
+        ) : null}
+        {launchedAt ? (
+          <span className={`mt-0.5 block ${VIZ_TYPE.label} text-muted-foreground`}>
+            {formatLaunchedLine(launchedAt)}
+          </span>
+        ) : null}
         {destination.overridable ? (
           <label className="mt-1.5 flex items-center gap-1.5">
             <span className="sr-only">Destination URL</span>
@@ -87,7 +119,6 @@ export function CanvasHeader({
             />
           </label>
         ) : null}
-        <PlanIdentityChips resolved={resolved} names={identityNames} />
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {handle ? (

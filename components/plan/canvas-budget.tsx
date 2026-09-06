@@ -7,10 +7,15 @@ import { SplitBar } from "@/components/viz/split-bar";
 import { PLAN_CANVAS_COPY } from "@/lib/plan/canvas";
 import {
   PLAN_SPLIT_PRESETS,
-  planSplitAmountsLine,
   planSplitSegments,
   planSplitToBudget,
 } from "@/lib/plan/canvas-inputs";
+import {
+  LAUNCH_INFO_VARIANT,
+  formatHistoryEmpty,
+  formatSkippedShare,
+  formatYouSetThis,
+} from "@/lib/plan/launch-face";
 import { lifetimeToDaily, scheduledDayCount } from "@/lib/plan/budget-split";
 import type { CampaignPlanBudgetSplit } from "@/lib/plan/types";
 import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
@@ -27,7 +32,8 @@ export function CanvasBudget({
   lifetime,
   startDate,
   endDate,
-  hasUserEdit: _hasUserEdit,
+  hasUserEdit,
+  clientName,
   onBudget,
   onMode,
   onLifetime,
@@ -38,6 +44,7 @@ export function CanvasBudget({
   startDate: string | null;
   endDate: string | null;
   hasUserEdit: boolean;
+  clientName?: string | null;
   onBudget: (next: CampaignPlanBudgetSplit) => void;
   onMode: (mode: "daily" | "lifetime") => void;
   onLifetime: (value: number) => void;
@@ -88,18 +95,39 @@ export function CanvasBudget({
             £{Math.round(derivedDaily)}/d
           </MetricChip>
         ) : null}
-        <InfoTip label={PLAN_CANVAS_COPY.splitZeroIsOff} />
+        <InfoTip
+          variant={LAUNCH_INFO_VARIANT}
+          label={[PLAN_CANVAS_COPY.splitZeroIsOff, formatYouSetThis(hasUserEdit)]
+            .filter(Boolean)
+            .join(" · ")}
+        />
       </div>
 
       <SplitBar
         segments={planSplitSegments(budget)}
         editable
         presets={PLAN_SPLIT_PRESETS}
+        outlines={{
+          usual: {
+            pct: planSplitSegments(budget).map((segment) => segment.pct),
+            source: hasUserEdit ? "last-choice" : "client-preset",
+          },
+          history: null,
+        }}
+        historySentence={
+          clientName
+            ? formatHistoryEmpty("tiktok", clientName)
+            : undefined
+        }
         onChange={(segments) => onBudget(planSplitToBudget(segments, derivedDaily))}
       />
-      <div className={`${VIZ_TYPE_NUM.body} text-muted-foreground`}>
-        {planSplitAmountsLine(budget)}
-      </div>
+      {planSplitSegments(budget)
+        .filter((segment) => segment.pct === 0)
+        .map((segment) => (
+          <span key={segment.platform} className={`block ${VIZ_TYPE_NUM.body} text-muted-foreground`}>
+            {formatSkippedShare(0)}
+          </span>
+        ))}
     </section>
   );
 }

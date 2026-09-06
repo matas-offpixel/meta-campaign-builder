@@ -28,6 +28,7 @@ import type { CampaignPlanBudgetSplit } from "./types.ts";
 
 export interface PlanWindowEvent {
   eventDate?: string | null;
+  announcementAt?: string | null;
   presaleAt?: string | null;
   generalSaleAt?: string | null;
 }
@@ -50,6 +51,8 @@ export function planWindowMoments(
   now: Date = new Date(),
 ): WindowMoment[] {
   const moments: WindowMoment[] = [{ id: "now", label: "now", at: now }];
+  const announcement = parseMoment(event?.announcementAt);
+  if (announcement) moments.push({ id: "announcement", label: "announcement", at: announcement });
   const presale = parseMoment(event?.presaleAt);
   if (presale) moments.push({ id: "presale", label: "presale", at: presale });
   const general = parseMoment(event?.generalSaleAt);

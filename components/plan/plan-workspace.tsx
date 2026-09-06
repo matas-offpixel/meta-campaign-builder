@@ -54,6 +54,11 @@ import { scheduledDayCount } from "@/lib/plan/budget-split";
 import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
+import {
+  formatLaunchBlockerSentence,
+  readyLaunchAdapters,
+  unconnectedMessage,
+} from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
@@ -740,8 +745,10 @@ export function PlanWorkspace({
       <CanvasHeader
         name={headerName}
         clientName={selectedEvent?.clientName ?? null}
+        venueName={selectedEvent?.venueName ?? null}
         eventDate={selectedEvent?.eventDate ?? null}
         eventCode={selectedEvent?.eventCode ?? null}
+        eventMetaAdAccountId={selectedEvent?.metaAdAccountId ?? null}
         thumbUrl={thumbUrl}
         destination={destination}
         onDestination={(url) => patchIntent({ destinationUrl: url })}
@@ -794,6 +801,7 @@ export function PlanWorkspace({
           startDate={plan.intent.startDate}
           endDate={plan.intent.endDate}
           hasUserEdit={hasUserEdit}
+          clientName={selectedEvent?.clientName ?? null}
           onBudget={(budget) => patchIntent({ budget })}
           onMode={(mode) => {
             setBudgetMode(mode);
@@ -822,6 +830,10 @@ export function PlanWorkspace({
           onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
           onUnit={setTargetUnit}
           onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+          generalSaleAt={selectedEvent?.generalSaleAt}
+          kind={selectedEvent?.kind}
+          historyN={0}
+          venueName={selectedEvent?.venueName}
         />
       </div>
 
@@ -942,6 +954,16 @@ export function PlanWorkspace({
         onResumeAll={() =>
           void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
         }
+        readyAdapters={readyLaunchAdapters(rows)}
+        blockerSentence={formatLaunchBlockerSentence({
+          windowOk,
+          blockerCount: rows.reduce(
+            (count, row) =>
+              count + row.blockers.filter((blocker) => blocker.kind === "blocker").length,
+            0,
+          ),
+          unconnected: unconnectedMessage(issues),
+        })}
       />
       </div>
 

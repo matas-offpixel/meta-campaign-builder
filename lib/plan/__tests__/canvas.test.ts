@@ -117,7 +117,7 @@ describe("zone A · header", () => {
     assert.equal(countDecisionsSince(decisions, null), 3);
     assert.equal(countDecisionsSince(decisions, "2026-09-04T00:00:00.000Z"), 2);
     assert.equal(countDecisionsSince(decisions, "2026-09-05T00:00:00.000Z"), 0);
-    assert.equal(decisionsHandleLabel(2), "◐ 2 ▸");
+    assert.equal(decisionsHandleLabel(2), "2 changes ▸");
     assert.equal(decisionsHandleLabel(0), null);
     assert.match(planLastOpenedKey("p1"), /p1/);
   });
@@ -165,6 +165,14 @@ describe("zone B · window", () => {
     );
     assert.ok(moments[1]!.at < moments[2]!.at);
     assert.ok(moments[2]!.at < moments[3]!.at);
+  });
+
+  it("announcement is a moment when the event has one", () => {
+    const moments = planWindowMoments(
+      { ...DOD, announcementAt: "2026-09-01T10:00:00.000Z" },
+      FIXTURE_NOW,
+    );
+    assert.ok(moments.some((moment) => moment.label === "announcement"));
   });
 
   it("defaults start to now and end to the show", () => {
