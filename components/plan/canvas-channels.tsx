@@ -12,6 +12,8 @@ import {
   formatRunningFact,
   launchBlockers,
   launchChannelStateWord,
+  LAUNCH_NO_READS,
+  type LaunchChannelRunning,
   type LaunchReadingUnit,
 } from "@/lib/plan/launch-face";
 import { VIZ_PLATFORM_LABEL } from "@/lib/viz/tokens";
@@ -40,7 +42,7 @@ export function CanvasChannels({
 }: {
   rows: PlanChannelRowModel[];
   readingUnit?: LaunchReadingUnit;
-  running?: Partial<Record<PlanAdapterName, { cost: number; usual?: number | null } | null>>;
+  running?: LaunchChannelRunning;
   onOpen: (row: PlanChannelRowModel) => void;
   onOpenAnchor?: (row: PlanChannelRowModel, anchor: BlockerAnchor) => void;
   onResume: (row: PlanChannelRowModel) => void;
@@ -66,15 +68,18 @@ export function CanvasChannels({
           status: row.status === "paused" ? "paused" : row.status === "live" ? "live" : "idle",
         });
         const first = blockers[0];
-        const runningRead = running?.[row.adapter];
-        const runningFact =
-          readingUnit && runningRead
-            ? formatRunningFact({
-                cost: runningRead.cost,
-                unit: readingUnit,
-                usual: runningRead.usual,
-              })
-            : null;
+        const runningRead = running?.byAdapter[row.adapter];
+        const runningFact = !running
+          ? null
+          : running.empty
+            ? LAUNCH_NO_READS
+            : readingUnit && runningRead
+              ? formatRunningFact({
+                  cost: runningRead.cost,
+                  unit: readingUnit,
+                  usual: runningRead.usual,
+                })
+              : null;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
             {stateWord === "needs you" && blockers.length > 0 ? (

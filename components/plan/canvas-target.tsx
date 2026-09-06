@@ -5,6 +5,7 @@ import { useState } from "react";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { PLAN_CANVAS_COPY, joinInfoTips } from "@/lib/plan/canvas";
+import type { BenchmarkRow } from "@/lib/plan/benchmarks";
 import {
   PLAN_TARGET_UNITS,
   planEffectiveTargetUnit,
@@ -36,8 +37,13 @@ export function CanvasTarget({
   presaleAt,
   kind,
   venueName,
+  venueKey,
+  clientId,
+  excludeEventId,
+  launched,
   now,
   ticketSource,
+  benchmarkRows,
 }: {
   value: number | null;
   unit: PlanTargetUnit | null;
@@ -50,8 +56,13 @@ export function CanvasTarget({
   presaleAt?: string | null;
   kind?: string | null;
   venueName?: string | null;
+  venueKey?: string | null;
+  clientId?: string | null;
+  excludeEventId?: string | null;
+  launched?: boolean;
   now?: Date;
   ticketSource?: "none" | "manual" | "xlsx_import" | "eventbrite" | "fourthefans" | "unknown";
+  benchmarkRows?: readonly BenchmarkRow[];
 }) {
   const view = launchTargetView({
     now: now ?? new Date(),
@@ -59,8 +70,13 @@ export function CanvasTarget({
     presaleAt,
     kind,
     venueName,
+    venueKey,
+    clientId,
+    excludeEventId,
+    unit,
     operatorTarget: value,
     ticketSource,
+    benchmarkRows,
   });
   const effective = planEffectiveTargetUnit(unit, objectiveIntent);
   const [editing, setEditing] = useState(false);
@@ -169,6 +185,7 @@ export function CanvasTarget({
             className={`rounded-sm border border-border bg-background px-1.5 py-0.5 ${VIZ_TYPE.label}`}
             aria-label="target unit"
             value={unit ?? ""}
+            disabled={launched}
             onChange={(event) =>
               onUnit((event.target.value || null) as PlanTargetUnit | null)
             }

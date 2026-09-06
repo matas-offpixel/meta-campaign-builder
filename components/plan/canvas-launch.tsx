@@ -33,6 +33,7 @@ export function CanvasLaunch({
   role = "operator",
   readyAdapters = [],
   blockerSentence = null,
+  preflightSettled = true,
 }: {
   button: PlanLaunchButtonModel;
   stages?: EventFunnelStage[];
@@ -42,6 +43,8 @@ export function CanvasLaunch({
   role?: "operator" | "client";
   readyAdapters?: PlanAdapterName[];
   blockerSentence?: string | null;
+  /** First preflight response has arrived — until then, nothing beside the button. */
+  preflightSettled?: boolean;
 }) {
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
   const fanoutOff = button.reason === PLAN_CANVAS_COPY.fanoutOff;
@@ -80,7 +83,7 @@ export function CanvasLaunch({
       ) : null}
 
       <div className="flex items-center justify-end gap-1.5">
-        {fanoutOff ? (
+        {!preflightSettled ? null : fanoutOff ? (
           <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{PLAN_CANVAS_COPY.fanoutOff}</span>
         ) : button.kind === "launch" && !button.disabled && readyAdapters.length > 0 ? (
           <span className={`${VIZ_TYPE.label} text-muted-foreground`}>

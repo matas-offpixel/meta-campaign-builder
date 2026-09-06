@@ -4,7 +4,9 @@ export interface PlanEventOption {
   clientId?: string | null;
   clientName?: string | null;
   venueName?: string | null;
+  venueKey?: string | null;
   eventDate?: string | null;
+  eventStartAt?: string | null;
   announcementAt?: string | null;
   presaleAt?: string | null;
   generalSaleAt?: string | null;

@@ -30,10 +30,50 @@ import {
   launchReadingUnit,
   launchTargetInfoHeader,
   launchTargetView,
+  LAUNCH_NO_READS,
+  planLaunchStamp,
   planLaunchedAt,
   readyLaunchAdapters,
 } from "../launch-face.ts";
-import { planBenchmark } from "../benchmarks.ts";
+import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
+
+function nxRow(
+  event_id: string,
+  event_code: string,
+  event_date: string,
+  cost: number,
+): BenchmarkRow {
+  return {
+    client_id: "eb",
+    venue_key: "nx newcastle",
+    event_id,
+    event_code,
+    event_date,
+    unit: "signup",
+    channel: "meta",
+    cost,
+  };
+}
+
+const NX_WINDOWED_ROWS: BenchmarkRow[] = [
+  nxRow("djez", "NX26-DJEZ", "2026-10-02", 1.67),
+  nxRow("eed", "NX26-EED", "2026-11-13", 1.32),
+  nxRow("folamour", "NX26-FOLAMOUR", "2026-10-23", 0.82),
+  nxRow("ipc", "NX26-IPC", "2026-11-21", 0.87),
+  nxRow("mf", "NX26-MF", "2026-10-16", 2.75),
+];
+
+const DOD_ROLLUP = {
+  date: "2026-09-05",
+  ad_spend: 554,
+  meta_regs: 1086,
+  meta_purchases: 0,
+  meta_reach: 0,
+  tiktok_spend: 0,
+  tiktok_results: 0,
+  google_ads_spend: 0,
+  google_ads_conversions: 0,
+};
 
 describe("LAUNCH identity sentence", () => {
   it("resolved name is verbatim", () => {
@@ -225,7 +265,14 @@ describe("LAUNCH chrome", () => {
   it("◐ 40 ▸ becomes 40 changes ▸; A15 launched line uses formatVizDay", () => {
     assert.equal(decisionsChangesLabel(40), "40 changes ▸");
     assert.equal(decisionsChangesLabel(0), null);
-    assert.equal(formatLaunchedLine("2026-07-24T09:14:00.000Z"), "paused · launched Fri 24 Jul · 10:14");
+    assert.equal(
+      formatLaunchedLine("2026-07-24T09:14:00.000Z", "paused"),
+      "paused · launched Fri 24 Jul · 10:14",
+    );
+    assert.equal(
+      formatLaunchedLine("2026-09-05T09:14:00.000Z", "live"),
+      "live · launched Sat 5 Sep · 10:14",
+    );
   });
 
   it("daily canvas ⓘ is the card form; identity chips leave the header", () => {
@@ -254,7 +301,16 @@ describe("LAUNCH chrome", () => {
 
 describe("LAUNCH review round 1 — surface wiring", () => {
   it("target view is one source: n = 0 starting point, never a preset, unit word matches", () => {
-    assert.equal(planBenchmark(), undefined);
+    assert.equal(
+      planBenchmark({
+        rows: [],
+        clientId: "eb",
+        venueKey: "nx newcastle",
+        venueLabel: "NX Newcastle",
+        unit: "signup",
+      }),
+      undefined,
+    );
     const view = launchTargetView({
       now: new Date("2026-09-03T12:00:00.000Z"),
       generalSaleAt: "2026-09-04T13:00:00.000Z",
@@ -308,48 +364,107 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     );
     assert.equal(formatRunningFact({ cost: 0.51, unit: "reg" }), "£0.51 per signup");
     assert.equal(
-      formatRunningFact({ cost: 0.51, unit: "reg", usual: 2.03 }),
-      "£0.51 per signup · under your usual £2.03",
+      formatRunningFact({ cost: 0.51, unit: "reg", usual: 1.32 }),
+      "£0.51 per signup · under your usual £1.32",
     );
-    const running = launchChannelRunning(
-      [
-        {
-          key: "signups",
-          platformSplit: [{ platform: "meta", spend: 554, value: 1086 }],
-        },
-      ],
-      "reg",
+    const running = launchChannelRunning([DOD_ROLLUP], "reg", 1.32);
+    assert.equal(running.empty, false);
+    assert.ok(running.byAdapter.meta);
+    assert.equal(
+      formatRunningFact({
+        cost: running.byAdapter.meta!.cost,
+        unit: "reg",
+        usual: 1.32,
+      }),
+      "£0.51 per signup · under your usual £1.32",
     );
-    assert.ok(running.meta);
-    assert.equal(formatRunningFact({ cost: running.meta!.cost, unit: "reg" }), "£0.51 per signup");
+    assert.equal(launchChannelRunning([], "reg").empty, true);
+    assert.equal(LAUNCH_NO_READS, "no reads yet");
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.match(channels, /launchBlockers/);
     assert.match(channels, /formatRunningFact/);
+    assert.match(channels, /LAUNCH_NO_READS/);
     assert.match(channels, /formatChannelNeedsYou/);
     assert.doesNotMatch(channels, /BlockerBadge/);
     assert.doesNotMatch(channels, /cost per mille|cost per click/);
+    assert.doesNotMatch(channels, /platformSplit/);
   });
 
-  it("header launched stamp reads the ledger, never plan.createdAt", () => {
+  it("header launched stamp ignores idle prepare-draft rows", () => {
     assert.equal(
       planLaunchedAt({
         meta: { ...IDLE_PLAN_LAUNCH, createdAt: "2026-07-24T09:14:00.000Z" },
         tiktok: { ...IDLE_PLAN_LAUNCH },
         google: { ...IDLE_PLAN_LAUNCH },
       }),
-      "2026-07-24T09:14:00.000Z",
-    );
-    assert.equal(
-      planLaunchedAt({
-        meta: { ...IDLE_PLAN_LAUNCH },
-        tiktok: { ...IDLE_PLAN_LAUNCH },
-        google: { ...IDLE_PLAN_LAUNCH },
-      }),
       null,
     );
+    const live = planLaunchStamp({
+      meta: {
+        ...IDLE_PLAN_LAUNCH,
+        status: "live",
+        platformCampaignId: "120",
+        createdAt: "2026-09-05T09:14:00.000Z",
+      },
+      tiktok: { ...IDLE_PLAN_LAUNCH },
+      google: { ...IDLE_PLAN_LAUNCH },
+    });
+    assert.equal(live?.at, "2026-09-05T09:14:00.000Z");
+    assert.equal(live?.word, "live");
+    assert.equal(
+      formatLaunchedLine(live!.at!, live!.word),
+      "live · launched Sat 5 Sep · 10:14",
+    );
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /planLaunchedAt\(plan\.launches\)/);
+    assert.match(workspace, /planLaunchStamp\(plan\.launches\)/);
     assert.doesNotMatch(workspace, /launchedAt=\{plan\.createdAt\}/);
+  });
+
+  it("unit override wins on a draft and locks once launched", () => {
+    const view = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      unit: "purchase",
+    });
+    assert.equal(view.unit, "purchase");
+    assert.equal(view.unitWord, "purchase");
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /unit,/);
+    assert.match(target, /disabled=\{launched\}/);
+  });
+
+  it("A2 is a line without a band; A4 is the view band with the target as marker", () => {
+    const a2 = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      venueName: "NX Newcastle",
+      venueKey: "nx newcastle",
+      clientId: "eb",
+      excludeEventId: "dod",
+      benchmarkRows: [NX_WINDOWED_ROWS[1]!],
+    });
+    assert.equal(a2.benchmark?.n, 1);
+    assert.equal(a2.benchmark?.band, undefined);
+    assert.equal(a2.lineKind, "estimated");
+    assert.equal(a2.evidence, "from 1 other show at NX Newcastle");
+
+    const a4 = launchTargetView({
+      now: new Date("2026-09-03T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      venueName: "NX Newcastle",
+      venueKey: "nx newcastle",
+      clientId: "eb",
+      excludeEventId: "dod",
+      operatorTarget: 0.51,
+      benchmarkRows: NX_WINDOWED_ROWS,
+    });
+    assert.equal(a4.benchmark?.n, 5);
+    assert.equal(a4.benchmark?.value, 1.32);
+    assert.deepEqual(a4.benchmark?.band, [0.87, 1.67]);
+    assert.equal(a4.chipValue, 0.51);
+    assert.equal(a4.lineKind, "measured");
+    const chip = readFileSync("components/viz/metric-chip.tsx", "utf8");
+    assert.match(chip, /marker=\{value \?\? benchmark\.value\}/);
   });
 
   it("event account id is the event's own column, not the client default", () => {

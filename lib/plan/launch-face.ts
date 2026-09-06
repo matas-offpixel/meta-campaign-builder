@@ -3,23 +3,37 @@
  * Structure stays seven zones; this file is what it says.
  */
 
+import type { PlanTargetUnit } from "../types.ts";
 import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
 import { formatVizDay, formatVizMoment } from "../viz/format-moment.ts";
 import { VIZ_PLATFORM_LABEL, VIZ_STATE_WORD, VIZ_TICKET_LINE_WORD, type VizPlatform } from "../viz/tokens.ts";
-import { planBenchmark } from "./benchmarks.ts";
+import {
+  planBenchmark,
+  type BenchmarkRow,
+  type BenchmarkUnit,
+} from "./benchmarks.ts";
 import type { IdentityNameMap } from "./identity-chips.ts";
 import type { PlanPreflightIssue } from "./preflight.ts";
-import type { CampaignPlan, CampaignPlanLaunches, PlanAdapterName } from "./types.ts";
+import type {
+  CampaignPlan,
+  CampaignPlanLaunchRecord,
+  CampaignPlanLaunches,
+  PlanAdapterName,
+} from "./types.ts";
 import { budgetedLaunchAdapters } from "./types.ts";
 
-export const LAUNCH_STARTING_POINT = {
+export const LAUNCH_STARTING_POINT: Record<PlanTargetUnit, number> = {
   reg: 1.6,
   purchase: 18,
   lpv: 0.35,
   view: 5.5,
-} as const;
+  click: 0.45,
+};
+
+export const LAUNCH_NO_READS = "no reads yet";
 
 export type LaunchReadingUnit = "reg" | "purchase" | "view";
+export type LaunchResolvedUnit = PlanTargetUnit;
 
 export function launchReadingUnit(input: {
   now: Date;
@@ -40,13 +54,26 @@ export function launchReadingUnit(input: {
   return "reg";
 }
 
-export function launchUnitWord(unit: LaunchReadingUnit): string {
+export function launchUnitWord(unit: LaunchResolvedUnit): string {
   if (unit === "reg") return "signup";
   if (unit === "purchase") return "purchase";
-  return "thousand reached";
+  if (unit === "view") return "thousand reached";
+  if (unit === "click") return "click";
+  return "page view";
 }
 
-export function formatStartingPoint(unit: LaunchReadingUnit): string {
+export function resolveLaunchUnit(input: {
+  phase: LaunchReadingUnit;
+  override?: PlanTargetUnit | null;
+}): LaunchResolvedUnit {
+  return input.override ?? input.phase;
+}
+
+export function toBenchmarkUnit(unit: LaunchResolvedUnit): BenchmarkUnit {
+  return unit === "reg" ? "signup" : unit;
+}
+
+export function formatStartingPoint(unit: LaunchResolvedUnit): string {
   const value = LAUNCH_STARTING_POINT[unit];
   return `£${value.toFixed(2)} per ${launchUnitWord(unit)} · Off Pixel's starting point`;
 }
@@ -115,11 +142,34 @@ export function decisionsChangesLabel(count: number): string | null {
   return count > 0 ? `${count} changes ▸` : null;
 }
 
-export function formatLaunchedLine(launchedAt: string): string {
+export type PlanLaunchedWord = "live" | "paused";
+
+export function formatLaunchedLine(launchedAt: string, word: PlanLaunchedWord): string {
   const day = formatVizDay(launchedAt);
   const moment = formatVizMoment(launchedAt);
   const time = moment.includes(" · ") ? moment.split(" · ")[1] : null;
-  return time ? `paused · launched ${day} · ${time}` : `paused · launched ${day}`;
+  return time ? `${word} · launched ${day} · ${time}` : `${word} · launched ${day}`;
+}
+
+export function isLaunchedLedgerRow(record: CampaignPlanLaunchRecord): boolean {
+  return record.status === "live" || Boolean(record.platformCampaignId);
+}
+
+export function planLaunchStamp(launches: CampaignPlanLaunches): {
+  at: string | null;
+  word: PlanLaunchedWord;
+} | null {
+  const rows = (["meta", "tiktok", "google"] as const)
+    .map((adapter) => launches[adapter])
+    .filter(isLaunchedLedgerRow);
+  if (rows.length === 0) return null;
+  const stamps = rows
+    .map((row) => row.createdAt)
+    .filter((value): value is string => Boolean(value?.trim()));
+  return {
+    at: stamps.sort()[0] ?? null,
+    word: rows.some((row) => row.status === "live") ? "live" : "paused",
+  };
 }
 
 export function formatSkippedShare(pct: number, platform?: VizPlatform): string {
@@ -128,10 +178,16 @@ export function formatSkippedShare(pct: number, platform?: VizPlatform): string 
 }
 
 export function planLaunchedAt(launches: CampaignPlanLaunches): string | null {
-  const stamps = (["meta", "tiktok", "google"] as const)
-    .map((adapter) => launches[adapter].createdAt)
-    .filter((value): value is string => Boolean(value?.trim()));
-  return stamps.sort()[0] ?? null;
+  return planLaunchStamp(launches)?.at ?? null;
+}
+
+export function planStampLondonDate(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
 }
 
 export function launchBlockers<T extends { kind?: string }>(
@@ -140,15 +196,17 @@ export function launchBlockers<T extends { kind?: string }>(
   return blockers.filter((blocker) => blocker.kind === "blocker");
 }
 
-export function launchTargetInfoHeader(unit: LaunchReadingUnit): string {
+export function launchTargetInfoHeader(unit: LaunchResolvedUnit): string {
   if (unit === "purchase") return "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND";
   if (unit === "view") return "ESTIMATED · META'S REACH, YOUR SPEND";
+  if (unit === "click") return "ESTIMATED · META'S CLICK COUNT, YOUR SPEND";
+  if (unit === "lpv") return "ESTIMATED · META'S PAGE VIEW COUNT, YOUR SPEND";
   return "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND";
 }
 
 export function formatRunningFact(input: {
   cost: number;
-  unit: LaunchReadingUnit;
+  unit: LaunchResolvedUnit;
   usual?: number | null;
 }): string {
   const number = `${formatGbp(input.cost)} per ${launchUnitWord(input.unit)}`;
@@ -157,27 +215,80 @@ export function formatRunningFact(input: {
   return `${number} · ${cmp} your usual ${formatGbp(input.usual)}`;
 }
 
+export type LaunchRollupDay = {
+  date: string;
+  ad_spend: number;
+  meta_regs: number;
+  meta_purchases: number;
+  meta_reach: number;
+  tiktok_spend: number;
+  tiktok_results: number;
+  google_ads_spend: number;
+  google_ads_conversions: number;
+};
+
+export type LaunchChannelCost = { cost: number; usual?: number | null };
+
+export type LaunchChannelRunning = {
+  empty: boolean;
+  byAdapter: Partial<Record<PlanAdapterName, LaunchChannelCost | null>>;
+};
+
 export function launchChannelRunning(
-  stages: ReadonlyArray<{
-    key: string;
-    platformSplit:
-      | ReadonlyArray<{ platform: string; spend: number; value: number | null }>
-      | null;
-  }>,
+  days: readonly LaunchRollupDay[],
   unit: LaunchReadingUnit,
   usual?: number | null,
-): Partial<Record<PlanAdapterName, { cost: number; usual?: number | null } | null>> {
-  const key = unit === "purchase" ? "purchases" : unit === "view" ? "reach" : "signups";
-  const stage = stages.find((row) => row.key === key);
-  const out: Partial<Record<PlanAdapterName, { cost: number; usual?: number | null } | null>> = {};
-  for (const adapter of ["meta", "tiktok", "google"] as const) {
-    const split = stage?.platformSplit?.find((row) => row.platform === adapter);
-    const cost = split
-      ? platformUnitCost({ spend: split.spend, results: split.value, unit })
-      : null;
-    out[adapter] = cost == null ? null : { cost, usual: usual ?? null };
+): LaunchChannelRunning {
+  if (days.length === 0) {
+    return { empty: true, byAdapter: { meta: null, tiktok: null, google: null } };
   }
-  return out;
+  const totals = days.reduce(
+    (sum, day) => ({
+      ad_spend: sum.ad_spend + day.ad_spend,
+      meta_regs: sum.meta_regs + day.meta_regs,
+      meta_purchases: sum.meta_purchases + day.meta_purchases,
+      meta_reach: sum.meta_reach + day.meta_reach,
+      tiktok_spend: sum.tiktok_spend + day.tiktok_spend,
+      tiktok_results: sum.tiktok_results + day.tiktok_results,
+      google_ads_spend: sum.google_ads_spend + day.google_ads_spend,
+      google_ads_conversions: sum.google_ads_conversions + day.google_ads_conversions,
+    }),
+    {
+      ad_spend: 0,
+      meta_regs: 0,
+      meta_purchases: 0,
+      meta_reach: 0,
+      tiktok_spend: 0,
+      tiktok_results: 0,
+      google_ads_spend: 0,
+      google_ads_conversions: 0,
+    },
+  );
+  const metaResults =
+    unit === "purchase"
+      ? totals.meta_purchases
+      : unit === "view"
+        ? totals.meta_reach
+        : totals.meta_regs;
+  const usualValue = usual ?? null;
+  return {
+    empty: false,
+    byAdapter: {
+      meta: costOrNull(totals.ad_spend, metaResults, unit, usualValue),
+      tiktok: costOrNull(totals.tiktok_spend, totals.tiktok_results, unit, usualValue),
+      google: costOrNull(totals.google_ads_spend, totals.google_ads_conversions, unit, usualValue),
+    },
+  };
+}
+
+function costOrNull(
+  spend: number,
+  results: number,
+  unit: LaunchReadingUnit,
+  usual: number | null,
+): LaunchChannelCost | null {
+  const cost = platformUnitCost({ spend, results, unit });
+  return cost == null ? null : { cost, usual };
 }
 
 export function platformUnitCost(input: {
@@ -208,7 +319,7 @@ export function launchBlockedLine(input: {
 }
 
 export type LaunchTargetView = {
-  unit: LaunchReadingUnit;
+  unit: LaunchResolvedUnit;
   unitWord: string;
   chipValue: number;
   evidence: string;
@@ -225,27 +336,36 @@ export function launchTargetView(input: {
   presaleAt?: string | null;
   kind?: string | null;
   venueName?: string | null;
+  venueKey?: string | null;
+  clientId?: string | null;
+  excludeEventId?: string | null;
+  unit?: PlanTargetUnit | null;
   operatorTarget?: number | null;
   ticketSource?: keyof typeof VIZ_TICKET_LINE_WORD;
+  benchmarkRows?: readonly BenchmarkRow[];
 }): LaunchTargetView {
-  const unit = launchReadingUnit({
+  const phase = launchReadingUnit({
     now: input.now,
     generalSaleAt: input.generalSaleAt,
     presaleAt: input.presaleAt,
     kind: input.kind,
   });
+  const unit = resolveLaunchUnit({ phase, override: input.unit });
   const venue = input.venueName?.trim() || null;
-  const benchmark = planBenchmark({
-    venueLabel: venue,
-    unit: unit === "reg" ? "signup" : unit,
-  });
+  const venueKey = input.venueKey?.trim() || null;
+  const benchmark =
+    input.clientId && venueKey
+      ? planBenchmark({
+          rows: input.benchmarkRows ?? [],
+          clientId: input.clientId,
+          venueKey,
+          venueLabel: venue ?? venueKey,
+          unit: toBenchmarkUnit(unit),
+          excludeEventId: input.excludeEventId,
+        })
+      : undefined;
   const n = benchmark?.n ?? 0;
-  const evidence =
-    n <= 0
-      ? formatStartingPoint(unit)
-      : venue
-        ? formatTargetFromShows(n, venue)
-        : formatStartingPoint(unit);
+  const evidence = n <= 0 ? formatStartingPoint(unit) : (benchmark?.sentence ?? formatStartingPoint(unit));
   const starting = LAUNCH_STARTING_POINT[unit];
   return {
     unit,

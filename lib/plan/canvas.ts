@@ -260,7 +260,7 @@ export function planLaunchButton(input: {
   hasEvent: boolean;
   hasDestination: boolean;
   windowOk?: boolean;
-  preflightOk: boolean;
+  preflightOk: boolean | null;
   busy: boolean;
 }): PlanLaunchButtonModel {
   if (input.state === "launched" || input.state === "live") {
@@ -302,7 +302,7 @@ export function planLaunchButton(input: {
         ? PLAN_CANVAS_COPY.noDestination
         : input.windowOk === false
           ? PLAN_CANVAS_COPY.windowUnset
-          : !input.preflightOk
+          : input.preflightOk === false
             ? PLAN_CANVAS_COPY.blockers
             : input.busy
               ? PLAN_CANVAS_COPY.launchBusy

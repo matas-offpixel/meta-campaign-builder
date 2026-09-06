@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   PLAN_BENCHMARK_PHASE_LABEL,
   PLAN_BENCHMARK_WINDOW,
+  PLAN_BENCHMARK_WINDOW_FOR_UNIT,
   windowedPerTicketRead,
 } from "../benchmark-window.ts";
 
@@ -11,6 +12,9 @@ describe("G34 — benchmark window", () => {
   it("names the window used by every per-unit cost read and the ⓘ phase label", () => {
     assert.equal(PLAN_BENCHMARK_WINDOW.perSignup, "before-general-sale");
     assert.equal(PLAN_BENCHMARK_WINDOW.perTicket, "to-last-ticket-entry");
+    assert.equal(PLAN_BENCHMARK_WINDOW_FOR_UNIT.signup, "before-general-sale");
+    assert.equal(PLAN_BENCHMARK_WINDOW_FOR_UNIT.purchase, "on-or-after-general-sale");
+    assert.equal(PLAN_BENCHMARK_WINDOW_FOR_UNIT.view, "whole-run");
     assert.equal(PLAN_BENCHMARK_PHASE_LABEL[PLAN_BENCHMARK_WINDOW.perSignup], "before general sale");
     assert.equal(
       PLAN_BENCHMARK_PHASE_LABEL[PLAN_BENCHMARK_WINDOW.perTicket],

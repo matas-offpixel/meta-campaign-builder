@@ -509,6 +509,21 @@ describe("zone G · one button", () => {
     assert.equal(button.reason, PLAN_CANVAS_COPY.blockers);
   });
 
+  it("does not disable launch before the first preflight returns", () => {
+    const rows = rowsFor(readyPlan());
+    const button = planLaunchButton({
+      ...open,
+      state: "ready",
+      rows,
+      preflightOk: null,
+    });
+    assert.equal(button.disabled, false);
+    assert.equal(button.reason, null);
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.match(launch, /preflightSettled/);
+    assert.match(launch, /!preflightSettled \? null/);
+  });
+
   it("is ready, and only then is the button live", () => {
     const plan = readyPlan();
     const rows = rowsFor(plan);

@@ -60,6 +60,18 @@ LAUNCH face re-wording from canon §2.2 and frames A1–A15. Structure stays sev
 
 Until #896 merges, `lib/plan/benchmarks.ts` is a stub that returns `undefined` (`TODO(plan-v2-benchmarks)`). Every plan is rung 0. Running-fact "under/above your usual" is absent for the same reason.
 
+## Review round 2 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| Header said `paused · launched <day>` from an idle prepare-draft ledger row | `lib/plan/launch-face.ts` `planLaunchStamp` / `isLaunchedLedgerRow`; `canvas-header.tsx` `launchedWord` | `header launched stamp ignores idle prepare-draft rows` — idle + `createdAt` → no line; live row → `live · launched Sat 5 Sep · 10:14` |
+| Running fact was null — `launchChannelRunning` read `platformSplit` on signups/purchases, which `event-funnel.ts` hard-codes null | `launchChannelRunning` now sums `event_daily_rollups` (launch day → today); `page.tsx` `loadLaunchRollupDays` | `needs you counts blockers only; running fact is cost per reading unit` feeds `DOD_ROLLUP` (`ad_spend` 554 / `meta_regs` 1086) → `£0.51 per signup · under your usual £1.32`; empty days → `no reads yet` |
+| Unit picker only fed the tip; `launchTargetView` derived unit from phase alone | `launchTargetView({ unit })`; `canvas-target.tsx` `disabled={launched}` | `unit override wins on a draft and locks once launched` — pick `purchase` before sale → `per purchase` |
+| Stub `planBenchmark()` — rungs 1–3 never rendered | `#896` `lib/plan/benchmarks.ts` via `loadPlanBenchmarkRows`; `launchTargetView` | `A2 is a line without a band; A4 is the view band with the target as marker` — n=1 no band; n=5 band £0.87–£1.67, marker 0.51 |
+| `preflightOk` started `false` — silent disabled Launch | `useState<boolean \| null>(null)`; `planLaunchButton` treats `null` as not-yet; `canvas-launch.tsx` renders nothing beside the button until settled | `does not disable launch before the first preflight returns` |
+
+n = 0 still draws Off Pixel's starting point. This branch carries 167 + 168 so the #896 module tests can read the view SQL; they drop on rebase after #896 lands.
+
 ## Walk
 
 Open `/plan/[id]` against the frames:
@@ -69,18 +81,19 @@ Open `/plan/[id]` against the frames:
 - A6 — missing moment is a dashed tick, tip `not set on the event`
 - A9 / A13 — 0% channel reads `0% of the budget — skipped`
 - A14 — needs-you sentence opens the drawer (`N things to fix before TikTok can run →`)
-- A15 — Meta `resume ▷`; TikTok / Google `resume in … Ads Manager ↗`; after launch the header can show `paused · launched Fri 24 Jul · 10:14` when a timestamp is passed
+- A15 — Meta `resume ▷`; TikTok / Google `resume in … Ads Manager ↗`; live ledger → `live · launched Sat 5 Sep · 10:14`; idle prepare-draft row → no line
 
 ## Validation
 
-- [x] `npm test` (5168 pass, 3 skipped; leftover untracked `learn-face.test.ts` excluded)
-- [x] `npm run build`
+- [x] `npm test` (round 1: 5168 pass, 3 skipped)
+- [x] `npm test` (round 2: 5217 pass, 4 skipped)
+- [x] `npm run build` (round 2)
 
 ## Readings (not stop-the-PR)
 
 - **A19 vs this sprint.** Canon A19 hides LAUNCH under `role=client`. The sprint says hide nothing on LAUNCH except the button. This PR follows the sprint (PR 6 will render LAUNCH read-only). Flagged for Matas if A19 still stands.
-- **A15 launched stamp.** `campaign_plans` has no `launched_at`. The header now reads `campaign_plan_*_launch.created_at` via `planLaunchedAt`. Missing ledger → no line (not `createdAt`).
-- **Benchmark rungs.** `#896` is unmerged. `planBenchmark()` returns `undefined`. n = 0 starting point; no band; no `computed today`.
+- **A15 launched stamp.** Stamp only when a ledger row is `live` / `paused` or has a `platformCampaignId`. Word is the plan's state (`live` / `paused`), never a constant `paused`. Idle prepare-draft `created_at` does not count.
+- **Benchmark rungs.** `#896`'s `planBenchmark` is on this branch. n = 0 starting point; A2 line; A4 band + target marker. Rebase after #896 to drop the copied 167/168 SQL.
 - **Split history.** `history: null` with TikTok and Google empty sentences. Usual outline is `PLAN_SPLIT_PRESETS[1]` (80/15/5), not the current segments.
 - **Usual outline.** Client-preset shape from `PLAN_SPLIT_PRESETS`, so an edited split can differ from the outline.
 - **Identity when connected.** A connected TikTok / Google account is omitted from the sentence (not "connected"). Unconnected clauses stay.

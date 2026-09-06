@@ -59,9 +59,11 @@ import {
   launchBlockers,
   launchChannelRunning,
   launchReadingUnit,
-  planLaunchedAt,
+  planLaunchStamp,
   readyLaunchAdapters,
 } from "@/lib/plan/launch-face";
+import { planBenchmark, type BenchmarkRow } from "@/lib/plan/benchmarks";
+import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
 import type { PlanPreflightIssue } from "@/lib/plan/preflight";
@@ -105,6 +107,8 @@ export function PlanWorkspace({
   thumbUrl = null,
   targetBenchmark: _targetBenchmark = null,
   identityNames,
+  rollupDays = [],
+  benchmarkRows = [],
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
@@ -123,6 +127,8 @@ export function PlanWorkspace({
   targetBenchmark?: number | null;
   /** Stored cache names for the identity chips — loaded on the page, never fetched here. */
   identityNames?: IdentityNameMap;
+  rollupDays?: readonly LaunchRollupDay[];
+  benchmarkRows?: readonly BenchmarkRow[];
 }) {
   void _targetBenchmark;
   const [plan, setPlan] = useState(initialPlan);
@@ -137,7 +143,7 @@ export function PlanWorkspace({
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
   const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(null);
-  const [preflightOk, setPreflightOk] = useState(false);
+  const [preflightOk, setPreflightOk] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -373,6 +379,7 @@ export function PlanWorkspace({
   }, [plan, router, hasUserEdit]);
 
   useEffect(() => {
+    setPreflightOk(null);
     const handle = window.setTimeout(() => {
       void fetch("/api/plan/preflight", {
         method: "POST",
@@ -743,6 +750,23 @@ export function PlanWorkspace({
 
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
+  const launchStamp = planLaunchStamp(plan.launches);
+  const readingUnit = launchReadingUnit({
+    now: new Date(),
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    kind: selectedEvent?.kind,
+  });
+  const usual = selectedEvent?.clientId && selectedEvent.venueKey
+    ? planBenchmark({
+        rows: benchmarkRows,
+        clientId: selectedEvent.clientId,
+        venueKey: selectedEvent.venueKey,
+        venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
+        unit: readingUnit === "reg" ? "signup" : readingUnit,
+        excludeEventId: selectedEvent.id,
+      })?.value ?? null
+    : null;
 
   return (
     <div>
@@ -753,7 +777,8 @@ export function PlanWorkspace({
         eventDate={selectedEvent?.eventDate ?? null}
         eventCode={selectedEvent?.eventCode ?? null}
         eventMetaAdAccountId={selectedEvent?.eventMetaAdAccountId ?? null}
-        launchedAt={planLaunchedAt(plan.launches)}
+        launchedAt={launchStamp?.at ?? null}
+        launchedWord={launchStamp?.word}
         thumbUrl={thumbUrl}
         destination={destination}
         onDestination={(url) => patchIntent({ destinationUrl: url })}
@@ -838,6 +863,11 @@ export function PlanWorkspace({
           presaleAt={selectedEvent?.presaleAt}
           kind={selectedEvent?.kind}
           venueName={selectedEvent?.venueName}
+          venueKey={selectedEvent?.venueKey}
+          clientId={selectedEvent?.clientId}
+          excludeEventId={selectedEvent?.id}
+          launched={launchStamp != null}
+          benchmarkRows={benchmarkRows}
         />
       </div>
 
@@ -846,20 +876,10 @@ export function PlanWorkspace({
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasChannels
         rows={rows}
-        readingUnit={launchReadingUnit({
-          now: new Date(),
-          generalSaleAt: selectedEvent?.generalSaleAt,
-          presaleAt: selectedEvent?.presaleAt,
-          kind: selectedEvent?.kind,
-        })}
+        readingUnit={readingUnit}
         running={
-          funnel
-            ? launchChannelRunning(funnel.stages, launchReadingUnit({
-                now: new Date(),
-                generalSaleAt: selectedEvent?.generalSaleAt,
-                presaleAt: selectedEvent?.presaleAt,
-                kind: selectedEvent?.kind,
-              }))
+          launchStamp
+            ? launchChannelRunning(rollupDays, readingUnit, usual)
             : undefined
         }
         onOpen={(row) => void openChannel(row)}
@@ -966,6 +986,7 @@ export function PlanWorkspace({
           void resume(rows.filter((row) => !row.skipped && row.status === "paused").map((row) => row.adapter))
         }
         readyAdapters={readyLaunchAdapters(rows)}
+        preflightSettled={preflightOk !== null}
         blockerSentence={launchBlockedLine({
           hasEvent: Boolean(plan.intent.eventId),
           busy,

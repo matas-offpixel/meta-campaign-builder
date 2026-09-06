@@ -16,6 +16,7 @@ import {
   formatIdentitySentence,
   formatIdentityTip,
   formatLaunchedLine,
+  type PlanLaunchedWord,
 } from "@/lib/plan/launch-face";
 import { formatVizDay } from "@/lib/viz/format-moment";
 import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
@@ -41,6 +42,7 @@ export function CanvasHeader({
   identityNames,
   eventMetaAdAccountId,
   launchedAt,
+  launchedWord,
 }: {
   name: string;
   clientName: string | null;
@@ -58,6 +60,7 @@ export function CanvasHeader({
   identityNames?: IdentityNameMap;
   eventMetaAdAccountId?: string | null;
   launchedAt?: string | null;
+  launchedWord?: PlanLaunchedWord;
 }) {
   const [draft, setDraft] = useState(destination.url);
   const handle = decisionsChangesLabel(decisionCount);
@@ -102,9 +105,9 @@ export function CanvasHeader({
         {identity ? (
           <span className={`mt-1 block ${VIZ_TYPE.body} text-muted-foreground`}>{identity}</span>
         ) : null}
-        {launchedAt ? (
+        {launchedAt && launchedWord ? (
           <span className={`mt-0.5 block ${VIZ_TYPE.label} text-muted-foreground`}>
-            {formatLaunchedLine(launchedAt)}
+            {formatLaunchedLine(launchedAt, launchedWord)}
           </span>
         ) : null}
         {destination.overridable ? (
