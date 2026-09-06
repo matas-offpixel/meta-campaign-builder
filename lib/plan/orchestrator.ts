@@ -4,6 +4,7 @@ import type { GoogleSearchPlanTree } from "../google-search/types.ts";
 import { planToGoogleDraft } from "./adapters/google.ts";
 import { planToMetaDraft } from "./adapters/meta.ts";
 import { planToTikTokDraft } from "./adapters/tiktok.ts";
+import { googleCustomerIdForLedger } from "./ads-manager-links.ts";
 import { planFanoutGateState } from "./gate.ts";
 import {
   budgetedLaunchAdapters,
@@ -42,6 +43,8 @@ export interface OrchestratePlanLaunchInput {
   ) => Promise<void>;
   logOutgoing?: (adapter: PlanAdapterName, payload: unknown) => void;
   env?: NodeJS.ProcessEnv;
+  /** Joined `google_ads_accounts.google_customer_id`. Never the uuid FK. */
+  googleCustomerId?: string | null;
 }
 
 export interface OrchestratePlanLaunchResult {
@@ -51,16 +54,40 @@ export interface OrchestratePlanLaunchResult {
 
 const ADAPTER_ORDER: PlanAdapterName[] = ["meta", "tiktok", "google"];
 
+function platformAccountFromDraft(
+  adapter: PlanAdapterName,
+  payload: CampaignDraft | TikTokCampaignDraft | GoogleSearchPlanTree,
+  googleCustomerId?: string | null,
+): string | null {
+  if (adapter === "meta") {
+    const draft = payload as CampaignDraft;
+    const id = draft.settings?.adAccountId || draft.settings?.metaAdAccountId || null;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  if (adapter === "tiktok") {
+    const draft = payload as TikTokCampaignDraft;
+    const id = draft.accountSetup?.advertiserId || null;
+    return typeof id === "string" && id.trim() ? id.trim() : null;
+  }
+  return (
+    googleCustomerIdForLedger(googleCustomerId) ??
+    googleCustomerIdForLedger((payload as GoogleSearchPlanTree).plan?.google_ads_account_id)
+  );
+}
+
 function applyOutcome(
   previous: CampaignPlanLaunchRecord,
   outcome: PlanAdapterOutcome,
+  platformAdAccountId?: string | null,
 ): CampaignPlanLaunchRecord {
+  const account = platformAdAccountId ?? previous.platformAdAccountId ?? null;
   if (outcome.ok) {
     return {
       status: "live",
       platformCampaignId: outcome.campaignId ?? previous.platformCampaignId,
       draftId: outcome.draftId ?? previous.draftId,
       error: null,
+      platformAdAccountId: account,
     };
   }
   return {
@@ -68,6 +95,7 @@ function applyOutcome(
     platformCampaignId: previous.platformCampaignId,
     draftId: outcome.draftId ?? previous.draftId,
     error: outcome.error ?? "adapter launch failed",
+    platformAdAccountId: account,
   };
 }
 
@@ -116,15 +144,20 @@ export async function orchestratePlanLaunch(
 
     const payload = drafts[adapter];
     input.logOutgoing?.(adapter, payload);
+    const account = platformAccountFromDraft(adapter, payload, input.googleCustomerId);
 
     try {
       const outcome = await input.launchers[adapter](payload as never);
-      launches[adapter] = applyOutcome(launches[adapter], outcome);
+      launches[adapter] = applyOutcome(launches[adapter], outcome, account);
     } catch (err) {
-      launches[adapter] = applyOutcome(launches[adapter], {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      launches[adapter] = applyOutcome(
+        launches[adapter],
+        {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        account,
+      );
     }
     await input.persistLaunch?.(adapter, launches[adapter]);
   }

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { planToGoogleDraft } from "../adapters/google.ts";
+import { loadDraftAdAccountId, loadPlanLaunchRecords } from "../load.ts";
 import { collectPlanPreflight } from "../preflight.ts";
 import { orchestratePlanLaunch } from "../orchestrator.ts";
 import {
@@ -180,6 +182,8 @@ describe("linked-draft preflight and fan-out persist", () => {
   it("fan-out launches the linked draft and writes launch child rows", async () => {
     const plan = goldenPlan();
     const linked = buildPrefillMetaDraft(plan);
+    linked.settings.adAccountId = "act_606252931141334";
+    linked.settings.metaAdAccountId = "act_606252931141334";
     const persisted: Array<{ adapter: string; draftId: string | null; status: string }> = [];
     let launchedId: string | null = null;
     const result = await orchestratePlanLaunch({
@@ -210,6 +214,7 @@ describe("linked-draft preflight and fan-out persist", () => {
     });
     assert.equal(launchedId, linked.id);
     assert.equal(result.plan.launches.meta.draftId, linked.id);
+    assert.equal(result.plan.launches.meta.platformAdAccountId, "act_606252931141334");
     assert.ok(persisted.some((row) => row.adapter === "meta" && row.status === "live"));
     const db = memoryDb();
     const write = await upsertPlanLaunchRow(db, {
@@ -223,6 +228,105 @@ describe("linked-draft preflight and fan-out persist", () => {
       db.launches.get(`campaign_plan_meta_launch:${plan.id}`)?.platform_campaign_id,
       "meta_live",
     );
+    assert.equal(
+      db.launches.get(`campaign_plan_meta_launch:${plan.id}`)?.platform_ad_account_id,
+      "act_606252931141334",
+    );
+  });
+
+  it("google ledger stores the customer id, never the google_ads_accounts uuid", async () => {
+    const accountUuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const customerId = "793-280-0197";
+    const plan = goldenPlan();
+    plan.intent.budget = {
+      totalDaily: 10,
+      metaDaily: 0,
+      tiktokDaily: 0,
+      googleDaily: 10,
+    };
+    const tree = planToGoogleDraft(plan);
+    tree.plan.google_ads_account_id = accountUuid;
+    const withCustomer = await orchestratePlanLaunch({
+      plan,
+      linkedDrafts: { google: tree },
+      googleCustomerId: customerId,
+      env: { ENABLE_PLAN_FANOUT: "1" },
+      launchers: {
+        meta: async () => ({ ok: true, campaignId: "m", draftId: "m" }),
+        tiktok: async () => ({ ok: true, campaignId: "t", draftId: "t" }),
+        google: async () => ({ ok: true, campaignId: "g_live", draftId: tree.plan.id }),
+      },
+    });
+    assert.equal(withCustomer.plan.launches.google.platformAdAccountId, customerId);
+
+    const uuidOnly = await orchestratePlanLaunch({
+      plan,
+      linkedDrafts: { google: tree },
+      env: { ENABLE_PLAN_FANOUT: "1" },
+      launchers: {
+        meta: async () => ({ ok: true, campaignId: "m", draftId: "m" }),
+        tiktok: async () => ({ ok: true, campaignId: "t", draftId: "t" }),
+        google: async () => ({ ok: true, campaignId: "g_live", draftId: tree.plan.id }),
+      },
+    });
+    assert.equal(uuidOnly.plan.launches.google.platformAdAccountId, null);
+  });
+
+  it("page loader reads the linked draft adAccountId; ledger load stays a launch-row read (D.O.D)", async () => {
+    const draftId = "645ed600-0000-4000-8000-000000000000";
+    const supabase = {
+      from(table: string) {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  maybeSingle: async () => {
+                    if (table === "campaign_plan_meta_launch") {
+                      return {
+                        data: {
+                          status: "live",
+                          platform_campaign_id: "120251576269510755",
+                          draft_id: draftId,
+                          platform_ad_account_id: null,
+                        },
+                        error: null,
+                      };
+                    }
+                    if (table === "campaign_drafts") {
+                      return {
+                        data: {
+                          draft_json: {
+                            settings: { adAccountId: "act_606252931141334" },
+                          },
+                        },
+                        error: null,
+                      };
+                    }
+                    return { data: null, error: null };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+    const launches = await loadPlanLaunchRecords(supabase, "plan-dod");
+    assert.equal(launches.meta.platformAdAccountId, null);
+    assert.equal(launches.meta.draftAdAccountId, null);
+    assert.equal(await loadDraftAdAccountId(supabase, draftId), "act_606252931141334");
+    const persist = readFileSync("lib/plan/persist.ts", "utf8");
+    assert.doesNotMatch(persist, /draftAdAccountId|draft_ad_account_id/);
+    const load = readFileSync("lib/plan/load.ts", "utf8");
+    const ledgerRead = load.slice(
+      load.indexOf("export async function loadPlanLaunchRecords"),
+      load.indexOf("export function emptyPlanLaunches"),
+    );
+    assert.doesNotMatch(ledgerRead, /campaign_drafts/);
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(page, /loadDraftAdAccountId/);
+    assert.match(page, /try \{/);
   });
 });
 
@@ -278,5 +382,25 @@ describe("plan page guards", () => {
     const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
     assert.match(list, /isRelationMissing/);
     assert.doesNotMatch(list, /includes\("campaign_plans"\)/);
+  });
+
+  it("migration 169 stores the launched account on the ledger", () => {
+    const sql = readFileSync(
+      "supabase/migrations/169_campaign_plan_platform_ad_account.sql",
+      "utf8",
+    );
+    assert.match(sql, /platform_ad_account_id/);
+    assert.match(sql, /campaign_plan_meta_launch/);
+    assert.match(sql, /campaign_plan_tiktok_launch/);
+    assert.match(sql, /campaign_plan_google_launch/);
+    assert.match(sql, /draft_json->'settings'->>'adAccountId'/);
+    assert.match(sql, /draft_json->'settings'->>'metaAdAccountId'/);
+    assert.doesNotMatch(sql, /d\.settings->>'adAccountId'/);
+    assert.match(sql, /google_ads_accounts/);
+    assert.match(sql, /a\.google_customer_id/);
+    assert.doesNotMatch(sql, /p\.google_ads_account_id::text/);
+    assert.match(sql, /Do not apply in this run/);
+    const persist = readFileSync("lib/plan/persist.ts", "utf8");
+    assert.match(persist, /platform_ad_account_id/);
   });
 });

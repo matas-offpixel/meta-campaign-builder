@@ -117,6 +117,27 @@ describe("delete gating by child-row state", () => {
     );
   });
 
+  it("delete policy refuses on a live plan even when campaign_drafts throws", async () => {
+    const db = disposeDb({
+      meta: { status: "live", platform_campaign_id: "120", draft_id: "d1" },
+    });
+    const inner = db.from.bind(db);
+    db.from = (table: string) => {
+      if (table === "campaign_drafts") {
+        throw new Error("campaign_drafts is not served");
+      }
+      return inner(table);
+    };
+    const denied = await deleteCampaignPlan(db, "plan-1", "user-1");
+    assert.equal(denied.ok, false);
+    if (denied.ok === false) assert.equal(denied.action, "archive");
+    assert.equal(db.touched.includes("delete:campaign_plans"), false);
+    assert.equal(
+      db.touched.some((entry) => entry.includes("campaign_drafts")),
+      false,
+    );
+  });
+
   it("list and plan page confirm before delete or archive", () => {
     const action = readFileSync("components/plan/plan-delete-action.tsx", "utf8");
     assert.doesNotMatch(action, /window\.confirm/);

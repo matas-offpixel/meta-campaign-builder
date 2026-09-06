@@ -12,6 +12,7 @@ import {
   formatHistoryEmpty,
   formatIdentitySentence,
   formatIdentityTip,
+  planIdentityMetaId,
   formatLaunchBlockerSentence,
   formatLaunchCreatesLine,
   formatLaunchedLine,
@@ -110,17 +111,99 @@ describe("LAUNCH identity sentence", () => {
     );
   });
 
-  it("ⓘ shows both accounts when the event's own id differs (G30)", () => {
+  it("launched D.O.D names the draft account, not the client default (G30)", () => {
+    const launchedMeta = {
+      ...IDLE_PLAN_LAUNCH,
+      status: "live" as const,
+      platformCampaignId: "120251576269510755",
+      draftId: "draft-dod",
+      platformAdAccountId: "act_606252931141334",
+    };
+    const metaId = planIdentityMetaId({
+      launchedMeta,
+      resolvedMetaId: "act_1073273492854557",
+    });
+    assert.equal(
+      formatIdentitySentence({
+        metaId,
+        metaConnected: true,
+        tiktokConnected: true,
+        googleConnected: true,
+        names: EMPTY_IDENTITY_NAMES,
+      }),
+      "Running as act_606252931141334 on Meta",
+    );
+    assert.equal(
+      formatIdentitySentence({
+        metaId,
+        metaConnected: true,
+        tiktokConnected: true,
+        googleConnected: true,
+        names: {
+          ...EMPTY_IDENTITY_NAMES,
+          metaAdAccount: { "606252931141334": "NX Promoter" },
+        },
+      }),
+      "Running as NX Promoter on Meta",
+    );
     const tip = formatIdentityTip({
-      metaId: "1073273492854557",
-      eventMetaAdAccountId: "606252931141334",
+      metaId,
+      clientDefaultMetaId: "1073273492854557",
       destinationUrl: "https://dod-newcastle.com",
       clientName: "Electric Brixton",
     });
     assert.match(tip, /Electric Brixton/);
-    assert.match(tip, /1073273492854557/);
-    assert.match(tip, /606252931141334/);
+    assert.match(tip, /act_606252931141334/);
+    assert.match(tip, /client default act_1073273492854557/);
     assert.match(tip, /dod-newcastle\.com/);
+  });
+
+  it("launched with a null ledger falls back to the linked draft, never the resolver (D.O.D)", () => {
+    const launchedMeta = {
+      ...IDLE_PLAN_LAUNCH,
+      status: "live" as const,
+      platformCampaignId: "120251576269510755",
+      draftId: "645ed600-0000-4000-8000-000000000000",
+      platformAdAccountId: null,
+    };
+    const metaId = planIdentityMetaId({
+      launchedMeta,
+      draftAdAccountId: "act_606252931141334",
+      resolvedMetaId: "act_1073273492854557",
+    });
+    assert.equal(metaId, "act_606252931141334");
+    assert.equal(
+      planIdentityMetaId({
+        launchedMeta,
+        draftAdAccountId: null,
+        resolvedMetaId: "act_1073273492854557",
+      }),
+      null,
+    );
+  });
+
+  it("draft plan identity is the resolver id; ⓘ names the other client default", () => {
+    const metaId = planIdentityMetaId({
+      launchedMeta: IDLE_PLAN_LAUNCH,
+      resolvedMetaId: "act_606252931141334",
+    });
+    assert.equal(
+      formatIdentitySentence({
+        metaId,
+        metaConnected: true,
+        tiktokConnected: true,
+        googleConnected: true,
+        names: EMPTY_IDENTITY_NAMES,
+      }),
+      "Running as act_606252931141334 on Meta",
+    );
+    assert.match(
+      formatIdentityTip({
+        metaId,
+        clientDefaultMetaId: "1073273492854557",
+      }),
+      /client default act_1073273492854557/,
+    );
   });
 });
 
@@ -467,17 +550,26 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(chip, /marker=\{value \?\? benchmark\.value\}/);
   });
 
-  it("event account id is the event's own column, not the client default", () => {
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
-    assert.match(page, /meta_ad_account_id/);
-    assert.match(page, /eventMetaAdAccountId: event\.meta_ad_account_id/);
+  it("header identity is planIdentityMetaId; ⓘ names the client default", () => {
+    const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    assert.match(workspace, /eventMetaAdAccountId=\{selectedEvent\?\.eventMetaAdAccountId/);
+    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    assert.match(header, /planIdentityMetaId/);
+    assert.match(header, /draftAdAccountId: launchedMeta.draftAdAccountId/);
+    assert.match(header, /formatIdentitySentence/);
+    assert.match(workspace, /draftAdAccountId: plan.launches.meta.draftAdAccountId/);
+    assert.match(workspace, /clientDefaultMetaId=\{selectedEvent\?\.metaAdAccountId/);
+    const load = readFileSync("lib/plan/load.ts", "utf8");
+    assert.match(load, /from\("campaign_drafts"\)/);
+    assert.match(load, /draft_json/);
+    assert.match(load, /settings\?\.adAccountId/);
+    assert.match(page, /loadDraftAdAccountId/);
+    assert.match(page, /eventMetaAdAccountId: event\.meta_ad_account_id/);
     const tip = formatIdentityTip({
-      metaId: "1073273492854557",
-      eventMetaAdAccountId: "606252931141334",
+      metaId: "act_606252931141334",
+      clientDefaultMetaId: "1073273492854557",
     });
-    assert.match(tip, /event account 606252931141334/);
+    assert.match(tip, /client default act_1073273492854557/);
   });
 
   it("usual outline is the client preset; skip and history name the channel", () => {

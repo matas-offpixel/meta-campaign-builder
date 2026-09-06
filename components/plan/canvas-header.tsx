@@ -16,8 +16,10 @@ import {
   formatIdentitySentence,
   formatIdentityTip,
   formatLaunchedLine,
+  planIdentityMetaId,
   type PlanLaunchedWord,
 } from "@/lib/plan/launch-face";
+import type { CampaignPlanLaunchRecord } from "@/lib/plan/types";
 import { formatVizDay } from "@/lib/viz/format-moment";
 import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
@@ -40,7 +42,8 @@ export function CanvasHeader({
   menuItems,
   resolved,
   identityNames,
-  eventMetaAdAccountId,
+  launchedMeta,
+  clientDefaultMetaId,
   launchedAt,
   launchedWord,
 }: {
@@ -58,14 +61,19 @@ export function CanvasHeader({
   menuItems: OverflowMenuItem[];
   resolved: ResolvedChannelDefaults | null;
   identityNames?: IdentityNameMap;
-  eventMetaAdAccountId?: string | null;
+  launchedMeta: CampaignPlanLaunchRecord;
+  clientDefaultMetaId?: string | null;
   launchedAt?: string | null;
   launchedWord?: PlanLaunchedWord;
 }) {
   const [draft, setDraft] = useState(destination.url);
   const handle = decisionsChangesLabel(decisionCount);
   const date = eventDate ? formatVizDay(eventDate) : null;
-  const metaId = resolved?.metaAdAccount.value ?? null;
+  const metaId = planIdentityMetaId({
+    launchedMeta,
+    draftAdAccountId: launchedMeta.draftAdAccountId,
+    resolvedMetaId: resolved?.metaAdAccount.value ?? null,
+  });
   const identity = resolved
     ? formatIdentitySentence({
         metaId,
@@ -78,7 +86,7 @@ export function CanvasHeader({
   const tip = joinInfoTips(
     formatIdentityTip({
       metaId,
-      eventMetaAdAccountId,
+      clientDefaultMetaId,
       destinationUrl: destination.url || null,
       clientName,
     }),

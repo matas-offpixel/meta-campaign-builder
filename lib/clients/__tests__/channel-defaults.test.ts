@@ -416,6 +416,7 @@ describe("migration-absent runtime degrades to today", () => {
                       return {
                         data: {
                           client_id: "client-1",
+                          meta_ad_account_id: "606252931141334",
                           tiktok_account_id: "tt_event",
                           google_ads_account_id: "ga_event",
                         },
@@ -427,6 +428,7 @@ describe("migration-absent runtime degrades to today", () => {
                         data: {
                           id: "client-1",
                           name: "Black Butter",
+                          meta_ad_account_id: "1073273492854557",
                           default_page_ids: ["page_default"],
                           tiktok_account_id: "tt_acc_1",
                           default_tiktok_identity_id: "id_default",
@@ -463,6 +465,8 @@ describe("migration-absent runtime degrades to today", () => {
     assert.equal(resolved.googleAdsAccount.value, "ga_event");
     assert.equal(resolved.googleAdsCustomer.value, "222");
     assert.equal(resolved.facebookPage.provenance, "client-default");
+    assert.equal(resolved.metaAdAccount.value, "act_606252931141334");
+    assert.equal(resolved.metaAdAccount.provenance, "operator-override");
   });
 });
 
@@ -488,6 +492,8 @@ describe("source-guards — consumers and settings reuse existing pickers", () =
     assert.match(preflight, /drafts, resolved/);
     const defaults = readFileSync("lib/clients/channel-defaults.ts", "utf8");
     assert.match(defaults, /normalizeAdAccountId/);
+    assert.match(defaults, /meta_ad_account_id/);
+    assert.match(defaults, /overrides\.metaAdAccountId = event\.meta_ad_account_id/);
     assert.doesNotMatch(defaults, /act_\$\{/);
   });
 

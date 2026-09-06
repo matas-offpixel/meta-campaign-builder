@@ -1702,6 +1702,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         campaignId: null,
         ok: false,
         error: message,
+        platformAdAccountId:
+          draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
       });
       const { code, subcode } = metaCodesFromUnknown(err);
       if (isMetaRateLimitCode(code, subcode)) {
@@ -4532,6 +4534,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     userId: user.id,
     campaignId: metaCampaignId,
     ok: true,
+    platformAdAccountId:
+      draft.settings.adAccountId || draft.settings.metaAdAccountId || null,
   });
 
   console.log(

@@ -79,6 +79,45 @@ describe("planAdsManagerLinks reuses existing builders", () => {
       ),
     );
   });
+
+  it("Google deep link is built from a customer id, never a uuid FK", () => {
+    const campaign = "customers/7932800197/campaigns/23874109408";
+    const withUuid: CampaignPlan = {
+      ...plan(),
+      launches: {
+        ...plan().launches,
+        google: {
+          ...IDLE_PLAN_LAUNCH,
+          status: "live",
+          platformCampaignId: campaign,
+          platformAdAccountId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        },
+      },
+    };
+    const fromFallback = planAdsManagerLinks(withUuid, {
+      googleCustomerId: "793-280-0197",
+    })[2];
+    assert.equal(
+      fromFallback.href,
+      googleAdsCampaignDeepLink(campaign, "793-280-0197"),
+    );
+    assert.match(fromFallback.href ?? "", /__e=7932800197/);
+    assert.doesNotMatch(fromFallback.href ?? "", /aaaaaaaa/);
+
+    const fromLedger = planAdsManagerLinks({
+      ...plan(),
+      launches: {
+        ...plan().launches,
+        google: {
+          ...IDLE_PLAN_LAUNCH,
+          status: "live",
+          platformCampaignId: campaign,
+          platformAdAccountId: "793-280-0197",
+        },
+      },
+    })[2];
+    assert.equal(fromLedger.href, googleAdsCampaignDeepLink(campaign, "793-280-0197"));
+  });
 });
 
 describe("plan UI honest copy", () => {

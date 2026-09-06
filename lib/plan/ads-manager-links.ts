@@ -15,6 +15,18 @@ function metaCampaignUrl(adAccountId: string, campaignId: string): string | null
   return `https://business.facebook.com/adsmanager/manage/campaigns?${params.toString()}`;
 }
 
+const GOOGLE_ADS_ACCOUNT_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** UUID FK to `google_ads_accounts` is not a customer id — never feed it to a deep link. */
+export function googleCustomerIdForLedger(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || GOOGLE_ADS_ACCOUNT_UUID_RE.test(trimmed)) return null;
+  return trimmed;
+}
+
 export interface PlanAdsManagerLink {
   adapter: "meta" | "tiktok" | "google";
   href: string | null;
@@ -30,21 +42,26 @@ export function planAdsManagerLinks(
   } = {},
 ): PlanAdsManagerLink[] {
   const metaId = plan.launches.meta.platformCampaignId;
+  const metaAccount =
+    plan.launches.meta.platformAdAccountId ?? ids.metaAdAccountId;
   const metaHref =
-    metaId && ids.metaAdAccountId
-      ? metaCampaignUrl(ids.metaAdAccountId, metaId)
-      : null;
+    metaId && metaAccount ? metaCampaignUrl(metaAccount, metaId) : null;
 
-  const tiktokHref = buildTikTokAdsManagerUrl(ids.tiktokAdvertiserId);
+  const tiktokAdvertiser =
+    plan.launches.tiktok.platformAdAccountId ?? ids.tiktokAdvertiserId;
+  const tiktokHref = buildTikTokAdsManagerUrl(tiktokAdvertiser);
 
   const googleId = plan.launches.google.platformCampaignId;
+  const googleCustomer =
+    googleCustomerIdForLedger(plan.launches.google.platformAdAccountId) ??
+    googleCustomerIdForLedger(ids.googleCustomerId);
   const googleHref =
-    googleId && ids.googleCustomerId
+    googleId && googleCustomer
       ? googleAdsCampaignDeepLink(
           googleId.includes("campaigns/")
             ? googleId
-            : `customers/${ids.googleCustomerId}/campaigns/${googleId}`,
-          ids.googleCustomerId,
+            : `customers/${googleCustomer}/campaigns/${googleId}`,
+          googleCustomer,
         )
       : null;
 
