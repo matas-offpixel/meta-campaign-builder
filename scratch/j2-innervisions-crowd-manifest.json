@@ -1,0 +1,335 @@
+{
+  "event": "Innervisions evergreen brand content",
+  "stage": "Crowd",
+  "source_year": 2024,
+  "source_event": "Junction 2 27/07/2024",
+  "photographers": [
+    "Robin Lee"
+  ],
+  "audio_reference": {
+    "bpm": 120,
+    "note": "Audio is NOT baked into the render. Sync in CapCut post-render. ~112 BPM cadence via 8 frames/photo @ 30fps."
+  },
+  "render": {
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "cadence": "8 frames/photo (~112 BPM perception at 120 BPM target)",
+    "frames_per_photo": 8,
+    "total_frames": 344,
+    "duration_sec": 11.47
+  },
+  "supabase_storage": {
+    "bucket": "campaign-assets",
+    "prefix": "reel-photos/innervisions-crowd/",
+    "filename_pattern": "photo-{INDEX}.jpg",
+    "resize_target": {
+      "width": 1080,
+      "height": 1620,
+      "fit": "cover"
+    }
+  },
+  "photos": [
+    {
+      "index": 1,
+      "source_filename": "RL20240727_J2_1119.jpg",
+      "target_filename": "photo-1.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 2,
+      "source_filename": "RL20240727_J2_1159.jpg",
+      "target_filename": "photo-2.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 3,
+      "source_filename": "RL20240727_J2_1173.jpg",
+      "target_filename": "photo-3.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 4,
+      "source_filename": "RL20240727_J2_1183.jpg",
+      "target_filename": "photo-4.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 5,
+      "source_filename": "RL20240727_J2_1195.jpg",
+      "target_filename": "photo-5.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 6,
+      "source_filename": "RL20240727_J2_1223.jpg",
+      "target_filename": "photo-6.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 7,
+      "source_filename": "RL20240727_J2_1273.jpg",
+      "target_filename": "photo-7.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 8,
+      "source_filename": "RL20240727_J2_1284.jpg",
+      "target_filename": "photo-8.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 9,
+      "source_filename": "RL20240727_J2_1415.jpg",
+      "target_filename": "photo-9.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 10,
+      "source_filename": "RL20240727_J2_1550.jpg",
+      "target_filename": "photo-10.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 11,
+      "source_filename": "RL20240727_J2_1575.jpg",
+      "target_filename": "photo-11.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 12,
+      "source_filename": "RL20240727_J2_1676.jpg",
+      "target_filename": "photo-12.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 13,
+      "source_filename": "RL20240727_J2_1757.jpg",
+      "target_filename": "photo-13.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 14,
+      "source_filename": "RL20240727_J2_1791.jpg",
+      "target_filename": "photo-14.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 15,
+      "source_filename": "RL20240727_J2_1888.jpg",
+      "target_filename": "photo-15.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 16,
+      "source_filename": "RL20240727_J2_1900.jpg",
+      "target_filename": "photo-16.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 17,
+      "source_filename": "RL20240727_J2_2037.jpg",
+      "target_filename": "photo-17.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 18,
+      "source_filename": "RL20240727_J2_2083.jpg",
+      "target_filename": "photo-18.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 19,
+      "source_filename": "RL20240727_J2_2111.jpg",
+      "target_filename": "photo-19.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 20,
+      "source_filename": "RL20240727_J2_2263.jpg",
+      "target_filename": "photo-20.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 21,
+      "source_filename": "RL20240727_J2_2290.jpg",
+      "target_filename": "photo-21.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 22,
+      "source_filename": "RL20240727_J2_2452.jpg",
+      "target_filename": "photo-22.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 23,
+      "source_filename": "RL20240727_J2_2624.jpg",
+      "target_filename": "photo-23.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 24,
+      "source_filename": "RL20240727_J2_2630.jpg",
+      "target_filename": "photo-24.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 25,
+      "source_filename": "RL20240727_J2_2665.jpg",
+      "target_filename": "photo-25.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 26,
+      "source_filename": "RL20240727_J2_2702.jpg",
+      "target_filename": "photo-26.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 27,
+      "source_filename": "RL20240727_J2_2804.jpg",
+      "target_filename": "photo-27.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 28,
+      "source_filename": "RL20240727_J2_2835.jpg",
+      "target_filename": "photo-28.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 29,
+      "source_filename": "RL20240727_J2_2938.jpg",
+      "target_filename": "photo-29.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 30,
+      "source_filename": "RL20240727_J2_2976.jpg",
+      "target_filename": "photo-30.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 31,
+      "source_filename": "RL20240727_J2_3008.jpg",
+      "target_filename": "photo-31.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 32,
+      "source_filename": "RL20240727_J2_3038.jpg",
+      "target_filename": "photo-32.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 33,
+      "source_filename": "RL20240727_J2_3140.jpg",
+      "target_filename": "photo-33.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 34,
+      "source_filename": "RL20240727_J2_3156.jpg",
+      "target_filename": "photo-34.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 35,
+      "source_filename": "RL20240727_J2_3187.jpg",
+      "target_filename": "photo-35.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 36,
+      "source_filename": "RL20240727_J2_3197.jpg",
+      "target_filename": "photo-36.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 37,
+      "source_filename": "RL20240727_J2_3209.jpg",
+      "target_filename": "photo-37.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 38,
+      "source_filename": "RL20240727_J2_3222.jpg",
+      "target_filename": "photo-38.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 39,
+      "source_filename": "RL20240727_J2_3251.jpg",
+      "target_filename": "photo-39.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 40,
+      "source_filename": "RL20240727_J2_3256.jpg",
+      "target_filename": "photo-40.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 41,
+      "source_filename": "RL20240727_J2_3309.jpg",
+      "target_filename": "photo-41.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 42,
+      "source_filename": "RL20240727_J2_3321.jpg",
+      "target_filename": "photo-42.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    },
+    {
+      "index": 43,
+      "source_filename": "RL20240727_J2_3380.jpg",
+      "target_filename": "photo-43.jpg",
+      "photographer": "Robin Lee",
+      "date": "20240727"
+    }
+  ]
+}
