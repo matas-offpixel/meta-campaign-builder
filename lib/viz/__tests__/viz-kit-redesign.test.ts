@@ -409,12 +409,14 @@ describe("AssetStrip named states", () => {
     assert.doesNotMatch(source, /broken-image|BrokenImage/);
   });
 
-  it("Google is always the not-instrumented dash, never a cross", () => {
+  it("Google is a sentence at the strip head, never a cross or a glyph", () => {
     assert.equal(googleRoutingMark(), "—");
     const source = readFileSync("components/viz/asset-strip.tsx", "utf8");
-    assert.match(source, /not instrumented/);
+    assert.match(source, /ASSET_STRIP_GOOGLE_HEAD|not on Google/);
+    assert.match(source, /VIZ_PLATFORM_LABEL/);
     assert.match(source, /border-dashed/);
     assert.doesNotMatch(source, /✗|✕|cross/);
+    assert.doesNotMatch(source, /PlatformGlyph|PlatformToggle|AspectChip/);
     assert.equal(routingToggleNext(["meta"], "google", true).includes("google"), false);
   });
 

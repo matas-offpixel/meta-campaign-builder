@@ -5,10 +5,11 @@ import { Locked } from "@/components/viz/locked";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { WindowBar } from "@/components/viz/window-bar";
 import {
+  ADJUST_APPLY_NEXT_CHECK,
   ADJUST_INFO_VARIANT,
   ADJUST_LIFETIME_TIP,
   ADJUST_LOG_TITLE,
-  ADJUST_PLACEMENT_EMPTY,
+  ADJUST_PLACEMENT_LINES,
   adjustControlsVisible,
   adjustFaceView,
   formatLogDid,
@@ -32,7 +33,7 @@ export function CanvasAdjust({
   role = "operator",
   spent = 0,
   planned = 0,
-  unitWord = "signup",
+  kind = null,
   benchmark,
   suggestionUsual,
   writeGates = { writesEnabled: false, enabled: false, live: false },
@@ -66,7 +67,7 @@ export function CanvasAdjust({
   role?: "operator" | "client";
   spent?: number;
   planned?: number;
-  unitWord?: string;
+  kind?: string | null;
   benchmark?: MetricChipBenchmark;
   suggestionUsual?: number | null;
   writeGates?: { writesEnabled: boolean; enabled: boolean; live: boolean };
@@ -124,16 +125,10 @@ export function CanvasAdjust({
     trend,
     endSet,
     windowStart: start,
-    unitWord,
+    kind,
   });
   const controls = adjustControlsVisible(role);
   const nextCheck = nextCheckClock(now);
-  const tipParts = [
-    face.paceSentence,
-    funnelLifetimeTip,
-    benchmark ? ADJUST_LIFETIME_TIP : null,
-    face.applyTip,
-  ].filter(Boolean);
   const windowStart = face.windowStart ?? start;
 
   return (
@@ -165,7 +160,11 @@ export function CanvasAdjust({
           </div>
         ) : null}
         <span className={`block ${VIZ_TYPE.body}`}>{face.paceSentence}</span>
-        <InfoTip variant={ADJUST_INFO_VARIANT} label={tipParts.join(" · ")} />
+        <InfoTip
+          variant={ADJUST_INFO_VARIANT}
+          header="PACE · SPEND SINCE LAUNCH, PLAN BY TODAY"
+          label={[face.paceSentence, funnelLifetimeTip].filter(Boolean).join(" · ")}
+        />
       </div>
 
       <div className="flex flex-wrap items-start gap-4 max-md:flex max-md:flex-col">
@@ -179,6 +178,7 @@ export function CanvasAdjust({
             lineKind={face.lineKind}
             direction={benchmark?.direction}
             infoHeader={face.infoHeader}
+            infoExtra={ADJUST_LIFETIME_TIP}
           >
             <span className={VIZ_TYPE.display}>{face.signupLine}</span>
           </MetricChip>
@@ -219,6 +219,13 @@ export function CanvasAdjust({
               not now
             </button>
           ) : null}
+          {face.applyTip ? (
+            <InfoTip
+              variant={ADJUST_INFO_VARIANT}
+              header="SUGGESTION · NEXT OPTIMISATION CHECK"
+              label={ADJUST_APPLY_NEXT_CHECK}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -244,9 +251,13 @@ export function CanvasAdjust({
           </span>
           <span className="mt-1 block h-2 w-24 bg-foreground/10" aria-hidden="true" />
         </Locked>
-        {placementsEmpty ? (
-          <span className={`block ${VIZ_TYPE.label} text-muted-foreground`}>{ADJUST_PLACEMENT_EMPTY}</span>
-        ) : null}
+        {placementsEmpty
+          ? ADJUST_PLACEMENT_LINES.map((line) => (
+              <span key={line} className={`block ${VIZ_TYPE.label} text-muted-foreground`}>
+                {line}
+              </span>
+            ))
+          : null}
       </div>
 
       <div className="space-y-1 max-md:flex max-md:flex-col">

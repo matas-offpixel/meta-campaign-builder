@@ -88,6 +88,7 @@ export async function loadCampaignAutomationState(
     const decisions = attachAdsetNames(
       ((retry.data ?? []) as DecisionRowInput[]).map(presentDecisionRow),
       adSetSuggestionsFromDraft(row.draft_json),
+      campaignNameFromDraft(row.draft_json),
     );
     const lastEvaluatedAt = decisions[0]?.decidedAt ?? null;
     return {
@@ -103,6 +104,7 @@ export async function loadCampaignAutomationState(
   const decisions = attachAdsetNames(
     ((decisionRows ?? []) as DecisionRowInput[]).map(presentDecisionRow),
     adSetSuggestionsFromDraft(row.draft_json),
+    campaignNameFromDraft(row.draft_json),
   );
   const lastEvaluatedAt = decisions[0]?.decidedAt ?? null;
 
@@ -114,6 +116,14 @@ export async function loadCampaignAutomationState(
     decisions,
     materialisedPreset: materialisedFromDraftJson(row.draft_json),
   };
+}
+
+function campaignNameFromDraft(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  const settings = (json as { settings?: { campaignName?: unknown } }).settings;
+  return typeof settings?.campaignName === "string" && settings.campaignName.trim()
+    ? settings.campaignName.trim()
+    : null;
 }
 
 function adSetSuggestionsFromDraft(

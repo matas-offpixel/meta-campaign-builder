@@ -482,6 +482,8 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(channels, /LAUNCH_NO_READS/);
     assert.match(channels, /formatChannelNeedsYou/);
     assert.doesNotMatch(channels, /BlockerBadge/);
+    assert.match(channels, /stateWord\} · \$\{formatRunningFact/);
+    assert.doesNotMatch(channels, /StatusDot/);
     assert.doesNotMatch(channels, /cost per mille|cost per click/);
     assert.doesNotMatch(channels, /platformSplit/);
   });

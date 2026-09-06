@@ -8,6 +8,7 @@
 import type { PlanTargetUnit } from "../types.ts";
 import type { AssetStripItem } from "../viz/asset-strip.ts";
 import type { SplitBarPreset, SplitBarSegment } from "../viz/split-bar.ts";
+import { formatVizDay } from "../viz/format-moment.ts";
 import type { WindowMoment } from "../viz/window-bar.ts";
 import type { VizPlatform, VizProvenance } from "../viz/tokens.ts";
 import type { RoutingMatrixRow } from "./asset-routing.ts";
@@ -52,14 +53,27 @@ export function planWindowMoments(
 ): WindowMoment[] {
   const moments: WindowMoment[] = [{ id: "now", label: "now", at: now }];
   const announcement = parseMoment(event?.announcementAt);
-  if (announcement) moments.push({ id: "announcement", label: "announcement", at: announcement });
+  if (announcement) {
+    moments.push({
+      id: "announcement",
+      label: passedMomentLabel("announcement", announcement, now),
+      at: announcement,
+    });
+  }
   const presale = parseMoment(event?.presaleAt);
-  if (presale) moments.push({ id: "presale", label: "presale", at: presale });
+  if (presale) moments.push({ id: "presale", label: passedMomentLabel("presale", presale, now), at: presale });
   const general = parseMoment(event?.generalSaleAt);
-  if (general) moments.push({ id: "gen-sale", label: "gen sale", at: general });
+  if (general) {
+    moments.push({ id: "gen-sale", label: passedMomentLabel("gen sale", general, now), at: general });
+  }
   const show = parseMoment(event?.eventDate);
-  if (show) moments.push({ id: "show", label: "show", at: show });
+  if (show) moments.push({ id: "show", label: passedMomentLabel("show", show, now), at: show });
   return moments.sort((a, b) => a.at.getTime() - b.at.getTime());
+}
+
+function passedMomentLabel(kind: string, at: Date, now: Date): string {
+  if (at.getTime() > now.getTime()) return kind;
+  return `${kind} passed ${formatVizDay(at)}`;
 }
 
 export interface PlanWindowDates {

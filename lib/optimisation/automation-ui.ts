@@ -175,6 +175,7 @@ export function presentDecisionRow(row: DecisionRowInput): DecisionRowView {
 export function attachAdsetNames(
   rows: readonly DecisionRowView[],
   suggestions: ReadonlyArray<{ id: string; name: string; metaAdSetId?: string | null }>,
+  campaignName?: string | null,
 ): DecisionRowView[] {
   const byMeta = new Map<string, string>();
   const byId = new Map<string, string>();
@@ -182,7 +183,11 @@ export function attachAdsetNames(
     if (suggestion.metaAdSetId) byMeta.set(suggestion.metaAdSetId, suggestion.name);
     byId.set(suggestion.id, suggestion.name);
   }
+  const campaign = campaignName?.trim() || null;
   return rows.map((row) => {
+    if (row.scope === "campaign" && campaign) {
+      return { ...row, adsetName: campaign };
+    }
     if (!row.adsetId) return row;
     const name = byMeta.get(row.adsetId) ?? byId.get(row.adsetId) ?? null;
     return name ? { ...row, adsetName: name } : row;

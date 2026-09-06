@@ -14,6 +14,7 @@ import {
   type VizLineKind,
 } from "../viz/tokens.ts";
 import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
+import { launchReadingUnit, launchUnitWord } from "./launch-face.ts";
 
 export const ADJUST_INFO_VARIANT = "card" as const;
 export const ADJUST_PHASE_LABEL = "before general sale" as const;
@@ -21,7 +22,9 @@ export const ADJUST_LOG_TITLE = "changes · last 7 days" as const;
 export const ADJUST_PAGE_VIEWS_EMPTY =
   "not measured — this show's page is not on our beacon";
 export const ADJUST_CHANNEL_NO_READS = "no reads yet";
+export const ADJUST_CHANNEL_NOT_CONNECTED = "not connected";
 export const ADJUST_APPLY_NEXT_CHECK = "applied at the next check";
+export const ADJUST_NO_PURCHASES = "Meta says £— per purchase · no purchases yet";
 /** No operator apply route exists — `do it` must not call nothing. */
 export const ADJUST_OPERATOR_APPLY_PATH = false;
 
@@ -31,7 +34,9 @@ export const ADJUST_NO_READS = "no reads yet — Meta's first day arrives at 08:
 /** J7 — brief §4. n = 0 is undefined from planBenchmark. */
 export const ADJUST_NO_USUAL = "no usual yet — opens after your first finished show";
 
+export const ADJUST_PLACEMENT_FACEBOOK = "facebook · — · not read yet";
 export const ADJUST_PLACEMENT_EMPTY = "instagram · — · not read yet";
+export const ADJUST_PLACEMENT_LINES = [ADJUST_PLACEMENT_FACEBOOK, ADJUST_PLACEMENT_EMPTY] as const;
 
 export const ADJUST_LIFETIME_TIP = "over the whole campaign";
 
@@ -84,7 +89,7 @@ export function formatSuggestion(input: {
   cost: number;
   unitWord: string;
   usual?: number;
-  results: number;
+  results?: number | null;
   windowWord: string;
 }): string {
   const verb = VIZ_ACTION_WORD[input.action].suggest;
@@ -97,7 +102,13 @@ export function formatSuggestion(input: {
     input.usual != null
       ? `, ${input.cost < input.usual ? "under" : input.cost > input.usual ? "above" : "within"} your usual ${formatGbp(input.usual)}`
       : "";
-  return `${lead} — ${formatCostPerUnit(input.cost, input.unitWord)}${usualBit}, ${input.results} ${input.unitWord}s ${input.windowWord}.`;
+  const evidence =
+    input.results != null && input.results > 0
+      ? `, ${input.results} ${input.unitWord}s ${input.windowWord}`
+      : input.windowWord
+        ? `, ${input.windowWord}`
+        : "";
+  return `${lead} — ${formatCostPerUnit(input.cost, input.unitWord)}${usualBit}${evidence}.`;
 }
 
 export function formatChannelEarnedNothing(input: {
@@ -114,7 +125,11 @@ export function formatChannelReading(input: {
   name: string;
   resultShare: number | null;
   spendShare: number | null;
+  connected?: boolean;
 }): string {
+  if (input.connected === false) {
+    return `${input.name} · ${ADJUST_CHANNEL_NOT_CONNECTED}`;
+  }
   if (input.resultShare == null || input.spendShare == null) {
     return `${input.name} · ${ADJUST_CHANNEL_NO_READS}`;
   }
@@ -123,8 +138,12 @@ export function formatChannelReading(input: {
 
 export function formatPurchaseDisagreement(input: {
   metaPurchases: number;
-  tickets: number;
+  tickets?: number | null;
+  ticketSource?: keyof typeof VIZ_TICKET_LINE_WORD;
 }): string {
+  if (input.ticketSource === "none" || input.tickets == null) {
+    return `Meta says ${input.metaPurchases.toLocaleString("en-GB")} purchases · tickets not entered yet`;
+  }
   const gap = Math.abs(input.metaPurchases - input.tickets);
   const counts = `Meta says ${input.metaPurchases.toLocaleString("en-GB")} purchases · tickets ${input.tickets.toLocaleString("en-GB")}`;
   if (gap === 0) return counts;
@@ -290,8 +309,14 @@ export function domainFromUrl(url: string | null | undefined): string | null {
 
 export function decisionAdSetName(row: {
   adsetName?: string | null;
+  campaignName?: string | null;
+  scope?: string | null;
   reasonText: string;
 }): string {
+  if (row.scope === "campaign") {
+    const campaign = row.campaignName?.trim() || row.adsetName?.trim();
+    if (campaign) return campaign;
+  }
   const named = row.adsetName?.trim();
   if (named) return named;
   return "ad set";
@@ -316,8 +341,58 @@ export function formatMetaSaysCost(value: number, unitWord: string): string {
 
 export function windowWordFromMetric(window: string): string {
   if (window === "7d") return "this week";
-  if (window === "24h") return "today";
+  if (window === "24h") return "last 24h";
   return window;
+}
+
+export function formatDecisionClock(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(at);
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  return `${hour}:${minute}`;
+}
+
+export function adjustPrimaryReadingUnit(input: {
+  now: Date;
+  generalSaleAt?: string | Date | null;
+  launchedAt?: string | Date | null;
+  kind?: string | null;
+}): "reg" | "purchase" | "view" {
+  const generalSaleAt =
+    input.generalSaleAt instanceof Date
+      ? input.generalSaleAt.toISOString()
+      : (input.generalSaleAt ?? null);
+  const phase = launchReadingUnit({
+    now: input.now,
+    generalSaleAt,
+    kind: input.kind,
+  });
+  if (phase === "view") return "view";
+  const genSale = generalSaleAt ? new Date(generalSaleAt) : null;
+  const launchedAt = input.launchedAt
+    ? input.launchedAt instanceof Date
+      ? input.launchedAt
+      : new Date(input.launchedAt)
+    : null;
+  const salePassed = Boolean(
+    genSale && !Number.isNaN(genSale.getTime()) && input.now.getTime() >= genSale.getTime(),
+  );
+  const launchedBeforeSale = Boolean(
+    launchedAt &&
+      genSale &&
+      !Number.isNaN(launchedAt.getTime()) &&
+      !Number.isNaN(genSale.getTime()) &&
+      launchedAt.getTime() < genSale.getTime(),
+  );
+  if (salePassed && launchedBeforeSale) return "reg";
+  return phase;
 }
 
 export function deltaPercentFromBudgets(
@@ -414,6 +489,8 @@ export type AdjustDecisionRow = {
   dryRun: boolean;
   adsetId?: string | null;
   adsetName?: string | null;
+  campaignName?: string | null;
+  scope?: string | null;
   budgetBeforePence?: number | null;
   budgetAfterPence?: number | null;
   metricValue?: number | null;
@@ -463,10 +540,26 @@ export function adjustLogFromDecisions(
         continue;
       }
       if (row.action === "scale_up" || row.action === "scale_down" || row.action === "pause") {
+        const clock = formatDecisionClock(row.decidedAt);
+        const delta =
+          row.action === "pause"
+            ? null
+            : deltaPercentFromBudgets(row.budgetBeforePence ?? null, row.budgetAfterPence ?? null);
+        const extras =
+          row.action === "pause"
+            ? clock
+              ? `at ${clock}`
+              : undefined
+            : delta != null && clock
+              ? `by ${delta}% at ${clock}`
+              : clock
+                ? `at ${clock}`
+                : undefined;
         visible.push({
           kind: "did",
           action: row.action,
           adSetName: decisionAdSetName(row),
+          extras,
           undo: row.applied && !row.dryRun,
         });
       }
@@ -481,6 +574,7 @@ export type AdjustChannelRead = {
   name: string;
   spend: number;
   results: number | null;
+  connected?: boolean;
 };
 
 export type AdjustWindowReads = {
@@ -548,6 +642,8 @@ export type AdjustFaceInput = {
   endSet?: boolean;
   windowStart?: Date;
   unitWord?: string;
+  kind?: string | null;
+  targetUnit?: string | null;
 };
 
 export type AdjustFaceView = {
@@ -584,26 +680,26 @@ export type AdjustFaceView = {
 
 export function suggestionFromDecisions(
   rows: readonly AdjustDecisionRow[],
-  input: { unitWord: string; cost: number | null; usual?: number | null },
+  input: { unitWord: string; cost?: number | null; usual?: number | null },
 ): {
   action: "scale_up" | "scale_down" | "pause";
   adSetName: string;
   deltaPercent: number;
   cost: number;
   usual?: number;
-  results: number;
+  results: number | null;
   windowWord: string;
 } | null {
   const actionable = rows
     .filter(
       (row) =>
         (row.action === "scale_up" || row.action === "scale_down" || row.action === "pause") &&
-        (row.resultCount != null || row.metricValue != null),
+        row.metricValue != null,
     )
     .slice()
     .sort((a, b) => Date.parse(b.decidedAt) - Date.parse(a.decidedAt));
   const row = actionable[0];
-  if (!row || input.cost == null) return null;
+  if (!row || row.metricValue == null) return null;
   const action = row.action as "scale_up" | "scale_down" | "pause";
   const delta =
     action === "pause"
@@ -613,9 +709,9 @@ export function suggestionFromDecisions(
     action,
     adSetName: decisionAdSetName(row),
     deltaPercent: delta,
-    cost: input.cost,
+    cost: row.metricValue,
     usual: input.usual ?? undefined,
-    results: row.resultCount ?? 0,
+    results: row.resultCount != null && row.resultCount > 0 ? row.resultCount : null,
     windowWord: windowWordFromMetric(row.metricWindow ?? "24h"),
   };
 }
@@ -629,6 +725,14 @@ export function channelShareLines(
     0,
   );
   return channels.map((row) => {
+    if (row.connected === false) {
+      return formatChannelReading({
+        name: row.name,
+        resultShare: null,
+        spendShare: null,
+        connected: false,
+      });
+    }
     const hasReads = row.spend > 0 || (row.results != null && row.results > 0);
     if (!hasReads || totalSpend <= 0) {
       return formatChannelReading({ name: row.name, resultShare: null, spendShare: null });
@@ -680,7 +784,13 @@ export function formatStageLines(input: {
 export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
   const now = input.now ?? new Date();
   const role = input.role ?? "operator";
-  const unitWord = input.unitWord ?? "signup";
+  const primaryUnit = adjustPrimaryReadingUnit({
+    now,
+    generalSaleAt: input.generalSaleAt,
+    launchedAt: input.launchedAt,
+    kind: input.kind,
+  });
+  const unitWord = launchUnitWord(primaryUnit);
   const controls = adjustControlsVisible(role);
   const noReads = input.spent <= 0 && input.metaSignups == null;
   const paceSentence = noReads ? ADJUST_NO_READS : formatPaceSums(input.spent, input.planned);
@@ -706,7 +816,6 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
   const noUsual = input.benchmark ? null : formatNoUsual(input.venueName);
   const suggestion = suggestionFromDecisions(input.decisions ?? [], {
     unitWord,
-    cost: signupCost ?? purchaseCost,
     usual: input.benchmark?.value ?? null,
   });
   const gatesOpen = writeGatesOpen(
@@ -754,7 +863,13 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
     costLabel: `cost per ${unitWord}`,
     signupPhaseLabel: showKeptSignup ? ADJUST_PHASE_LABEL : undefined,
     purchaseCost,
-    purchaseLine: purchaseCost != null ? formatMetaSaysCost(purchaseCost, "purchase") : null,
+    purchaseLine: salePassed
+      ? purchaseCost != null
+        ? formatMetaSaysCost(purchaseCost, "purchase")
+        : ADJUST_NO_PURCHASES
+      : purchaseCost != null
+        ? formatMetaSaysCost(purchaseCost, "purchase")
+        : null,
     noUsual,
     infoHeader: adjustInfoHeader(unitWord),
     purchaseInfoHeader: adjustInfoHeader("purchase"),
@@ -776,10 +891,11 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
     }),
     ticketLine: formatTicketLine(input.ticketSource, input.tickets ?? undefined),
     purchaseDisagreement:
-      input.metaPurchases != null && input.tickets != null
+      input.metaPurchases != null
         ? formatPurchaseDisagreement({
             metaPurchases: input.metaPurchases,
             tickets: input.tickets,
+            ticketSource: input.ticketSource,
           })
         : null,
     logDays: adjustLogFromDecisions(input.decisions ?? [], unitWord, now),

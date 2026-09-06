@@ -89,7 +89,14 @@ export function windowPlaceholders(
 }
 
 export function momentGlyph(label: string): string {
-  return WINDOW_MOMENT_GLYPH[label] ?? "○";
+  if (WINDOW_MOMENT_GLYPH[label]) return WINDOW_MOMENT_GLYPH[label];
+  const kinds = Object.keys(WINDOW_MOMENT_GLYPH).sort((a, b) => b.length - a.length);
+  for (const kind of kinds) {
+    if (label === kind || label.startsWith(`${kind} `) || label.startsWith(`${kind} ·`)) {
+      return WINDOW_MOMENT_GLYPH[kind] ?? "○";
+    }
+  }
+  return "○";
 }
 
 export function windowSpanMs(start: Date, end: Date, min?: Date): { from: number; to: number } {
@@ -226,26 +233,47 @@ export function estimateHandleLabelWidth(text: string): number {
   return Math.ceil(text.length * 8) + 8;
 }
 
+function isNowMark(mark: { id: string; noun: string }): boolean {
+  return mark.id === "now" || mark.noun === "now" || mark.noun.startsWith("now ·");
+}
+
+function marksCollide(
+  left: { ratio: number; x?: number; width?: number },
+  right: { ratio: number; x?: number; width?: number },
+): boolean {
+  if (left.x != null && right.x != null && left.width != null && right.width != null) {
+    return boxesIntersect({ x: left.x, w: left.width }, { x: right.x, w: right.width });
+  }
+  return Math.abs(right.ratio - left.ratio) <= WINDOW_GLYPH_COLLISION_PCT;
+}
+
 /**
- * When two moments sit within 2% of the rail, the older yields its
- * glyph and its noun joins the newer's label
- * (`now · gen sale passed Fri 4 Sep`). `now` always yields when present.
+ * When two moments collide, `now` keeps the joined label at its
+ * position (`now · gen sale passed Fri 4 Sep`). The other loses glyph
+ * and noun. Without `now`, the later mark yields.
  */
 export function resolveMomentGlyphCollision(
-  marks: { id: string; noun: string; ratio: number; extra?: string }[],
-): { hideGlyphIds: Set<string>; joinedLabel: Map<string, string> } {
+  marks: { id: string; noun: string; ratio: number; extra?: string; x?: number; width?: number }[],
+): { hideGlyphIds: Set<string>; hideNounIds: Set<string>; joinedLabel: Map<string, string> } {
   const hideGlyphIds = new Set<string>();
+  const hideNounIds = new Set<string>();
   const joinedLabel = new Map<string, string>();
   const sorted = [...marks].sort((a, b) => a.ratio - b.ratio || a.id.localeCompare(b.id));
   for (let i = 0; i < sorted.length - 1; i += 1) {
     const left = sorted[i]!;
     const right = sorted[i + 1]!;
-    if (Math.abs(right.ratio - left.ratio) > WINDOW_GLYPH_COLLISION_PCT) continue;
-    const nowMark = left.noun === "now" ? left : right.noun === "now" ? right : left;
-    const keeper = nowMark === left ? right : left;
-    hideGlyphIds.add(nowMark.id);
-    const keeperExtra = keeper.extra ? ` ${keeper.extra}` : "";
-    joinedLabel.set(keeper.id, `${nowMark.noun} · ${keeper.noun}${keeperExtra}`);
+    if (!marksCollide(left, right)) continue;
+    const nowMark = isNowMark(left) ? left : isNowMark(right) ? right : null;
+    const keeper = nowMark ?? right;
+    const other = keeper === left ? right : left;
+    hideGlyphIds.add(other.id);
+    hideNounIds.add(other.id);
+    const otherNoun = other.extra ? `${other.noun} ${other.extra}` : other.noun;
+    const keeperNoun = keeper.extra ? `${keeper.noun} ${keeper.extra}` : keeper.noun;
+    joinedLabel.set(
+      keeper.id,
+      nowMark ? `now · ${nowMark === keeper ? otherNoun : keeperNoun}` : `${other.noun} · ${keeperNoun}`,
+    );
   }
-  return { hideGlyphIds, joinedLabel };
+  return { hideGlyphIds, hideNounIds, joinedLabel };
 }

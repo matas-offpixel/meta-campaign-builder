@@ -2,19 +2,17 @@
 
 import { useState } from "react";
 import {
+  ASSET_STRIP_GOOGLE_HEAD,
   assetIsUnrouted,
   assetStripState,
-  googleRoutingMark,
   isPlatformLit,
   tiktokDisabledReason,
   type AssetStripItem,
 } from "@/lib/viz/asset-strip";
-import { VIZ_PLATFORMS, VIZ_TYPE, type VizPlatform } from "@/lib/viz/tokens";
+import { aspectChipRatio } from "@/lib/viz/aspect-chip";
+import { VIZ_PLATFORM_LABEL, VIZ_TYPE, type VizPlatform } from "@/lib/viz/tokens";
 
-import { AspectChip } from "./metric-chip";
 import { BlockerBadge } from "./blocker-badge";
-import { PlatformGlyph } from "./platform-glyph";
-import { PlatformToggle } from "./platform-toggle";
 
 export function AssetStrip({
   assets,
@@ -33,44 +31,32 @@ export function AssetStrip({
 
   return (
     <div className="flex flex-wrap items-center gap-3" data-state={state}>
+      <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{ASSET_STRIP_GOOGLE_HEAD}</span>
       {assets.map((asset) => {
         const routed = routing[asset.id] ?? [];
         const unrouted = assetIsUnrouted(asset, routed);
         const tiktokReason = tiktokDisabledReason(asset, disabledReasons?.[asset.id]);
+        const metaOn = isPlatformLit(routed, "meta");
+        const tiktokOn = isPlatformLit(routed, "tiktok") && !tiktokReason;
         return (
           <div key={asset.id} className="flex items-center gap-2">
             <AssetThumb asset={asset} />
-            <span className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground`}>
-              →
-              {VIZ_PLATFORMS.map((platform) => {
-                if (platform === "google") {
-                  return (
-                    <span
-                      key={platform}
-                      className="inline-flex items-center gap-0.5 border-b border-dashed border-border text-muted-foreground"
-                      title="not instrumented"
-                    >
-                      <PlatformGlyph platform="google" size="sm" />
-                      {googleRoutingMark()}
-                    </span>
-                  );
-                }
-                const lit = isPlatformLit(routed, platform);
-                const disabled = platform === "tiktok" && Boolean(tiktokReason);
-                return (
-                  <span key={platform} className="inline-flex items-center gap-0.5" title={disabled ? tiktokReason : undefined}>
-                    <PlatformToggle
-                      platform={platform}
-                      checked={lit && !disabled}
-                      onChange={() => {
-                        if (disabled || !onToggle) return;
-                        onToggle(asset.id, platform);
-                      }}
-                    />
-                    <span aria-hidden="true">{lit && !disabled ? "✓" : ""}</span>
-                  </span>
-                );
-              })}
+            <span className={VIZ_TYPE.label}>{aspectChipRatio(asset.aspect)}</span>
+            <span className={`inline-flex items-center gap-1 ${VIZ_TYPE.label}`}>
+              <ToggleWord
+                label={VIZ_PLATFORM_LABEL.meta}
+                on={metaOn}
+                disabled
+                onClick={() => undefined}
+              />
+              <span aria-hidden="true">·</span>
+              <ToggleWord
+                label={VIZ_PLATFORM_LABEL.tiktok}
+                on={tiktokOn}
+                disabled={Boolean(tiktokReason) || !onToggle}
+                title={tiktokReason}
+                onClick={() => onToggle?.(asset.id, "tiktok")}
+              />
             </span>
             {unrouted ? (
               <BlockerBadge
@@ -101,12 +87,39 @@ export function AssetStrip({
   );
 }
 
+function ToggleWord({
+  label,
+  on,
+  disabled,
+  title,
+  onClick,
+}: {
+  label: string;
+  on: boolean;
+  disabled: boolean;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`min-h-11 ${on ? "text-foreground" : "text-muted-foreground"}`}
+      aria-pressed={on}
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
 function AssetThumb({ asset }: { asset: AssetStripItem }) {
   const [broken, setBroken] = useState(false);
   const failed = !asset.thumbUrl || broken;
   return (
     <span
-      className={`relative inline-flex h-10 w-8 items-center justify-center overflow-hidden rounded-sm border bg-muted ${
+      className={`inline-flex h-10 w-8 items-center justify-center overflow-hidden rounded-sm border bg-muted ${
         failed ? "border-dashed border-border" : "border-border"
       }`}
     >
@@ -123,9 +136,6 @@ function AssetThumb({ asset }: { asset: AssetStripItem }) {
           onError={() => setBroken(true)}
         />
       )}
-      <span className="absolute bottom-0 right-0">
-        <AspectChip ratio={asset.aspect} />
-      </span>
       <span className="sr-only">{asset.label}</span>
     </span>
   );

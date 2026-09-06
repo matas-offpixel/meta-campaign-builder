@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { formatGbp } from "@/lib/plan/adjust-face";
 import { aspectChipRatio } from "@/lib/viz/aspect-chip";
 import {
   emptyMetricDisplay,
@@ -52,6 +53,7 @@ export function MetricChip({
   emptyHref,
   direction,
   infoHeader,
+  infoExtra,
 }: {
   label: string;
   children?: ReactNode;
@@ -66,6 +68,7 @@ export function MetricChip({
   emptyHref?: string;
   direction?: VizBenchmarkDirection;
   infoHeader?: string;
+  infoExtra?: string | null;
 }) {
   const empty = value == null && emptySentence ? emptyMetricDisplay(emptySentence) : null;
   const showExhibit = Boolean(benchmark || empty || phaseLabel || trend || value != null);
@@ -103,20 +106,24 @@ export function MetricChip({
       </span>
       <span className={`block h-px w-full border-b ${VIZ_LINE_TOKEN[kind]}`} />
       {benchmark ? (
-        <span className={`${VIZ_TYPE.label} text-foreground/70`}>
-          {benchmark.value.toLocaleString("en-GB", { maximumFractionDigits: 2 })}
-        </span>
+        <span className={`${VIZ_TYPE_NUM.body} text-foreground/70`}>{formatGbp(benchmark.value)}</span>
       ) : null}
       {benchmark?.band && (value != null || benchmark.value != null) ? (
-        <ThresholdBand
-          zonesFrom="client-iqr"
-          band={benchmark.band}
-          marker={value ?? benchmark.value}
-          lineKind={benchmark.lineKind}
-          size="md"
-        />
+        <span className="mt-1 block w-full">
+          <ThresholdBand
+            zonesFrom="client-iqr"
+            band={benchmark.band}
+            marker={value ?? benchmark.value}
+            lineKind={benchmark.lineKind}
+            size="md"
+          />
+        </span>
       ) : null}
-      {trend ? <Sparkline values={trend} /> : null}
+      {trend ? (
+        <span className="block w-full">
+          <Sparkline values={trend} />
+        </span>
+      ) : null}
       {empty ? (
         <span className={VIZ_TYPE.body}>
           {emptyHref ? (
@@ -132,11 +139,14 @@ export function MetricChip({
         <InfoTip
           variant="card"
           header={infoHeader}
-          label={
+          label={[
             benchmark.runsUsed.length > 0
               ? `${benchmark.sentence} · ${benchmark.bandWord} · ${benchmark.runsUsed.join(" · ")}`
-              : benchmark.sentence
-          }
+              : benchmark.sentence,
+            infoExtra,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         />
       ) : null}
     </span>
