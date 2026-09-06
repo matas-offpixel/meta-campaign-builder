@@ -118,5 +118,5 @@ Rebased onto `f236e37` (#895). Deduped the two copies that now exist on main.
 
 ## Validation
 
-- [ ] `npm test` (round 3)
-- [ ] `npm run build` (round 3)
+- [x] `npm test` (round 3: 5272 pass, 4 skipped)
+- [x] `npm run build` (round 3)
