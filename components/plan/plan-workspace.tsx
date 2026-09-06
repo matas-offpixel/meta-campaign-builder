@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
+import { CanvasAdjust } from "@/components/plan/canvas-adjust";
 import { CanvasAssets } from "@/components/plan/canvas-assets";
 import { CanvasBudget } from "@/components/plan/canvas-budget";
 import { CanvasChannels } from "@/components/plan/canvas-channels";
@@ -33,7 +34,23 @@ import {
 } from "@/lib/plan/canvas";
 import type { IdentityNameMap } from "@/lib/plan/identity-chips";
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
-import { planDefaultWindow, planWindowValidity, type PlanWindowDates } from "@/lib/plan/canvas-inputs";
+import {
+  planDefaultWindow,
+  planWindowFromHandles,
+  planWindowHandles,
+  planWindowMoments,
+  planWindowValidity,
+  type PlanWindowDates,
+} from "@/lib/plan/canvas-inputs";
+import {
+  adjustLogFromDecisions,
+  domainFromUrl,
+  plannedSpendByToday,
+  writeGatesOpen,
+  type AdjustDecisionRow,
+} from "@/lib/plan/adjust-face";
+import { isAmountCell } from "@/lib/dashboard/event-funnel";
+import { VIZ_UNIT_WORD } from "@/lib/viz/tokens";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
@@ -151,6 +168,12 @@ export function PlanWorkspace({
   const [budgetMode, setBudgetMode] = useState<"daily" | "lifetime">("daily");
   const [lifetimeTotal, setLifetimeTotal] = useState(0);
   const [decisionCount, setDecisionCount] = useState(0);
+  const [adjustDecisions, setAdjustDecisions] = useState<AdjustDecisionRow[]>([]);
+  const [adjustGates, setAdjustGates] = useState({
+    writesEnabled: false,
+    enabled: false,
+    live: false,
+  });
   const [unregisteredAssets, setUnregisteredAssets] = useState(0);
   const router = useRouter();
   const pathname = usePathname();
@@ -342,10 +365,42 @@ export function PlanWorkspace({
         : window.localStorage.getItem(planLastOpenedKey(plan.id));
     fetch(`/api/campaigns/${encodeURIComponent(metaDraftId)}/automation`)
       .then((res) => res.json())
-      .then((json: { ok?: boolean; decisions?: { decidedAt?: string | null }[] }) => {
+      .then(
+        (json: {
+          ok?: boolean;
+          decisions?: Array<{
+            decidedAt?: string | null;
+            action?: string;
+            reasonText?: string;
+            resultCount?: number | null;
+            applied?: boolean;
+            dryRun?: boolean;
+          }>;
+          enabled?: boolean;
+          live?: boolean;
+          writesEnabled?: boolean;
+        }) => {
         if (cancelled || !json.ok) return;
         setDecisionCount(countDecisionsSince(json.decisions ?? [], lastOpened));
-      })
+        setAdjustDecisions(
+          (json.decisions ?? [])
+            .filter((row): row is typeof row & { decidedAt: string } => typeof row.decidedAt === "string")
+            .map((row) => ({
+              decidedAt: row.decidedAt,
+              action: row.action ?? "",
+              reasonText: row.reasonText ?? "",
+              resultCount: row.resultCount ?? null,
+              applied: row.applied === true,
+              dryRun: row.dryRun !== false,
+            })),
+        );
+        setAdjustGates({
+          writesEnabled: json.writesEnabled === true,
+          enabled: json.enabled === true,
+          live: json.live === true,
+        });
+      },
+      )
       .catch(() => undefined);
     return () => {
       cancelled = true;
@@ -506,6 +561,8 @@ export function PlanWorkspace({
       }),
     [busy, destination.url, gate, plan.intent.eventId, preflightOk, rows, state, windowOk],
   );
+
+  const isAdjustFace = state === "live" || state === "launched";
 
   async function persistNow(): Promise<boolean> {
     const res = await fetch("/api/plan", {
@@ -671,6 +728,52 @@ export function PlanWorkspace({
     patchIntent(next);
   }
 
+  const adjustClock = useMemo(() => new Date(), []);
+  const adjustWindowDates: PlanWindowDates = {
+    startDate: plan.intent.startDate,
+    startTime: plan.intent.startTime,
+    endDate: plan.intent.endDate,
+    endTime: plan.intent.endTime,
+  };
+  const adjustValidity = planWindowValidity(adjustWindowDates, selectedEvent, {
+    now: adjustClock,
+    createdAt: plan.createdAt,
+  });
+  const adjustHandles = planWindowHandles(
+    adjustValidity.ok ? adjustWindowDates : planDefaultWindow(selectedEvent, adjustClock),
+    selectedEvent,
+    adjustClock,
+  );
+  const dailyBudget =
+    plan.intent.budget.metaDaily + plan.intent.budget.tiktokDaily + plan.intent.budget.googleDaily;
+  const sinceLaunch = plan.createdAt ? new Date(plan.createdAt) : adjustHandles.start;
+  const unitKey = plan.intent.target.unit;
+  const unitWord =
+    unitKey === "reg" || unitKey === "click" || unitKey === "lpv" || unitKey === "purchase" || unitKey === "view"
+      ? VIZ_UNIT_WORD[unitKey]
+      : "signup";
+  const costCell =
+    unitWord === "purchase" ? funnel?.costs.costPerTicket : funnel?.costs.costPerSignup;
+  const generalSaleAt = selectedEvent?.generalSaleAt
+    ? new Date(selectedEvent.generalSaleAt)
+    : null;
+  const phaseKept = Boolean(
+    generalSaleAt && !Number.isNaN(generalSaleAt.getTime()) && generalSaleAt < adjustClock && unitWord === "signup",
+  );
+  const ticketStage = funnel?.stages.find((stage) => stage.key === "purchases");
+  const ticketSourceRaw = ticketStage?.provenanceDetail.match(
+    /Winning snapshot source is (\w+)/,
+  )?.[1];
+  const ticketSource =
+    ticketSourceRaw === "manual" ||
+    ticketSourceRaw === "xlsx_import" ||
+    ticketSourceRaw === "eventbrite" ||
+    ticketSourceRaw === "fourthefans"
+      ? ticketSourceRaw
+      : ticketStage?.value
+        ? "unknown"
+        : "none";
+
   const today = todayIsoDate();
   /**
    * The past-events checkbox is gone with the rest of the form furniture:
@@ -808,6 +911,37 @@ export function PlanWorkspace({
         </div>
       ) : null}
 
+      {isAdjustFace ? (
+        <CanvasAdjust
+          spent={liveSpend ?? 0}
+          planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
+          cost={costCell && isAmountCell(costCell) ? costCell.value : null}
+          unitWord={unitWord}
+          benchmark={undefined}
+          phaseKept={phaseKept}
+          writeGatesOpen={writeGatesOpen(adjustGates)}
+          channels={
+            funnel
+              ? funnel.costs.platforms.map((row) => ({
+                  name: row.label,
+                  resultShare: null,
+                  spendShare: null,
+                }))
+              : []
+          }
+          tagDomain={domainFromUrl(destination.url)}
+          tickets={ticketStage?.value ?? null}
+          ticketSource={ticketSource}
+          logDays={adjustLogFromDecisions(adjustDecisions, unitWord, adjustClock)}
+          moments={planWindowMoments(selectedEvent, adjustClock)}
+          start={adjustHandles.start}
+          end={adjustHandles.end}
+          endSet={adjustValidity.ok}
+          onWindowChange={(next) => setWindow(planWindowFromHandles(next))}
+        />
+      ) : null}
+
+      {isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.normal}>
         <CanvasWindow
           event={selectedEvent}
@@ -822,7 +956,9 @@ export function PlanWorkspace({
           googleBudgeted={plan.intent.budget.googleDaily > 0}
         />
       </div>
+      )}
 
+      {isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.tight}>
         <CanvasBudget
           budget={plan.intent.budget}
@@ -849,7 +985,9 @@ export function PlanWorkspace({
           onLifetime={setLifetimeTotal}
         />
       </div>
+      )}
 
+      {isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.tight}>
         <CanvasTarget
           value={plan.intent.target.value}
@@ -870,6 +1008,7 @@ export function PlanWorkspace({
           benchmarkRows={benchmarkRows}
         />
       </div>
+      )}
 
       {/* The wizard's PlanLinkBanner still lands here. */}
       <div id={PLAN_STEP2_HASH} />
@@ -979,7 +1118,7 @@ export function PlanWorkspace({
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasLaunch
         button={launchButton}
-        stages={state === "live" ? funnel?.stages : undefined}
+        stages={undefined}
         error={error}
         onLaunch={() => void launchAll()}
         onResumeAll={() =>

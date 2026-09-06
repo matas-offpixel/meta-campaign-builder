@@ -611,12 +611,21 @@ describe("§4.7 plan v2 token guards", () => {
       "components/plan/canvas-assets.tsx",
       "components/plan/canvas-budget.tsx",
       "components/plan/canvas-window.tsx",
+      "components/plan/canvas-adjust.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       assert.doesNotMatch(source, /VIZ_PROVENANCE_MARK/);
       assert.doesNotMatch(source, /ProvenanceBadge/);
     }
+  });
+
+  it("ADJUST face uses their words, never ISO dates or label maps", () => {
+    const source = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.doesNotMatch(source, /\d{4}-\d{2}-\d{2}/);
+    assert.doesNotMatch(source, /VIZ_STATUS_LABEL|VIZ_ACTION_LABEL/);
+    assert.doesNotMatch(source, /ProvenanceBadge|VIZ_PROVENANCE_MARK/);
+    assert.match(source, /variant=\{ADJUST_INFO_VARIANT\}|variant=["']card["']/);
   });
 
   it("no ISO dates on /plans rows", () => {
