@@ -9,7 +9,30 @@ import {
   splitLockedEdit,
   type PlanBudgetPlatform,
 } from "../plan/budget-split.ts";
-import type { VizPlatform } from "./tokens.ts";
+import type { VizLineKind, VizPlatform } from "./tokens.ts";
+
+export type SplitBarOutlines = {
+  usual: { pct: number[]; source: "client-preset" | "last-choice" };
+  history: { pct: number[]; lineKind: "estimated"; n: number; sentence: string } | null;
+};
+
+export type SplitOutlineState = "usual-only" | "both" | "both-coincident" | "dragging";
+
+export function splitOutlineState(input: {
+  usual?: { pct: number[] };
+  history?: { pct: number[] } | null;
+  dragging: boolean;
+}): SplitOutlineState {
+  if (input.dragging) return "dragging";
+  if (!input.history) return "usual-only";
+  const usual = input.usual?.pct ?? [];
+  const coincident =
+    usual.length === input.history.pct.length &&
+    usual.every((pct, index) => Math.abs(pct - (input.history!.pct[index] ?? 0)) < 0.5);
+  return coincident ? "both-coincident" : "both";
+}
+
+export type { VizLineKind };
 
 export type SplitBarSegment = { platform: VizPlatform; pct: number };
 

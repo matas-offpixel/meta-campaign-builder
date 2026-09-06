@@ -5,7 +5,6 @@ import { useState } from "react";
 import { SegmentedControl } from "@/components/plan/segmented-control";
 import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
-import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { OPTIMISATION_PRESET_SEED_LABEL } from "@/lib/optimisation/presets";
 import { PLAN_CANVAS_COPY, joinInfoTips } from "@/lib/plan/canvas";
 import {
@@ -111,8 +110,6 @@ export function CanvasTarget({
         </button>
       )}
       <InfoTip label={tip} />
-
-      <ProvenanceBadge provenance={chip.provenance} />
 
       <span className="inline-flex items-center gap-1">
         <SegmentedControl

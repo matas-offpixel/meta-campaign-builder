@@ -56,7 +56,7 @@ function tag(metric: RuleMetric, objective: CampaignObjective): BenchmarkTag {
   return "reference";
 }
 
-// ─── Mock account benchmarks by objective ───
+// ─── Off Pixel starting points by objective (seed rung — replaced by campaign_plan_benchmarks_v at Off Pixel scope when it ships) ───
 // Broad set of metrics per objective; tagged by relevance
 
 export const ACCOUNT_BENCHMARKS: Record<CampaignObjective, BenchmarkPercentile[]> = {

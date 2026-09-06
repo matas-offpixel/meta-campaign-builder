@@ -99,6 +99,26 @@ export function bandFromRule(
   return { zones, min, max, markerRatio };
 }
 
+/** Client IQR as one quiet zone; the marker is the reading or the target. */
+export function bandFromClientIqr(
+  band: [number, number],
+  marker: number,
+): ThresholdBandModel {
+  const [lo, hi] = band[0] <= band[1] ? band : [band[1], band[0]];
+  const min = Math.min(lo, hi, marker);
+  const max = Math.max(lo, hi, marker);
+  const pad = (max - min) * 0.25 || 1;
+  const spanMin = min - pad;
+  const spanMax = max + pad;
+  const span = spanMax - spanMin || 1;
+  return {
+    zones: [{ kind: "maintain", start: lo, end: hi }],
+    min: spanMin,
+    max: spanMax,
+    markerRatio: Math.min(1, Math.max(0, (marker - spanMin) / span)),
+  };
+}
+
 export function bandFromAction(
   action: VizAction | string,
   currentValue: number | null,

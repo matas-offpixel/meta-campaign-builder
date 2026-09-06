@@ -15,6 +15,8 @@ import {
   WINDOW_RAIL_LANE_PX,
   collapseOverlappingMomentLabels,
   handleLabelLeftPx,
+  resolveMomentGlyphCollision,
+  WINDOW_GLYPH_COLLISION_PCT,
 } from "../window-bar.ts";
 
 describe("WindowBar label layout", () => {
@@ -60,6 +62,19 @@ describe("WindowBar label layout", () => {
     });
     assert.equal(left, 0);
     assert.ok(left + labelWidth <= barWidth);
+  });
+
+  it("within 2% the older yields its glyph and its noun joins the newer", () => {
+    assert.equal(WINDOW_GLYPH_COLLISION_PCT, 0.02);
+    const collision = resolveMomentGlyphCollision([
+      { id: "now", noun: "now", ratio: 0.61 },
+      { id: "gen-sale", noun: "gen sale passed Fri 4 Sep", ratio: 0.62 },
+    ]);
+    assert.ok(collision.hideGlyphIds.has("now"));
+    assert.equal(
+      collision.joinedLabel.get("gen-sale"),
+      "now · gen sale passed Fri 4 Sep",
+    );
   });
 
   it("handle and moment labels are nowrap in the component", () => {

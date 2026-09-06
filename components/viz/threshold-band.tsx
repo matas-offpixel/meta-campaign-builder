@@ -2,9 +2,11 @@ import {
   BAND_ZONE_LABEL,
   BAND_ZONE_TOKEN,
   bandFromAction,
+  bandFromClientIqr,
   bandFromRule,
   type ThresholdBandModel,
 } from "@/lib/viz/threshold-band";
+import { VIZ_LINE_TOKEN, type VizLineKind } from "@/lib/viz/tokens";
 import type { OptimisationRule } from "@/lib/types";
 
 export function ThresholdBand({
@@ -14,6 +16,10 @@ export function ThresholdBand({
   currentValue,
   dashed = false,
   size = "md",
+  zonesFrom = "rule",
+  band,
+  marker,
+  lineKind,
 }: {
   model?: ThresholdBandModel;
   rule?: Pick<OptimisationRule, "thresholds">;
@@ -22,18 +28,34 @@ export function ThresholdBand({
   /** Honest empty — no colour, a dashed track (brief §5.7). */
   dashed?: boolean;
   size?: "sm" | "md";
+  zonesFrom?: "rule" | "client-iqr";
+  band?: [number, number];
+  /** Reading or target — a band without a marker is never rendered. */
+  marker?: number | null;
+  lineKind?: VizLineKind;
 }) {
+  const markerValue = marker ?? currentValue ?? null;
+  if (!dashed && markerValue == null && model?.markerRatio == null) {
+    return null;
+  }
+
   const resolved =
-    model ??
-    (rule
-      ? bandFromRule(rule, currentValue ?? null)
-      : bandFromAction(action ?? "maintain", currentValue ?? null));
-  const height = size === "sm" ? "h-2" : "h-3";
+    zonesFrom === "client-iqr" && band && markerValue != null
+      ? bandFromClientIqr(band, markerValue)
+      : model ??
+        (rule
+          ? bandFromRule(rule, markerValue)
+          : bandFromAction(action ?? "maintain", markerValue));
+
+  if (!dashed && resolved.markerRatio == null) return null;
+
+  const height = size === "sm" ? "h-2" : zonesFrom === "client-iqr" ? "h-1" : "h-3";
+  const kindClass = lineKind ? VIZ_LINE_TOKEN[lineKind] : "";
 
   if (dashed) {
     return (
       <div
-        className={`relative min-w-[96px] max-w-[160px] w-full overflow-hidden rounded-full border border-dashed border-muted-foreground/40 ${height}`}
+        className={`relative min-w-[96px] max-w-[160px] w-full overflow-hidden rounded-full border border-dashed border-muted-foreground/40 ${height} ${kindClass}`}
         role="img"
         aria-label="no reads yet"
       />
@@ -42,7 +64,7 @@ export function ThresholdBand({
 
   return (
     <div
-      className={`relative min-w-[96px] max-w-[160px] w-full overflow-hidden rounded-full ${height}`}
+      className={`relative min-w-[96px] max-w-[160px] w-full overflow-hidden rounded-full ${height} ${kindClass}`}
       role="img"
       aria-label={resolved.zones.map((z) => BAND_ZONE_LABEL[z.kind]).join(", ")}
     >
@@ -62,11 +84,9 @@ export function ThresholdBand({
       </div>
       {resolved.markerRatio != null ? (
         <span
-          className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground bg-card shadow-sm"
+          className={`absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-foreground bg-card shadow-sm ${kindClass}`}
           style={{ left: `${resolved.markerRatio * 100}%` }}
-          aria-label={
-            currentValue != null ? `Current ${currentValue}` : "Current zone"
-          }
+          aria-label={markerValue != null ? `Current ${markerValue}` : "Current zone"}
         />
       ) : null}
     </div>
