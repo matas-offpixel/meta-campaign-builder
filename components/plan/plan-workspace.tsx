@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CampaignLibraryPicker, type LibraryPick } from "@/components/library/campaign-library-picker";
 import { CanvasAdjust } from "@/components/plan/canvas-adjust";
+import { CanvasLearn } from "@/components/plan/canvas-learn";
 import { CanvasAssets } from "@/components/plan/canvas-assets";
 import { CanvasBudget } from "@/components/plan/canvas-budget";
 import { CanvasChannels } from "@/components/plan/canvas-channels";
@@ -69,6 +70,7 @@ import {
 import { scheduledDayCount } from "@/lib/plan/budget-split";
 import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
+import { planIsClosed } from "@/lib/plan/learn-face";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
   launchBlockedLine,
@@ -893,6 +895,15 @@ export function PlanWorkspace({
         excludeEventId: selectedEvent.id,
       })?.value ?? null
     : null;
+  const isLearnFace = planIsClosed({
+    status: plan.status,
+    eventDate: selectedEvent?.eventDate,
+  });
+  const learnEventName = selectedEvent?.name ?? headerName;
+  const metaAccountId = selectedEvent?.metaAdAccountId ?? resolved?.metaAdAccount.value ?? null;
+  const learnMetaName = metaAccountId
+    ? identityNames?.metaAdAccount[metaAccountId] ?? metaAccountId
+    : null;
 
   return (
     <div>
@@ -934,7 +945,19 @@ export function PlanWorkspace({
         </div>
       ) : null}
 
-      {isAdjustFace ? (
+      {isLearnFace ? (
+        <CanvasLearn
+          eventName={learnEventName}
+          venueLabel={selectedEvent?.venueName ?? "the venue"}
+          prediction={null}
+          archivedAt={plan.status === "archived" ? plan.updatedAt : null}
+          identity={{
+            metaName: learnMetaName,
+            tiktokRan: plan.launches.tiktok.platformCampaignId != null,
+            googleRan: plan.launches.google.platformCampaignId != null,
+          }}
+        />
+      ) : isAdjustFace ? (
         <CanvasAdjust
           spent={adjustReads?.spend ?? liveSpend ?? 0}
           planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
@@ -965,7 +988,7 @@ export function PlanWorkspace({
         />
       ) : null}
 
-      {isAdjustFace ? null : (
+      {isLearnFace || isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.normal}>
         <CanvasWindow
           event={selectedEvent}
@@ -982,7 +1005,7 @@ export function PlanWorkspace({
       </div>
       )}
 
-      {isAdjustFace ? null : (
+      {isLearnFace || isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.tight}>
         <CanvasBudget
           budget={plan.intent.budget}
@@ -1011,7 +1034,7 @@ export function PlanWorkspace({
       </div>
       )}
 
-      {isAdjustFace ? null : (
+      {isLearnFace || isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.tight}>
         <CanvasTarget
           value={plan.intent.target.value}
