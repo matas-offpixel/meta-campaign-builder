@@ -13,12 +13,19 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlanDeleteAction } from "@/components/plan/plan-delete-action";
-import { EventThumb } from "@/components/viz/event-thumb";
+import { InfoTip } from "@/components/viz/info-tip";
 import { MetricChip } from "@/components/viz/metric-chip";
 import { OverflowMenu } from "@/components/viz/overflow-menu";
-import { StatusStrip } from "@/components/viz/status-strip";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
-import { formatPlanListBudget, formatPlanListRange } from "@/lib/plan/format-schedule";
+import { formatPlanListBudget } from "@/lib/plan/format-schedule";
+import {
+  PLAN_LIST_JUNK,
+  PLAN_LIST_OPEN,
+  formatPaceSums,
+  listPaceFillPercent,
+  listPlannedByToday,
+  planListRowView,
+} from "@/lib/plan/list";
 import { planRowMenuItemSpecs } from "@/lib/viz/overflow-menu";
 import { formatLibraryDate, formatLibraryRelativeDate } from "@/lib/library/format-date";
 import {
@@ -331,9 +338,65 @@ export function TemplateRow({
   );
 }
 
+function PlanListThumb({ url, name }: { url: string | null | undefined; name: string }) {
+  if (url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={url}
+        alt={`${name} artwork`}
+        className="h-10 w-10 shrink-0 rounded object-cover"
+      />
+    );
+  }
+  return (
+    <span
+      aria-label={`${name} (no artwork)`}
+      className="inline-flex h-10 w-10 shrink-0 rounded border border-dashed border-border bg-transparent"
+    />
+  );
+}
+
+function PlanListPaceBar({
+  spent,
+  planned,
+  dashed,
+  junk,
+}: {
+  spent: number | null;
+  planned: number | null;
+  dashed: boolean;
+  junk: boolean;
+}) {
+  const fill = junk || planned == null || spent == null ? 0 : listPaceFillPercent(spent, planned);
+  const sums = spent != null && planned != null && spent > 0 ? formatPaceSums(spent, planned) : null;
+  return (
+    <span className="pointer-events-auto relative z-[1] flex w-[160px] shrink-0 items-center gap-1.5">
+      <span className="relative h-2 flex-1 overflow-hidden rounded-sm border border-border bg-transparent">
+        <span
+          className={`absolute inset-0 ${dashed || junk ? "border border-dashed border-border" : ""}`}
+        />
+        {fill > 0 ? (
+          <span
+            className="absolute inset-y-0 left-0 bg-foreground/60"
+            style={{ width: `${fill}%` }}
+          />
+        ) : null}
+        <span className="absolute inset-y-0 w-px bg-foreground" style={{ left: "60%" }} />
+      </span>
+      {junk ? (
+        <InfoTip variant="card" label={PLAN_LIST_JUNK} />
+      ) : sums ? (
+        <InfoTip variant="card" label={sums} />
+      ) : null}
+    </span>
+  );
+}
+
 export function PlanRow({
   plan,
   isLoading = false,
+  now,
   onOpen,
   onDuplicate,
   onSaveAsTemplate,
@@ -342,6 +405,7 @@ export function PlanRow({
 }: {
   plan: PlanLibraryItem;
   isLoading?: boolean;
+  now?: Date;
   onOpen?: (id: string) => void;
   onDuplicate?: (id: string) => void;
   onSaveAsTemplate?: (id: string) => void;
@@ -349,10 +413,29 @@ export function PlanRow({
   onDeleted?: () => void;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const range = formatPlanListRange(plan.startDate, plan.endDate);
-  const budget = plan.totalDaily;
+  const at = now ?? new Date();
+  const input = {
+    id: plan.id,
+    status: plan.status,
+    eventId: plan.eventId,
+    eventName: plan.eventName,
+    eventCode: plan.eventCode ?? null,
+    venueName: plan.venueName ?? null,
+    eventDate: plan.eventDate ?? null,
+    presaleAt: plan.presaleAt ?? null,
+    generalSaleAt: plan.generalSaleAt ?? null,
+    startDate: plan.startDate,
+    endDate: plan.endDate,
+    startTime: plan.startTime ?? null,
+    endTime: plan.endTime ?? null,
+    createdAt: plan.createdAt ?? null,
+    totalDaily: plan.totalDaily,
+    spent: plan.spent ?? null,
+    drawerFix: plan.drawerFix ?? null,
+  };
+  const view = planListRowView(input, at);
+  const planned = listPlannedByToday(plan.totalDaily, plan.startDate, at);
   const disposal = planDisposalAction(plan.launches);
-  const planLabel = plan.name || "Untitled plan";
   const specs = planRowMenuItemSpecs({ status: plan.status, disposal });
   const icons: Record<string, ReactNode> = {
     open: <FolderOpen />,
@@ -370,57 +453,67 @@ export function PlanRow({
   };
   return (
     <div
-      className={`group relative flex w-full items-center gap-3 rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong
+      className={`group relative flex w-full items-center gap-3 rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong max-md:flex-col max-md:items-stretch
         ${isLoading ? "pointer-events-none opacity-50" : ""}`}
     >
       <button
         type="button"
-        aria-label={planLabel}
+        aria-label={view.name}
         className="absolute inset-0 z-0 rounded-md"
         onClick={() => onOpen?.(plan.id)}
       />
-      <span className="pointer-events-none relative z-[1] shrink-0">
-        <EventThumb url={plan.thumbUrl} name={plan.eventName ?? plan.name} />
-      </span>
-      <span className="pointer-events-none relative z-[1] min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-        {planLabel}
-      </span>
-      <span className="pointer-events-none relative z-[1] shrink-0">
-        <StatusStrip launches={plan.launches} />
-      </span>
-      {Number.isFinite(budget) && budget > 0 ? (
-        <span className="pointer-events-none relative z-[1] shrink-0">
-          <MetricChip label={formatPlanListBudget(budget)}>{formatPlanListBudget(budget)}</MetricChip>
+      <span className="pointer-events-none relative z-[1] flex min-w-0 flex-1 items-center gap-3">
+        <PlanListThumb url={plan.thumbUrl} name={view.name} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium text-foreground">{view.name}</span>
+          {view.secondLine ? (
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{view.secondLine}</span>
+          ) : null}
+          {view.momentLine ? (
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{view.momentLine}</span>
+          ) : null}
         </span>
-      ) : null}
-      {range ? (
-        <span className="pointer-events-none relative z-[1] shrink-0">
-          <MetricChip label={range}>{range}</MetricChip>
-        </span>
-      ) : null}
-      <div
-        className="relative z-10 flex shrink-0 items-center gap-1.5"
-        onClick={(event) => event.stopPropagation()}
-        onPointerDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => event.stopPropagation()}
-      >
-        <OverflowMenu
-          items={specs.map((spec) => ({
-            ...spec,
-            icon: icons[spec.id],
-            onSelect: handlers[spec.id],
-          }))}
+      </span>
+      <span className="relative z-[1] flex shrink-0 items-center gap-3 max-md:justify-between">
+        <PlanListPaceBar
+          spent={plan.spent ?? null}
+          planned={planned}
+          dashed={view.dashedTrack}
+          junk={view.junk}
         />
-        <PlanDeleteAction
-          planId={plan.id}
-          launches={plan.launches}
-          persisted
-          trigger="none"
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-          onDeleted={onDeleted}
-        />
-      </div>
+        <span className="shrink-0 text-xs text-foreground max-md:ml-auto">{view.stateWord}</span>
+        <button
+          type="button"
+          aria-label={PLAN_LIST_OPEN}
+          className="relative z-10 inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-xs text-foreground"
+          onClick={() => onOpen?.(plan.id)}
+        >
+          {PLAN_LIST_OPEN}
+        </button>
+        <div
+          className="relative z-10 flex shrink-0 items-center gap-1.5"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <OverflowMenu
+            items={specs.map((spec) => ({
+              ...spec,
+              icon: icons[spec.id],
+              onSelect: handlers[spec.id],
+            }))}
+          />
+          <PlanDeleteAction
+            planId={plan.id}
+            launches={plan.launches}
+            persisted
+            trigger="none"
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+            onDeleted={onDeleted}
+          />
+        </div>
+      </span>
     </div>
   );
 }

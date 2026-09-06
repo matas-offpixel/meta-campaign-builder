@@ -97,7 +97,7 @@ describe("row-click vs menu-click isolation", () => {
   it("PlanRow keeps the ⋯ outside the row open control and stops propagation on the menu cluster", () => {
     const rows = readFileSync("components/library/library-rows.tsx", "utf8");
     const planRow = rows.slice(rows.indexOf("export function PlanRow"));
-    assert.match(planRow, /aria-label=\{planLabel\}/);
+    assert.match(planRow, /aria-label=\{view\.name\}/);
     assert.match(planRow, /stopPropagation/);
     assert.match(planRow, /relative z-10/);
     assert.doesNotMatch(
@@ -129,7 +129,7 @@ describe("3 — no unnamed interactive elements on the plan row", () => {
     );
     const unnamed = buttonsIn(planRow).filter((button) => !buttonHasAccessibleName(button));
     assert.deepEqual(unnamed, [], "PlanRow buttons must have aria-label or text");
-    assert.match(planRow, /aria-label=\{planLabel\}/);
+    assert.match(planRow, /aria-label=\{view\.name\}/);
     assert.doesNotMatch(planRow, /<button[^>]*>\s*<EventThumb/);
 
     const menu = readFileSync("components/viz/overflow-menu.tsx", "utf8");
@@ -154,8 +154,7 @@ describe("G11 — /plans dates and £ per day", () => {
       rows.indexOf("export function PlanRow"),
       rows.indexOf("export function PlanTemplateRow"),
     );
-    assert.match(planRow, /formatPlanListRange/);
-    assert.match(planRow, /formatPlanListBudget/);
+    assert.match(planRow, /formatNextMomentLine|planListRowView/);
     assert.doesNotMatch(planRow, /£\{budget\}\/d/);
     assert.doesNotMatch(planRow, /\$\{start\}–\$\{end\}/);
     assert.doesNotMatch(planRow, /\d{4}-\d{2}-\d{2}/);

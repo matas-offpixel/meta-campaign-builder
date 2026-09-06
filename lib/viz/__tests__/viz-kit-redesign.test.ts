@@ -605,8 +605,10 @@ describe("§4.7 plan v2 token guards", () => {
       rows.indexOf("export function PlanRow"),
       rows.indexOf("export function PlanTemplateRow"),
     );
+    const library = readFileSync("components/library/plan-library.tsx", "utf8");
     assert.doesNotMatch(planRow, /\d{4}-\d{2}-\d{2}/);
-    assert.match(planRow, /formatPlanListRange/);
+    assert.doesNotMatch(library, /\d{4}-\d{2}-\d{2}/);
+    assert.match(planRow, /planListRowView|formatNextMomentLine/);
   });
 
   it("VIZ_ACTION_LABEL and VIZ_STATUS_LABEL are aria-only", () => {

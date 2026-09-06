@@ -83,11 +83,21 @@ export interface PlanLibraryItem {
   status: CampaignPlanStatus;
   eventId: string;
   eventName: string | null;
+  eventCode?: string | null;
+  venueName?: string | null;
+  eventDate?: string | null;
+  presaleAt?: string | null;
+  generalSaleAt?: string | null;
   thumbUrl: string | null;
   objectiveIntent: CampaignPlan["intent"]["objectiveIntent"] | null;
   totalDaily: number;
   startDate: string | null;
   endDate: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  createdAt?: string | null;
+  spent?: number | null;
+  drawerFix?: import("./list.ts").PlanListDrawerFix | null;
   launches: CampaignPlan["launches"];
   updatedAt: string;
 }

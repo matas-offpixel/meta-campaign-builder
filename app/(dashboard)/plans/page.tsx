@@ -4,9 +4,18 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanLibrary } from "@/components/library/plan-library";
 import type { PlanLibraryItem } from "@/lib/plan/library";
 import { InfoTip } from "@/components/viz/info-tip";
+import { loadChannelDefaultsForEvent } from "@/lib/clients/channel-defaults";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
 import type { PlanEventOption } from "@/lib/plan/event-picker";
-import { emptyPlanLaunches } from "@/lib/plan/load";
+import {
+  drawerFixFromPreflight,
+  londonDate,
+  sumAllChannelSpend,
+  type DailySpendRow,
+  type PlanListDrawerFix,
+} from "@/lib/plan/list";
+import { emptyPlanLaunches, loadPlanForUser } from "@/lib/plan/load";
+import { collectPlanPreflight } from "@/lib/plan/preflight";
 import { loadPlanTemplatesForUser } from "@/lib/plan/plan-templates";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan, type CampaignPlanLaunches } from "@/lib/plan/types";
@@ -22,6 +31,9 @@ interface PlanListRow {
   total_daily_budget: number | string | null;
   start_date: string | null;
   end_date: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  created_at: string;
   updated_at: string;
 }
 
@@ -53,7 +65,7 @@ export default async function PlansPage() {
   const { data, error } = await supabase
     .from("campaign_plans")
     .select(
-      "id, name, status, event_id, objective_intent, total_daily_budget, start_date, end_date, updated_at",
+      "id, name, status, event_id, objective_intent, total_daily_budget, start_date, end_date, start_time, end_time, created_at, updated_at",
     )
     .eq("user_id", user.id)
     .order("updated_at", { ascending: false });
@@ -144,11 +156,41 @@ export default async function PlansPage() {
     };
   });
 
+  const eventById = new Map(eventRows.map((event) => [event.id, event]));
   const eventNames = new Map(eventRows.map((event) => [event.id, event.name]));
   const thumbs = await loadEventThumbSources(
     supabase,
     [...new Set(rows.map((row) => row.event_id).filter(Boolean))],
     eventNames,
+  );
+
+  const eventIds = [...new Set(rows.map((row) => row.event_id).filter(Boolean))];
+  const today = londonDate(new Date()) ?? "";
+  let spendRows: DailySpendRow[] = [];
+  if (eventIds.length > 0 && today) {
+    const { data: rollups } = await supabase
+      .from("event_daily_rollups")
+      .select("event_id, date, ad_spend, tiktok_spend, google_ads_spend")
+      .in("event_id", eventIds);
+    spendRows = (rollups ?? []) as DailySpendRow[];
+  }
+
+  const drawerByPlan = new Map<string, PlanListDrawerFix | null>();
+  const draftRows = rows.filter(
+    (row) => row.status === "draft" || row.status === "failed" || row.status === "launching",
+  );
+  await Promise.all(
+    draftRows.map(async (row) => {
+      try {
+        const loaded = await loadPlanForUser(supabase, row.id, user.id);
+        if (!loaded) return;
+        const channel = await loadChannelDefaultsForEvent(supabase, loaded.intent.eventId);
+        const preflight = collectPlanPreflight(loaded, undefined, channel);
+        drawerByPlan.set(row.id, drawerFixFromPreflight(preflight.issues));
+      } catch {
+        drawerByPlan.set(row.id, null);
+      }
+    }),
   );
 
   const templatesResult = tableMissing
@@ -161,17 +203,31 @@ export default async function PlansPage() {
 
   const plans: PlanLibraryItem[] = rows.map((row) => {
     const thumb = thumbs.get(row.event_id);
+    const event = eventById.get(row.event_id);
+    const fromDate = row.start_date ?? londonDate(row.created_at);
     return {
       id: row.id,
       name: row.name,
       status: row.status,
       eventId: row.event_id,
       eventName: eventNames.get(row.event_id) ?? thumb?.name ?? null,
+      eventCode: event?.event_code ?? null,
+      venueName: event?.venue_name?.trim() || event?.venue_city?.trim() || null,
+      eventDate: event?.event_date ?? null,
+      presaleAt: event?.presale_at ?? null,
+      generalSaleAt: event?.general_sale_at ?? null,
       thumbUrl: thumb?.url ?? null,
       objectiveIntent: row.objective_intent,
       totalDaily: Number(row.total_daily_budget) || 0,
       startDate: row.start_date,
       endDate: row.end_date,
+      startTime: row.start_time ?? null,
+      endTime: row.end_time ?? null,
+      createdAt: row.created_at,
+      spent: event
+        ? sumAllChannelSpend(spendRows, row.event_id, fromDate, today)
+        : null,
+      drawerFix: drawerByPlan.get(row.id) ?? null,
       launches: launchesByPlan.get(row.id) ?? emptyPlanLaunches(),
       updatedAt: row.updated_at,
     };
@@ -190,7 +246,7 @@ export default async function PlansPage() {
       />
       <main className="flex-1 px-6 py-6">
         <div className={`mx-auto ${PLAN_SURFACE_MAX_WIDTH_CLASS} space-y-4`}>
-          {/* No plans yet / PlanDeleteAction: PlanLibrary + PlanRow keep list empty copy and #863 gating. */}
+          {/* L1 no plans yet · PlanDeleteAction: PlanLibrary + PlanRow keep #863 gating. */}
           {tableMissing ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
               No plans table yet. Migration 157 has not been applied.
