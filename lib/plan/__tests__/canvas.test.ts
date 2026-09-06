@@ -172,7 +172,7 @@ describe("zone B · window", () => {
       { ...DOD, announcementAt: "2026-09-01T10:00:00.000Z" },
       FIXTURE_NOW,
     );
-    assert.ok(moments.some((moment) => moment.label === "announcement"));
+    assert.ok(moments.some((moment) => moment.label.startsWith("announcement")));
   });
 
   it("defaults start to now and end to the show", () => {

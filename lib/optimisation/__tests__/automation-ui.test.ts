@@ -145,6 +145,24 @@ describe("presentDecisionRow — dry-run vs applied", () => {
     ]);
     assert.equal(named[0]!.adsetName, "Tech House Pages");
   });
+
+  it("campaign-scope rows take the campaign name, never the ad-set fallback", () => {
+    const view = presentDecisionRow({
+      ...base,
+      applied: true,
+      dry_run: false,
+      scope: "campaign",
+      campaign_id: "120",
+      adset_id: "120",
+    });
+    assert.equal(view.scope, "campaign");
+    const named = attachAdsetNames(
+      [view],
+      [{ id: "local-1", name: "Some ad set", metaAdSetId: "120" }],
+      "[NX26-DOD] DOD - Signup - Artist",
+    );
+    assert.equal(named[0]!.adsetName, "[NX26-DOD] DOD - Signup - Artist");
+  });
 });
 
 describe("optimisationWritesGateState — env-gate probe", () => {

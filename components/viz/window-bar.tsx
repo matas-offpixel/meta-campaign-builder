@@ -146,12 +146,23 @@ export function WindowBar({
       tip: placeholder.tip,
     })),
   ];
-  const hiddenNouns = collapseOverlappingMomentLabels(marks);
   const collision = resolveMomentGlyphCollision(
     marks.map((mark) => ({
       id: mark.id,
       noun: mark.noun,
       ratio: width > 1 ? mark.x / width : 0,
+      x: mark.x,
+      width: mark.width,
+    })),
+  );
+  const remaining = marks.filter((mark) => !collision.hideNounIds.has(mark.id));
+  const hiddenNouns = collapseOverlappingMomentLabels(
+    remaining.map((mark) => ({
+      id: mark.id,
+      x: mark.x,
+      width: collision.joinedLabel.has(mark.id)
+        ? Math.max(mark.width, (collision.joinedLabel.get(mark.id)?.length ?? 0) * 8)
+        : mark.width,
     })),
   );
   const paceState = windowPaceState({
@@ -213,12 +224,14 @@ export function WindowBar({
               glyph={momentGlyph(mark.noun)}
               noun={collision.joinedLabel.get(mark.id) ?? mark.noun}
               missing={mark.missing}
-              hideNoun={hiddenNouns.has(mark.id)}
+              hideNoun={hiddenNouns.has(mark.id) || collision.hideNounIds.has(mark.id)}
               hideGlyph={collision.hideGlyphIds.has(mark.id)}
               tip={
-                hiddenNouns.has(mark.id)
-                  ? [collision.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
-                  : mark.tip
+                collision.hideNounIds.has(mark.id)
+                  ? undefined
+                  : hiddenNouns.has(mark.id)
+                    ? [collision.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
+                    : mark.tip
               }
             />
           ))}

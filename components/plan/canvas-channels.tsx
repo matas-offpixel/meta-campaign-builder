@@ -76,15 +76,17 @@ export function CanvasChannels({
           : running.empty
             ? LAUNCH_NO_READS
             : readingUnit && runningRead
-              ? formatRunningFact({
+              ? `${stateWord} · ${formatRunningFact({
                   cost: runningRead.cost,
                   unit: readingUnit,
                   usual: runningRead.usual,
-                })
+                })}`
               : null;
+        const hideStateWord = Boolean(runningFact);
+        const needsYou = drawerEdit && stateWord === "needs you" && blockers.length > 0;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
-            {drawerEdit && stateWord === "needs you" && blockers.length > 0 ? (
+            {hideStateWord ? null : needsYou ? (
               <button
                 type="button"
                 className={`${VIZ_TYPE.label} text-foreground`}

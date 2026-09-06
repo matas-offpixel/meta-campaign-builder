@@ -8,7 +8,6 @@ import { VIZ_LINE_TOKEN, VIZ_TYPE, VIZ_TYPE_NUM, type VizLineKind, type VizPlatf
 
 import { BlockerBadge } from "./blocker-badge";
 import { PlatformGlyph } from "./platform-glyph";
-import { StatusDot } from "./status-dot";
 
 export function ChannelRow({
   platform,
@@ -55,17 +54,10 @@ export function ChannelRow({
     blocked: (blockers?.length ?? 0) > 0,
     waitingFor,
   });
-  const dotStatus: VizStatus =
-    view.state === "waiting"
-      ? "idle"
-      : view.state === "blocked"
-        ? "blocked"
-        : status;
 
   return (
     <div className="flex h-10 flex-wrap items-center gap-2">
       <PlatformGlyph platform={platform} size="sm" />
-      <StatusDot status={dotStatus} />
       {view.state === "waiting" && !hideWaitingText ? (
         <span className={`${VIZ_TYPE.body} text-muted-foreground`}>{view.waitingText}</span>
       ) : null}

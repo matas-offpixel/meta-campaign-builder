@@ -10,6 +10,8 @@ import type { VizPlatform } from "./tokens.ts";
 export const TIKTOK_IMAGE_DISABLED_REASON =
   "TikTok image ads not supported by the launcher yet";
 
+export const ASSET_STRIP_GOOGLE_HEAD = "not on Google — search ads take no assets";
+
 export type AssetStripItem = {
   id: string;
   label: string;

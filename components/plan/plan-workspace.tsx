@@ -44,6 +44,7 @@ import {
   type PlanWindowDates,
 } from "@/lib/plan/canvas-inputs";
 import {
+  adjustPrimaryReadingUnit,
   domainFromUrl,
   plannedSpendByToday,
   type AdjustDecisionRow,
@@ -402,6 +403,7 @@ export function PlanWorkspace({
             dryRun?: boolean;
             adsetId?: string | null;
             adsetName?: string | null;
+            scope?: string | null;
             budgetBeforePence?: number | null;
             budgetAfterPence?: number | null;
             metricValue?: number | null;
@@ -425,6 +427,8 @@ export function PlanWorkspace({
               dryRun: row.dryRun !== false,
               adsetId: row.adsetId ?? null,
               adsetName: row.adsetName ?? null,
+              campaignName: row.adsetName ?? null,
+              scope: row.scope ?? null,
               budgetBeforePence: row.budgetBeforePence ?? null,
               budgetAfterPence: row.budgetAfterPence ?? null,
               metricValue: row.metricValue ?? null,
@@ -797,11 +801,19 @@ export function PlanWorkspace({
     plan.intent.budget.metaDaily + plan.intent.budget.tiktokDaily + plan.intent.budget.googleDaily;
   const launchedAt = planLaunchedAt(plan.launches);
   const sinceLaunch = launchedAt ? new Date(launchedAt) : adjustHandles.start;
-  const unitKey = plan.intent.target.unit;
-  const unitWord =
-    unitKey === "reg" || unitKey === "click" || unitKey === "lpv" || unitKey === "purchase" || unitKey === "view"
-      ? VIZ_UNIT_WORD[unitKey]
-      : "signup";
+  const readingUnit = launchReadingUnit({
+    now: adjustClock,
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    kind: selectedEvent?.kind,
+  });
+  const adjustReadingUnit = adjustPrimaryReadingUnit({
+    now: adjustClock,
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    launchedAt,
+    kind: selectedEvent?.kind,
+  });
   const adjustBenchmark =
     selectedEvent?.clientId && selectedEvent.venueKey
       ? planBenchmark({
@@ -809,12 +821,7 @@ export function PlanWorkspace({
           clientId: selectedEvent.clientId,
           venueKey: selectedEvent.venueKey,
           venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
-          unit:
-            unitKey === "reg" || !unitKey
-              ? "signup"
-              : unitKey === "click" || unitKey === "lpv" || unitKey === "purchase" || unitKey === "view"
-                ? unitKey
-                : "signup",
+          unit: adjustReadingUnit === "reg" ? "signup" : adjustReadingUnit,
           excludeEventId: selectedEvent.id,
         })
       : undefined;
@@ -915,12 +922,6 @@ export function PlanWorkspace({
   const headerName = planHeaderName(plan.name, selectedEvent);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
   const launchStamp = planLaunchStamp(plan.launches);
-  const readingUnit = launchReadingUnit({
-    now: new Date(),
-    generalSaleAt: selectedEvent?.generalSaleAt,
-    presaleAt: selectedEvent?.presaleAt,
-    kind: selectedEvent?.kind,
-  });
   const usual = selectedEvent?.clientId && selectedEvent.venueKey
     ? planBenchmark({
         rows: benchmarkRows,
@@ -1073,14 +1074,22 @@ export function PlanWorkspace({
           role={role}
           spent={adjustReads?.spend ?? liveSpend ?? 0}
           planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
-          unitWord={unitWord}
+          kind={selectedEvent?.kind}
           benchmark={adjustBenchmark}
           writeGates={adjustGates}
-          channels={adjustReads?.channels ?? []}
+          channels={(adjustReads?.channels ?? []).map((channel) => ({
+            ...channel,
+            connected:
+              channel.name === "TikTok"
+                ? Boolean(resolved?.tiktokAdvertiser.value)
+                : channel.name === "Google"
+                  ? Boolean(resolved?.googleAdsCustomer.value)
+                  : true,
+          }))}
           metaSignups={adjustReads ? adjustReads.metaRegs : null}
           metaPurchases={adjustReads ? adjustReads.metaPurchases : null}
           tagDomain={domainFromUrl(destination.url)}
-          tickets={adjustReads?.tickets ?? ticketStage?.value ?? null}
+          tickets={ticketSource === "none" ? null : (adjustReads?.tickets ?? ticketStage?.value ?? null)}
           ticketSource={ticketSource}
           decisions={adjustDecisions}
           moments={planWindowMoments(selectedEvent, adjustClock)}
@@ -1090,6 +1099,7 @@ export function PlanWorkspace({
           launchedAt={launchedAt}
           venueName={selectedEvent?.venueName ?? null}
           generalSaleAt={selectedEvent?.generalSaleAt ?? null}
+          presaleAt={selectedEvent?.presaleAt ?? null}
           lastCreativeSnapshotAt={adjustReads?.lastCreativeSnapshotAt ?? null}
           trend={adjustReads?.dailyCostPerSignup ?? null}
           reach={adjustReads?.reach ?? null}

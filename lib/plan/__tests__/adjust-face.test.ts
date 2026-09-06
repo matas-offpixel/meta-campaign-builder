@@ -15,7 +15,13 @@ import {
   ADJUST_OPERATOR_APPLY_PATH,
   ADJUST_PAGE_VIEWS_EMPTY,
   ADJUST_PHASE_LABEL,
+  ADJUST_CHANNEL_NOT_CONNECTED,
+  ADJUST_NO_PURCHASES,
   ADJUST_PLACEMENT_EMPTY,
+  ADJUST_PLACEMENT_FACEBOOK,
+  ADJUST_PLACEMENT_LINES,
+  adjustPrimaryReadingUnit,
+  formatDecisionClock,
   adjustControlsVisible,
   adjustFaceView,
   formatAgainstUsual,
@@ -43,7 +49,7 @@ import {
   adjustLogFromDecisions,
   emptyAdjustReads,
 } from "../adjust-face.ts";
-import { planLaunchedAt } from "../launch-face.ts";
+import { launchReadingUnit, planLaunchedAt } from "../launch-face.ts";
 import { IDLE_PLAN_LAUNCH } from "../types.ts";
 import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
 
@@ -124,10 +130,23 @@ describe("ADJUST J-states — sentences", () => {
   });
 
   it("placements not-yet; tickets source not recorded", () => {
+    assert.equal(ADJUST_PLACEMENT_FACEBOOK, "facebook · — · not read yet");
     assert.equal(ADJUST_PLACEMENT_EMPTY, "instagram · — · not read yet");
+    assert.deepEqual([...ADJUST_PLACEMENT_LINES], [
+      "facebook · — · not read yet",
+      "instagram · — · not read yet",
+    ]);
     assert.equal(VIZ_TICKET_LINE_WORD.unknown, "source not recorded");
     assert.match(formatTicketLine("none"), /not entered yet/);
     assert.equal(formatTicketLine("unknown", 553), "553 tickets · source not recorded");
+    assert.equal(
+      formatPurchaseDisagreement({ metaPurchases: 0, tickets: 0, ticketSource: "none" }),
+      "Meta says 0 purchases · tickets not entered yet",
+    );
+    assert.doesNotMatch(
+      formatPurchaseDisagreement({ metaPurchases: 0, tickets: 0, ticketSource: "none" }),
+      /tickets 0/,
+    );
   });
 
   it("funnel two lines stay two lines", () => {
@@ -263,15 +282,24 @@ describe("ADJUST surface guards", () => {
     assert.match(source, /min-h-11/);
     assert.match(source, /end not set/);
     assert.match(source, /adjustFaceView/);
-    assert.match(source, /ADJUST_PLACEMENT_EMPTY/);
+    assert.match(source, /ADJUST_PLACEMENT_LINES/);
     assert.match(source, /adjustControlsVisible/);
     assert.match(source, /by creative name/);
     assert.doesNotMatch(source, />Locked</);
+    const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
+    assert.match(channels, /hideStateWord = Boolean\(runningFact\)/);
+    assert.doesNotMatch(channels, /stateWord === "running"/);
+    const row = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.doesNotMatch(row, /StatusDot/);
   });
 
   it("workspace mounts ADJUST as the live morning read", () => {
     const source = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(source, /CanvasAdjust/);
+    assert.match(source, /adjustPrimaryReadingUnit/);
+    assert.match(source, /launchReadingUnit\(\{/);
+    assert.match(source, /presaleAt: selectedEvent\?\.presaleAt/);
+    assert.doesNotMatch(source, /unitWord=\{unitWord\}/);
     assert.match(source, /state === "live" \|\| state === "launched"/);
     assert.match(source, /stages=\{undefined\}/);
     assert.match(source, /metaSignups=\{adjustReads/);
@@ -387,7 +415,10 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
             : formatLeftAlone(row.count),
       ),
     );
-    assert.equal(rendered.some((line) => line === 'Raised "Tech House Pages"'), true);
+    assert.equal(
+      rendered.some((line) => line === `Raised "Tech House Pages" by 30% at ${formatDecisionClock("2026-09-06T10:00:00.000Z")}`),
+      true,
+    );
     assert.equal(
       rendered.some((line) => line === '"Disco Pages" left alone — 3 of 5 signups needed'),
       true,
@@ -595,7 +626,8 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
       tickets: null,
       ticketSource: "none",
       now: NOW,
-      unitWord: "thousand reached",
+      kind: "brand",
+      unitWord: "click",
     });
     assert.equal(face.infoHeader, "ESTIMATED · META'S REACH, YOUR SPEND");
     assert.equal(face.costLabel, "cost per thousand reached");
@@ -660,9 +692,159 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     assert.equal(ADJUST_LIFETIME_TIP, "over the whole campaign");
     const canvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
     assert.match(canvas, /ADJUST_LIFETIME_TIP/);
+    assert.match(canvas, /AdjustSuggestion/);
+    assert.doesNotMatch(canvas, /ADJUST_APPLY_NEXT_CHECK/);
+    assert.doesNotMatch(canvas, /tipParts\.join/);
+    const suggestion = readFileSync("components/plan/adjust-suggestion.tsx", "utf8");
+    assert.match(suggestion, /ADJUST_INFO_VARIANT|variant=["']card["']/);
+    assert.match(suggestion, /applyTip/);
     const source = readFileSync("lib/plan/adjust-face.ts", "utf8");
     assert.doesNotMatch(source, /export function adSetNameFromReason/);
     assert.doesNotMatch(source, /ADJUST_LOG_EMPTY|ADJUST_CREATIVE_STALE/);
+  });
+
+  it("D.O.D live walk — stored click is ignored; two readings; signup usual £1.32", () => {
+    const rows: BenchmarkRow[] = [
+      row("djez", 1.67),
+      row("eed", 1.32),
+      row("folamour", 0.82),
+      row("ipc", 0.87),
+      row("mf", 2.75),
+    ];
+    const chip = planBenchmark({
+      rows,
+      clientId: "eb",
+      venueKey: "nx newcastle",
+      venueLabel: "NX Newcastle",
+      unit: "signup",
+      excludeEventId: "dod",
+    });
+    assert.ok(chip);
+    const face = adjustFaceView({
+      spent: 715,
+      planned: 350,
+      metaSignups: 1222,
+      metaPurchases: 0,
+      tickets: 0,
+      ticketSource: "none",
+      now: NOW,
+      launchedAt: "2026-08-27T12:00:00.000Z",
+      generalSaleAt: "2026-09-04T00:00:00.000+01:00",
+      venueName: "NX Newcastle",
+      kind: "event",
+      targetUnit: "click",
+      unitWord: "click",
+      benchmark: chip,
+      channels: [
+        { name: "Meta", spend: 715, results: 1222, connected: true },
+        { name: "TikTok", spend: 0, results: null, connected: false },
+        { name: "Google", spend: 0, results: null, connected: false },
+      ],
+      decisions: [
+        {
+          decidedAt: "2026-09-02T08:00:00.000Z",
+          action: "scale_down",
+          reasonText: "cpr 1.30",
+          resultCount: null,
+          applied: true,
+          dryRun: false,
+          scope: "campaign",
+          campaignName: "[NX26-DOD] DOD - Signup - Artist",
+          adsetName: null,
+          budgetBeforePence: 10000,
+          budgetAfterPence: 7500,
+          metricValue: 1.3,
+          metricWindow: "24h",
+        },
+        ...Array.from({ length: 12 }, (_, index) => ({
+          decidedAt: `2026-09-02T08:0${index % 10}:00.000Z`,
+          action: "maintain",
+          reasonText: "in band",
+          resultCount: 4,
+          applied: false,
+          dryRun: true,
+        })),
+      ],
+    });
+    assert.equal(adjustPrimaryReadingUnit({
+      now: NOW,
+      generalSaleAt: "2026-09-04T00:00:00.000+01:00",
+      launchedAt: "2026-08-27T12:00:00.000Z",
+      kind: "event",
+    }), "reg");
+    assert.equal(face.signupPhaseLabel, ADJUST_PHASE_LABEL);
+    assert.equal(
+      face.signupLine,
+      formatUsualFromShows(715 / 1222, "signup", 1.32, "from 5 other shows at NX Newcastle"),
+    );
+    assert.equal(
+      face.signupLine,
+      "£0.59 per signup · your usual £1.32 — from 5 other shows at NX Newcastle",
+    );
+    assert.doesNotMatch(face.signupLine ?? "", /per click/);
+    assert.equal(face.purchaseLine, ADJUST_NO_PURCHASES);
+    assert.equal(
+      face.purchaseDisagreement,
+      "Meta says 0 purchases · tickets not entered yet",
+    );
+    assert.doesNotMatch(face.purchaseDisagreement ?? "", /tickets 0/);
+    assert.equal(face.costLabel, "cost per signup");
+    assert.equal(face.infoHeader, "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND");
+    assert.deepEqual(chip.band, [0.87, 1.67]);
+    assert.equal(
+      face.suggestionSentence,
+      'Lower "[NX26-DOD] DOD - Signup - Artist" by 25% — £1.30 per signup, under your usual £1.32, last 24h.',
+    );
+    assert.doesNotMatch(face.suggestionSentence ?? "", /ad set|0 clicks|per click|£0\.59/);
+    const rendered = face.logDays.flatMap((day) =>
+      day.rows.map((row) =>
+        row.kind === "did"
+          ? formatLogDid(row)
+          : row.kind === "refusal"
+            ? formatRefusal(row.adSetName, row.needed, row.have, row.unitWord)
+            : formatLeftAlone(row.count),
+      ),
+    );
+    assert.equal(
+      rendered.some(
+        (line) =>
+          line ===
+          `Lowered "[NX26-DOD] DOD - Signup - Artist" by 25% at ${formatDecisionClock("2026-09-02T08:00:00.000Z")}`,
+      ),
+      true,
+    );
+    assert.equal(rendered.some((line) => line === "12 ad sets left alone"), true);
+    assert.equal(face.channelLines[1], `TikTok · ${ADJUST_CHANNEL_NOT_CONNECTED}`);
+    assert.equal(face.channelLines[2], `Google · ${ADJUST_CHANNEL_NOT_CONNECTED}`);
+  });
+
+  it("presale earlier than general sale reads purchase on ADJUST, same gate as LAUNCH", () => {
+    const now = new Date("2026-09-03T12:00:00.000Z");
+    const generalSaleAt = "2026-09-04T13:00:00.000Z";
+    const presaleAt = "2026-09-01T10:00:00.000Z";
+    assert.equal(
+      launchReadingUnit({ now, generalSaleAt, presaleAt, kind: "event" }),
+      "purchase",
+    );
+    assert.equal(
+      adjustPrimaryReadingUnit({ now, generalSaleAt, presaleAt, kind: "event" }),
+      "purchase",
+    );
+    const face = adjustFaceView({
+      spent: 100,
+      planned: 50,
+      metaSignups: 80,
+      metaPurchases: 10,
+      tickets: null,
+      ticketSource: "none",
+      now,
+      generalSaleAt,
+      presaleAt,
+      kind: "event",
+    });
+    assert.equal(face.costLabel, "cost per purchase");
+    assert.match(face.signupLine ?? "", /per purchase/);
+    assert.doesNotMatch(face.signupLine ?? "", /per signup/);
   });
 });
 

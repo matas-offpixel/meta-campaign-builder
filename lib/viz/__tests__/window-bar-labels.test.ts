@@ -64,17 +64,31 @@ describe("WindowBar label layout", () => {
     assert.ok(left + labelWidth <= barWidth);
   });
 
-  it("within 2% the older yields its glyph and its noun joins the newer", () => {
+  it("now keeps the joined label at its position", () => {
     assert.equal(WINDOW_GLYPH_COLLISION_PCT, 0.02);
     const collision = resolveMomentGlyphCollision([
       { id: "now", noun: "now", ratio: 0.61 },
       { id: "gen-sale", noun: "gen sale passed Fri 4 Sep", ratio: 0.62 },
     ]);
-    assert.ok(collision.hideGlyphIds.has("now"));
+    assert.ok(collision.hideGlyphIds.has("gen-sale"));
+    assert.ok(collision.hideNounIds.has("gen-sale"));
+    assert.equal(collision.hideGlyphIds.has("now"), false);
     assert.equal(
-      collision.joinedLabel.get("gen-sale"),
+      collision.joinedLabel.get("now"),
       "now · gen sale passed Fri 4 Sep",
     );
+  });
+
+  it("boxes that intersect join even when they sit more than 2% apart", () => {
+    const collision = resolveMomentGlyphCollision([
+      { id: "now", noun: "now", ratio: 0.68, x: 400, width: 56 },
+      { id: "gen-sale", noun: "gen sale passed Fri 4 Sep", ratio: 0.62, x: 360, width: 56 },
+    ]);
+    assert.equal(
+      collision.joinedLabel.get("now"),
+      "now · gen sale passed Fri 4 Sep",
+    );
+    assert.ok(collision.hideNounIds.has("gen-sale"));
   });
 
   it("handle and moment labels are nowrap in the component", () => {

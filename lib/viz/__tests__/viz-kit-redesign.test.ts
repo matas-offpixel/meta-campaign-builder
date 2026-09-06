@@ -117,6 +117,11 @@ describe("StatusDot / VIZ_STATUSES — blocked", () => {
     const source = readFileSync("components/viz/status-dot.tsx", "utf8");
     assert.match(source, /VIZ_STATUS_LABEL\[status\]/);
   });
+
+  it("ChannelRow does not mount StatusDot", () => {
+    const source = readFileSync("components/viz/channel-row.tsx", "utf8");
+    assert.doesNotMatch(source, /StatusDot/);
+  });
 });
 
 describe("ProvenanceBadge / derived", () => {
@@ -139,6 +144,17 @@ describe("MetricChip sizes", () => {
     assert.match(source, /lg:/);
     assert.match(source, /VIZ_TYPE\.display/);
     assert.match(source, /tabular-nums/);
+  });
+});
+
+describe("ThresholdBand sizes", () => {
+  it("keeps sm / client-iqr / default as three heights", () => {
+    const source = readFileSync("components/viz/threshold-band.tsx", "utf8");
+    assert.match(
+      source,
+      /size === "sm" \? "h-2" : zonesFrom === "client-iqr" \? "h-1" : "h-3"/,
+    );
+    assert.doesNotMatch(source, /h-0\.5/);
   });
 });
 
@@ -409,12 +425,14 @@ describe("AssetStrip named states", () => {
     assert.doesNotMatch(source, /broken-image|BrokenImage/);
   });
 
-  it("Google is always the not-instrumented dash, never a cross", () => {
+  it("Google is a sentence at the strip head, never a cross or a glyph", () => {
     assert.equal(googleRoutingMark(), "—");
     const source = readFileSync("components/viz/asset-strip.tsx", "utf8");
-    assert.match(source, /not instrumented/);
+    assert.match(source, /ASSET_STRIP_GOOGLE_HEAD|not on Google/);
+    assert.match(source, /VIZ_PLATFORM_LABEL/);
     assert.match(source, /border-dashed/);
     assert.doesNotMatch(source, /✗|✕|cross/);
+    assert.doesNotMatch(source, /PlatformGlyph|PlatformToggle|AspectChip/);
     assert.equal(routingToggleNext(["meta"], "google", true).includes("google"), false);
   });
 
