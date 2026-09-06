@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 904
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/904
 - **Branch:** `cursor/plan-v2-live-fix-launch-list`
 
 ## Summary
