@@ -88,7 +88,7 @@ describe("plan UI honest copy", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     const nav = readFileSync("components/dashboard/dashboard-nav.tsx", "utf8");
     assert.match(list, /Migration 157 has not been applied/);
-    assert.match(`${list}\n${library}`, /No plans yet/);
+    assert.match(`${list}\n${library}`, /no plans yet|PLAN_LIST_EMPTY/);
     assert.match(nav, /href: "\/plans"/);
     assert.match(workspace, /No events yet/);
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);

@@ -2,14 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, FileText, FolderOpen, Plus, Rocket, Search } from "lucide-react";
+import { FolderOpen, Plus, Search } from "lucide-react";
 
 import {
-  filterLibraryPlans,
   LibraryEmptyState,
   PlanRow,
   PlanTemplateRow,
-  type LibraryTab,
   type PlanLibraryItem,
 } from "@/components/library/library-rows";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
@@ -23,7 +21,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { countPlanLibraryTabs } from "@/lib/plan/library";
+import {
+  PLAN_LIST_EMPTY,
+  PLAN_LIST_OPEN,
+  PLAN_LIST_TABS,
+  PLAN_LIST_TAB_WORD,
+  chooseFold,
+  countPlanListTabs,
+  filterPlanList,
+  formatPlanListTab,
+  sortPlansByNextMoment,
+  toPlanListInput,
+  type PlanListChromeTab,
+  type PlanListTab,
+} from "@/lib/plan/list";
 import type { CampaignPlanTemplate } from "@/lib/plan/library";
 import {
   planEventPickerRows,
@@ -46,7 +57,7 @@ export function PlanLibrary({
   templatesMissing: boolean;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<LibraryTab>("drafts");
+  const [tab, setTab] = useState<PlanListChromeTab | null>(null);
   const [search, setSearch] = useState("");
   const [items, setItems] = useState(plans);
   const [templates, setTemplates] = useState(initialTemplates);
@@ -60,18 +71,28 @@ export function PlanLibrary({
   } | null>(null);
   const [pickedEventId, setPickedEventId] = useState("");
 
-  const counts = countPlanLibraryTabs(items, templates.length);
-  const tabs: { id: LibraryTab; label: string; count: number }[] = [
-    { id: "drafts", label: "Drafts", count: counts.drafts },
-    { id: "published", label: "Published", count: counts.published },
-    { id: "archived", label: "Archived", count: counts.archived },
-    { id: "templates", label: "Templates", count: counts.templates },
-  ];
+  const now = useMemo(() => new Date(), []);
+  const counts = countPlanListTabs(items, templates.length, now);
+  const resolvedTab: PlanListChromeTab =
+    tab ?? (counts.running > 0 ? "running" : counts.drafts > 0 ? "drafts" : counts.done > 0 ? "done" : "running");
+  const tabs = PLAN_LIST_TABS.map((id) => ({
+    id,
+    label: formatPlanListTab(id, counts[id]),
+    word: PLAN_LIST_TAB_WORD[id],
+    count: counts[id],
+  }));
+  const fold = useMemo(
+    () => chooseFold(items.map(toPlanListInput), now),
+    [items, now],
+  );
 
   const filteredPlans = useMemo(() => {
-    if (tab === "templates") return [];
-    return filterLibraryPlans(items, tab, search);
-  }, [items, tab, search]);
+    if (resolvedTab === "templates") return [];
+    return sortPlansByNextMoment(
+      filterPlanList(items, resolvedTab as PlanListTab, search, now),
+      now,
+    );
+  }, [items, resolvedTab, search, now]);
 
   const filteredTemplates = useMemo(() => {
     if (!search.trim()) return templates;
@@ -196,13 +217,10 @@ export function PlanLibrary({
               type="button"
               onClick={() => setTab(item.id)}
               className={`relative px-4 py-3 text-sm font-medium transition-colors
-                ${tab === item.id ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                ${resolvedTab === item.id ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               {item.label}
-              {item.count > 0 ? (
-                <span className="ml-1.5 text-[10px] font-semibold text-muted-foreground">{item.count}</span>
-              ) : null}
-              {tab === item.id ? (
+              {resolvedTab === item.id ? (
                 <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-foreground" />
               ) : null}
             </button>
@@ -224,13 +242,26 @@ export function PlanLibrary({
           </Button>
           <Button size="sm" onClick={() => router.push("/plan/new")}>
             <Plus className="h-3.5 w-3.5" />
-            New plan
+            {PLAN_LIST_EMPTY.action}
           </Button>
         </div>
       </div>
 
-      <div className="pt-4">
-        {tab === "templates" ? (
+      <div className="space-y-3 pt-4">
+        {fold ? (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card p-4 max-md:flex-col max-md:items-stretch">
+            <p className="min-w-0 text-sm text-foreground">{fold.sentence}</p>
+            <button
+              type="button"
+              aria-label={PLAN_LIST_OPEN}
+              className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center text-xs text-foreground"
+              onClick={() => openPlan(fold.planId)}
+            >
+              {PLAN_LIST_OPEN}
+            </button>
+          </div>
+        ) : null}
+        {resolvedTab === "templates" ? (
           templatesMissing ? (
             <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
               Plan templates need migration 163.
@@ -255,32 +286,15 @@ export function PlanLibrary({
           )
         ) : items.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-            No plans yet.
+            {PLAN_LIST_EMPTY.sentence}
           </p>
-        ) : filteredPlans.length === 0 ? (
-          <LibraryEmptyState
-            icon={tab === "drafts" ? FileText : tab === "published" ? Rocket : Archive}
-            title={
-              tab === "drafts"
-                ? "No drafts"
-                : tab === "published"
-                  ? "No published plans"
-                  : "No archived plans"
-            }
-            description={
-              tab === "drafts"
-                ? "Start a new plan to get going."
-                : tab === "published"
-                  ? "Live and live-partial plans will appear here."
-                  : "Archived plans will appear here."
-            }
-          />
         ) : (
           <div className="space-y-2">
             {filteredPlans.map((plan) => (
               <PlanRow
                 key={plan.id}
                 plan={plan}
+                now={now}
                 /* PlanDeleteAction stays on the row — #863 delete/archive gating unchanged. */
                 isLoading={busyId === plan.id}
                 onOpen={openPlan}
