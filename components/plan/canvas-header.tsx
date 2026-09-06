@@ -15,8 +15,10 @@ import {
   decisionsChangesLabel,
   formatIdentitySentence,
   formatIdentityTip,
+  formatLaunchStampTip,
   formatLaunchedLine,
   planIdentityMetaId,
+  type PlanLaunchedAtSource,
   type PlanLaunchedWord,
 } from "@/lib/plan/launch-face";
 import type { CampaignPlanLaunchRecord } from "@/lib/plan/types";
@@ -46,6 +48,7 @@ export function CanvasHeader({
   clientDefaultMetaId,
   launchedAt,
   launchedWord,
+  launchedAtSource,
 }: {
   name: string;
   clientName: string | null;
@@ -65,6 +68,7 @@ export function CanvasHeader({
   clientDefaultMetaId?: string | null;
   launchedAt?: string | null;
   launchedWord?: PlanLaunchedWord;
+  launchedAtSource?: PlanLaunchedAtSource | null;
 }) {
   const [draft, setDraft] = useState(destination.url);
   const handle = decisionsChangesLabel(decisionCount);
@@ -95,6 +99,7 @@ export function CanvasHeader({
       : PLAN_CANVAS_COPY.noDestination,
     destination.overridable && PLAN_CANVAS_COPY.destination,
     handle && PLAN_CANVAS_COPY.decisions,
+    formatLaunchStampTip(launchedAtSource),
   );
 
   return (

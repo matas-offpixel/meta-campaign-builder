@@ -13,10 +13,13 @@ interface LaunchRow {
   error?: string | null;
   created_at?: string | null;
   platform_ad_account_id?: string | null;
+  launched_at?: string | null;
+  launched_at_source?: "ledger" | "plan_start" | null;
 }
 
 function toLaunch(row: LaunchRow | null | undefined): CampaignPlanLaunchRecord {
   if (!row) return { ...IDLE_PLAN_LAUNCH };
+  const source = row.launched_at_source;
   return {
     status: row.status ?? "idle",
     platformCampaignId: row.platform_campaign_id ?? null,
@@ -25,6 +28,8 @@ function toLaunch(row: LaunchRow | null | undefined): CampaignPlanLaunchRecord {
     createdAt: row.created_at ?? null,
     platformAdAccountId: row.platform_ad_account_id ?? null,
     draftAdAccountId: null,
+    launchedAt: row.launched_at ?? null,
+    launchedAtSource: source === "ledger" || source === "plan_start" ? source : null,
   };
 }
 

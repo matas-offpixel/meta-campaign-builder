@@ -15,7 +15,9 @@ import {
   planIdentityMetaId,
   formatLaunchBlockerSentence,
   formatLaunchCreatesLine,
+  formatLaunchStampTip,
   formatLaunchedLine,
+  LAUNCH_STAMP_PLAN_START_TIP,
   formatMissingMomentTip,
   formatPurchaseTicketLine,
   formatResumeWord,
@@ -482,22 +484,56 @@ describe("LAUNCH review round 1 — surface wiring", () => {
       }),
       null,
     );
+    assert.equal(
+      planLaunchedAt({
+        meta: {
+          ...IDLE_PLAN_LAUNCH,
+          status: "live",
+          platformCampaignId: "120",
+          createdAt: "2026-08-26T13:51:00.000Z",
+        },
+        tiktok: { ...IDLE_PLAN_LAUNCH },
+        google: { ...IDLE_PLAN_LAUNCH },
+      }),
+      null,
+    );
     const live = planLaunchStamp({
       meta: {
         ...IDLE_PLAN_LAUNCH,
         status: "live",
         platformCampaignId: "120",
-        createdAt: "2026-09-05T09:14:00.000Z",
+        launchedAt: "2026-09-05T09:14:00.000Z",
+        launchedAtSource: "ledger",
       },
       tiktok: { ...IDLE_PLAN_LAUNCH },
       google: { ...IDLE_PLAN_LAUNCH },
     });
     assert.equal(live?.at, "2026-09-05T09:14:00.000Z");
     assert.equal(live?.word, "live");
+    assert.equal(live?.source, "ledger");
     assert.equal(
       formatLaunchedLine(live!.at!, live!.word),
       "live · launched Sat 5 Sep · 10:14",
     );
+    assert.equal(formatLaunchStampTip(live?.source), null);
+    const backfilled = planLaunchStamp({
+      meta: {
+        ...IDLE_PLAN_LAUNCH,
+        status: "live",
+        platformCampaignId: "120",
+        launchedAt: "2026-08-26T13:51:00.000Z",
+        launchedAtSource: "plan_start",
+      },
+      tiktok: { ...IDLE_PLAN_LAUNCH },
+      google: { ...IDLE_PLAN_LAUNCH },
+    });
+    assert.equal(backfilled?.source, "plan_start");
+    assert.equal(formatLaunchStampTip(backfilled?.source), LAUNCH_STAMP_PLAN_START_TIP);
+    const stampFn = readFileSync("lib/plan/launch-face.ts", "utf8");
+    assert.match(stampFn, /row\.launchedAt/);
+    assert.doesNotMatch(stampFn, /planLaunchStamp[\s\S]*row\.createdAt/);
+    const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
+    assert.match(header, /formatLaunchStampTip/);
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(workspace, /planLaunchStamp\(plan\.launches\)/);
     assert.doesNotMatch(workspace, /launchedAt=\{plan\.createdAt\}/);
