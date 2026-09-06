@@ -544,3 +544,12 @@ export function unconnectedMessage(issues: PlanPreflightIssue[]): string | null 
 }
 
 export const LAUNCH_INFO_VARIANT = "card" as const;
+
+export function launchControlsVisible(role: "operator" | "client"): {
+  launch: boolean;
+  unitPicker: boolean;
+  drawerEdit: boolean;
+} {
+  const operator = role !== "client";
+  return { launch: operator, unitPicker: operator, drawerEdit: operator };
+}

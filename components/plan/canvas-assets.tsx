@@ -20,11 +20,13 @@ export function CanvasAssets({
   hasMetaDraft,
   onUpload,
   onUnregistered,
+  readOnly = false,
 }: {
   planId: string;
   hasMetaDraft: boolean;
   onUpload: () => void;
   onUnregistered: (count: number) => void;
+  readOnly?: boolean;
 }) {
   const [rows, setRows] = useState<RoutingMatrixRow[]>([]);
   const [note, setNote] = useState<string | null>(null);
@@ -32,7 +34,7 @@ export function CanvasAssets({
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!hasMetaDraft) {
+    if (readOnly || !hasMetaDraft) {
       setRows([]);
       onUnregistered(0);
       return;
@@ -55,7 +57,7 @@ export function CanvasAssets({
     setLaunched(json.launched === true);
     setError(null);
     onUnregistered(json.unregisteredCount ?? 0);
-  }, [hasMetaDraft, onUnregistered, planId]);
+  }, [hasMetaDraft, onUnregistered, planId, readOnly]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch lifecycle when the Meta draft appears
@@ -109,8 +111,8 @@ export function CanvasAssets({
         assets={view.assets}
         routing={view.routing}
         disabledReasons={view.disabledReasons}
-        onUpload={onUpload}
-        onToggle={(assetId, platform) => void toggle(assetId, platform)}
+        onUpload={readOnly ? undefined : onUpload}
+        onToggle={readOnly ? undefined : (assetId, platform) => void toggle(assetId, platform)}
       />
       {tip ? <InfoTip label={tip} /> : null}
     </section>

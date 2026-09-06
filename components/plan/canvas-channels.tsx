@@ -39,6 +39,7 @@ export function CanvasChannels({
   onRederive,
   busy,
   openRefs,
+  drawerEdit = true,
 }: {
   rows: PlanChannelRowModel[];
   readingUnit?: LaunchReadingUnit;
@@ -49,6 +50,7 @@ export function CanvasChannels({
   onRederive: (row: PlanChannelRowModel) => void;
   busy: boolean;
   openRefs?: Partial<Record<PlanAdapterName, RefObject<HTMLButtonElement | null>>>;
+  drawerEdit?: boolean;
 }) {
   const tip = joinInfoTips(
     PLAN_CANVAS_COPY.derive,
@@ -82,7 +84,7 @@ export function CanvasChannels({
               : null;
         return (
           <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
-            {stateWord === "needs you" && blockers.length > 0 ? (
+            {drawerEdit && stateWord === "needs you" && blockers.length > 0 ? (
               <button
                 type="button"
                 className={`${VIZ_TYPE.label} text-foreground`}
@@ -110,14 +112,14 @@ export function CanvasChannels({
                     <span className={VIZ_TYPE.body}>{runningFact}</span>
                   ) : null
                 }
-                onOpen={() => onOpen(row)}
+                onOpen={drawerEdit ? () => onOpen(row) : undefined}
                 onOpenAnchor={
-                  onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
+                  drawerEdit && onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
                 }
                 openRef={openRefs?.[row.adapter]}
               />
             </div>
-            {row.state === "paused" ? (
+            {drawerEdit && row.state === "paused" ? (
               resume.supported ? (
                 <button
                   type="button"
@@ -142,7 +144,7 @@ export function CanvasChannels({
                 </span>
               )
             ) : null}
-            {row.staleChip ? (
+            {drawerEdit && row.staleChip ? (
               <button
                 type="button"
                 className={`rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 ${VIZ_TYPE.label}`}
