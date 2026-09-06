@@ -43,13 +43,12 @@ import {
   type PlanWindowDates,
 } from "@/lib/plan/canvas-inputs";
 import {
-  adjustLogFromDecisions,
   domainFromUrl,
+  planLaunchedAt,
   plannedSpendByToday,
-  writeGatesOpen,
   type AdjustDecisionRow,
+  type AdjustWindowReads,
 } from "@/lib/plan/adjust-face";
-import { isAmountCell } from "@/lib/dashboard/event-funnel";
 import { VIZ_UNIT_WORD } from "@/lib/viz/tokens";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
@@ -121,6 +120,7 @@ export function PlanWorkspace({
   isNew = false,
   funnel = null,
   liveSpend = null,
+  adjustReads = null,
   thumbUrl = null,
   targetBenchmark: _targetBenchmark = null,
   identityNames,
@@ -135,6 +135,7 @@ export function PlanWorkspace({
   /** LIVE state only — resolved on the server from event_daily_rollups. */
   funnel?: EventFunnelView | null;
   liveSpend?: number | null;
+  adjustReads?: AdjustWindowReads | null;
   thumbUrl?: string | null;
   /**
    * The client preset's benchmark for this plan's objective. Zone D shows
@@ -375,6 +376,12 @@ export function PlanWorkspace({
             resultCount?: number | null;
             applied?: boolean;
             dryRun?: boolean;
+            adsetId?: string | null;
+            adsetName?: string | null;
+            budgetBeforePence?: number | null;
+            budgetAfterPence?: number | null;
+            metricValue?: number | null;
+            metricWindow?: string | null;
           }>;
           enabled?: boolean;
           live?: boolean;
@@ -392,6 +399,12 @@ export function PlanWorkspace({
               resultCount: row.resultCount ?? null,
               applied: row.applied === true,
               dryRun: row.dryRun !== false,
+              adsetId: row.adsetId ?? null,
+              adsetName: row.adsetName ?? null,
+              budgetBeforePence: row.budgetBeforePence ?? null,
+              budgetAfterPence: row.budgetAfterPence ?? null,
+              metricValue: row.metricValue ?? null,
+              metricWindow: row.metricWindow ?? null,
             })),
         );
         setAdjustGates({
@@ -746,20 +759,13 @@ export function PlanWorkspace({
   );
   const dailyBudget =
     plan.intent.budget.metaDaily + plan.intent.budget.tiktokDaily + plan.intent.budget.googleDaily;
-  const sinceLaunch = plan.createdAt ? new Date(plan.createdAt) : adjustHandles.start;
+  const launchedAt = planLaunchedAt(plan.launches);
+  const sinceLaunch = launchedAt ? new Date(launchedAt) : adjustHandles.start;
   const unitKey = plan.intent.target.unit;
   const unitWord =
     unitKey === "reg" || unitKey === "click" || unitKey === "lpv" || unitKey === "purchase" || unitKey === "view"
       ? VIZ_UNIT_WORD[unitKey]
       : "signup";
-  const costCell =
-    unitWord === "purchase" ? funnel?.costs.costPerTicket : funnel?.costs.costPerSignup;
-  const generalSaleAt = selectedEvent?.generalSaleAt
-    ? new Date(selectedEvent.generalSaleAt)
-    : null;
-  const phaseKept = Boolean(
-    generalSaleAt && !Number.isNaN(generalSaleAt.getTime()) && generalSaleAt < adjustClock && unitWord === "signup",
-  );
   const ticketStage = funnel?.stages.find((stage) => stage.key === "purchases");
   const ticketSourceRaw = ticketStage?.provenanceDetail.match(
     /Winning snapshot source is (\w+)/,
@@ -770,9 +776,10 @@ export function PlanWorkspace({
     ticketSourceRaw === "eventbrite" ||
     ticketSourceRaw === "fourthefans"
       ? ticketSourceRaw
-      : ticketStage?.value
+      : (adjustReads?.tickets ?? ticketStage?.value)
         ? "unknown"
         : "none";
+  const lpvStage = funnel?.stages.find((stage) => stage.key === "lpv");
 
   const today = todayIsoDate();
   /**
@@ -913,30 +920,31 @@ export function PlanWorkspace({
 
       {isAdjustFace ? (
         <CanvasAdjust
-          spent={liveSpend ?? 0}
+          spent={adjustReads?.spend ?? liveSpend ?? 0}
           planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
-          cost={costCell && isAmountCell(costCell) ? costCell.value : null}
           unitWord={unitWord}
           benchmark={undefined}
-          phaseKept={phaseKept}
-          writeGatesOpen={writeGatesOpen(adjustGates)}
-          channels={
-            funnel
-              ? funnel.costs.platforms.map((row) => ({
-                  name: row.label,
-                  resultShare: null,
-                  spendShare: null,
-                }))
-              : []
-          }
+          writeGates={adjustGates}
+          channels={adjustReads?.channels ?? []}
+          metaSignups={adjustReads ? adjustReads.metaRegs : null}
+          metaPurchases={adjustReads ? adjustReads.metaPurchases : null}
           tagDomain={domainFromUrl(destination.url)}
-          tickets={ticketStage?.value ?? null}
+          tickets={adjustReads?.tickets ?? ticketStage?.value ?? null}
           ticketSource={ticketSource}
-          logDays={adjustLogFromDecisions(adjustDecisions, unitWord, adjustClock)}
+          decisions={adjustDecisions}
           moments={planWindowMoments(selectedEvent, adjustClock)}
-          start={adjustHandles.start}
+          start={sinceLaunch}
           end={adjustHandles.end}
           endSet={adjustValidity.ok}
+          launchedAt={launchedAt}
+          venueName={selectedEvent?.venueName ?? null}
+          generalSaleAt={selectedEvent?.generalSaleAt ?? null}
+          lastCreativeSnapshotAt={adjustReads?.lastCreativeSnapshotAt ?? null}
+          trend={adjustReads?.dailyCostPerSignup ?? null}
+          reach={adjustReads?.reach ?? null}
+          clicks={adjustReads?.clicks ?? null}
+          pageViews={adjustReads?.firstPartyLpv ?? lpvStage?.value ?? null}
+          now={adjustClock}
           onWindowChange={(next) => setWindow(planWindowFromHandles(next))}
         />
       ) : null}

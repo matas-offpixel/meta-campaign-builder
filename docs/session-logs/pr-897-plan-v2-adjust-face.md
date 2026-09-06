@@ -39,22 +39,43 @@ ADJUST is the morning read on a live or launched plan (canon §2.3; J1–J22). F
 | `do it` only when three write gates are open | §2.3 | J16 | `do it is absent unless the three write gates are open` |
 | 768: single column, 44px controls | §2.3 | J2-768 | `canvas-adjust` grep `max-md:flex` + `min-h-11` |
 
+## Review round 1 — fixed
+
+| finding | file:line | test that pins it |
+|---|---|---|
+| Log printed rule labels as ad-set names (`adSetNameFromReason` on `matched "Below £1 CPR…"`) | `adjust-face.ts` `decisionAdSetName`; `presentDecisionRow` + `attachAdsetNames` at read time | `log uses evaluate.ts reason strings and the draft ad-set name, not the rule label` |
+| Refusal rows without quotes were dropped | `adjustLogFromDecisions` always emits J18 | same test — `"Disco Pages" left alone — 3 of 5 signups needed` from evaluate's `3/5 conversions…` string |
+| Meta counts never reached the face (`event_signups` = 0) | `loadAdjustReads` → `meta_regs` / `meta_purchases`; `adjustFaceView` | `D.O.D fixture reads £0.51 per signup on 1,086` |
+| Five funnel stages missing after LAUNCH removed them | `formatStageLines` on ADJUST | `the five stages render with the source rule` |
+| Suggestion never built; `do it` would call nothing | `suggestionFromDecisions`; `ADJUST_OPERATOR_APPLY_PATH = false` | `not now survives closed gates; do it is absent with no apply path` |
+| J24 `empty={!endSet}` hid the rail | `windowEmpty: false` + `endLabel: "end not set"`; start = launch ledger | `J24 rail draws with end unset and start at the launch ledger` |
+| `NX` / `Tue 26 Aug` / `13:00` / `Meta counts N more` were constants | `formatNoUsual(venue)`; `formatCreativeStale(day)`; `nextCheckClock()`; `N unexplained` | venue substitution; day-0 log empty; J8 unexplained |
+| Channel lines were `· —` | `channelShareLines` | `Meta · 100% of results · 57% of spend` |
+| Client lock used the filtered stale sentence; child was the word `Locked` | `VIZ_LOCKED_CLIENT_CREATIVE`; skeleton `by creative name` | J19/J22 + canvas grep `>Locked<` absent |
+| Sparkline unused | `MetricChip` `trend={face.trend}` | D.O.D view passes `dailyCostPerSignup` |
+| J23 only kept the signup label | two `MetricChip`s + tickets line | `J23 renders both readings plus the tickets line` |
+| ⓘ header ignored the unit; `ESTIMATED` stood on the face | `adjustInfoHeader`; ESTIMATED only in ⓘ | J23 `infoHeader` / `purchaseInfoHeader`; standing copy has no ESTIMATED |
+
+`campaign_plans` has no status-transition timestamp. Window start is `campaign_plan_*_launch.created_at` via `planLaunchedAt`. Missing ledger → plan window start, never `plan.createdAt`.
+
+No operator apply route exists (`applyOptimisationDecision` is cron-only). `do it` is absent; the ⓘ says `applied at the next check`. `evaluate.ts` is still unread by the face.
+
 ## Walk
 
-- J1 — launched, no spend: `no reads yet — Meta's first day arrives at 08:00 tomorrow`; log `nothing yet — the first check is at 13:00`
+- J1 — launched, no spend: `no reads yet — Meta's first day arrives at 08:00 tomorrow`; log empty uses `nextCheckClock()` (13:00 only when that is the next UTC tick)
 - J2 / J23 / J24 — D.O.D: pace sums, `before general sale` on the kept signup reading, end handle `end not set`
 - J7 — no usual (PR 3 unmerged → every live plan today)
 - J8 / J9 — Meta vs tickets / our tag stay two lines
 - J12 — a channel with spend and 0 in the unit
 - J14 / J18 — log past tense, undo from the next UTC tick, refusal with the rule
-- J16 — suggestion present; `do it / not now` only if all three write gates are open (otherwise the sentence stands)
+- J16 — suggestion present; `not now` always when a suggestion exists; `do it` absent (no apply path)
 - J19 / J22 — Locked sentence; client overlay strips the three controls
 - J2-768 — one column; `do it / not now` at 44px
 - `N changes ▸` still opens the decisions sheet (#891)
 
 ## Validation
 
-- [x] `npm test` (5177 pass, 3 skipped)
+- [x] `npm test` (5186 pass, 3 skipped; leftover untracked `learn-face.test.ts` excluded)
 - [x] `npm run build`
 
 ## Contradiction — needs a ruling
@@ -63,8 +84,8 @@ None that stop the PR.
 
 Readings (not stop-the-PR):
 
-1. **PR 3 unmerged.** `planBenchmark` is not on this branch. `benchmark={undefined}` → J7 on every live plan until #896 merges.
-2. **`EventFunnelView` signups are first-party `event_signups`, not Meta conversions.** ADJUST does not label that count `Meta says` (that would be a lie). `Meta says 1,086` is pinned as copy; the live face omits it until a Meta windowed count exists on the view. Same for Meta purchases vs tickets (J8): both numbers must be passed; we do not invent 74.
-3. **No operator-triggered apply endpoint exists.** `applyOptimisationDecision` is cron-only. `do it` / `not now` render only when the three write gates are open; this branch does not add a Meta write route. Shadow is the production path.
-4. **Ad-set names** in the log come from quoted text already on `reasonText`. A decision without a quoted name collapses into `N ad sets left alone` rather than inventing a name.
-5. **J7 sentence** uses brief §4 (`first finished NX show`), not LEARN E3's `3rd show (1 so far)`.
+1. **PR 3 unmerged.** `planBenchmark` is not on this branch. `benchmark={undefined}` → J7 on every live plan until #896 merges. Venue substitution still runs (`formatNoUsual(venue)`).
+2. **Signups on ADJUST are `event_daily_rollups.meta_regs` over the plan window** (canon G1). Cost per signup is spend ÷ `meta_regs`. `event_signups` is unread.
+3. **No operator-triggered apply endpoint exists.** `ADJUST_OPERATOR_APPLY_PATH` is false. `do it` is not rendered. `not now` stays. The ⓘ says `applied at the next check`. This branch does not add a Meta write route.
+4. **Ad-set names** come from `adset_id` → the draft's `adSetSuggestions` at read time. Rule labels in `reason_text` are never used as names. Unnamed refusals still render as J18 (`"ad set"`).
+5. **J7 sentence** uses brief §4 (`first finished NX show`) when the venue is NX; otherwise the plan's venue. Not LEARN E3's `3rd show (1 so far)`.

@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PlanWorkspace } from "@/components/plan/plan-workspace";
 import { loadEventFunnelView } from "@/lib/db/event-funnel-load";
+import { loadAdjustReads } from "@/lib/plan/adjust-reads";
+import { planLaunchedAt } from "@/lib/plan/adjust-face";
 import { listPresetsForClient } from "@/lib/db/optimisation-presets";
 import { presetPrimaryRule, resolvePreset } from "@/lib/optimisation/presets";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
@@ -226,6 +228,15 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   const liveSpend = funnel
     ? funnel.costs.platforms.reduce((sum, row) => sum + row.spend, 0)
     : null;
+  const launchedAt = planLaunchedAt(workspacePlan.launches);
+  const adjustReads =
+    hasPlatformCampaign && workspacePlan.intent.eventId
+      ? await loadAdjustReads(supabase, {
+          eventId: workspacePlan.intent.eventId,
+          sinceDate: launchedAt ? launchedAt.slice(0, 10) : null,
+          campaignId: workspacePlan.launches.meta.platformCampaignId,
+        })
+      : null;
 
   const launchedAt = planLaunchedAt(workspacePlan.launches);
   const rollupDays =
@@ -268,6 +279,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             isNew={id === "new"}
             funnel={funnel}
             liveSpend={liveSpend}
+            adjustReads={adjustReads}
             thumbUrl={thumbs?.get(workspacePlan.intent.eventId)?.url ?? null}
             targetBenchmark={targetBenchmark}
             identityNames={identityNames}

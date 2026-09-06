@@ -6,33 +6,21 @@ import { MetricChip } from "@/components/viz/metric-chip";
 import { WindowBar } from "@/components/viz/window-bar";
 import {
   ADJUST_INFO_VARIANT,
-  ADJUST_LOG_EMPTY,
   ADJUST_LOG_TITLE,
-  ADJUST_NO_READS,
-  ADJUST_NO_USUAL,
-  ADJUST_PHASE_LABEL,
   ADJUST_PLACEMENT_EMPTY,
   adjustControlsVisible,
-  formatAgainstUsual,
-  formatChannelEarnedNothing,
-  formatCreativeLocked,
-  formatLeftAlone,
+  adjustFaceView,
   formatLogDid,
-  formatMetaSays,
-  formatOurTagNotMeasured,
-  formatPaceSums,
-  formatPurchaseDisagreement,
+  formatLeftAlone,
   formatRefusal,
-  formatSuggestion,
-  formatTicketLine,
-  formatCostPerUnit,
   formatUndoUntil,
   logDayHeading,
   nextCheckClock,
-  type AdjustLogDay,
+  type AdjustChannelRead,
+  type AdjustDecisionRow,
 } from "@/lib/plan/adjust-face";
 import type { MetricChipBenchmark } from "@/lib/viz/metric-chip";
-import { VIZ_TYPE, VIZ_TYPE_NUM, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
+import { VIZ_TICKET_LINE_WORD, VIZ_TYPE, VIZ_TYPE_NUM, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
 import type { WindowMoment } from "@/lib/viz/window-bar";
 
 /**
@@ -43,13 +31,10 @@ export function CanvasAdjust({
   role = "operator",
   spent = 0,
   planned = 0,
-  cost = null,
   unitWord = "signup",
   benchmark,
-  phaseKept = false,
-  suggestion = null,
-  writeGatesOpen = false,
-  earnedNothing = null,
+  suggestionUsual,
+  writeGates = { writesEnabled: false, enabled: false, live: false },
   channels = [],
   placementsEmpty = true,
   metaSignups = null,
@@ -58,11 +43,20 @@ export function CanvasAdjust({
   tickets = null,
   ticketSource = "none",
   funnelLifetimeTip = null,
-  logDays = [],
+  decisions = [],
   moments,
   start,
   end,
   endSet = true,
+  launchedAt = null,
+  venueName = null,
+  generalSaleAt = null,
+  lastCreativeSnapshotAt = null,
+  trend = null,
+  reach = null,
+  clicks = null,
+  pageViews = null,
+  now,
   onWindowChange,
   onDoIt,
   onNotNow,
@@ -71,103 +65,148 @@ export function CanvasAdjust({
   role?: "operator" | "client";
   spent?: number;
   planned?: number;
-  cost?: number | null;
   unitWord?: string;
   benchmark?: MetricChipBenchmark;
-  phaseKept?: boolean;
-  suggestion?: {
-    action: "scale_up" | "scale_down" | "pause";
-    adSetName: string;
-    deltaPercent: number;
-    cost: number;
-    usual: number;
-    results: number;
-    windowWord: string;
-  } | null;
-  writeGatesOpen?: boolean;
-  earnedNothing?: { channel: string; spend: number; spendSharePct: number } | null;
-  channels?: Array<{ name: string; resultShare: number | null; spendShare: number | null }>;
+  suggestionUsual?: number | null;
+  writeGates?: { writesEnabled: boolean; enabled: boolean; live: boolean };
+  channels?: AdjustChannelRead[];
   placementsEmpty?: boolean;
   metaSignups?: number | null;
   tagDomain?: string | null;
   metaPurchases?: number | null;
   tickets?: number | null;
-  ticketSource?: "manual" | "xlsx_import" | "eventbrite" | "fourthefans" | "none" | "unknown";
+  ticketSource?: keyof typeof VIZ_TICKET_LINE_WORD;
   funnelLifetimeTip?: string | null;
-  logDays?: AdjustLogDay[];
+  decisions?: AdjustDecisionRow[];
   moments?: WindowMoment[];
   start?: Date;
   end?: Date;
   endSet?: boolean;
+  launchedAt?: string | null;
+  venueName?: string | null;
+  generalSaleAt?: string | Date | null;
+  lastCreativeSnapshotAt?: string | null;
+  trend?: number[] | null;
+  reach?: number | null;
+  clicks?: number | null;
+  pageViews?: number | null;
+  now?: Date;
   onWindowChange?: (next: { start: Date; end: Date }) => void;
   onDoIt?: () => void;
   onNotNow?: () => void;
   onUndo?: () => void;
 }) {
+  const face = adjustFaceView({
+    role,
+    spent,
+    planned,
+    metaSignups,
+    metaPurchases,
+    tickets,
+    ticketSource,
+    venueName,
+    launchedAt,
+    now,
+    generalSaleAt,
+    benchmark: suggestionUsual != null && !benchmark
+      ? undefined
+      : benchmark,
+    decisions,
+    writeGates,
+    operatorApplyPath: false,
+    channels,
+    reach,
+    clicks,
+    pageViews,
+    tagDomain,
+    lastCreativeSnapshotAt,
+    trend,
+    endSet,
+    windowStart: start,
+    unitWord,
+  });
   const controls = adjustControlsVisible(role);
-  const nextCheck = nextCheckClock();
-  const noReads = cost == null && spent <= 0;
-  const paceSentence = noReads ? ADJUST_NO_READS : formatPaceSums(spent, planned);
-  const tipLabel = funnelLifetimeTip ? `${paceSentence} · ${funnelLifetimeTip}` : paceSentence;
+  const nextCheck = nextCheckClock(now);
+  const tipParts = [face.paceSentence, funnelLifetimeTip, face.applyTip].filter(Boolean);
+  const windowStart = face.windowStart ?? start;
 
   return (
     <section aria-label="adjust" className={`space-y-4 ${VIZ_ZONE_GUTTER.normal}`}>
       <div className="space-y-1.5">
-        {moments && start && end ? (
+        {moments && windowStart && end ? (
           <WindowBar
             moments={moments}
-            start={start}
+            start={windowStart}
             end={end}
-            now={new Date()}
-            empty={!endSet}
+            now={now ?? new Date()}
+            empty={face.windowEmpty}
             emptyLabel="end not set"
+            endLabel={face.endLabel}
             onChange={onWindowChange ?? (() => undefined)}
             pace={
               planned > 0
-                ? { spent, planned, currency: "GBP", lineKind: "measured", tone: spent > planned ? "below" : "above" }
+                ? {
+                    spent,
+                    planned,
+                    currency: "GBP",
+                    lineKind: "measured",
+                    tone: face.paceTone,
+                  }
                 : undefined
             }
           />
         ) : null}
-        <span className={`block ${VIZ_TYPE.body}`}>{paceSentence}</span>
-        <InfoTip variant={ADJUST_INFO_VARIANT} label={tipLabel} />
+        <span className={`block ${VIZ_TYPE.body}`}>{face.paceSentence}</span>
+        <InfoTip variant={ADJUST_INFO_VARIANT} label={tipParts.join(" · ")} />
       </div>
 
-      <div className="max-md:flex max-md:flex-col">
-        <MetricChip
-          label={`cost per ${unitWord}`}
-          value={cost}
-          benchmark={benchmark}
-          phaseLabel={phaseKept ? ADJUST_PHASE_LABEL : undefined}
-          emptySentence={noReads ? ADJUST_NO_READS : !benchmark ? ADJUST_NO_USUAL : undefined}
-          lineKind={benchmark ? benchmark.lineKind : "estimated"}
-          direction={benchmark?.direction}
-          infoHeader="ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND"
-        >
-          {cost != null ? (
-            <span className={VIZ_TYPE.display}>
-              {benchmark
-                ? formatAgainstUsual(cost, unitWord, benchmark.value)
-                : formatCostPerUnit(cost, unitWord)}
-            </span>
-          ) : null}
-        </MetricChip>
-        {!benchmark && cost != null ? (
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{ADJUST_NO_USUAL}</span>
+      <div className="flex flex-wrap items-start gap-4 max-md:flex max-md:flex-col">
+        {face.signupLine ? (
+          <MetricChip
+            label="cost per signup"
+            value={face.signupCost}
+            benchmark={benchmark}
+            phaseLabel={face.signupPhaseLabel}
+            trend={face.trend}
+            lineKind={face.lineKind}
+            direction={benchmark?.direction}
+            infoHeader={face.infoHeader}
+          >
+            <span className={VIZ_TYPE.display}>{face.signupLine}</span>
+          </MetricChip>
+        ) : (
+          <MetricChip
+            label="cost per signup"
+            value={null}
+            emptySentence={face.paceSentence}
+            lineKind="not-yet"
+            infoHeader={face.infoHeader}
+          />
+        )}
+        {face.purchaseLine ? (
+          <MetricChip
+            label="cost per purchase"
+            value={face.purchaseCost}
+            lineKind="measured"
+            infoHeader={face.purchaseInfoHeader}
+          >
+            <span className={VIZ_TYPE.display}>{face.purchaseLine}</span>
+          </MetricChip>
+        ) : null}
+        {face.noUsual && face.signupLine ? (
+          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{face.noUsual}</span>
         ) : null}
       </div>
 
-      {controls.suggestion && suggestion ? (
+      {face.suggestionSentence ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={VIZ_TYPE.body}>
-            {formatSuggestion({ ...suggestion, unitWord })}
-          </span>
-          {writeGatesOpen && controls.doIt ? (
+          <span className={VIZ_TYPE.body}>{face.suggestionSentence}</span>
+          {face.doIt ? (
             <button type="button" className={`min-h-11 px-2 ${VIZ_TYPE.label}`} onClick={onDoIt}>
               do it
             </button>
           ) : null}
-          {writeGatesOpen && controls.notNow ? (
+          {face.notNow ? (
             <button type="button" className={`min-h-11 px-2 ${VIZ_TYPE.label}`} onClick={onNotNow}>
               not now
             </button>
@@ -175,29 +214,27 @@ export function CanvasAdjust({
         </div>
       ) : null}
 
-      {earnedNothing ? (
-        <span className={`block ${VIZ_TYPE.body}`}>
-          {formatChannelEarnedNothing({ ...earnedNothing, unitWord })}
-        </span>
+      {face.earnedNothingSentence ? (
+        <span className={`block ${VIZ_TYPE.body}`}>{face.earnedNothingSentence}</span>
       ) : null}
 
       <div className="space-y-1">
-        {channels.map((channel) => (
-          <span key={channel.name} className={`block ${VIZ_TYPE_NUM.body}`}>
-            {channel.name}
-            {channel.resultShare == null || channel.spendShare == null
-              ? " · —"
-              : ` · ${channel.resultShare}% of results · ${channel.spendShare}% of spend`}
+        {face.channelLines.map((line) => (
+          <span key={line} className={`block ${VIZ_TYPE_NUM.body}`}>
+            {line}
           </span>
         ))}
         <Locked
           role={role}
           reason={{
             kind: "system",
-            sentence: formatCreativeLocked(role),
+            sentence: face.creativeSentence,
           }}
         >
-          <span className={VIZ_TYPE.label}>Locked</span>
+          <span className={`block ${VIZ_TYPE.label} text-foreground/35`} aria-hidden="true">
+            by creative name
+          </span>
+          <span className="mt-1 block h-2 w-24 bg-foreground/10" aria-hidden="true" />
         </Locked>
         {placementsEmpty ? (
           <span className={`block ${VIZ_TYPE.label} text-muted-foreground`}>{ADJUST_PLACEMENT_EMPTY}</span>
@@ -205,28 +242,22 @@ export function CanvasAdjust({
       </div>
 
       <div className="space-y-1 max-md:flex max-md:flex-col">
-        {metaSignups != null ? (
-          <span className={`block ${VIZ_TYPE_NUM.body}`}>{formatMetaSays(metaSignups, "signups")}</span>
-        ) : null}
-        {tagDomain ? (
-          <span className={`block ${VIZ_TYPE.body} text-muted-foreground`}>
-            {formatOurTagNotMeasured(tagDomain)}
+        {face.stageLines.map((line) => (
+          <span key={line} className={`block ${VIZ_TYPE_NUM.body}`}>
+            {line}
           </span>
+        ))}
+        {face.purchaseDisagreement ? (
+          <span className={`block ${VIZ_TYPE_NUM.body}`}>{face.purchaseDisagreement}</span>
         ) : null}
-        {metaPurchases != null && tickets != null ? (
-          <span className={`block ${VIZ_TYPE_NUM.body}`}>
-            {formatPurchaseDisagreement({ metaPurchases, tickets })}
-          </span>
-        ) : null}
-        <span className={`block ${VIZ_TYPE.body}`}>{formatTicketLine(ticketSource, tickets ?? undefined)}</span>
       </div>
 
       <div className="space-y-2">
         <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{ADJUST_LOG_TITLE}</span>
-        {logDays.length === 0 ? (
-          <span className={`block ${VIZ_TYPE.body}`}>{ADJUST_LOG_EMPTY}</span>
+        {face.logDays.length === 0 ? (
+          <span className={`block ${VIZ_TYPE.body}`}>{face.logEmpty}</span>
         ) : (
-          logDays.map((day) => (
+          face.logDays.map((day) => (
             <div key={day.at} className="space-y-1">
               <span className={`${VIZ_TYPE.label}`}>{logDayHeading(day.at)}</span>
               {day.rows.map((row, index) => (

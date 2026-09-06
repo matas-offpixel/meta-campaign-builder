@@ -2,23 +2,32 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { evaluateAdSet } from "../../optimisation/evaluate.ts";
+import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
 import { formatPaceSentence } from "../../viz/pace.ts";
 import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE, VIZ_TICKET_LINE_WORD } from "../../viz/tokens.ts";
 import {
+  ADJUST_APPLY_NEXT_CHECK,
   ADJUST_LOG_EMPTY,
   ADJUST_LOG_TITLE,
   ADJUST_NO_READS,
   ADJUST_NO_USUAL,
+  ADJUST_OPERATOR_APPLY_PATH,
+  ADJUST_PAGE_VIEWS_EMPTY,
   ADJUST_PHASE_LABEL,
   ADJUST_PLACEMENT_EMPTY,
   ADJUST_CREATIVE_STALE,
   adjustControlsVisible,
+  adjustFaceView,
   formatAgainstUsual,
+  formatGbp,
   formatChannelEarnedNothing,
   formatCreativeLocked,
   formatLeftAlone,
   formatLogDid,
+  formatLogEmpty,
   formatMetaSays,
+  formatNoUsual,
   formatOurTagNotMeasured,
   formatPurchaseDisagreement,
   formatRefusal,
@@ -60,7 +69,7 @@ describe("ADJUST J-states — sentences", () => {
     );
     assert.equal(
       formatPurchaseDisagreement({ metaPurchases: 2656, tickets: 558 }),
-      "Meta says 2,656 purchases · tickets 558 · Meta counts 2,098 more",
+      "Meta says 2,656 purchases · tickets 558 · 2,098 unexplained",
     );
     assert.doesNotMatch(formatPurchaseDisagreement({ metaPurchases: 74, tickets: 558 }), /-/);
   });
@@ -101,8 +110,8 @@ describe("ADJUST J-states — sentences", () => {
   });
 
   it("J19 creative locked; J22 client-safe", () => {
-    assert.equal(formatCreativeLocked("operator"), ADJUST_CREATIVE_STALE);
-    assert.equal(formatCreativeLocked("client"), VIZ_CLIENT_SAFE(ADJUST_CREATIVE_STALE));
+    assert.equal(formatCreativeLocked("operator", "Tue 26 Aug"), ADJUST_CREATIVE_STALE);
+    assert.equal(formatCreativeLocked("client", "Tue 26 Aug"), VIZ_LOCKED_CLIENT_CREATIVE);
     assert.equal(VIZ_LOCKED_CLIENT_CREATIVE, "not measured yet — creative results are scored after your first finished show");
     assert.doesNotMatch(VIZ_CLIENT_SAFE("creative_scores table and ENABLE_AI_AUTOTAG"), /table|ENABLE_/i);
   });
@@ -211,10 +220,11 @@ describe("ADJUST J-states — every §3.3 state has a render sentence", () => {
         {
           decidedAt: "2026-09-06T12:02:00.000Z",
           action: "insufficient_conversions",
-          reasonText: 'Ad set "Disco Pages" below minimum',
+          reasonText: "3/5 conversions in the 7d window for ad set — insufficient evidence, no budget change.",
           resultCount: 3,
           applied: false,
           dryRun: true,
+          adsetName: "Disco Pages",
         },
       ],
       "signup",
@@ -245,10 +255,11 @@ describe("ADJUST surface guards", () => {
     assert.match(source, /max-md:flex max-md:flex-col/);
     assert.match(source, /min-h-11/);
     assert.match(source, /end not set/);
-    assert.match(source, /ADJUST_PHASE_LABEL/);
+    assert.match(source, /adjustFaceView/);
     assert.match(source, /ADJUST_PLACEMENT_EMPTY/);
-    assert.match(source, /formatCreativeLocked\(role\)/);
     assert.match(source, /adjustControlsVisible/);
+    assert.match(source, /by creative name/);
+    assert.doesNotMatch(source, />Locked</);
   });
 
   it("workspace mounts ADJUST as the live morning read", () => {
@@ -256,5 +267,265 @@ describe("ADJUST surface guards", () => {
     assert.match(source, /CanvasAdjust/);
     assert.match(source, /state === "live" \|\| state === "launched"/);
     assert.match(source, /stages=\{undefined\}/);
+    assert.match(source, /metaSignups=\{adjustReads/);
+    assert.match(source, /planLaunchedAt/);
+  });
+});
+
+describe("ADJUST review round 1 — the view the surface calls", () => {
+  const NOW = new Date("2026-09-06T12:00:00.000+01:00");
+  const EVALUATE_RULE: OptimisationRule = {
+    id: "r1",
+    name: "Primary Rule Set — Cost per Registration",
+    metric: "cpr",
+    timeWindow: "7d",
+    enabled: true,
+    priority: "primary",
+    thresholds: [
+      {
+        id: "t1",
+        operator: "below",
+        value: 1,
+        action: "increase_budget",
+        actionValue: 30,
+        label: "Below £1 CPR → scale aggressively (+30%)",
+      },
+    ],
+  };
+  const EVALUATE_GUARDRAILS: BudgetGuardrails = {
+    baseCampaignBudget: 100,
+    maxExpansionPercent: 50,
+    hardBudgetCeiling: 150,
+    ceilingBehaviour: "stop",
+  };
+  const EVALUATE_SCALE_UP = evaluateAdSet({
+    rules: [EVALUATE_RULE],
+    guardrails: EVALUATE_GUARDRAILS,
+    currentBudgetPence: 10000,
+    liveMetric: { name: "cpr", value: 0.8, window: "7d", resultCount: 38 },
+    lastTouchedAt: null,
+    impressions: 1000,
+  }).reason;
+  const EVALUATE_REFUSAL = evaluateAdSet({
+    rules: [EVALUATE_RULE],
+    guardrails: EVALUATE_GUARDRAILS,
+    currentBudgetPence: 10000,
+    liveMetric: { name: "cpr", value: 0.8, window: "7d", resultCount: 3 },
+    lastTouchedAt: null,
+    impressions: 1000,
+  }).reason;
+
+  it("log uses evaluate.ts reason strings and the draft ad-set name, not the rule label", () => {
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      decisions: [
+        {
+          decidedAt: "2026-09-06T10:00:00.000Z",
+          action: "scale_up",
+          reasonText: EVALUATE_SCALE_UP,
+          resultCount: 38,
+          applied: false,
+          dryRun: true,
+          adsetId: "120",
+          adsetName: "Tech House Pages",
+          budgetBeforePence: 10000,
+          budgetAfterPence: 13000,
+          metricValue: 0.8,
+          metricWindow: "7d",
+        },
+        {
+          decidedAt: "2026-09-06T10:01:00.000Z",
+          action: "insufficient_conversions",
+          reasonText: EVALUATE_REFUSAL,
+          resultCount: 3,
+          applied: false,
+          dryRun: true,
+          adsetId: "121",
+          adsetName: "Disco Pages",
+        },
+      ],
+    });
+    const rendered = face.logDays.flatMap((day) =>
+      day.rows.map((row) =>
+        row.kind === "did"
+          ? formatLogDid(row)
+          : row.kind === "refusal"
+            ? formatRefusal(row.adSetName, row.needed, row.have, row.unitWord)
+            : formatLeftAlone(row.count),
+      ),
+    );
+    assert.equal(rendered.some((line) => line === 'Raised "Tech House Pages"'), true);
+    assert.equal(
+      rendered.some((line) => line === '"Disco Pages" left alone — 3 of 5 signups needed'),
+      true,
+    );
+    assert.equal(rendered.some((line) => line.includes("Below £1 CPR")), false);
+    assert.match(EVALUATE_SCALE_UP, /matched "Below £1 CPR/);
+    assert.match(EVALUATE_REFUSAL, /insufficient evidence, no budget change/);
+  });
+
+  it("not now survives closed gates; do it is absent with no apply path", () => {
+    assert.equal(ADJUST_OPERATOR_APPLY_PATH, false);
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      writeGates: { writesEnabled: false, enabled: true, live: false },
+      operatorApplyPath: false,
+      decisions: [
+        {
+          decidedAt: "2026-09-06T10:00:00.000Z",
+          action: "scale_up",
+          reasonText: EVALUATE_SCALE_UP,
+          resultCount: 38,
+          applied: false,
+          dryRun: true,
+          adsetName: "Tech House Pages",
+          budgetBeforePence: 10000,
+          budgetAfterPence: 11500,
+          metricValue: 1.1,
+          metricWindow: "7d",
+        },
+      ],
+    });
+    assert.match(face.suggestionSentence ?? "", /Raise "Tech House Pages"/);
+    assert.equal(face.notNow, true);
+    assert.equal(face.doIt, false);
+    assert.equal(face.applyTip, ADJUST_APPLY_NEXT_CHECK);
+  });
+
+  it("D.O.D fixture reads £0.51 per signup on 1,086", () => {
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: 16,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      launchedAt: "2026-08-27T12:00:00.000Z",
+      generalSaleAt: "2026-09-04T00:00:00.000+01:00",
+      venueName: "NX",
+    });
+    assert.equal(face.signupLine, "£0.51 per signup");
+    assert.match(face.stageLines.join("\n"), /Meta says 1,086 signups/);
+    assert.doesNotMatch(face.signupLine ?? "", /£—/);
+  });
+
+  it("J24 rail draws with end unset and start at the launch ledger", () => {
+    const launchedAt = "2026-08-27T09:00:00.000Z";
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      launchedAt,
+      endSet: false,
+      windowStart: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    assert.equal(face.windowEmpty, false);
+    assert.equal(face.endLabel, "end not set");
+    assert.equal(face.windowStart?.toISOString(), new Date(launchedAt).toISOString());
+    assert.equal(face.paceTone, "below");
+    const onPace = adjustFaceView({
+      spent: 350,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+    });
+    assert.equal(onPace.paceTone, "none");
+  });
+
+  it("venue substitution replaces the NX constant", () => {
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      venueName: "Electric Brixton",
+    });
+    assert.equal(face.noUsual, formatNoUsual("Electric Brixton"));
+    assert.doesNotMatch(face.noUsual ?? "", /\bNX\b/);
+  });
+
+  it("J23 renders both readings plus the tickets line", () => {
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: 16,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      launchedAt: "2026-08-27T12:00:00.000Z",
+      generalSaleAt: "2026-09-04T00:00:00.000+01:00",
+    });
+    assert.equal(face.signupPhaseLabel, ADJUST_PHASE_LABEL);
+    assert.equal(face.signupLine, "£0.51 per signup");
+    assert.equal(face.purchaseLine, `Meta says ${formatGbp(558 / 16)} per purchase`);
+    assert.match(face.ticketLine, /not entered yet/);
+    assert.equal(face.infoHeader, "ESTIMATED · META'S SIGNUP COUNT, YOUR SPEND");
+    assert.equal(face.purchaseInfoHeader, "ESTIMATED · META'S PURCHASE COUNT, YOUR SPEND");
+    assert.doesNotMatch([face.signupLine, face.purchaseLine].join(" "), /\bESTIMATED\b/);
+  });
+
+  it("the five stages render with the source rule", () => {
+    const face = adjustFaceView({
+      spent: 558,
+      planned: 350,
+      metaSignups: 1086,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: NOW,
+      reach: 41200,
+      clicks: 2104,
+      pageViews: null,
+      tagDomain: "dod-newcastle.com",
+      channels: [
+        { name: "Meta", spend: 318, results: 1086 },
+        { name: "TikTok", spend: 240, results: null },
+        { name: "Google", spend: 0, results: null },
+      ],
+    });
+    assert.deepEqual(
+      face.stageLines.filter((line) => /^(reach|clicks|page views)/.test(line) || line.startsWith("Meta says") || line.startsWith("our tag") || line.startsWith("tickets")),
+      [
+        "reach · 41,200",
+        "clicks · 2,104",
+        `page views · ${ADJUST_PAGE_VIEWS_EMPTY}`,
+        "Meta says 1,086 signups",
+        "our tag: not measured for this show — signups are collected on dod-newcastle.com and are not synced here",
+        "tickets: not entered yet — enter ticket sales on the event",
+      ],
+    );
+    assert.equal(face.channelLines[0], "Meta · 100% of results · 57% of spend");
+    assert.equal(face.channelLines[2], "Google · no reads yet");
+  });
+
+  it("day-0 log empty uses nextCheckClock, not a constant 13:00", () => {
+    const atNoonUtc = new Date("2026-09-06T11:00:00.000Z");
+    assert.equal(formatLogEmpty(atNoonUtc), `nothing yet — the first check is at ${nextCheckClock(atNoonUtc)}`);
+    const later = new Date("2026-09-06T14:00:00.000Z");
+    assert.notEqual(formatLogEmpty(later), ADJUST_LOG_EMPTY);
   });
 });
