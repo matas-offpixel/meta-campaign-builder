@@ -12,7 +12,7 @@ LEARN face (canon §2.4; E1–E7). Draft because PR 3 (#896) is unmerged: the fa
 
 ## Scope / files
 
-- `lib/plan/learn-face.ts` — copy, next-time `percentile_cont`, `CampaignPlanPrediction` (same shape as #896)
+- `lib/plan/learn-face.ts` — copy; next-time via `metricChipBenchmarkFromRuns` (the #896 view window)
 - `lib/plan/__tests__/learn-face.test.ts` — every E-state
 - `components/plan/canvas-learn.tsx`
 - `components/plan/plan-workspace.tsx` — mounts LEARN when the show has passed or the plan is archived
@@ -23,7 +23,7 @@ LEARN face (canon §2.4; E1–E7). Draft because PR 3 (#896) is unmerged: the fa
 | Item | Canon | Frame | Pinning test |
 |---|---|---|---|
 | E1 sentence from the prediction row | §2.4 | E1 | `E1 sentence is built from the prediction row` |
-| Next-time median six runs → £1.75, band £1.04–£2.10 | §2.4 amendment | E1 | `next-time median with the closed run added` |
+| Next-time median from the view window (`planBenchmark`) | §2.4 + G34 | E1 | `next-time median is planBenchmark over the view's window` |
 | E2 no prediction stored | §2.4 | E2 | `E2 has no prediction stored` |
 | E3 date-lock days; count-lock (1 of 3) | §4.5 | E3 | `E3 date-lock is days` |
 | E5 / E6 creative lock | §2.4 §1.6 | E5 E6 | `E6 client role removes the next-time column only` |
@@ -39,14 +39,18 @@ LEARN face (canon §2.4; E1–E7). Draft because PR 3 (#896) is unmerged: the fa
 - E6 — same as E1 without the next-time column
 - E7 — `closed when you archived it, Sun 6 Sep` (formatVizDay of the archive day; 2026-09-06 is Sunday)
 
+## Rebase after #896 round 1
+
+Rebased onto `cursor/plan-v2-migrations-166-167` (`132dd41`). Next-time is `learnNextTime` → `metricChipBenchmarkFromRuns` over the view's windowed runs plus this plan's actual. Windowed NX signup + DOD £0.51 → median **£1.10**, IQR £0.62–£1.58 (canon E1's £1.75 was the lifetime set — G34). Workspace still passes `prediction={null}` so every LEARN mount today is E2. LEARN still mounts only after close (live plans stay on ADJUST).
+
 ## Validation
 
-- [x] `npm test` (5158 pass, 3 skipped)
+- [x] `npm test` (see rebase commit)
 - [x] `npm run build`
 
 ## Contradiction — needs a ruling
 
-None that stop the face. Draft because #896 is unmerged.
+None that stop the face. Draft because #896 is unapplied. G34 decides whether E1's "next time" is the lifetime £1.75 or the windowed £1.10.
 
 Readings:
 

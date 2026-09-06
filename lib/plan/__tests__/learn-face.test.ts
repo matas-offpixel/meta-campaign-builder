@@ -4,7 +4,6 @@ import { describe, it } from "node:test";
 
 import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE } from "../../viz/tokens.ts";
 import {
-  E1_CLOSED_RUNS,
   LEARN_NO_PREDICTION,
   LEARN_PACE_KEPT,
   formatArchiveHeader,
@@ -14,9 +13,10 @@ import {
   formatPastIdentity,
   learnControlsVisible,
   learnFaceSentences,
-  nextTimeFromRuns,
+  learnNextTime,
   planIsClosed,
 } from "../learn-face.ts";
+import { planBenchmark, runFromViewRow, type BenchmarkRow } from "../benchmarks.ts";
 
 describe("LEARN E-states — sentences", () => {
   const states = ["E1", "E2", "E3", "E4", "E5", "E6", "E7"] as const;
@@ -48,11 +48,34 @@ describe("LEARN E-states — sentences", () => {
     );
   });
 
-  it("next-time median with the closed run added is £1.75, band £1.04–£2.10", () => {
-    const next = nextTimeFromRuns(E1_CLOSED_RUNS);
+  it("next-time median is planBenchmark over the view's window, not a fixture constant", () => {
+    const windowed: BenchmarkRow[] = [
+      { client_id: "c", venue_key: "nx newcastle", event_id: "djez", event_code: "NX26-DJEZ", event_date: "2026-10-02", unit: "signup", channel: "meta", cost: 2.75 },
+      { client_id: "c", venue_key: "nx newcastle", event_id: "mf", event_code: "NX26-MF", event_date: "2026-10-16", unit: "signup", channel: "meta", cost: 1.32 },
+      { client_id: "c", venue_key: "nx newcastle", event_id: "folamour", event_code: "NX26-FOLAMOUR", event_date: "2026-10-23", unit: "signup", channel: "meta", cost: 0.87 },
+      { client_id: "c", venue_key: "nx newcastle", event_id: "eed", event_code: "NX26-EED", event_date: "2026-11-13", unit: "signup", channel: "meta", cost: 1.67 },
+      { client_id: "c", venue_key: "nx newcastle", event_id: "ipc", event_code: "NX26-IPC", event_date: "2026-11-21", unit: "signup", channel: "meta", cost: 0.54 },
+    ];
+    const prior = planBenchmark({
+      rows: windowed,
+      clientId: "c",
+      venueKey: "nx newcastle",
+      venueLabel: "NX",
+      unit: "signup",
+    });
+    assert.equal(prior?.value, 1.32);
+    const next = learnNextTime({
+      priorRuns: windowed.map(runFromViewRow),
+      closed: { eventId: "dod", eventCode: "DOD", eventDate: "2026-09-26", cost: 0.51 },
+      venueLabel: "NX",
+    });
+    assert.ok(next);
     assert.equal(next.n, 6);
-    assert.equal(next.value, 1.75);
-    assert.deepEqual(next.band, [1.04, 2.1]);
+    assert.equal(next.value, 1.1);
+    assert.deepEqual(next.band, [0.62, 1.58]);
+    const source = readFileSync("lib/plan/learn-face.ts", "utf8");
+    assert.match(source, /metricChipBenchmarkFromRuns/);
+    assert.doesNotMatch(source, /E1_CLOSED_RUNS|nextTimeFromRuns/);
   });
 
   it("E2 has no prediction stored", () => {
@@ -116,9 +139,10 @@ describe("LEARN surface guards", () => {
     assert.equal(tips.length, 1);
   });
 
-  it("workspace mounts LEARN after close", () => {
+  it("workspace mounts LEARN after close and E2 until a prediction row exists", () => {
     const source = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(source, /CanvasLearn/);
     assert.match(source, /isLearnFace/);
+    assert.match(source, /prediction=\{null\}/);
   });
 });

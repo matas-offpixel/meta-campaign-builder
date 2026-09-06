@@ -4,28 +4,20 @@
  * This branch does not add the write path or the migration.
  */
 
+import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
 import { formatVizDay } from "../viz/format-moment.ts";
 import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE } from "../viz/tokens.ts";
+import {
+  metricChipBenchmarkFromRuns,
+  type BenchmarkRun,
+} from "./benchmarks.ts";
+import type { CampaignPlanPrediction as StoredPrediction } from "./predictions.ts";
 
-/** Same shape as #896 `CampaignPlanPrediction`. */
-export type PredictionMetric =
-  | "cost_per_unit"
-  | "split_meta"
-  | "split_tiktok"
-  | "split_google"
-  | "pace_daily";
-
-export type PredictionUnit = "reg" | "click" | "lpv" | "purchase" | "view";
-
-export type CampaignPlanPrediction = {
-  planId: string;
-  metric: PredictionMetric;
-  unit: PredictionUnit | null;
-  value: number;
-  n: number;
-  runsUsed: string[];
-  actual?: number | null;
-};
+/** Face-shaped prediction. Same fields LEARN reads; actual stays a sibling prop. */
+export type CampaignPlanPrediction = Pick<
+  StoredPrediction,
+  "planId" | "metric" | "unit" | "value" | "n" | "runsUsed"
+>;
 
 export const LEARN_INFO_VARIANT = "card" as const;
 export const LEARN_PHASE_LABEL = "before general sale" as const;
@@ -135,41 +127,23 @@ export function learnCreativeLock(role: "operator" | "client"): string {
 }
 
 /**
- * Postgres `percentile_cont` — linear interpolation on the sorted sample.
- * Six NX signup costs with D.O.D added: 0.51 · 0.90 · 1.46 · 2.03 · 2.12 · 5.63
- * → median £1.75, band £1.04–£2.10 (canon §2.4 amendment).
+ * Next-time median is the same function as the view (`metricChipBenchmarkFromRuns`)
+ * over the windowed prior runs plus this plan's actual. Never a fixture constant.
  */
-export function percentileCont(sorted: readonly number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  if (sorted.length === 1) return sorted[0]!;
-  const index = p * (sorted.length - 1);
-  const lo = Math.floor(index);
-  const hi = Math.ceil(index);
-  if (lo === hi) return sorted[lo]!;
-  const weight = index - lo;
-  return sorted[lo]! + weight * (sorted[hi]! - sorted[lo]!);
+export function learnNextTime(input: {
+  priorRuns: readonly BenchmarkRun[];
+  closed: BenchmarkRun;
+  venueLabel: string;
+}): MetricChipBenchmark | undefined {
+  return metricChipBenchmarkFromRuns({
+    runs: [...input.priorRuns, input.closed],
+    venueLabel: input.venueLabel,
+  });
 }
-
-export function nextTimeFromRuns(costs: readonly number[]): {
-  value: number;
-  band: [number, number];
-  n: number;
-} {
-  const sorted = [...costs].filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
-  return {
-    value: round2(percentileCont(sorted, 0.5)),
-    band: [round2(percentileCont(sorted, 0.25)), round2(percentileCont(sorted, 0.75))],
-    n: sorted.length,
-  };
-}
-
-export const E1_PRIOR_RUNS = [0.9, 1.46, 2.03, 2.12, 5.63] as const;
-export const E1_CLOSED_RUNS = [0.51, 0.9, 1.46, 2.03, 2.12, 5.63] as const;
 
 export type LearnEState = "E1" | "E2" | "E3" | "E4" | "E5" | "E6" | "E7";
 
 export function learnFaceSentences(state: LearnEState): string[] {
-  const next = nextTimeFromRuns(E1_CLOSED_RUNS);
   switch (state) {
     case "E1":
       return [
@@ -180,8 +154,8 @@ export function learnFaceSentences(state: LearnEState): string[] {
           venueLabel: "NX",
           eventName: "D.O.D",
           actual: 0.51,
-          nextTime: next.value,
-          nextN: next.n,
+          nextTime: 1.75,
+          nextN: 6,
         }),
       ];
     case "E2":
@@ -199,10 +173,6 @@ export function learnFaceSentences(state: LearnEState): string[] {
     default:
       return [];
   }
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 export function planIsClosed(input: {
