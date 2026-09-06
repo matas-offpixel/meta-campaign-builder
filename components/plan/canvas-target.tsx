@@ -44,6 +44,7 @@ export function CanvasTarget({
   now,
   ticketSource,
   benchmarkRows,
+  unitPicker = true,
 }: {
   value: number | null;
   unit: PlanTargetUnit | null;
@@ -63,6 +64,7 @@ export function CanvasTarget({
   now?: Date;
   ticketSource?: "none" | "manual" | "xlsx_import" | "eventbrite" | "fourthefans" | "unknown";
   benchmarkRows?: readonly BenchmarkRow[];
+  unitPicker?: boolean;
 }) {
   const view = launchTargetView({
     now: now ?? new Date(),
@@ -95,7 +97,7 @@ export function CanvasTarget({
 
   return (
     <section aria-label="target" className="flex min-h-[80px] flex-wrap items-center gap-1.5">
-      {editing && effective.unit ? (
+      {unitPicker && editing && effective.unit ? (
         <MetricChip label="target" size="lg">
           <span className={`${VIZ_TYPE.label} text-muted-foreground`}>◎ £</span>
           <input
@@ -120,10 +122,11 @@ export function CanvasTarget({
           type="button"
           aria-label="edit target"
           onClick={() => {
+            if (!unitPicker) return;
             setDraft(String(value ?? view.chipValue));
             setEditing(true);
           }}
-          disabled={!effective.unit}
+          disabled={!effective.unit || !unitPicker}
         >
           <MetricChip
             label="target"
@@ -153,7 +156,7 @@ export function CanvasTarget({
         label={tip}
       />
 
-      {effective.unit ? null : (
+      {effective.unit || !unitPicker ? null : (
         <label className="inline-flex items-center gap-1">
           <span className="sr-only">Objective</span>
           <select
@@ -177,7 +180,7 @@ export function CanvasTarget({
         <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{view.purchaseLine}</span>
       ) : null}
 
-      <details className={`${VIZ_TYPE.label} text-muted-foreground`}>
+      {unitPicker ? <details className={`${VIZ_TYPE.label} text-muted-foreground`}>
         <summary>details</summary>
         <label className="mt-1 inline-flex items-center gap-1">
           <span>unit</span>
@@ -198,9 +201,9 @@ export function CanvasTarget({
             ))}
           </select>
         </label>
-      </details>
+      </details> : null}
 
-      {presetHref ? (
+      {unitPicker && presetHref ? (
         <a
           href={presetHref}
           className={`${VIZ_TYPE.label} text-muted-foreground underline underline-offset-2 hover:text-foreground`}

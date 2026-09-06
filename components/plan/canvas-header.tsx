@@ -147,7 +147,7 @@ export function CanvasHeader({
             {handle}
           </button>
         ) : null}
-        <OverflowMenu items={menuItems} />
+        {menuItems.some((item) => !item.hidden) ? <OverflowMenu items={menuItems} /> : null}
       </div>
     </header>
   );

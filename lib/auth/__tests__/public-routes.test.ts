@@ -101,6 +101,7 @@ describe("isPublicPath — pre-existing rules still hold", () => {
   it("admits /share/* prefixes", () => {
     assert.equal(isPublicPath("/share/client/abcdef1234"), true);
     assert.equal(isPublicPath("/api/share/client/abcdef1234/tickets"), true);
+    assert.equal(isPublicPath("/share/plan/299dd4e5-0000-0000-0000-000000000001"), true);
   });
 
   it("admits /api/cron/* prefixes", () => {

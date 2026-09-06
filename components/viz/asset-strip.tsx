@@ -25,8 +25,8 @@ export function AssetStrip({
 }: {
   assets: AssetStripItem[];
   routing: Record<string, VizPlatform[]>;
-  onUpload: () => void;
-  onToggle: (assetId: string, platform: VizPlatform) => void;
+  onUpload?: () => void;
+  onToggle?: (assetId: string, platform: VizPlatform) => void;
   disabledReasons?: Record<string, Partial<Record<VizPlatform, string>>>;
 }) {
   const state = assetStripState(assets, routing);
@@ -63,7 +63,7 @@ export function AssetStrip({
                       platform={platform}
                       checked={lit && !disabled}
                       onChange={() => {
-                        if (disabled) return;
+                        if (disabled || !onToggle) return;
                         onToggle(asset.id, platform);
                       }}
                     />
@@ -87,14 +87,16 @@ export function AssetStrip({
           </div>
         );
       })}
-      <button
-        type="button"
-        className="inline-flex h-10 w-8 items-center justify-center rounded-sm border border-dashed border-border text-muted-foreground hover:bg-muted"
-        aria-label="upload"
-        onClick={onUpload}
-      >
-        +
-      </button>
+      {onUpload ? (
+        <button
+          type="button"
+          className="inline-flex h-10 w-8 items-center justify-center rounded-sm border border-dashed border-border text-muted-foreground hover:bg-muted"
+          aria-label="upload"
+          onClick={onUpload}
+        >
+          +
+        </button>
+      ) : null}
     </div>
   );
 }

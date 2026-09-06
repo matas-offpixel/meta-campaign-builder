@@ -38,7 +38,7 @@ export function ChannelRow({
   /** LIVE state — MetricChips replace the noun facts. */
   liveFacts?: ReactNode;
   lineKind?: VizLineKind;
-  onOpen: () => void;
+  onOpen?: () => void;
   onResume?: () => void;
   onOpenAnchor?: (anchor: BlockerAnchor) => void;
   /**
@@ -89,14 +89,16 @@ export function ChannelRow({
           ▷ resume
         </button>
       ) : null}
-      <button
-        type="button"
-        className={`ml-auto ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
-        ref={openRef}
-        onClick={onOpen}
-      >
-        open ▸
-      </button>
+      {onOpen ? (
+        <button
+          type="button"
+          className={`ml-auto ${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}
+          ref={openRef}
+          onClick={onOpen}
+        >
+          open ▸
+        </button>
+      ) : null}
     </div>
   );
 }

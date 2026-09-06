@@ -29,6 +29,7 @@ export function CanvasWindow({
   googleBudgeted,
   now,
   createdAt,
+  readOnly = false,
 }: {
   event: PlanWindowEvent | null;
   dates: PlanWindowDates;
@@ -36,6 +37,7 @@ export function CanvasWindow({
   googleBudgeted: boolean;
   now?: Date;
   createdAt?: Date | string | null;
+  readOnly?: boolean;
 }) {
   const clock = useMemo(() => now ?? new Date(), [now]);
   const moments = useMemo(() => planWindowMoments(event, clock), [event, clock]);
@@ -50,7 +52,11 @@ export function CanvasWindow({
   }, [dates, event, clock, validity.ok]);
 
   return (
-    <section aria-label="window" style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}>
+    <section
+      aria-label="window"
+      style={{ minHeight: WINDOW_BAR_HEIGHT_PX }}
+      className={readOnly ? "pointer-events-none" : undefined}
+    >
       <WindowBar
         moments={moments}
         start={handles.start}

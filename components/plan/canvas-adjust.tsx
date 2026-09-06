@@ -140,27 +140,29 @@ export function CanvasAdjust({
     <section aria-label="adjust" className={`space-y-4 ${VIZ_ZONE_GUTTER.normal}`}>
       <div className="space-y-1.5">
         {moments && windowStart && end ? (
-          <WindowBar
-            moments={moments}
-            start={windowStart}
-            end={end}
-            now={now ?? new Date()}
-            empty={face.windowEmpty}
-            emptyLabel="end not set"
-            endLabel={face.endLabel}
-            onChange={onWindowChange ?? (() => undefined)}
-            pace={
-              planned > 0
-                ? {
-                    spent,
-                    planned,
-                    currency: "GBP",
-                    lineKind: "measured",
-                    tone: face.paceTone,
-                  }
-                : undefined
-            }
-          />
+          <div className={role === "client" ? "pointer-events-none" : undefined}>
+            <WindowBar
+              moments={moments}
+              start={windowStart}
+              end={end}
+              now={now ?? new Date()}
+              empty={face.windowEmpty}
+              emptyLabel="end not set"
+              endLabel={face.endLabel}
+              onChange={onWindowChange ?? (() => undefined)}
+              pace={
+                planned > 0
+                  ? {
+                      spent,
+                      planned,
+                      currency: "GBP",
+                      lineKind: "measured",
+                      tone: face.paceTone,
+                    }
+                  : undefined
+              }
+            />
+          </div>
         ) : null}
         <span className={`block ${VIZ_TYPE.body}`}>{face.paceSentence}</span>
         <InfoTip variant={ADJUST_INFO_VARIANT} label={tipParts.join(" · ")} />

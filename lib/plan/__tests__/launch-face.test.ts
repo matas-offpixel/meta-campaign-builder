@@ -28,6 +28,7 @@ import {
   identityAccountLabel,
   launchBlockedLine,
   launchBlockers,
+  launchControlsVisible,
   launchChannelRunning,
   launchChannelStateWord,
   launchReadingUnit,
@@ -378,8 +379,18 @@ describe("LAUNCH chrome", () => {
   });
 
   it("client role hides the Launch button only", () => {
+    assert.deepEqual(launchControlsVisible("client"), {
+      launch: false,
+      unitPicker: false,
+      drawerEdit: false,
+    });
+    assert.deepEqual(launchControlsVisible("operator"), {
+      launch: true,
+      unitPicker: true,
+      drawerEdit: true,
+    });
     const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
-    assert.match(launch, /role\s*[:=]\s*["']client["']|role === "client"|role !== "client"/);
+    assert.match(launch, /launchControlsVisible/);
     assert.match(launch, /formatLaunchCreatesLine|creates/);
   });
 });

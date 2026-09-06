@@ -86,6 +86,7 @@ import {
   planLaunchStamp,
   readyLaunchAdapters,
 } from "@/lib/plan/launch-face";
+import { planShareControls, type PlanRole } from "@/lib/plan/share-role";
 import type { LaunchRollupDay } from "@/lib/plan/launch-face";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import type { EventFunnelView } from "@/lib/dashboard/event-funnel";
@@ -134,6 +135,9 @@ export function PlanWorkspace({
   rollupDays = [],
   predictions = [],
   benchmarkRows = [],
+  role = "operator",
+  initialResolved = null,
+  initialDecisions = [],
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
@@ -145,6 +149,9 @@ export function PlanWorkspace({
   liveSpend?: number | null;
   adjustReads?: AdjustWindowReads | null;
   thumbUrl?: string | null;
+  role?: PlanRole;
+  initialResolved?: ResolvedChannelDefaults | null;
+  initialDecisions?: AdjustDecisionRow[];
   /**
    * The client preset's benchmark for this plan's objective. Zone D shows
    * it with the seed badge when the plan has no target of its own, so the
@@ -169,8 +176,8 @@ export function PlanWorkspace({
   >({});
   const [gate, setGate] = useState<GateState | null>(null);
   const [issues, setIssues] = useState<PlanPreflightIssue[]>([]);
-  const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(null);
-  const [preflightOk, setPreflightOk] = useState<boolean | null>(null);
+  const [resolved, setResolved] = useState<ResolvedChannelDefaults | null>(initialResolved);
+  const [preflightOk, setPreflightOk] = useState<boolean | null>(role === "client" ? true : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -178,7 +185,9 @@ export function PlanWorkspace({
   const [budgetMode, setBudgetMode] = useState<"daily" | "lifetime">("daily");
   const [lifetimeTotal, setLifetimeTotal] = useState(0);
   const [decisionCount, setDecisionCount] = useState(0);
-  const [adjustDecisions, setAdjustDecisions] = useState<AdjustDecisionRow[]>([]);
+  const [adjustDecisions, setAdjustDecisions] = useState<AdjustDecisionRow[]>(initialDecisions);
+  const share = planShareControls(role);
+  const readOnly = role === "client";
   const [adjustGates, setAdjustGates] = useState({
     writesEnabled: false,
     enabled: false,
@@ -304,6 +313,7 @@ export function PlanWorkspace({
   }
 
   useEffect(() => {
+    if (readOnly) return;
     let cancelled = false;
     fetch("/api/plan/launch")
       .then((res) => res.json())
@@ -324,7 +334,7 @@ export function PlanWorkspace({
 
   /** Staleness chip + zone E facts share one round trip. */
   const refreshMirror = useCallback(async () => {
-    if (!persisted) return;
+    if (readOnly || !persisted) return;
     const res = await fetch(`/api/plan/${encodeURIComponent(plan.id)}/mirror`);
     const json = (await res.json()) as {
       ok?: boolean;
@@ -340,7 +350,7 @@ export function PlanWorkspace({
     });
     if (json.facts) setFacts(json.facts);
     if (json.drawerBlockers) setDrawerBlockers(json.drawerBlockers);
-  }, [persisted, plan.id]);
+  }, [persisted, plan.id, readOnly]);
 
   useEffect(() => {
     void refreshMirror();
@@ -367,7 +377,7 @@ export function PlanWorkspace({
    */
   const metaDraftId = plan.launches.meta.draftId;
   useEffect(() => {
-    if (!metaDraftId) return;
+    if (readOnly || !metaDraftId) return;
     let cancelled = false;
     const lastOpened =
       typeof window === "undefined"
@@ -427,9 +437,10 @@ export function PlanWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [metaDraftId, plan.id]);
+  }, [metaDraftId, plan.id, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     if (!shouldPersistPlanOnChange({ hasUserEdit, eventId: plan.intent.eventId })) return;
     const handle = window.setTimeout(() => {
       void fetch("/api/plan", {
@@ -453,9 +464,10 @@ export function PlanWorkspace({
         });
     }, 400);
     return () => window.clearTimeout(handle);
-  }, [plan, router, hasUserEdit]);
+  }, [plan, router, hasUserEdit, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     setPreflightOk(null);
     const handle = window.setTimeout(() => {
       void fetch("/api/plan/preflight", {
@@ -481,7 +493,7 @@ export function PlanWorkspace({
         });
     }, 250);
     return () => window.clearTimeout(handle);
-  }, [plan]);
+  }, [plan, readOnly]);
 
   const destination = useMemo(
     () =>
@@ -495,13 +507,14 @@ export function PlanWorkspace({
 
   /** Whatever the event resolves to is the URL the adapters must send. */
   useEffect(() => {
+    if (readOnly) return;
     if (destination.source === "manual" || destination.source === "none") return;
     if (plan.intent.destinationUrl === destination.url) return;
     setPlan((current) => ({
       ...current,
       intent: { ...current.intent, destinationUrl: destination.url },
     }));
-  }, [destination.source, destination.url, plan.intent.destinationUrl]);
+  }, [destination.source, destination.url, plan.intent.destinationUrl, readOnly]);
 
   const rows = useMemo(
     () =>
@@ -617,6 +630,7 @@ export function PlanWorkspace({
     source?: LibraryPick,
     anchor?: BlockerAnchor | null,
   ) {
+    if (!share.drawerEdit) return;
     // An existing draft opens straight away; only a first open prepares one.
     if (row.draftId && !source) {
       openDrawerOrWizard(row.adapter, row.draftId, anchor ?? row.anchor);
@@ -837,7 +851,9 @@ export function PlanWorkspace({
     [events, plan.intent.eventId, today],
   );
 
-  const menuItems: OverflowMenuItem[] = planCanvasMenuItemSpecs({
+  const menuItems: OverflowMenuItem[] = readOnly
+    ? []
+    : planCanvasMenuItemSpecs({
     status: plan.status,
     disposal: planDisposalAction(plan.launches),
     hasMetaDraft,
@@ -972,9 +988,14 @@ export function PlanWorkspace({
         launchedWord={launchStamp?.word}
         launchedAtSource={launchStamp?.source}
         thumbUrl={thumbUrl}
-        destination={destination}
-        onDestination={(url) => patchIntent({ destinationUrl: url })}
-        decisionCount={decisionCount}
+        destination={
+          readOnly ? { ...destination, overridable: false } : destination
+        }
+        onDestination={(url) => {
+          if (readOnly) return;
+          patchIntent({ destinationUrl: url });
+        }}
+        decisionCount={readOnly ? 0 : decisionCount}
         decisionsRef={decisionsOpenRef}
         onDecisionsOpen={() => {
           window.localStorage.setItem(planLastOpenedKey(plan.id), new Date().toISOString());
@@ -987,7 +1008,7 @@ export function PlanWorkspace({
         identityNames={identityNames}
       />
 
-      {!plan.intent.eventId ? (
+      {!plan.intent.eventId && share.switcher ? (
         <div className={`max-w-md ${VIZ_ZONE_GUTTER.normal}`}>
           <Combobox
             label="Event"
@@ -1002,6 +1023,7 @@ export function PlanWorkspace({
 
       {isLearnFace ? (
         <CanvasLearn
+          role={role}
           eventName={learnEventName}
           venueLabel={selectedEvent?.venueName ?? null}
           unitWord={
@@ -1034,6 +1056,7 @@ export function PlanWorkspace({
         />
       ) : isAdjustFace ? (
         <CanvasAdjust
+          role={role}
           spent={adjustReads?.spend ?? liveSpend ?? 0}
           planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
           unitWord={unitWord}
@@ -1075,6 +1098,7 @@ export function PlanWorkspace({
           }}
           createdAt={plan.createdAt}
           onChange={setWindow}
+          readOnly={readOnly}
           googleBudgeted={plan.intent.budget.googleDaily > 0}
         />
       </div>
@@ -1105,6 +1129,7 @@ export function PlanWorkspace({
             }
           }}
           onLifetime={setLifetimeTotal}
+          readOnly={readOnly}
         />
       </div>
       )}
@@ -1128,6 +1153,7 @@ export function PlanWorkspace({
           excludeEventId={selectedEvent?.id}
           launched={launchStamp != null}
           benchmarkRows={benchmarkRows}
+          unitPicker={share.unitPicker}
         />
       </div>
       )}
@@ -1145,6 +1171,7 @@ export function PlanWorkspace({
         }
         onOpen={(row) => void openChannel(row)}
         onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
+        drawerEdit={share.drawerEdit}
         openRefs={{
           meta: metaOpenRef,
           tiktok: tiktokOpenRef,
@@ -1164,10 +1191,11 @@ export function PlanWorkspace({
           if (metaDraftId) openDrawerOrWizard("meta", metaDraftId);
         }}
         onUnregistered={setUnregisteredAssets}
+        readOnly={readOnly}
       />
       </div>
 
-      {drawer?.adapter === "meta" ? (
+      {share.drawerEdit && drawer?.adapter === "meta" ? (
         <MetaDrawerMount
           open
           draftId={drawer.draftId}
@@ -1186,7 +1214,7 @@ export function PlanWorkspace({
         />
       ) : null}
 
-      {drawer?.adapter === "tiktok" ? (
+      {share.drawerEdit && drawer?.adapter === "tiktok" ? (
         <TikTokDrawerMount
           open
           draftId={drawer.draftId}
@@ -1205,7 +1233,7 @@ export function PlanWorkspace({
         />
       ) : null}
 
-      {drawer?.adapter === "google" ? (
+      {share.drawerEdit && drawer?.adapter === "google" ? (
         <GoogleDrawerMount
           open
           draftId={drawer.draftId}
@@ -1225,7 +1253,7 @@ export function PlanWorkspace({
         />
       ) : null}
 
-      {metaDraftId ? (
+      {share.drawerEdit && metaDraftId ? (
         <DecisionsSheet
           draftId={metaDraftId}
           clientId={selectedEvent?.clientId ?? null}
@@ -1239,6 +1267,7 @@ export function PlanWorkspace({
 
       <div className={VIZ_ZONE_GUTTER.loose}>
       <CanvasLaunch
+        role={role}
         button={launchButton}
         stages={undefined}
         error={error}
@@ -1261,26 +1290,28 @@ export function PlanWorkspace({
       />
       </div>
 
-      {/* "From existing campaign…" only ever seeds the Meta draft. */}
-      <CampaignLibraryPicker
-        open={libraryOpen}
-        onClose={() => setLibraryOpen(false)}
-        busy={busy}
-        onPick={(pick) => {
-          const meta = rows.find((row) => row.adapter === "meta");
-          if (meta) void openChannel(meta, pick);
-        }}
-      />
-
-      <PlanDeleteAction
-        planId={plan.id}
-        launches={plan.launches}
-        persisted={persisted}
-        trigger="none"
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        onDeleted={() => router.push("/plans")}
-      />
+      {readOnly ? null : (
+        <>
+          <CampaignLibraryPicker
+            open={libraryOpen}
+            onClose={() => setLibraryOpen(false)}
+            busy={busy}
+            onPick={(pick) => {
+              const meta = rows.find((row) => row.adapter === "meta");
+              if (meta) void openChannel(meta, pick);
+            }}
+          />
+          <PlanDeleteAction
+            planId={plan.id}
+            launches={plan.launches}
+            persisted={persisted}
+            trigger="none"
+            open={deleteOpen}
+            onOpenChange={setDeleteOpen}
+            onDeleted={() => router.push("/plans")}
+          />
+        </>
+      )}
 
       {events.length === 0 ? <InfoTip label="No events yet." /> : null}
     </div>

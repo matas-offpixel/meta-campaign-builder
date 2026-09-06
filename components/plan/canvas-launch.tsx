@@ -7,6 +7,7 @@ import { joinInfoTips, PLAN_CANVAS_COPY, type PlanLaunchButtonModel } from "@/li
 import {
   LAUNCH_INFO_VARIANT,
   formatLaunchCreatesLine,
+  launchControlsVisible,
 } from "@/lib/plan/launch-face";
 import type { PlanAdapterName } from "@/lib/plan/types";
 import { WIZARD_ACTIVE_VS_PLAN_PAUSED } from "@/lib/plan/schedule";
@@ -46,6 +47,7 @@ export function CanvasLaunch({
   /** First preflight response has arrived — until then, nothing beside the button. */
   preflightSettled?: boolean;
 }) {
+  const controls = launchControlsVisible(role);
   const widths = stages ? proportionalBarWidths(stages.map((stage) => stage.value)) : [];
   const fanoutOff = button.reason === PLAN_CANVAS_COPY.fanoutOff;
   const tip = joinInfoTips(
@@ -95,7 +97,7 @@ export function CanvasLaunch({
           </span>
         ) : null}
         {tip ? <InfoTip variant={LAUNCH_INFO_VARIANT} label={tip} /> : null}
-        {role === "client" || button.kind === "none" ? null : (
+        {!controls.launch || button.kind === "none" ? null : (
           <Button
             type="button"
             disabled={button.disabled}
