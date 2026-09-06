@@ -49,7 +49,6 @@ import {
   type AdjustDecisionRow,
   type AdjustWindowReads,
 } from "@/lib/plan/adjust-face";
-import { VIZ_UNIT_WORD } from "@/lib/viz/tokens";
 import { planBenchmark, runFromViewRow, selectBenchmarkRows, type BenchmarkRow } from "@/lib/plan/benchmarks";
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
