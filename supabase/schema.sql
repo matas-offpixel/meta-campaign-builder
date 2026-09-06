@@ -647,6 +647,7 @@ CREATE TABLE IF NOT EXISTS "events" (
   "ad_spend_actual" numeric(10,2),
   "prereg_spend" numeric(10,2),
   "meta_campaign_id" text,
+  "meta_ad_account_id" text,
   "meta_spend_cached" numeric(12,2),
   "meta_spend_cached_at" timestamp with time zone,
   "kind" text DEFAULT 'event'::text NOT NULL,

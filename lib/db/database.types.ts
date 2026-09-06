@@ -2824,6 +2824,7 @@ export type Database = {
           kind: string
           mailchimp_audience_id: string | null
           mailchimp_tag: string | null
+          meta_ad_account_id: string | null
           meta_campaign_id: string | null
           meta_spend_cached: number | null
           meta_spend_cached_at: string | null
@@ -2871,6 +2872,7 @@ export type Database = {
           kind?: string
           mailchimp_audience_id?: string | null
           mailchimp_tag?: string | null
+          meta_ad_account_id?: string | null
           meta_campaign_id?: string | null
           meta_spend_cached?: number | null
           meta_spend_cached_at?: string | null
@@ -2918,6 +2920,7 @@ export type Database = {
           kind?: string
           mailchimp_audience_id?: string | null
           mailchimp_tag?: string | null
+          meta_ad_account_id?: string | null
           meta_campaign_id?: string | null
           meta_spend_cached?: number | null
           meta_spend_cached_at?: string | null
