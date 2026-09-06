@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { archiveCampaignPlan, deleteCampaignPlan, unarchiveCampaignPlan } from "@/lib/plan/dispose";
+import { todayIsoDate } from "@/lib/plan/event-picker";
+import { planLaunchedAt, planStampLondonDate } from "@/lib/plan/launch-face";
 import { loadPlanForUser } from "@/lib/plan/load";
+import { loadPlanWindowActual } from "@/lib/plan/predictions";
 import { createClient } from "@/lib/supabase/server";
 
 export async function DELETE(
@@ -77,7 +80,16 @@ export async function PATCH(
     }
     return NextResponse.json({ ok: true, action: "unarchive", status: result.status });
   }
-  const result = await archiveCampaignPlan(supabase, id, user.id);
+  const launchedAt = planLaunchedAt(plan.launches);
+  const actual = plan.intent.eventId
+    ? await loadPlanWindowActual(supabase, {
+        eventId: plan.intent.eventId,
+        sinceDate: launchedAt ? planStampLondonDate(launchedAt) : null,
+        untilDate: todayIsoDate(),
+        unit: plan.intent.target.unit,
+      })
+    : null;
+  const result = await archiveCampaignPlan(supabase, id, user.id, actual ?? undefined);
   if (!result.ok) {
     return NextResponse.json(
       { ok: false, tableMissing: result.tableMissing, error: result.error },

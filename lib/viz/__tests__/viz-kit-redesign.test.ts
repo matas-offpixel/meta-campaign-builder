@@ -612,6 +612,7 @@ describe("§4.7 plan v2 token guards", () => {
       "components/plan/canvas-budget.tsx",
       "components/plan/canvas-window.tsx",
       "components/plan/canvas-adjust.tsx",
+      "components/plan/canvas-learn.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

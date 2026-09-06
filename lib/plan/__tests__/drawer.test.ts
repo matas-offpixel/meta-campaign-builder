@@ -1029,6 +1029,7 @@ describe("PR 8b — canvas-zone-rhythm guards", () => {
       "components/plan/canvas-assets.tsx",
       "components/plan/canvas-launch.tsx",
       "components/plan/canvas-adjust.tsx",
+      "components/plan/canvas-learn.tsx",
     ];
     for (const file of zones) {
       const count = (read(file).match(/<InfoTip/g) ?? []).length;

@@ -23,6 +23,7 @@ import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
 import { loadLaunchRollupDays, loadPlanBenchmarkRows } from "@/lib/plan/launch-reads";
 import { planLaunchedAt, planStampLondonDate } from "@/lib/plan/launch-face";
+import { loadPlanPredictions } from "@/lib/plan/predictions";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -250,6 +251,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
           venueKey: selectedEvent.venueKey,
         })
       : [];
+  const predictions = await loadPlanPredictions(supabase, workspacePlan.id);
 
   const identityNames = await loadIdentityNameMap(supabase, user.id, googleAdsAccounts);
 
@@ -281,6 +283,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             targetBenchmark={targetBenchmark}
             identityNames={identityNames}
             rollupDays={rollupDays}
+            predictions={predictions}
             benchmarkRows={benchmarkRows}
           />
         </div>
