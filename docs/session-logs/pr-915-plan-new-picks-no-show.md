@@ -28,7 +28,8 @@
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
 - [x] `npm test` (5379 pass, 4 skipped)
-- [ ] CI `frames:check` red on missing A0, then green after Ubuntu `docs/frames/A0.png`
+- [x] CI `frames:check` red on missing A0 — [run 34160493393 / job 101861450151](https://github.com/matas-offpixel/meta-campaign-builder/actions/runs/34160493393/job/101861450151) (`MISSING A0`)
+- [ ] CI `frames:check` green after Ubuntu `docs/frames/A0.png` from [frames-baselines 34160494770](https://github.com/matas-offpixel/meta-campaign-builder/actions/runs/34160494770)
 
 ## Notes
 
