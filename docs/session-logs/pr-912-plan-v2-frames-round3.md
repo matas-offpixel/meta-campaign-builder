@@ -22,9 +22,9 @@ Close #911's remaining render-vs-v3 gaps: `per ticket` as the display word for t
 ## Validation
 
 - [x] `npx tsc --noEmit` (our files; repo-wide jest test files still fail as on main)
-- [ ] `npm run build` (via frames-baselines / CI)
+- [x] `npm run build` (via frames-baselines [34128525617](https://github.com/matas-offpixel/meta-campaign-builder/actions/runs/34128525617))
 - [x] `npm test` (5353 pass, 4 skipped)
-- [ ] `frames:check` on Ubuntu CI
+- [ ] `frames:check` on Ubuntu CI — baselines A13 A14 J3 J8 from that run
 
 ## Notes
 
