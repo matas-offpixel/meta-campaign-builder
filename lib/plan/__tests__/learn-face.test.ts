@@ -19,8 +19,10 @@ import {
   learnControlsVisible,
   learnFaceSentences,
   learnNextTime,
+  learnReadingUnit,
   planIsClosed,
 } from "../learn-face.ts";
+import { launchUnitWord } from "../launch-face.ts";
 import { planBenchmark, runFromViewRow, type BenchmarkRow } from "../benchmarks.ts";
 
 describe("LEARN E-states — sentences", () => {
@@ -187,6 +189,24 @@ describe("LEARN surface guards", () => {
     assert.doesNotMatch(source, /\d{4}-\d{2}-\d{2}T/);
     const tips = source.match(/<InfoTip/g) ?? [];
     assert.equal(tips.length, 1);
+  });
+
+  it("LEARN reads the launch-phase unit, never target_unit", () => {
+    const dod = learnReadingUnit({
+      launchedAt: "2026-08-27T09:00:00.000Z",
+      now: new Date("2026-12-04T12:00:00.000Z"),
+      generalSaleAt: "2026-09-04T13:00:00.000Z",
+      presaleAt: "2026-08-14T13:00:00.000Z",
+      kind: "event",
+    });
+    assert.equal(dod, "reg");
+    assert.equal(launchUnitWord(dod), "signup");
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    const mount = readFileSync("components/plan/plan-frame-mount.tsx", "utf8");
+    assert.match(workspace, /learnReadingUnit/);
+    assert.match(mount, /learnReadingUnit/);
+    assert.doesNotMatch(workspace, /VIZ_UNIT_WORD\[plan\.intent\.target\.unit\]/);
+    assert.doesNotMatch(mount, /fixture\.plan\.intent\.target\.unit/);
   });
 
   it("workspace mounts LEARN after close and E2 until a prediction row exists", () => {

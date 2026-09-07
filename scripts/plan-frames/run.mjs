@@ -130,7 +130,10 @@ async function main() {
           () => Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 2000))]),
         );
         await page.waitForTimeout(150);
-        const png = await page.screenshot({ fullPage: true, type: "png", timeout: 15_000 });
+        const png = await page.locator(`[data-frame-ready="${frameId}"]`).screenshot({
+          type: "png",
+          timeout: 15_000,
+        });
         await page.close();
         const dest = shotFile(shot.id);
         if (UPDATE || !existsSync(dest)) {

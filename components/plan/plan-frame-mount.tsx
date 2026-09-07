@@ -30,9 +30,12 @@ import {
   launchBlockedLine,
   launchChannelRunning,
   launchReadingUnit,
+  launchUnitWord,
+  planLaunchedAt,
   planLaunchStamp,
   readyLaunchAdapters,
 } from "@/lib/plan/launch-face";
+import { learnReadingUnit } from "@/lib/plan/learn-face";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
@@ -325,11 +328,15 @@ function LearnFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "learn"
         role={fixture.role ?? "operator"}
         eventName={fixture.event.name}
         venueLabel={fixture.event.venueName ?? undefined}
-        unitWord={
-          fixture.plan.intent.target.unit === "reg" || !fixture.plan.intent.target.unit
-            ? "signup"
-            : fixture.plan.intent.target.unit
-        }
+        unitWord={launchUnitWord(
+          learnReadingUnit({
+            launchedAt: planLaunchedAt(fixture.plan.launches) ?? fixture.plan.createdAt,
+            now: new Date(fixture.now),
+            generalSaleAt: fixture.event.generalSaleAt,
+            presaleAt: fixture.event.presaleAt,
+            kind: fixture.event.kind,
+          }),
+        )}
         prediction={fixture.prediction ?? null}
         actual={fixture.actual ?? null}
         nextTime={fixture.nextTime ?? null}
@@ -362,6 +369,7 @@ export function PlanFrameMount({ fixture }: { fixture: FrameFixture }) {
           templatesMissing={false}
           now={new Date(fixture.now)}
           initialTab={fixture.tab ?? null}
+          chrome={false}
         />
       ) : null}
       {fixture.kind === "launch" ? <LaunchFace fixture={fixture} /> : null}

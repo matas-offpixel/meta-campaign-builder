@@ -86,10 +86,9 @@ export function formatTargetFromShows(n: number, venue: string): string {
 
 export function formatGbp(amount: number): string {
   const rounded = Math.round(amount * 100) / 100;
-  const text =
-    Number.isInteger(rounded) || rounded >= 10
-      ? Math.round(rounded).toLocaleString("en-GB")
-      : rounded.toFixed(2);
+  const text = Number.isInteger(rounded)
+    ? Math.round(rounded).toLocaleString("en-GB")
+    : rounded.toFixed(2);
   return `£${text}`;
 }
 

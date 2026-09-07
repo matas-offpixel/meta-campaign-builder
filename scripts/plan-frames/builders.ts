@@ -13,6 +13,7 @@ import type { LaunchRollupDay } from "../../lib/plan/launch-face.ts";
 
 export const WALK_NOW = "2026-09-06T12:00:00+01:00";
 export const AUG_4 = "2026-08-04T12:00:00+01:00";
+export const AUG_11 = "2026-08-11T12:00:00+01:00";
 export const SEP_1 = "2026-09-01T12:00:00+01:00";
 export const JUL_24 = "2026-07-24T12:00:00+01:00";
 export const MAR_18 = "2026-03-18T12:00:00+00:00";
@@ -67,7 +68,7 @@ export function pausedLaunches(at = "2026-07-24T09:00:00.000Z"): CampaignPlanLau
   return {
     meta: { ...live.meta, status: "live" },
     tiktok: { ...live.tiktok, status: "live", draftId: "tt-draft", platformCampaignId: "tt_camp" },
-    google: { ...live.google, status: "live", draftId: "g-draft", platformCampaignId: "g_camp" },
+    google: { ...IDLE_PLAN_LAUNCH, status: "skipped" },
   };
 }
 
@@ -165,10 +166,10 @@ export function listItem(
 
 export function nxSignupRows(): BenchmarkRow[] {
   return [
-    row(CLIENT_EB, "nx newcastle", "djez", "NX26-DJEZ", "2026-10-02", "signup", 2.75),
-    row(CLIENT_EB, "nx newcastle", "mf", "NX26-MF", "2026-10-16", "signup", 1.32),
+    row(CLIENT_EB, "nx newcastle", "mf", "NX26-MF", "2026-10-16", "signup", 2.75),
+    row(CLIENT_EB, "nx newcastle", "eed", "NX26-EED", "2026-11-13", "signup", 1.32),
     row(CLIENT_EB, "nx newcastle", "folamour", "NX26-FOLAMOUR", "2026-10-23", "signup", 0.87),
-    row(CLIENT_EB, "nx newcastle", "eed", "NX26-EED", "2026-11-13", "signup", 1.67),
+    row(CLIENT_EB, "nx newcastle", "djez", "NX26-DJEZ", "2026-10-02", "signup", 1.67),
     row(CLIENT_EB, "nx newcastle", "ipc", "NX26-IPC", "2026-11-21", "signup", 0.54),
   ];
 }
@@ -182,12 +183,12 @@ export function nxPurchaseRows(): BenchmarkRow[] {
   ];
 }
 
-export function j2TicketRows(): BenchmarkRow[] {
+export function j2TicketRows(unit: BenchmarkRow["unit"] = "ticket"): BenchmarkRow[] {
   return [
-    row(CLIENT_J2, "boston manor park", "fabric", "UTB0042-New", "2026-04-20", "ticket", 0.63, "all"),
-    row(CLIENT_J2, "boston manor park", "melodic", "UTB0043-New", "2026-04-20", "ticket", 6.46, "all"),
-    row(CLIENT_J2, "boston manor park", "fragrance", "UTB0044-New", "2026-04-20", "ticket", 2.38, "all"),
-    row(CLIENT_J2, "boston manor park", "innervisions", "UTB0045-New", "2026-04-20", "ticket", 3.31, "all"),
+    row(CLIENT_J2, "boston manor park", "fabric", "UTB0042-New", "2026-04-20", unit, 0.63),
+    row(CLIENT_J2, "boston manor park", "melodic", "UTB0043-New", "2026-04-20", unit, 6.46),
+    row(CLIENT_J2, "boston manor park", "fragrance", "UTB0044-New", "2026-04-20", unit, 2.38),
+    row(CLIENT_J2, "boston manor park", "innervisions", "UTB0045-New", "2026-04-20", unit, 3.31),
   ];
 }
 
@@ -347,14 +348,16 @@ export const EVENTS = {
     name: "East End Dubs",
     eventCode: "NX26-EED",
     eventDate: "2026-11-13",
-    generalSaleAt: "2026-08-14T13:00:00.000Z",
+    presaleAt: "2026-08-14T09:00:00.000Z",
+    generalSaleAt: "2026-08-14T11:00:00.000Z",
   }),
   mf: eventOf({
     id: "evt-mf",
     name: "Modern Funktion",
     eventCode: "NX26-MF",
     eventDate: "2026-10-16",
-    generalSaleAt: "2026-08-06T13:00:00.000Z",
+    presaleAt: "2026-08-05T10:30:00.000Z",
+    generalSaleAt: "2026-08-06T11:00:00.000Z",
   }),
   folamour: eventOf({
     id: "evt-folamour",
@@ -395,6 +398,8 @@ export const EVENTS = {
     venueKey: "boston manor park",
     eventCode: "UTB0046-New",
     eventDate: "2026-08-02",
+    presaleAt: null,
+    generalSaleAt: null,
     ticketUrl: "https://junction2.example/tickets",
     signupUrl: null,
   }),
@@ -406,7 +411,7 @@ export const EVENTS = {
     venueName: "Boston Manor Park",
     venueKey: "boston manor park",
     eventCode: "UTB0043-New",
-    eventDate: "2026-04-20",
+    eventDate: "2026-07-26",
     ticketUrl: "https://junction2.example/tickets",
     signupUrl: null,
   }),

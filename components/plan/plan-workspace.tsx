@@ -54,7 +54,7 @@ import { planBenchmark, runFromViewRow, selectBenchmarkRows, type BenchmarkRow }
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
-import { VIZ_UNIT_WORD, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
+import { VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
@@ -72,6 +72,7 @@ import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
 import {
   learnNextTime,
+  learnReadingUnit,
   planIsClosed,
   type CampaignPlanPrediction,
 } from "@/lib/plan/learn-face";
@@ -81,6 +82,7 @@ import {
   launchBlockedLine,
   launchChannelRunning,
   launchReadingUnit,
+  launchUnitWord,
   planIdentityMetaId,
   planLaunchedAt,
   planLaunchStamp,
@@ -1066,15 +1068,15 @@ export function PlanWorkspace({
           role={role}
           eventName={learnEventName}
           venueLabel={selectedEvent?.venueName ?? null}
-          unitWord={
-            plan.intent.target.unit === "reg" ||
-            plan.intent.target.unit === "click" ||
-            plan.intent.target.unit === "lpv" ||
-            plan.intent.target.unit === "purchase" ||
-            plan.intent.target.unit === "view"
-              ? VIZ_UNIT_WORD[plan.intent.target.unit]
-              : "signup"
-          }
+          unitWord={launchUnitWord(
+            learnReadingUnit({
+              launchedAt: planLaunchedAt(plan.launches) ?? plan.createdAt,
+              now: clock,
+              generalSaleAt: selectedEvent?.generalSaleAt,
+              presaleAt: selectedEvent?.presaleAt,
+              kind: selectedEvent?.kind,
+            }),
+          )}
           prediction={learnPrediction}
           actual={learnActual}
           nextTime={learnNext?.value ?? null}

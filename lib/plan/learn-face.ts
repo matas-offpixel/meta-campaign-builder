@@ -12,6 +12,26 @@ import {
   type BenchmarkRun,
 } from "./benchmarks.ts";
 import type { CampaignPlanPrediction as StoredPrediction } from "./predictions.ts";
+import { adjustPrimaryReadingUnit } from "./adjust-face.ts";
+import type { LaunchReadingUnit } from "./launch-face.ts";
+
+/** LEARN reads the launch-phase unit, same keep as ADJUST — never `target_unit`. */
+export function learnReadingUnit(input: {
+  launchedAt?: string | Date | null;
+  now?: Date;
+  generalSaleAt?: string | Date | null;
+  presaleAt?: string | Date | null;
+  kind?: string | null;
+}): LaunchReadingUnit {
+  const now = input.now ?? (input.launchedAt ? new Date(input.launchedAt) : new Date());
+  return adjustPrimaryReadingUnit({
+    now,
+    launchedAt: input.launchedAt,
+    generalSaleAt: input.generalSaleAt,
+    presaleAt: input.presaleAt,
+    kind: input.kind,
+  });
+}
 
 /** Face-shaped prediction. Same fields LEARN reads; actual stays a sibling prop. */
 export type CampaignPlanPrediction = Pick<
@@ -69,7 +89,7 @@ export const LEARN_PACE_HEADS = {
 
 export function formatGbp(amount: number): string {
   const rounded = Math.round(amount * 100) / 100;
-  if (Number.isInteger(rounded) || rounded >= 10) {
+  if (Number.isInteger(rounded)) {
     return `£${Math.round(rounded).toLocaleString("en-GB")}`;
   }
   return `£${rounded.toFixed(2)}`;
