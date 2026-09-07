@@ -218,7 +218,7 @@ export function CanvasAdjust({
           >
             <span className={VIZ_TYPE.display}>{face.signupLine}</span>
           </MetricChip>
-        ) : (
+        ) : face.purchaseCost == null ? (
           <MetricChip
             label={face.costLabel}
             value={null}
@@ -226,7 +226,7 @@ export function CanvasAdjust({
             lineKind="not-yet"
             infoHeader={face.infoHeader}
           />
-        )}
+        ) : null}
         {face.purchaseLine ? (
           <MetricChip
             label="cost per purchase"

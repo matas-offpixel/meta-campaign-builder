@@ -46,7 +46,7 @@ export const OPTIMISATION_TICK_UTC_HOURS = [0, 4, 8, 12, 16, 20] as const;
 
 export function formatGbp(amount: number): string {
   const rounded = Math.round(amount * 100) / 100;
-  if (Number.isInteger(rounded) || rounded >= 10) {
+  if (Number.isInteger(rounded)) {
     return `£${Math.round(rounded).toLocaleString("en-GB")}`;
   }
   return `£${rounded.toFixed(2)}`;

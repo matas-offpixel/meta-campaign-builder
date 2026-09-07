@@ -60,6 +60,12 @@ describe("ADJUST J-states — sentences", () => {
     assert.equal(adjustFaceSentences("J1")[1], formatLogEmpty());
   });
 
+  it("formatGbp keeps two decimals when the pound is not whole", () => {
+    assert.equal(formatGbp(558 / 16), "£34.88");
+    assert.equal(formatGbp(2588 / 553), "£4.68");
+    assert.equal(formatGbp(35), "£35");
+  });
+
   it("J2 / J24 pace is sums, never a percentage", () => {
     const sentence = formatPaceSentence(558, 350);
     assert.equal(sentence, "£558 spent since launch · plan said £350 by today");
@@ -811,6 +817,7 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     const adjustCanvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
     assert.match(adjustCanvas, /emptySentence=\{face\.purchaseCost == null \? ADJUST_NO_PURCHASES_SENTENCE/);
     assert.match(adjustCanvas, /lineKind=\{face\.purchaseCost == null \? "not-yet"/);
+    assert.match(adjustCanvas, /: face\.purchaseCost == null \? \(/);
     assert.equal(
       face.purchaseDisagreement,
       "Meta says 0 purchases · tickets not entered yet",

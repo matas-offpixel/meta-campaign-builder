@@ -52,6 +52,7 @@ export function PlanLibrary({
   templatesMissing,
   now: nowProp,
   initialTab = null,
+  chrome = true,
 }: {
   plans: PlanLibraryItem[];
   events: PlanEventOption[];
@@ -61,6 +62,8 @@ export function PlanLibrary({
   /** Pinned clock for frame screenshots. Live `/plans` leaves this unset. */
   now?: Date;
   initialTab?: PlanListChromeTab | null;
+  /** List chrome (search / new plan) is outside the frame. */
+  chrome?: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<PlanListChromeTab | null>(initialTab);
@@ -232,6 +235,7 @@ export function PlanLibrary({
             </button>
           ))}
         </div>
+        {chrome ? (
         <div className="flex items-center gap-2 pb-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -251,6 +255,7 @@ export function PlanLibrary({
             {PLAN_LIST_EMPTY.action}
           </Button>
         </div>
+        ) : null}
       </div>
 
       <div className="space-y-3 pt-4">
@@ -291,9 +296,15 @@ export function PlanLibrary({
             </div>
           )
         ) : items.length === 0 || filteredPlans.length === 0 ? (
+          chrome ? (
           <p className="rounded-lg border border-dashed border-border bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
             {planListEmptySentence({ hasPlans: items.length > 0, search })}
           </p>
+          ) : (
+          <p className="text-sm text-muted-foreground">
+            {planListEmptySentence({ hasPlans: items.length > 0, search })} · {PLAN_LIST_EMPTY.action}
+          </p>
+          )
         ) : (
           <div className="space-y-2">
             {filteredPlans.map((plan) => (
