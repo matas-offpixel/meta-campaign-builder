@@ -23,7 +23,7 @@ Align the #908 fixtures to the ratified third canvas (v3 + third-issue brief §3
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
 - [x] `npm test` (5345 pass, 4 skipped)
-- [ ] `frames:check` on Ubuntu CI after new baselines
+- [ ] `frames:check` on Ubuntu CI after baselines from run 34122752910
 
 ## Notes
 
