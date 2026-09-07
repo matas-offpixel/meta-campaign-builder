@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 912
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/912
 - **Branch:** `cursor/plan-v2-frames-round3`
 
 ## Summary
@@ -21,9 +21,9 @@ Close #911's remaining render-vs-v3 gaps: `per ticket` as the display word for t
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
-- [ ] `npm test`
+- [x] `npx tsc --noEmit` (our files; repo-wide jest test files still fail as on main)
+- [ ] `npm run build` (via frames-baselines / CI)
+- [x] `npm test` (5353 pass, 4 skipped)
 - [ ] `frames:check` on Ubuntu CI
 
 ## Notes
