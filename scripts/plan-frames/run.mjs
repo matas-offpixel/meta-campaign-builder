@@ -19,6 +19,10 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { chromium } from "@playwright/test";
+import pixelmatch from "pixelmatch";
+import { PNG } from "pngjs";
+
 const PLAYWRIGHT_PIN = "1.63.0";
 const CHROMIUM_REVISION = "1243";
 const require = createRequire(import.meta.url);
@@ -27,15 +31,11 @@ if (playwrightVersion !== PLAYWRIGHT_PIN) {
   console.error(`Playwright must be ${PLAYWRIGHT_PIN} (CI Chromium pin), got ${playwrightVersion}`);
   process.exit(1);
 }
-const chromium = require("playwright-core/browsers.json").browsers.find((b) => b.name === "chromium");
-if (chromium?.revision !== CHROMIUM_REVISION) {
-  console.error(`Chromium revision must be ${CHROMIUM_REVISION}, got ${chromium?.revision}`);
+const pinnedChromium = require("playwright-core/browsers.json").browsers.find((b) => b.name === "chromium");
+if (pinnedChromium?.revision !== CHROMIUM_REVISION) {
+  console.error(`Chromium revision must be ${CHROMIUM_REVISION}, got ${pinnedChromium?.revision}`);
   process.exit(1);
 }
-
-import { chromium } from "@playwright/test";
-import pixelmatch from "pixelmatch";
-import { PNG } from "pngjs";
 
 const CANON = [
   "L1", "L2", "L3", "L4", "L5", "L6",
