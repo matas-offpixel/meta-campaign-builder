@@ -22,14 +22,18 @@ Stage 1 of the plan-canvas revamp: make tonight's Folamour screen usable without
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
-- [x] `npm run build`
-- [x] `npm test` (5398 pass, 3 skipped)
+- [x] `npm run build` (again after the baseline commit)
+- [x] `npm test` (5398 pass, 3 skipped; again after the baseline commit)
+- [x] Ubuntu rasters from [frames-baselines 34167981727](https://github.com/matas-offpixel/meta-campaign-builder/actions/runs/34167981727) — 12 PNGs changed, 25 byte-identical
+- [ ] CI `frames:check` green after those 12 land
 
 ## Notes
 
 Keep: measured / estimated / not-yet; §2.6 words; no invented numbers; G34; `frames:check`.
 
-Do not regenerate the 36 baselines in this PR. Inline lists are live-workspace only (`onOpenAnchor` / `onOpenBlocker`); frame-mount stays sentence-only so A14 does not grow. History copy is shorter — frames that printed `for Electric Brixton` will pixel-diff; that is a Stage 3 redraw, not a Stage 1 baseline bump.
+Regenerated, narrowly, the 12 frames the history sentence actually moved: A0, A1, A2, A4, A6, A8, A9, A10, A11, A13, A14, A15. Reason: history line dropped `for Electric Brixton`. A0 is the same sentence un-gated — it never named a client, so the line is new and the frame grew 16px.
+
+**Named debt — A14 and siblings are unguarded on the list.** A14 and its siblings assert the count sentence only; the inline blocker list under it is unguarded until Stage 2 draws it into the frames. Stage 2's brief already carries that payer: [plan-canvas-revamp-brief-2026-09-07](./plan-canvas-revamp-brief-2026-09-07.md) §3.5 / §4 Stage 2 ("blocker list on the frames"). Until then a live-list regression will not turn `frames:check` red.
 
 Stage 2 (design thread, not Cursor): card primitive, two-column grid, channel card, budget card with a total, blocker list on the frames, canon §4 rewrite.
 
