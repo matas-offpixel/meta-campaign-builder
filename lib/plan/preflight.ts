@@ -4,9 +4,6 @@ import { validateCreativePayload } from "../meta/creative.ts";
 import { collectTikTokLaunchPreflight } from "../tiktok/write/preflight.ts";
 import {
   annotateChannelDefaultCures,
-  applyGoogleChannelDefaults,
-  applyMetaChannelDefaults,
-  applyTikTokChannelDefaults,
   resolveChannelDefaults,
   type ClientChannelDefaultsRow,
   type ChannelDefaultOverrides,
@@ -15,6 +12,7 @@ import {
 import { planToGoogleDraft } from "./adapters/google.ts";
 import { planToMetaDraft } from "./adapters/meta.ts";
 import { planToTikTokDraft } from "./adapters/tiktok.ts";
+import { buildPlanLaunchDrafts } from "./launch-drafts.ts";
 import {
   budgetedLaunchAdapters,
   type CampaignPlan,
@@ -83,11 +81,7 @@ export function collectPlanPreflight(
   } | null,
 ): PlanPreflightResult {
   const resolved = resolveChannelDefaults(channel?.stored ?? null, channel?.overrides ?? {});
-  const drafts = {
-    meta: applyMetaChannelDefaults(linked?.meta ?? planToMetaDraft(plan), resolved),
-    tiktok: applyTikTokChannelDefaults(linked?.tiktok ?? planToTikTokDraft(plan), resolved),
-    google: applyGoogleChannelDefaults(linked?.google ?? planToGoogleDraft(plan), resolved),
-  };
+  const drafts = buildPlanLaunchDrafts(plan, linked, resolved);
   const budgeted = new Set(budgetedLaunchAdapters(plan.intent.budget));
   const issues: PlanPreflightIssue[] = [];
 

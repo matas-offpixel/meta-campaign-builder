@@ -1,20 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { POST as metaLaunchPost } from "@/app/api/meta/launch-campaign/route";
-import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  loadChannelDefaultsForEvent,
+  resolveChannelDefaults,
+} from "@/lib/clients/channel-defaults";
 import { upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
-import { handleTikTokLaunch } from "@/lib/tiktok/write/launch";
+import { notify } from "@/lib/notify/slack";
+import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { planFanoutGateState } from "@/lib/plan/gate";
+import { launchPayloadShape } from "@/lib/plan/launch-payload-shape";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
-import { loadGoogleCustomerIdForSearchPlan } from "@/lib/plan/load";
-import { orchestratePlanLaunch, type PlanAdapterOutcome } from "@/lib/plan/orchestrator";
+import { loadGoogleCustomerIdForSearchPlan, loadPlanLaunchRecords } from "@/lib/plan/load";
+import {
+  interpretMetaLaunchSummary,
+  persistLaunchFailureAdvisory,
+} from "@/lib/plan/meta-launch-outcome";
+import {
+  orchestratePlanLaunch,
+  PLAN_LAUNCH_MAX_DURATION_MS,
+  type PlanAdapterOutcome,
+} from "@/lib/plan/orchestrator";
 import { upsertCampaignPlan, upsertPlanLaunchRow } from "@/lib/plan/persist";
 import {
   predictionFromBenchmark,
   writePredictionsAtLaunch,
 } from "@/lib/plan/predictions";
-import type { CampaignPlan } from "@/lib/plan/types";
+import type { CampaignPlan, PlanAdapterName } from "@/lib/plan/types";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import type { CampaignDraft } from "@/lib/types";
+import { handleTikTokLaunch } from "@/lib/tiktok/write/launch";
 
 export const maxDuration = 800;
 
@@ -29,11 +44,8 @@ function isCampaignPlan(value: unknown): value is CampaignPlan {
   );
 }
 
-function logOutgoing(adapter: string, payload: unknown): void {
-  console.error(
-    `[plan-fanout] outgoing ${adapter} payload`,
-    JSON.stringify(payload),
-  );
+function logOutgoing(adapter: PlanAdapterName, payload: unknown): void {
+  console.error("[plan-fanout] outgoing", launchPayloadShape(adapter, payload));
 }
 
 async function launchMeta(
@@ -49,15 +61,16 @@ async function launchMeta(
     }),
   });
   const res = await metaLaunchPost(launchReq);
-  const json = (await res.json()) as { metaCampaignId?: string; error?: string };
+  const json = (await res.json()) as {
+    metaCampaignId?: string;
+    adsCreated?: number;
+    adsFailed?: number;
+    error?: string;
+  };
   if (!res.ok) {
     return { ok: false, error: json.error ?? `Meta launch HTTP ${res.status}` };
   }
-  return {
-    ok: true,
-    campaignId: json.metaCampaignId ?? null,
-    draftId: draft.id,
-  };
+  return interpretMetaLaunchSummary(json);
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -115,14 +128,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const linked = await loadLinkedDraftsForPlan(supabase, plan);
-  const googleCustomerId = plan.launches.google.draftId
-    ? await loadGoogleCustomerIdForSearchPlan(supabase, plan.launches.google.draftId)
+  const [linked, channel, ledger] = await Promise.all([
+    loadLinkedDraftsForPlan(supabase, plan),
+    loadChannelDefaultsForEvent(supabase, plan.intent.eventId),
+    loadPlanLaunchRecords(supabase, plan.id),
+  ]);
+  const resolved = resolveChannelDefaults(channel?.stored ?? null, channel?.overrides ?? {});
+  const googleCustomerId = ledger.google.draftId
+    ? await loadGoogleCustomerIdForSearchPlan(supabase, ledger.google.draftId)
     : null;
+
+  const notifyDeps = buildLiveNotifyDeps(createServiceRoleClient());
+  const persistAdvisories: string[] = [];
+
   const result = await orchestratePlanLaunch({
-    plan,
+    plan: { ...plan, launches: ledger },
     linkedDrafts: linked,
+    resolved,
     googleCustomerId,
+    now: new Date(),
+    maxDurationMs: PLAN_LAUNCH_MAX_DURATION_MS,
     persistLaunch: async (adapter, record) => {
       const write = await upsertPlanLaunchRow(supabase, {
         planId: plan.id,
@@ -132,6 +157,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       if (!write.ok) {
         console.error(`[plan-fanout] persist ${adapter} launch row failed`, write.error);
+        const advisory = persistLaunchFailureAdvisory(record);
+        if (advisory) {
+          persistAdvisories.push(advisory);
+          await notify(
+            {
+              channel: "ads_urgent",
+              text: `${advisory} (${adapter} ${record.platformCampaignId ?? "no-id"} plan ${plan.id})`,
+              respectBusinessHours: false,
+            },
+            notifyDeps,
+          );
+        }
       }
     },
     logOutgoing,
@@ -192,9 +229,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  const advisories = [...result.advisories, ...persistAdvisories];
   return NextResponse.json({
     ok: true,
     skippedReason: result.skippedReason,
     plan: result.plan,
+    skips: result.skips,
+    retried: result.retried,
+    advisories,
   });
 }

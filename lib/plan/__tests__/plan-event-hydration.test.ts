@@ -226,7 +226,9 @@ describe("single-resolver invariant", () => {
     const defaults = readFileSync("lib/clients/channel-defaults.ts", "utf8");
     assert.match(preflight, /from "\.\.\/clients\/channel-defaults\.ts"/);
     assert.match(preflight, /resolveChannelDefaults\(/);
-    assert.match(preflight, /applyMetaChannelDefaults\(/);
+    assert.match(preflight, /buildPlanLaunchDrafts\(/);
+    const launchDrafts = readFileSync("lib/plan/launch-drafts.ts", "utf8");
+    assert.match(launchDrafts, /applyMetaChannelDefaults\(/);
     assert.match(prepare, /from "@\/lib\/clients\/channel-defaults"/);
     assert.match(prepare, /resolveChannelDefaults\(/);
     assert.match(prepare, /applyMetaChannelDefaults\(/);

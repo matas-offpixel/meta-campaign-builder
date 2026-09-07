@@ -89,6 +89,8 @@ export interface CampaignPlanLaunchRecord {
   error: string | null;
   /** Ledger `created_at`. Absent on idle rows and older constructors. Not a launch time. */
   createdAt?: string | null;
+  /** Ledger `updated_at`. Used to age a stuck `launching` row. */
+  updatedAt?: string | null;
   /**
    * Account the campaign actually launched in (draft settings). Identity
    * reads this after launch — never the client-default resolver.
@@ -131,6 +133,7 @@ export const IDLE_PLAN_LAUNCH: CampaignPlanLaunchRecord = {
   draftId: null,
   error: null,
   createdAt: null,
+  updatedAt: null,
   platformAdAccountId: null,
   draftAdAccountId: null,
   launchedAt: null,
