@@ -175,6 +175,14 @@ export interface TikTokCreativeDraft {
   durationSeconds: number | null;
   title: string | null;
   sparkPostId: string | null;
+  /**
+   * SPARK_AD only — from the post's `user_info`. Mapping prefers these
+   * over `accountSetup` so the ad runs as the account that owns the post.
+   */
+  identityId?: string | null;
+  identityType?: TikTokAccountSetup["identityType"];
+  identityBcId?: string | null;
+  identityDisplayName?: string | null;
   caption: string;
   adText: string;
   displayName: string;

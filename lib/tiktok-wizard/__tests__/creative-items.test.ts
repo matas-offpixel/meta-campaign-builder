@@ -3,10 +3,12 @@ import { describe, it } from "node:test";
 
 import { nameCreativeVariations } from "../../tiktok/creative.ts";
 import {
+  appendSparkTikTokCreatives,
   appendUploadedTikTokCreatives,
   clampTikTokVariationCount,
   nextTikTokCreativeNames,
 } from "../creative-items.ts";
+import type { TikTokSparkPost } from "../../tiktok/spark-posts.ts";
 
 const SHARED = {
   baseName: "Hero",
@@ -164,6 +166,66 @@ describe("appendUploadedTikTokCreatives", () => {
     const names = [...first, ...second];
     assert.equal(new Set(names).size, names.length);
     assert.deepEqual(names, nameCreativeVariations("Hero", 4));
+  });
+
+  it("maps two spark posts to SPARK_AD items with the post identity", () => {
+    let n = 0;
+    const posts: TikTokSparkPost[] = [
+      {
+        item_id: "item-1",
+        text: "One",
+        status: "HESITATE_RECOMMEND",
+        item_type: "VIDEO",
+        identity_id: "id-a",
+        identity_type: "AUTH_CODE",
+        identity_display_name: "nxloves",
+        ad_auth_status: "AUTHORIZED",
+        auth_end_time: "2026-11-18 14:39:06",
+        poster_url: "https://cdn.example/a.jpg",
+        preview_url: "https://cdn.example/a.mp4",
+        duration_seconds: 12,
+        fetched_at: "2026-09-07T21:00:00.000Z",
+      },
+      {
+        item_id: "item-2",
+        text: "Two",
+        status: "HESITATE_RECOMMEND",
+        item_type: "VIDEO",
+        identity_id: "id-b",
+        identity_type: "AUTH_CODE",
+        identity_display_name: "electricstudios",
+        ad_auth_status: "AUTHORIZED",
+        auth_end_time: "2026-11-18 14:39:06",
+        poster_url: "https://cdn.example/b.jpg",
+        preview_url: "https://cdn.example/b.mp4",
+        duration_seconds: 20,
+        fetched_at: "2026-09-07T21:00:00.000Z",
+      },
+    ];
+    const items = appendSparkTikTokCreatives({
+      existing: [],
+      posts,
+      baseName: "Hero",
+      adText: "Book now",
+      landingPageUrl: "https://example.com",
+      cta: "LEARN_MORE",
+      now: Date.parse("2026-09-07T21:00:00.000Z"),
+      newId: () => `id-${++n}`,
+    });
+    assert.equal(items.length, 2);
+    assert.deepEqual(
+      items.map((item) => item.mode),
+      ["SPARK_AD", "SPARK_AD"],
+    );
+    assert.deepEqual(
+      items.map((item) => item.sparkPostId),
+      ["item-1", "item-2"],
+    );
+    assert.deepEqual(
+      items.map((item) => item.identityId),
+      ["id-a", "id-b"],
+    );
+    assert.equal(items[0]!.videoId, null);
   });
 
   it("maps two library picks at variationCount 1 to two VIDEO_REFERENCE items", () => {

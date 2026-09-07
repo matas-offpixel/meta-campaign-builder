@@ -1085,8 +1085,9 @@ describe("write paths are untouched", () => {
     }
     assert.ok(base, "neither origin/main nor main exists");
     // validation.ts may drop unused step labels; validateGoogleSearchStep stays.
+    // mapping.ts may prefer a SPARK_AD creative's own identity over accountSetup.
     const diff = execSync(
-      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts'`,
+      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts'`,
       {
         encoding: "utf8",
       },

@@ -744,13 +744,39 @@ export function buildTikTokAdPayload(input: {
   draft: TikTokCampaignDraft;
   creative: TikTokCreativeDraft;
 }): MappingResult<Record<string, BodyValue>> {
-  const identityType = mapTikTokIdentityType(input.draft.accountSetup.identityType);
+  const isSpark =
+    input.creative.mode === "SPARK_AD" && Boolean(input.creative.sparkPostId?.trim());
+  const identityId = isSpark
+    ? input.creative.identityId?.trim()
+    : input.draft.accountSetup.identityId?.trim();
+  const identityTypeRaw = isSpark
+    ? input.creative.identityType
+    : input.draft.accountSetup.identityType;
+  const identityDisplayName = isSpark
+    ? input.creative.identityDisplayName ?? input.draft.accountSetup.identityDisplayName
+    : input.draft.accountSetup.identityDisplayName;
+  const identityBcId = isSpark
+    ? input.creative.identityBcId
+    : input.draft.accountSetup.identityBcId;
+
+  const identityType = mapTikTokIdentityType(identityTypeRaw ?? null);
   if (!identityType.ok) return identityType;
-  if (!input.draft.accountSetup.identityId) {
-    return missing("identity_id", "Identity id is required");
+  if (!identityId) {
+    return missing(
+      "identity_id",
+      isSpark
+        ? `Spark creative "${input.creative.name}" is missing the post's identity`
+        : "Identity id is required",
+    );
   }
-  if (!input.creative.videoId) {
+  if (!isSpark && !input.creative.videoId) {
     return missing("video_id", `Creative ${input.creative.name} is missing a videoId`);
+  }
+  if (isSpark && !input.creative.sparkPostId?.trim()) {
+    return missing(
+      "tiktok_item_id",
+      `Creative ${input.creative.name} is missing a sparkPostId`,
+    );
   }
   if (!input.creative.landingPageUrl) {
     return missing(
@@ -759,7 +785,7 @@ export function buildTikTokAdPayload(input: {
     );
   }
   const coverImageId = input.creative.coverImageId?.trim();
-  if (!coverImageId) {
+  if (!isSpark && !coverImageId) {
     return missing(
       "image_ids",
       `Creative "${input.creative.name}" needs a cover image. TikTok rejects video ads without image_ids.`,
@@ -769,21 +795,23 @@ export function buildTikTokAdPayload(input: {
   const creative: Record<string, BodyValue> = {
     ad_name: input.creative.name,
     ad_format: "SINGLE_VIDEO",
-    video_id: input.creative.videoId,
-    image_ids: [coverImageId],
     ad_text: input.creative.adText,
     display_name: input.creative.displayName,
     landing_page_url: input.creative.landingPageUrl,
-    identity_id: input.draft.accountSetup.identityId,
+    identity_id: identityId,
     identity_type: identityType.value,
     creative_authorized: false,
   };
+  if (!isSpark && coverImageId) {
+    creative.video_id = input.creative.videoId;
+    creative.image_ids = [coverImageId];
+  }
   if (identityType.value === "BC_AUTH_TT") {
-    const bcId = input.draft.accountSetup.identityBcId?.trim();
+    const bcId = identityBcId?.trim();
     if (!bcId) {
       return missing(
         "identity_authorized_bc_id",
-        `Identity "${input.draft.accountSetup.identityDisplayName ?? input.draft.accountSetup.identityId}" is BC_AUTH_TT but no Business Center id could be resolved`,
+        `Identity "${identityDisplayName ?? identityId}" is BC_AUTH_TT but no Business Center id could be resolved`,
       );
     }
     // Official AdcreateCreatives + preview docs: identity_authorized_bc_id.
@@ -793,7 +821,7 @@ export function buildTikTokAdPayload(input: {
     creative.identity_authorized_bc_id = bcId;
   }
   if (input.creative.cta) creative.call_to_action = input.creative.cta;
-  if (input.creative.mode === "SPARK_AD" && input.creative.sparkPostId) {
+  if (isSpark) {
     creative.tiktok_item_id = input.creative.sparkPostId;
   }
   if (input.creative.musicId) creative.music_id = input.creative.musicId;
