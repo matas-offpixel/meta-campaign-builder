@@ -314,6 +314,8 @@ export const VIZ_UNIT_WORD = {
   lpv: "page view",
   purchase: "purchase",
   view: "thousand reached",
+  /** Display word for the tickets_sold line of the purchase unit. Not a stored target_unit. */
+  ticket: "ticket",
 } as const;
 
 /** The purchase unit has two lines; the second line's word is the ticketing source's. */

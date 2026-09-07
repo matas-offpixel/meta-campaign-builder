@@ -15,11 +15,14 @@ import {
   WINDOW_MOMENT_LANE_PX,
   WINDOW_RAIL_LANE_PX,
   collapseOverlappingMomentLabels,
+  dateToRatio,
   estimateHandleLabelWidth,
+  handleLabelBoxesOverlap,
   handleLabelLeftPx,
   momentMarkAlign,
   resolveMomentGlyphCollision,
   windowRailView,
+  windowSpanMs,
   WINDOW_GLYPH_COLLISION_PCT,
 } from "../window-bar.ts";
 
@@ -176,6 +179,71 @@ describe("WindowBar label layout", () => {
     ]);
     assert.equal(collision.joinedLabel.get("show") ?? collision.joinedLabel.get("now"), "now · show");
     assert.equal(collision.hideNounIds.size, 1);
+  });
+
+  it("a real moment that replaces a placeholder still joins at 2%", () => {
+    const collision = resolveMomentGlyphCollision([
+      { id: "now", noun: "now", ratio: 0.61 },
+      { id: "presale", noun: "presale", ratio: 0.615 },
+    ]);
+    assert.equal(
+      collision.joinedLabel.get("now") ?? collision.joinedLabel.get("presale"),
+      "now · presale",
+    );
+    assert.equal(collision.hideNounIds.size, 1);
+  });
+
+  it("start and end within 2% share one rail-order label", () => {
+    const now = new Date("2026-03-18T12:00:00.000Z");
+    const start = new Date("2026-07-31T12:00:00.000Z");
+    const end = new Date("2026-08-01T12:00:00.000Z");
+    const view = windowRailView({ start, end, now, moments: [], min: now });
+    assert.equal(view.hideStartLabel, true);
+    assert.equal(view.endNoun, "start · end");
+    assert.equal(view.startNoun, "start · end");
+    assert.deepEqual(view.labels, ["start · end"]);
+  });
+
+  it("A13 start/end labels on the right of a future window overlap and collapse", () => {
+    const now = new Date("2026-03-18T12:00:00.000Z");
+    const start = new Date("2026-07-10T00:00:00");
+    const end = new Date("2026-08-01T23:00:00");
+    const view = windowRailView({
+      start,
+      end,
+      now,
+      moments: [{ id: "now", label: "now", at: now }],
+      min: now,
+    });
+    const { from, to } = windowSpanMs(start, end, now);
+    const startRatio = dateToRatio(start, from, to);
+    const endRatio = dateToRatio(end, from, to);
+    assert.ok(Math.abs(startRatio - endRatio) > WINDOW_GLYPH_COLLISION_PCT);
+    assert.equal(view.hideStartLabel, false);
+    const barWidth = 640;
+    const startText = formatVizMoment(start);
+    const endText = formatVizMoment(end);
+    const startWidth = estimateHandleLabelWidth(startText);
+    const endWidth = estimateHandleLabelWidth(endText);
+    const startLeft = handleLabelLeftPx({
+      handlePx: startRatio * barWidth,
+      labelWidth: startWidth,
+      barWidth,
+      align: "start",
+    });
+    const visualEndLeft = Math.max(0, barWidth - endWidth);
+    assert.equal(
+      handleLabelBoxesOverlap({
+        startLeft,
+        startWidth,
+        endLeft: visualEndLeft,
+        endWidth,
+      }),
+      true,
+    );
+    const source = readFileSync("components/viz/window-bar.tsx", "utf8");
+    assert.match(source, /hideStartLabel/);
+    assert.match(source, /handleLabelBoxesOverlap/);
   });
 
   it("handle and moment labels are nowrap in the component", () => {

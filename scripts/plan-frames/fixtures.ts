@@ -481,7 +481,7 @@ export const FRAME_FIXTURES: Record<FrameId, FrameFixture> = {
     metaPurchases: 84,
     tickets: 553,
     ticketSource: "unknown",
-    benchmarkRows: j2TicketRows("signup"),
+    benchmarkRows: j2TicketRows(),
     resolved: resolvedAll(),
     adjustReads: {
       spend: 2588,
@@ -572,7 +572,7 @@ export const FRAME_FIXTURES: Record<FrameId, FrameFixture> = {
     tickets: 558,
     ticketSource: "unknown",
     resolved: resolvedAll(),
-    benchmarkRows: j2TicketRows("signup"),
+    benchmarkRows: j2TicketRows(),
     adjustReads: {
       spend: 3605,
       metaRegs: 558,

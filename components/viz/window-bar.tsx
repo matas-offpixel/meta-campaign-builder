@@ -13,7 +13,9 @@ import {
   collapseOverlappingMomentLabels,
   dateToRatio,
   estimateHandleLabelWidth,
+  handleLabelBoxesOverlap,
   handleLabelLeftPx,
+  joinRailNouns,
   momentGlyph,
   momentMarkAlign,
   nudgeWindowHandle,
@@ -169,21 +171,35 @@ export function WindowBar({
       : "";
 
   const startText = formatVizMoment(start);
-  const joinedEndLabel = rail.endNoun !== "end" ? rail.endNoun : endLabel;
-  const endRelative = joinedEndLabel ? undefined : formatVizRelative(end, clock);
-  const endText = joinedEndLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
+  const startLabelWidth = estimateHandleLabelWidth(startText);
   const startLeft = handleLabelLeftPx({
     handlePx: (startPct / 100) * width,
-    labelWidth: estimateHandleLabelWidth(startText),
+    labelWidth: startLabelWidth,
     barWidth: width,
     align: "start",
   });
-  const endLeft = handleLabelLeftPx({
-    handlePx: (endPct / 100) * width,
-    labelWidth: estimateHandleLabelWidth(endText),
-    barWidth: width,
-    align: "end",
-  });
+  const endDateText = formatVizMoment(end);
+  const endLabelWidth = estimateHandleLabelWidth(endDateText);
+  const visualEndLeft = Math.max(0, width - endLabelWidth);
+  const boxesOverlap =
+    width > 1 &&
+    handleLabelBoxesOverlap({
+      startLeft,
+      startWidth: startLabelWidth,
+      endLeft: visualEndLeft,
+      endWidth: endLabelWidth,
+    });
+  const hideStartLabel = rail.hideStartLabel || boxesOverlap;
+  const railEndNoun =
+    hideStartLabel && !rail.hideStartLabel
+      ? joinRailNouns([
+          { id: "start", noun: rail.startNoun },
+          { id: "end", noun: rail.endNoun },
+        ])
+      : rail.endNoun;
+  const joinedEndLabel = railEndNoun !== "end" ? railEndNoun : endLabel;
+  const endRelative = joinedEndLabel ? undefined : formatVizRelative(end, clock);
+  const endText = joinedEndLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
 
   return (
     <div
@@ -291,16 +307,18 @@ export function WindowBar({
             </span>
           ) : (
             <>
-              <HandleLabel
-                name="start"
-                left={startLeft}
-                width={estimateHandleLabelWidth(startText)}
-                at={start}
-              />
+              {hideStartLabel ? null : (
+                <HandleLabel
+                  name="start"
+                  left={startLeft}
+                  width={startLabelWidth}
+                  at={start}
+                />
+              )}
               <HandleLabel
                 name="end"
-                noun={rail.endNoun}
-                left={endLeft}
+                noun={railEndNoun}
+                left={visualEndLeft}
                 width={estimateHandleLabelWidth(endText)}
                 at={end}
                 relative={endRelative}

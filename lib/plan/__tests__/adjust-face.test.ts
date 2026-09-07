@@ -5,7 +5,8 @@ import { describe, it } from "node:test";
 import { evaluateAdSet } from "../../optimisation/evaluate.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
 import { formatPaceSentence } from "../../viz/pace.ts";
-import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE, VIZ_TICKET_LINE_WORD } from "../../viz/tokens.ts";
+import { VIZ_CLIENT_SAFE, VIZ_LOCKED_CLIENT_CREATIVE, VIZ_TICKET_LINE_WORD, VIZ_UNIT_WORD } from "../../viz/tokens.ts";
+import { isPlanTargetUnit } from "../target-unit.ts";
 import {
   ADJUST_APPLY_NEXT_CHECK,
   ADJUST_LIFETIME_TIP,
@@ -22,6 +23,9 @@ import {
   ADJUST_PLACEMENT_FACEBOOK,
   ADJUST_PLACEMENT_LINES,
   adjustPrimaryReadingUnit,
+  adjustReadingUnit,
+  formatMetaPurchaseLine,
+  formatTicketReading,
   formatDecisionClock,
   adjustControlsVisible,
   adjustFaceView,
@@ -36,6 +40,7 @@ import {
   formatCreativeStale,
   formatNoUsual,
   formatUsualFromShows,
+  formatCostPerUnit,
   formatOurTagNotMeasured,
   formatPurchaseDisagreement,
   formatRefusal,
@@ -50,7 +55,7 @@ import {
   adjustLogFromDecisions,
   emptyAdjustReads,
 } from "../adjust-face.ts";
-import { launchReadingUnit, planLaunchedAt } from "../launch-face.ts";
+import { launchReadingUnit, launchUnitWord, planLaunchedAt } from "../launch-face.ts";
 import { IDLE_PLAN_LAUNCH } from "../types.ts";
 import { planBenchmark, type BenchmarkRow } from "../benchmarks.ts";
 
@@ -80,6 +85,12 @@ describe("ADJUST J-states — sentences", () => {
     assert.equal(ADJUST_NO_USUAL, "no usual yet — opens after your first finished show");
     assert.equal(formatNoUsual(null), ADJUST_NO_USUAL);
     assert.equal(formatNoUsual(""), ADJUST_NO_USUAL);
+    assert.equal(
+      formatNoUsual("NX Newcastle"),
+      "no usual yet — opens after your first finished NX Newcastle show",
+    );
+    assert.doesNotMatch(formatNoUsual("NX Newcastle"), /finished show$/);
+    assert.match(formatNoUsual("NX Newcastle"), /NX Newcastle/);
   });
 
   it("J8 two-source lines never merge; gap is unsigned", () => {
@@ -303,6 +314,7 @@ describe("ADJUST surface guards", () => {
   it("workspace mounts ADJUST as the live morning read", () => {
     const source = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(source, /CanvasAdjust/);
+    assert.match(source, /adjustReadingUnit/);
     assert.match(source, /adjustPrimaryReadingUnit/);
     assert.match(source, /launchReadingUnit\(\{/);
     assert.match(source, /presaleAt: selectedEvent\?\.presaleAt/);
@@ -880,6 +892,113 @@ describe("ADJUST review round 1 — the view the surface calls", () => {
     assert.equal(face.costLabel, "cost per purchase");
     assert.match(face.signupLine ?? "", /per purchase/);
     assert.doesNotMatch(face.signupLine ?? "", /per signup/);
+  });
+
+  it("ticket is a display word, not a stored target_unit", () => {
+    assert.equal(VIZ_UNIT_WORD.ticket, "ticket");
+    assert.equal(launchUnitWord("ticket"), "ticket");
+    assert.equal(formatCostPerUnit(4.68, "ticket"), "£4.68 per ticket");
+    assert.equal(isPlanTargetUnit("ticket"), false);
+  });
+
+  it("reading unit is ticket when the client has ticket entries and the phase is on-sale", () => {
+    const now = new Date("2026-04-20T12:00:00.000Z");
+    assert.equal(
+      adjustReadingUnit({
+        now,
+        kind: "event",
+        tickets: 553,
+        ticketSource: "unknown",
+      }),
+      "ticket",
+    );
+    assert.equal(
+      adjustReadingUnit({
+        now,
+        kind: "event",
+        tickets: null,
+        ticketSource: "none",
+      }),
+      "reg",
+    );
+    assert.equal(
+      adjustReadingUnit({
+        now: new Date("2026-09-06T12:00:00.000Z"),
+        generalSaleAt: "2026-09-04T00:00:00.000+01:00",
+        launchedAt: "2026-08-27T12:00:00.000Z",
+        kind: "event",
+        tickets: null,
+        ticketSource: "none",
+      }),
+      "reg",
+    );
+  });
+
+  it("J3 reads per ticket, one chip, Meta says as a line", () => {
+    const face = adjustFaceView({
+      spent: 2588,
+      planned: 3300,
+      metaSignups: 553,
+      metaPurchases: 84,
+      tickets: 553,
+      ticketSource: "unknown",
+      now: new Date("2026-04-20T12:00:00.000Z"),
+      kind: "event",
+    });
+    assert.equal(face.signupLine, "£4.68 per ticket · 553 tickets on £2,588");
+    assert.equal(face.signupLine, formatTicketReading(2588 / 553, 553, 2588));
+    assert.equal(face.costLabel, "cost per ticket");
+    assert.equal(face.purchaseLine, null);
+    assert.equal(face.purchaseCost, null);
+    assert.equal(
+      face.purchaseDisagreement,
+      "Meta says 84 purchases · Meta counts 469 fewer",
+    );
+    assert.equal(
+      face.purchaseDisagreement,
+      formatMetaPurchaseLine({ metaPurchases: 84, tickets: 553 }),
+    );
+    assert.doesNotMatch(face.signupLine ?? "", /per purchase|per signup/);
+    const canvas = readFileSync("components/plan/canvas-adjust.tsx", "utf8");
+    assert.match(canvas, /face\.purchaseLine \?/);
+  });
+
+  it("J8 reads per ticket with no second purchase-cost chip", () => {
+    const face = adjustFaceView({
+      spent: 3605,
+      planned: 3600,
+      metaSignups: 558,
+      metaPurchases: 74,
+      tickets: 558,
+      ticketSource: "unknown",
+      now: new Date("2026-04-20T12:00:00.000Z"),
+      kind: "event",
+    });
+    assert.equal(face.signupLine, "£6.46 per ticket · 558 tickets on £3,605");
+    assert.equal(face.purchaseLine, null);
+    assert.equal(face.purchaseCost, null);
+    assert.equal(
+      face.purchaseDisagreement,
+      "Meta says 74 purchases · Meta counts 484 fewer",
+    );
+  });
+
+  it("J7 venue is verbatim from venue_name", () => {
+    const face = adjustFaceView({
+      spent: 1029,
+      planned: 1029,
+      metaSignups: 374,
+      metaPurchases: null,
+      tickets: null,
+      ticketSource: "none",
+      now: new Date("2026-08-04T12:00:00.000Z"),
+      venueName: "NX Newcastle",
+    });
+    assert.equal(
+      face.noUsual,
+      "no usual yet — opens after your first finished NX Newcastle show",
+    );
+    assert.doesNotMatch(face.noUsual ?? "", /finished show$/);
   });
 });
 

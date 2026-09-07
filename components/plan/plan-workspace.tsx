@@ -45,8 +45,10 @@ import {
 } from "@/lib/plan/canvas-inputs";
 import {
   adjustPrimaryReadingUnit,
+  adjustReadingUnit,
   domainFromUrl,
   plannedSpendByToday,
+  toBenchmarkReadingUnit,
   type AdjustDecisionRow,
   type AdjustWindowReads,
 } from "@/lib/plan/adjust-face";
@@ -830,24 +832,6 @@ export function PlanWorkspace({
     presaleAt: selectedEvent?.presaleAt,
     kind: selectedEvent?.kind,
   });
-  const adjustReadingUnit = adjustPrimaryReadingUnit({
-    now: clock,
-    generalSaleAt: selectedEvent?.generalSaleAt,
-    presaleAt: selectedEvent?.presaleAt,
-    launchedAt,
-    kind: selectedEvent?.kind,
-  });
-  const adjustBenchmark =
-    selectedEvent?.clientId && selectedEvent.venueKey
-      ? planBenchmark({
-          rows: benchmarkRows,
-          clientId: selectedEvent.clientId,
-          venueKey: selectedEvent.venueKey,
-          venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
-          unit: adjustReadingUnit === "reg" ? "signup" : adjustReadingUnit,
-          excludeEventId: selectedEvent.id,
-        })
-      : undefined;
   const ticketStage = funnel?.stages.find((stage) => stage.key === "purchases");
   const ticketSourceRaw = ticketStage?.provenanceDetail.match(
     /Winning snapshot source is (\w+)/,
@@ -861,6 +845,33 @@ export function PlanWorkspace({
       : (adjustReads?.tickets ?? ticketStage?.value)
         ? "unknown"
         : "none";
+  const adjustPhaseUnit = adjustPrimaryReadingUnit({
+    now: clock,
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    launchedAt,
+    kind: selectedEvent?.kind,
+  });
+  const readingAdjustUnit = adjustReadingUnit({
+    now: clock,
+    generalSaleAt: selectedEvent?.generalSaleAt,
+    presaleAt: selectedEvent?.presaleAt,
+    launchedAt,
+    kind: selectedEvent?.kind,
+    tickets: ticketSource === "none" ? null : (adjustReads?.tickets ?? ticketStage?.value ?? null),
+    ticketSource,
+  });
+  const adjustBenchmark =
+    selectedEvent?.clientId && selectedEvent.venueKey
+      ? planBenchmark({
+          rows: benchmarkRows,
+          clientId: selectedEvent.clientId,
+          venueKey: selectedEvent.venueKey,
+          venueLabel: selectedEvent.venueName ?? selectedEvent.venueKey,
+          unit: toBenchmarkReadingUnit(readingAdjustUnit),
+          excludeEventId: selectedEvent.id,
+        })
+      : undefined;
   const lpvStage = funnel?.stages.find((stage) => stage.key === "lpv");
 
   const today = todayIsoDate();
@@ -947,7 +958,7 @@ export function PlanWorkspace({
   const launchStamp = planLaunchStamp(plan.launches);
   const readsPending =
     !readOnly && (preflightOk === null || !automationSettled || !mirrorSettled);
-  const channelReadingUnit = launchStamp ? adjustReadingUnit : readingUnit;
+  const channelReadingUnit = launchStamp ? adjustPhaseUnit : readingUnit;
   const usual = selectedEvent?.clientId && selectedEvent.venueKey
     ? planBenchmark({
         rows: benchmarkRows,

@@ -9,12 +9,14 @@ import {
   VIZ_ACTION_WORD,
   VIZ_LOCKED_CLIENT_CREATIVE,
   VIZ_TICKET_LINE_WORD,
+  VIZ_UNIT_WORD,
   type VizAction,
   type VizDeltaTone,
   type VizLineKind,
 } from "../viz/tokens.ts";
 import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
-import { launchReadingUnit, launchUnitWord } from "./launch-face.ts";
+import type { BenchmarkUnit } from "./benchmarks.ts";
+import { launchReadingUnit, launchUnitWord, type PlanDisplayUnit } from "./launch-face.ts";
 
 export const ADJUST_INFO_VARIANT = "card" as const;
 export const ADJUST_PHASE_LABEL = "before general sale" as const;
@@ -58,6 +60,26 @@ export function formatPaceSums(spent: number, planned: number): string {
 
 export function formatCostPerUnit(value: number, unitWord: string): string {
   return `${formatGbp(value)} per ${unitWord}`;
+}
+
+/** J3 / J8 — all-channel spend ÷ tickets_sold, count and spend on the same line. */
+export function formatTicketReading(cost: number, tickets: number, spent: number): string {
+  return `${formatCostPerUnit(cost, VIZ_UNIT_WORD.ticket)} · ${tickets.toLocaleString("en-GB")} tickets on ${formatGbp(spent)}`;
+}
+
+/** Second line under a per-ticket chip — Meta's pixel count, not a second cost. */
+export function formatMetaPurchaseLine(input: {
+  metaPurchases: number;
+  tickets?: number | null;
+}): string {
+  const says = `Meta says ${input.metaPurchases.toLocaleString("en-GB")} purchases`;
+  if (input.tickets == null) return says;
+  const gap = Math.abs(input.metaPurchases - input.tickets);
+  if (gap === 0) return says;
+  if (input.metaPurchases > input.tickets) {
+    return `${says} · ${gap.toLocaleString("en-GB")} unexplained`;
+  }
+  return `${says} · Meta counts ${gap.toLocaleString("en-GB")} fewer`;
 }
 
 export function formatAgainstUsual(
@@ -403,6 +425,56 @@ export function adjustPrimaryReadingUnit(input: {
   return phase;
 }
 
+export type AdjustReadingUnit = PlanDisplayUnit;
+
+export function hasTicketEntries(
+  tickets?: number | null,
+  ticketSource?: keyof typeof VIZ_TICKET_LINE_WORD,
+): boolean {
+  return tickets != null && tickets > 0 && ticketSource != null && ticketSource !== "none";
+}
+
+/**
+ * Display reading unit. `ticket` is the word for the tickets_sold line
+ * of the purchase unit when the client has ticket entries and the
+ * phase is on-sale. Stored `target_unit` stays `purchase`.
+ */
+export function adjustReadingUnit(input: {
+  now: Date;
+  generalSaleAt?: string | Date | null;
+  presaleAt?: string | Date | null;
+  launchedAt?: string | Date | null;
+  kind?: string | null;
+  tickets?: number | null;
+  ticketSource?: keyof typeof VIZ_TICKET_LINE_WORD;
+}): AdjustReadingUnit {
+  const primary = adjustPrimaryReadingUnit(input);
+  if (primary === "view") return "view";
+  if (!hasTicketEntries(input.tickets, input.ticketSource)) return primary;
+  const generalSaleAt =
+    input.generalSaleAt instanceof Date
+      ? input.generalSaleAt.toISOString()
+      : (input.generalSaleAt ?? null);
+  const presaleAt =
+    input.presaleAt instanceof Date
+      ? input.presaleAt.toISOString()
+      : (input.presaleAt ?? null);
+  const phase = launchReadingUnit({
+    now: input.now,
+    generalSaleAt,
+    presaleAt,
+    kind: input.kind,
+  });
+  // Keep the launch-phase signup reading after general sale (J23).
+  if (primary === "reg" && phase === "purchase") return "reg";
+  const onSale = phase === "purchase" || (!generalSaleAt && !presaleAt);
+  return onSale ? "ticket" : primary;
+}
+
+export function toBenchmarkReadingUnit(unit: AdjustReadingUnit): BenchmarkUnit {
+  return unit === "reg" ? "signup" : unit;
+}
+
 export function deltaPercentFromBudgets(
   beforePence: number | null,
   afterPence: number | null,
@@ -438,7 +510,11 @@ export function adjustFaceSentences(state: AdjustJState): string[] {
     case "J24":
       return [formatPaceSums(558, 350), ADJUST_PHASE_LABEL];
     case "J3":
-      return [formatPaceSums(2588, 3300)];
+      return [
+        formatPaceSums(2588, 3300),
+        formatTicketReading(2588 / 553, 553, 2588),
+        formatMetaPurchaseLine({ metaPurchases: 84, tickets: 553 }),
+      ];
     case "J5":
     case "J16":
       return [
@@ -454,9 +530,9 @@ export function adjustFaceSentences(state: AdjustJState): string[] {
         }),
       ];
     case "J7":
-      return [ADJUST_NO_USUAL];
+      return [formatNoUsual("NX Newcastle")];
     case "J8":
-      return [formatPurchaseDisagreement({ metaPurchases: 74, tickets: 558 })];
+      return [formatMetaPurchaseLine({ metaPurchases: 74, tickets: 558 })];
     case "J9":
       return [
         formatMetaSays(1086, "signups"),
@@ -841,19 +917,23 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
   if (readsPending(input)) return pendingAdjustFace();
   const now = input.now ?? new Date();
   const role = input.role ?? "operator";
-  const primaryUnit = adjustPrimaryReadingUnit({
+  const primaryUnit = adjustReadingUnit({
     now,
     generalSaleAt: input.generalSaleAt,
     presaleAt: input.presaleAt,
     launchedAt: input.launchedAt,
     kind: input.kind,
+    tickets: input.tickets,
+    ticketSource: input.ticketSource,
   });
+  const isTicket = primaryUnit === "ticket";
   const unitWord = launchUnitWord(primaryUnit);
   const controls = adjustControlsVisible(role);
-  const noReads = input.spent <= 0 && input.metaSignups == null;
+  const noReads = input.spent <= 0 && input.metaSignups == null && input.tickets == null;
   const paceSentence = noReads ? ADJUST_NO_READS : formatPaceSums(input.spent, input.planned);
-  const signupCost = costPerCount(input.spent, input.metaSignups);
-  const purchaseCost = costPerCount(input.spent, input.metaPurchases);
+  const ticketCost = costPerCount(input.spent, input.tickets);
+  const signupCost = isTicket ? ticketCost : costPerCount(input.spent, input.metaSignups);
+  const purchaseCost = isTicket ? null : costPerCount(input.spent, input.metaPurchases);
   const genSale = input.generalSaleAt
     ? input.generalSaleAt instanceof Date
       ? input.generalSaleAt
@@ -910,26 +990,30 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
     noReads,
     signupCost,
     signupLine:
-      signupCost != null
-        ? input.benchmark
-          ? formatUsualFromShows(
-              signupCost,
-              unitWord,
-              input.benchmark.value,
-              input.benchmark.sentence,
-            )
-          : formatCostPerUnit(signupCost, unitWord)
-        : null,
+      isTicket && ticketCost != null && input.tickets != null
+        ? formatTicketReading(ticketCost, input.tickets, input.spent)
+        : signupCost != null
+          ? input.benchmark
+            ? formatUsualFromShows(
+                signupCost,
+                unitWord,
+                input.benchmark.value,
+                input.benchmark.sentence,
+              )
+            : formatCostPerUnit(signupCost, unitWord)
+          : null,
     costLabel: `cost per ${unitWord}`,
     signupPhaseLabel: showKeptSignup ? ADJUST_PHASE_LABEL : undefined,
     purchaseCost,
-    purchaseLine: salePassed
-      ? purchaseCost != null
-        ? formatMetaSaysCost(purchaseCost, "purchase")
-        : ADJUST_NO_PURCHASES
-      : purchaseCost != null
-        ? formatMetaSaysCost(purchaseCost, "purchase")
-        : null,
+    purchaseLine: isTicket
+      ? null
+      : salePassed
+        ? purchaseCost != null
+          ? formatMetaSaysCost(purchaseCost, "purchase")
+          : ADJUST_NO_PURCHASES
+        : purchaseCost != null
+          ? formatMetaSaysCost(purchaseCost, "purchase")
+          : null,
     noUsual,
     infoHeader: adjustInfoHeader(unitWord),
     purchaseInfoHeader: adjustInfoHeader("purchase"),
@@ -952,11 +1036,16 @@ export function adjustFaceView(input: AdjustFaceInput): AdjustFaceView {
     ticketLine: formatTicketLine(input.ticketSource, input.tickets ?? undefined),
     purchaseDisagreement:
       input.metaPurchases != null
-        ? formatPurchaseDisagreement({
-            metaPurchases: input.metaPurchases,
-            tickets: input.tickets,
-            ticketSource: input.ticketSource,
-          })
+        ? isTicket
+          ? formatMetaPurchaseLine({
+              metaPurchases: input.metaPurchases,
+              tickets: input.tickets,
+            })
+          : formatPurchaseDisagreement({
+              metaPurchases: input.metaPurchases,
+              tickets: input.tickets,
+              ticketSource: input.ticketSource,
+            })
         : null,
     logDays: adjustLogFromDecisions(input.decisions ?? [], unitWord, now),
     logEmpty: formatLogEmpty(now),
