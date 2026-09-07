@@ -35,21 +35,20 @@ export function CanvasWindow({
   dates: PlanWindowDates;
   onChange: (next: PlanWindowDates) => void;
   googleBudgeted: boolean;
-  now?: Date;
+  now: Date;
   createdAt?: Date | string | null;
   readOnly?: boolean;
 }) {
-  const clock = useMemo(() => now ?? new Date(), [now]);
-  const moments = useMemo(() => planWindowMoments(event, clock), [event, clock]);
+  const moments = useMemo(() => planWindowMoments(event, now), [event, now]);
   const validity = useMemo(
-    () => planWindowValidity(dates, event, { now: clock, createdAt }),
-    [dates, event, clock, createdAt],
+    () => planWindowValidity(dates, event, { now, createdAt }),
+    [dates, event, now, createdAt],
   );
   const handles = useMemo(() => {
-    if (validity.ok) return planWindowHandles(dates, event, clock);
-    const fallback = planDefaultWindow(event, clock);
-    return planWindowHandles(fallback, event, clock);
-  }, [dates, event, clock, validity.ok]);
+    if (validity.ok) return planWindowHandles(dates, event, now);
+    const fallback = planDefaultWindow(event, now);
+    return planWindowHandles(fallback, event, now);
+  }, [dates, event, now, validity.ok]);
 
   return (
     <section
@@ -61,8 +60,8 @@ export function CanvasWindow({
         moments={moments}
         start={handles.start}
         end={handles.end}
-        min={clock}
-        now={clock}
+        min={now}
+        now={now}
         empty={!validity.ok}
         emptyLabel={PLAN_CANVAS_COPY.windowUnset}
         tip={googleBudgeted ? GOOGLE_DATE_ONLY_NOTE : PLAN_CANVAS_COPY.window}

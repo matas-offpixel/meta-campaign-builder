@@ -15,10 +15,12 @@ const FACTS = {
 import type { FrameId } from "./ids.ts";
 import type { FrameFixture } from "./types.ts";
 import {
+  APR_20,
   AUG_4,
   DEC_4,
   EVENTS,
   JUL_24,
+  MAR_18,
   SEP_1,
   WALK_NOW,
   draftedLaunches,
@@ -156,6 +158,7 @@ const htReady = planOf({
   startDate: "2026-07-10",
   endDate: "2026-08-01",
   launches: draftedLaunches(),
+  createdAt: MAR_18,
 });
 
 const htLive = planOf({
@@ -168,6 +171,7 @@ const htLive = planOf({
   startDate: "2026-07-10",
   endDate: "2026-08-01",
   launches: pausedLaunches(),
+  createdAt: MAR_18,
 });
 
 const melodicLive = planOf({
@@ -346,8 +350,8 @@ export const FRAME_FIXTURES: Record<FrameId, FrameFixture> = {
   A13: {
     kind: "launch",
     id: "A13",
-    title: "A13 · Hard Techno ready as at Fri 24 Jul",
-    now: JUL_24,
+    title: "A13 · Hard Techno ready as at Wed 18 Mar",
+    now: MAR_18,
     plan: htReady,
     event: EVENTS.hardTechno,
     benchmarkRows: j2TicketRows(),
@@ -358,8 +362,8 @@ export const FRAME_FIXTURES: Record<FrameId, FrameFixture> = {
   A14: {
     kind: "launch",
     id: "A14",
-    title: "A14 · 6 things to fix before TikTok can run",
-    now: JUL_24,
+    title: "A14 · 6 things to fix before TikTok can run as at Wed 18 Mar",
+    now: MAR_18,
     plan: htReady,
     event: EVENTS.hardTechno,
     issues: issues(6, "tiktok"),
@@ -369,9 +373,9 @@ export const FRAME_FIXTURES: Record<FrameId, FrameFixture> = {
   A15: {
     kind: "launch",
     id: "A15",
-    title: "A15 · Hard Techno launched, paused",
-    now: JUL_24,
-    plan: htLive,
+    title: "A15 · Hard Techno launched, paused as at Wed 18 Mar",
+    now: MAR_18,
+    plan: { ...htLive, launches: pausedLaunches(MAR_18) },
     event: EVENTS.hardTechno,
     resolved: resolvedAll(),
     assets: [posterAsset("hard-techno.jpg")],
@@ -541,8 +545,11 @@ export const FRAME_FIXTURES: Record<FrameId, FrameFixture> = {
     kind: "adjust",
     id: "J8",
     title: "J8 · Melodic, Meta vs tickets",
-    now: WALK_NOW,
-    plan: melodicLive,
+    now: APR_20,
+    plan: {
+      ...melodicLive,
+      intent: { ...melodicLive.intent, endDate: "2026-04-20", endTime: "23:00" },
+    },
     event: EVENTS.melodic,
     spent: 8700,
     planned: 8000,

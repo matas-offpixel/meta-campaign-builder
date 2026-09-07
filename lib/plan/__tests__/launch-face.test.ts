@@ -852,7 +852,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(thumb, /border-dashed/);
     assert.doesNotMatch(thumb, /eventInitials|initials/);
     const rail = readFileSync("components/viz/window-bar.tsx", "utf8");
-    assert.match(rail, /end · now/);
+    assert.match(rail, /rail\.endNoun/);
     assert.match(rail, /VIZ_TYPE_NUM\.label/);
     assert.doesNotMatch(rail, /VIZ_TYPE\.micro/);
     const row = readFileSync("components/viz/channel-row.tsx", "utf8");

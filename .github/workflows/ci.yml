@@ -68,5 +68,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # @playwright/test@1.63.0 pins Chromium r1243. Do not loosen 0.2%.
       - run: npx playwright install --with-deps chromium
       - run: npm run frames:check
+      - name: Render Ubuntu rasters
+        if: failure()
+        run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update
+      - name: Upload plan-frames PNGs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-frames
+          path: docs/frames/*.png
+          if-no-files-found: ignore

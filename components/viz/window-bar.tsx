@@ -17,7 +17,6 @@ import {
   momentGlyph,
   momentMarkAlign,
   nudgeWindowHandle,
-  resolveMomentGlyphCollision,
   snapToMoments,
   windowMissingMomentsLine,
   windowRailView,
@@ -48,7 +47,7 @@ export function WindowBar({
   end: Date;
   onChange: (next: { start: Date; end: Date }) => void;
   min?: Date;
-  now?: Date;
+  now: Date;
   tip?: string;
   empty?: boolean;
   emptyLabel?: string;
@@ -61,7 +60,7 @@ export function WindowBar({
   const [dragging, setDragging] = useState<WindowHandle | null>(null);
   const [clamped, setClamped] = useState(false);
   const [flash, setFlash] = useState(false);
-  const clock = now ?? new Date();
+  const clock = now;
   const { from, to } = windowSpanMs(start, end, min);
   const missingLine = windowMissingMomentsLine(moments);
 
@@ -139,26 +138,17 @@ export function WindowBar({
     missing: false,
     tip: undefined as string | undefined,
   }));
-  const collision = resolveMomentGlyphCollision(
-    marks.map((mark) => ({
-      id: mark.id,
-      noun: mark.noun,
-      ratio: width > 1 ? mark.x / width : 0,
-      x: mark.x,
-      width: mark.width,
-    })),
-  );
-  const remaining = marks.filter((mark) => !collision.hideNounIds.has(mark.id));
+  const remaining = marks.filter((mark) => !rail.hideNounIds.has(mark.id));
   const hiddenNouns = collapseOverlappingMomentLabels(
     remaining.map((mark) => ({
       id: mark.id,
       x: mark.x,
-      width: collision.joinedLabel.has(mark.id)
-        ? Math.max(mark.width, (collision.joinedLabel.get(mark.id)?.length ?? 0) * 8)
+      width: rail.joinedLabel.has(mark.id)
+        ? Math.max(mark.width, (rail.joinedLabel.get(mark.id)?.length ?? 0) * 8)
         : mark.width,
     })),
   );
-  for (const id of collision.joinedLabel.keys()) hiddenNouns.delete(id);
+  for (const id of rail.joinedLabel.keys()) hiddenNouns.delete(id);
   const paceState = windowPaceState({
     empty,
     spent: pace?.spent,
@@ -179,8 +169,7 @@ export function WindowBar({
       : "";
 
   const startText = formatVizMoment(start);
-  const nowAtEnd = rail.nowAtEnd;
-  const joinedEndLabel = nowAtEnd ? rail.endNoun : endLabel;
+  const joinedEndLabel = rail.endNoun !== "end" ? rail.endNoun : endLabel;
   const endRelative = joinedEndLabel ? undefined : formatVizRelative(end, clock);
   const endText = joinedEndLabel ?? `${formatVizMoment(end)} · ${endRelative}`;
   const startLeft = handleLabelLeftPx({
@@ -215,18 +204,15 @@ export function WindowBar({
           ) : null}
           {marks.map((mark) => {
             const ratio = width > 1 ? mark.x / width : 0;
-            const joined = collision.joinedLabel.has(mark.id);
+            const joined = rail.joinedLabel.has(mark.id);
             const hideNoun =
-              (!joined && hiddenNouns.has(mark.id)) ||
-              collision.hideNounIds.has(mark.id) ||
-              (nowAtEnd && mark.id === "now");
-            const hideGlyph =
-              collision.hideGlyphIds.has(mark.id) || (nowAtEnd && mark.id === "now");
+              (!joined && hiddenNouns.has(mark.id)) || rail.hideNounIds.has(mark.id);
+            const hideGlyph = rail.hideGlyphIds.has(mark.id);
             const markTip =
-              hideGlyph || collision.hideNounIds.has(mark.id)
+              hideGlyph || rail.hideNounIds.has(mark.id)
                 ? undefined
                 : hiddenNouns.has(mark.id)
-                  ? [collision.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
+                  ? [rail.joinedLabel.get(mark.id) ?? mark.noun, mark.tip].filter(Boolean).join(" · ")
                   : mark.tip;
             return (
               <MomentMark
@@ -234,7 +220,7 @@ export function WindowBar({
                 pct={ratio * 100}
                 align={momentMarkAlign(ratio)}
                 glyph={momentGlyph(mark.noun)}
-                noun={collision.joinedLabel.get(mark.id) ?? mark.noun}
+                noun={rail.joinedLabel.get(mark.id) ?? mark.noun}
                 missing={mark.missing}
                 hideNoun={hideNoun}
                 hideGlyph={hideGlyph}
@@ -313,7 +299,7 @@ export function WindowBar({
               />
               <HandleLabel
                 name="end"
-                noun={nowAtEnd ? "end · now" : undefined}
+                noun={rail.endNoun}
                 left={endLeft}
                 width={estimateHandleLabelWidth(endText)}
                 at={end}

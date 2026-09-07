@@ -65,6 +65,10 @@ vat_q*_2026_receipts/
 vat_q*_2027_receipts/
 *_receipts/Q*_reference_only/
 
+# macOS / local Playwright rasters — frames:check is the CI truth
+docs/frames/local/
+docs/frames/actual/
+
 # Local scratchpad — not part of the repo
 Crowd photos/
 Images/

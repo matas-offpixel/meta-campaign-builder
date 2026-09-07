@@ -2,16 +2,36 @@
  * Render each plan-v2 frame against `next start` and write / diff
  * `docs/frames/<id>.png`. 0.2% pixel tolerance.
  *
- *   ENABLE_PLAN_FRAMES=1 npm run frames        # write baselines
- *   ENABLE_PLAN_FRAMES=1 npm run frames:check  # fail on a diff
+ * Raster truth is Ubuntu CI (Playwright 1.63.0 Chromium). `frames:check`
+ * is the CI truth. `npm run frames -- --local` writes `docs/frames/local/`
+ * for looking, not asserting.
+ *
+ *   ENABLE_PLAN_FRAMES=1 npm run frames        # write Ubuntu baselines
+ *   ENABLE_PLAN_FRAMES=1 npm run frames:check  # fail on a diff (CI)
+ *   ENABLE_PLAN_FRAMES=1 npm run frames -- --local
  */
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const PLAYWRIGHT_PIN = "1.63.0";
+const CHROMIUM_REVISION = "1243";
+const require = createRequire(import.meta.url);
+const playwrightVersion = require("@playwright/test/package.json").version;
+if (playwrightVersion !== PLAYWRIGHT_PIN) {
+  console.error(`Playwright must be ${PLAYWRIGHT_PIN} (CI Chromium pin), got ${playwrightVersion}`);
+  process.exit(1);
+}
+const chromium = require("playwright-core/browsers.json").browsers.find((b) => b.name === "chromium");
+if (chromium?.revision !== CHROMIUM_REVISION) {
+  console.error(`Chromium revision must be ${CHROMIUM_REVISION}, got ${chromium?.revision}`);
+  process.exit(1);
+}
 
 import { chromium } from "@playwright/test";
 import pixelmatch from "pixelmatch";
@@ -30,11 +50,12 @@ const FRAME_SHOTS = [
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const OUT = path.join(ROOT, "docs/frames");
+const LOCAL = process.argv.includes("--local");
+const OUT = path.join(ROOT, LOCAL ? "docs/frames/local" : "docs/frames");
 const PORT = Number(process.env.PLAN_FRAMES_PORT ?? 3310);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TOLERANCE = 0.002;
-const UPDATE = process.argv.includes("--update");
+const UPDATE = LOCAL || process.argv.includes("--update");
 
 function shotFile(id) {
   return path.join(OUT, `${id}.png`);

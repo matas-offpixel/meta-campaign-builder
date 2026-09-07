@@ -83,16 +83,13 @@ describe("WindowBar label layout", () => {
     );
   });
 
-  it("boxes that intersect join even when they sit more than 2% apart", () => {
+  it("marks more than 2% apart do not join, even if label boxes overlap", () => {
     const collision = resolveMomentGlyphCollision([
       { id: "now", noun: "now", ratio: 0.68, x: 400, width: 56 },
       { id: "gen-sale", noun: "gen sale passed Fri 4 Sep", ratio: 0.62, x: 360, width: 56 },
     ]);
-    assert.equal(
-      collision.joinedLabel.get("now"),
-      "now · gen sale passed Fri 4 Sep",
-    );
-    assert.ok(collision.hideNounIds.has("gen-sale"));
+    assert.equal(collision.joinedLabel.has("now"), false);
+    assert.equal(collision.hideNounIds.has("gen-sale"), false);
   });
 
   it("placeholders never join now; a passed neighbour does", () => {
@@ -150,6 +147,35 @@ describe("WindowBar label layout", () => {
     const source = readFileSync("components/viz/window-bar.tsx", "utf8");
     assert.match(source, /windowRailView/);
     assert.match(source, /rail\.moments/);
+    assert.match(source, /rail\.endNoun/);
+  });
+
+  it("three marks within 2% collapse to one label with three nouns", () => {
+    const end = new Date("2026-04-20T23:00:00+01:00");
+    const now = new Date("2026-04-20T12:00:00+01:00");
+    const show = new Date("2026-04-20T12:00:00+01:00");
+    const start = new Date("2026-03-01T09:00:00.000Z");
+    const view = windowRailView({
+      start,
+      end,
+      now,
+      moments: [
+        { id: "now", label: "now", at: now },
+        { id: "show", label: "show", at: show },
+      ],
+    });
+    assert.equal(view.endNoun, "end · now · show");
+    assert.deepEqual(view.moments, []);
+    assert.deepEqual(view.labels, ["end · now · show"]);
+  });
+
+  it("two marks within 2% collapse to two nouns", () => {
+    const collision = resolveMomentGlyphCollision([
+      { id: "now", noun: "now", ratio: 0.5, at: new Date("2026-04-20T12:00:00Z") },
+      { id: "show", noun: "show", ratio: 0.51, at: new Date("2026-04-20T12:00:00Z") },
+    ]);
+    assert.equal(collision.joinedLabel.get("show") ?? collision.joinedLabel.get("now"), "now · show");
+    assert.equal(collision.hideNounIds.size, 1);
   });
 
   it("handle and moment labels are nowrap in the component", () => {
