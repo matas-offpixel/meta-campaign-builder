@@ -25,6 +25,8 @@ export const PLAN_RESUME_UNSUPPORTED_REASON =
 export const PLAN_RESUME_NOT_LAUNCHED_REASON =
   "Nothing to resume — this channel has no campaign on the platform.";
 
+const NOT_RESUMABLE = new Set(["ARCHIVED", "DELETED", "WITH_ISSUES"]);
+
 export function canResumeAdapter(adapter: PlanAdapterName): boolean {
   return PLAN_RESUME_SUPPORTED.includes(adapter);
 }
@@ -52,46 +54,68 @@ export type PlanResumeOutcome =
 export interface ResumeTreeCounts {
   campaignActivated: boolean;
   campaignAlreadyActive: boolean;
-  campaignFailed: boolean;
   adSetsActivated: number;
   adSetsAlreadyActive: number;
   adSetsFailed: number;
   adSetsTotal: number;
+  /** `listAdSets` threw — we have no total. Not a failed count. */
+  adSetsUnread: boolean;
+  /** Ad sets we listed whose `listAds` threw. Observed, not invented. */
+  adSetsWithUnreadAds: number;
   adsActivated: number;
   adsAlreadyActive: number;
   adsFailed: number;
   adsTotal: number;
 }
 
-function isConfiguredActive(status: string): boolean {
+export function isConfiguredActive(status: string): boolean {
   return status.trim().toUpperCase() === "ACTIVE";
+}
+
+/** ARCHIVED / DELETED / WITH_ISSUES are not a remainder. The operator left them. */
+export function isResumable(status: string): boolean {
+  return !NOT_RESUMABLE.has(status.trim().toUpperCase());
 }
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
 
+function countedOf(ok: number, total: number, one: string, many: string): string {
+  return `${ok} of ${total} ${plural(total, one, many)}`;
+}
+
 /**
- * Operator words for what Resume changed. Full tree: `resumed 1 campaign
- * · 5 ad sets · 5 ads`. Partial: `resumed the campaign · 2 of 5 ad sets
- * — the rest are in Ads Manager ↗`.
+ * Operator words for what Resume changed. A number appears only when
+ * it was counted. Unread is its own state, never `0 of 1`.
  */
 export function formatResumeTreeSentence(counts: ResumeTreeCounts): string {
+  if (counts.adSetsUnread) {
+    return "resumed the campaign · couldn't read its ad sets — check Ads Manager ↗";
+  }
+  if (counts.adSetsWithUnreadAds > 0) {
+    return `resumed 1 campaign · ${counts.adSetsTotal} ${plural(counts.adSetsTotal, "ad set", "ad sets")} · couldn't read the ads on ${counts.adSetsWithUnreadAds} of them — check Ads Manager ↗`;
+  }
+
   const adSetsOk = counts.adSetsActivated + counts.adSetsAlreadyActive;
   const adsOk = counts.adsActivated + counts.adsAlreadyActive;
-  const childFailed = counts.adSetsFailed > 0 || counts.adsFailed > 0 || counts.campaignFailed;
 
-  if (childFailed && !counts.campaignFailed) {
-    if (counts.adSetsFailed > 0 || counts.adSetsTotal === 0) {
-      return `resumed the campaign · ${adSetsOk} of ${counts.adSetsTotal} ${plural(counts.adSetsTotal, "ad set", "ad sets")} — the rest are in Ads Manager ↗`;
-    }
-    return `resumed the campaign · ${adsOk} of ${counts.adsTotal} ${plural(counts.adsTotal, "ad", "ads")} — the rest are in Ads Manager ↗`;
+  if (counts.adSetsFailed > 0) {
+    return `resumed the campaign · ${countedOf(adSetsOk, counts.adSetsTotal, "ad set", "ad sets")} — the rest are in Ads Manager ↗`;
   }
-  if (counts.campaignFailed) {
-    return `resumed the campaign · ${adSetsOk} of ${counts.adSetsTotal} ${plural(counts.adSetsTotal, "ad set", "ad sets")} — the rest are in Ads Manager ↗`;
+  if (counts.adsFailed > 0) {
+    return `resumed the campaign · ${countedOf(adsOk, counts.adsTotal, "ad", "ads")} — the rest are in Ads Manager ↗`;
   }
 
-  return `resumed 1 campaign · ${counts.adSetsTotal} ${plural(counts.adSetsTotal, "ad set", "ad sets")} · ${counts.adsTotal} ${plural(counts.adsTotal, "ad", "ads")}`;
+  const tree = `1 campaign · ${counts.adSetsTotal} ${plural(counts.adSetsTotal, "ad set", "ad sets")} · ${counts.adsTotal} ${plural(counts.adsTotal, "ad", "ads")}`;
+  if (
+    counts.campaignAlreadyActive &&
+    counts.adSetsActivated === 0 &&
+    counts.adsActivated === 0
+  ) {
+    return `already running · ${tree}`;
+  }
+  return `resumed ${tree}`;
 }
 
 async function activateIfNeeded(
@@ -137,11 +161,12 @@ export async function resumePlanAdapter(input: {
   const counts: ResumeTreeCounts = {
     campaignActivated: false,
     campaignAlreadyActive: false,
-    campaignFailed: false,
     adSetsActivated: 0,
     adSetsAlreadyActive: 0,
     adSetsFailed: 0,
     adSetsTotal: 0,
+    adSetsUnread: false,
+    adSetsWithUnreadAds: 0,
     adsActivated: 0,
     adsAlreadyActive: 0,
     adsFailed: 0,
@@ -166,8 +191,7 @@ export async function resumePlanAdapter(input: {
   try {
     adSets = await input.graph.listAdSets(input.campaignId);
   } catch {
-    counts.adSetsTotal = 1;
-    counts.adSetsFailed = 1;
+    counts.adSetsUnread = true;
     return {
       ok: true,
       campaignId: input.campaignId,
@@ -175,8 +199,9 @@ export async function resumePlanAdapter(input: {
     };
   }
 
-  counts.adSetsTotal = adSets.length;
-  for (const adSet of adSets) {
+  const resumableAdSets = adSets.filter((adSet) => isResumable(adSet.status));
+  counts.adSetsTotal = resumableAdSets.length;
+  for (const adSet of resumableAdSets) {
     const result = await activateIfNeeded(input.graph, adSet);
     if (result === "activated") counts.adSetsActivated += 1;
     else if (result === "skipped") counts.adSetsAlreadyActive += 1;
@@ -186,12 +211,12 @@ export async function resumePlanAdapter(input: {
     try {
       ads = await input.graph.listAds(adSet.id);
     } catch {
-      counts.adsTotal += 1;
-      counts.adsFailed += 1;
+      counts.adSetsWithUnreadAds += 1;
       continue;
     }
-    counts.adsTotal += ads.length;
-    for (const ad of ads) {
+    const resumableAds = ads.filter((ad) => isResumable(ad.status));
+    counts.adsTotal += resumableAds.length;
+    for (const ad of resumableAds) {
       const adResult = await activateIfNeeded(input.graph, ad);
       if (adResult === "activated") counts.adsActivated += 1;
       else if (adResult === "skipped") counts.adsAlreadyActive += 1;
