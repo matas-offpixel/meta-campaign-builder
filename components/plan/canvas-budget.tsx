@@ -32,7 +32,6 @@ export function CanvasBudget({
   startDate,
   endDate,
   hasUserEdit,
-  clientName,
   onBudget,
   onMode,
   onLifetime,
@@ -44,7 +43,6 @@ export function CanvasBudget({
   startDate: string | null;
   endDate: string | null;
   hasUserEdit: boolean;
-  clientName?: string | null;
   onBudget: (next: CampaignPlanBudgetSplit) => void;
   onMode: (mode: "daily" | "lifetime") => void;
   onLifetime: (value: number) => void;
@@ -128,13 +126,7 @@ export function CanvasBudget({
           },
           history: null,
         }}
-        historySentence={
-          clientName
-            ? [formatHistoryEmpty("tiktok", clientName), formatHistoryEmpty("google", clientName)].join(
-                " · ",
-              )
-            : undefined
-        }
+        historySentence={[formatHistoryEmpty("tiktok"), formatHistoryEmpty("google")].join(" · ")}
         onChange={
           readOnly ? undefined : (segments) => onBudget(planSplitToBudget(segments, derivedDaily))
         }

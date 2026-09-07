@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { PlanBlockerItems } from "@/components/plan/blocker-items";
 import { FunnelStageBar } from "@/components/viz/funnel-stage-bar";
 import { InfoTip } from "@/components/viz/info-tip";
 import { joinInfoTips, PLAN_CANVAS_COPY, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
@@ -12,6 +13,7 @@ import {
 import type { PlanAdapterName } from "@/lib/plan/types";
 import { WIZARD_ACTIVE_VS_PLAN_PAUSED } from "@/lib/plan/schedule";
 import type { EventFunnelStage } from "@/lib/dashboard/event-funnel";
+import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
 import { platformSharePercents, proportionalBarWidths } from "@/lib/viz/funnel-scale";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
@@ -34,6 +36,8 @@ export function CanvasLaunch({
   role = "operator",
   readyAdapters = [],
   blockerSentence = null,
+  blockerItems = [],
+  onOpenBlocker,
   preflightSettled = true,
 }: {
   button: PlanLaunchButtonModel;
@@ -44,6 +48,9 @@ export function CanvasLaunch({
   role?: "operator" | "client";
   readyAdapters?: PlanAdapterName[];
   blockerSentence?: string | null;
+  /** Count is the heading; items sit under it. Omitted on frames. */
+  blockerItems?: readonly BlockerRowModel[];
+  onOpenBlocker?: (anchor: BlockerAnchor) => void;
   /** First preflight response has arrived — until then, nothing beside the button. */
   preflightSettled?: boolean;
 }) {
@@ -92,9 +99,18 @@ export function CanvasLaunch({
             {formatLaunchCreatesLine(readyAdapters)}
           </span>
         ) : button.kind === "launch" && button.disabled ? (
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-            {blockerSentence}
-          </span>
+          onOpenBlocker ? (
+            <div className="min-w-0 space-y-1 text-right">
+              <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+                {blockerSentence}
+              </span>
+              <PlanBlockerItems items={blockerItems} onOpenAnchor={onOpenBlocker} />
+            </div>
+          ) : (
+            <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+              {blockerSentence}
+            </span>
+          )
         ) : null}
         {tip ? <InfoTip variant={LAUNCH_INFO_VARIANT} label={tip} /> : null}
         {!controls.launch || button.kind === "none" ? null : (

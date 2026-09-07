@@ -14,6 +14,7 @@ import {
   formatIdentityTip,
   planIdentityMetaId,
   formatLaunchBlockerSentence,
+  launchBlockerRows,
   formatLaunchCreatesLine,
   formatLaunchStampTip,
   formatLaunchedLine,
@@ -270,8 +271,8 @@ describe("LAUNCH target rungs", () => {
 describe("LAUNCH split / channels / button", () => {
   it("history: null uses the empty sentence", () => {
     assert.equal(
-      formatHistoryEmpty("tiktok", "Junction 2"),
-      "no TikTok history yet for Junction 2 — opens after your first TikTok run",
+      formatHistoryEmpty("tiktok"),
+      "no TikTok history yet — opens after your first TikTok run",
     );
   });
 
@@ -537,6 +538,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(channels, /launchBlockers/);
     assert.match(channels, /launchChannelRowView/);
     assert.match(channels, /formatChannelNeedsYou/);
+    assert.match(channels, /PlanBlockerItems/);
     assert.doesNotMatch(channels, /BlockerBadge/);
     assert.doesNotMatch(channels, /StatusDot/);
     assert.match(channels, /blockerCounts\?\.\[row\.adapter\]/);
@@ -685,11 +687,13 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(budget, /usual: \{[\s\S]*PLAN_SPLIT_PRESETS\[1\]/);
     assert.match(budget, /formatHistoryEmpty\("tiktok"/);
     assert.match(budget, /formatHistoryEmpty\("google"/);
+    assert.doesNotMatch(budget, /clientName/);
     assert.match(budget, /formatSkippedShare\(0, segment\.platform\)/);
     assert.equal(
-      formatHistoryEmpty("google", "Junction 2"),
-      "no Google history yet for Junction 2 — opens after your first Google run",
+      formatHistoryEmpty("google"),
+      "no Google history yet — opens after your first Google run",
     );
+    assert.doesNotMatch(formatHistoryEmpty("tiktok"), /Electric Brixton|Junction 2|NX Promoter/);
   });
 
   it("blocked line is derived from the issue list, never a string sniff", () => {
@@ -797,9 +801,21 @@ describe("LAUNCH review round 1 — surface wiring", () => {
       formatLaunchBlockerSentence({ windowOk: true, blockerCount: total }),
       "2 things to fix before you can launch",
     );
+    const rows = launchBlockerRows(issues);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0]?.full, "page");
+    assert.equal(rows[0]?.anchor?.drawer, "meta");
+    assert.equal(rows[1]?.full, "pixel");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(workspace, /blockerCounts=\{planPreflightBlockerCounts\(issues\)\}/);
     assert.match(workspace, /blockerCount: planPreflightBlockerCount\(issues\)/);
+    assert.match(workspace, /blockerItems=\{launchBlockerRows\(issues\)\}/);
+    const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
+    assert.match(launch, /PlanBlockerItems/);
+    const frames = readFileSync("components/plan/plan-frame-mount.tsx", "utf8");
+    assert.doesNotMatch(frames, /blockerItems/);
+    assert.doesNotMatch(frames, /onOpenBlocker/);
+    assert.doesNotMatch(frames, /onOpenAnchor/);
     assert.match(workspace, /launchChannelRunning\(rollupDays, channelReadingUnit, usual\)/);
     assert.match(workspace, /channelReadingUnit = launchStamp \? adjustPhaseUnit : readingUnit/);
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");

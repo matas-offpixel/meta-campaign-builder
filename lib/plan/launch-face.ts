@@ -13,7 +13,9 @@ import {
   type BenchmarkUnit,
 } from "./benchmarks.ts";
 import type { IdentityNameMap } from "./identity-chips.ts";
-import type { PlanPreflightIssue } from "./preflight.ts";
+import { blockerRowFromIssue, type BlockerRowModel } from "../viz/blockers.ts";
+import { collectPlanPreflightBlockers, type PlanPreflightIssue } from "./preflight.ts";
+import { PLAN_CANVAS_COPY, anchorForIssue } from "./canvas.ts";
 import type {
   CampaignPlan,
   CampaignPlanLaunchRecord,
@@ -21,7 +23,6 @@ import type {
   PlanAdapterName,
 } from "./types.ts";
 import { budgetedLaunchAdapters } from "./types.ts";
-import { PLAN_CANVAS_COPY } from "./canvas.ts";
 
 export const LAUNCH_STARTING_POINT: Record<PlanTargetUnit, number> = {
   reg: 1.6,
@@ -446,8 +447,18 @@ export function launchTargetView(input: {
   };
 }
 
-export function formatHistoryEmpty(platform: VizPlatform, clientName: string): string {
-  return `no ${VIZ_PLATFORM_LABEL[platform]} history yet for ${clientName} — opens after your first ${VIZ_PLATFORM_LABEL[platform]} run`;
+export function formatHistoryEmpty(platform: VizPlatform): string {
+  return `no ${VIZ_PLATFORM_LABEL[platform]} history yet — opens after your first ${VIZ_PLATFORM_LABEL[platform]} run`;
+}
+
+/** Count stays the heading; these are the items under it. */
+export function launchBlockerRows(issues: readonly PlanPreflightIssue[]): BlockerRowModel[] {
+  return collectPlanPreflightBlockers(issues).map((issue) => ({
+    ...blockerRowFromIssue(issue),
+    kind: "blocker" as const,
+    href: issue.href ?? null,
+    anchor: anchorForIssue(issue),
+  }));
 }
 
 export function formatYouSetThis(differs: boolean): string | null {
