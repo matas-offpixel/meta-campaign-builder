@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 918
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/918
 - **Branch:** `cursor/plan-canvas-stage1-usable`
 
 ## Summary
