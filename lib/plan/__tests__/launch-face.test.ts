@@ -701,7 +701,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
         issues: [],
         blockerCount: 0,
       }),
-      "choose an event",
+      "pick a show to plan",
     );
     assert.equal(
       launchBlockedLine({

@@ -72,6 +72,32 @@ export function pausedLaunches(at = "2026-07-24T09:00:00.000Z"): CampaignPlanLau
   };
 }
 
+export function emptyNewPlan(): CampaignPlan {
+  const now = "2026-08-01T09:00:00.000Z";
+  return {
+    id: "plan-new",
+    userId: "user-frames",
+    name: "",
+    status: "draft",
+    intent: {
+      eventId: "",
+      objectiveIntent: "registration",
+      target: { value: null, unit: null },
+      budget: { totalDaily: 0, metaDaily: 0, tiktokDaily: 0, googleDaily: 0 },
+      destinationUrl: "",
+      audienceClusterRef: null,
+      creativeSetRef: null,
+      startDate: null,
+      endDate: null,
+      startTime: null,
+      endTime: null,
+    },
+    launches: idleLaunches(),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function planOf(partial: {
   id: string;
   name?: string;

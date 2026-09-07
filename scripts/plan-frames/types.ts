@@ -29,6 +29,7 @@ export type LaunchFrameFixture = {
   now: string;
   plan: CampaignPlan;
   event: PlanEventOption;
+  events?: PlanEventOption[];
   issues?: PlanPreflightIssue[];
   facts?: { meta: { n: number; noun: string }[]; tiktok: { n: number; noun: string }[]; google: { n: number; noun: string }[] };
   benchmarkRows?: BenchmarkRow[];

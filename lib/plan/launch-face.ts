@@ -21,6 +21,7 @@ import type {
   PlanAdapterName,
 } from "./types.ts";
 import { budgetedLaunchAdapters } from "./types.ts";
+import { PLAN_CANVAS_COPY } from "./canvas.ts";
 
 export const LAUNCH_STARTING_POINT: Record<PlanTargetUnit, number> = {
   reg: 1.6,
@@ -374,7 +375,7 @@ export function launchBlockedLine(input: {
   issues: PlanPreflightIssue[];
   blockerCount: number;
 }): string | null {
-  if (!input.hasEvent) return "choose an event";
+  if (!input.hasEvent) return PLAN_CANVAS_COPY.noEvent;
   if (input.busy) return "launch in progress";
   return formatLaunchBlockerSentence({
     windowOk: input.windowOk,

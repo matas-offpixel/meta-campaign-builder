@@ -7,7 +7,7 @@
  * for looking, not asserting.
  *
  *   ENABLE_PLAN_FRAMES=1 npm run frames        # write Ubuntu baselines
- *   ENABLE_PLAN_FRAMES=1 npm run frames:check  # fail on a diff (CI)
+ *   ENABLE_PLAN_FRAMES=1 npm run frames:check  # fail on a missing baseline or a diff (CI)
  *   ENABLE_PLAN_FRAMES=1 npm run frames -- --local
  */
 
@@ -23,6 +23,8 @@ import { chromium } from "@playwright/test";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
+import { classifyShot, missingBaselineLine } from "./baseline.mjs";
+
 const PLAYWRIGHT_PIN = "1.63.0";
 const require = createRequire(import.meta.url);
 const playwrightVersion = require("@playwright/test/package.json").version;
@@ -33,7 +35,7 @@ if (playwrightVersion !== PLAYWRIGHT_PIN) {
 
 const CANON = [
   "L1", "L2", "L3", "L4", "L5", "L6",
-  "A1", "A2", "A4", "A6", "A8", "A9", "A10", "A11", "A13", "A14", "A15",
+  "A0", "A1", "A2", "A4", "A6", "A8", "A9", "A10", "A11", "A13", "A14", "A15",
   "J1", "J2", "J3", "J5", "J7", "J8", "J9", "J12", "J14", "J18", "J19", "J22",
   "E1", "E2", "E3", "E6",
 ];
@@ -112,6 +114,13 @@ async function main() {
     const browser = await chromium.launch({ timeout: 30_000 });
     try {
       for (const shot of FRAME_SHOTS) {
+        const dest = shotFile(shot.id);
+        const action = classifyShot({ destExists: existsSync(dest), update: UPDATE });
+        if (action === "missing") {
+          failed = true;
+          console.error(missingBaselineLine(shot.id));
+          continue;
+        }
         console.log(`capture ${shot.id}`);
         const frameId = shot.id.replace(/-768$/, "");
         const page = await browser.newPage({
@@ -135,8 +144,7 @@ async function main() {
           timeout: 15_000,
         });
         await page.close();
-        const dest = shotFile(shot.id);
-        if (UPDATE || !existsSync(dest)) {
+        if (action === "write") {
           await writeFile(dest, png);
           const hash = createHash("sha1").update(png).digest("hex").slice(0, 8);
           console.log(`wrote ${shot.id} ${hash}`);

@@ -5,14 +5,16 @@ import { describe, it } from "node:test";
 import { isPublicPath } from "../../auth/public-routes.ts";
 import { planWindowValidity } from "../canvas-inputs.ts";
 import { CANON_FRAME_IDS, EXTRA_FRAME_IDS, FRAME_IDS, NARROW_FRAME_IDS } from "../../../scripts/plan-frames/ids.ts";
-import { AUG_4, AUG_11, APR_20, MAR_18, SEP_1 } from "../../../scripts/plan-frames/builders.ts";
+import { AUG_4, AUG_11, APR_20, MAR_18, SEP_1, WALK_NOW } from "../../../scripts/plan-frames/builders.ts";
+import { planHeaderName } from "../plan-name.ts";
+import { PLAN_CANVAS_COPY, planNoShowYet } from "../canvas.ts";
 import { FRAME_FIXTURES, getFrame } from "../../../scripts/plan-frames/fixtures.ts";
 
 describe("plan-v2 frame catalog", () => {
-  it("has the 33 canon frames plus J0", () => {
-    assert.equal(CANON_FRAME_IDS.length, 33);
+  it("has the 34 canon frames plus J0", () => {
+    assert.equal(CANON_FRAME_IDS.length, 34);
     assert.deepEqual([...EXTRA_FRAME_IDS], ["J0"]);
-    assert.equal(FRAME_IDS.length, 34);
+    assert.equal(FRAME_IDS.length, 35);
     assert.deepEqual([...NARROW_FRAME_IDS], ["L3", "J2"]);
   });
 
@@ -69,6 +71,9 @@ describe("plan-v2 frame catalog", () => {
     assert.match(runner, /--local/);
     assert.match(runner, /CI truth/);
     assert.match(runner, /data-frame-ready/);
+    assert.match(runner, /classifyShot/);
+    assert.match(runner, /missingBaselineLine/);
+    assert.doesNotMatch(runner, /UPDATE \|\| !existsSync/);
   });
 
   it("the frames route mounts PlanFrameMount and is gated", () => {
@@ -79,6 +84,24 @@ describe("plan-v2 frame catalog", () => {
     assert.equal(isPublicPath("/frames/J2"), true);
     assert.equal(isPublicPath("/plan/299dd4e5-0000-0000-0000-000000000001"), false);
     assert.doesNotMatch(page, /fixture\.title/);
+  });
+
+  it("A0 is new plan with no show picked", () => {
+    const a0 = getFrame("A0");
+    assert.equal(a0?.kind, "launch");
+    if (a0?.kind !== "launch") return;
+    assert.equal(a0.now, WALK_NOW);
+    assert.equal(a0.plan.intent.eventId, "");
+    assert.equal(planNoShowYet(a0.plan.intent.eventId), true);
+    assert.equal(
+      planHeaderName(a0.plan.name, a0.plan.intent.eventId ? a0.event : null),
+      "new plan",
+    );
+    assert.equal(PLAN_CANVAS_COPY.pickShowFirst, "pick a show first");
+    assert.equal(PLAN_CANVAS_COPY.noEvent, "pick a show to plan");
+    const mount = readFileSync("components/plan/plan-frame-mount.tsx", "utf8");
+    assert.match(mount, /maybePlanNoShowLock/);
+    assert.doesNotMatch(mount, /Date\.now\(/);
   });
 
   it("fixtures follow the ratified third canvas", () => {

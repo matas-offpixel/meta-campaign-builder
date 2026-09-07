@@ -107,14 +107,14 @@ export function visiblePlanEvents(
   });
 }
 
-export function defaultPlanEventId(
+export function preferredPlanEventId(
   events: PlanEventOption[],
   input: { today: string; preferredId?: string | null },
 ): string {
   if (input.preferredId && events.some((event) => event.id === input.preferredId)) {
     return input.preferredId;
   }
-  return visiblePlanEvents(events, { today: input.today, showPast: false })[0]?.id ?? "";
+  return "";
 }
 
 function secondaryParts(event: PlanEventOption): string[] {

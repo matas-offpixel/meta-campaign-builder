@@ -13,6 +13,7 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { maybePlanNoShowLock } from "@/components/plan/plan-no-show-lock";
 import { DecisionsSheet } from "@/components/plan/decisions-sheet";
 import { GoogleDrawerMount } from "@/components/plan/google-drawer";
 import type { GoogleSearchWizardContext } from "@/components/google-search-wizard/wizard-shell";
@@ -24,6 +25,7 @@ import { InfoTip } from "@/components/viz/info-tip";
 import type { OverflowMenuItem } from "@/components/viz/overflow-menu";
 import {
   PLAN_CANVAS_COPY,
+  planNoShowYet,
   countDecisionsSince,
   defaultAnchorFor,
   planCanvasMenuItemSpecs,
@@ -966,6 +968,7 @@ export function PlanWorkspace({
   }
 
   const headerName = planHeaderName(plan.name, selectedEvent);
+  const noShow = planNoShowYet(plan.intent.eventId);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
   const launchStamp = planLaunchStamp(plan.launches);
   const readsPending =
@@ -1073,7 +1076,7 @@ export function PlanWorkspace({
         }
       />
 
-      {!plan.intent.eventId && share.switcher ? (
+      {noShow && share.switcher ? (
         <div className={`max-w-md ${VIZ_ZONE_GUTTER.normal}`}>
           <Combobox
             label="Event"
@@ -1163,103 +1166,115 @@ export function PlanWorkspace({
 
       {isLearnFace || isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.normal}>
-        <CanvasWindow
-          event={selectedEvent}
-          dates={{
-            startDate: plan.intent.startDate,
-            startTime: plan.intent.startTime,
-            endDate: plan.intent.endDate,
-            endTime: plan.intent.endTime,
-          }}
-          createdAt={plan.createdAt}
-          now={clock}
-          onChange={setWindow}
-          readOnly={readOnly}
-          googleBudgeted={plan.intent.budget.googleDaily > 0}
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasWindow
+            event={selectedEvent}
+            dates={{
+              startDate: plan.intent.startDate,
+              startTime: plan.intent.startTime,
+              endDate: plan.intent.endDate,
+              endTime: plan.intent.endTime,
+            }}
+            createdAt={plan.createdAt}
+            now={clock}
+            onChange={setWindow}
+            readOnly={readOnly || noShow}
+            googleBudgeted={plan.intent.budget.googleDaily > 0}
+          />,
+        )}
       </div>
       )}
 
       {isLearnFace || isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.tight}>
-        <CanvasBudget
-          budget={plan.intent.budget}
-          mode={budgetMode}
-          lifetime={lifetimeTotal}
-          startDate={plan.intent.startDate}
-          endDate={plan.intent.endDate}
-          hasUserEdit={hasUserEdit}
-          clientName={selectedEvent?.clientName ?? null}
-          onBudget={(budget) => patchIntent({ budget })}
-          onMode={(mode) => {
-            setBudgetMode(mode);
-            if (mode === "lifetime" && days) {
-              setLifetimeTotal(
-                Math.round(
-                  (plan.intent.budget.metaDaily +
-                    plan.intent.budget.tiktokDaily +
-                    plan.intent.budget.googleDaily) *
-                    days,
-                ),
-              );
-            }
-          }}
-          onLifetime={setLifetimeTotal}
-          readOnly={readOnly}
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasBudget
+            budget={plan.intent.budget}
+            mode={budgetMode}
+            lifetime={lifetimeTotal}
+            startDate={plan.intent.startDate}
+            endDate={plan.intent.endDate}
+            hasUserEdit={hasUserEdit}
+            clientName={selectedEvent?.clientName ?? null}
+            onBudget={(budget) => patchIntent({ budget })}
+            onMode={(mode) => {
+              setBudgetMode(mode);
+              if (mode === "lifetime" && days) {
+                setLifetimeTotal(
+                  Math.round(
+                    (plan.intent.budget.metaDaily +
+                      plan.intent.budget.tiktokDaily +
+                      plan.intent.budget.googleDaily) *
+                      days,
+                  ),
+                );
+              }
+            }}
+            onLifetime={setLifetimeTotal}
+            readOnly={readOnly || noShow}
+          />,
+        )}
       </div>
       )}
 
       {isLearnFace || isAdjustFace ? null : (
       <div className={VIZ_ZONE_GUTTER.tight}>
-        <CanvasTarget
-          value={plan.intent.target.value}
-          unit={plan.intent.target.unit}
-          objectiveIntent={plan.intent.objectiveIntent}
-          presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
-          onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
-          onUnit={setTargetUnit}
-          onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
-          generalSaleAt={selectedEvent?.generalSaleAt}
-          presaleAt={selectedEvent?.presaleAt}
-          kind={selectedEvent?.kind}
-          venueName={selectedEvent?.venueName}
-          venueKey={selectedEvent?.venueKey}
-          clientId={selectedEvent?.clientId}
-          excludeEventId={selectedEvent?.id}
-          launched={launchStamp != null}
-          now={clock}
-          benchmarkRows={benchmarkRows}
-          unitPicker={share.unitPicker}
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasTarget
+            value={plan.intent.target.value}
+            unit={plan.intent.target.unit}
+            objectiveIntent={plan.intent.objectiveIntent}
+            presetHref={selectedEvent?.clientId ? `/clients/${selectedEvent.clientId}?tab=optimisation` : null}
+            onTarget={(value) => patchIntent({ target: { value, unit: plan.intent.target.unit } })}
+            onUnit={setTargetUnit}
+            onObjective={(objectiveIntent) => patchIntent({ objectiveIntent })}
+            generalSaleAt={selectedEvent?.generalSaleAt}
+            presaleAt={selectedEvent?.presaleAt}
+            kind={selectedEvent?.kind}
+            venueName={selectedEvent?.venueName}
+            venueKey={selectedEvent?.venueKey}
+            clientId={selectedEvent?.clientId}
+            excludeEventId={selectedEvent?.id}
+            launched={launchStamp != null}
+            now={clock}
+            benchmarkRows={benchmarkRows}
+            unitPicker={share.unitPicker && !noShow}
+          />,
+        )}
       </div>
       )}
 
       {/* The wizard's PlanLinkBanner still lands here. */}
       <div id={PLAN_STEP2_HASH} />
       <div className={VIZ_ZONE_GUTTER.loose}>
-      <CanvasChannels
-        rows={rows}
-        blockerCounts={planPreflightBlockerCounts(issues)}
-        readingUnit={channelReadingUnit}
-        running={
-          launchStamp
-            ? launchChannelRunning(rollupDays, channelReadingUnit, usual)
-            : undefined
-        }
-        readsPending={readsPending}
-        onOpen={(row) => void openChannel(row)}
-        onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
-        drawerEdit={share.drawerEdit}
-        openRefs={{
-          meta: metaOpenRef,
-          tiktok: tiktokOpenRef,
-          google: googleOpenRef,
-        }}
-        onResume={(row) => void resume([row.adapter])}
-        onRederive={(row) => void rederive(row.adapter)}
-        busy={busy}
-      />
+      {maybePlanNoShowLock(
+        noShow,
+        <CanvasChannels
+          rows={rows}
+          blockerCounts={planPreflightBlockerCounts(issues)}
+          readingUnit={channelReadingUnit}
+          running={
+            launchStamp
+              ? launchChannelRunning(rollupDays, channelReadingUnit, usual)
+              : undefined
+          }
+          readsPending={readsPending}
+          onOpen={(row) => void openChannel(row)}
+          onOpenAnchor={(row, anchor) => void openChannel(row, undefined, anchor)}
+          drawerEdit={share.drawerEdit && !noShow}
+          openRefs={{
+            meta: metaOpenRef,
+            tiktok: tiktokOpenRef,
+            google: googleOpenRef,
+          }}
+          onResume={(row) => void resume([row.adapter])}
+          onRederive={(row) => void rederive(row.adapter)}
+          busy={busy}
+        />,
+      )}
       </div>
 
       <div className={VIZ_ZONE_GUTTER.normal}>
