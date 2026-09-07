@@ -59,10 +59,10 @@ async function waitForServer(url, timeoutMs = 90_000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
     try {
-      const res = await fetch(url, { redirect: "manual" });
+      const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(4000) });
       if (res.status < 500) return;
     } catch {
-      /* not up */
+      /* not up or still compiling */
     }
     await new Promise((r) => setTimeout(r, 400));
   }
@@ -109,7 +109,7 @@ async function main() {
   let failed = false;
   try {
     await waitForServer(`${BASE}/frames/L1`);
-    const browser = await chromium.launch();
+    const browser = await chromium.launch({ timeout: 30_000 });
     try {
       for (const shot of FRAME_SHOTS) {
         console.log(`capture ${shot.id}`);
