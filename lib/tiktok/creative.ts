@@ -26,6 +26,53 @@ interface VideoInfoResponse {
   list?: VideoInfoRow[];
 }
 
+/** Confirmed live 2026-09-07: HTTP 200, code 0, `{ list, page_info }`. */
+export const TIKTOK_VIDEO_LIBRARY_PATH = "/file/video/ad/search/";
+
+export const TIKTOK_VIDEO_LIBRARY_COPY = {
+  choose: "choose from this account",
+  empty: "no videos in this account yet — upload one above",
+} as const;
+
+export interface TikTokVideoLibraryPage {
+  videos: TikTokVideoInfo[];
+  page: number;
+  pageSize: number;
+  totalNumber: number;
+  totalPage: number;
+}
+
+interface VideoSearchResponse {
+  list?: VideoInfoRow[];
+  page_info?: {
+    page?: number;
+    page_size?: number;
+    total_number?: number;
+    total_page?: number;
+  };
+}
+
+function normalizeTikTokVideoRow(
+  row: VideoInfoRow & { video_id: string },
+): TikTokVideoInfo {
+  return {
+    video_id: row.video_id,
+    thumbnail_url:
+      row.video_cover_url ?? row.thumbnail_url ?? row.preview_url ?? null,
+    preview_url_expire_time: row.preview_url_expire_time ?? null,
+    duration_seconds: row.duration_seconds ?? row.duration ?? null,
+    title: row.title ?? row.file_name ?? null,
+  };
+}
+
+function rowsWithVideoId(
+  list: VideoInfoRow[] | undefined,
+): Array<VideoInfoRow & { video_id: string }> {
+  return (list ?? []).filter((row): row is VideoInfoRow & { video_id: string } =>
+    Boolean(row.video_id),
+  );
+}
+
 export async function fetchTikTokVideoInfo(input: {
   advertiserId: string;
   token: string;
@@ -42,18 +89,47 @@ export async function fetchTikTokVideoInfo(input: {
     },
     input.token,
   );
-  return (res.list ?? [])
-    .filter((row): row is VideoInfoRow & { video_id: string } =>
-      Boolean(row.video_id),
-    )
-    .map((row) => ({
-      video_id: row.video_id,
-      thumbnail_url:
-        row.video_cover_url ?? row.thumbnail_url ?? row.preview_url ?? null,
-      preview_url_expire_time: row.preview_url_expire_time ?? null,
-      duration_seconds: row.duration_seconds ?? row.duration ?? null,
-      title: row.title ?? row.file_name ?? null,
-    }));
+  return rowsWithVideoId(res.list).map(normalizeTikTokVideoRow);
+}
+
+function clampLibraryPage(value: number | undefined): number {
+  const n =
+    typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.max(1, n);
+}
+
+function clampLibraryPageSize(value: number | undefined): number {
+  const n =
+    typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 20;
+  return Math.min(100, Math.max(1, n));
+}
+
+export async function fetchTikTokVideoLibrary(input: {
+  advertiserId: string;
+  token: string;
+  page?: number;
+  pageSize?: number;
+  request?: TikTokGet;
+}): Promise<TikTokVideoLibraryPage> {
+  const page = clampLibraryPage(input.page);
+  const pageSize = clampLibraryPageSize(input.pageSize);
+  const request = input.request ?? tiktokGet;
+  const res = await request<VideoSearchResponse>(
+    TIKTOK_VIDEO_LIBRARY_PATH,
+    {
+      advertiser_id: input.advertiserId,
+      page,
+      page_size: pageSize,
+    },
+    input.token,
+  );
+  return {
+    videos: rowsWithVideoId(res.list).map(normalizeTikTokVideoRow),
+    page: res.page_info?.page ?? page,
+    pageSize: res.page_info?.page_size ?? pageSize,
+    totalNumber: res.page_info?.total_number ?? 0,
+    totalPage: res.page_info?.total_page ?? 0,
+  };
 }
 
 export function extractTikTokVideoId(raw: string): string | null {

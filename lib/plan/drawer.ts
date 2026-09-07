@@ -538,7 +538,8 @@ export const TIKTOK_DRAWER_COPY = {
     "The BC_AUTH_TT escape hatch. Client defaults already picked the identity; type these only when TikTok did not resolve one.",
   launchOnCanvasTip:
     "This draft belongs to a plan, so it launches from the plan canvas with the other channels — paused, all at once.",
-  needsVideoTip: "Upload or paste a TikTok video. A routed placeholder is not a video yet.",
+  needsVideoTip:
+    "Upload, paste, or choose a TikTok video. A routed placeholder is not a video yet.",
 } as const;
 
 export const GOOGLE_DRAWER_COPY = {

@@ -7,8 +7,10 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { TikTokVideoLibrary } from "@/components/tiktok-wizard/tiktok-video-library";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
 import {
+  appendUploadedTikTokCreatives,
   clampTikTokVariationCount,
   nextTikTokCreativeNames,
 } from "@/lib/tiktok-wizard/creative-items";
@@ -264,6 +266,48 @@ export function CreativesStep({
     }
   }
 
+  async function addLibraryVideos(picked: TikTokVideoInfo[]) {
+    const advertiserId = draft.accountSetup.advertiserId;
+    if (!advertiserId) {
+      setError("Select an advertiser in Step 0 before choosing a video.");
+      return;
+    }
+    if (adText.length > 100) {
+      setError("TikTok ad text must be 100 characters or fewer.");
+      return;
+    }
+    if (picked.length === 0) return;
+    const now = Date.now();
+    const uploads = picked.map((video) => ({
+      videoId: video.video_id,
+      thumbnailUrl: video.thumbnail_url,
+      thumbnailExpiresAt: resolveTikTokPreviewExpiry(
+        video.preview_url_expire_time,
+        now,
+      ),
+      durationSeconds: video.duration_seconds,
+      fileName: video.title ?? video.video_id,
+    }));
+    const nextItems = appendUploadedTikTokCreatives({
+      existing: itemsRef.current,
+      uploads,
+      baseName,
+      adText,
+      displayName:
+        draft.accountSetup.identityDisplayName ??
+        draft.accountSetup.identityManualName ??
+        "",
+      landingPageUrl: landingPageUrl.trim(),
+      cta,
+      variationCount: 1,
+    });
+    try {
+      await persist(nextItems);
+    } catch {
+      // persist already set the operator-facing error
+    }
+  }
+
   async function loadVideoInfo(videoId: string): Promise<TikTokVideoInfo | null> {
     const advertiserId = draft.accountSetup.advertiserId;
     if (!advertiserId) return null;
@@ -460,6 +504,12 @@ export function CreativesStep({
           ))}
         </div>
       )}
+
+      <TikTokVideoLibrary
+        advertiserId={draft.accountSetup.advertiserId}
+        disabled={saving}
+        onPick={(videos) => void addLibraryVideos(videos)}
+      />
 
       <Input
         id="creative-video"
