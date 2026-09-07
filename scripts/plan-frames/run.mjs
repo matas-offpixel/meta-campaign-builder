@@ -112,6 +112,7 @@ async function main() {
     const browser = await chromium.launch();
     try {
       for (const shot of FRAME_SHOTS) {
+        console.log(`capture ${shot.id}`);
         const frameId = shot.id.replace(/-768$/, "");
         const page = await browser.newPage({
           viewport: { width: shot.width, height: 900 },
@@ -125,7 +126,9 @@ async function main() {
           throw new Error(`${shot.id}: HTTP ${res?.status() ?? "no response"}`);
         }
         await page.waitForSelector(`[data-frame-ready="${frameId}"]`, { timeout: 15_000 });
-        await page.evaluate(() => document.fonts.ready);
+        await page.evaluate(
+          () => Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 2000))]),
+        );
         await page.waitForTimeout(150);
         const png = await page.screenshot({ fullPage: true, type: "png" });
         await page.close();

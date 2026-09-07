@@ -70,7 +70,10 @@ jobs:
       - run: npm ci
       # @playwright/test@1.63.0 pins Chromium r1243. Do not loosen 0.2%.
       - run: npx playwright install --with-deps chromium
-      - run: npm run frames:check
+      - name: Build frames app
+        run: ENABLE_PLAN_FRAMES=1 npm run build
+      - name: Diff frames
+        run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check
       - name: Render Ubuntu rasters
         if: failure()
         run: ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update
