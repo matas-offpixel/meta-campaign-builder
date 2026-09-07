@@ -420,7 +420,8 @@ export const PLAN_CANVAS_COPY = {
   fanoutOff: "Launch is switched off for this account",
   fanoutOffTip: "ENABLE_PLAN_FANOUT is not \"1\".",
   windowUnset: "set start and end",
-  noEvent: "choose an event",
+  noEvent: "pick a show to plan",
+  pickShowFirst: "pick a show first",
   noDestination:
     "No destination — this event has no ticket_url or signup_url. Paste one in the ⓘ.",
   blockers: "things to fix before you can launch",
@@ -442,3 +443,7 @@ export const PLAN_CANVAS_COPY = {
   window: "Start defaults to now plus a 15-minute buffer so Meta never sees a past start.",
   assetsRegister: "Register assets already on the linked Meta draft.",
 } as const;
+
+export function planNoShowYet(eventId: string | null | undefined): boolean {
+  return !eventId;
+}

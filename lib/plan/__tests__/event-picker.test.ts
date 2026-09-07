@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import {
   classifyPlanEvent,
-  defaultPlanEventId,
+  preferredPlanEventId,
   planEventPickerRows,
   renderedPlanEventKey,
   sortPlanEvents,
@@ -108,10 +108,10 @@ describe("plan event picker filter and sort", () => {
     assert.ok(rows.some((row) => row.id === "past-old" && row.label === "Old"));
   });
 
-  it("new-plan default prefers an upcoming event, not the first past row", () => {
-    assert.equal(defaultPlanEventId(fixture, { today: TODAY }), "today");
+  it("new-plan picks a requested event, and no show otherwise", () => {
+    assert.equal(preferredPlanEventId(fixture, { today: TODAY }), "");
     assert.equal(
-      defaultPlanEventId(fixture, { today: TODAY, preferredId: "past-old" }),
+      preferredPlanEventId(fixture, { today: TODAY, preferredId: "past-old" }),
       "past-old",
     );
   });
@@ -133,6 +133,8 @@ describe("plan event picker wiring vs parent sha", () => {
     assert.doesNotMatch(workspace, /Show past events/);
     assert.match(workspace, /showPast: true/);
     assert.doesNotMatch(workspace, /<select[\s\S]*event\.name/);
+    assert.match(page, /preferredPlanEventId/);
+    assert.doesNotMatch(page, /defaultPlanEventId/);
     assert.match(page, /event_date/);
     assert.match(page, /presale_at/);
     assert.match(page, /general_sale_at/);

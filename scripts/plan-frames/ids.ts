@@ -10,6 +10,7 @@ export const CANON_FRAME_IDS = [
   "L4",
   "L5",
   "L6",
+  "A0",
   "A1",
   "A2",
   "A4",

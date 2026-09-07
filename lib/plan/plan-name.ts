@@ -64,4 +64,4 @@ export function planPageTitle(event: PlanNameEvent | null | undefined): string {
   return event?.name?.trim() ?? "";
 }
 
-export const PLAN_UNNAMED_LABEL = "New plan";
+export const PLAN_UNNAMED_LABEL = "new plan";

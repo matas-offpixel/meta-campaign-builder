@@ -19,6 +19,7 @@ import {
   planChannelRows,
   planLastOpenedKey,
   planLaunchButton,
+  planNoShowYet,
   resumeSupport,
 } from "../canvas.ts";
 import {
@@ -93,7 +94,7 @@ describe("zone A · header", () => {
     assert.equal(planHeaderName("DOD Plan", DOD), "Defected On Deck");
     assert.equal(planHeaderName("Test", { name: "Jamie Jones" }), "Jamie Jones");
     assert.equal(planHeaderName("Legacy name", null), "Legacy name");
-    assert.equal(planHeaderName("", null), "New plan");
+    assert.equal(planHeaderName("", null), "new plan");
     assert.equal(planPageTitle({ name: "D.O.D" }), "D.O.D");
     assert.equal(planPageTitle({ name: "Jamie Jones" }), "Jamie Jones");
     assert.equal(planPageTitle(null), "");
@@ -555,6 +556,31 @@ describe("zone G · one button", () => {
     assert.equal(button.reason, PLAN_CANVAS_COPY.fanoutOff);
     assert.doesNotMatch(button.reason!, /ENABLE_PLAN_FANOUT/);
     assert.match(PLAN_CANVAS_COPY.fanoutOffTip, /ENABLE_PLAN_FANOUT/);
+  });
+
+  it("does not launch until a show is picked, and says so before the window", () => {
+    const rows = rowsFor();
+    const button = planLaunchButton({
+      ...open,
+      hasEvent: false,
+      windowOk: false,
+      state: "ready",
+      rows,
+      preflightOk: true,
+    });
+    assert.equal(planNoShowYet(""), true);
+    assert.equal(planNoShowYet("evt-1"), false);
+    assert.equal(button.disabled, true);
+    assert.equal(button.reason, PLAN_CANVAS_COPY.noEvent);
+    assert.equal(PLAN_CANVAS_COPY.noEvent, "pick a show to plan");
+    assert.equal(PLAN_CANVAS_COPY.pickShowFirst, "pick a show first");
+    const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
+    const mount = readFileSync("components/plan/plan-frame-mount.tsx", "utf8");
+    assert.match(workspace, /maybePlanNoShowLock/);
+    assert.match(workspace, /planNoShowYet/);
+    assert.match(mount, /maybePlanNoShowLock/);
+    assert.match(mount, /planNoShowYet/);
+    assert.match(mount, /hasEvent: !noShow/);
   });
 
   it("disables launch when the stored window is junk", () => {

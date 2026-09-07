@@ -9,13 +9,21 @@ import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasLearn } from "@/components/plan/canvas-learn";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { maybePlanNoShowLock } from "@/components/plan/plan-no-show-lock";
 import { PlanLibrary } from "@/components/library/plan-library";
+import { Combobox } from "@/components/ui/combobox";
 import { EMPTY_CHANNEL_FACTS } from "@/lib/plan/canvas-facts";
 import {
   planCanvasState,
   planChannelRows,
   planLaunchButton,
+  planNoShowYet,
 } from "@/lib/plan/canvas";
+import {
+  planEventPickerRows,
+  todayIsoDate,
+  visiblePlanEvents,
+} from "@/lib/plan/event-picker";
 import {
   planWindowMoments,
   planWindowValidity,
@@ -55,20 +63,21 @@ function CanvasChrome({
 }) {
   const plan = fixture.plan;
   const event = fixture.event;
+  const show = planNoShowYet(plan.intent.eventId) ? null : event;
   const destination = resolvePlanDestination(
-    event,
+    show,
     plan.intent.target.unit,
     plan.intent.destinationUrl,
   );
   const stamp = planLaunchStamp(plan.launches);
   return (
     <CanvasHeader
-      name={planHeaderName(plan.name, event)}
+      name={planHeaderName(plan.name, show)}
       planTitle={plan.name}
-      clientName={event.clientName ?? null}
-      venueName={event.venueName ?? null}
-      eventDate={event.eventDate ?? null}
-      eventCode={event.eventCode ?? null}
+      clientName={show?.clientName ?? null}
+      venueName={show?.venueName ?? null}
+      eventDate={show?.eventDate ?? null}
+      eventCode={show?.eventCode ?? null}
       thumbUrl={null}
       destination={destination}
       onDestination={noop}
@@ -78,7 +87,7 @@ function CanvasChrome({
       resolved={"resolved" in fixture ? (fixture.resolved ?? null) : null}
       identityNames={"identityNames" in fixture ? fixture.identityNames : undefined}
       launchedMeta={plan.launches.meta}
-      clientDefaultMetaId={event.metaAdAccountId ?? null}
+      clientDefaultMetaId={show?.metaAdAccountId ?? null}
       launchedAt={stamp?.at ?? null}
       launchedWord={stamp?.word}
       launchedAtSource={stamp?.source}
@@ -90,6 +99,8 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
   const now = new Date(fixture.now);
   const plan = fixture.plan;
   const event = fixture.event;
+  const noShow = planNoShowYet(plan.intent.eventId);
+  const show = noShow ? null : event;
   const issues = fixture.issues ?? [];
   const facts = fixture.facts ?? EMPTY_CHANNEL_FACTS;
   const rows = planChannelRows({
@@ -102,8 +113,8 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
       google: null,
     },
     adsManagerLinks: planAdsManagerLinks(plan, {
-      metaAdAccountId: fixture.resolved?.metaAdAccount.value ?? event.eventMetaAdAccountId,
-      googleCustomerId: event.googleCustomerId,
+      metaAdAccountId: fixture.resolved?.metaAdAccount.value ?? show?.eventMetaAdAccountId,
+      googleCustomerId: show?.googleCustomerId,
       tiktokAdvertiserId: fixture.resolved?.tiktokAdvertiser.value ?? null,
     }),
     delivering: (fixture.liveSpend ?? 0) > 0,
@@ -115,9 +126,9 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
     endDate: plan.intent.endDate,
     endTime: plan.intent.endTime,
   };
-  const windowOk = planWindowValidity(dates, event, { now, createdAt: plan.createdAt }).ok;
+  const windowOk = planWindowValidity(dates, show, { now, createdAt: plan.createdAt }).ok;
   const destination = resolvePlanDestination(
-    event,
+    show,
     plan.intent.target.unit,
     plan.intent.destinationUrl,
   );
@@ -125,7 +136,7 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
     state,
     rows,
     gateEnabled: true,
-    hasEvent: true,
+    hasEvent: !noShow,
     hasDestination: Boolean(destination.url),
     windowOk,
     preflightOk: issues.length === 0,
@@ -133,88 +144,124 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
   });
   const readingUnit = launchReadingUnit({
     now,
-    generalSaleAt: event.generalSaleAt,
-    presaleAt: event.presaleAt,
-    kind: event.kind,
+    generalSaleAt: show?.generalSaleAt,
+    presaleAt: show?.presaleAt,
+    kind: show?.kind,
   });
   const usual =
-    event.clientId && event.venueKey
+    show?.clientId && show.venueKey
       ? planBenchmark({
           rows: fixture.benchmarkRows ?? [],
-          clientId: event.clientId,
-          venueKey: event.venueKey,
-          venueLabel: event.venueName ?? event.venueKey,
+          clientId: show.clientId,
+          venueKey: show.venueKey,
+          venueLabel: show.venueName ?? show.venueKey,
           unit: readingUnit === "reg" ? "signup" : readingUnit,
-          excludeEventId: event.id,
+          excludeEventId: show.id,
         })?.value ?? null
       : null;
+  const pickerOptions = planEventPickerRows(
+    visiblePlanEvents(fixture.events ?? [], {
+      today: todayIsoDate(now),
+      showPast: true,
+      selectedId: plan.intent.eventId,
+    }),
+  ).map((row) => ({
+    value: row.id,
+    label: row.label,
+    sublabel: row.sublabel || undefined,
+    keywords: row.keywords || undefined,
+  }));
   return (
     <>
       <CanvasChrome fixture={fixture} />
+      {noShow ? (
+        <div className={`max-w-md ${VIZ_ZONE_GUTTER.normal}`}>
+          <Combobox
+            label="Event"
+            value=""
+            onChange={noop}
+            options={pickerOptions}
+            placeholder="Select an event"
+            emptyText="No matching events"
+          />
+        </div>
+      ) : null}
       <div className={VIZ_ZONE_GUTTER.normal}>
-        <CanvasWindow
-          event={event}
-          dates={dates}
-          createdAt={plan.createdAt}
-          now={now}
-          onChange={noop}
-          readOnly
-          googleBudgeted={plan.intent.budget.googleDaily > 0}
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasWindow
+            event={show}
+            dates={dates}
+            createdAt={plan.createdAt}
+            now={now}
+            onChange={noop}
+            readOnly
+            googleBudgeted={plan.intent.budget.googleDaily > 0}
+          />,
+        )}
       </div>
       <div className={VIZ_ZONE_GUTTER.tight}>
-        <CanvasBudget
-          budget={plan.intent.budget}
-          mode="daily"
-          lifetime={0}
-          startDate={plan.intent.startDate}
-          endDate={plan.intent.endDate}
-          hasUserEdit={false}
-          clientName={event.clientName ?? null}
-          onBudget={noop}
-          onMode={noop}
-          onLifetime={noop}
-          readOnly
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasBudget
+            budget={plan.intent.budget}
+            mode="daily"
+            lifetime={0}
+            startDate={plan.intent.startDate}
+            endDate={plan.intent.endDate}
+            hasUserEdit={false}
+            clientName={show?.clientName ?? null}
+            onBudget={noop}
+            onMode={noop}
+            onLifetime={noop}
+            readOnly
+          />,
+        )}
       </div>
       <div className={VIZ_ZONE_GUTTER.tight}>
-        <CanvasTarget
-          value={plan.intent.target.value}
-          unit={plan.intent.target.unit}
-          objectiveIntent={plan.intent.objectiveIntent}
-          presetHref={null}
-          onTarget={noop}
-          onUnit={noop}
-          onObjective={noop}
-          generalSaleAt={event.generalSaleAt}
-          presaleAt={event.presaleAt}
-          kind={event.kind}
-          venueName={event.venueName}
-          venueKey={event.venueKey}
-          clientId={event.clientId}
-          excludeEventId={event.id}
-          launched={planLaunchStamp(plan.launches) != null}
-          now={now}
-          benchmarkRows={fixture.benchmarkRows ?? []}
-          unitPicker={false}
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasTarget
+            value={plan.intent.target.value}
+            unit={plan.intent.target.unit}
+            objectiveIntent={plan.intent.objectiveIntent}
+            presetHref={null}
+            onTarget={noop}
+            onUnit={noop}
+            onObjective={noop}
+            generalSaleAt={show?.generalSaleAt}
+            presaleAt={show?.presaleAt}
+            kind={show?.kind}
+            venueName={show?.venueName}
+            venueKey={show?.venueKey}
+            clientId={show?.clientId}
+            excludeEventId={show?.id}
+            launched={planLaunchStamp(plan.launches) != null}
+            now={now}
+            benchmarkRows={fixture.benchmarkRows ?? []}
+            unitPicker={false}
+          />,
+        )}
       </div>
       <div className={VIZ_ZONE_GUTTER.loose}>
-        <CanvasChannels
-          rows={rows}
-          blockerCounts={planPreflightBlockerCounts(issues)}
-          readingUnit={readingUnit}
-          running={
-            planLaunchStamp(plan.launches)
-              ? launchChannelRunning(fixture.rollupDays ?? [], readingUnit, usual)
-              : undefined
-          }
-          onOpen={noop}
-          onResume={noop}
-          onRederive={noop}
-          busy={false}
-          drawerEdit={false}
-        />
+        {maybePlanNoShowLock(
+          noShow,
+          <CanvasChannels
+            rows={rows}
+            blockerCounts={planPreflightBlockerCounts(issues)}
+            readingUnit={readingUnit}
+            running={
+              planLaunchStamp(plan.launches)
+                ? launchChannelRunning(fixture.rollupDays ?? [], readingUnit, usual)
+                : undefined
+            }
+            onOpen={noop}
+            onResume={noop}
+            onRederive={noop}
+            busy={false}
+            drawerEdit={false}
+          />,
+        )}
       </div>
       <div className={VIZ_ZONE_GUTTER.normal}>
         <CanvasAssets
@@ -233,7 +280,7 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
         onResumeAll={noop}
         readyAdapters={readyLaunchAdapters(rows)}
         blockerSentence={launchBlockedLine({
-          hasEvent: true,
+          hasEvent: !noShow,
           busy: false,
           windowOk,
           issues,

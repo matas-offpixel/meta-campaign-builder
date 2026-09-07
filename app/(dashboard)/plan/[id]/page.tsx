@@ -10,7 +10,7 @@ import { presetPrimaryRule, resolvePreset } from "@/lib/optimisation/presets";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
 import { createEmptyCampaignPlan } from "@/lib/plan/empty-plan";
 import {
-  defaultPlanEventId,
+  preferredPlanEventId,
   todayIsoDate,
   type PlanEventOption,
 } from "@/lib/plan/event-picker";
@@ -192,7 +192,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     plan ??
     createEmptyCampaignPlan({
       userId: user.id,
-      eventId: defaultPlanEventId(eventOptions, {
+      eventId: preferredPlanEventId(eventOptions, {
         today: todayIsoDate(),
         preferredId: eventFromQuery,
       }),
