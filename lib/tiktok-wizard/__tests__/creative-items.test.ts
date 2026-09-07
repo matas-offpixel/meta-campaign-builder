@@ -166,6 +166,30 @@ describe("appendUploadedTikTokCreatives", () => {
     assert.deepEqual(names, nameCreativeVariations("Hero", 4));
   });
 
+  it("maps two library picks at variationCount 1 to two VIDEO_REFERENCE items", () => {
+    let n = 0;
+    const items = appendUploadedTikTokCreatives({
+      existing: [],
+      uploads: [
+        { videoId: "lib-1", thumbnailUrl: "t1", durationSeconds: 12, fileName: "one.mp4" },
+        { videoId: "lib-2", thumbnailUrl: "t2", durationSeconds: 20, fileName: "two.mp4" },
+      ],
+      ...SHARED,
+      variationCount: 1,
+      newId: () => `id-${++n}`,
+    });
+    assert.equal(items.length, 2);
+    assert.deepEqual(
+      items.map((item) => item.videoId),
+      ["lib-1", "lib-2"],
+    );
+    assert.deepEqual(
+      items.map((item) => item.mode),
+      ["VIDEO_REFERENCE", "VIDEO_REFERENCE"],
+    );
+    assert.equal(new Set(items.map((item) => item.id)).size, 2);
+  });
+
   it("produces a UUID-shaped id when newId is not injected", () => {
     const items = appendUploadedTikTokCreatives({
       existing: [],

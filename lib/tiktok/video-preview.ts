@@ -49,3 +49,17 @@ export function pickTikTokCoverUrl(input: {
 }): string | null {
   return input.coverUrl || input.thumbnailUrl || input.previewUrl || null;
 }
+
+/** Hide a library thumb only when we know its URL is past expiry. */
+export function tiktokLibraryThumbUrl(
+  video: {
+    thumbnail_url?: string | null;
+    preview_url_expire_time?: unknown;
+  },
+  now = Date.now(),
+): string | null {
+  if (!video.thumbnail_url) return null;
+  const expiresAt = parseTikTokPreviewExpiry(video.preview_url_expire_time, now);
+  if (expiresAt && isTikTokPreviewExpired(expiresAt, now)) return null;
+  return video.thumbnail_url;
+}

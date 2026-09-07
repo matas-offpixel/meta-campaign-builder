@@ -6,6 +6,7 @@ import {
   parseTikTokPreviewExpiry,
   pickTikTokCoverUrl,
   resolveTikTokPreviewExpiry,
+  tiktokLibraryThumbUrl,
 } from "../video-preview.ts";
 
 describe("TikTok preview URL expiry", () => {
@@ -50,6 +51,30 @@ describe("TikTok preview URL expiry", () => {
     assert.equal(
       resolveTikTokPreviewExpiry(null, now),
       "2026-08-20T18:00:00.000Z",
+    );
+  });
+
+  it("does not render a library thumb past preview_url_expire_time", () => {
+    const now = Date.parse("2026-08-20T18:00:00.000Z");
+    assert.equal(
+      tiktokLibraryThumbUrl(
+        {
+          thumbnail_url: "https://cdn.example/dead.jpg",
+          preview_url_expire_time: "2026-08-20T12:00:00.000Z",
+        },
+        now,
+      ),
+      null,
+    );
+    assert.equal(
+      tiktokLibraryThumbUrl(
+        {
+          thumbnail_url: "https://cdn.example/live.jpg",
+          preview_url_expire_time: "2026-08-20T20:00:00.000Z",
+        },
+        now,
+      ),
+      "https://cdn.example/live.jpg",
     );
   });
 });
