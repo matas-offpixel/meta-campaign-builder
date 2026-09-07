@@ -24,16 +24,10 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 const PLAYWRIGHT_PIN = "1.63.0";
-const CHROMIUM_REVISION = "1243";
 const require = createRequire(import.meta.url);
 const playwrightVersion = require("@playwright/test/package.json").version;
 if (playwrightVersion !== PLAYWRIGHT_PIN) {
-  console.error(`Playwright must be ${PLAYWRIGHT_PIN} (CI Chromium pin), got ${playwrightVersion}`);
-  process.exit(1);
-}
-const pinnedChromium = require("playwright-core/browsers.json").browsers.find((b) => b.name === "chromium");
-if (pinnedChromium?.revision !== CHROMIUM_REVISION) {
-  console.error(`Chromium revision must be ${CHROMIUM_REVISION}, got ${pinnedChromium?.revision}`);
+  console.error(`Playwright must be ${PLAYWRIGHT_PIN} (Chromium r1243), got ${playwrightVersion}`);
   process.exit(1);
 }
 
