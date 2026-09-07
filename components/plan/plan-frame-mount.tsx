@@ -210,7 +210,6 @@ function LaunchFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "launc
             startDate={plan.intent.startDate}
             endDate={plan.intent.endDate}
             hasUserEdit={false}
-            clientName={show?.clientName ?? null}
             onBudget={noop}
             onMode={noop}
             onLifetime={noop}

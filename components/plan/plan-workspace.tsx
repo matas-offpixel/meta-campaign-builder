@@ -84,6 +84,7 @@ import { planAdsManagerLinks } from "@/lib/plan/ads-manager-links";
 import {
   identityAccountLabel,
   launchBlockedLine,
+  launchBlockerRows,
   launchChannelRunning,
   launchReadingUnit,
   launchUnitWord,
@@ -1197,7 +1198,6 @@ export function PlanWorkspace({
             startDate={plan.intent.startDate}
             endDate={plan.intent.endDate}
             hasUserEdit={hasUserEdit}
-            clientName={selectedEvent?.clientName ?? null}
             onBudget={(budget) => patchIntent({ budget })}
             onMode={(mode) => {
               setBudgetMode(mode);
@@ -1378,6 +1378,11 @@ export function PlanWorkspace({
           issues,
           blockerCount: planPreflightBlockerCount(issues),
         })}
+        blockerItems={launchBlockerRows(issues)}
+        onOpenBlocker={(anchor) => {
+          const row = rows.find((item) => item.adapter === anchor.drawer);
+          if (row) void openChannel(row, undefined, anchor);
+        }}
       />
       </div>
 

@@ -2,6 +2,7 @@
 
 import type { RefObject } from "react";
 
+import { PlanBlockerItems } from "@/components/plan/blocker-items";
 import { ChannelRow } from "@/components/viz/channel-row";
 import { PLAN_CANVAS_COPY, resumeSupport, type PlanChannelRowModel } from "@/lib/plan/canvas";
 import {
@@ -81,83 +82,86 @@ export function CanvasChannels({
           );
         }
         return (
-          <div key={row.adapter} className="flex flex-wrap items-center gap-1.5">
-            {hideStateWord ? null : needsYou ? (
-              <button
-                type="button"
-                className={`${VIZ_TYPE.label} text-foreground`}
-                onClick={() => {
-                  if (first?.anchor && onOpenAnchor) onOpenAnchor(row, first.anchor);
-                  else onOpen(row);
-                }}
-              >
-                {formatChannelNeedsYou(blockerCount, VIZ_PLATFORM_LABEL[row.adapter])}
-              </button>
-            ) : (
-              <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{stateWord}</span>
-            )}
-            <div className="min-w-0 flex-1">
-              <ChannelRow
-                platform={row.adapter}
-                status={row.status}
-                facts={row.facts}
-                derived={row.derived}
-                waiting={row.waiting}
-                waitingFor={row.waitingFor}
-                hideWaitingText
-                tip={
-                  row.adapter === "tiktok" || row.adapter === "google"
-                    ? PLAN_CANVAS_COPY.derive
-                    : undefined
-                }
-                liveFacts={
-                  runningFact ? (
-                    <span className={VIZ_TYPE.body}>{runningFact}</span>
-                  ) : null
-                }
-                onOpen={drawerEdit ? () => onOpen(row) : undefined}
-                onOpenAnchor={
-                  drawerEdit && onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
-                }
-                openRef={openRefs?.[row.adapter]}
-              />
-            </div>
-            {drawerEdit && row.state === "paused" ? (
-              resume.supported ? (
+          <div key={row.adapter} className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {hideStateWord ? null : needsYou ? (
                 <button
                   type="button"
                   className={`${VIZ_TYPE.label} text-foreground`}
-                  onClick={() => onResume(row)}
+                  onClick={() => {
+                    if (first?.anchor && onOpenAnchor) onOpenAnchor(row, first.anchor);
+                    else onOpen(row);
+                  }}
                 >
-                  {formatResumeWord(row.adapter)}
+                  {formatChannelNeedsYou(blockerCount, VIZ_PLATFORM_LABEL[row.adapter])}
                 </button>
-              ) : row.adsManagerHref ? (
-                <a
-                  href={row.adsManagerHref}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={PLAN_CANVAS_COPY.resumeElsewhere}
-                  className={`${VIZ_TYPE.label} text-muted-foreground underline`}
-                >
-                  {formatResumeWord(row.adapter)}
-                </a>
               ) : (
-                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-                  {formatResumeWord(row.adapter)}
-                </span>
-              )
-            ) : null}
-            {drawerEdit && row.staleChip ? (
-              <button
-                type="button"
-                className={`rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 ${VIZ_TYPE.label}`}
-                disabled={busy}
-                title={row.staleChip}
-                onClick={() => onRederive(row)}
-              >
-                {row.staleChip}
-              </button>
-            ) : null}
+                <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{stateWord}</span>
+              )}
+              <div className="min-w-0 flex-1">
+                <ChannelRow
+                  platform={row.adapter}
+                  status={row.status}
+                  facts={row.facts}
+                  derived={row.derived}
+                  waiting={row.waiting}
+                  waitingFor={row.waitingFor}
+                  hideWaitingText
+                  tip={
+                    row.adapter === "tiktok" || row.adapter === "google"
+                      ? PLAN_CANVAS_COPY.derive
+                      : undefined
+                  }
+                  liveFacts={
+                    runningFact ? (
+                      <span className={VIZ_TYPE.body}>{runningFact}</span>
+                    ) : null
+                  }
+                  onOpen={drawerEdit ? () => onOpen(row) : undefined}
+                  onOpenAnchor={
+                    drawerEdit && onOpenAnchor ? (anchor) => onOpenAnchor(row, anchor) : undefined
+                  }
+                  openRef={openRefs?.[row.adapter]}
+                />
+              </div>
+              {drawerEdit && row.state === "paused" ? (
+                resume.supported ? (
+                  <button
+                    type="button"
+                    className={`${VIZ_TYPE.label} text-foreground`}
+                    onClick={() => onResume(row)}
+                  >
+                    {formatResumeWord(row.adapter)}
+                  </button>
+                ) : row.adsManagerHref ? (
+                  <a
+                    href={row.adsManagerHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={PLAN_CANVAS_COPY.resumeElsewhere}
+                    className={`${VIZ_TYPE.label} text-muted-foreground underline`}
+                  >
+                    {formatResumeWord(row.adapter)}
+                  </a>
+                ) : (
+                  <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
+                    {formatResumeWord(row.adapter)}
+                  </span>
+                )
+              ) : null}
+              {drawerEdit && row.staleChip ? (
+                <button
+                  type="button"
+                  className={`rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 ${VIZ_TYPE.label}`}
+                  disabled={busy}
+                  title={row.staleChip}
+                  onClick={() => onRederive(row)}
+                >
+                  {row.staleChip}
+                </button>
+              ) : null}
+            </div>
+            {onOpenAnchor ? <PlanBlockerItems items={blockers} onOpenAnchor={(anchor) => onOpenAnchor(row, anchor)} /> : null}
           </div>
         );
       })}

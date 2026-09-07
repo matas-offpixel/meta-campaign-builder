@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { shortBlockerLabel, blockerRowFromIssue } from "../blockers.ts";
+import { INFO_TIP_CLOSE_LABEL, INFO_TIP_OPEN, infoTipAfterGesture } from "../info-tip.ts";
 import { eventInitials, firstHttpUrl, resolveEventArtwork } from "../event-artwork.ts";
 import { statusFromLaunchAndBlockers, statusFromLaunchRecord } from "../status.ts";
 import {
@@ -78,6 +79,30 @@ describe("blocker information is preserved", () => {
     assert.match(source, /row\.href/);
     assert.match(source, /ArrowUpRight/);
     assert.match(source, /advisory/);
+  });
+});
+
+describe("InfoTip dismissal", () => {
+  it("outside, Escape, ✕, and another tip all close; opening closes the others", () => {
+    assert.deepEqual(infoTipAfterGesture("trigger"), { open: true, closesOthers: true });
+    assert.deepEqual(infoTipAfterGesture("outside"), { open: false, closesOthers: false });
+    assert.deepEqual(infoTipAfterGesture("escape"), { open: false, closesOthers: false });
+    assert.deepEqual(infoTipAfterGesture("close"), { open: false, closesOthers: false });
+    assert.deepEqual(infoTipAfterGesture("other-tip"), { open: false, closesOthers: false });
+    assert.equal(INFO_TIP_CLOSE_LABEL, "close");
+    assert.equal(INFO_TIP_OPEN, "offpixel:info-tip-open");
+  });
+
+  it("one click behaviour, deferred closer, visible close, no native title", () => {
+    const source = readFileSync("components/viz/info-tip.tsx", "utf8");
+    assert.match(source, /createPortal/);
+    assert.match(source, /setTimeout/);
+    assert.match(source, /pointerdown/);
+    assert.match(source, /Escape/);
+    assert.match(source, /INFO_TIP_OPEN/);
+    assert.match(source, /INFO_TIP_CLOSE_LABEL/);
+    assert.doesNotMatch(source, /title=\{label\}/);
+    assert.doesNotMatch(source, /variant === "card"/);
   });
 });
 
