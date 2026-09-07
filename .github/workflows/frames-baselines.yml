@@ -1,0 +1,32 @@
+# Ubuntu raster source of truth. `frames:check` asserts against the
+# PNGs this job writes. macOS `npm run frames -- --local` is for looking.
+name: frames-baselines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frames:
+    name: npm run frames (Ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ENABLE_PLAN_FRAMES: "1"
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test-anon-key
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run frames
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan-frames-ubuntu
+          path: docs/frames/*.png

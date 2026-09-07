@@ -144,11 +144,6 @@ export function dateToRatioRaw(at: Date, from: number, to: number): number {
   return (at.getTime() - from) / span;
 }
 
-function isNowMoment(moment: { id: string; label?: string; noun?: string }): boolean {
-  const word = moment.label ?? moment.noun ?? "";
-  return moment.id === "now" || word === "now" || word.startsWith("now ·");
-}
-
 /** Moments whose date sits outside `[start, end]` never draw on the rail. */
 export function windowMomentsOnRail(
   moments: readonly WindowMoment[],
@@ -170,17 +165,129 @@ export function windowNowAtEnd(now: Date, start: Date, end: Date, min?: Date): b
   return Math.abs(nowPct - endPct) <= WINDOW_GLYPH_COLLISION_PCT * 100;
 }
 
+/** Handle + moment nouns, left-to-right on the rail then the end handle. */
+export const WINDOW_RAIL_NOUN_ORDER = [
+  "start",
+  "end",
+  "now",
+  "announcement",
+  "presale",
+  "gen sale",
+  "show",
+] as const;
+
+export type WindowRailMark = {
+  id: string;
+  noun: string;
+  ratio: number;
+  at?: Date;
+  placeholder?: boolean;
+};
+
 export type WindowRailView = {
   nowAtEnd: boolean;
-  endNoun: "end · now" | "end";
+  endNoun: string;
+  startNoun: string;
   moments: WindowMoment[];
   /** Printed nouns on the rail, including the end handle. */
   labels: string[];
+  hideGlyphIds: Set<string>;
+  hideNounIds: Set<string>;
+  joinedLabel: Map<string, string>;
 };
 
+const START_MARK_ID = "__start";
+const END_MARK_ID = "__end";
+
+export function railNounKind(noun: string, id?: string): string {
+  if (id === START_MARK_ID || id === "start") return "start";
+  if (id === END_MARK_ID || id === "end") return "end";
+  if (id === "now" || noun === "now" || noun.startsWith("now ·")) return "now";
+  const kinds = [...WINDOW_RAIL_NOUN_ORDER].sort((a, b) => b.length - a.length);
+  for (const kind of kinds) {
+    if (noun === kind || noun.startsWith(`${kind} `) || noun.startsWith(`${kind} ·`)) {
+      return kind;
+    }
+  }
+  return noun;
+}
+
+export function joinRailNouns(marks: readonly { noun: string; id: string }[]): string {
+  const used = new Set<string>();
+  const ordered: string[] = [];
+  for (const kind of WINDOW_RAIL_NOUN_ORDER) {
+    const mark = marks.find((item) => railNounKind(item.noun, item.id) === kind);
+    if (!mark || used.has(kind)) continue;
+    used.add(kind);
+    ordered.push(mark.noun);
+  }
+  for (const mark of marks) {
+    const kind = railNounKind(mark.noun, mark.id);
+    if (used.has(kind)) continue;
+    used.add(kind);
+    ordered.push(mark.noun);
+  }
+  return ordered.join(" · ");
+}
+
+/** Union-find: any two marks within 2% of the same position share a cluster. */
+export function clusterMarksWithinPct<T extends { ratio: number }>(
+  marks: readonly T[],
+  pct: number = WINDOW_GLYPH_COLLISION_PCT,
+): T[][] {
+  const items = [...marks];
+  const parent = items.map((_, index) => index);
+  const find = (index: number): number => {
+    let cursor = index;
+    while (parent[cursor] !== cursor) {
+      parent[cursor] = parent[parent[cursor]!]!;
+      cursor = parent[cursor]!;
+    }
+    return cursor;
+  };
+  for (let i = 0; i < items.length; i += 1) {
+    for (let j = i + 1; j < items.length; j += 1) {
+      if (Math.abs(items[i]!.ratio - items[j]!.ratio) <= pct) {
+        parent[find(j)] = find(i);
+      }
+    }
+  }
+  const groups = new Map<number, T[]>();
+  for (let i = 0; i < items.length; i += 1) {
+    const root = find(i);
+    const group = groups.get(root) ?? [];
+    group.push(items[i]!);
+    groups.set(root, group);
+  }
+  return [...groups.values()].sort((a, b) => (a[0]?.ratio ?? 0) - (b[0]?.ratio ?? 0));
+}
+
+function markTime<T extends { at?: Date; id: string; noun: string }>(mark: T): number {
+  if (mark.at) return mark.at.getTime();
+  // A mark without a date: `now` is the present; others yield.
+  return railNounKind(mark.noun, mark.id) === "now" ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+}
+
+function newestRailMark<T extends { at?: Date; id: string; noun: string }>(marks: readonly T[]): T {
+  return marks.reduce((best, mark) => {
+    const bestAt = markTime(best);
+    const nextAt = markTime(mark);
+    if (nextAt !== bestAt) return nextAt > bestAt ? mark : best;
+    const bestKind = WINDOW_RAIL_NOUN_ORDER.indexOf(
+      railNounKind(best.noun, best.id) as (typeof WINDOW_RAIL_NOUN_ORDER)[number],
+    );
+    const nextKind = WINDOW_RAIL_NOUN_ORDER.indexOf(
+      railNounKind(mark.noun, mark.id) as (typeof WINDOW_RAIL_NOUN_ORDER)[number],
+    );
+    return nextKind > bestKind ? mark : best;
+  });
+}
+
 /**
- * What the rail prints. When `now` sits on `end`, the now-mark is gone
- * and the handle is `end · now`. A show past the window is not a mark.
+ * What the rail prints. Marks within 2% of the same position collapse
+ * into one label, nouns in rail order, newest moment's glyph. A show
+ * past the window is not a mark. Round 4 (`end === now`, show outside)
+ * is still `end · now`.
  */
 export function windowRailView(input: {
   start: Date;
@@ -189,22 +296,68 @@ export function windowRailView(input: {
   moments: readonly WindowMoment[];
   min?: Date;
 }): WindowRailView {
-  const nowAtEnd = windowNowAtEnd(input.now, input.start, input.end, input.min);
   const { from, to } = windowSpanMs(input.start, input.end, input.min);
-  const moments = windowMomentsOnRail(input.moments, input.start, input.end, input.min).filter(
-    (moment) => !(nowAtEnd && isNowMoment(moment)),
-  );
-  const marks = moments.map((moment) => ({
-    id: moment.id,
-    noun: moment.label,
-    ratio: dateToRatio(moment.at, from, to),
-  }));
-  const collision = resolveMomentGlyphCollision(marks);
-  const momentNouns = marks
-    .filter((mark) => !collision.hideNounIds.has(mark.id))
-    .map((mark) => collision.joinedLabel.get(mark.id) ?? mark.noun);
-  const endNoun = nowAtEnd ? "end · now" : "end";
-  return { nowAtEnd, endNoun, moments, labels: [...momentNouns, endNoun] };
+  const onRail = windowMomentsOnRail(input.moments, input.start, input.end, input.min);
+  const marks: WindowRailMark[] = [
+    { id: START_MARK_ID, noun: "start", ratio: dateToRatio(input.start, from, to), at: input.start },
+    ...onRail.map((moment) => ({
+      id: moment.id,
+      noun: moment.label,
+      ratio: dateToRatio(moment.at, from, to),
+      at: moment.at,
+    })),
+    { id: END_MARK_ID, noun: "end", ratio: dateToRatio(input.end, from, to), at: input.end },
+  ];
+  const hideGlyphIds = new Set<string>();
+  const hideNounIds = new Set<string>();
+  const joinedLabel = new Map<string, string>();
+  const visible: WindowMoment[] = [];
+  const momentNouns: string[] = [];
+  let startNoun = "start";
+  let endNoun = "end";
+  for (const cluster of clusterMarksWithinPct(marks)) {
+    const text = joinRailNouns(cluster);
+    const hasStart = cluster.some((mark) => mark.id === START_MARK_ID);
+    const hasEnd = cluster.some((mark) => mark.id === END_MARK_ID);
+    const moments = cluster.filter((mark) => mark.id !== START_MARK_ID && mark.id !== END_MARK_ID);
+    if (hasEnd) {
+      endNoun = text;
+      for (const mark of moments) {
+        hideGlyphIds.add(mark.id);
+        hideNounIds.add(mark.id);
+      }
+      continue;
+    }
+    if (hasStart) {
+      startNoun = text;
+      for (const mark of moments) {
+        hideGlyphIds.add(mark.id);
+        hideNounIds.add(mark.id);
+      }
+      continue;
+    }
+    if (moments.length === 0) continue;
+    const newest = newestRailMark(moments);
+    const source = onRail.find((moment) => moment.id === newest.id);
+    if (source) visible.push(source);
+    if (moments.length > 1) joinedLabel.set(newest.id, text);
+    for (const mark of moments) {
+      if (mark.id === newest.id) continue;
+      hideGlyphIds.add(mark.id);
+      hideNounIds.add(mark.id);
+    }
+    momentNouns.push(text);
+  }
+  return {
+    nowAtEnd: /\bnow\b/.test(endNoun),
+    endNoun,
+    startNoun,
+    moments: visible,
+    labels: [...momentNouns, endNoun],
+    hideGlyphIds,
+    hideNounIds,
+    joinedLabel,
+  };
 }
 
 export function ratioToDate(ratio: number, from: number, to: number): Date {
@@ -336,28 +489,15 @@ export function momentMarkAlign(ratio: number): "start" | "center" | "end" {
   return "center";
 }
 
-function isNowMark(mark: { id: string; noun: string }): boolean {
-  return mark.id === "now" || mark.noun === "now" || mark.noun.startsWith("now ·");
-}
-
-function marksCollide(
-  left: { ratio: number; x?: number; width?: number },
-  right: { ratio: number; x?: number; width?: number },
-): boolean {
-  if (left.x != null && right.x != null && left.width != null && right.width != null) {
-    return boxesIntersect({ x: left.x, w: left.width }, { x: right.x, w: right.width });
-  }
-  return Math.abs(right.ratio - left.ratio) <= WINDOW_GLYPH_COLLISION_PCT;
-}
-
 export type WindowCollisionMark = {
   id: string;
   noun: string;
   ratio: number;
   extra?: string;
+  at?: Date;
   x?: number;
   width?: number;
-  /** Placeholder (`not set on the event`) — never joins `now`. */
+  /** Placeholder (`not set on the event`) — never joins a cluster. */
   placeholder?: boolean;
 };
 
@@ -366,10 +506,9 @@ function markNoun(mark: WindowCollisionMark): string {
 }
 
 /**
- * When two moments collide, `now` keeps the joined label at its
- * position (`now · gen sale passed Fri 4 Sep`). Placeholders never
- * join `now`; passed moments do. The other loses glyph and noun.
- * Without `now`, the later mark yields.
+ * All marks within 2% of the same position collapse into one label,
+ * nouns in rail order, newest moment keeps the glyph. Placeholders
+ * stay out of the cluster.
  */
 export function resolveMomentGlyphCollision(
   marks: WindowCollisionMark[],
@@ -377,27 +516,17 @@ export function resolveMomentGlyphCollision(
   const hideGlyphIds = new Set<string>();
   const hideNounIds = new Set<string>();
   const joinedLabel = new Map<string, string>();
-  const nowMark = marks.find((mark) => isNowMark(mark));
-  if (nowMark) {
-    const neighbour = marks
-      .filter((mark) => !isNowMark(mark) && !mark.placeholder && marksCollide(nowMark, mark))
-      .sort((a, b) => Math.abs(a.ratio - nowMark.ratio) - Math.abs(b.ratio - nowMark.ratio))[0];
-    if (neighbour) {
-      hideGlyphIds.add(neighbour.id);
-      hideNounIds.add(neighbour.id);
-      joinedLabel.set(nowMark.id, `now · ${markNoun(neighbour)}`);
-    }
-  }
-  const sorted = [...marks].sort((a, b) => a.ratio - b.ratio || a.id.localeCompare(b.id));
-  for (let i = 0; i < sorted.length - 1; i += 1) {
-    const left = sorted[i]!;
-    const right = sorted[i + 1]!;
-    if (!marksCollide(left, right)) continue;
-    if (isNowMark(left) || isNowMark(right)) continue;
-    hideGlyphIds.add(left.id);
-    hideNounIds.add(left.id);
-    if (!joinedLabel.has(right.id)) {
-      joinedLabel.set(right.id, `${left.noun} · ${markNoun(right)}`);
+  const real = marks
+    .filter((mark) => !mark.placeholder)
+    .map((mark) => ({ ...mark, noun: markNoun(mark) }));
+  for (const cluster of clusterMarksWithinPct(real)) {
+    if (cluster.length < 2) continue;
+    const newest = newestRailMark(cluster);
+    joinedLabel.set(newest.id, joinRailNouns(cluster));
+    for (const mark of cluster) {
+      if (mark.id === newest.id) continue;
+      hideGlyphIds.add(mark.id);
+      hideNounIds.add(mark.id);
     }
   }
   return { hideGlyphIds, hideNounIds, joinedLabel };

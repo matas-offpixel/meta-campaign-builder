@@ -61,13 +61,13 @@ export function CanvasTarget({
   clientId?: string | null;
   excludeEventId?: string | null;
   launched?: boolean;
-  now?: Date;
+  now: Date;
   ticketSource?: "none" | "manual" | "xlsx_import" | "eventbrite" | "fourthefans" | "unknown";
   benchmarkRows?: readonly BenchmarkRow[];
   unitPicker?: boolean;
 }) {
   const view = launchTargetView({
-    now: now ?? new Date(),
+    now,
     generalSaleAt,
     presaleAt,
     kind,

@@ -802,7 +802,7 @@ export function PlanWorkspace({
     patchIntent(next);
   }
 
-  const adjustClock = useMemo(() => new Date(), []);
+  const clock = useMemo(() => new Date(), []);
   const adjustWindowDates: PlanWindowDates = {
     startDate: plan.intent.startDate,
     startTime: plan.intent.startTime,
@@ -810,26 +810,26 @@ export function PlanWorkspace({
     endTime: plan.intent.endTime,
   };
   const adjustValidity = planWindowValidity(adjustWindowDates, selectedEvent, {
-    now: adjustClock,
+    now: clock,
     createdAt: plan.createdAt,
   });
   const adjustHandles = planWindowHandles(
-    adjustValidity.ok ? adjustWindowDates : planDefaultWindow(selectedEvent, adjustClock),
+    adjustValidity.ok ? adjustWindowDates : planDefaultWindow(selectedEvent, clock),
     selectedEvent,
-    adjustClock,
+    clock,
   );
   const dailyBudget =
     plan.intent.budget.metaDaily + plan.intent.budget.tiktokDaily + plan.intent.budget.googleDaily;
   const launchedAt = planLaunchedAt(plan.launches);
   const sinceLaunch = launchedAt ? new Date(launchedAt) : adjustHandles.start;
   const readingUnit = launchReadingUnit({
-    now: adjustClock,
+    now: clock,
     generalSaleAt: selectedEvent?.generalSaleAt,
     presaleAt: selectedEvent?.presaleAt,
     kind: selectedEvent?.kind,
   });
   const adjustReadingUnit = adjustPrimaryReadingUnit({
-    now: adjustClock,
+    now: clock,
     generalSaleAt: selectedEvent?.generalSaleAt,
     presaleAt: selectedEvent?.presaleAt,
     launchedAt,
@@ -1098,7 +1098,7 @@ export function PlanWorkspace({
         <CanvasAdjust
           role={role}
           spent={adjustReads?.spend ?? liveSpend ?? 0}
-          planned={plannedSpendByToday(dailyBudget, sinceLaunch, adjustClock)}
+          planned={plannedSpendByToday(dailyBudget, sinceLaunch, clock)}
           kind={selectedEvent?.kind}
           benchmark={adjustBenchmark}
           writeGates={adjustGates}
@@ -1117,7 +1117,7 @@ export function PlanWorkspace({
           tickets={ticketSource === "none" ? null : (adjustReads?.tickets ?? ticketStage?.value ?? null)}
           ticketSource={ticketSource}
           decisions={adjustDecisions}
-          moments={planWindowMoments(selectedEvent, adjustClock)}
+          moments={planWindowMoments(selectedEvent, clock)}
           start={sinceLaunch}
           end={adjustHandles.end}
           endSet={adjustValidity.ok}
@@ -1130,7 +1130,7 @@ export function PlanWorkspace({
           reach={adjustReads?.reach ?? null}
           clicks={adjustReads?.clicks ?? null}
           pageViews={adjustReads?.firstPartyLpv ?? lpvStage?.value ?? null}
-          now={adjustClock}
+          now={clock}
           readsPending={readsPending}
           onWindowChange={(next) => setWindow(planWindowFromHandles(next))}
         />
@@ -1147,6 +1147,7 @@ export function PlanWorkspace({
             endTime: plan.intent.endTime,
           }}
           createdAt={plan.createdAt}
+          now={clock}
           onChange={setWindow}
           readOnly={readOnly}
           googleBudgeted={plan.intent.budget.googleDaily > 0}
@@ -1202,6 +1203,7 @@ export function PlanWorkspace({
           clientId={selectedEvent?.clientId}
           excludeEventId={selectedEvent?.id}
           launched={launchStamp != null}
+          now={clock}
           benchmarkRows={benchmarkRows}
           unitPicker={share.unitPicker}
         />

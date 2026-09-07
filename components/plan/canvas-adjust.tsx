@@ -96,7 +96,7 @@ export function CanvasAdjust({
   reach?: number | null;
   clicks?: number | null;
   pageViews?: number | null;
-  now?: Date;
+  now: Date;
   /** Until window reads resolve — Locked-style 35% ink, no words. */
   readsPending?: boolean;
   onWindowChange?: (next: { start: Date; end: Date }) => void;
@@ -147,7 +147,7 @@ export function CanvasAdjust({
             moments={moments}
             start={windowStart}
             end={end}
-            now={now ?? new Date()}
+            now={now}
             empty={false}
             onChange={onWindowChange ?? (() => undefined)}
           />
@@ -176,7 +176,7 @@ export function CanvasAdjust({
               moments={moments}
               start={windowStart}
               end={end}
-              now={now ?? new Date()}
+              now={now}
               empty={face.windowEmpty}
               emptyLabel="end not set"
               endLabel={face.endLabel}
