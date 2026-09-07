@@ -487,9 +487,13 @@ describe("source-guards — consumers and settings reuse existing pickers", () =
     assert.match(route, /collectPlanPreflight\(plan, linked, channel\)/);
     const preflight = readFileSync("lib/plan/preflight.ts", "utf8");
     assert.match(preflight, /annotateChannelDefaultCures/);
-    assert.match(preflight, /applyMetaChannelDefaults/);
+    assert.match(preflight, /buildPlanLaunchDrafts/);
     assert.match(preflight, /resolveChannelDefaults/);
     assert.match(preflight, /drafts, resolved/);
+    const launchDrafts = readFileSync("lib/plan/launch-drafts.ts", "utf8");
+    assert.match(launchDrafts, /applyMetaChannelDefaults/);
+    assert.match(launchDrafts, /applyTikTokChannelDefaults/);
+    assert.match(launchDrafts, /applyGoogleChannelDefaults/);
     const defaults = readFileSync("lib/clients/channel-defaults.ts", "utf8");
     assert.match(defaults, /normalizeAdAccountId/);
     assert.match(defaults, /meta_ad_account_id/);

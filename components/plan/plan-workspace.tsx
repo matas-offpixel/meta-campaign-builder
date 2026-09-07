@@ -745,6 +745,8 @@ export function PlanWorkspace({
         error?: string;
         skippedReason?: string | null;
         plan?: CampaignPlan | null;
+        advisories?: string[];
+        skips?: Record<string, string>;
       };
       if (json.skippedReason) {
         setError(json.skippedReason);
@@ -755,6 +757,13 @@ export function PlanWorkspace({
         return;
       }
       setPlan(json.plan);
+      const face = [
+        ...(json.advisories ?? []),
+        ...Object.values(json.skips ?? {}),
+      ];
+      if (face.length > 0) {
+        setError(face.join(" · "));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : null);
     } finally {
@@ -772,10 +781,13 @@ export function PlanWorkspace({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ adapter }),
         });
-        const json = (await res.json()) as { ok?: boolean; error?: string };
+        const json = (await res.json()) as { ok?: boolean; error?: string; word?: string };
         if (!res.ok || !json.ok) {
           setError(json.error ?? null);
           return;
+        }
+        if (json.word) {
+          setError(json.word);
         }
       }
       router.refresh();
