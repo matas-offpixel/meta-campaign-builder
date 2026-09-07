@@ -118,12 +118,13 @@ async function main() {
           deviceScaleFactor: 1,
         });
         const res = await page.goto(`${BASE}/frames/${frameId}`, {
-          waitUntil: "networkidle",
+          waitUntil: "domcontentloaded",
+          timeout: 30_000,
         });
         if (!res || res.status() >= 400) {
           throw new Error(`${shot.id}: HTTP ${res?.status() ?? "no response"}`);
         }
-        await page.waitForSelector(`[data-frame-ready="${frameId}"]`);
+        await page.waitForSelector(`[data-frame-ready="${frameId}"]`, { timeout: 15_000 });
         await page.evaluate(() => document.fonts.ready);
         await page.waitForTimeout(150);
         const png = await page.screenshot({ fullPage: true, type: "png" });
