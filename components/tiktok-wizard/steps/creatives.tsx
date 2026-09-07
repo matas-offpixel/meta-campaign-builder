@@ -7,9 +7,11 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { TikTokSparkPostPicker } from "@/components/tiktok-wizard/tiktok-spark-post-picker";
 import { TikTokVideoLibrary } from "@/components/tiktok-wizard/tiktok-video-library";
 import { uploadTikTokVideoViaStorage } from "@/lib/tiktok-wizard/campaign-asset-upload";
 import {
+  appendSparkTikTokCreatives,
   appendUploadedTikTokCreatives,
   clampTikTokVariationCount,
   nextTikTokCreativeNames,
@@ -24,6 +26,7 @@ import {
   extractTikTokVideoId,
   type TikTokVideoInfo,
 } from "@/lib/tiktok/creative";
+import type { TikTokSparkPost } from "@/lib/tiktok/spark-posts";
 import {
   isTikTokPreviewExpired,
   pickTikTokCoverUrl,
@@ -308,6 +311,32 @@ export function CreativesStep({
     }
   }
 
+  async function addSparkPosts(picked: TikTokSparkPost[]) {
+    const advertiserId = draft.accountSetup.advertiserId;
+    if (!advertiserId) {
+      setError("Select an advertiser in Step 0 before choosing a post.");
+      return;
+    }
+    if (adText.length > 100) {
+      setError("TikTok ad text must be 100 characters or fewer.");
+      return;
+    }
+    if (picked.length === 0) return;
+    const nextItems = appendSparkTikTokCreatives({
+      existing: itemsRef.current,
+      posts: picked,
+      baseName,
+      adText,
+      landingPageUrl: landingPageUrl.trim(),
+      cta,
+    });
+    try {
+      await persist(nextItems);
+    } catch {
+      // persist already set the operator-facing error
+    }
+  }
+
   async function loadVideoInfo(videoId: string): Promise<TikTokVideoInfo | null> {
     const advertiserId = draft.accountSetup.advertiserId;
     if (!advertiserId) return null;
@@ -511,6 +540,12 @@ export function CreativesStep({
         onPick={(videos) => void addLibraryVideos(videos)}
       />
 
+      <TikTokSparkPostPicker
+        advertiserId={draft.accountSetup.advertiserId}
+        disabled={saving}
+        onPick={(posts) => void addSparkPosts(posts)}
+      />
+
       <Input
         id="creative-video"
         label="Or paste a TikTok video URL or video_id"
@@ -605,7 +640,10 @@ export function CreativesStep({
                 {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
               </Datum>
               <Datum className="truncate text-xs text-muted-foreground">
-                {item.videoId} · {item.cta ?? "No CTA"}
+                {item.mode === "SPARK_AD"
+                  ? `post ${item.sparkPostId} · ${item.identityDisplayName || item.identityType || "Spark"}`
+                  : item.videoId}{" "}
+                · {item.cta ?? "No CTA"}
               </Datum>
               <Datum className="truncate text-xs text-muted-foreground">
                 {item.adText || "No ad text"}

@@ -1,4 +1,6 @@
 import { nameCreativeVariations } from "../tiktok/creative.ts";
+import type { TikTokSparkPost } from "../tiktok/spark-posts.ts";
+import { defaultTikTokSparkPosterExpiry } from "../tiktok/video-preview.ts";
 import type { TikTokCreativeDraft } from "../types/tiktok-draft.ts";
 
 export interface TikTokUploadedCreativeInput {
@@ -77,5 +79,52 @@ export function appendUploadedTikTokCreatives(input: {
       });
     }
   }
+  return next;
+}
+
+export function appendSparkTikTokCreatives(input: {
+  existing: TikTokCreativeDraft[];
+  posts: TikTokSparkPost[];
+  baseName: string;
+  adText: string;
+  landingPageUrl: string;
+  cta: string;
+  now?: number;
+  newId?: () => string;
+}): TikTokCreativeDraft[] {
+  const next = [...input.existing];
+  const newId = input.newId ?? (() => crypto.randomUUID());
+  const resolvedBase = input.baseName.trim() || "TikTok creative";
+  const names = nextTikTokCreativeNames(
+    resolvedBase,
+    input.existing.length,
+    input.posts.length,
+  );
+  const now = input.now ?? Date.now();
+  input.posts.forEach((post, index) => {
+    const name = names[index] ?? `${resolvedBase} · v${index + 1}`;
+    next.push({
+      id: newId(),
+      name,
+      baseName: resolvedBase,
+      mode: "SPARK_AD",
+      videoId: null,
+      videoUrl: null,
+      thumbnailUrl: post.poster_url,
+      thumbnailExpiresAt: defaultTikTokSparkPosterExpiry(now),
+      durationSeconds: post.duration_seconds,
+      title: post.text,
+      sparkPostId: post.item_id,
+      identityId: post.identity_id,
+      identityType: post.identity_type,
+      identityDisplayName: post.identity_display_name,
+      caption: input.adText,
+      adText: input.adText,
+      displayName: post.identity_display_name ?? "",
+      landingPageUrl: input.landingPageUrl,
+      cta: input.cta,
+      musicId: null,
+    });
+  });
   return next;
 }

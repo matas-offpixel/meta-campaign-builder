@@ -50,6 +50,32 @@ export function pickTikTokCoverUrl(input: {
   return input.coverUrl || input.thumbnailUrl || input.previewUrl || null;
 }
 
+/** Spark `poster_url` / `preview_url` are valid for one hour. */
+export const TIKTOK_SPARK_POSTER_TTL_MS = 60 * 60 * 1000;
+
+export function defaultTikTokSparkPosterExpiry(now = Date.now()): string {
+  return new Date(now + TIKTOK_SPARK_POSTER_TTL_MS).toISOString();
+}
+
+/**
+ * Same rule as `tiktokLibraryThumbUrl` — hide a dead URL — with the
+ * Spark one-hour threshold, not the library's six-hour expiry field.
+ */
+export function tiktokSparkPosterUrl(
+  post: {
+    poster_url?: string | null;
+    fetched_at?: string | null;
+  },
+  now = Date.now(),
+): string | null {
+  if (!post.poster_url?.trim()) return null;
+  const fetched = post.fetched_at ? Date.parse(post.fetched_at) : NaN;
+  if (!Number.isNaN(fetched) && fetched + TIKTOK_SPARK_POSTER_TTL_MS <= now) {
+    return null;
+  }
+  return post.poster_url;
+}
+
 /** Hide a library thumb only when we know its URL is past expiry. */
 export function tiktokLibraryThumbUrl(
   video: {

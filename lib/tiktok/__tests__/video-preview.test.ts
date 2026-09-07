@@ -7,6 +7,7 @@ import {
   pickTikTokCoverUrl,
   resolveTikTokPreviewExpiry,
   tiktokLibraryThumbUrl,
+  tiktokSparkPosterUrl,
 } from "../video-preview.ts";
 
 describe("TikTok preview URL expiry", () => {
@@ -75,6 +76,24 @@ describe("TikTok preview URL expiry", () => {
         now,
       ),
       "https://cdn.example/live.jpg",
+    );
+  });
+
+  it("hides a spark poster after one hour, not six", () => {
+    const fetched = "2026-09-07T12:00:00.000Z";
+    assert.equal(
+      tiktokSparkPosterUrl(
+        { poster_url: "https://cdn.example/poster.jpg", fetched_at: fetched },
+        Date.parse("2026-09-07T12:30:00.000Z"),
+      ),
+      "https://cdn.example/poster.jpg",
+    );
+    assert.equal(
+      tiktokSparkPosterUrl(
+        { poster_url: "https://cdn.example/poster.jpg", fetched_at: fetched },
+        Date.parse("2026-09-07T13:00:00.000Z"),
+      ),
+      null,
     );
   });
 });

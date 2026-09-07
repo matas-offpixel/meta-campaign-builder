@@ -539,7 +539,7 @@ export const TIKTOK_DRAWER_COPY = {
   launchOnCanvasTip:
     "This draft belongs to a plan, so it launches from the plan canvas with the other channels — paused, all at once.",
   needsVideoTip:
-    "Upload, paste, or choose a TikTok video. A routed placeholder is not a video yet.",
+    "Upload, paste, choose a library video, or choose a post from the feed. A routed placeholder is not a video yet.",
 } as const;
 
 export const GOOGLE_DRAWER_COPY = {

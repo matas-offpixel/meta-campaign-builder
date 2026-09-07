@@ -398,6 +398,55 @@ describe("buildTikTokAdPayload enhancements", () => {
     const creatives = result.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].creative_authorized, false);
   });
+
+  it("maps a Spark creative to its post identity and a VIDEO_REFERENCE to accountSetup", () => {
+    const draft = payloadDraft();
+    draft.accountSetup.identityId = "bc-default";
+    draft.accountSetup.identityType = "BC_AUTH_TT";
+    draft.accountSetup.identityBcId = "bc-electric";
+    const uploaded = sampleCreative();
+    const spark = {
+      ...sampleCreative(),
+      id: "spark-1",
+      name: "Organic",
+      mode: "SPARK_AD" as const,
+      videoId: null,
+      coverImageId: null,
+      sparkPostId: "7540693385208872978",
+      identityId: "auth-identity-1",
+      identityType: "AUTH_CODE" as const,
+      identityDisplayName: "nxloves",
+    };
+    const sparkPayload = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: spark,
+    });
+    const uploadedPayload = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: uploaded,
+    });
+    assert.equal(sparkPayload.ok, true);
+    assert.equal(uploadedPayload.ok, true);
+    if (!sparkPayload.ok || !uploadedPayload.ok) return;
+    const sparkCreative = (sparkPayload.value.creatives as Array<Record<string, unknown>>)[0]!;
+    const uploadedCreative = (
+      uploadedPayload.value.creatives as Array<Record<string, unknown>>
+    )[0]!;
+    assert.equal(sparkCreative.tiktok_item_id, "7540693385208872978");
+    assert.equal(sparkCreative.identity_id, "auth-identity-1");
+    assert.equal(sparkCreative.identity_type, "AUTH_CODE");
+    assert.equal(sparkCreative.identity_authorized_bc_id, undefined);
+    assert.equal(sparkCreative.video_id, undefined);
+    assert.equal(uploadedCreative.identity_id, "bc-default");
+    assert.equal(uploadedCreative.identity_type, "BC_AUTH_TT");
+    assert.equal(uploadedCreative.identity_authorized_bc_id, "bc-electric");
+    assert.equal(uploadedCreative.tiktok_item_id, undefined);
+    assert.equal(uploadedCreative.video_id, "video_1");
+  });
 });
 
 describe("ad group schedule is campaign-level", () => {
