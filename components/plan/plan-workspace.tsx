@@ -1071,6 +1071,7 @@ export function PlanWorkspace({
           unitWord={launchUnitWord(
             learnReadingUnit({
               launchedAt: planLaunchedAt(plan.launches) ?? plan.createdAt,
+              now: clock,
               generalSaleAt: selectedEvent?.generalSaleAt,
               presaleAt: selectedEvent?.presaleAt,
               kind: selectedEvent?.kind,

@@ -12,9 +12,10 @@ import {
   type BenchmarkRun,
 } from "./benchmarks.ts";
 import type { CampaignPlanPrediction as StoredPrediction } from "./predictions.ts";
-import { launchReadingUnit, type LaunchReadingUnit } from "./launch-face.ts";
+import { adjustPrimaryReadingUnit } from "./adjust-face.ts";
+import type { LaunchReadingUnit } from "./launch-face.ts";
 
-/** LEARN reads the unit at launch, never `target_unit`. */
+/** LEARN reads the launch-phase unit, same keep as ADJUST — never `target_unit`. */
 export function learnReadingUnit(input: {
   launchedAt?: string | Date | null;
   now?: Date;
@@ -22,21 +23,12 @@ export function learnReadingUnit(input: {
   presaleAt?: string | Date | null;
   kind?: string | null;
 }): LaunchReadingUnit {
-  const clock = input.launchedAt
-    ? new Date(input.launchedAt)
-    : (input.now ?? new Date());
-  const generalSaleAt =
-    input.generalSaleAt instanceof Date
-      ? input.generalSaleAt.toISOString()
-      : (input.generalSaleAt ?? null);
-  const presaleAt =
-    input.presaleAt instanceof Date
-      ? input.presaleAt.toISOString()
-      : (input.presaleAt ?? null);
-  return launchReadingUnit({
-    now: clock,
-    generalSaleAt,
-    presaleAt,
+  const now = input.now ?? (input.launchedAt ? new Date(input.launchedAt) : new Date());
+  return adjustPrimaryReadingUnit({
+    now,
+    launchedAt: input.launchedAt,
+    generalSaleAt: input.generalSaleAt,
+    presaleAt: input.presaleAt,
     kind: input.kind,
   });
 }

@@ -194,7 +194,9 @@ describe("LEARN surface guards", () => {
   it("LEARN reads the launch-phase unit, never target_unit", () => {
     const dod = learnReadingUnit({
       launchedAt: "2026-08-27T09:00:00.000Z",
+      now: new Date("2026-12-04T12:00:00.000Z"),
       generalSaleAt: "2026-09-04T13:00:00.000Z",
+      presaleAt: "2026-08-14T13:00:00.000Z",
       kind: "event",
     });
     assert.equal(dod, "reg");
