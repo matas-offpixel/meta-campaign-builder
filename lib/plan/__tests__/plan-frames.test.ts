@@ -71,6 +71,9 @@ describe("plan-v2 frame catalog", () => {
     assert.match(runner, /--local/);
     assert.match(runner, /CI truth/);
     assert.match(runner, /data-frame-ready/);
+    assert.match(runner, /classifyShot/);
+    assert.match(runner, /missingBaselineLine/);
+    assert.doesNotMatch(runner, /UPDATE \|\| !existsSync/);
   });
 
   it("the frames route mounts PlanFrameMount and is gated", () => {
