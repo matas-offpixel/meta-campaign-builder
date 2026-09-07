@@ -108,9 +108,10 @@ const eedDraft = planOf({
   id: "plan-eed",
   eventId: EVENTS.eed.id,
   unit: "reg",
-  value: 1.32,
-  startDate: "2026-07-20",
+  value: 2.75,
+  startDate: "2026-08-06",
   endDate: "2026-11-12",
+  createdAt: "2026-08-06T09:00:00.000Z",
 });
 
 const mfDraft = planOf({

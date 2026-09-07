@@ -88,6 +88,7 @@ describe("plan-v2 frame catalog", () => {
       assert.equal(a2.now, AUG_11);
       assert.equal(a2.event.name, "East End Dubs");
       assert.deepEqual(a2.benchmarkRows?.map((row) => row.cost), [2.75]);
+      assert.equal(a2.plan.intent.target.value, 2.75);
     }
     const j5 = getFrame("J5");
     assert.equal(j5?.kind, "adjust");

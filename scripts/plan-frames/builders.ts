@@ -185,10 +185,10 @@ export function nxPurchaseRows(): BenchmarkRow[] {
 
 export function j2TicketRows(unit: BenchmarkRow["unit"] = "ticket"): BenchmarkRow[] {
   return [
-    row(CLIENT_J2, "boston manor park", "fabric", "UTB0042-New", "2026-04-20", unit, 0.63, "all"),
-    row(CLIENT_J2, "boston manor park", "melodic", "UTB0043-New", "2026-04-20", unit, 6.46, "all"),
-    row(CLIENT_J2, "boston manor park", "fragrance", "UTB0044-New", "2026-04-20", unit, 2.38, "all"),
-    row(CLIENT_J2, "boston manor park", "innervisions", "UTB0045-New", "2026-04-20", unit, 3.31, "all"),
+    row(CLIENT_J2, "boston manor park", "fabric", "UTB0042-New", "2026-04-20", unit, 0.63),
+    row(CLIENT_J2, "boston manor park", "melodic", "UTB0043-New", "2026-04-20", unit, 6.46),
+    row(CLIENT_J2, "boston manor park", "fragrance", "UTB0044-New", "2026-04-20", unit, 2.38),
+    row(CLIENT_J2, "boston manor park", "innervisions", "UTB0045-New", "2026-04-20", unit, 3.31),
   ];
 }
 

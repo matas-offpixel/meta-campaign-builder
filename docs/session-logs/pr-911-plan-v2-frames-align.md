@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 911
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/911
 - **Branch:** `cursor/plan-v2-frames-align`
 
 ## Summary
@@ -20,10 +20,10 @@ Align the #908 fixtures to the ratified third canvas (v3 + third-issue brief §3
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
-- [ ] `npm test`
-- [ ] `frames:check` on Ubuntu CI
+- [x] `npx tsc --noEmit` (via `npm run build`)
+- [x] `npm run build`
+- [x] `npm test` (5345 pass, 4 skipped)
+- [ ] `frames:check` on Ubuntu CI after new baselines
 
 ## Notes
 
