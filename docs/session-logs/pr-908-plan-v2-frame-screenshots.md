@@ -25,11 +25,11 @@ Screenshot harness so a face PR cannot merge with the screen wrong. Rebased onto
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
 - [x] `npm test` (5342 pass, 4 skipped)
-- [ ] `frames:check` on Ubuntu CI
+- [x] `frames:check` on Ubuntu CI — [run 34116575904](https://github.com/matas-offpixel/meta-campaign-builder/actions/runs/34116575904), all 36 `ok` (Diff frames ~16s after server up)
 
 ## Notes
 
-`frames:check` is the CI truth. `npm run frames -- --local` writes `docs/frames/local/` for looking, not asserting. Do not loosen 0.2%.
+`frames:check` is the CI truth. `npm run frames -- --local` writes `docs/frames/local/` for looking, not asserting. Do not loosen 0.2%. A13–A15 are valid windows as at Wed 18 Mar. J8 handle is `end · now · show`. `next start` must inherit stdio (a piped stdout deadlocked the Ubuntu check).
 
 ## Frame-diff list — next round (do not hide)
 
