@@ -73,10 +73,8 @@ function startServer() {
   const child = spawn("npx", ["next", "start", "-p", String(PORT)], {
     cwd: ROOT,
     env: { ...process.env, ENABLE_PLAN_FRAMES: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: "inherit",
   });
-  child.stdout.on("data", (buf) => process.stdout.write(buf));
-  child.stderr.on("data", (buf) => process.stderr.write(buf));
   return child;
 }
 
@@ -108,7 +106,9 @@ async function main() {
   const server = startServer();
   let failed = false;
   try {
+    console.log(`waiting for ${BASE}/frames/L1`);
     await waitForServer(`${BASE}/frames/L1`);
+    console.log("server up");
     const browser = await chromium.launch({ timeout: 30_000 });
     try {
       for (const shot of FRAME_SHOTS) {
@@ -130,7 +130,7 @@ async function main() {
           () => Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 2000))]),
         );
         await page.waitForTimeout(150);
-        const png = await page.screenshot({ fullPage: true, type: "png" });
+        const png = await page.screenshot({ fullPage: true, type: "png", timeout: 15_000 });
         await page.close();
         const dest = shotFile(shot.id);
         if (UPDATE || !existsSync(dest)) {
