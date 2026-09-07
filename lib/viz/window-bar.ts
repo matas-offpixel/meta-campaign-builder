@@ -188,6 +188,8 @@ export type WindowRailView = {
   nowAtEnd: boolean;
   endNoun: string;
   startNoun: string;
+  /** Start and end share one label — do not print the start handle label. */
+  hideStartLabel: boolean;
   moments: WindowMoment[];
   /** Printed nouns on the rail, including the end handle. */
   labels: string[];
@@ -315,11 +317,22 @@ export function windowRailView(input: {
   const momentNouns: string[] = [];
   let startNoun = "start";
   let endNoun = "end";
+  let hideStartLabel = false;
   for (const cluster of clusterMarksWithinPct(marks)) {
     const text = joinRailNouns(cluster);
     const hasStart = cluster.some((mark) => mark.id === START_MARK_ID);
     const hasEnd = cluster.some((mark) => mark.id === END_MARK_ID);
     const moments = cluster.filter((mark) => mark.id !== START_MARK_ID && mark.id !== END_MARK_ID);
+    if (hasStart && hasEnd) {
+      startNoun = text;
+      endNoun = text;
+      hideStartLabel = true;
+      for (const mark of moments) {
+        hideGlyphIds.add(mark.id);
+        hideNounIds.add(mark.id);
+      }
+      continue;
+    }
     if (hasEnd) {
       endNoun = text;
       for (const mark of moments) {
@@ -352,6 +365,7 @@ export function windowRailView(input: {
     nowAtEnd: /\bnow\b/.test(endNoun),
     endNoun,
     startNoun,
+    hideStartLabel,
     moments: visible,
     labels: [...momentNouns, endNoun],
     hideGlyphIds,
@@ -505,9 +519,22 @@ function markNoun(mark: WindowCollisionMark): string {
   return mark.extra ? `${mark.noun} ${mark.extra}` : mark.noun;
 }
 
+export function handleLabelBoxesOverlap(input: {
+  startLeft: number;
+  startWidth: number;
+  endLeft: number;
+  endWidth: number;
+}): boolean {
+  return (
+    input.startLeft < input.endLeft + input.endWidth &&
+    input.endLeft < input.startLeft + input.startWidth
+  );
+}
+
 /**
  * All marks within 2% of the same position collapse into one label,
- * nouns in rail order, newest moment keeps the glyph. Placeholders
+ * nouns in rail order, newest moment keeps the glyph. A real moment
+ * that replaces a placeholder still joins. Placeholders themselves
  * stay out of the cluster.
  */
 export function resolveMomentGlyphCollision(

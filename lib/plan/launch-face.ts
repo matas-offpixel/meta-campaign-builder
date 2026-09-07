@@ -6,7 +6,7 @@
 import type { PlanTargetUnit } from "../types.ts";
 import type { MetricChipBenchmark } from "../viz/metric-chip.ts";
 import { formatVizDay, formatVizMoment } from "../viz/format-moment.ts";
-import { VIZ_PLATFORM_LABEL, VIZ_STATE_WORD, VIZ_TICKET_LINE_WORD, type VizPlatform } from "../viz/tokens.ts";
+import { VIZ_PLATFORM_LABEL, VIZ_STATE_WORD, VIZ_TICKET_LINE_WORD, VIZ_UNIT_WORD, type VizPlatform } from "../viz/tokens.ts";
 import {
   planBenchmark,
   type BenchmarkRow,
@@ -34,6 +34,8 @@ export const LAUNCH_NO_READS = "no reads yet";
 
 export type LaunchReadingUnit = "reg" | "purchase" | "view";
 export type LaunchResolvedUnit = PlanTargetUnit;
+/** Display-only. `ticket` is never stored on `target_unit` (migration 165). */
+export type PlanDisplayUnit = LaunchResolvedUnit | "ticket";
 
 export function launchReadingUnit(input: {
   now: Date;
@@ -54,12 +56,13 @@ export function launchReadingUnit(input: {
   return "reg";
 }
 
-export function launchUnitWord(unit: LaunchResolvedUnit): string {
-  if (unit === "reg") return "signup";
-  if (unit === "purchase") return "purchase";
-  if (unit === "view") return "thousand reached";
-  if (unit === "click") return "click";
-  return "page view";
+export function launchUnitWord(unit: PlanDisplayUnit): string {
+  if (unit === "ticket") return VIZ_UNIT_WORD.ticket;
+  if (unit === "reg") return VIZ_UNIT_WORD.reg;
+  if (unit === "purchase") return VIZ_UNIT_WORD.purchase;
+  if (unit === "view") return VIZ_UNIT_WORD.view;
+  if (unit === "click") return VIZ_UNIT_WORD.click;
+  return VIZ_UNIT_WORD.lpv;
 }
 
 export function resolveLaunchUnit(input: {

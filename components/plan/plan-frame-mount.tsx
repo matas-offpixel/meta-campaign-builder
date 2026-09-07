@@ -22,8 +22,9 @@ import {
 } from "@/lib/plan/canvas-inputs";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import {
-  adjustPrimaryReadingUnit,
+  adjustReadingUnit,
   plannedSpendByToday,
+  toBenchmarkReadingUnit,
 } from "@/lib/plan/adjust-face";
 import { planBenchmark } from "@/lib/plan/benchmarks";
 import {
@@ -257,12 +258,14 @@ function AdjustFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "adjus
     fixture.kind === "adjust"
       ? fixture.planned
       : plannedSpendByToday(daily, sinceLaunch, now);
-  const unit = adjustPrimaryReadingUnit({
+  const unit = adjustReadingUnit({
     now,
     generalSaleAt: event.generalSaleAt,
     presaleAt: event.presaleAt,
     kind: event.kind,
     launchedAt,
+    tickets: fixture.kind === "adjust" ? (fixture.tickets ?? null) : null,
+    ticketSource: fixture.kind === "adjust" ? (fixture.ticketSource ?? "none") : "none",
   });
   const chip =
     event.clientId && event.venueKey
@@ -271,7 +274,7 @@ function AdjustFace({ fixture }: { fixture: Extract<FrameFixture, { kind: "adjus
           clientId: event.clientId,
           venueKey: event.venueKey,
           venueLabel: event.venueName ?? event.venueKey,
-          unit: unit === "reg" ? "signup" : unit,
+          unit: toBenchmarkReadingUnit(unit),
           excludeEventId: event.id,
         })
       : undefined;

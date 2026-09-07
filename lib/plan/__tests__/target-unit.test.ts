@@ -185,7 +185,7 @@ describe("reverse lookup for the client preset card", () => {
 describe("isPlanTargetUnit", () => {
   it("accepts the five units and rejects everything else", () => {
     for (const unit of PLAN_TARGET_UNITS) assert.ok(isPlanTargetUnit(unit));
-    for (const bad of ["", "REG", "registration", "cpr", null, undefined, 3, {}]) {
+    for (const bad of ["", "REG", "registration", "cpr", "ticket", null, undefined, 3, {}]) {
       assert.equal(isPlanTargetUnit(bad), false, String(bad));
     }
   });

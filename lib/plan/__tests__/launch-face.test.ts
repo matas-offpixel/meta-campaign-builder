@@ -801,7 +801,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     assert.match(workspace, /blockerCounts=\{planPreflightBlockerCounts\(issues\)\}/);
     assert.match(workspace, /blockerCount: planPreflightBlockerCount\(issues\)/);
     assert.match(workspace, /launchChannelRunning\(rollupDays, channelReadingUnit, usual\)/);
-    assert.match(workspace, /channelReadingUnit = launchStamp \? adjustReadingUnit : readingUnit/);
+    assert.match(workspace, /channelReadingUnit = launchStamp \? adjustPhaseUnit : readingUnit/);
     const channels = readFileSync("components/plan/canvas-channels.tsx", "utf8");
     assert.doesNotMatch(channels, /sharedBlockerCount/);
   });
