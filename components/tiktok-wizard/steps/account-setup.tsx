@@ -18,6 +18,10 @@ import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 import { InfoTip } from "@/components/viz/info-tip";
 import { TIKTOK_DRAWER_COPY } from "@/lib/plan/drawer";
+import {
+  isTikTokConversionObjective,
+  tikTokPixelNotFiredMessage,
+} from "@/lib/plan/tiktok-early";
 
 interface TikTokIdentityOption {
   identity_id: string;
@@ -528,6 +532,22 @@ export function AccountSetupStep({
           }))}
         />
       </div>
+      {!loadingEvents &&
+        draft.accountSetup.pixelId &&
+        pixelEvents.length === 0 &&
+        isTikTokConversionObjective(draft.campaignSetup.objective) && (
+          <StatusLine
+            tone="alert"
+            className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            {tikTokPixelNotFiredMessage(
+              draft.accountSetup.pixelName ??
+                pixels.find((pixel) => pixel.pixel_id === draft.accountSetup.pixelId)
+                  ?.pixel_name ??
+                "This pixel",
+            )}
+          </StatusLine>
+        )}
 
       {isUnsupportedTikTokOptimisationEvent(
         draft.campaignSetup.objective,

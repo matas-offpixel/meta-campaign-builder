@@ -11,6 +11,7 @@ import {
   validateBudgetGuardrails,
 } from "@/lib/tiktok-wizard/budget-schedule";
 import { suggestTikTokAdGroups } from "@/lib/tiktok-wizard/review";
+import { tikTokAdvertiserClockLabel } from "@/lib/plan/tiktok-early";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 export function BudgetScheduleStep({
@@ -190,6 +191,11 @@ export function BudgetScheduleStep({
           error={scheduleInvalid ? "Schedule end must be after start" : undefined}
         />
       </div>
+      {draft.accountSetup.timezone ? (
+        <Datum className="text-xs text-muted-foreground">
+          {tikTokAdvertiserClockLabel(draft.accountSetup.timezone)}
+        </Datum>
+      ) : null}
 
       <Input
         id="tiktok-frequency-cap"

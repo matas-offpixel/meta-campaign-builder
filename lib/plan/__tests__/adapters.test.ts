@@ -140,7 +140,8 @@ describe("plan-level preflight reuses platform validators", () => {
           (i) =>
             i.adapter === adapter &&
             i.blocking === blocking &&
-            i.id !== "plan:unconnected_share",
+            i.id !== "plan:unconnected_share" &&
+            !i.id.startsWith("tiktok:early:"),
         )
         .map((i) => i.message)
         .sort();
