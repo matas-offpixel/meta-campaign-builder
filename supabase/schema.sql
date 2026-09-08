@@ -629,6 +629,7 @@ CREATE TABLE IF NOT EXISTS "events" (
   "announcement_at" timestamp with time zone,
   "presale_at" timestamp with time zone,
   "general_sale_at" timestamp with time zone,
+  "sold_out_at" timestamp with time zone,
   "ticket_url" text,
   "signup_url" text,
   "status" text DEFAULT 'upcoming'::text NOT NULL,

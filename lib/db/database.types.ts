@@ -2837,6 +2837,7 @@ export type Database = {
           report_cadence: string
           signup_url: string | null
           slug: string
+          sold_out_at: string | null
           status: string
           target_capacity: number | null
           ticket_price: number | null
@@ -2885,6 +2886,7 @@ export type Database = {
           report_cadence?: string
           signup_url?: string | null
           slug: string
+          sold_out_at?: string | null
           status?: string
           target_capacity?: number | null
           ticket_price?: number | null
@@ -2933,6 +2935,7 @@ export type Database = {
           report_cadence?: string
           signup_url?: string | null
           slug?: string
+          sold_out_at?: string | null
           status?: string
           target_capacity?: number | null
           ticket_price?: number | null
