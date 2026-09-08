@@ -17,6 +17,7 @@ import {
 } from "@/lib/plan/launch-face";
 import { lifetimeToDaily, scheduledDayCount } from "@/lib/plan/budget-split";
 import type { CampaignPlanBudgetSplit } from "@/lib/plan/types";
+import type { CampaignBudgetLines } from "@/lib/plan/ad-plan-read";
 import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 /**
@@ -36,6 +37,8 @@ export function CanvasBudget({
   onMode,
   onLifetime,
   readOnly = false,
+  readAcross = null,
+  remedyLinks = false,
 }: {
   budget: CampaignPlanBudgetSplit;
   mode: "daily" | "lifetime";
@@ -47,6 +50,9 @@ export function CanvasBudget({
   onMode: (mode: "daily" | "lifetime") => void;
   onLifetime: (value: number) => void;
   readOnly?: boolean;
+  /** Frames omit this so rasters stay still unless the numbers change. */
+  readAcross?: CampaignBudgetLines | null;
+  remedyLinks?: boolean;
 }) {
   const days = scheduledDayCount(startDate, endDate);
   const daily = budget.metaDaily + budget.tiktokDaily + budget.googleDaily;
@@ -64,6 +70,27 @@ export function CanvasBudget({
 
   return (
     <section aria-label="budget" className="min-h-[80px] space-y-1.5">
+      {readAcross ? (
+        <div className={`space-y-0.5 ${VIZ_TYPE.body}`}>
+          {readAcross.campaign.kind === "not-yet" ? (
+            <span className="block text-foreground/70">
+              {remedyLinks ? (
+                <a href={readAcross.campaign.href} className="underline underline-offset-2">
+                  {readAcross.campaign.sentence}
+                </a>
+              ) : (
+                readAcross.campaign.sentence
+              )}
+            </span>
+          ) : (
+            <span className={`block ${VIZ_TYPE_NUM.body}`}>{readAcross.campaign.text}</span>
+          )}
+          <span className={`block ${VIZ_TYPE_NUM.body}`}>{readAcross.thisPhase.text}</span>
+          {readAcross.unallocated ? (
+            <span className={`block ${VIZ_TYPE_NUM.body}`}>{readAcross.unallocated.text}</span>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
         <MetricChip label={mode === "lifetime" ? "for the run" : "per day"} size="lg">
           {readOnly ? (

@@ -10,6 +10,7 @@ export interface PlanEventOption {
   announcementAt?: string | null;
   presaleAt?: string | null;
   generalSaleAt?: string | null;
+  soldOutAt?: string | null;
   eventCode?: string | null;
   kind?: string | null;
   metaAdAccountId?: string | null;

@@ -7,6 +7,7 @@
  */
 
 import type { PlanTargetUnit } from "../types.ts";
+import type { CampaignPlanPhase } from "./phase.ts";
 
 export const CAMPAIGN_PLAN_STATUSES = [
   "draft",
@@ -121,6 +122,11 @@ export interface CampaignPlan {
   userId: string;
   name: string | null;
   status: CampaignPlanStatus;
+  /**
+   * Launch phase on this event's ad plan. Null on rows that cannot be
+   * classified (D.O.D). Optional so older constructors keep compiling.
+   */
+  phase?: CampaignPlanPhase | null;
   intent: CampaignPlanIntent;
   launches: CampaignPlanLaunches;
   createdAt: string;

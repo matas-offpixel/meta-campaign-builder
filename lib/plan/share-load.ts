@@ -18,8 +18,13 @@ import { loadAdjustReads } from "@/lib/plan/adjust-reads";
 import type { AdjustDecisionRow } from "@/lib/plan/adjust-face";
 import { venueKey } from "@/lib/plan/venue-key";
 import { todayIsoDate, type PlanEventOption } from "@/lib/plan/event-picker";
+import {
+  loadAdPlansForEvents,
+  loadCampaignPlanSiblingsForEvent,
+} from "@/lib/plan/ad-plan-load";
+import type { AdPlanReadRow, CampaignPlanSibling } from "@/lib/plan/ad-plan-read";
 import { loadPlanLaunchRecords } from "@/lib/plan/load";
-import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
+import { rowToCampaignPlanIntent, rowToCampaignPlanPhase } from "@/lib/plan/persist";
 import { loadIdentityNameMap } from "@/lib/plan/identity-names-load";
 import { loadLaunchRollupDays, loadPlanBenchmarkRows } from "@/lib/plan/launch-reads";
 import { planLaunchedAt, planStampLondonDate } from "@/lib/plan/launch-face";
@@ -47,6 +52,8 @@ export type SharedPlanWorkspace = {
   benchmarkRows: BenchmarkRow[];
   resolved: ResolvedChannelDefaults | null;
   decisions: AdjustDecisionRow[];
+  adPlans: AdPlanReadRow[];
+  planSiblings: CampaignPlanSibling[];
 };
 
 export async function loadSharedPlanWorkspace(
@@ -81,6 +88,7 @@ export async function loadSharedPlanWorkspace(
     status: CampaignPlan["status"];
     created_at: string;
     updated_at: string;
+    phase?: unknown;
   } & Parameters<typeof rowToCampaignPlanIntent>[0];
 
   const plan: CampaignPlan = {
@@ -88,6 +96,7 @@ export async function loadSharedPlanWorkspace(
     userId: row.user_id,
     name: row.name,
     status: row.status,
+    phase: rowToCampaignPlanPhase(row),
     intent: rowToCampaignPlanIntent(row),
     launches: await loadPlanLaunchRecords(supabase, row.id),
     createdAt: row.created_at,
@@ -99,7 +108,7 @@ export async function loadSharedPlanWorkspace(
     ? await client
         .from("events")
         .select(
-          "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, event_code, venue_name, venue_city, venue_key, kind, ticket_url, signup_url, meta_ad_account_id",
+          "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, sold_out_at, event_code, venue_name, venue_city, venue_key, kind, ticket_url, signup_url, meta_ad_account_id",
         )
         .eq("id", eventId)
         .maybeSingle()
@@ -114,6 +123,7 @@ export async function loadSharedPlanWorkspace(
     announcement_at: string | null;
     presale_at: string | null;
     general_sale_at: string | null;
+    sold_out_at?: string | null;
     event_code: string | null;
     venue_name: string | null;
     venue_city: string | null;
@@ -160,6 +170,7 @@ export async function loadSharedPlanWorkspace(
           announcementAt: event.announcement_at,
           presaleAt: event.presale_at,
           generalSaleAt: event.general_sale_at,
+          soldOutAt: event.sold_out_at ?? null,
           eventCode: event.event_code,
           kind: event.kind,
           metaAdAccountId: clientMeta,
@@ -253,6 +264,12 @@ export async function loadSharedPlanWorkspace(
         })
       : [];
   const predictions = await loadPlanPredictions(supabase, plan.id);
+  const [adPlans, planSiblings] = eventId
+    ? await Promise.all([
+        loadAdPlansForEvents(supabase, [eventId]),
+        loadCampaignPlanSiblingsForEvent(supabase, eventId),
+      ])
+    : [[], []];
 
   let decisions: AdjustDecisionRow[] = [];
   const metaDraftId = plan.launches.meta.draftId;
@@ -296,5 +313,7 @@ export async function loadSharedPlanWorkspace(
     benchmarkRows,
     resolved,
     decisions,
+    adPlans,
+    planSiblings,
   };
 }
