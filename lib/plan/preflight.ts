@@ -18,6 +18,10 @@ import {
   type CampaignPlan,
   type PlanAdapterName,
 } from "./types.ts";
+import {
+  collectTikTokEarlyIssues,
+  tikTokLaunchIssueSupersededByEarly,
+} from "./tiktok-early.ts";
 import { unconnectedShareIssue } from "./unconnected-share.ts";
 
 export type { PlanAdapterName };
@@ -52,6 +56,17 @@ export function planPreflightBlockerCounts(
   return counts;
 }
 
+export interface PlanPreflightTikTokContext {
+  currency?: string | null;
+  timezone?: string | null;
+  /**
+   * Present only when `/pixel/list/` has been read. `[]` means the pixel
+   * has not fired — not "events were not loaded".
+   */
+  pixelEvents?: readonly unknown[];
+  now?: Date;
+}
+
 export interface PlanPreflightResult {
   ok: boolean;
   issues: PlanPreflightIssue[];
@@ -79,6 +94,7 @@ export function collectPlanPreflight(
     stored: ClientChannelDefaultsRow | null;
     overrides?: ChannelDefaultOverrides;
   } | null,
+  tiktokContext?: PlanPreflightTikTokContext | null,
 ): PlanPreflightResult {
   const resolved = resolveChannelDefaults(channel?.stored ?? null, channel?.overrides ?? {});
   const drafts = buildPlanLaunchDrafts(plan, linked, resolved);
@@ -99,6 +115,26 @@ export function collectPlanPreflight(
 
   const unconnected = unconnectedShareIssue(plan, resolved);
   if (unconnected) issues.push(unconnected);
+
+  const tiktokEarly = budgeted.has("tiktok")
+    ? collectTikTokEarlyIssues({
+        tiktokDaily: plan.intent.budget.tiktokDaily,
+        currency:
+          tiktokContext?.currency ?? drafts.tiktok.accountSetup.currency,
+        timezone:
+          tiktokContext?.timezone ?? drafts.tiktok.accountSetup.timezone,
+        objective: drafts.tiktok.campaignSetup.objective,
+        pixelName: drafts.tiktok.accountSetup.pixelName,
+        pixelId: drafts.tiktok.accountSetup.pixelId,
+        pixelEvents: tiktokContext?.pixelEvents,
+        adGroupCount: drafts.tiktok.budgetSchedule.adGroups.length,
+        adGroupBudgets: drafts.tiktok.budgetSchedule.adGroups
+          .map((group) => group.budget)
+          .filter((budget): budget is number => budget != null),
+        now: tiktokContext?.now,
+      })
+    : [];
+  issues.push(...tiktokEarly);
 
   const metaCampaign = validateCampaignPayload({
     metaAdAccountId: drafts.meta.settings.metaAdAccountId || drafts.meta.settings.adAccountId,
@@ -129,6 +165,7 @@ export function collectPlanPreflight(
 
   const tiktok = collectTikTokLaunchPreflight(drafts.tiktok);
   for (const issue of tiktok.issues) {
+    if (tikTokLaunchIssueSupersededByEarly(issue, tiktokEarly)) continue;
     issues.push({
       adapter: "tiktok",
       id: `tiktok:${issue.id}`,
@@ -138,6 +175,7 @@ export function collectPlanPreflight(
     });
   }
   for (const warning of tiktok.warnings) {
+    if (tikTokLaunchIssueSupersededByEarly(warning, tiktokEarly)) continue;
     issues.push({
       adapter: "tiktok",
       id: `tiktok:warn:${warning.id}`,
