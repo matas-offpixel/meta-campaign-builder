@@ -1,14 +1,32 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { FileText, X, ArrowLeft } from "lucide-react";
+import { WizardStepper } from "./wizard-stepper";
 import { WizardFooter } from "./wizard-footer";
-import { MetaDrawer } from "@/components/plan/meta-drawer";
+import { AccountSetup } from "@/components/steps/account-setup";
+import { CampaignSetup } from "@/components/steps/campaign-setup";
+import { OptimisationStrategy } from "@/components/steps/optimisation-strategy";
+import { AudiencesStep } from "@/components/steps/audiences/audiences-step";
+import { Creatives } from "@/components/steps/creatives";
+import { BudgetSchedule } from "@/components/steps/budget-schedule";
+import { AssignCreatives } from "@/components/steps/assign-creatives";
 import { ReviewLaunch } from "@/components/steps/review-launch";
-import type { CampaignDraft, LaunchSummary } from "@/lib/types";
+import { SaveTemplateModal } from "@/components/templates/save-template-modal";
+import { LoadTemplateModal } from "@/components/templates/load-template-modal";
+import type {
+  CampaignDraft,
+  WizardStep,
+  AdSetSuggestion,
+  CampaignTemplate,
+  LaunchSummary,
+} from "@/lib/types";
+import { attachedAdSetKey, getVisibleSteps } from "@/lib/types";
 import { validateStep } from "@/lib/validation";
 import { saveDraftToStorage } from "@/lib/autosave";
+import { applyTemplate } from "@/lib/templates";
+import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/lib/db/templates";
 import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
@@ -29,6 +47,8 @@ interface WizardShellProps {
 
 export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const router = useRouter();
+  const [step, setStep] = useState<WizardStep>(0);
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   /** One loader, one autosave, shared with the drawer on `/plan/[id]`. */
   const draftController = useCampaignDraft(draftId);
   const {
@@ -42,6 +62,12 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     updateDraft,
     updateSettings,
     updateAudiences,
+    updateCreatives,
+    handlePageInstagramOverride,
+    updateBudgetSchedule,
+    updateAdSetSuggestions,
+    updateOptimisationStrategy,
+    updateCreativeAssignments,
   } = draftController;
 
   // Launch state
@@ -130,13 +156,62 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [launchSummary]);
 
-  // ─── Validation ─────────────────────────────────────────────────────────────
-  /**
-   * Step 7 aggregates every visible step, so with the stepper gone this one
-   * call is the whole draft's readiness — the same value the old footer
-   * showed on the last step, now shown always.
-   */
-  const currentValidation = useMemo(() => validateStep(7, draft), [draft]);
+  // Template state
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [loadTemplateOpen, setLoadTemplateOpen] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSaveSuccess, setTemplateSaveSuccess] = useState(false);
+  const [templateSaveError, setTemplateSaveError] = useState<string | null>(null);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
+  const [loadedTemplateName, setLoadedTemplateName] = useState<string | null>(null);
+
+  // ─── Validation / navigation ───────────────────────────────────────────────
+  const currentValidation = useMemo(() => validateStep(step, draft), [step, draft]);
+
+  const visibleSteps = useMemo(
+    () => getVisibleSteps(draft.settings.wizardMode),
+    [draft.settings.wizardMode],
+  );
+
+  const changeStep = useCallback(
+    (newStep: WizardStep) => {
+      autosave(draft);
+      setStep(newStep);
+    },
+    [autosave, draft],
+  );
+
+  useEffect(() => {
+    if (!visibleSteps.includes(step)) {
+      const fallback =
+        [...visibleSteps].reverse().find((s) => s <= step) ?? visibleSteps[0] ?? 0;
+      console.log(
+        `[WizardShell] step ${step} hidden in mode "${draft.settings.wizardMode ?? "new"}" — snapping to ${fallback}`,
+      );
+      setStep(fallback as WizardStep);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSteps]);
+
+  const handleContinue = () => {
+    const idx = visibleSteps.indexOf(step);
+    if (idx === -1 || idx >= visibleSteps.length - 1) return;
+    setCompletedSteps((prev) => new Set([...prev, step]));
+    changeStep(visibleSteps[idx + 1]!);
+  };
+
+  const handleBack = () => {
+    const idx = visibleSteps.indexOf(step);
+    if (idx <= 0) return;
+    changeStep(visibleSteps[idx - 1]!);
+  };
+
+  const handleStepClick = (targetStep: WizardStep) => {
+    if (!visibleSteps.includes(targetStep)) return;
+    changeStep(targetStep);
+  };
 
   const handleSaveDraft = () => autosave(draft);
 
@@ -224,13 +299,63 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     router.push("/");
   };
 
-  /*
-    The template loader moved into the drawer header (§3 build D) — one
-    `⌁ template ▸`, reading the same `lib/db/templates.ts`. The wizard's
-    own Load-Template modal, its footer button and the "Loaded from
-    template" banner all stop rendering here rather than becoming a
-    second way to do it.
-  */
+  const handleSaveTemplate = async (name: string, description: string, tags: string[]) => {
+    if (!userId) return;
+    setTemplateSaving(true);
+    setTemplateSaveError(null);
+    setTemplateSaveSuccess(false);
+    try {
+      await saveTemplateToDb(draft, name, description, tags, userId);
+      setTemplateSaveSuccess(true);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error saving template";
+      console.error("Failed to save template:", err);
+      setTemplateSaveError(msg);
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
+
+  const handleOpenLoadModal = async () => {
+    setLoadTemplateOpen(true);
+    if (!userId) return;
+    setTemplatesLoading(true);
+    try {
+      const fetched = await loadTemplatesFromDb(userId);
+      setTemplates(fetched);
+    } catch (err) {
+      console.warn("Failed to fetch templates:", err);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const handleLoadTemplate = (template: CampaignTemplate) => {
+    const newDraft = applyTemplate(template);
+    newDraft.id = draftId;
+    setDraft(newDraft);
+    autosave(newDraft);
+    setCompletedSteps(new Set());
+    setStep(0);
+    setLoadedTemplateName(template.name);
+    setLoadTemplateOpen(false);
+  };
+
+  const handleDeleteTemplate = async (id: string) => {
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    setDeletingTemplateId(id);
+    try {
+      await deleteTemplateFromDb(id);
+    } catch (err) {
+      console.warn("Failed to delete template:", err);
+      if (userId) {
+        const fetched = await loadTemplatesFromDb(userId);
+        setTemplates(fetched);
+      }
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  };
 
   // ─── Loading gate ────────────────────────────────────────────────────────────
   if (!hydrated) {
@@ -245,7 +370,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     <WizardEventContextProvider draftId={draftId} enabled={hydrated}>
       <EventDefaultsApplier updateDraft={updateDraft} />
       <div className="flex min-h-screen flex-col">
-      {/* Back to library link */}
       <div className="border-b border-border bg-card px-6 py-2">
         <div className="mx-auto max-w-5xl">
           <button
@@ -260,31 +384,130 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         </div>
       </div>
 
-      <FacebookConnectionBanner onGoToAccountSetup={() => undefined} />
+      <WizardStepper
+        currentStep={step}
+        completedSteps={completedSteps}
+        visibleSteps={visibleSteps}
+        onStepClick={handleStepClick}
+      />
 
-      <main className="mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-6 py-6">
-        {/*
-          The drawer is the Meta wizard (§3a). Rendered `variant="page"`
-          there is no canvas behind it, but it is the same shell, the same
-          three tabs and the same `details` — `/plan/[id]` and
-          `/campaign/[id]` do not fork.
-        */}
-        <MetaDrawer
-          open
-          variant="page"
-          controller={draftController}
-          planId={linkedPlan?.id ?? null}
-          onClose={handleBackToLibrary}
-          doneLabel="Campaign Library"
-        />
+      {step > 0 && (
+        <FacebookConnectionBanner onGoToAccountSetup={() => setStep(0)} />
+      )}
 
+      {loadedTemplateName && (
+        <div className="border-b border-border bg-primary/10 px-6 py-2">
+          <div className="mx-auto flex max-w-5xl items-center gap-2">
+            <FileText className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs text-foreground">
+              Loaded from template: <span className="font-medium">{loadedTemplateName}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setLoadedTemplateName(null)}
+              className="ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <main className="flex-1 overflow-y-auto px-6 py-6">
+        {step === 0 && (
+          <AccountSetup
+            settings={draft.settings}
+            onChange={updateSettings}
+            campaignId={draftId}
+          />
+        )}
+        {step === 1 && <CampaignSetup settings={draft.settings} onChange={updateSettings} />}
+        {step === 2 && (
+          <OptimisationStrategy
+            strategy={draft.optimisationStrategy}
+            objective={draft.settings.objective}
+            budgetAmount={draft.budgetSchedule.budgetAmount}
+            currency={draft.budgetSchedule.currency}
+            onChange={updateOptimisationStrategy}
+            draftId={draftId}
+            campaignStatus={draft.status}
+            clientId={draft.settings.clientId}
+          />
+        )}
+        {step === 3 && (
+          <AudiencesStep
+            audiences={draft.audiences}
+            onChange={updateAudiences}
+            settings={draft.settings}
+            onSettingsChange={updateSettings}
+            onPageInstagramOverride={handlePageInstagramOverride}
+            adAccountId={draft.settings.metaAdAccountId}
+            clientId={draft.settings.clientId}
+            eventId={draft.settings.eventId}
+            campaignName={draft.settings.campaignName}
+          />
+        )}
+        {step === 4 && (
+          <Creatives
+            creatives={draft.creatives}
+            onChange={updateCreatives}
+            settings={draft.settings}
+            onSettingsChange={updateSettings}
+            adAccountId={draft.settings.metaAdAccountId}
+          />
+        )}
+        {step === 5 && (
+          <BudgetSchedule
+            budgetSchedule={draft.budgetSchedule}
+            adSetSuggestions={draft.adSetSuggestions}
+            audiences={draft.audiences}
+            settings={draft.settings}
+            onBudgetChange={updateBudgetSchedule}
+            onSuggestionsChange={updateAdSetSuggestions}
+            onSettingsChange={updateSettings}
+          />
+        )}
+        {step === 6 && (() => {
+          const selectedAdSets =
+            draft.settings.existingMetaAdSets ??
+            (draft.settings.existingMetaAdSet
+              ? [draft.settings.existingMetaAdSet]
+              : []);
+          const isAttachAdSet =
+            draft.settings.wizardMode === "attach_adset" &&
+            selectedAdSets.length > 0;
+          const adSetsForAssign: AdSetSuggestion[] = isAttachAdSet
+            ? selectedAdSets.map((s) => ({
+                id: attachedAdSetKey(s.id),
+                name: s.name,
+                sourceType: "page_group",
+                sourceId: s.id,
+                sourceName: s.name,
+                ageMin: 18,
+                ageMax: 65,
+                budgetPerDay: 0,
+                advantagePlus: false,
+                enabled: true,
+                metaAdSetId: s.id,
+              }))
+            : draft.adSetSuggestions;
+          return (
+            <AssignCreatives
+              adSets={adSetsForAssign}
+              creatives={draft.creatives}
+              assignments={draft.creativeAssignments}
+              onChange={updateCreativeAssignments}
+              attachAdSetMode={isAttachAdSet}
+            />
+          );
+        })()}
         {/*
           Launch stays here for a standalone draft and only there: a
           plan-linked draft launches from the canvas with the other
           channels, so rendering Launch twice would be two ways to start
           the same campaign (§3a row 8, friction #6).
         */}
-        {!linkedPlan && (
+        {step === 7 && !linkedPlan && (
           <ReviewLaunch
             draft={draft}
             isLaunching={launching}
@@ -302,16 +525,44 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       </main>
 
       <WizardFooter
-        canLaunch={currentValidation.valid}
+        currentStep={step}
+        visibleSteps={visibleSteps}
+        canContinue={currentValidation.valid}
         validationErrors={currentValidation.errors}
         saveStatus={saveStatus}
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
-        /* A plan-linked draft launches from the canvas, never from here. */
         showLaunch={!linkedPlan}
         planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
+        onBack={handleBack}
+        onContinue={handleContinue}
         onSaveDraft={handleSaveDraft}
         onLaunch={handleLaunch}
+        onSaveTemplate={() => setSaveTemplateOpen(true)}
+        onLoadTemplate={handleOpenLoadModal}
+      />
+
+      <SaveTemplateModal
+        open={saveTemplateOpen}
+        saving={templateSaving}
+        savedSuccessfully={templateSaveSuccess}
+        error={templateSaveError}
+        onClose={() => {
+          setSaveTemplateOpen(false);
+          setTemplateSaveSuccess(false);
+          setTemplateSaveError(null);
+        }}
+        onSave={handleSaveTemplate}
+      />
+
+      <LoadTemplateModal
+        open={loadTemplateOpen}
+        templates={templates}
+        loading={templatesLoading}
+        deletingId={deletingTemplateId}
+        onClose={() => setLoadTemplateOpen(false)}
+        onSelect={handleLoadTemplate}
+        onDelete={handleDeleteTemplate}
       />
 
       </div>
