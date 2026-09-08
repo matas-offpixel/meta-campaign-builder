@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
-import { probeCampaignPlansTable, upsertCampaignPlan } from "@/lib/plan/persist";
+import { NEW_PLAN_NEEDS_PHASE, existingPhaseOffer } from "@/lib/plan/ad-plan-read";
+import { isCampaignPlanPhase } from "@/lib/plan/phase";
+import {
+  campaignPlanRowExists,
+  findCampaignPlanByEventPhase,
+  probeCampaignPlansTable,
+  upsertCampaignPlan,
+} from "@/lib/plan/persist";
 import type { CampaignPlan } from "@/lib/plan/types";
 
 function isCampaignPlan(value: unknown): value is CampaignPlan {
@@ -49,8 +56,44 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const phase = isCampaignPlanPhase(plan.phase) ? plan.phase : null;
+  if (phase && plan.intent.eventId) {
+    const existing = await findCampaignPlanByEventPhase(
+      supabase,
+      plan.intent.eventId,
+      phase,
+    );
+    if (existing && existing.id !== plan.id) {
+      return NextResponse.json(
+        {
+          ok: false,
+          existingPlanId: existing.id,
+          existingPhase: existing.phase,
+          error: existingPhaseOffer(existing.phase),
+        },
+        { status: 409 },
+      );
+    }
+  }
+
+  const exists = await campaignPlanRowExists(supabase, plan.id);
+  if (!exists && !phase) {
+    return NextResponse.json({ ok: false, error: NEW_PLAN_NEEDS_PHASE }, { status: 400 });
+  }
+
   const result = await upsertCampaignPlan(supabase, plan);
   if (!result.ok) {
+    if (result.existingPlanId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          existingPlanId: result.existingPlanId,
+          existingPhase: result.existingPhase,
+          error: result.error,
+        },
+        { status: 409 },
+      );
+    }
     return NextResponse.json(
       {
         ok: false,

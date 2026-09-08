@@ -136,6 +136,53 @@ describe("campaign_plans probe", () => {
     assert.equal(db.plans.get(plan.id)?.event_id, plan.intent.eventId);
     assert.equal(db.plans.get(plan.id)?.destination_url, plan.intent.destinationUrl);
     assert.deepEqual(campaignPlanToRow(plan).daily_budget_meta, 40);
+    assert.equal("phase" in campaignPlanToRow(plan), false);
+  });
+
+  it("writes phase only when set — D.O.D stays omitted, never on_sale", () => {
+    const plan = { ...goldenPlan(), phase: "on_sale" as const };
+    assert.equal(campaignPlanToRow(plan).phase, "on_sale");
+    assert.equal(campaignPlanToRow(goldenPlan()).phase, undefined);
+  });
+
+  it("maps a unique (event_id, phase) collision to the existing-plan offer", async () => {
+    const plan = { ...goldenPlan(), phase: "on_sale" as const };
+    const db = {
+      from(table: string) {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  eq() {
+                    return {
+                      maybeSingle: async () => ({
+                        data: { id: "already-there", phase: "on_sale" },
+                        error: null,
+                      }),
+                    };
+                  },
+                  maybeSingle: async () => ({ data: null, error: null }),
+                };
+              },
+              limit: async () => ({ data: [], error: null }),
+            };
+          },
+          upsert: async () => ({
+            error: {
+              code: "23505",
+              message: 'duplicate key value violates unique constraint "campaign_plans_event_id_phase_key"',
+            },
+          }),
+        };
+      },
+    };
+    const result = await upsertCampaignPlan(db, plan);
+    assert.equal(result.ok, false);
+    if (result.ok) throw new Error("expected conflict");
+    assert.equal(result.existingPlanId, "already-there");
+    assert.match(result.error, /already has an on-sale plan/);
+    assert.doesNotMatch(result.error, /23505|duplicate key/i);
   });
 });
 

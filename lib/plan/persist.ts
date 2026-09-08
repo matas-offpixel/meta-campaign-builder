@@ -1,3 +1,5 @@
+import { existingPhaseOffer } from "./ad-plan-read.ts";
+import { isCampaignPlanPhase, type CampaignPlanPhase } from "./phase.ts";
 import { isRelationMissing } from "./schema-probe.ts";
 import { normalizePlanTime } from "./schedule.ts";
 import { isPlanTargetUnit } from "./target-unit.ts";
@@ -43,7 +45,17 @@ export function campaignPlanToRow(plan: CampaignPlan) {
     row.target_unit = plan.intent.target.unit;
     row.target_value = plan.intent.target.value;
   }
+  // Written only when set, so a deploy that lands before migration 173
+  // cannot break every plan upsert on a missing column. Null phases
+  // (D.O.D) stay omitted — never defaulted to on_sale.
+  if (plan.phase != null) {
+    row.phase = plan.phase;
+  }
   return row;
+}
+
+export function rowToCampaignPlanPhase(row: { phase?: unknown }): CampaignPlanPhase | null {
+  return isCampaignPlanPhase(row.phase) ? row.phase : null;
 }
 
 export function rowToCampaignPlanIntent(row: {
@@ -131,10 +143,95 @@ export async function probeCampaignPlansTable(
   return { tableMissing: false, error: error.message ?? "campaign_plans read failed" };
 }
 
+export function isUniquePhaseViolation(error: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  if (!error) return false;
+  if (error.code === "23505") return true;
+  const message = (error.message ?? "").toLowerCase();
+  return (
+    message.includes("campaign_plans_event_id_phase_key") ||
+    (message.includes("unique") &&
+      message.includes("event_id") &&
+      message.includes("phase"))
+  );
+}
+
+type EventPhaseLookup = {
+  from: (table: string) => {
+    select: (cols: string) => {
+      eq: (col: string, value: string) => {
+        eq: (col: string, value: string) => {
+          maybeSingle: () => Promise<{
+            data: { id?: string; phase?: unknown } | null;
+            error: unknown;
+          }>;
+          neq?: (col: string, value: string) => {
+            maybeSingle: () => Promise<{
+              data: { id?: string; phase?: unknown } | null;
+              error: unknown;
+            }>;
+          };
+        };
+      };
+    };
+  };
+};
+
+export async function findCampaignPlanByEventPhase(
+  supabase: unknown,
+  eventId: string,
+  phase: CampaignPlanPhase,
+): Promise<{ id: string; phase: CampaignPlanPhase } | null> {
+  const client = supabase as EventPhaseLookup;
+  const { data, error } = await client
+    .from("campaign_plans")
+    .select("id, phase")
+    .eq("event_id", eventId)
+    .eq("phase", phase)
+    .maybeSingle();
+  if (error || !data?.id) return null;
+  return { id: data.id, phase };
+}
+
+export async function campaignPlanRowExists(
+  supabase: unknown,
+  planId: string,
+): Promise<boolean> {
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          maybeSingle: () => Promise<{
+            data: { id?: string } | null;
+            error: unknown;
+          }>;
+        };
+      };
+    };
+  };
+  const { data, error } = await client
+    .from("campaign_plans")
+    .select("id")
+    .eq("id", planId)
+    .maybeSingle();
+  return !error && typeof data?.id === "string";
+}
+
 export async function upsertCampaignPlan(
   supabase: PersistClient | unknown,
   plan: CampaignPlan,
-): Promise<{ ok: true } | { ok: false; tableMissing: boolean; error: string }> {
+): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      tableMissing: boolean;
+      error: string;
+      existingPlanId?: string;
+      existingPhase?: CampaignPlanPhase;
+    }
+> {
   if (!plan.intent.eventId) {
     return { ok: false, tableMissing: false, error: "event_id is required to persist a plan" };
   }
@@ -143,6 +240,24 @@ export async function upsertCampaignPlan(
     onConflict: "id",
   });
   if (!error) return { ok: true };
+  if (
+    isUniquePhaseViolation(error) &&
+    plan.phase != null &&
+    isCampaignPlanPhase(plan.phase)
+  ) {
+    const existing = await findCampaignPlanByEventPhase(
+      supabase,
+      plan.intent.eventId,
+      plan.phase,
+    );
+    return {
+      ok: false,
+      tableMissing: false,
+      error: existingPhaseOffer(plan.phase),
+      existingPlanId: existing && existing.id !== plan.id ? existing.id : existing?.id,
+      existingPhase: plan.phase,
+    };
+  }
   return {
     ok: false,
     tableMissing: isRelationMissing(error),

@@ -20,7 +20,12 @@ export function shouldMarkUserEdit(source: PlanEditSource): boolean {
 export function shouldPersistPlanOnChange(input: {
   hasUserEdit: boolean;
   eventId: string | null | undefined;
+  requirePhase?: boolean;
+  phase?: string | null;
+  blockedByExisting?: boolean;
 }): boolean {
+  if (input.blockedByExisting) return false;
+  if (input.requirePhase && !input.phase) return false;
   return input.hasUserEdit === true && Boolean(input.eventId?.trim());
 }
 

@@ -52,6 +52,8 @@ export default async function PlanSharePage({ params }: Props) {
           benchmarkRows={loaded.benchmarkRows}
           initialResolved={loaded.resolved}
           initialDecisions={loaded.decisions}
+          adPlans={loaded.adPlans}
+          planSiblings={loaded.planSiblings}
         />
       </div>
     </main>

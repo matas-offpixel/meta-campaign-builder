@@ -1,3 +1,4 @@
+import type { CampaignPlanPhase } from "./phase.ts";
 import {
   IDLE_PLAN_LAUNCH,
   type CampaignPlan,
@@ -8,6 +9,7 @@ export function createEmptyCampaignPlan(input: {
   userId: string;
   eventId: string;
   name?: string;
+  phase?: CampaignPlanPhase | null;
 }): CampaignPlan {
   const now = new Date().toISOString();
   return {
@@ -15,6 +17,7 @@ export function createEmptyCampaignPlan(input: {
     userId: input.userId,
     name: input.name ?? null,
     status: "draft",
+    phase: input.phase ?? null,
     intent: {
       eventId: input.eventId,
       objectiveIntent: "registration",

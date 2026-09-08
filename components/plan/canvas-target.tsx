@@ -19,6 +19,7 @@ import {
 import { targetUnitSpec } from "@/lib/plan/target-unit";
 import type { CampaignPlanObjectiveIntent } from "@/lib/plan/types";
 import type { PlanTargetUnit } from "@/lib/types";
+import type { CampaignTicketTargetLine } from "@/lib/plan/ad-plan-read";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
@@ -45,6 +46,8 @@ export function CanvasTarget({
   ticketSource,
   benchmarkRows,
   unitPicker = true,
+  campaignTarget = null,
+  remedyLinks = false,
 }: {
   value: number | null;
   unit: PlanTargetUnit | null;
@@ -65,6 +68,8 @@ export function CanvasTarget({
   ticketSource?: "none" | "manual" | "xlsx_import" | "eventbrite" | "fourthefans" | "unknown";
   benchmarkRows?: readonly BenchmarkRow[];
   unitPicker?: boolean;
+  campaignTarget?: CampaignTicketTargetLine | null;
+  remedyLinks?: boolean;
 }) {
   const view = launchTargetView({
     now,
@@ -97,8 +102,32 @@ export function CanvasTarget({
 
   return (
     <section aria-label="target" className="flex min-h-[80px] flex-wrap items-center gap-1.5">
+      {campaignTarget ? (
+        <span className="inline-flex flex-col items-start gap-1">
+          <MetricChip
+            label="target"
+            size="lg"
+            value={campaignTarget.value}
+            lineKind={campaignTarget.kind}
+            phaseLabel="target"
+          >
+            {campaignTarget.display}
+          </MetricChip>
+          {campaignTarget.sentence ? (
+            <span className={VIZ_TYPE.body}>
+              {remedyLinks && campaignTarget.href ? (
+                <a href={campaignTarget.href} className="underline underline-offset-2">
+                  {campaignTarget.sentence}
+                </a>
+              ) : (
+                campaignTarget.sentence
+              )}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
       <MetricChip
-        label="target"
+        label="projection"
         size="lg"
         value={view.chipValue}
         benchmark={view.benchmark}

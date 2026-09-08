@@ -1,4 +1,4 @@
-import { rowToCampaignPlanIntent } from "./persist.ts";
+import { rowToCampaignPlanIntent, rowToCampaignPlanPhase } from "./persist.ts";
 import {
   IDLE_PLAN_LAUNCH,
   type CampaignPlan,
@@ -170,6 +170,7 @@ export async function loadPlanForUser(
     userId: row.user_id as string,
     name: (row.name as string | null) ?? null,
     status: row.status as CampaignPlan["status"],
+    phase: rowToCampaignPlanPhase(row),
     intent: rowToCampaignPlanIntent(row as never),
     launches: await loadPlanLaunchRecords(supabase, row.id as string),
     createdAt: row.created_at as string,

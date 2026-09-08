@@ -6,7 +6,8 @@
  * budget not yet split, negative means phases over-committed. Neither is
  * an error; this helper does not clamp.
  *
- * Not rendered. Canvas work is a later PR.
+ * The canvas reads these three facts as plain lines (campaign / this
+ * phase / unallocated). This helper stays the only arithmetic.
  */
 
 import { scheduledDayCount } from "./budget-split.ts";

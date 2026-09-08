@@ -8,6 +8,7 @@ import { venueKey } from "@/lib/plan/venue-key";
 import { listPresetsForClient } from "@/lib/db/optimisation-presets";
 import { presetPrimaryRule, resolvePreset } from "@/lib/optimisation/presets";
 import { loadEventThumbSources } from "@/lib/plan/event-artwork-load";
+import { planDefaultWindow } from "@/lib/plan/canvas-inputs";
 import { createEmptyCampaignPlan } from "@/lib/plan/empty-plan";
 import {
   preferredPlanEventId,
@@ -15,7 +16,12 @@ import {
   type PlanEventOption,
 } from "@/lib/plan/event-picker";
 import { loadDraftAdAccountId, loadPlanLaunchRecords } from "@/lib/plan/load";
-import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
+import {
+  loadAdPlansForEvents,
+  loadCampaignPlanSiblingsForUser,
+} from "@/lib/plan/ad-plan-load";
+import { deriveCampaignPlanPhase } from "@/lib/plan/phase";
+import { rowToCampaignPlanIntent, rowToCampaignPlanPhase } from "@/lib/plan/persist";
 import { loadOwnerPlanShare } from "@/lib/plan/share-tokens";
 import { planLadderObjective } from "@/lib/plan/prepare-draft";
 import { isRelationMissing } from "@/lib/plan/schema-probe";
@@ -51,7 +57,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
   const { data: events } = await supabase
     .from("events")
     .select(
-      "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, event_code, venue_name, venue_city, venue_key, kind, ticket_url, signup_url, meta_ad_account_id",
+      "id, name, client_id, event_date, event_start_at, announcement_at, presale_at, general_sale_at, sold_out_at, event_code, venue_name, venue_city, venue_key, kind, ticket_url, signup_url, meta_ad_account_id",
     )
     .eq("user_id", user.id)
     .order("event_date", { ascending: false });
@@ -65,6 +71,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     announcement_at: string | null;
     presale_at: string | null;
     general_sale_at: string | null;
+    sold_out_at?: string | null;
     event_code: string | null;
     venue_name: string | null;
     venue_city: string | null;
@@ -135,6 +142,7 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
       announcementAt: event.announcement_at,
       presaleAt: event.presale_at,
       generalSaleAt: event.general_sale_at,
+      soldOutAt: event.sold_out_at ?? null,
       eventCode: event.event_code,
       kind: event.kind,
       metaAdAccountId: client?.meta_ad_account_id ?? null,
@@ -163,12 +171,14 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
         status: CampaignPlan["status"];
         created_at: string;
         updated_at: string;
+        phase?: unknown;
       } & Parameters<typeof rowToCampaignPlanIntent>[0];
       plan = {
         id: row.id,
         userId: row.user_id,
         name: row.name,
         status: row.status,
+        phase: rowToCampaignPlanPhase(row),
         intent: rowToCampaignPlanIntent(row),
         launches: await loadPlanLaunchRecords(supabase, row.id),
         createdAt: row.created_at,
@@ -188,20 +198,35 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
     }
   }
 
+  const preferredEventId = preferredPlanEventId(eventOptions, {
+    today: todayIsoDate(),
+    preferredId: eventFromQuery,
+  });
+  const preferredEvent = eventOptions.find((event) => event.id === preferredEventId);
   const workspacePlan =
     plan ??
     createEmptyCampaignPlan({
       userId: user.id,
-      eventId: preferredPlanEventId(eventOptions, {
-        today: todayIsoDate(),
-        preferredId: eventFromQuery,
-      }),
+      eventId: preferredEventId,
       name: "",
+      phase: deriveCampaignPlanPhase({
+        startDate: planDefaultWindow(preferredEvent ?? null).startDate,
+        presaleAt: preferredEvent?.presaleAt ?? null,
+        generalSaleAt: preferredEvent?.generalSaleAt ?? null,
+        soldOutAt: preferredEvent?.soldOutAt ?? null,
+      }),
     });
 
   const selectedEvent = eventOptions.find(
     (event) => event.id === workspacePlan.intent.eventId,
   );
+  const [adPlans, planSiblings] = await Promise.all([
+    loadAdPlansForEvents(
+      supabase,
+      eventOptions.map((event) => event.id),
+    ),
+    loadCampaignPlanSiblingsForUser(supabase, user.id),
+  ]);
 
   const thumbs = workspacePlan.intent.eventId
     ? await loadEventThumbSources(
@@ -304,6 +329,8 @@ export default async function PlanDetailPage({ params, searchParams }: Props) {
             benchmarkRows={benchmarkRows}
             initialShareToken={share?.token ?? null}
             initialShareEnabled={share?.enabled}
+            adPlans={adPlans}
+            planSiblings={planSiblings}
           />
         </div>
       </main>

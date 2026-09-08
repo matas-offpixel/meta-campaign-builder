@@ -742,3 +742,25 @@ describe("§4.7 plan v2 token guards", () => {
     assert.doesNotMatch(sentence, /%/);
   });
 });
+
+describe("§4.8b target and projection stay two claims", () => {
+  it("the face never subtracts ticket target from the projection", () => {
+    const files = [
+      "lib/plan/ad-plan-read.ts",
+      "components/plan/canvas-target.tsx",
+      "lib/plan/launch-face.ts",
+      "components/plan/plan-workspace.tsx",
+    ];
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.doesNotMatch(source, /short by/i);
+      assert.doesNotMatch(source, /ticketTarget\s*-/);
+      assert.doesNotMatch(source, /ticket_target\s*-/);
+      assert.doesNotMatch(source, /campaignTarget\.value\s*-/);
+    }
+    const target = readFileSync("components/plan/canvas-target.tsx", "utf8");
+    assert.match(target, /campaignTarget/);
+    assert.match(target, /label="projection"/);
+    assert.match(target, /label="target"/);
+  });
+});

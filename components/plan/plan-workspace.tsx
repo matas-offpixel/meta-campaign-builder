@@ -58,7 +58,7 @@ import { planBenchmark, runFromViewRow, selectBenchmarkRows, type BenchmarkRow }
 import { planDisposalAction } from "@/lib/plan/delete-policy";
 import { drawerUrl, readDrawerUrl, tabForAnchor } from "@/lib/plan/drawer";
 import { dismissBlockerBadges } from "@/lib/viz/blockers";
-import { VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
+import { VIZ_TYPE, VIZ_ZONE_GUTTER } from "@/lib/viz/tokens";
 import { resolvePlanDestination } from "@/lib/plan/destination";
 import { planHeaderName } from "@/lib/plan/plan-name";
 import { shouldPersistPlanOnChange } from "@/lib/plan/persist-policy";
@@ -71,7 +71,24 @@ import {
   visiblePlanEvents,
   type PlanEventOption,
 } from "@/lib/plan/event-picker";
+import {
+  NEW_PLAN_NEEDS_PHASE,
+  adPlanForEvent,
+  campaignBudgetLines,
+  campaignTicketTargetLine,
+  existingPhaseOffer,
+  findExistingPhasePlan,
+  phaseWord,
+  type AdPlanReadRow,
+  type CampaignPlanSibling,
+} from "@/lib/plan/ad-plan-read";
 import { scheduledDayCount } from "@/lib/plan/budget-split";
+import {
+  CAMPAIGN_PLAN_PHASES,
+  deriveCampaignPlanPhase,
+  isCampaignPlanPhase,
+  type CampaignPlanPhase,
+} from "@/lib/plan/phase";
 import { objectiveForTargetUnit } from "@/lib/plan/target-unit";
 import { PLAN_STEP2_HASH } from "@/lib/plan/schedule";
 import {
@@ -152,6 +169,8 @@ export function PlanWorkspace({
   initialDecisions = [],
   initialShareToken = null,
   initialShareEnabled,
+  adPlans = [],
+  planSiblings = [],
 }: {
   initialPlan: CampaignPlan;
   events: PlanEventOption[];
@@ -179,6 +198,8 @@ export function PlanWorkspace({
   benchmarkRows?: readonly BenchmarkRow[];
   initialShareToken?: string | null;
   initialShareEnabled?: boolean;
+  adPlans?: AdPlanReadRow[];
+  planSiblings?: CampaignPlanSibling[];
 }) {
   void _targetBenchmark;
   const [plan, setPlan] = useState(initialPlan);
@@ -196,6 +217,11 @@ export function PlanWorkspace({
   const [preflightOk, setPreflightOk] = useState<boolean | null>(role === "client" ? true : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingOffer, setExistingOffer] = useState<{
+    id: string;
+    phase: CampaignPlanPhase;
+  } | null>(null);
+  const phasePickedRef = useRef(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [budgetMode, setBudgetMode] = useState<"daily" | "lifetime">("daily");
@@ -478,7 +504,25 @@ export function PlanWorkspace({
 
   useEffect(() => {
     if (readOnly) return;
-    if (!shouldPersistPlanOnChange({ hasUserEdit, eventId: plan.intent.eventId })) return;
+    const existing = findExistingPhasePlan(
+      planSiblings,
+      plan.intent.eventId,
+      plan.phase ?? null,
+      plan.id,
+    );
+    if (existing) setExistingOffer(existing);
+    else setExistingOffer(null);
+    if (
+      !shouldPersistPlanOnChange({
+        hasUserEdit,
+        eventId: plan.intent.eventId,
+        requirePhase: isNew && !persisted,
+        phase: plan.phase ?? null,
+        blockedByExisting: existing != null,
+      })
+    ) {
+      return;
+    }
     const handle = window.setTimeout(() => {
       void fetch("/api/plan", {
         method: "POST",
@@ -486,12 +530,24 @@ export function PlanWorkspace({
         body: JSON.stringify({ plan }),
       })
         .then((res) => res.json())
-        .then((json: { ok?: boolean; error?: string }) => {
+        .then(
+          (json: {
+            ok?: boolean;
+            error?: string;
+            existingPlanId?: string;
+            existingPhase?: CampaignPlanPhase;
+          }) => {
           if (json.ok) {
             setPersisted(true);
+            setExistingOffer(null);
             if (window.location.pathname === "/plan/new") {
               router.replace(`/plan/${plan.id}`);
             }
+            return;
+          }
+          if (json.existingPlanId && json.existingPhase) {
+            setExistingOffer({ id: json.existingPlanId, phase: json.existingPhase });
+            setError(null);
             return;
           }
           setError(json.error ?? null);
@@ -501,7 +557,7 @@ export function PlanWorkspace({
         });
     }, 400);
     return () => window.clearTimeout(handle);
-  }, [plan, router, hasUserEdit, readOnly]);
+  }, [plan, router, hasUserEdit, readOnly, isNew, persisted, planSiblings]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -817,8 +873,28 @@ export function PlanWorkspace({
     });
   }
 
+  function derivePhaseFor(
+    event: PlanEventOption | null,
+    startDate: string | null,
+  ): CampaignPlanPhase | null {
+    return deriveCampaignPlanPhase({
+      startDate,
+      presaleAt: event?.presaleAt ?? null,
+      generalSaleAt: event?.generalSaleAt ?? null,
+      soldOutAt: event?.soldOutAt ?? null,
+    });
+  }
+
   function setWindow(next: PlanWindowDates) {
-    patchIntent(next);
+    markPlan((current) => ({
+      ...current,
+      phase:
+        isNew && !phasePickedRef.current
+          ? derivePhaseFor(selectedEvent, next.startDate)
+          : current.phase,
+      intent: { ...current.intent, ...next },
+      updatedAt: new Date().toISOString(),
+    }));
   }
 
   const clock = useMemo(() => new Date(), []);
@@ -971,6 +1047,40 @@ export function PlanWorkspace({
   const headerName = planHeaderName(plan.name, selectedEvent);
   const noShow = planNoShowYet(plan.intent.eventId);
   const days = scheduledDayCount(plan.intent.startDate, plan.intent.endDate);
+  const adPlan = adPlanForEvent(adPlans, plan.intent.eventId);
+  const siblingPhases = planSiblings.filter(
+    (row) => row.eventId === plan.intent.eventId && row.id !== plan.id,
+  );
+  const readAcross = plan.intent.eventId
+    ? campaignBudgetLines({
+        eventId: plan.intent.eventId,
+        adPlan,
+        thisPhase: {
+          totalDailyBudget: plan.intent.budget.totalDaily,
+          startDate: plan.intent.startDate,
+          endDate: plan.intent.endDate,
+        },
+        siblingPhases: siblingPhases.map((row) => ({
+          totalDailyBudget: row.totalDailyBudget,
+          startDate: row.startDate,
+          endDate: row.endDate,
+        })),
+      })
+    : null;
+  const campaignTarget = plan.intent.eventId
+    ? campaignTicketTargetLine({
+        eventId: plan.intent.eventId,
+        ticketTarget: adPlan?.ticketTarget ?? null,
+      })
+    : null;
+  const offer =
+    existingOffer ??
+    findExistingPhasePlan(
+      planSiblings,
+      plan.intent.eventId,
+      plan.phase ?? null,
+      plan.id,
+    );
   const launchStamp = planLaunchStamp(plan.launches);
   const readsPending =
     !readOnly && (preflightOk === null || !automationSettled || !mirrorSettled);
@@ -1082,11 +1192,62 @@ export function PlanWorkspace({
           <Combobox
             label="Event"
             value={plan.intent.eventId}
-            onChange={(eventId) => patchIntent({ eventId, ...planDefaultWindow(events.find((e) => e.id === eventId) ?? null) })}
+            onChange={(eventId) => {
+              const event = events.find((row) => row.id === eventId) ?? null;
+              const window = planDefaultWindow(event);
+              phasePickedRef.current = false;
+              markPlan((current) => ({
+                ...current,
+                phase: derivePhaseFor(event, window.startDate),
+                intent: { ...current.intent, eventId, ...window },
+                updatedAt: new Date().toISOString(),
+              }));
+            }}
             options={pickerOptions}
             placeholder="Select an event"
             emptyText="No matching events"
           />
+        </div>
+      ) : null}
+
+      {isNew && !readOnly && !isLearnFace && !isAdjustFace ? (
+        <div className={`max-w-md space-y-1 ${VIZ_ZONE_GUTTER.normal}`}>
+          {offer ? (
+            <span className={`block ${VIZ_TYPE.body}`}>
+              <a href={`/plan/${offer.id}`} className="underline underline-offset-2">
+                {existingPhaseOffer(offer.phase)}
+              </a>
+            </span>
+          ) : null}
+          {plan.phase ? null : (
+            <span className={`block ${VIZ_TYPE.body} text-foreground/70`}>
+              {NEW_PLAN_NEEDS_PHASE}
+            </span>
+          )}
+          <label className={`inline-flex items-center gap-1 ${VIZ_TYPE.label} text-muted-foreground`}>
+            <span>phase</span>
+            <select
+              className="rounded-sm border border-border bg-background px-1.5 py-0.5"
+              aria-label="plan phase"
+              value={plan.phase ?? ""}
+              onChange={(event) => {
+                const next = event.target.value;
+                phasePickedRef.current = next.length > 0;
+                markPlan((current) => ({
+                  ...current,
+                  phase: isCampaignPlanPhase(next) ? next : null,
+                  updatedAt: new Date().toISOString(),
+                }));
+              }}
+            >
+              <option value="">phase</option>
+              {CAMPAIGN_PLAN_PHASES.map((phase) => (
+                <option key={phase} value={phase}>
+                  {phaseWord(phase)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       ) : null}
 
@@ -1214,6 +1375,8 @@ export function PlanWorkspace({
             }}
             onLifetime={setLifetimeTotal}
             readOnly={readOnly || noShow}
+            readAcross={readAcross}
+            remedyLinks={role === "operator" && !noShow}
           />,
         )}
       </div>
@@ -1242,6 +1405,8 @@ export function PlanWorkspace({
             now={clock}
             benchmarkRows={benchmarkRows}
             unitPicker={share.unitPicker && !noShow}
+            campaignTarget={campaignTarget}
+            remedyLinks={role === "operator" && !noShow}
           />,
         )}
       </div>
