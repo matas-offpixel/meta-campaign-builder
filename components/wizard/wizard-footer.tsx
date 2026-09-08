@@ -3,15 +3,25 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Rocket, Save, Loader2, CheckCircle2,
-  AlertTriangle, ChevronDown, ChevronUp,
+  ChevronLeft, ChevronRight, Rocket, Save, Loader2, CheckCircle2,
+  BookmarkPlus, FolderOpen, AlertTriangle, ChevronDown, ChevronUp,
 } from "lucide-react";
+import type { WizardStep } from "@/lib/types";
 import { LAUNCH_ON_CANVAS_LABEL } from "@/lib/plan/drawer";
 
 export type SaveStatus = "idle" | "saving" | "saved";
 
 interface WizardFooterProps {
-  canLaunch: boolean;
+  currentStep: WizardStep;
+  /**
+   * Visible step indices for the current wizard mode. Used to derive
+   * "first" / "last" semantics when the wizard skips intermediate steps
+   * (e.g. attach_adset hides Optimisation / Audiences / Budget so step 7
+   * is still last but step 4 may be reached directly from step 1).
+   * Falls back to the full 0–7 sequence when omitted.
+   */
+  visibleSteps?: WizardStep[];
+  canContinue: boolean;
   validationErrors?: string[];
   saveStatus: SaveStatus;
   /** True while the Meta campaign creation API call is in flight */
@@ -25,28 +35,48 @@ interface WizardFooterProps {
    */
   showLaunch?: boolean;
   planHref?: string | null;
+  onBack: () => void;
+  onContinue: () => void;
   onSaveDraft: () => void;
   onLaunch: () => void;
+  onSaveTemplate: () => void;
+  onLoadTemplate: () => void;
 }
 
 export function WizardFooter({
-  canLaunch,
+  currentStep,
+  visibleSteps,
+  canContinue,
   validationErrors = [],
   saveStatus,
   launching = false,
   launchCooldownLabel = null,
   showLaunch = true,
   planHref = null,
+  onBack,
+  onContinue,
   onSaveDraft,
   onLaunch,
+  onSaveTemplate,
+  onLoadTemplate,
 }: WizardFooterProps) {
+  const indices: WizardStep[] =
+    visibleSteps && visibleSteps.length > 0
+      ? visibleSteps
+      : ([0, 1, 2, 3, 4, 5, 6, 7] as WizardStep[]);
+  const position = indices.indexOf(currentStep);
+  const isFirstStep = position <= 0;
+  const isLastStep = position === indices.length - 1;
+  // "Load Template" is offered while still in the first two visible steps.
+  const showLoadTemplate = position !== -1 && position <= 1;
+
   // Expand/collapse the error list — starts expanded so errors are visible immediately
   const [errorsExpanded, setErrorsExpanded] = useState(true);
-  const showErrors = !canLaunch && validationErrors.length > 0;
+  const showErrors = !canContinue && validationErrors.length > 0;
 
   return (
     <footer className="sticky bottom-0 z-10 border-t border-border bg-card">
-      {/* ── Validation error bar — only rendered when Launch is blocked ── */}
+      {/* ── Validation error bar — only rendered when Continue is blocked ── */}
       {showErrors && (
         <div className="border-b border-destructive/20 bg-destructive/5 px-6 py-2">
           <div className="mx-auto max-w-5xl">
@@ -57,7 +87,7 @@ export function WizardFooter({
             >
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
               <span className="flex-1 text-xs font-medium text-destructive">
-                {validationErrors.length} issue{validationErrors.length !== 1 ? "s" : ""} to fix before launch
+                {validationErrors.length} issue{validationErrors.length !== 1 ? "s" : ""} to fix before continuing
               </span>
               {errorsExpanded
                 ? <ChevronUp className="h-3.5 w-3.5 text-destructive/60" />
@@ -80,6 +110,18 @@ export function WizardFooter({
       <div className="px-6 py-3">
         <div className="mx-auto flex max-w-5xl items-center justify-between">
           <div className="flex items-center gap-3">
+            {!isFirstStep && (
+              <Button variant="outline" onClick={onBack}>
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </Button>
+            )}
+            {showLoadTemplate && (
+              <Button variant="outline" onClick={onLoadTemplate}>
+                <FolderOpen className="h-4 w-4" />
+                Load Template
+              </Button>
+            )}
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {saveStatus === "saving" && (
                 <>
@@ -97,35 +139,46 @@ export function WizardFooter({
           </div>
 
           <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={onSaveTemplate}>
+              <BookmarkPlus className="h-4 w-4" />
+              Save as Template
+            </Button>
             <Button variant="ghost" onClick={onSaveDraft}>
               <Save className="h-4 w-4" />
               Save Draft
             </Button>
 
-            {showLaunch ? (
-              <Button
-                onClick={onLaunch}
-                disabled={!canLaunch || launching || Boolean(launchCooldownLabel)}
-              >
-                {launching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Rocket className="h-4 w-4" />
-                )}
-                {launching
-                  ? "Creating campaign…"
-                  : launchCooldownLabel
-                    ? `Retry in ${launchCooldownLabel}`
-                    : "Launch Campaign"}
+            {isLastStep ? (
+              showLaunch ? (
+                <Button
+                  onClick={onLaunch}
+                  disabled={!canContinue || launching || Boolean(launchCooldownLabel)}
+                >
+                  {launching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Rocket className="h-4 w-4" />
+                  )}
+                  {launching
+                    ? "Creating campaign…"
+                    : launchCooldownLabel
+                      ? `Retry in ${launchCooldownLabel}`
+                      : "Launch Campaign"}
+                </Button>
+              ) : planHref ? (
+                <a
+                  href={planHref}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+                >
+                  {LAUNCH_ON_CANVAS_LABEL} ↗
+                </a>
+              ) : null
+            ) : (
+              <Button onClick={onContinue} disabled={!canContinue}>
+                Continue
+                <ChevronRight className="h-4 w-4" />
               </Button>
-            ) : planHref ? (
-              <a
-                href={planHref}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-              >
-                {LAUNCH_ON_CANVAS_LABEL} ↗
-              </a>
-            ) : null}
+            )}
           </div>
         </div>
       </div>

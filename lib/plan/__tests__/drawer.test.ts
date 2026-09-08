@@ -541,10 +541,9 @@ describe("surface=drawer strips chrome and nothing else", () => {
   });
 });
 
-describe("no stepper or Back/Continue footer remains", () => {
-  it("wizard dirs do not export a Stepper or a Footer with Back/Continue", () => {
+describe("TikTok and Google drawers keep no stepper", () => {
+  it("tiktok and google wizard dirs do not export a Stepper or a Footer with Back/Continue", () => {
     for (const dir of [
-      "components/wizard",
       "components/tiktok-wizard",
       "components/google-search-wizard",
     ]) {
@@ -578,10 +577,10 @@ describe("template loader", () => {
     assert.match(drawer, /save as template/);
   });
 
-  it("the wizard's own load-template control no longer renders", () => {
+  it("the standalone ladder keeps Load Template; the plan drawer keeps its header control", () => {
     const footer = read("components/wizard/wizard-footer.tsx");
-    assert.ok(!/Load Template/.test(footer), "the footer's Load Template is gone");
-    assert.ok(!/onLoadTemplate/.test(footer));
+    assert.match(footer, /Load Template/, "the restored ladder needs its own loader");
+    assert.match(footer, /onLoadTemplate/);
   });
 });
 
@@ -622,22 +621,24 @@ describe("launch belongs to the canvas for a plan-linked draft", () => {
 
 // ── standalone /campaign/[id] is the same drawer ────────────────────────
 
-describe("/campaign/[id] renders the same drawer", () => {
-  it("the shell mounts MetaDrawer full-page, not a stepper", () => {
+describe("/campaign/[id] is the ladder; /plan/[id] keeps the drawer", () => {
+  it("the shell mounts WizardStepper, not MetaDrawer", () => {
     const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /<MetaDrawer/);
-    assert.match(shell, /variant="page"/);
-    assert.ok(!/<WizardStepper/.test(shell), "the eight-step stepper no longer renders");
+    assert.match(shell, /<WizardStepper/);
+    assert.match(shell, /<CampaignSetup/);
+    assert.ok(!/<MetaDrawer/.test(shell), "the standalone route is not the drawer");
   });
 
-  it("both surfaces mount the one component", () => {
+  it("the canvas still mounts the drawer as a sheet", () => {
     const workspace = read("components/plan/plan-workspace.tsx");
     assert.match(workspace, /<MetaDrawerMount/, "the canvas mounts it as a sheet");
-    const shell = read("components/wizard/wizard-shell.tsx");
-    assert.match(shell, /<MetaDrawer/, "and /campaign/[id] as a page");
+    assert.ok(
+      !/WizardStepper/.test(workspace),
+      "the plan canvas does not grow a stepper",
+    );
   });
 
-  it("the page variant is not modal — there is nothing behind it", () => {
+  it("the page variant is not modal — TikTok and Google still use it", () => {
     const drawer = read("components/viz/drawer.tsx");
     assert.match(drawer, /variant\?: "sheet" \| "page"/);
     assert.match(drawer, /variant === "page"/);
@@ -648,6 +649,16 @@ describe("/campaign/[id] renders the same drawer", () => {
     assert.match(hook, /export function useCampaignDraft/);
     assert.match(read("components/wizard/wizard-shell.tsx"), /useCampaignDraft\(/);
     assert.match(read("components/plan/meta-drawer.tsx"), /useCampaignDraft\(/);
+  });
+
+  it("standalone ReviewLaunch launches ACTIVE; a plan-linked draft does not launch here", () => {
+    const shell = read("components/wizard/wizard-shell.tsx");
+    assert.match(shell, /showLaunch=\{!linkedPlan\}/);
+    assert.match(shell, /step === 7 && !linkedPlan && \(/);
+    assert.match(shell, /<ReviewLaunch/);
+    assert.match(shell, /onRetryFailedAds=\{handleLaunch\}/);
+    const workspace = read("components/plan/plan-workspace.tsx");
+    assert.match(workspace, /<CanvasLaunch/);
   });
 });
 
@@ -1111,6 +1122,27 @@ describe("write paths are untouched", () => {
     assert.ok(base, "neither origin/main nor main exists");
     const diff = execSync(
       `git diff ${base} -- lib/optimisation/gates.ts lib/optimisation/apply.ts`,
+      { encoding: "utf8" },
+    );
+    assert.equal(diff.trim(), "", diff);
+  });
+
+  it("the plan canvas, frames, and Meta launch route have no diff against main", () => {
+    let base = "";
+    for (const ref of ["origin/main", "main"] as const) {
+      try {
+        base = execSync(`git rev-parse --verify ${ref}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        break;
+      } catch {
+        continue;
+      }
+    }
+    assert.ok(base, "neither origin/main nor main exists");
+    const diff = execSync(
+      `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters`,
       { encoding: "utf8" },
     );
     assert.equal(diff.trim(), "", diff);
