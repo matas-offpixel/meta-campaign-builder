@@ -10,6 +10,7 @@ import {
   tikTokAdvertiserClockLabel,
   tikTokDailyFloorMessage,
   tikTokPixelNotFiredMessage,
+  tikTokSalesPixelNotFiredMessage,
   tikTokUnverifiedFloorMessage,
 } from "../tiktok-early.ts";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan } from "../types.ts";
@@ -208,7 +209,21 @@ describe("TikTok advertiser clock — Etc/GMT vs Europe/London", () => {
       "utf8",
     );
     assert.match(src, /tikTokPixelNotFiredMessage/);
+    assert.match(src, /tikTokSalesPixelNotFiredMessage/);
     assert.match(src, /isTikTokConversionObjective/);
+  });
+
+  it("states the Sales sentence at the objective when the pixel has events: []", () => {
+    assert.equal(
+      tikTokSalesPixelNotFiredMessage("Ironworks Pixel"),
+      "Ironworks Pixel has not fired any events yet — Sales cannot optimise for a purchase until it does. Install it on the checkout, or run Traffic for now.",
+    );
+    const src = readFileSync(
+      "components/tiktok-wizard/steps/campaign-setup.tsx",
+      "utf8",
+    );
+    assert.match(src, /tikTokSalesPixelNotFiredMessage/);
+    assert.match(src, /id="tiktok-objective"/);
   });
 
   it("does not rewrite formatWallClockForTikTok — naive times stay the advertiser wall clock", () => {

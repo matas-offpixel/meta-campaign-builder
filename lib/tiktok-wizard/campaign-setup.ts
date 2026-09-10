@@ -2,30 +2,45 @@ import type {
   TikTokBidStrategy,
   TikTokObjective,
   TikTokOptimisationGoal,
+  TikTokSalesDestination,
 } from "@/lib/types/tiktok-draft";
 
+/**
+ * Selectable Ads Manager objectives. `AWARENESS` is loadable on existing
+ * drafts but is not a TikTok `objective_type` — do not offer it.
+ */
 export const TIKTOK_OBJECTIVES: TikTokObjective[] = [
   "TRAFFIC",
   "LEAD_GENERATION",
   "CONVERSIONS",
   "VIDEO_VIEWS",
   "REACH",
-  "AWARENESS",
   "ENGAGEMENT",
 ];
 
-export const TIKTOK_RETIRED_OBJECTIVES: readonly TikTokObjective[] = [
-  "CONVERSIONS",
+export const TIKTOK_SALES_DESTINATIONS: TikTokSalesDestination[] = [
+  "TIKTOK_SHOP",
+  "WEBSITE",
+  "APP",
 ];
 
 export const TIKTOK_OBJECTIVE_LABELS: Record<TikTokObjective, string> = {
   TRAFFIC: "Traffic",
   LEAD_GENERATION: "Lead generation",
-  CONVERSIONS: "Conversions (retired — use Lead generation)",
+  CONVERSIONS: "Sales",
   VIDEO_VIEWS: "Video views",
   REACH: "Reach",
   AWARENESS: "Awareness",
-  ENGAGEMENT: "Engagement",
+  ENGAGEMENT: "Community interaction",
+};
+
+export const TIKTOK_SALES_DESTINATION_LABELS: Record<
+  TikTokSalesDestination,
+  string
+> = {
+  TIKTOK_SHOP: "TikTok Shop",
+  WEBSITE: "Website",
+  APP: "App",
 };
 
 /**
@@ -63,10 +78,40 @@ export const TIKTOK_OPTIMISATION_GOAL_LABELS: Record<
   ENGAGEMENT: "Engagement",
 };
 
-export function isRetiredTikTokObjective(
+export function tikTokObjectivePickerValues(
+  current: TikTokObjective | null,
+): TikTokObjective[] {
+  if (current === "AWARENESS") return [...TIKTOK_OBJECTIVES, "AWARENESS"];
+  return TIKTOK_OBJECTIVES;
+}
+
+export function isAwarenessTikTokObjective(
   objective: TikTokObjective | null,
 ): boolean {
-  return objective != null && TIKTOK_RETIRED_OBJECTIVES.includes(objective);
+  return objective === "AWARENESS";
+}
+
+export function tikTokAwarenessReplacementMessage(): string {
+  return "Awareness is not a TikTok campaign objective — switch to Reach.";
+}
+
+export function isTikTokSalesObjective(
+  objective: TikTokObjective | null,
+): boolean {
+  return objective === "CONVERSIONS";
+}
+
+export function defaultTikTokSalesDestination(): TikTokSalesDestination {
+  return "WEBSITE";
+}
+
+export function resolveTikTokSalesDestination(
+  value: unknown,
+): TikTokSalesDestination {
+  if (value === "TIKTOK_SHOP" || value === "WEBSITE" || value === "APP") {
+    return value;
+  }
+  return "WEBSITE";
 }
 
 export function tikTokOptimisationGoalLabel(

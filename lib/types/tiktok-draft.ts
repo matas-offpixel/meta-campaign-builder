@@ -89,12 +89,24 @@ export type TikTokOptimisationGoal =
 
 export type TikTokBidStrategy = "COST_CAP" | "LOWEST_COST" | "SMART_PLUS";
 
+/**
+ * Ads Manager Sales destination. `WEB_AND_APP` exists on campaign/create
+ * but is allowlist-only — do not offer it.
+ */
+export type TikTokSalesDestination = "TIKTOK_SHOP" | "WEBSITE" | "APP";
+
 export interface TikTokCampaignSetup {
   campaignName: string;
   eventCode: string | null;
   objective: TikTokObjective | null;
   optimisationGoal: TikTokOptimisationGoal | null;
   bidStrategy: TikTokBidStrategy | null;
+  /**
+   * Display field for Sales (`virtual_objective_type: SALES`). Required
+   * when `objective` is `CONVERSIONS` (our draft key for WEB_CONVERSIONS).
+   * Defaults to WEBSITE — every event client sells on a website.
+   */
+  salesDestination: TikTokSalesDestination | null;
 }
 
 export interface TikTokOptimisation {
@@ -258,6 +270,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
       objective: null,
       optimisationGoal: null,
       bidStrategy: null,
+      salesDestination: "WEBSITE",
     },
     optimisation: {
       smartPlusEnabled: false,

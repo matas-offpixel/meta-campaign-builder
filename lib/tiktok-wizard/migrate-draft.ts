@@ -1,5 +1,6 @@
 import type { TikTokIdentity } from "../tiktok/identity.ts";
 import type { TikTokLaunchPreflightIssue } from "../tiktok/write/preflight.ts";
+import { resolveTikTokSalesDestination } from "./campaign-setup.ts";
 import {
   createDefaultTikTokDraft,
   normalizeTikTokAudiences,
@@ -29,6 +30,9 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
   const mergedCampaignSetup = {
     ...defaults.campaignSetup,
     ...campaignSetup,
+    salesDestination: resolveTikTokSalesDestination(
+      campaignSetup.salesDestination ?? defaults.campaignSetup.salesDestination,
+    ),
   };
   const mergedOptimisation = {
     ...defaults.optimisation,

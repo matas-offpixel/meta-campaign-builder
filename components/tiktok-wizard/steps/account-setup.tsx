@@ -21,6 +21,7 @@ import { TIKTOK_DRAWER_COPY } from "@/lib/plan/drawer";
 import {
   isTikTokConversionObjective,
   tikTokPixelNotFiredMessage,
+  tikTokSalesPixelNotFiredMessage,
 } from "@/lib/plan/tiktok-early";
 
 interface TikTokIdentityOption {
@@ -540,12 +541,19 @@ export function AccountSetupStep({
             tone="alert"
             className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
           >
-            {tikTokPixelNotFiredMessage(
-              draft.accountSetup.pixelName ??
-                pixels.find((pixel) => pixel.pixel_id === draft.accountSetup.pixelId)
-                  ?.pixel_name ??
-                "This pixel",
-            )}
+            {draft.campaignSetup.objective === "CONVERSIONS"
+              ? tikTokSalesPixelNotFiredMessage(
+                  draft.accountSetup.pixelName ??
+                    pixels.find((pixel) => pixel.pixel_id === draft.accountSetup.pixelId)
+                      ?.pixel_name ??
+                    "This pixel",
+                )
+              : tikTokPixelNotFiredMessage(
+                  draft.accountSetup.pixelName ??
+                    pixels.find((pixel) => pixel.pixel_id === draft.accountSetup.pixelId)
+                      ?.pixel_name ??
+                    "This pixel",
+                )}
           </StatusLine>
         )}
 

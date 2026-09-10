@@ -733,6 +733,8 @@ describe("launchTikTokDraftState", () => {
     assert.ok(campaign);
     assert.ok(adGroup);
     assert.equal(campaign.body.objective_type, "WEB_CONVERSIONS");
+    assert.equal(campaign.body.virtual_objective_type, "SALES");
+    assert.equal(campaign.body.sales_destination, "WEBSITE");
     assert.equal(adGroup.body.promotion_target_type, undefined);
     assert.equal(adGroup.body.optimization_event, "FORM");
   });

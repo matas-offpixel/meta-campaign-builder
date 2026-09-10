@@ -94,8 +94,10 @@ export const TIKTOK_LOCATION_IDS_BY_CODE: Record<string, string> = {
  * Official v1.3 campaign `objective_type` values. Documented enum includes
  * TRAFFIC, WEB_CONVERSIONS, VIDEO_VIEWS, REACH, ENGAGEMENT, APP_PROMOTION,
  * LEAD_GENERATION, PRODUCT_SALES. Our draft `CONVERSIONS` is
- * `WEB_CONVERSIONS`. `AWARENESS` is not a TikTok campaign objective — we
- * refuse it rather than silently rewrite to REACH.
+ * `WEB_CONVERSIONS` — Sales in Ads Manager is this enum plus
+ * `virtual_objective_type: SALES` and `sales_destination`. `AWARENESS` is
+ * not a TikTok campaign objective — we refuse it rather than silently
+ * rewrite to REACH.
  *
  * The launcher writes TRAFFIC, WEB_CONVERSIONS (draft CONVERSIONS), and
  * LEAD_GENERATION. Other documented values still map 1:1 so preflight can
@@ -365,6 +367,18 @@ export function mapTikTokObjectiveType(
   }
   if (objective === "CONVERSIONS") return ok("WEB_CONVERSIONS");
   return ok(objective);
+}
+
+export function mapTikTokSalesDestination(
+  value: string | null | undefined,
+): MappingResult<string> {
+  if (value === "TIKTOK_SHOP" || value === "WEBSITE" || value === "APP") {
+    return ok(value);
+  }
+  return missing(
+    "sales_destination",
+    "Sales requires TikTok Shop, Website, or App",
+  );
 }
 
 export function mapTikTokOptimizationGoal(
@@ -853,6 +867,14 @@ export function buildTikTokCampaignPayload(input: {
   };
   if (input.draft.budgetSchedule.budgetAmount != null) {
     payload.budget = input.draft.budgetSchedule.budgetAmount;
+  }
+  if (input.draft.campaignSetup.objective === "CONVERSIONS") {
+    const destination = mapTikTokSalesDestination(
+      input.draft.campaignSetup.salesDestination ?? "WEBSITE",
+    );
+    if (!destination.ok) return destination;
+    payload.virtual_objective_type = "SALES";
+    payload.sales_destination = destination.value;
   }
   return ok(payload);
 }
