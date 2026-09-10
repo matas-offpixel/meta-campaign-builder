@@ -10,7 +10,10 @@ import {
   type OptimisationNodeFetcher,
 } from "@/lib/optimisation/insights-fetch";
 import { runOptimisationTick, type OptimisationTickSummary } from "@/lib/optimisation/tick-runner";
-import { isOptimisationWritesEnabledFromEnv } from "@/lib/optimisation/gates";
+import {
+  isOptimisationPauseWritesEnabledFromEnv,
+  isOptimisationWritesEnabledFromEnv,
+} from "@/lib/optimisation/gates";
 import {
   insertAutomationDecision,
   loadOptedInCampaignsForAutomation,
@@ -40,7 +43,9 @@ import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
  *   c) `campaign_drafts.optimisation_automation_live`
  * Anything less → shadow insert (`dry_run=true`, `applied=false`).
  *
- * Pause is recommend-only: never a Meta write; Slack `ads_urgent` instead.
+ * Pause writes need those three PLUS `ENABLE_OPTIMISATION_PAUSE_WRITES === "1"`,
+ * a configured `pauseFloorBudget` (reduce first), and the blast-radius
+ * limits in `apply.ts`. Unset fourth gate = today's recommend-only path.
  *
  * Killswitch: `ENABLE_OPTIMISATION_AUTOMATION` must be exactly `"1"` or
  * the route responds 200 with `skippedReason: "killswitch"`.
@@ -92,6 +97,7 @@ export async function GET(req: NextRequest) {
 
   const enabled = isAutomationEnabled();
   const writesEnabled = isOptimisationWritesEnabledFromEnv();
+  const pauseWritesEnabled = isOptimisationPauseWritesEnabledFromEnv();
   const quotaThrottled = enabled ? isQuotaThrottled() : false;
 
   let supabase: ReturnType<typeof createServiceRoleClient>;
@@ -158,8 +164,10 @@ export async function GET(req: NextRequest) {
       },
       updateCampaignDailyBudget: (campaignId, dailyBudgetPence) =>
         graphPostWithToken(`/${campaignId}`, { daily_budget: dailyBudgetPence }, token as string),
+      pauseAdSet: (adsetId) => graphPostWithToken(`/${adsetId}`, { status: "PAUSED" }, token as string),
       notify: (opts) => notify(opts, notifyDeps),
       writesEnabled,
+      pauseWritesEnabled,
       loadCrossChannelSubjects: (metaCampaigns) =>
         loadPlanLinkedChannelSubjects(supabase, metaCampaigns),
       fetchChannelRollup: (subject, window) =>

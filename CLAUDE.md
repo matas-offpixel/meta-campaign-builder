@@ -139,6 +139,7 @@ FACEBOOK_OAUTH_SCOPES=
 ENABLE_META_THUMBNAIL_FETCH=
 ENABLE_OPTIMISATION_AUTOMATION=
 ENABLE_OPTIMISATION_WRITES=
+ENABLE_OPTIMISATION_PAUSE_WRITES=
 ENABLE_SLACK_NOTIFICATIONS=
 SLACK_CHANNEL_ADS_OPS_ENABLED=
 SLACK_CHANNEL_ADS_URGENT_ENABLED=
@@ -293,10 +294,16 @@ ENABLE_BUDGET_PACING_ALERTS=
 >   c) `campaign_drafts.optimisation_automation_live = true` (migration 154,
 >      default false — set via SQL until PR C ships the UI toggle)
 > Anything less → shadow insert (`dry_run=true`, `applied=false`), identical
-> to PR A. Pause is recommend-only (Slack `ads_urgent`, no Meta write).
+> to PR A. A Meta pause write needs those three PLUS
+> `ENABLE_OPTIMISATION_PAUSE_WRITES === "1"` (leave unset — shipping it
+> off is the point). Fourth gate closed = today's recommend-only path
+> (shadow row + `ads_urgent`). Fourth gate open still reduces to
+> `pauseFloorBudget` first and only pauses at the floor, never the last
+> active ad set, never more than two pauses per run, and never below
+> `MIN_PAUSE_CONVERSION_RESULT_COUNT` (15). Never auto-resume.
 > Decision logic still lives only in `lib/optimisation/evaluate.ts`;
 > `lib/optimisation/apply.ts` executes the result. See
-> `docs/session-logs/pr-pending-optimisation-automation-phase-b-live-writes.md`.
+> `docs/session-logs/pr-929-optimisation-auto-pause.md`.
 
 > **Slack notification service env vars** (task #121, Phase 1 + 2 — first
 > proactive alerting the app has ever had):
@@ -483,8 +490,9 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
   "Optimisation Strategy" automation loop. Evaluates opted-in published
   campaigns via `evaluate.ts` and, when the three-of-three write gate is
   open (`ENABLE_OPTIMISATION_WRITES` + enabled + live), applies
-  `scale_up`/`scale_down` to Meta. Pause stays recommend-only. See
-  `ENABLE_OPTIMISATION_AUTOMATION` / `ENABLE_OPTIMISATION_WRITES` above.
+  `scale_up`/`scale_down` to Meta. Pause writes need a fourth gate
+  (`ENABLE_OPTIMISATION_PAUSE_WRITES`) and stay off until that is set.
+  See `ENABLE_OPTIMISATION_AUTOMATION` / `ENABLE_OPTIMISATION_WRITES` above.
 - `/api/cron/budget-pacing-check` (hourly) — task #121 Phase 2, the first
   consumer of the Phase 1 Slack service. Evaluates every published
   campaign's lifetime Meta spend against its planned budget and posts an

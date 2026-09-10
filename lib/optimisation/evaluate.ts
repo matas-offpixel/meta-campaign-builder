@@ -66,6 +66,13 @@ export type GuardrailNote =
   | "capped_by_max_single_adset_budget"
   | "capped_by_max_daily_increase"
   | "budget_changed_underfoot"
+  | "reduced_to_pause_floor"
+  | "paused_at_floor"
+  | "pause_floor_unset"
+  | "pause_campaign_wide"
+  | "pause_last_active"
+  | "pause_insufficient_conversions"
+  | "pause_cap_reached"
   | null;
 
 export interface LiveMetricReading {

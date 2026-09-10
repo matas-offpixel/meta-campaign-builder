@@ -33,6 +33,7 @@
  */
 
 import type {
+  BudgetGuardrails,
   CampaignObjective,
   OptimisationStrategySettings,
   RuleMetric,
@@ -64,7 +65,14 @@ import {
   type AdSetInsightRow,
   type CampaignBudgetInsight,
 } from "./insights-fetch.ts";
-import { applyOptimisationDecision, MAX_WRITES_PER_RUN } from "./apply.ts";
+import {
+  applyOptimisationDecision,
+  isDeliveringAdSetStatus,
+  MAX_PAUSES_PER_RUN,
+  MAX_WRITES_PER_RUN,
+  type ApplyOptimisationDeps,
+  type ApplyOutcome,
+} from "./apply.ts";
 import { optimisationDryRunGates } from "./gates.ts";
 import {
   CROSS_CHANNEL_SHADOW_GATES,
@@ -157,7 +165,15 @@ export interface OptimisationTickDeps {
   lookbackHours?: number;
   /** `ENABLE_OPTIMISATION_WRITES === "1"` — gate (a). */
   writesEnabled: boolean;
+  /**
+   * `ENABLE_OPTIMISATION_PAUSE_WRITES === "1"` — fourth gate. Default
+   * false: pause stays recommend-only.
+   */
+  pauseWritesEnabled?: boolean;
+  /** Meta `POST /{adset_id}` `{ status: "PAUSED" }`. Never writes ACTIVE. */
+  pauseAdSet?: (adsetId: string) => Promise<unknown>;
   maxWritesPerRun?: number;
+  maxPausesPerRun?: number;
   /**
    * Plan-linked TikTok/Google subjects for opted-in Meta drafts.
    * Optional — existing tests omit this and the Meta path is unchanged.
@@ -192,6 +208,7 @@ export interface OptimisationTickSummary {
   writesFailed: number;
   writesAbortedUnderfoot: number;
   pausesRecommended: number;
+  pausesApplied: number;
   writesCapReached: boolean;
   appliedWriteDetails: AppliedWriteDetail[];
   /** TikTok/Google shadow rows inserted this tick. Always dry_run. */
@@ -212,6 +229,7 @@ function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]):
     writesFailed: 0,
     writesAbortedUnderfoot: 0,
     pausesRecommended: 0,
+    pausesApplied: 0,
     writesCapReached: false,
     appliedWriteDetails: [],
     crossChannelDecisionsInserted: 0,
@@ -248,6 +266,8 @@ export async function runOptimisationTick(
   const lookbackHours = deps.lookbackHours ?? 24;
   const sinceISO = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000).toISOString();
   const maxWrites = deps.maxWritesPerRun ?? MAX_WRITES_PER_RUN;
+  const maxPauses = deps.maxPausesPerRun ?? MAX_PAUSES_PER_RUN;
+  const pauseWritesEnabled = deps.pauseWritesEnabled === true;
 
   const summary = emptySummary();
   let campaigns: CampaignAutomationInput[];
@@ -334,38 +354,16 @@ export async function runOptimisationTick(
                 adsetName: campaign.campaignName,
                 gates,
                 writesRemaining,
+                pauseWritesEnabled,
+                pauseFloorBudgetPence: pauseFloorPence(campaign.optimisationStrategy.guardrails),
+                pausesRemaining: maxPauses - summary.pausesApplied,
               },
-              {
-                readAdSetDailyBudget: deps.readAdSetDailyBudget,
-                updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
-                readCampaignDailyBudget: deps.readCampaignDailyBudget,
-                updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
-                insertDecision: deps.insertDecision,
-                notify: deps.notify,
-                now,
-              },
+              applyDeps(deps, now),
             );
-            summary.decisionsInserted += 1;
-            summary.decisionsByAction[outcome.decision.actionRecommended] =
-              (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
-            if (outcome.kind === "applied") {
-              summary.writesApplied += 1;
-              summary.appliedWriteDetails.push({
-                campaignName: campaign.campaignName,
-                adsetName: campaign.campaignName,
-                budgetBeforePence: outcome.decision.budgetBeforePence,
-                budgetAfterPence: outcome.decision.budgetAfterPence,
-                ruleMatched: outcome.decision.ruleMatched,
-              });
-            } else if (outcome.kind === "write_failed") {
-              summary.writesFailed += 1;
-            } else if (outcome.kind === "aborted_underfoot") {
-              summary.writesAbortedUnderfoot += 1;
-            } else if (outcome.kind === "pause_recommended") {
-              summary.pausesRecommended += 1;
-            } else if (outcome.kind === "cap_reached") {
-              summary.writesCapReached = true;
-            }
+            recordApplyOutcome(summary, outcome, {
+              campaignName: campaign.campaignName,
+              adsetName: campaign.campaignName,
+            });
           }
         } catch (campaignEvalErr) {
           const message =
@@ -378,6 +376,7 @@ export async function runOptimisationTick(
         continue;
       }
 
+      const pending: Array<{ row: AdSetInsightRow; decision: DecisionToInsert }> = [];
       for (const row of rows) {
         summary.adSetsConsidered += 1;
 
@@ -403,15 +402,37 @@ export async function runOptimisationTick(
             continue;
           }
 
-          const decision = buildDecision(
-            campaign,
+          pending.push({
             row,
-            window,
-            now,
-            lastTouchedAt,
-            state.appliedIncreasePercentLast24h,
+            decision: buildDecision(
+              campaign,
+              row,
+              window,
+              now,
+              lastTouchedAt,
+              state.appliedIncreasePercentLast24h,
+            ),
+          });
+        } catch (adsetErr) {
+          // One ad set failing must never abort the rest of the run.
+          const message = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
+          console.error(
+            `[optimisation-tick] campaign=${campaign.campaignId} adset=${row.adsetId} threw: ${message}`,
           );
+          summary.writesFailed += 1;
+        }
+      }
 
+      const activeCount = rows.filter((r) => isDeliveringAdSetStatus(r.effectiveStatus)).length;
+      const pauseCandidates = pending.filter(
+        (p) =>
+          p.decision.actionRecommended === "pause" && isDeliveringAdSetStatus(p.row.effectiveStatus),
+      ).length;
+      const campaignWideBreach = activeCount > 0 && pauseCandidates === activeCount;
+      let remainingActive = activeCount;
+
+      for (const { row, decision } of pending) {
+        try {
           const writesRemaining = maxWrites - summary.writesApplied;
           const outcome = await applyOptimisationDecision(
             {
@@ -420,42 +441,23 @@ export async function runOptimisationTick(
               adsetName: row.adsetName,
               gates,
               writesRemaining,
+              pauseWritesEnabled,
+              pauseFloorBudgetPence: pauseFloorPence(campaign.optimisationStrategy.guardrails),
+              activeAdSetCount: remainingActive,
+              pauseCandidatesInCampaign: pauseCandidates,
+              campaignWideBreach,
+              pausesRemaining: maxPauses - summary.pausesApplied,
             },
-            {
-              readAdSetDailyBudget: deps.readAdSetDailyBudget,
-              updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
-              readCampaignDailyBudget: deps.readCampaignDailyBudget,
-              updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
-              insertDecision: deps.insertDecision,
-              notify: deps.notify,
-              now,
-            },
+            applyDeps(deps, now),
           );
-
-          summary.decisionsInserted += 1;
-          summary.decisionsByAction[outcome.decision.actionRecommended] =
-            (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
-
-          if (outcome.kind === "applied") {
-            summary.writesApplied += 1;
-            summary.appliedWriteDetails.push({
-              campaignName: campaign.campaignName,
-              adsetName: row.adsetName,
-              budgetBeforePence: outcome.decision.budgetBeforePence,
-              budgetAfterPence: outcome.decision.budgetAfterPence,
-              ruleMatched: outcome.decision.ruleMatched,
-            });
-          } else if (outcome.kind === "write_failed") {
-            summary.writesFailed += 1;
-          } else if (outcome.kind === "aborted_underfoot") {
-            summary.writesAbortedUnderfoot += 1;
-          } else if (outcome.kind === "pause_recommended") {
-            summary.pausesRecommended += 1;
-          } else if (outcome.kind === "cap_reached") {
-            summary.writesCapReached = true;
+          recordApplyOutcome(summary, outcome, {
+            campaignName: campaign.campaignName,
+            adsetName: row.adsetName,
+          });
+          if (outcome.kind === "paused") {
+            remainingActive = Math.max(0, remainingActive - 1);
           }
         } catch (adsetErr) {
-          // One ad set failing must never abort the rest of the run.
           const message = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
           console.error(
             `[optimisation-tick] campaign=${campaign.campaignId} adset=${row.adsetId} threw: ${message}`,
@@ -515,15 +517,7 @@ export async function runOptimisationTick(
               gates: CROSS_CHANNEL_SHADOW_GATES,
               writesRemaining: 0,
             },
-            {
-              readAdSetDailyBudget: deps.readAdSetDailyBudget,
-              updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
-              readCampaignDailyBudget: deps.readCampaignDailyBudget,
-              updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
-              insertDecision: deps.insertDecision,
-              notify: deps.notify,
-              now,
-            },
+            applyDeps(deps, now),
           );
           summary.decisionsInserted += 1;
           summary.crossChannelDecisionsInserted += 1;
@@ -567,9 +561,67 @@ export async function runOptimisationTick(
 
   summary.ok = summary.campaignsErrored.length === 0;
   console.log(
-    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended}`,
+    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended} pauses_applied=${summary.pausesApplied}`,
   );
   return summary;
+}
+
+function pauseFloorPence(guardrails: BudgetGuardrails): number | null {
+  const floor = guardrails.pauseFloorBudget;
+  if (floor == null || floor <= 0) return null;
+  return Math.round(floor * 100);
+}
+
+function applyDeps(deps: OptimisationTickDeps, now: Date): ApplyOptimisationDeps {
+  return {
+    readAdSetDailyBudget: deps.readAdSetDailyBudget,
+    updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+    readCampaignDailyBudget: deps.readCampaignDailyBudget,
+    updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
+    insertDecision: deps.insertDecision,
+    notify: deps.notify,
+    pauseAdSet: deps.pauseAdSet,
+    now,
+  };
+}
+
+function recordApplyOutcome(
+  summary: OptimisationTickSummary,
+  outcome: ApplyOutcome,
+  names: { campaignName: string; adsetName: string },
+): void {
+  summary.decisionsInserted += 1;
+  summary.decisionsByAction[outcome.decision.actionRecommended] =
+    (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
+
+  if (outcome.kind === "applied" || outcome.kind === "pause_reduced_to_floor") {
+    summary.writesApplied += 1;
+    summary.appliedWriteDetails.push({
+      campaignName: names.campaignName,
+      adsetName: names.adsetName,
+      budgetBeforePence: outcome.decision.budgetBeforePence,
+      budgetAfterPence: outcome.decision.budgetAfterPence,
+      ruleMatched: outcome.decision.ruleMatched,
+    });
+  } else if (outcome.kind === "paused") {
+    summary.writesApplied += 1;
+    summary.pausesApplied += 1;
+    summary.appliedWriteDetails.push({
+      campaignName: names.campaignName,
+      adsetName: names.adsetName,
+      budgetBeforePence: outcome.decision.budgetBeforePence,
+      budgetAfterPence: outcome.decision.budgetAfterPence,
+      ruleMatched: outcome.decision.ruleMatched,
+    });
+  } else if (outcome.kind === "write_failed") {
+    summary.writesFailed += 1;
+  } else if (outcome.kind === "aborted_underfoot") {
+    summary.writesAbortedUnderfoot += 1;
+  } else if (outcome.kind === "pause_recommended" || outcome.kind === "pause_blocked") {
+    summary.pausesRecommended += 1;
+  } else if (outcome.kind === "cap_reached") {
+    summary.writesCapReached = true;
+  }
 }
 
 function buildDecision(

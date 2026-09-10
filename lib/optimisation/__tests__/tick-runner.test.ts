@@ -523,3 +523,110 @@ describe("runOptimisationTick — PR B live writes", () => {
     assert.equal(summary.ok, true);
   });
 });
+
+const PAUSE_FLOOR_GUARDRAILS: BudgetGuardrails = {
+  ...GUARDRAILS,
+  pauseFloorBudget: 20,
+};
+
+function pauseInsight(overrides: Partial<AdSetInsightRow> = {}): AdSetInsightRow {
+  return insightRow({
+    costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 6 },
+    actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+    dailyBudgetPence: 2000,
+    ...overrides,
+  });
+}
+
+describe("runOptimisationTick — pause writes", () => {
+  it("fourth gate closed — live campaign still only recommends pause", async () => {
+    const pauses: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: false,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_a" }),
+        pauseInsight({ adsetId: "adset_b" }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 2000,
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(pauses.length, 0);
+    assert.ok(summary.pausesRecommended >= 1);
+    assert.equal(summary.pausesApplied, 0);
+  });
+
+  it("campaign-wide breach — N of N, no pause write", async () => {
+    const pauses: string[] = [];
+    const notifyCalls: NotifyOptions[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_a" }),
+        pauseInsight({ adsetId: "adset_b" }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 2000,
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+      notify: async (opts) => {
+        notifyCalls.push(opts);
+        return { sent: true };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(pauses.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+    assert.ok(
+      notifyCalls.some((n) => /campaign-wide breach — 2 of 2 ad sets over threshold/.test(n.text)),
+    );
+  });
+
+  it("one breaching ad set at the floor is paused; a healthy sibling keeps the campaign alive", async () => {
+    const pauses: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({ adsetId: "adset_healthy" }),
+        pauseInsight({ adsetId: "adset_bad" }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async (id) => (id === "adset_bad" ? 2000 : 10000),
+      updateAdSetDailyBudget: async () => ({ ok: true }),
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.deepEqual(pauses, ["adset_bad"]);
+    assert.equal(summary.pausesApplied, 1);
+  });
+});

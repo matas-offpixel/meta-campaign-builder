@@ -1290,7 +1290,7 @@ describe("write paths are untouched", () => {
     assert.equal(diff.trim(), "", diff);
   });
 
-  it("gates.ts and apply.ts have no diff against main", () => {
+  it("gates.ts and apply.ts only change the pause path and the fourth gate", () => {
     let base = "";
     for (const ref of ["origin/main", "main"] as const) {
       try {
@@ -1308,7 +1308,40 @@ describe("write paths are untouched", () => {
       `git diff ${base} -- lib/optimisation/gates.ts lib/optimisation/apply.ts`,
       { encoding: "utf8" },
     );
-    assert.equal(diff.trim(), "", diff);
+    if (diff.trim() === "") return;
+    const byFile = contentDiffByFile(diff);
+    for (const file of byFile.keys()) {
+      assert.ok(
+        file === "lib/optimisation/gates.ts" || file === "lib/optimisation/apply.ts",
+        `${file} changed; the freeze does not allow it`,
+      );
+    }
+    assert.ok(byFile.has("lib/optimisation/gates.ts"), "gates.ts must stay in the freeze diff");
+    assert.ok(byFile.has("lib/optimisation/apply.ts"), "apply.ts must stay in the freeze diff");
+
+    const gatesSrc = readFileSync(join(ROOT, "lib/optimisation/gates.ts"), "utf8");
+    assert.match(gatesSrc, /export function optimisationDryRunGates/);
+    assert.match(
+      gatesSrc,
+      /writesEnabled: boolean,\s*enabled: boolean,\s*live: boolean,/,
+    );
+    assert.match(gatesSrc, /ENABLE_OPTIMISATION_PAUSE_WRITES/);
+    assert.match(gatesSrc, /optimisationPauseDryRunGates/);
+
+    const applySrc = readFileSync(join(ROOT, "lib/optimisation/apply.ts"), "utf8");
+    assert.match(applySrc, /MAX_WRITES_PER_RUN = 25/);
+    assert.match(applySrc, /MAX_PAUSES_PER_RUN = 2/);
+    assert.match(applySrc, /MIN_PAUSE_CONVERSION_RESULT_COUNT = 15/);
+    assert.match(applySrc, /function wouldWriteBudget/);
+    assert.match(applySrc, /budget_changed_underfoot/);
+    assert.match(applySrc, /updateAdSetDailyBudget/);
+    assert.match(applySrc, /pauseWritesEnabled/);
+    assert.match(applySrc, /pauseFloorBudget/);
+    assert.match(applySrc, /Never auto-resume/);
+    assert.doesNotMatch(applySrc, /status:\s*["']ACTIVE["']/);
+
+    assert.match(diff, /ENABLE_OPTIMISATION_PAUSE_WRITES/);
+    assert.match(diff, /pauseWritesEnabled|pauseFloorBudget|MIN_PAUSE_CONVERSION_RESULT_COUNT/);
   });
 
   it("the plan canvas, frames, and Meta launch route have no diff against main", () => {
