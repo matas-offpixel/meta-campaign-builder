@@ -41,6 +41,13 @@ export interface AdSetInsightRow extends AdSetInsightMetrics {
   /** Meta's `lifetime_budget` in minor units — null when the ad set is daily or CBO. */
   lifetimeBudgetPence: number | null;
   effectiveStatus: string | null;
+  /** Meta `start_time` — used so a campaign that launched today is not 24h-dormant. */
+  startedAt?: string | null;
+  /**
+   * Impressions for `date_preset=yesterday`. Null when the metric window
+   * is already 24h (same row) or Meta omitted the alias.
+   */
+  impressionsLast24h?: number | null;
 }
 
 /**
@@ -53,6 +60,9 @@ export interface CampaignBudgetInsight extends AdSetInsightMetrics {
   campaignId: string;
   dailyBudgetPence: number | null;
   lifetimeBudgetPence: number | null;
+  effectiveStatus?: string | null;
+  startedAt?: string | null;
+  impressionsLast24h?: number | null;
 }
 
 interface RawInsightRow {
@@ -70,14 +80,19 @@ interface RawAdSetRow {
   daily_budget?: string;
   lifetime_budget?: string;
   effective_status?: string;
+  start_time?: string;
   insights?: { data?: RawInsightRow[] };
+  insights_yesterday?: { data?: RawInsightRow[] };
 }
 
 interface RawCampaignNode {
   id?: string;
   daily_budget?: string;
   lifetime_budget?: string;
+  effective_status?: string;
+  start_time?: string;
   insights?: { data?: RawInsightRow[] };
+  insights_yesterday?: { data?: RawInsightRow[] };
 }
 
 interface RawPaged<T> {
@@ -140,12 +155,30 @@ const AD_SET_PAGE_LIMIT = "500";
 /** Guards against an infinite loop if Meta's paging cursor never terminates. */
 const MAX_PAGES = 10;
 
+function yesterdayInsightsField(window: RuleTimeWindow): string {
+  if (window === "24h") return "";
+  return ",insights.date_preset(yesterday).as(insights_yesterday){impressions}";
+}
+
+function parseStartedAt(raw: string | undefined): string | null {
+  return raw?.trim() ? raw.trim() : null;
+}
+
+function parseImpressionsLast24h(
+  window: RuleTimeWindow,
+  windowImpressions: number,
+  yesterday: { data?: RawInsightRow[] } | undefined,
+): number | null {
+  if (window === "24h") return windowImpressions;
+  if (!yesterday) return null;
+  return parseNum(yesterday.data?.[0]?.impressions);
+}
+
 /**
  * Fetch every ad set's current budget + live metrics for one campaign, in a
  * single (paginated) Graph call. `window` selects the `date_preset` used for
- * BOTH the metric AND the dormant-impressions check (see
- * `lib/optimisation/evaluate.ts`'s dormant-filter doc comment for why this
- * intentionally uses one window rather than a separate hard-coded 7d call).
+ * the metric. When the window is wider than 24h we also ask for yesterday's
+ * impressions (aliased) so a stop today is not hidden by a 7d remainder.
  */
 export async function fetchCampaignAdSetInsights(
   fetcher: OptimisationGraphFetcher,
@@ -155,7 +188,7 @@ export async function fetchCampaignAdSetInsights(
 ): Promise<AdSetInsightRow[]> {
   const datePreset = windowToDatePreset(window);
   const insightsFields = `insights.date_preset(${datePreset}){impressions,cpc,cpm,ctr,actions,cost_per_action_type}`;
-  const fields = `id,name,daily_budget,lifetime_budget,effective_status,${insightsFields}`;
+  const fields = `id,name,daily_budget,lifetime_budget,effective_status,start_time,${insightsFields}${yesterdayInsightsField(window)}`;
 
   const rows: AdSetInsightRow[] = [];
   let after: string | undefined;
@@ -168,13 +201,20 @@ export async function fetchCampaignAdSetInsights(
     const response = await fetcher<RawAdSetRow>(`/${campaignId}/adsets`, params, token);
     for (const raw of response.data ?? []) {
       const insightRow = raw.insights?.data?.[0];
+      const metrics = metricsFromInsight(insightRow);
       rows.push({
         adsetId: raw.id,
         adsetName: raw.name ?? raw.id,
         dailyBudgetPence: parseNumOrNull(raw.daily_budget),
         lifetimeBudgetPence: parseNumOrNull(raw.lifetime_budget),
         effectiveStatus: raw.effective_status ?? null,
-        ...metricsFromInsight(insightRow),
+        startedAt: parseStartedAt(raw.start_time),
+        impressionsLast24h: parseImpressionsLast24h(
+          window,
+          metrics.impressions,
+          raw.insights_yesterday,
+        ),
+        ...metrics,
       });
     }
     after = response.paging?.cursors?.after;
@@ -198,13 +238,21 @@ export async function fetchCampaignBudgetInsights(
 ): Promise<CampaignBudgetInsight> {
   const datePreset = windowToDatePreset(window);
   const insightsFields = `insights.date_preset(${datePreset}){impressions,cpc,cpm,ctr,actions,cost_per_action_type}`;
-  const fields = `id,daily_budget,lifetime_budget,${insightsFields}`;
+  const fields = `id,daily_budget,lifetime_budget,effective_status,start_time,${insightsFields}${yesterdayInsightsField(window)}`;
   const raw = await fetcher<RawCampaignNode>(`/${campaignId}`, { fields }, token);
   const insightRow = raw.insights?.data?.[0];
+  const metrics = metricsFromInsight(insightRow);
   return {
     campaignId: raw.id ?? campaignId,
     dailyBudgetPence: parseNumOrNull(raw.daily_budget),
     lifetimeBudgetPence: parseNumOrNull(raw.lifetime_budget),
-    ...metricsFromInsight(insightRow),
+    effectiveStatus: raw.effective_status ?? null,
+    startedAt: parseStartedAt(raw.start_time),
+    impressionsLast24h: parseImpressionsLast24h(
+      window,
+      metrics.impressions,
+      raw.insights_yesterday,
+    ),
+    ...metrics,
   };
 }

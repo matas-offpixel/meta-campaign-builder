@@ -20,6 +20,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { migrateDraft } from "@/lib/autosave";
 import type { CampaignAutomationInput, DecisionToInsert } from "@/lib/optimisation/tick-runner";
+import type { CampaignEligibilityFacts } from "@/lib/optimisation/eligibility";
+import { isCampaignPlanPhase } from "@/lib/plan/phase";
 
 function isUndefinedColumnError(
   error: { message?: string; code?: string } | null | undefined,
@@ -61,8 +63,22 @@ function anySb(supabase: SupabaseClient): AnySupabase {
 interface OptedInDraftRow {
   id: string;
   ad_account_id: string | null;
+  event_id: string | null;
   draft_json: Record<string, unknown>;
   optimisation_automation_live: boolean | null;
+}
+
+interface EventEligibilityRow {
+  id: string;
+  event_date: string | null;
+  campaign_end_at: string | null;
+  general_sale_at: string | null;
+}
+
+interface PlanEligibilityRow {
+  id: string;
+  phase: string | null;
+  end_date: string | null;
 }
 
 /**
@@ -78,7 +94,7 @@ export async function loadOptedInCampaignsForAutomation(
   const sb = anySb(supabase);
   const { data, error } = await sb
     .from("campaign_drafts")
-    .select("id, ad_account_id, draft_json, optimisation_automation_live")
+    .select("id, ad_account_id, event_id, draft_json, optimisation_automation_live")
     .eq("status", "published")
     .eq("optimisation_automation_enabled", true);
 
@@ -87,7 +103,11 @@ export async function loadOptedInCampaignsForAutomation(
   }
 
   const rows = (data ?? []) as OptedInDraftRow[];
-  const campaigns: CampaignAutomationInput[] = [];
+  const parsed: Array<{
+    row: OptedInDraftRow;
+    input: CampaignAutomationInput;
+    eventId: string | null;
+  }> = [];
   for (const row of rows) {
     try {
       const draft = migrateDraft(row.draft_json);
@@ -97,14 +117,19 @@ export async function loadOptedInCampaignsForAutomation(
         );
         continue;
       }
-      campaigns.push({
-        draftId: draft.id,
-        campaignId: draft.metaCampaignId,
-        adAccountId: row.ad_account_id ?? draft.settings.adAccountId,
-        objective: draft.settings.objective,
-        optimisationStrategy: draft.optimisationStrategy,
-        optimisationAutomationLive: row.optimisation_automation_live === true,
-        campaignName: draft.settings.campaignName || draft.metaCampaignId,
+      const eventId = row.event_id?.trim() || draft.settings.eventId?.trim() || null;
+      parsed.push({
+        row,
+        eventId,
+        input: {
+          draftId: draft.id,
+          campaignId: draft.metaCampaignId,
+          adAccountId: row.ad_account_id ?? draft.settings.adAccountId,
+          objective: draft.settings.objective,
+          optimisationStrategy: draft.optimisationStrategy,
+          optimisationAutomationLive: row.optimisation_automation_live === true,
+          campaignName: draft.settings.campaignName || draft.metaCampaignId,
+        },
       });
     } catch (err) {
       console.warn(
@@ -113,7 +138,96 @@ export async function loadOptedInCampaignsForAutomation(
       );
     }
   }
-  return campaigns;
+
+  const factsByDraft = await loadEligibilityFacts(
+    sb,
+    parsed.map((item) => ({ draftId: item.input.draftId, eventId: item.eventId })),
+  );
+  return parsed.map((item) => ({
+    ...item.input,
+    eligibility: factsByDraft.get(item.input.draftId),
+  }));
+}
+
+async function loadEligibilityFacts(
+  sb: AnySupabase,
+  drafts: ReadonlyArray<{ draftId: string; eventId: string | null }>,
+): Promise<Map<string, CampaignEligibilityFacts>> {
+  const facts = new Map<string, CampaignEligibilityFacts>();
+  if (drafts.length === 0) return facts;
+
+  const draftIds = drafts.map((d) => d.draftId);
+  const eventIds = [...new Set(drafts.map((d) => d.eventId).filter((id): id is string => Boolean(id)))];
+
+  const eventsById = new Map<string, EventEligibilityRow>();
+  if (eventIds.length > 0) {
+    const { data: events, error: eventErr } = await sb
+      .from("events")
+      .select("id, event_date, campaign_end_at, general_sale_at")
+      .in("id", eventIds);
+    if (eventErr) {
+      console.warn(
+        `[campaign-automation-decisions] eligibility events query failed: ${eventErr.message}`,
+      );
+    } else {
+      for (const event of (events ?? []) as EventEligibilityRow[]) {
+        eventsById.set(event.id, event);
+      }
+    }
+  }
+
+  const planByDraft = new Map<string, PlanEligibilityRow>();
+  const { data: launches, error: launchErr } = await sb
+    .from("campaign_plan_meta_launch")
+    .select("plan_id, draft_id")
+    .in("draft_id", draftIds);
+  if (launchErr) {
+    console.warn(
+      `[campaign-automation-decisions] eligibility plan-launch query failed: ${launchErr.message}`,
+    );
+  } else {
+    const planIds = [
+      ...new Set(
+        ((launches ?? []) as Array<{ plan_id: string; draft_id: string | null }>)
+          .map((row) => row.plan_id)
+          .filter(Boolean),
+      ),
+    ];
+    const plansById = new Map<string, PlanEligibilityRow>();
+    if (planIds.length > 0) {
+      const { data: plans, error: planErr } = await sb
+        .from("campaign_plans")
+        .select("id, phase, end_date")
+        .in("id", planIds);
+      if (planErr) {
+        console.warn(
+          `[campaign-automation-decisions] eligibility plans query failed: ${planErr.message}`,
+        );
+      } else {
+        for (const plan of (plans ?? []) as PlanEligibilityRow[]) {
+          plansById.set(plan.id, plan);
+        }
+      }
+    }
+    for (const launch of (launches ?? []) as Array<{ plan_id: string; draft_id: string | null }>) {
+      if (!launch.draft_id) continue;
+      const plan = plansById.get(launch.plan_id);
+      if (plan) planByDraft.set(launch.draft_id, plan);
+    }
+  }
+
+  for (const draft of drafts) {
+    const event = draft.eventId ? eventsById.get(draft.eventId) : undefined;
+    const plan = planByDraft.get(draft.draftId);
+    facts.set(draft.draftId, {
+      campaignEndAt: event?.campaign_end_at ?? null,
+      eventDate: event?.event_date ?? null,
+      generalSaleAt: event?.general_sale_at ?? null,
+      planEndDate: plan?.end_date ?? null,
+      planPhase: isCampaignPlanPhase(plan?.phase) ? plan.phase : null,
+    });
+  }
+  return facts;
 }
 
 /**

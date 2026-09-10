@@ -55,6 +55,8 @@ describe("fetchCampaignAdSetInsights", () => {
       dailyBudgetPence: 5000,
       lifetimeBudgetPence: null,
       effectiveStatus: "ACTIVE",
+      startedAt: null,
+      impressionsLast24h: 12000,
       impressions: 12000,
       cpc: 0.32,
       cpm: 4.5,
@@ -79,6 +81,28 @@ describe("fetchCampaignAdSetInsights", () => {
     await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "3d");
     await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "7d");
     assert.deepEqual(seenPresets, ["yesterday", "last_3d", "last_7d"]);
+  });
+
+  it("asks for yesterday impressions on a 7d window without a second Graph call", async () => {
+    const fetcher: OptimisationGraphFetcher = async (_path, params) => {
+      assert.match(params.fields, /insights\.date_preset\(last_7d\)/);
+      assert.match(params.fields, /insights\.date_preset\(yesterday\)\.as\(insights_yesterday\)/);
+      assert.match(params.fields, /start_time/);
+      return {
+        data: [
+          {
+            id: "adset_1",
+            start_time: "2026-08-01T00:00:00+0100",
+            insights: { data: [{ impressions: "8000" }] },
+            insights_yesterday: { data: [{ impressions: "0" }] },
+          },
+        ],
+      } as never;
+    };
+    const rows = await fetchCampaignAdSetInsights(fetcher, "camp_1", "tok", "7d");
+    assert.equal(rows[0].impressions, 8000);
+    assert.equal(rows[0].impressionsLast24h, 0);
+    assert.equal(rows[0].startedAt, "2026-08-01T00:00:00+0100");
   });
 
   it("handles an ad set with no daily_budget (CBO) as null, not 0", async () => {
@@ -134,6 +158,8 @@ describe("fetchCampaignBudgetInsights", () => {
     assert.equal(row.dailyBudgetPence, 15000);
     assert.equal(row.lifetimeBudgetPence, null);
     assert.equal(row.impressions, 12000);
+    assert.equal(row.impressionsLast24h, 12000);
+    assert.equal(row.effectiveStatus, null);
     assert.equal(row.costPerActionType.landing_page_view, 0.18);
   });
 });

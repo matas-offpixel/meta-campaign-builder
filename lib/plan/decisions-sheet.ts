@@ -139,6 +139,10 @@ export function whyForDecision(row: DecisionRowView, now: Date = new Date()): st
   }
   if (row.action === "skip_dormant") return "dormant";
   if (row.action === "skip_no_rules") return "no rules";
+  if (row.action === "skip_not_delivering") return "not delivering";
+  if (row.action === "skip_campaign_ended") return "campaign ended";
+  if (row.action === "skip_event_passed") return "event passed";
+  if (row.action === "skip_phase_ended") return "phase ended";
 
   const ceiling = /ceiling/i.test(row.reasonText);
   const delta = deltaLabel(row);
@@ -172,7 +176,8 @@ export function metricChipText(row: DecisionRowView): string {
     row.action === "skip_recent_touch" ||
     row.action === "skipped_cooldown" ||
     row.action === "skip_dormant" ||
-    row.action === "skip_no_rules"
+    row.action === "skip_no_rules" ||
+    row.action.startsWith("skip_")
   ) {
     return "—";
   }
