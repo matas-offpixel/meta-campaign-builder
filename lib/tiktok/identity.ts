@@ -19,6 +19,7 @@ export interface TikTokIdentity {
   display_name: string;
   identity_type: TikTokIdentityType | null;
   avatar_url: string | null;
+  username: string | null;
   identity_bc_id: string | null;
 }
 
@@ -29,6 +30,7 @@ export interface TikTokIdentityGetRow {
   nickname?: string;
   avatar_url?: string;
   profile_image?: string;
+  username?: string;
   identity_type?: string;
   identity_authorized_bc_id?: string;
   identity_bc_id?: string;
@@ -97,6 +99,17 @@ export function extractIdentityAvatar(row: TikTokIdentityGetRow): {
     if (typeof raw === "string" && raw.trim()) {
       return { value: raw.trim(), key };
     }
+  }
+  return { value: null, key: null };
+}
+
+export function extractIdentityUsername(row: TikTokIdentityGetRow): {
+  value: string | null;
+  key: string | null;
+} {
+  const raw = row.username;
+  if (typeof raw === "string" && raw.trim()) {
+    return { value: raw.trim().replace(/^@/, ""), key: "username" };
   }
   return { value: null, key: null };
 }
@@ -287,6 +300,7 @@ function ingestIdentityRows(
       : fallbackType;
     const extracted = extractIdentityBcId(row);
     const avatar = extractIdentityAvatar(row);
+    const username = extractIdentityUsername(row);
     if (extracted.value) {
       console.error(
         `[tiktok/identity] identity=${row.identity_id} bc_id=${extracted.value} source=row.${extracted.key}`,
@@ -303,6 +317,9 @@ function ingestIdentityRows(
       if (!existing.avatar_url && avatar.value) {
         existing.avatar_url = avatar.value;
       }
+      if (!existing.username && username.value) {
+        existing.username = username.value;
+      }
       continue;
     }
     byId.set(row.identity_id, {
@@ -314,6 +331,7 @@ function ingestIdentityRows(
         row.identity_id,
       identity_type: rowType,
       avatar_url: avatar.value,
+      username: username.value,
       identity_bc_id: extracted.value,
     });
   }
