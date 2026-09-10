@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, usePlanOwnsDestination } from "@/components/steps/step-surface";
 import { Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -419,7 +419,7 @@ export function CreativesStep({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.accountSetup.advertiserId, draft.creatives.items]);
 
-  const drawer = useIsDrawer();
+  const planOwnsDestination = usePlanOwnsDestination();
 
   return (
     <StepSurfaceProvider surface={surface}>
@@ -566,7 +566,7 @@ export function CreativesStep({
         <Datum className="self-end text-xs text-muted-foreground">
           {adText.length}/100 characters
         </Datum>
-        {drawer ? (
+        {planOwnsDestination ? (
           <DestinationBadge url={landingPageUrl || planDestinationUrl} />
         ) : (
         <div>
@@ -697,6 +697,7 @@ function isVideoNotFoundMessage(message: string): boolean {
 }
 
 function DestinationBadge({ url }: { url: string }) {
+  if (!usePlanOwnsDestination()) return null;
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">destination</span>

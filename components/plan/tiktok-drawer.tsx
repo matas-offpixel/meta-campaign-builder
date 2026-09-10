@@ -230,7 +230,7 @@ export function TikTokDrawer({
           </span>
         }
       >
-        <StepSurfaceProvider surface="drawer">
+        <StepSurfaceProvider surface="drawer" planOwnsDestination={planId != null}>
           {blockers.length > 0 ? (
             <div className="mb-3">
               <BlockerBadge rows={blockers} onOpenAnchor={onOpenAnchor} />

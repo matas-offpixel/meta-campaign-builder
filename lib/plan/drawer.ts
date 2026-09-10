@@ -329,6 +329,8 @@ export const META_DRAWER_COPY = {
     "Resolved from the client, the event and the plan. Everything here was decided once; change it at the source unless it is editable.",
   destinationTip:
     "The plan's destination, from the event's ticket or signup URL. Change it on the canvas — one URL serves every ad.",
+  // destinationTip is only true when a plan owns the destination. A standalone
+  // draft renders the editable field; the badge and this tip must not appear.
   ctaTip: "One CTA per ad, applied to every variation of it.",
   pageIdentityTip:
     "The page and Instagram account this ad posts as, defaulted from the client. Edit to override for this ad only.",
@@ -529,6 +531,8 @@ export const TIKTOK_DRAWER_COPY = {
     "Resolved from the client, the event and the plan. Everything here was decided once.",
   destinationTip:
     "The plan's destination. Change it on the canvas — one URL serves every ad.",
+  // destinationTip is only true when a plan owns the destination. A standalone
+  // draft renders the editable field; the badge and this tip must not appear.
   derivedCreativeTip: "Prefills from the Meta creative this video was routed from.",
   derivedInterestTip: "Derived from the Meta audiences. Re-derive replaces only ⌁ rows.",
   seedHiddenTip: "Derivation is the seed. Add or remove interests; do not re-seed.",
@@ -547,6 +551,8 @@ export const GOOGLE_DRAWER_COPY = {
     "Resolved from the client, the event and the plan. Everything here was decided once.",
   destinationTip:
     "The plan's destination. Change it on the canvas — one URL serves every ad.",
+  // destinationTip is only true when a plan owns the destination. A standalone
+  // draft renders the editable field; the badge and this tip must not appear.
   derivedKeywordTip: "Plan-derived from the Meta vocabulary. Re-derive replaces only ⌁ rows.",
   noiseNegativesTip: "The standard noise list (GOOGLE_NOISE_NEGATIVES). Shared across campaigns.",
   noTemplatesTip: "Google has no campaign templates. The loader is here so every drawer looks the same.",

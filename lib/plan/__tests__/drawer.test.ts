@@ -518,13 +518,13 @@ describe("surface=drawer strips chrome and nothing else", () => {
     }
   });
 
-  /** §3a drops these three from the creatives tab; the wizard keeps them. */
+  /** §3a drops these from the creatives tab when a plan owns the destination. */
   it("the creatives tab drops the re-entry fields §3a names", () => {
     const src = read("components/steps/creatives.tsx");
     assert.match(
       src,
-      /drawer \? \(\s*<DestinationBadge/,
-      "the per-ad destination URL becomes a badge",
+      /planOwnsDestination \? \(\s*<DestinationBadge/,
+      "the per-ad destination URL becomes a badge when a plan owns it",
     );
     assert.match(src, /function DestinationBadge/, "and the badge exists");
     assert.match(src, /META_DRAWER_COPY\.destinationTip/, "with a tip pointing at the canvas");
@@ -883,6 +883,104 @@ describe("drawer width and drawer-surface creatives (Chrome pass)", () => {
   });
 });
 
+describe("a standalone draft owns its destination", () => {
+  const DESTINATION_FILES = [
+    "components/steps/creatives.tsx",
+    "components/tiktok-wizard/steps/creatives.tsx",
+    "components/google-search-wizard/steps/ad-copy.tsx",
+  ] as const;
+
+  it("drawers derive planOwnsDestination from planId, not from the surface", () => {
+    for (const file of [
+      "components/plan/meta-drawer.tsx",
+      "components/plan/tiktok-drawer.tsx",
+      "components/plan/google-drawer.tsx",
+    ]) {
+      const src = read(file);
+      assert.match(
+        src,
+        /<StepSurfaceProvider surface="drawer" planOwnsDestination=\{planId != null\}>/,
+        `${file} must tell the destination field whether a plan owns it`,
+      );
+    }
+  });
+
+  it("the destination field gates on plan ownership, not on drawer", () => {
+    for (const file of DESTINATION_FILES) {
+      const src = read(file);
+      assert.doesNotMatch(
+        src,
+        /drawer \? \(\s*<DestinationBadge/,
+        `${file} still locks the destination because it is in a drawer`,
+      );
+      assert.match(
+        src,
+        /planOwnsDestination \? \(\s*<DestinationBadge/,
+        `${file} must lock the destination only when a plan owns it`,
+      );
+      assert.match(src, /function DestinationBadge/, `${file} still has the badge`);
+    }
+  });
+
+  it("destinationTip cannot render when planId is null", () => {
+    const surface = read("components/steps/step-surface.tsx");
+    assert.match(surface, /export function usePlanOwnsDestination/);
+    assert.match(
+      surface,
+      /planOwnsDestination: planOwnsDestination \?\? parent\.planOwnsDestination/,
+      "inner step providers must inherit the drawer's ownership flag",
+    );
+
+    for (const [file, tip] of [
+      ["components/steps/creatives.tsx", "META_DRAWER_COPY.destinationTip"],
+      ["components/tiktok-wizard/steps/creatives.tsx", "TIKTOK_DRAWER_COPY.destinationTip"],
+      ["components/google-search-wizard/steps/ad-copy.tsx", "GOOGLE_DRAWER_COPY.destinationTip"],
+    ] as const) {
+      const src = read(file);
+      const badgeAt = src.indexOf("function DestinationBadge");
+      assert.ok(badgeAt > 0, `${file}: DestinationBadge is missing`);
+      const badge = src.slice(badgeAt, badgeAt + 700);
+      assert.match(
+        badge,
+        /if \(!usePlanOwnsDestination\(\)\) return null/,
+        `${file}: DestinationBadge must refuse to render the canvas tip when no plan owns the destination`,
+      );
+      assert.match(
+        badge,
+        new RegExp(tip.replaceAll(".", "\\.")),
+        `${file}: tip stays on the badge`,
+      );
+    }
+  });
+
+  it("a plan-linked draft still renders the badge and cannot edit the URL", () => {
+    const tiktok = read("components/tiktok-wizard/steps/creatives.tsx");
+    assert.match(
+      tiktok,
+      /planOwnsDestination \? \(\s*<DestinationBadge url=\{landingPageUrl \|\| planDestinationUrl\}/,
+    );
+    assert.match(
+      tiktok,
+      /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<div>[\s\S]*?<Input[\s\S]*?id="creative-landing-page"/,
+      "plan-linked TikTok still shows the badge; standalone still gets the Input",
+    );
+
+    const google = read("components/google-search-wizard/steps/ad-copy.tsx");
+    assert.match(
+      google,
+      /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<Input[\s\S]*?label="Final URL"/,
+      "plan-linked Google still shows the badge; standalone still gets the Input",
+    );
+
+    const meta = read("components/steps/creatives.tsx");
+    assert.match(
+      meta,
+      /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<DestinationUrlField/,
+      "plan-linked Meta still shows the badge; standalone still gets the field",
+    );
+  });
+});
+
 describe("TikTok needs-1 blocker", () => {
   it("anchors tt-video when no videoId is present", () => {
     const rows = tiktokNeedsVideoBlockers({ items: [{ videoId: null }, { videoId: "" }] });
@@ -1141,8 +1239,11 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
+    // The three drawers may set planOwnsDestination so a standalone page
+    // can edit its URL. Everything else in this freeze — canvas faces,
+    // frames, the Meta launch route, adapters — stays byte-identical.
     const diff = execSync(
-      `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters`,
+      `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters ':!components/plan/meta-drawer.tsx' ':!components/plan/tiktok-drawer.tsx' ':!components/plan/google-drawer.tsx'`,
       { encoding: "utf8" },
     );
     assert.equal(diff.trim(), "", diff);
