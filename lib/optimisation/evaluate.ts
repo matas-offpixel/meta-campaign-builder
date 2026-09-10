@@ -74,6 +74,13 @@ export type GuardrailNote =
   | "campaign_ceiling_absent"
   | "campaign_ceiling_unreadable"
   | "budget_changed_underfoot"
+  | "reduced_to_pause_floor"
+  | "paused_at_floor"
+  | "pause_floor_unset"
+  | "pause_campaign_wide"
+  | "pause_last_active"
+  | "pause_insufficient_conversions"
+  | "pause_cap_reached"
   | null;
 
 export interface LiveMetricReading {

@@ -35,6 +35,7 @@
  */
 
 import type {
+  BudgetGuardrails,
   CampaignObjective,
   OptimisationStrategySettings,
   RuleMetric,
@@ -67,8 +68,16 @@ import {
   type AdSetInsightRow,
   type CampaignBudgetInsight,
 } from "./insights-fetch.ts";
-import { applyOptimisationDecision, MAX_WRITES_PER_RUN } from "./apply.ts";
-import { optimisationDryRunGates } from "./gates.ts";
+import {
+  applyOptimisationDecision,
+  isCampaignWidePauseBreach,
+  isDeliveringAdSetStatus,
+  MAX_PAUSES_PER_RUN,
+  MAX_WRITES_PER_RUN,
+  type ApplyOptimisationDeps,
+  type ApplyOutcome,
+} from "./apply.ts";
+import { optimisationDryRunGates, optimisationPauseDryRunGates } from "./gates.ts";
 import {
   evaluateEligibility,
   type CampaignEligibilityFacts,
@@ -183,7 +192,15 @@ export interface OptimisationTickDeps {
   fetchCampaignSpendPence?: (campaignId: string) => Promise<number>;
   /** `ENABLE_OPTIMISATION_WRITES === "1"` — gate (a). */
   writesEnabled: boolean;
+  /**
+   * `ENABLE_OPTIMISATION_PAUSE_WRITES === "1"` — fourth gate. Default
+   * false: pause stays recommend-only.
+   */
+  pauseWritesEnabled?: boolean;
+  /** Meta `POST /{adset_id}` `{ status: "PAUSED" }`. Never writes ACTIVE. */
+  pauseAdSet?: (adsetId: string) => Promise<unknown>;
   maxWritesPerRun?: number;
+  maxPausesPerRun?: number;
   /**
    * Plan-linked TikTok/Google subjects for opted-in Meta drafts.
    * Optional — existing tests omit this and the Meta path is unchanged.
@@ -218,6 +235,7 @@ export interface OptimisationTickSummary {
   writesFailed: number;
   writesAbortedUnderfoot: number;
   pausesRecommended: number;
+  pausesApplied: number;
   writesCapReached: boolean;
   appliedWriteDetails: AppliedWriteDetail[];
   /** TikTok/Google shadow rows inserted this tick. Always dry_run. */
@@ -238,6 +256,7 @@ function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]):
     writesFailed: 0,
     writesAbortedUnderfoot: 0,
     pausesRecommended: 0,
+    pausesApplied: 0,
     writesCapReached: false,
     appliedWriteDetails: [],
     crossChannelDecisionsInserted: 0,
@@ -274,6 +293,8 @@ export async function runOptimisationTick(
   const lookbackHours = deps.lookbackHours ?? 24;
   const sinceISO = new Date(now.getTime() - lookbackHours * 60 * 60 * 1000).toISOString();
   const maxWrites = deps.maxWritesPerRun ?? MAX_WRITES_PER_RUN;
+  const maxPauses = deps.maxPausesPerRun ?? MAX_PAUSES_PER_RUN;
+  const pauseWritesEnabled = deps.pauseWritesEnabled === true;
 
   const summary = emptySummary();
   let campaigns: CampaignAutomationInput[];
@@ -323,6 +344,13 @@ export async function runOptimisationTick(
         true,
         campaign.optimisationAutomationLive,
       );
+      const pauseGates = optimisationPauseDryRunGates(
+        deps.writesEnabled,
+        true,
+        campaign.optimisationAutomationLive,
+        pauseWritesEnabled,
+      );
+      const pauseWritesOpen = !pauseGates.dryRun;
 
       const ceiling = await resolveCeilingForCampaign(campaign, deps, now);
 
@@ -387,38 +415,16 @@ export async function runOptimisationTick(
                 adsetName: campaign.campaignName,
                 gates,
                 writesRemaining,
+                pauseWritesEnabled: pauseWritesOpen,
+                pauseFloorBudgetPence: pauseFloorPence(campaign.optimisationStrategy.guardrails),
+                pausesRemaining: maxPauses - summary.pausesApplied,
               },
-              {
-                readAdSetDailyBudget: deps.readAdSetDailyBudget,
-                updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
-                readCampaignDailyBudget: deps.readCampaignDailyBudget,
-                updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
-                insertDecision: deps.insertDecision,
-                notify: deps.notify,
-                now,
-              },
+              applyDeps(deps, now),
             );
-            summary.decisionsInserted += 1;
-            summary.decisionsByAction[outcome.decision.actionRecommended] =
-              (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
-            if (outcome.kind === "applied") {
-              summary.writesApplied += 1;
-              summary.appliedWriteDetails.push({
-                campaignName: campaign.campaignName,
-                adsetName: campaign.campaignName,
-                budgetBeforePence: outcome.decision.budgetBeforePence,
-                budgetAfterPence: outcome.decision.budgetAfterPence,
-                ruleMatched: outcome.decision.ruleMatched,
-              });
-            } else if (outcome.kind === "write_failed") {
-              summary.writesFailed += 1;
-            } else if (outcome.kind === "aborted_underfoot") {
-              summary.writesAbortedUnderfoot += 1;
-            } else if (outcome.kind === "pause_recommended") {
-              summary.pausesRecommended += 1;
-            } else if (outcome.kind === "cap_reached") {
-              summary.writesCapReached = true;
-            }
+            recordApplyOutcome(summary, outcome, {
+              campaignName: campaign.campaignName,
+              adsetName: campaign.campaignName,
+            });
           }
         } catch (campaignEvalErr) {
           const message =
@@ -431,7 +437,11 @@ export async function runOptimisationTick(
         continue;
       }
 
-      const pending: Array<{ row: AdSetInsightRow; decision: DecisionToInsert }> = [];
+      const built: Array<{
+        row: AdSetInsightRow;
+        decision: DecisionToInsert;
+        onCooldown: boolean;
+      }> = [];
       for (const row of rows) {
         summary.adSetsConsidered += 1;
 
@@ -470,15 +480,16 @@ export async function runOptimisationTick(
             window,
             campaign.optimisationStrategy.guardrails.cooldownHours,
           );
-          if (
+          const onCooldown = Boolean(
             lastTouchedAt &&
-            Math.abs(now.getTime() - lastTouchedAt.getTime()) < cooldownHours * 60 * 60 * 1000
-          ) {
+              Math.abs(now.getTime() - lastTouchedAt.getTime()) <
+                cooldownHours * 60 * 60 * 1000,
+          );
+          if (onCooldown) {
             summary.adSetsSkippedRecentDecision += 1;
-            continue;
           }
 
-          pending.push({
+          built.push({
             row,
             decision: buildDecision(
               campaign,
@@ -488,6 +499,7 @@ export async function runOptimisationTick(
               lastTouchedAt,
               state.appliedIncreasePercentLast24h,
             ),
+            onCooldown,
           });
         } catch (adsetErr) {
           // One ad set failing must never abort the rest of the run.
@@ -499,8 +511,23 @@ export async function runOptimisationTick(
         }
       }
 
+      // Same set: eligibility-cleared delivering rows, including cooldown.
+      // Counting candidates only from cooldown-cleared targets vs all
+      // delivering rows biases toward not declaring campaign-wide (the
+      // direction that pauses more).
+      const delivering = built.filter((p) => isDeliveringAdSetStatus(p.row.effectiveStatus));
+      const activeCount = delivering.length;
+      const pauseCandidates = delivering.filter(
+        (p) => p.decision.actionRecommended === "pause",
+      ).length;
+      const campaignWideBreach = isCampaignWidePauseBreach(activeCount, pauseCandidates);
+      let remainingActive = activeCount;
+
+      const pending = built.filter((p) => !p.onCooldown);
+
       // Configured ABO daily total — every fetched ad set with a daily_budget,
       // including paused. Arrival order is not a decision: cheapest CPR first.
+      // Floor cuts and pauses do not credit pence back into this pool.
       const currentDailyTotalPence = rows.reduce(
         (sum, row) => sum + (row.dailyBudgetPence ?? 0),
         0,
@@ -510,6 +537,9 @@ export async function runOptimisationTick(
           ? Math.max(0, ceiling.dailyCeilingPence - currentDailyTotalPence)
           : null;
 
+      // Stops first (pause / floor / scale_down / maintain), then scale-ups
+      // cheapest-metric-first. A stop should land before a raise in the
+      // same tick; headroom stays conservative and is not credited back.
       const scaleUps = pending.filter((p) => p.decision.actionRecommended === "scale_up");
       const rest = pending.filter((p) => p.decision.actionRecommended !== "scale_up");
       scaleUps.sort((a, b) =>
@@ -531,39 +561,21 @@ export async function runOptimisationTick(
               adsetName: row.adsetName,
               gates,
               writesRemaining,
+              pauseWritesEnabled: pauseWritesOpen,
+              pauseFloorBudgetPence: pauseFloorPence(campaign.optimisationStrategy.guardrails),
+              activeAdSetCount: remainingActive,
+              pauseCandidatesInCampaign: pauseCandidates,
+              campaignWideBreach,
+              pausesRemaining: maxPauses - summary.pausesApplied,
             },
-            {
-              readAdSetDailyBudget: deps.readAdSetDailyBudget,
-              updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
-              readCampaignDailyBudget: deps.readCampaignDailyBudget,
-              updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
-              insertDecision: deps.insertDecision,
-              notify: deps.notify,
-              now,
-            },
+            applyDeps(deps, now),
           );
-
-          summary.decisionsInserted += 1;
-          summary.decisionsByAction[outcome.decision.actionRecommended] =
-            (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
-
-          if (outcome.kind === "applied") {
-            summary.writesApplied += 1;
-            summary.appliedWriteDetails.push({
-              campaignName: campaign.campaignName,
-              adsetName: row.adsetName,
-              budgetBeforePence: outcome.decision.budgetBeforePence,
-              budgetAfterPence: outcome.decision.budgetAfterPence,
-              ruleMatched: outcome.decision.ruleMatched,
-            });
-          } else if (outcome.kind === "write_failed") {
-            summary.writesFailed += 1;
-          } else if (outcome.kind === "aborted_underfoot") {
-            summary.writesAbortedUnderfoot += 1;
-          } else if (outcome.kind === "pause_recommended") {
-            summary.pausesRecommended += 1;
-          } else if (outcome.kind === "cap_reached") {
-            summary.writesCapReached = true;
+          recordApplyOutcome(summary, outcome, {
+            campaignName: campaign.campaignName,
+            adsetName: row.adsetName,
+          });
+          if (outcome.kind === "paused") {
+            remainingActive = Math.max(0, remainingActive - 1);
           }
         } catch (adsetErr) {
           const message = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
@@ -625,15 +637,7 @@ export async function runOptimisationTick(
               gates: CROSS_CHANNEL_SHADOW_GATES,
               writesRemaining: 0,
             },
-            {
-              readAdSetDailyBudget: deps.readAdSetDailyBudget,
-              updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
-              readCampaignDailyBudget: deps.readCampaignDailyBudget,
-              updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
-              insertDecision: deps.insertDecision,
-              notify: deps.notify,
-              now,
-            },
+            applyDeps(deps, now),
           );
           summary.decisionsInserted += 1;
           summary.crossChannelDecisionsInserted += 1;
@@ -677,7 +681,7 @@ export async function runOptimisationTick(
 
   summary.ok = summary.campaignsErrored.length === 0;
   console.log(
-    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended}`,
+    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended} pauses_applied=${summary.pausesApplied}`,
   );
   return summary;
 }
@@ -810,6 +814,56 @@ function nameEmptyMatchingLadder(
     };
   }
   return { actionRecommended: result.action, reasonText: result.reason };
+}
+
+function pauseFloorPence(guardrails: BudgetGuardrails): number | null {
+  const floor = guardrails.pauseFloorBudget;
+  if (floor == null || floor <= 0) return null;
+  return Math.round(floor * 100);
+}
+
+function applyDeps(deps: OptimisationTickDeps, now: Date): ApplyOptimisationDeps {
+  return {
+    readAdSetDailyBudget: deps.readAdSetDailyBudget,
+    updateAdSetDailyBudget: deps.updateAdSetDailyBudget,
+    readCampaignDailyBudget: deps.readCampaignDailyBudget,
+    updateCampaignDailyBudget: deps.updateCampaignDailyBudget,
+    insertDecision: deps.insertDecision,
+    notify: deps.notify,
+    pauseAdSet: deps.pauseAdSet,
+    now,
+  };
+}
+
+function recordApplyOutcome(
+  summary: OptimisationTickSummary,
+  outcome: ApplyOutcome,
+  names: { campaignName: string; adsetName: string },
+): void {
+  summary.decisionsInserted += 1;
+  summary.decisionsByAction[outcome.decision.actionRecommended] =
+    (summary.decisionsByAction[outcome.decision.actionRecommended] ?? 0) + 1;
+
+  if (outcome.kind === "applied") {
+    summary.writesApplied += 1;
+    summary.appliedWriteDetails.push({
+      campaignName: names.campaignName,
+      adsetName: names.adsetName,
+      budgetBeforePence: outcome.decision.budgetBeforePence,
+      budgetAfterPence: outcome.decision.budgetAfterPence,
+      ruleMatched: outcome.decision.ruleMatched,
+    });
+  } else if (outcome.kind === "paused" || outcome.kind === "pause_reduced_to_floor") {
+    summary.pausesApplied += 1;
+  } else if (outcome.kind === "write_failed") {
+    summary.writesFailed += 1;
+  } else if (outcome.kind === "aborted_underfoot") {
+    summary.writesAbortedUnderfoot += 1;
+  } else if (outcome.kind === "pause_recommended" || outcome.kind === "pause_blocked") {
+    summary.pausesRecommended += 1;
+  } else if (outcome.kind === "cap_reached") {
+    summary.writesCapReached = true;
+  }
 }
 
 function buildDecision(
