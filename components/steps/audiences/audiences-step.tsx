@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
+import { Tabs, TabPanel } from "@/components/ui/tabs";
 import { PageAudiencesPanel } from "./page-audiences-panel";
 import { CustomAudiencesPanel } from "./custom-audiences-panel";
 import { SavedAudiencesPanel } from "./saved-audiences-panel";
@@ -20,7 +20,6 @@ import {
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
-import { VIZ_TYPE, VIZ_TYPE_NUM } from "@/lib/viz/tokens";
 
 interface AudiencesStepProps {
   /**
@@ -106,138 +105,102 @@ export function AudiencesStep({
     onSettingsChange({ ...settings, pageInstagramOverrides: overrides });
   };
 
-  const rows: { id: AudienceTab; glyph: string; noun: string; count: string }[] = [
+  // Counts live in the label. Tabs.count is a number pill (`h-5 min-w-5`
+  // rounded) — `3 groups · 22 pages` and `—` are not that, and widening
+  // the shared prop would restyle four dashboard surfaces for a string
+  // the pill was never sized for.
+  const tabs = [
     {
-      id: "pages",
-      glyph: "▦",
-      noun: "pages",
-      count: audienceCountLabel(
+      id: "pages" as const,
+      label: `▦ pages · ${audienceCountLabel(
         audiences.pageGroups.length,
         audiences.pageGroups.reduce((n, group) => n + group.pageIds.length, 0),
         "groups",
         "pages",
-      ),
+      )}`,
     },
     {
-      id: "custom",
-      glyph: "◨",
-      noun: "custom",
-      count: dashIfZero(audiences.customAudienceGroups.length),
+      id: "custom" as const,
+      label: `◨ custom · ${dashIfZero(audiences.customAudienceGroups.length)}`,
     },
     {
-      id: "offpixel_custom",
-      glyph: "◫",
-      noun: "off/pixel",
-      count: dashIfZero(audiences.offpixelCustomAudienceIds?.length ?? 0),
+      id: "offpixel_custom" as const,
+      label: `◫ off/pixel · ${dashIfZero(audiences.offpixelCustomAudienceIds?.length ?? 0)}`,
     },
     {
-      id: "saved",
-      glyph: "◇",
-      noun: "saved",
-      count: dashIfZero(audiences.savedAudiences.audienceIds.length),
+      id: "saved" as const,
+      label: `◇ saved · ${dashIfZero(audiences.savedAudiences.audienceIds.length)}`,
     },
     {
-      id: "interests",
-      glyph: "✳",
-      noun: "interests",
-      count: audienceCountLabel(
+      id: "interests" as const,
+      label: `✳ interests · ${audienceCountLabel(
         audiences.interestGroups.length,
         audiences.interestGroups.reduce((n, group) => n + group.interests.length, 0),
         "groups",
         "interests",
-      ),
+      )}`,
     },
   ];
 
   return (
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-3xl space-y-5"}>
-      <div>
-        {rows.map((row, index) => {
-          const selected = activeTab === row.id;
-          return (
-            <div key={row.id}>
-              <button
-                type="button"
-                className={`flex h-10 w-full items-center gap-2 ${index < rows.length - 1 || selected ? "border-b border-border" : ""} ${selected ? "bg-muted/40" : ""}`}
-                onClick={() => setActiveTab(row.id)}
-                aria-expanded={selected}
-              >
-                <span className={`w-5 ${VIZ_TYPE.body} ${selected ? "text-foreground" : "text-foreground/70"}`} aria-hidden="true">
-                  {row.glyph}
-                </span>
-                <span className={`${VIZ_TYPE.label} ${selected ? "text-foreground" : "text-foreground/70"}`}>
-                  {row.noun}
-                </span>
-                <span className={`ml-auto mr-3 ${VIZ_TYPE_NUM.body}`}>{row.count}</span>
-                <span className={`${VIZ_TYPE.label} text-muted-foreground hover:text-foreground`}>
-                  edit ▸
-                </span>
-              </button>
-              {selected ? (
-                <div className="border-b border-border py-3">
-                  {row.id === "pages" ? (
-                    <>
-                      <PageAudiencesPanel
-                        groups={audiences.pageGroups}
-                        onChange={(pageGroups) => onChange({ ...audiences, pageGroups })}
-                        adAccountId={adAccountId}
-                        splalGroups={audiences.selectedPagesLookalikeGroups ?? []}
-                        onSplalGroupsChange={(selectedPagesLookalikeGroups) => onChange({ ...audiences, selectedPagesLookalikeGroups })}
-                      />
-                      <div className="mt-4">
-                        <PageInstagramOverridesPanel
-                          pageIds={audiencePageIds}
-                          igAccounts={igAccounts.data}
-                          pageNames={pageNameById}
-                          overrides={settings.pageInstagramOverrides ?? {}}
-                          onOverrideChange={handlePageInstagramOverride}
-                          loading={igAccounts.loading}
-                          error={igAccounts.error}
-                          title="Instagram accounts for page audiences"
-                        />
-                      </div>
-                    </>
-                  ) : null}
-                  {row.id === "custom" ? (
-                    <CustomAudiencesPanel groups={audiences.customAudienceGroups} onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })} adAccountId={adAccountId} />
-                  ) : null}
-                  {row.id === "offpixel_custom" ? (
-                    clientId ? (
-                      <OffPixelCustomAudiencesPanel
-                        clientId={clientId}
-                        selectedIds={audiences.offpixelCustomAudienceIds ?? []}
-                        onChange={(offpixelCustomAudienceIds) =>
-                          onChange({ ...audiences, offpixelCustomAudienceIds })
-                        }
-                      />
-                    ) : (
-                      <StatusLine className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
-                        Select a client in Account Setup before choosing Off/Pixel audiences.
-                      </StatusLine>
-                    )
-                  ) : null}
-                  {row.id === "saved" ? (
-                    <SavedAudiencesPanel
-                      selection={audiences.savedAudiences}
-                      onChange={(savedAudiences) => onChange({ ...audiences, savedAudiences })}
-                      adAccountId={adAccountId}
-                    />
-                  ) : null}
-                  {row.id === "interests" ? (
-                    <InterestGroupsPanel
-                      groups={audiences.interestGroups}
-                      audiences={audiences}
-                      onChange={(interestGroups) => onChange({ ...audiences, interestGroups })}
-                      campaignName={campaignName}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as AudienceTab)} />
+
+      <TabPanel active={activeTab === "pages"}>
+        <PageAudiencesPanel
+          groups={audiences.pageGroups}
+          onChange={(pageGroups) => onChange({ ...audiences, pageGroups })}
+          adAccountId={adAccountId}
+          splalGroups={audiences.selectedPagesLookalikeGroups ?? []}
+          onSplalGroupsChange={(selectedPagesLookalikeGroups) => onChange({ ...audiences, selectedPagesLookalikeGroups })}
+        />
+        <div className="mt-4">
+          <PageInstagramOverridesPanel
+            pageIds={audiencePageIds}
+            igAccounts={igAccounts.data}
+            pageNames={pageNameById}
+            overrides={settings.pageInstagramOverrides ?? {}}
+            onOverrideChange={handlePageInstagramOverride}
+            loading={igAccounts.loading}
+            error={igAccounts.error}
+            title="Instagram accounts for page audiences"
+          />
+        </div>
+      </TabPanel>
+      <TabPanel active={activeTab === "custom"}>
+        <CustomAudiencesPanel groups={audiences.customAudienceGroups} onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })} adAccountId={adAccountId} />
+      </TabPanel>
+      <TabPanel active={activeTab === "offpixel_custom"}>
+        {clientId ? (
+          <OffPixelCustomAudiencesPanel
+            clientId={clientId}
+            selectedIds={audiences.offpixelCustomAudienceIds ?? []}
+            onChange={(offpixelCustomAudienceIds) =>
+              onChange({ ...audiences, offpixelCustomAudienceIds })
+            }
+          />
+        ) : (
+          <StatusLine className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
+            Select a client in Account Setup before choosing Off/Pixel audiences.
+          </StatusLine>
+        )}
+      </TabPanel>
+      <TabPanel active={activeTab === "saved"}>
+        <SavedAudiencesPanel
+          selection={audiences.savedAudiences}
+          onChange={(savedAudiences) => onChange({ ...audiences, savedAudiences })}
+          adAccountId={adAccountId}
+        />
+      </TabPanel>
+      <TabPanel active={activeTab === "interests"}>
+        <InterestGroupsPanel
+          groups={audiences.interestGroups}
+          audiences={audiences}
+          onChange={(interestGroups) => onChange({ ...audiences, interestGroups })}
+          campaignName={campaignName}
+        />
+      </TabPanel>
     </div>
     </StepSurfaceProvider>
   );
