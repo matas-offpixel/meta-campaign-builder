@@ -28,6 +28,7 @@ export interface TikTokIdentityGetRow {
   identity_name?: string;
   nickname?: string;
   avatar_url?: string;
+  profile_image?: string;
   identity_type?: string;
   identity_authorized_bc_id?: string;
   identity_bc_id?: string;
@@ -40,6 +41,11 @@ export const IDENTITY_BC_ID_CANDIDATE_KEYS = [
   "identity_bc_id",
   "bc_id",
   "business_center_id",
+] as const;
+
+export const IDENTITY_AVATAR_CANDIDATE_KEYS = [
+  "profile_image",
+  "avatar_url",
 ] as const;
 
 type TikTokGet = typeof tiktokGet;
@@ -76,6 +82,20 @@ export function extractIdentityBcId(row: TikTokIdentityGetRow): {
     }
     if (typeof raw === "number" && Number.isFinite(raw)) {
       return { value: String(raw), key };
+    }
+  }
+  return { value: null, key: null };
+}
+
+export function extractIdentityAvatar(row: TikTokIdentityGetRow): {
+  value: string | null;
+  key: string | null;
+} {
+  const record = row as Record<string, unknown>;
+  for (const key of IDENTITY_AVATAR_CANDIDATE_KEYS) {
+    const raw = record[key];
+    if (typeof raw === "string" && raw.trim()) {
+      return { value: raw.trim(), key };
     }
   }
   return { value: null, key: null };
@@ -266,6 +286,7 @@ function ingestIdentityRows(
       ? row.identity_type
       : fallbackType;
     const extracted = extractIdentityBcId(row);
+    const avatar = extractIdentityAvatar(row);
     if (extracted.value) {
       console.error(
         `[tiktok/identity] identity=${row.identity_id} bc_id=${extracted.value} source=row.${extracted.key}`,
@@ -279,6 +300,9 @@ function ingestIdentityRows(
       if (!existing.identity_bc_id && extracted.value) {
         existing.identity_bc_id = extracted.value;
       }
+      if (!existing.avatar_url && avatar.value) {
+        existing.avatar_url = avatar.value;
+      }
       continue;
     }
     byId.set(row.identity_id, {
@@ -289,7 +313,7 @@ function ingestIdentityRows(
         row.nickname ??
         row.identity_id,
       identity_type: rowType,
-      avatar_url: row.avatar_url ?? null,
+      avatar_url: avatar.value,
       identity_bc_id: extracted.value,
     });
   }
