@@ -53,6 +53,33 @@ import { FIXTURE_HREFS, basePlan, blockingIssues, factsBundle } from "./canvas-f
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
+/** Added and removed content lines of a unified diff, keyed by `b/` path. */
+function contentDiffByFile(diff: string): Map<string, { added: string[]; removed: string[] }> {
+  const out = new Map<string, { added: string[]; removed: string[] }>();
+  let current: { added: string[]; removed: string[] } | null = null;
+  for (const line of diff.split("\n")) {
+    const file = line.match(/^diff --git a\/.+ b\/(.+)$/);
+    if (file) {
+      current = { added: [], removed: [] };
+      out.set(file[1]!, current);
+      continue;
+    }
+    if (!current) continue;
+    if (
+      line.startsWith("+++") ||
+      line.startsWith("---") ||
+      line.startsWith("@@") ||
+      line.startsWith("index ") ||
+      line.startsWith("\\")
+    ) {
+      continue;
+    }
+    if (line.startsWith("+")) current.added.push(line.slice(1));
+    else if (line.startsWith("-")) current.removed.push(line.slice(1));
+  }
+  return out;
+}
+
 /**
  * Every source that renders inside the drawer. The three tabs, the two
  * halves of budget-schedule, the four demoted steps in `details`, the
@@ -903,6 +930,12 @@ describe("a standalone draft owns its destination", () => {
         `${file} must tell the destination field whether a plan owns it`,
       );
     }
+    const shell = read("components/wizard/wizard-shell.tsx");
+    assert.match(
+      shell,
+      /<StepSurfaceProvider surface="wizard" planOwnsDestination=\{linkedPlan != null\}>/,
+      "the Meta ladder must tell the destination field whether a plan owns it",
+    );
   });
 
   it("the destination field gates on plan ownership, not on drawer", () => {
@@ -977,6 +1010,30 @@ describe("a standalone draft owns its destination", () => {
       meta,
       /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<DestinationUrlField/,
       "plan-linked Meta still shows the badge; standalone still gets the field",
+    );
+    const shell = read("components/wizard/wizard-shell.tsx");
+    assert.match(
+      shell,
+      /<StepSurfaceProvider surface="wizard" planOwnsDestination=\{linkedPlan != null\}>/,
+      "a plan-linked Meta draft at /campaign/[id] inherits ownership from the ladder",
+    );
+    const creativesWrap = meta.slice(
+      meta.indexOf("export function Creatives"),
+      meta.indexOf("function CreativesBody"),
+    );
+    assert.match(
+      creativesWrap,
+      /<StepSurfaceProvider surface=\{props\.surface \?\? "wizard"\}>/,
+    );
+    assert.doesNotMatch(
+      creativesWrap,
+      /planOwnsDestination=/,
+      "Creatives must inherit planOwnsDestination, not reset it",
+    );
+    assert.match(
+      meta,
+      /const planOwnsDestination = usePlanOwnsDestination\(\)/,
+      "the per-ad field reads the inherited flag, not a local guess",
     );
   });
 });
@@ -1239,14 +1296,48 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
-    // The three drawers may set planOwnsDestination so a standalone page
-    // can edit its URL. Everything else in this freeze — canvas faces,
-    // frames, the Meta launch route, adapters — stays byte-identical.
+    const allowedDrawers = [
+      "components/plan/meta-drawer.tsx",
+      "components/plan/tiktok-drawer.tsx",
+      "components/plan/google-drawer.tsx",
+    ] as const;
     const diff = execSync(
-      `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters ':!components/plan/meta-drawer.tsx' ':!components/plan/tiktok-drawer.tsx' ':!components/plan/google-drawer.tsx'`,
+      `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters`,
       { encoding: "utf8" },
     );
-    assert.equal(diff.trim(), "", diff);
+    const byFile = contentDiffByFile(diff);
+    for (const [file, { added, removed }] of byFile) {
+      assert.ok(
+        (allowedDrawers as readonly string[]).includes(file),
+        `${file} changed; the freeze does not allow it`,
+      );
+      assert.equal(
+        removed.length,
+        1,
+        `${file}: unexpected removal — ${removed.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
+      );
+      assert.equal(
+        added.length,
+        1,
+        `${file}: unexpected addition — ${added.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
+      );
+      assert.match(
+        removed[0]!.trim(),
+        /^<StepSurfaceProvider surface="drawer">$/,
+        `${file}: removed a line that is not the old StepSurfaceProvider`,
+      );
+      assert.match(
+        added[0]!.trim(),
+        /^<StepSurfaceProvider surface="drawer" planOwnsDestination=\{planId != null\}>$/,
+        `${file}: added a line that is not planOwnsDestination on StepSurfaceProvider`,
+      );
+    }
+    for (const file of allowedDrawers) {
+      assert.ok(
+        byFile.has(file),
+        `${file} must change the StepSurfaceProvider line and only that line`,
+      );
+    }
   });
 });
 

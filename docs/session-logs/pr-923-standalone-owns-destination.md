@@ -16,8 +16,9 @@ A standalone draft owns its destination. The destination field was gated on `use
 - `components/plan/{meta,tiktok,google}-drawer.tsx` — `planOwnsDestination={planId != null}`
 - `components/tiktok-wizard/steps/creatives.tsx` — destination gates on ownership
 - `components/google-search-wizard/steps/ad-copy.tsx` — same
-- `components/steps/creatives.tsx` — same (Meta stays correct on its own merits, not because #922 restored the ladder)
-- `lib/plan/__tests__/drawer.test.ts` — tip cannot render while `planId` is null; plan-linked still badges
+- `components/steps/creatives.tsx` — destination gates on ownership
+- `components/wizard/wizard-shell.tsx` — ladder wraps `planOwnsDestination={linkedPlan != null}` so a plan-linked Meta draft at `/campaign/[id]` inherits the flag (round 2)
+- `lib/plan/__tests__/drawer.test.ts` — tip cannot render while `planId` is null; ladder passes the flag; freeze asserts the three drawer diffs are only the `StepSurfaceProvider` line
 - `lib/plan/drawer.ts` — comment on the three `destinationTip` copies
 
 Destination field only. Chrome, grid columns, and the rest of `surface="drawer"` stay. No launch caller, no adapter, no schema, no flag change.
@@ -26,9 +27,11 @@ Destination field only. Chrome, grid columns, and the rest of `surface="drawer"`
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5444 pass, 4 skipped)
+- [x] `npm test` (5444 pass, 4 skipped) — re-run after round 2
 - [x] `npm run frames:check` — local darwin diffs against Ubuntu rasters (height mismatch = 100%). No baselines regenerated. No frame renders a standalone route or an open drawer, so Ubuntu CI should stay still. If CI names a frame, stop.
 
 ## Notes
 
 Matas is blocked on `[IRW0001] Jamie Jones -signup 20 - Interests 3` (`/tiktok-campaign/f5a194e7-2775-4534-904c-d83a37d11ceb`). The 26 creatives already carry `landingPageUrl`; this PR makes the field reachable on the standalone route.
+
+Round 2: the ladder now passes the same flag the drawers do. The freeze no longer excludes the three drawers — it requires each of their diffs to be exactly one `StepSurfaceProvider` line.
