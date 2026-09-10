@@ -941,7 +941,23 @@ export interface BenchmarkPercentile {
 
 export type CeilingBehaviour = "stop" | "partial" | "pause_scaling";
 
+/** Which daily ceilings bind. Unset = ad-set only (today). */
+export type BudgetCeilingScope = "ad_set" | "campaign" | "both";
+
+/** Where the campaign-daily ceiling number comes from. Default derived. */
+export type CampaignDailyCeilingSource = "derived" | "typed";
+
 export interface BudgetGuardrails {
+  /**
+   * Daily per-ad-set base used by expansion %. Was `baseCampaignBudget` —
+   * that name is per-ad-set and daily, and said neither. Prefer this key;
+   * `readBaseAdSetBudget` still walks the old one.
+   */
+  baseAdSetBudget?: number;
+  /**
+   * @deprecated Daily per-ad-set base. Read via `readBaseAdSetBudget`.
+   * Kept so existing drafts keep evaluating.
+   */
   baseCampaignBudget: number;
   maxExpansionPercent: number;
   hardBudgetCeiling: number;
@@ -950,6 +966,15 @@ export interface BudgetGuardrails {
   maxSingleAdSetBudgetType?: "fixed" | "percent";
   maxDailyIncreasePercent?: number;
   cooldownHours?: number;
+  /** Ad set, campaign, or both. Unset = ad-set only — today's behaviour. */
+  budgetCeilingScope?: BudgetCeilingScope;
+  /**
+   * Typed campaign-daily ceiling in major units. Ignored when the source
+   * is `derived`. Unset typed + campaign scope = absent, not unlimited.
+   */
+  campaignDailyCeiling?: number;
+  /** Default `derived` — remaining budget ÷ remaining days. */
+  campaignDailyCeilingSource?: CampaignDailyCeilingSource;
 }
 
 /**

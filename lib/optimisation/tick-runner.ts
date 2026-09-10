@@ -74,6 +74,13 @@ import {
   type EligibilitySkip,
 } from "./eligibility.ts";
 import {
+  applyCampaignHeadroom,
+  compareCheapestMetricFirst,
+  planFromDraftFields,
+  resolveCampaignCeiling,
+  type CampaignCeilingResolution,
+} from "./campaign-ceiling.ts";
+import {
   CROSS_CHANNEL_SHADOW_GATES,
   crossChannelAdsetId,
   evaluateCrossChannelSubject,
@@ -94,6 +101,10 @@ export interface CampaignAutomationInput {
   optimisationAutomationLive: boolean;
   /** Display name for Slack (draft.settings.campaignName). */
   campaignName: string;
+  /** Draft enabled ad-set dailies — pacing-plan denominator. */
+  enabledDailyBudgetsMajor?: number[];
+  startDate?: string;
+  endDate?: string;
   /** Event / plan calendar facts. Missing fields fail open. */
   eligibility?: CampaignEligibilityFacts;
 }
@@ -164,6 +175,11 @@ export interface OptimisationTickDeps {
   now?: Date;
   /** Recent-decision lookback in hours. Defaults to 24 (loop-prevention window). */
   lookbackHours?: number;
+  /**
+   * Lifetime spend in pence for a derived campaign ceiling.
+   * Missing or throw → `campaign_ceiling_unreadable`, not unlimited.
+   */
+  fetchCampaignSpendPence?: (campaignId: string) => Promise<number>;
   /** `ENABLE_OPTIMISATION_WRITES === "1"` — gate (a). */
   writesEnabled: boolean;
   maxWritesPerRun?: number;
@@ -307,6 +323,8 @@ export async function runOptimisationTick(
         campaign.optimisationAutomationLive,
       );
 
+      const ceiling = await resolveCeilingForCampaign(campaign, deps, now);
+
       if (isCboAdSetRoster(rows)) {
         const campaignInsight = await deps.fetchCampaignInsights(campaign.campaignId, window);
         const targetId = campaign.campaignId;
@@ -348,13 +366,17 @@ export async function runOptimisationTick(
           ) {
             summary.adSetsSkippedRecentDecision += 1;
           } else {
-            const decision = buildCampaignDecision(
-              campaign,
-              campaignInsight,
-              window,
-              now,
-              lastTouchedAt,
-              state.appliedIncreasePercentLast24h,
+            const decision = stampUnresolvedCeiling(
+              buildCampaignDecision(
+                campaign,
+                campaignInsight,
+                window,
+                now,
+                lastTouchedAt,
+                state.appliedIncreasePercentLast24h,
+                ceiling.kind === "active" ? ceiling.dailyCeilingPence : undefined,
+              ),
+              ceiling,
             );
             const writesRemaining = maxWrites - summary.writesApplied;
             const outcome = await applyOptimisationDecision(
@@ -408,6 +430,7 @@ export async function runOptimisationTick(
         continue;
       }
 
+      const pending: Array<{ row: AdSetInsightRow; decision: DecisionToInsert }> = [];
       for (const row of rows) {
         summary.adSetsConsidered += 1;
 
@@ -454,19 +477,55 @@ export async function runOptimisationTick(
             continue;
           }
 
-          const decision = buildDecision(
-            campaign,
+          pending.push({
             row,
-            window,
-            now,
-            lastTouchedAt,
-            state.appliedIncreasePercentLast24h,
+            decision: buildDecision(
+              campaign,
+              row,
+              window,
+              now,
+              lastTouchedAt,
+              state.appliedIncreasePercentLast24h,
+            ),
+          });
+        } catch (adsetErr) {
+          // One ad set failing must never abort the rest of the run.
+          const message = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
+          console.error(
+            `[optimisation-tick] campaign=${campaign.campaignId} adset=${row.adsetId} threw: ${message}`,
           );
+          summary.writesFailed += 1;
+        }
+      }
 
+      // Configured ABO daily total — every fetched ad set with a daily_budget,
+      // including paused. Arrival order is not a decision: cheapest CPR first.
+      const currentDailyTotalPence = rows.reduce(
+        (sum, row) => sum + (row.dailyBudgetPence ?? 0),
+        0,
+      );
+      let headroomPence =
+        ceiling.kind === "active"
+          ? Math.max(0, ceiling.dailyCeilingPence - currentDailyTotalPence)
+          : null;
+
+      const scaleUps = pending.filter((p) => p.decision.actionRecommended === "scale_up");
+      const rest = pending.filter((p) => p.decision.actionRecommended !== "scale_up");
+      scaleUps.sort((a, b) =>
+        compareCheapestMetricFirst(a.decision.metricValue, b.decision.metricValue),
+      );
+      const ordered = [...rest, ...scaleUps];
+
+      for (const { row, decision } of ordered) {
+        try {
+          const clamped = applyCampaignHeadroom(decision, ceiling, headroomPence);
+          if (headroomPence != null) {
+            headroomPence = Math.max(0, headroomPence - clamped.usedPence);
+          }
           const writesRemaining = maxWrites - summary.writesApplied;
           const outcome = await applyOptimisationDecision(
             {
-              decision,
+              decision: clamped.decision,
               campaignName: campaign.campaignName,
               adsetName: row.adsetName,
               gates,
@@ -506,7 +565,6 @@ export async function runOptimisationTick(
             summary.writesCapReached = true;
           }
         } catch (adsetErr) {
-          // One ad set failing must never abort the rest of the run.
           const message = adsetErr instanceof Error ? adsetErr.message : String(adsetErr);
           console.error(
             `[optimisation-tick] campaign=${campaign.campaignId} adset=${row.adsetId} threw: ${message}`,
@@ -627,6 +685,57 @@ function parseStartedAt(raw: string | null | undefined): Date | null {
   if (!raw?.trim()) return null;
   const ms = Date.parse(raw);
   return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+async function resolveCeilingForCampaign(
+  campaign: CampaignAutomationInput,
+  deps: OptimisationTickDeps,
+  now: Date,
+): Promise<CampaignCeilingResolution> {
+  const guardrails = campaign.optimisationStrategy.guardrails;
+  const scope = guardrails.budgetCeilingScope ?? "ad_set";
+  if (scope === "ad_set") return { kind: "inactive" };
+
+  const source = guardrails.campaignDailyCeilingSource ?? "derived";
+  if (source === "typed") {
+    return resolveCampaignCeiling({
+      guardrails,
+      plan: null,
+      spentPence: 0,
+    });
+  }
+
+  const plan = planFromDraftFields(
+    campaign.enabledDailyBudgetsMajor,
+    campaign.startDate,
+    campaign.endDate,
+    now,
+  );
+  if (!deps.fetchCampaignSpendPence) {
+    return resolveCampaignCeiling({
+      guardrails,
+      plan,
+      spentPence: plan ? "unreadable" : 0,
+    });
+  }
+  try {
+    const spentPence = await deps.fetchCampaignSpendPence(campaign.campaignId);
+    return resolveCampaignCeiling({ guardrails, plan, spentPence });
+  } catch {
+    return resolveCampaignCeiling({
+      guardrails,
+      plan,
+      spentPence: plan ? "unreadable" : 0,
+    });
+  }
+}
+
+function stampUnresolvedCeiling(
+  decision: DecisionToInsert,
+  ceiling: CampaignCeilingResolution,
+): DecisionToInsert {
+  if (ceiling.kind !== "absent" && ceiling.kind !== "unreadable") return decision;
+  return applyCampaignHeadroom(decision, ceiling, null).decision;
 }
 
 async function recordEligibilitySkip(
@@ -752,6 +861,7 @@ function buildCampaignDecision(
   now: Date,
   lastTouchedAt: Date | null,
   appliedIncreasePercentLast24h: number,
+  campaignDailyCeilingPence?: number,
 ): DecisionToInsert {
   const primaryMetric = OBJECTIVE_METRIC_PRIORITY[campaign.objective].primary;
   const base = {
@@ -824,6 +934,7 @@ function buildCampaignDecision(
     impressionsLast24h: insight.impressionsLast24h,
     startedAt: parseStartedAt(insight.startedAt),
     now,
+    campaignDailyCeilingPence,
   });
 
   return {

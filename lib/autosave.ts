@@ -368,15 +368,21 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     draft.budgetSchedule.locationGroups = migrateLocationPresets(draft.budgetSchedule.locationPresets);
     console.log("[migrateDraft] Migrated locationPresets →", draft.budgetSchedule.locationGroups.length, "locationGroups");
   }
+  const defaultBase = draft.budgetSchedule?.budgetAmount ?? 50;
   const defaultGuardrails = {
-    baseCampaignBudget: draft.budgetSchedule?.budgetAmount ?? 50,
+    baseAdSetBudget: defaultBase,
+    baseCampaignBudget: defaultBase,
     maxExpansionPercent: 100,
-    hardBudgetCeiling: (draft.budgetSchedule?.budgetAmount ?? 50) * 2,
+    hardBudgetCeiling: defaultBase * 2,
     ceilingBehaviour: "stop" as const,
   };
   if (draft.optimisationStrategy) {
     draft.optimisationStrategy.guardrails =
       draft.optimisationStrategy.guardrails ?? defaultGuardrails;
+    const g = draft.optimisationStrategy.guardrails;
+    if (g.baseAdSetBudget == null && typeof g.baseCampaignBudget === "number") {
+      g.baseAdSetBudget = g.baseCampaignBudget;
+    }
   } else {
     draft.optimisationStrategy = {
       mode: "benchmarks",

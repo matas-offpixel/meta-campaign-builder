@@ -45,6 +45,7 @@ import type {
   RuleAction,
   BenchmarkPercentile,
   BudgetGuardrails,
+  BudgetCeilingScope,
   CeilingBehaviour,
 } from "@/lib/types";
 import {
@@ -621,9 +622,12 @@ function BudgetGuardrailsCard({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const sym = currency === "GBP" ? "£" : currency === "USD" ? "$" : currency === "EUR" ? "€" : currency;
 
-  const base = guardrails.baseCampaignBudget || budgetAmount;
+  const base = guardrails.baseAdSetBudget || guardrails.baseCampaignBudget || budgetAmount;
   const ceiling = guardrails.hardBudgetCeiling;
   const expansionPct = guardrails.maxExpansionPercent;
+  const ceilingScope = guardrails.budgetCeilingScope ?? "ad_set";
+  const scopeIsAdSet = ceilingScope === "ad_set" || ceilingScope === "both";
+  const scopeIsCampaign = ceilingScope === "campaign" || ceilingScope === "both";
 
   const isPreset = [0, 25, 50, 100, 200].includes(expansionPct);
   const [customMode, setCustomMode] = useState(!isPreset);
@@ -652,7 +656,12 @@ function BudgetGuardrailsCard({
   const handleBaseChange = (newBase: number) => {
     const clamped = Math.max(0, newBase);
     const newCeiling = Math.round(clamped * (1 + expansionPct / 100));
-    onChange({ ...guardrails, baseCampaignBudget: clamped, hardBudgetCeiling: newCeiling });
+    onChange({
+      ...guardrails,
+      baseAdSetBudget: clamped,
+      baseCampaignBudget: clamped,
+      hardBudgetCeiling: newCeiling,
+    });
   };
 
   const usagePct = base > 0 ? Math.round((base / ceiling) * 100) : 0;
@@ -671,7 +680,7 @@ function BudgetGuardrailsCard({
         {/* Base + Ceiling visual */}
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Base Campaign Budget</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Base ad-set budget</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">{sym}</span>
               <input
@@ -737,6 +746,126 @@ function BudgetGuardrailsCard({
           
         </div>
 
+        <div>
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">Ceiling applies to</label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {([
+              { id: "ad_set" as const, label: "Ad set" },
+              { id: "campaign" as const, label: "Campaign" },
+              { id: "both" as const, label: "Both" },
+            ] satisfies { id: BudgetCeilingScope; label: string }[]).map((opt) => {
+              const current = guardrails.budgetCeilingScope ?? "ad_set";
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => updateField("budgetCeilingScope", opt.id)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-all
+                    ${current === opt.id
+                      ? "border-primary bg-primary-light text-foreground"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted/40"
+                    }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {scopeIsAdSet && (
+          <div className="rounded-md border border-border bg-card px-4 py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+              <label className="text-sm font-medium text-foreground">Max single ad-set budget</label>
+            </div>
+            <div className="flex items-center gap-3">
+              <select
+                value={guardrails.maxSingleAdSetBudgetType ?? "fixed"}
+                onChange={(e) => updateField("maxSingleAdSetBudgetType", e.target.value as "fixed" | "percent")}
+                className="h-8 w-28 appearance-none rounded-md border border-border bg-card px-2 text-xs text-foreground
+                  focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="fixed">Fixed ({sym})</option>
+                <option value="percent">% of base</option>
+              </select>
+              <div className="relative flex-1">
+                {(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "fixed" && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{sym}</span>
+                )}
+                <input
+                  type="number"
+                  min={0}
+                  value={guardrails.maxSingleAdSetBudget ?? ""}
+                  placeholder={`e.g. ${(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "fixed" ? "200" : "40"}`}
+                  onChange={(e) => updateField("maxSingleAdSetBudget", e.target.value ? Number(e.target.value) : undefined)}
+                  className={`h-8 w-full rounded-md border border-border bg-card pr-3 text-xs text-foreground
+                    focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20
+                    ${(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "fixed" ? "pl-7" : "pl-3"}`}
+                />
+                {(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "percent" && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                )}
+              </div>
+            </div>
+            {guardrails.maxSingleAdSetBudget != null && (guardrails.maxSingleAdSetBudgetType ?? "fixed") === "percent" && (
+              <Datum className="mt-1 text-xs text-muted-foreground">
+                = {sym}{Math.round(base * (guardrails.maxSingleAdSetBudget / 100)).toLocaleString()} per ad set
+              </Datum>
+            )}
+          </div>
+        )}
+
+        {scopeIsCampaign && (
+          <div className="rounded-md border border-border bg-card px-4 py-3 space-y-3">
+            <label className="text-sm font-medium text-foreground">Campaign daily ceiling</label>
+            <Datum className="text-xs text-muted-foreground">
+              Derived from remaining planned spend ÷ remaining days — the same plan the pacing alert uses. Not a number to type.
+            </Datum>
+            <div className="grid grid-cols-2 gap-1.5">
+              {([
+                { id: "derived" as const, label: "Derived" },
+                { id: "typed" as const, label: "Typed" },
+              ]).map((opt) => {
+                const current = guardrails.campaignDailyCeilingSource ?? "derived";
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => updateField("campaignDailyCeilingSource", opt.id)}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-all
+                      ${current === opt.id
+                        ? "border-primary bg-primary-light text-foreground"
+                        : "border-border bg-card text-muted-foreground hover:bg-muted/40"
+                      }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {(guardrails.campaignDailyCeilingSource ?? "derived") === "typed" && (
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{sym}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={guardrails.campaignDailyCeiling ?? ""}
+                  placeholder="e.g. 300"
+                  onChange={(e) =>
+                    updateField(
+                      "campaignDailyCeiling",
+                      e.target.value ? Number(e.target.value) : undefined,
+                    )
+                  }
+                  className="h-8 w-full rounded-md border border-border bg-card pl-7 pr-3 text-xs text-foreground
+                    focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Ceiling behaviour */}
         <div>
           <label className="text-xs font-medium text-muted-foreground mb-2 block">Behaviour at Ceiling</label>
@@ -778,48 +907,6 @@ function BudgetGuardrailsCard({
 
           {advancedOpen && (
             <div className="mt-3 space-y-4">
-              {/* Max single ad set budget */}
-              <div className="rounded-md border border-border bg-card px-4 py-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
-                  <label className="text-sm font-medium text-foreground">Max Single Ad Set Budget</label>
-                </div>
-                <div className="flex items-center gap-3">
-                  <select
-                    value={guardrails.maxSingleAdSetBudgetType ?? "fixed"}
-                    onChange={(e) => updateField("maxSingleAdSetBudgetType", e.target.value as "fixed" | "percent")}
-                    className="h-8 w-28 appearance-none rounded-md border border-border bg-card px-2 text-xs text-foreground
-                      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  >
-                    <option value="fixed">Fixed ({sym})</option>
-                    <option value="percent">% of base</option>
-                  </select>
-                  <div className="relative flex-1">
-                    {(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "fixed" && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{sym}</span>
-                    )}
-                    <input
-                      type="number"
-                      min={0}
-                      value={guardrails.maxSingleAdSetBudget ?? ""}
-                      placeholder={`e.g. ${(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "fixed" ? "200" : "40"}`}
-                      onChange={(e) => updateField("maxSingleAdSetBudget", e.target.value ? Number(e.target.value) : undefined)}
-                      className={`h-8 w-full rounded-md border border-border bg-card pr-3 text-xs text-foreground
-                        focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20
-                        ${(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "fixed" ? "pl-7" : "pl-3"}`}
-                    />
-                    {(guardrails.maxSingleAdSetBudgetType ?? "fixed") === "percent" && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-                    )}
-                  </div>
-                </div>
-                {guardrails.maxSingleAdSetBudget != null && (guardrails.maxSingleAdSetBudgetType ?? "fixed") === "percent" && (
-                  <Datum className="mt-1 text-xs text-muted-foreground">
-                    = {sym}{Math.round(base * (guardrails.maxSingleAdSetBudget / 100)).toLocaleString()} per ad set
-                  </Datum>
-                )}
-              </div>
-
               {/* Max daily increase */}
               <div className="rounded-md border border-border bg-card px-4 py-3">
                 <div className="flex items-center gap-2 mb-2">
@@ -1143,13 +1230,18 @@ export function OptimisationStrategy({
     if (
       budgetAmount > 0 &&
       strategy.guardrails &&
-      strategy.guardrails.baseCampaignBudget !== budgetAmount
+      (strategy.guardrails.baseAdSetBudget ?? strategy.guardrails.baseCampaignBudget) !== budgetAmount
     ) {
       const g = strategy.guardrails;
       const newCeiling = Math.round(budgetAmount * (1 + g.maxExpansionPercent / 100));
       onChange({
         ...strategy,
-        guardrails: { ...g, baseCampaignBudget: budgetAmount, hardBudgetCeiling: newCeiling },
+        guardrails: {
+          ...g,
+          baseAdSetBudget: budgetAmount,
+          baseCampaignBudget: budgetAmount,
+          hardBudgetCeiling: newCeiling,
+        },
       });
     }
     // only react to budgetAmount changes
@@ -1181,10 +1273,18 @@ export function OptimisationStrategy({
         <AutomationArmControl
           draftId={draftId}
           currency={currency}
-          baseCampaignBudget={strategy.guardrails?.baseCampaignBudget ?? budgetAmount}
+          baseCampaignBudget={
+            strategy.guardrails?.baseAdSetBudget ??
+            strategy.guardrails?.baseCampaignBudget ??
+            budgetAmount
+          }
           hardBudgetCeiling={
             strategy.guardrails?.hardBudgetCeiling ??
-            Math.round((strategy.guardrails?.baseCampaignBudget ?? budgetAmount) * 2)
+            Math.round(
+              (strategy.guardrails?.baseAdSetBudget ??
+                strategy.guardrails?.baseCampaignBudget ??
+                budgetAmount) * 2,
+            )
           }
         />
         {draftId ? (
@@ -1249,10 +1349,18 @@ export function OptimisationStrategy({
       <AutomationArmControl
         draftId={draftId}
         currency={currency}
-        baseCampaignBudget={strategy.guardrails?.baseCampaignBudget ?? budgetAmount}
+        baseCampaignBudget={
+          strategy.guardrails?.baseAdSetBudget ??
+          strategy.guardrails?.baseCampaignBudget ??
+          budgetAmount
+        }
         hardBudgetCeiling={
           strategy.guardrails?.hardBudgetCeiling ??
-          Math.round((strategy.guardrails?.baseCampaignBudget ?? budgetAmount) * 2)
+          Math.round(
+            (strategy.guardrails?.baseAdSetBudget ??
+              strategy.guardrails?.baseCampaignBudget ??
+              budgetAmount) * 2,
+          )
         }
       />
       {draftId ? (
@@ -1352,7 +1460,7 @@ export function OptimisationStrategy({
                 <div className="space-y-1 text-sm">
                   <div className="flex items-center gap-2">
                     <Shield className="h-3.5 w-3.5 text-primary" />
-                    <span>Base budget: {currency === "GBP" ? "£" : currency}{strategy.guardrails.baseCampaignBudget.toLocaleString()}</span>
+                    <span>Base ad-set budget: {currency === "GBP" ? "£" : currency}{(strategy.guardrails.baseAdSetBudget ?? strategy.guardrails.baseCampaignBudget).toLocaleString()}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-3.5 w-3.5 text-success" />

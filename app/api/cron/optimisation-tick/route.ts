@@ -22,6 +22,10 @@ import {
 import { getAdSetAutomationState } from "@/lib/db/optimisation-decisions";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
+import {
+  fetchCampaignSpendPence,
+  type BudgetPacingGraphFetcher,
+} from "@/lib/budget-pacing/spend-fetch";
 
 /**
  * GET /api/cron/optimisation-tick
@@ -161,6 +165,17 @@ export async function GET(req: NextRequest) {
       updateCampaignDailyBudget: (campaignId, dailyBudgetPence) =>
         graphPostWithToken(`/${campaignId}`, { daily_budget: dailyBudgetPence }, token as string),
       notify: (opts) => notify(opts, notifyDeps),
+      fetchCampaignSpendPence: async (campaignId) => {
+        const spent = await fetchCampaignSpendPence(
+          graphGetWithToken as BudgetPacingGraphFetcher,
+          [campaignId],
+          token as string,
+        );
+        if (!(campaignId in spent) || !Number.isFinite(spent[campaignId])) {
+          throw new Error(`campaign spend unreadable for ${campaignId}`);
+        }
+        return spent[campaignId]!;
+      },
       writesEnabled,
       loadCrossChannelSubjects: (metaCampaigns) =>
         loadPlanLinkedChannelSubjects(supabase, metaCampaigns),

@@ -668,3 +668,213 @@ describe("runOptimisationTick — eligibility before evaluate", () => {
     assert.equal(isBudgetChangeAction(inserted[0]?.actionRecommended ?? ""), false);
   });
 });
+
+describe("runOptimisationTick — campaign daily ceiling", () => {
+  const campaignCeilingGuardrails: BudgetGuardrails = {
+    ...GUARDRAILS,
+    hardBudgetCeiling: 500,
+    ceilingBehaviour: "partial",
+    budgetCeilingScope: "campaign",
+    campaignDailyCeilingSource: "derived",
+  };
+
+  function campaignWithPlan(
+    guardrails: BudgetGuardrails,
+    overrides: Partial<CampaignAutomationInput> = {},
+  ): CampaignAutomationInput {
+    return campaign({
+      optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails },
+      enabledDailyBudgetsMajor: [125],
+      startDate: "2026-08-01",
+      endDate: "2026-08-13",
+      ...overrides,
+    });
+  }
+
+  it("£256/day with a £300/day derived ceiling grants one +30% and caps the rest", async () => {
+    const rows: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [campaignWithPlan(campaignCeilingGuardrails)],
+      fetchCampaignSpendPence: async () => 0,
+      fetchInsights: async () => [
+        insightRow({
+          adsetId: "cheap",
+          adsetName: "Cheap",
+          dailyBudgetPence: 10000,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.3 },
+        }),
+        insightRow({
+          adsetId: "mid",
+          adsetName: "Mid",
+          dailyBudgetPence: 5200,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.4 },
+        }),
+        insightRow({
+          adsetId: "dear",
+          adsetName: "Dear",
+          dailyBudgetPence: 5200,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.5 },
+        }),
+        insightRow({
+          adsetId: "dearest",
+          adsetName: "Dearest",
+          dailyBudgetPence: 5200,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.6 },
+        }),
+      ],
+      insertDecision: async (row) => {
+        rows.push(row);
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    const byId = Object.fromEntries(rows.map((r) => [r.adsetId, r]));
+    assert.equal(byId.cheap.actionRecommended, "scale_up");
+    assert.equal(byId.cheap.budgetAfterPence, 13000);
+    assert.equal(byId.cheap.guardrailNote, null);
+    assert.equal(byId.mid.actionRecommended, "scale_up");
+    assert.equal(byId.mid.budgetAfterPence, 6600);
+    assert.equal(byId.mid.guardrailNote, "capped_by_campaign_ceiling");
+    assert.equal(byId.dear.actionRecommended, "maintain");
+    assert.equal(byId.dear.guardrailNote, "capped_by_campaign_ceiling");
+    assert.equal(byId.dearest.actionRecommended, "maintain");
+    assert.equal(byId.dearest.guardrailNote, "capped_by_campaign_ceiling");
+  });
+
+  it("the same campaign at £300/day grants nothing", async () => {
+    const rows: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [campaignWithPlan(campaignCeilingGuardrails)],
+      fetchCampaignSpendPence: async () => 0,
+      fetchInsights: async () => [
+        insightRow({ adsetId: "a", dailyBudgetPence: 10000 }),
+        insightRow({ adsetId: "b", dailyBudgetPence: 10000 }),
+        insightRow({ adsetId: "c", dailyBudgetPence: 10000 }),
+      ],
+      insertDecision: async (row) => {
+        rows.push(row);
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(rows.length, 3);
+    for (const row of rows) {
+      assert.equal(row.actionRecommended, "maintain");
+      assert.equal(row.budgetAfterPence, row.budgetBeforePence);
+      assert.equal(row.guardrailNote, "capped_by_campaign_ceiling");
+    }
+  });
+
+  it("headroom decrements — thirteen ad sets cannot each take the full amount", async () => {
+    const rows: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [campaignWithPlan(campaignCeilingGuardrails)],
+      fetchCampaignSpendPence: async () => 0,
+      fetchInsights: async () =>
+        Array.from({ length: 13 }, (_, i) =>
+          insightRow({
+            adsetId: `as_${i}`,
+            adsetName: `Set ${i}`,
+            dailyBudgetPence: 2000,
+            costPerActionType: {
+              "offsite_conversion.fb_pixel_complete_registration": 0.2 + i * 0.01,
+            },
+          }),
+        ),
+      insertDecision: async (row) => {
+        rows.push(row);
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    const increases = rows.map((r) => r.budgetAfterPence - r.budgetBeforePence);
+    const totalIncrease = increases.reduce((s, n) => s + n, 0);
+    assert.equal(totalIncrease, 4000);
+    assert.equal(increases.filter((n) => n === 600).length < 13, true);
+    assert.equal(rows.some((r) => r.guardrailNote === "capped_by_campaign_ceiling"), true);
+  });
+
+  it("no plan and no typed ceiling behaves exactly as today, with the absence named", async () => {
+    const rows: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationStrategy: {
+            mode: "custom",
+            rules: [CPR_RULE],
+            guardrails: {
+              ...GUARDRAILS,
+              budgetCeilingScope: "campaign",
+              campaignDailyCeilingSource: "derived",
+            },
+          },
+        }),
+      ],
+      fetchInsights: async () => [insightRow({ adsetId: "only" })],
+      insertDecision: async (row) => {
+        rows.push(row);
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(rows[0]!.actionRecommended, "scale_up");
+    assert.equal(rows[0]!.budgetAfterPence, 13000);
+    assert.equal(rows[0]!.guardrailNote, "campaign_ceiling_absent");
+  });
+
+  it("an unreadable plan is named, not treated as unlimited", async () => {
+    const rows: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [campaignWithPlan(campaignCeilingGuardrails)],
+      fetchCampaignSpendPence: async () => {
+        throw new Error("insights 500");
+      },
+      fetchInsights: async () => [insightRow({ adsetId: "only" })],
+      insertDecision: async (row) => {
+        rows.push(row);
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(rows[0]!.actionRecommended, "scale_up");
+    assert.equal(rows[0]!.budgetAfterPence, 13000);
+    assert.equal(rows[0]!.guardrailNote, "campaign_ceiling_unreadable");
+  });
+
+  it("per-ad-set and campaign ceilings together bind on the tighter", async () => {
+    const rows: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaignWithPlan({
+          ...campaignCeilingGuardrails,
+          budgetCeilingScope: "both",
+          maxSingleAdSetBudget: 105,
+          maxSingleAdSetBudgetType: "fixed",
+        }),
+      ],
+      fetchCampaignSpendPence: async () => 0,
+      fetchInsights: async () => [
+        insightRow({
+          adsetId: "a",
+          dailyBudgetPence: 10000,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.3 },
+        }),
+        insightRow({
+          adsetId: "b",
+          dailyBudgetPence: 10000,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.4 },
+        }),
+        insightRow({
+          adsetId: "idle",
+          dailyBudgetPence: 9200,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+        }),
+      ],
+      insertDecision: async (row) => {
+        rows.push(row);
+      },
+    });
+    await runOptimisationTick(true, false, deps);
+    const byId = Object.fromEntries(rows.map((r) => [r.adsetId, r]));
+    assert.equal(byId.a.budgetAfterPence, 10500);
+    assert.equal(byId.a.guardrailNote, "capped_by_max_single_adset_budget");
+    assert.equal(byId.b.budgetAfterPence, 10300);
+    assert.equal(byId.b.guardrailNote, "capped_by_campaign_ceiling");
+    assert.equal(byId.idle.actionRecommended, "maintain");
+  });
+});
