@@ -173,6 +173,34 @@ describe("CBO DOD/IPC shape — one campaign decision, real metric + rule", () =
     assert.equal(row.applied, false);
     assert.doesNotMatch(row.reasonText, /PR A does not propose CBO/);
   });
+
+  it("typed campaign daily ceiling binds on the campaign daily_budget", async () => {
+    const inserted: DecisionToInsert[] = [];
+    await runOptimisationTick(true, false, {
+      ...makeDeps({
+        loadOptedInCampaigns: async () => [
+          campaign({
+            optimisationStrategy: {
+              mode: "custom",
+              rules: [LPV_RULE],
+              guardrails: {
+                ...GUARDRAILS,
+                ceilingBehaviour: "partial",
+                budgetCeilingScope: "campaign",
+                campaignDailyCeilingSource: "typed",
+                campaignDailyCeiling: 160,
+              },
+            },
+          }),
+        ],
+        insertDecision: async (row) => void inserted.push(row),
+      }),
+    });
+    assert.equal(inserted[0]!.scope, "campaign");
+    assert.equal(inserted[0]!.actionRecommended, "scale_up");
+    assert.equal(inserted[0]!.budgetAfterPence, 16000);
+    assert.equal(inserted[0]!.guardrailNote, "capped_by_campaign_ceiling");
+  });
 });
 
 describe("CBO insufficient data — M.4 metric_unavailable vocabulary", () => {

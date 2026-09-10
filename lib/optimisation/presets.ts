@@ -116,10 +116,10 @@ export interface PresetRule {
 
 /**
  * Guardrails minus the two that are derived from the campaign budget.
- * `baseCampaignBudget` is the campaign's daily budget and
- * `hardBudgetCeiling` is that budget expanded by `maxExpansionPercent` —
- * neither can be stored on a preset without going stale the first time a
- * campaign runs at a different budget.
+ * `baseAdSetBudget` (was `baseCampaignBudget`) is the per-ad-set daily
+ * base and `hardBudgetCeiling` is that budget expanded by
+ * `maxExpansionPercent` — neither can be stored on a preset without
+ * going stale the first time a campaign runs at a different budget.
  */
 export interface PresetGuardrails {
   maxExpansionPercent: number;
@@ -488,6 +488,7 @@ export function materialiseGuardrails(
 ): BudgetGuardrails {
   const base = budgetAmount > 0 ? budgetAmount : 0;
   const out: BudgetGuardrails = {
+    baseAdSetBudget: base,
     baseCampaignBudget: base,
     maxExpansionPercent: guardrails.maxExpansionPercent,
     hardBudgetCeiling: Math.round(base * (1 + guardrails.maxExpansionPercent / 100)),

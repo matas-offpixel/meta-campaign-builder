@@ -497,6 +497,67 @@ describe("evaluateCampaign — CBO guardrails at campaign grain", () => {
     assert.equal(campaign.budgetAfterPence, 13000);
     assert.equal(campaign.guardrailNote, null);
   });
+
+  it("campaign daily ceiling binds on the CBO path", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "partial",
+    };
+    const result = evaluateCampaign(
+      baseInput({
+        guardrails,
+        currentBudgetPence: 10000,
+        liveMetric: lm("cpr", 0.5),
+        campaignDailyCeilingPence: 11000,
+      }),
+    );
+    assert.equal(result.action, "scale_up");
+    assert.equal(result.budgetAfterPence, 11000);
+    assert.equal(result.guardrailNote, "capped_by_campaign_ceiling");
+  });
+
+  it("reads the renamed baseAdSetBudget key for expansion", () => {
+    const guardrails: BudgetGuardrails = {
+      baseAdSetBudget: 100,
+      baseCampaignBudget: 999,
+      maxExpansionPercent: 10,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "partial",
+    };
+    const result = evaluateAdSet(
+      baseInput({
+        guardrails,
+        currentBudgetPence: 10000,
+        liveMetric: lm("cpr", 0.5),
+      }),
+    );
+    assert.equal(result.budgetAfterPence, 11000);
+    assert.equal(result.guardrailNote, "capped_by_max_expansion");
+  });
+
+  it("campaign-only scope does not bind a leftover maxSingleAdSetBudget", () => {
+    const guardrails: BudgetGuardrails = {
+      baseCampaignBudget: 100,
+      maxExpansionPercent: 100,
+      hardBudgetCeiling: 500,
+      ceilingBehaviour: "partial",
+      budgetCeilingScope: "campaign",
+      maxSingleAdSetBudget: 50,
+      maxSingleAdSetBudgetType: "fixed",
+    };
+    const result = evaluateAdSet(
+      baseInput({
+        guardrails,
+        currentBudgetPence: 10000,
+        liveMetric: lm("cpr", 0.5),
+      }),
+    );
+    assert.equal(result.action, "scale_up");
+    assert.equal(result.budgetAfterPence, 13000);
+    assert.equal(result.guardrailNote, null);
+  });
 });
 
 describe("cooldown last-change grep-guard", () => {

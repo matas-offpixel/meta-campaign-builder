@@ -274,6 +274,7 @@ describe("materialiseStrategy", () => {
       budgetAmount: 120,
       materialisedAt: AT,
     });
+    assert.equal(strategy.guardrails.baseAdSetBudget, 120);
     assert.equal(strategy.guardrails.baseCampaignBudget, 120);
     assert.equal(strategy.guardrails.maxExpansionPercent, 50);
     assert.equal(strategy.guardrails.hardBudgetCeiling, 180);
@@ -287,6 +288,7 @@ describe("materialiseStrategy", () => {
       50,
     );
     assert.deepEqual(Object.keys(guardrails).sort(), [
+      "baseAdSetBudget",
       "baseCampaignBudget",
       "ceilingBehaviour",
       "hardBudgetCeiling",

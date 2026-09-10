@@ -232,7 +232,7 @@ export function AutomationArmControl({
               Guardrails that will bound writes
             </Datum>
             <Datum className="text-foreground">
-              Base budget {sym}
+              Base ad-set budget {sym}
               {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
               {hardBudgetCeiling.toLocaleString()}
             </Datum>

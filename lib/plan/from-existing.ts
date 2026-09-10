@@ -84,6 +84,7 @@ export function overlayPlanSharedInputs(
       ...draft.optimisationStrategy,
       guardrails: {
         ...draft.optimisationStrategy.guardrails,
+        baseAdSetBudget: plan.intent.budget.metaDaily,
         baseCampaignBudget: plan.intent.budget.metaDaily,
       },
     },

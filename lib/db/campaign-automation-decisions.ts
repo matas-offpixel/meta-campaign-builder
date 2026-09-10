@@ -129,6 +129,11 @@ export async function loadOptedInCampaignsForAutomation(
           optimisationStrategy: draft.optimisationStrategy,
           optimisationAutomationLive: row.optimisation_automation_live === true,
           campaignName: draft.settings.campaignName || draft.metaCampaignId,
+          enabledDailyBudgetsMajor: draft.adSetSuggestions
+            .filter((s) => s.enabled)
+            .map((s) => s.budgetPerDay),
+          startDate: draft.budgetSchedule.startDate,
+          endDate: draft.budgetSchedule.endDate,
         },
       });
     } catch (err) {

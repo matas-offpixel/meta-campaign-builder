@@ -42,6 +42,7 @@ import {
   effectiveCooldownHours,
   MIN_CONVERSION_RESULT_COUNT,
 } from "./evaluate-windows.ts";
+import { readBaseAdSetBudget } from "./campaign-ceiling.ts";
 
 export type AutomationAction =
   | "scale_up"
@@ -69,6 +70,9 @@ export type GuardrailNote =
   | "capped_by_max_expansion"
   | "capped_by_max_single_adset_budget"
   | "capped_by_max_daily_increase"
+  | "capped_by_campaign_ceiling"
+  | "campaign_ceiling_absent"
+  | "campaign_ceiling_unreadable"
   | "budget_changed_underfoot"
   | null;
 
@@ -122,6 +126,12 @@ export interface EvaluateAdSetInput {
   now?: Date;
   /** Noun in skip/maintain copy. CBO path uses "campaign". */
   subjectNoun?: "ad set" | "campaign";
+  /**
+   * Campaign-daily ceiling in pence. CBO only — the campaign's own
+   * daily_budget is the campaign total. ABO applies this as headroom in
+   * the tick, never as a per-ad-set cap here.
+   */
+  campaignDailyCeilingPence?: number;
 }
 
 export interface EvaluateAdSetResult {
@@ -421,6 +431,7 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
     guardrails,
     currentBudgetPence,
     input.appliedIncreasePercentLast24h ?? 0,
+    input.campaignDailyCeilingPence,
   );
 
   if (rawProposedPence <= effectiveCapPence) {
@@ -454,29 +465,31 @@ interface ScaleUpCap {
 /**
  * Tightest of the configured scale-up ceilings. Tie-break order (first
  * listed wins when pence values are equal): hard ceiling → expansion →
- * max single ad set → max daily increase.
+ * max single ad set → max daily increase → campaign daily (CBO only).
  */
 export function resolveScaleUpCap(
   guardrails: BudgetGuardrails,
   currentBudgetPence: number,
   appliedIncreasePercentLast24h: number,
+  campaignDailyCeilingPence?: number,
 ): ScaleUpCap {
   const hardCeilingPence = round(guardrails.hardBudgetCeiling * 100);
-  const baseCampaignBudgetPence = round(guardrails.baseCampaignBudget * 100);
+  const baseAdSetBudgetPence = round(readBaseAdSetBudget(guardrails) * 100);
   const expansionCeilingPence = round(
-    baseCampaignBudgetPence * (1 + guardrails.maxExpansionPercent / 100),
+    baseAdSetBudgetPence * (1 + guardrails.maxExpansionPercent / 100),
   );
+  const scope = guardrails.budgetCeilingScope ?? "ad_set";
 
   const caps: Array<{ pence: number; note: Exclude<GuardrailNote, null> }> = [
     { pence: hardCeilingPence, note: "hit_hard_ceiling" },
     { pence: expansionCeilingPence, note: "capped_by_max_expansion" },
   ];
 
-  if (guardrails.maxSingleAdSetBudget != null) {
+  if (guardrails.maxSingleAdSetBudget != null && scope !== "campaign") {
     const type = guardrails.maxSingleAdSetBudgetType ?? "fixed";
     const pence =
       type === "percent"
-        ? round((baseCampaignBudgetPence * guardrails.maxSingleAdSetBudget) / 100)
+        ? round((baseAdSetBudgetPence * guardrails.maxSingleAdSetBudget) / 100)
         : round(guardrails.maxSingleAdSetBudget * 100);
     caps.push({ pence, note: "capped_by_max_single_adset_budget" });
   }
@@ -488,6 +501,16 @@ export function resolveScaleUpCap(
         ? currentBudgetPence
         : round(currentBudgetPence * (1 + remaining / 100));
     caps.push({ pence: maxAfterPence, note: "capped_by_max_daily_increase" });
+  }
+
+  if (
+    campaignDailyCeilingPence != null &&
+    Number.isFinite(campaignDailyCeilingPence)
+  ) {
+    caps.push({
+      pence: round(campaignDailyCeilingPence),
+      note: "capped_by_campaign_ceiling",
+    });
   }
 
   const effectiveCapPence = Math.min(...caps.map((c) => c.pence));
@@ -514,7 +537,9 @@ function applyCeilingBehaviour(
         ? "max expansion cap"
         : guardrailNote === "capped_by_max_single_adset_budget"
           ? "max single-ad-set budget"
-          : "max daily increase cap";
+          : guardrailNote === "capped_by_campaign_ceiling"
+            ? "campaign daily ceiling"
+            : "max daily increase cap";
 
   switch (behaviour) {
     case "partial":
