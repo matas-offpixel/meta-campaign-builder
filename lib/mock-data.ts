@@ -212,6 +212,10 @@ export const OPTIMISATION_GOALS_BY_OBJECTIVE: Record<CampaignObjective, { value:
     { value: "conversions", label: "Conversions" },
     { value: "value", label: "Value" },
   ],
+  initiate_checkout: [
+    { value: "conversions", label: "Conversions" },
+    { value: "value", label: "Value" },
+  ],
   registration: [
     { value: "conversions", label: "Conversions" },
     { value: "complete_registration", label: "Complete Registration" },

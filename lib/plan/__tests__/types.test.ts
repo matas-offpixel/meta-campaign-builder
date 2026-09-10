@@ -88,7 +88,7 @@ describe("campaign plan status model", () => {
 });
 
 describe("campaign plan intent invariants", () => {
-  it("objective intent is the internal CampaignObjective set, not a platform enum", () => {
+  it("objective intent is the five canvas units, not a platform enum", () => {
     for (const intent of CAMPAIGN_PLAN_OBJECTIVE_INTENTS) {
       assert.equal(isCampaignPlanObjectiveIntent(intent), true);
     }

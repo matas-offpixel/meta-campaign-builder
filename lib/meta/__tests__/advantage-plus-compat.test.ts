@@ -18,6 +18,7 @@ import type { CampaignObjective, OptimisationGoal } from "../../types.ts";
 
 const ALL_OBJECTIVES: CampaignObjective[] = [
   "purchase",
+  "initiate_checkout",
   "registration",
   "traffic",
   "awareness",
@@ -78,7 +79,7 @@ describe("isAdvantageAudienceSupportedForObjective — unsupported objectives", 
   });
 });
 
-describe("isAdvantageAudienceSupportedForObjective — full matrix sanity (all 5 objectives x 9 goals)", () => {
+describe("isAdvantageAudienceSupportedForObjective — full matrix sanity (all 6 objectives x 9 goals)", () => {
   it("every combo returns a boolean and matches the objective-level expectation", () => {
     const unsupported = new Set<CampaignObjective>(["awareness", "registration"]);
     for (const objective of ALL_OBJECTIVES) {
@@ -117,6 +118,7 @@ describe("objectiveDisplayName", () => {
     assert.equal(objectiveDisplayName("registration"), "Registration");
     assert.equal(objectiveDisplayName("awareness"), "Awareness");
     assert.equal(objectiveDisplayName("purchase"), "Purchase");
+    assert.equal(objectiveDisplayName("initiate_checkout"), "Initiate checkout");
     assert.equal(objectiveDisplayName("traffic"), "Traffic");
     assert.equal(objectiveDisplayName("engagement"), "Engagement");
   });

@@ -28,6 +28,7 @@ const OBJECTIVES: CampaignObjective[] = [
   "registration",
   "traffic",
   "purchase",
+  "initiate_checkout",
   "awareness",
   "engagement",
 ];

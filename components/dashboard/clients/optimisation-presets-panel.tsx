@@ -37,6 +37,7 @@ const OBJECTIVES: readonly CampaignObjective[] = [
   "registration",
   "traffic",
   "purchase",
+  "initiate_checkout",
   "awareness",
   "engagement",
 ];
@@ -45,6 +46,7 @@ const OBJECTIVE_LABEL: Record<CampaignObjective, string> = {
   registration: "signups",
   traffic: "traffic",
   purchase: "sales",
+  initiate_checkout: "initiate checkout",
   awareness: "awareness",
   engagement: "engagement",
 };

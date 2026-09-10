@@ -61,6 +61,24 @@ const ACTION_TYPE_CANDIDATES: Partial<Record<RuleMetric, string[]>> = {
   cpa: ["offsite_conversion.fb_pixel_purchase", "onsite_conversion.purchase", "purchase"],
 };
 
+/**
+ * Initiate checkout reuses the `cpa` RuleMetric (same ladder as purchase)
+ * but must not read Purchase action types — this objective exists because
+ * Purchase is not on our pixel.
+ */
+const ACTION_TYPE_CANDIDATES_BY_OBJECTIVE: Partial<
+  Record<CampaignObjective, Partial<Record<RuleMetric, string[]>>>
+> = {
+  initiate_checkout: {
+    cpa: [
+      "offsite_conversion.fb_pixel_initiate_checkout",
+      "omni_initiated_checkout",
+      "initiate_checkout",
+      "initiated_checkout",
+    ],
+  },
+};
+
 /** Direct top-level insight fields — no action_type lookup needed. */
 const DIRECT_FIELD: Partial<Record<RuleMetric, keyof AdSetInsightMetrics>> = {
   cpc: "cpc",
@@ -95,7 +113,10 @@ export function resolvePrimaryLiveMetric(
     return { name: metric, value, window, resultCount: null };
   }
 
-  const candidates = ACTION_TYPE_CANDIDATES[metric] ?? [];
+  const candidates =
+    ACTION_TYPE_CANDIDATES_BY_OBJECTIVE[objective]?.[metric] ??
+    ACTION_TYPE_CANDIDATES[metric] ??
+    [];
   for (const actionType of candidates) {
     const value = insight.costPerActionType[actionType];
     if (typeof value === "number" && Number.isFinite(value)) {

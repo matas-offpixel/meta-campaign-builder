@@ -35,6 +35,11 @@ export const OBJECTIVE_METRIC_PRIORITY: Record<CampaignObjective, ObjectiveMetri
     secondaryLabel: "ROAS",
     summaryLine: "Scaling based on purchase efficiency with ROAS guardrail",
   },
+  initiate_checkout: {
+    primary: "cpa",
+    primaryLabel: "Cost per Initiate Checkout",
+    summaryLine: "Scaling based on initiate-checkout efficiency",
+  },
   awareness: {
     primary: "cpm",
     primaryLabel: "Cost per 1,000 Impressions",
@@ -75,6 +80,12 @@ export const ACCOUNT_BENCHMARKS: Record<CampaignObjective, BenchmarkPercentile[]
   purchase: [
     { metric: "cpa", metricLabel: "Cost per Purchase", currency: "£", top25: 8.50, median: 18.00, bottom25: 38.00, tag: "primary" },
     { metric: "roas", metricLabel: "Return on Ad Spend", top25: 6.5, median: 3.2, bottom25: 1.4, tag: "secondary" },
+    { metric: "cpc", metricLabel: "Cost per Click", currency: "£", top25: 0.22, median: 0.45, bottom25: 0.90, tag: "reference" },
+    { metric: "cpm", metricLabel: "Cost per 1,000 Impressions", currency: "£", top25: 4.50, median: 8.20, bottom25: 14.00, tag: "reference" },
+    { metric: "ctr", metricLabel: "Click-through Rate", top25: 2.1, median: 1.2, bottom25: 0.5, tag: "reference" },
+  ],
+  initiate_checkout: [
+    { metric: "cpa", metricLabel: "Cost per Initiate Checkout", currency: "£", top25: 8.50, median: 18.00, bottom25: 38.00, tag: "primary" },
     { metric: "cpc", metricLabel: "Cost per Click", currency: "£", top25: 0.22, median: 0.45, bottom25: 0.90, tag: "reference" },
     { metric: "cpm", metricLabel: "Cost per 1,000 Impressions", currency: "£", top25: 4.50, median: 8.20, bottom25: 14.00, tag: "reference" },
     { metric: "ctr", metricLabel: "Click-through Rate", top25: 2.1, median: 1.2, bottom25: 0.5, tag: "reference" },
@@ -138,6 +149,26 @@ function trafficRules(): OptimisationRule[] {
         { id: tid(), operator: "between", value: 0.35, valueTo: 0.55, action: "maintain", actionValue: 0, label: "£0.35–£0.55 CPLPV → maintain" },
         { id: tid(), operator: "between", value: 0.55, valueTo: 0.70, action: "decrease_budget", actionValue: 25, label: "£0.55–£0.70 CPLPV → reduce (-25%)" },
         { id: tid(), operator: "above", value: 0.70, action: "pause", label: "Above £0.70 CPLPV → pause ad set" },
+      ],
+    },
+  ];
+}
+
+function initiateCheckoutRules(): OptimisationRule[] {
+  return [
+    {
+      id: rid(),
+      name: "Primary Rule Set — Cost per Initiate Checkout",
+      metric: "cpa",
+      timeWindow: "3d",
+      enabled: true,
+      priority: "primary",
+      thresholds: [
+        { id: tid(), operator: "below", value: 10, action: "increase_budget", actionValue: 30, label: "Below £10 CPIC → scale aggressively (+30%)" },
+        { id: tid(), operator: "between", value: 10, valueTo: 18, action: "increase_budget", actionValue: 10, label: "£10–£18 CPIC → scale moderately (+10%)" },
+        { id: tid(), operator: "between", value: 18, valueTo: 30, action: "maintain", actionValue: 0, label: "£18–£30 CPIC → maintain" },
+        { id: tid(), operator: "between", value: 30, valueTo: 45, action: "decrease_budget", actionValue: 25, label: "£30–£45 CPIC → reduce (-25%)" },
+        { id: tid(), operator: "above", value: 45, action: "pause", label: "Above £45 CPIC → pause ad set" },
       ],
     },
   ];
@@ -233,6 +264,7 @@ export function generateRulesForObjective(objective: CampaignObjective): Optimis
     case "registration": rules = registrationRules(); break;
     case "traffic": rules = trafficRules(); break;
     case "purchase": rules = purchaseRules(); break;
+    case "initiate_checkout": rules = initiateCheckoutRules(); break;
     case "awareness": rules = awarenessRules(); break;
     case "engagement": rules = engagementRules(); break;
     default: rules = registrationRules();

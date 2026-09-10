@@ -124,6 +124,33 @@ describe("resolvePrimaryLiveMetric", () => {
     assert.deepEqual(result, { name: "cpa", value: 15, window: "3d", resultCount: 2 });
   });
 
+  it("initiate_checkout reads checkout action types, not purchase", () => {
+    const result = resolvePrimaryLiveMetric(
+      "initiate_checkout",
+      metrics({
+        costPerActionType: {
+          purchase: 15,
+          "offsite_conversion.fb_pixel_initiate_checkout": 4.2,
+        },
+        actionCountByType: {
+          purchase: 2,
+          "offsite_conversion.fb_pixel_initiate_checkout": 9,
+        },
+      }),
+      "3d",
+    );
+    assert.deepEqual(result, { name: "cpa", value: 4.2, window: "3d", resultCount: 9 });
+  });
+
+  it("initiate_checkout with only purchase actions returns null", () => {
+    const result = resolvePrimaryLiveMetric(
+      "initiate_checkout",
+      metrics({ costPerActionType: { purchase: 15 }, actionCountByType: { purchase: 2 } }),
+      "3d",
+    );
+    assert.equal(result, null);
+  });
+
   it("awareness objective resolves cpm directly — resultCount is null", () => {
     const result = resolvePrimaryLiveMetric("awareness", metrics({ cpm: 4.2 }), "24h");
     assert.deepEqual(result, { name: "cpm", value: 4.2, window: "24h", resultCount: null });
