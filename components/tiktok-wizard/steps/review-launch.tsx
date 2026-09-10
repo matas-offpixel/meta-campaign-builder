@@ -83,11 +83,13 @@ export function ReviewLaunchStep({
   onSave,
   context,
   surface = "wizard",
+  onOpenStep,
 }: {
   draft: TikTokCampaignDraft;
   onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
   context?: TikTokWizardContext;
   surface?: StepSurface;
+  onOpenStep?: (step: number) => void;
 }) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -311,7 +313,19 @@ export function ReviewLaunchStep({
               <ul className="mt-2 space-y-2 text-sm">
                 {wizardIssues.map((issue) => (
                   <li key={issue.id}>
-                    {issue.label}: {issue.message}
+                    {onOpenStep ? (
+                      <button
+                        type="button"
+                        className="text-left underline-offset-2 hover:underline"
+                        onClick={() => onOpenStep(issue.step)}
+                      >
+                        {issue.label}: {issue.message}
+                      </button>
+                    ) : (
+                      <>
+                        {issue.label}: {issue.message}
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -356,7 +370,19 @@ export function ReviewLaunchStep({
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
             {wizardIssues.map((issue) => (
               <li key={issue.id}>
-                {issue.label}: {issue.message}
+                {onOpenStep ? (
+                  <button
+                    type="button"
+                    className="text-left underline-offset-2 hover:underline"
+                    onClick={() => onOpenStep(issue.step)}
+                  >
+                    {issue.label}: {issue.message}
+                  </button>
+                ) : (
+                  <>
+                    {issue.label}: {issue.message}
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -397,28 +423,43 @@ export function ReviewLaunchStep({
         
       </section>
 
-      <ReviewPanel title="Account">
-        <KeyValue label="Advertiser" value={draft.accountSetup.advertiserId} />
+      <ReviewPanel title="Account" onOpen={onOpenStep ? () => onOpenStep(0) : undefined}>
+        <KeyValue
+          label="Advertiser"
+          value={draft.accountSetup.advertiserId}
+          onEdit={onOpenStep ? () => onOpenStep(0) : undefined}
+        />
         <KeyValue
           label="Identity"
           value={
             draft.accountSetup.identityDisplayName ??
             draft.accountSetup.identityManualName
           }
+          onEdit={onOpenStep ? () => onOpenStep(0) : undefined}
         />
         <KeyValue
           label="Pixel"
           value={draft.accountSetup.pixelName ?? draft.accountSetup.pixelId}
+          onEdit={onOpenStep ? () => onOpenStep(0) : undefined}
         />
         <KeyValue
           label="Optimisation event"
           value={draft.accountSetup.optimisationEvent}
+          onEdit={onOpenStep ? () => onOpenStep(0) : undefined}
         />
-        <KeyValue label="Currency" value={draft.accountSetup.currency} />
+        <KeyValue
+          label="Currency"
+          value={draft.accountSetup.currency}
+          onEdit={onOpenStep ? () => onOpenStep(0) : undefined}
+        />
       </ReviewPanel>
 
-      <ReviewPanel title="Campaign">
-        <KeyValue label="Name" value={draft.campaignSetup.campaignName} />
+      <ReviewPanel title="Campaign" onOpen={onOpenStep ? () => onOpenStep(1) : undefined}>
+        <KeyValue
+          label="Name"
+          value={draft.campaignSetup.campaignName}
+          onEdit={onOpenStep ? () => onOpenStep(1) : undefined}
+        />
         <KeyValue
           label="Objective"
           value={
@@ -426,6 +467,7 @@ export function ReviewLaunchStep({
               ? TIKTOK_OBJECTIVE_LABELS[draft.campaignSetup.objective]
               : draft.campaignSetup.objective
           }
+          onEdit={onOpenStep ? () => onOpenStep(1) : undefined}
         />
         <KeyValue
           label="Optimisation goal"
@@ -437,11 +479,13 @@ export function ReviewLaunchStep({
                 )
               : draft.campaignSetup.optimisationGoal
           }
+          onEdit={onOpenStep ? () => onOpenStep(1) : undefined}
         />
         {draft.campaignSetup.objective === "LEAD_GENERATION" && (
           <KeyValue
             label="Optimization location"
             value="Website (Instant Form not yet supported)"
+            onEdit={onOpenStep ? () => onOpenStep(1) : undefined}
           />
         )}
         <KeyValue
@@ -449,15 +493,21 @@ export function ReviewLaunchStep({
           value={bidStrategy ? TIKTOK_BID_STRATEGY_LABELS[bidStrategy] : null}
           tone={bidStrategy ? "default" : "warning"}
           emptyWarning="Not set — launch will publish the ad group with no bid"
+          onEdit={onOpenStep ? () => onOpenStep(1) : undefined}
         />
       </ReviewPanel>
 
-      <ReviewPanel title="Optimisation">
+      <ReviewPanel title="Optimisation" onOpen={onOpenStep ? () => onOpenStep(2) : undefined}>
         <KeyValue
           label="Smart+"
           value={draft.optimisation.smartPlusEnabled ? "On" : "Off"}
+          onEdit={onOpenStep ? () => onOpenStep(2) : undefined}
         />
-        <KeyValue label="Pacing" value={draft.optimisation.pacing} />
+        <KeyValue
+          label="Pacing"
+          value={draft.optimisation.pacing}
+          onEdit={onOpenStep ? () => onOpenStep(2) : undefined}
+        />
         <KeyValue
           label="Guardrails"
           value={[
@@ -470,10 +520,11 @@ export function ReviewLaunchStep({
           ]
             .filter(Boolean)
             .join(" · ")}
+          onEdit={onOpenStep ? () => onOpenStep(2) : undefined}
         />
       </ReviewPanel>
 
-      <ReviewPanel title="Audiences">
+      <ReviewPanel title="Audiences" onOpen={onOpenStep ? () => onOpenStep(3) : undefined}>
         <ChipList
           values={[
             ...Object.values(draft.audiences.interestCategoryLabels),
@@ -494,7 +545,7 @@ export function ReviewLaunchStep({
         )}
       </ReviewPanel>
 
-      <ReviewPanel title="Creatives">
+      <ReviewPanel title="Creatives" onOpen={onOpenStep ? () => onOpenStep(4) : undefined}>
         <div className="space-y-2">
           {draft.creatives.items.map((creative) => (
             <div key={creative.id} className="rounded border border-border p-3">
@@ -510,8 +561,12 @@ export function ReviewLaunchStep({
         </div>
       </ReviewPanel>
 
-      <ReviewPanel title="Budget">
-        <KeyValue label="Mode" value={draft.budgetSchedule.budgetMode} />
+      <ReviewPanel title="Budget" onOpen={onOpenStep ? () => onOpenStep(5) : undefined}>
+        <KeyValue
+          label="Mode"
+          value={draft.budgetSchedule.budgetMode}
+          onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
+        />
         <KeyValue
           label="Amount"
           value={
@@ -519,12 +574,14 @@ export function ReviewLaunchStep({
               ? null
               : `£${draft.budgetSchedule.budgetAmount}`
           }
+          onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
         <KeyValue
           label="Schedule"
           value={`${draft.budgetSchedule.scheduleStartAt ?? "—"} → ${
             draft.budgetSchedule.scheduleEndAt ?? "—"
           }`}
+          onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
         <KeyValue
           label="Frequency cap"
@@ -533,10 +590,11 @@ export function ReviewLaunchStep({
               ? null
               : String(draft.budgetSchedule.frequencyCap)
           }
+          onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
       </ReviewPanel>
 
-      <ReviewPanel title="Assignments">
+      <ReviewPanel title="Assignments" onOpen={onOpenStep ? () => onOpenStep(6) : undefined}>
         <div className="space-y-2">
           {adGroups.map((adGroup) => (
             <div key={adGroup.id} className="rounded border border-border p-3">
@@ -665,13 +723,25 @@ function formatPreflightIssue(
 function ReviewPanel({
   title,
   children,
+  onOpen,
 }: {
   title: string;
   children: React.ReactNode;
+  onOpen?: () => void;
 }) {
   return (
     <section className="rounded-md border border-border bg-background p-4">
-      <h3 className="font-heading text-lg">{title}</h3>
+      {onOpen ? (
+        <button
+          type="button"
+          className="font-heading text-lg underline-offset-2 hover:underline"
+          onClick={onOpen}
+        >
+          {title}
+        </button>
+      ) : (
+        <h3 className="font-heading text-lg">{title}</h3>
+      )}
       <div className="mt-3 space-y-2 text-sm">{children}</div>
     </section>
   );
@@ -682,25 +752,33 @@ function KeyValue({
   value,
   tone = "default",
   emptyWarning,
+  onEdit,
 }: {
   label: string;
   value: string | null | undefined;
   tone?: "default" | "warning";
   emptyWarning?: string;
+  onEdit?: () => void;
 }) {
   const display = value || (tone === "warning" ? (emptyWarning ?? "Not set") : "—");
+  const valueClass =
+    tone === "warning"
+      ? "text-right text-amber-700 dark:text-amber-300"
+      : "text-right text-foreground";
   return (
     <div className="flex justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span
-        className={
-          tone === "warning"
-            ? "text-right text-amber-700 dark:text-amber-300"
-            : "text-right text-foreground"
-        }
-      >
-        {display}
-      </span>
+      {onEdit ? (
+        <button
+          type="button"
+          className={`${valueClass} underline-offset-2 hover:underline`}
+          onClick={onEdit}
+        >
+          {display}
+        </button>
+      ) : (
+        <span className={valueClass}>{display}</span>
+      )}
     </div>
   );
 }

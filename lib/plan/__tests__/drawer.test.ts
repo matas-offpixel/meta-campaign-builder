@@ -1082,44 +1082,73 @@ describe("Google keyword blockers", () => {
 });
 
 describe("standalone pages keep Launch / Push", () => {
-  it("/tiktok-campaign/[id] is the same drawer, page variant", () => {
+  it("/tiktok-campaign/[id] is the ladder, not the drawer", () => {
     const shell = read("components/tiktok-wizard/wizard-shell.tsx");
-    assert.match(shell, /<TikTokDrawer/);
-    assert.match(shell, /variant="page"/);
-    assert.ok(!/TikTokWizardFooter/.test(shell), "the stepper footer is gone");
-    assert.ok(!/TIKTOK_WIZARD_STEPS\.map/.test(shell), "the eight-step stepper is gone");
+    assert.match(shell, /<WizardStepper/);
+    assert.match(shell, /<CampaignSetupStep/);
+    assert.match(shell, /steps=\{TIKTOK_WIZARD_STEPS\}/);
+    assert.ok(!/<TikTokDrawer/.test(shell), "the standalone route is not the drawer");
   });
 
-  it("a standalone TikTok draft still renders ReviewLaunch", () => {
+  it("a standalone TikTok draft still renders ReviewLaunch; a plan-linked one does not", () => {
+    const shell = read("components/tiktok-wizard/wizard-shell.tsx");
+    assert.match(shell, /step === 7 && !linkedPlan/);
+    assert.match(shell, /<ReviewLaunchStep/);
+    assert.match(shell, /planHref=\{linkedPlan \? `\/plan\/\$\{linkedPlan\.id\}` : null\}/);
     const drawer = read("components/plan/tiktok-drawer.tsx");
     assert.match(drawer, /variant === "page" && !planId/);
     assert.match(drawer, /<ReviewLaunchStep/);
   });
 
-  it("/google-search/[id] is the same drawer, page variant", () => {
+  it("/google-search/[id] is the ladder, not the drawer", () => {
     const shell = read("components/google-search-wizard/wizard-shell.tsx");
-    assert.match(shell, /<GoogleDrawer/);
-    assert.match(shell, /variant="page"/);
-    assert.ok(!/GOOGLE_SEARCH_WIZARD_STEPS\.map/.test(shell), "the eight-step stepper is gone");
+    assert.match(shell, /<WizardStepper/);
+    assert.match(shell, /<PlanSetupStep/);
+    assert.match(shell, /steps=\{GOOGLE_SEARCH_WIZARD_STEPS\}/);
+    assert.ok(!/<GoogleDrawer/.test(shell), "the standalone route is not the drawer");
   });
 
-  it("a standalone Google tree still renders Push", () => {
+  it("a standalone Google tree still renders Push; a plan-linked one does not", () => {
+    const shell = read("components/google-search-wizard/wizard-shell.tsx");
+    assert.match(shell, /step === 6 && !linkedPlan/);
+    assert.match(shell, /<PushStep/);
+    assert.match(shell, /planHref=\{linkedPlan \? `\/plan\/\$\{linkedPlan\.id\}` : null\}/);
     const drawer = read("components/plan/google-drawer.tsx");
     assert.match(drawer, /variant === "page" && !planId/);
     assert.match(drawer, /<PushStep/);
   });
 
-  it("Google has no templates — the loader is present and disabled", () => {
+  it("the canvas still mounts TikTok and Google drawers as sheets", () => {
+    const workspace = read("components/plan/plan-workspace.tsx");
+    assert.match(workspace, /<TikTokDrawerMount/);
+    assert.match(workspace, /<GoogleDrawerMount/);
+    assert.ok(!/WizardStepper/.test(workspace), "the plan canvas does not grow a stepper");
+  });
+
+  it("Review offers a way back to the control that set each value", () => {
+    const review = read("components/tiktok-wizard/steps/review-launch.tsx");
+    assert.match(review, /onOpenStep\?: \(step: number\) => void/);
+    assert.match(review, /onEdit=\{onOpenStep \? \(\) => onOpenStep\(1\) : undefined\}/);
+    const push = read("components/google-search-wizard/steps/push.tsx");
+    assert.match(push, /onOpenStep\?: \(step: number\) => void/);
+    assert.match(push, /onOpen=\{onOpenStep \? \(\) => onOpenStep\(1\) : undefined\}/);
+  });
+
+  it("Google has no templates — the loader is present and disabled on the canvas", () => {
     const drawer = read("components/plan/google-drawer.tsx");
     assert.match(drawer, /noTemplatesTip/);
     assert.match(drawer, /aria-disabled="true"/);
     assert.ok(!/onLoadTemplate/.test(drawer), "the header control is not wired");
+    const shell = read("components/google-search-wizard/wizard-shell.tsx");
+    assert.match(shell, /showTemplates=\{false\}/);
   });
 
   it("TikTok loads templates from lib/db/tiktok-templates", () => {
     const drawer = read("components/plan/tiktok-drawer.tsx");
     assert.match(drawer, /loadTikTokTemplatesFromDb/);
     assert.match(drawer, /onLoadTemplate=/);
+    const shell = read("components/tiktok-wizard/wizard-shell.tsx");
+    assert.match(shell, /loadTikTokTemplatesFromDb/);
   });
 });
 

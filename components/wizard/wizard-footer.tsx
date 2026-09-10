@@ -35,6 +35,8 @@ interface WizardFooterProps {
    */
   showLaunch?: boolean;
   planHref?: string | null;
+  /** Google has no campaign templates. Default on — Meta and TikTok keep the loader. */
+  showTemplates?: boolean;
   onBack: () => void;
   onContinue: () => void;
   onSaveDraft: () => void;
@@ -53,6 +55,7 @@ export function WizardFooter({
   launchCooldownLabel = null,
   showLaunch = true,
   planHref = null,
+  showTemplates = true,
   onBack,
   onContinue,
   onSaveDraft,
@@ -116,7 +119,7 @@ export function WizardFooter({
                 Back
               </Button>
             )}
-            {showLoadTemplate && (
+            {showTemplates && showLoadTemplate && (
               <Button variant="outline" onClick={onLoadTemplate}>
                 <FolderOpen className="h-4 w-4" />
                 Load Template
@@ -139,10 +142,12 @@ export function WizardFooter({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={onSaveTemplate}>
-              <BookmarkPlus className="h-4 w-4" />
-              Save as Template
-            </Button>
+            {showTemplates ? (
+              <Button variant="ghost" onClick={onSaveTemplate}>
+                <BookmarkPlus className="h-4 w-4" />
+                Save as Template
+              </Button>
+            ) : null}
             <Button variant="ghost" onClick={onSaveDraft}>
               <Save className="h-4 w-4" />
               Save Draft

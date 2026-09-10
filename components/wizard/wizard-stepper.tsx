@@ -7,14 +7,16 @@ import { createClient } from "@/lib/supabase/client";
 import { clearFacebookTokenStorage } from "@/lib/facebook-token-storage";
 
 interface WizardStepperProps {
-  currentStep: WizardStep;
+  currentStep: number;
   completedSteps: Set<number>;
   /**
    * Step indices that should be rendered in the stepper. When omitted,
    * defaults to all steps (preserves the legacy 8-step layout for any
    * caller that hasn't been updated yet).
    */
-  visibleSteps?: WizardStep[];
+  visibleSteps?: number[];
+  /** Defaults to the Meta `WIZARD_STEPS`. TikTok and Google pass their own. */
+  steps?: ReadonlyArray<{ label: string }>;
   onStepClick: (step: WizardStep) => void;
 }
 
@@ -22,6 +24,7 @@ export function WizardStepper({
   currentStep,
   completedSteps,
   visibleSteps,
+  steps = WIZARD_STEPS,
   onStepClick,
 }: WizardStepperProps) {
   const router = useRouter();
@@ -33,17 +36,18 @@ export function WizardStepper({
     router.push("/login");
   };
 
-  const indices: WizardStep[] =
+  const indices: number[] =
     visibleSteps && visibleSteps.length > 0
       ? visibleSteps
-      : (WIZARD_STEPS.map((_, i) => i) as WizardStep[]);
+      : steps.map((_, i) => i);
 
   return (
     <nav className="w-full border-b border-border bg-card px-4 py-3">
       <div className="mx-auto flex max-w-5xl items-center justify-between">
         <ol className="flex items-center">
           {indices.map((index, position) => {
-            const step = WIZARD_STEPS[index];
+            const step = steps[index];
+            if (!step) return null;
             const isCompleted = completedSteps.has(index);
             const isCurrent = currentStep === index;
             // Clickable when the step is completed OR is at-or-before the
@@ -59,7 +63,7 @@ export function WizardStepper({
                 <button
                   type="button"
                   disabled={!isClickable}
-                  onClick={() => isClickable && onStepClick(index)}
+                  onClick={() => isClickable && onStepClick(index as WizardStep)}
                   className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors
                     ${isClickable ? "cursor-pointer" : "cursor-default"}
                     ${isCurrent ? "bg-primary/15" : "hover:bg-muted"}
