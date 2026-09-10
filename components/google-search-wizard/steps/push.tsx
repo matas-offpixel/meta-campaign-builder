@@ -29,6 +29,7 @@ interface Props {
   surface?: StepSurface;
   tree: GoogleSearchPlanTree;
   onChange: (next: GoogleSearchPlanTree) => void;
+  onOpenStep?: (step: number) => void;
 }
 
 type PushState =
@@ -37,7 +38,7 @@ type PushState =
   | { phase: "refused"; reason: string; details?: string }
   | { phase: "complete"; summary: GoogleSearchLaunchSummary };
 
-export function PushStep({surface = "wizard",  tree, onChange }: Props) {
+export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Props) {
   const [state, setState] = useState<PushState>({ phase: "idle" });
   const issues = validateGoogleSearchPlan(tree);
   const blocking = hasHardErrors(issues);
@@ -122,11 +123,31 @@ export function PushStep({surface = "wizard",  tree, onChange }: Props) {
         </CardHeader>
 
         <div className="grid gap-3 sm:grid-cols-5">
-          <Stat label="Campaigns" value={totals.campaigns} />
-          <Stat label="Ad groups" value={totals.adGroups} />
-          <Stat label="Keywords" value={totals.keywords} />
-          <Stat label="RSAs" value={totals.rsas} />
-          <Stat label="Negatives" value={totals.negatives} />
+          <Stat
+            label="Campaigns"
+            value={totals.campaigns}
+            onOpen={onOpenStep ? () => onOpenStep(1) : undefined}
+          />
+          <Stat
+            label="Ad groups"
+            value={totals.adGroups}
+            onOpen={onOpenStep ? () => onOpenStep(1) : undefined}
+          />
+          <Stat
+            label="Keywords"
+            value={totals.keywords}
+            onOpen={onOpenStep ? () => onOpenStep(2) : undefined}
+          />
+          <Stat
+            label="RSAs"
+            value={totals.rsas}
+            onOpen={onOpenStep ? () => onOpenStep(4) : undefined}
+          />
+          <Stat
+            label="Negatives"
+            value={totals.negatives}
+            onOpen={onOpenStep ? () => onOpenStep(3) : undefined}
+          />
         </div>
 
         {blocking && (
@@ -134,9 +155,26 @@ export function PushStep({surface = "wizard",  tree, onChange }: Props) {
             <StatusLine tone="alert" className="flex items-center gap-2 text-xs font-medium text-destructive">
               <XCircle className="h-3.5 w-3.5" />
               {issues.filter((i) => i.severity === "error").length} hard error
-              {issues.filter((i) => i.severity === "error").length === 1 ? "" : "s"} — fix in Review
-              before pushing.
+              {issues.filter((i) => i.severity === "error").length === 1 ? "" : "s"} — fix on the
+              earlier steps before pushing.
             </StatusLine>
+            {onOpenStep ? (
+              <ul className="mt-2 space-y-1 text-xs">
+                {issues
+                  .filter((i) => i.severity === "error")
+                  .map((issue, index) => (
+                    <li key={`${issue.code}-${index}`}>
+                      <button
+                        type="button"
+                        className="text-left text-destructive underline-offset-2 hover:underline"
+                        onClick={() => onOpenStep(stepForGoogleIssue(issue.code))}
+                      >
+                        {issue.message}
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+            ) : null}
           </div>
         )}
 
@@ -423,7 +461,7 @@ function humanReason(reason: string): string {
     case "already_pushed":
       return "This plan was already pushed. Click Push again above to deliberately re-push (the adapter will skip rows that already exist on Google Ads).";
     case "validation_failed":
-      return "Validation failed — fix the hard errors in Review before pushing.";
+      return "Validation failed — fix the hard errors on the earlier steps before pushing.";
     case "no_google_ads_account_linked":
       return "No Google Ads account linked — pick one in Plan Setup.";
     case "no_credentials_for_account":
@@ -447,11 +485,48 @@ function humanReason(reason: string): string {
   }
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-md border border-border bg-background p-3">
+function stepForGoogleIssue(code: string): number {
+  if (code.startsWith("plan_") || code.startsWith("google_ads_")) return 0;
+  if (code === "campaign_no_keywords" || code.startsWith("keyword_")) return 2;
+  if (code.includes("negative") || code.includes("cannibal")) return 3;
+  if (
+    code.startsWith("rsa_") ||
+    code.startsWith("headline_") ||
+    code.startsWith("description_") ||
+    code.startsWith("sitelink")
+  ) {
+    return 4;
+  }
+  if (code.startsWith("budget_") || code.startsWith("geo_")) return 5;
+  if (code.startsWith("campaign_") || code === "no_campaigns") return 1;
+  return 0;
+}
+
+function Stat({
+  label,
+  value,
+  onOpen,
+}: {
+  label: string;
+  value: number;
+  onOpen?: () => void;
+}) {
+  const inner = (
+    <>
       <Datum className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</Datum>
       <Datum className="mt-1 font-heading text-xl tabular-nums">{value}</Datum>
-    </div>
+    </>
   );
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="rounded-md border border-border bg-background p-3 text-left hover:bg-muted"
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <div className="rounded-md border border-border bg-background p-3">{inner}</div>;
 }

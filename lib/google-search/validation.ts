@@ -39,6 +39,16 @@ export interface GoogleSearchValidationIssue {
 
 export type GoogleSearchWizardStep = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
+export const GOOGLE_SEARCH_WIZARD_STEPS = [
+  { label: "Plan" },
+  { label: "Campaigns" },
+  { label: "Keywords" },
+  { label: "Negatives" },
+  { label: "Copy" },
+  { label: "Budget" },
+  { label: "Push" },
+] as const;
+
 export function validateGoogleSearchStep(
   step: GoogleSearchWizardStep,
   tree: GoogleSearchPlanTree,

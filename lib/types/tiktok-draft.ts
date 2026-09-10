@@ -404,3 +404,14 @@ function asStringRecord(value: unknown): Record<string, string> {
   );
 }
 
+export const TIKTOK_WIZARD_STEPS = [
+  { label: "Account" },
+  { label: "Campaign" },
+  { label: "Optimisation" },
+  { label: "Audiences" },
+  { label: "Creatives" },
+  { label: "Budget" },
+  { label: "Assign" },
+  { label: "Review" },
+] as const;
+
