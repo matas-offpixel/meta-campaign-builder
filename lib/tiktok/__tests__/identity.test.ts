@@ -5,6 +5,7 @@ import {
   extractBcIdsFromList,
   extractIdentityAvatar,
   extractIdentityBcId,
+  extractIdentityUsername,
   fetchAdvertiserBusinessCenterId,
   fetchTikTokIdentities,
 } from "../identity.ts";
@@ -441,6 +442,11 @@ describe("fetchTikTokIdentities", () => {
     assert.equal(rows[0]?.display_name, "Ironworks");
     assert.equal(rows[0]?.avatar_url, IRONWORKS_IDENTITY_GET_ROW.profile_image);
     assert.equal(rows[0]?.identity_bc_id, "7629750024332378128");
+    assert.deepEqual(extractIdentityUsername(IRONWORKS_IDENTITY_GET_ROW), {
+      value: "ironworkslondon",
+      key: "username",
+    });
+    assert.equal(rows[0]?.username, "ironworkslondon");
   });
 
   it("falls back to /bc/get/ when the identity row has no BC id", async () => {

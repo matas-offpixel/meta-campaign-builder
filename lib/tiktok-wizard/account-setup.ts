@@ -3,14 +3,29 @@ export function shouldOpenManualIdentityHatch(input: {
   identitiesLength: number;
   selectedIdentityNeedsType: boolean;
   loadingDetails: boolean;
+  identitiesLoaded: boolean;
   hasAdvertiser: boolean;
 }): boolean {
   if (input.identityFailed || input.selectedIdentityNeedsType) return true;
   return (
     input.hasAdvertiser &&
+    input.identitiesLoaded &&
     !input.loadingDetails &&
     input.identitiesLength === 0
   );
+}
+
+/**
+ * Follow `autoOpen` both ways until the operator touches the hatch.
+ * After that, the manual toggle is authoritative.
+ */
+export function nextManualIdentityHatchOpen(input: {
+  autoOpen: boolean;
+  operatorTouched: boolean;
+  currentlyOpen: boolean;
+}): boolean {
+  if (input.operatorTouched) return input.currentlyOpen;
+  return input.autoOpen;
 }
 
 export function tikTokIdentityInitial(displayName: string): string {
@@ -26,18 +41,29 @@ export function tikTokIdentityFace(
   return { kind: "chip", initial: tikTokIdentityInitial(displayName) };
 }
 
+export function formatTikTokIdentityUsername(
+  username: string | null | undefined,
+): string | null {
+  const raw = username?.trim() ?? "";
+  if (!raw) return null;
+  return raw.startsWith("@") ? raw : `@${raw}`;
+}
+
 export function tikTokIdentityOptionView(identity: {
   display_name: string;
   avatar_url: string | null;
   identity_type: string | null;
+  username?: string | null;
 }): {
   face: ReturnType<typeof tikTokIdentityFace>;
   label: string;
-  typeCaption: string | null;
+  caption: string | null;
+  typeTooltip: string | null;
 } {
   return {
     face: tikTokIdentityFace(identity.avatar_url, identity.display_name),
     label: identity.display_name,
-    typeCaption: identity.identity_type,
+    caption: formatTikTokIdentityUsername(identity.username),
+    typeTooltip: identity.identity_type,
   };
 }

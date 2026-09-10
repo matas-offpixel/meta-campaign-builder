@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
+  formatTikTokIdentityUsername,
+  nextManualIdentityHatchOpen,
   shouldOpenManualIdentityHatch,
   tikTokIdentityFace,
   tikTokIdentityInitial,
@@ -14,6 +16,7 @@ const RESOLVED = {
   identitiesLength: 1,
   selectedIdentityNeedsType: false,
   loadingDetails: false,
+  identitiesLoaded: true,
   hasAdvertiser: true,
 } as const;
 
@@ -39,6 +42,13 @@ describe("ManualIdentityHatch — collapsed unless identity is unresolved", () =
       "#924 regression: wizard surface must not dump the hatch open",
     );
     assert.match(hatch, /useState\(autoOpen\)/);
+    assert.match(hatch, /operatorTouched/);
+    assert.match(hatch, /nextManualIdentityHatchOpen/);
+    assert.doesNotMatch(
+      hatch,
+      /if \(autoOpen\) setOpen\(true\)/,
+      "the effect must follow autoOpen both ways, not only open",
+    );
 
     const wizard = readFileSync(
       new URL("../../../components/tiktok-wizard/wizard-shell.tsx", import.meta.url),
@@ -51,6 +61,18 @@ describe("ManualIdentityHatch — collapsed unless identity is unresolved", () =
     assert.match(wizard, /AccountSetupStep surface="wizard"/);
     assert.match(drawer, /AccountSetupStep surface="drawer"/);
     assert.match(src, /shouldOpenManualIdentityHatch/);
+    assert.match(
+      src,
+      /useState\(\s*Boolean\(draft\.accountSetup\.advertiserId\)/,
+      "loadingDetails must start true when an advertiser is already on the draft",
+    );
+    assert.match(src, /identitiesLoaded/);
+    assert.doesNotMatch(
+      src,
+      /Selected advertiser/,
+      "the advertiser id echo box must be gone",
+    );
+    assert.doesNotMatch(src, /function ReadOnlySummary/);
   });
 
   it("auto-opens only on the unresolved-identity states", () => {
@@ -82,10 +104,50 @@ describe("ManualIdentityHatch — collapsed unless identity is unresolved", () =
       shouldOpenManualIdentityHatch({
         ...RESOLVED,
         identitiesLength: 0,
+        identitiesLoaded: false,
+        loadingDetails: false,
+      }),
+      false,
+      "empty before the request is not a claim",
+    );
+    assert.equal(
+      shouldOpenManualIdentityHatch({
+        ...RESOLVED,
+        identitiesLength: 0,
         hasAdvertiser: false,
       }),
       false,
       "no advertiser yet is not an unresolved identity",
+    );
+  });
+
+  it("follows autoOpen both ways until the operator touches the hatch", () => {
+    let open = nextManualIdentityHatchOpen({
+      autoOpen: false,
+      operatorTouched: false,
+      currentlyOpen: false,
+    });
+    open = nextManualIdentityHatchOpen({
+      autoOpen: true,
+      operatorTouched: false,
+      currentlyOpen: open,
+    });
+    open = nextManualIdentityHatchOpen({
+      autoOpen: false,
+      operatorTouched: false,
+      currentlyOpen: open,
+    });
+    assert.equal(open, false, "false → true → false leaves the hatch closed");
+
+    const operatorOpened = nextManualIdentityHatchOpen({
+      autoOpen: false,
+      operatorTouched: true,
+      currentlyOpen: true,
+    });
+    assert.equal(
+      operatorOpened,
+      true,
+      "an operator-opened hatch stays open when autoOpen goes false",
     );
   });
 });
@@ -96,13 +158,16 @@ describe("TikTok identity option — a face, then a name", () => {
       display_name: "Ironworks",
       avatar_url: "https://p16-sign.tiktokcdn-us.com/ironworks.jpg",
       identity_type: "BC_AUTH_TT",
+      username: "ironworkslondon",
     });
     assert.deepEqual(withFace.face, {
       kind: "image",
       src: "https://p16-sign.tiktokcdn-us.com/ironworks.jpg",
     });
     assert.equal(withFace.label, "Ironworks");
-    assert.equal(withFace.typeCaption, "BC_AUTH_TT");
+    assert.equal(withFace.caption, "@ironworkslondon");
+    assert.equal(withFace.typeTooltip, "BC_AUTH_TT");
+    assert.equal(formatTikTokIdentityUsername("@ironworkslondon"), "@ironworkslondon");
 
     const missing = tikTokIdentityOptionView({
       display_name: "Ironworks",
@@ -110,6 +175,7 @@ describe("TikTok identity option — a face, then a name", () => {
       identity_type: "BC_AUTH_TT",
     });
     assert.deepEqual(missing.face, { kind: "chip", initial: "I" });
+    assert.equal(missing.caption, null);
     assert.equal(tikTokIdentityInitial(""), "?");
     assert.deepEqual(tikTokIdentityFace("   ", "Ironworks"), {
       kind: "chip",
@@ -123,10 +189,17 @@ describe("TikTok identity option — a face, then a name", () => {
     assert.match(src, /tikTokIdentityOptionView/);
     assert.match(src, /data-identity-face="image"/);
     assert.match(src, /data-identity-face="chip"/);
+    assert.match(src, /view\.caption/);
+    assert.match(src, /view\.typeTooltip/);
     assert.doesNotMatch(
       src,
       /display_name\} · \$\{identity\.identity_type/,
       "type must not be welded into the identity label",
+    );
+    assert.doesNotMatch(
+      src,
+      /view\.typeCaption/,
+      "the row caption is the username, not the authorisation enum",
     );
   });
 });

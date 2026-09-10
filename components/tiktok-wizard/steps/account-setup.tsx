@@ -2,12 +2,13 @@
 
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
+  nextManualIdentityHatchOpen,
   shouldOpenManualIdentityHatch,
   tikTokIdentityFace,
   tikTokIdentityOptionView,
@@ -34,6 +35,7 @@ interface TikTokIdentityOption {
   display_name: string;
   identity_type: TikTokIdentityType | null;
   avatar_url?: string | null;
+  username?: string | null;
   identity_bc_id?: string | null;
 }
 
@@ -69,7 +71,10 @@ export function AccountSetupStep({
   const [pixels, setPixels] = useState<TikTokPixelOption[]>([]);
   const [pixelEvents, setPixelEvents] = useState<TikTokPixelEventOption[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
-  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [loadingDetails, setLoadingDetails] = useState(
+    Boolean(draft.accountSetup.advertiserId),
+  );
+  const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [identityWarning, setIdentityWarning] = useState<string | null>(null);
   const [identityFailed, setIdentityFailed] = useState(false);
@@ -120,6 +125,8 @@ export function AccountSetupStep({
     const selectedAdvertiserId = draft.accountSetup.advertiserId;
     if (!selectedAdvertiserId) {
       setIdentities([]);
+      setIdentitiesLoaded(false);
+      setLoadingDetails(false);
       setPixels([]);
       setPixelEvents([]);
       return;
@@ -127,6 +134,7 @@ export function AccountSetupStep({
     const advertiserId = selectedAdvertiserId;
     let cancelled = false;
     setLoadingDetails(true);
+    setIdentitiesLoaded(false);
     setIdentityWarning(null);
     setIdentityFailed(false);
     setPixelWarning(null);
@@ -169,6 +177,7 @@ export function AccountSetupStep({
           "TikTok identity API returned: request failed.",
         );
       }
+      setIdentitiesLoaded(true);
 
       if (pixelRes.status === "fulfilled") {
         const json = (await pixelRes.value.json().catch(() => null)) as {
@@ -241,10 +250,6 @@ export function AccountSetupStep({
     };
   }, [draft.accountSetup.advertiserId, draft.accountSetup.pixelId]);
 
-  const selectedAccount = useMemo(
-    () => accounts.find((account) => account.id === draft.accountSetup.tiktokAccountId),
-    [accounts, draft.accountSetup.tiktokAccountId],
-  );
   const selectedIdentityNeedsType = Boolean(
     draft.accountSetup.identityId &&
       !isListedIdentityType(draft.accountSetup.identityType),
@@ -254,6 +259,7 @@ export function AccountSetupStep({
     identitiesLength: identities.length,
     selectedIdentityNeedsType,
     loadingDetails,
+    identitiesLoaded,
     hasAdvertiser: Boolean(draft.accountSetup.advertiserId),
   });
 
@@ -382,30 +388,20 @@ export function AccountSetupStep({
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Select
-          id="tiktok-advertiser"
-          label="TikTok advertiser"
-          value={draft.accountSetup.tiktokAccountId ?? ""}
-          onChange={(event) => void saveAccount(event.target.value)}
-          disabled={loadingAccounts || saving}
-          placeholder={loadingAccounts ? "Loading advertisers..." : "Select advertiser"}
-          options={accounts
-            .filter((account) => Boolean(account.tiktok_advertiser_id))
-            .map((account) => ({
-              value: account.id,
-              label: `${account.account_name} (${account.tiktok_advertiser_id})`,
-            }))}
-        />
-        <ReadOnlySummary
-          label="Selected advertiser"
-          value={
-            selectedAccount
-              ? selectedAccount.tiktok_advertiser_id
-              : draft.accountSetup.advertiserId
-          }
-        />
-      </div>
+      <Select
+        id="tiktok-advertiser"
+        label="TikTok advertiser"
+        value={draft.accountSetup.tiktokAccountId ?? ""}
+        onChange={(event) => void saveAccount(event.target.value)}
+        disabled={loadingAccounts || saving}
+        placeholder={loadingAccounts ? "Loading advertisers..." : "Select advertiser"}
+        options={accounts
+          .filter((account) => Boolean(account.tiktok_advertiser_id))
+          .map((account) => ({
+            value: account.id,
+            label: `${account.account_name} (${account.tiktok_advertiser_id})`,
+          }))}
+      />
 
       {!loadingAccounts && accounts.filter((account) => Boolean(account.tiktok_advertiser_id)).length === 0 && (
         <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
@@ -635,9 +631,16 @@ function ManualIdentityHatch({
   children: ReactNode;
   autoOpen: boolean;
 }) {
+  const operatorTouched = useRef(false);
   const [open, setOpen] = useState(autoOpen);
   useEffect(() => {
-    if (autoOpen) setOpen(true);
+    setOpen((currentlyOpen) =>
+      nextManualIdentityHatchOpen({
+        autoOpen,
+        operatorTouched: operatorTouched.current,
+        currentlyOpen,
+      }),
+    );
   }, [autoOpen]);
   return (
     <div data-hatch="BC_AUTH_TT">
@@ -645,7 +648,10 @@ function ManualIdentityHatch({
         type="button"
         aria-expanded={open}
         className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          operatorTouched.current = true;
+          setOpen((prev) => !prev);
+        }}
       >
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
         BC_AUTH_TT
@@ -690,6 +696,7 @@ function TikTokIdentityPicker({
               display_name: identity.display_name,
               avatar_url: identity.avatar_url ?? null,
               identity_type: identity.identity_type,
+              username: identity.username ?? null,
             });
             const selected = selectedId === identity.identity_id;
             return (
@@ -699,7 +706,7 @@ function TikTokIdentityPicker({
                 role="radio"
                 aria-checked={selected}
                 disabled={disabled}
-                title={view.typeCaption ?? "type unknown"}
+                title={view.typeTooltip ?? "type unknown"}
                 onClick={() => onSelect(identity.identity_id)}
                 className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors
                   focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring
@@ -712,9 +719,9 @@ function TikTokIdentityPicker({
                 />
                 <span className="min-w-0 flex-1">
                   <Datum className="block truncate text-sm text-foreground">{view.label}</Datum>
-                  {view.typeCaption ? (
+                  {view.caption ? (
                     <Datum className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                      {view.typeCaption}
+                      {view.caption}
                     </Datum>
                   ) : null}
                 </span>
@@ -760,17 +767,3 @@ function TikTokIdentityAvatar({
   );
 }
 
-function ReadOnlySummary({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-background p-3">
-      <Datum className="text-xs uppercase tracking-wide text-muted-foreground">{label}</Datum>
-      <Datum className="mt-1 text-sm text-foreground">{value || "Not selected"}</Datum>
-    </div>
-  );
-}
