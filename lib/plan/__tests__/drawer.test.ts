@@ -1189,16 +1189,24 @@ describe("PR 8b — canvas-zone-rhythm guards", () => {
     assert.ok(b.launchY >= 700 && b.launchY <= 800, `launchY=${b.launchY} outside 700-800`);
   });
 
-  it("audiences-step does not import @/components/ui/tabs and has five edit ▸ handles", () => {
+  it("audiences-step restores Tabs left-to-right and keeps the five glyphs, without edit ▸", () => {
     const src = read("components/steps/audiences/audiences-step.tsx");
-    assert.doesNotMatch(src, /@\/components\/ui\/tabs/, "still imports tabs");
-    assert.match(src, /edit ▸/);
-    assert.match(src, /glyph: "▦"/);
-    assert.match(src, /glyph: "◨"/);
-    assert.match(src, /glyph: "◫"/);
-    assert.match(src, /glyph: "◇"/);
-    assert.match(src, /glyph: "✳"/);
-    assert.match(src, /rows\.map/);
+    assert.match(src, /@\/components\/ui\/tabs/);
+    assert.match(src, /<Tabs /);
+    assert.match(src, /<TabPanel /);
+    assert.doesNotMatch(src, /edit ▸/);
+    assert.doesNotMatch(src, /aria-expanded=\{selected\}/);
+    assert.match(src, /▦ pages/);
+    assert.match(src, /◨ custom/);
+    assert.match(src, /◫ off\/pixel/);
+    assert.match(src, /◇ saved/);
+    assert.match(src, /✳ interests/);
+    assert.match(src, /audienceCountLabel/);
+    assert.doesNotMatch(
+      src,
+      /useIsDrawer/,
+      "the tab bar is not forked on the drawer predicate",
+    );
   });
 
   it("identity chips: unresolved shows id, missing shows dashed, neither empty", () => {
