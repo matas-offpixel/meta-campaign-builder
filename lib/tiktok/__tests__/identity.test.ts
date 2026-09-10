@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   extractBcIdsFromList,
+  extractIdentityAvatar,
   extractIdentityBcId,
   fetchAdvertiserBusinessCenterId,
   fetchTikTokIdentities,
@@ -23,6 +24,28 @@ const PRODUCTION_IDENTITY_ROW = {
   is_gpppa: false,
   profile_image: "https://example.com/ironworks.jpg",
   username: "ironworks",
+} as const;
+
+/**
+ * Untouched /identity/get/ row captured 2026-09-10 for advertiser
+ * 7639802149165301776 (Ironworks). Envelope data keys: identity_list,
+ * page_info. There is no avatar_url on the wire.
+ */
+const IRONWORKS_IDENTITY_GET_ROW = {
+  ads_only_mode: true,
+  available_status: "AVAILABLE",
+  can_manage_message: true,
+  can_pull_video: true,
+  can_push_video: true,
+  can_use_live_ads: true,
+  display_name: "Ironworks",
+  identity_authorized_bc_id: "7629750024332378128",
+  identity_id: "f5096207-c327-581f-93a4-e4f2f708069f",
+  identity_type: "BC_AUTH_TT",
+  is_gpppa: false,
+  profile_image:
+    "https://p16-common-sign.tiktokcdn-eu.com/tos-no1a-avt-0068c001-no/58672dd5db9b3c4d7a0a132786bff2d3~tplv-tiktokx-cropcenter:100:100.jpeg?dr=10399&refresh_token=04c9cba3&x-expires=1789228800&x-signature=1bW3osHE%2FE4s31cQsTRHDekHWfE%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=8aecc5ac&idc=no1a",
+  username: "ironworkslondon",
 } as const;
 
 describe("fetchTikTokIdentities", () => {
@@ -382,6 +405,42 @@ describe("fetchTikTokIdentities", () => {
     assert.deepEqual(paths, ["/identity/get/"]);
     assert.equal(rows[0]?.identity_type, "BC_AUTH_TT");
     assert.equal(rows[0]?.identity_bc_id, "7078123456789012345");
+    assert.equal(rows[0]?.avatar_url, "https://example.com/ironworks.jpg");
+  });
+
+  it("reads the live Ironworks avatar from profile_image, not avatar_url", async () => {
+    assert.deepEqual(extractIdentityAvatar(IRONWORKS_IDENTITY_GET_ROW), {
+      value: IRONWORKS_IDENTITY_GET_ROW.profile_image,
+      key: "profile_image",
+    });
+    assert.equal(
+      extractIdentityAvatar({
+        identity_id: IRONWORKS_IDENTITY_GET_ROW.identity_id,
+      }).value,
+      null,
+    );
+    assert.deepEqual(
+      extractIdentityAvatar({
+        avatar_url: "https://example.com/from-avatar-url.jpg",
+      }),
+      {
+        value: "https://example.com/from-avatar-url.jpg",
+        key: "avatar_url",
+      },
+    );
+
+    const rows = await fetchTikTokIdentities({
+      advertiserId: "7639802149165301776",
+      token: "token-1",
+      request: async <T,>() => {
+        return { identity_list: [IRONWORKS_IDENTITY_GET_ROW] } as T;
+      },
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.identity_id, IRONWORKS_IDENTITY_GET_ROW.identity_id);
+    assert.equal(rows[0]?.display_name, "Ironworks");
+    assert.equal(rows[0]?.avatar_url, IRONWORKS_IDENTITY_GET_ROW.profile_image);
+    assert.equal(rows[0]?.identity_bc_id, "7629750024332378128");
   });
 
   it("falls back to /bc/get/ when the identity row has no BC id", async () => {
