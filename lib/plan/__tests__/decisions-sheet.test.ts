@@ -125,6 +125,45 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(metricChipText(decision), "—");
   });
 
+  it("skip_not_delivering · not delivering", () => {
+    const decision = row({
+      action: "skip_not_delivering",
+      decidedAt: "2026-09-09T20:01:05.000Z",
+      reasonText: "ad set effective_status=PAUSED — not delivering, no write.",
+    });
+    assert.equal(glyphActionFor(decision.action), "skip_not_delivering");
+    assert.equal(whyForDecision(decision, NOW), "not delivering");
+    assert.equal(metricChipText(decision), "—");
+  });
+
+  it("skip_campaign_ended · campaign ended", () => {
+    const decision = row({
+      action: "skip_campaign_ended",
+      decidedAt: "2026-09-09T20:01:05.000Z",
+      reasonText: "Campaign window has ended (campaign_end_at=2026-09-01) — skip_campaign_ended.",
+    });
+    assert.equal(whyForDecision(decision, NOW), "campaign ended");
+    assert.equal(metricChipText(decision), "—");
+  });
+
+  it("skip_event_passed · event passed", () => {
+    const decision = row({
+      action: "skip_event_passed",
+      decidedAt: "2026-09-09T20:01:05.000Z",
+      reasonText: "Event date 2026-09-01 is in the past — skip_event_passed.",
+    });
+    assert.equal(whyForDecision(decision, NOW), "event passed");
+  });
+
+  it("skip_phase_ended · phase ended", () => {
+    const decision = row({
+      action: "skip_phase_ended",
+      decidedAt: "2026-09-09T20:01:05.000Z",
+      reasonText: "Plan phase is presale and general sale started 2026-09-01 — skip_phase_ended.",
+    });
+    assert.equal(whyForDecision(decision, NOW), "phase ended");
+  });
+
   it("skip_dormant · dormant", () => {
     const decision = row({
       action: "skip_dormant",

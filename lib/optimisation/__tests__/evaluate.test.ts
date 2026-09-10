@@ -304,6 +304,47 @@ describe("evaluateAdSet — dormant / recent-touch skips", () => {
     assert.equal(result.ruleMatched, null);
   });
 
+  it("0 impressions yesterday on a 7d window is skip_dormant when the ad set is old enough", () => {
+    const now = new Date("2026-09-09T20:01:05Z");
+    const result = evaluateAdSet(
+      baseInput({
+        now,
+        impressions: 8000,
+        impressionsLast24h: 0,
+        startedAt: new Date("2026-08-01T00:00:00Z"),
+        liveMetric: lm("cpr", 2.773, "7d"),
+      }),
+    );
+    assert.equal(result.action, "skip_dormant");
+    assert.match(result.reason, /last 24h/);
+  });
+
+  it("a campaign that launched today is not 24h-dormant", () => {
+    const now = new Date("2026-09-09T20:01:05Z");
+    const result = evaluateAdSet(
+      baseInput({
+        now,
+        impressions: 400,
+        impressionsLast24h: 0,
+        startedAt: new Date("2026-09-09T10:00:00Z"),
+        liveMetric: lm("cpr", 0.5, "7d"),
+      }),
+    );
+    assert.equal(result.action, "scale_up");
+  });
+
+  it("missing yesterday impressions fail open on a 7d window", () => {
+    const result = evaluateAdSet(
+      baseInput({
+        impressions: 8000,
+        impressionsLast24h: null,
+        startedAt: new Date("2026-08-01T00:00:00Z"),
+        liveMetric: lm("cpr", 0.5, "7d"),
+      }),
+    );
+    assert.equal(result.action, "scale_up");
+  });
+
   it("touched inside the default 24h cooldown → skip_recent_touch", () => {
     const now = new Date("2026-08-07T12:00:00Z");
     const lastTouchedAt = new Date("2026-08-07T06:00:00Z"); // 6h ago
@@ -389,6 +430,10 @@ describe("evaluateAdSet — dormant / recent-touch skips", () => {
     assert.equal(isBudgetChangeAction("maintain"), false);
     assert.equal(isBudgetChangeAction("skip_recent_touch"), false);
     assert.equal(isBudgetChangeAction("skip_dormant"), false);
+    assert.equal(isBudgetChangeAction("skip_not_delivering"), false);
+    assert.equal(isBudgetChangeAction("skip_campaign_ended"), false);
+    assert.equal(isBudgetChangeAction("skip_event_passed"), false);
+    assert.equal(isBudgetChangeAction("skip_phase_ended"), false);
     assert.equal(isBudgetChangeAction("insufficient_conversions"), false);
     assert.equal(isBudgetChangeAction("metric_unavailable"), false);
     assert.equal(isBudgetChangeAction("scale_up"), true);

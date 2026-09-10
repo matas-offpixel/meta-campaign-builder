@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { lastChangeDecidedAt } from "../evaluate.ts";
+import { isBudgetChangeAction, lastChangeDecidedAt } from "../evaluate.ts";
 import { runOptimisationTick, type CampaignAutomationInput, type DecisionToInsert, type OptimisationTickDeps } from "../tick-runner.ts";
 import type { AdSetInsightRow } from "../insights-fetch.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
@@ -521,5 +521,150 @@ describe("runOptimisationTick — PR B live writes", () => {
     assert.equal(summary.writesApplied, 1);
     assert.deepEqual(updates, ["adset_good"]);
     assert.equal(summary.ok, true);
+  });
+});
+
+describe("runOptimisationTick — eligibility before evaluate", () => {
+  const DOD_PAUSE_RULE: OptimisationRule = {
+    id: tid(),
+    name: "Primary",
+    metric: "cpr",
+    timeWindow: "7d",
+    enabled: true,
+    thresholds: [
+      { id: tid(), operator: "below", value: 0.85, action: "increase_budget", actionValue: 30, label: "Below £0.85 CPR → scale" },
+      { id: tid(), operator: "above", value: 1.75, action: "pause", label: "Above £1.75 CPR → pause" },
+    ],
+  };
+
+  it("PAUSED ad set inside an ACTIVE campaign is skip_not_delivering — the roll-down trap", async () => {
+    const inserted: DecisionToInsert[] = [];
+    let evaluateReached = false;
+    const deps = makeDeps({
+      fetchInsights: async () => [
+        insightRow({
+          effectiveStatus: "PAUSED",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.4 },
+        }),
+      ],
+      insertDecision: async (row) => {
+        evaluateReached = row.actionRecommended === "scale_up";
+        inserted.push(row);
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted[0]?.actionRecommended, "skip_not_delivering");
+    assert.equal(evaluateReached, false);
+    assert.equal(summary.decisionsByAction.skip_not_delivering, 1);
+    assert.equal(summary.pausesRecommended, 0);
+  });
+
+  it("a campaign past campaign_end_at is skip_campaign_ended", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          eligibility: { campaignEndAt: "2026-09-01T00:00:00Z" },
+        }),
+      ],
+      now: new Date("2026-09-09T20:01:05Z"),
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(inserted[0]?.actionRecommended, "skip_campaign_ended");
+  });
+
+  it("an event in the past is skip_event_passed", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({ eligibility: { eventDate: "2026-09-01" } }),
+      ],
+      now: new Date("2026-09-09T20:01:05Z"),
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(inserted[0]?.actionRecommended, "skip_event_passed");
+  });
+
+  it("D.O.D 2026-09-09 20:01 — presale after general sale is skip_phase_ended, not pause", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      now: new Date("2026-09-09T20:01:05Z"),
+      loadOptedInCampaigns: async () => [
+        campaign({
+          campaignName: "[NX26-DOD] DOD - Signup - Artist",
+          optimisationStrategy: {
+            mode: "custom",
+            rules: [DOD_PAUSE_RULE],
+            guardrails: GUARDRAILS,
+          },
+          eligibility: {
+            planPhase: "presale",
+            generalSaleAt: "2026-09-01T10:00:00Z",
+            eventDate: "2026-11-26",
+          },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          effectiveStatus: "ACTIVE",
+          impressions: 12000,
+          costPerActionType: {
+            "offsite_conversion.fb_pixel_complete_registration": 2.773,
+          },
+          actionCountByType: {
+            "offsite_conversion.fb_pixel_complete_registration": 40,
+          },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted[0]?.actionRecommended, "skip_phase_ended");
+    assert.notEqual(inserted[0]?.actionRecommended, "pause");
+    assert.equal(summary.pausesRecommended, 0);
+  });
+
+  it("a live in-window campaign still scales", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      now: new Date("2026-09-09T20:01:05Z"),
+      loadOptedInCampaigns: async () => [
+        campaign({
+          eligibility: {
+            campaignEndAt: "2026-12-01",
+            eventDate: "2026-12-15",
+          },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted[0]?.actionRecommended, "scale_up");
+    assert.equal(summary.decisionsByAction.scale_up, 1);
+  });
+
+  it("an eligibility skip does not read cooldown state", async () => {
+    let stateReads = 0;
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      fetchInsights: async () => [insightRow({ effectiveStatus: "PAUSED" })],
+      getAdSetState: async () => {
+        stateReads += 1;
+        return {
+          lastAppliedAt: new Date("2026-09-09T18:00:00Z"),
+          lastDecidedAt: new Date("2026-09-09T18:00:00Z"),
+          appliedIncreasePercentLast24h: 30,
+        };
+      },
+      insertDecision: async (row) => void inserted.push(row),
+      now: new Date("2026-09-09T20:01:05Z"),
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(stateReads, 0);
+    assert.equal(inserted[0]?.actionRecommended, "skip_not_delivering");
+    assert.equal(summary.adSetsSkippedRecentDecision, 0);
+    assert.equal(isBudgetChangeAction(inserted[0]?.actionRecommended ?? ""), false);
   });
 });

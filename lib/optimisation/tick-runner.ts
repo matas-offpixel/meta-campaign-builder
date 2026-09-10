@@ -13,6 +13,8 @@
  * Per-ad-set flow (see also the module doc comments on `evaluate.ts` /
  * `insights-fetch.ts` / `live-metric.ts` for the reasoning behind each
  * design choice):
+ *   0. Eligibility (`evaluateEligibility`) before `evaluate()` — a named
+ *      skip is written; cooldown is not started or extended.
  *   1. Loop-prevention / cooldown: skip (no DB write) if `lastTouchedAt`
  *      is inside `cooldownHours`. For shadow mode that is
  *      `applied_at ?? last CHANGE decided_at` (scale_up / scale_down /
@@ -67,6 +69,11 @@ import {
 import { applyOptimisationDecision, MAX_WRITES_PER_RUN } from "./apply.ts";
 import { optimisationDryRunGates } from "./gates.ts";
 import {
+  evaluateEligibility,
+  type CampaignEligibilityFacts,
+  type EligibilitySkip,
+} from "./eligibility.ts";
+import {
   CROSS_CHANNEL_SHADOW_GATES,
   crossChannelAdsetId,
   evaluateCrossChannelSubject,
@@ -87,6 +94,8 @@ export interface CampaignAutomationInput {
   optimisationAutomationLive: boolean;
   /** Display name for Slack (draft.settings.campaignName). */
   campaignName: string;
+  /** Event / plan calendar facts. Missing fields fail open. */
+  eligibility?: CampaignEligibilityFacts;
 }
 
 export type AutomationScope = "ad_set" | "campaign";
@@ -303,6 +312,27 @@ export async function runOptimisationTick(
         const targetId = campaign.campaignId;
         summary.adSetsConsidered += 1;
         try {
+          const eligibilitySkip = evaluateEligibility({
+            now,
+            effectiveStatus: campaignInsight.effectiveStatus,
+            subjectNoun: "campaign",
+            ...campaign.eligibility,
+          });
+          if (eligibilitySkip) {
+            await recordEligibilitySkip(
+              deps,
+              campaign,
+              {
+                adsetId: targetId,
+                scope: "campaign",
+                window,
+                budgetPence: campaignInsight.dailyBudgetPence ?? 0,
+              },
+              eligibilitySkip,
+              summary,
+            );
+            continue;
+          }
           const state = await deps.getAdSetState(targetId, sinceISO);
           const lastTouchedAt = gates.dryRun
             ? resolveLastTouchedAt(state.lastAppliedAt, state.lastDecidedAt)
@@ -382,6 +412,27 @@ export async function runOptimisationTick(
         summary.adSetsConsidered += 1;
 
         try {
+          const eligibilitySkip = evaluateEligibility({
+            now,
+            effectiveStatus: row.effectiveStatus,
+            subjectNoun: "ad set",
+            ...campaign.eligibility,
+          });
+          if (eligibilitySkip) {
+            await recordEligibilitySkip(
+              deps,
+              campaign,
+              {
+                adsetId: row.adsetId,
+                scope: "ad_set",
+                window,
+                budgetPence: row.dailyBudgetPence ?? 0,
+              },
+              eligibilitySkip,
+              summary,
+            );
+            continue;
+          }
           const state = await deps.getAdSetState(row.adsetId, sinceISO);
           // Live writes: cooldown from last APPLIED write only, so a shadow
           // recommendation cannot start the clock. Shadow mode falls back
@@ -572,6 +623,49 @@ export async function runOptimisationTick(
   return summary;
 }
 
+function parseStartedAt(raw: string | null | undefined): Date | null {
+  if (!raw?.trim()) return null;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+async function recordEligibilitySkip(
+  deps: OptimisationTickDeps,
+  campaign: CampaignAutomationInput,
+  target: {
+    adsetId: string;
+    scope: AutomationScope;
+    window: RuleTimeWindow;
+    budgetPence: number;
+  },
+  skip: EligibilitySkip,
+  summary: OptimisationTickSummary,
+): Promise<void> {
+  const primaryMetric = OBJECTIVE_METRIC_PRIORITY[campaign.objective].primary;
+  await deps.insertDecision({
+    campaignId: campaign.campaignId,
+    adsetId: target.adsetId,
+    adAccountId: campaign.adAccountId,
+    draftId: campaign.draftId,
+    scope: target.scope,
+    channel: "meta",
+    metric: primaryMetric,
+    metricValue: null,
+    metricWindow: target.window,
+    ruleMatched: null,
+    actionRecommended: skip.action,
+    actionDelta: null,
+    budgetBeforePence: target.budgetPence,
+    budgetAfterPence: target.budgetPence,
+    guardrailNote: null,
+    reasonText: skip.reason,
+    dryRun: true,
+    applied: false,
+  });
+  summary.decisionsInserted += 1;
+  summary.decisionsByAction[skip.action] = (summary.decisionsByAction[skip.action] ?? 0) + 1;
+}
+
 function buildDecision(
   campaign: CampaignAutomationInput,
   row: AdSetInsightRow,
@@ -632,6 +726,8 @@ function buildDecision(
     lastTouchedAt,
     appliedIncreasePercentLast24h,
     impressions: row.impressions,
+    impressionsLast24h: row.impressionsLast24h,
+    startedAt: parseStartedAt(row.startedAt),
     now,
   });
 
@@ -725,6 +821,8 @@ function buildCampaignDecision(
     lastTouchedAt,
     appliedIncreasePercentLast24h,
     impressions: insight.impressions,
+    impressionsLast24h: insight.impressionsLast24h,
+    startedAt: parseStartedAt(insight.startedAt),
     now,
   });
 

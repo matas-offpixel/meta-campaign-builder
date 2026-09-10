@@ -51,6 +51,10 @@ export type AutomationAction =
   | "skip_dormant"
   | "skip_recent_touch"
   | "skip_no_rules"
+  | "skip_not_delivering"
+  | "skip_campaign_ended"
+  | "skip_event_passed"
+  | "skip_phase_ended"
   | "metric_unavailable"
   /**
    * Conversion metric has data but the result count is below the
@@ -98,6 +102,16 @@ export interface EvaluateAdSetInput {
   lastTouchedAt: Date | null;
   /** Impressions over the SAME window as `liveMetric` — 0 means the ad set is dormant. */
   impressions: number;
+  /**
+   * Impressions in the last complete day (`yesterday`). An additional
+   * dormant trigger when the metric window is wider than 24h — a pause
+   * this morning still has 7d impressions for a week. Null/omitted
+   * skips this check (fail open). Applied only when `startedAt` is
+   * at least 24h ago so a campaign that launched today stays eligible.
+   */
+  impressionsLast24h?: number | null;
+  /** Ad set / campaign `start_time`. Null skips the 24h recency dormant check. */
+  startedAt?: Date | null;
   /**
    * Sum of applied positive `action_delta` percents for this ad set in
    * the rolling 24h window (`applied=true`). Used with
@@ -268,6 +282,26 @@ export function evaluateAdSet(input: EvaluateAdSetInput): EvaluateAdSetResult {
       ruleMatched: null,
       guardrailNote: null,
       reason: `0 impressions in the ${liveMetric.window} window — dormant ${noun}, no metric signal to act on.`,
+    };
+  }
+
+  const impressionsLast24h = input.impressionsLast24h;
+  const startedAt = input.startedAt;
+  const oldEnoughToHaveYesterday =
+    startedAt != null && hoursBetween(now, startedAt) >= 24;
+  if (
+    liveMetric.window !== "24h" &&
+    impressionsLast24h != null &&
+    impressionsLast24h <= 0 &&
+    oldEnoughToHaveYesterday
+  ) {
+    return {
+      action: "skip_dormant",
+      deltaPercent: null,
+      budgetAfterPence: currentBudgetPence,
+      ruleMatched: null,
+      guardrailNote: null,
+      reason: `0 impressions in the last 24h (yesterday) — dormant ${noun}, the ${liveMetric.window} window is a lagging proxy.`,
     };
   }
 

@@ -29,8 +29,10 @@ import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
  * Task #120, PR B — the Step 6 "Optimisation Strategy" automation loop.
  * Every 4h (`vercel.json`), evaluates every ad set in every
  * `status = 'published' AND optimisation_automation_enabled = true`
- * campaign against `evaluate.ts` (the single source of decision logic)
- * and, when the three-of-three live gate is open, applies
+ * campaign. That SQL is the opt-in filter, not liveness — eligibility
+ * (`skip_not_delivering` / `skip_campaign_ended` / `skip_event_passed` /
+ * `skip_phase_ended`) runs per target before `evaluate.ts`. Then, when
+ * the three-of-three live gate is open, applies
  * `scale_up` / `scale_down` via `POST /{adset_id}` `daily_budget`
  * (ABO) or `POST /{campaign_id}` `daily_budget` (CBO).
  *
