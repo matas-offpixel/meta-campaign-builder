@@ -53,6 +53,33 @@ import { FIXTURE_HREFS, basePlan, blockingIssues, factsBundle } from "./canvas-f
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 
+/** Added and removed content lines of a unified diff, keyed by `b/` path. */
+function contentDiffByFile(diff: string): Map<string, { added: string[]; removed: string[] }> {
+  const out = new Map<string, { added: string[]; removed: string[] }>();
+  let current: { added: string[]; removed: string[] } | null = null;
+  for (const line of diff.split("\n")) {
+    const file = line.match(/^diff --git a\/.+ b\/(.+)$/);
+    if (file) {
+      current = { added: [], removed: [] };
+      out.set(file[1]!, current);
+      continue;
+    }
+    if (!current) continue;
+    if (
+      line.startsWith("+++") ||
+      line.startsWith("---") ||
+      line.startsWith("@@") ||
+      line.startsWith("index ") ||
+      line.startsWith("\\")
+    ) {
+      continue;
+    }
+    if (line.startsWith("+")) current.added.push(line.slice(1));
+    else if (line.startsWith("-")) current.removed.push(line.slice(1));
+  }
+  return out;
+}
+
 /**
  * Every source that renders inside the drawer. The three tabs, the two
  * halves of budget-schedule, the four demoted steps in `details`, the
@@ -518,13 +545,13 @@ describe("surface=drawer strips chrome and nothing else", () => {
     }
   });
 
-  /** §3a drops these three from the creatives tab; the wizard keeps them. */
+  /** §3a drops these from the creatives tab when a plan owns the destination. */
   it("the creatives tab drops the re-entry fields §3a names", () => {
     const src = read("components/steps/creatives.tsx");
     assert.match(
       src,
-      /drawer \? \(\s*<DestinationBadge/,
-      "the per-ad destination URL becomes a badge",
+      /planOwnsDestination \? \(\s*<DestinationBadge/,
+      "the per-ad destination URL becomes a badge when a plan owns it",
     );
     assert.match(src, /function DestinationBadge/, "and the badge exists");
     assert.match(src, /META_DRAWER_COPY\.destinationTip/, "with a tip pointing at the canvas");
@@ -883,6 +910,134 @@ describe("drawer width and drawer-surface creatives (Chrome pass)", () => {
   });
 });
 
+describe("a standalone draft owns its destination", () => {
+  const DESTINATION_FILES = [
+    "components/steps/creatives.tsx",
+    "components/tiktok-wizard/steps/creatives.tsx",
+    "components/google-search-wizard/steps/ad-copy.tsx",
+  ] as const;
+
+  it("drawers derive planOwnsDestination from planId, not from the surface", () => {
+    for (const file of [
+      "components/plan/meta-drawer.tsx",
+      "components/plan/tiktok-drawer.tsx",
+      "components/plan/google-drawer.tsx",
+    ]) {
+      const src = read(file);
+      assert.match(
+        src,
+        /<StepSurfaceProvider surface="drawer" planOwnsDestination=\{planId != null\}>/,
+        `${file} must tell the destination field whether a plan owns it`,
+      );
+    }
+    const shell = read("components/wizard/wizard-shell.tsx");
+    assert.match(
+      shell,
+      /<StepSurfaceProvider surface="wizard" planOwnsDestination=\{linkedPlan != null\}>/,
+      "the Meta ladder must tell the destination field whether a plan owns it",
+    );
+  });
+
+  it("the destination field gates on plan ownership, not on drawer", () => {
+    for (const file of DESTINATION_FILES) {
+      const src = read(file);
+      assert.doesNotMatch(
+        src,
+        /drawer \? \(\s*<DestinationBadge/,
+        `${file} still locks the destination because it is in a drawer`,
+      );
+      assert.match(
+        src,
+        /planOwnsDestination \? \(\s*<DestinationBadge/,
+        `${file} must lock the destination only when a plan owns it`,
+      );
+      assert.match(src, /function DestinationBadge/, `${file} still has the badge`);
+    }
+  });
+
+  it("destinationTip cannot render when planId is null", () => {
+    const surface = read("components/steps/step-surface.tsx");
+    assert.match(surface, /export function usePlanOwnsDestination/);
+    assert.match(
+      surface,
+      /planOwnsDestination: planOwnsDestination \?\? parent\.planOwnsDestination/,
+      "inner step providers must inherit the drawer's ownership flag",
+    );
+
+    for (const [file, tip] of [
+      ["components/steps/creatives.tsx", "META_DRAWER_COPY.destinationTip"],
+      ["components/tiktok-wizard/steps/creatives.tsx", "TIKTOK_DRAWER_COPY.destinationTip"],
+      ["components/google-search-wizard/steps/ad-copy.tsx", "GOOGLE_DRAWER_COPY.destinationTip"],
+    ] as const) {
+      const src = read(file);
+      const badgeAt = src.indexOf("function DestinationBadge");
+      assert.ok(badgeAt > 0, `${file}: DestinationBadge is missing`);
+      const badge = src.slice(badgeAt, badgeAt + 700);
+      assert.match(
+        badge,
+        /if \(!usePlanOwnsDestination\(\)\) return null/,
+        `${file}: DestinationBadge must refuse to render the canvas tip when no plan owns the destination`,
+      );
+      assert.match(
+        badge,
+        new RegExp(tip.replaceAll(".", "\\.")),
+        `${file}: tip stays on the badge`,
+      );
+    }
+  });
+
+  it("a plan-linked draft still renders the badge and cannot edit the URL", () => {
+    const tiktok = read("components/tiktok-wizard/steps/creatives.tsx");
+    assert.match(
+      tiktok,
+      /planOwnsDestination \? \(\s*<DestinationBadge url=\{landingPageUrl \|\| planDestinationUrl\}/,
+    );
+    assert.match(
+      tiktok,
+      /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<div>[\s\S]*?<Input[\s\S]*?id="creative-landing-page"/,
+      "plan-linked TikTok still shows the badge; standalone still gets the Input",
+    );
+
+    const google = read("components/google-search-wizard/steps/ad-copy.tsx");
+    assert.match(
+      google,
+      /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<Input[\s\S]*?label="Final URL"/,
+      "plan-linked Google still shows the badge; standalone still gets the Input",
+    );
+
+    const meta = read("components/steps/creatives.tsx");
+    assert.match(
+      meta,
+      /planOwnsDestination \? \(\s*<DestinationBadge[\s\S]*?\) : \(\s*<DestinationUrlField/,
+      "plan-linked Meta still shows the badge; standalone still gets the field",
+    );
+    const shell = read("components/wizard/wizard-shell.tsx");
+    assert.match(
+      shell,
+      /<StepSurfaceProvider surface="wizard" planOwnsDestination=\{linkedPlan != null\}>/,
+      "a plan-linked Meta draft at /campaign/[id] inherits ownership from the ladder",
+    );
+    const creativesWrap = meta.slice(
+      meta.indexOf("export function Creatives"),
+      meta.indexOf("function CreativesBody"),
+    );
+    assert.match(
+      creativesWrap,
+      /<StepSurfaceProvider surface=\{props\.surface \?\? "wizard"\}>/,
+    );
+    assert.doesNotMatch(
+      creativesWrap,
+      /planOwnsDestination=/,
+      "Creatives must inherit planOwnsDestination, not reset it",
+    );
+    assert.match(
+      meta,
+      /const planOwnsDestination = usePlanOwnsDestination\(\)/,
+      "the per-ad field reads the inherited flag, not a local guess",
+    );
+  });
+});
+
 describe("TikTok needs-1 blocker", () => {
   it("anchors tt-video when no videoId is present", () => {
     const rows = tiktokNeedsVideoBlockers({ items: [{ videoId: null }, { videoId: "" }] });
@@ -1141,11 +1296,42 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
+    const allowedDrawers = [
+      "components/plan/meta-drawer.tsx",
+      "components/plan/tiktok-drawer.tsx",
+      "components/plan/google-drawer.tsx",
+    ] as const;
     const diff = execSync(
       `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters`,
       { encoding: "utf8" },
     );
-    assert.equal(diff.trim(), "", diff);
+    const byFile = contentDiffByFile(diff);
+    for (const [file, { added, removed }] of byFile) {
+      assert.ok(
+        (allowedDrawers as readonly string[]).includes(file),
+        `${file} changed; the freeze does not allow it`,
+      );
+      assert.equal(
+        removed.length,
+        1,
+        `${file}: unexpected removal — ${removed.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
+      );
+      assert.equal(
+        added.length,
+        1,
+        `${file}: unexpected addition — ${added.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
+      );
+      assert.match(
+        removed[0]!.trim(),
+        /^<StepSurfaceProvider surface="drawer">$/,
+        `${file}: removed a line that is not the old StepSurfaceProvider`,
+      );
+      assert.match(
+        added[0]!.trim(),
+        /^<StepSurfaceProvider surface="drawer" planOwnsDestination=\{planId != null\}>$/,
+        `${file}: added a line that is not planOwnsDestination on StepSurfaceProvider`,
+      );
+    }
   });
 });
 

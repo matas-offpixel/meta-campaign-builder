@@ -61,7 +61,7 @@ import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
-import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer, usePlanOwnsDestination } from "@/components/steps/step-surface";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { META_DRAWER_COPY } from "@/lib/plan/drawer";
@@ -71,10 +71,11 @@ const QUEUE_ASSET_DRAG_MIME = "application/x-queue-asset-id";
 
 interface CreativesProps {
   /**
-   * `drawer` drops the fields §3a demotes: the per-ad destination URL (the
-   * plan owns one URL for every ad), the two secondary CTA pickers (one CTA
-   * per ad, applied to its variations), and the campaign-level Instagram
-   * override panel, which the audiences tab already renders.
+   * `drawer` drops the fields §3a demotes: the two secondary CTA pickers
+   * (one CTA per ad, applied to its variations), and the campaign-level
+   * Instagram override panel, which the audiences tab already renders.
+   * The per-ad destination URL is a badge only when a plan owns it —
+   * `surface="drawer"` on a standalone page is not enough.
    */
   surface?: StepSurface;
   creatives: AdCreativeDraft[];
@@ -147,6 +148,7 @@ function CreativesBody({
   planDestinationUrl = "",
 }: CreativesProps) {
   const drawer = useIsDrawer();
+  const planOwnsDestination = usePlanOwnsDestination();
   const [localOverrides, setLocalOverrides] = useState<Record<string, string>>({});
   const pageInstagramOverrides =
     settings?.pageInstagramOverrides ?? localOverrides;
@@ -1187,7 +1189,7 @@ function CreativesBody({
                       </div>
 
                       <div className={`grid gap-4 ${drawer ? "grid-cols-1" : "grid-cols-2"}`}>
-                        {drawer ? (
+                        {planOwnsDestination ? (
                           <DestinationBadge url={active.destinationUrl || planDestinationUrl} />
                         ) : (
                           <DestinationUrlField
@@ -1879,11 +1881,13 @@ function CreativesBody({
 }
 
 /**
- * The plan owns one destination for every ad (§3a), so inside a drawer the
- * per-ad field is a badge showing where the ad points. It is changed on the
- * canvas, where the one URL lives.
+ * The plan owns one destination for every ad (§3a), so when a plan is
+ * linked the per-ad field is a badge showing where the ad points. It is
+ * changed on the canvas, where the one URL lives. A standalone draft has
+ * no canvas — DestinationBadge refuses to render so the tip cannot lie.
  */
 function DestinationBadge({ url }: { url: string }) {
+  if (!usePlanOwnsDestination()) return null;
   return (
     <div className="flex flex-col gap-1">
       <span className="text-xs text-muted-foreground">destination</span>

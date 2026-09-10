@@ -1,6 +1,6 @@
 "use client";
 
-import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, usePlanOwnsDestination } from "@/components/steps/step-surface";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -201,7 +201,7 @@ function RsaEditor({
   onDescriptions: (dl: RsaDescription[]) => void;
   onRemove: () => void;
 }) {
-  const drawer = useIsDrawer();
+  const planOwnsDestination = usePlanOwnsDestination();
   function setHeadline(i: number, text: string) {
     const next = [...rsa.headlines];
     next[i] = { ...(next[i] ?? { text: "" }), text };
@@ -296,24 +296,8 @@ function RsaEditor({
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {drawer ? (
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">final URL</span>
-            <span className="flex min-w-0 items-center gap-1">
-              <span
-                className="truncate text-xs"
-                title={(rsa.final_url || planDestinationUrl) || undefined}
-              >
-                {rsa.final_url || planDestinationUrl || "—"}
-              </span>
-              <ProvenanceBadge
-                provenance={
-                  rsa.final_url || planDestinationUrl ? "derived" : "not instrumented"
-                }
-              />
-              <InfoTip label={GOOGLE_DRAWER_COPY.destinationTip} />
-            </span>
-          </div>
+        {planOwnsDestination ? (
+          <DestinationBadge url={rsa.final_url || planDestinationUrl} />
         ) : (
         <Input
           label="Final URL"
@@ -337,6 +321,22 @@ function RsaEditor({
           placeholder="london"
         />
       </div>
+    </div>
+  );
+}
+
+function DestinationBadge({ url }: { url: string }) {
+  if (!usePlanOwnsDestination()) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">final URL</span>
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="truncate text-xs" title={url || undefined}>
+          {url || "—"}
+        </span>
+        <ProvenanceBadge provenance={url ? "derived" : "not instrumented"} />
+        <InfoTip label={GOOGLE_DRAWER_COPY.destinationTip} />
+      </span>
     </div>
   );
 }

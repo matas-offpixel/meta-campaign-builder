@@ -5,33 +5,57 @@ import { createContext, useContext, type ReactNode } from "react";
 import { CardDescription as UiCardDescription } from "@/components/ui/card";
 
 /**
- * A step renders inside a drawer (canvas sheet or `/campaign/[id]` page
- * variant). The old eight-step wizard surface is gone; `surface="drawer"`
- * is the only mount. Card descriptions still vanish here so a 2,400-line
+ * A step renders on the wizard ladder or inside a drawer (canvas sheet or
+ * a standalone `/tiktok-campaign/[id]` / `/google-search/[id]` page).
+ * `surface` is chrome — descriptions vanish in a drawer so a 2,400-line
  * panel keeps its controls and loses every sentence.
+ *
+ * `planOwnsDestination` is a different question: does a plan own the
+ * destination URL? A drawer reused as a standalone page still has
+ * `surface="drawer"` but no canvas, so the destination must stay editable.
+ * Inner step providers inherit the flag when they omit it.
  */
 export type StepSurface = "wizard" | "drawer";
 
-const StepSurfaceContext = createContext<StepSurface>("drawer");
+type StepSurfaceValue = {
+  surface: StepSurface;
+  planOwnsDestination: boolean;
+};
+
+const StepSurfaceContext = createContext<StepSurfaceValue>({
+  surface: "drawer",
+  planOwnsDestination: false,
+});
 
 export function StepSurfaceProvider({
   surface,
+  planOwnsDestination,
   children,
 }: {
   surface: StepSurface;
+  planOwnsDestination?: boolean;
   children: ReactNode;
 }) {
+  const parent = useContext(StepSurfaceContext);
+  const value: StepSurfaceValue = {
+    surface,
+    planOwnsDestination: planOwnsDestination ?? parent.planOwnsDestination,
+  };
   return (
-    <StepSurfaceContext.Provider value={surface}>{children}</StepSurfaceContext.Provider>
+    <StepSurfaceContext.Provider value={value}>{children}</StepSurfaceContext.Provider>
   );
 }
 
 export function useStepSurface(): StepSurface {
-  return useContext(StepSurfaceContext);
+  return useContext(StepSurfaceContext).surface;
 }
 
 export function useIsDrawer(): boolean {
-  return useContext(StepSurfaceContext) === "drawer";
+  return useContext(StepSurfaceContext).surface === "drawer";
+}
+
+export function usePlanOwnsDestination(): boolean {
+  return useContext(StepSurfaceContext).planOwnsDestination;
 }
 
 interface ChromeTextProps {

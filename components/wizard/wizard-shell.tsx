@@ -31,6 +31,7 @@ import { useLaunchCampaign } from "@/lib/hooks/useLaunchCampaign";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
+import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import {
   WizardEventContextProvider,
   useWizardEventContext,
@@ -369,6 +370,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   return (
     <WizardEventContextProvider draftId={draftId} enabled={hydrated}>
       <EventDefaultsApplier updateDraft={updateDraft} />
+      <StepSurfaceProvider surface="wizard" planOwnsDestination={linkedPlan != null}>
       <div className="flex min-h-screen flex-col">
       <div className="border-b border-border bg-card px-6 py-2">
         <div className="mx-auto max-w-5xl">
@@ -566,6 +568,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
       />
 
       </div>
+      </StepSurfaceProvider>
     </WizardEventContextProvider>
   );
 }
