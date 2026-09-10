@@ -1,3 +1,4 @@
+import { resolveTikTokSalesDestination } from "./campaign-setup.ts";
 import {
   createDefaultTikTokDraft,
   type TikTokAccountSetup,
@@ -182,7 +183,11 @@ export function applyTikTokTemplate(
     clientId: targetClientId,
     eventId,
     campaignSetup: {
+      ...base.campaignSetup,
       ...template.snapshot.campaignSetup,
+      salesDestination: resolveTikTokSalesDestination(
+        template.snapshot.campaignSetup.salesDestination,
+      ),
       eventCode: keepSnapshotEventCode
         ? template.snapshot.campaignSetup.eventCode
         : null,

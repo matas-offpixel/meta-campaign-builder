@@ -40,6 +40,19 @@ describe("TikTok wizard validation", () => {
     assert.ok(issues.some((issue) => issue.id === "objective-goal"));
   });
 
+  it("blocks Step 1 when the loaded objective is AWARENESS", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    draft.campaignSetup.eventCode = "IRW0001";
+    draft.campaignSetup.objective = "AWARENESS";
+    draft.campaignSetup.optimisationGoal = "SHOW";
+    const issues = validateTikTokWizardStep(draft, 1);
+    assert.ok(issues.some((issue) => issue.id === "objective-awareness"));
+    assert.match(
+      issues.find((issue) => issue.id === "objective-awareness")?.message ?? "",
+      /Reach/,
+    );
+  });
+
   it("surfaces audience, creative, budget, schedule, and assignment failures", () => {
     const draft = createDefaultTikTokDraft("draft-1");
     draft.audiences.locationCodes = [];

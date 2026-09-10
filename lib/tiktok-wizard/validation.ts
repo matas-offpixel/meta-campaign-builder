@@ -1,4 +1,9 @@
-import { validOptimisationGoalForObjective } from "./campaign-setup.ts";
+import {
+  isAwarenessTikTokObjective,
+  isTikTokSalesObjective,
+  tikTokAwarenessReplacementMessage,
+  validOptimisationGoalForObjective,
+} from "./campaign-setup.ts";
 import { validateBudgetGuardrails } from "./budget-schedule.ts";
 import { isTikTokInterestGroupLaunchable } from "./interest-groups.ts";
 import {
@@ -89,6 +94,16 @@ export function buildTikTokWizardValidationIssues(
       ),
     );
   }
+  if (isAwarenessTikTokObjective(draft.campaignSetup.objective)) {
+    issues.push(
+      error(
+        "objective-awareness",
+        1,
+        "Awareness is not a TikTok objective",
+        tikTokAwarenessReplacementMessage(),
+      ),
+    );
+  }
   if (
     draft.campaignSetup.objective &&
     draft.campaignSetup.optimisationGoal &&
@@ -98,6 +113,19 @@ export function buildTikTokWizardValidationIssues(
     )
   ) {
     issues.push(error("objective-goal", 1, "Invalid objective and optimisation goal", "Select an optimisation goal that is valid for the chosen objective."));
+  }
+  if (
+    isTikTokSalesObjective(draft.campaignSetup.objective) &&
+    draft.campaignSetup.salesDestination == null
+  ) {
+    issues.push(
+      error(
+        "sales-destination",
+        1,
+        "Sales destination required",
+        "Sales requires TikTok Shop, Website, or App.",
+      ),
+    );
   }
   validateBudgetGuardrails({
     budget: draft.budgetSchedule,

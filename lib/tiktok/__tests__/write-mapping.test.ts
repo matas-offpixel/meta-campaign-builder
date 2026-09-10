@@ -749,6 +749,8 @@ describe("conversions payload", () => {
       adGroup: draft.budgetSchedule.adGroups[0],
     });
     assert.equal(campaign.ok && campaign.value.objective_type, "WEB_CONVERSIONS");
+    assert.equal(campaign.ok && campaign.value.virtual_objective_type, "SALES");
+    assert.equal(campaign.ok && campaign.value.sales_destination, "WEBSITE");
     assert.equal(adGroup.ok, true);
     if (!adGroup.ok) return;
     assert.equal(adGroup.value.optimization_goal, "CONVERT");
@@ -829,6 +831,84 @@ describe("conversions payload", () => {
     if (!adGroup.ok) return;
     assert.equal(adGroup.value.pixel_id, undefined);
     assert.equal(adGroup.value.optimization_event, undefined);
+  });
+});
+
+describe("Sales is WEB_CONVERSIONS plus two display fields", () => {
+  it("matches TikTok's documented Sales/Website campaign body field-for-field", () => {
+    const draft = payloadDraft();
+    draft.campaignSetup.objective = "CONVERSIONS";
+    draft.campaignSetup.optimisationGoal = "CONVERSION";
+    draft.campaignSetup.salesDestination = "WEBSITE";
+    draft.budgetSchedule.budgetMode = "LIFETIME";
+    draft.budgetSchedule.budgetAmount = 500;
+    const campaign = buildTikTokCampaignPayload({
+      advertiserId: "advertiser_1",
+      draft,
+    });
+    assert.equal(campaign.ok, true);
+    if (!campaign.ok) return;
+    assert.equal(campaign.value.advertiser_id, "advertiser_1");
+    assert.equal(campaign.value.virtual_objective_type, "SALES");
+    assert.equal(campaign.value.sales_destination, "WEBSITE");
+    assert.equal(campaign.value.objective_type, "WEB_CONVERSIONS");
+    assert.equal(campaign.value.campaign_name, "Campaign");
+    assert.equal(campaign.value.budget_mode, "BUDGET_MODE_TOTAL");
+    assert.equal(campaign.value.budget, 500);
+  });
+
+  it("adds only those two fields on Sales; every other objective is byte-identical", () => {
+    const base = payloadDraft();
+    const withoutSales = (objective: typeof base.campaignSetup.objective) => {
+      const draft = payloadDraft();
+      draft.campaignSetup.objective = objective;
+      return buildTikTokCampaignPayload({ advertiserId: "adv-1", draft });
+    };
+    const traffic = withoutSales("TRAFFIC");
+    assert.equal(traffic.ok, true);
+    if (!traffic.ok) return;
+    const expectedShared = {
+      advertiser_id: "adv-1",
+      campaign_name: "Campaign",
+      budget_mode: "BUDGET_MODE_DAY",
+      operation_status: "DISABLE",
+      budget: 50,
+    };
+    assert.deepEqual(traffic.value, {
+      ...expectedShared,
+      objective_type: "TRAFFIC",
+    });
+    assert.equal("virtual_objective_type" in traffic.value, false);
+    assert.equal("sales_destination" in traffic.value, false);
+
+    for (const [objective, objectiveType] of [
+      ["LEAD_GENERATION", "LEAD_GENERATION"],
+      ["VIDEO_VIEWS", "VIDEO_VIEWS"],
+      ["REACH", "REACH"],
+      ["ENGAGEMENT", "ENGAGEMENT"],
+    ] as const) {
+      const result = withoutSales(objective);
+      assert.equal(result.ok, true, objective);
+      if (!result.ok) continue;
+      assert.deepEqual(
+        result.value,
+        { ...expectedShared, objective_type: objectiveType },
+        objective,
+      );
+    }
+
+    const sales = withoutSales("CONVERSIONS");
+    assert.equal(sales.ok, true);
+    if (!sales.ok) return;
+    assert.deepEqual(sales.value, {
+      ...expectedShared,
+      objective_type: "WEB_CONVERSIONS",
+      virtual_objective_type: "SALES",
+      sales_destination: "WEBSITE",
+    });
+
+    const awareness = withoutSales("AWARENESS");
+    assert.equal(awareness.ok, false);
   });
 });
 

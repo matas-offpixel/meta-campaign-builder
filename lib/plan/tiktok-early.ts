@@ -77,6 +77,11 @@ export function tikTokPixelNotFiredMessage(pixelName: string): string {
   return `${name} has not fired yet — TikTok cannot optimise for a conversion until it does. Install it on the landing page, or run Traffic for now.`;
 }
 
+export function tikTokSalesPixelNotFiredMessage(pixelName: string): string {
+  const name = pixelName.trim() || "This pixel";
+  return `${name} has not fired any events yet — Sales cannot optimise for a purchase until it does. Install it on the checkout, or run Traffic for now.`;
+}
+
 export function tikTokUnverifiedFloorMessage(currency: string): string {
   const code = currency.trim().toUpperCase() || "unknown";
   return `no TikTok minimum is documented for ${code} — preflight is not checking the amount`;

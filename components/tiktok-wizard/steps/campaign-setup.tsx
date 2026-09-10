@@ -8,14 +8,19 @@ import { Select } from "@/components/ui/select";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import {
   defaultOptimisationGoalForObjective,
+  defaultTikTokSalesDestination,
   ensureTikTokCampaignNamePrefix,
+  isAwarenessTikTokObjective,
+  isTikTokSalesObjective,
   stripLockedEventCodePrefix,
   TIKTOK_BID_STRATEGIES,
   TIKTOK_BID_STRATEGY_LABELS,
-  isRetiredTikTokObjective,
   TIKTOK_OBJECTIVE_LABELS,
-  TIKTOK_OBJECTIVES,
+  TIKTOK_SALES_DESTINATION_LABELS,
+  TIKTOK_SALES_DESTINATIONS,
   TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE,
+  tikTokAwarenessReplacementMessage,
+  tikTokObjectivePickerValues,
   tikTokOptimisationGoalLabel,
   validOptimisationGoalForObjective,
 } from "@/lib/tiktok-wizard/campaign-setup";
@@ -23,11 +28,13 @@ import {
   applyTikTokCampaignSetupPatch,
   createDebouncedCallback,
 } from "@/lib/tiktok-wizard/debounced-text-save";
+import { tikTokSalesPixelNotFiredMessage } from "@/lib/plan/tiktok-early";
 import type {
   TikTokBidStrategy,
   TikTokCampaignDraft,
   TikTokObjective,
   TikTokOptimisationGoal,
+  TikTokSalesDestination,
 } from "@/lib/types/tiktok-draft";
 
 export function CampaignSetupStep({
@@ -43,6 +50,7 @@ export function CampaignSetupStep({
 }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [pixelEventCount, setPixelEventCount] = useState<number | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const mountedRef = useRef(true);
@@ -66,6 +74,34 @@ export function CampaignSetupStep({
     // not fight the in-progress name.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.id]);
+
+  useEffect(() => {
+    const advertiserId = draft.accountSetup.advertiserId;
+    const pixelId = draft.accountSetup.pixelId;
+    if (!advertiserId || !pixelId || !isTikTokSalesObjective(draft.campaignSetup.objective)) {
+      setPixelEventCount(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/tiktok/pixels?advertiser_id=${encodeURIComponent(advertiserId)}&pixel_id=${encodeURIComponent(pixelId)}`,
+    )
+      .then((res) => res.json())
+      .then((json: { ok?: boolean; events?: unknown[] }) => {
+        if (cancelled) return;
+        setPixelEventCount(json.ok ? (json.events ?? []).length : null);
+      })
+      .catch(() => {
+        if (!cancelled) setPixelEventCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    draft.accountSetup.advertiserId,
+    draft.accountSetup.pixelId,
+    draft.campaignSetup.objective,
+  ]);
 
   const eventCode = draft.campaignSetup.eventCode;
   const lockedPrefix = eventCode ? `[${eventCode}] ` : "";
@@ -148,6 +184,16 @@ export function CampaignSetupStep({
     await persist({
       objective: nextObjective,
       optimisationGoal: nextGoal,
+      salesDestination: isTikTokSalesObjective(nextObjective)
+        ? (latest.salesDestination ?? defaultTikTokSalesDestination())
+        : latest.salesDestination,
+    });
+  }
+
+  async function saveSalesDestination(nextDestination: TikTokSalesDestination) {
+    await persist({
+      objective: draftRef.current.campaignSetup.objective ?? objective,
+      salesDestination: nextDestination,
     });
   }
 
@@ -221,7 +267,7 @@ export function CampaignSetupStep({
           value={objective}
           onChange={(event) => void saveObjective(event.target.value as TikTokObjective)}
           disabled={saving}
-          options={TIKTOK_OBJECTIVES.map((value) => ({
+          options={tikTokObjectivePickerValues(draft.campaignSetup.objective).map((value) => ({
             value,
             label: TIKTOK_OBJECTIVE_LABELS[value],
           }))}
@@ -239,14 +285,45 @@ export function CampaignSetupStep({
         />
       </div>
 
-      {isRetiredTikTokObjective(draft.campaignSetup.objective) && (
-        <StatusLine className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-          Conversions is retired in TikTok Ads Manager. Website registration
-          now runs as an optimization location under Lead generation. Existing
-          drafts still load and launch, but new campaigns should use Lead
-          generation. This draft was not changed.
+      {isAwarenessTikTokObjective(draft.campaignSetup.objective) && (
+        <StatusLine
+          tone="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          {tikTokAwarenessReplacementMessage()}
         </StatusLine>
       )}
+
+      {isTikTokSalesObjective(draft.campaignSetup.objective) && (
+        <Select
+          id="tiktok-sales-destination"
+          label="Sales destination"
+          value={
+            draft.campaignSetup.salesDestination ?? defaultTikTokSalesDestination()
+          }
+          onChange={(event) =>
+            void saveSalesDestination(event.target.value as TikTokSalesDestination)
+          }
+          disabled={saving}
+          options={TIKTOK_SALES_DESTINATIONS.map((value) => ({
+            value,
+            label: TIKTOK_SALES_DESTINATION_LABELS[value],
+          }))}
+        />
+      )}
+
+      {isTikTokSalesObjective(draft.campaignSetup.objective) &&
+        draft.accountSetup.pixelId &&
+        pixelEventCount === 0 && (
+          <StatusLine
+            tone="alert"
+            className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+          >
+            {tikTokSalesPixelNotFiredMessage(
+              draft.accountSetup.pixelName ?? "This pixel",
+            )}
+          </StatusLine>
+        )}
 
       {draft.campaignSetup.objective === "LEAD_GENERATION" && (
         <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">

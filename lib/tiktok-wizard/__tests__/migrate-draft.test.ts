@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
+import { validateTikTokWizardStep } from "../validation.ts";
 import {
   applyIdentityBcIdFromIdentities,
   filterClientResolvableTikTokPreflightIssues,
@@ -204,8 +205,23 @@ describe("migrateTikTokDraft", () => {
     const migrated = migrateTikTokDraft(stored);
     assert.equal(migrated.campaignSetup.objective, "CONVERSIONS");
     assert.equal(migrated.campaignSetup.optimisationGoal, "CONVERSION");
+    assert.equal(migrated.campaignSetup.salesDestination, "WEBSITE");
     const preflight = collectTikTokLaunchPreflight(migrated);
     assert.equal(preflight.ok, true);
+  });
+
+  it("loads an AWARENESS draft and the wizard names Reach", () => {
+    const stored = launchableDraft();
+    stored.campaignSetup.objective = "AWARENESS";
+    stored.campaignSetup.optimisationGoal = "SHOW";
+    const migrated = migrateTikTokDraft(stored);
+    assert.equal(migrated.campaignSetup.objective, "AWARENESS");
+    const issues = validateTikTokWizardStep(migrated, 1);
+    assert.ok(issues.some((issue) => issue.id === "objective-awareness"));
+    assert.match(
+      issues.find((issue) => issue.id === "objective-awareness")?.message ?? "",
+      /Reach/,
+    );
   });
 
   it("keeps launch ids when launchedAt is omitted from a pre-existing publishedIds", () => {

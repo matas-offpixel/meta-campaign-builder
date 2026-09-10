@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
   defaultOptimisationGoalForObjective,
   ensureTikTokCampaignNamePrefix,
-  isRetiredTikTokObjective,
+  isAwarenessTikTokObjective,
+  isTikTokSalesObjective,
   stripLockedEventCodePrefix,
+  TIKTOK_OBJECTIVE_LABELS,
+  TIKTOK_OBJECTIVES,
   TIKTOK_OPTIMISATION_GOALS_BY_OBJECTIVE,
+  tikTokAwarenessReplacementMessage,
+  tikTokObjectivePickerValues,
   tikTokOptimisationGoalLabel,
   validOptimisationGoalForObjective,
 } from "../campaign-setup.ts";
@@ -56,9 +62,25 @@ describe("TikTok campaign setup helpers", () => {
     );
     assert.equal(defaultOptimisationGoalForObjective("LEAD_GENERATION"), "CONVERSION");
     assert.equal(defaultOptimisationGoalForObjective("VIDEO_VIEWS"), "VIDEO_VIEW");
-    assert.equal(isRetiredTikTokObjective("CONVERSIONS"), true);
-    assert.equal(isRetiredTikTokObjective("LEAD_GENERATION"), false);
     assert.equal(tikTokOptimisationGoalLabel("CONVERSION", "LEAD_GENERATION"), "Leads");
     assert.equal(tikTokOptimisationGoalLabel("CONVERSION", "CONVERSIONS"), "Conversion");
+  });
+
+  it("labels CONVERSIONS as Sales and ENGAGEMENT as Community interaction", () => {
+    assert.equal(TIKTOK_OBJECTIVE_LABELS.CONVERSIONS, "Sales");
+    assert.equal(TIKTOK_OBJECTIVE_LABELS.ENGAGEMENT, "Community interaction");
+    assert.equal(isTikTokSalesObjective("CONVERSIONS"), true);
+    assert.equal(isTikTokSalesObjective("LEAD_GENERATION"), false);
+  });
+
+  it("does not offer AWARENESS; an existing draft still loads with a Reach blocker", () => {
+    assert.equal(TIKTOK_OBJECTIVES.includes("AWARENESS"), false);
+    assert.deepEqual(tikTokObjectivePickerValues("TRAFFIC"), TIKTOK_OBJECTIVES);
+    assert.equal(tikTokObjectivePickerValues("AWARENESS").includes("AWARENESS"), true);
+    assert.equal(isAwarenessTikTokObjective("AWARENESS"), true);
+    assert.match(tikTokAwarenessReplacementMessage(), /Reach/);
+    const src = readFileSync("components/tiktok-wizard/steps/campaign-setup.tsx", "utf8");
+    assert.match(src, /tikTokAwarenessReplacementMessage/);
+    assert.doesNotMatch(src, /isRetiredTikTokObjective|Conversions is retired/);
   });
 });
