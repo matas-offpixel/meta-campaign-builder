@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 
 import {
   applyOptimisationDecision,
+  isCampaignWidePauseBreach,
   isDeliveringAdSetStatus,
   MAX_PAUSES_PER_RUN,
   MAX_WRITES_PER_RUN,
@@ -287,6 +288,16 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     assert.equal(isDeliveringAdSetStatus(null), false);
   });
 
+  it("campaign-wide is a majority of the same delivering set, not exactly-all", () => {
+    assert.equal(isCampaignWidePauseBreach(4, 4), true);
+    assert.equal(isCampaignWidePauseBreach(4, 3), true);
+    assert.equal(isCampaignWidePauseBreach(4, 2), false);
+    assert.equal(isCampaignWidePauseBreach(3, 2), true);
+    assert.equal(isCampaignWidePauseBreach(2, 1), false);
+    assert.equal(isCampaignWidePauseBreach(1, 1), true);
+    assert.equal(isCampaignWidePauseBreach(0, 0), false);
+  });
+
   it("fourth gate closed behaves exactly as today — shadow + ads_urgent, no Meta", async () => {
     const { deps, inserted, updates, pauses, reads, notifies } = makeDeps();
     const outcome = await applyOptimisationDecision(
@@ -315,6 +326,52 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     assert.equal(outcome.decision.guardrailNote, "pause_floor_unset");
     assert.equal(updates.length, 0);
     assert.equal(pauses.length, 0);
+  });
+
+  it("resultCount 5 above the floor writes nothing — no cut, no pause", async () => {
+    const { deps, updates, pauses, reads } = makeDeps();
+    const outcome = await applyOptimisationDecision(
+      pauseInput({
+        decision: pauseDecision({ resultCount: 5 }),
+      }),
+      deps,
+    );
+    assert.equal(outcome.kind, "pause_blocked");
+    assert.equal(outcome.wrote, false);
+    assert.equal(outcome.decision.guardrailNote, "pause_insufficient_conversions");
+    assert.equal(updates.length, 0);
+    assert.equal(pauses.length, 0);
+    assert.equal(reads.length, 0);
+  });
+
+  it("the last active ad set is not cut to floor either", async () => {
+    const { deps, updates, pauses } = makeDeps();
+    const outcome = await applyOptimisationDecision(
+      pauseInput({ activeAdSetCount: 1 }),
+      deps,
+    );
+    assert.equal(outcome.kind, "pause_blocked");
+    assert.equal(outcome.decision.guardrailNote, "pause_last_active");
+    assert.equal(updates.length, 0);
+    assert.equal(pauses.length, 0);
+  });
+
+  it("three of four breaching is campaign-wide and writes nothing", async () => {
+    const { deps, updates, pauses } = makeDeps();
+    const outcome = await applyOptimisationDecision(
+      pauseInput({
+        activeAdSetCount: 4,
+        pauseCandidatesInCampaign: 3,
+        campaignWideBreach: true,
+      }),
+      deps,
+    );
+    assert.equal(outcome.kind, "pause_blocked");
+    assert.equal(outcome.wrote, false);
+    assert.equal(updates.length, 0);
+    assert.equal(pauses.length, 0);
+    assert.equal(outcome.decision.guardrailNote, "pause_campaign_wide");
+    assert.match(outcome.decision.reasonText ?? "", /3 of 4 ad sets/);
   });
 
   it("first breach above the floor reduces to the floor and does not pause", async () => {
