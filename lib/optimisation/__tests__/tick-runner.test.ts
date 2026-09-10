@@ -602,6 +602,168 @@ describe("runOptimisationTick — pause writes", () => {
     );
   });
 
+  it("three of four breaching is campaign-wide — no floor cut, no pause", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_a", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_b", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_c", dailyBudgetPence: 10000 }),
+        insightRow({
+          adsetId: "adset_ok",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.writesApplied, 0);
+  });
+
+  it("a pause with resultCount 5 writes nothing", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          adsetId: "adset_ok",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+        pauseInsight({
+          adsetId: "adset_thin",
+          dailyBudgetPence: 10000,
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 5 },
+        }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+  });
+
+  it("the only active ad set is not cut to floor", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [pauseInsight({ dailyBudgetPence: 10000 })],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+  });
+
+  it("floor cuts draw down the pause budget, not MAX_WRITES_PER_RUN", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      maxPausesPerRun: 2,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_a", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_b", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_c", dailyBudgetPence: 10000 }),
+        insightRow({
+          adsetId: "ok_1",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+        insightRow({
+          adsetId: "ok_2",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+        insightRow({
+          adsetId: "ok_3",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 2);
+    assert.equal(summary.pausesApplied, 2);
+    assert.equal(summary.writesApplied, 0);
+  });
+
   it("one breaching ad set at the floor is paused; a healthy sibling keeps the campaign alive", async () => {
     const pauses: string[] = [];
     const deps = makeDeps({

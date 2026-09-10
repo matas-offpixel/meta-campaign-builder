@@ -155,6 +155,7 @@ export async function fetchCampaignAdSetInsights(
 ): Promise<AdSetInsightRow[]> {
   const datePreset = windowToDatePreset(window);
   const insightsFields = `insights.date_preset(${datePreset}){impressions,cpc,cpm,ctr,actions,cost_per_action_type}`;
+  // effective_status is the pause blast-radius linchpin (`isDeliveringAdSetStatus`).
   const fields = `id,name,daily_budget,lifetime_budget,effective_status,${insightsFields}`;
 
   const rows: AdSetInsightRow[] = [];

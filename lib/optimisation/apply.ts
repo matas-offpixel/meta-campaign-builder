@@ -11,7 +11,8 @@
  * writes need the three budget-write gates PLUS
  * `ENABLE_OPTIMISATION_PAUSE_WRITES`, a configured `pauseFloorBudget`
  * (reduce first; pause only at the floor), and the blast-radius limits
- * below. Never auto-resume — a human unpauses.
+ * below — conversion minimum, last-active, and the pause cap all run
+ * before the floor cut. Never auto-resume — a human unpauses.
  *
  * Pure except for injected Meta / DB / Slack seams — no `@/` imports so
  * `node --test` can load it.
@@ -99,6 +100,19 @@ export interface ApplyOptimisationDeps {
 /** Meta `effective_status` values that still spend. Missing status is not active. */
 export function isDeliveringAdSetStatus(status: string | null | undefined): boolean {
   return status === "ACTIVE" || status === "LEARNING" || status === "LEARNING_LIMITED";
+}
+
+/**
+ * Campaign-wide means a majority of delivering ad sets — more than half.
+ * Both counts must be taken over the same set (fetched delivering rows).
+ * Exactly-all was too late: 3 of 4 already removes most of the delivery.
+ */
+export function isCampaignWidePauseBreach(
+  activeCount: number,
+  pauseCandidates: number,
+): boolean {
+  if (activeCount <= 0) return false;
+  return pauseCandidates * 2 > activeCount;
 }
 
 function isCampaignScope(decision: DecisionToInsert): boolean {
@@ -321,7 +335,7 @@ async function applyPauseDecision(
   input: ApplyOptimisationInput,
   deps: ApplyOptimisationDeps,
 ): Promise<ApplyOutcome> {
-  const { decision, campaignName, adsetName, writesRemaining } = input;
+  const { decision, campaignName, adsetName } = input;
   const pauseWritesEnabled = input.pauseWritesEnabled === true;
 
   // Fourth gate closed — today's behaviour exactly: shadow + ads_urgent.
@@ -351,7 +365,7 @@ async function applyPauseDecision(
   const candidates = input.pauseCandidatesInCampaign ?? 0;
   if (input.campaignWideBreach === true) {
     const slack =
-      `campaign-wide breach — ${candidates} of ${candidates} ad sets over threshold, ` +
+      `campaign-wide breach — ${candidates} of ${active} ad sets over threshold, ` +
       `no automatic pause (campaign="${campaignName}")`;
     return recommendPause(
       input,
@@ -374,6 +388,56 @@ async function applyPauseDecision(
       {
         guardrailNote: "pause_floor_unset",
         reasonText: `${decision.reasonText} Pause floor unset — no automatic pause.`,
+      },
+      "pause_blocked",
+    );
+  }
+
+  // The floor cut is a Meta write. It sits behind the same blast-radius
+  // guards as the hard pause — thin evidence must not slash delivery
+  // either. evaluate.ts ceiling / maxDailyIncreasePercent clamps do not
+  // apply here: the floor is a configured stop, not a scale-down.
+  const resultCount = decision.resultCount;
+  if (resultCount == null || resultCount < MIN_PAUSE_CONVERSION_RESULT_COUNT) {
+    return recommendPause(
+      input,
+      deps,
+      {
+        guardrailNote: "pause_insufficient_conversions",
+        reasonText:
+          `${decision.reasonText} ${resultCount ?? 0}/${MIN_PAUSE_CONVERSION_RESULT_COUNT} ` +
+          `conversions — pause evidence too thin, no automatic pause.`,
+      },
+      "pause_blocked",
+    );
+  }
+
+  if (active <= 1) {
+    const slack =
+      `last active ad set — no automatic pause (campaign="${campaignName}" ` +
+      `ad set="${adsetName}")`;
+    return recommendPause(
+      input,
+      deps,
+      {
+        guardrailNote: "pause_last_active",
+        reasonText: `${decision.reasonText} ${slack}`,
+      },
+      "pause_blocked",
+      slack,
+    );
+  }
+
+  const pausesRemaining = input.pausesRemaining ?? MAX_PAUSES_PER_RUN;
+  if (pausesRemaining <= 0) {
+    return recommendPause(
+      input,
+      deps,
+      {
+        guardrailNote: "pause_cap_reached",
+        reasonText:
+          `${decision.reasonText} Pause cap reached ` +
+          `(MAX_PAUSES_PER_RUN=${MAX_PAUSES_PER_RUN}) — no automatic pause.`,
       },
       "pause_blocked",
     );
@@ -426,20 +490,8 @@ async function applyPauseDecision(
   }
 
   // Prefer a floor to a stop. First breach above the floor is a cut.
+  // Draws from the pause budget, not MAX_WRITES_PER_RUN.
   if (liveBudget > floor) {
-    if (writesRemaining <= 0) {
-      const row: DecisionToInsert = {
-        ...decision,
-        dryRun: true,
-        applied: false,
-      };
-      await persist(deps, row);
-      logLine(
-        deps,
-        `[optimisation-tick] write cap reached — cutting to pause floor skipped target=${target}`,
-      );
-      return { kind: "cap_reached", decision: row, wrote: false };
-    }
     try {
       const response = await deps.updateAdSetDailyBudget(decision.adsetId, floor);
       const now = deps.now ?? new Date();
@@ -494,66 +546,6 @@ async function applyPauseDecision(
       });
       return { kind: "write_failed", decision: row, wrote: false };
     }
-  }
-
-  const resultCount = decision.resultCount;
-  if (resultCount == null || resultCount < MIN_PAUSE_CONVERSION_RESULT_COUNT) {
-    return recommendPause(
-      input,
-      deps,
-      {
-        guardrailNote: "pause_insufficient_conversions",
-        reasonText:
-          `${decision.reasonText} ${resultCount ?? 0}/${MIN_PAUSE_CONVERSION_RESULT_COUNT} ` +
-          `conversions — pause evidence too thin, no automatic pause.`,
-      },
-      "pause_blocked",
-    );
-  }
-
-  if (active <= 1) {
-    const slack =
-      `last active ad set — no automatic pause (campaign="${campaignName}" ` +
-      `ad set="${adsetName}")`;
-    return recommendPause(
-      input,
-      deps,
-      {
-        guardrailNote: "pause_last_active",
-        reasonText: `${decision.reasonText} ${slack}`,
-      },
-      "pause_blocked",
-      slack,
-    );
-  }
-
-  const pausesRemaining = input.pausesRemaining ?? MAX_PAUSES_PER_RUN;
-  if (pausesRemaining <= 0) {
-    return recommendPause(
-      input,
-      deps,
-      {
-        guardrailNote: "pause_cap_reached",
-        reasonText:
-          `${decision.reasonText} Pause cap reached ` +
-          `(MAX_PAUSES_PER_RUN=${MAX_PAUSES_PER_RUN}) — no automatic pause.`,
-      },
-      "pause_blocked",
-    );
-  }
-
-  if (writesRemaining <= 0) {
-    const row: DecisionToInsert = {
-      ...decision,
-      dryRun: true,
-      applied: false,
-    };
-    await persist(deps, row);
-    logLine(
-      deps,
-      `[optimisation-tick] write cap reached — pause shadowed target=${target} (MAX_WRITES_PER_RUN)`,
-    );
-    return { kind: "cap_reached", decision: row, wrote: false };
   }
 
   if (!deps.pauseAdSet) {

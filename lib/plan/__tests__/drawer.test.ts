@@ -80,6 +80,32 @@ function contentDiffByFile(diff: string): Map<string, { added: string[]; removed
   return out;
 }
 
+function extractNamedFunction(src: string, name: string): string {
+  const match = new RegExp(
+    `(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`,
+  ).exec(src);
+  assert.ok(match, `missing function ${name}`);
+  let i = match.index + match[0].length;
+  while (i < src.length && src[i] !== "{") i += 1;
+  let depth = 0;
+  for (; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return src.slice(match.index, i + 1);
+    }
+  }
+  assert.fail(`unclosed function ${name}`);
+}
+
+function scaleWritePath(src: string): string {
+  const fn = extractNamedFunction(src, "applyOptimisationDecision");
+  const marker = "if (!wouldWriteBudget";
+  const idx = fn.indexOf(marker);
+  assert.ok(idx >= 0, "scale write path missing from applyOptimisationDecision");
+  return fn.slice(idx);
+}
+
 /**
  * Every source that renders inside the drawer. The three tabs, the two
  * halves of budget-schedule, the four demoted steps in `details`, the
@@ -1309,6 +1335,7 @@ describe("write paths are untouched", () => {
       { encoding: "utf8" },
     );
     if (diff.trim() === "") return;
+
     const byFile = contentDiffByFile(diff);
     for (const file of byFile.keys()) {
       assert.ok(
@@ -1316,32 +1343,47 @@ describe("write paths are untouched", () => {
         `${file} changed; the freeze does not allow it`,
       );
     }
-    assert.ok(byFile.has("lib/optimisation/gates.ts"), "gates.ts must stay in the freeze diff");
-    assert.ok(byFile.has("lib/optimisation/apply.ts"), "apply.ts must stay in the freeze diff");
 
-    const gatesSrc = readFileSync(join(ROOT, "lib/optimisation/gates.ts"), "utf8");
-    assert.match(gatesSrc, /export function optimisationDryRunGates/);
-    assert.match(
-      gatesSrc,
-      /writesEnabled: boolean,\s*enabled: boolean,\s*live: boolean,/,
+    const mainApply = execSync(`git show ${base}:lib/optimisation/apply.ts`, {
+      encoding: "utf8",
+    });
+    const mainGates = execSync(`git show ${base}:lib/optimisation/gates.ts`, {
+      encoding: "utf8",
+    });
+    const applySrc = read("lib/optimisation/apply.ts");
+    const gatesSrc = read("lib/optimisation/gates.ts");
+
+    // Scale path and 3-of-3 stay byte-identical to main. Only applyPauseDecision,
+    // the fourth-gate helper, and their call sites may differ.
+    assert.equal(
+      extractNamedFunction(applySrc, "wouldWriteBudget"),
+      extractNamedFunction(mainApply, "wouldWriteBudget"),
     );
-    assert.match(gatesSrc, /ENABLE_OPTIMISATION_PAUSE_WRITES/);
-    assert.match(gatesSrc, /optimisationPauseDryRunGates/);
+    assert.equal(
+      scaleWritePath(applySrc),
+      scaleWritePath(mainApply),
+      "the scale write path inside applyOptimisationDecision changed",
+    );
+    assert.equal(
+      extractNamedFunction(gatesSrc, "optimisationDryRunGates"),
+      extractNamedFunction(mainGates, "optimisationDryRunGates"),
+    );
+    assert.equal(
+      extractNamedFunction(gatesSrc, "shouldOptimisationDryRun"),
+      extractNamedFunction(mainGates, "shouldOptimisationDryRun"),
+    );
+    assert.equal(
+      extractNamedFunction(gatesSrc, "isOptimisationWritesEnabledFromEnv"),
+      extractNamedFunction(mainGates, "isOptimisationWritesEnabledFromEnv"),
+    );
 
-    const applySrc = readFileSync(join(ROOT, "lib/optimisation/apply.ts"), "utf8");
-    assert.match(applySrc, /MAX_WRITES_PER_RUN = 25/);
-    assert.match(applySrc, /MAX_PAUSES_PER_RUN = 2/);
-    assert.match(applySrc, /MIN_PAUSE_CONVERSION_RESULT_COUNT = 15/);
-    assert.match(applySrc, /function wouldWriteBudget/);
-    assert.match(applySrc, /budget_changed_underfoot/);
-    assert.match(applySrc, /updateAdSetDailyBudget/);
-    assert.match(applySrc, /pauseWritesEnabled/);
-    assert.match(applySrc, /pauseFloorBudget/);
-    assert.match(applySrc, /Never auto-resume/);
+    assert.match(applySrc, /async function applyPauseDecision/);
+    assert.match(gatesSrc, /export function optimisationPauseDryRunGates/);
     assert.doesNotMatch(applySrc, /status:\s*["']ACTIVE["']/);
-
-    assert.match(diff, /ENABLE_OPTIMISATION_PAUSE_WRITES/);
-    assert.match(diff, /pauseWritesEnabled|pauseFloorBudget|MIN_PAUSE_CONVERSION_RESULT_COUNT/);
+    assert.doesNotMatch(
+      read("app/api/cron/optimisation-tick/route.ts"),
+      /status:\s*["']ACTIVE["']/,
+    );
   });
 
   it("the plan canvas, frames, and Meta launch route have no diff against main", () => {
