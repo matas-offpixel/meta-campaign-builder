@@ -10,6 +10,7 @@ import {
   TIKTOK_VIDEO_LIBRARY_COPY,
   TIKTOK_VIDEO_LIBRARY_PATH,
 } from "../creative.ts";
+import { IRONWORKS_VIDEO_AD_INFO_ROW } from "./captured-ironworks-2026-09-10.ts";
 
 describe("TikTok creative helpers", () => {
   it("extracts video ids from URLs and raw ids", () => {
@@ -33,37 +34,32 @@ describe("TikTok creative helpers", () => {
     ]);
   });
 
-  it("maps TikTok video info responses", async () => {
+  it("maps the captured Ironworks /file/video/ad/info/ row", async () => {
+    assert.equal("thumbnail_url" in IRONWORKS_VIDEO_AD_INFO_ROW, false);
     const videos = await fetchTikTokVideoInfo({
-      advertiserId: "advertiser-1",
+      advertiserId: "7639802149165301776",
       token: "token-1",
-      videoIds: ["v1"],
+      videoIds: [IRONWORKS_VIDEO_AD_INFO_ROW.video_id],
       request: async <T,>(
         path: string,
         params: Record<string, unknown>,
       ): Promise<T> => {
         assert.equal(path, "/file/video/ad/info/");
-        assert.deepEqual(params.video_ids, ["v1"]);
-        return {
-          list: [
-            {
-              video_id: "v1",
-              thumbnail_url: "https://example.com/thumb.jpg",
-              duration: 12,
-              title: "Hero video",
-            },
-          ],
-        } as T;
+        assert.deepEqual(params.video_ids, [
+          IRONWORKS_VIDEO_AD_INFO_ROW.video_id,
+        ]);
+        return { list: [IRONWORKS_VIDEO_AD_INFO_ROW] } as T;
       },
     });
 
     assert.deepEqual(videos, [
       {
-        video_id: "v1",
-        thumbnail_url: "https://example.com/thumb.jpg",
-        preview_url_expire_time: null,
-        duration_seconds: 12,
-        title: "Hero video",
+        video_id: IRONWORKS_VIDEO_AD_INFO_ROW.video_id,
+        thumbnail_url: IRONWORKS_VIDEO_AD_INFO_ROW.video_cover_url,
+        preview_url_expire_time:
+          IRONWORKS_VIDEO_AD_INFO_ROW.preview_url_expire_time,
+        duration_seconds: IRONWORKS_VIDEO_AD_INFO_ROW.duration,
+        title: IRONWORKS_VIDEO_AD_INFO_ROW.file_name,
       },
     ]);
   });

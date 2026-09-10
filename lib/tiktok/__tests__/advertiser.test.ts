@@ -5,26 +5,25 @@ import {
   fetchTikTokAdvertiserCurrency,
   fetchTikTokAdvertiserInfo,
 } from "../advertiser.ts";
+import { IRONWORKS_ADVERTISER_INFO_ROW } from "./captured-ironworks-2026-09-10.ts";
 
 describe("fetchTikTokAdvertiserCurrency", () => {
-  it("reads currency from /advertiser/info/", async () => {
+  it("reads currency from the captured Ironworks /advertiser/info/ row", async () => {
     const currency = await fetchTikTokAdvertiserCurrency({
-      advertiserId: "advertiser-1",
+      advertiserId: "7639802149165301776",
       token: "token-1",
       request: async <T,>(
         path: string,
         params: Record<string, unknown>,
       ): Promise<T> => {
         assert.equal(path, "/advertiser/info/");
-        assert.deepEqual(params.advertiser_ids, ["advertiser-1"]);
+        assert.deepEqual(params.advertiser_ids, ["7639802149165301776"]);
         assert.deepEqual(params.fields, [
           "currency",
           "timezone",
           "display_timezone",
         ]);
-        return {
-          list: [{ advertiser_id: "advertiser-1", currency: "gbp" }],
-        } as T;
+        return { list: [IRONWORKS_ADVERTISER_INFO_ROW] } as T;
       },
     });
     assert.equal(currency, "GBP");
@@ -41,24 +40,17 @@ describe("fetchTikTokAdvertiserCurrency", () => {
 });
 
 describe("fetchTikTokAdvertiserInfo", () => {
-  it("reads timezone and does not fall back to display_timezone", async () => {
+  it("reads timezone and display_timezone from the captured Ironworks row", async () => {
     const info = await fetchTikTokAdvertiserInfo({
-      advertiserId: "advertiser-1",
+      advertiserId: "7639802149165301776",
       token: "token-1",
       request: async <T,>(): Promise<T> =>
-        ({
-          list: [
-            {
-              advertiser_id: "advertiser-1",
-              currency: "USD",
-              timezone: "America/New_York",
-              display_timezone: "Europe/London",
-            },
-          ],
-        }) as T,
+        ({ list: [IRONWORKS_ADVERTISER_INFO_ROW] }) as T,
     });
-    assert.equal(info.timezone, "America/New_York");
+    assert.equal(info.timezone, "Etc/GMT");
     assert.equal(info.displayTimezone, "Europe/London");
     assert.notEqual(info.timezone, info.displayTimezone);
+    assert.equal(info.currency, "GBP");
+    assert.equal("advertiser_id" in IRONWORKS_ADVERTISER_INFO_ROW, false);
   });
 });

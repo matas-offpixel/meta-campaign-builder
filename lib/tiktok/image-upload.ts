@@ -1,4 +1,5 @@
 import { TikTokApiError, type BodyValue } from "./client.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 import { postTikTokWrite } from "./write/request.ts";
 import type { TikTokPost, Sleep } from "./write/idempotency.ts";
 
@@ -23,6 +24,7 @@ export function readTikTokUploadedImageId(data: unknown): string | null {
   if (Array.isArray(record.list)) {
     return readTikTokUploadedImageId(record.list[0]);
   }
+  logUnmatchedCandidates("/file/image/ad/upload/", ["image_id", "list"]);
   return null;
 }
 

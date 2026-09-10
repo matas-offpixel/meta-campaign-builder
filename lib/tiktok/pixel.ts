@@ -1,4 +1,5 @@
 import { tiktokGet } from "./client.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 
 export interface TikTokPixel {
   pixel_id: string;
@@ -20,10 +21,16 @@ interface TikTokPixelEventRow {
   custom_event_type?: string;
 }
 
+export const PIXEL_STATUS_CANDIDATE_KEYS = [
+  "activity_status",
+  "status",
+] as const;
+
 interface TikTokPixelListRow {
   pixel_id?: string;
   pixel_name?: string;
   name?: string;
+  activity_status?: string;
   status?: string;
   events?: TikTokPixelEventRow[];
 }
@@ -46,11 +53,17 @@ export async function fetchTikTokPixels(input: {
     .filter((row): row is TikTokPixelListRow & { pixel_id: string } =>
       Boolean(row.pixel_id),
     )
-    .map((row) => ({
-      pixel_id: row.pixel_id,
-      pixel_name: row.pixel_name ?? row.name ?? row.pixel_id,
-      status: row.status ?? null,
-    }))
+    .map((row) => {
+      const pixelName = row.pixel_name ?? row.name;
+      if (pixelName == null) {
+        logUnmatchedCandidates("/pixel/list/ name", ["pixel_name", "name"]);
+      }
+      return {
+        pixel_id: row.pixel_id,
+        pixel_name: pixelName ?? row.pixel_id,
+        status: extractPixelStatus(row),
+      };
+    })
     .sort((a, b) => a.pixel_name.localeCompare(b.pixel_name));
 }
 
@@ -81,6 +94,18 @@ export async function fetchTikTokPixelEvents(input: {
   return events.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function extractPixelStatus(row: TikTokPixelListRow): string | null {
+  const record = row as Record<string, unknown>;
+  for (const key of PIXEL_STATUS_CANDIDATE_KEYS) {
+    const raw = record[key];
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim();
+    }
+  }
+  logUnmatchedCandidates("/pixel/list/ status", PIXEL_STATUS_CANDIDATE_KEYS);
+  return null;
+}
+
 async function listTikTokPixels(input: {
   advertiserId: string;
   token: string;
@@ -97,5 +122,10 @@ async function listTikTokPixels(input: {
     params,
     input.token,
   );
-  return res.list ?? res.pixels ?? [];
+  const rows = res.list ?? res.pixels;
+  if (rows === undefined) {
+    logUnmatchedCandidates("/pixel/list/", ["list", "pixels"]);
+    return [];
+  }
+  return rows;
 }

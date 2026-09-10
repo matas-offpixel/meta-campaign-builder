@@ -6,6 +6,7 @@ import {
   type FetchTikTokEventCampaignInsightsInput,
 } from "../insights.ts";
 import { BASE_METRICS } from "../insights.ts";
+import { IRONWORKS_INTEGRATED_REPORT_ROW } from "./captured-ironworks-2026-09-10.ts";
 
 type MockRequest = NonNullable<FetchTikTokEventCampaignInsightsInput["request"]>;
 
@@ -526,5 +527,60 @@ describe("fetchTikTokEventCampaignInsights", () => {
     const payRow = rows.find((r) => r.id === "camp-pay");
     assert.equal(regRow?.results, 7);
     assert.equal(payRow?.results, 3);
+  });
+
+  it("reads the captured Ironworks /report/integrated/get/ list[0] keys", async () => {
+    assert.equal(
+      IRONWORKS_INTEGRATED_REPORT_ROW.dimensions.campaign_id,
+      "1873969439956706",
+    );
+    assert.equal(
+      IRONWORKS_INTEGRATED_REPORT_ROW.dimensions.stat_time_day,
+      "2026-09-01 00:00:00",
+    );
+    assert.equal(
+      "video_play" in IRONWORKS_INTEGRATED_REPORT_ROW.metrics,
+      false,
+    );
+    assert.equal(
+      IRONWORKS_INTEGRATED_REPORT_ROW.metrics.video_play_actions,
+      "0",
+    );
+
+    const request: MockRequest = async <T>(path: string): Promise<T> => {
+      if (path === "/report/integrated/get/") {
+        return {
+          list: [IRONWORKS_INTEGRATED_REPORT_ROW],
+          page_info: { page: 1, total_page: 1 },
+        } as T;
+      }
+      if (path === "/campaign/get/") {
+        return {
+          list: [
+            {
+              campaign_id:
+                IRONWORKS_INTEGRATED_REPORT_ROW.dimensions.campaign_id,
+              campaign_name: "[IRW0001] captured",
+            },
+          ],
+        } as T;
+      }
+      throw new Error(`Unexpected path ${path}`);
+    };
+
+    const rows = await fetchTikTokEventCampaignInsights({
+      advertiserId: "7639802149165301776",
+      token: "token-1",
+      eventCode: "IRW0001",
+      window: { since: "2026-08-12", until: "2026-09-10" },
+      request,
+    });
+
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.id, "1873969439956706");
+    assert.equal(rows[0]!.name, "[IRW0001] captured");
+    assert.equal(rows[0]!.spend, 0);
+    assert.equal(rows[0]!.clicks, 0);
+    assert.equal(rows[0]!.impressions, 0);
   });
 });
