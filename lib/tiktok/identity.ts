@@ -1,5 +1,6 @@
 import type { TikTokCampaignDraft } from "../types/tiktok-draft.ts";
 import { tiktokGet } from "./client.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 
 export type TikTokIdentityType =
   | "AUTH_CODE"
@@ -84,6 +85,7 @@ export function extractIdentityBcId(row: TikTokIdentityGetRow): {
       return { value: String(raw), key };
     }
   }
+  logUnmatchedCandidates("/identity/get/ bc_id", IDENTITY_BC_ID_CANDIDATE_KEYS);
   return { value: null, key: null };
 }
 
@@ -98,6 +100,7 @@ export function extractIdentityAvatar(row: TikTokIdentityGetRow): {
       return { value: raw.trim(), key };
     }
   }
+  logUnmatchedCandidates("/identity/get/ avatar", IDENTITY_AVATAR_CANDIDATE_KEYS);
   return { value: null, key: null };
 }
 
@@ -222,6 +225,7 @@ export function extractIdentityRows(res: unknown): TikTokIdentityGetRow[] {
     const value = record[key];
     if (Array.isArray(value)) return value as TikTokIdentityGetRow[];
   }
+  logUnmatchedCandidates("/identity/get/", IDENTITY_ARRAY_KEYS);
   return [];
 }
 
@@ -305,13 +309,18 @@ function ingestIdentityRows(
       }
       continue;
     }
+    const displayName =
+      row.display_name ?? row.identity_name ?? row.nickname ?? null;
+    if (displayName == null) {
+      logUnmatchedCandidates("/identity/get/ display_name", [
+        "display_name",
+        "identity_name",
+        "nickname",
+      ]);
+    }
     byId.set(row.identity_id, {
       identity_id: row.identity_id,
-      display_name:
-        row.display_name ??
-        row.identity_name ??
-        row.nickname ??
-        row.identity_id,
+      display_name: displayName ?? row.identity_id,
       identity_type: rowType,
       avatar_url: avatar.value,
       identity_bc_id: extracted.value,

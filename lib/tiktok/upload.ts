@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { TikTokApiError } from "./client.ts";
 import { fetchTikTokVideoInfo } from "./creative.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 import { parseTikTokPreviewExpiry } from "./video-preview.ts";
 
 const TIKTOK_BASE = "https://business-api.tiktok.com/open_api/v1.3";
@@ -208,6 +209,11 @@ function readUploadRow(res: unknown): Record<string, unknown> | null {
     return nested;
   }
   if (typeof record.video_id === "string") return record;
+  logUnmatchedCandidates("/file/video/ad/upload/ row", [
+    "data",
+    "data.list",
+    "video_id",
+  ]);
   return null;
 }
 
@@ -223,19 +229,34 @@ function mapUploadedVideo(
   row: Record<string, unknown>,
   backfilled: boolean,
 ): TikTokUploadedVideo {
+  const previewUrl =
+    asOptionalString(row.preview_url) ??
+    asOptionalString(row.video_cover_url) ??
+    asOptionalString(row.thumbnail_url);
+  if (previewUrl == null) {
+    logUnmatchedCandidates("/file/video/ad/upload/ preview", [
+      "preview_url",
+      "video_cover_url",
+      "thumbnail_url",
+    ]);
+  }
+  const durationSeconds =
+    asOptionalNumber(row.duration) ?? asOptionalNumber(row.duration_seconds);
+  if (durationSeconds == null) {
+    logUnmatchedCandidates("/file/video/ad/upload/ duration", [
+      "duration",
+      "duration_seconds",
+    ]);
+  }
   return {
     videoId: String(row.video_id),
     materialId: asOptionalString(row.material_id),
-    previewUrl:
-      asOptionalString(row.preview_url) ??
-      asOptionalString(row.video_cover_url) ??
-      asOptionalString(row.thumbnail_url),
+    previewUrl,
     coverUrl: asOptionalString(row.video_cover_url),
     previewUrlExpireAt: parseTikTokPreviewExpiry(row.preview_url_expire_time),
     width: asOptionalNumber(row.width),
     height: asOptionalNumber(row.height),
-    durationSeconds:
-      asOptionalNumber(row.duration) ?? asOptionalNumber(row.duration_seconds),
+    durationSeconds,
     fileName: asOptionalString(row.file_name),
     backfilled,
   };

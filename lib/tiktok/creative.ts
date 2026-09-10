@@ -1,4 +1,5 @@
 import { tiktokGet } from "./client.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 
 type TikTokGet = typeof tiktokGet;
 
@@ -55,13 +56,32 @@ interface VideoSearchResponse {
 function normalizeTikTokVideoRow(
   row: VideoInfoRow & { video_id: string },
 ): TikTokVideoInfo {
+  const thumbnailUrl =
+    row.video_cover_url ?? row.thumbnail_url ?? row.preview_url ?? null;
+  if (thumbnailUrl == null) {
+    logUnmatchedCandidates("/file/video/ad thumbnail", [
+      "video_cover_url",
+      "thumbnail_url",
+      "preview_url",
+    ]);
+  }
+  const durationSeconds = row.duration_seconds ?? row.duration ?? null;
+  if (durationSeconds == null) {
+    logUnmatchedCandidates("/file/video/ad duration", [
+      "duration_seconds",
+      "duration",
+    ]);
+  }
+  const title = row.title ?? row.file_name ?? null;
+  if (title == null) {
+    logUnmatchedCandidates("/file/video/ad title", ["title", "file_name"]);
+  }
   return {
     video_id: row.video_id,
-    thumbnail_url:
-      row.video_cover_url ?? row.thumbnail_url ?? row.preview_url ?? null,
+    thumbnail_url: thumbnailUrl,
     preview_url_expire_time: row.preview_url_expire_time ?? null,
-    duration_seconds: row.duration_seconds ?? row.duration ?? null,
-    title: row.title ?? row.file_name ?? null,
+    duration_seconds: durationSeconds,
+    title,
   };
 }
 

@@ -1,4 +1,5 @@
 import { tiktokGet } from "./client.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 
 export interface TikTokPixel {
   pixel_id: string;
@@ -46,11 +47,17 @@ export async function fetchTikTokPixels(input: {
     .filter((row): row is TikTokPixelListRow & { pixel_id: string } =>
       Boolean(row.pixel_id),
     )
-    .map((row) => ({
-      pixel_id: row.pixel_id,
-      pixel_name: row.pixel_name ?? row.name ?? row.pixel_id,
-      status: row.status ?? null,
-    }))
+    .map((row) => {
+      const pixelName = row.pixel_name ?? row.name;
+      if (pixelName == null) {
+        logUnmatchedCandidates("/pixel/list/ name", ["pixel_name", "name"]);
+      }
+      return {
+        pixel_id: row.pixel_id,
+        pixel_name: pixelName ?? row.pixel_id,
+        status: row.status ?? null,
+      };
+    })
     .sort((a, b) => a.pixel_name.localeCompare(b.pixel_name));
 }
 
@@ -97,5 +104,10 @@ async function listTikTokPixels(input: {
     params,
     input.token,
   );
-  return res.list ?? res.pixels ?? [];
+  const rows = res.list ?? res.pixels;
+  if (rows === undefined) {
+    logUnmatchedCandidates("/pixel/list/", ["list", "pixels"]);
+    return [];
+  }
+  return rows;
 }

@@ -1,4 +1,5 @@
 import { tiktokGet } from "./client.ts";
+import { logUnmatchedCandidates } from "./unmatched-candidates.ts";
 
 type TikTokGet = typeof tiktokGet;
 
@@ -95,6 +96,7 @@ export function extractAudienceRows(
     const value = record[key];
     if (Array.isArray(value)) return value as Record<string, unknown>[];
   }
+  logUnmatchedCandidates("audience envelope", keys);
   return [];
 }
 
@@ -476,6 +478,9 @@ function firstString(
     }
     if (typeof value === "number" && Number.isFinite(value)) return String(value);
   }
+  if (keys.length > 1) {
+    logUnmatchedCandidates("audience firstString", keys);
+  }
   return null;
 }
 
@@ -490,6 +495,9 @@ function firstNumber(
       const parsed = Number(value);
       if (Number.isFinite(parsed)) return parsed;
     }
+  }
+  if (keys.length > 1) {
+    logUnmatchedCandidates("audience firstNumber", keys);
   }
   return null;
 }

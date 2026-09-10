@@ -2,71 +2,70 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { fetchTikTokPixelEvents, fetchTikTokPixels } from "../pixel.ts";
+import { IRONWORKS_PIXEL_LIST_ROW } from "./captured-ironworks-2026-09-10.ts";
 
 describe("fetchTikTokPixels", () => {
-  it("maps TikTok pixel list responses into sorted options", async () => {
+  it("maps the captured Ironworks /pixel/list/ row", async () => {
     const pixels = await fetchTikTokPixels({
-      advertiserId: "advertiser-1",
+      advertiserId: "7639802149165301776",
       token: "token-1",
       request: async <T,>(
         path: string,
         params: Record<string, unknown>,
       ): Promise<T> => {
         assert.equal(path, "/pixel/list/");
-        assert.equal(params.advertiser_id, "advertiser-1");
+        assert.equal(params.advertiser_id, "7639802149165301776");
         return {
-          list: [
-            { pixel_id: "px-2", pixel_name: "Website B", status: "ACTIVE" },
-            { pixel_id: "px-1", name: "Website A" },
-            { pixel_name: "Missing id" },
-          ],
+          page_info: { page: 1, page_size: 20, total_number: 1, total_page: 1 },
+          pixels: [IRONWORKS_PIXEL_LIST_ROW],
         } as T;
       },
     });
 
     assert.deepEqual(pixels, [
-      { pixel_id: "px-1", pixel_name: "Website A", status: null },
-      { pixel_id: "px-2", pixel_name: "Website B", status: "ACTIVE" },
+      {
+        pixel_id: "7644201699552690194",
+        pixel_name: "Ironworks Pixel",
+        // Live field is activity_status. Mapper still reads status.
+        // This assertion failing is the point — do not fix the mapper here.
+        status: "ACTIVE",
+      },
     ]);
   });
+});
 
-  it("reads optimization_event values from /pixel/list/ and skips deprecated rows", async () => {
+describe("fetchTikTokPixelEvents", () => {
+  it("reads optimization_event values from the captured Ironworks events[]", async () => {
     const events = await fetchTikTokPixelEvents({
-      advertiserId: "advertiser-1",
-      pixelId: "px-1",
+      advertiserId: "7639802149165301776",
+      pixelId: "7644201699552690194",
       token: "token-1",
       request: async <T,>(
         path: string,
         params: Record<string, unknown>,
       ): Promise<T> => {
         assert.equal(path, "/pixel/list/");
-        assert.equal(params.pixel_id, "px-1");
+        assert.equal(params.pixel_id, "7644201699552690194");
         return {
-          pixels: [
-            {
-              pixel_id: "px-1",
-              events: [
-                {
-                  name: "Complete registration",
-                  optimization_event: "COMPLETE_REGISTRATION",
-                },
-                {
-                  name: "Old form",
-                  optimization_event: "FORM",
-                  deprecated: true,
-                },
-                { name: "No enum" },
-              ],
-            },
-          ],
+          page_info: { page: 1, page_size: 20, total_number: 1, total_page: 1 },
+          pixels: [IRONWORKS_PIXEL_LIST_ROW],
         } as T;
       },
     });
 
+    assert.equal(IRONWORKS_PIXEL_LIST_ROW.events.length, 4);
     assert.deepEqual(events, [
       {
-        optimization_event: "COMPLETE_REGISTRATION",
-        name: "Complete registration",
+        optimization_event: "ENGAGED_SESSION",
+        name: "ENGAGED_SESSION",
+      },
+      {
+        optimization_event: "LANDING_PAGE_VIEW",
+        name: "LANDING_PAGE_VIEW",
+      },
+      {
+        optimization_event: "ON_WEB_REGISTER",
+        name: "ON_WEB_REGISTER",
       },
     ]);
   });
