@@ -27,11 +27,13 @@ Destination field only. Chrome, grid columns, and the rest of `surface="drawer"`
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5444 pass, 4 skipped) — re-run after round 2
+- [x] `npm test` (5444 pass, 4 skipped) — re-run after round 3
 - [x] `npm run frames:check` — local darwin diffs against Ubuntu rasters (height mismatch = 100%). No baselines regenerated. No frame renders a standalone route or an open drawer, so Ubuntu CI should stay still. If CI names a frame, stop.
 
 ## Notes
 
 Matas is blocked on `[IRW0001] Jamie Jones -signup 20 - Interests 3` (`/tiktok-campaign/f5a194e7-2775-4534-904c-d83a37d11ceb`). The 26 creatives already carry `landingPageUrl`; this PR makes the field reachable on the standalone route.
 
-Round 2: the ladder now passes the same flag the drawers do. The freeze no longer excludes the three drawers — it requires each of their diffs to be exactly one `StepSurfaceProvider` line.
+Round 2: the ladder now passes the same flag the drawers do. The freeze no longer excludes the three drawers — if they change, the diff must be exactly one `StepSurfaceProvider` line.
+
+Round 3: deleted the loop that required those three files to differ from main. That assertion is only true for the life of this branch; after merge it would fail on main and every branch cut from it. The conditional loop above it is the guard that holds both before and after.

@@ -1332,12 +1332,6 @@ describe("write paths are untouched", () => {
         `${file}: added a line that is not planOwnsDestination on StepSurfaceProvider`,
       );
     }
-    for (const file of allowedDrawers) {
-      assert.ok(
-        byFile.has(file),
-        `${file} must change the StepSurfaceProvider line and only that line`,
-      );
-    }
   });
 });
 
