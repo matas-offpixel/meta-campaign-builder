@@ -1,12 +1,17 @@
 "use client";
 
-import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
+import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  shouldOpenManualIdentityHatch,
+  tikTokIdentityFace,
+  tikTokIdentityOptionView,
+} from "@/lib/tiktok-wizard/account-setup";
 import { TIKTOK_PIXEL_ID_PATTERN } from "@/lib/tiktok-wizard/validation";
 import type { TikTokIdentityType } from "@/lib/tiktok/identity";
 import {
@@ -28,6 +33,7 @@ interface TikTokIdentityOption {
   identity_id: string;
   display_name: string;
   identity_type: TikTokIdentityType | null;
+  avatar_url?: string | null;
   identity_bc_id?: string | null;
 }
 
@@ -243,6 +249,13 @@ export function AccountSetupStep({
     draft.accountSetup.identityId &&
       !isListedIdentityType(draft.accountSetup.identityType),
   );
+  const hatchAutoOpen = shouldOpenManualIdentityHatch({
+    identityFailed,
+    identitiesLength: identities.length,
+    selectedIdentityNeedsType,
+    loadingDetails,
+    hasAdvertiser: Boolean(draft.accountSetup.advertiserId),
+  });
 
   async function saveAccount(accountId: string) {
     const account = accounts.find((candidate) => candidate.id === accountId);
@@ -406,17 +419,12 @@ export function AccountSetupStep({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Select
-            id="tiktok-identity"
-            label="TikTok identity"
-            value={draft.accountSetup.identityId ?? ""}
-            onChange={(event) => void saveIdentity(event.target.value)}
-            disabled={!draft.accountSetup.advertiserId || loadingDetails || saving || identities.length === 0}
-            placeholder={loadingDetails ? "Loading identities..." : "Select identity"}
-            options={identities.map((identity) => ({
-              value: identity.identity_id,
-              label: `${identity.display_name} · ${identity.identity_type ?? "type unknown"}`,
-            }))}
+          <TikTokIdentityPicker
+            identities={identities}
+            selectedId={draft.accountSetup.identityId}
+            disabled={!draft.accountSetup.advertiserId || loadingDetails || saving}
+            loading={loadingDetails}
+            onSelect={(identityId) => void saveIdentity(identityId)}
           />
           {selectedIdentityNeedsType && (
             <StatusLine className="text-sm text-amber-700 dark:text-amber-300">
@@ -426,7 +434,7 @@ export function AccountSetupStep({
             </StatusLine>
           )}
         </div>
-        <ManualIdentityHatch>
+        <ManualIdentityHatch autoOpen={hatchAutoOpen}>
         <div className="space-y-2">
           <Input
             id="tiktok-manual-identity-id"
@@ -620,10 +628,17 @@ function isListedIdentityType(
   return MANUAL_IDENTITY_TYPES.includes(value as TikTokIdentityType);
 }
 
-function ManualIdentityHatch({ children }: { children: ReactNode }) {
-  const drawer = useIsDrawer();
-  const [open, setOpen] = useState(false);
-  if (!drawer) return <>{children}</>;
+function ManualIdentityHatch({
+  children,
+  autoOpen,
+}: {
+  children: ReactNode;
+  autoOpen: boolean;
+}) {
+  const [open, setOpen] = useState(autoOpen);
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
   return (
     <div data-hatch="BC_AUTH_TT">
       <button
@@ -638,6 +653,110 @@ function ManualIdentityHatch({ children }: { children: ReactNode }) {
       <InfoTip label={TIKTOK_DRAWER_COPY.manualIdentityTip} />
       {open ? <div className="mt-2">{children}</div> : null}
     </div>
+  );
+}
+
+function TikTokIdentityPicker({
+  identities,
+  selectedId,
+  disabled,
+  loading,
+  onSelect,
+}: {
+  identities: TikTokIdentityOption[];
+  selectedId: string | null;
+  disabled: boolean;
+  loading: boolean;
+  onSelect: (identityId: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div id="tiktok-identity-label" className="text-sm font-medium text-foreground">
+        TikTok identity
+      </div>
+      <div
+        id="tiktok-identity"
+        role="radiogroup"
+        aria-labelledby="tiktok-identity-label"
+        className="space-y-2"
+      >
+        {loading ? (
+          <Datum className="text-sm text-muted-foreground">Loading identities...</Datum>
+        ) : identities.length === 0 ? (
+          <Datum className="text-sm text-muted-foreground">Select identity</Datum>
+        ) : (
+          identities.map((identity) => {
+            const view = tikTokIdentityOptionView({
+              display_name: identity.display_name,
+              avatar_url: identity.avatar_url ?? null,
+              identity_type: identity.identity_type,
+            });
+            const selected = selectedId === identity.identity_id;
+            return (
+              <button
+                key={identity.identity_id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                disabled={disabled}
+                title={view.typeCaption ?? "type unknown"}
+                onClick={() => onSelect(identity.identity_id)}
+                className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors
+                  focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring
+                  disabled:cursor-not-allowed disabled:opacity-40
+                  ${selected ? "border-primary bg-muted/40" : "border-border-strong hover:bg-muted/30"}`}
+              >
+                <TikTokIdentityAvatar
+                  displayName={view.label}
+                  avatarUrl={identity.avatar_url ?? null}
+                />
+                <span className="min-w-0 flex-1">
+                  <Datum className="block truncate text-sm text-foreground">{view.label}</Datum>
+                  {view.typeCaption ? (
+                    <Datum className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                      {view.typeCaption}
+                    </Datum>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TikTokIdentityAvatar({
+  displayName,
+  avatarUrl,
+}: {
+  displayName: string;
+  avatarUrl: string | null;
+}) {
+  const [broken, setBroken] = useState(false);
+  const face = tikTokIdentityFace(broken ? null : avatarUrl, displayName);
+  if (face.kind === "chip") {
+    return (
+      <span
+        data-identity-face="chip"
+        aria-hidden="true"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground"
+      >
+        {face.initial}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      data-identity-face="image"
+      src={face.src}
+      alt=""
+      className="h-8 w-8 shrink-0 rounded-full object-cover"
+      loading="lazy"
+      onError={() => setBroken(true)}
+    />
   );
 }
 
