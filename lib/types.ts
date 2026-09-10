@@ -944,6 +944,13 @@ export interface BudgetGuardrails {
   maxSingleAdSetBudgetType?: "fixed" | "percent";
   maxDailyIncreasePercent?: number;
   cooldownHours?: number;
+  /**
+   * Daily-budget floor in major units (pounds for GBP). When evaluate
+   * recommends pause, apply reduces to this floor first. A Meta pause
+   * write is allowed only when the ad set is already at or below the
+   * floor and still breaching. Unset / 0 = off — no automatic pause.
+   */
+  pauseFloorBudget?: number;
 }
 
 /**
