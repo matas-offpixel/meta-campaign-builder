@@ -56,6 +56,7 @@ export function isAdvantageAudienceSupportedForObjective(
 
 const OBJECTIVE_DISPLAY_NAMES: Record<CampaignObjective, string> = {
   purchase: "Purchase",
+  initiate_checkout: "Initiate checkout",
   registration: "Registration",
   traffic: "Traffic",
   awareness: "Awareness",

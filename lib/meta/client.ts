@@ -16,7 +16,7 @@ import type {
   PageIgResponse,
   CampaignObjective,
 } from "@/lib/types";
-import { mapObjectiveToMeta } from "./campaign";
+import { buildCampaignPayload } from "./campaign";
 import type { MetaAdSetPayload, CreateAdSetsResult } from "./adset";
 import type {
   MetaCreativePayload,
@@ -2473,14 +2473,7 @@ export async function createMetaCampaign(params: {
   // buying_type is required by Meta; omitting it triggers code 100 "Invalid parameter".
   // is_adset_budget_sharing_enabled: false = ad-set-level budgets (not campaign budget optimisation).
   // special_ad_categories must be present (empty array = no special category restrictions).
-  const payload = {
-    name,
-    objective: mapObjectiveToMeta(objective),
-    buying_type: "AUCTION",
-    status,
-    is_adset_budget_sharing_enabled: false,
-    special_ad_categories: [],
-  };
+  const payload = buildCampaignPayload({ name, objective, status });
 
   console.log(
     "[createMetaCampaign] Sending payload to",
@@ -2488,5 +2481,5 @@ export async function createMetaCampaign(params: {
     JSON.stringify(payload, null, 2),
   );
 
-  return graphPost<{ id: string }>(`/${accountPath}/campaigns`, payload, token);
+  return graphPost<{ id: string }>(`/${accountPath}/campaigns`, { ...payload }, token);
 }

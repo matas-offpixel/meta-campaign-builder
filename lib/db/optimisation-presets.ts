@@ -52,6 +52,7 @@ export function presetTableMissing(
 
 const OBJECTIVES: readonly CampaignObjective[] = [
   "purchase",
+  "initiate_checkout",
   "registration",
   "traffic",
   "awareness",

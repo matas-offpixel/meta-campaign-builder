@@ -308,7 +308,13 @@ export type EngagementType =
 
 export type LookalikeRange = "0-1%" | "1-2%" | "2-3%";
 
-export type CampaignObjective = "purchase" | "registration" | "traffic" | "awareness" | "engagement";
+export type CampaignObjective =
+  | "purchase"
+  | "initiate_checkout"
+  | "registration"
+  | "traffic"
+  | "awareness"
+  | "engagement";
 
 export type BudgetLevel = "ad_set" | "campaign";
 

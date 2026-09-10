@@ -249,6 +249,7 @@ describe("objectiveLadderMismatch", () => {
   it("passes every industry seed — the seed is coherent by construction", () => {
     for (const objective of [
       "purchase",
+      "initiate_checkout",
       "registration",
       "traffic",
       "awareness",

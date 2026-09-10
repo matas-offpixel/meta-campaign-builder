@@ -27,6 +27,7 @@ import type {
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 import { resolveAdSetGeoLocations } from "./location-targeting.ts";
+import { META_INITIATE_CHECKOUT_EVENT } from "./campaign.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
 //
@@ -624,6 +625,7 @@ export function buildPromotedObject(
 
   const eventTypeMap: Partial<Record<CampaignObjective, string>> = {
     purchase: "PURCHASE",
+    initiate_checkout: META_INITIATE_CHECKOUT_EVENT,
     registration: "COMPLETE_REGISTRATION",
   };
 
@@ -644,19 +646,21 @@ export function buildPromotedObject(
  * triggers Meta error code 100 "Invalid parameter" on every ad set.
  */
 const VALID_GOALS_BY_OBJECTIVE: Record<CampaignObjective, OptimisationGoal[]> = {
-  traffic:      ["landing_page_views", "link_clicks", "reach", "impressions"],
-  purchase:     ["conversions", "value"],
-  registration: ["conversions", "complete_registration"],
-  awareness:    ["reach", "impressions", "video_views"],
-  engagement:   ["post_engagement", "video_views"],
+  traffic:            ["landing_page_views", "link_clicks", "reach", "impressions"],
+  purchase:           ["conversions", "value"],
+  initiate_checkout:  ["conversions", "value"],
+  registration:       ["conversions", "complete_registration"],
+  awareness:          ["reach", "impressions", "video_views"],
+  engagement:         ["post_engagement", "video_views"],
 };
 
 const DEFAULT_GOAL_BY_OBJECTIVE: Record<CampaignObjective, OptimisationGoal> = {
-  traffic:      "landing_page_views",
-  purchase:     "conversions",
-  registration: "conversions",
-  awareness:    "reach",
-  engagement:   "post_engagement",
+  traffic:            "landing_page_views",
+  purchase:           "conversions",
+  initiate_checkout:  "conversions",
+  registration:       "conversions",
+  awareness:          "reach",
+  engagement:         "post_engagement",
 };
 
 /**

@@ -55,6 +55,18 @@ describe("isUnsupportedTikTokOptimisationEvent", () => {
       isUnsupportedTikTokOptimisationEvent("CONVERSIONS", "CONSULT"),
       false,
     );
+    assert.equal(
+      isUnsupportedTikTokOptimisationEvent("CONVERSIONS", "INITIATE_CHECKOUT"),
+      false,
+    );
+    assert.equal(
+      isUnsupportedTikTokOptimisationEvent(
+        "CONVERSIONS",
+        "INITIATE_CHECKOUT",
+        "InitiateCheckout",
+      ),
+      false,
+    );
   });
 
   it("marks denied picker rows without dropping them", () => {

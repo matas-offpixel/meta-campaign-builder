@@ -18,7 +18,7 @@ import type {
 import { ATTACH_CAMPAIGN_CAP, CROSS_CAMPAIGN_ADSET_CAP } from "@/lib/types";
 import { OPTIMISATION_GOALS_BY_OBJECTIVE } from "@/lib/mock-data";
 import {
-  Target, ShoppingCart, MousePointerClick, Eye, MessageSquare,
+  Target, ShoppingCart, CreditCard, MousePointerClick, Eye, MessageSquare,
   Plus, Link2, Layers, AlertCircle, Info, X, ListChecks,
 } from "lucide-react";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
@@ -43,6 +43,12 @@ const OBJECTIVES: {
 }[] = [
   { value: "registration", label: "Registration", sublabel: "Sales → CompleteRegistration", icon: Target },
   { value: "purchase", label: "Purchase", sublabel: "Sales → Purchase", icon: ShoppingCart },
+  {
+    value: "initiate_checkout",
+    label: "Initiate checkout",
+    sublabel: "someone clicked through to buy. The deepest step we can see when checkout is on the ticketing site.",
+    icon: CreditCard,
+  },
   { value: "traffic", label: "Traffic", sublabel: "Landing Page Views", icon: MousePointerClick },
   { value: "awareness", label: "Awareness", sublabel: "Reach", icon: Eye },
   { value: "engagement", label: "Engagement", sublabel: "Boost an existing post", icon: MessageSquare },
@@ -50,6 +56,7 @@ const OBJECTIVES: {
 
 const OBJECTIVE_LABELS: Record<CampaignObjective, string> = {
   purchase: "Purchase",
+  initiate_checkout: "Initiate checkout",
   registration: "Registration",
   traffic: "Traffic",
   awareness: "Awareness",
