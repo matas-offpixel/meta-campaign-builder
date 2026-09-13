@@ -19,8 +19,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { migrateDraft } from "@/lib/autosave";
+import { eventCarriersDisagree, resolveDraftEventId } from "@/lib/campaign-event";
 import type { CampaignAutomationInput, DecisionToInsert } from "@/lib/optimisation/tick-runner";
 import type { CampaignEligibilityFacts } from "@/lib/optimisation/eligibility";
+import { notify } from "@/lib/notify/slack";
+import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { isCampaignPlanPhase } from "@/lib/plan/phase";
 
 function isUndefinedColumnError(
@@ -117,7 +120,21 @@ export async function loadOptedInCampaignsForAutomation(
         );
         continue;
       }
-      const eventId = row.event_id?.trim() || draft.settings.eventId?.trim() || null;
+      const eventId = resolveDraftEventId(draft.settings.eventId, row.event_id);
+      if (eventCarriersDisagree(draft.settings.eventId, row.event_id)) {
+        console.error(
+          `[campaign-automation-decisions] draft=${row.id} event carriers disagree json=${draft.settings.eventId} column=${row.event_id} — using json`,
+        );
+        void notify(
+          {
+            channel: "ads_ops",
+            text: `Event carriers disagree on draft ${row.id}: json=${draft.settings.eventId} column=${row.event_id}. Using json.`,
+            respectBusinessHours: false,
+            dedupeKey: `event_carrier_mismatch:${row.id}`,
+          },
+          buildLiveNotifyDeps(supabase),
+        );
+      }
       parsed.push({
         row,
         eventId,

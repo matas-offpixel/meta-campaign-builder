@@ -18,6 +18,9 @@ import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/l
 import { applyTemplate } from "@/lib/templates";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { NewCampaignModal } from "@/components/library/new-campaign-modal";
+import { EventPickDialog } from "@/components/library/event-pick-dialog";
+import { useFetchEvents } from "@/lib/hooks/useEvents";
+import { toPlanEventOption } from "@/lib/campaign-event";
 import {
   CampaignRow,
   filterLibraryCampaigns,
@@ -50,6 +53,16 @@ export function CampaignLibrary() {
   // "New Campaign" picker modal — replaces the old immediate-create flow
   // so the wizard always opens with client + event already linked.
   const [newCampaignOpen, setNewCampaignOpen] = useState(false);
+  const [eventPick, setEventPick] = useState<{
+    kind: "duplicate" | "relaunch";
+    sourceId: string;
+  } | null>(null);
+  const [pickedEventId, setPickedEventId] = useState("");
+  const { events: fetchedEvents } = useFetchEvents();
+  const pickerEvents = useMemo(
+    () => fetchedEvents.map(toPlanEventOption),
+    [fetchedEvents],
+  );
 
   // ─── Init ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -112,15 +125,9 @@ export function CampaignLibrary() {
     router.push(`/campaign/${id}`);
   };
 
-  const handleDuplicate = async (id: string) => {
-    if (!userId) return;
-    setActionLoading(id);
-    const copy = await duplicateCampaign(id, userId);
-    if (copy) {
-      const items = await loadCampaignList(userId);
-      setCampaigns(items);
-    }
-    setActionLoading(null);
+  const handleDuplicate = (id: string) => {
+    setEventPick({ kind: "duplicate", sourceId: id });
+    setPickedEventId("");
   };
 
   const handleArchive = async (id: string) => {
@@ -145,11 +152,24 @@ export function CampaignLibrary() {
     setActionLoading(null);
   };
 
-  const handleRelaunch = async (id: string) => {
-    if (!userId) return;
-    setActionLoading(id);
-    const copy = await duplicateCampaign(id, userId);
-    if (copy) router.push(`/campaign/${copy.id}`);
+  const handleRelaunch = (id: string) => {
+    setEventPick({ kind: "relaunch", sourceId: id });
+    setPickedEventId("");
+  };
+
+  const confirmEventPick = async () => {
+    if (!userId || !eventPick || !pickedEventId) return;
+    setActionLoading(eventPick.sourceId);
+    const copy = await duplicateCampaign(eventPick.sourceId, userId, pickedEventId);
+    const kind = eventPick.kind;
+    setEventPick(null);
+    setPickedEventId("");
+    if (copy && kind === "relaunch") {
+      router.push(`/campaign/${copy.id}`);
+    } else if (copy) {
+      const items = await loadCampaignList(userId);
+      setCampaigns(items);
+    }
     setActionLoading(null);
   };
 
@@ -341,6 +361,21 @@ export function CampaignLibrary() {
         open={newCampaignOpen}
         userId={userId}
         onClose={() => setNewCampaignOpen(false)}
+      />
+
+      <EventPickDialog
+        open={eventPick != null}
+        title={eventPick?.kind === "relaunch" ? "Relaunch campaign" : "Duplicate campaign"}
+        confirmLabel={eventPick?.kind === "relaunch" ? "Relaunch" : "Duplicate"}
+        events={pickerEvents}
+        selectedId={pickedEventId}
+        busy={!!actionLoading}
+        onSelectedIdChange={setPickedEventId}
+        onClose={() => {
+          setEventPick(null);
+          setPickedEventId("");
+        }}
+        onConfirm={() => void confirmEventPick()}
       />
     </div>
   );

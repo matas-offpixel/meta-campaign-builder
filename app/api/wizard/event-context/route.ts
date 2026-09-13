@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const { event, client } = await loadEventContextForDraft(draftId);
+  const context = await loadEventContextForDraft(draftId);
 
-  return NextResponse.json({ ok: true, event, client });
+  return NextResponse.json({ ok: true, ...context });
 }

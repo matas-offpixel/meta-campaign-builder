@@ -12,15 +12,7 @@ import {
 } from "@/components/library/library-rows";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/combobox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { EventPickDialog } from "@/components/library/event-pick-dialog";
 import {
   PLAN_LIST_EMPTY,
   PLAN_LIST_OPEN,
@@ -37,12 +29,7 @@ import {
   type PlanListTab,
 } from "@/lib/plan/list";
 import type { CampaignPlanTemplate } from "@/lib/plan/library";
-import {
-  planEventPickerRows,
-  todayIsoDate,
-  visiblePlanEvents,
-  type PlanEventOption,
-} from "@/lib/plan/event-picker";
+import { type PlanEventOption } from "@/lib/plan/event-picker";
 
 export function PlanLibrary({
   plans,
@@ -113,23 +100,6 @@ export function PlanLibrary({
         template.tags.some((tag) => tag.toLowerCase().includes(q)),
     );
   }, [templates, search]);
-
-  const pickerOptions = useMemo(
-    () =>
-      planEventPickerRows(
-        visiblePlanEvents(events, {
-          today: todayIsoDate(),
-          showPast: true,
-          selectedId: pickedEventId,
-        }),
-      ).map((row) => ({
-        value: row.id,
-        label: row.label,
-        sublabel: row.sublabel || undefined,
-        keywords: row.keywords || undefined,
-      })),
-    [events, pickedEventId],
-  );
 
   function openPlan(id: string) {
     router.push(`/plan/${id}`);
@@ -338,52 +308,20 @@ export function PlanLibrary({
         onSave={handleSaveTemplate}
       />
 
-      <Dialog
+      <EventPickDialog
         open={eventPick != null}
+        title={eventPick?.kind === "duplicate" ? "Duplicate plan" : "New plan from template"}
+        confirmLabel={eventPick?.kind === "duplicate" ? "Duplicate" : "Create plan"}
+        events={events}
+        selectedId={pickedEventId}
+        busy={!!busyId}
+        onSelectedIdChange={setPickedEventId}
         onClose={() => {
           setEventPick(null);
           setPickedEventId("");
         }}
-      >
-        <DialogContent>
-          <DialogHeader
-            onClose={() => {
-              setEventPick(null);
-              setPickedEventId("");
-            }}
-          >
-            <DialogTitle>
-              {eventPick?.kind === "duplicate" ? "Duplicate plan" : "New plan from template"}
-            </DialogTitle>
-            <DialogDescription>
-              Pick the event. Identities re-resolve from that client. Launched campaigns stay put.
-            </DialogDescription>
-          </DialogHeader>
-          <Combobox
-            label="Event"
-            value={pickedEventId}
-            onChange={setPickedEventId}
-            options={pickerOptions}
-            placeholder="Select an event"
-            emptyText="No matching events"
-          />
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setEventPick(null);
-                setPickedEventId("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="button" disabled={!pickedEventId || !!busyId} onClick={() => void confirmEventPick()}>
-              {eventPick?.kind === "duplicate" ? "Duplicate" : "Create plan"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onConfirm={() => void confirmEventPick()}
+      />
     </div>
   );
 }

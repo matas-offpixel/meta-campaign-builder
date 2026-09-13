@@ -164,6 +164,9 @@ export function CampaignRow({
             </p>
             <StatusBadge status={c.status} />
           </div>
+          {c.eventWarning ? (
+            <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">{c.eventWarning}</p>
+          ) : null}
           {variant === "pick" ? (
             <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
               <span

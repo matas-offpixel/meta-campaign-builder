@@ -1,3 +1,4 @@
+import { applyEventToCampaignSettings, type CampaignEventIdentity } from "../campaign-event.ts";
 import { applyTemplate } from "../templates.ts";
 import { nextDuplicateName } from "../duplicate-name.ts";
 import type { CampaignDraft, CampaignTemplate } from "../types.ts";
@@ -62,18 +63,23 @@ export function draftFromLibraryTemplate(
 export function overlayPlanSharedInputs(
   draft: CampaignDraft,
   plan: CampaignPlan,
-  extras?: { clientId?: string | null },
+  extras?: { clientId?: string | null; event?: CampaignEventIdentity | null },
 ): CampaignDraft {
   const destinationUrl = plan.intent.destinationUrl;
   const campaignName = plan.name?.trim() || draft.settings.campaignName;
+  const event: CampaignEventIdentity = extras?.event
+    ? {
+        ...extras.event,
+        id: extras.event.id || plan.intent.eventId,
+        client_id: extras.event.client_id ?? extras.clientId,
+      }
+    : { id: plan.intent.eventId, client_id: extras?.clientId ?? null };
   return {
     ...draft,
-    settings: {
-      ...draft.settings,
-      campaignName,
-      eventId: plan.intent.eventId,
-      ...(extras?.clientId ? { clientId: extras.clientId } : {}),
-    },
+    settings: applyEventToCampaignSettings(
+      { ...draft.settings, campaignName },
+      event,
+    ),
     budgetSchedule: {
       ...draft.budgetSchedule,
       budgetAmount: plan.intent.budget.metaDaily,

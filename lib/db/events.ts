@@ -1,3 +1,8 @@
+import { migrateDraft } from "@/lib/autosave";
+import {
+  applyEventToCampaignSettings,
+  type CampaignEventIdentity,
+} from "@/lib/campaign-event";
 import { createClient } from "@/lib/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/db/database.types";
 import { regenerateAutoMoments } from "@/lib/db/event-key-moments";
@@ -428,14 +433,81 @@ export async function linkDraftToEvent(
   eventId: string | null,
 ): Promise<void> {
   const supabase = createClient();
-  const { error } = await supabase
-    .from("campaign_drafts")
-    .update({ event_id: eventId })
-    .eq("id", draftId);
-  if (error) {
-    console.warn("Supabase linkDraftToEvent error:", error.message);
-    throw error;
+
+  let event: CampaignEventIdentity | null = null;
+  if (eventId) {
+    const { data: eventRow, error: eventError } = await supabase
+      .from("events")
+      .select("id, event_code, client_id, name, venue_city, venue_name, event_date")
+      .eq("id", eventId)
+      .maybeSingle();
+    if (eventError) {
+      console.error("[linkDraftToEvent] event read:", eventError.message);
+      throw eventError;
+    }
+    event = (eventRow as CampaignEventIdentity | null) ?? null;
   }
+
+  const writeOnce = async (): Promise<boolean> => {
+    const { data, error: readError } = await supabase
+      .from("campaign_drafts")
+      .select("draft_json, updated_at")
+      .eq("id", draftId)
+      .maybeSingle();
+    if (readError) {
+      console.error("[linkDraftToEvent] draft read:", readError.message);
+      throw readError;
+    }
+
+    const draftJson = data?.draft_json;
+    if (!draftJson || typeof draftJson !== "object" || Array.isArray(draftJson)) {
+      console.error(
+        `[linkDraftToEvent] draft=${draftId} malformed draft_json — refusing column-only write`,
+      );
+      throw new Error("Draft JSON is missing or malformed");
+    }
+
+    let draft;
+    try {
+      draft = migrateDraft(draftJson as Record<string, unknown>);
+    } catch (err) {
+      console.error(
+        `[linkDraftToEvent] draft=${draftId} migrate failed — refusing column-only write`,
+        err instanceof Error ? err.message : err,
+      );
+      throw err instanceof Error ? err : new Error("Draft JSON is malformed");
+    }
+
+    const settings = event
+      ? applyEventToCampaignSettings(draft.settings, event)
+      : { ...draft.settings, eventId: "" };
+    const next = { ...draft, settings, updatedAt: new Date().toISOString() };
+    const stamp = data?.updated_at as string | undefined;
+
+    let query = supabase
+      .from("campaign_drafts")
+      .update({
+        event_id: eventId,
+        draft_json: next,
+        updated_at: next.updatedAt,
+      })
+      .eq("id", draftId);
+    if (stamp) query = query.eq("updated_at", stamp);
+
+    const { data: written, error } = await query.select("id");
+    if (error) {
+      console.error("[linkDraftToEvent] update:", error.message);
+      throw error;
+    }
+    return (written ?? []).length > 0;
+  };
+
+  if (await writeOnce()) return;
+  if (await writeOnce()) return;
+  console.error(
+    `[linkDraftToEvent] draft=${draftId} concurrent update — giving up rather than clobbering`,
+  );
+  throw new Error("Draft changed while linking the event");
 }
 
 /**

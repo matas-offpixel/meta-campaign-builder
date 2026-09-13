@@ -698,6 +698,42 @@ describe("runOptimisationTick — eligibility before evaluate", () => {
     assert.equal(inserted[0]?.actionRecommended, "skip_campaign_ended");
   });
 
+  it("[NX26-AZYR] 2026-09-13 — Mall Grab date is skip_event_passed; the real event is not", async () => {
+    const mallGrab: DecisionToInsert[] = [];
+    await runOptimisationTick(
+      true,
+      false,
+      makeDeps({
+        loadOptedInCampaigns: async () => [
+          campaign({
+            campaignName: "[NX26-AZYR] Registration",
+            eligibility: { eventDate: "2026-09-04" },
+          }),
+        ],
+        now: new Date("2026-09-13T12:00:00Z"),
+        insertDecision: async (row) => void mallGrab.push(row),
+      }),
+    );
+    assert.equal(mallGrab[0]?.actionRecommended, "skip_event_passed");
+
+    const realEvent: DecisionToInsert[] = [];
+    await runOptimisationTick(
+      true,
+      false,
+      makeDeps({
+        loadOptedInCampaigns: async () => [
+          campaign({
+            campaignName: "[NX26-AZYR] Registration",
+            eligibility: { eventDate: "2026-09-18" },
+          }),
+        ],
+        now: new Date("2026-09-13T12:00:00Z"),
+        insertDecision: async (row) => void realEvent.push(row),
+      }),
+    );
+    assert.notEqual(realEvent[0]?.actionRecommended, "skip_event_passed");
+  });
+
   it("an event in the past is skip_event_passed", async () => {
     const inserted: DecisionToInsert[] = [];
     const deps = makeDeps({

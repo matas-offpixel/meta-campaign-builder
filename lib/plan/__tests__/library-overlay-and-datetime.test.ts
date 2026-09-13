@@ -141,6 +141,23 @@ describe("cloneCampaignDraft + overlayPlanSharedInputs", () => {
     assert.ok(PLAN_TO_DRAFT_OVERLAY.some((row) => row.draft === "settings.campaignName"));
   });
 
+  it("a prepare-draft clone onto a different event re-derives the code", () => {
+    const source = sourceDraft();
+    source.settings.campaignCode = "NX26-SCHAK";
+    source.settings.campaignName = "[NX26-SCHAK] Registration";
+    source.settings.eventId = "old-event";
+    const copy = overlayPlanSharedInputs(cloneCampaignDraft(source, ["x"]), goldenPlan(), {
+      event: {
+        id: goldenPlan().intent.eventId,
+        event_code: "ES26-MALLGRAB",
+        name: "Mall Grab",
+      },
+    });
+    assert.equal(copy.settings.eventId, goldenPlan().intent.eventId);
+    assert.equal(copy.settings.campaignCode, "ES26-MALLGRAB");
+    assert.equal(copy.settings.campaignName, "BB26 Kayode");
+  });
+
   it("date-only overlay stays date-only when plan times are null", () => {
     const plan = goldenPlan({ startTime: null, endTime: null });
     const copy = overlayPlanSharedInputs(cloneCampaignDraft(sourceDraft(), ["x"]), plan);
@@ -225,6 +242,8 @@ describe("from-existing wiring and density", () => {
     assert.match(library, /duplicateCampaign/);
     assert.match(library, /New Campaign/);
     const drafts = readFileSync("lib/db/drafts.ts", "utf8");
-    assert.match(drafts, /\(Copy\)/);
+    assert.match(drafts, /buildDuplicatedCampaign/);
+    const campaignEvent = readFileSync("lib/campaign-event.ts", "utf8");
+    assert.match(campaignEvent, /\(Copy\)/);
   });
 });

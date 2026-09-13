@@ -109,6 +109,25 @@ describe("evaluateEligibility — named skips", () => {
     assert.equal(skip?.action, "skip_event_passed");
   });
 
+  it("[NX26-AZYR] 2026-09-13 skip_event_passed against Mall Grab 2026-09-04", () => {
+    const skip = evaluateEligibility({
+      now: new Date("2026-09-13T12:00:00Z"),
+      effectiveStatus: "ACTIVE",
+      eventDate: "2026-09-04",
+    });
+    assert.equal(skip?.action, "skip_event_passed");
+    assert.match(skip?.reason ?? "", /2026-09-04/);
+  });
+
+  it("[NX26-AZYR] repointed at 18 Sep is not skip_event_passed on 2026-09-13", () => {
+    const skip = evaluateEligibility({
+      now: new Date("2026-09-13T12:00:00Z"),
+      effectiveStatus: "ACTIVE",
+      eventDate: "2026-09-18",
+    });
+    assert.equal(skip, null);
+  });
+
   it("D.O.D 2026-09-09 20:01 — stored presale after general sale is skip_phase_ended, not pause", () => {
     const skip = evaluateEligibility({
       now: NOW,
