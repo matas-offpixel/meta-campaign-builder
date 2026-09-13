@@ -240,6 +240,15 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(whyForDecision(decision, NOW), "phase ended");
   });
 
+  it("skip_facts_unreadable · facts unreadable", () => {
+    const decision = row({
+      action: "skip_facts_unreadable",
+      decidedAt: "2026-09-09T20:01:05.000Z",
+      reasonText: "Eligibility facts unreadable — skip_facts_unreadable, not evaluated.",
+    });
+    assert.equal(whyForDecision(decision, NOW), "facts unreadable");
+  });
+
   it("skip_dormant · dormant", () => {
     const decision = row({
       action: "skip_dormant",

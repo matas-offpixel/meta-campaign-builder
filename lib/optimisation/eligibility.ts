@@ -7,8 +7,10 @@
  * a named skip so the audit says which one fired.
  *
  * Missing facts fail open — a campaign that is still delivering and
- * in-window must stay eligible. Do not infer ad-set delivery from the
- * campaign (`project_creator_meta_effective_status_doesnt_rollup`).
+ * in-window must stay eligible. A failed read is not missing: it is
+ * `factsUnreadable` and fails closed (`skip_facts_unreadable`).
+ * Do not infer ad-set delivery from the campaign
+ * (`project_creator_meta_effective_status_doesnt_rollup`).
  */
 
 import {
@@ -21,6 +23,7 @@ export const ELIGIBILITY_SKIP_ACTIONS = [
   "skip_campaign_ended",
   "skip_event_passed",
   "skip_phase_ended",
+  "skip_facts_unreadable",
 ] as const;
 
 export type EligibilitySkipAction = (typeof ELIGIBILITY_SKIP_ACTIONS)[number];
@@ -34,6 +37,11 @@ export interface CampaignEligibilityFacts {
   eventDate?: string | null;
   planPhase?: CampaignPlanPhase | null;
   generalSaleAt?: string | null;
+  /**
+   * Distinct from absent. A failed calendar read is not "no date set".
+   * Absent fails open; unreadable fails closed (`skip_facts_unreadable`).
+   */
+  factsUnreadable?: boolean;
 }
 
 export interface EligibilityInput extends CampaignEligibilityFacts {
@@ -106,6 +114,13 @@ export function presalePhaseHasEnded(
 
 export function evaluateEligibility(input: EligibilityInput): EligibilitySkip | null {
   const noun = input.subjectNoun ?? "ad set";
+
+  if (input.factsUnreadable) {
+    return {
+      action: "skip_facts_unreadable",
+      reason: "Eligibility facts unreadable — skip_facts_unreadable, not evaluated.",
+    };
+  }
 
   if (!isDeliveringEffectiveStatus(input.effectiveStatus)) {
     return {

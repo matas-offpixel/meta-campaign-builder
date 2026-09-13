@@ -83,9 +83,25 @@ export function launchedAdSetPayload(row: LaunchedAdSetWrite): Record<string, un
   return payloadFromWrite(row);
 }
 
+/** One-row upsert. A hung connection must not stall the launch. */
+export const LAUNCHED_AD_SET_UPSERT_TIMEOUT_MS = 3000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function recordLaunchedAdSet(
   supabase: SupabaseClient,
   row: LaunchedAdSetWrite,
+  timeoutMs: number = LAUNCHED_AD_SET_UPSERT_TIMEOUT_MS,
 ): Promise<void> {
   const metaAdsetId = row.metaAdsetId?.trim();
   if (!metaAdsetId) {
@@ -103,9 +119,15 @@ export async function recordLaunchedAdSet(
     return;
   }
   try {
-    const { error } = await supabase
-      .from("launched_ad_sets")
-      .upsert(payloadFromWrite({ ...row, metaAdsetId }), { onConflict: "meta_adset_id" });
+    const { error } = await withTimeout(
+      Promise.resolve(
+        supabase
+          .from("launched_ad_sets")
+          .upsert(payloadFromWrite({ ...row, metaAdsetId }), { onConflict: "meta_adset_id" }),
+      ),
+      timeoutMs,
+      `upsert timed out after ${timeoutMs}ms`,
+    );
     if (error) {
       console.error("[launched_ad_sets] upsert failed", {
         meta_adset_id: metaAdsetId,

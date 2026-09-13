@@ -4,6 +4,7 @@
  * Run: node --experimental-strip-types --test lib/optimisation/__tests__/eligibility.test.ts
  */
 
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
@@ -150,6 +151,26 @@ describe("evaluateEligibility — named skips", () => {
     assert.equal(skip, null);
   });
 
+  it("unreadable facts are skip_facts_unreadable, not a calendar fail-open", () => {
+    const skip = evaluateEligibility({
+      now: NOW,
+      effectiveStatus: "ACTIVE",
+      factsUnreadable: true,
+      campaignEndAt: "2026-12-01",
+      eventDate: "2026-12-15",
+    });
+    assert.equal(skip?.action, "skip_facts_unreadable");
+    assert.match(skip?.reason ?? "", /facts_unreadable/);
+  });
+
+  it("absent facts still fail open", () => {
+    const skip = evaluateEligibility({
+      now: NOW,
+      effectiveStatus: "ACTIVE",
+    });
+    assert.equal(skip, null);
+  });
+
   it("delivery is checked before calendar so a paused ended campaign is named skip_not_delivering", () => {
     const skip = evaluateEligibility({
       now: NOW,
@@ -160,5 +181,16 @@ describe("evaluateEligibility — named skips", () => {
       generalSaleAt: "2026-08-01",
     });
     assert.equal(skip?.action, "skip_not_delivering");
+  });
+});
+
+describe("loadEligibilityFactsForDrafts — fail closed on read error", () => {
+  it("a failed read is facts_unreadable via console.error, not warn, and not null dates", () => {
+    const src = readFileSync("lib/db/campaign-automation-decisions.ts", "utf8");
+    assert.match(src, /factsUnreadable:\s*true/);
+    assert.match(src, /eligibility facts_unreadable/);
+    assert.match(src, /console\.error\(\s*\n?\s*`\[campaign-automation-decisions\] eligibility facts_unreadable/);
+    assert.doesNotMatch(src, /eligibility events query failed/);
+    assert.doesNotMatch(src, /console\.warn\(\s*\n?\s*`\[campaign-automation-decisions\] eligibility/);
   });
 });

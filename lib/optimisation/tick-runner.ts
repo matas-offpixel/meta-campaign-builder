@@ -83,6 +83,7 @@ import {
   evaluateEligibility,
   type CampaignEligibilityFacts,
   type EligibilitySkip,
+  type EligibilitySkipAction,
 } from "./eligibility.ts";
 import {
   applyCampaignHeadroom,
@@ -135,7 +136,7 @@ export interface DecisionToInsert {
   metricValue: number | null;
   metricWindow: RuleTimeWindow;
   ruleMatched: string | null;
-  actionRecommended: AutomationAction;
+  actionRecommended: AutomationAction | EligibilitySkipAction;
   actionDelta: number | null;
   /**
    * Raw conversion count within the evaluation window — from Meta's
