@@ -98,6 +98,9 @@ describe("PLAN_TARGET_UNIT_TABLE — one table, one direction", () => {
   });
 
   it("ALL_RULE_METRICS fails if a member of RuleMetric is missing", () => {
+    // The `_allRuleMetricsCovered: true` assignment is the union check.
+    // `node --test` strips types, so `npm test` does not enforce it —
+    // `npm run build` does. The length pin only catches a stale array.
     void _allRuleMetricsCovered;
     assert.equal(ALL_RULE_METRICS.length, new Set(ALL_RULE_METRICS).size);
     assert.equal(ALL_RULE_METRICS.length, 8);

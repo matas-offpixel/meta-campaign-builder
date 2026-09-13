@@ -34,11 +34,19 @@
 | Preset view hid the empty checkout rule the editor now shows | `components/steps/optimisation-strategy.tsx` | (aligned to `.filter((r) => r.enabled)`) |
 | `materialiseStrategy` cannot arm checkout even with a target | `initiateCheckoutRules()` comment + named test | `materialiseStrategy cannot arm a checkout ladder even once a target is set` |
 
+## Review round 3 — fixed
+
+| Finding | File | Test that pins it |
+|---|---|---|
+| `skip_no_rules` with a reading rendered `—` and `┄ not instrumented` | `lib/plan/decisions-sheet.ts` chip + provenance keyed on finite `metricValue` | `a finite metricValue renders the reading and its provenance whatever the action` |
+| Gappy-band maintain (awareness CPM £6–£8) had no tick-level pin | `lib/optimisation/__tests__/tick-runner.test.ts` | `a rule with bands whose value falls in a gap stays maintain, not skip_no_rules` |
+| `ALL_RULE_METRICS` union check is compile-only | comment on the test | `npm run build` enforces it; `npm test` does not |
+
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5580 pass, 4 skipped)
+- [x] `npm test` (5583 pass, 4 skipped)
 
 ## Notes
 

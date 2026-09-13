@@ -291,6 +291,36 @@ describe("runOptimisationTick — skip_no_rules", () => {
     assert.notEqual(inserted[0]!.reasonText, skipNoRulesReason("none"));
     assert.match(inserted[0]!.reasonText, /no threshold bands/);
   });
+
+  it("a rule with bands whose value falls in a gap stays maintain, not skip_no_rules", async () => {
+    // Awareness CPM: below 3 scale, 3–6 maintain, above 8 reduce. £7 is
+    // a real gap on eight live drafts. nameEmptyMatchingLadder must not
+    // reclassify it just because ruleMatched is null.
+    const inserted: DecisionToInsert[] = [];
+    const rules = generateRulesForObjective("awareness");
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          objective: "awareness",
+          optimisationStrategy: { mode: "benchmarks", rules, guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          cpm: 7,
+          costPerActionType: {},
+          actionCountByType: {},
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0]!.actionRecommended, "maintain");
+    assert.equal(inserted[0]!.ruleMatched, null);
+    assert.equal(inserted[0]!.metricValue, 7);
+    assert.match(inserted[0]!.reasonText, /matched no threshold band/);
+  });
 });
 
 describe("runOptimisationTick — dry-run decisions", () => {
