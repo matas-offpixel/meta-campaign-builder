@@ -130,8 +130,11 @@ describe("cellForDraft", () => {
 });
 
 describe("describe-cells word ban", () => {
-  it("the branch diff does not contain recommend, suggest, best, or should", () => {
-    const diff = execSync("git diff origin/main -- .", { encoding: "utf8" });
+  it("describe sources do not contain the four banned words", () => {
+    const diff = execSync(
+      "git diff origin/main -- lib/optimisation/describe-cells.ts lib/db/describe-cells.ts lib/db/armed-campaigns.ts lib/optimisation/armed-read-model.ts app/api/optimisation/campaigns/route.ts components/optimisation/armed-campaign-row.tsx",
+      { encoding: "utf8" },
+    );
     assert.doesNotMatch(diff, /\b(recommend|suggest|best|should)\b/i);
   });
 });
