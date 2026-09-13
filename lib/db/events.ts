@@ -428,9 +428,31 @@ export async function linkDraftToEvent(
   eventId: string | null,
 ): Promise<void> {
   const supabase = createClient();
+  const { data, error: readError } = await supabase
+    .from("campaign_drafts")
+    .select("draft_json")
+    .eq("id", draftId)
+    .maybeSingle();
+  if (readError) {
+    console.warn("Supabase linkDraftToEvent read:", readError.message);
+    throw readError;
+  }
+
+  const draftJson = data?.draft_json;
+  const nextJson =
+    draftJson && typeof draftJson === "object" && !Array.isArray(draftJson)
+      ? {
+          ...(draftJson as Record<string, unknown>),
+          settings: {
+            ...((draftJson as { settings?: Record<string, unknown> }).settings ?? {}),
+            eventId: eventId ?? "",
+          },
+        }
+      : null;
+
   const { error } = await supabase
     .from("campaign_drafts")
-    .update({ event_id: eventId })
+    .update(nextJson ? { event_id: eventId, draft_json: nextJson } : { event_id: eventId })
     .eq("id", draftId);
   if (error) {
     console.warn("Supabase linkDraftToEvent error:", error.message);

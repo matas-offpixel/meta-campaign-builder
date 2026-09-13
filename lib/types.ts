@@ -1585,6 +1585,8 @@ export interface CampaignListItem {
   adAccountId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Code vs wired event, or column vs JSON. Null when they agree. */
+  eventWarning?: string | null;
 }
 
 // ─── Wizard state ───

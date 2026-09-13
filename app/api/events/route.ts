@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
       venue_city: e.venue_city,
       client_id: e.client_id,
       client_name: e.client?.name ?? null,
+      event_code: e.event_code ?? null,
     })),
   });
 }

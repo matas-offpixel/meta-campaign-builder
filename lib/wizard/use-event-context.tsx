@@ -29,12 +29,20 @@ export interface WizardEventContextValue {
   event: EventWithClient | null;
   client: ClientRow | null;
   loaded: boolean;
+  jsonEventId: string | null;
+  columnEventId: string | null;
+  resolvedEventId: string | null;
+  carriersDisagree: boolean;
 }
 
 const EMPTY: WizardEventContextValue = {
   event: null,
   client: null,
   loaded: true,
+  jsonEventId: null,
+  columnEventId: null,
+  resolvedEventId: null,
+  carriersDisagree: false,
 };
 
 const Ctx = createContext<WizardEventContextValue>(EMPTY);
@@ -54,6 +62,10 @@ export function WizardEventContextProvider({
 }) {
   const [event, setEvent] = useState<EventWithClient | null>(null);
   const [client, setClient] = useState<ClientRow | null>(null);
+  const [jsonEventId, setJsonEventId] = useState<string | null>(null);
+  const [columnEventId, setColumnEventId] = useState<string | null>(null);
+  const [resolvedEventId, setResolvedEventId] = useState<string | null>(null);
+  const [carriersDisagree, setCarriersDisagree] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -69,14 +81,26 @@ export function WizardEventContextProvider({
           ok?: boolean;
           event?: EventWithClient | null;
           client?: ClientRow | null;
+          jsonEventId?: string | null;
+          columnEventId?: string | null;
+          resolvedEventId?: string | null;
+          carriersDisagree?: boolean;
         };
         if (cancelled) return;
         if (!res.ok || !json.ok) {
           setEvent(null);
           setClient(null);
+          setJsonEventId(null);
+          setColumnEventId(null);
+          setResolvedEventId(null);
+          setCarriersDisagree(false);
         } else {
           setEvent(json.event ?? null);
           setClient(json.client ?? null);
+          setJsonEventId(json.jsonEventId ?? null);
+          setColumnEventId(json.columnEventId ?? null);
+          setResolvedEventId(json.resolvedEventId ?? null);
+          setCarriersDisagree(json.carriersDisagree === true);
         }
       } catch (err) {
         if (cancelled) return;
@@ -86,6 +110,10 @@ export function WizardEventContextProvider({
         );
         setEvent(null);
         setClient(null);
+        setJsonEventId(null);
+        setColumnEventId(null);
+        setResolvedEventId(null);
+        setCarriersDisagree(false);
       } finally {
         if (!cancelled) setLoaded(true);
       }
@@ -96,8 +124,16 @@ export function WizardEventContextProvider({
   }, [draftId, enabled]);
 
   const value = useMemo<WizardEventContextValue>(
-    () => ({ event, client, loaded }),
-    [event, client, loaded],
+    () => ({
+      event,
+      client,
+      loaded,
+      jsonEventId,
+      columnEventId,
+      resolvedEventId,
+      carriersDisagree,
+    }),
+    [event, client, loaded, jsonEventId, columnEventId, resolvedEventId, carriersDisagree],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

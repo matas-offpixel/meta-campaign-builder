@@ -225,6 +225,8 @@ describe("from-existing wiring and density", () => {
     assert.match(library, /duplicateCampaign/);
     assert.match(library, /New Campaign/);
     const drafts = readFileSync("lib/db/drafts.ts", "utf8");
-    assert.match(drafts, /\(Copy\)/);
+    assert.match(drafts, /buildDuplicatedCampaign/);
+    const campaignEvent = readFileSync("lib/campaign-event.ts", "utf8");
+    assert.match(campaignEvent, /\(Copy\)/);
   });
 });

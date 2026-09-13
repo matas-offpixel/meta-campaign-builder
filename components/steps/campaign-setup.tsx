@@ -3,8 +3,24 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { CardDescription, Datum, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { Card, CardTitle } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  applyEventToCampaignSettings,
+  describeCarrierMismatch,
+  describeCodeEventMismatch,
+  formatWiredEventLabel,
+  toPlanEventOption,
+} from "@/lib/campaign-event";
+import { useFetchEvents } from "@/lib/hooks/useEvents";
+import { useWizardEventContext } from "@/lib/wizard/use-event-context";
+import {
+  planEventPickerRows,
+  todayIsoDate,
+  visiblePlanEvents,
+} from "@/lib/plan/event-picker";
 import type {
   CampaignSettings,
   CampaignObjective,
@@ -85,6 +101,80 @@ export function CampaignSetup({
 }: CampaignSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
+  const { events: fetchedEvents } = useFetchEvents();
+  const eventContext = useWizardEventContext();
+  const pickerEvents = useMemo(
+    () => fetchedEvents.map(toPlanEventOption),
+    [fetchedEvents],
+  );
+  const eventOptions = useMemo(
+    () =>
+      planEventPickerRows(
+        visiblePlanEvents(pickerEvents, {
+          today: todayIsoDate(),
+          showPast: true,
+          selectedId: settings.eventId,
+        }),
+      ).map((row) => ({
+        value: row.id,
+        label: row.label,
+        sublabel: row.sublabel || undefined,
+        keywords: row.keywords || undefined,
+      })),
+    [pickerEvents, settings.eventId],
+  );
+  const selectedEvent = fetchedEvents.find((row) => row.id === settings.eventId) ?? null;
+  const codeMismatch = describeCodeEventMismatch({
+    campaignCode: settings.campaignCode,
+    campaignName: settings.campaignName,
+    event: selectedEvent
+      ? {
+          event_code: selectedEvent.event_code,
+          name: selectedEvent.name,
+          venue_city: selectedEvent.venue_city,
+          event_date: selectedEvent.event_date,
+        }
+      : null,
+  });
+  const jsonEvent = fetchedEvents.find((row) => row.id === eventContext.jsonEventId) ?? null;
+  const columnEvent = fetchedEvents.find((row) => row.id === eventContext.columnEventId) ?? null;
+  const carrierMismatch = eventContext.carriersDisagree
+    ? describeCarrierMismatch({
+        jsonEventId: eventContext.jsonEventId,
+        columnEventId: eventContext.columnEventId,
+        jsonEvent,
+        columnEvent,
+      })
+    : null;
+
+  const handleEventChange = (eventId: string) => {
+    const row = fetchedEvents.find((event) => event.id === eventId);
+    if (!row) return;
+    onChange(
+      applyEventToCampaignSettings(settings, {
+        id: row.id,
+        event_code: row.event_code,
+        client_id: row.client_id,
+        name: row.name,
+        venue_city: row.venue_city,
+        event_date: row.event_date,
+      }),
+    );
+  };
+
+  const useThisEventCode = () => {
+    if (!selectedEvent) return;
+    onChange(
+      applyEventToCampaignSettings(settings, {
+        id: selectedEvent.id,
+        event_code: selectedEvent.event_code,
+        client_id: selectedEvent.client_id,
+        name: selectedEvent.name,
+        venue_city: selectedEvent.venue_city,
+        event_date: selectedEvent.event_date,
+      }),
+    );
+  };
 
   const mode: WizardMode = settings.wizardMode ?? "new";
   const isAttachCampaign = mode === "attach_campaign";
@@ -416,6 +506,46 @@ export function CampaignSetup({
     <StepSurfaceProvider surface={surface}>
     <div className={surface === "drawer" ? "space-y-3" : "mx-auto max-w-2xl space-y-6"}>
       
+
+      <Card>
+        <CardTitle>Event</CardTitle>
+        <CardDescription>
+          Which show this campaign belongs to. Changing it re-derives the
+          campaign code and the [CODE] prefix — the rest of a hand-edited
+          name stays.
+        </CardDescription>
+        <div className="mt-3">
+          <Combobox
+            label="Event"
+            value={settings.eventId ?? ""}
+            onChange={handleEventChange}
+            options={eventOptions}
+            placeholder="Select an event"
+            emptyText="No matching events"
+          />
+        </div>
+        {selectedEvent ? (
+          <Datum className="mt-2 text-xs text-muted-foreground">
+            Wired to {formatWiredEventLabel(selectedEvent)}
+          </Datum>
+        ) : (
+          <Datum className="mt-2 text-xs text-muted-foreground">No event linked.</Datum>
+        )}
+        {codeMismatch ? (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-700/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <Datum>{codeMismatch}</Datum>
+              <Button type="button" size="sm" variant="outline" onClick={useThisEventCode}>
+                Use this event&apos;s code
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {carrierMismatch ? (
+          <Datum className="mt-2 text-xs text-amber-800 dark:text-amber-300">{carrierMismatch}</Datum>
+        ) : null}
+      </Card>
 
       {/* Mode toggle */}
       <Card>

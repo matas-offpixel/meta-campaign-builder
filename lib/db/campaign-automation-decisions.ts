@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { migrateDraft } from "@/lib/autosave";
+import { resolveDraftEventId } from "@/lib/campaign-event";
 import type { CampaignAutomationInput, DecisionToInsert } from "@/lib/optimisation/tick-runner";
 import type { CampaignEligibilityFacts } from "@/lib/optimisation/eligibility";
 import { isCampaignPlanPhase } from "@/lib/plan/phase";
@@ -117,7 +118,7 @@ export async function loadOptedInCampaignsForAutomation(
         );
         continue;
       }
-      const eventId = row.event_id?.trim() || draft.settings.eventId?.trim() || null;
+      const eventId = resolveDraftEventId(draft.settings.eventId, row.event_id);
       parsed.push({
         row,
         eventId,

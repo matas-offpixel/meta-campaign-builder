@@ -27,6 +27,7 @@ export interface EventPickerRow {
   venue_city: string | null;
   client_id: string;
   client_name: string | null;
+  event_code?: string | null;
 }
 
 export interface UseFetchEventsState {
@@ -49,6 +50,11 @@ interface FetchState {
 }
 
 const EMPTY_STATE: FetchState = { events: [], loading: false, error: null };
+
+/** All operator events — used when the picker must be able to change client. */
+export function useFetchEvents(): UseFetchEventsState {
+  return useFetchEventsForClient("__all__");
+}
 
 export function useFetchEventsForClient(
   clientId: string | null,
@@ -74,7 +80,11 @@ export function useFetchEventsForClient(
     if (!clientId) return;
     let cancelled = false;
 
-    fetch(`/api/events?clientId=${encodeURIComponent(clientId)}`)
+    const url =
+      clientId === "__all__"
+        ? "/api/events"
+        : `/api/events?clientId=${encodeURIComponent(clientId)}`;
+    fetch(url)
       .then(async (res) => {
         const json = (await res.json()) as EventsResponse;
         if (!res.ok || !json.ok) {
