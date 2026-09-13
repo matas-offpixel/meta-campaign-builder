@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
+import { migrateDraft } from "../autosave.ts";
 import {
   describeOptimisationRulesMismatch,
   generateRulesForObjective,
@@ -11,6 +11,7 @@ import {
 import type {
   CampaignObjective,
   OptimisationRule,
+  OptimisationStrategySettings,
   RuleMetric,
 } from "../types.ts";
 
@@ -22,6 +23,14 @@ const OBJECTIVES: CampaignObjective[] = [
   "awareness",
   "engagement",
 ];
+
+const GUARDRAILS = {
+  baseAdSetBudget: 50,
+  baseCampaignBudget: 50,
+  maxExpansionPercent: 100,
+  hardBudgetCeiling: 100,
+  ceilingBehaviour: "stop" as const,
+};
 
 function rule(partial: Partial<OptimisationRule> & { metric: RuleMetric }): OptimisationRule {
   return {
@@ -44,6 +53,33 @@ function lpvPrimary(name = "Cost per Landing Page View"): OptimisationRule[] {
   return [rule({ name, metric: "lpv_cost", timeWindow: "24h" })];
 }
 
+function purchaseWithoutRoas(): OptimisationRule[] {
+  return generateRulesForObjective("purchase").filter((r) => r.metric !== "roas");
+}
+
+function strategyWith(
+  rules: OptimisationRule[],
+  extra: Partial<OptimisationStrategySettings> = {},
+): OptimisationStrategySettings {
+  return {
+    mode: "benchmarks",
+    rules,
+    guardrails: { ...GUARDRAILS },
+    ...extra,
+  };
+}
+
+function loadStrategy(
+  rules: OptimisationRule[],
+  extra: Partial<OptimisationStrategySettings> = {},
+): OptimisationStrategySettings {
+  const strategy = strategyWith(rules, extra);
+  return migrateDraft({
+    settings: { objective: "purchase" },
+    optimisationStrategy: strategy,
+  }).optimisationStrategy;
+}
+
 describe("describeOptimisationRulesMismatch", () => {
   for (const objective of OBJECTIVES) {
     it(`${objective} rules generated for that objective report clean`, () => {
@@ -53,7 +89,7 @@ describe("describeOptimisationRulesMismatch", () => {
     });
   }
 
-  it("registration draft with cpr rules reports clean", () => {
+  it("a correct registration draft with cpr rules reports clean", () => {
     assert.equal(
       describeOptimisationRulesMismatch("registration", cprPrimary()),
       null,
@@ -68,7 +104,7 @@ describe("describeOptimisationRulesMismatch", () => {
     assert.equal(JSON.stringify(rules), before);
   });
 
-  it("[IRW0001] purchase + cpr primary is mismatched and names purchase", () => {
+  it("purchase + cpr primary is mismatched and names purchase (the four prod copies)", () => {
     const mismatch = describeOptimisationRulesMismatch(
       "purchase",
       cprPrimary("Cost per Registration"),
@@ -79,26 +115,6 @@ describe("describeOptimisationRulesMismatch", () => {
     assert.equal(mismatch.expectedPrimary, "cpa");
     assert.equal(mismatch.actualPrimary, "cpr");
     assert.equal(mismatch.missingSecondary, "roas");
-  });
-
-  it("[NX26-FOLAMOUR] purchase + cpr primary is mismatched and names purchase", () => {
-    const mismatch = describeOptimisationRulesMismatch(
-      "purchase",
-      cprPrimary("Cost per Registration"),
-    );
-    assert.ok(mismatch);
-    assert.equal(mismatch.expectedObjective, "purchase");
-    assert.equal(mismatch.writtenFor, "registration");
-  });
-
-  it("[NX26-DOD] On sale — purchase + cpr primary is mismatched and names purchase", () => {
-    const mismatch = describeOptimisationRulesMismatch(
-      "purchase",
-      cprPrimary("Cost per Registration"),
-    );
-    assert.ok(mismatch);
-    assert.equal(mismatch.expectedObjective, "purchase");
-    assert.equal(mismatch.writtenFor, "registration");
   });
 
   it("[NX25-DJ EZ] purchase + lpv_cost primary is mismatched and names purchase", () => {
@@ -112,6 +128,36 @@ describe("describeOptimisationRulesMismatch", () => {
     assert.equal(mismatch.expectedPrimary, "cpa");
     assert.equal(mismatch.actualPrimary, "lpv_cost");
     assert.equal(mismatch.missingSecondary, "roas");
+  });
+
+  it("purchase ladder minus its roas rule is a mismatch with writtenFor absent", () => {
+    const rules = purchaseWithoutRoas();
+    assert.equal(inferRulesObjectiveFromRules(rules), null);
+    const mismatch = describeOptimisationRulesMismatch("purchase", rules);
+    assert.ok(mismatch);
+    assert.equal(mismatch.expectedObjective, "purchase");
+    assert.equal(mismatch.writtenFor, null);
+    assert.equal(mismatch.expectedPrimary, "cpa");
+    assert.equal(mismatch.actualPrimary, "cpa");
+    assert.equal(mismatch.missingSecondary, "roas");
+  });
+
+  it("initiate_checkout carrying a stray roas rule is not flagged", () => {
+    const rules = [
+      ...generateRulesForObjective("initiate_checkout"),
+      rule({
+        id: "stray-roas",
+        name: "ROAS",
+        metric: "roas",
+        priority: "secondary",
+        timeWindow: "3d",
+      }),
+    ];
+    assert.equal(inferRulesObjectiveFromRules(rules), null);
+    assert.equal(
+      describeOptimisationRulesMismatch("initiate_checkout", rules),
+      null,
+    );
   });
 
   it("empty rules are not a mismatch — absent is not wrong", () => {
@@ -150,8 +196,18 @@ describe("describeOptimisationRulesMismatch", () => {
     );
     assert.ok(mismatch);
     assert.equal(mismatch.expectedObjective, "purchase");
-    // The helper is pure. Custom mode does not call generateRulesForObjective.
     assert.equal(cprPrimary()[0]!.metric, "cpr");
+  });
+
+  it("an objective outside the union is a named mismatch, not a throw", () => {
+    const mismatch = describeOptimisationRulesMismatch(
+      "not-an-objective" as CampaignObjective,
+      cprPrimary(),
+    );
+    assert.ok(mismatch);
+    assert.equal(mismatch.unknownObjective, true);
+    assert.equal(mismatch.expectedPrimary, null);
+    assert.equal(mismatch.writtenFor, "registration");
   });
 });
 
@@ -176,58 +232,78 @@ describe("generateRulesForObjective", () => {
 
 describe("inferRulesObjectiveFromRules", () => {
   it("purchase + cpr classifies as registration", () => {
-    const rules = cprPrimary();
-    assert.equal(inferRulesObjectiveFromRules(rules), "registration");
+    assert.equal(inferRulesObjectiveFromRules(cprPrimary()), "registration");
   });
 
   it("purchase + lpv_cost classifies as traffic", () => {
     assert.equal(inferRulesObjectiveFromRules(lpvPrimary()), "traffic");
   });
 
-  it("cpa + roas classifies as purchase, not initiate_checkout", () => {
+  it("cpa cannot identify an objective — even with a roas rule", () => {
     assert.equal(
       inferRulesObjectiveFromRules(generateRulesForObjective("purchase")),
-      "purchase",
+      null,
+    );
+    assert.equal(
+      inferRulesObjectiveFromRules(generateRulesForObjective("initiate_checkout")),
+      null,
     );
   });
 
-  it("cpa without a secondary classifies as initiate_checkout", () => {
-    assert.equal(
-      inferRulesObjectiveFromRules(generateRulesForObjective("initiate_checkout")),
-      "initiate_checkout",
-    );
+  it("a purchase ladder minus its roas rule infers null", () => {
+    assert.equal(inferRulesObjectiveFromRules(purchaseWithoutRoas()), null);
   });
 
   it("empty rules cannot be classified", () => {
     assert.equal(inferRulesObjectiveFromRules([]), null);
   });
-
-  it("migrateDraft defaults rulesObjective from the primary metric when absent", () => {
-    const src = readFileSync("lib/autosave.ts", "utf8");
-    assert.match(src, /inferRulesObjectiveFromRules/);
-    assert.match(src, /rulesObjective/);
-    assert.match(
-      src,
-      /if \(draft\.optimisationStrategy\.rulesObjective == null\)/,
-    );
-  });
 });
 
-describe("wizard hole — Campaign Setup records the stamp, Optimisation does not silently overwrite custom", () => {
-  it("Campaign Setup never calls generateRulesForObjective", () => {
-    const src = readFileSync("components/steps/campaign-setup.tsx", "utf8");
-    assert.doesNotMatch(src, /generateRulesForObjective/);
-    assert.match(src, /inferRulesObjectiveFromRules/);
-    assert.match(src, /rulesObjective/);
+describe("migrateDraft stamps rulesObjective", () => {
+  it("purchase + cpr stamps registration and leaves the rules untouched", () => {
+    const rules = cprPrimary();
+    const snapshot = JSON.stringify(rules);
+    const out = loadStrategy(rules);
+    assert.equal(out.rulesObjective, "registration");
+    assert.equal(JSON.stringify(out.rules), snapshot);
   });
 
-  it("Optimisation only auto-regenerates in benchmarks mode without a preset", () => {
-    const src = readFileSync("components/steps/optimisation-strategy.tsx", "utf8");
-    assert.match(
-      src,
-      /if \(strategy\.mode === "benchmarks" && !strategy\.preset\)/,
+  it("ambiguous cpa (purchase minus roas) leaves the stamp unset", () => {
+    const rules = purchaseWithoutRoas();
+    const out = loadStrategy(rules);
+    assert.equal(out.rulesObjective, undefined);
+    const mismatch = describeOptimisationRulesMismatch("purchase", out.rules, out.rulesObjective);
+    assert.ok(mismatch);
+    assert.equal(mismatch.writtenFor, null);
+    assert.equal(mismatch.missingSecondary, "roas");
+  });
+
+  it("initiate_checkout + stray roas leaves the stamp unset and is not flagged", () => {
+    const rules = [
+      ...generateRulesForObjective("initiate_checkout"),
+      rule({ id: "stray-roas", name: "ROAS", metric: "roas", priority: "secondary" }),
+    ];
+    const out = migrateDraft({
+      settings: { objective: "initiate_checkout" },
+      optimisationStrategy: strategyWith(rules),
+    }).optimisationStrategy;
+    assert.equal(out.rulesObjective, undefined);
+    assert.equal(
+      describeOptimisationRulesMismatch("initiate_checkout", out.rules, out.rulesObjective),
+      null,
     );
-    assert.match(src, /describeOptimisationRulesMismatch/);
-    assert.match(src, /Regenerate for/);
+  });
+
+  it("a matching draft is byte-identical after migrateDraft, stamp included", () => {
+    const rules = generateRulesForObjective("registration");
+    const strategy = strategyWith(rules, { rulesObjective: "registration" });
+    const before = JSON.stringify(strategy);
+    const out = migrateDraft({
+      settings: { objective: "registration" },
+      optimisationStrategy: strategy,
+    }).optimisationStrategy;
+    assert.equal(JSON.stringify(out), before);
+    assert.equal(out.rulesObjective, "registration");
+    assert.equal(JSON.stringify(out.rules), JSON.stringify(rules));
   });
 });

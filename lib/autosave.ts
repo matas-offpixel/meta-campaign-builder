@@ -1,6 +1,6 @@
 import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, LocationTargetingGroup, LocationPreset } from "./types";
-import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types";
-import { inferRulesObjectiveFromRules } from "./optimisation-rules";
+import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
+import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
 
 const STORAGE_KEY = "campaign_draft";
 

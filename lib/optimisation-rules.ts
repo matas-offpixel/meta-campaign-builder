@@ -290,9 +290,11 @@ export interface OptimisationRulesMismatch {
   expectedObjective: CampaignObjective;
   /** Objective the stored rules look like they were written for. Null if we cannot tell. */
   writtenFor: CampaignObjective | null;
-  expectedPrimary: RuleMetric;
+  expectedPrimary: RuleMetric | null;
   actualPrimary: RuleMetric | null;
   missingSecondary: RuleMetric | null;
+  /** `settings.objective` is not in the closed union — do not throw during render. */
+  unknownObjective?: true;
 }
 
 function primaryOptimisationRule(
@@ -307,6 +309,10 @@ function primaryOptimisationRule(
  * Objective the stored rules were written for, from the primary rule's
  * metric. Used to default `rulesObjective` on load. Not a match test —
  * {@link describeOptimisationRulesMismatch} is the match test.
+ *
+ * A primary that more than one objective declares (`cpa` today) cannot
+ * identify an objective. Presence or absence of a secondary is not a
+ * tiebreak — it guesses, and the guess gets persisted.
  */
 export function inferRulesObjectiveFromRules(
   rules: readonly OptimisationRule[],
@@ -317,19 +323,7 @@ export function inferRulesObjectiveFromRules(
   const matches = objectives.filter(
     (obj) => OBJECTIVE_METRIC_PRIORITY[obj].primary === primary.metric,
   );
-  if (matches.length === 0) return null;
   if (matches.length === 1) return matches[0]!;
-
-  const withSecondary = matches.filter((obj) => {
-    const secondary = OBJECTIVE_METRIC_PRIORITY[obj].secondary;
-    return secondary != null && rules.some((r) => r.metric === secondary);
-  });
-  if (withSecondary.length === 1) return withSecondary[0]!;
-
-  const withoutSecondary = matches.filter(
-    (obj) => OBJECTIVE_METRIC_PRIORITY[obj].secondary == null,
-  );
-  if (withoutSecondary.length === 1) return withoutSecondary[0]!;
   return null;
 }
 
@@ -343,8 +337,18 @@ export function describeOptimisationRulesMismatch(
   rulesObjective?: CampaignObjective | null,
 ): OptimisationRulesMismatch | null {
   if (rules.length === 0) return null;
-  const prio = OBJECTIVE_METRIC_PRIORITY[objective];
   const actualPrimary = primaryOptimisationRule(rules)?.metric ?? null;
+  const prio = OBJECTIVE_METRIC_PRIORITY[objective];
+  if (!prio) {
+    return {
+      expectedObjective: objective,
+      writtenFor: rulesObjective ?? inferRulesObjectiveFromRules(rules),
+      expectedPrimary: null,
+      actualPrimary,
+      missingSecondary: null,
+      unknownObjective: true,
+    };
+  }
   const primaryMatches = actualPrimary === prio.primary;
   const missingSecondary =
     prio.secondary && !rules.some((r) => r.metric === prio.secondary)
