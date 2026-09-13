@@ -26,7 +26,11 @@ Armed is not a boolean. Two Live campaigns produced nothing but `skip_event_pass
 
 ## Review round 2 — fixed
 
-The Armed tab count is the fleet size, not `0`. Freeze tests compare file content to `799b592` (post-#936), not `origin/main...HEAD`. The row renders `reasonText`. Target read-back uses `primaryRuleIndex` / `controlsFromStrategy`. `eventId` must be a UUID (comma → 400). The Live confirm dialog is one component. Service-role fallback is `asOperator: false`.
+The Armed tab count is the fleet size, not `0`. The row renders `reasonText`. Target read-back uses `primaryRuleIndex` / `controlsFromStrategy`. `eventId` must be a UUID (comma → 400). The Live confirm dialog is one component. Service-role fallback is `asOperator: false`.
+
+## Review round 3 — fixed
+
+Deleted the freeze and the writes-gate scan. The Armed badge fetches on library load, before the tab is clicked. `reasonText` is `line-clamp-2`. Remaining tests in this file are behaviour only.
 
 ## Auth decision (PR body)
 
@@ -40,7 +44,7 @@ There is no clean column for an operator target/cap edit without a migration. Th
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5634 pass, 4 skipped — local; CI check-runs are the record)
+- [x] `npm test` (5624 pass, 4 skipped — local; CI check-runs are the record)
 
 ## Notes
 
@@ -50,4 +54,5 @@ There is no clean column for an operator target/cap edit without a migration. Th
 - `pauseFloorBudget` is not settable from any of the three surfaces.
 - Neither fleet query is indexed. The index to add (Matas, by hand) is a partial on `optimisation_automation_enabled = true` plus, for the event list, `event_id` and `(draft_json->settings->>eventId)`.
 - `loadLatestDecisions` is 2N parallel queries. Fine at ten armed / sixteen Mall Grab. Revisit around ~50 drafts.
+- The event-page query pulls `draft_json` for every campaign wired to the event (no automation filter). Bounded at sixteen for `ES26-MALLGRAB`. Same ceiling as the 2N note.
 - Controls PATCH rewrites the whole `draft_json` through `migrateDraft`.

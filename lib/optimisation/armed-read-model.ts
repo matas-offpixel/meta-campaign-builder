@@ -79,6 +79,10 @@ export function assertArmedEventId(eventId: string): void {
   }
 }
 
+export function armedLoadErrorStatus(err: unknown): 400 | 500 {
+  return err instanceof InvalidArmedEventIdError ? 400 : 500;
+}
+
 export type PostLaunchControlsPatch = {
   campaignTargetValue?: number;
   useOverride?: boolean;

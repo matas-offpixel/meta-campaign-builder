@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isOperator } from "@/lib/auth/operator-allowlist";
 import { loadArmedCampaignRows } from "@/lib/db/armed-campaigns";
-import { InvalidArmedEventIdError } from "@/lib/optimisation/armed-read-model";
+import { armedLoadErrorStatus } from "@/lib/optimisation/armed-read-model";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -35,13 +35,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
     return NextResponse.json({ ok: true, campaigns });
   } catch (err) {
-    if (err instanceof InvalidArmedEventIdError) {
-      return NextResponse.json({ ok: false, error: err.message }, { status: 400 });
+    const status = armedLoadErrorStatus(err);
+    if (status >= 500) {
+      console.error("[optimisation/campaigns]", err instanceof Error ? err.message : err);
     }
-    console.error("[optimisation/campaigns]", err instanceof Error ? err.message : err);
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "Failed to load campaigns" },
-      { status: 500 },
+      { status },
     );
   }
 }

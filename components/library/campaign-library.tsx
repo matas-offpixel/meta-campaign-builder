@@ -74,8 +74,16 @@ export function CampaignLibrary() {
       if (!user) return;
       setUserId(user.id);
 
-      const items = await loadCampaignList(user.id);
+      const [items, armedRes] = await Promise.all([
+        loadCampaignList(user.id),
+        fetch("/api/optimisation/campaigns")
+          .then((res) => res.json() as Promise<{ ok?: boolean; campaigns?: unknown[] }>)
+          .catch(() => ({ ok: false as const })),
+      ]);
       setCampaigns(items);
+      if (armedRes.ok && Array.isArray(armedRes.campaigns)) {
+        setArmedCount(armedRes.campaigns.length);
+      }
       setLoading(false);
     }
     init();
