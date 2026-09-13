@@ -5,7 +5,10 @@ import { RotateCcw } from "lucide-react";
 import { BudgetGuardrailsCard } from "@/components/steps/budget-guardrails-card";
 import { Button } from "@/components/ui/button";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
-import type { ArmedCampaignRow } from "@/lib/optimisation/armed-read-model";
+import {
+  controlsFromStrategy,
+  type ArmedCampaignRow,
+} from "@/lib/optimisation/armed-read-model";
 import type { BudgetGuardrails, OptimisationStrategySettings } from "@/lib/types";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
@@ -51,20 +54,14 @@ export function PostLaunchControls({
         setError(json.error ?? "Could not save");
         return;
       }
-      onSaved({
-        controls: {
-          ...row.controls,
-          campaignTargetValue:
-            json.strategy.rules.find((rule) => rule.priority === "primary")?.campaignTargetValue ??
-            row.controls.campaignTargetValue,
-          useOverride: true,
-          guardrails: json.strategy.guardrails,
-          hardBudgetCeiling: json.strategy.guardrails.hardBudgetCeiling,
-          baseCampaignBudget:
-            json.strategy.guardrails.baseAdSetBudget ||
-            json.strategy.guardrails.baseCampaignBudget,
-        },
-      });
+      const controls = controlsFromStrategy(
+        json.strategy,
+        row.controls.objective,
+        row.controls.currency,
+      );
+      setTarget(controls.campaignTargetValue ?? "");
+      setGuardrails(controls.guardrails);
+      onSaved({ controls });
     } catch {
       setError("Could not save");
     } finally {

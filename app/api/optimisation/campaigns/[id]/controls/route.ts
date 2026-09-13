@@ -32,8 +32,10 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: "Unauthorised" }, { status: 401 });
   }
 
-  const operator = isOperator(user.id);
-  const db = viewerDb(operator) ?? supabase;
+  const allowlisted = isOperator(user.id);
+  const service = viewerDb(allowlisted);
+  const operator = service != null;
+  const db = service ?? supabase;
 
   let body: unknown;
   try {

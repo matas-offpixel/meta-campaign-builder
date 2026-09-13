@@ -34,6 +34,11 @@ export function ArmedCampaignRow({
             {row.name}
           </Link>
           <Datum className="mt-1 text-muted-foreground">{acting}</Datum>
+          {row.lastDecision?.reasonText ? (
+            <Datum className="mt-0.5 text-muted-foreground">
+              {row.lastDecision.reasonText}
+            </Datum>
+          ) : null}
           {row.eventLabel ? (
             <Datum className="mt-0.5 text-muted-foreground">
               Wired to {row.eventLabel}

@@ -20,7 +20,7 @@ async function viewerDb() {
   try {
     return { user, db: createServiceRoleClient(), asOperator: true };
   } catch {
-    return { user, db: supabase, asOperator: true };
+    return { user, db: supabase, asOperator: false };
   }
 }
 

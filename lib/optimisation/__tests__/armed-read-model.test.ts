@@ -6,6 +6,8 @@ import { describe, it } from "node:test";
 import { createDefaultDraft } from "../../campaign-defaults.ts";
 import {
   applyPostLaunchControls,
+  assertArmedEventId,
+  controlsFromStrategy,
   formatActingLine,
   lastDecisionFromRows,
   lastWriteFromRows,
@@ -13,6 +15,20 @@ import {
   setCampaignTarget,
 } from "../armed-read-model.ts";
 import type { DecisionRowView } from "../automation-ui.ts";
+
+/** Main at PR open (post-#936). Content pin — not a branch-diff. */
+const FREEZE_SHA = "799b5927e57507f2ff3ac4edbe42492d8080703a";
+const FROZEN_PATHS = [
+  "lib/optimisation/evaluate.ts",
+  "lib/optimisation/apply.ts",
+  "lib/optimisation/gates.ts",
+  "components/plan/plan-workspace.tsx",
+  "lib/plan/__tests__/drawer.test.ts",
+] as const;
+
+function pinned(path: string): string {
+  return execSync(`git show ${FREEZE_SHA}:${path}`, { encoding: "utf8" });
+}
 
 function decision(partial: Partial<DecisionRowView>): DecisionRowView {
   return {
@@ -128,22 +144,45 @@ describe("setCampaignTarget does not rewrite the ladder", () => {
       /pauseFloorBudget/,
     );
   });
+
+  it("a draft with no priority:primary still reads the saved target", () => {
+    const draft = createDefaultDraft();
+    const strategy = {
+      ...draft.optimisationStrategy,
+      rules: [
+        {
+          id: "r1",
+          name: "CPA",
+          metric: "cpa" as const,
+          timeWindow: "24h" as const,
+          enabled: true,
+          campaignTargetValue: 18,
+          useOverride: false,
+          thresholds: [],
+        },
+      ],
+    };
+    const next = setCampaignTarget(strategy, 22);
+    const controls = controlsFromStrategy(next, "purchase", "GBP");
+    assert.equal(controls.campaignTargetValue, 22);
+    assert.equal(controls.useOverride, true);
+  });
 });
 
 describe("surfaces and freezes", () => {
-  it("this branch does not touch evaluate/apply/gates/plan-workspace", () => {
-    const changed = execSync("git diff --name-only origin/main...HEAD", {
-      encoding: "utf8",
-    });
-    for (const file of [
-      "lib/optimisation/evaluate.ts",
-      "lib/optimisation/apply.ts",
-      "lib/optimisation/gates.ts",
-      "components/plan/plan-workspace.tsx",
-      "lib/plan/__tests__/drawer.test.ts",
-    ]) {
-      assert.ok(!changed.split("\n").includes(file), file);
+  it("evaluate/apply/gates/plan-workspace match the freeze SHA", () => {
+    for (const file of FROZEN_PATHS) {
+      assert.equal(readFileSync(file, "utf8"), pinned(file), file);
     }
+  });
+
+  it("the freeze goes red when evaluate.ts actually changes", () => {
+    const current = readFileSync("lib/optimisation/evaluate.ts", "utf8");
+    const atPin = pinned("lib/optimisation/evaluate.ts");
+    assert.equal(current, atPin);
+    assert.throws(() => {
+      assert.equal(`${current}\n// drift\n`, atPin);
+    });
   });
 
   it("pauseFloorBudget is not settable from the three surfaces", () => {
@@ -152,20 +191,44 @@ describe("surfaces and freezes", () => {
       "components/optimisation/post-launch-controls.tsx",
       "components/library/campaign-library.tsx",
       "components/dashboard/events/event-detail.tsx",
+      "components/steps/budget-guardrails-card.tsx",
     ]) {
       assert.doesNotMatch(readFileSync(file, "utf8"), /pauseFloorBudget/);
     }
   });
 
   it("the Armed tab and event page share ArmedCampaignList", () => {
-    assert.match(
-      readFileSync("components/library/campaign-library.tsx", "utf8"),
-      /ArmedCampaignList/,
-    );
+    const library = readFileSync("components/library/campaign-library.tsx", "utf8");
+    assert.match(library, /ArmedCampaignList/);
+    assert.match(library, /onCount=\{setArmedCount\}/);
+    assert.doesNotMatch(library, /id: \"armed\", label: \"Armed\", count: 0/);
     assert.match(
       readFileSync("components/dashboard/events/event-detail.tsx", "utf8"),
       /ArmedCampaignList[\s\S]*eventId=\{event\.id\}/,
     );
+  });
+
+  it("the row renders reasonText, not only the action enum", () => {
+    const row = readFileSync("components/optimisation/armed-campaign-row.tsx", "utf8");
+    assert.match(row, /lastDecision\?\.reasonText/);
+    const last = lastDecisionFromRows([
+      decision({ reasonText: "Event date 2026-09-04 is in the past — skip_event_passed." }),
+    ]);
+    assert.match(last?.reasonText ?? "", /2026-09-04/);
+  });
+
+  it("post-launch read-back uses the same primaryRuleIndex as the write", () => {
+    const ui = readFileSync("components/optimisation/post-launch-controls.tsx", "utf8");
+    assert.match(ui, /controlsFromStrategy/);
+    assert.doesNotMatch(ui, /priority === \"primary\"/);
+    assert.doesNotMatch(ui, /useOverride: true/);
+  });
+
+  it("an eventId containing a comma is a 400, not a 500", () => {
+    assert.throws(() => assertArmedEventId("abc,or(1)"), /uuid/);
+    const route = readFileSync("app/api/optimisation/campaigns/route.ts", "utf8");
+    assert.match(route, /InvalidArmedEventIdError/);
+    assert.match(route, /status: 400/);
   });
 
   it("arming still goes through parseAutomationFlagWrite / confirmLive", () => {
@@ -173,9 +236,20 @@ describe("surfaces and freezes", () => {
     assert.match(arm, /variant\?: \"card\" \| \"row\"/);
     assert.match(arm, /writeArm\(\"live\", true\)/);
     assert.match(arm, /confirmLive/);
+    assert.equal((arm.match(/function ConfirmLiveDialog/g) ?? []).length, 1);
+    assert.equal((arm.match(/<Dialog /g) ?? []).length, 1);
     assert.match(
       readFileSync("app/api/campaigns/[id]/automation/route.ts", "utf8"),
       /parseAutomationFlagWrite/,
+    );
+  });
+
+  it("service-role fallback does not claim asOperator", () => {
+    const src = readFileSync("app/api/campaigns/[id]/automation/route.ts", "utf8");
+    assert.match(src, /asOperator: false/);
+    assert.doesNotMatch(
+      src,
+      /catch \{\s*return \{ user, db: supabase, asOperator: true \}/,
     );
   });
 
@@ -185,9 +259,19 @@ describe("surfaces and freezes", () => {
     assert.match(route, /isOperator/);
   });
 
-  it("ENABLE_OPTIMISATION_WRITES is not assigned", () => {
-    const diff = execSync("git diff origin/main...HEAD", { encoding: "utf8" });
-    assert.doesNotMatch(diff, /ENABLE_OPTIMISATION_WRITES\s*=\s*["'`]/);
-    assert.doesNotMatch(diff, /process\.env\.ENABLE_OPTIMISATION_WRITES\s*=/);
+  it("ENABLE_OPTIMISATION_WRITES is not assigned in non-tsx sources", () => {
+    const files = [
+      "lib/optimisation/armed-read-model.ts",
+      "lib/db/armed-campaigns.ts",
+      "lib/db/campaign-automation.ts",
+      "lib/auth/operator-allowlist.ts",
+      "app/api/optimisation/campaigns/route.ts",
+      "app/api/optimisation/campaigns/[id]/controls/route.ts",
+      "app/api/campaigns/[id]/automation/route.ts",
+    ];
+    const assign = /ENABLE_OPTIMISATION_WRITES\s*=/;
+    for (const file of files) {
+      assert.doesNotMatch(readFileSync(file, "utf8"), assign, file);
+    }
   });
 });

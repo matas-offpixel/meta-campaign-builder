@@ -17,6 +17,7 @@ import {
 } from "@/lib/campaign-event";
 import {
   armFromDraftFlags,
+  assertArmedEventId,
   controlsFromStrategy,
   lastDecisionFromRows,
   lastWriteFromRows,
@@ -69,6 +70,7 @@ export async function loadArmedCampaignRows(
   if (query.kind === "armed") {
     q = q.eq("optimisation_automation_enabled", true);
   } else {
+    assertArmedEventId(query.eventId);
     const eventId = query.eventId;
     q = q.or(`event_id.eq.${eventId},draft_json->settings->>eventId.eq.${eventId}`);
   }

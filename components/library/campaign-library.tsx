@@ -42,6 +42,7 @@ export function CampaignLibrary() {
   const [campaigns, setCampaigns] = useState<CampaignListItem[]>([]);
   const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [armedCount, setArmedCount] = useState(0);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -220,7 +221,7 @@ export function CampaignLibrary() {
     { id: "drafts", label: "Drafts", count: campaigns.filter((c) => c.status === "draft").length },
     { id: "published", label: "Published", count: campaigns.filter((c) => c.status === "published").length },
     { id: "archived", label: "Archived", count: campaigns.filter((c) => c.status === "archived").length },
-    { id: "armed", label: "Armed", count: 0 },
+    { id: "armed", label: "Armed", count: armedCount },
     { id: "templates", label: "Templates", count: templates.length },
   ];
 
@@ -286,7 +287,7 @@ export function CampaignLibrary() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : tab === "armed" ? (
-            <ArmedCampaignList />
+            <ArmedCampaignList onCount={setArmedCount} />
           ) : tab === "templates" ? (
             /* ───── Templates tab ───── */
             !templatesLoaded ? (

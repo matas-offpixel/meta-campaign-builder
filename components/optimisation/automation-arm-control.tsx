@@ -65,6 +65,65 @@ function formatEvaluatedAt(iso: string | null): string {
   return formatVizMoment(iso);
 }
 
+function ConfirmLiveDialog({
+  open,
+  onClose,
+  writesEnabled,
+  sym,
+  baseCampaignBudget,
+  hardBudgetCeiling,
+  saving,
+  onConfirm,
+}: {
+  open: boolean;
+  onClose: () => void;
+  writesEnabled: boolean | null;
+  sym: string;
+  baseCampaignBudget: number;
+  hardBudgetCeiling: number;
+  saving: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onClose={onClose}>
+      <DialogContent>
+        <DialogHeader onClose={onClose}>
+          <DialogTitle>Arm live writes</DialogTitle>
+          <DialogDescription>
+            Apply budget changes within guardrails. This still requires{" "}
+            <span className="font-mono">ENABLE_OPTIMISATION_WRITES=1</span> on the
+            account
+            {writesEnabled === false
+              ? " — that gate is currently off, so the tick will keep shadowing."
+              : writesEnabled
+                ? " — that gate is currently on."
+                : "."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className={`rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 ${VIZ_TYPE.body}`}>
+          <Datum className="mb-1 flex items-center gap-1.5 font-medium text-warning">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Guardrails that will bound writes
+          </Datum>
+          <Datum className="text-foreground">
+            Base ad-set budget {sym}
+            {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
+            {hardBudgetCeiling.toLocaleString()}
+          </Datum>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={saving} onClick={onConfirm}>
+            {saving ? "Arming…" : "Confirm Live"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AutomationArmControl({
   draftId,
   currency,
@@ -229,6 +288,19 @@ export function AutomationArmControl({
     </div>
   );
 
+  const confirm = (
+    <ConfirmLiveDialog
+      open={confirmOpen}
+      onClose={() => setConfirmOpen(false)}
+      writesEnabled={writesEnabled}
+      sym={sym}
+      baseCampaignBudget={baseCampaignBudget}
+      hardBudgetCeiling={hardBudgetCeiling}
+      saving={saving}
+      onConfirm={() => void writeArm("live", true)}
+    />
+  );
+
   if (variant === "row") {
     return (
       <>
@@ -247,51 +319,7 @@ export function AutomationArmControl({
             </StatusLine>
           ) : null}
         </div>
-        <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-          <DialogContent>
-            <DialogHeader onClose={() => setConfirmOpen(false)}>
-              <DialogTitle>Arm live writes</DialogTitle>
-              <DialogDescription>
-                Apply budget changes within guardrails. This still requires{" "}
-                <span className="font-mono">ENABLE_OPTIMISATION_WRITES=1</span> on the
-                account
-                {writesEnabled === false
-                  ? " — that gate is currently off, so the tick will keep shadowing."
-                  : writesEnabled
-                    ? " — that gate is currently on."
-                    : "."}
-              </DialogDescription>
-            </DialogHeader>
-            <div className={`rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 ${VIZ_TYPE.body}`}>
-              <Datum className="mb-1 flex items-center gap-1.5 font-medium text-warning">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Guardrails that will bound writes
-              </Datum>
-              <Datum className="text-foreground">
-                Base ad-set budget {sym}
-                {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
-                {hardBudgetCeiling.toLocaleString()}
-              </Datum>
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmOpen(false)}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={saving}
-                onClick={() => void writeArm("live", true)}
-              >
-                {saving ? "Arming…" : "Confirm Live"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {confirm}
       </>
     );
   }
@@ -328,52 +356,7 @@ export function AutomationArmControl({
           </StatusLine>
         ) : null}
       </Card>
-
-      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-        <DialogContent>
-          <DialogHeader onClose={() => setConfirmOpen(false)}>
-            <DialogTitle>Arm live writes</DialogTitle>
-            <DialogDescription>
-              Apply budget changes within guardrails. This still requires{" "}
-              <span className="font-mono">ENABLE_OPTIMISATION_WRITES=1</span> on the
-              account
-              {writesEnabled === false
-                ? " — that gate is currently off, so the tick will keep shadowing."
-                : writesEnabled
-                  ? " — that gate is currently on."
-                  : "."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className={`rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 ${VIZ_TYPE.body}`}>
-            <Datum className="mb-1 flex items-center gap-1.5 font-medium text-warning">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Guardrails that will bound writes
-            </Datum>
-            <Datum className="text-foreground">
-              Base ad-set budget {sym}
-              {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
-              {hardBudgetCeiling.toLocaleString()}
-            </Datum>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              disabled={saving}
-              onClick={() => void writeArm("live", true)}
-            >
-              {saving ? "Arming…" : "Confirm Live"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {confirm}
     </>
   );
 }

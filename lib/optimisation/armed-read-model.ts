@@ -58,6 +58,27 @@ export type ArmedCampaignRow = {
   nextTickAt: string;
 };
 
+const EVENT_ID_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export class InvalidArmedEventIdError extends Error {
+  constructor(eventId: string) {
+    super("eventId must be a uuid");
+    this.name = "InvalidArmedEventIdError";
+    void eventId;
+  }
+}
+
+export function isArmedEventId(eventId: string): boolean {
+  return EVENT_ID_UUID.test(eventId);
+}
+
+export function assertArmedEventId(eventId: string): void {
+  if (!isArmedEventId(eventId)) {
+    throw new InvalidArmedEventIdError(eventId);
+  }
+}
+
 export type PostLaunchControlsPatch = {
   campaignTargetValue?: number;
   useOverride?: boolean;
