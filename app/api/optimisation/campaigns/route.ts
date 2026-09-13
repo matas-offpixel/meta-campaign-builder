@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isOperator } from "@/lib/auth/operator-allowlist";
-import { loadArmedCampaignRows } from "@/lib/db/armed-campaigns";
+import { countArmedCampaigns, loadArmedCampaignRows } from "@/lib/db/armed-campaigns";
 import { armedLoadErrorStatus } from "@/lib/optimisation/armed-read-model";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const eventId = req.nextUrl.searchParams.get("eventId")?.trim() || "";
+  const countOnly = req.nextUrl.searchParams.get("count") === "1" && !eventId;
   const query = eventId ? ({ kind: "event", eventId } as const) : ({ kind: "armed" } as const);
   const allowlisted = isOperator(user.id);
   let db = supabase;
@@ -29,10 +30,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const campaigns = await loadArmedCampaignRows(db, query, {
-      userId: user.id,
-      isOperator: asOperator,
-    });
+    const viewer = { userId: user.id, isOperator: asOperator };
+    if (countOnly) {
+      const count = await countArmedCampaigns(db, viewer);
+      return NextResponse.json({ ok: true, count });
+    }
+    const campaigns = await loadArmedCampaignRows(db, query, viewer);
     return NextResponse.json({ ok: true, campaigns });
   } catch (err) {
     const status = armedLoadErrorStatus(err);

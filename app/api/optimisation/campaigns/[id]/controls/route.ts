@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { migrateDraft } from "@/lib/autosave";
 import { isOperator } from "@/lib/auth/operator-allowlist";
-import { applyPostLaunchControls, type PostLaunchControlsPatch } from "@/lib/optimisation/armed-read-model";
+import {
+  applyPostLaunchControls,
+  definedPauseFloorBudget,
+  type PostLaunchControlsPatch,
+} from "@/lib/optimisation/armed-read-model";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import type { BudgetGuardrails, CampaignDraft } from "@/lib/types";
 
@@ -47,7 +51,7 @@ export async function PATCH(
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
   const raw = body as PostLaunchControlsPatch;
-  if (raw.guardrails && "pauseFloorBudget" in raw.guardrails) {
+  if (definedPauseFloorBudget(raw.guardrails)) {
     return NextResponse.json(
       { ok: false, error: "pauseFloorBudget is not settable from these surfaces" },
       { status: 400 },

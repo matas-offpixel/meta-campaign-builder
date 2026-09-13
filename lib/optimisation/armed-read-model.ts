@@ -216,7 +216,7 @@ export function applyPostLaunchControls(
   strategy: OptimisationStrategySettings,
   patch: PostLaunchControlsPatch,
 ): OptimisationStrategySettings {
-  if (patch.guardrails && "pauseFloorBudget" in patch.guardrails) {
+  if (definedPauseFloorBudget(patch.guardrails)) {
     throw new Error("pauseFloorBudget is not settable from these surfaces");
   }
   let next: OptimisationStrategySettings = {
@@ -248,6 +248,14 @@ function stripPauseFloor(guardrails: Partial<BudgetGuardrails>): Partial<BudgetG
   return next;
 }
 
+/** True only when a value is set — a key with `undefined` is not a write. */
+export function definedPauseFloorBudget(
+  guardrails: Partial<BudgetGuardrails> | undefined,
+): boolean {
+  if (!guardrails) return false;
+  return (guardrails as { pauseFloorBudget?: unknown }).pauseFloorBudget != null;
+}
+
 export function controlsFromStrategy(
   strategy: OptimisationStrategySettings,
   objective: CampaignObjective,
@@ -271,8 +279,3 @@ export function controlsFromStrategy(
   };
 }
 
-export function assertNoPauseFloorInSource(source: string): void {
-  if (/pauseFloorBudget/.test(source)) {
-    throw new Error("pauseFloorBudget must not appear on armed surfaces");
-  }
-}

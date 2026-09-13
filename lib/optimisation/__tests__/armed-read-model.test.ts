@@ -7,6 +7,7 @@ import {
   armedLoadErrorStatus,
   assertArmedEventId,
   controlsFromStrategy,
+  definedPauseFloorBudget,
   formatActingLine,
   InvalidArmedEventIdError,
   lastDecisionFromRows,
@@ -121,14 +122,27 @@ describe("setCampaignTarget does not rewrite the ladder", () => {
     assert.notDeepEqual(regenerated.rules[0]?.thresholds, bands);
   });
 
-  it("rejects pauseFloorBudget", () => {
+  it("rejects a defined pauseFloorBudget and ignores an empty key", () => {
     const draft = createDefaultDraft();
+    assert.equal(definedPauseFloorBudget({ pauseFloorBudget: 5 } as never), true);
+    assert.equal(definedPauseFloorBudget({ pauseFloorBudget: undefined } as never), false);
+    assert.equal(definedPauseFloorBudget({}), false);
     assert.throws(
       () =>
         applyPostLaunchControls(draft.optimisationStrategy, {
           guardrails: { pauseFloorBudget: 5 } as never,
         }),
       /pauseFloorBudget/,
+    );
+    const next = applyPostLaunchControls(draft.optimisationStrategy, {
+      guardrails: {
+        ...draft.optimisationStrategy.guardrails,
+        pauseFloorBudget: undefined,
+      } as never,
+    });
+    assert.equal(
+      (next.guardrails as { pauseFloorBudget?: unknown }).pauseFloorBudget,
+      undefined,
     );
   });
 

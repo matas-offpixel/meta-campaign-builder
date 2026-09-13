@@ -54,6 +54,30 @@ export type ArmedFleetQuery =
   | { kind: "armed" }
   | { kind: "event"; eventId: string };
 
+/**
+ * Badge count only. One `count: exact, head: true` — no draft_json,
+ * no events, no 2N decisions. Same `_enabled` filter and owner scope
+ * as the Armed tab read.
+ */
+export async function countArmedCampaigns(
+  supabase: SupabaseClient,
+  viewer: { userId: string; isOperator: boolean },
+): Promise<number> {
+  const sb = anySb(supabase);
+  let q = sb
+    .from("campaign_drafts")
+    .select("id", { count: "exact", head: true })
+    .eq("optimisation_automation_enabled", true);
+  if (!viewer.isOperator) {
+    q = q.eq("user_id", viewer.userId);
+  }
+  const { count, error } = await q;
+  if (error) {
+    throw new Error(`countArmedCampaigns: ${error.message}`);
+  }
+  return count ?? 0;
+}
+
 export async function loadArmedCampaignRows(
   supabase: SupabaseClient,
   query: ArmedFleetQuery,

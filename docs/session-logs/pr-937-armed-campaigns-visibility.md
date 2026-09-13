@@ -32,6 +32,10 @@ The Armed tab count is the fleet size, not `0`. The row renders `reasonText`. Ta
 
 Deleted the freeze and the writes-gate scan. The Armed badge fetches on library load, before the tab is clicked. `reasonText` is `line-clamp-2`. Remaining tests in this file are behaviour only.
 
+## Review round 4 — fixed
+
+Cold-load badge is `GET ?count=1` (`count: exact, head: true`) — 2 round trips (session + count), not the 23-query read model. Clicking Armed still pays the full read. Deleted `assertNoPauseFloorInSource`. Save ceilings rejects a defined `pauseFloorBudget`, not key presence.
+
 ## Auth decision (PR body)
 
 Writes widen to the operator allowlist (`MATAS_USER_IDS`, same as `/business-managers`), via service-role after the session check. A non-owned row never renders a live disarm button — it shows the arm as a badge and names the owner as "another operator". Owner-scoped users still only see and write their own drafts.
