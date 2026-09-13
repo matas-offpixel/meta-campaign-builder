@@ -21,6 +21,7 @@ import { NewCampaignModal } from "@/components/library/new-campaign-modal";
 import { EventPickDialog } from "@/components/library/event-pick-dialog";
 import { useFetchEvents } from "@/lib/hooks/useEvents";
 import { toPlanEventOption } from "@/lib/campaign-event";
+import { ArmedCampaignList } from "@/components/optimisation/armed-campaign-row";
 import {
   CampaignRow,
   filterLibraryCampaigns,
@@ -41,6 +42,7 @@ export function CampaignLibrary() {
   const [campaigns, setCampaigns] = useState<CampaignListItem[]>([]);
   const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [armedCount, setArmedCount] = useState(0);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -72,8 +74,16 @@ export function CampaignLibrary() {
       if (!user) return;
       setUserId(user.id);
 
-      const items = await loadCampaignList(user.id);
+      const [items, armedRes] = await Promise.all([
+        loadCampaignList(user.id),
+        fetch("/api/optimisation/campaigns?count=1")
+          .then((res) => res.json() as Promise<{ ok?: boolean; count?: number }>)
+          .catch(() => ({ ok: false as const })),
+      ]);
       setCampaigns(items);
+      if (armedRes.ok && typeof armedRes.count === "number") {
+        setArmedCount(armedRes.count);
+      }
       setLoading(false);
     }
     init();
@@ -103,7 +113,7 @@ export function CampaignLibrary() {
 
   // ─── Filtered lists ──────────────────────────────────────────────────────────
   const filteredCampaigns = useMemo(() => {
-    if (tab === "templates") return [];
+    if (tab === "templates" || tab === "armed") return [];
     return filterLibraryCampaigns(campaigns, tab, search);
   }, [campaigns, tab, search]);
 
@@ -219,6 +229,7 @@ export function CampaignLibrary() {
     { id: "drafts", label: "Drafts", count: campaigns.filter((c) => c.status === "draft").length },
     { id: "published", label: "Published", count: campaigns.filter((c) => c.status === "published").length },
     { id: "archived", label: "Archived", count: campaigns.filter((c) => c.status === "archived").length },
+    { id: "armed", label: "Armed", count: armedCount },
     { id: "templates", label: "Templates", count: templates.length },
   ];
 
@@ -283,6 +294,8 @@ export function CampaignLibrary() {
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
+          ) : tab === "armed" ? (
+            <ArmedCampaignList onCount={setArmedCount} />
           ) : tab === "templates" ? (
             /* ───── Templates tab ───── */
             !templatesLoaded ? (

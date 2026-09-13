@@ -74,7 +74,7 @@ export function CampaignLibraryPicker({
   }, [open]);
 
   const filteredCampaigns = useMemo(() => {
-    if (tab === "templates") return [];
+    if (tab === "templates" || tab === "armed") return [];
     return filterLibraryCampaigns(campaigns, tab, search);
   }, [campaigns, tab, search]);
 

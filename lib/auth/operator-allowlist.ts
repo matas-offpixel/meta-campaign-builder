@@ -16,3 +16,8 @@ export const MATAS_USER_IDS: readonly string[] = [
 export function isD2CApprover(userId: string): boolean {
   return MATAS_USER_IDS.includes(userId);
 }
+
+/** Same allowlist as `/business-managers` — agency-wide armed reads/writes. */
+export function isOperator(userId: string): boolean {
+  return MATAS_USER_IDS.includes(userId);
+}
