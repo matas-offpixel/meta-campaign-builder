@@ -1042,8 +1042,8 @@ describe("runOptimisationTick — pause writes", () => {
     });
     const summary = await runOptimisationTick(true, false, deps);
     assert.equal(pauses.length, 0);
-    assert.ok(summary.pausesRecommended >= 1);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pausesRecommended, 2);
+    assert.equal(summary.pauseLadderWrites, 0);
   });
 
   it("campaign-wide breach — N of N, no pause write", async () => {
@@ -1075,7 +1075,7 @@ describe("runOptimisationTick — pause writes", () => {
     });
     const summary = await runOptimisationTick(true, false, deps);
     assert.equal(pauses.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
     assert.ok(
       notifyCalls.some((n) => /campaign-wide breach — 2 of 2 ad sets over threshold/.test(n.text)),
     );
@@ -1117,7 +1117,7 @@ describe("runOptimisationTick — pause writes", () => {
     const summary = await runOptimisationTick(true, false, deps);
     assert.equal(pauses.length, 0);
     assert.equal(updates.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
     assert.equal(summary.writesApplied, 0);
   });
 
@@ -1159,7 +1159,7 @@ describe("runOptimisationTick — pause writes", () => {
     const summary = await runOptimisationTick(true, false, deps);
     assert.equal(pauses.length, 0);
     assert.equal(updates.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
   });
 
   it("the only active ad set is not cut to floor", async () => {
@@ -1189,7 +1189,7 @@ describe("runOptimisationTick — pause writes", () => {
     const summary = await runOptimisationTick(true, false, deps);
     assert.equal(pauses.length, 0);
     assert.equal(updates.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
   });
 
   it("floor cuts draw down the pause budget, not MAX_WRITES_PER_RUN", async () => {
@@ -1239,7 +1239,7 @@ describe("runOptimisationTick — pause writes", () => {
     const summary = await runOptimisationTick(true, false, deps);
     assert.equal(pauses.length, 0);
     assert.equal(updates.length, 2);
-    assert.equal(summary.pausesApplied, 2);
+    assert.equal(summary.pauseLadderWrites, 2);
     assert.equal(summary.writesApplied, 0);
   });
 
@@ -1268,7 +1268,67 @@ describe("runOptimisationTick — pause writes", () => {
     });
     const summary = await runOptimisationTick(true, false, deps);
     assert.deepEqual(pauses, ["adset_bad"]);
-    assert.equal(summary.pausesApplied, 1);
+    assert.equal(summary.pauseLadderWrites, 1);
+  });
+
+  it("a cooldown breacher is not persisted and receives no Meta call", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const inserted: DecisionToInsert[] = [];
+    const now = new Date("2026-08-07T12:00:00Z");
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      now,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      getAdSetState: async (adsetId) => ({
+        lastAppliedAt: adsetId === "adset_cool" ? new Date("2026-08-07T11:00:00Z") : null,
+        lastDecidedAt: adsetId === "adset_cool" ? new Date("2026-08-07T11:00:00Z") : null,
+        appliedIncreasePercentLast24h: 0,
+      }),
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_cool", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_hot", dailyBudgetPence: 10000 }),
+        insightRow({
+          adsetId: "ok_1",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+        insightRow({
+          adsetId: "ok_2",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+        insightRow({
+          adsetId: "ok_3",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.adSetsSkippedRecentDecision, 1);
+    assert.equal(inserted.filter((row) => row.adsetId === "adset_cool").length, 0);
+    assert.equal(pauses.includes("adset_cool"), false);
+    assert.equal(updates.includes("adset_cool"), false);
+    assert.deepEqual(updates, ["adset_hot"]);
+    assert.equal(pauses.length, 0);
+    assert.equal(summary.pauseLadderWrites, 1);
   });
 
   it("cooldown on one breacher still counts in the same-set majority — no floor, no pause", async () => {
@@ -1315,7 +1375,7 @@ describe("runOptimisationTick — pause writes", () => {
     assert.equal(summary.adSetsSkippedRecentDecision, 1);
     assert.equal(pauses.length, 0);
     assert.equal(updates.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
   });
 
   it("skip_campaign_ended is written before the pause ladder — no floor, no pause", async () => {
@@ -1353,7 +1413,7 @@ describe("runOptimisationTick — pause writes", () => {
     assert.equal(summary.decisionsByAction.skip_campaign_ended, 2);
     assert.equal(pauses.length, 0);
     assert.equal(updates.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
     assert.equal(summary.pausesRecommended, 0);
   });
 
@@ -1400,7 +1460,7 @@ describe("runOptimisationTick — pause writes", () => {
     const summary = await runOptimisationTick(true, false, deps);
     assert.ok(inserted.every((row) => row.actionRecommended === "skip_no_rules"));
     assert.equal(pauses.length, 0);
-    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
     assert.equal(summary.pausesRecommended, 0);
   });
 
@@ -1434,7 +1494,7 @@ describe("runOptimisationTick — pause writes", () => {
         }),
       ],
       insertDecision: async () => {},
-      readAdSetDailyBudget: async (id) => (id === "adset_bad" ? 10000 : 10000),
+      readAdSetDailyBudget: async () => 10000,
       updateAdSetDailyBudget: async (id, pence) => {
         updates.push({ id, pence });
         return { ok: true };
@@ -1450,7 +1510,7 @@ describe("runOptimisationTick — pause writes", () => {
     // Headroom is 22000 − 20000 = 2000. Crediting the 8000p floor cut
     // would let the scale-up take the full +30% (13000).
     assert.equal(good?.pence, 12000);
-    assert.equal(summary.pausesApplied, 1);
+    assert.equal(summary.pauseLadderWrites, 1);
     assert.equal(summary.writesApplied, 1);
   });
 });

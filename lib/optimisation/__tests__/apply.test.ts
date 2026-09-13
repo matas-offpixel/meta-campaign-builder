@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 
 import {
   applyOptimisationDecision,
+  applyOptimisationOrPause,
   isCampaignWidePauseBreach,
   isDeliveringAdSetStatus,
   MAX_PAUSES_PER_RUN,
@@ -136,7 +137,6 @@ describe("applyOptimisationDecision — shadow / pause / underfoot", () => {
     assert.match(notifies[0]!.text, /PAUSE/);
     assert.match(notifies[0]!.text, /Colyn/);
     assert.equal(notifies[0]!.dedupeKey, "optimisation_pause:adset_1");
-    assert.equal(notifies[0]!.respectBusinessHours, false);
   });
 
   it("budget_changed_underfoot aborts when live daily_budget !== evaluated before", async () => {
@@ -274,7 +274,7 @@ function pauseInput(overrides: Partial<ApplyOptimisationInput> = {}): ApplyOptim
   });
 }
 
-describe("applyOptimisationDecision — fourth-gate pause path", () => {
+describe("applyOptimisationOrPause — fourth-gate pause path", () => {
   it("MAX_WRITES_PER_RUN stays 25 and MAX_PAUSES_PER_RUN is 2", () => {
     assert.equal(MAX_WRITES_PER_RUN, 25);
     assert.equal(MAX_PAUSES_PER_RUN, 2);
@@ -298,9 +298,21 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     assert.equal(isCampaignWidePauseBreach(0, 0), false);
   });
 
+  it("the boundary itself is pauseCandidates * 2 > activeCount", () => {
+    for (let active = 0; active <= 8; active++) {
+      for (let candidates = 0; candidates <= active; candidates++) {
+        assert.equal(
+          isCampaignWidePauseBreach(active, candidates),
+          active > 0 && candidates * 2 > active,
+          `${candidates} of ${active}`,
+        );
+      }
+    }
+  });
+
   it("fourth gate closed behaves exactly as today — shadow + ads_urgent, no Meta", async () => {
     const { deps, inserted, updates, pauses, reads, notifies } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({ pauseWritesEnabled: false }),
       deps,
     );
@@ -317,7 +329,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("fourth gate open + floor unset — no reduce, no pause", async () => {
     const { deps, updates, pauses } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({ pauseFloorBudgetPence: null }),
       deps,
     );
@@ -330,7 +342,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("resultCount 5 above the floor writes nothing — no cut, no pause", async () => {
     const { deps, updates, pauses, reads } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({ resultCount: 5 }),
       }),
@@ -346,7 +358,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("the last active ad set is not cut to floor either", async () => {
     const { deps, updates, pauses } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({ activeAdSetCount: 1 }),
       deps,
     );
@@ -358,7 +370,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("three of four breaching is campaign-wide and writes nothing", async () => {
     const { deps, updates, pauses } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         activeAdSetCount: 4,
         pauseCandidatesInCampaign: 3,
@@ -376,7 +388,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("first breach above the floor reduces to the floor and does not pause", async () => {
     const { deps, inserted, updates, pauses, notifies } = makeDeps();
-    const outcome = await applyOptimisationDecision(pauseInput(), deps);
+    const outcome = await applyOptimisationOrPause(pauseInput(), deps);
     assert.equal(outcome.kind, "pause_reduced_to_floor");
     assert.equal(outcome.wrote, true);
     assert.deepEqual(updates, [{ id: "adset_1", pence: 2000 }]);
@@ -394,7 +406,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     const { deps, inserted, updates, pauses, notifies } = makeDeps({
       readAdSetDailyBudget: async () => 2000,
     });
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({ budgetBeforePence: 2000, budgetAfterPence: 2000 }),
       }),
@@ -424,7 +436,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     const { deps, pauses } = makeDeps({
       readAdSetDailyBudget: async () => 2000,
     });
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({ budgetBeforePence: 2000, budgetAfterPence: 2000 }),
         activeAdSetCount: 1,
@@ -438,7 +450,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("campaign-wide breach writes nothing and Slacks N of N", async () => {
     const { deps, updates, pauses, notifies } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         activeAdSetCount: 4,
         pauseCandidatesInCampaign: 4,
@@ -459,7 +471,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     const { deps, pauses } = makeDeps({
       readAdSetDailyBudget: async () => 2000,
     });
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({ budgetBeforePence: 2000, budgetAfterPence: 2000 }),
         pausesRemaining: 0,
@@ -475,7 +487,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     const { deps, pauses } = makeDeps({
       readAdSetDailyBudget: async () => 2000,
     });
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({
           budgetBeforePence: 2000,
@@ -494,7 +506,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
     const { deps, pauses } = makeDeps({
       readAdSetDailyBudget: async () => 2000,
     });
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({
           budgetBeforePence: 2000,
@@ -511,7 +523,7 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
 
   it("CBO campaign-scope pause never writes status", async () => {
     const { deps, pauses, updates } = makeDeps();
-    const outcome = await applyOptimisationDecision(
+    const outcome = await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({ scope: "campaign", adsetId: "camp_1" }),
       }),
@@ -532,12 +544,33 @@ describe("applyOptimisationDecision — fourth-gate pause path", () => {
         return { id, status: "PAUSED" };
       },
     });
-    await applyOptimisationDecision(
+    await applyOptimisationOrPause(
       pauseInput({
         decision: pauseDecision({ budgetBeforePence: 2000, budgetAfterPence: 2000 }),
       }),
       deps,
     );
     assert.deepEqual(statuses, ["PAUSED"]);
+  });
+
+  it("a missing pauseAdSet seam persists a silent non-dry-run failure", async () => {
+    const { deps, inserted, notifies, pauses, updates } = makeDeps({
+      readAdSetDailyBudget: async () => 2000,
+      pauseAdSet: undefined,
+    });
+    const outcome = await applyOptimisationOrPause(
+      pauseInput({
+        decision: pauseDecision({ budgetBeforePence: 2000, budgetAfterPence: 2000 }),
+      }),
+      deps,
+    );
+    assert.equal(outcome.kind, "write_failed");
+    assert.equal(outcome.wrote, false);
+    assert.equal(inserted[0]!.dryRun, false);
+    assert.equal(inserted[0]!.applied, false);
+    assert.deepEqual(inserted[0]!.metaResponseJson, { error: "pauseAdSet seam missing" });
+    assert.equal(notifies.length, 0);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
   });
 });

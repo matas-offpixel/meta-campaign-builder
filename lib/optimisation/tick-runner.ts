@@ -70,6 +70,7 @@ import {
 } from "./insights-fetch.ts";
 import {
   applyOptimisationDecision,
+  applyOptimisationOrPause,
   isCampaignWidePauseBreach,
   isDeliveringAdSetStatus,
   MAX_PAUSES_PER_RUN,
@@ -235,7 +236,8 @@ export interface OptimisationTickSummary {
   writesFailed: number;
   writesAbortedUnderfoot: number;
   pausesRecommended: number;
-  pausesApplied: number;
+  /** Floor cuts + hard pauses this run. Shares the cap of 2; not "paused". */
+  pauseLadderWrites: number;
   writesCapReached: boolean;
   appliedWriteDetails: AppliedWriteDetail[];
   /** TikTok/Google shadow rows inserted this tick. Always dry_run. */
@@ -256,7 +258,7 @@ function emptySummary(skippedReason?: OptimisationTickSummary["skippedReason"]):
     writesFailed: 0,
     writesAbortedUnderfoot: 0,
     pausesRecommended: 0,
-    pausesApplied: 0,
+    pauseLadderWrites: 0,
     writesCapReached: false,
     appliedWriteDetails: [],
     crossChannelDecisionsInserted: 0,
@@ -408,7 +410,7 @@ export async function runOptimisationTick(
               ceiling,
             );
             const writesRemaining = maxWrites - summary.writesApplied;
-            const outcome = await applyOptimisationDecision(
+            const outcome = await applyOptimisationOrPause(
               {
                 decision,
                 campaignName: campaign.campaignName,
@@ -417,7 +419,7 @@ export async function runOptimisationTick(
                 writesRemaining,
                 pauseWritesEnabled: pauseWritesOpen,
                 pauseFloorBudgetPence: pauseFloorPence(campaign.optimisationStrategy.guardrails),
-                pausesRemaining: maxPauses - summary.pausesApplied,
+                pausesRemaining: maxPauses - summary.pauseLadderWrites,
               },
               applyDeps(deps, now),
             );
@@ -439,8 +441,10 @@ export async function runOptimisationTick(
 
       const built: Array<{
         row: AdSetInsightRow;
-        decision: DecisionToInsert;
-        onCooldown: boolean;
+        /** Always evaluated; cooldown rows pass a null lastTouchedAt. */
+        censusDecision: DecisionToInsert;
+        /** Null on cooldown — the fabricated census result cannot be applied. */
+        applyDecision: DecisionToInsert | null;
       }> = [];
       for (const row of rows) {
         summary.adSetsConsidered += 1;
@@ -489,20 +493,22 @@ export async function runOptimisationTick(
             summary.adSetsSkippedRecentDecision += 1;
           }
 
+          // Cooldown blocks apply, not the majority census. evaluate.ts
+          // would name a recent touch `maintain`; the census call passes
+          // null so a breacher still counts. That result is censusDecision
+          // only — applyDecision stays null, so it cannot be persisted.
+          const censusDecision = buildDecision(
+            campaign,
+            row,
+            window,
+            now,
+            onCooldown ? null : lastTouchedAt,
+            state.appliedIncreasePercentLast24h,
+          );
           built.push({
             row,
-            // Cooldown blocks apply, not the majority census. evaluate.ts
-            // would name a recent touch `maintain`; pass null so a breacher
-            // still counts as a pause candidate over the same delivering set.
-            decision: buildDecision(
-              campaign,
-              row,
-              window,
-              now,
-              onCooldown ? null : lastTouchedAt,
-              state.appliedIncreasePercentLast24h,
-            ),
-            onCooldown,
+            censusDecision,
+            applyDecision: onCooldown ? null : censusDecision,
           });
         } catch (adsetErr) {
           // One ad set failing must never abort the rest of the run.
@@ -521,12 +527,14 @@ export async function runOptimisationTick(
       const delivering = built.filter((p) => isDeliveringAdSetStatus(p.row.effectiveStatus));
       const activeCount = delivering.length;
       const pauseCandidates = delivering.filter(
-        (p) => p.decision.actionRecommended === "pause",
+        (p) => p.censusDecision.actionRecommended === "pause",
       ).length;
       const campaignWideBreach = isCampaignWidePauseBreach(activeCount, pauseCandidates);
       let remainingActive = activeCount;
 
-      const pending = built.filter((p) => !p.onCooldown);
+      const pending = built.filter(
+        (p): p is typeof p & { applyDecision: DecisionToInsert } => p.applyDecision != null,
+      );
 
       // Configured ABO daily total — every fetched ad set with a daily_budget,
       // including paused. Arrival order is not a decision: cheapest CPR first.
@@ -543,21 +551,21 @@ export async function runOptimisationTick(
       // Stops first (pause / floor / scale_down / maintain), then scale-ups
       // cheapest-metric-first. A stop should land before a raise in the
       // same tick; headroom stays conservative and is not credited back.
-      const scaleUps = pending.filter((p) => p.decision.actionRecommended === "scale_up");
-      const rest = pending.filter((p) => p.decision.actionRecommended !== "scale_up");
+      const scaleUps = pending.filter((p) => p.applyDecision.actionRecommended === "scale_up");
+      const rest = pending.filter((p) => p.applyDecision.actionRecommended !== "scale_up");
       scaleUps.sort((a, b) =>
-        compareCheapestMetricFirst(a.decision.metricValue, b.decision.metricValue),
+        compareCheapestMetricFirst(a.applyDecision.metricValue, b.applyDecision.metricValue),
       );
       const ordered = [...rest, ...scaleUps];
 
-      for (const { row, decision } of ordered) {
+      for (const { row, applyDecision } of ordered) {
         try {
-          const clamped = applyCampaignHeadroom(decision, ceiling, headroomPence);
+          const clamped = applyCampaignHeadroom(applyDecision, ceiling, headroomPence);
           if (headroomPence != null) {
             headroomPence = Math.max(0, headroomPence - clamped.usedPence);
           }
           const writesRemaining = maxWrites - summary.writesApplied;
-          const outcome = await applyOptimisationDecision(
+          const outcome = await applyOptimisationOrPause(
             {
               decision: clamped.decision,
               campaignName: campaign.campaignName,
@@ -569,7 +577,7 @@ export async function runOptimisationTick(
               activeAdSetCount: remainingActive,
               pauseCandidatesInCampaign: pauseCandidates,
               campaignWideBreach,
-              pausesRemaining: maxPauses - summary.pausesApplied,
+              pausesRemaining: maxPauses - summary.pauseLadderWrites,
             },
             applyDeps(deps, now),
           );
@@ -684,7 +692,7 @@ export async function runOptimisationTick(
 
   summary.ok = summary.campaignsErrored.length === 0;
   console.log(
-    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended} pauses_applied=${summary.pausesApplied}`,
+    `[optimisation-tick] done campaigns=${summary.campaignsConsidered} errored=${summary.campaignsErrored.length} adsets=${summary.adSetsConsidered} skipped_recent=${summary.adSetsSkippedRecentDecision} decisions=${summary.decisionsInserted} cross_channel=${summary.crossChannelDecisionsInserted} writes_applied=${summary.writesApplied} writes_failed=${summary.writesFailed} writes_aborted_underfoot=${summary.writesAbortedUnderfoot} pauses_recommended=${summary.pausesRecommended} pause_ladder_writes=${summary.pauseLadderWrites}`,
   );
   return summary;
 }
@@ -857,7 +865,7 @@ function recordApplyOutcome(
       ruleMatched: outcome.decision.ruleMatched,
     });
   } else if (outcome.kind === "paused" || outcome.kind === "pause_reduced_to_floor") {
-    summary.pausesApplied += 1;
+    summary.pauseLadderWrites += 1;
   } else if (outcome.kind === "write_failed") {
     summary.writesFailed += 1;
   } else if (outcome.kind === "aborted_underfoot") {

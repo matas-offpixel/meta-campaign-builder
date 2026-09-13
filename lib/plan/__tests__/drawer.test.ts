@@ -47,6 +47,10 @@ import {
 } from "../drawer.ts";
 import { planTargetChip } from "../canvas-inputs.ts";
 import { VIZ_PROVENANCE_MARK } from "../../viz/tokens.ts";
+import {
+  MAX_PAUSES_PER_RUN,
+  MIN_PAUSE_CONVERSION_RESULT_COUNT,
+} from "../../optimisation/apply.ts";
 import { blockerBadgeAfterGesture } from "../../viz/blockers.ts";
 import { FIXTURE_HREFS, basePlan, blockingIssues, factsBundle } from "./canvas-fixtures.ts";
 
@@ -98,12 +102,14 @@ function extractNamedFunction(src: string, name: string): string {
   assert.fail(`unclosed function ${name}`);
 }
 
-function scaleWritePath(src: string): string {
-  const fn = extractNamedFunction(src, "applyOptimisationDecision");
-  const marker = "if (!wouldWriteBudget";
-  const idx = fn.indexOf(marker);
-  assert.ok(idx >= 0, "scale write path missing from applyOptimisationDecision");
-  return fn.slice(idx);
+function doesNotWriteActiveStatus(src: string, label: string): void {
+  assert.doesNotMatch(src, /status:\s*[`'"]ACTIVE[`'"]/, `${label}: quoted ACTIVE`);
+  assert.doesNotMatch(src, /status:\s*ACTIVE\b/, `${label}: bare ACTIVE`);
+  assert.doesNotMatch(
+    src,
+    /(?:\{|,)\s*status:\s*(?!["'`]?PAUSED\b)[A-Za-z_$][\w$]*/,
+    `${label}: status set from a variable`,
+  );
 }
 
 /**
@@ -1342,15 +1348,11 @@ describe("write paths are untouched", () => {
       `git diff ${base} -- lib/optimisation/gates.ts lib/optimisation/apply.ts`,
       { encoding: "utf8" },
     );
-    if (diff.trim() === "") return;
-
-    const byFile = contentDiffByFile(diff);
-    for (const file of byFile.keys()) {
-      assert.ok(
-        file === "lib/optimisation/gates.ts" || file === "lib/optimisation/apply.ts",
-        `${file} changed; the freeze does not allow it`,
-      );
-    }
+    assert.notEqual(
+      diff.trim(),
+      "",
+      "this PR must change apply.ts / gates.ts — an empty diff would skip the freeze",
+    );
 
     const mainApply = execSync(`git show ${base}:lib/optimisation/apply.ts`, {
       encoding: "utf8",
@@ -1361,16 +1363,16 @@ describe("write paths are untouched", () => {
     const applySrc = read("lib/optimisation/apply.ts");
     const gatesSrc = read("lib/optimisation/gates.ts");
 
-    // Scale path and 3-of-3 stay byte-identical to main. Only applyPauseDecision,
-    // the fourth-gate helper, and their call sites may differ.
+    // applyOptimisationDecision is the scale path. It is byte-identical to
+    // main — the pause ladder lives in applyOptimisationOrPause.
+    assert.equal(
+      extractNamedFunction(applySrc, "applyOptimisationDecision"),
+      extractNamedFunction(mainApply, "applyOptimisationDecision"),
+      "applyOptimisationDecision changed; the pause branch must live in the wrapper",
+    );
     assert.equal(
       extractNamedFunction(applySrc, "wouldWriteBudget"),
       extractNamedFunction(mainApply, "wouldWriteBudget"),
-    );
-    assert.equal(
-      scaleWritePath(applySrc),
-      scaleWritePath(mainApply),
-      "the scale write path inside applyOptimisationDecision changed",
     );
     assert.equal(
       extractNamedFunction(gatesSrc, "optimisationDryRunGates"),
@@ -1385,17 +1387,20 @@ describe("write paths are untouched", () => {
       extractNamedFunction(mainGates, "isOptimisationWritesEnabledFromEnv"),
     );
 
+    assert.match(applySrc, /export async function applyOptimisationOrPause/);
     assert.match(applySrc, /async function applyPauseDecision/);
     assert.match(gatesSrc, /export function optimisationPauseDryRunGates/);
-    assert.doesNotMatch(applySrc, /status:\s*["']ACTIVE["']/);
-    assert.doesNotMatch(
-      read("app/api/cron/optimisation-tick/route.ts"),
-      /status:\s*["']ACTIVE["']/,
-    );
+    doesNotWriteActiveStatus(applySrc, "apply.ts");
+    const routeSrc = read("app/api/cron/optimisation-tick/route.ts");
+    assert.doesNotMatch(routeSrc, /status:\s*[`'"]ACTIVE[`'"]/);
+    assert.doesNotMatch(routeSrc, /status:\s*ACTIVE\b/);
+    assert.match(routeSrc, /graphPostWithToken\(`\/\$\{adsetId\}`, \{ status: "PAUSED" \}/);
 
-    // #923 shape: the freeze is the allow-list, not "something changed".
-    // New exports may only be the pause path, the fourth gate, and their
-    // call-site helpers. Everything else in these two files stays main.
+    assert.equal(MAX_PAUSES_PER_RUN, 2);
+    assert.equal(MIN_PAUSE_CONVERSION_RESULT_COUNT, 15);
+    assert.match(applySrc, /export const MAX_PAUSES_PER_RUN = 2;/);
+    assert.match(applySrc, /export const MIN_PAUSE_CONVERSION_RESULT_COUNT = 15;/);
+
     function exportedNames(src: string): Set<string> {
       const names = new Set<string>();
       for (const m of src.matchAll(/export (?:async )?function (\w+)/g)) {
@@ -1412,6 +1417,7 @@ describe("write paths are untouched", () => {
       [
         "MAX_PAUSES_PER_RUN",
         "MIN_PAUSE_CONVERSION_RESULT_COUNT",
+        "applyOptimisationOrPause",
         "isCampaignWidePauseBreach",
         "isDeliveringAdSetStatus",
       ].sort(),

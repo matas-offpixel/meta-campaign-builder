@@ -14,11 +14,13 @@ Round 2: the floor cut sat above those three guards and spent the generic write 
 
 Round 3: rebased onto `fc5e93c` (#935). The pause ladder was re-derived against #933's build/apply split, not hunk-picked. CI jobs that had failed to attach on `a9dab0d` attached on the fresh push.
 
+This pass: `applyOptimisationDecision` is byte-identical to main; live pause lives in `applyOptimisationOrPause`. Cooldown rows carry `censusDecision` / `applyDecision: null`. The shared cap is `pauseLadderWrites`. Floor cuts fire `ads_urgent` but stay out of the end-of-run `ads_automation` digest.
+
 ## Scope / files
 
 - `lib/optimisation/gates.ts` — `optimisationPauseDryRunGates` + env reader; 3-of-3 table unchanged. Tick-runner calls this helper.
-- `lib/optimisation/apply.ts` — pause path (floor behind the guards; majority campaign-wide)
-- `lib/optimisation/tick-runner.ts` — eligibility first; census over eligibility-cleared delivering rows including cooldown; stops before cheapest-first scale-ups; floor/pause do not credit #933 headroom
+- `lib/optimisation/apply.ts` — `applyOptimisationOrPause` wrapper; `applyOptimisationDecision` untouched vs main
+- `lib/optimisation/tick-runner.ts` — `censusDecision` / `applyDecision`; eligibility first; same-set census including cooldown; stops before cheapest-first scale-ups; `pauseLadderWrites`; floor/pause do not credit #933 headroom
 - `app/api/cron/optimisation-tick/route.ts` — wires fourth gate + `pauseAdSet` (`status: "PAUSED"` only)
 - `lib/optimisation/insights-fetch.ts` — `effective_status` comment; `start_time` / yesterday field from main kept
 - `lib/types.ts` — optional `pauseFloorBudget` (JSON guardrail, no migration) alongside #933 ceiling fields
@@ -44,13 +46,26 @@ Round 3: rebased onto `fc5e93c` (#935). The pause ladder was re-derived against 
 | Campaign-wide must count `activeCount` and `pauseCandidates` over the same set | `tick-runner.ts` census over eligibility-cleared delivering rows, including cooldown (evaluate with `lastTouchedAt=null` so a recent touch is still a pause candidate) | `cooldown on one breacher still counts in the same-set majority — no floor, no pause` |
 | `optimisationPauseDryRunGates` must be the function production calls | `tick-runner.ts` + cron route | `the tick runner and the cron route call the helper, not a sibling` |
 
+## Review round 3 — fixed
+
+| Finding | File | Test that pins it |
+|---|---|---|
+| Freeze sliced `applyOptimisationDecision` from `if (!wouldWriteBudget`, one statement below the pause insert | `apply.ts` — `applyOptimisationOrPause` wrapper; `applyOptimisationDecision` restored byte-identical to main | freeze: `extractNamedFunction(…, "applyOptimisationDecision")` equals `origin/main` |
+| Empty-diff early return and a per-file loop that could not fire | `lib/plan/__tests__/drawer.test.ts` | empty diff now fails; the loop is gone |
+| Allow-list named `MAX_PAUSES_PER_RUN` / `MIN_PAUSE_CONVERSION_RESULT_COUNT` without asserting 2 and 15 | same + `apply.ts` | `assert.equal(MAX_PAUSES_PER_RUN, 2)` and the source literals |
+| Cooldown census shared one `decision` object; containment was `filter(!onCooldown)` | `tick-runner.ts` `censusDecision` / `applyDecision: null` on cooldown | `a cooldown breacher is not persisted and receives no Meta call` |
+| `pausesApplied` counted floor cuts | `pauseLadderWrites` | floor-cut test asserts `pauseLadderWrites === 2` and `pauses.length === 0` |
+| `>= 1` on a fixture of two; leftover identical ternary | tick-runner pause tests | `pausesRecommended === 2`; `readAdSetDailyBudget: async () => 10000` |
+| Missing `pauseAdSet` seam writes a silent non-dry-run row | `apply.ts` | `a missing pauseAdSet seam persists a silent non-dry-run failure` |
+| Campaign-wide formula only tested either side of the cut | `isCampaignWidePauseBreach` | `the boundary itself is pauseCandidates * 2 > activeCount` |
+
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5629 pass, 4 skipped)
-- [x] Freeze: scale write path + `optimisationDryRunGates` match main; new exports are only the pause path / fourth gate; `status: "ACTIVE"` absent from `apply.ts` and the cron route
-- CI: after rebase onto `fc5e93c`, `npm test` and `npm run build` attached on head `9f9fcd8`. `frames:check` is `needs: build` and queues after build. The hollow-green on `a9dab0d` was transient.
+- [x] `npm test`
+- [x] Freeze: `applyOptimisationDecision` is byte-identical to main; new exports are the wrapper, the pause path, the fourth gate; `MAX_PAUSES_PER_RUN === 2`, `MIN_PAUSE_CONVERSION_RESULT_COUNT === 15`; no `status: ACTIVE` write
+- CI conclusions reported in the review reply (not local counts)
 
 ## Notes
 

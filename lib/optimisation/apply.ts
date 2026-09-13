@@ -186,8 +186,23 @@ export async function applyOptimisationDecision(
     return { kind: "shadow", decision: row, wrote: false };
   }
 
+  // Pause is recommend-only in PR B — never a Meta write, even with all
+  // three gates open. Killing delivery stays human.
   if (decision.actionRecommended === "pause") {
-    return applyPauseDecision(input, deps);
+    const row: DecisionToInsert = {
+      ...decision,
+      dryRun: true,
+      applied: false,
+    };
+    await persist(deps, row);
+    await deps.notify({
+      channel: "ads_urgent",
+      text:
+        `Optimisation recommended PAUSE — campaign="${campaignName}" ` +
+        `ad set="${adsetName}" (${decision.adsetId}): ${decision.reasonText}`,
+      dedupeKey: `optimisation_pause:${decision.adsetId}`,
+    });
+    return { kind: "pause_recommended", decision: row, wrote: false };
   }
 
   if (!wouldWriteBudget(decision)) {
@@ -302,6 +317,20 @@ export async function applyOptimisationDecision(
     });
     return { kind: "write_failed", decision: row, wrote: false };
   }
+}
+
+/**
+ * Live pause writes take the fourth-gated ladder. Dry-run pause, and every
+ * other action, go through {@link applyOptimisationDecision} unchanged.
+ */
+export async function applyOptimisationOrPause(
+  input: ApplyOptimisationInput,
+  deps: ApplyOptimisationDeps,
+): Promise<ApplyOutcome> {
+  if (!input.gates.dryRun && input.decision.actionRecommended === "pause") {
+    return applyPauseDecision(input, deps);
+  }
+  return applyOptimisationDecision(input, deps);
 }
 
 async function recommendPause(
