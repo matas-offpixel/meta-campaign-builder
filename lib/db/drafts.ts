@@ -1,9 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
 import {
   buildDuplicatedCampaign,
-  describeCarrierMismatch,
   describeCodeEventMismatch,
-  resolveDraftEventId,
+  joinEventWarnings,
   type CampaignEventIdentity,
 } from "@/lib/campaign-event";
 import type { CampaignDraft, CampaignListItem } from "@/lib/types";
@@ -18,7 +17,7 @@ export async function loadCampaignList(
   const supabase = createClient();
   let query = supabase
     .from("campaign_drafts")
-    .select("id, name, objective, status, ad_account_id, created_at, updated_at, event_id, draft_json")
+    .select("id, name, objective, status, ad_account_id, created_at, updated_at, event_id")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
 
@@ -42,32 +41,22 @@ export async function loadCampaignList(
     created_at: string;
     updated_at: string;
     event_id: string | null;
-    draft_json: unknown;
   }>;
 
-  const eventIds = new Set<string>();
-  const parsed = listRows.map((row) => {
-    let draft: CampaignDraft | null = null;
-    try {
-      draft = migrateDraft(row.draft_json as Record<string, unknown>);
-    } catch {
-      draft = null;
-    }
-    const jsonEventId = draft?.settings.eventId ?? "";
-    const columnEventId = row.event_id ?? "";
-    const resolved = resolveDraftEventId(jsonEventId, columnEventId);
-    if (resolved) eventIds.add(resolved);
-    if (columnEventId.trim()) eventIds.add(columnEventId.trim());
-    if (jsonEventId.trim()) eventIds.add(jsonEventId.trim());
-    return { row, draft, jsonEventId, columnEventId, resolved };
-  });
+  const eventIds = [
+    ...new Set(
+      listRows
+        .map((row) => row.event_id?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
 
   const eventsById = new Map<string, CampaignEventIdentity>();
-  if (eventIds.size > 0) {
+  if (eventIds.length > 0) {
     const { data: events, error: eventsError } = await supabase
       .from("events")
       .select("id, event_code, name, venue_city, venue_name, event_date, client_id")
-      .in("id", [...eventIds]);
+      .in("id", eventIds);
     if (eventsError) {
       console.warn("Supabase campaign list events error:", eventsError.message);
     }
@@ -76,12 +65,9 @@ export async function loadCampaignList(
     }
   }
 
-  return parsed.map(({ row, draft, jsonEventId, columnEventId, resolved }) => {
-    const resolvedEvent = resolved ? (eventsById.get(resolved) ?? null) : null;
-    const jsonEvent = jsonEventId.trim() ? (eventsById.get(jsonEventId.trim()) ?? null) : null;
-    const columnEvent = columnEventId.trim()
-      ? (eventsById.get(columnEventId.trim()) ?? null)
-      : null;
+  return listRows.map((row) => {
+    const eventId = row.event_id?.trim() || "";
+    const event = eventId ? (eventsById.get(eventId) ?? null) : null;
     return {
       id: row.id,
       name: row.name,
@@ -90,18 +76,13 @@ export async function loadCampaignList(
       adAccountId: row.ad_account_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      eventWarning:
+      eventWarning: joinEventWarnings(
         describeCodeEventMismatch({
-          campaignCode: draft?.settings.campaignCode,
-          campaignName: draft?.settings.campaignName ?? row.name,
-          event: resolvedEvent,
-        }) ??
-        describeCarrierMismatch({
-          jsonEventId,
-          columnEventId,
-          jsonEvent,
-          columnEvent,
+          campaignCode: null,
+          campaignName: row.name,
+          event,
         }),
+      ),
     };
   });
 }

@@ -52,12 +52,13 @@ interface FetchState {
 const EMPTY_STATE: FetchState = { events: [], loading: false, error: null };
 
 /** All operator events — used when the picker must be able to change client. */
-export function useFetchEvents(): UseFetchEventsState {
-  return useFetchEventsForClient("__all__");
+export function useFetchEvents(includeId?: string | null): UseFetchEventsState {
+  return useFetchEventsForClient("__all__", includeId);
 }
 
 export function useFetchEventsForClient(
   clientId: string | null,
+  includeId?: string | null,
 ): UseFetchEventsState {
   // One state object so the loading→data transition is a single set
   // call from the network callback. Initial value already reflects
@@ -80,10 +81,11 @@ export function useFetchEventsForClient(
     if (!clientId) return;
     let cancelled = false;
 
-    const url =
-      clientId === "__all__"
-        ? "/api/events"
-        : `/api/events?clientId=${encodeURIComponent(clientId)}`;
+    const params = new URLSearchParams();
+    if (clientId !== "__all__") params.set("clientId", clientId);
+    if (includeId?.trim()) params.set("includeId", includeId.trim());
+    const qs = params.toString();
+    const url = qs ? `/api/events?${qs}` : "/api/events";
     fetch(url)
       .then(async (res) => {
         const json = (await res.json()) as EventsResponse;
@@ -103,7 +105,7 @@ export function useFetchEventsForClient(
     return () => {
       cancelled = true;
     };
-  }, [clientId, reloadKey]);
+  }, [clientId, includeId, reloadKey]);
 
   // When clientId flips back to null after we had data, return a clean
   // empty payload without poking state — the consumer doesn't care

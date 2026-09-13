@@ -67,13 +67,32 @@ export function eventCarriersDisagree(
   return json !== "" && column !== "" && json !== column;
 }
 
-export function replaceEventCodePrefix(name: string, nextCode: string): string {
+/**
+ * First bracket is a single event code — not a year, not a three-date
+ * marker, not a free-text label. A name we cannot parse is not a name
+ * to rewrite.
+ */
+export function isReplaceableEventCodePrefix(inner: string | null | undefined): boolean {
+  const prefix = (inner ?? "").trim();
+  if (!prefix) return false;
+  if (/^\d{4}$/.test(prefix)) return false;
+  const parts = prefix.split(/[-–—−]/);
+  const codeLike = parts.filter((part) => /^[A-Za-z]{2,}\d{2,}$/.test(part));
+  if (codeLike.length >= 2) return false;
+  return /[0-9]/.test(prefix) && /^[A-Z0-9][A-Z0-9_-]{1,63}$/i.test(prefix);
+}
+
+export function replaceEventCodePrefix(
+  name: string,
+  nextCode: string,
+  currentCode: string = "",
+): string {
   const code = nextCode.trim();
   if (!code) return name;
-  if (/\[[^\]]+\]/.test(name)) {
-    return name.replace(/\[[^\]]+\]/, `[${code}]`);
-  }
-  return name;
+  const prefix = parseBracketedEventCode(name);
+  if (!prefix || !isReplaceableEventCodePrefix(prefix)) return name;
+  if (currentCode.trim() && codesDisagree(prefix, currentCode)) return name;
+  return name.replace(`[${prefix}]`, `[${code}]`);
 }
 
 export function applyEventToCampaignSettings(
@@ -81,12 +100,21 @@ export function applyEventToCampaignSettings(
   event: CampaignEventIdentity,
 ): CampaignSettings {
   const nextCode = (event.event_code ?? "").trim();
-  return {
+  const next: CampaignSettings = {
     ...settings,
     eventId: event.id,
     clientId: event.client_id ?? settings.clientId,
+  };
+  // Absent is not a value — keep the existing code and name, report later.
+  if (!nextCode) return next;
+  return {
+    ...next,
     campaignCode: nextCode,
-    campaignName: replaceEventCodePrefix(settings.campaignName, nextCode),
+    campaignName: replaceEventCodePrefix(
+      settings.campaignName,
+      nextCode,
+      settings.campaignCode,
+    ),
   };
 }
 
@@ -152,8 +180,8 @@ export function codesDisagree(left: string | null | undefined, right: string | n
 
 /**
  * campaignCode or the `[CODE]` prefix vs the wired event's event_code.
- * Null when they agree, when there is no event code, or when there is
- * no campaign code and no prefix to compare.
+ * Null when they agree, or when there is no campaign code and no prefix
+ * to compare. An event with no event_code is reported, not hidden.
  */
 export function describeCodeEventMismatch(input: {
   campaignCode: string | null | undefined;
@@ -167,15 +195,28 @@ export function describeCodeEventMismatch(input: {
 }): string | null {
   if (!input.event) return null;
   const eventCode = (input.event.event_code ?? "").trim();
-  if (!eventCode) return null;
   const campaignCode = (input.campaignCode ?? "").trim();
   const prefix = input.campaignName ? parseBracketedEventCode(input.campaignName) : null;
-  const codeDisagrees = campaignCode !== "" && codesDisagree(campaignCode, eventCode);
-  const prefixDisagrees = prefix != null && codesDisagree(prefix, eventCode);
-  if (!codeDisagrees && !prefixDisagrees) return null;
   const codeSide = campaignCode || prefix;
+  if (!eventCode) {
+    if (!codeSide) return null;
+    return `code says ${codeSide}, wired to ${formatWiredEventLabel(input.event)} which has no event_code`;
+  }
+  const codeDisagrees = campaignCode !== "" && codesDisagree(campaignCode, eventCode);
+  const prefixDisagrees =
+    prefix != null &&
+    isReplaceableEventCodePrefix(prefix) &&
+    codesDisagree(prefix, eventCode);
+  if (!codeDisagrees && !prefixDisagrees) return null;
   if (!codeSide) return null;
   return `code says ${codeSide}, wired to ${formatWiredEventLabel(input.event)}`;
+}
+
+export function joinEventWarnings(
+  ...warnings: Array<string | null | undefined>
+): string | null {
+  const parts = warnings.filter((text): text is string => Boolean(text?.trim()));
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 export function describeCarrierMismatch(input: {

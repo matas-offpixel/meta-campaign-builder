@@ -14,7 +14,8 @@ import {
   formatWiredEventLabel,
   toPlanEventOption,
 } from "@/lib/campaign-event";
-import { useFetchEvents } from "@/lib/hooks/useEvents";
+import { useFetchEvents, type EventPickerRow } from "@/lib/hooks/useEvents";
+import type { EventWithClient } from "@/lib/db/events";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import {
   planEventPickerRows,
@@ -92,6 +93,32 @@ function suggestCampaignName(code: string, objective: CampaignObjective): string
   return `[${code}] ${OBJECTIVE_LABELS[objective]}`;
 }
 
+function pickerRowFromContext(event: EventWithClient): EventPickerRow {
+  return {
+    id: event.id,
+    name: event.name,
+    slug: event.slug,
+    event_date: event.event_date,
+    status: event.status,
+    capacity: event.capacity,
+    genres: event.genres ?? [],
+    venue_name: event.venue_name,
+    venue_city: event.venue_city,
+    client_id: event.client_id,
+    client_name: event.client?.name ?? null,
+    event_code: event.event_code,
+  };
+}
+
+function eventLabelInput(row: EventPickerRow) {
+  return {
+    event_code: row.event_code,
+    name: row.name,
+    venue_city: row.venue_city,
+    event_date: row.event_date,
+  };
+}
+
 export function CampaignSetup({
   surface = "wizard",
   settings,
@@ -101,11 +128,18 @@ export function CampaignSetup({
 }: CampaignSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
-  const { events: fetchedEvents } = useFetchEvents();
+  const { events: fetchedEvents } = useFetchEvents(settings.eventId);
   const eventContext = useWizardEventContext();
+  const events = useMemo(() => {
+    const byId = new Map(fetchedEvents.map((row) => [row.id, row]));
+    if (eventContext.event && !byId.has(eventContext.event.id)) {
+      byId.set(eventContext.event.id, pickerRowFromContext(eventContext.event));
+    }
+    return [...byId.values()];
+  }, [fetchedEvents, eventContext.event]);
   const pickerEvents = useMemo(
-    () => fetchedEvents.map(toPlanEventOption),
-    [fetchedEvents],
+    () => events.map(toPlanEventOption),
+    [events],
   );
   const eventOptions = useMemo(
     () =>
@@ -123,21 +157,14 @@ export function CampaignSetup({
       })),
     [pickerEvents, settings.eventId],
   );
-  const selectedEvent = fetchedEvents.find((row) => row.id === settings.eventId) ?? null;
+  const selectedEvent = events.find((row) => row.id === settings.eventId) ?? null;
   const codeMismatch = describeCodeEventMismatch({
     campaignCode: settings.campaignCode,
     campaignName: settings.campaignName,
-    event: selectedEvent
-      ? {
-          event_code: selectedEvent.event_code,
-          name: selectedEvent.name,
-          venue_city: selectedEvent.venue_city,
-          event_date: selectedEvent.event_date,
-        }
-      : null,
+    event: selectedEvent ? eventLabelInput(selectedEvent) : null,
   });
-  const jsonEvent = fetchedEvents.find((row) => row.id === eventContext.jsonEventId) ?? null;
-  const columnEvent = fetchedEvents.find((row) => row.id === eventContext.columnEventId) ?? null;
+  const jsonEvent = events.find((row) => row.id === eventContext.jsonEventId) ?? null;
+  const columnEvent = events.find((row) => row.id === eventContext.columnEventId) ?? null;
   const carrierMismatch = eventContext.carriersDisagree
     ? describeCarrierMismatch({
         jsonEventId: eventContext.jsonEventId,
@@ -148,7 +175,7 @@ export function CampaignSetup({
     : null;
 
   const handleEventChange = (eventId: string) => {
-    const row = fetchedEvents.find((event) => event.id === eventId);
+    const row = events.find((event) => event.id === eventId);
     if (!row) return;
     onChange(
       applyEventToCampaignSettings(settings, {
@@ -526,7 +553,11 @@ export function CampaignSetup({
         </div>
         {selectedEvent ? (
           <Datum className="mt-2 text-xs text-muted-foreground">
-            Wired to {formatWiredEventLabel(selectedEvent)}
+            Wired to {formatWiredEventLabel(eventLabelInput(selectedEvent))}
+          </Datum>
+        ) : settings.eventId ? (
+          <Datum className="mt-2 text-xs text-muted-foreground">
+            Wired to an event that is not in this list.
           </Datum>
         ) : (
           <Datum className="mt-2 text-xs text-muted-foreground">No event linked.</Datum>

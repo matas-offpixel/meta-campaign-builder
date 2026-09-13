@@ -52,6 +52,11 @@ export async function listEventsServer(
      * a parallel campaign_drafts read; applied in memory.
      */
     pendingAction?: boolean;
+    /**
+     * Always include this event even when the default page is truncated.
+     * Pickers pass the wired id so a correctly-linked draft never looks empty.
+     */
+    includeId?: string | null;
   },
 ): Promise<EventWithClient[]> {
   const supabase = await createClient();
@@ -99,6 +104,12 @@ export async function listEventsServer(
   if (options?.pendingAction) {
     const now = new Date();
     rows = rows.filter((e) => isPendingAction(e, draftMap, now));
+  }
+
+  const includeId = options?.includeId?.trim();
+  if (includeId && !rows.some((row) => row.id === includeId)) {
+    const extra = await getEventByIdServer(includeId);
+    if (extra) rows = [extra, ...rows];
   }
 
   return rows;

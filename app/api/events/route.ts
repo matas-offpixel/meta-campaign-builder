@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
     fromDate: sp.get("fromDate") ?? undefined,
     toDate: sp.get("toDate") ?? undefined,
     q: sp.get("q"),
+    includeId: sp.get("includeId"),
   });
 
   return NextResponse.json({

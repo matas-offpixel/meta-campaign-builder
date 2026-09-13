@@ -32,6 +32,7 @@ import {
   loadChannelDefaultsForEvent,
   resolveChannelDefaults,
 } from "@/lib/clients/channel-defaults";
+import type { CampaignEventIdentity } from "@/lib/campaign-event";
 import {
   cloneCampaignDraft,
   draftFromLibraryTemplate,
@@ -142,6 +143,7 @@ export async function POST(
 
   if (adapter === "meta" && fromLibrary) {
     const names = await listOwnedDraftNames(supabase, user.id);
+    const event = await loadEventIdentity(supabase, plan.intent.eventId);
     let copy: CampaignDraft;
     if (source?.kind === "draft" && source.id) {
       const original = await loadLinkedMetaDraft(supabase, source.id, user.id);
@@ -153,6 +155,7 @@ export async function POST(
       }
       copy = overlayPlanSharedInputs(cloneCampaignDraft(original, names), plan, {
         clientId,
+        event,
       });
       copy = await withMetaDefaults(supabase, plan.intent.eventId, copy);
     } else if (source?.kind === "template" && source.id) {
@@ -165,6 +168,7 @@ export async function POST(
       }
       copy = overlayPlanSharedInputs(draftFromLibraryTemplate(template, names), plan, {
         clientId,
+        event,
       });
       copy = await withMetaDefaults(supabase, plan.intent.eventId, copy);
     } else {
@@ -412,6 +416,28 @@ async function loadOwnedTemplate(
     createdAt: data.created_at as string,
     updatedAt: data.updated_at as string,
   };
+}
+
+async function loadEventIdentity(
+  supabase: unknown,
+  eventId: string | null,
+): Promise<CampaignEventIdentity | null> {
+  if (!eventId) return null;
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          maybeSingle: () => Promise<{ data: CampaignEventIdentity | null }>;
+        };
+      };
+    };
+  };
+  const { data } = await client
+    .from("events")
+    .select("id, event_code, client_id, name, venue_city, venue_name, event_date")
+    .eq("id", eventId)
+    .maybeSingle();
+  return data;
 }
 
 async function resolvedDefaults(supabase: unknown, eventId: string | null) {
