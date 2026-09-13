@@ -227,6 +227,7 @@ describe("materialiseStrategy", () => {
       budgetAmount: 120,
       materialisedAt: AT,
     });
+    assert.equal(strategy.rulesObjective, "registration");
     assert.deepEqual(strategy.preset, {
       presetId: "11111111-1111-1111-1111-111111111111",
       presetVersion: 3,

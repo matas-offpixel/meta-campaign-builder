@@ -267,9 +267,102 @@ export function generateRulesForObjective(objective: CampaignObjective): Optimis
     case "initiate_checkout": rules = initiateCheckoutRules(); break;
     case "awareness": rules = awarenessRules(); break;
     case "engagement": rules = engagementRules(); break;
-    default: rules = registrationRules();
+    default: {
+      const unseen: never = objective;
+      throw new Error(
+        `generateRulesForObjective: no ladder for objective "${String(unseen)}"`,
+      );
+    }
   }
   return attachBenchmarks(rules, objective);
+}
+
+export const OBJECTIVE_LABELS: Record<CampaignObjective, string> = {
+  purchase: "Purchase",
+  initiate_checkout: "Initiate checkout",
+  registration: "Registration",
+  traffic: "Traffic",
+  awareness: "Awareness",
+  engagement: "Engagement",
+};
+
+export interface OptimisationRulesMismatch {
+  expectedObjective: CampaignObjective;
+  /** Objective the stored rules look like they were written for. Null if we cannot tell. */
+  writtenFor: CampaignObjective | null;
+  expectedPrimary: RuleMetric | null;
+  actualPrimary: RuleMetric | null;
+  missingSecondary: RuleMetric | null;
+  /** `settings.objective` is not in the closed union — do not throw during render. */
+  unknownObjective?: true;
+}
+
+function primaryOptimisationRule(
+  rules: readonly OptimisationRule[],
+): OptimisationRule | null {
+  const enabled = rules.filter((r) => r.enabled);
+  const pool = enabled.length > 0 ? enabled : rules;
+  return pool.find((r) => r.priority === "primary") ?? pool[0] ?? null;
+}
+
+/**
+ * Objective the stored rules were written for, from the primary rule's
+ * metric. Used to default `rulesObjective` on load. Not a match test —
+ * {@link describeOptimisationRulesMismatch} is the match test.
+ *
+ * A primary that more than one objective declares (`cpa` today) cannot
+ * identify an objective. Presence or absence of a secondary is not a
+ * tiebreak — it guesses, and the guess gets persisted.
+ */
+export function inferRulesObjectiveFromRules(
+  rules: readonly OptimisationRule[],
+): CampaignObjective | null {
+  const primary = primaryOptimisationRule(rules);
+  if (!primary) return null;
+  const objectives = Object.keys(OBJECTIVE_METRIC_PRIORITY) as CampaignObjective[];
+  const matches = objectives.filter(
+    (obj) => OBJECTIVE_METRIC_PRIORITY[obj].primary === primary.metric,
+  );
+  if (matches.length === 1) return matches[0]!;
+  return null;
+}
+
+/**
+ * One opinion about whether stored rules belong to `objective`.
+ * Empty rules are not a mismatch — absent is not wrong.
+ */
+export function describeOptimisationRulesMismatch(
+  objective: CampaignObjective,
+  rules: readonly OptimisationRule[],
+  rulesObjective?: CampaignObjective | null,
+): OptimisationRulesMismatch | null {
+  if (rules.length === 0) return null;
+  const actualPrimary = primaryOptimisationRule(rules)?.metric ?? null;
+  const prio = OBJECTIVE_METRIC_PRIORITY[objective];
+  if (!prio) {
+    return {
+      expectedObjective: objective,
+      writtenFor: rulesObjective ?? inferRulesObjectiveFromRules(rules),
+      expectedPrimary: null,
+      actualPrimary,
+      missingSecondary: null,
+      unknownObjective: true,
+    };
+  }
+  const primaryMatches = actualPrimary === prio.primary;
+  const missingSecondary =
+    prio.secondary && !rules.some((r) => r.metric === prio.secondary)
+      ? prio.secondary
+      : null;
+  const stampMismatch = rulesObjective != null && rulesObjective !== objective;
+  if (primaryMatches && !missingSecondary && !stampMismatch) return null;
+  return {
+    expectedObjective: objective,
+    writtenFor: rulesObjective ?? inferRulesObjectiveFromRules(rules),
+    expectedPrimary: prio.primary,
+    actualPrimary,
+    missingSecondary,
+  };
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, LocationTargetingGroup, LocationPreset } from "./types";
-import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types";
+import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
+import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
 
 const STORAGE_KEY = "campaign_draft";
 
@@ -382,6 +383,12 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     const g = draft.optimisationStrategy.guardrails;
     if (g.baseAdSetBudget == null && typeof g.baseCampaignBudget === "number") {
       g.baseAdSetBudget = g.baseCampaignBudget;
+    }
+    if (draft.optimisationStrategy.rulesObjective == null) {
+      const inferred = inferRulesObjectiveFromRules(
+        draft.optimisationStrategy.rules ?? [],
+      );
+      if (inferred) draft.optimisationStrategy.rulesObjective = inferred;
     }
   } else {
     draft.optimisationStrategy = {

@@ -423,7 +423,14 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             campaignId={draftId}
           />
         )}
-        {step === 1 && <CampaignSetup settings={draft.settings} onChange={updateSettings} />}
+        {step === 1 && (
+          <CampaignSetup
+            settings={draft.settings}
+            onChange={updateSettings}
+            optimisationStrategy={draft.optimisationStrategy}
+            onOptimisationStrategyChange={updateOptimisationStrategy}
+          />
+        )}
         {step === 2 && (
           <OptimisationStrategy
             strategy={draft.optimisationStrategy}

@@ -56,6 +56,9 @@ import {
   METRIC_LABELS,
   TIME_WINDOW_LABELS,
   OBJECTIVE_METRIC_PRIORITY,
+  OBJECTIVE_LABELS,
+  describeOptimisationRulesMismatch,
+  type OptimisationRulesMismatch,
 } from "@/lib/optimisation-rules";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
 import { DecisionsSheet } from "@/components/plan/decisions-sheet";
@@ -983,6 +986,57 @@ const PRESET_SEEDED_LADDER_TIP =
  * through to the full editor below, unchanged, so the standalone wizard
  * keeps parity while the canvas is built.
  */
+function RulesObjectiveMismatchCard({
+  mismatch,
+  onRegenerate,
+  presetOwned = false,
+}: {
+  mismatch: OptimisationRulesMismatch;
+  onRegenerate?: () => void;
+  presetOwned?: boolean;
+}) {
+  const expected =
+    OBJECTIVE_LABELS[mismatch.expectedObjective] ?? mismatch.expectedObjective;
+  const primaryNote =
+    mismatch.expectedPrimary &&
+    mismatch.actualPrimary &&
+    mismatch.actualPrimary !== mismatch.expectedPrimary
+      ? ` The stored primary is ${METRIC_LABELS[mismatch.actualPrimary] ?? mismatch.actualPrimary}, not ${METRIC_LABELS[mismatch.expectedPrimary] ?? mismatch.expectedPrimary}.`
+      : "";
+  const secondaryNote = mismatch.missingSecondary
+    ? ` There is no ${METRIC_LABELS[mismatch.missingSecondary] ?? mismatch.missingSecondary} rule.`
+    : "";
+  const lead = mismatch.unknownObjective
+    ? `This campaign's objective (${mismatch.expectedObjective}) has no rule ladder.`
+    : mismatch.writtenFor
+      ? `These rules were written for ${OBJECTIVE_LABELS[mismatch.writtenFor]}. This campaign is ${expected}.`
+      : `These stored rules don't match this campaign's objective (${expected}).`;
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+      <div className="min-w-0 flex-1">
+        <StatusLine tone="alert" className="text-sm text-warning-foreground">
+          {lead}
+          {primaryNote}
+          {secondaryNote}
+        </StatusLine>
+        {onRegenerate ? (
+          <Button variant="outline" size="sm" className="mt-2" onClick={onRegenerate}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            Regenerate for {expected}
+          </Button>
+        ) : presetOwned ? (
+          <StatusLine className="mt-2 text-xs text-warning-foreground">
+            A materialised preset owns these rules. Re-apply a preset for this
+            objective — regenerating from benchmarks would discard the client&apos;s
+            policy and the target it was scaled to.
+          </StatusLine>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function PresetStrategyView({
   strategy,
   objective,
@@ -1006,6 +1060,11 @@ function PresetStrategyView({
 
   const target = currentTarget(strategy, objective);
   const [draft, setDraft] = useState(target != null ? String(target) : "");
+  const mismatch = describeOptimisationRulesMismatch(
+    objective,
+    strategy.rules,
+    strategy.rulesObjective,
+  );
 
   const unitLabel = preset?.targetUnit ?? null;
   const editHref = presetEditHref(clientId);
@@ -1022,6 +1081,11 @@ function PresetStrategyView({
 
   return (
     <Card>
+      {mismatch ? (
+        <div className="mb-4">
+          <RulesObjectiveMismatchCard mismatch={mismatch} presetOwned />
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {/* ⌁ — this strategy is derived from a preset. Whether the preset
             itself is the client's or a seed is the badge beside the ladder. */}
@@ -1161,11 +1225,23 @@ export function OptimisationStrategy({
 
   const setMode = useCallback(
     (mode: OptimisationStrategySettings["mode"]) => {
+      const known = objective in OBJECTIVE_METRIC_PRIORITY;
       if (mode === "benchmarks") {
-        onChange({ ...strategy, mode, rules: generateRulesForObjective(objective) });
+        onChange({
+          ...strategy,
+          mode,
+          rules: known ? generateRulesForObjective(objective) : strategy.rules,
+          rulesObjective: known ? objective : strategy.rulesObjective,
+        });
       } else if (mode === "custom") {
-        const base = strategy.rules.length > 0 ? strategy.rules : generateRulesForObjective(objective);
-        onChange({ ...strategy, mode, rules: base });
+        const generated = strategy.rules.length === 0 && known;
+        const base = generated ? generateRulesForObjective(objective) : strategy.rules;
+        onChange({
+          ...strategy,
+          mode,
+          rules: base,
+          rulesObjective: generated ? objective : strategy.rulesObjective,
+        });
       } else {
         onChange({ ...strategy, mode, rules: [] });
       }
@@ -1182,14 +1258,34 @@ export function OptimisationStrategy({
       // `resolvePreset` for the new objective instead, which is plan
       // prepare's job, not this step's.
       if (strategy.mode === "benchmarks" && !strategy.preset) {
-        onChange({ ...strategy, rules: generateRulesForObjective(objective) });
+        if (objective in OBJECTIVE_METRIC_PRIORITY) {
+          onChange({
+            ...strategy,
+            rules: generateRulesForObjective(objective),
+            rulesObjective: objective,
+          });
+        }
       }
     }
   }, [objective, prevObjective, strategy, onChange]);
 
   const regenerate = useCallback(() => {
-    onChange({ ...strategy, rules: generateRulesForObjective(objective) });
+    if (!(objective in OBJECTIVE_METRIC_PRIORITY)) return;
+    onChange({
+      ...strategy,
+      rules: generateRulesForObjective(objective),
+      rulesObjective: objective,
+    });
   }, [objective, onChange, strategy]);
+
+  const rulesMismatch =
+    strategy.mode === "none"
+      ? null
+      : describeOptimisationRulesMismatch(
+          objective,
+          strategy.rules,
+          strategy.rulesObjective,
+        );
 
   const updateRule = useCallback(
     (idx: number, rule: OptimisationRule) => {
@@ -1407,6 +1503,14 @@ export function OptimisationStrategy({
           </div>
 
           <div className="space-y-3">
+            {rulesMismatch ? (
+              <RulesObjectiveMismatchCard
+                mismatch={rulesMismatch}
+                onRegenerate={
+                  rulesMismatch.unknownObjective ? undefined : regenerate
+                }
+              />
+            ) : null}
             {strategy.rules.map((rule, idx) => (
               <RuleCard
                 key={rule.id}
@@ -1493,6 +1597,13 @@ export function OptimisationStrategy({
             {/* Objective metric priority */}
             {(() => {
               const prio = OBJECTIVE_METRIC_PRIORITY[objective];
+              if (!prio) {
+                return (
+                  <StatusLine tone="alert" className="text-sm text-warning-foreground">
+                    Unknown objective ({objective}) — no metric priority.
+                  </StatusLine>
+                );
+              }
               return (
                 <div>
                   <Datum className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">
