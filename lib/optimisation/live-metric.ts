@@ -62,15 +62,16 @@ const ACTION_TYPE_CANDIDATES: Partial<Record<RuleMetric, string[]>> = {
 };
 
 /**
- * Initiate checkout reuses the `cpa` RuleMetric (same ladder as purchase)
- * but must not read Purchase action types — this objective exists because
- * Purchase is not on our pixel.
+ * Initiate checkout has its own `cpic` RuleMetric so a purchase ladder
+ * (primary `cpa`) cannot hide on a checkout campaign. Must not read
+ * Purchase action types — this objective exists because Purchase is not
+ * on our pixel.
  */
 const ACTION_TYPE_CANDIDATES_BY_OBJECTIVE: Partial<
   Record<CampaignObjective, Partial<Record<RuleMetric, string[]>>>
 > = {
   initiate_checkout: {
-    cpa: [
+    cpic: [
       "offsite_conversion.fb_pixel_initiate_checkout",
       "omni_initiated_checkout",
       "initiate_checkout",

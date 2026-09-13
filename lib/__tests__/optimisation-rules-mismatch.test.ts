@@ -130,13 +130,13 @@ describe("describeOptimisationRulesMismatch", () => {
     assert.equal(mismatch.missingSecondary, "roas");
   });
 
-  it("purchase ladder minus its roas rule is a mismatch with writtenFor absent", () => {
+  it("purchase ladder minus its roas rule is a missing-secondary mismatch", () => {
     const rules = purchaseWithoutRoas();
-    assert.equal(inferRulesObjectiveFromRules(rules), null);
+    assert.equal(inferRulesObjectiveFromRules(rules), "purchase");
     const mismatch = describeOptimisationRulesMismatch("purchase", rules);
     assert.ok(mismatch);
     assert.equal(mismatch.expectedObjective, "purchase");
-    assert.equal(mismatch.writtenFor, null);
+    assert.equal(mismatch.writtenFor, "purchase");
     assert.equal(mismatch.expectedPrimary, "cpa");
     assert.equal(mismatch.actualPrimary, "cpa");
     assert.equal(mismatch.missingSecondary, "roas");
@@ -153,7 +153,7 @@ describe("describeOptimisationRulesMismatch", () => {
         timeWindow: "3d",
       }),
     ];
-    assert.equal(inferRulesObjectiveFromRules(rules), null);
+    assert.equal(inferRulesObjectiveFromRules(rules), "initiate_checkout");
     assert.equal(
       describeOptimisationRulesMismatch("initiate_checkout", rules),
       null,
@@ -239,19 +239,19 @@ describe("inferRulesObjectiveFromRules", () => {
     assert.equal(inferRulesObjectiveFromRules(lpvPrimary()), "traffic");
   });
 
-  it("cpa cannot identify an objective — even with a roas rule", () => {
+  it("cpa uniquely identifies purchase once checkout has its own metric", () => {
     assert.equal(
       inferRulesObjectiveFromRules(generateRulesForObjective("purchase")),
-      null,
+      "purchase",
     );
     assert.equal(
       inferRulesObjectiveFromRules(generateRulesForObjective("initiate_checkout")),
-      null,
+      "initiate_checkout",
     );
   });
 
-  it("a purchase ladder minus its roas rule infers null", () => {
-    assert.equal(inferRulesObjectiveFromRules(purchaseWithoutRoas()), null);
+  it("a purchase ladder minus its roas rule still infers purchase", () => {
+    assert.equal(inferRulesObjectiveFromRules(purchaseWithoutRoas()), "purchase");
   });
 
   it("empty rules cannot be classified", () => {
@@ -268,17 +268,17 @@ describe("migrateDraft stamps rulesObjective", () => {
     assert.equal(JSON.stringify(out.rules), snapshot);
   });
 
-  it("ambiguous cpa (purchase minus roas) leaves the stamp unset", () => {
+  it("purchase minus roas stamps purchase and is still a missing-secondary mismatch", () => {
     const rules = purchaseWithoutRoas();
     const out = loadStrategy(rules);
-    assert.equal(out.rulesObjective, undefined);
+    assert.equal(out.rulesObjective, "purchase");
     const mismatch = describeOptimisationRulesMismatch("purchase", out.rules, out.rulesObjective);
     assert.ok(mismatch);
-    assert.equal(mismatch.writtenFor, null);
+    assert.equal(mismatch.writtenFor, "purchase");
     assert.equal(mismatch.missingSecondary, "roas");
   });
 
-  it("initiate_checkout + stray roas leaves the stamp unset and is not flagged", () => {
+  it("initiate_checkout + stray roas stamps checkout and is not flagged", () => {
     const rules = [
       ...generateRulesForObjective("initiate_checkout"),
       rule({ id: "stray-roas", name: "ROAS", metric: "roas", priority: "secondary" }),
@@ -287,7 +287,7 @@ describe("migrateDraft stamps rulesObjective", () => {
       settings: { objective: "initiate_checkout" },
       optimisationStrategy: strategyWith(rules),
     }).optimisationStrategy;
-    assert.equal(out.rulesObjective, undefined);
+    assert.equal(out.rulesObjective, "initiate_checkout");
     assert.equal(
       describeOptimisationRulesMismatch("initiate_checkout", out.rules, out.rulesObjective),
       null,

@@ -131,8 +131,8 @@ describe("evaluate-windows constants", () => {
     }
   });
 
-  it("CONVERSION_METRICS includes cpr, cpa, roas", () => {
-    for (const m of ["cpr", "cpa", "roas"] as const) {
+  it("CONVERSION_METRICS includes cpr, cpa, cpic, roas", () => {
+    for (const m of ["cpr", "cpa", "cpic", "roas"] as const) {
       assert.ok(
         (CONVERSION_METRICS as readonly string[]).includes(m),
         `Expected ${m} in CONVERSION_METRICS`,
@@ -146,6 +146,7 @@ describe("evaluate-windows constants", () => {
 describe("defaultWindowForMetric", () => {
   it("cpr → 7d", () => assert.equal(defaultWindowForMetric("cpr"), "7d"));
   it("cpa → 7d", () => assert.equal(defaultWindowForMetric("cpa"), "7d"));
+  it("cpic → 7d", () => assert.equal(defaultWindowForMetric("cpic"), "7d"));
   it("roas → 7d", () => assert.equal(defaultWindowForMetric("roas"), "7d"));
   it("lpv_cost → 24h (unchanged — proven in prod)", () => assert.equal(defaultWindowForMetric("lpv_cost"), "24h"));
   it("cpc → 24h", () => assert.equal(defaultWindowForMetric("cpc"), "24h"));

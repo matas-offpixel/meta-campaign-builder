@@ -205,9 +205,11 @@ export function defaultLadderFor(metric: RuleMetric): readonly PresetThreshold[]
  *
  * Used by the industry seed (denominator = the account benchmark median)
  * and by `scripts/backfill-optimisation-presets.mjs` (denominator = the
- * campaign's own target, or its benchmark when it never set one). A rule
- * with no usable denominator keeps the default ladder rather than dividing
- * by zero — a preset with no bands would silently disarm the client.
+ * campaign's own target, or its benchmark when it never set one). Empty
+ * source bands stay empty — do not invent the default cost ladder for an
+ * objective that has no observed median. A rule that already has bands
+ * but no usable denominator keeps the default ladder rather than dividing
+ * by zero.
  */
 export function ruleToPresetRule(
   rule: OptimisationRule,
@@ -220,9 +222,14 @@ export function ruleToPresetRule(
     null;
 
   const usable = denominator != null && denominator > 0;
-  const thresholds: PresetThreshold[] = usable
-    ? rule.thresholds.map((t) => thresholdToPresetThreshold(t, denominator))
-    : [...defaultLadderFor(rule.metric)];
+  // Empty source bands stay empty — do not invent the default cost ladder
+  // for an objective that has no observed median (initiate-checkout).
+  const thresholds: PresetThreshold[] =
+    rule.thresholds.length === 0
+      ? []
+      : usable
+        ? rule.thresholds.map((t) => thresholdToPresetThreshold(t, denominator))
+        : [...defaultLadderFor(rule.metric)];
 
   return {
     metric: rule.metric,

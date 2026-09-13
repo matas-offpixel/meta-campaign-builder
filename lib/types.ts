@@ -896,7 +896,7 @@ export type CreativeAssignmentMatrix = Record<string, string[]>;
 
 export type OptimisationStrategyMode = "none" | "benchmarks" | "custom";
 
-export type RuleMetric = "cpr" | "cpc" | "cpa" | "roas" | "cpm" | "lpv_cost" | "ctr";
+export type RuleMetric = "cpr" | "cpc" | "cpa" | "cpic" | "roas" | "cpm" | "lpv_cost" | "ctr";
 
 export type RuleTimeWindow = "24h" | "3d" | "7d";
 
