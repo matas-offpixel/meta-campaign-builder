@@ -1392,6 +1392,40 @@ describe("write paths are untouched", () => {
       read("app/api/cron/optimisation-tick/route.ts"),
       /status:\s*["']ACTIVE["']/,
     );
+
+    // #923 shape: the freeze is the allow-list, not "something changed".
+    // New exports may only be the pause path, the fourth gate, and their
+    // call-site helpers. Everything else in these two files stays main.
+    function exportedNames(src: string): Set<string> {
+      const names = new Set<string>();
+      for (const m of src.matchAll(/export (?:async )?function (\w+)/g)) {
+        names.add(m[1]!);
+      }
+      for (const m of src.matchAll(/export const (\w+)/g)) names.add(m[1]!);
+      for (const m of src.matchAll(/export type (\w+)/g)) names.add(m[1]!);
+      for (const m of src.matchAll(/export interface (\w+)/g)) names.add(m[1]!);
+      return names;
+    }
+    const addedApply = [...exportedNames(applySrc)].filter((n) => !exportedNames(mainApply).has(n));
+    assert.deepEqual(
+      addedApply.sort(),
+      [
+        "MAX_PAUSES_PER_RUN",
+        "MIN_PAUSE_CONVERSION_RESULT_COUNT",
+        "isCampaignWidePauseBreach",
+        "isDeliveringAdSetStatus",
+      ].sort(),
+    );
+    const addedGates = [...exportedNames(gatesSrc)].filter((n) => !exportedNames(mainGates).has(n));
+    assert.deepEqual(
+      addedGates.sort(),
+      [
+        "OptimisationPauseDryRunGates",
+        "OptimisationPauseDryRunReason",
+        "isOptimisationPauseWritesEnabledFromEnv",
+        "optimisationPauseDryRunGates",
+      ].sort(),
+    );
   });
 
   it("the plan canvas, frames, and Meta launch route have no diff against main", () => {

@@ -491,12 +491,15 @@ export async function runOptimisationTick(
 
           built.push({
             row,
+            // Cooldown blocks apply, not the majority census. evaluate.ts
+            // would name a recent touch `maintain`; pass null so a breacher
+            // still counts as a pause candidate over the same delivering set.
             decision: buildDecision(
               campaign,
               row,
               window,
               now,
-              lastTouchedAt,
+              onCooldown ? null : lastTouchedAt,
               state.appliedIncreasePercentLast24h,
             ),
             onCooldown,

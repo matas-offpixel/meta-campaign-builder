@@ -1270,4 +1270,187 @@ describe("runOptimisationTick — pause writes", () => {
     assert.deepEqual(pauses, ["adset_bad"]);
     assert.equal(summary.pausesApplied, 1);
   });
+
+  it("cooldown on one breacher still counts in the same-set majority — no floor, no pause", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const now = new Date("2026-08-07T12:00:00Z");
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      now,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      getAdSetState: async (adsetId) => ({
+        lastAppliedAt: adsetId === "adset_a" ? new Date("2026-08-07T11:00:00Z") : null,
+        lastDecidedAt: adsetId === "adset_a" ? new Date("2026-08-07T11:00:00Z") : null,
+        appliedIncreasePercentLast24h: 0,
+      }),
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_a", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_b", dailyBudgetPence: 10000 }),
+        pauseInsight({ adsetId: "adset_c", dailyBudgetPence: 10000 }),
+        insightRow({
+          adsetId: "adset_ok",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(summary.adSetsSkippedRecentDecision, 1);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+  });
+
+  it("skip_campaign_ended is written before the pause ladder — no floor, no pause", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      now: new Date("2026-09-09T20:01:05Z"),
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          eligibility: { campaignEndAt: "2026-09-01T00:00:00Z" },
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_a" }),
+        pauseInsight({ adsetId: "adset_b" }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+      readAdSetDailyBudget: async () => 2000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.ok(inserted.every((row) => row.actionRecommended === "skip_campaign_ended"));
+    assert.equal(summary.decisionsByAction.skip_campaign_ended, 2);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pausesRecommended, 0);
+  });
+
+  it("an empty checkout ladder cannot produce a pause even when the fourth gate is open", async () => {
+    const pauses: string[] = [];
+    const inserted: DecisionToInsert[] = [];
+    const rules = generateRulesForObjective("initiate_checkout");
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          objective: "initiate_checkout",
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "benchmarks", rules, guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          costPerActionType: {
+            "offsite_conversion.fb_pixel_initiate_checkout": 40,
+          },
+          actionCountByType: {
+            "offsite_conversion.fb_pixel_initiate_checkout": 20,
+          },
+        }),
+        insightRow({
+          adsetId: "adset_ok",
+          costPerActionType: {
+            "offsite_conversion.fb_pixel_initiate_checkout": 1,
+          },
+          actionCountByType: {
+            "offsite_conversion.fb_pixel_initiate_checkout": 20,
+          },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+      readAdSetDailyBudget: async () => 2000,
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.ok(inserted.every((row) => row.actionRecommended === "skip_no_rules"));
+    assert.equal(pauses.length, 0);
+    assert.equal(summary.pausesApplied, 0);
+    assert.equal(summary.pausesRecommended, 0);
+  });
+
+  it("a floor cut does not credit pence back into #933 campaign headroom", async () => {
+    const updates: Array<{ id: string; pence: number }> = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: {
+            mode: "custom",
+            rules: [CPR_RULE],
+            guardrails: {
+              ...PAUSE_FLOOR_GUARDRAILS,
+              budgetCeilingScope: "campaign",
+              campaignDailyCeilingSource: "typed",
+              campaignDailyCeiling: 220,
+            },
+          },
+        }),
+      ],
+      fetchInsights: async () => [
+        pauseInsight({ adsetId: "adset_bad", dailyBudgetPence: 10000 }),
+        insightRow({
+          adsetId: "adset_good",
+          dailyBudgetPence: 10000,
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 0.3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+      ],
+      insertDecision: async () => {},
+      readAdSetDailyBudget: async (id) => (id === "adset_bad" ? 10000 : 10000),
+      updateAdSetDailyBudget: async (id, pence) => {
+        updates.push({ id, pence });
+        return { ok: true };
+      },
+      pauseAdSet: async () => {
+        throw new Error("pause must not run — the breacher is above the floor");
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    const bad = updates.find((u) => u.id === "adset_bad");
+    const good = updates.find((u) => u.id === "adset_good");
+    assert.equal(bad?.pence, 2000);
+    // Headroom is 22000 − 20000 = 2000. Crediting the 8000p floor cut
+    // would let the scale-up take the full +30% (13000).
+    assert.equal(good?.pence, 12000);
+    assert.equal(summary.pausesApplied, 1);
+    assert.equal(summary.writesApplied, 1);
+  });
 });

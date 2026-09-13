@@ -5,6 +5,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
@@ -101,4 +102,16 @@ describe("optimisationPauseDryRunGates — 8-row table × fourth gate", () => {
       assert.equal(g.reason, row.reason);
     });
   }
+});
+
+describe("optimisationPauseDryRunGates is what production calls", () => {
+  it("the tick runner and the cron route call the helper, not a sibling", () => {
+    const runner = readFileSync("lib/optimisation/tick-runner.ts", "utf8");
+    const route = readFileSync("app/api/cron/optimisation-tick/route.ts", "utf8");
+    const apply = readFileSync("lib/optimisation/apply.ts", "utf8");
+    assert.match(runner, /optimisationPauseDryRunGates\s*\(/);
+    assert.match(route, /isOptimisationPauseWritesEnabledFromEnv\s*\(/);
+    assert.match(route, /pauseWritesEnabled/);
+    assert.doesNotMatch(apply, /function\s+optimisationPauseDryRun/);
+  });
 });
