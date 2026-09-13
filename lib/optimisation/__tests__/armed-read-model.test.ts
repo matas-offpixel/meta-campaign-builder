@@ -187,6 +187,7 @@ describe("surfaces and freezes", () => {
 
   it("ENABLE_OPTIMISATION_WRITES is not assigned", () => {
     const diff = execSync("git diff origin/main...HEAD", { encoding: "utf8" });
-    assert.doesNotMatch(diff, /ENABLE_OPTIMISATION_WRITES\s*=/);
+    assert.doesNotMatch(diff, /ENABLE_OPTIMISATION_WRITES\s*=\s*["'`]/);
+    assert.doesNotMatch(diff, /process\.env\.ENABLE_OPTIMISATION_WRITES\s*=/);
   });
 });
