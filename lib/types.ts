@@ -1016,6 +1016,13 @@ export interface OptimisationStrategySettings {
   mode: OptimisationStrategyMode;
   rules: OptimisationRule[];
   guardrails: BudgetGuardrails;
+  /**
+   * Objective the stored rules were generated for. A fact, not a guess.
+   * Absent is not "matches" — `migrateDraft` infers it from the primary
+   * rule's metric when it can, and leaves it unset when there are no rules.
+   * jsonb field; no column, no migration.
+   */
+  rulesObjective?: CampaignObjective;
   /** Set only by `materialiseStrategy`. Optional — no DDL, no migration. */
   preset?: OptimisationPresetProvenance;
 }

@@ -13,8 +13,10 @@ import type {
   MetaCampaignSummary,
   MetaAdSetSummary,
   OptimisationGoal,
+  OptimisationStrategySettings,
   WizardMode,
 } from "@/lib/types";
+import { inferRulesObjectiveFromRules } from "@/lib/optimisation-rules";
 import { ATTACH_CAMPAIGN_CAP, CROSS_CAMPAIGN_ADSET_CAP } from "@/lib/types";
 import { OPTIMISATION_GOALS_BY_OBJECTIVE } from "@/lib/mock-data";
 import {
@@ -33,6 +35,12 @@ interface CampaignSetupProps {
   surface?: StepSurface;
   settings: CampaignSettings;
   onChange: (settings: CampaignSettings) => void;
+  /**
+   * Wizard ladder only. The drawer mounts this next to Optimisation
+   * Strategy; do not require `components/plan` to pass these.
+   */
+  optimisationStrategy?: OptimisationStrategySettings;
+  onOptimisationStrategyChange?: (strategy: OptimisationStrategySettings) => void;
 }
 
 const OBJECTIVES: {
@@ -72,6 +80,8 @@ export function CampaignSetup({
   surface = "wizard",
   settings,
   onChange,
+  optimisationStrategy,
+  onOptimisationStrategyChange,
 }: CampaignSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
@@ -104,6 +114,22 @@ export function CampaignSetup({
       patch.campaignName = suggestCampaignName(settings.campaignCode, objective);
     }
     update(patch);
+
+    // Record which objective the stored rules belong to. Do not regenerate
+    // here — a custom ladder must not be overwritten, and the Optimisation
+    // step is the place that offers to rebuild. The wizard ladder never
+    // mounts both steps at once, so this is the only chance to stamp.
+    if (optimisationStrategy && onOptimisationStrategyChange) {
+      if (optimisationStrategy.rulesObjective == null) {
+        const writtenFor = inferRulesObjectiveFromRules(optimisationStrategy.rules);
+        if (writtenFor) {
+          onOptimisationStrategyChange({
+            ...optimisationStrategy,
+            rulesObjective: writtenFor,
+          });
+        }
+      }
+    }
   };
 
   const handleCodeChange = (code: string) => {

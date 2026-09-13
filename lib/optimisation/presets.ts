@@ -374,6 +374,7 @@ export function materialiseStrategy(
   return {
     mode: preset.mode,
     rules,
+    rulesObjective: preset.objective,
     guardrails: materialiseGuardrails(preset.guardrails, target.budgetAmount),
     preset: provenance,
   };
