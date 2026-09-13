@@ -36,9 +36,9 @@ export const OBJECTIVE_METRIC_PRIORITY: Record<CampaignObjective, ObjectiveMetri
     summaryLine: "Scaling based on purchase efficiency with ROAS guardrail",
   },
   initiate_checkout: {
-    primary: "cpa",
+    primary: "cpic",
     primaryLabel: "Cost per Initiate Checkout",
-    summaryLine: "Scaling based on initiate-checkout efficiency",
+    summaryLine: "Scaling based on initiate-checkout efficiency — operator target required",
   },
   awareness: {
     primary: "cpm",
@@ -85,7 +85,9 @@ export const ACCOUNT_BENCHMARKS: Record<CampaignObjective, BenchmarkPercentile[]
     { metric: "ctr", metricLabel: "Click-through Rate", top25: 2.1, median: 1.2, bottom25: 0.5, tag: "reference" },
   ],
   initiate_checkout: [
-    { metric: "cpa", metricLabel: "Cost per Initiate Checkout", currency: "£", top25: 8.50, median: 18.00, bottom25: 38.00, tag: "primary" },
+    // No objective-specific median — we have never run an initiate-checkout
+    // campaign. The £18.00 that used to sit here was the purchase median,
+    // copied. Reference rows are platform-level and stay.
     { metric: "cpc", metricLabel: "Cost per Click", currency: "£", top25: 0.22, median: 0.45, bottom25: 0.90, tag: "reference" },
     { metric: "cpm", metricLabel: "Cost per 1,000 Impressions", currency: "£", top25: 4.50, median: 8.20, bottom25: 14.00, tag: "reference" },
     { metric: "ctr", metricLabel: "Click-through Rate", top25: 2.1, median: 1.2, bottom25: 0.5, tag: "reference" },
@@ -159,17 +161,19 @@ function initiateCheckoutRules(): OptimisationRule[] {
     {
       id: rid(),
       name: "Primary Rule Set — Cost per Initiate Checkout",
-      metric: "cpa",
+      metric: "cpic",
       timeWindow: "3d",
       enabled: true,
       priority: "primary",
-      thresholds: [
-        { id: tid(), operator: "below", value: 10, action: "increase_budget", actionValue: 30, label: "Below £10 CPIC → scale aggressively (+30%)" },
-        { id: tid(), operator: "between", value: 10, valueTo: 18, action: "increase_budget", actionValue: 10, label: "£10–£18 CPIC → scale moderately (+10%)" },
-        { id: tid(), operator: "between", value: 18, valueTo: 30, action: "maintain", actionValue: 0, label: "£18–£30 CPIC → maintain" },
-        { id: tid(), operator: "between", value: 30, valueTo: 45, action: "decrease_budget", actionValue: 25, label: "£30–£45 CPIC → reduce (-25%)" },
-        { id: tid(), operator: "above", value: 45, action: "pause", label: "Above £45 CPIC → pause ad set" },
-      ],
+      useOverride: false,
+      // No observed median, no invented bands. regenerateThresholdsFromTarget
+      // builds the ladder once the operator sets campaignTargetValue on this
+      // step. materialiseStrategy cannot: it maps the preset rule's
+      // thresholds, and [].map is []. PLAN_TARGET_UNIT_TABLE has no checkout
+      // unit today, so the canvas cannot express a target; whoever adds one
+      // will get a silently empty ladder unless they also give the seed bands
+      // or teach materialise to call regenerateThresholdsFromTarget.
+      thresholds: [],
     },
   ];
 }
@@ -310,9 +314,11 @@ function primaryOptimisationRule(
  * metric. Used to default `rulesObjective` on load. Not a match test —
  * {@link describeOptimisationRulesMismatch} is the match test.
  *
- * A primary that more than one objective declares (`cpa` today) cannot
- * identify an objective. Presence or absence of a secondary is not a
- * tiebreak — it guesses, and the guess gets persisted.
+ * The primary metric identifies the objective when exactly one objective
+ * declares it. `cpa` is purchase and `cpic` is checkout — they no longer
+ * collide. If two objectives ever share a primary again, this returns
+ * null rather than guessing. Presence or absence of a secondary is not
+ * a tiebreak — it guesses, and the guess gets persisted.
  */
 export function inferRulesObjectiveFromRules(
   rules: readonly OptimisationRule[],
@@ -329,7 +335,12 @@ export function inferRulesObjectiveFromRules(
 
 /**
  * One opinion about whether stored rules belong to `objective`.
- * Empty rules are not a mismatch — absent is not wrong.
+ * Empty rules are not a mismatch — absent is not wrong. A stray rule
+ * whose metric is neither the primary nor the declared secondary is
+ * not a mismatch either — only a wrong primary, a missing secondary,
+ * or a disagreeing stamp. The tick only feeds the primary, so a stray
+ * ROAS rule on checkout is not evaluated; that assumption is what
+ * keeps the clone-path pause closed.
  */
 export function describeOptimisationRulesMismatch(
   objective: CampaignObjective,
@@ -431,11 +442,67 @@ export const METRIC_LABELS: Record<string, string> = {
   cpr: "CPR",
   cpc: "CPC",
   cpa: "CPP",
+  cpic: "CPIC",
   roas: "ROAS",
   cpm: "CPM",
   lpv_cost: "CPLPV",
   ctr: "CTR",
 };
+
+/**
+ * The label belongs to the objective, not the metric. `cpa` is "CPP" in
+ * isolation; on an initiate-checkout campaign the primary is "Cost per
+ * Initiate Checkout".
+ */
+export function metricLabelFor(
+  objective: CampaignObjective,
+  metric: RuleMetric,
+): string {
+  const prio = OBJECTIVE_METRIC_PRIORITY[objective];
+  if (prio && metric === prio.primary) return prio.primaryLabel;
+  if (prio?.secondary && metric === prio.secondary) {
+    return prio.secondaryLabel ?? METRIC_LABELS[metric] ?? metric;
+  }
+  return METRIC_LABELS[metric] ?? metric;
+}
+
+export type LadderReadiness =
+  | { status: "armed" }
+  | { status: "insufficient_evidence"; reason: string };
+
+/**
+ * Whether the stored rules will act. Initiate-checkout has no observed
+ * median; until the operator sets a campaign target the ladder is empty
+ * and this names that, rather than pretending we are maintaining.
+ */
+export function describeLadderReadiness(
+  objective: CampaignObjective,
+  rules: readonly OptimisationRule[],
+): LadderReadiness {
+  if (objective !== "initiate_checkout") return { status: "armed" };
+  const primary =
+    rules.find((r) => r.priority === "primary") ??
+    rules.find((r) => r.metric === "cpic") ??
+    null;
+  if (!primary) {
+    return {
+      status: "insufficient_evidence",
+      reason: "No initiate-checkout rule is configured.",
+    };
+  }
+  const hasTarget =
+    primary.useOverride === true &&
+    primary.campaignTargetValue != null &&
+    primary.campaignTargetValue > 0;
+  if (!hasTarget || primary.thresholds.length === 0) {
+    return {
+      status: "insufficient_evidence",
+      reason:
+        "No campaign target set — this ladder will not act until an operator sets a number.",
+    };
+  }
+  return { status: "armed" };
+}
 
 export const TIME_WINDOW_LABELS: Record<string, string> = {
   "24h": "24 hours",

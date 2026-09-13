@@ -57,7 +57,7 @@ export const DEFAULT_WINDOW_FAST: RuleTimeWindow = "24h";
  * enough signal for a statistically meaningful rate while still being
  * responsive enough for weekly budget decisions.
  */
-export const CONVERSION_METRICS: readonly RuleMetric[] = ["cpr", "cpa", "roas"];
+export const CONVERSION_METRICS: readonly RuleMetric[] = ["cpr", "cpa", "cpic", "roas"];
 
 /**
  * 7d — the default window for sparse conversion metrics.
@@ -128,7 +128,7 @@ export function effectiveCooldownHours(
 
 /**
  * Class-appropriate default for a given metric.
- * `"cpr"`, `"cpa"`, `"roas"` → `"7d"`.
+ * `"cpr"`, `"cpa"`, `"cpic"`, `"roas"` → `"7d"`.
  * Everything else → `"24h"`.
  */
 export function defaultWindowForMetric(metric: RuleMetric): RuleTimeWindow {

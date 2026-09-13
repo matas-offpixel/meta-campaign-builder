@@ -12,7 +12,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { isBudgetChangeAction, lastChangeDecidedAt } from "../evaluate.ts";
+import { isBudgetChangeAction, lastChangeDecidedAt, skipNoRulesReason } from "../evaluate.ts";
+import { generateRulesForObjective } from "../../optimisation-rules.ts";
+import { whyForDecision } from "../../plan/decisions-sheet.ts";
 import { runOptimisationTick, type CampaignAutomationInput, type DecisionToInsert, type OptimisationTickDeps } from "../tick-runner.ts";
 import type { AdSetInsightRow } from "../insights-fetch.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../../types.ts";
@@ -196,6 +198,128 @@ describe("runOptimisationTick — skip_no_rules", () => {
     assert.equal(inserted.length, 1);
     assert.equal(inserted[0].actionRecommended, "skip_no_rules");
     assert.equal(notifyCalls.length, 0);
+  });
+
+  it("enabled cpic rule with zero bands is skip_no_rules, not in-band maintain", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const rules = generateRulesForObjective("initiate_checkout");
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          objective: "initiate_checkout",
+          optimisationStrategy: { mode: "benchmarks", rules, guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          costPerActionType: {
+            "offsite_conversion.fb_pixel_initiate_checkout": 4.2,
+          },
+          actionCountByType: {
+            "offsite_conversion.fb_pixel_initiate_checkout": 9,
+          },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0]!.actionRecommended, "skip_no_rules");
+    assert.notEqual(inserted[0]!.reasonText, skipNoRulesReason("none"));
+    assert.notEqual(inserted[0]!.reasonText, skipNoRulesReason("benchmarks"));
+    assert.match(inserted[0]!.reasonText, /no threshold bands/);
+    assert.match(inserted[0]!.reasonText, /campaign target/);
+    assert.notEqual(
+      whyForDecision({
+        action: inserted[0]!.actionRecommended,
+        decidedAt: "2026-09-13T12:00:00.000Z",
+        metric: inserted[0]!.metric,
+        metricValue: inserted[0]!.metricValue,
+        resultCount: inserted[0]!.resultCount ?? null,
+        metricWindow: inserted[0]!.metricWindow,
+        ruleMatched: inserted[0]!.ruleMatched ?? "",
+        budgetBeforePence: inserted[0]!.budgetBeforePence,
+        budgetAfterPence: inserted[0]!.budgetAfterPence,
+        applied: false,
+        dryRun: true,
+        reasonText: inserted[0]!.reasonText,
+        kind: "dry_run",
+        channel: "meta",
+        scope: "ad_set",
+        adsetId: inserted[0]!.adsetId,
+        adsetName: null,
+      }),
+      "in band",
+    );
+  });
+
+  it("CBO checkout with zero bands is the same named skip, not in-band maintain", async () => {
+    const inserted: DecisionToInsert[] = [];
+    const rules = generateRulesForObjective("initiate_checkout");
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          objective: "initiate_checkout",
+          optimisationStrategy: { mode: "benchmarks", rules, guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({ adsetId: "a", dailyBudgetPence: null }),
+        insightRow({ adsetId: "b", dailyBudgetPence: null }),
+      ],
+      fetchCampaignInsights: async () => ({
+        campaignId: "camp_1",
+        dailyBudgetPence: 15000,
+        lifetimeBudgetPence: null,
+        impressions: 8000,
+        cpc: null,
+        cpm: null,
+        ctr: null,
+        costPerActionType: {
+          "offsite_conversion.fb_pixel_initiate_checkout": 4.2,
+        },
+        actionCountByType: {
+          "offsite_conversion.fb_pixel_initiate_checkout": 9,
+        },
+      }),
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0]!.scope, "campaign");
+    assert.equal(inserted[0]!.actionRecommended, "skip_no_rules");
+    assert.notEqual(inserted[0]!.reasonText, skipNoRulesReason("none"));
+    assert.match(inserted[0]!.reasonText, /no threshold bands/);
+  });
+
+  it("a rule with bands whose value falls in a gap stays maintain, not skip_no_rules", async () => {
+    // Awareness CPM: below 3 scale, 3–6 maintain, above 8 reduce. £7 is
+    // a real gap on eight live drafts. nameEmptyMatchingLadder must not
+    // reclassify it just because ruleMatched is null.
+    const inserted: DecisionToInsert[] = [];
+    const rules = generateRulesForObjective("awareness");
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          objective: "awareness",
+          optimisationStrategy: { mode: "benchmarks", rules, guardrails: GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          cpm: 7,
+          costPerActionType: {},
+          actionCountByType: {},
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+    });
+    await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 1);
+    assert.equal(inserted[0]!.actionRecommended, "maintain");
+    assert.equal(inserted[0]!.ruleMatched, null);
+    assert.equal(inserted[0]!.metricValue, 7);
+    assert.match(inserted[0]!.reasonText, /matched no threshold band/);
   });
 });
 

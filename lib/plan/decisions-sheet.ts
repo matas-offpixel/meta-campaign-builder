@@ -71,6 +71,10 @@ export function decisionHasReading(row: Pick<DecisionRowView, "metricValue">): b
   return row.metricValue != null;
 }
 
+function hasFiniteReading(row: Pick<DecisionRowView, "metricValue">): boolean {
+  return row.metricValue != null && Number.isFinite(row.metricValue);
+}
+
 export function decisionCountUnavailable(
   row: Pick<DecisionRowView, "action" | "resultCount">,
 ): boolean {
@@ -162,40 +166,36 @@ export function whyForDecision(row: DecisionRowView, now: Date = new Date()): st
     return row.action === "scale_up" ? "+0%" : "−0%";
   }
   if (row.action === "pause") return "pause";
-  return "in band";
+  // An action this function has never heard of says its name. Do not
+  // invent "in band" — that asserts a considered hold.
+  return row.action;
 }
 
 export function metricChipText(row: DecisionRowView): string {
   const metric = row.metric || "—";
   const window = row.metricWindow || "24h";
+  const value = row.metricValue;
+  if (hasFiniteReading(row) && value != null) {
+    const n = row.resultCount != null ? String(row.resultCount) : "—";
+    return `${metric} ${formatMetricValue(value)} · ${n} / ${window}`;
+  }
   if (row.action === "metric_unavailable") {
     return `${metric} · — / ${window}`;
   }
-  if (
-    row.action === "insufficient_conversions" ||
-    row.action === "skip_recent_touch" ||
-    row.action === "skipped_cooldown" ||
-    row.action === "skip_dormant" ||
-    row.action === "skip_no_rules" ||
-    row.action.startsWith("skip_")
-  ) {
-    return "—";
-  }
-  if (row.metricValue == null) return "—";
-  const n = row.resultCount != null ? String(row.resultCount) : "—";
-  return `${metric} ${formatMetricValue(row.metricValue)} · ${n} / ${window}`;
+  return "—";
 }
 
 /**
- * The row does not carry a provenance column. Platform readings are
- * `plat`; honest empties are `┄` (`not instrumented`).
+ * The row does not carry a provenance column. A finite reading is
+ * `plat` regardless of the action that followed it; no reading is
+ * `┄` (`not instrumented`).
  */
 export function provenanceForDecision(row: DecisionRowView): VizProvenance {
-  return isHonestEmptyAction(row.action) ? "not instrumented" : "platform-reported";
+  return hasFiniteReading(row) ? "platform-reported" : "not instrumented";
 }
 
 export function provenanceMarkForDecision(row: DecisionRowView): string {
-  return isHonestEmptyAction(row.action) ? "┄" : "plat";
+  return hasFiniteReading(row) ? "plat" : "┄";
 }
 
 export function compactRelative(

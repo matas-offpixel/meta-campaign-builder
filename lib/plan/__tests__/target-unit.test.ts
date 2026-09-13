@@ -32,15 +32,29 @@ const ALL_OPTIMISATION_GOALS: OptimisationGoal[] = [
   "video_views",
 ];
 
-const ALL_RULE_METRICS: RuleMetric[] = [
+/**
+ * Every `RuleMetric` in lib/types.ts. Kept as a literal list so
+ * adding a metric to the union without deciding whether a unit maps
+ * to it fails here rather than silently.
+ */
+const ALL_RULE_METRICS = [
   "cpr",
   "cpc",
   "cpa",
+  "cpic",
   "roas",
   "cpm",
   "lpv_cost",
   "ctr",
-];
+] as const satisfies readonly RuleMetric[];
+
+type _AllRuleMetricsCovered = Exclude<
+  RuleMetric,
+  (typeof ALL_RULE_METRICS)[number]
+> extends never
+  ? true
+  : ["ALL_RULE_METRICS is missing", Exclude<RuleMetric, (typeof ALL_RULE_METRICS)[number]>];
+const _allRuleMetricsCovered: _AllRuleMetricsCovered = true;
 
 describe("PLAN_TARGET_UNIT_TABLE — one table, one direction", () => {
   it("has an entry for every unit and no orphans", () => {
@@ -74,12 +88,22 @@ describe("PLAN_TARGET_UNIT_TABLE — one table, one direction", () => {
   });
 
   it("every ladder metric is a real RuleMetric the evaluator can read", () => {
+    const listed: readonly RuleMetric[] = ALL_RULE_METRICS;
     for (const unit of PLAN_TARGET_UNITS) {
       assert.ok(
-        ALL_RULE_METRICS.includes(ladderMetricForTargetUnit(unit)),
+        listed.includes(ladderMetricForTargetUnit(unit)),
         `${unit} ladder metric is not a RuleMetric`,
       );
     }
+  });
+
+  it("ALL_RULE_METRICS fails if a member of RuleMetric is missing", () => {
+    // The `_allRuleMetricsCovered: true` assignment is the union check.
+    // `node --test` strips types, so `npm test` does not enforce it —
+    // `npm run build` does. The length pin only catches a stale array.
+    void _allRuleMetricsCovered;
+    assert.equal(ALL_RULE_METRICS.length, new Set(ALL_RULE_METRICS).size);
+    assert.equal(ALL_RULE_METRICS.length, 8);
   });
 
   it("only `view` has an implied metric key that is not a RuleMetric", () => {

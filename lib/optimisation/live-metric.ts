@@ -62,15 +62,16 @@ const ACTION_TYPE_CANDIDATES: Partial<Record<RuleMetric, string[]>> = {
 };
 
 /**
- * Initiate checkout reuses the `cpa` RuleMetric (same ladder as purchase)
- * but must not read Purchase action types — this objective exists because
- * Purchase is not on our pixel.
+ * Initiate checkout has its own `cpic` RuleMetric so a purchase ladder
+ * (primary `cpa`) cannot hide on a checkout campaign. Must not read
+ * Purchase action types — this objective exists because Purchase is not
+ * on our pixel.
  */
 const ACTION_TYPE_CANDIDATES_BY_OBJECTIVE: Partial<
   Record<CampaignObjective, Partial<Record<RuleMetric, string[]>>>
 > = {
   initiate_checkout: {
-    cpa: [
+    cpic: [
       "offsite_conversion.fb_pixel_initiate_checkout",
       "omni_initiated_checkout",
       "initiate_checkout",
@@ -96,7 +97,11 @@ const DIRECT_FIELD: Partial<Record<RuleMetric, keyof AdSetInsightMetrics>> = {
  *
  * `roas` (the purchase objective's SECONDARY metric) is deliberately absent
  * from both lookup maps — PR A only evaluates primary metrics (see
- * `lib/optimisation/evaluate.ts` module doc comment).
+ * `lib/optimisation/evaluate.ts` module doc comment). A stray rule whose
+ * metric is neither the primary nor a declared secondary is therefore
+ * never evaluated. `describeOptimisationRulesMismatch` does not flag
+ * those either. Changing the evaluator to walk every enabled rule would
+ * reopen a cloned purchase ROAS pause on checkout.
  */
 export function resolvePrimaryLiveMetric(
   objective: CampaignObjective,

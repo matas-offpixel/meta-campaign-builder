@@ -139,7 +139,7 @@ describe("resolvePrimaryLiveMetric", () => {
       }),
       "3d",
     );
-    assert.deepEqual(result, { name: "cpa", value: 4.2, window: "3d", resultCount: 9 });
+    assert.deepEqual(result, { name: "cpic", value: 4.2, window: "3d", resultCount: 9 });
   });
 
   it("initiate_checkout with only purchase actions returns null", () => {

@@ -21,6 +21,7 @@ import {
   metricChipText,
   presentDecisionRows,
   presetDriftLabel,
+  provenanceForDecision,
   provenanceMarkForDecision,
   whyForDecision,
 } from "../decisions-sheet.ts";
@@ -83,6 +84,81 @@ describe("glyphs and why — every action + honest empties", () => {
     assert.equal(glyphActionFor(decision.action), "scale_down");
     assert.equal(whyForDecision(decision, NOW), "-15% · above ceiling");
     assert.equal(metricChipText(decision), "cpc 0.44 · 88 / 24h");
+  });
+
+  it("ceiling stop maintain — above ceiling, not in band", () => {
+    const decision = row({
+      action: "maintain",
+      decidedAt: "2026-09-04T16:00:00.000Z",
+      metric: "cpr",
+      metricValue: 0.8,
+      resultCount: 20,
+      metricWindow: "7d",
+      ruleMatched: "Below £1 CPR → scale aggressively (+30%)",
+      reasonText:
+        'cpr=0.8 matched "Below £1 CPR → scale aggressively (+30%)" but hit the hard budget ceiling — ceilingBehaviour=stop → maintain.',
+    });
+    assert.equal(whyForDecision(decision, NOW), "above ceiling");
+  });
+
+  it("an unrecognised action says its name, not in band", () => {
+    const decision = row({
+      action: "skip_future_named",
+      decidedAt: "2026-09-04T16:00:00.000Z",
+      reasonText: "a named skip this function has never heard of",
+    });
+    assert.notEqual(whyForDecision(decision, NOW), "in band");
+    assert.equal(whyForDecision(decision, NOW), "skip_future_named");
+  });
+
+  it("empty-band skip_no_rules why-cell is not in band", () => {
+    const decision = row({
+      action: "skip_no_rules",
+      decidedAt: "2026-09-04T16:00:00.000Z",
+      metric: "cpic",
+      metricValue: 4.2,
+      resultCount: 9,
+      metricWindow: "3d",
+      reasonText:
+        "Enabled cpic rule has no threshold bands — skip_no_rules, no action until an operator sets a campaign target.",
+    });
+    assert.notEqual(whyForDecision(decision, NOW), "in band");
+    assert.equal(whyForDecision(decision, NOW), "no rules");
+    assert.equal(metricChipText(decision), "cpic 4.2 · 9 / 3d");
+    assert.equal(provenanceMarkForDecision(decision), "plat");
+    assert.equal(provenanceForDecision(decision), "platform-reported");
+  });
+
+  it("a finite metricValue renders the reading and its provenance whatever the action", () => {
+    for (const action of [
+      "skip_no_rules",
+      "skip_dormant",
+      "insufficient_conversions",
+      "maintain",
+    ]) {
+      const decision = row({
+        action,
+        decidedAt: "2026-09-04T16:00:00.000Z",
+        metric: "cpic",
+        metricValue: 4.2,
+        resultCount: 9,
+        metricWindow: "7d",
+      });
+      assert.equal(metricChipText(decision), "cpic 4.2 · 9 / 7d", action);
+      assert.equal(provenanceMarkForDecision(decision), "plat", action);
+      assert.equal(provenanceForDecision(decision), "platform-reported", action);
+    }
+  });
+
+  it("a row with no reading still renders —", () => {
+    const decision = row({
+      action: "skip_no_rules",
+      decidedAt: "2026-09-04T16:00:00.000Z",
+      reasonText: "Optimisation mode is none — skip_no_rules, no per-ad-set evaluation.",
+    });
+    assert.equal(metricChipText(decision), "—");
+    assert.equal(provenanceMarkForDecision(decision), "┄");
+    assert.equal(provenanceForDecision(decision), "not instrumented");
   });
 
   it("maintain — · in band", () => {

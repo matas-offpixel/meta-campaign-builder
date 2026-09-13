@@ -58,6 +58,8 @@ import {
   OBJECTIVE_METRIC_PRIORITY,
   OBJECTIVE_LABELS,
   describeOptimisationRulesMismatch,
+  describeLadderReadiness,
+  metricLabelFor,
   type OptimisationRulesMismatch,
 } from "@/lib/optimisation-rules";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
@@ -99,6 +101,7 @@ const METRIC_OPTIONS: { value: RuleMetric; label: string }[] = [
   { value: "cpr", label: "CPR (Cost per Registration)" },
   { value: "cpc", label: "CPC (Cost per Click)" },
   { value: "cpa", label: "CPA (Cost per Acquisition)" },
+  { value: "cpic", label: "CPIC (Cost per Initiate Checkout)" },
   { value: "roas", label: "ROAS (Return on Ad Spend)" },
   { value: "cpm", label: "CPM (Cost per 1,000)" },
   { value: "lpv_cost", label: "LPV Cost (Landing Page View)" },
@@ -367,14 +370,30 @@ function RuleCard({
   const handleOverrideToggle = () => {
     const next = !rule.useOverride;
     const updated: OptimisationRule = { ...rule, useOverride: next };
-    if (next && rule.campaignTargetValue == null) {
+    if (next && rule.campaignTargetValue == null && accountBenchmark != null) {
       updated.campaignTargetValue = accountBenchmark;
+    }
+    // No account median to fall back to: leftover bands would still fire
+    // in evaluate.ts while the step called the ladder unarmed.
+    if (!next && accountBenchmark == null) {
+      updated.thresholds = [];
     }
     onUpdate(updated);
   };
 
   const handleTargetChange = (val: number) => {
-    onUpdate({ ...rule, campaignTargetValue: val });
+    const next: OptimisationRule = {
+      ...rule,
+      campaignTargetValue: val,
+      useOverride: true,
+    };
+    if (Number.isFinite(val) && val > 0 && rule.thresholds.length === 0) {
+      next.thresholds = regenerateThresholdsFromTarget(rule.metric, val);
+    }
+    if (!(Number.isFinite(val) && val > 0) && rule.thresholds.length > 0 && accountBenchmark == null) {
+      next.thresholds = [];
+    }
+    onUpdate(next);
   };
 
   const priorityBorderClass = rule.priority === "primary"
@@ -405,7 +424,7 @@ function RuleCard({
             <Badge variant={rule.enabled ? "success" : "default"}>
               {rule.enabled ? "Active" : "Disabled"}
             </Badge>
-            <Badge variant="outline">{METRIC_LABELS[rule.metric] ?? rule.metric}</Badge>
+            <Badge variant="outline">{metricLabelFor(objective, rule.metric)}</Badge>
             <Badge variant="outline">{TIME_WINDOW_LABELS[rule.timeWindow]}</Badge>
             {rule.useOverride && rule.campaignTargetValue != null && (
               <Badge variant="warning" className="text-[10px]">
@@ -482,7 +501,9 @@ function RuleCard({
               <div className="flex-1">
                 <Datum className="text-xs text-muted-foreground mb-0.5">Account benchmark</Datum>
                 <Datum className="text-sm font-medium text-foreground">
-                  {accountBenchmark != null ? `${metricSym}${accountBenchmark}${metricSuffix}` : "—"}
+                  {accountBenchmark != null
+                    ? `${metricSym}${accountBenchmark}${metricSuffix}`
+                    : "no account data yet for this objective"}
                 </Datum>
               </div>
               {rule.useOverride ? (
@@ -507,8 +528,12 @@ function RuleCard({
                 <div className="flex-1">
                   <Datum className="text-xs text-muted-foreground mb-0.5">Active target</Datum>
                   <Datum className="text-sm font-medium text-foreground">
-                    {accountBenchmark != null ? `${metricSym}${accountBenchmark}${metricSuffix}` : "—"}
-                    <span className="text-xs text-muted-foreground ml-1">(account)</span>
+                    {accountBenchmark != null
+                      ? `${metricSym}${accountBenchmark}${metricSuffix}`
+                      : "no account data yet for this objective"}
+                    {accountBenchmark != null ? (
+                      <span className="text-xs text-muted-foreground ml-1">(account)</span>
+                    ) : null}
                   </Datum>
                 </div>
               )}
@@ -1149,8 +1174,8 @@ function PresetStrategyView({
         ) : null}
         <InfoTip className="mb-3" label={PRESET_TIP} />
         {primary ? (
-          <MetricChip label={`ladder metric · ${METRIC_LABELS[primary.metric] ?? primary.metric}`} className="mb-2">
-            {METRIC_LABELS[primary.metric] ?? primary.metric}
+          <MetricChip label={`ladder metric · ${metricLabelFor(objective, primary.metric)}`} className="mb-2">
+            {metricLabelFor(objective, primary.metric)}
           </MetricChip>
         ) : null}
         {primary ? (
@@ -1168,11 +1193,11 @@ function PresetStrategyView({
           </span>
         ) : null}
         {strategy.rules
-          .filter((r) => r.enabled && r.thresholds.length > 0)
+          .filter((r) => r.enabled)
           .map((rule) => (
             <div key={rule.id} className="flex items-center gap-2">
-              <MetricChip label={`metric · ${METRIC_LABELS[rule.metric] ?? rule.metric}`} size="sm">
-                {METRIC_LABELS[rule.metric] ?? rule.metric}
+              <MetricChip label={`metric · ${metricLabelFor(objective, rule.metric)}`} size="sm">
+                {metricLabelFor(objective, rule.metric)}
               </MetricChip>
               <span className="flex-1">
                 <ThresholdBand rule={rule} currentValue={null} />
@@ -1286,6 +1311,10 @@ export function OptimisationStrategy({
           strategy.rules,
           strategy.rulesObjective,
         );
+  const ladderReadiness =
+    strategy.mode === "none"
+      ? { status: "armed" as const }
+      : describeLadderReadiness(objective, strategy.rules);
 
   const updateRule = useCallback(
     (idx: number, rule: OptimisationRule) => {
@@ -1511,6 +1540,14 @@ export function OptimisationStrategy({
                 }
               />
             ) : null}
+            {ladderReadiness.status === "insufficient_evidence" ? (
+              <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <StatusLine tone="alert" className="text-sm text-warning-foreground">
+                  {ladderReadiness.reason}
+                </StatusLine>
+              </div>
+            ) : null}
             {strategy.rules.map((rule, idx) => (
               <RuleCard
                 key={rule.id}
@@ -1628,7 +1665,7 @@ export function OptimisationStrategy({
 
             {/* Rules summary */}
             {strategy.rules
-              .filter((r) => r.enabled && r.thresholds.length > 0)
+              .filter((r) => r.enabled)
               .map((rule) => {
                 const isRoas = rule.metric === "roas";
                 const sym = isRoas ? "" : "£";
@@ -1649,17 +1686,19 @@ export function OptimisationStrategy({
                       </Datum>
                     </div>
                     {/* Benchmark vs target */}
-                    {abm != null && (
-                      <div className="flex items-center gap-3 mb-1.5 text-xs">
-                        <span className="text-muted-foreground">Account: {sym}{abm}{suf}</span>
-                        {hasOverride && (
-                          <>
-                            <span className="text-muted-foreground">→</span>
-                            <span className="text-warning font-medium">Campaign target: {sym}{rule.campaignTargetValue}{suf}</span>
-                          </>
-                        )}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-3 mb-1.5 text-xs">
+                      <span className="text-muted-foreground">
+                        {abm != null
+                          ? `Account: ${sym}${abm}${suf}`
+                          : "no account data yet for this objective"}
+                      </span>
+                      {hasOverride && (
+                        <>
+                          <span className="text-muted-foreground">→</span>
+                          <span className="text-warning font-medium">Campaign target: {sym}{rule.campaignTargetValue}{suf}</span>
+                        </>
+                      )}
+                    </div>
                     <ThresholdBand rule={rule} />
                   </div>
                 );
