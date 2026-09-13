@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 940
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/940
 - **Branch:** `cursor/post-939-debt`
 
 ## Summary
