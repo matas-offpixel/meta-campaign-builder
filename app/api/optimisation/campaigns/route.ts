@@ -35,8 +35,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const count = await countArmedCampaigns(db, viewer);
       return NextResponse.json({ ok: true, count });
     }
-    const campaigns = await loadArmedCampaignRows(db, query, viewer);
-    return NextResponse.json({ ok: true, campaigns });
+    const { campaigns, describeCells } = await loadArmedCampaignRows(db, query, viewer);
+    return NextResponse.json({ ok: true, campaigns, describeCells });
   } catch (err) {
     const status = armedLoadErrorStatus(err);
     if (status >= 500) {

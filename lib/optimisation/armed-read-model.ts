@@ -59,6 +59,7 @@ export type ArmedCampaignRow = {
   controls: ArmedCampaignControls;
   nextTickAt: string;
   impact: ArmedImpact;
+  describeLine: string | null;
 };
 
 const EVENT_ID_UUID =
