@@ -15,6 +15,7 @@ import {
   resolveDraftEventId,
   type CampaignEventIdentity,
 } from "@/lib/campaign-event";
+import { impactFromRows, IMPACT_SERIES_DAYS } from "@/lib/optimisation/armed-impact";
 import {
   armFromDraftFlags,
   assertArmedEventId,
@@ -122,9 +123,14 @@ export async function loadArmedCampaignRows(
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const eventsById = await loadEventsById(sb, eventIds);
-  const decisionsByDraft = await loadLatestDecisions(sb, filtered.map((item) => item.row.id));
+  const draftIds = filtered.map((item) => item.row.id);
+  const [eventsById, decisionsByDraft, impactRowsByDraft] = await Promise.all([
+    loadEventsById(sb, eventIds),
+    loadLatestDecisions(sb, draftIds),
+    loadImpactRows(sb, draftIds),
+  ]);
   const nextTickAt = nextOptimisationTickAt().toISOString();
+  const seriesSince = new Date(Date.now() - IMPACT_SERIES_DAYS * 24 * 60 * 60 * 1000);
 
   const rank: Record<ArmedCampaignRow["arm"], number> = {
     live: 0,
@@ -141,6 +147,11 @@ export async function loadArmedCampaignRows(
       : null;
     const decisions = decisionsByDraft.get(item.row.id) ?? [];
     const draft = item.draft;
+    const controls = controlsFromStrategy(
+      draft.optimisationStrategy,
+      (draft.settings.objective ?? item.row.objective ?? "registration") as CampaignObjective,
+      draft.budgetSchedule?.currency || "GBP",
+    );
     return {
       id: item.row.id,
       name: draft.settings.campaignName || item.row.name || "Untitled campaign",
@@ -169,12 +180,13 @@ export async function loadArmedCampaignRows(
       ),
       lastDecision: lastDecisionFromRows(decisions),
       lastWrite: lastWriteFromRows(decisions),
-      controls: controlsFromStrategy(
-        draft.optimisationStrategy,
-        (draft.settings.objective ?? item.row.objective ?? "registration") as CampaignObjective,
-        draft.budgetSchedule?.currency || "GBP",
-      ),
+      controls,
       nextTickAt,
+      impact: impactFromRows(impactRowsByDraft.get(item.row.id) ?? [], {
+        metric: controls.primaryMetric,
+        metricWindow: controls.primaryMetricWindow,
+        seriesSince,
+      }),
     };
   }).sort((a, b) => rank[a.arm] - rank[b.arm] || a.name.localeCompare(b.name));
 }
@@ -278,5 +290,42 @@ async function loadLatestDecisions(
       if (rows.length > 0) map.set(draftId, rows);
     }),
   );
+  return map;
+}
+
+/**
+ * One fleet scan — applied writes (all time) plus ticks in the last
+ * IMPACT_SERIES_DAYS. Date-only `gte` so the PostgREST `.or()` has no
+ * colons. Aggregates happen in process, not a third per-draft query.
+ *
+ * No index covers `(draft_id, decided_at desc)` — campaign_id / adset_id
+ * / channel only. Seq scan. Say so; do not migrate.
+ */
+async function loadImpactRows(
+  sb: AnySupabase,
+  draftIds: string[],
+): Promise<Map<string, DecisionRowView[]>> {
+  const map = new Map<string, DecisionRowView[]>();
+  if (draftIds.length === 0) return map;
+  const sinceDay = new Date(Date.now() - IMPACT_SERIES_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const { data, error } = await sb
+    .from("campaign_automation_decisions")
+    .select(DECISION_SELECT)
+    .in("draft_id", draftIds)
+    .or(`applied.eq.true,decided_at.gte.${sinceDay}`)
+    .order("decided_at", { ascending: true })
+    .limit(5000);
+  if (error) {
+    console.warn("loadArmedCampaignRows impact:", error.message);
+    return map;
+  }
+  for (const raw of (data ?? []) as Array<DecisionRowInput & { draft_id: string | null }>) {
+    if (!raw.draft_id) continue;
+    const list = map.get(raw.draft_id) ?? [];
+    list.push(presentDecisionRow(raw));
+    map.set(raw.draft_id, list);
+  }
   return map;
 }
