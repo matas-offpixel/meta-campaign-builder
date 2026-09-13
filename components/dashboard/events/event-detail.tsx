@@ -51,6 +51,7 @@ import type {
   EventInsightsPayload,
 } from "@/lib/insights/types";
 import { createDefaultDraft } from "@/lib/campaign-defaults";
+import { ArmedCampaignList } from "@/components/optimisation/armed-campaign-row";
 import { saveDraftToDb } from "@/lib/db/drafts";
 import {
   deleteEventRow,
@@ -196,6 +197,7 @@ export function EventDetail({
   // pill stable across re-renders + satisfy React 19 effect purity.
   const [now] = useState(() => new Date());
   const daysUntil = fmtDaysUntilEvent(event.event_date, now);
+  const [wiredCampaignCount, setWiredCampaignCount] = useState<number | null>(null);
 
   const [reportDatePreset, setReportDatePreset] =
     useState<DatePreset>("maximum");
@@ -410,7 +412,7 @@ export function EventDetail({
 
           <EventDetailTabs
             active={activeTab}
-            campaignsCount={drafts.length}
+            campaignsCount={wiredCampaignCount ?? drafts.length}
             eventKind={event.kind}
           />
 
@@ -618,9 +620,9 @@ export function EventDetail({
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-heading text-base tracking-wide">
                     Linked campaigns
-                    {drafts.length > 0 && (
+                    {(wiredCampaignCount ?? drafts.length) > 0 && (
                       <span className="ml-2 text-xs font-normal text-muted-foreground">
-                        {drafts.length}
+                        {wiredCampaignCount ?? drafts.length}
                       </span>
                     )}
                   </h2>
@@ -634,36 +636,10 @@ export function EventDetail({
                     New
                   </Button>
                 </div>
-                {drafts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No campaigns linked yet. Use &ldquo;Open campaign
-                    creator&rdquo; above to start one.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {drafts.map((d) => (
-                      <Link
-                        key={d.id}
-                        href={`/campaign/${d.id}`}
-                        className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2 transition-colors hover:border-border-strong"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {d.name ?? "Untitled campaign"}
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {d.objective ?? "—"} ·{" "}
-                            {new Date(d.updated_at).toLocaleDateString(
-                              "en-GB",
-                              { day: "numeric", month: "short" },
-                            )}
-                          </p>
-                        </div>
-                        <StatusPill status={d.status} kind="draft" />
-                      </Link>
-                    ))}
-                  </div>
-                )}
+                <ArmedCampaignList
+                  eventId={event.id}
+                  onCount={setWiredCampaignCount}
+                />
               </section>
             </div>
           </TabPanel>

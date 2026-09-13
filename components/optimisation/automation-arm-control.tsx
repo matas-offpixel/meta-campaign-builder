@@ -70,15 +70,25 @@ export function AutomationArmControl({
   currency,
   baseCampaignBudget,
   hardBudgetCeiling,
+  variant = "card",
+  readOnly = false,
+  ownerLabel,
+  initialArm,
+  onArmChange,
 }: {
   draftId: string;
   currency: string;
   baseCampaignBudget: number;
   hardBudgetCeiling: number;
+  variant?: "card" | "row";
+  readOnly?: boolean;
+  ownerLabel?: string;
+  initialArm?: AutomationArm;
+  onArmChange?: (arm: AutomationArm) => void;
   /** @deprecated Decisions moved to the decisions sheet. Ignored. */
   showDecisions?: boolean;
 }) {
-  const [arm, setArm] = useState<AutomationArm>("off");
+  const [arm, setArm] = useState<AutomationArm>(initialArm ?? "off");
   const [writesEnabled, setWritesEnabled] = useState<boolean | null>(null);
   const [lastEvaluatedAt, setLastEvaluatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -88,12 +98,19 @@ export function AutomationArmControl({
   const sym = currencySymbol(currency);
 
   const applyPayload = useCallback((json: GatePayload) => {
-    setArm(armFromFlags(json.enabled === true, json.live === true));
+    const next = armFromFlags(json.enabled === true, json.live === true);
+    setArm(next);
     setWritesEnabled(json.writesEnabled === true);
     setLastEvaluatedAt(json.lastEvaluatedAt ?? null);
+    return next;
   }, []);
 
   useEffect(() => {
+    if (initialArm != null) {
+      setArm(initialArm);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     fetch(`/api/campaigns/${draftId}/automation`)
@@ -116,7 +133,24 @@ export function AutomationArmControl({
     return () => {
       cancelled = true;
     };
-  }, [draftId, applyPayload]);
+  }, [draftId, initialArm, applyPayload]);
+
+  useEffect(() => {
+    if (!confirmOpen || writesEnabled !== null) return;
+    let cancelled = false;
+    fetch(`/api/campaigns/${draftId}/automation`)
+      .then((res) => res.json() as Promise<GatePayload>)
+      .then((json) => {
+        if (cancelled || json.ok === false) return;
+        setWritesEnabled(json.writesEnabled === true);
+      })
+      .catch(() => {
+        /* confirm copy degrades to the unknown-gate sentence */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [confirmOpen, draftId, writesEnabled]);
 
   const writeArm = useCallback(
     async (next: AutomationArm, confirmLive: boolean) => {
@@ -136,7 +170,8 @@ export function AutomationArmControl({
           setError(json.error ?? "Could not save automation state");
           return;
         }
-        applyPayload(json);
+        const nextArm = applyPayload(json);
+        onArmChange?.(nextArm);
         setConfirmOpen(false);
       } catch {
         setError("Could not save automation state");
@@ -144,17 +179,122 @@ export function AutomationArmControl({
         setSaving(false);
       }
     },
-    [draftId, applyPayload],
+    [draftId, applyPayload, onArmChange],
   );
 
   const onSelect = (next: AutomationArm) => {
-    if (next === arm || saving) return;
+    if (readOnly || next === arm || saving) return;
     if (next === "live") {
       setConfirmOpen(true);
       return;
     }
     void writeArm(next, false);
   };
+
+  const armButtons = (
+    <div className={variant === "row" ? "flex flex-wrap gap-1.5" : "grid gap-2"}>
+      {ARMS.map((opt) => {
+        const isActive = arm === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            disabled={readOnly || loading || saving}
+            onClick={() => onSelect(opt.id)}
+            className={
+              variant === "row"
+                ? `rounded-md border px-2.5 py-1 font-medium transition-all ${VIZ_TYPE.label}
+                  ${
+                    isActive
+                      ? "border-primary bg-primary-light"
+                      : "border-border bg-card hover:border-border-strong"
+                  }
+                  ${readOnly ? "cursor-default opacity-80" : ""}`
+                : `flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all
+                  ${
+                    isActive
+                      ? "border-primary bg-primary-light ring-1 ring-primary/20"
+                      : "border-border bg-card hover:border-border-strong hover:bg-muted/40"
+                  }`
+            }
+          >
+            {variant === "card" ? <StatusDot status={ARM_DOT[opt.id]} /> : null}
+            <span className={`${variant === "row" ? VIZ_TYPE.label : VIZ_TYPE.body} font-medium`}>
+              {opt.label}
+            </span>
+            {variant === "card" ? <InfoTip label={opt.tip} /> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  if (variant === "row") {
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+          {readOnly ? (
+            <Badge variant="outline">
+              {arm === "live" ? "Live" : arm === "shadow" ? "Shadow" : "Off"}
+              {ownerLabel ? ` · ${ownerLabel}` : ""}
+            </Badge>
+          ) : (
+            armButtons
+          )}
+          {error ? (
+            <StatusLine tone="alert" className="text-destructive">
+              {error}
+            </StatusLine>
+          ) : null}
+        </div>
+        <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+          <DialogContent>
+            <DialogHeader onClose={() => setConfirmOpen(false)}>
+              <DialogTitle>Arm live writes</DialogTitle>
+              <DialogDescription>
+                Apply budget changes within guardrails. This still requires{" "}
+                <span className="font-mono">ENABLE_OPTIMISATION_WRITES=1</span> on the
+                account
+                {writesEnabled === false
+                  ? " — that gate is currently off, so the tick will keep shadowing."
+                  : writesEnabled
+                    ? " — that gate is currently on."
+                    : "."}
+              </DialogDescription>
+            </DialogHeader>
+            <div className={`rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5 ${VIZ_TYPE.body}`}>
+              <Datum className="mb-1 flex items-center gap-1.5 font-medium text-warning">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Guardrails that will bound writes
+              </Datum>
+              <Datum className="text-foreground">
+                Base ad-set budget {sym}
+                {baseCampaignBudget.toLocaleString()} · hard ceiling {sym}
+                {hardBudgetCeiling.toLocaleString()}
+              </Datum>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={saving}
+                onClick={() => void writeArm("live", true)}
+              >
+                {saving ? "Arming…" : "Confirm Live"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
 
   return (
     <>
@@ -176,29 +316,7 @@ export function AutomationArmControl({
           )}
         </div>
 
-        <div className="grid gap-2">
-          {ARMS.map((opt) => {
-            const isActive = arm === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                disabled={loading || saving}
-                onClick={() => onSelect(opt.id)}
-                className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-all
-                  ${
-                    isActive
-                      ? "border-primary bg-primary-light ring-1 ring-primary/20"
-                      : "border-border bg-card hover:border-border-strong hover:bg-muted/40"
-                  }`}
-              >
-                <StatusDot status={ARM_DOT[opt.id]} />
-                <span className={`${VIZ_TYPE.body} font-medium`}>{opt.label}</span>
-                <InfoTip label={opt.tip} />
-              </button>
-            );
-          })}
-        </div>
+        {armButtons}
 
         <StatusLine className={`mt-3 ${VIZ_TYPE.label} text-muted-foreground`}>
           Last optimisation-tick evaluation: {formatEvaluatedAt(lastEvaluatedAt)}

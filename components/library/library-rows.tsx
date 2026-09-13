@@ -40,7 +40,7 @@ export type { PlanLibraryItem };
 
 export { formatLibraryDate, formatLibraryRelativeDate };
 
-export type LibraryTab = "drafts" | "published" | "archived" | "templates";
+export type LibraryTab = "drafts" | "published" | "archived" | "templates" | "armed";
 
 export const OBJECTIVE_LABELS: Record<string, string> = {
   purchase: "Purchase",
@@ -52,7 +52,7 @@ export const OBJECTIVE_LABELS: Record<string, string> = {
 
 export function filterLibraryCampaigns(
   campaigns: CampaignListItem[],
-  tab: Exclude<LibraryTab, "templates">,
+  tab: Exclude<LibraryTab, "templates" | "armed">,
   search: string,
 ): CampaignListItem[] {
   const statusFilter = tab === "drafts" ? "draft" : tab === "published" ? "published" : "archived";

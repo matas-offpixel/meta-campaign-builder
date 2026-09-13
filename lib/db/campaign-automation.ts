@@ -43,16 +43,17 @@ export async function loadCampaignAutomationState(
   supabase: SupabaseClient,
   draftId: string,
   userId: string,
+  opts?: { asOperator?: boolean },
 ): Promise<CampaignAutomationState | null> {
   const sb = anySb(supabase);
-  const { data, error } = await sb
+  let q = sb
     .from("campaign_drafts")
     .select(
       "id, user_id, status, optimisation_automation_enabled, optimisation_automation_live, draft_json",
     )
-    .eq("id", draftId)
-    .eq("user_id", userId)
-    .maybeSingle();
+    .eq("id", draftId);
+  if (!opts?.asOperator) q = q.eq("user_id", userId);
+  const { data, error } = await q.maybeSingle();
 
   if (error || !data) return null;
   const row = data as DraftFlagRow;
@@ -165,18 +166,18 @@ export async function updateCampaignAutomationFlags(
   draftId: string,
   userId: string,
   flags: { enabled: boolean; live: boolean },
+  opts?: { asOperator?: boolean },
 ): Promise<boolean> {
   const sb = anySb(supabase);
-  const { data, error } = await sb
+  let q = sb
     .from("campaign_drafts")
     .update({
       optimisation_automation_enabled: flags.enabled,
       optimisation_automation_live: flags.live,
     })
-    .eq("id", draftId)
-    .eq("user_id", userId)
-    .select("id")
-    .maybeSingle();
+    .eq("id", draftId);
+  if (!opts?.asOperator) q = q.eq("user_id", userId);
+  const { data, error } = await q.select("id").maybeSingle();
 
   if (error) {
     throw new Error(`updateCampaignAutomationFlags: ${error.message}`);

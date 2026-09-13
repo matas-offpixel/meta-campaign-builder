@@ -21,6 +21,7 @@ import { NewCampaignModal } from "@/components/library/new-campaign-modal";
 import { EventPickDialog } from "@/components/library/event-pick-dialog";
 import { useFetchEvents } from "@/lib/hooks/useEvents";
 import { toPlanEventOption } from "@/lib/campaign-event";
+import { ArmedCampaignList } from "@/components/optimisation/armed-campaign-row";
 import {
   CampaignRow,
   filterLibraryCampaigns,
@@ -103,7 +104,7 @@ export function CampaignLibrary() {
 
   // ─── Filtered lists ──────────────────────────────────────────────────────────
   const filteredCampaigns = useMemo(() => {
-    if (tab === "templates") return [];
+    if (tab === "templates" || tab === "armed") return [];
     return filterLibraryCampaigns(campaigns, tab, search);
   }, [campaigns, tab, search]);
 
@@ -219,6 +220,7 @@ export function CampaignLibrary() {
     { id: "drafts", label: "Drafts", count: campaigns.filter((c) => c.status === "draft").length },
     { id: "published", label: "Published", count: campaigns.filter((c) => c.status === "published").length },
     { id: "archived", label: "Archived", count: campaigns.filter((c) => c.status === "archived").length },
+    { id: "armed", label: "Armed", count: 0 },
     { id: "templates", label: "Templates", count: templates.length },
   ];
 
@@ -283,6 +285,8 @@ export function CampaignLibrary() {
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
+          ) : tab === "armed" ? (
+            <ArmedCampaignList />
           ) : tab === "templates" ? (
             /* ───── Templates tab ───── */
             !templatesLoaded ? (
