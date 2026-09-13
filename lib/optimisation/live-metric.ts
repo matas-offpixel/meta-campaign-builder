@@ -97,7 +97,11 @@ const DIRECT_FIELD: Partial<Record<RuleMetric, keyof AdSetInsightMetrics>> = {
  *
  * `roas` (the purchase objective's SECONDARY metric) is deliberately absent
  * from both lookup maps — PR A only evaluates primary metrics (see
- * `lib/optimisation/evaluate.ts` module doc comment).
+ * `lib/optimisation/evaluate.ts` module doc comment). A stray rule whose
+ * metric is neither the primary nor a declared secondary is therefore
+ * never evaluated. `describeOptimisationRulesMismatch` does not flag
+ * those either. Changing the evaluator to walk every enabled rule would
+ * reopen a cloned purchase ROAS pause on checkout.
  */
 export function resolvePrimaryLiveMetric(
   objective: CampaignObjective,

@@ -162,7 +162,9 @@ export function whyForDecision(row: DecisionRowView, now: Date = new Date()): st
     return row.action === "scale_up" ? "+0%" : "−0%";
   }
   if (row.action === "pause") return "pause";
-  return "in band";
+  // An action this function has never heard of says its name. Do not
+  // invent "in band" — that asserts a considered hold.
+  return row.action;
 }
 
 export function metricChipText(row: DecisionRowView): string {

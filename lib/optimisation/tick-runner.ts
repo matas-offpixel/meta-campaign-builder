@@ -58,6 +58,7 @@ import {
   skipNoRulesReason,
   unsupportedNoDailyBudgetReason,
   type AutomationAction,
+  type EvaluateAdSetResult,
   type GuardrailNote,
 } from "./evaluate.ts";
 import { resolvePrimaryLiveMetric } from "./live-metric.ts";
@@ -775,6 +776,42 @@ async function recordEligibilitySkip(
   summary.decisionsByAction[skip.action] = (summary.decisionsByAction[skip.action] ?? 0) + 1;
 }
 
+/**
+ * evaluate.ts names an empty matching ladder `maintain` ("matched no
+ * threshold"). The decisions sheet then prints "in band". Rewrite here —
+ * same find predicate evaluate.ts uses — so a designed-empty checkout
+ * ladder is `skip_no_rules` with its own reason, not a considered hold.
+ *
+ * Does not call `skipNoRulesReason`: that string means mode none / no
+ * enabled rules, and here a rule is enabled with no bands. The reason
+ * text is what keeps those two distinguishable.
+ *
+ * A stray rule whose metric is neither the objective's primary nor a
+ * declared secondary is not evaluated: the tick only feeds the primary
+ * (`resolvePrimaryLiveMetric`). `describeOptimisationRulesMismatch`
+ * also does not flag stray secondaries. That assumption is what keeps a
+ * cloned purchase ROAS pause off a checkout campaign. Changing the
+ * evaluator to walk every enabled rule would reopen it.
+ */
+function nameEmptyMatchingLadder(
+  result: EvaluateAdSetResult,
+  rules: OptimisationStrategySettings["rules"],
+  liveMetricName: RuleMetric,
+): { actionRecommended: AutomationAction; reasonText: string } {
+  if (result.action !== "maintain" || result.ruleMatched !== null) {
+    return { actionRecommended: result.action, reasonText: result.reason };
+  }
+  const matching = rules.find((r) => r.enabled && r.metric === liveMetricName);
+  if (matching?.thresholds.length === 0) {
+    return {
+      actionRecommended: "skip_no_rules",
+      reasonText:
+        `Enabled ${liveMetricName} rule has no threshold bands — skip_no_rules, no action until an operator sets a campaign target.`,
+    };
+  }
+  return { actionRecommended: result.action, reasonText: result.reason };
+}
+
 function buildDecision(
   campaign: CampaignAutomationInput,
   row: AdSetInsightRow,
@@ -840,17 +877,23 @@ function buildDecision(
     now,
   });
 
+  const named = nameEmptyMatchingLadder(
+    result,
+    campaign.optimisationStrategy.rules,
+    liveMetric.name,
+  );
+
   return {
     ...base,
     metricValue: liveMetric.value,
     resultCount: liveMetric.resultCount,
     ruleMatched: result.ruleMatched,
-    actionRecommended: result.action,
+    actionRecommended: named.actionRecommended,
     actionDelta: result.deltaPercent,
     budgetBeforePence: row.dailyBudgetPence,
     budgetAfterPence: result.budgetAfterPence,
     guardrailNote: result.guardrailNote,
-    reasonText: result.reason,
+    reasonText: named.reasonText,
   };
 }
 
@@ -937,16 +980,22 @@ function buildCampaignDecision(
     campaignDailyCeilingPence,
   });
 
+  const named = nameEmptyMatchingLadder(
+    result,
+    campaign.optimisationStrategy.rules,
+    liveMetric.name,
+  );
+
   return {
     ...base,
     metricValue: liveMetric.value,
     resultCount: liveMetric.resultCount,
     ruleMatched: result.ruleMatched,
-    actionRecommended: result.action,
+    actionRecommended: named.actionRecommended,
     actionDelta: result.deltaPercent,
     budgetBeforePence: dailyBudgetPence,
     budgetAfterPence: result.budgetAfterPence,
     guardrailNote: result.guardrailNote,
-    reasonText: result.reason,
+    reasonText: named.reasonText,
   };
 }

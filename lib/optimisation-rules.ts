@@ -167,7 +167,12 @@ function initiateCheckoutRules(): OptimisationRule[] {
       priority: "primary",
       useOverride: false,
       // No observed median, no invented bands. regenerateThresholdsFromTarget
-      // builds the ladder once the operator sets campaignTargetValue.
+      // builds the ladder once the operator sets campaignTargetValue on this
+      // step. materialiseStrategy cannot: it maps the preset rule's
+      // thresholds, and [].map is []. PLAN_TARGET_UNIT_TABLE has no checkout
+      // unit today, so the canvas cannot express a target; whoever adds one
+      // will get a silently empty ladder unless they also give the seed bands
+      // or teach materialise to call regenerateThresholdsFromTarget.
       thresholds: [],
     },
   ];
@@ -309,9 +314,11 @@ function primaryOptimisationRule(
  * metric. Used to default `rulesObjective` on load. Not a match test —
  * {@link describeOptimisationRulesMismatch} is the match test.
  *
- * A primary that more than one objective declares (`cpa` today) cannot
- * identify an objective. Presence or absence of a secondary is not a
- * tiebreak — it guesses, and the guess gets persisted.
+ * The primary metric identifies the objective when exactly one objective
+ * declares it. `cpa` is purchase and `cpic` is checkout — they no longer
+ * collide. If two objectives ever share a primary again, this returns
+ * null rather than guessing. Presence or absence of a secondary is not
+ * a tiebreak — it guesses, and the guess gets persisted.
  */
 export function inferRulesObjectiveFromRules(
   rules: readonly OptimisationRule[],
@@ -328,7 +335,12 @@ export function inferRulesObjectiveFromRules(
 
 /**
  * One opinion about whether stored rules belong to `objective`.
- * Empty rules are not a mismatch — absent is not wrong.
+ * Empty rules are not a mismatch — absent is not wrong. A stray rule
+ * whose metric is neither the primary nor the declared secondary is
+ * not a mismatch either — only a wrong primary, a missing secondary,
+ * or a disagreeing stamp. The tick only feeds the primary, so a stray
+ * ROAS rule on checkout is not evaluated; that assumption is what
+ * keeps the clone-path pause closed.
  */
 export function describeOptimisationRulesMismatch(
   objective: CampaignObjective,

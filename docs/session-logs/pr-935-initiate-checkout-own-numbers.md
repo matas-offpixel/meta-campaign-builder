@@ -21,11 +21,24 @@
 - `lib/__tests__/initiate-checkout-ladder.test.ts` — the test plan
 - Did not touch `components/plan/**`, `evaluate.ts` / `apply.ts` / `gates.ts`, or the four stale drafts
 
+## Review round 2 — fixed
+
+| Finding | File | Test that pins it |
+|---|---|---|
+| Empty checkout ladder wrote `maintain`, so the why-cell said "in band" | `lib/optimisation/tick-runner.ts` `nameEmptyMatchingLadder` (ABO + CBO) | `enabled cpic rule with zero bands is skip_no_rules, not in-band maintain` |
+| `whyForDecision` fallthrough invented "in band" for any unknown action | `lib/plan/decisions-sheet.ts` | `an unrecognised action says its name, not in band` |
+| Ceiling-stop maintain still has to read "above ceiling" | same | `ceiling stop maintain — above ceiling, not in band` |
+| `ALL_RULE_METRICS` silently dropped `cpic` | `lib/plan/__tests__/target-unit.test.ts` | `ALL_RULE_METRICS fails if a member of RuleMetric is missing` |
+| `inferRulesObjectiveFromRules` doc still claimed a `cpa` collision | `lib/optimisation-rules.ts` | (comment; four flipped mismatch tests remain) |
+| Migration 151 metric comment listed the old six | `supabase/migrations/151_campaign_automation_decisions.sql` | (comment only; no CHECK) |
+| Preset view hid the empty checkout rule the editor now shows | `components/steps/optimisation-strategy.tsx` | (aligned to `.filter((r) => r.enabled)`) |
+| `materialiseStrategy` cannot arm checkout even with a target | `initiateCheckoutRules()` comment + named test | `materialiseStrategy cannot arm a checkout ladder even once a target is set` |
+
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5572 pass, 4 skipped)
+- [x] `npm test` (5580 pass, 4 skipped)
 
 ## Notes
 
@@ -34,3 +47,6 @@
 - Empty checkout bands make `evaluate.ts` return `maintain` ("matched no threshold"). The step names that `insufficient_evidence`. Renaming the evaluate action would be an evaluate.ts change.
 - `initiateCheckoutRules()` previously copied purchase 10/18/30/45. We did not invent replacement numbers. `client_funnel_benchmarks` is empty; no inline checkout→purchase rate.
 - `ENABLE_OPTIMISATION_WRITES` unchanged. Do this before #929's pause writes flip.
+- Round 2: the runner authors `skip_no_rules` for an enabled rule with no bands. Reason text names the empty bands, so it is distinguishable from `mode: "none"`. `evaluate.ts` still returns `maintain`; the rewrite is in `tick-runner.ts`, same as `recordEligibilitySkip`.
+- "A purchase campaign is byte-identical" is not quite true: `migrateDraft` now stamps `rulesObjective: "purchase"` on those 75 drafts. The rules array itself is untouched; the snapshot pins it. The stamp is correct rather than absent.
+- `describeOptimisationRulesMismatch` does not flag a stray rule whose metric is neither the primary nor the declared secondary. Unreachable while the tick feeds one metric; written on the helper, on `resolvePrimaryLiveMetric`, and on `nameEmptyMatchingLadder`.

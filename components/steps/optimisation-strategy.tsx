@@ -1193,7 +1193,7 @@ function PresetStrategyView({
           </span>
         ) : null}
         {strategy.rules
-          .filter((r) => r.enabled && r.thresholds.length > 0)
+          .filter((r) => r.enabled)
           .map((rule) => (
             <div key={rule.id} className="flex items-center gap-2">
               <MetricChip label={`metric · ${metricLabelFor(objective, rule.metric)}`} size="sm">

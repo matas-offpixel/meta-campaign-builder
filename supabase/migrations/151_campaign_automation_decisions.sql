@@ -27,7 +27,7 @@ create table if not exists campaign_automation_decisions (
   adset_id           text not null,          -- Meta ad set id (LaunchSummary.adSetsCreated[].metaAdSetId)
   ad_account_id      text not null,          -- act_-prefixed, matches campaign_drafts.ad_account_id
   draft_id           uuid references campaign_drafts(id) on delete set null,
-  metric             text not null,          -- 'cpr' | 'cpc' | 'cpm' | 'ctr' | 'cpa' | 'lpv_cost' (RuleMetric)
+  metric             text not null,          -- 'cpr' | 'cpc' | 'cpm' | 'ctr' | 'cpa' | 'cpic' | 'roas' | 'lpv_cost' (RuleMetric)
   metric_value       numeric,                -- e.g. 2.35 (major currency units, e.g. £)
   metric_window      text not null,          -- '24h' | '3d' | '7d' (RuleTimeWindow)
   rule_matched       text,                   -- e.g. a threshold's `label`, or null if no band matched

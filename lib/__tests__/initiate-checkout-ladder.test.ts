@@ -12,7 +12,7 @@ import {
 } from "../optimisation-rules.ts";
 import { evaluateAdSet } from "../optimisation/evaluate.ts";
 import { resolvePrimaryLiveMetric } from "../optimisation/live-metric.ts";
-import { industrySeedPreset, ruleToPresetRule } from "../optimisation/presets.ts";
+import { industrySeedPreset, materialiseStrategy, ruleToPresetRule } from "../optimisation/presets.ts";
 import type { BudgetGuardrails, OptimisationRule } from "../types.ts";
 
 const GUARDRAILS: BudgetGuardrails = {
@@ -196,5 +196,18 @@ describe("initiate_checkout has its own numbers — or honestly none", () => {
     assert.equal(seed.rules[0]?.metric, "cpic");
     assert.deepEqual(seed.rules[0]?.thresholds, []);
     assert.equal(seed.defaultArm, "off");
+  });
+
+  it("materialiseStrategy cannot arm a checkout ladder even once a target is set", () => {
+    const seed = industrySeedPreset("client-a", "initiate_checkout");
+    const strategy = materialiseStrategy(seed, {
+      value: 6,
+      unit: null,
+      budgetAmount: 100,
+      materialisedAt: "2026-09-13T12:00:00.000Z",
+    });
+    assert.equal(strategy.rules[0]?.metric, "cpic");
+    assert.deepEqual(strategy.rules[0]?.thresholds, []);
+    assert.equal(strategy.preset?.targetValue, 6);
   });
 });
