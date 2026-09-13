@@ -47,6 +47,10 @@ import {
 } from "../drawer.ts";
 import { planTargetChip } from "../canvas-inputs.ts";
 import { VIZ_PROVENANCE_MARK } from "../../viz/tokens.ts";
+import {
+  MAX_PAUSES_PER_RUN,
+  MIN_PAUSE_CONVERSION_RESULT_COUNT,
+} from "../../optimisation/apply.ts";
 import { blockerBadgeAfterGesture } from "../../viz/blockers.ts";
 import { FIXTURE_HREFS, basePlan, blockingIssues, factsBundle } from "./canvas-fixtures.ts";
 
@@ -78,6 +82,34 @@ function contentDiffByFile(diff: string): Map<string, { added: string[]; removed
     else if (line.startsWith("-")) current.removed.push(line.slice(1));
   }
   return out;
+}
+
+function extractNamedFunction(src: string, name: string): string {
+  const match = new RegExp(
+    `(?:export\\s+)?(?:async\\s+)?function\\s+${name}\\s*\\(`,
+  ).exec(src);
+  assert.ok(match, `missing function ${name}`);
+  let i = match.index + match[0].length;
+  while (i < src.length && src[i] !== "{") i += 1;
+  let depth = 0;
+  for (; i < src.length; i += 1) {
+    if (src[i] === "{") depth += 1;
+    else if (src[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return src.slice(match.index, i + 1);
+    }
+  }
+  assert.fail(`unclosed function ${name}`);
+}
+
+function doesNotWriteActiveStatus(src: string, label: string): void {
+  assert.doesNotMatch(src, /status:\s*[`'"]ACTIVE[`'"]/, `${label}: quoted ACTIVE`);
+  assert.doesNotMatch(src, /status:\s*ACTIVE\b/, `${label}: bare ACTIVE`);
+  assert.doesNotMatch(
+    src,
+    /(?:\{|,)\s*status:\s*(?!["'`]?PAUSED\b)[A-Za-z_$][\w$]*/,
+    `${label}: status set from a variable`,
+  );
 }
 
 /**
@@ -1298,7 +1330,7 @@ describe("write paths are untouched", () => {
     assert.equal(diff.trim(), "", diff);
   });
 
-  it("gates.ts and apply.ts have no diff against main", () => {
+  it("gates.ts and apply.ts only change the pause path and the fourth gate", () => {
     let base = "";
     for (const ref of ["origin/main", "main"] as const) {
       try {
@@ -1316,7 +1348,90 @@ describe("write paths are untouched", () => {
       `git diff ${base} -- lib/optimisation/gates.ts lib/optimisation/apply.ts`,
       { encoding: "utf8" },
     );
-    assert.equal(diff.trim(), "", diff);
+    assert.notEqual(
+      diff.trim(),
+      "",
+      "this PR must change apply.ts / gates.ts — an empty diff would skip the freeze",
+    );
+
+    const mainApply = execSync(`git show ${base}:lib/optimisation/apply.ts`, {
+      encoding: "utf8",
+    });
+    const mainGates = execSync(`git show ${base}:lib/optimisation/gates.ts`, {
+      encoding: "utf8",
+    });
+    const applySrc = read("lib/optimisation/apply.ts");
+    const gatesSrc = read("lib/optimisation/gates.ts");
+
+    // applyOptimisationDecision is the scale path. It is byte-identical to
+    // main — the pause ladder lives in applyOptimisationOrPause.
+    assert.equal(
+      extractNamedFunction(applySrc, "applyOptimisationDecision"),
+      extractNamedFunction(mainApply, "applyOptimisationDecision"),
+      "applyOptimisationDecision changed; the pause branch must live in the wrapper",
+    );
+    assert.equal(
+      extractNamedFunction(applySrc, "wouldWriteBudget"),
+      extractNamedFunction(mainApply, "wouldWriteBudget"),
+    );
+    assert.equal(
+      extractNamedFunction(gatesSrc, "optimisationDryRunGates"),
+      extractNamedFunction(mainGates, "optimisationDryRunGates"),
+    );
+    assert.equal(
+      extractNamedFunction(gatesSrc, "shouldOptimisationDryRun"),
+      extractNamedFunction(mainGates, "shouldOptimisationDryRun"),
+    );
+    assert.equal(
+      extractNamedFunction(gatesSrc, "isOptimisationWritesEnabledFromEnv"),
+      extractNamedFunction(mainGates, "isOptimisationWritesEnabledFromEnv"),
+    );
+
+    assert.match(applySrc, /export async function applyOptimisationOrPause/);
+    assert.match(applySrc, /async function applyPauseDecision/);
+    assert.match(gatesSrc, /export function optimisationPauseDryRunGates/);
+    doesNotWriteActiveStatus(applySrc, "apply.ts");
+    const routeSrc = read("app/api/cron/optimisation-tick/route.ts");
+    assert.doesNotMatch(routeSrc, /status:\s*[`'"]ACTIVE[`'"]/);
+    assert.doesNotMatch(routeSrc, /status:\s*ACTIVE\b/);
+    assert.match(routeSrc, /graphPostWithToken\(`\/\$\{adsetId\}`, \{ status: "PAUSED" \}/);
+
+    assert.equal(MAX_PAUSES_PER_RUN, 2);
+    assert.equal(MIN_PAUSE_CONVERSION_RESULT_COUNT, 15);
+    assert.match(applySrc, /export const MAX_PAUSES_PER_RUN = 2;/);
+    assert.match(applySrc, /export const MIN_PAUSE_CONVERSION_RESULT_COUNT = 15;/);
+
+    function exportedNames(src: string): Set<string> {
+      const names = new Set<string>();
+      for (const m of src.matchAll(/export (?:async )?function (\w+)/g)) {
+        names.add(m[1]!);
+      }
+      for (const m of src.matchAll(/export const (\w+)/g)) names.add(m[1]!);
+      for (const m of src.matchAll(/export type (\w+)/g)) names.add(m[1]!);
+      for (const m of src.matchAll(/export interface (\w+)/g)) names.add(m[1]!);
+      return names;
+    }
+    const addedApply = [...exportedNames(applySrc)].filter((n) => !exportedNames(mainApply).has(n));
+    assert.deepEqual(
+      addedApply.sort(),
+      [
+        "MAX_PAUSES_PER_RUN",
+        "MIN_PAUSE_CONVERSION_RESULT_COUNT",
+        "applyOptimisationOrPause",
+        "isCampaignWidePauseBreach",
+        "isDeliveringAdSetStatus",
+      ].sort(),
+    );
+    const addedGates = [...exportedNames(gatesSrc)].filter((n) => !exportedNames(mainGates).has(n));
+    assert.deepEqual(
+      addedGates.sort(),
+      [
+        "OptimisationPauseDryRunGates",
+        "OptimisationPauseDryRunReason",
+        "isOptimisationPauseWritesEnabledFromEnv",
+        "optimisationPauseDryRunGates",
+      ].sort(),
+    );
   });
 
   it("the plan canvas, frames, and Meta launch route have no diff against main", () => {

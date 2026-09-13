@@ -5,11 +5,14 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
+  isOptimisationPauseWritesEnabledFromEnv,
   isOptimisationWritesEnabledFromEnv,
   optimisationDryRunGates,
+  optimisationPauseDryRunGates,
 } from "../gates.ts";
 
 describe("optimisationDryRunGates — 8-row truth table", () => {
@@ -45,5 +48,70 @@ describe("isOptimisationWritesEnabledFromEnv", () => {
     assert.equal(isOptimisationWritesEnabledFromEnv({ ENABLE_OPTIMISATION_WRITES: "true" }), false);
     assert.equal(isOptimisationWritesEnabledFromEnv({ ENABLE_OPTIMISATION_WRITES: "0" }), false);
     assert.equal(isOptimisationWritesEnabledFromEnv({}), false);
+  });
+});
+
+describe("isOptimisationPauseWritesEnabledFromEnv", () => {
+  it("is true only for exact \"1\"", () => {
+    assert.equal(
+      isOptimisationPauseWritesEnabledFromEnv({ ENABLE_OPTIMISATION_PAUSE_WRITES: "1" }),
+      true,
+    );
+    assert.equal(
+      isOptimisationPauseWritesEnabledFromEnv({ ENABLE_OPTIMISATION_PAUSE_WRITES: "true" }),
+      false,
+    );
+    assert.equal(
+      isOptimisationPauseWritesEnabledFromEnv({ ENABLE_OPTIMISATION_PAUSE_WRITES: "0" }),
+      false,
+    );
+    assert.equal(isOptimisationPauseWritesEnabledFromEnv({}), false);
+  });
+});
+
+describe("optimisationPauseDryRunGates — 8-row table × fourth gate", () => {
+  const threeGateRows: Array<{
+    writes: boolean;
+    enabled: boolean;
+    live: boolean;
+    dryRun: boolean;
+    reason: string | null;
+  }> = [
+    { writes: false, enabled: false, live: false, dryRun: true, reason: "writes_killswitch" },
+    { writes: false, enabled: false, live: true, dryRun: true, reason: "writes_killswitch" },
+    { writes: false, enabled: true, live: false, dryRun: true, reason: "writes_killswitch" },
+    { writes: false, enabled: true, live: true, dryRun: true, reason: "writes_killswitch" },
+    { writes: true, enabled: false, live: false, dryRun: true, reason: "not_enabled" },
+    { writes: true, enabled: false, live: true, dryRun: true, reason: "not_enabled" },
+    { writes: true, enabled: true, live: false, dryRun: true, reason: "not_live" },
+    { writes: true, enabled: true, live: true, dryRun: false, reason: null },
+  ];
+
+  for (const row of threeGateRows) {
+    it(`pauseWrites=false writes=${row.writes} enabled=${row.enabled} live=${row.live} → dryRun=true reason=${row.reason ?? "pause_writes_killswitch"}`, () => {
+      const g = optimisationPauseDryRunGates(row.writes, row.enabled, row.live, false);
+      assert.equal(g.dryRun, true);
+      assert.equal(g.reason, row.reason ?? "pause_writes_killswitch");
+    });
+  }
+
+  for (const row of threeGateRows) {
+    it(`pauseWrites=true writes=${row.writes} enabled=${row.enabled} live=${row.live} → dryRun=${row.dryRun} reason=${row.reason}`, () => {
+      const g = optimisationPauseDryRunGates(row.writes, row.enabled, row.live, true);
+      assert.equal(g.dryRun, row.dryRun);
+      assert.equal(g.reason, row.reason);
+    });
+  }
+});
+
+describe("optimisationPauseDryRunGates is what production calls", () => {
+  it("the tick runner and the cron route call the helper, not a sibling", () => {
+    const runner = readFileSync("lib/optimisation/tick-runner.ts", "utf8");
+    const route = readFileSync("app/api/cron/optimisation-tick/route.ts", "utf8");
+    const apply = readFileSync("lib/optimisation/apply.ts", "utf8");
+    assert.match(runner, /optimisationPauseDryRunGates\s*\(/);
+    assert.match(route, /isOptimisationPauseWritesEnabledFromEnv\s*\(/);
+    assert.match(route, /pauseWritesEnabled/);
+    assert.doesNotMatch(apply, /function\s+optimisationPauseDryRun/);
   });
 });
