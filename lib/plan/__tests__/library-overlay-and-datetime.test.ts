@@ -91,10 +91,19 @@ function sourceDraft(): CampaignDraft {
 describe("cloneCampaignDraft + overlayPlanSharedInputs", () => {
   it("duplicates via nextDuplicateName and never mutates the source", () => {
     const source = sourceDraft();
+    source.launchSummary = {
+      launchRunId: "run-old",
+      metaCampaignId: "camp-1",
+      adSetLaunchResults: {
+        "as-1": { launchStatus: "created", metaAdSetId: "120399" },
+      },
+    };
     const snapshot = structuredClone(source);
     const copy = cloneCampaignDraft(source, [source.settings.campaignName]);
     assert.notEqual(copy.id, source.id);
     assert.equal(copy.status, "draft");
+    assert.equal(copy.launchSummary, undefined);
+    assert.equal(source.launchSummary?.metaCampaignId, "camp-1");
     assert.equal(
       copy.settings.campaignName,
       nextDuplicateName("DOD Kayode", ["DOD Kayode"]),

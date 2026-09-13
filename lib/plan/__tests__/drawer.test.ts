@@ -1457,6 +1457,24 @@ describe("write paths are untouched", () => {
     );
     const byFile = contentDiffByFile(diff);
     for (const [file, { added, removed }] of byFile) {
+      if (file === "app/api/meta/launch-campaign/route.ts") {
+        assert.equal(
+          removed.length,
+          0,
+          `${file}: launch route may only add launched_ad_sets bookkeeping — ${removed.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
+        );
+        const bookkeeping = added.map((line) => line.trim()).filter(Boolean);
+        assert.ok(
+          bookkeeping.some((line) => line.includes("bindLaunchAdSetRecorder")),
+          `${file}: expected bindLaunchAdSetRecorder`,
+        );
+        assert.equal(
+          bookkeeping.filter((line) => line.includes("recordCreatedAdSet(")).length,
+          6,
+          `${file}: expected six recordCreatedAdSet calls after successful creates`,
+        );
+        continue;
+      }
       assert.ok(
         (allowedDrawers as readonly string[]).includes(file),
         `${file} changed; the freeze does not allow it`,

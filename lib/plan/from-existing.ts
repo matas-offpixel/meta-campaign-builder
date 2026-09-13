@@ -42,6 +42,7 @@ export function cloneCampaignDraft(
     status: "draft",
     createdAt: now,
     updatedAt: now,
+    launchSummary: undefined,
   };
 }
 

@@ -5,6 +5,7 @@ import {
   validateAdSetPayloads,
   type CreateAdSetsRequest,
 } from "@/lib/meta/adset";
+import { recordLaunchedAdSet } from "@/lib/launched-ad-sets/record";
 
 export async function POST(request: Request) {
   // ── 1. Auth ───────────────────────────────────────────────────────────────
@@ -66,6 +67,29 @@ export async function POST(request: Request) {
   // ── 6. Call Meta (per-adset, non-atomic batch) ────────────────────────────
   try {
     const result = await createMetaAdSets(metaAdAccountId, payloads);
+
+    const remaining = [...(adSetSuggestions ?? [])];
+    const launchRunId = crypto.randomUUID();
+    for (const created of result.created) {
+      const idx = remaining.findIndex((row) => row.name === created.name);
+      const suggestion = idx >= 0 ? remaining.splice(idx, 1)[0] : undefined;
+      if (!suggestion || !created.metaAdSetId) continue;
+      await recordLaunchedAdSet(supabase, {
+        metaAdsetId: created.metaAdSetId,
+        metaCampaignId,
+        adAccountId: metaAdAccountId,
+        draftId: null,
+        userId: user.id,
+        clientId: null,
+        eventId: null,
+        launchRunId,
+        objective,
+        phaseAtLaunch: null,
+        descriptorSource: "launch",
+        suggestion,
+        audiences: audiences ?? null,
+      });
+    }
 
     const status = result.created.length > 0 ? 201 : 502;
     return Response.json(result, { status });

@@ -91,7 +91,14 @@ export function ArmedCampaignRow({
           <ImpactLines row={row} />
           {row.eventLabel ? (
             <Datum className="mt-0.5 text-muted-foreground">
-              Wired to {row.eventLabel}
+              Wired to{" "}
+              {row.eventId ? (
+                <Link href={`/events/${row.eventId}`} className="hover:underline">
+                  {row.eventLabel}
+                </Link>
+              ) : (
+                row.eventLabel
+              )}
             </Datum>
           ) : null}
           {row.eventWarning ? (

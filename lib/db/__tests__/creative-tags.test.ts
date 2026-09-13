@@ -164,6 +164,46 @@ describe("creative tag assignments", () => {
     });
   });
 
+  it("spreads Meta ids only when the autotagger has them", async () => {
+    const { client, rec } = makeStub({
+      data: {
+        id: "assignment-1",
+        user_id: USER_ID,
+        event_id: EVENT_ID,
+        creative_name: "EVT - Hero - v1",
+        tag_id: TAG_ID,
+        source: "ai",
+        confidence: 0.9,
+        model_version: null,
+        created_at: "2026-04-30T00:00:00Z",
+        updated_at: "2026-04-30T00:00:00Z",
+      },
+      error: null,
+    });
+
+    await upsertCreativeTagAssignment(client, {
+      userId: USER_ID,
+      eventId: EVENT_ID,
+      creativeName: "EVT - Hero - v1",
+      tagId: TAG_ID,
+      source: "ai",
+      confidence: 0.9,
+      metaAdId: "120111",
+      metaCreativeId: "120222",
+    });
+
+    assert.deepEqual(rec.upserts[0], {
+      user_id: USER_ID,
+      event_id: EVENT_ID,
+      creative_name: "EVT - Hero - v1",
+      tag_id: TAG_ID,
+      source: "ai",
+      confidence: 0.9,
+      meta_ad_id: "120111",
+      meta_creative_id: "120222",
+    });
+  });
+
   it("lists all assignments for an event and optional creative", async () => {
     const { client, rec } = makeStub({ data: [], error: null });
 

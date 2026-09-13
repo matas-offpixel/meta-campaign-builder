@@ -151,6 +151,7 @@ export function buildDuplicatedCampaign(
     status: "draft",
     createdAt: now,
     updatedAt: now,
+    launchSummary: undefined,
   };
 }
 
