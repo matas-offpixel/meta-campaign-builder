@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { createDefaultDraft } from "../../campaign-defaults.ts";
@@ -171,6 +172,15 @@ describe("setCampaignTarget does not rewrite the ladder", () => {
 });
 
 describe("armed eventId", () => {
+  it("the Armed row's event name is a link to that event's page", () => {
+    const src = readFileSync(
+      new URL("../../../components/optimisation/armed-campaign-row.tsx", import.meta.url),
+      "utf8",
+    );
+    assert.match(src, /Wired to/);
+    assert.match(src, /href=\{`\/events\/\$\{row\.eventId\}`\}/);
+  });
+
   it("a comma is rejected before the PostgREST filter, as 400", () => {
     assert.throws(() => assertArmedEventId("abc,or(1)"), /uuid/);
     assert.equal(

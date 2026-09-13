@@ -671,6 +671,11 @@ async function runAutoTagForSnapshot(args: {
 
   const uniqueHashes = new Set<string>();
   const toUpsert: UpsertCreativeTagAssignmentArgs[] = [];
+  const groupByName = new Map<string, ConceptGroupRow>();
+  for (const group of args.payload.groups) {
+    const name = creativeNameForGroup(group);
+    if (name && !groupByName.has(name)) groupByName.set(name, group);
+  }
   for (const result of results) {
     if (result.thumbnailHash) uniqueHashes.add(result.thumbnailHash);
     args.summary.usage.inputTokens += result.usage.inputTokens;
@@ -710,6 +715,7 @@ async function runAutoTagForSnapshot(args: {
           taxonomyKey(tag.dimension, tag.value_key),
         );
         if (!taxonomyRow) return null;
+        const group = groupByName.get(result.creativeName);
         return {
           userId: args.userId,
           eventId: args.eventId,
@@ -719,6 +725,12 @@ async function runAutoTagForSnapshot(args: {
           confidence: tag.confidence,
           modelVersion: AI_AUTOTAG_MODEL_VERSION,
           thumbnailHash: result.thumbnailHash,
+          ...(group?.representative_ad_id
+            ? { metaAdId: group.representative_ad_id }
+            : {}),
+          ...(group?.underlying_creative_ids[0]
+            ? { metaCreativeId: group.underlying_creative_ids[0] }
+            : {}),
         } satisfies UpsertCreativeTagAssignmentArgs;
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row));

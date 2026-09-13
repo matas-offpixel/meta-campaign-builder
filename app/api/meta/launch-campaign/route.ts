@@ -127,6 +127,7 @@ import { assertSameObjective } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
+import { bindLaunchAdSetRecorder } from "@/lib/launched-ad-sets/launch-recorder";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -2951,6 +2952,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ─── Phase 2: Create ad sets (runs in parallel with creatives) ─────────
 
+  // Bookkeeping only — never throws into the launch path. Attach-existing
+  // short-circuits below do not call this; they register Meta ids we did
+  // not create.
+  let recordCreatedAdSet: (
+    metaCampaignId: string | undefined,
+    adSet: AdSetSuggestion,
+    metaAdSetId: string,
+  ) => void = () => {};
+  try {
+    recordCreatedAdSet = await bindLaunchAdSetRecorder({
+      session: supabase,
+      draft,
+      userId: user.id,
+      adAccountId,
+      launchRunId,
+    });
+  } catch (err) {
+    console.error("[launched_ad_sets] bind failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   const adSetsCreated: LaunchSummary["adSetsCreated"] = [];
   const adSetsFailed: LaunchSummary["adSetsFailed"] = [];
   // Local mapping: internalAdSetId → Meta ad set ID for this run.
@@ -3415,6 +3438,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
           adSetMetaIds.set(adSet.id, metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId };
+          recordCreatedAdSet(metaCampaignId, adSet, metaAdSetId);
         } else {
           const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
           const message = formatMetaError(reason.err);
@@ -3852,6 +3876,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         });
         adSetMetaIds.set(adSet.id, adSetRes.id);
         adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: adSetRes.id };
+        recordCreatedAdSet(metaCampaignId, adSet, adSetRes.id);
       } catch (err) {
         // task #125 — the full salvage ladder (CA-availability salvage
         // loop + "meta lies" recreate fallback, subcode 1870196, subcode
@@ -3894,6 +3919,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
           adSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
           adSetLaunchResults[adSet.id] = { launchStatus: "created", metaAdSetId: salvaged.metaAdSetId };
+          recordCreatedAdSet(metaCampaignId, adSet, salvaged.metaAdSetId);
         } catch (salvageErr) {
           const message = formatMetaError(salvageErr);
           console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSet.name, ":", message);
@@ -4261,6 +4287,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ...(note ? { note } : {}),
             });
             ciAdSetMetaIds.set(adSet.id, metaAdSetId);
+            recordCreatedAdSet(nextCampaign.id, adSet, metaAdSetId);
           } else {
             const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
             const message = formatMetaError(reason.err);
@@ -4336,6 +4363,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             ...(prep2b.preflightDroppedNote ? { note: prep2b.preflightDroppedNote } : {}),
           });
           ciAdSetMetaIds.set(adSet.id, adSetRes.id);
+          recordCreatedAdSet(nextCampaign.id, adSet, adSetRes.id);
           console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
         } catch (err) {
           // task #125 — same shared salvage ladder as standard Phase 2b.
@@ -4373,6 +4401,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ...(salvaged.note ? { note: salvaged.note } : {}),
             });
             ciAdSetMetaIds.set(adSet.id, salvaged.metaAdSetId);
+            recordCreatedAdSet(nextCampaign.id, adSet, salvaged.metaAdSetId);
           } catch (salvageErr) {
             const message = formatMetaError(salvageErr);
             console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);

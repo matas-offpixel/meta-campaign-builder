@@ -200,6 +200,8 @@ export interface UpsertCreativeTagAssignmentArgs {
   confidence?: number | null;
   modelVersion?: string | null;
   thumbnailHash?: string | null;
+  metaAdId?: string | null;
+  metaCreativeId?: string | null;
 }
 
 export interface BulkUpsertCreativeTagAssignmentsResult {
@@ -291,6 +293,8 @@ export async function upsertCreativeTagAssignment(
         confidence: args.confidence ?? null,
         ...(args.modelVersion ? { model_version: args.modelVersion } : {}),
         ...(args.thumbnailHash ? { thumbnail_hash: args.thumbnailHash } : {}),
+        ...(args.metaAdId ? { meta_ad_id: args.metaAdId } : {}),
+        ...(args.metaCreativeId ? { meta_creative_id: args.metaCreativeId } : {}),
       },
       { onConflict: "event_id,creative_name,tag_id" },
     )
@@ -325,6 +329,8 @@ export async function bulkUpsertCreativeTagAssignments(
       confidence: row.confidence ?? null,
       ...(row.modelVersion ? { model_version: row.modelVersion } : {}),
       ...(row.thumbnailHash ? { thumbnail_hash: row.thumbnailHash } : {}),
+      ...(row.metaAdId ? { meta_ad_id: row.metaAdId } : {}),
+      ...(row.metaCreativeId ? { meta_creative_id: row.metaCreativeId } : {}),
     }));
 
     const { error } = await supabase.from("creative_tag_assignments").upsert(
