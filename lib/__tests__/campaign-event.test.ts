@@ -269,6 +269,26 @@ describe("buildDuplicatedCampaign", () => {
     assert.equal(copy.settings.eventId, SCHAK.id);
     assert.match(copy.settings.campaignName, /\(Copy\)$/);
   });
+
+  it("a duplicate has launched nothing — launchSummary does not ride along", () => {
+    const original = createDefaultDraft();
+    original.settings = settings();
+    original.launchSummary = {
+      launchRunId: "run-old",
+      metaCampaignId: "camp-1",
+      adSetLaunchResults: {
+        "sug-1": { launchStatus: "created", metaAdSetId: "120399" },
+      },
+    };
+    const copy = buildDuplicatedCampaign(
+      original,
+      SCHAK,
+      "2026-09-13T12:00:00.000Z",
+      "copy-id",
+    );
+    assert.equal(copy.launchSummary, undefined);
+    assert.equal(original.launchSummary?.metaCampaignId, "camp-1");
+  });
 });
 
 describe("production call sites — no silent inherit", () => {

@@ -51,6 +51,8 @@ describe("planLaunchedAdSetBackfill", () => {
     );
     assert.equal(plan.writes.length, 1);
     assert.equal(plan.missingSuggestion.length, 0);
+    assert.equal(plan.multiClaim.length, 0);
+    assert.equal(plan.distinctAdSets, 1);
     assert.equal(plan.writes[0]?.meta_adset_id, "120399");
     assert.equal(plan.writes[0]?.descriptor_source, "backfill_from_launch_summary");
     assert.equal(plan.writes[0]?.suggestion_id, "sug-1");
@@ -73,9 +75,90 @@ describe("planLaunchedAdSetBackfill", () => {
       new Map(),
     );
     assert.equal(plan.writes.length, 0);
+    assert.equal(plan.multiClaim.length, 0);
+    assert.equal(plan.distinctAdSets, 1);
     assert.deepEqual(plan.missingSuggestion, [
       { draftId: "draft-1", suggestionId: "gone", metaAdSetId: "120400" },
     ]);
+  });
+
+  it("a meta_adset_id claimed by two drafts is reported, not written", () => {
+    const parent = draftWithResults(
+      {
+        launchRunId: "run-old",
+        metaCampaignId: "camp-1",
+        adSetLaunchResults: {
+          "sug-1": { launchStatus: "created", metaAdSetId: "120399" },
+        },
+      },
+      [suggestion("sug-1")],
+    );
+    parent.settings.campaignName = "Innervisions — Reach";
+    parent.status = "published";
+    parent.createdAt = "2026-08-01T00:00:00.000Z";
+    const copy = draftWithResults(
+      {
+        launchRunId: "run-copy",
+        metaCampaignId: "camp-1",
+        adSetLaunchResults: {
+          "sug-1": { launchStatus: "created", metaAdSetId: "120399" },
+        },
+      },
+      [suggestion("sug-1")],
+    );
+    copy.settings.campaignName = "Innervisions — Reach (Copy)";
+    copy.status = "draft";
+    copy.createdAt = "2026-09-01T00:00:00.000Z";
+    const plan = planLaunchedAdSetBackfill(
+      [
+        {
+          id: "draft-parent",
+          user_id: "user-1",
+          event_id: null,
+          status: "published",
+          created_at: parent.createdAt,
+          name: parent.settings.campaignName,
+          draft_json: parent,
+        },
+        {
+          id: "draft-copy",
+          user_id: "user-1",
+          event_id: null,
+          status: "draft",
+          created_at: copy.createdAt,
+          name: copy.settings.campaignName,
+          draft_json: copy,
+        },
+      ],
+      new Map(),
+    );
+    assert.equal(plan.writes.length, 0);
+    assert.equal(plan.missingSuggestion.length, 0);
+    assert.equal(plan.distinctAdSets, 1);
+    assert.equal(plan.multiClaim.length, 1);
+    assert.equal(plan.multiClaim[0]?.metaAdSetId, "120399");
+    assert.deepEqual(
+      plan.multiClaim[0]?.drafts.map((row) => ({
+        draftId: row.draftId,
+        status: row.status,
+        createdAt: row.createdAt,
+        isCopy: row.isCopy,
+      })),
+      [
+        {
+          draftId: "draft-parent",
+          status: "published",
+          createdAt: "2026-08-01T00:00:00.000Z",
+          isCopy: false,
+        },
+        {
+          draftId: "draft-copy",
+          status: "draft",
+          createdAt: "2026-09-01T00:00:00.000Z",
+          isCopy: true,
+        },
+      ],
+    );
   });
 
   it("skips a meta_adset_id that already has a row — never overwrite a launch snapshot", () => {
@@ -97,6 +180,93 @@ describe("planLaunchedAdSetBackfill", () => {
     );
     assert.equal(plan.writes.length, 0);
     assert.equal(plan.missingSuggestion.length, 0);
+    assert.equal(plan.multiClaim.length, 0);
+    assert.equal(plan.distinctAdSets, 1);
+  });
+
+  it("writes only the unambiguous id when another id is claimed twice", () => {
+    const exclusive = draftWithResults(
+      {
+        launchRunId: "run-a",
+        metaCampaignId: "camp-a",
+        adSetLaunchResults: {
+          "sug-own": { launchStatus: "created", metaAdSetId: "120111" },
+          "sug-shared": { launchStatus: "created", metaAdSetId: "120399" },
+        },
+      },
+      [suggestion("sug-own"), suggestion("sug-shared")],
+    );
+    const copy = draftWithResults(
+      {
+        launchRunId: "run-b",
+        metaCampaignId: "camp-b",
+        adSetLaunchResults: {
+          "sug-shared": { launchStatus: "created", metaAdSetId: "120399" },
+        },
+      },
+      [suggestion("sug-shared")],
+    );
+    copy.settings.campaignName = "Reach (Copy)";
+    const plan = planLaunchedAdSetBackfill(
+      [
+        { id: "draft-a", user_id: "user-1", event_id: null, draft_json: exclusive },
+        {
+          id: "draft-b",
+          user_id: "user-1",
+          event_id: null,
+          name: copy.settings.campaignName,
+          draft_json: copy,
+        },
+      ],
+      new Map(),
+    );
+    assert.equal(plan.writes.length, 1);
+    assert.equal(plan.writes[0]?.meta_adset_id, "120111");
+    assert.equal(plan.writes[0]?.suggestion_id, "sug-own");
+    assert.equal(plan.multiClaim.length, 1);
+    assert.equal(plan.multiClaim[0]?.metaAdSetId, "120399");
+    assert.equal(plan.distinctAdSets, 2);
+  });
+
+  it("still lists a missing suggestion when that id is also multi-claimed", () => {
+    const parent = draftWithResults(
+      {
+        launchRunId: "run-old",
+        metaCampaignId: "camp-1",
+        adSetLaunchResults: {
+          "gone": { launchStatus: "created", metaAdSetId: "120400" },
+        },
+      },
+      [suggestion("still-here")],
+    );
+    const copy = draftWithResults(
+      {
+        launchRunId: "run-copy",
+        metaCampaignId: "camp-1",
+        adSetLaunchResults: {
+          "gone": { launchStatus: "created", metaAdSetId: "120400" },
+        },
+      },
+      [suggestion("still-here")],
+    );
+    copy.settings.campaignName = "Reach (Copy)";
+    const plan = planLaunchedAdSetBackfill(
+      [
+        { id: "draft-parent", user_id: "user-1", event_id: null, draft_json: parent },
+        {
+          id: "draft-copy",
+          user_id: "user-1",
+          event_id: null,
+          name: copy.settings.campaignName,
+          draft_json: copy,
+        },
+      ],
+      new Map(),
+    );
+    assert.equal(plan.writes.length, 0);
+    assert.equal(plan.multiClaim.length, 1);
+    assert.equal(plan.missingSuggestion.length, 2);
+    assert.equal(plan.distinctAdSets, 1);
   });
 
   it("ignores failed and skipped results", () => {
@@ -117,5 +287,7 @@ describe("planLaunchedAdSetBackfill", () => {
     );
     assert.equal(plan.writes.length, 0);
     assert.equal(plan.missingSuggestion.length, 0);
+    assert.equal(plan.multiClaim.length, 0);
+    assert.equal(plan.distinctAdSets, 0);
   });
 });

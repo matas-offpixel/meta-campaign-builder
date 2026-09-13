@@ -8,6 +8,9 @@
 // weight these below launch-time snapshots.
 //
 // Missing suggestions are reported, not guessed.
+// A meta_adset_id claimed by more than one draft is reported, not
+// written — copies inherited launchSummary and last-write-wins would
+// stamp the copy's descriptor as fact.
 // Existing launched_ad_sets rows are never overwritten.
 //
 // Dry-run by default. Prints the write count and the first ten rows.
@@ -77,7 +80,7 @@ async function loadExistingIds() {
 
 async function main() {
   const [draftRows, existingIds] = await Promise.all([
-    loadPaged("campaign_drafts", "id, user_id, event_id, draft_json"),
+    loadPaged("campaign_drafts", "id, user_id, event_id, status, created_at, name, draft_json"),
     loadExistingIds(),
   ]);
 
@@ -89,6 +92,9 @@ async function main() {
         id: row.id,
         user_id: row.user_id,
         event_id: row.event_id ?? null,
+        status: row.status ?? null,
+        created_at: row.created_at ?? null,
+        name: row.name ?? null,
         draft_json: migrateDraft(row.draft_json),
       });
     } catch (err) {
@@ -125,6 +131,8 @@ async function main() {
   console.log(`existing launched rows:    ${existingIds.size}`);
   console.log(`would write:               ${plan.writes.length}`);
   console.log(`missing suggestion:        ${plan.missingSuggestion.length}`);
+  console.log(`claimed by multiple drafts: ${plan.multiClaim.length}`);
+  console.log(`distinct ad sets in play:  ${plan.distinctAdSets}`);
   console.log(
     "launched_at / phase_at_launch use the draft's updatedAt ?? createdAt — phase as of last save, not launch. Rows are marked backfill_from_launch_summary.",
   );
@@ -157,12 +165,35 @@ async function main() {
     console.log("");
   }
 
+  if (plan.multiClaim.length > 0) {
+    console.log("Claimed by multiple drafts (not guessed):");
+    for (const claim of plan.multiClaim.slice(0, 20)) {
+      console.log(`  meta_adset_id=${claim.metaAdSetId}`);
+      for (const draft of claim.drafts) {
+        console.log(
+          `    draft=${draft.draftId} status=${draft.status ?? "?"} created_at=${draft.createdAt ?? "?"} copy=${draft.isCopy ? "yes" : "no"} name=${draft.name ?? "?"}`,
+        );
+      }
+    }
+    if (plan.multiClaim.length > 20) {
+      console.log(`  … ${plan.multiClaim.length - 20} more ids`);
+    }
+    console.log("");
+  }
+
   if (!APPLY) {
     console.log(
-      `Dry run. Re-run with --apply to write ${plan.writes.length} launched_ad_sets row(s).`,
+      `Dry run. Re-run with --apply to write ${plan.writes.length} unambiguous launched_ad_sets row(s).`,
     );
     return;
   }
+
+  console.log("Applying unambiguous set only.");
+  console.log(`would write:               ${plan.writes.length}`);
+  console.log(`missing suggestion:        ${plan.missingSuggestion.length}`);
+  console.log(`claimed by multiple drafts: ${plan.multiClaim.length}`);
+  console.log(`distinct ad sets in play:  ${plan.distinctAdSets}`);
+  console.log("");
 
   let written = 0;
   const failures = [];
