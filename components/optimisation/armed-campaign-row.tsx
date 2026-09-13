@@ -8,10 +8,59 @@ import { Datum } from "@/components/steps/step-surface";
 import { Button } from "@/components/ui/button";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 import {
+  formatBudgetImpactLine,
+  formatMetricImpactLine,
+  formatResultImpactLine,
+} from "@/lib/optimisation/armed-impact";
+import {
   formatActingLine,
   type ArmedCampaignRow as ArmedRow,
 } from "@/lib/optimisation/armed-read-model";
 import type { AutomationArm } from "@/lib/optimisation/automation-ui";
+
+function ImpactSparkline({ values }: { values: number[] }) {
+  if (values.length < 2) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * 48;
+      const y = 12 - ((value - min) / span) * 12;
+      return `${x},${y}`;
+    })
+    .join(" ");
+  return (
+    <svg width="48" height="12" viewBox="0 0 48 12" aria-hidden="true" className="shrink-0 text-muted-foreground">
+      <polyline fill="none" stroke="currentColor" strokeWidth="1" points={points} />
+    </svg>
+  );
+}
+
+function ImpactLines({ row }: { row: ArmedRow }) {
+  const budget = formatBudgetImpactLine(row.impact, row.controls.currency);
+  const metric = formatMetricImpactLine(row.impact);
+  const results = formatResultImpactLine(row.impact);
+  return (
+    <div className="mt-1 min-w-0 space-y-0.5">
+      <Datum className="text-muted-foreground">{budget}</Datum>
+      {metric ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <Datum className="min-w-0 text-muted-foreground">{metric}</Datum>
+          <ImpactSparkline values={row.impact.metricSeries} />
+        </div>
+      ) : null}
+      {results ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <Datum className="min-w-0 text-muted-foreground">{results}</Datum>
+          <ImpactSparkline
+            values={row.impact.resultSeries.filter((value): value is number => value != null)}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function ArmedCampaignRow({
   row,
@@ -39,6 +88,7 @@ export function ArmedCampaignRow({
               {row.lastDecision.reasonText}
             </Datum>
           ) : null}
+          <ImpactLines row={row} />
           {row.eventLabel ? (
             <Datum className="mt-0.5 text-muted-foreground">
               Wired to {row.eventLabel}

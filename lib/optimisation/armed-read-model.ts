@@ -12,6 +12,7 @@ import type {
   OptimisationRule,
   OptimisationStrategySettings,
 } from "../types.ts";
+import type { ArmedImpact } from "./armed-impact.ts";
 import { armFromFlags, type AutomationArm, type DecisionRowView } from "./automation-ui.ts";
 
 export type ArmedLastDecision = {
@@ -36,6 +37,7 @@ export type ArmedCampaignControls = {
   campaignTargetValue: number | null;
   useOverride: boolean;
   primaryMetric: string | null;
+  primaryMetricWindow: string | null;
   guardrails: BudgetGuardrails;
   baseCampaignBudget: number;
   hardBudgetCeiling: number;
@@ -56,6 +58,7 @@ export type ArmedCampaignRow = {
   lastWrite: ArmedLastWrite | null;
   controls: ArmedCampaignControls;
   nextTickAt: string;
+  impact: ArmedImpact;
 };
 
 const EVENT_ID_UUID =
@@ -273,6 +276,7 @@ export function controlsFromStrategy(
     campaignTargetValue: rule?.campaignTargetValue ?? null,
     useOverride: rule?.useOverride === true,
     primaryMetric: rule?.metric ?? null,
+    primaryMetricWindow: rule?.timeWindow ?? null,
     guardrails: strategy.guardrails,
     baseCampaignBudget: base,
     hardBudgetCeiling: strategy.guardrails.hardBudgetCeiling,
