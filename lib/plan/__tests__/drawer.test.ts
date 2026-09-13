@@ -1469,7 +1469,7 @@ describe("write paths are untouched", () => {
           `${file}: expected bindLaunchAdSetRecorder`,
         );
         assert.equal(
-          bookkeeping.filter((line) => line.startsWith("recordCreatedAdSet(")).length,
+          bookkeeping.filter((line) => line.includes("recordCreatedAdSet(")).length,
           6,
           `${file}: expected six recordCreatedAdSet calls after successful creates`,
         );

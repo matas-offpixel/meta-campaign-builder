@@ -25,7 +25,7 @@ export type AudienceDescriptor = {
   lookalikeRange: string | null;
   geo: AdSetGeoLocations | null;
   advantagePlus: boolean;
-  interestIds: string[];
+  interestIds: string[] | null;
   suggestionId: string;
   initialDailyBudgetPence: number;
 };
@@ -58,10 +58,31 @@ export function snapshotAudienceDescriptor(
     lookalikeRange: suggestion.lookalikeRange ?? null,
     geo: suggestion.geoLocations ?? null,
     advantagePlus: suggestion.advantagePlus === true,
-    interestIds: interestIdsFromGroup(group),
+    interestIds:
+      suggestion.sourceType === "interest_group"
+        ? group
+          ? interestIdsFromGroup(group)
+          : null
+        : null,
     suggestionId: suggestion.id,
     initialDailyBudgetPence: Number.isFinite(budget) ? Math.round(budget * 100) : 0,
   };
+}
+
+/** What Meta accepted. 1870196 salvage strips Advantage+ and sends explicit ages. */
+export function effectiveAdvantagePlus(
+  asked: boolean,
+  ageModeOverride?: "strict" | null,
+): boolean {
+  if (ageModeOverride === "strict") return false;
+  return asked === true;
+}
+
+export function joinLaunchNotes(
+  ...notes: Array<string | null | undefined>
+): string | null {
+  const parts = notes.map((note) => note?.trim()).filter((note): note is string => Boolean(note));
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /** Same derivation as campaign_plans.phase / eligibility — do not invent another. */

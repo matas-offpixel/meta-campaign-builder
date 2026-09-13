@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { createDefaultDraft } from "../../campaign-defaults.ts";
 import type { AdSetSuggestion, AudienceSettings } from "../../types.ts";
 import {
+  effectiveAdvantagePlus,
   interestIdsFromGroup,
   phaseAtLaunchFromEvent,
   snapshotAudienceDescriptor,
@@ -47,8 +48,17 @@ describe("snapshotAudienceDescriptor", () => {
     assert.equal(snap.sourceType, "interest_group");
   });
 
-  it("does not invent interest ids when the group is gone from the draft", () => {
+  it("a missing interest group is null, not an empty list", () => {
     const snap = snapshotAudienceDescriptor(suggestion(), createDefaultDraft().audiences);
+    assert.equal(snap.interestIds, null);
+  });
+
+  it("a found empty interest group is []", () => {
+    const audiences: AudienceSettings = {
+      ...createDefaultDraft().audiences,
+      interestGroups: [{ id: "ig-1", name: "Empty", interests: [] }],
+    };
+    const snap = snapshotAudienceDescriptor(suggestion(), audiences);
     assert.deepEqual(snap.interestIds, []);
   });
 });
@@ -63,6 +73,14 @@ describe("interestIdsFromGroup", () => {
       }),
       ["1"],
     );
+  });
+});
+
+describe("effectiveAdvantagePlus", () => {
+  it("a 1870196 salvage is what Meta accepted, not what the draft asked", () => {
+    assert.equal(effectiveAdvantagePlus(true, "strict"), false);
+    assert.equal(effectiveAdvantagePlus(true, undefined), true);
+    assert.equal(effectiveAdvantagePlus(false, undefined), false);
   });
 });
 

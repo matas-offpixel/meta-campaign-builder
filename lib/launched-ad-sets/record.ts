@@ -8,6 +8,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { AdSetSuggestion, AudienceSettings, CampaignObjective } from "../types.ts";
 import {
+  effectiveAdvantagePlus,
+  joinLaunchNotes,
   snapshotAudienceDescriptor,
   type DescriptorSource,
   type LaunchedAdSetChannel,
@@ -37,6 +39,9 @@ export type LaunchedAdSetWrite = {
   descriptorSource: DescriptorSource;
   suggestion: AdSetSuggestion;
   audiences: AudienceSettings | null;
+  ageModeOverride?: "strict" | null;
+  launchNote?: string | null;
+  droppedNote?: string | null;
 };
 
 function payloadFromWrite(row: LaunchedAdSetWrite): Record<string, unknown> {
@@ -60,6 +65,11 @@ function payloadFromWrite(row: LaunchedAdSetWrite): Record<string, unknown> {
     lookalike_range: descriptor.lookalikeRange,
     geo: descriptor.geo,
     advantage_plus: descriptor.advantagePlus,
+    advantage_plus_effective: effectiveAdvantagePlus(
+      descriptor.advantagePlus,
+      row.ageModeOverride,
+    ),
+    launch_note: joinLaunchNotes(row.droppedNote, row.launchNote),
     interest_ids: descriptor.interestIds,
     objective: row.objective,
     phase_at_launch: row.phaseAtLaunch,
@@ -105,21 +115,6 @@ export async function recordLaunchedAdSet(
   } catch (err) {
     console.error("[launched_ad_sets] upsert failed", {
       meta_adset_id: metaAdsetId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-/** Fire-and-forget wrapper so a caller cannot await a throw. */
-export function rememberLaunchedAdSet(
-  supabase: SupabaseClient,
-  row: LaunchedAdSetWrite,
-): void {
-  try {
-    void recordLaunchedAdSet(supabase, row);
-  } catch (err) {
-    console.error("[launched_ad_sets] upsert failed", {
-      meta_adset_id: row.metaAdsetId,
       error: err instanceof Error ? err.message : String(err),
     });
   }

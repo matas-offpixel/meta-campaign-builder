@@ -16,7 +16,7 @@ describe("Phase 0 wiring", () => {
   it("records a launched_ad_sets row after every successful create, not on attach-existing", () => {
     assert.match(LAUNCH, /bindLaunchAdSetRecorder/);
     assert.equal(
-      (LAUNCH.match(/recordCreatedAdSet\(/g) ?? []).length,
+      (LAUNCH.match(/await recordCreatedAdSet\(/g) ?? []).length,
       6,
       "standard Phase 2, Phase 2b, Phase 2b salvage, MC Phase 2, MC Phase 2b, MC Phase 2b salvage",
     );
@@ -56,6 +56,19 @@ describe("Phase 0 wiring", () => {
   it("autotagger stamps Meta ids when the group has them", () => {
     assert.match(AUTOTAG, /metaAdId: group\.representative_ad_id/);
     assert.match(AUTOTAG, /metaCreativeId: group\.underlying_creative_ids\[0\]/);
+  });
+
+  it("SELECT on launched_ad_sets is own-rows only", () => {
+    const mig = source("supabase/migrations/175_launched_ad_sets.sql");
+    assert.match(mig, /authenticated read own launched_ad_sets/);
+    assert.match(mig, /to authenticated using \(user_id = auth\.uid\(\)\)/);
+    assert.doesNotMatch(mig, /using \(true\)/);
+  });
+
+  it("the upsert is awaited, not void-fired", () => {
+    assert.match(source("lib/launched-ad-sets/launch-recorder.ts"), /await recordLaunchedAdSet\(/);
+    assert.doesNotMatch(source("lib/launched-ad-sets/record.ts"), /rememberLaunchedAdSet/);
+    assert.doesNotMatch(LAUNCH, /void recordCreatedAdSet/);
   });
 
   it("the diff does not recommend an audience", () => {

@@ -125,6 +125,9 @@ async function main() {
   console.log(`existing launched rows:    ${existingIds.size}`);
   console.log(`would write:               ${plan.writes.length}`);
   console.log(`missing suggestion:        ${plan.missingSuggestion.length}`);
+  console.log(
+    "launched_at / phase_at_launch use the draft's updatedAt ?? createdAt — phase as of last save, not launch. Rows are marked backfill_from_launch_summary.",
+  );
   console.log("");
   console.log("First ten writes:");
   for (const row of plan.writes.slice(0, 10)) {

@@ -32,6 +32,8 @@ create table if not exists launched_ad_sets (
   lookalike_range           text,
   geo                       jsonb,
   advantage_plus            boolean,
+  advantage_plus_effective  boolean,
+  launch_note               text,
   interest_ids              jsonb,
   objective                 text,
   phase_at_launch           text,
@@ -70,24 +72,36 @@ create index if not exists launched_ad_sets_event_id_idx
 create index if not exists launched_ad_sets_client_source_idx
   on launched_ad_sets (client_id, source_type);
 
+alter table launched_ad_sets
+  add column if not exists advantage_plus_effective boolean;
+alter table launched_ad_sets
+  add column if not exists launch_note text;
+
 comment on table launched_ad_sets is
   'Phase 0 join: one row per Meta (and later TikTok/Google) ad set this app creates. Descriptor is a launch-time snapshot. meta_adset_id is the join to performance. Migration 175.';
+comment on column launched_ad_sets.advantage_plus is
+  'What the draft asked for. May diverge from Meta after a 1870196 salvage.';
+comment on column launched_ad_sets.advantage_plus_effective is
+  'What Meta accepted. False when ageModeOverride is strict (Advantage+ stripped).';
+comment on column launched_ad_sets.launch_note is
+  'Salvage and/or preflight dropped-audience notes in hand at create time.';
+comment on column launched_ad_sets.interest_ids is
+  'Resolved InterestGroup ids at launch. null = group not found; [] = found and empty.';
 
 alter table launched_ad_sets enable row level security;
 
 do $$
 begin
-  if not exists (
-    select 1 from pg_policies
-    where schemaname = 'public'
-      and tablename = 'launched_ad_sets'
-      and policyname = 'authenticated read launched_ad_sets'
-  ) then
-    execute
-      'create policy "authenticated read launched_ad_sets" '
-      'on launched_ad_sets for select '
-      'to authenticated using (true)';
-  end if;
+  -- Own-rows only. client_users are authenticated and hold the anon
+  -- key; a cross-tenant SELECT would leak every client's Meta ids,
+  -- budgets, and audience shapes. Drop the earlier policy names so
+  -- a mistaken apply of that draft cannot survive a re-apply.
+  execute 'drop policy if exists "authenticated read launched_ad_sets" on launched_ad_sets';
+  execute 'drop policy if exists "authenticated read own launched_ad_sets" on launched_ad_sets';
+  execute
+    'create policy "authenticated read own launched_ad_sets" '
+    'on launched_ad_sets for select '
+    'to authenticated using (user_id = auth.uid())';
   if not exists (
     select 1 from pg_policies
     where schemaname = 'public'

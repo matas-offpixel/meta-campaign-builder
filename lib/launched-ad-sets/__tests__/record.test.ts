@@ -90,6 +90,36 @@ describe("launchedAdSetPayload", () => {
     assert.equal(row.descriptor_source, "launch");
     assert.equal(row.channel, "meta");
     assert.equal(row.initial_daily_budget_pence, 1200);
+    assert.equal(row.advantage_plus, true);
+    assert.equal(row.advantage_plus_effective, true);
+    assert.equal(row.launch_note, null);
     assert.doesNotMatch(JSON.stringify(row), /suggested audience/i);
+  });
+
+  it("a 1870196 salvage stores effective Advantage+ off and names the salvage", () => {
+    const row = launchedAdSetPayload({
+      metaAdsetId: "120399",
+      metaCampaignId: "camp",
+      adAccountId: "act_1",
+      draftId: "draft",
+      userId: "user",
+      clientId: null,
+      eventId: "evt",
+      launchRunId: "run-1",
+      objective: "registration",
+      phaseAtLaunch: "on_sale",
+      descriptorSource: "launch",
+      suggestion,
+      audiences: null,
+      ageModeOverride: "strict",
+      launchNote: "1870196 salvage stripped Advantage+ Audience",
+      droppedNote: "dropped 1 custom audience at preflight",
+    });
+    assert.equal(row.advantage_plus, true);
+    assert.equal(row.advantage_plus_effective, false);
+    assert.equal(
+      row.launch_note,
+      "dropped 1 custom audience at preflight · 1870196 salvage stripped Advantage+ Audience",
+    );
   });
 });

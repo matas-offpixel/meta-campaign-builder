@@ -1,6 +1,6 @@
 /**
  * Bind a never-throw recorder for one launch run. Event facts are
- * loaded once; each successful Meta create is one remember() call.
+ * loaded once; each successful Meta create awaits one upsert.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -8,8 +8,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveDraftEventId } from "../campaign-event.ts";
 import { createServiceRoleClient } from "../supabase/server.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../types.ts";
-import { rememberLaunchedAdSet, uuidOrNull } from "./record.ts";
+import { recordLaunchedAdSet, uuidOrNull } from "./record.ts";
 import { phaseAtLaunchFromEvent } from "./snapshot.ts";
+
+export type RecordCreatedAdSetAccepted = {
+  ageModeOverride?: "strict" | null;
+  note?: string | null;
+  droppedNote?: string | null;
+};
+
+export type RecordCreatedAdSet = (
+  metaCampaignId: string | undefined,
+  suggestion: AdSetSuggestion,
+  metaAdSetId: string,
+  accepted?: RecordCreatedAdSetAccepted,
+) => Promise<void>;
 
 export async function bindLaunchAdSetRecorder(input: {
   session: SupabaseClient;
@@ -17,13 +30,7 @@ export async function bindLaunchAdSetRecorder(input: {
   userId: string;
   adAccountId: string;
   launchRunId: string;
-}): Promise<
-  (
-    metaCampaignId: string | undefined,
-    suggestion: AdSetSuggestion,
-    metaAdSetId: string,
-  ) => void
-> {
+}): Promise<RecordCreatedAdSet> {
   let db = input.session;
   try {
     db = createServiceRoleClient();
@@ -65,8 +72,8 @@ export async function bindLaunchAdSetRecorder(input: {
     }
   }
 
-  return (metaCampaignId, suggestion, metaAdSetId) => {
-    rememberLaunchedAdSet(db, {
+  return async (metaCampaignId, suggestion, metaAdSetId, accepted) => {
+    await recordLaunchedAdSet(db, {
       metaAdsetId: metaAdSetId,
       metaCampaignId: metaCampaignId ?? null,
       adAccountId: input.adAccountId,
@@ -80,6 +87,9 @@ export async function bindLaunchAdSetRecorder(input: {
       descriptorSource: "launch",
       suggestion,
       audiences: input.draft.audiences,
+      ageModeOverride: accepted?.ageModeOverride,
+      launchNote: accepted?.note,
+      droppedNote: accepted?.droppedNote,
     });
   };
 }
