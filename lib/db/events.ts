@@ -431,8 +431,13 @@ export type EventLinkedDraft = {
 export async function linkDraftToEvent(
   draftId: string,
   eventId: string | null,
+  // Browser default for the event-hub picker; API routes pass the
+  // session or service-role client so operator writes use the same lock.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any = createClient(),
+  // Owner path (#937): pin the update. Operators omit this.
+  ownerUserId?: string,
 ): Promise<void> {
-  const supabase = createClient();
 
   let event: CampaignEventIdentity | null = null;
   if (eventId) {
@@ -493,6 +498,7 @@ export async function linkDraftToEvent(
       })
       .eq("id", draftId);
     if (stamp) query = query.eq("updated_at", stamp);
+    if (ownerUserId) query = query.eq("user_id", ownerUserId);
 
     const { data: written, error } = await query.select("id");
     if (error) {
