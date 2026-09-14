@@ -36,12 +36,21 @@ export type ArmedCampaignControls = {
   objective: CampaignObjective;
   currency: string;
   campaignTargetValue: number | null;
+  accountBenchmarkValue: number | null;
   useOverride: boolean;
   primaryMetric: string | null;
   primaryMetricWindow: string | null;
   guardrails: BudgetGuardrails;
   baseCampaignBudget: number;
   hardBudgetCeiling: number;
+};
+
+export type ArmedBudgetBase = {
+  kind: "ad_set" | "campaign";
+  source: "draft" | "launched";
+  dailyPence: number | null;
+  adSetCount: number;
+  byAdSet: Record<string, number>;
 };
 
 export type ArmedCampaignRow = {
@@ -58,6 +67,7 @@ export type ArmedCampaignRow = {
   lastDecision: ArmedLastDecision | null;
   lastWrite: ArmedLastWrite | null;
   controls: ArmedCampaignControls;
+  budgetBase: ArmedBudgetBase;
   nextTickAt: string;
   impact: ArmedImpact;
   describeLine: string | null;
@@ -278,6 +288,7 @@ export function controlsFromStrategy(
     objective,
     currency,
     campaignTargetValue: rule?.campaignTargetValue ?? null,
+    accountBenchmarkValue: rule?.accountBenchmarkValue ?? null,
     useOverride: rule?.useOverride === true,
     primaryMetric: rule?.metric ?? null,
     primaryMetricWindow: rule?.timeWindow ?? null,

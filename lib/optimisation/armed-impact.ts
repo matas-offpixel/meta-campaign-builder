@@ -22,6 +22,10 @@ export type ArmedImpact = {
   resultLatest: number | null;
   resultPresentCount: number;
   resultSeries: Array<number | null>;
+  /** Distinct ad-set keys in the latest write map. Campaign-scope writes are 0. */
+  adSetCount: number;
+  writeByAdSetPence: Record<string, number>;
+  writeCampaignPence: number | null;
 };
 
 export type ImpactInput = {
@@ -34,8 +38,9 @@ function isWrite(row: DecisionRowView): boolean {
   return row.applied === true && row.dryRun === false;
 }
 
-function currentDailyFromWrites(writes: readonly DecisionRowView[]): number | null {
-  if (writes.length === 0) return null;
+function latestWriteMap(
+  writes: readonly DecisionRowView[],
+): Map<string, DecisionRowView> {
   const campaignWrites = writes.filter((row) => row.scope === "campaign");
   const pool = campaignWrites.length > 0 ? campaignWrites : writes;
   const latest = new Map<string, DecisionRowView>();
@@ -47,14 +52,43 @@ function currentDailyFromWrites(writes: readonly DecisionRowView[]): number | nu
       latest.set(key, row);
     }
   }
+  return latest;
+}
+
+function currentDailyFromWrites(writes: readonly DecisionRowView[]): number | null {
+  if (writes.length === 0) return null;
   let sum = 0;
   let any = false;
-  for (const row of latest.values()) {
+  for (const row of latestWriteMap(writes).values()) {
     if (row.budgetAfterPence == null) continue;
     sum += row.budgetAfterPence;
     any = true;
   }
   return any ? sum : null;
+}
+
+function adSetCountFromWrites(writes: readonly DecisionRowView[]): number {
+  if (writes.length === 0) return 0;
+  let n = 0;
+  for (const key of latestWriteMap(writes).keys()) {
+    if (key !== "campaign") n += 1;
+  }
+  return n;
+}
+
+function writeOverlay(writes: readonly DecisionRowView[]): {
+  writeByAdSetPence: Record<string, number>;
+  writeCampaignPence: number | null;
+} {
+  const writeByAdSetPence: Record<string, number> = {};
+  let writeCampaignPence: number | null = null;
+  if (writes.length === 0) return { writeByAdSetPence, writeCampaignPence };
+  for (const [key, row] of latestWriteMap(writes)) {
+    if (row.budgetAfterPence == null) continue;
+    if (key === "campaign") writeCampaignPence = row.budgetAfterPence;
+    else writeByAdSetPence[key] = row.budgetAfterPence;
+  }
+  return { writeByAdSetPence, writeCampaignPence };
 }
 
 export function impactFromRows(
@@ -103,6 +137,8 @@ export function impactFromRows(
     resultLatest: resultPresent.length > 0 ? (resultPresent[resultPresent.length - 1] ?? null) : null,
     resultPresentCount: resultPresent.length,
     resultSeries,
+    adSetCount: adSetCountFromWrites(writes),
+    ...writeOverlay(writes),
   };
 }
 

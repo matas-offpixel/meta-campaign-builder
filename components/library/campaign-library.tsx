@@ -289,7 +289,7 @@ export function CampaignLibrary() {
 
       {/* Content */}
       <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-5xl">
+        <div className={`mx-auto ${tab === "armed" ? "max-w-[88rem]" : "max-w-5xl"}`}>
           {loading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
