@@ -17,6 +17,12 @@ import {
   type ArmedCampaignRow as ArmedRow,
 } from "@/lib/optimisation/armed-read-model";
 import type { AutomationArm } from "@/lib/optimisation/automation-ui";
+import {
+  formatDescribeCellLine,
+  formatDescribeUnreadable,
+  formatEmptyDescribeTable,
+  type DescribeCell,
+} from "@/lib/optimisation/describe-cells";
 
 function ImpactSparkline({ values }: { values: number[] }) {
   if (values.length < 2) return null;
@@ -58,6 +64,34 @@ function ImpactLines({ row }: { row: ArmedRow }) {
           />
         </div>
       ) : null}
+      <Datum className="text-muted-foreground">{row.describeLine ?? "not enough data"}</Datum>
+    </div>
+  );
+}
+
+function DescribeCellsTable({
+  cells,
+  unreadable,
+}: {
+  cells: DescribeCell[];
+  unreadable: boolean;
+}) {
+  if (unreadable) {
+    return <Datum className="text-muted-foreground">{formatDescribeUnreadable()}</Datum>;
+  }
+  if (cells.length === 0) {
+    return <Datum className="text-muted-foreground">{formatEmptyDescribeTable()}</Datum>;
+  }
+  return (
+    <div className="space-y-1">
+      {cells.map((cell) => {
+        const key = `${cell.key.clientId}|${cell.key.sourceType}|${cell.key.objective}|${cell.key.phaseAtLaunch}|${cell.key.advantagePlusEffective}`;
+        return (
+          <Datum key={key} className="text-muted-foreground">
+            {formatDescribeCellLine(cell)}
+          </Datum>
+        );
+      })}
     </div>
   );
 }
@@ -149,6 +183,8 @@ export function ArmedCampaignList({
   onCount?: (count: number) => void;
 }) {
   const [rows, setRows] = useState<ArmedRow[] | null>(null);
+  const [describeCells, setDescribeCells] = useState<DescribeCell[]>([]);
+  const [describeUnreadable, setDescribeUnreadable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const onCountRef = useRef(onCount);
@@ -164,6 +200,8 @@ export function ArmedCampaignList({
           ok?: boolean;
           error?: string;
           campaigns?: ArmedRow[];
+          describeCells?: DescribeCell[];
+          describeUnreadable?: boolean;
         };
         if (cancelled) return;
         if (!res.ok || json.ok === false) {
@@ -174,6 +212,8 @@ export function ArmedCampaignList({
           setError(null);
           const next = json.campaigns ?? [];
           setRows(next);
+          setDescribeCells(json.describeCells ?? []);
+          setDescribeUnreadable(json.describeUnreadable === true);
           onCountRef.current?.(next.length);
         }
       })
@@ -200,13 +240,21 @@ export function ArmedCampaignList({
   }
   if (!rows?.length) {
     return (
-      <Datum className="text-muted-foreground">
-        {eventId ? "No campaigns wired to this event." : "No Shadow or Live campaigns."}
-      </Datum>
+      <div className="space-y-2">
+        {eventId ? (
+          <DescribeCellsTable cells={describeCells} unreadable={describeUnreadable} />
+        ) : null}
+        <Datum className="text-muted-foreground">
+          {eventId ? "No campaigns wired to this event." : "No Shadow or Live campaigns."}
+        </Datum>
+      </div>
     );
   }
   return (
     <div className="space-y-2">
+      {eventId ? (
+        <DescribeCellsTable cells={describeCells} unreadable={describeUnreadable} />
+      ) : null}
       {rows.map((row) => (
         <ArmedCampaignRow
           key={row.id}

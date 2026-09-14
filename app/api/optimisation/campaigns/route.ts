@@ -35,8 +35,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const count = await countArmedCampaigns(db, viewer);
       return NextResponse.json({ ok: true, count });
     }
-    const campaigns = await loadArmedCampaignRows(db, query, viewer);
-    return NextResponse.json({ ok: true, campaigns });
+    const { campaigns, describeCells, describeUnreadable } = await loadArmedCampaignRows(
+      db,
+      query,
+      viewer,
+    );
+    if (!eventId) {
+      return NextResponse.json({ ok: true, campaigns });
+    }
+    return NextResponse.json({ ok: true, campaigns, describeCells, describeUnreadable });
   } catch (err) {
     const status = armedLoadErrorStatus(err);
     if (status >= 500) {

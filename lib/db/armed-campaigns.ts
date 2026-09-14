@@ -31,6 +31,12 @@ import {
   type DecisionRowView,
 } from "@/lib/optimisation/automation-ui";
 import type { CampaignDraft, CampaignObjective } from "@/lib/types";
+import { loadDescribeCellsForClients } from "@/lib/db/describe-cells";
+import {
+  describeLineForDraft,
+  formatDescribeUnreadable,
+  type DescribeCell,
+} from "@/lib/optimisation/describe-cells";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = any;
@@ -83,7 +89,11 @@ export async function loadArmedCampaignRows(
   supabase: SupabaseClient,
   query: ArmedFleetQuery,
   viewer: { userId: string; isOperator: boolean },
-): Promise<ArmedCampaignRow[]> {
+): Promise<{
+  campaigns: ArmedCampaignRow[];
+  describeCells: DescribeCell[];
+  describeUnreadable: boolean;
+}> {
   const sb = anySb(supabase);
   let q = sb
     .from("campaign_drafts")
@@ -118,9 +128,10 @@ export async function loadArmedCampaignRows(
 
   const eventIds = [
     ...new Set(
-      filtered
-        .flatMap((item) => [item.resolvedEventId, item.columnEventId, item.jsonEventId])
-        .filter((id): id is string => Boolean(id)),
+      [
+        ...(query.kind === "event" ? [query.eventId] : []),
+        ...filtered.flatMap((item) => [item.resolvedEventId, item.columnEventId, item.jsonEventId]),
+      ].filter((id): id is string => Boolean(id)),
     ),
   ];
   const draftIds = filtered.map((item) => item.row.id);
@@ -131,13 +142,29 @@ export async function loadArmedCampaignRows(
   ]);
   const nextTickAt = nextOptimisationTickAt().toISOString();
   const seriesSince = new Date(Date.now() - IMPACT_SERIES_DAYS * 24 * 60 * 60 * 1000);
+  const clientIds = [
+    ...new Set(
+      [...eventsById.values()]
+        .map((event) => event.client_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const armedDraftIds = filtered
+    .filter((item) => item.row.optimisation_automation_enabled === true)
+    .map((item) => item.row.id);
+  const describeLoad = await loadDescribeCellsForClients(sb, clientIds, {
+    viewer,
+    armedDraftIds,
+  });
+  const describeUnreadable = describeLoad.status === "unreadable";
+  const describeCells = describeLoad.status === "ok" ? describeLoad.cells : [];
 
   const rank: Record<ArmedCampaignRow["arm"], number> = {
     live: 0,
     shadow: 1,
     off: 2,
   };
-  return filtered.map((item) => {
+  const campaigns = filtered.map((item) => {
     const resolvedEvent = item.resolvedEventId
       ? (eventsById.get(item.resolvedEventId) ?? null)
       : null;
@@ -187,8 +214,16 @@ export async function loadArmedCampaignRows(
         metricWindow: controls.primaryMetricWindow,
         seriesSince,
       }),
+      describeLine: describeUnreadable
+        ? formatDescribeUnreadable()
+        : describeLineForDraft(describeCells, item.row.id),
     };
   }).sort((a, b) => rank[a.arm] - rank[b.arm] || a.name.localeCompare(b.name));
+  return {
+    campaigns,
+    describeCells: query.kind === "event" ? describeCells : [],
+    describeUnreadable: query.kind === "event" ? describeUnreadable : false,
+  };
 }
 
 interface ParsedFleet {
