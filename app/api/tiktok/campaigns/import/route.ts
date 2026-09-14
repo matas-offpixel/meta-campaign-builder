@@ -8,6 +8,7 @@ import {
   clientIdForTikTokAccount,
   credentialsForImportAdvertiser,
 } from "@/lib/tiktok/import/account";
+import { fetchTikTokAdvertiserInfo } from "@/lib/tiktok/advertiser";
 import { finalizeTikTokImportDraft, mapTikTokLiveCampaignToDraft } from "@/lib/tiktok/import/map";
 import { readTikTokLiveCampaign } from "@/lib/tiktok/import/readers";
 import { tikTokDuplicateExistingNames } from "@/lib/tiktok-wizard/library";
@@ -57,15 +58,23 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const bundle = await readTikTokLiveCampaign({
-      advertiserId,
-      campaignId,
-      token: credentials.token,
-    });
+    const [bundle, advertiser] = await Promise.all([
+      readTikTokLiveCampaign({
+        advertiserId,
+        campaignId,
+        token: credentials.token,
+      }),
+      fetchTikTokAdvertiserInfo({
+        advertiserId,
+        token: credentials.token,
+      }),
+    ]);
     const mappedId = crypto.randomUUID();
     const mapped = mapTikTokLiveCampaignToDraft(bundle, mappedId, {
       tiktokAccountId: credentials.accountId,
       advertiserId,
+      currency: advertiser.currency,
+      timezone: advertiser.timezone,
     });
     mapped.clientId = await clientIdForTikTokAccount(supabase, {
       userId: user.id,

@@ -25,7 +25,8 @@ import {
   UPGRADED_ADGROUP_GET,
   UPGRADED_CAMPAIGN_GET,
   UPGRADED_SMART_PLUS_AD_GET,
-} from "../__fixtures__/ironworks-v1.3.ts";
+} from "../__fixtures__/doc-derived-v1.3.ts";
+import { TikTokImportEnvelopeError } from "../envelope.ts";
 import { finalizeTikTokImportDraft, mapTikTokLiveCampaignToDraft } from "../map.ts";
 import {
   fetchTikTokAds,
@@ -35,6 +36,7 @@ import {
 } from "../readers.ts";
 import {
   TIKTOK_IMPORT_PATHS,
+  TIKTOK_IMPORT_RELAUNCH_ENHANCEMENTS,
   classifyTikTokCampaign,
   formatTikTokImportCreativeCounts,
   formatTikTokImportDroppedLine,
@@ -44,6 +46,8 @@ import {
 const ACCOUNT = {
   tiktokAccountId: "acct-1",
   advertiserId: "7639802149165301776",
+  currency: "GBP",
+  timezone: "Europe/London",
 };
 
 describe("classifyTikTokCampaign", () => {
@@ -77,7 +81,7 @@ describe("classifyTikTokCampaign", () => {
 });
 
 describe("map manual campaign", () => {
-  it("keeps targeting, budget, pixel, identity, video_id and an empty dropped list", () => {
+  it("keeps targeting, budget, pixel, identity, video_id and lists uncarriable fields", () => {
     const mapped = mapTikTokLiveCampaignToDraft(
       {
         kind: "manual",
@@ -98,16 +102,37 @@ describe("map manual campaign", () => {
     assert.equal(mapped.accountSetup.optimisationEvent, "ON_WEB_REGISTER");
     assert.equal(mapped.accountSetup.identityId, "identity-ironworks");
     assert.equal(mapped.accountSetup.identityType, "BC_AUTH_TT");
+    assert.equal(mapped.accountSetup.currency, "GBP");
+    assert.equal(mapped.accountSetup.timezone, "Europe/London");
     assert.deepEqual(mapped.audiences.locationCodes, ["GB"]);
     assert.equal(mapped.audiences.ageMin, 18);
     assert.equal(mapped.audiences.ageMax, 34);
+    assert.deepEqual(mapped.audiences.customAudienceIds, ["aud-1"]);
+    assert.deepEqual(mapped.audiences.lookalikeAudienceIds, []);
+    assert.equal(mapped.optimisation.pacing, "STANDARD");
     assert.equal(mapped.budgetSchedule.budgetAmount, 80);
     assert.equal(mapped.budgetSchedule.adGroups[0]?.budget, 80);
     assert.equal(mapped.creatives.items[0]?.videoId, "v901");
     assert.equal(mapped.creatives.items[0]?.mode, "VIDEO_REFERENCE");
-    assert.deepEqual(mapped.importMeta?.dropped, []);
+    const dropped = mapped.importMeta?.dropped ?? [];
+    const fields = dropped.map((item) => item.field);
+    assert.ok(fields.includes("excluded_audience_ids"));
+    assert.deepEqual(
+      dropped.find((item) => item.field === "excluded_audience_ids")?.sourceValue,
+      ["ticketholder-1"],
+    );
+    assert.ok(fields.includes("saved_audience_id"));
+    assert.equal(
+      dropped.find((item) => item.field === "saved_audience_id")?.sourceValue,
+      "saved-spec-1",
+    );
+    assert.ok(fields.includes("placements"));
     assert.equal(mapped.optimisation.smartPlusEnabled, false);
     assert.notEqual(mapped.optimisation.bidStrategy, "SMART_PLUS");
+    assert.match(
+      formatTikTokImportDroppedLine(dropped) ?? "",
+      /excluded audiences \(ticketholder-1\)/,
+    );
   });
 });
 
@@ -146,17 +171,74 @@ describe("map upgraded Smart+", () => {
     assert.equal(mapped.creatives.items.length, 3);
     assert.ok(mapped.creatives.items.some((item) => item.videoId === "v-chosen-1"));
     assert.ok(mapped.creatives.items.some((item) => item.videoId === "v-auto-1"));
+    const assigned =
+      mapped.creativeAssignments.byAdGroupId["upgraded-adgroup-1"] ?? [];
+    assert.deepEqual(assigned, ["chosen-1", "chosen-2"]);
+    assert.equal(assigned.includes("auto-1"), false);
+    assert.deepEqual(mapped.audiences.lookalikeAudienceIds, []);
+    assert.ok(fields.includes("excluded_audience_ids"));
+    assert.deepEqual(
+      mapped.importMeta?.dropped.find((item) => item.field === "excluded_audience_ids")
+        ?.sourceValue,
+      ["ticketholder-upgraded"],
+    );
+    assert.ok(fields.includes("saved_audience_id"));
     assert.match(
       formatTikTokImportDroppedLine(mapped.importMeta?.dropped ?? []) ?? "",
       /automatic audience expansion \(was on\)/,
     );
     assert.equal(
       formatTikTokImportCreativeCounts(mapped.importMeta!.creativeCounts!),
-      "2 creatives you chose, 1 TikTok added.",
+      "2 creatives you chose (assigned), 1 TikTok added (unassigned).",
     );
     assert.match(
-      formatTikTokImportEnhancementLine(mapped.importMeta!.sourceEnhancements),
+      formatTikTokImportEnhancementLine(mapped.importMeta!),
       /enhancements ON \(is_aco true on 3 of 3\)/,
+    );
+  });
+
+  it("throws when /smart_plus/ad/get/ has no creative_list", () => {
+    assert.throws(
+      () =>
+        mapTikTokLiveCampaignToDraft(
+          {
+            kind: "smart_plus",
+            campaign: UPGRADED_CAMPAIGN_GET,
+            adGroups: [UPGRADED_ADGROUP_GET],
+            ads: [],
+            chosenAds: [{ ad_id: "missing-list", ad_name: "No list" }],
+            autoAddedAds: [],
+            spc: null,
+          },
+          "draft-no-list",
+          ACCOUNT,
+        ),
+      (err: unknown) =>
+        err instanceof TikTokImportEnvelopeError &&
+        err.message.includes("creative_list"),
+    );
+  });
+
+  it("throws when upgraded targeting_spec is missing", () => {
+    const { targeting_spec: _omit, ...flat } = UPGRADED_ADGROUP_GET;
+    assert.throws(
+      () =>
+        mapTikTokLiveCampaignToDraft(
+          {
+            kind: "smart_plus",
+            campaign: UPGRADED_CAMPAIGN_GET,
+            adGroups: [flat],
+            ads: UPGRADED_AD_GET_ALL,
+            chosenAds: [UPGRADED_SMART_PLUS_AD_GET],
+            autoAddedAds: [],
+            spc: null,
+          },
+          "draft-no-spec",
+          ACCOUNT,
+        ),
+      (err: unknown) =>
+        err instanceof TikTokImportEnvelopeError &&
+        err.message.includes("targeting_spec"),
     );
   });
 });
@@ -185,6 +267,14 @@ describe("map legacy Smart+", () => {
     assert.ok(dropped.includes("spc_audience_age"));
     assert.ok(dropped.includes("smart_audience_enabled"));
     assert.equal(mapped.optimisation.smartPlusEnabled, false);
+    assert.equal(
+      formatTikTokImportEnhancementLine(mapped.importMeta!),
+      "Source: Legacy Smart+ — fully automated creative and targeting. Relaunch: OFF.",
+    );
+    assert.equal(
+      formatTikTokImportEnhancementLine(mapped.importMeta!).includes("0 of 0"),
+      false,
+    );
   });
 });
 
@@ -344,6 +434,24 @@ describe("readers", () => {
           page_info: { page: 1, total_page: 1 },
         };
       }
+      if (path === "/smart_plus/adgroup/get/") {
+        return {
+          list: [UPGRADED_ADGROUP_GET],
+          page_info: { page: 1, total_page: 1 },
+        };
+      }
+      if (path === "/smart_plus/ad/get/") {
+        return {
+          list: [UPGRADED_SMART_PLUS_AD_GET],
+          page_info: { page: 1, total_page: 1 },
+        };
+      }
+      if (path === "/ad/get/") {
+        return {
+          list: UPGRADED_AD_GET_ALL,
+          page_info: { page: 1, total_page: 1 },
+        };
+      }
       return { list: [], page_info: { page: 1, total_page: 1 } };
     });
     await readTikTokLiveCampaign({
@@ -361,6 +469,64 @@ describe("readers", () => {
     assert.ok(seen.includes("/smart_plus/adgroup/get/"));
     assert.ok(seen.includes("/smart_plus/ad/get/"));
     assert.ok(seen.includes("/ad/get/"));
+  });
+
+  it("throws through logUnmatchedCandidates when the list envelope key is unknown", async () => {
+    const lines: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      await assert.rejects(
+        () =>
+          listTikTokLiveCampaigns({
+            advertiserId: ACCOUNT.advertiserId,
+            token: "token",
+            request: mockGet(async () => ({
+              items: [MANUAL_CAMPAIGN_GET],
+              page_info: { page: 1, total_page: 1 },
+            })),
+          }),
+        (err: unknown) =>
+          err instanceof TikTokImportEnvelopeError &&
+          err.message.includes("none of [list, adgroups, ads, campaigns]"),
+      );
+    } finally {
+      console.error = original;
+    }
+    assert.equal(
+      lines.some((line) =>
+        line.includes("[tiktok/unmatched] /campaign/get/ envelope"),
+      ),
+      true,
+    );
+  });
+});
+
+describe("relaunch enhancement constant", () => {
+  it("tracks lib/tiktok/write/mapping.ts is_aco: false", () => {
+    const mapping = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../write/mapping.ts"),
+      "utf8",
+    );
+    assert.match(mapping, /is_aco:\s*false/);
+    assert.equal(TIKTOK_IMPORT_RELAUNCH_ENHANCEMENTS, "OFF");
+  });
+});
+
+describe("doc-derived fixture", () => {
+  it("names the file and header as doc-derived, not a live capture", () => {
+    const fixture = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "../__fixtures__/doc-derived-v1.3.ts",
+      ),
+      "utf8",
+    );
+    assert.match(fixture, /Doc-derived v1\.3 envelopes/);
+    assert.match(fixture, /Not a live capture/);
+    assert.equal(fixture.includes("Live capture against advertiser"), false);
   });
 });
 

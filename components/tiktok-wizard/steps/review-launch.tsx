@@ -417,7 +417,7 @@ export function ReviewLaunchStep({
       {draft.importMeta && (
         <section className="space-y-2 rounded-md border border-border bg-background p-4">
           <Datum className="text-sm">
-            {formatTikTokImportEnhancementLine(draft.importMeta.sourceEnhancements)}
+            {formatTikTokImportEnhancementLine(draft.importMeta)}
           </Datum>
           <Datum className="text-xs text-muted-foreground">
             The source campaign is not touched. Pause it in Ads Manager when you

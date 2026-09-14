@@ -1,5 +1,9 @@
 import { tiktokGet } from "../client.ts";
 import {
+  TIKTOK_IMPORT_ENVELOPE_LIST_KEYS,
+  requireArrayFromCandidates,
+} from "./envelope.ts";
+import {
   classifyTikTokCampaign,
   type TikTokLiveCampaignKind,
   type TikTokLiveCampaignRow,
@@ -50,11 +54,24 @@ export type TikTokAdGroupGetRow = Record<string, unknown> & {
   interest_keyword_ids?: Array<string | number>;
   purchase_intention_keyword_ids?: Array<string | number>;
   audience_ids?: Array<string | number>;
+  excluded_audience_ids?: Array<string | number>;
   saved_audience_id?: string;
   actions?: Array<{ action_category_ids?: Array<string | number> }>;
   schedule_start_time?: string;
   schedule_end_time?: string;
+  schedule_type?: string;
+  pacing?: string;
+  placements?: string[];
+  placement_type?: string;
   targeting_spec?: Record<string, unknown>;
+  operating_systems?: string[];
+  min_android_version?: string;
+  min_ios_version?: string;
+  device_model_ids?: Array<string | number>;
+  connection_type?: string;
+  carrier_ids?: Array<string | number>;
+  isp_ids?: Array<string | number>;
+  network_types?: string[];
 };
 
 export type TikTokAdGetRow = Record<string, unknown> & {
@@ -150,10 +167,23 @@ export const ADGROUP_GET_FIELDS = [
   "interest_keyword_ids",
   "purchase_intention_keyword_ids",
   "audience_ids",
+  "excluded_audience_ids",
   "saved_audience_id",
   "actions",
   "schedule_start_time",
   "schedule_end_time",
+  "schedule_type",
+  "pacing",
+  "placements",
+  "placement_type",
+  "operating_systems",
+  "min_android_version",
+  "min_ios_version",
+  "device_model_ids",
+  "connection_type",
+  "carrier_ids",
+  "isp_ids",
+  "network_types",
 ] as const;
 
 export const AD_GET_FIELDS = [
@@ -204,21 +234,16 @@ async function pageRows<T>(input: {
       params,
       input.token,
     );
-    const rows = rowsFromEnvelope(res);
+    const rows = requireArrayFromCandidates<T>(
+      res,
+      TIKTOK_IMPORT_ENVELOPE_LIST_KEYS,
+      `${input.path} envelope`,
+    );
     out.push(...rows);
     const totalPage = res.page_info?.total_page;
     if (!totalPage || page >= totalPage) break;
   }
   return out;
-}
-
-function rowsFromEnvelope<T>(res: TikTokListEnvelope<T> | Record<string, unknown>): T[] {
-  const record = res as Record<string, unknown>;
-  for (const key of ["list", "adgroups", "ads", "campaigns"] as const) {
-    const value = record[key];
-    if (Array.isArray(value)) return value as T[];
-  }
-  return [];
 }
 
 export async function listTikTokLiveCampaigns(input: {
@@ -345,6 +370,9 @@ export async function fetchTikTokSmartPlusAds(input: {
  * /smart_plus/ad/get/ omits auto-added creatives. /ad/get/ with
  * campaign_automation_type UPGRADED_SMART_PLUS returns the full manual
  * ad shape, including TikTok-added rows. Never use ad_ids_v2.
+ *
+ * Unverified until a live capture: `filtering.campaign_automation_type`
+ * is documented, not yet seen on Ironworks.
  */
 export async function fetchTikTokUpgradedCreativesViaAdGet(input: {
   advertiserId: string;
@@ -371,6 +399,8 @@ export async function fetchTikTokLegacySmartCampaign(input: {
     token: input.token,
     request,
     filtering: { campaign_ids: [input.campaignId] },
+    // Unverified until capture: docs allow 1000; live /campaign/spc/get/
+    // page_size max is not confirmed.
     pageSize: LIST_PAGE_SIZE,
   });
   return rows.find((row) => row.campaign_id === input.campaignId) ?? rows[0] ?? null;
@@ -399,6 +429,11 @@ export async function readTikTokLiveCampaign(input: {
   const kind = classifyTikTokCampaign(campaign);
   if (kind === "legacy_smart_plus") {
     const spc = await fetchTikTokLegacySmartCampaign(input);
+    if (!spc) {
+      throw new Error(
+        `TikTok import failed: /campaign/spc/get/ returned no row for ${input.campaignId}`,
+      );
+    }
     return {
       kind,
       campaign,
@@ -415,6 +450,16 @@ export async function readTikTokLiveCampaign(input: {
       fetchTikTokSmartPlusAds(input),
       fetchTikTokUpgradedCreativesViaAdGet(input),
     ]);
+    if (adGroups.length === 0) {
+      throw new Error(
+        `TikTok import failed: /smart_plus/adgroup/get/ returned no ad groups for ${input.campaignId}`,
+      );
+    }
+    if (chosenAds.length === 0) {
+      throw new Error(
+        `TikTok import failed: /smart_plus/ad/get/ returned no ads for ${input.campaignId}`,
+      );
+    }
     const chosenIds = new Set(
       chosenAds.flatMap((ad) => creativeKeysFromSmartPlusAd(ad)),
     );
@@ -436,6 +481,16 @@ export async function readTikTokLiveCampaign(input: {
     fetchTikTokAdGroups(input),
     fetchTikTokAds(input),
   ]);
+  if (adGroups.length === 0) {
+    throw new Error(
+      `TikTok import failed: /adgroup/get/ returned no ad groups for ${input.campaignId}`,
+    );
+  }
+  if (ads.length === 0) {
+    throw new Error(
+      `TikTok import failed: /ad/get/ returned no ads for ${input.campaignId}`,
+    );
+  }
   return {
     kind,
     campaign,
@@ -447,10 +502,22 @@ export async function readTikTokLiveCampaign(input: {
   };
 }
 
+/**
+ * Chosen vs TikTok-added split. Assumes `/ad/get/` `ad_id` equals
+ * `/smart_plus/ad/get/` `creative_id` (the doc-derived fixture sets
+ * both to the same string, so a test cannot fail this). Unverified
+ * until capture. Video ids are a second key so a mismatch still
+ * matches on the asset.
+ */
 function creativeKeysFromSmartPlusAd(ad: TikTokAdGetRow): string[] {
   const keys: string[] = [];
   if (ad.ad_id) keys.push(ad.ad_id);
-  for (const creative of ad.creative_list ?? []) {
+  const list = requireArrayFromCandidates<TikTokSmartPlusCreativeRow>(
+    ad,
+    ["creative_list"],
+    "/smart_plus/ad/get/ creative_list",
+  );
+  for (const creative of list) {
     if (creative.creative_id) keys.push(creative.creative_id);
     if (creative.video_id) keys.push(creative.video_id);
   }

@@ -75,6 +75,30 @@ export const TIKTOK_IMPORT_DROPPED_FIELDS = [
   "spc_audience_age",
 ] as const;
 
+/**
+ * Requested targeting the draft cannot hold. Same `dropped[]` list as
+ * Smart+-only — nothing on the source ad group is lost unnamed.
+ * `saved_audience_id` is a stored spec, not a lookalike: do not put it
+ * on `lookalikeAudienceIds`. The writer reads that field as
+ * `saved_audience_id`, but this PR does not invent a second draft key
+ * (`lib/tiktok/write/**` is frozen).
+ */
+export const TIKTOK_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
+  "excluded_audience_ids",
+  "saved_audience_id",
+  "placements",
+  "placement_type",
+  "purchase_intention_keyword_ids",
+  "operating_systems",
+  "min_android_version",
+  "min_ios_version",
+  "device_model_ids",
+  "connection_type",
+  "carrier_ids",
+  "isp_ids",
+  "network_types",
+] as const;
+
 export const TIKTOK_IMPORT_DROPPED_LABELS: Record<string, string> = {
   budget_auto_adjust_strategy: "automatic budget adjustment",
   smart_plus_adgroup_mode: "Smart+ ad group mode",
@@ -86,7 +110,28 @@ export const TIKTOK_IMPORT_DROPPED_LABELS: Record<string, string> = {
   creative_auto_add_toggle: "automatic creative additions",
   creative_auto_enhancement_strategy_list: "automatic creative enhancement",
   spc_audience_age: "Smart+ audience age",
+  excluded_audience_ids: "excluded audiences",
+  saved_audience_id: "saved audience",
+  placements: "placements",
+  placement_type: "placement type",
+  purchase_intention_keyword_ids: "purchase-intention keywords",
+  operating_systems: "operating systems",
+  min_android_version: "minimum Android version",
+  min_ios_version: "minimum iOS version",
+  device_model_ids: "device models",
+  connection_type: "connection type",
+  carrier_ids: "carriers",
+  isp_ids: "ISPs",
+  network_types: "network types",
 };
+
+/**
+ * Relaunch enhancements are OFF because `buildTikTokAdPayload` in
+ * `lib/tiktok/write/mapping.ts` sends `is_aco: false` (and
+ * `creative_authorized: false`). Import tests grep that literal so a
+ * writer change turns this line red.
+ */
+export const TIKTOK_IMPORT_RELAUNCH_ENHANCEMENTS = "OFF" as const;
 
 export function classifyTikTokCampaign(row: {
   campaign_automation_type?: string | null;
@@ -120,20 +165,25 @@ export function formatTikTokImportDroppedLine(
     const label = TIKTOK_IMPORT_DROPPED_LABELS[item.field] ?? item.field;
     return `${label} (${formatDroppedSourceValue(item.sourceValue)})`;
   });
-  return `Not carried over from the Smart+ campaign: ${items.join(", ")}.`;
+  return `Not carried over from the source campaign: ${items.join(", ")}.`;
 }
 
 export function formatTikTokImportEnhancementLine(
-  source: TikTokImportEnhancements,
+  meta: Pick<TikTokImportMeta, "sourceKind" | "sourceEnhancements">,
 ): string {
+  const relaunch = TIKTOK_IMPORT_RELAUNCH_ENHANCEMENTS;
+  if (meta.sourceKind === "legacy_smart_plus") {
+    return `Source: Legacy Smart+ — fully automated creative and targeting. Relaunch: ${relaunch}.`;
+  }
+  const source = meta.sourceEnhancements;
   const on = source.isAcoOn > 0 || source.creativeAuthorizedOn > 0;
-  return `Source ads: enhancements ${on ? "ON" : "OFF"} (is_aco true on ${source.isAcoOn} of ${source.isAcoTotal}). Relaunch: OFF.`;
+  return `Source ads: enhancements ${on ? "ON" : "OFF"} (is_aco true on ${source.isAcoOn} of ${source.isAcoTotal}). Relaunch: ${relaunch}.`;
 }
 
 export function formatTikTokImportCreativeCounts(
   counts: TikTokImportCreativeCounts,
 ): string {
-  return `${counts.chosen} creatives you chose, ${counts.tiktokAdded} TikTok added.`;
+  return `${counts.chosen} creatives you chose (assigned), ${counts.tiktokAdded} TikTok added (unassigned).`;
 }
 
 export function relaunchCampaignName(sourceName: string): string {

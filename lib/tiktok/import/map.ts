@@ -25,7 +25,13 @@ import type {
   TikTokSpcGetRow,
 } from "./readers.ts";
 import {
+  requireArrayFromCandidates,
+  requireObjectFromCandidates,
+  requireStringFromCandidates,
+} from "./envelope.ts";
+import {
   TIKTOK_IMPORT_DROPPED_FIELDS,
+  TIKTOK_IMPORT_UNCARRIABLE_TARGETING_FIELDS,
   emptyImportEnhancements,
   enhancementsFromAds,
   relaunchCampaignName,
@@ -62,6 +68,12 @@ const GOAL_FROM_TIKTOK: Record<string, TikTokOptimisationGoal> = {
   ENGAGEMENT: "ENGAGEMENT",
 };
 
+function hasDroppedValue(value: unknown): boolean {
+  if (value == null || value === "") return false;
+  if (Array.isArray(value) && value.length === 0) return false;
+  return true;
+}
+
 export function collectDroppedFields(
   sources: ReadonlyArray<Record<string, unknown> | null | undefined>,
 ): TikTokImportDroppedField[] {
@@ -69,9 +81,13 @@ export function collectDroppedFields(
   const seen = new Set<string>();
   for (const source of sources) {
     if (!source) continue;
-    for (const field of TIKTOK_IMPORT_DROPPED_FIELDS) {
+    for (const field of [
+      ...TIKTOK_IMPORT_DROPPED_FIELDS,
+      ...TIKTOK_IMPORT_UNCARRIABLE_TARGETING_FIELDS,
+    ]) {
       if (field === "spc_audience_age") continue;
       if (!(field in source) || seen.has(field)) continue;
+      if (!hasDroppedValue(source[field])) continue;
       seen.add(field);
       dropped.push({ field, sourceValue: source[field] });
     }
@@ -99,13 +115,24 @@ function asStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function unwrapTargeting(
+function unwrapManualTargeting(
   group: TikTokAdGroupGetRow,
 ): Record<string, unknown> {
   if (group.targeting_spec && typeof group.targeting_spec === "object") {
     return { ...group, ...group.targeting_spec };
   }
   return group;
+}
+
+function unwrapUpgradedTargeting(
+  group: TikTokAdGroupGetRow,
+): Record<string, unknown> {
+  const spec = requireObjectFromCandidates(
+    group,
+    ["targeting_spec"],
+    "/smart_plus/adgroup/get/ targeting_spec",
+  );
+  return { ...group, ...spec };
 }
 
 function mapObjective(value: unknown): TikTokObjective | null {
@@ -206,9 +233,20 @@ function applyTargeting(
       source.action_category_ids,
   );
   next.customAudienceIds = asStringArray(source.audience_ids);
-  const saved = asString(source.saved_audience_id);
-  next.lookalikeAudienceIds = saved ? [saved] : [];
+  // saved_audience_id is not a lookalike. Do not write it to
+  // lookalikeAudienceIds. Drop-and-list it — the draft has no other field
+  // and write/** cannot grow one in this PR.
+  next.lookalikeAudienceIds = [];
   return next;
+}
+
+function mapPacing(
+  value: unknown,
+): "STANDARD" | "ACCELERATED" | null {
+  const key = asString(value);
+  if (key === "PACING_MODE_FAST") return "ACCELERATED";
+  if (key === "PACING_MODE_SMOOTH") return "STANDARD";
+  return null;
 }
 
 function newCreativeId(index: number): string {
@@ -280,10 +318,15 @@ function creativesFromManualAds(ads: TikTokAdGetRow[]): TikTokCreativeDraft[] {
 function creativesFromSmartPlusAds(ads: TikTokAdGetRow[]): TikTokCreativeDraft[] {
   const items: TikTokCreativeDraft[] = [];
   for (const ad of ads) {
-    const list = ad.creative_list ?? [];
+    const list = requireArrayFromCandidates<TikTokSmartPlusCreativeRow>(
+      ad,
+      ["creative_list"],
+      "/smart_plus/ad/get/ creative_list",
+    );
     if (list.length === 0) {
-      items.push(mapCreativeFromAd(ad, items.length, ad.ad_name ?? "Imported creative"));
-      continue;
+      throw new Error(
+        "TikTok import failed: /smart_plus/ad/get/ creative_list was empty",
+      );
     }
     for (const creative of list) {
       items.push(
@@ -299,13 +342,46 @@ function creativesFromSmartPlusAds(ads: TikTokAdGetRow[]): TikTokCreativeDraft[]
 }
 
 function creativesFromSpc(spc: TikTokSpcGetRow): TikTokCreativeDraft[] {
-  const titles = (spc.title_list ?? [])
-    .map((row) => asString(row.title))
-    .filter((title): title is string => Boolean(title));
-  const videos = (spc.media_info_list ?? [])
-    .map((row) => asString(row.media_info?.video_info?.video_id))
-    .filter((id): id is string => Boolean(id));
-  const count = Math.max(videos.length, titles.length, videos.length === 0 && titles.length === 0 ? 0 : 1);
+  const titleRows = requireArrayFromCandidates<{ title?: string }>(
+    spc,
+    ["title_list"],
+    "/campaign/spc/get/ title_list",
+  );
+  const titles = titleRows.map((row, index) =>
+    requireStringFromCandidates(
+      row,
+      ["title"],
+      `/campaign/spc/get/ title_list[${index}].title`,
+    ),
+  );
+  const mediaRows = requireArrayFromCandidates<Record<string, unknown>>(
+    spc,
+    ["media_info_list"],
+    "/campaign/spc/get/ media_info_list",
+  );
+  const videos = mediaRows.map((row, index) => {
+    const media = requireObjectFromCandidates(
+      row,
+      ["media_info"],
+      `/campaign/spc/get/ media_info_list[${index}].media_info`,
+    );
+    const video = requireObjectFromCandidates(
+      media,
+      ["video_info"],
+      `/campaign/spc/get/ media_info_list[${index}].media_info.video_info`,
+    );
+    return requireStringFromCandidates(
+      video,
+      ["video_id"],
+      `/campaign/spc/get/ media_info_list[${index}].media_info.video_info.video_id`,
+    );
+  });
+  const count = Math.max(videos.length, titles.length);
+  if (count === 0) {
+    throw new Error(
+      "TikTok import failed: /campaign/spc/get/ had no titles or videos",
+    );
+  }
   const items: TikTokCreativeDraft[] = [];
   for (let index = 0; index < count; index += 1) {
     const title = titles[index] ?? titles[0] ?? `Imported creative ${index + 1}`;
@@ -359,11 +435,18 @@ function assignCreatives(
 export function mapTikTokLiveCampaignToDraft(
   bundle: TikTokImportLiveBundle,
   draftId: string,
-  account: { tiktokAccountId: string | null; advertiserId: string },
+  account: {
+    tiktokAccountId: string | null;
+    advertiserId: string;
+    currency?: string | null;
+    timezone?: string | null;
+  },
 ): TikTokCampaignDraft {
   const draft = createDefaultTikTokDraft(draftId);
   draft.accountSetup.tiktokAccountId = account.tiktokAccountId;
   draft.accountSetup.advertiserId = account.advertiserId;
+  draft.accountSetup.currency = account.currency ?? null;
+  draft.accountSetup.timezone = account.timezone ?? null;
   draft.optimisation.smartPlusEnabled = false;
 
   if (bundle.kind === "legacy_smart_plus") {
@@ -405,7 +488,9 @@ function mapManual(
 ): TikTokCampaignDraft {
   const group = bundle.adGroups[0] ?? {};
   applyCampaignFields(draft, bundle.campaign, group);
-  draft.audiences = applyTargeting(draft.audiences, unwrapTargeting(group));
+  draft.audiences = applyTargeting(draft.audiences, unwrapManualTargeting(group));
+  const pacing = mapPacing(group.pacing);
+  if (pacing) draft.optimisation.pacing = pacing;
   const budget = asNumber(group.budget) ?? asNumber(bundle.campaign.budget);
   draft.budgetSchedule.budgetMode = mapBudgetMode(
     group.budget_mode ?? bundle.campaign.budget_mode,
@@ -447,9 +532,11 @@ function mapUpgraded(
   bundle: TikTokImportLiveCampaignish,
   draft: TikTokCampaignDraft,
 ): TikTokCampaignDraft {
-  const group = unwrapTargeting(bundle.adGroups[0] ?? {});
+  const group = unwrapUpgradedTargeting(bundle.adGroups[0] ?? {});
   applyCampaignFields(draft, bundle.campaign, group);
   draft.audiences = applyTargeting(draft.audiences, group);
+  const pacing = mapPacing(group.pacing);
+  if (pacing) draft.optimisation.pacing = pacing;
   const budget = asNumber(group.budget) ?? asNumber(bundle.campaign.budget);
   draft.budgetSchedule.budgetMode = mapBudgetMode(
     group.budget_mode ?? bundle.campaign.budget_mode,
@@ -481,7 +568,7 @@ function mapUpgraded(
   draft.creatives.items = [...chosen, ...extra];
   draft.creativeAssignments.byAdGroupId = assignCreatives(
     [groupId],
-    draft.creatives.items.map((item) => item.id),
+    chosen.map((item) => item.id),
   );
   const identity = firstIdentity(draft.creatives.items);
   draft.accountSetup.identityId = identity.identityId;

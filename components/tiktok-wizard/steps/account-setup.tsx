@@ -398,7 +398,7 @@ export function AccountSetupStep({
           )}
           {draft.importMeta.dropped.length === 0 && !draft.importMeta.creativeCounts && (
             <Datum className="text-muted-foreground">
-              Imported from TikTok. Nothing Smart+-only was dropped.
+              Imported from TikTok. Every requested targeting field was carried.
             </Datum>
           )}
         </StatusLine>

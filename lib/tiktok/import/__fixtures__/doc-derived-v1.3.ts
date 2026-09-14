@@ -1,13 +1,18 @@
 /**
- * Documented v1.3 envelopes for the six import reads.
+ * Doc-derived v1.3 envelopes for the six import reads.
  *
- * Live capture against advertiser 7639802149165301776 (Ironworks) was
- * not possible from this worktree — TIKTOK_TOKEN_KEY is not available
- * here. Field names and nesting match portal/docs get-campaigns,
- * get-ad-groups, get-ads, get-upgraded-smart-ad-groups,
- * get-upgraded-smart-ads, get-smart-campaigns (v1.3). Campaign ids in
- * these fixtures are placeholders. Replace with a verbatim Ironworks
- * row when a read-only capture can run.
+ * Not a live capture. Field names and nesting match portal/docs
+ * get-campaigns, get-ad-groups, get-ads, get-upgraded-smart-ad-groups,
+ * get-upgraded-smart-ads, get-smart-campaigns (v1.3). Campaign ids are
+ * placeholders. Replace with a verbatim advertiser capture after this
+ * PR merges and the deployed picker can be driven with the operator
+ * session.
+ *
+ * Unverified against a live advertiser until that capture:
+ * - `page_size: 1000` on `/campaign/spc/get/`
+ * - `filtering.campaign_automation_type` on `/ad/get/`
+ * - `/ad/get/` `ad_id` === `/smart_plus/ad/get/` `creative_id`
+ *   (this fixture sets both to the same string, so a test cannot fail)
  */
 
 export const MANUAL_CAMPAIGN_GET = {
@@ -39,6 +44,12 @@ export const MANUAL_ADGROUP_GET = {
   languages: ["en"],
   interest_category_ids: ["123"],
   audience_ids: ["aud-1"],
+  excluded_audience_ids: ["ticketholder-1"],
+  saved_audience_id: "saved-spec-1",
+  placements: ["PLACEMENT_TIKTOK"],
+  placement_type: "PLACEMENT_TYPE_NORMAL",
+  pacing: "PACING_MODE_SMOOTH",
+  schedule_type: "SCHEDULE_START_END",
   schedule_start_time: "2026-01-01 09:00:00",
   schedule_end_time: "2026-01-14 09:00:00",
 };
@@ -95,6 +106,8 @@ export const UPGRADED_ADGROUP_GET = {
     age_groups: ["AGE_25_34", "AGE_35_44"],
     gender: "GENDER_UNLIMITED",
     languages: ["en"],
+    excluded_audience_ids: ["ticketholder-upgraded"],
+    saved_audience_id: "saved-upgraded-1",
   },
 };
 
@@ -129,6 +142,11 @@ export const UPGRADED_SMART_PLUS_AD_GET = {
   ],
 };
 
+/**
+ * `/ad/get/` `ad_id` is set equal to `/smart_plus/ad/get/` `creative_id`
+ * so the chosen/added split can be exercised. That equality is
+ * unverified until a live capture.
+ */
 export const UPGRADED_AD_GET_ALL = [
   {
     ad_id: "chosen-1",
