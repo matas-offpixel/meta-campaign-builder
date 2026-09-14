@@ -14,6 +14,7 @@ import {
 import {
   canStampEvent,
   resolveWiringMatch,
+  wiringCampaignName,
   type WiringResolution,
 } from "../campaign-event-rewire.ts";
 import { linkDraftToEvent } from "./events.ts";
@@ -22,6 +23,10 @@ export type RewireViewer = { userId: string; isOperator: boolean };
 
 export type ApplyWiringResult =
   | { ok: true; wiring: WiringResolution }
+  | { ok: false; error: string; status: number };
+
+export type StampWriteResult =
+  | { ok: true }
   | { ok: false; error: string; status: number };
 
 const EVENT_SELECT =
@@ -68,25 +73,27 @@ export async function stampEventCode(
   code: string,
   viewer: RewireViewer,
   eventOwnerUserId: string | null | undefined,
-): Promise<void> {
+): Promise<StampWriteResult> {
   if (!canStampEvent(viewer, eventOwnerUserId)) {
-    throw new Error("Not allowed to write this event");
+    return { ok: false, error: "Not allowed to write this event", status: 403 };
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q = (supabase as any)
     .from("events")
     .update({ event_code: code })
-    .eq("id", eventId);
+    .eq("id", eventId)
+    .is("event_code", null);
   if (!viewer.isOperator) {
     q = q.eq("user_id", viewer.userId);
   }
   const { data, error } = await q.select("id");
   if (error) {
-    throw new Error(error.message);
+    return { ok: false, error: error.message, status: 500 };
   }
   if (!data?.length) {
-    throw new Error("Event was not updated");
+    return { ok: false, error: "Event already has a code", status: 409 };
   }
+  return { ok: true };
 }
 
 export async function applyResolvedWiring(
@@ -99,7 +106,7 @@ export async function applyResolvedWiring(
   const sb = supabase as any;
   const { data, error } = await sb
     .from("campaign_drafts")
-    .select("id, user_id, event_id, draft_json")
+    .select("id, user_id, event_id, name, draft_json")
     .eq("id", draftId)
     .maybeSingle();
   if (error || !data) {
@@ -140,7 +147,7 @@ export async function applyResolvedWiring(
 
   const wiring = resolveWiringMatch({
     campaignCode: draft.settings.campaignCode,
-    campaignName: draft.settings.campaignName,
+    campaignName: wiringCampaignName(draft.settings.campaignName, data.name as string | null),
     wiredEvent: wired,
     clientEvents,
   });
@@ -164,13 +171,14 @@ export async function applyResolvedWiring(
         viewer.isOperator ? undefined : viewer.userId,
       );
     } else {
-      await stampEventCode(
+      const stamped = await stampEventCode(
         supabase,
         wiring.event.id,
         wiring.code,
         viewer,
         wiring.event.user_id,
       );
+      if (!stamped.ok) return stamped;
     }
   } catch (err) {
     return {
@@ -180,4 +188,21 @@ export async function applyResolvedWiring(
     };
   }
   return { ok: true, wiring };
+}
+
+export async function applyPreviewedRewires(
+  supabase: SupabaseClient,
+  draftIds: string[],
+  viewer: RewireViewer,
+): Promise<Array<{ draftId: string; ok: boolean; error?: string; status?: number }>> {
+  const results: Array<{ draftId: string; ok: boolean; error?: string; status?: number }> = [];
+  for (const draftId of draftIds) {
+    const result = await applyResolvedWiring(supabase, draftId, "rewire", viewer);
+    results.push(
+      result.ok
+        ? { draftId, ok: true }
+        : { draftId, ok: false, error: result.error, status: result.status },
+    );
+  }
+  return results;
 }

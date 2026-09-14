@@ -38,6 +38,13 @@ export type WiringAmbiguous = {
 
 export type WiringResolution = WiringRewire | WiringStamp | WiringAmbiguous;
 
+export function wiringCampaignName(
+  settingsName: string | null | undefined,
+  rowName: string | null | undefined,
+): string {
+  return (settingsName ?? "").trim() || (rowName ?? "").trim();
+}
+
 export function campaignCodeSide(
   campaignCode: string | null | undefined,
   campaignName: string | null | undefined,
@@ -60,6 +67,20 @@ function eventsWithCode(
     if (!eventCode) return false;
     return !codesDisagree(eventCode, code);
   });
+}
+
+function eventDisplayName(event: CampaignEventIdentity): string {
+  return (event.name ?? "").trim() || "an unnamed event";
+}
+
+function uncodedEventsReason(events: CampaignEventIdentity[]): string | null {
+  const uncoded = events.filter((event) => !(event.event_code ?? "").trim());
+  if (uncoded.length <= 1) return null;
+  const names = uncoded.map(eventDisplayName);
+  const n = uncoded.length;
+  const head =
+    n === 2 ? "two uncoded events on this client" : `${n} uncoded events on this client`;
+  return `${head} — ${names.join(", ")}`;
 }
 
 function unusableCodeReason(code: string): string | null {
@@ -89,7 +110,8 @@ export function resolveWiringMatch(input: {
     campaignName: input.campaignName,
     event: input.wiredEvent,
   });
-  if (!mismatch || !input.wiredEvent) return null;
+  const wired = input.wiredEvent;
+  if (!mismatch || !wired) return null;
 
   const code = campaignCodeSide(input.campaignCode, input.campaignName);
   if (!code) return null;
@@ -100,12 +122,12 @@ export function resolveWiringMatch(input: {
   }
 
   const matches = eventsWithCode(input.clientEvents, code);
-  const fromLabel = formatWiredEventLabel(input.wiredEvent);
-  const wiredCode = (input.wiredEvent.event_code ?? "").trim();
+  const fromLabel = formatWiredEventLabel(wired);
+  const wiredCode = (wired.event_code ?? "").trim();
 
   if (matches.length === 1) {
     const target = matches[0]!;
-    if (target.id === input.wiredEvent.id) {
+    if (target.id === wired.id) {
       return {
         kind: "ambiguous",
         code,
@@ -132,11 +154,19 @@ export function resolveWiringMatch(input: {
   }
 
   if (!wiredCode) {
+    const pool = input.clientEvents.some((event) => event.id === wired.id)
+      ? input.clientEvents
+      : [...input.clientEvents, wired];
+    const uncodedReason = uncodedEventsReason(pool);
+    if (uncodedReason) {
+      return { kind: "ambiguous", code, reason: uncodedReason };
+    }
+    const eventName = eventDisplayName(wired);
     return {
       kind: "stamp_event",
       code,
-      event: input.wiredEvent,
-      buttonLabel: `Set event code to ${code}`,
+      event: wired,
+      buttonLabel: `Set ${eventName}'s code to ${code}`,
       fromLabel,
       toLabel: `event code ${code}`,
     };

@@ -153,35 +153,27 @@ function WiringButton({
   );
 }
 
-function namedLiveRows(rows: ArmedRow[]): ArmedRow[] {
-  return rows.filter((row) => {
-    if (row.arm !== "live") return false;
-    const code = row.wiring && "code" in row.wiring ? row.wiring.code : "";
-    return code === "NX26-AZYR" || code === "NX26-SCHAK";
-  });
+function liveRewireRows(rows: ArmedRow[]): ArmedRow[] {
+  return rows.filter((row) => row.arm === "live");
 }
 
 function RewireAllBar({
   rows,
-  eventId,
   onApplied,
 }: {
   rows: ArmedRow[];
-  eventId?: string;
   onApplied: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const writable = (row: ArmedRow) =>
-    (row.wiring?.kind === "rewire" && row.canWrite) ||
-    (row.wiring?.kind === "stamp_event" && row.canWrite && row.canStampEvent);
+  const writable = (row: ArmedRow) => row.wiring?.kind === "rewire" && row.canWrite;
   const matched = rows.filter(writable);
   const skipped = rows.filter(
     (row) => row.wiring != null && !writable(row),
   );
   if (matched.length === 0 && skipped.length === 0) return null;
-  const live = namedLiveRows(matched);
+  const live = liveRewireRows(matched);
 
   async function confirm() {
     setPending(true);
@@ -190,14 +182,25 @@ function RewireAllBar({
       const res = await fetch("/api/optimisation/campaigns/wiring-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(eventId ? { eventId } : {}),
+        body: JSON.stringify({ draftIds: matched.map((row) => row.id) }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string };
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        results?: Array<{ draftId: string; ok: boolean; error?: string }>;
+      };
       if (!res.ok || json.ok === false) {
         setError(json.error ?? "Could not apply");
         return;
       }
-      setOpen(false);
+      const failed = (json.results ?? []).filter((result) => !result.ok);
+      if (failed.length > 0) {
+        setError(
+          `${failed.length} no longer resolved — the rest applied. Reload and review.`,
+        );
+      } else {
+        setOpen(false);
+      }
       onApplied();
     } catch {
       setError("Could not apply");
@@ -245,7 +248,9 @@ function RewireAllBar({
                 <Datum key={row.id} className="text-muted-foreground">
                   {row.name} — {row.wiring?.kind === "ambiguous"
                     ? row.wiring.reason
-                    : "no write access"}
+                    : row.wiring?.kind === "stamp_event"
+                      ? "stamp is per-row"
+                      : "no write access"}
                 </Datum>
               ))}
             </div>
@@ -423,7 +428,7 @@ export function ArmedCampaignList({
   }
   return (
     <div className="space-y-2">
-      <RewireAllBar rows={rows} eventId={eventId} onApplied={reload} />
+      <RewireAllBar rows={rows} onApplied={reload} />
       {eventId ? (
         <DescribeCellsTable cells={describeCells} unreadable={describeUnreadable} />
       ) : null}

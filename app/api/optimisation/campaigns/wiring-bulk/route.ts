@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isOperator } from "@/lib/auth/operator-allowlist";
-import { loadArmedCampaignRows } from "@/lib/db/armed-campaigns";
-import { applyResolvedWiring } from "@/lib/db/rewire";
+import { applyPreviewedRewires } from "@/lib/db/rewire";
 import { isArmedEventId } from "@/lib/optimisation/armed-read-model";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 
@@ -28,34 +27,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const db = service ?? supabase;
   const viewer = { userId: user.id, isOperator: operator };
 
-  let body: { eventId?: string } = {};
+  let draftIds: unknown;
   try {
     const parsed = await req.json();
-    if (parsed && typeof parsed === "object") {
-      body = parsed as { eventId?: string };
-    }
+    draftIds =
+      parsed && typeof parsed === "object" && "draftIds" in parsed
+        ? (parsed as { draftIds?: unknown }).draftIds
+        : null;
   } catch {
-    body = {};
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const eventId = body.eventId?.trim() || "";
-  if (eventId && !isArmedEventId(eventId)) {
-    return NextResponse.json({ ok: false, error: "eventId must be a uuid" }, { status: 400 });
+  if (!Array.isArray(draftIds) || draftIds.length === 0) {
+    return NextResponse.json({ ok: false, error: "draftIds is required" }, { status: 400 });
   }
-  const query = eventId ? ({ kind: "event", eventId } as const) : ({ kind: "armed" } as const);
+  const ids: string[] = [];
+  for (const value of draftIds) {
+    if (typeof value !== "string" || !isArmedEventId(value)) {
+      return NextResponse.json({ ok: false, error: "draftIds must be uuids" }, { status: 400 });
+    }
+    ids.push(value);
+  }
 
-  const { campaigns } = await loadArmedCampaignRows(db, query, viewer);
-  const results: Array<{ draftId: string; ok: boolean; error?: string }> = [];
-  for (const row of campaigns) {
-    if (row.wiring?.kind !== "rewire" && row.wiring?.kind !== "stamp_event") continue;
-    if (!row.canWrite) continue;
-    if (row.wiring.kind === "stamp_event" && !row.canStampEvent) continue;
-    const result = await applyResolvedWiring(db, row.id, row.wiring.kind, viewer);
-    results.push(
-      result.ok
-        ? { draftId: row.id, ok: true }
-        : { draftId: row.id, ok: false, error: result.error },
-    );
-  }
+  const results = await applyPreviewedRewires(db, ids, viewer);
   return NextResponse.json({ ok: true, results });
 }

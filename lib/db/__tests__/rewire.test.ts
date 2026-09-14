@@ -14,15 +14,39 @@ describe("rewire writes", () => {
     assert.match(events, /updated_at/);
     assert.match(events, /if \(ownerUserId\) query = query.eq\("user_id", ownerUserId\)/);
     assert.match(rewire, /viewer.isOperator \? undefined : viewer.userId/);
+    assert.doesNotMatch(events, /supabase: any = createClient/);
   });
 
-  it("bulk route applies each row through applyResolvedWiring", () => {
+  it("bulk applies only previewed rewires and never stamps", () => {
     const src = readFileSync(
       new URL("../../../app/api/optimisation/campaigns/wiring-bulk/route.ts", import.meta.url),
       "utf8",
     );
-    assert.match(src, /applyResolvedWiring/);
+    const rewire = readFileSync(new URL("../rewire.ts", import.meta.url), "utf8");
+    const ui = readFileSync(
+      new URL("../../../components/optimisation/armed-campaign-row.tsx", import.meta.url),
+      "utf8",
+    );
+    assert.match(src, /applyPreviewedRewires/);
+    assert.match(src, /draftIds/);
+    assert.doesNotMatch(src, /stamp_event/);
+    assert.doesNotMatch(src, /loadArmedCampaignRows/);
     assert.doesNotMatch(src, /from\("campaign_drafts"\)\.update/);
+    assert.match(rewire, /applyResolvedWiring\(supabase, draftId, "rewire"/);
+    assert.match(rewire, /for \(const draftId of draftIds\)/);
+    assert.doesNotMatch(rewire.slice(rewire.indexOf("export async function applyPreviewedRewires")), /\bbreak\b/);
+    assert.match(ui, /wiring\?\.kind === "rewire"/);
+    assert.doesNotMatch(ui, /stamp_event" && row.canWrite/);
+    assert.doesNotMatch(ui, /NX26-AZYR/);
+    assert.match(ui, /row.arm === "live"/);
+    assert.match(ui, /draftIds: matched.map/);
+  });
+
+  it("stamp refuses an already-coded event", () => {
+    const rewire = readFileSync(new URL("../rewire.ts", import.meta.url), "utf8");
+    assert.match(rewire, /\.is\("event_code", null\)/);
+    assert.match(rewire, /Event already has a code/);
+    assert.match(rewire, /status: 409/);
   });
 
   it("a non-operator cannot stamp another owner's event", () => {

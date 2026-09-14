@@ -431,10 +431,11 @@ export type EventLinkedDraft = {
 export async function linkDraftToEvent(
   draftId: string,
   eventId: string | null,
-  // Browser default for the event-hub picker; API routes pass the
-  // session or service-role client so operator writes use the same lock.
+  // Caller supplies the client — browser session, server session, or
+  // service-role. No default: a default here would pull the browser
+  // client into server routes.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  supabase: any = createClient(),
+  supabase: any,
   // Owner path (#937): pin the update. Operators omit this.
   ownerUserId?: string,
 ): Promise<void> {

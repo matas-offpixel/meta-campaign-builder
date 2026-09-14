@@ -5,7 +5,7 @@ import {
   applyEventToCampaignSettings,
   type CampaignEventIdentity,
 } from "../campaign-event.ts";
-import { resolveWiringMatch } from "../campaign-event-rewire.ts";
+import { resolveWiringMatch, wiringCampaignName } from "../campaign-event-rewire.ts";
 import { createDefaultDraft } from "../campaign-defaults.ts";
 
 const MALL_GRAB: CampaignEventIdentity = {
@@ -93,18 +93,31 @@ describe("resolveWiringMatch", () => {
     assert.equal(next.campaignName, "[NX26-AZYR] Azyr b2b PB69 - Signup");
   });
 
-  it("[20261003CS] Colyn resolves to stamp_event", () => {
+  it("[20261003CS] Colyn stamps when it is the only uncoded event", () => {
     const resolved = resolveWiringMatch({
       campaignCode: "20261003CS",
       campaignName: "[20261003CS] Colyn —Purchase",
       wiredEvent: COLYN,
-      clientEvents: [COLYN, WORAKLS],
+      clientEvents: [COLYN],
     });
     assert.equal(resolved?.kind, "stamp_event");
     if (resolved?.kind !== "stamp_event") return;
     assert.equal(resolved.event.id, COLYN.id);
     assert.equal(resolved.code, "20261003CS");
-    assert.equal(resolved.buttonLabel, "Set event code to 20261003CS");
+    assert.equal(resolved.buttonLabel, "Set Colyn's code to 20261003CS");
+  });
+
+  it("a Woraklis draft wired to Colyn is ambiguous when Worakls is also uncoded", () => {
+    const resolved = resolveWiringMatch({
+      campaignCode: "20261204CSA",
+      campaignName: "[20261204CSA] Woraklis — Purchase",
+      wiredEvent: COLYN,
+      clientEvents: [COLYN, WORAKLS],
+    });
+    assert.equal(resolved?.kind, "ambiguous");
+    if (resolved?.kind !== "ambiguous") return;
+    assert.match(resolved.reason, /two uncoded events on this client — Colyn, Worakls/);
+    assert.notEqual(resolved.kind, "stamp_event");
   });
 
   it("[NX25-DJ EZ] with code OP1-DJEZ is ambiguous when no event has that code", () => {
@@ -142,6 +155,12 @@ describe("resolveWiringMatch", () => {
     assert.equal(resolved?.kind, "ambiguous");
     if (resolved?.kind !== "ambiguous") return;
     assert.match(resolved.reason, /two events have code IRW0001/);
+  });
+
+  it("wiringCampaignName falls back to the column name", () => {
+    assert.equal(wiringCampaignName("", "[NX26-AZYR] Signup"), "[NX26-AZYR] Signup");
+    assert.equal(wiringCampaignName("  ", "column"), "column");
+    assert.equal(wiringCampaignName("[CODE] JSON", "column"), "[CODE] JSON");
   });
 
   it("a draft that already agrees has no resolution", () => {

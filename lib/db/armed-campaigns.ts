@@ -31,7 +31,11 @@ import {
   type DecisionRowView,
 } from "@/lib/optimisation/automation-ui";
 import type { CampaignDraft, CampaignObjective } from "@/lib/types";
-import { canStampEvent, resolveWiringMatch } from "@/lib/campaign-event-rewire";
+import {
+  canStampEvent,
+  resolveWiringMatch,
+  wiringCampaignName,
+} from "@/lib/campaign-event-rewire";
 import { loadDescribeCellsForClients } from "@/lib/db/describe-cells";
 import { loadClientEvents } from "@/lib/db/rewire";
 import {
@@ -189,13 +193,15 @@ export async function loadArmedCampaignRows(
       : [];
     const wiring = resolveWiringMatch({
       campaignCode: draft.settings.campaignCode,
-      campaignName: draft.settings.campaignName || item.row.name,
+      campaignName: wiringCampaignName(draft.settings.campaignName, item.row.name),
       wiredEvent: resolvedEvent,
       clientEvents,
     });
     return {
       id: item.row.id,
-      name: draft.settings.campaignName || item.row.name || "Untitled campaign",
+      name:
+        wiringCampaignName(draft.settings.campaignName, item.row.name) ||
+        "Untitled campaign",
       status: item.row.status ?? draft.status ?? "draft",
       ownerUserId: item.row.user_id,
       ownerLabel: item.row.user_id === viewer.userId ? "you" : "another operator",
@@ -209,7 +215,7 @@ export async function loadArmedCampaignRows(
       eventWarning: joinEventWarnings(
         describeCodeEventMismatch({
           campaignCode: draft.settings.campaignCode,
-          campaignName: draft.settings.campaignName || item.row.name,
+          campaignName: wiringCampaignName(draft.settings.campaignName, item.row.name),
           event: resolvedEvent,
         }),
         describeCarrierMismatch({
