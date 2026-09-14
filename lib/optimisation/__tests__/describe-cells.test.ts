@@ -6,6 +6,7 @@ import {
   buildDescribeCells,
   cellForDraft,
   formatDescribeCellLine,
+  formatDescribeUnreadable,
   formatEmptyDescribeTable,
   type DescribeDecisionPoint,
   type DescribeLaunchedRow,
@@ -75,7 +76,53 @@ describe("buildDescribeCells", () => {
     const line = formatDescribeCellLine(cells[0]!);
     assert.match(line, /5 ad sets, 3 campaigns/);
     assert.match(line, /cpr 0\.61–1\.40/);
+    assert.match(line, /metric n=5/);
+    assert.match(line, /budget £1400 \(budget-days since launch\)/);
     assert.doesNotMatch(line, /not enough data/);
+  });
+
+  it("a cell with 5 ad sets and 1 metric contributor renders metric n=1", () => {
+    const rows: DescribeLaunchedRow[] = [
+      row({ metaAdsetId: "a1", draftId: "d1", metaCampaignId: "c1", initialDailyBudgetPence: 2000 }),
+      row({ metaAdsetId: "a2", draftId: "d1", metaCampaignId: "c1", initialDailyBudgetPence: 2000 }),
+      row({ metaAdsetId: "a3", draftId: "d2", metaCampaignId: "c2", initialDailyBudgetPence: 2000 }),
+      row({ metaAdsetId: "a4", draftId: "d2", metaCampaignId: "c2", initialDailyBudgetPence: 2000 }),
+      row({ metaAdsetId: "a5", draftId: "d3", metaCampaignId: "c3", initialDailyBudgetPence: 2000 }),
+    ];
+    const cells = buildDescribeCells(rows, [point("a1", 0.61)], NOW);
+    assert.equal(cells[0]?.metricN, 1);
+    assert.match(formatDescribeCellLine(cells[0]!), /metric n=1/);
+    assert.match(formatDescribeCellLine(cells[0]!), /cpr 0\.61–0\.61/);
+  });
+
+  it("orders cells by n descending, not by median", () => {
+    const rows = [
+      row({
+        metaAdsetId: "cheap",
+        draftId: "d1",
+        metaCampaignId: "c1",
+        sourceType: "lookalike_group",
+      }),
+      row({
+        metaAdsetId: "volume-a",
+        draftId: "d2",
+        metaCampaignId: "c2",
+        sourceType: "page_group",
+      }),
+      row({
+        metaAdsetId: "volume-b",
+        draftId: "d3",
+        metaCampaignId: "c3",
+        sourceType: "page_group",
+      }),
+    ];
+    const cells = buildDescribeCells(
+      rows,
+      [point("cheap", 0.1), point("volume-a", 9), point("volume-b", 8)],
+      NOW,
+    );
+    assert.equal(cells[0]?.key.sourceType, "page_group");
+    assert.equal(cells[1]?.key.sourceType, "lookalike_group");
   });
 
   it("a cell with 3 launch rows and 4 backfill rows shows n_launch=3 · n_backfill=4", () => {
@@ -126,6 +173,77 @@ describe("cellForDraft", () => {
     const cells = buildDescribeCells(rows, [], NOW);
     const picked = cellForDraft(cells, "d1");
     assert.equal(picked?.key.sourceType, "lookalike_group");
+  });
+
+  it("a 3/3 split takes the more recent launched_at, not sort position", () => {
+    const rows = [
+      row({
+        metaAdsetId: "cheap-1",
+        draftId: "split",
+        sourceType: "lookalike_group",
+        launchedAt: "2026-08-01T00:00:00.000Z",
+        initialDailyBudgetPence: 100,
+      }),
+      row({
+        metaAdsetId: "cheap-2",
+        draftId: "split",
+        sourceType: "lookalike_group",
+        launchedAt: "2026-08-02T00:00:00.000Z",
+        initialDailyBudgetPence: 100,
+      }),
+      row({
+        metaAdsetId: "cheap-3",
+        draftId: "split",
+        sourceType: "lookalike_group",
+        launchedAt: "2026-08-03T00:00:00.000Z",
+        initialDailyBudgetPence: 100,
+      }),
+      row({
+        metaAdsetId: "newer-1",
+        draftId: "split",
+        sourceType: "page_group",
+        launchedAt: "2026-09-10T00:00:00.000Z",
+        initialDailyBudgetPence: 100,
+      }),
+      row({
+        metaAdsetId: "newer-2",
+        draftId: "split",
+        sourceType: "page_group",
+        launchedAt: "2026-09-11T00:00:00.000Z",
+        initialDailyBudgetPence: 100,
+      }),
+      row({
+        metaAdsetId: "newer-3",
+        draftId: "split",
+        sourceType: "page_group",
+        launchedAt: "2026-09-12T00:00:00.000Z",
+        initialDailyBudgetPence: 100,
+      }),
+    ];
+    const points = [
+      point("cheap-1", 0.1),
+      point("cheap-2", 0.1),
+      point("cheap-3", 0.1),
+      point("newer-1", 9),
+      point("newer-2", 9),
+      point("newer-3", 9),
+    ];
+    const cells = buildDescribeCells(rows, points, NOW);
+    const lookalikeFirst = [...cells].sort((a, b) => {
+      const aMed = a.metricMedian ?? Number.POSITIVE_INFINITY;
+      const bMed = b.metricMedian ?? Number.POSITIVE_INFINITY;
+      return aMed - bMed;
+    });
+    assert.equal(lookalikeFirst[0]?.key.sourceType, "lookalike_group");
+    const picked = cellForDraft(cells, "split");
+    assert.equal(picked?.key.sourceType, "page_group");
+  });
+});
+
+describe("formatDescribeUnreadable", () => {
+  it("names a failed read and does not say n=0", () => {
+    assert.equal(formatDescribeUnreadable(), "cells unreadable");
+    assert.doesNotMatch(formatDescribeUnreadable(), /n=0/);
   });
 });
 

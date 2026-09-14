@@ -19,6 +19,7 @@ import {
 import type { AutomationArm } from "@/lib/optimisation/automation-ui";
 import {
   formatDescribeCellLine,
+  formatDescribeUnreadable,
   formatEmptyDescribeTable,
   type DescribeCell,
 } from "@/lib/optimisation/describe-cells";
@@ -68,7 +69,16 @@ function ImpactLines({ row }: { row: ArmedRow }) {
   );
 }
 
-function DescribeCellsTable({ cells }: { cells: DescribeCell[] }) {
+function DescribeCellsTable({
+  cells,
+  unreadable,
+}: {
+  cells: DescribeCell[];
+  unreadable: boolean;
+}) {
+  if (unreadable) {
+    return <Datum className="text-muted-foreground">{formatDescribeUnreadable()}</Datum>;
+  }
   if (cells.length === 0) {
     return <Datum className="text-muted-foreground">{formatEmptyDescribeTable()}</Datum>;
   }
@@ -174,6 +184,7 @@ export function ArmedCampaignList({
 }) {
   const [rows, setRows] = useState<ArmedRow[] | null>(null);
   const [describeCells, setDescribeCells] = useState<DescribeCell[]>([]);
+  const [describeUnreadable, setDescribeUnreadable] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const onCountRef = useRef(onCount);
@@ -190,6 +201,7 @@ export function ArmedCampaignList({
           error?: string;
           campaigns?: ArmedRow[];
           describeCells?: DescribeCell[];
+          describeUnreadable?: boolean;
         };
         if (cancelled) return;
         if (!res.ok || json.ok === false) {
@@ -201,6 +213,7 @@ export function ArmedCampaignList({
           const next = json.campaigns ?? [];
           setRows(next);
           setDescribeCells(json.describeCells ?? []);
+          setDescribeUnreadable(json.describeUnreadable === true);
           onCountRef.current?.(next.length);
         }
       })
@@ -228,7 +241,9 @@ export function ArmedCampaignList({
   if (!rows?.length) {
     return (
       <div className="space-y-2">
-        {eventId ? <DescribeCellsTable cells={describeCells} /> : null}
+        {eventId ? (
+          <DescribeCellsTable cells={describeCells} unreadable={describeUnreadable} />
+        ) : null}
         <Datum className="text-muted-foreground">
           {eventId ? "No campaigns wired to this event." : "No Shadow or Live campaigns."}
         </Datum>
@@ -237,7 +252,9 @@ export function ArmedCampaignList({
   }
   return (
     <div className="space-y-2">
-      {eventId ? <DescribeCellsTable cells={describeCells} /> : null}
+      {eventId ? (
+        <DescribeCellsTable cells={describeCells} unreadable={describeUnreadable} />
+      ) : null}
       {rows.map((row) => (
         <ArmedCampaignRow
           key={row.id}

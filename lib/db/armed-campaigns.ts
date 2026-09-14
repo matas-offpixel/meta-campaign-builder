@@ -32,7 +32,11 @@ import {
 } from "@/lib/optimisation/automation-ui";
 import type { CampaignDraft, CampaignObjective } from "@/lib/types";
 import { loadDescribeCellsForClients } from "@/lib/db/describe-cells";
-import { describeLineForDraft, type DescribeCell } from "@/lib/optimisation/describe-cells";
+import {
+  describeLineForDraft,
+  formatDescribeUnreadable,
+  type DescribeCell,
+} from "@/lib/optimisation/describe-cells";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = any;
@@ -85,7 +89,11 @@ export async function loadArmedCampaignRows(
   supabase: SupabaseClient,
   query: ArmedFleetQuery,
   viewer: { userId: string; isOperator: boolean },
-): Promise<{ campaigns: ArmedCampaignRow[]; describeCells: DescribeCell[] }> {
+): Promise<{
+  campaigns: ArmedCampaignRow[];
+  describeCells: DescribeCell[];
+  describeUnreadable: boolean;
+}> {
   const sb = anySb(supabase);
   let q = sb
     .from("campaign_drafts")
@@ -141,7 +149,11 @@ export async function loadArmedCampaignRows(
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  const describeCells = await loadDescribeCellsForClients(sb, clientIds);
+  const describeLoad = await loadDescribeCellsForClients(sb, clientIds, {
+    viewer,
+  });
+  const describeUnreadable = describeLoad.status === "unreadable";
+  const describeCells = describeLoad.status === "ok" ? describeLoad.cells : [];
 
   const rank: Record<ArmedCampaignRow["arm"], number> = {
     live: 0,
@@ -198,10 +210,16 @@ export async function loadArmedCampaignRows(
         metricWindow: controls.primaryMetricWindow,
         seriesSince,
       }),
-      describeLine: describeLineForDraft(describeCells, item.row.id),
+      describeLine: describeUnreadable
+        ? formatDescribeUnreadable()
+        : describeLineForDraft(describeCells, item.row.id),
     };
   }).sort((a, b) => rank[a.arm] - rank[b.arm] || a.name.localeCompare(b.name));
-  return { campaigns, describeCells };
+  return {
+    campaigns,
+    describeCells: query.kind === "event" ? describeCells : [],
+    describeUnreadable: query.kind === "event" ? describeUnreadable : false,
+  };
 }
 
 interface ParsedFleet {
