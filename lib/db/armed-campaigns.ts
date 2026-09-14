@@ -149,8 +149,12 @@ export async function loadArmedCampaignRows(
         .filter((id): id is string => Boolean(id)),
     ),
   ];
+  const armedDraftIds = filtered
+    .filter((item) => item.row.optimisation_automation_enabled === true)
+    .map((item) => item.row.id);
   const describeLoad = await loadDescribeCellsForClients(sb, clientIds, {
     viewer,
+    armedDraftIds,
   });
   const describeUnreadable = describeLoad.status === "unreadable";
   const describeCells = describeLoad.status === "ok" ? describeLoad.cells : [];

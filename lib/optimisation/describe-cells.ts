@@ -14,6 +14,7 @@ export const DESCRIBE_MIN_CAMPAIGNS = 3;
 export const DESCRIBE_MIN_BUDGET_PENCE = 50_000;
 
 export type DescribeLaunchedRow = {
+  clientId: string;
   metaAdsetId: string;
   draftId: string | null;
   metaCampaignId: string | null;
@@ -34,6 +35,7 @@ export type DescribeDecisionPoint = {
 };
 
 export type DescribeCellKey = {
+  clientId: string;
   sourceType: string;
   objective: string;
   phaseAtLaunch: string;
@@ -69,6 +71,7 @@ function inclusiveUtcDays(fromIso: string, now: Date): number {
 
 function cellKeyOf(row: DescribeLaunchedRow): string {
   return [
+    row.clientId || "unknown",
     row.sourceType ?? "unknown",
     row.objective ?? "unknown",
     row.phaseAtLaunch ?? "unknown",
@@ -81,8 +84,9 @@ function cellKeyOf(row: DescribeLaunchedRow): string {
 }
 
 function parseKey(key: string): DescribeCellKey {
-  const [sourceType, objective, phaseAtLaunch, aPlus] = key.split("|");
+  const [clientId, sourceType, objective, phaseAtLaunch, aPlus] = key.split("|");
   return {
+    clientId: clientId || "unknown",
     sourceType: sourceType || "unknown",
     objective: objective || "unknown",
     phaseAtLaunch: phaseAtLaunch || "unknown",
@@ -216,6 +220,7 @@ export function buildDescribeCells(
 
 function cellKeyString(key: DescribeCellKey): string {
   return [
+    key.clientId,
     key.sourceType,
     key.objective,
     key.phaseAtLaunch,
@@ -281,6 +286,10 @@ export function describeLineForDraft(cells: DescribeCell[], draftId: string): st
 /**
  * Majority cell for a draft. Split drafts take the cell with more of
  * their ad sets. Equal counts take the more recent launched_at.
+ * When launched_at ties (one launch run stamps new Date() on every
+ * ad set), the first cell in the n-then-key order stays — Meta create
+ * order if the stamps differ by milliseconds, sort position if they
+ * do not. Neither is a preference.
  */
 export function cellForDraft(cells: DescribeCell[], draftId: string): DescribeCell | null {
   let picked: DescribeCell | null = null;

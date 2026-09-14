@@ -8,13 +8,13 @@
 
 ## Summary
 
-Phase 1 describe. Per client, group launched_ad_sets and name the numbers. Rank nothing. Round 2: both selects page past PostgREST's 1,000-row cap; a failed read is `cells unreadable`, not `n=0`. Rebased onto `d3044b5` (post-#940).
+Phase 1 describe. Per client, group launched_ad_sets and name the numbers. Rank nothing. Round 3: cells are keyed by `client_id`; decisions are asked only for armed drafts; both page loops have a hard cap of 20 and go unreadable when it is hit.
 
 ## Scope / files
 
-- `lib/optimisation/describe-cells.ts` — grouping, gate, line format, unreadable label
-- `lib/db/describe-cells.ts` — two paged selects; named unreadable state
-- `lib/db/armed-campaigns.ts` — describe load on the existing Armed GET
+- `lib/optimisation/describe-cells.ts` — grouping includes `client_id`
+- `lib/db/describe-cells.ts` — two paged selects; armed-draft filter; page cap
+- `lib/db/armed-campaigns.ts` — passes armed draft ids from the load already in hand
 - `components/optimisation/armed-campaign-row.tsx` — line under impact; event page table
 - No new write route. No migration. `evaluate.ts` / `apply.ts` / `gates.ts` / `components/plan/**` untouched
 
@@ -22,13 +22,12 @@ Phase 1 describe. Per client, group launched_ad_sets and name the numbers. Rank 
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` (5739 tests, 5735 pass, 4 skipped)
+- [x] `npm test` (5745 tests, 5741 pass, 4 skipped)
 
 ## Notes
 
-- Round-trips: 1 HTTP (`GET /api/optimisation/campaigns`). Describe adds 2 DB reads. Fleet (`kind: armed`) still computes the per-row line and drops the table payload.
-- `launched_ad_sets` pages with `.range()` ordered by `meta_adset_id`. Decisions order `decided_at desc` and page until every ad set in the batch has a hit (or pages end). Not a DISTINCT ON view — that needs a migration. Existing index `(adset_id, decided_at desc)` covers per-adset order, not a global `decided_at` sort across an IN list. Named; no new index.
-- Gate starting values 2026-09-14: n ≥ 5, ≥ 3 campaigns, ≥ £500 cumulative daily budget (budget-days since launch, accrued to now regardless of pause).
-- Failed select → `cells unreadable`. Empty table stays `not enough data — n=0`.
-- Split draft, equal counts: more recent `launched_at`. Table order is n descending — an order, not a verdict.
-- Owner `n_backfill` can differ from the operator view: `user_id` is nullable on 175 and RLS hides null-user rows from non-operators.
+- A cell is a client's cell. Fleet no longer pools `lookalike_group · registration · presale` across clients.
+- Decisions read is restricted to ad sets whose draft is in the armed set already loaded. Non-armed launched rows stay in `n` and are not queried. Event page metric series is from armed drafts on that load; other-event armed ad sets of the same client still count in `n`.
+- Missing index if the draft_id filter needs one: `(draft_id, adset_id, decided_at desc)`. Not adding it. Existing `(adset_id, decided_at desc)` remains the access path.
+- `DESCRIBE_PAGE_SIZE` (1000) must equal PostgREST max-rows. Twenty pages is the cap; hitting it is `cells unreadable`.
+- Latest non-null metric: pager skips null `metric_value` when deciding a hit. Secondary order `id desc`.

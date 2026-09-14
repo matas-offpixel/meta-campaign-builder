@@ -85,7 +85,7 @@ function DescribeCellsTable({
   return (
     <div className="space-y-1">
       {cells.map((cell) => {
-        const key = `${cell.key.sourceType}|${cell.key.objective}|${cell.key.phaseAtLaunch}|${cell.key.advantagePlusEffective}`;
+        const key = `${cell.key.clientId}|${cell.key.sourceType}|${cell.key.objective}|${cell.key.phaseAtLaunch}|${cell.key.advantagePlusEffective}`;
         return (
           <Datum key={key} className="text-muted-foreground">
             {formatDescribeCellLine(cell)}

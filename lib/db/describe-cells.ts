@@ -1,7 +1,8 @@
 /**
  * One client-bounded read for Phase 1 describe.
- * launched_ad_sets by client_id (paged), then latest decision per
- * ad set. Two selects. A failed read is unreadable, not empty.
+ * launched_ad_sets by client_id (paged), then latest non-null
+ * decision per armed ad set. Two selects. A failed read is
+ * unreadable, not empty.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -13,7 +14,14 @@ import {
   type DescribeLaunchedRow,
 } from "../optimisation/describe-cells.ts";
 
+/**
+ * Must equal the PostgREST max-rows project setting. If that setting
+ * drops below this, page one comes back short and both loops stop.
+ */
 export const DESCRIBE_PAGE_SIZE = 1000;
+
+/** A loop that stops only because data is finite is not bounded. */
+export const DESCRIBE_MAX_PAGES = 20;
 
 export type DescribeLoadResult =
   | { status: "ok"; cells: DescribeCell[] }
@@ -32,6 +40,7 @@ function anySb(supabase: SupabaseClient): AnySupabase {
 }
 
 interface LaunchedRow {
+  client_id: string | null;
   meta_adset_id: string;
   draft_id: string | null;
   meta_campaign_id: string | null;
@@ -52,7 +61,7 @@ interface DecisionRow {
 }
 
 const LAUNCHED_SELECT =
-  "meta_adset_id, draft_id, meta_campaign_id, source_type, objective, phase_at_launch, advantage_plus_effective, descriptor_source, initial_daily_budget_pence, launched_at";
+  "client_id, meta_adset_id, draft_id, meta_campaign_id, source_type, objective, phase_at_launch, advantage_plus_effective, descriptor_source, initial_daily_budget_pence, launched_at";
 
 const DECISION_SELECT = "adset_id, metric, metric_value, decided_at";
 
@@ -61,7 +70,7 @@ const ADSET_IN_CHUNK = 100;
 export async function loadDescribeCellsForClients(
   supabase: SupabaseClient,
   clientIds: string[],
-  opts?: { now?: Date; viewer?: DescribeViewer },
+  opts?: { now?: Date; viewer?: DescribeViewer; armedDraftIds?: string[] },
 ): Promise<DescribeLoadResult> {
   const ids = [...new Set(clientIds.filter(Boolean))];
   if (ids.length === 0) return { status: "ok", cells: [] };
@@ -71,6 +80,7 @@ export async function loadDescribeCellsForClients(
   if (launched.status === "unreadable") return launched;
 
   const mapped: DescribeLaunchedRow[] = launched.rows.map((row) => ({
+    clientId: row.client_id || "unknown",
     metaAdsetId: row.meta_adset_id,
     draftId: row.draft_id,
     metaCampaignId: row.meta_campaign_id,
@@ -83,8 +93,17 @@ export async function loadDescribeCellsForClients(
     launchedAt: row.launched_at,
   }));
 
-  const adsetIds = [...new Set(mapped.map((row) => row.metaAdsetId).filter(Boolean))];
-  const decisions = await pageLatestDecisions(sb, adsetIds);
+  const armedDraftIds = [...new Set((opts?.armedDraftIds ?? []).filter(Boolean))];
+  const armedDraftSet = new Set(armedDraftIds);
+  const armedAdSets = [
+    ...new Map(
+      mapped
+        .filter((row) => row.draftId && armedDraftSet.has(row.draftId))
+        .map((row) => [row.metaAdsetId, row.draftId as string]),
+    ),
+  ].map(([metaAdsetId, draftId]) => ({ metaAdsetId, draftId }));
+
+  const decisions = await pageLatestDecisions(sb, armedAdSets);
   if (decisions.status === "unreadable") return decisions;
 
   return {
@@ -103,7 +122,14 @@ async function pageLaunchedAdSets(
   viewer: DescribeViewer | undefined,
 ): Promise<{ status: "ok"; rows: LaunchedRow[] } | { status: "unreadable" }> {
   const rows: LaunchedRow[] = [];
-  for (let from = 0; ; from += DESCRIBE_PAGE_SIZE) {
+  for (let page = 0; ; page++) {
+    if (page >= DESCRIBE_MAX_PAGES) {
+      console.error(
+        `[describe-cells] launched_ad_sets page cap ${DESCRIBE_MAX_PAGES} hit`,
+      );
+      return { status: "unreadable" };
+    }
+    const from = page * DESCRIBE_PAGE_SIZE;
     let q = sb
       .from("launched_ad_sets")
       .select(LAUNCHED_SELECT)
@@ -118,64 +144,82 @@ async function pageLaunchedAdSets(
       console.error(`[describe-cells] launched_ad_sets read failed: ${error.message}`);
       return { status: "unreadable" };
     }
-    const page = (data ?? []) as LaunchedRow[];
-    rows.push(...page);
-    if (page.length < DESCRIBE_PAGE_SIZE) break;
+    const batch = (data ?? []) as LaunchedRow[];
+    rows.push(...batch);
+    if (batch.length < DESCRIBE_PAGE_SIZE) break;
   }
   return { status: "ok", rows };
 }
 
 /**
- * Latest decision per ad set. Order decided_at desc and page until
- * every ad set in the batch has a hit (or the pages run out).
+ * Latest non-null metric per armed ad set. Order decided_at desc, id
+ * desc, and page until every ad set in the chunk has a non-null hit
+ * (or the pages run out / the cap is hit).
+ *
+ * Only armed drafts are queried — decisions do not exist for the
+ * rest, and Phase 0 records every launch, so never-ticked is the
+ * permanent state of most rows. Filtering them out is the bound.
  *
  * Why page, not a DISTINCT ON / view: that needs a migration.
- * Why not N × limit(1): keeps the two-select cost story. The index
- * on (adset_id, decided_at desc) covers per-adset order, not a
- * global decided_at sort across an IN list. If paging slows, the
- * missing index is (decided_at desc) or a latest-per-adset view.
- * Not adding it.
+ * Why not N × limit(1): keeps the two-select cost story. Existing
+ * index is (adset_id, decided_at desc). A filter on draft_id wants
+ * (draft_id, adset_id, decided_at desc). Not adding it.
  */
 async function pageLatestDecisions(
   sb: AnySupabase,
-  adsetIds: string[],
+  armedAdSets: Array<{ metaAdsetId: string; draftId: string }>,
 ): Promise<{ status: "ok"; points: DescribeDecisionPoint[] } | { status: "unreadable" }> {
-  if (adsetIds.length === 0) return { status: "ok", points: [] };
+  if (armedAdSets.length === 0) return { status: "ok", points: [] };
 
   const latest = new Map<string, DescribeDecisionPoint>();
-  for (let i = 0; i < adsetIds.length; i += ADSET_IN_CHUNK) {
-    const chunk = adsetIds.slice(i, i + ADSET_IN_CHUNK);
-    const need = new Set(chunk);
-    for (let from = 0; need.size > 0; from += DESCRIBE_PAGE_SIZE) {
+  for (let i = 0; i < armedAdSets.length; i += ADSET_IN_CHUNK) {
+    const chunk = armedAdSets.slice(i, i + ADSET_IN_CHUNK);
+    const adsetIds = chunk.map((row) => row.metaAdsetId);
+    const draftIds = [...new Set(chunk.map((row) => row.draftId))];
+    const need = new Set(adsetIds);
+    for (let page = 0; need.size > 0; page++) {
+      if (page >= DESCRIBE_MAX_PAGES) {
+        console.error(
+          `[describe-cells] campaign_automation_decisions page cap ${DESCRIBE_MAX_PAGES} hit`,
+        );
+        return { status: "unreadable" };
+      }
+      const from = page * DESCRIBE_PAGE_SIZE;
       const { data, error } = await sb
         .from("campaign_automation_decisions")
         .select(DECISION_SELECT)
-        .in("adset_id", chunk)
+        .in("adset_id", adsetIds)
+        .in("draft_id", draftIds)
         .order("decided_at", { ascending: false })
+        .order("id", { ascending: false })
         .range(from, from + DESCRIBE_PAGE_SIZE - 1);
       if (error) {
         console.error(`[describe-cells] decisions read failed: ${error.message}`);
         return { status: "unreadable" };
       }
-      const page = (data ?? []) as DecisionRow[];
-      for (const row of page) {
+      const batch = (data ?? []) as DecisionRow[];
+      for (const row of batch) {
         if (!need.has(row.adset_id)) continue;
+        const point = pointIfMetric(row);
+        if (!point) continue;
         need.delete(row.adset_id);
-        latest.set(row.adset_id, toPoint(row));
+        latest.set(row.adset_id, point);
       }
-      if (page.length < DESCRIBE_PAGE_SIZE) break;
+      if (batch.length < DESCRIBE_PAGE_SIZE) break;
     }
   }
   return { status: "ok", points: [...latest.values()] };
 }
 
-function toPoint(row: DecisionRow): DescribeDecisionPoint {
+function pointIfMetric(row: DecisionRow): DescribeDecisionPoint | null {
   const raw = row.metric_value;
   const value = typeof raw === "number" ? raw : raw != null ? Number(raw) : null;
+  if (value == null || !Number.isFinite(value)) return null;
+  if (!row.metric?.trim()) return null;
   return {
     metaAdsetId: row.adset_id,
     metric: row.metric,
-    metricValue: value != null && Number.isFinite(value) ? value : null,
+    metricValue: value,
     decidedAt: row.decided_at,
   };
 }

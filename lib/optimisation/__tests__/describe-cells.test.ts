@@ -16,6 +16,7 @@ const NOW = new Date("2026-09-14T12:00:00.000Z");
 
 function row(partial: Partial<DescribeLaunchedRow> & { metaAdsetId: string }): DescribeLaunchedRow {
   return {
+    clientId: "client-1",
     draftId: "draft-a",
     metaCampaignId: "camp-a",
     sourceType: "lookalike_group",
@@ -151,6 +152,36 @@ describe("buildDescribeCells", () => {
   it("the empty table is not enough data and nothing else", () => {
     assert.deepEqual(buildDescribeCells([], [], NOW), []);
     assert.equal(formatEmptyDescribeTable(), "not enough data — n=0");
+  });
+
+  it("two clients with the same shape are two cells, and neither borrows the other's campaigns", () => {
+    const clientA = [1, 2, 3, 4, 5].map((n) =>
+      row({
+        clientId: "client-a",
+        metaAdsetId: `a-${n}`,
+        draftId: n <= 3 ? "da-1" : "da-2",
+        metaCampaignId: n <= 3 ? "ca-1" : "ca-2",
+      }),
+    );
+    const clientB = [1, 2, 3, 4, 5].map((n) =>
+      row({
+        clientId: "client-b",
+        metaAdsetId: `b-${n}`,
+        draftId: n <= 3 ? "db-1" : "db-2",
+        metaCampaignId: n <= 3 ? "cb-1" : "cb-2",
+      }),
+    );
+    const cells = buildDescribeCells([...clientA, ...clientB], [], NOW);
+    assert.equal(cells.length, 2);
+    assert.deepEqual(
+      cells.map((cell) => cell.key.clientId).sort(),
+      ["client-a", "client-b"],
+    );
+    for (const cell of cells) {
+      assert.equal(cell.n, 5);
+      assert.equal(cell.campaignCount, 2);
+      assert.equal(cell.reportable, false);
+    }
   });
 
   it("groups on advantage_plus_effective, not advantage_plus asked", () => {
