@@ -26,7 +26,39 @@ export interface TikTokCampaignDraft {
    * Operator wizard edits bump `updatedAt` only — they do not clear this.
    */
   lastDerivedAt?: string | null;
+  /**
+   * Present when this draft was imported from a live TikTok campaign.
+   * Lives on state JSON — no migration. Cleared only if the operator
+   * starts a new draft.
+   */
+  importMeta?: TikTokImportMeta | null;
 }
+
+export type TikTokImportDroppedField = {
+  field: string;
+  sourceValue: unknown;
+};
+
+export type TikTokImportEnhancements = {
+  isAcoOn: number;
+  isAcoTotal: number;
+  creativeAuthorizedOn: number;
+  creativeAuthorizedTotal: number;
+};
+
+export type TikTokImportCreativeCounts = {
+  chosen: number;
+  tiktokAdded: number;
+};
+
+export type TikTokImportMeta = {
+  sourceCampaignId: string;
+  sourceCampaignName: string;
+  sourceKind: "manual" | "smart_plus" | "legacy_smart_plus";
+  dropped: TikTokImportDroppedField[];
+  sourceEnhancements: TikTokImportEnhancements;
+  creativeCounts: TikTokImportCreativeCounts | null;
+};
 
 export interface TikTokPublishedIds {
   campaignId: string;
@@ -303,6 +335,7 @@ export function createDefaultTikTokDraft(id: string): TikTokCampaignDraft {
     reviewReadyAt: null,
     createdAt: now,
     updatedAt: now,
+    importMeta: null,
   };
 }
 
