@@ -36,6 +36,7 @@ export type ArmedCampaignControls = {
   objective: CampaignObjective;
   currency: string;
   campaignTargetValue: number | null;
+  accountBenchmarkValue: number | null;
   useOverride: boolean;
   primaryMetric: string | null;
   primaryMetricWindow: string | null;
@@ -278,6 +279,7 @@ export function controlsFromStrategy(
     objective,
     currency,
     campaignTargetValue: rule?.campaignTargetValue ?? null,
+    accountBenchmarkValue: rule?.accountBenchmarkValue ?? null,
     useOverride: rule?.useOverride === true,
     primaryMetric: rule?.metric ?? null,
     primaryMetricWindow: rule?.timeWindow ?? null,
