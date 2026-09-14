@@ -45,6 +45,14 @@ export type ArmedCampaignControls = {
   hardBudgetCeiling: number;
 };
 
+export type ArmedBudgetBase = {
+  kind: "ad_set" | "campaign";
+  source: "draft" | "launched";
+  dailyPence: number | null;
+  adSetCount: number;
+  byAdSet: Record<string, number>;
+};
+
 export type ArmedCampaignRow = {
   id: string;
   name: string;
@@ -59,6 +67,7 @@ export type ArmedCampaignRow = {
   lastDecision: ArmedLastDecision | null;
   lastWrite: ArmedLastWrite | null;
   controls: ArmedCampaignControls;
+  budgetBase: ArmedBudgetBase;
   nextTickAt: string;
   impact: ArmedImpact;
   describeLine: string | null;

@@ -13,8 +13,10 @@ import {
 } from "../armed-read-model.ts";
 import {
   bindingCapPence,
+  budgetBaseFromDraft,
   compareArmedRows,
   DEFAULT_ARMED_SORT,
+  emptyBudgetBase,
   formatActingCell,
   formatDailyBudgetCell,
   formatMetricCell,
@@ -24,6 +26,7 @@ import {
   nextArmedSort,
   parseArmedTableSort,
   partitionArmedRows,
+  readArmedTableSort,
   sortArmedRows,
   vsCap,
   vsTarget,
@@ -44,6 +47,8 @@ function impact(partial: Partial<ArmedImpact> = {}): ArmedImpact {
     resultPresentCount: 0,
     resultSeries: [],
     adSetCount: 0,
+    writeByAdSetPence: {},
+    writeCampaignPence: null,
     ...partial,
   };
 }
@@ -92,6 +97,7 @@ function row(partial: Partial<ArmedCampaignRow> = {}): ArmedCampaignRow {
     lastDecision: null,
     lastWrite: null,
     controls: controls(),
+    budgetBase: emptyBudgetBase(),
     nextTickAt: "2026-09-14T20:00:00.000Z",
     impact: impact(),
     describeLine: null,
@@ -108,7 +114,11 @@ describe("vs target — metric against the rule target", () => {
     const cell = vsTarget(
       row({
         impact: impact({ metric: "cpr", metricLatest: 1.06 }),
-        controls: controls({ campaignTargetValue: 0.91, accountBenchmarkValue: 2 }),
+        controls: controls({
+          campaignTargetValue: 0.91,
+          accountBenchmarkValue: 2,
+          useOverride: true,
+        }),
       }),
     );
     assert.equal(cell.kind, "present");
@@ -151,6 +161,72 @@ describe("vs target — metric against the rule target", () => {
     );
     assert.deepEqual(cell, { kind: "absent", reason: "no target set" });
     assert.equal(formatPercentCell(cell).title, "no target set");
+  });
+
+  it("useOverride false ignores a stale campaignTargetValue", () => {
+    const cell = vsTarget(
+      row({
+        impact: impact({ metric: "cpr", metricLatest: 1.06 }),
+        controls: controls({
+          campaignTargetValue: 0.5,
+          accountBenchmarkValue: 0.91,
+          useOverride: false,
+        }),
+      }),
+    );
+    assert.equal(cell.kind, "present");
+    if (cell.kind !== "present") return;
+    assert.equal(cell.target, 0.91);
+    assert.equal(cell.percent, 116);
+  });
+
+  it("roas at 1.2× target is the right way, not pricey", () => {
+    const roas = vsTarget(
+      row({
+        id: "roas",
+        impact: impact({ metric: "roas", metricLatest: 3.6 }),
+        controls: controls({
+          campaignTargetValue: 3,
+          useOverride: true,
+          primaryMetric: "roas",
+        }),
+      }),
+    );
+    const cpr = vsTarget(
+      row({
+        id: "cpr",
+        impact: impact({ metric: "cpr", metricLatest: 1.2 }),
+        controls: controls({ campaignTargetValue: 1, useOverride: true }),
+      }),
+    );
+    assert.equal(roas.kind, "present");
+    assert.equal(cpr.kind, "present");
+    if (roas.kind !== "present" || cpr.kind !== "present") return;
+    assert.equal(roas.percent, 83);
+    assert.equal(cpr.percent, 120);
+    const sorted = sortArmedRows(
+      [
+        row({
+          id: "roas",
+          impact: impact({ metric: "roas", metricLatest: 3.6 }),
+          controls: controls({
+            campaignTargetValue: 3,
+            useOverride: true,
+            primaryMetric: "roas",
+          }),
+        }),
+        row({
+          id: "cpr",
+          impact: impact({ metric: "cpr", metricLatest: 1.2 }),
+          controls: controls({ campaignTargetValue: 1, useOverride: true }),
+        }),
+      ],
+      { key: "vsTarget", dir: "desc" },
+    );
+    assert.deepEqual(
+      sorted.map((r) => r.id),
+      ["cpr", "roas"],
+    );
   });
 });
 
@@ -231,6 +307,56 @@ describe("vs cap — daily budget against the binding cap", () => {
       }),
     );
     assert.deepEqual(cell, { kind: "absent", reason: "no tick yet" });
+  });
+
+  it("a Shadow draft of three £20 ad sets against a £100 ceiling is 60%", () => {
+    const cell = vsCap(
+      row({
+        arm: "shadow",
+        budgetBase: budgetBaseFromDraft({
+          budgetLevel: "ad_set",
+          adSets: [
+            { id: "a", enabled: true, budgetPerDay: 20 },
+            { id: "b", enabled: true, budgetPerDay: 20 },
+            { id: "c", enabled: true, budgetPerDay: 20 },
+          ],
+        }),
+        controls: controls({
+          hardBudgetCeiling: 100,
+          guardrails: {
+            ...createDefaultBudgetGuardrails(),
+            hardBudgetCeiling: 100,
+          },
+        }),
+      }),
+    );
+    assert.equal(cell.kind, "present");
+    if (cell.kind !== "present") return;
+    assert.equal(cell.percent, 60);
+    assert.match(cell.detail, /£60\.00 \/ £100\.00 · 60%/);
+  });
+
+  it("campaign-scope with no typed ceiling is absent, not the hard ceiling", () => {
+    const cell = vsCap(
+      row({
+        budgetBase: budgetBaseFromDraft({
+          budgetLevel: "campaign",
+          budgetAmount: 60,
+        }),
+        controls: controls({
+          hardBudgetCeiling: 100,
+          guardrails: {
+            ...createDefaultBudgetGuardrails(),
+            hardBudgetCeiling: 100,
+            budgetCeilingScope: "campaign",
+            campaignDailyCeilingSource: "derived",
+          },
+        }),
+      }),
+    );
+    assert.deepEqual(cell, { kind: "absent", reason: "derived cap not on this view" });
+    assert.equal(formatPercentCell(cell).text, "—");
+    assert.equal(formatPercentCell(cell).title, "derived cap not on this view");
   });
 });
 
@@ -323,21 +449,21 @@ describe("default sort is Live first, then vs target desc", () => {
         name: "Shadow A",
         arm: "shadow",
         impact: impact({ metricLatest: 3, metric: "cpr" }),
-        controls: controls({ campaignTargetValue: 1 }),
+        controls: controls({ campaignTargetValue: 1, useOverride: true }),
       }),
       row({
         id: "live-cheap",
         name: "Live cheap",
         arm: "live",
         impact: impact({ metricLatest: 0.8, metric: "cpr" }),
-        controls: controls({ campaignTargetValue: 1 }),
+        controls: controls({ campaignTargetValue: 1, useOverride: true }),
       }),
       row({
         id: "live-pricey",
         name: "Live pricey",
         arm: "live",
         impact: impact({ metricLatest: 1.5, metric: "cpr" }),
-        controls: controls({ campaignTargetValue: 1 }),
+        controls: controls({ campaignTargetValue: 1, useOverride: true }),
       }),
       ...Array.from({ length: 7 }, (_, i) =>
         row({
@@ -345,7 +471,7 @@ describe("default sort is Live first, then vs target desc", () => {
           name: `Shadow ${i + 2}`,
           arm: "shadow",
           impact: impact({ metricLatest: 0.5, metric: "cpr" }),
-          controls: controls({ campaignTargetValue: 1 }),
+          controls: controls({ campaignTargetValue: 1, useOverride: true }),
         }),
       ),
     ];
@@ -403,6 +529,12 @@ describe("default sort is Live first, then vs target desc", () => {
       dir: "asc",
     });
     assert.deepEqual(parseArmedTableSort("{"), DEFAULT_ARMED_SORT);
+    assert.deepEqual(
+      readArmedTableSort(() => {
+        throw new Error("blocked");
+      }),
+      DEFAULT_ARMED_SORT,
+    );
   });
 
   it("acting sorts by action then time", () => {

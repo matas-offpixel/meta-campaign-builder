@@ -24,6 +24,8 @@ export type ArmedImpact = {
   resultSeries: Array<number | null>;
   /** Distinct ad-set keys in the latest write map. Campaign-scope writes are 0. */
   adSetCount: number;
+  writeByAdSetPence: Record<string, number>;
+  writeCampaignPence: number | null;
 };
 
 export type ImpactInput = {
@@ -74,6 +76,21 @@ function adSetCountFromWrites(writes: readonly DecisionRowView[]): number {
   return n;
 }
 
+function writeOverlay(writes: readonly DecisionRowView[]): {
+  writeByAdSetPence: Record<string, number>;
+  writeCampaignPence: number | null;
+} {
+  const writeByAdSetPence: Record<string, number> = {};
+  let writeCampaignPence: number | null = null;
+  if (writes.length === 0) return { writeByAdSetPence, writeCampaignPence };
+  for (const [key, row] of latestWriteMap(writes)) {
+    if (row.budgetAfterPence == null) continue;
+    if (key === "campaign") writeCampaignPence = row.budgetAfterPence;
+    else writeByAdSetPence[key] = row.budgetAfterPence;
+  }
+  return { writeByAdSetPence, writeCampaignPence };
+}
+
 export function impactFromRows(
   rows: readonly DecisionRowView[],
   input: ImpactInput,
@@ -121,6 +138,7 @@ export function impactFromRows(
     resultPresentCount: resultPresent.length,
     resultSeries,
     adSetCount: adSetCountFromWrites(writes),
+    ...writeOverlay(writes),
   };
 }
 

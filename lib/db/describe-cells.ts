@@ -24,7 +24,7 @@ export const DESCRIBE_PAGE_SIZE = 1000;
 export const DESCRIBE_MAX_PAGES = 20;
 
 export type DescribeLoadResult =
-  | { status: "ok"; cells: DescribeCell[] }
+  | { status: "ok"; cells: DescribeCell[]; launched: DescribeLaunchedRow[] }
   | { status: "unreadable" };
 
 export type DescribeViewer = {
@@ -73,7 +73,7 @@ export async function loadDescribeCellsForClients(
   opts?: { now?: Date; viewer?: DescribeViewer; armedDraftIds?: string[] },
 ): Promise<DescribeLoadResult> {
   const ids = [...new Set(clientIds.filter(Boolean))];
-  if (ids.length === 0) return { status: "ok", cells: [] };
+  if (ids.length === 0) return { status: "ok", cells: [], launched: [] };
 
   const sb = anySb(supabase);
   const launched = await pageLaunchedAdSets(sb, ids, opts?.viewer);
@@ -109,6 +109,7 @@ export async function loadDescribeCellsForClients(
   return {
     status: "ok",
     cells: buildDescribeCells(mapped, decisions.points, opts?.now ?? new Date()),
+    launched: mapped,
   };
 }
 

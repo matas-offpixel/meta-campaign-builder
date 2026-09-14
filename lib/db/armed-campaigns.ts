@@ -26,6 +26,11 @@ import {
   type ArmedCampaignRow,
 } from "@/lib/optimisation/armed-read-model";
 import {
+  budgetBaseFromDraft,
+  budgetBaseFromLaunched,
+  pickBudgetBase,
+} from "@/lib/optimisation/armed-table";
+import {
   presentDecisionRow,
   type DecisionRowInput,
   type DecisionRowView,
@@ -229,6 +234,23 @@ export async function loadArmedCampaignRows(
       lastDecision: lastDecisionFromRows(decisions),
       lastWrite: lastWriteFromRows(decisions),
       controls,
+      budgetBase: pickBudgetBase(
+        budgetBaseFromDraft({
+          budgetLevel: draft.budgetSchedule?.budgetLevel,
+          budgetAmount: draft.budgetSchedule?.budgetAmount,
+          adSets: draft.adSetSuggestions,
+        }),
+        describeLoad.status === "ok"
+          ? budgetBaseFromLaunched(
+              describeLoad.launched
+                .filter((row) => row.draftId === item.row.id)
+                .map((row) => ({
+                  metaAdsetId: row.metaAdsetId,
+                  initialDailyBudgetPence: row.initialDailyBudgetPence,
+                })),
+            )
+          : null,
+      ),
       nextTickAt,
       impact: impactFromRows(impactRowsByDraft.get(item.row.id) ?? [], {
         metric: controls.primaryMetric,

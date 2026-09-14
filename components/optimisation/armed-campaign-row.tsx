@@ -27,7 +27,6 @@ import {
   type DescribeCell,
 } from "@/lib/optimisation/describe-cells";
 import {
-  ARMED_TABLE_SORT_KEY,
   DEFAULT_ARMED_SORT,
   armLabel,
   formatActingCell,
@@ -37,8 +36,9 @@ import {
   formatPercentCell,
   formatResultsCell,
   nextArmedSort,
-  parseArmedTableSort,
   partitionArmedRows,
+  readArmedTableSort,
+  writeArmedTableSort,
   sortArmedRows,
   vsCap,
   vsTarget,
@@ -73,18 +73,10 @@ function ImpactLines({ row }: { row: ArmedRow }) {
     <div className="mt-1 min-w-0 space-y-0.5">
       <Datum className="text-muted-foreground">{budget}</Datum>
       {metric ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <Datum className="min-w-0 text-muted-foreground">{metric}</Datum>
-          <ImpactSparkline values={row.impact.metricSeries} />
-        </div>
+        <Datum className="min-w-0 text-muted-foreground">{metric}</Datum>
       ) : null}
       {results ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <Datum className="min-w-0 text-muted-foreground">{results}</Datum>
-          <ImpactSparkline
-            values={row.impact.resultSeries.filter((value): value is number => value != null)}
-          />
-        </div>
+        <Datum className="min-w-0 text-muted-foreground">{results}</Datum>
       ) : null}
       <Datum className="text-muted-foreground">{row.describeLine ?? "not enough data"}</Datum>
     </div>
@@ -536,27 +528,21 @@ function ArmedTableRow({
 function ArmedCampaignTable({
   rows,
   sort,
+  expanded,
   onSort,
+  onToggle,
   onRowChange,
   onWiringApplied,
 }: {
   rows: ArmedRow[];
   sort: ArmedSortState;
+  expanded: Set<string>;
   onSort: (key: ArmedSortKey) => void;
+  onToggle: (id: string) => void;
   onRowChange: (next: ArmedRow) => void;
   onWiringApplied: () => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const sorted = sortArmedRows(rows, sort);
-
-  function toggle(id: string) {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   if (sorted.length === 0) {
     return <Datum className="text-muted-foreground">No campaigns in this list.</Datum>;
@@ -586,7 +572,7 @@ function ArmedCampaignTable({
               key={item.id}
               row={item}
               expanded={expanded.has(item.id)}
-              onToggle={() => toggle(item.id)}
+              onToggle={() => onToggle(item.id)}
               onRowChange={onRowChange}
               onWiringApplied={onWiringApplied}
             />
@@ -594,26 +580,6 @@ function ArmedCampaignTable({
         </tbody>
       </table>
     </div>
-  );
-}
-
-export function ArmedCampaignRow({
-  row,
-  onRowChange,
-  onWiringApplied,
-}: {
-  row: ArmedRow;
-  onRowChange: (next: ArmedRow) => void;
-  onWiringApplied: () => void;
-}) {
-  return (
-    <ArmedCampaignTable
-      rows={[row]}
-      sort={DEFAULT_ARMED_SORT}
-      onSort={() => undefined}
-      onRowChange={onRowChange}
-      onWiringApplied={onWiringApplied}
-    />
   );
 }
 
@@ -632,12 +598,13 @@ export function ArmedCampaignList({
   const [reloadToken, setReloadToken] = useState(0);
   const [subTab, setSubTab] = useState<"active" | "ended">("active");
   const [sort, setSort] = useState<ArmedSortState>(DEFAULT_ARMED_SORT);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const onCountRef = useRef(onCount);
   onCountRef.current = onCount;
   const reload = () => setReloadToken((n) => n + 1);
 
   useEffect(() => {
-    setSort(parseArmedTableSort(window.localStorage.getItem(ARMED_TABLE_SORT_KEY)));
+    setSort(readArmedTableSort());
   }, []);
 
   useEffect(() => {
@@ -685,11 +652,16 @@ export function ArmedCampaignList({
   function onSort(key: ArmedSortKey) {
     setSort((current) => {
       const next = nextArmedSort(current, key);
-      try {
-        window.localStorage.setItem(ARMED_TABLE_SORT_KEY, JSON.stringify(next));
-      } catch {
-        /* quota or private mode */
-      }
+      writeArmedTableSort(next);
+      return next;
+    });
+  }
+
+  function onToggle(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -739,7 +711,9 @@ export function ArmedCampaignList({
       <ArmedCampaignTable
         rows={visible}
         sort={sort}
+        expanded={expanded}
         onSort={onSort}
+        onToggle={onToggle}
         onRowChange={onRowChange}
         onWiringApplied={reload}
       />

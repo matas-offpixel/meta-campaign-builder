@@ -384,7 +384,7 @@ export function EventDetail({
       />
 
       <main className="flex-1 px-6 py-6">
-        <div className="mx-auto max-w-6xl space-y-6">
+        <div className="mx-auto max-w-[88rem] space-y-6">
           <Link
             href="/events"
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
