@@ -431,8 +431,14 @@ export type EventLinkedDraft = {
 export async function linkDraftToEvent(
   draftId: string,
   eventId: string | null,
+  // Caller supplies the client — browser session, server session, or
+  // service-role. No default: a default here would pull the browser
+  // client into server routes.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  // Owner path (#937): pin the update. Operators omit this.
+  ownerUserId?: string,
 ): Promise<void> {
-  const supabase = createClient();
 
   let event: CampaignEventIdentity | null = null;
   if (eventId) {
@@ -493,6 +499,7 @@ export async function linkDraftToEvent(
       })
       .eq("id", draftId);
     if (stamp) query = query.eq("updated_at", stamp);
+    if (ownerUserId) query = query.eq("user_id", ownerUserId);
 
     const { data: written, error } = await query.select("id");
     if (error) {

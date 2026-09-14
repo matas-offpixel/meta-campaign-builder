@@ -31,7 +31,13 @@ import {
   type DecisionRowView,
 } from "@/lib/optimisation/automation-ui";
 import type { CampaignDraft, CampaignObjective } from "@/lib/types";
+import {
+  canStampEvent,
+  resolveWiringMatch,
+  wiringCampaignName,
+} from "@/lib/campaign-event-rewire";
 import { loadDescribeCellsForClients } from "@/lib/db/describe-cells";
+import { loadClientEvents } from "@/lib/db/rewire";
 import {
   describeLineForDraft,
   formatDescribeUnreadable,
@@ -152,10 +158,13 @@ export async function loadArmedCampaignRows(
   const armedDraftIds = filtered
     .filter((item) => item.row.optimisation_automation_enabled === true)
     .map((item) => item.row.id);
-  const describeLoad = await loadDescribeCellsForClients(sb, clientIds, {
-    viewer,
-    armedDraftIds,
-  });
+  const [describeLoad, clientEventsByClient] = await Promise.all([
+    loadDescribeCellsForClients(sb, clientIds, {
+      viewer,
+      armedDraftIds,
+    }),
+    loadClientEvents(sb, clientIds),
+  ]);
   const describeUnreadable = describeLoad.status === "unreadable";
   const describeCells = describeLoad.status === "ok" ? describeLoad.cells : [];
 
@@ -179,9 +188,20 @@ export async function loadArmedCampaignRows(
       (draft.settings.objective ?? item.row.objective ?? "registration") as CampaignObjective,
       draft.budgetSchedule?.currency || "GBP",
     );
+    const clientEvents = resolvedEvent?.client_id
+      ? (clientEventsByClient.get(resolvedEvent.client_id) ?? [])
+      : [];
+    const wiring = resolveWiringMatch({
+      campaignCode: draft.settings.campaignCode,
+      campaignName: wiringCampaignName(draft.settings.campaignName, item.row.name),
+      wiredEvent: resolvedEvent,
+      clientEvents,
+    });
     return {
       id: item.row.id,
-      name: draft.settings.campaignName || item.row.name || "Untitled campaign",
+      name:
+        wiringCampaignName(draft.settings.campaignName, item.row.name) ||
+        "Untitled campaign",
       status: item.row.status ?? draft.status ?? "draft",
       ownerUserId: item.row.user_id,
       ownerLabel: item.row.user_id === viewer.userId ? "you" : "another operator",
@@ -195,7 +215,7 @@ export async function loadArmedCampaignRows(
       eventWarning: joinEventWarnings(
         describeCodeEventMismatch({
           campaignCode: draft.settings.campaignCode,
-          campaignName: draft.settings.campaignName || item.row.name,
+          campaignName: wiringCampaignName(draft.settings.campaignName, item.row.name),
           event: resolvedEvent,
         }),
         describeCarrierMismatch({
@@ -204,6 +224,7 @@ export async function loadArmedCampaignRows(
           jsonEvent,
           columnEvent,
         }),
+        wiring?.kind === "ambiguous" ? wiring.reason : null,
       ),
       lastDecision: lastDecisionFromRows(decisions),
       lastWrite: lastWriteFromRows(decisions),
@@ -217,6 +238,8 @@ export async function loadArmedCampaignRows(
       describeLine: describeUnreadable
         ? formatDescribeUnreadable()
         : describeLineForDraft(describeCells, item.row.id),
+      wiring,
+      canStampEvent: canStampEvent(viewer, resolvedEvent?.user_id),
     };
   }).sort((a, b) => rank[a.arm] - rank[b.arm] || a.name.localeCompare(b.name));
   return {
@@ -259,7 +282,7 @@ async function loadEventsById(
   if (ids.length === 0) return map;
   const { data, error } = await sb
     .from("events")
-    .select("id, event_code, name, venue_city, venue_name, event_date, client_id")
+    .select("id, event_code, name, venue_city, venue_name, event_date, client_id, user_id")
     .in("id", ids);
   if (error) {
     console.warn("loadArmedCampaignRows events:", error.message);

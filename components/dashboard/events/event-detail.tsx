@@ -53,6 +53,7 @@ import type {
 import { createDefaultDraft } from "@/lib/campaign-defaults";
 import { ArmedCampaignList } from "@/components/optimisation/armed-campaign-row";
 import { saveDraftToDb } from "@/lib/db/drafts";
+import { createClient } from "@/lib/supabase/client";
 import {
   deleteEventRow,
   linkDraftToEvent,
@@ -272,7 +273,7 @@ export function EventDetail({
     try {
       const draft = createDefaultDraft();
       await saveDraftToDb(draft, userId);
-      await linkDraftToEvent(draft.id, event.id);
+      await linkDraftToEvent(draft.id, event.id, createClient());
       router.push(`/campaign/${draft.id}?eventId=${event.id}`);
     } catch (err) {
       const msg =

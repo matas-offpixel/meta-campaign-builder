@@ -5,6 +5,7 @@
  * is about to change.
  */
 
+import type { WiringResolution } from "../campaign-event-rewire.ts";
 import { regenerateThresholdsFromTarget } from "../optimisation-rules.ts";
 import type {
   BudgetGuardrails,
@@ -60,6 +61,8 @@ export type ArmedCampaignRow = {
   nextTickAt: string;
   impact: ArmedImpact;
   describeLine: string | null;
+  wiring: WiringResolution | null;
+  canStampEvent: boolean;
 };
 
 const EVENT_ID_UUID =

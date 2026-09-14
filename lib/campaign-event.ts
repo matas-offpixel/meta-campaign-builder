@@ -34,6 +34,7 @@ export interface CampaignEventIdentity {
   id: string;
   event_code?: string | null;
   client_id?: string | null;
+  user_id?: string | null;
   name?: string | null;
   venue_city?: string | null;
   venue_name?: string | null;
