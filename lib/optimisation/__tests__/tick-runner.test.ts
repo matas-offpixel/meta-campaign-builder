@@ -698,6 +698,32 @@ describe("runOptimisationTick — eligibility before evaluate", () => {
     assert.equal(inserted[0]?.actionRecommended, "skip_campaign_ended");
   });
 
+  it("unreadable facts are skip_facts_unreadable — not evaluated, even with live dates", async () => {
+    const inserted: DecisionToInsert[] = [];
+    let evaluateReached = false;
+    const deps = makeDeps({
+      loadOptedInCampaigns: async () => [
+        campaign({
+          eligibility: {
+            factsUnreadable: true,
+            campaignEndAt: "2026-12-01T00:00:00Z",
+            eventDate: "2026-12-15",
+          },
+        }),
+      ],
+      insertDecision: async (row) => {
+        evaluateReached = row.actionRecommended === "scale_up";
+        inserted.push(row);
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 1);
+    assert.deepEqual(summary.campaignsErrored, []);
+    assert.equal(inserted[0]?.actionRecommended, "skip_facts_unreadable");
+    assert.equal(evaluateReached, false);
+    assert.equal(summary.decisionsByAction.skip_facts_unreadable, 1);
+  });
+
   it("[NX26-AZYR] 2026-09-13 — Mall Grab date is skip_event_passed; the real event is not", async () => {
     const mallGrab: DecisionToInsert[] = [];
     await runOptimisationTick(
@@ -1198,6 +1224,84 @@ describe("runOptimisationTick — pause writes", () => {
     assert.equal(summary.pauseLadderWrites, 0);
   });
 
+  it("a pause with resultCount 14 writes nothing", async () => {
+    const pauses: string[] = [];
+    const updates: string[] = [];
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({
+          adsetId: "adset_ok",
+          costPerActionType: { "offsite_conversion.fb_pixel_complete_registration": 3 },
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 20 },
+        }),
+        pauseInsight({
+          adsetId: "adset_thin",
+          dailyBudgetPence: 10000,
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 14 },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+      readAdSetDailyBudget: async () => 10000,
+      updateAdSetDailyBudget: async (id) => {
+        updates.push(id);
+        return { ok: true };
+      },
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 2);
+    assert.deepEqual(summary.campaignsErrored, []);
+    assert.equal(pauses.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(summary.pauseLadderWrites, 0);
+  });
+
+  it("a pause with resultCount 15 at the floor is paused", async () => {
+    const pauses: string[] = [];
+    const inserted: DecisionToInsert[] = [];
+    const deps = makeDeps({
+      writesEnabled: true,
+      pauseWritesEnabled: true,
+      loadOptedInCampaigns: async () => [
+        campaign({
+          optimisationAutomationLive: true,
+          optimisationStrategy: { mode: "custom", rules: [CPR_RULE], guardrails: PAUSE_FLOOR_GUARDRAILS },
+        }),
+      ],
+      fetchInsights: async () => [
+        insightRow({ adsetId: "adset_healthy" }),
+        pauseInsight({
+          adsetId: "adset_bad",
+          actionCountByType: { "offsite_conversion.fb_pixel_complete_registration": 15 },
+        }),
+      ],
+      insertDecision: async (row) => void inserted.push(row),
+      readAdSetDailyBudget: async (id) => (id === "adset_bad" ? 2000 : 10000),
+      updateAdSetDailyBudget: async () => ({ ok: true }),
+      pauseAdSet: async (id) => {
+        pauses.push(id);
+        return { id, status: "PAUSED" };
+      },
+    });
+    const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 2);
+    assert.deepEqual(summary.campaignsErrored, []);
+    assert.deepEqual(pauses, ["adset_bad"]);
+    assert.equal(summary.pauseLadderWrites, 1);
+  });
+
   it("the only active ad set is not cut to floor", async () => {
     const pauses: string[] = [];
     const updates: string[] = [];
@@ -1445,6 +1549,8 @@ describe("runOptimisationTick — pause writes", () => {
       },
     });
     const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 2);
+    assert.deepEqual(summary.campaignsErrored, []);
     assert.ok(inserted.every((row) => row.actionRecommended === "skip_campaign_ended"));
     assert.equal(summary.decisionsByAction.skip_campaign_ended, 2);
     assert.equal(pauses.length, 0);
@@ -1494,6 +1600,8 @@ describe("runOptimisationTick — pause writes", () => {
       },
     });
     const summary = await runOptimisationTick(true, false, deps);
+    assert.equal(inserted.length, 2);
+    assert.deepEqual(summary.campaignsErrored, []);
     assert.ok(inserted.every((row) => row.actionRecommended === "skip_no_rules"));
     assert.equal(pauses.length, 0);
     assert.equal(summary.pauseLadderWrites, 0);

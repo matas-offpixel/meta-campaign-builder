@@ -202,6 +202,7 @@ export const VIZ_ACTIONS = [
   "skip_campaign_ended",
   "skip_event_passed",
   "skip_phase_ended",
+  "skip_facts_unreadable",
   "insufficient_conversions",
   "metric_unavailable",
 ] as const;
@@ -220,6 +221,7 @@ export const VIZ_ACTION_LABEL: Record<VizAction, string> = {
   skip_campaign_ended: "Campaign ended",
   skip_event_passed: "Event passed",
   skip_phase_ended: "Phase ended",
+  skip_facts_unreadable: "Facts unreadable",
   insufficient_conversions: "Insufficient conversions",
   metric_unavailable: "Metric unavailable",
 };
@@ -236,6 +238,7 @@ export const VIZ_ACTION_TOKEN: Record<VizAction, string> = {
   skip_campaign_ended: "text-muted-foreground",
   skip_event_passed: "text-muted-foreground",
   skip_phase_ended: "text-muted-foreground",
+  skip_facts_unreadable: "text-muted-foreground",
   insufficient_conversions: "text-muted-foreground",
   metric_unavailable: "text-muted-foreground",
 };
@@ -252,6 +255,7 @@ export const VIZ_ACTION_GLYPH: Record<VizAction, string> = {
   skip_campaign_ended: "·",
   skip_event_passed: "·",
   skip_phase_ended: "·",
+  skip_facts_unreadable: "·",
   insufficient_conversions: "·",
   metric_unavailable: "◌",
 };
@@ -324,6 +328,7 @@ export const VIZ_ACTION_WORD: Record<VizAction, { suggest: string; did: string }
   skip_campaign_ended: { suggest: "—", did: "left alone — campaign ended" },
   skip_event_passed: { suggest: "—", did: "left alone — event has passed" },
   skip_phase_ended: { suggest: "—", did: "left alone — phase has ended" },
+  skip_facts_unreadable: { suggest: "—", did: "left alone — eligibility facts unreadable" },
   insufficient_conversions: { suggest: "—", did: "left alone — {n} of {min} {unit}s needed" },
   metric_unavailable: { suggest: "—", did: "no reads yet" },
 };

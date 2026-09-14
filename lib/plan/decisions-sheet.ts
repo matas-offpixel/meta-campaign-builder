@@ -147,6 +147,7 @@ export function whyForDecision(row: DecisionRowView, now: Date = new Date()): st
   if (row.action === "skip_campaign_ended") return "campaign ended";
   if (row.action === "skip_event_passed") return "event passed";
   if (row.action === "skip_phase_ended") return "phase ended";
+  if (row.action === "skip_facts_unreadable") return "facts unreadable";
 
   const ceiling = /ceiling/i.test(row.reasonText);
   const delta = deltaLabel(row);

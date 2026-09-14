@@ -161,7 +161,7 @@ export async function loadOptedInCampaignsForAutomation(
     }
   }
 
-  const factsByDraft = await loadEligibilityFacts(
+  const factsByDraft = await loadEligibilityFactsForDrafts(
     sb,
     parsed.map((item) => ({ draftId: item.input.draftId, eventId: item.eventId })),
   );
@@ -171,7 +171,14 @@ export async function loadOptedInCampaignsForAutomation(
   }));
 }
 
-async function loadEligibilityFacts(
+/**
+ * Calendar facts for the eligibility gates.
+ * A failed read is `factsUnreadable` (fail closed). A missing row is
+ * still absent (fail open). Conservative: any query in the batch that
+ * errors marks every draft unreadable — we cannot mix null-from-error
+ * with a successful sibling query and call that "absent".
+ */
+export async function loadEligibilityFactsForDrafts(
   sb: AnySupabase,
   drafts: ReadonlyArray<{ draftId: string; eventId: string | null }>,
 ): Promise<Map<string, CampaignEligibilityFacts>> {
@@ -182,14 +189,16 @@ async function loadEligibilityFacts(
   const eventIds = [...new Set(drafts.map((d) => d.eventId).filter((id): id is string => Boolean(id)))];
 
   const eventsById = new Map<string, EventEligibilityRow>();
+  let unreadableReason: string | null = null;
   if (eventIds.length > 0) {
     const { data: events, error: eventErr } = await sb
       .from("events")
       .select("id, event_date, campaign_end_at, general_sale_at")
       .in("id", eventIds);
     if (eventErr) {
-      console.warn(
-        `[campaign-automation-decisions] eligibility events query failed: ${eventErr.message}`,
+      unreadableReason = `events: ${eventErr.message}`;
+      console.error(
+        `[campaign-automation-decisions] eligibility facts_unreadable: ${unreadableReason}`,
       );
     } else {
       for (const event of (events ?? []) as EventEligibilityRow[]) {
@@ -204,8 +213,9 @@ async function loadEligibilityFacts(
     .select("plan_id, draft_id")
     .in("draft_id", draftIds);
   if (launchErr) {
-    console.warn(
-      `[campaign-automation-decisions] eligibility plan-launch query failed: ${launchErr.message}`,
+    unreadableReason = unreadableReason ?? `plan_launch: ${launchErr.message}`;
+    console.error(
+      `[campaign-automation-decisions] eligibility facts_unreadable: plan_launch: ${launchErr.message}`,
     );
   } else {
     const planIds = [
@@ -222,8 +232,9 @@ async function loadEligibilityFacts(
         .select("id, phase, end_date")
         .in("id", planIds);
       if (planErr) {
-        console.warn(
-          `[campaign-automation-decisions] eligibility plans query failed: ${planErr.message}`,
+        unreadableReason = unreadableReason ?? `plans: ${planErr.message}`;
+        console.error(
+          `[campaign-automation-decisions] eligibility facts_unreadable: plans: ${planErr.message}`,
         );
       } else {
         for (const plan of (plans ?? []) as PlanEligibilityRow[]) {
@@ -236,6 +247,13 @@ async function loadEligibilityFacts(
       const plan = plansById.get(launch.plan_id);
       if (plan) planByDraft.set(launch.draft_id, plan);
     }
+  }
+
+  if (unreadableReason) {
+    for (const draft of drafts) {
+      facts.set(draft.draftId, { factsUnreadable: true });
+    }
+    return facts;
   }
 
   for (const draft of drafts) {

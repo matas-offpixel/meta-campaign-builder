@@ -47,6 +47,41 @@ describe("recordLaunchedAdSet", () => {
     );
   });
 
+  it("a never-resolving upsert does not block past the timeout", async () => {
+    const supabase = {
+      from() {
+        return {
+          upsert: () => new Promise(() => {}),
+        };
+      },
+    };
+    const started = Date.now();
+    await assert.doesNotReject(() =>
+      recordLaunchedAdSet(
+        supabase as never,
+        {
+          metaAdsetId: "120399",
+          metaCampaignId: "camp",
+          adAccountId: "act_1",
+          draftId: "draft",
+          userId: "user",
+          clientId: null,
+          eventId: null,
+          launchRunId: "11111111-1111-4111-8111-111111111111",
+          objective: "registration",
+          phaseAtLaunch: null,
+          descriptorSource: "launch",
+          suggestion,
+          audiences: null,
+        },
+        40,
+      ),
+    );
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 1000, `hung upsert blocked for ${elapsed}ms`);
+    assert.ok(elapsed >= 40, `timed out too early (${elapsed}ms)`);
+  });
+
   it("does not throw when meta_adset_id is empty", async () => {
     await assert.doesNotReject(() =>
       recordLaunchedAdSet({} as never, {
