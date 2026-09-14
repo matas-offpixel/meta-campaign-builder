@@ -151,6 +151,27 @@ describe("migrateTikTokDraft", () => {
     assert.deepEqual(migrateTikTokDraft(draft), draft);
   });
 
+  it("keeps importMeta on state JSON", () => {
+    const draft = createDefaultTikTokDraft("draft-import");
+    draft.importMeta = {
+      sourceCampaignId: "c1",
+      sourceCampaignName: "Live",
+      sourceKind: "smart_plus",
+      dropped: [{ field: "smart_audience_enabled", sourceValue: true }],
+      sourceEnhancements: {
+        isAcoOn: 2,
+        isAcoTotal: 2,
+        creativeAuthorizedOn: 2,
+        creativeAuthorizedTotal: 2,
+      },
+      creativeCounts: { chosen: 2, tiktokAdded: 1 },
+    };
+    const migrated = migrateTikTokDraft(JSON.parse(JSON.stringify(draft)));
+    assert.equal(migrated.importMeta?.sourceKind, "smart_plus");
+    assert.equal(migrated.importMeta?.dropped[0]?.field, "smart_audience_enabled");
+    assert.equal(migrated.importMeta?.creativeCounts?.tiktokAdded, 1);
+  });
+
   it("backfills omitted targetCostPerResult from benchmarkCpc for COST_CAP conversion", () => {
     const stored = launchableDraft();
     stored.campaignSetup.bidStrategy = "COST_CAP";

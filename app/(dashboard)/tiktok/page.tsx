@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { TikTokCampaignLibrary } from "@/components/dashboard/tiktok-campaign-library";
+import { TikTokImportButton } from "@/components/tiktok/tiktok-import-button";
 import { createClient } from "@/lib/supabase/server";
 import { listTikTokDrafts } from "@/lib/db/tiktok-drafts";
 
@@ -27,12 +28,15 @@ export default async function TikTokIndexPage() {
         title="TikTok campaigns"
         description="Manage TikTok drafts, published campaigns, and templates the same way as Meta."
         actions={
-          <Link href="/tiktok/new">
-            <Button size="sm">
-              <Plus className="h-3.5 w-3.5" />
-              New TikTok campaign
-            </Button>
-          </Link>
+          <>
+            <TikTokImportButton />
+            <Link href="/tiktok/new">
+              <Button size="sm">
+                <Plus className="h-3.5 w-3.5" />
+                New TikTok campaign
+              </Button>
+            </Link>
+          </>
         }
       />
       <main className="flex-1 px-6 py-6">

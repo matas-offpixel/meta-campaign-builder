@@ -29,6 +29,10 @@ import {
   tikTokPixelNotFiredMessage,
   tikTokSalesPixelNotFiredMessage,
 } from "@/lib/plan/tiktok-early";
+import {
+  formatTikTokImportCreativeCounts,
+  formatTikTokImportDroppedLine,
+} from "@/lib/tiktok/import/types";
 
 interface TikTokIdentityOption {
   identity_id: string;
@@ -381,6 +385,24 @@ export function AccountSetupStep({
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
       
+
+      {draft.importMeta && (
+        <StatusLine className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          {formatTikTokImportDroppedLine(draft.importMeta.dropped) && (
+            <Datum>{formatTikTokImportDroppedLine(draft.importMeta.dropped)}</Datum>
+          )}
+          {draft.importMeta.creativeCounts && (
+            <Datum className="text-muted-foreground">
+              {formatTikTokImportCreativeCounts(draft.importMeta.creativeCounts)}
+            </Datum>
+          )}
+          {draft.importMeta.dropped.length === 0 && !draft.importMeta.creativeCounts && (
+            <Datum className="text-muted-foreground">
+              Imported from TikTok. Every requested targeting field was carried.
+            </Datum>
+          )}
+        </StatusLine>
+      )}
 
       {saveError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">

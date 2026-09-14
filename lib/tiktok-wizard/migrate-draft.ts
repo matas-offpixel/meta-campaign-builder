@@ -95,6 +95,52 @@ export function migrateTikTokDraft(raw: unknown): TikTokCampaignDraft {
           : defaults.creativeAssignments.byAdGroupId,
     },
     publishedIds: normalizePublishedIds(incoming.publishedIds),
+    importMeta: normalizeImportMeta(incoming.importMeta),
+  };
+}
+
+function normalizeImportMeta(
+  raw: unknown,
+): TikTokCampaignDraft["importMeta"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as NonNullable<TikTokCampaignDraft["importMeta"]>;
+  const kind = record.sourceKind;
+  if (
+    kind !== "manual" &&
+    kind !== "smart_plus" &&
+    kind !== "legacy_smart_plus"
+  ) {
+    return null;
+  }
+  return {
+    sourceCampaignId:
+      typeof record.sourceCampaignId === "string" ? record.sourceCampaignId : "",
+    sourceCampaignName:
+      typeof record.sourceCampaignName === "string"
+        ? record.sourceCampaignName
+        : "",
+    sourceKind: kind,
+    dropped: Array.isArray(record.dropped)
+      ? record.dropped.filter(
+          (item): item is { field: string; sourceValue: unknown } =>
+            Boolean(item && typeof item === "object" && typeof item.field === "string"),
+        )
+      : [],
+    sourceEnhancements: {
+      isAcoOn: asOptionalNumber(record.sourceEnhancements?.isAcoOn) ?? 0,
+      isAcoTotal: asOptionalNumber(record.sourceEnhancements?.isAcoTotal) ?? 0,
+      creativeAuthorizedOn:
+        asOptionalNumber(record.sourceEnhancements?.creativeAuthorizedOn) ?? 0,
+      creativeAuthorizedTotal:
+        asOptionalNumber(record.sourceEnhancements?.creativeAuthorizedTotal) ?? 0,
+    },
+    creativeCounts:
+      record.creativeCounts && typeof record.creativeCounts === "object"
+        ? {
+            chosen: asOptionalNumber(record.creativeCounts.chosen) ?? 0,
+            tiktokAdded: asOptionalNumber(record.creativeCounts.tiktokAdded) ?? 0,
+          }
+        : null,
   };
 }
 
