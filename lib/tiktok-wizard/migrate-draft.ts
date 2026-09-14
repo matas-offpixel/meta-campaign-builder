@@ -126,21 +126,75 @@ function normalizeImportMeta(
             Boolean(item && typeof item === "object" && typeof item.field === "string"),
         )
       : [],
-    sourceEnhancements: {
-      isAcoOn: asOptionalNumber(record.sourceEnhancements?.isAcoOn) ?? 0,
-      isAcoTotal: asOptionalNumber(record.sourceEnhancements?.isAcoTotal) ?? 0,
-      creativeAuthorizedOn:
-        asOptionalNumber(record.sourceEnhancements?.creativeAuthorizedOn) ?? 0,
-      creativeAuthorizedTotal:
-        asOptionalNumber(record.sourceEnhancements?.creativeAuthorizedTotal) ?? 0,
-    },
-    creativeCounts:
-      record.creativeCounts && typeof record.creativeCounts === "object"
-        ? {
-            chosen: asOptionalNumber(record.creativeCounts.chosen) ?? 0,
-            tiktokAdded: asOptionalNumber(record.creativeCounts.tiktokAdded) ?? 0,
-          }
-        : null,
+    sourceEnhancements: normalizeImportEnhancements(record.sourceEnhancements),
+    creativeCounts: normalizeImportCreativeCounts(record.creativeCounts),
+    notCarried: Array.isArray(record.notCarried)
+      ? record.notCarried.filter(
+          (item): item is NonNullable<
+            TikTokCampaignDraft["importMeta"]
+          >["notCarried"][number] =>
+            Boolean(
+              item &&
+                typeof item === "object" &&
+                typeof item.name === "string" &&
+                typeof item.reason === "string",
+            ),
+        )
+      : [],
+  };
+}
+
+/**
+ * Drafts saved before the on/off/absent split (#944) recorded only "how
+ * many were `=== true`". Everything else was either present-false or
+ * absent and that draft cannot say which — so it is reported as
+ * *absent*, the weaker claim. Draft c8bca9ff, the live Ironworks import,
+ * was in fact absent on all 45.
+ */
+function normalizeImportEnhancements(
+  raw: unknown,
+): NonNullable<TikTokCampaignDraft["importMeta"]>["sourceEnhancements"] {
+  const record = (raw ?? {}) as Record<string, unknown>;
+  const isAcoOn = asOptionalNumber(record.isAcoOn) ?? 0;
+  const isAcoTotal = asOptionalNumber(record.isAcoTotal) ?? 0;
+  const authorizedOn = asOptionalNumber(record.creativeAuthorizedOn) ?? 0;
+  const authorizedTotal = asOptionalNumber(record.creativeAuthorizedTotal) ?? 0;
+  const legacy = !("isAcoAbsent" in record);
+  return {
+    isAcoOn,
+    isAcoOff: legacy ? 0 : asOptionalNumber(record.isAcoOff) ?? 0,
+    isAcoAbsent: legacy
+      ? Math.max(0, isAcoTotal - isAcoOn)
+      : asOptionalNumber(record.isAcoAbsent) ?? 0,
+    isAcoTotal,
+    creativeAuthorizedOn: authorizedOn,
+    creativeAuthorizedOff: legacy
+      ? 0
+      : asOptionalNumber(record.creativeAuthorizedOff) ?? 0,
+    creativeAuthorizedAbsent: legacy
+      ? Math.max(0, authorizedTotal - authorizedOn)
+      : asOptionalNumber(record.creativeAuthorizedAbsent) ?? 0,
+    creativeAuthorizedTotal: authorizedTotal,
+  };
+}
+
+/**
+ * `{chosen, tiktokAdded}` counted the same 45 creatives twice and cannot
+ * be translated into carried/not-carried. An old draft loses the line
+ * rather than showing a number that never meant this.
+ */
+function normalizeImportCreativeCounts(
+  raw: unknown,
+): NonNullable<TikTokCampaignDraft["importMeta"]>["creativeCounts"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const record = raw as Record<string, unknown>;
+  if (!("carried" in record)) return null;
+  return {
+    sourceRows: asOptionalNumber(record.sourceRows) ?? 0,
+    carried: asOptionalNumber(record.carried) ?? 0,
+    deduped: asOptionalNumber(record.deduped) ?? 0,
+    notCarried: asOptionalNumber(record.notCarried) ?? 0,
+    unjoined: asOptionalNumber(record.unjoined) ?? 0,
   };
 }
 
