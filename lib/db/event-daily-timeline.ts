@@ -4,6 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { EventDailyRollup } from "@/lib/db/event-daily-rollups";
 import { listRollupsForEvent } from "@/lib/db/event-daily-rollups";
+import {
+  aggregatePresaleBucket,
+  type PresaleBucketTotals,
+} from "@/lib/dashboard/presale-bucket";
 import { resolveCanonicalTicketsSoldInWindow } from "@/lib/db/canonical-tickets-resolver";
 import { listDailyHistoryForEvents } from "@/lib/db/tier-channel-daily-history";
 import {
@@ -343,69 +347,22 @@ export async function loadEventDailyTimeline(
  * the regular timeline merge handles. So this takes
  * `EventDailyRollup[]` rather than `TimelineRow[]`.
  */
-export interface PresaleBucket {
-  /** ISO date (general_sale_at) — the cutoff used to compute the bucket. */
-  cutoffDate: string;
-  ad_spend: number | null;
-  link_clicks: number | null;
-  tiktok_spend: number | null;
-  tiktok_clicks: number | null;
-  tickets_sold: number | null;
-  revenue: number | null;
-  /** Number of rollup rows folded into the bucket. */
-  daysCount: number;
-  /** Earliest date covered by the bucket (for the "from" label). */
-  earliestDate: string | null;
-}
+/**
+ * Shape rendered by the tracker's collapsed row. Every column the
+ * bucket hides is summed — see `lib/dashboard/presale-bucket.ts` for
+ * the null-vs-zero and `earliestDate` rules, which the venue report's
+ * multi-event bucket shares.
+ */
+export type PresaleBucket = PresaleBucketTotals;
 
 export function computePresaleBucket(
   rows: EventDailyRollup[],
   generalSaleAt: string | null,
 ): PresaleBucket | null {
-  if (!generalSaleAt) return null;
-  // general_sale_at is a timestamptz; strip to date in the UTC form
-  // Postgres gives us. Comparing date strings lexicographically is
-  // safe for canonical YYYY-MM-DD.
-  const cutoffDate = generalSaleAt.slice(0, 10);
-  const presaleRows = rows.filter((r) => r.date < cutoffDate);
-  if (presaleRows.length === 0) return null;
-
-  let ad_spend: number | null = null;
-  let link_clicks: number | null = null;
-  let tiktok_spend: number | null = null;
-  let tiktok_clicks: number | null = null;
-  let tickets_sold: number | null = null;
-  let revenue: number | null = null;
-  let earliestDate: string | null = null;
-
-  for (const r of presaleRows) {
-    if (r.ad_spend != null) ad_spend = (ad_spend ?? 0) + Number(r.ad_spend);
-    if (r.link_clicks != null) link_clicks = (link_clicks ?? 0) + r.link_clicks;
-    if (r.tiktok_spend != null)
-      tiktok_spend = (tiktok_spend ?? 0) + Number(r.tiktok_spend);
-    if (r.tiktok_clicks != null)
-      tiktok_clicks = (tiktok_clicks ?? 0) + r.tiktok_clicks;
-    if (r.tickets_sold != null)
-      tickets_sold = (tickets_sold ?? 0) + r.tickets_sold;
-    if (r.revenue != null) revenue = (revenue ?? 0) + Number(r.revenue);
-    if (!earliestDate || r.date < earliestDate) earliestDate = r.date;
-  }
-
-  return {
-    cutoffDate,
-    ad_spend: ad_spend != null ? round2(ad_spend) : null,
-    link_clicks,
-    tiktok_spend: tiktok_spend != null ? round2(tiktok_spend) : null,
-    tiktok_clicks,
-    tickets_sold,
-    revenue: revenue != null ? round2(revenue) : null,
-    daysCount: presaleRows.length,
-    earliestDate,
-  };
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  // general_sale_at is a timestamptz; the aggregator slices it to the
+  // UTC calendar day Postgres hands back, so the general-sale day
+  // itself stays a visible daily row.
+  return aggregatePresaleBucket(rows, generalSaleAt);
 }
 
 /**

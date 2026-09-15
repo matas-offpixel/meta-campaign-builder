@@ -11,6 +11,10 @@ import {
 } from "@/lib/db/additional-spend-sum";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
 import {
+  aggregatePresaleBucket,
+  type PresaleBucketTotals,
+} from "@/lib/dashboard/presale-bucket";
+import {
   buildEventIdToCodeMap,
   dedupVenueRollupsByEventCode,
 } from "@/lib/dashboard/venue-rollup-dedup";
@@ -57,22 +61,14 @@ import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
  * breakdown.
  */
 
-interface VenuePresaleBucket {
-  cutoffDate: string;
-  ad_spend: number | null;
-  link_clicks: number | null;
-  tiktok_spend: number | null;
-  tiktok_clicks: number | null;
-  tickets_sold: number | null;
-  revenue: number | null;
-  daysCount: number;
-  earliestDate: string | null;
-}
+type VenuePresaleBucket = PresaleBucketTotals;
 
 interface VenueEventLike {
   budget_marketing: number | null;
   meta_spend_cached: number | null;
   prereg_spend: number | null;
+  announcement_at: string | null;
+  presale_at: string | null;
   general_sale_at: string | null;
   capacity: number | null;
   event_date: string | null;
@@ -220,6 +216,15 @@ export function buildVenueReportModel(
   const generalSaleAt = earliestIso(
     events.map((event) => event.general_sale_at).filter(isString),
   );
+  // Milestones across a shared-code venue are the earliest of each —
+  // the siblings run one campaign, and the tracker marks the day that
+  // campaign announced / opened presale / went on general sale.
+  const announcementAt = earliestIso(
+    events.map((event) => event.announcement_at).filter(isString),
+  );
+  const presaleAt = earliestIso(
+    events.map((event) => event.presale_at).filter(isString),
+  );
   const presale = buildVenuePresaleBucket(timeline, generalSaleAt);
   return {
     event: {
@@ -231,6 +236,8 @@ export function buildVenueReportModel(
         ? null
         : sumNullable(events.map((event) => event.meta_spend_cached)),
       prereg_spend: sumNullable(events.map((event) => event.prereg_spend)),
+      announcement_at: announcementAt,
+      presale_at: presaleAt,
       general_sale_at: generalSaleAt,
       capacity: sumNullable(events.map((event) => event.capacity)),
       event_date: earliestUpcomingOrKnownEventDate(events),
@@ -528,12 +535,20 @@ export function VenueDailyTrackerSection({
       otherSpendBreakdownByDate: windowedOtherSpendBreakdownByDate,
       suppressSyntheticToday: windowDaySet !== null,
       reportEmbed: true,
+      milestones: {
+        announcementAt: event.announcement_at,
+        presaleAt: event.presale_at,
+        generalSaleAt: event.general_sale_at,
+      },
     }),
     [
       windowedTimeline,
       presale,
       mode,
       event.report_cadence,
+      event.announcement_at,
+      event.presale_at,
+      event.general_sale_at,
       windowedOtherSpendByDate,
       windowedOtherSpendBreakdownByDate,
       windowDaySet,
@@ -827,24 +842,18 @@ function emptyTimelineRow(date: string, source: TimelineRow["source"]): Timeline
   };
 }
 
+/**
+ * Venue bucket = the single-event bucket over the merged multi-event
+ * timeline. The cutoff arrives as a `timestamptz`; the shared
+ * aggregator slices it to a calendar day, so the general-sale day is a
+ * daily row here exactly as it is on the single-event report (it used
+ * to sort into the bucket, which hid the row its marker belongs on).
+ */
 function buildVenuePresaleBucket(
   timeline: TimelineRow[],
   cutoffDate: string | null,
 ): VenuePresaleBucket | null {
-  if (!cutoffDate) return null;
-  const rows = timeline.filter((row) => row.date < cutoffDate);
-  if (rows.length === 0) return null;
-  return {
-    cutoffDate,
-    ad_spend: sumNullable(rows.map((row) => row.ad_spend)),
-    link_clicks: sumNullable(rows.map((row) => row.link_clicks)),
-    tiktok_spend: sumNullable(rows.map((row) => row.tiktok_spend)),
-    tiktok_clicks: sumNullable(rows.map((row) => row.tiktok_clicks)),
-    tickets_sold: sumNullable(rows.map((row) => row.tickets_sold)),
-    revenue: sumNullable(rows.map((row) => row.revenue)),
-    daysCount: rows.length,
-    earliestDate: earliestIso(rows.map((row) => row.date)),
-  };
+  return aggregatePresaleBucket(timeline, cutoffDate);
 }
 
 function addNullable(

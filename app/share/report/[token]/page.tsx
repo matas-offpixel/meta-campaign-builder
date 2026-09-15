@@ -201,6 +201,11 @@ interface ResolvedEvent {
    *  general-sale Meta spend tracked in the timeline). Surfaced as
    *  the "Pre-reg" column in the summary. */
   preregSpend: number | null;
+  /** Announce + presale milestones — name the tracker's collapsed
+   *  pre-general-sale row after the phase it covers and mark the days
+   *  they fall on. */
+  announcementAt: string | null;
+  presaleAt: string | null;
   /** General-sale cutoff — drives the presale bucket on the daily
    *  table and the previous-week comparison on the summary header. */
   generalSaleAt: string | null;
@@ -280,7 +285,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       admin
         .from("events")
         .select(
-          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, mailchimp_tag, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
+          "name, venue_name, venue_city, venue_country, event_date, event_start_at, campaign_end_at, kind, event_code, budget_marketing, capacity, tickets_sold, meta_spend_cached, prereg_spend, announcement_at, presale_at, general_sale_at, report_cadence, tiktok_account_id, google_ads_account_id, mailchimp_audience_id, mailchimp_tag, meta_ad_account_id, client:clients ( meta_ad_account_id, tiktok_account_id, google_ads_account_id, mailchimp_audience_id )",
         )
         .eq("id", event_id)
         .maybeSingle(),
@@ -388,6 +393,8 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
     metaSpendCached:
       (eventRow.data.meta_spend_cached as number | null) ?? null,
     preregSpend: (eventRow.data.prereg_spend as number | null) ?? null,
+    announcementAt: (eventRow.data.announcement_at as string | null) ?? null,
+    presaleAt: (eventRow.data.presale_at as string | null) ?? null,
     generalSaleAt: (eventRow.data.general_sale_at as string | null) ?? null,
     // Default cadence guards against rows ingested before migration 040
     // existed (Supabase serves null until the default backfills) and
@@ -757,6 +764,8 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         budget_marketing: event.paidMediaBudget,
         meta_spend_cached: event.metaSpendCached,
         prereg_spend: event.preregSpend,
+        announcement_at: event.announcementAt,
+        presale_at: event.presaleAt,
         general_sale_at: event.generalSaleAt,
         kind: event.kind,
         report_cadence: event.reportCadence,

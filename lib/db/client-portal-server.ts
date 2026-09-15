@@ -66,6 +66,11 @@ export interface PortalEvent {
    */
   target_capacity: number | null;
   event_date: string | null;
+  /** Campaign milestones — the Daily Tracker names its collapsed
+   *  pre-general-sale row after the phase these describe and marks the
+   *  day each one falls on. */
+  announcement_at: string | null;
+  presale_at: string | null;
   general_sale_at: string | null;
   report_cadence: "daily" | "weekly";
   budget_marketing: number | null;
@@ -723,7 +728,7 @@ async function loadPortalForClientId(
   const eventsQueryBase = admin
     .from("events")
     .select(
-      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status, mailchimp_tag, mailchimp_audience_id, kind",
+      "id, name, slug, event_code, venue_name, venue_city, venue_country, capacity, target_capacity, event_date, announcement_at, presale_at, general_sale_at, report_cadence, budget_marketing, tickets_sold, prereg_spend, meta_campaign_id, meta_spend_cached, preferred_provider, status, mailchimp_tag, mailchimp_audience_id, kind",
     )
     .eq("client_id", clientId);
   const eventsQuery = options?.eventCode
@@ -1313,6 +1318,11 @@ async function loadPortalForClientId(
           (e as unknown as { target_capacity?: number | null })
             .target_capacity ?? null,
         event_date: e.event_date,
+        announcement_at:
+          (e as unknown as { announcement_at?: string | null })
+            .announcement_at ?? null,
+        presale_at:
+          (e as unknown as { presale_at?: string | null }).presale_at ?? null,
         general_sale_at: e.general_sale_at,
         report_cadence:
           e.report_cadence === "weekly" || e.report_cadence === "daily"
