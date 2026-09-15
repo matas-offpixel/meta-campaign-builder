@@ -2,9 +2,9 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
-- **Branch:** `cursor/registrations-from-cirqlin`
+- **Number:** 948
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/948
+- **Branch:** `cursor/registrations-from-cirqlin-81ca`
 
 ## Summary
 
@@ -21,12 +21,16 @@ could not be opened from this environment — that repository is not
 visible to this agent. The dashboard client is written against the
 agreed payload.
 
+`#947` squash-merged while this work was in flight. The first push was
+on `cursor/registrations-from-cirqlin` cut from that branch; this PR
+is the same commit cherry-picked onto `main`.
+
 ## Scope / files
 
 - `lib/cirqlin/*` — client, snapshot mapping, sync, tracker helpers
 - `supabase/migrations/177_signup_source_snapshots.sql`
 - Mailchimp refresh + EOD cron Cirqlin legs
-- REGISTRATIONS card model + venue / share wiring
+- REGISTRATIONS card model + venue / share / event-report wiring
 - Daily tracker REGS source chain: Cirqlin → Mailchimp → Meta
 - `CIRQLIN_PARTNER_READ_SECRET` / `CIRQLIN_API_BASE` in `CLAUDE.md`
 
@@ -41,3 +45,4 @@ agreed payload.
 Migration 177 must be applied to prod before this PR merges.
 `computeRegistrationsData` is unchanged; Cirqlin sits beside it.
 `evaluate.ts` / `apply.ts` / `gates.ts` / `components/plan/**` untouched.
+Do not merge until the Cirqlin partner route is live.
