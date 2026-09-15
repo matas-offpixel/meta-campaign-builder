@@ -129,7 +129,10 @@ export async function POST(req: NextRequest) {
           saved: false,
           draft: null,
           rejected,
-          error: formatRejectedCarryKeys(rejected.length > 0 ? rejected : accepted),
+          error:
+            rejected.length > 0
+              ? formatRejectedCarryKeys(rejected)
+              : "Nothing was saved.",
         },
         { status: 200 },
       );

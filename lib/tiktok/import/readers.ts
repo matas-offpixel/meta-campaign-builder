@@ -598,9 +598,9 @@ export async function readTikTokLiveCampaign(input: {
         `TikTok import failed: /smart_plus/adgroup/get/ returned no ad groups for ${input.campaignId}`,
       );
     }
-    if (smartPlusAds.length === 0 && ads.length === 0) {
+    if (smartPlusAds.length === 0) {
       throw new Error(
-        `TikTok import failed: neither /smart_plus/ad/get/ nor /ad/get/ returned an ad for ${input.campaignId}`,
+        `TikTok import failed: /smart_plus/ad/get/ returned no ads for ${input.campaignId} (${ads.length} /ad/get/ rows)`,
       );
     }
     return {

@@ -173,6 +173,13 @@ export const TIKTOK_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
  * https://business-api.tiktok.com/portal/docs/get-upgraded-smart-ads/v1.3
  * A carousel is listed by id, not coerced into a VIDEO_REFERENCE with a
  * null `videoId` — that is what #944 did to three Ironworks rows.
+ *
+ * Unsupported-format detection is Smart+-only until `/ad/get/`'s
+ * accepted `fields` list is captured the same way as
+ * `captured/adgroup-get-accepted-fields-2026-09-15.ts`. The
+ * `/adgroup/get/` list says nothing about `/ad/get/`. `sourceFromAdGetRow`
+ * does not read `ad_format` or `music_id` on that leg — requesting
+ * either on a guess is the bug #945 fixed.
  */
 export const TIKTOK_IMPORT_UNSUPPORTED_AD_FORMATS: readonly string[] = [
   "CAROUSEL_ADS",
