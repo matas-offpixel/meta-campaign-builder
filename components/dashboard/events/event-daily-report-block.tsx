@@ -17,6 +17,7 @@ import {
   additionalSpendTotalsByDate,
 } from "@/lib/db/additional-spend-sum";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
+import type { PresaleBucketTotals } from "@/lib/dashboard/presale-bucket";
 import { ADDITIONAL_SPEND_CHANGED } from "@/components/dashboard/events/additional-spend-card";
 import {
   EventSummaryHeader,
@@ -58,17 +59,7 @@ import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations
  * the lightweight "connect a source" CTA and skips fetching entirely.
  */
 
-interface PresaleBucketShape {
-  cutoffDate: string;
-  ad_spend: number | null;
-  link_clicks: number | null;
-  tiktok_spend: number | null;
-  tiktok_clicks: number | null;
-  tickets_sold: number | null;
-  revenue: number | null;
-  daysCount: number;
-  earliestDate: string | null;
-}
+type PresaleBucketShape = PresaleBucketTotals;
 
 interface RollupResponse {
   ok: boolean;
@@ -149,6 +140,11 @@ interface EventLike {
   budget_marketing: number | null;
   meta_spend_cached: number | null;
   prereg_spend: number | null;
+  /** Campaign milestones. Feed the tracker's phase label + the
+   *  announce / presale / general-sale row markers. Optional so
+   *  callers that haven't been re-wired keep the fallback label. */
+  announcement_at?: string | null;
+  presale_at?: string | null;
   general_sale_at: string | null;
   kind?: string | null;
   capacity?: number | null;
@@ -578,6 +574,11 @@ export function EventDailyReportBlock(props: Props) {
       // shareMailchimpSnapshots; tag-scoped dashboard events use the
       // async-fetched chartMailchimpRows.
       mailchimpSnapshots: shareMailchimpSnapshots ?? chartMailchimpRows,
+      milestones: {
+        announcementAt: event.announcement_at ?? null,
+        presaleAt: event.presale_at ?? null,
+        generalSaleAt: event.general_sale_at,
+      },
     }),
     [
       timeline,
@@ -590,6 +591,9 @@ export function EventDailyReportBlock(props: Props) {
       isShare,
       isEditable,
       event.report_cadence,
+      event.announcement_at,
+      event.presale_at,
+      event.general_sale_at,
       otherSpendByDate,
       otherSpendBreakdownByDate,
       awarenessPlatform,

@@ -111,6 +111,8 @@ function event({
     venue_country: "England",
     capacity,
     event_date: null,
+    announcement_at: null,
+    presale_at: null,
     general_sale_at: null,
     report_cadence: "weekly",
     budget_marketing: null,

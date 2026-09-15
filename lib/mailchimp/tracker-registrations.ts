@@ -57,3 +57,26 @@ export function netNewMailchimpRegistrationsForWeek(
   const priorSubs = latestMailchimpSubscribersOnOrBefore(snapshots, priorEnd);
   return endSubs - (priorSubs ?? 0);
 }
+
+/**
+ * Net-new registrations across an arbitrary inclusive day range.
+ * Used by the Daily Tracker's collapsed pre-general-sale bucket, which
+ * spans however many days the signup phase ran for.
+ */
+export function netNewMailchimpRegistrationsForRange(
+  snapshots: readonly MailchimpSnapshotRow[],
+  startDay: string,
+  endDayInclusive: string,
+): number | null {
+  if (endDayInclusive < startDay) return null;
+  const endSubs = latestMailchimpSubscribersOnOrBefore(
+    snapshots,
+    endDayInclusive,
+  );
+  if (endSubs == null) return null;
+  const priorSubs = latestMailchimpSubscribersOnOrBefore(
+    snapshots,
+    addDaysUtc(startDay, -1),
+  );
+  return endSubs - (priorSubs ?? 0);
+}

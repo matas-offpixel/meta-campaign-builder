@@ -485,6 +485,17 @@ export interface DailyMetaMetricsRow {
   /**
    * Sum of Meta `complete_registration` + `offsite_conversion.fb_pixel_complete_registration`
    * actions for the day (Daily Tracker REGS column).
+   *
+   * KNOWN DOUBLE COUNT — do not treat this as a signup count without
+   * reading this first. Meta reports one pixel registration under both
+   * of those action types: `offsite_conversion.fb_pixel_complete_registration`
+   * is the pixel row and `complete_registration` is the aggregate that
+   * already contains it. Summing both counts each signup twice. That is
+   * why `metaRegs` is exactly 2 × `metaLeads` on every day of an event
+   * with no standalone `lead` actions (D.O.D / NX26-DOD, 16 consecutive
+   * days, 1,906 vs 953) — see the field below. Deduplicating this means
+   * rewriting history in `event_daily_rollups`, so it is deliberately a
+   * separate change; nothing here has been altered.
    */
   metaRegs: number;
   /**
@@ -499,9 +510,12 @@ export interface DailyMetaMetricsRow {
    * Sum of `actions` rows whose `action_type` ∈
    * (`lead`, `offsite_conversion.fb_pixel_lead`, `complete_registration`).
    * Internal-only diagnostic; used by the funnel-pacing surface to
-   * separate top-of-funnel signups from purchase events. Always ≥
-   * `metaRegs` because the `complete_registration` action is the
-   * primary regs signal on 4thefans today.
+   * separate top-of-funnel signups from purchase events.
+   *
+   * On an event whose only conversion is the pixel registration this is
+   * the honest Meta-attributed signup count and `metaRegs` is twice it
+   * — the doc comment above explains why. The "always ≥ metaRegs" note
+   * that used to sit here was wrong in exactly that case.
    */
   metaLeads: number;
   impressions: number;

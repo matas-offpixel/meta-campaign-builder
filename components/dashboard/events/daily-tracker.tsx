@@ -19,12 +19,32 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { costPerResult } from "@/lib/dashboard/cost-per-result";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import {
   paidLinkClicksOf,
   paidSpendOf,
 } from "@/lib/dashboard/paid-spend";
 import { trimTimelineForTrackerDisplay } from "@/lib/dashboard/trim-timeline-for-tracker-display";
+import type { PresaleBucketTotals } from "@/lib/dashboard/presale-bucket";
+import {
+  bucketClicks,
+  bucketImpressions,
+  bucketMilestones,
+  bucketRegs,
+  bucketSpend,
+  bucketVideoViews,
+} from "@/lib/dashboard/presale-bucket-cells";
+import {
+  presaleBucketLabel,
+  presaleBucketNoun,
+  TRACKER_MILESTONE_LABELS,
+  TRACKER_MILESTONE_TITLES,
+  trackerMilestoneDays,
+  trackerMilestonesInRange,
+  type TrackerMilestoneKind,
+  type TrackerMilestones,
+} from "@/lib/dashboard/tracker-phase";
 import type { SpendCategoryLine } from "@/lib/db/additional-spend-sum";
 import { sortSpendCategoryLines } from "@/lib/db/additional-spend-sum";
 import type {
@@ -35,6 +55,7 @@ import type { PlatformKey } from "@/components/dashboard/events/event-trend-char
 import {
   netNewMailchimpRegistrationsForDay,
   netNewMailchimpRegistrationsForWeek,
+  weekEndSunday,
 } from "@/lib/mailchimp/tracker-registrations";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
@@ -80,11 +101,30 @@ import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations
  *   Each row renders a small pill so it's clear at a glance which
  *   number an operator can override and which is live.
  *
- * Presale bucket:
+ * Pre-general-sale bucket:
  *   When `events.general_sale_at` is set, every row whose date is
- *   strictly before that cutoff collapses into a single "Presale"
- *   row at the top. The presale bucket is rollup-only (operators
- *   don't type presale rows) so the badge is suppressed for it.
+ *   strictly before that calendar day collapses into a single row at
+ *   the bottom. The bucket is rollup-only (operators don't type
+ *   presale rows) so the source badge is suppressed for it.
+ *
+ *   It rolls up every column it hides — spend, clicks, REGS, CPR,
+ *   tickets, revenue — and renders "—" only where the underlying
+ *   column is null on every day inside it. It used to drop REGS
+ *   entirely, which made a campaign whose whole signup phase ran
+ *   before general sale look like it had no registrations at all.
+ *
+ *   Its label comes from the event's own milestones: "Signup phase
+ *   (27 Aug – 8 Sept)" when announce + presale are set and the cutoff
+ *   is general sale, else "Before general sale (from …)". The "from"
+ *   date is the first day with a non-zero metric, not the first row —
+ *   the sync zero-pads its window, so the first row is usually two
+ *   months of nothing.
+ *
+ * Milestone markers:
+ *   Announce / presale / general-sale days carry a small pill in the
+ *   Date column. A wrong `general_sale_at` moves where the daily list
+ *   starts; without a marker on the row that is indistinguishable
+ *   from a campaign that really did go on sale that day.
  *
  * Empty state:
  *   When the event has neither a Meta event_code nor an Eventbrite
@@ -109,6 +149,9 @@ import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations
 const STALE_THRESHOLD_MS = 30 * 60 * 1000;
 
 const EMPTY_OTHER_SPEND_MAP = new Map<string, number>();
+const EMPTY_MILESTONE_DAYS: ReadonlyMap<string, TrackerMilestoneKind[]> =
+  new Map();
+const EMPTY_MILESTONES: TrackerMilestoneKind[] = [];
 
 interface DailyRollup {
   id: string;
@@ -128,17 +171,7 @@ interface DailyRollup {
   updated_at: string;
 }
 
-interface PresaleBucket {
-  cutoffDate: string;
-  ad_spend: number | null;
-  link_clicks: number | null;
-  tiktok_spend: number | null;
-  tiktok_clicks: number | null;
-  tickets_sold: number | null;
-  revenue: number | null;
-  daysCount: number;
-  earliestDate: string | null;
-}
+type PresaleBucket = PresaleBucketTotals;
 
 interface RollupResponse {
   ok: boolean;
@@ -233,6 +266,14 @@ interface Props {
      *     flow to the chart for visual continuity from campaign launch.
      */
     mailchimpSnapshots?: ReadonlyArray<MailchimpSnapshotRow>;
+    /**
+     * Campaign milestones from the event row. They name the collapsed
+     * pre-general-sale row after the phase it covers and put a marker
+     * on the announce / presale / general-sale days, so a mistyped
+     * `general_sale_at` is visible on the table instead of silently
+     * moving where the daily list starts.
+     */
+    milestones?: TrackerMilestones | null;
   };
   /** Top-level fallback for callers that don't go through the
    *  controlled orchestrator. Default false. Controlled value wins
@@ -278,6 +319,9 @@ interface DisplayRow {
   running_revenue: number;
   /** Net-new email subscribers for this day/week (brand_campaign only). */
   email_subscribers: number | null;
+  /** Campaign milestones landing on this row's day (or, for the
+   *  collapsed bucket / a weekly row, inside its range). */
+  milestones: TrackerMilestoneKind[];
 }
 
 export function DailyTracker({
@@ -558,6 +602,30 @@ export function DailyTracker({
     [effectiveTimeline, presale?.cutoffDate, otherSpendMap],
   );
 
+  // The REGS column silently swaps source: tag-scoped non-brand events
+  // read net-new Mailchimp members, everything else reads the Meta
+  // pixel. Mirror the builder's own condition so the header tooltip
+  // names the source actually on screen.
+  const regsFromMailchimpTag =
+    !isBrandCampaign &&
+    (controlled?.mailchimpSnapshots ?? []).some(
+      (s) =>
+        s.raw_json?.method !== "linear_ramp_pre_snapshot" &&
+        s.raw_json?.method !== "weighted_ramp_pre_snapshot",
+    );
+  const regsColumnTooltip = regsFromMailchimpTag
+    ? "Net-new Mailchimp tag members per day. Meta-attributed pixel registrations are a different source and will differ."
+    : "Meta-attributed registrations (pixel). Mailchimp tag count is on the REGISTRATIONS card — different source, will differ.";
+  const cprColumnTooltip = regsFromMailchimpTag
+    ? "Meta spend ÷ net-new Mailchimp tag members. Spend is Meta-only; the members are not all Meta-attributed."
+    : "Meta spend ÷ Meta-attributed registrations.";
+
+  const milestones = isControlled ? (controlled?.milestones ?? null) : null;
+  const milestoneDays = useMemo(
+    () => trackerMilestoneDays(milestones),
+    [milestones],
+  );
+
   const display = useMemo(
     () =>
       effectiveCadence === "weekly"
@@ -569,6 +637,8 @@ export function DailyTracker({
             isBrandCampaign,
             platform: controlled?.awarenessPlatform ?? "all",
             mailchimpSnapshots: controlled?.mailchimpSnapshots,
+            milestones,
+            milestoneDays,
           })
         : buildDisplayRows({
             timeline: trackerDisplayTimeline,
@@ -579,6 +649,8 @@ export function DailyTracker({
             isBrandCampaign,
             platform: controlled?.awarenessPlatform ?? "all",
             mailchimpSnapshots: controlled?.mailchimpSnapshots,
+            milestones,
+            milestoneDays,
           }),
     [
       trackerDisplayTimeline,
@@ -590,6 +662,8 @@ export function DailyTracker({
       isBrandCampaign,
       controlled?.awarenessPlatform,
       controlled?.mailchimpSnapshots,
+      milestones,
+      milestoneDays,
     ],
   );
 
@@ -692,7 +766,9 @@ export function DailyTracker({
                   ? " · Eventbrite tickets & revenue per ISO week"
                   : " · Eventbrite tickets & revenue per day"
                 : ""}
-              {presale ? " · Presale rolled up" : ""}
+              {presale
+                ? ` · ${presaleBucketNoun(presale.cutoffDate, milestones)} rolled up`
+                : ""}
             </p>
           </div>
         </div>
@@ -748,7 +824,13 @@ export function DailyTracker({
               <Th align="left">{dateColLabel}</Th>
               <Th>Day spend</Th>
               {!isBrandCampaign ? <Th>Day other</Th> : null}
-              {isBrandCampaign ? <Th>Impressions</Th> : <Th>Tickets</Th>}
+              {isBrandCampaign ? (
+                <Th>Impressions</Th>
+              ) : (
+                <Th title="Tickets sold on this day — from the ticketing sync or a manual day row. A lifetime total typed onto the event has no day to sit on, so it shows on the Tickets card, not here.">
+                  Tickets
+                </Th>
+              )}
               {isBrandCampaign ? <Th>Clicks (all)</Th> : <Th>Revenue</Th>}
               {isBrandCampaign ? <Th>Video views</Th> : <Th>CPT</Th>}
               {isBrandCampaign ? <Th>Registrations</Th> : null}
@@ -767,8 +849,12 @@ export function DailyTracker({
                   CPC
                 </Th>
               ) : null}
-              {!isBrandCampaign ? <Th>Regs</Th> : null}
-              {!isBrandCampaign ? <Th>CPR</Th> : null}
+              {!isBrandCampaign ? (
+                <Th title={regsColumnTooltip}>Regs</Th>
+              ) : null}
+              {!isBrandCampaign ? (
+                <Th title={cprColumnTooltip}>CPR</Th>
+              ) : null}
               <Th>Running spend</Th>
               {!isBrandCampaign ? <Th>Running tickets</Th> : null}
               {!isBrandCampaign ? <Th>Running avg CPT</Th> : null}
@@ -902,9 +988,9 @@ function RowEl({
   onEditClick: (row: DisplayRow) => void;
   onNotesSaved: (date: string, notes: string | null) => void;
 }) {
-  const cpt = derive(row.ad_spend, row.tickets_sold);
-  const cpl = derive(row.ad_spend, row.link_clicks);
-  const cprRegs = derive(row.meta_ad_spend, row.meta_regs);
+  const cpt = costPerResult(row.ad_spend, row.tickets_sold);
+  const cpl = costPerResult(row.ad_spend, row.link_clicks);
+  const cprRegs = costPerResult(row.meta_ad_spend, row.meta_regs);
   const cpm = row.ad_spend != null && row.impressions != null && row.impressions > 0
     ? (row.ad_spend / row.impressions) * 1000
     : null;
@@ -944,6 +1030,9 @@ function RowEl({
           !row.isPresale ? (
             <SourceBadge source={row.source} />
           ) : null}
+          {row.milestones.map((kind) => (
+            <MilestoneBadge key={kind} kind={kind} />
+          ))}
         </div>
       </Td>
       <Td>{fmtMoney(row.ad_spend)}</Td>
@@ -1030,6 +1119,23 @@ function SourceBadge({ source }: { source: TimelineSource }) {
       }
     >
       {isManual ? "Manual" : "Live"}
+    </span>
+  );
+}
+
+/**
+ * Announce / presale / general-sale marker. The general-sale day is
+ * where the table stops collapsing and starts listing days, so seeing
+ * it on the row is the difference between "the campaign went on sale
+ * here" and "someone typed the wrong date".
+ */
+function MilestoneBadge({ kind }: { kind: TrackerMilestoneKind }) {
+  return (
+    <span
+      className="inline-flex items-center rounded-full border border-sky-500/40 bg-sky-500/10 px-1.5 py-px text-[9px] font-medium uppercase tracking-wider text-sky-700 dark:text-sky-300"
+      title={TRACKER_MILESTONE_TITLES[kind]}
+    >
+      {TRACKER_MILESTONE_LABELS[kind]}
     </span>
   );
 }
@@ -1213,6 +1319,8 @@ function buildDisplayRows({
   isBrandCampaign,
   platform,
   mailchimpSnapshots,
+  milestones,
+  milestoneDays = EMPTY_MILESTONE_DAYS,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
@@ -1226,6 +1334,8 @@ function buildDisplayRows({
     snapshot_at: string;
     raw_json?: Record<string, unknown> | null;
   }>;
+  milestones?: TrackerMilestones | null;
+  milestoneDays?: ReadonlyMap<string, TrackerMilestoneKind[]>;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
   const generalSaleCutoff = presale?.cutoffDate ?? null;
@@ -1372,6 +1482,7 @@ function buildDisplayRows({
               r.date,
             )
           : null,
+      milestones: milestoneDays.get(r.date) ?? EMPTY_MILESTONES,
     };
   });
 
@@ -1381,9 +1492,11 @@ function buildDisplayRows({
   if (presale) {
     const presaleRow: DisplayRow = {
       key: "presale",
-      label: presale.earliestDate
-        ? `Presale (from ${fmtDateLabel(presale.earliestDate)})`
-        : "Presale",
+      label: presaleBucketLabel({
+        cutoffDate: presale.cutoffDate,
+        earliestDate: presale.earliestDate,
+        milestones,
+      }),
       isPresale: true,
       isToday: false,
       isSynthetic: false,
@@ -1392,14 +1505,18 @@ function buildDisplayRows({
       // suppresses the badge for `isPresale` rows anyway, so this
       // value is just shape-completeness.
       source: null,
-      ad_spend: paidSpendOf(presale),
+      ad_spend: bucketSpend(presale, isBrandCampaign, platform),
       meta_ad_spend: presale.ad_spend,
       other_spend: null,
       other_spend_tooltip: null,
-      link_clicks: paidLinkClicksOf(presale),
-      meta_regs: null,
-      impressions: null,
-      video_views: null,
+      link_clicks: bucketClicks(presale, isBrandCampaign, platform),
+      meta_regs: bucketRegs({
+        presale,
+        mailchimpSnapshots: realSnapshotsForRegs,
+        isBrandCampaign,
+      }),
+      impressions: bucketImpressions(presale, platform),
+      video_views: bucketVideoViews(presale, platform),
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
@@ -1413,6 +1530,7 @@ function buildDisplayRows({
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
       email_subscribers: null,
+      milestones: bucketMilestones(milestoneDays, presale),
     };
     // Presale is the chronologically earliest activity in the
     // dataset (everything strictly before `general_sale_at`). With
@@ -1511,6 +1629,8 @@ function buildWeeklyDisplayRows({
   isBrandCampaign,
   platform,
   mailchimpSnapshots,
+  milestones,
+  milestoneDays = EMPTY_MILESTONE_DAYS,
 }: {
   timeline: TimelineRow[];
   presale: PresaleBucket | null;
@@ -1523,6 +1643,8 @@ function buildWeeklyDisplayRows({
     snapshot_at: string;
     raw_json?: Record<string, unknown> | null;
   }>;
+  milestones?: TrackerMilestones | null;
+  milestoneDays?: ReadonlyMap<string, TrackerMilestoneKind[]>;
 }): DisplayRow[] {
   const generalSaleCutoff = presale?.cutoffDate ?? null;
   const mailchimpSnapshotsSorted =
@@ -1717,6 +1839,13 @@ function buildWeeklyDisplayRows({
         isBrandCampaign && mailchimpSnapshotsSorted
           ? netNewMailchimpRegistrationsForWeek(mailchimpSnapshotsSorted, wk)
           : null,
+      // A week spans seven days, so the marker belongs to the week
+      // containing the milestone rather than a single date.
+      milestones: trackerMilestonesInRange(
+        milestoneDays,
+        wk,
+        weekEndSunday(wk),
+      ),
     } satisfies DisplayRow;
   });
 
@@ -1729,22 +1858,28 @@ function buildWeeklyDisplayRows({
     // JSDoc for the chronological-bottom rationale.
     const presaleRow: DisplayRow = {
       key: "presale",
-      label: presale.earliestDate
-        ? `Presale (from ${fmtDateLabel(presale.earliestDate)})`
-        : "Presale",
+      label: presaleBucketLabel({
+        cutoffDate: presale.cutoffDate,
+        earliestDate: presale.earliestDate,
+        milestones,
+      }),
       isPresale: true,
       isToday: false,
       isSynthetic: false,
       date: null,
       source: null,
-      ad_spend: paidSpendOf(presale),
+      ad_spend: bucketSpend(presale, isBrandCampaign, platform),
       meta_ad_spend: presale.ad_spend,
       other_spend: null,
       other_spend_tooltip: null,
-      link_clicks: paidLinkClicksOf(presale),
-      meta_regs: null,
-      impressions: null,
-      video_views: null,
+      link_clicks: bucketClicks(presale, isBrandCampaign, platform),
+      meta_regs: bucketRegs({
+        presale,
+        mailchimpSnapshots: realSnapshotsForRegs,
+        isBrandCampaign,
+      }),
+      impressions: bucketImpressions(presale, platform),
+      video_views: bucketVideoViews(presale, platform),
       tickets_sold: presale.tickets_sold,
       revenue: presale.revenue,
       notes: null,
@@ -1753,6 +1888,7 @@ function buildWeeklyDisplayRows({
       running_tickets: num(presale.tickets_sold),
       running_revenue: round2(num(presale.revenue)),
       email_subscribers: null,
+      milestones: bucketMilestones(milestoneDays, presale),
     };
     return [...weeklyDisplay, presaleRow];
   }
@@ -1822,15 +1958,6 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function derive(
-  numerator: number | null,
-  denominator: number | null,
-): number | null {
-  if (numerator == null) return null;
-  if (denominator == null || denominator <= 0) return null;
-  return numerator / denominator;
-}
-
 function paidSpendForDisplay(
   row: TimelineRow,
   isBrandCampaign: boolean,
@@ -1898,6 +2025,7 @@ function totalVideoViewsOf(
     num(row.google_ads_video_views)
   );
 }
+
 
 function fmtMoney(n: number | null): string {
   if (n == null || !Number.isFinite(n)) return "—";

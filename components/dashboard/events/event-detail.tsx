@@ -681,6 +681,8 @@ export function EventDetail({
                     prereg_spend:
                       (event as unknown as { prereg_spend: number | null })
                         .prereg_spend ?? null,
+                    announcement_at: event.announcement_at ?? null,
+                    presale_at: event.presale_at ?? null,
                     general_sale_at:
                       (event as unknown as { general_sale_at: string | null })
                         .general_sale_at ?? null,

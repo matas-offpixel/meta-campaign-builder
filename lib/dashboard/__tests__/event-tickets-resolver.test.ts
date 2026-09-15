@@ -5,6 +5,7 @@ import type { EventTicketTierRow } from "../../db/ticketing.ts";
 import {
   resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
+  resolvePortalEventTicketCount,
 } from "../tier-channel-rollups.ts";
 
 function tier(overrides: Partial<EventTicketTierRow> = {}): EventTicketTierRow {
@@ -116,6 +117,69 @@ describe("display ticket resolver", () => {
         latest_snapshot_revenue: 4984,
       }),
       4984,
+    );
+  });
+});
+
+describe("portal event ticket resolver", () => {
+  // D.O.D regression: ticketing "Not linked", so no tiers and no
+  // snapshot, but 557 typed into events.tickets_sold. The Tickets card
+  // read that column; the event-breakdown row short-circuited on the
+  // empty tier list and printed 0 for the same event on the same page.
+  it("reads events.tickets_sold for a tier-less, unlinked event", () => {
+    assert.equal(
+      resolvePortalEventTicketCount({
+        ticket_tiers: [],
+        latest_snapshot: null,
+        tickets_sold: 557,
+        tier_channel_sales_tickets: null,
+      }),
+      557,
+    );
+  });
+
+  it("agrees with the tiered resolver when the event has tiers", () => {
+    const event = {
+      ticket_tiers: [tier({ quantity_sold: 699 })],
+      latest_snapshot: { tickets_sold: 699 },
+      tickets_sold: null,
+      tier_channel_sales_tickets: 1362,
+    };
+    assert.equal(resolvePortalEventTicketCount(event), 1362);
+    assert.equal(
+      resolvePortalEventTicketCount(event),
+      resolveDisplayTicketCount({
+        ticket_tiers: event.ticket_tiers,
+        latest_snapshot_tickets: event.latest_snapshot.tickets_sold,
+        fallback_tickets: event.tickets_sold,
+        tier_channel_sales_sum: event.tier_channel_sales_tickets,
+      }),
+    );
+  });
+
+  // Null, not 0 — the venue card sums the daily rollups when no event
+  // carries a count, and a fabricated 0 would suppress that fallback.
+  it("returns null when no source carries a count at all", () => {
+    assert.equal(
+      resolvePortalEventTicketCount({
+        ticket_tiers: [],
+        latest_snapshot: null,
+        tickets_sold: null,
+        tier_channel_sales_tickets: null,
+      }),
+      null,
+    );
+  });
+
+  it("keeps a real zero distinct from an absent count", () => {
+    assert.equal(
+      resolvePortalEventTicketCount({
+        ticket_tiers: [],
+        latest_snapshot: { tickets_sold: 0 },
+        tickets_sold: null,
+        tier_channel_sales_tickets: null,
+      }),
+      0,
     );
   });
 });
