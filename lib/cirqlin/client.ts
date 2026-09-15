@@ -76,7 +76,17 @@ export async function fetchCirqlinSignupsByTag(
   const fetchImpl = opts?.fetchImpl ?? fetch;
 
   const timeoutMs = opts?.timeoutMs ?? CIRQLIN_FETCH_TIMEOUT_MS;
-  const signal = AbortSignal.timeout(timeoutMs);
+  // Ref'd timer — `AbortSignal.timeout` is unref'd and lets a Node
+  // `--test` worker drain before 20ms, cancelling the timeout tests.
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort(
+      typeof DOMException === "function"
+        ? new DOMException("Cirqlin fetch timed out", "TimeoutError")
+        : new Error("Cirqlin fetch timed out"),
+    );
+  }, timeoutMs);
+  const signal = controller.signal;
   let res: Response;
   try {
     const request = fetchImpl(partnerUrl(base, trimmed), {
@@ -117,6 +127,8 @@ export async function fetchCirqlinSignupsByTag(
           ? err.message
           : String(err),
     };
+  } finally {
+    clearTimeout(timer);
   }
 
   if (res.status === 401) {
