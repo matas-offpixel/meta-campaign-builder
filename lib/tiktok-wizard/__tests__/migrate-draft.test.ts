@@ -160,16 +160,64 @@ describe("migrateTikTokDraft", () => {
       dropped: [{ field: "smart_audience_enabled", sourceValue: true }],
       sourceEnhancements: {
         isAcoOn: 2,
+        isAcoOff: 0,
+        isAcoAbsent: 0,
         isAcoTotal: 2,
         creativeAuthorizedOn: 2,
+        creativeAuthorizedOff: 0,
+        creativeAuthorizedAbsent: 0,
         creativeAuthorizedTotal: 2,
       },
-      creativeCounts: { chosen: 2, tiktokAdded: 1 },
+      creativeCounts: {
+        sourceRows: 3,
+        carried: 2,
+        deduped: 0,
+        notCarried: 1,
+        unjoined: 0,
+      },
+      notCarried: [
+        {
+          adId: "auto-1",
+          name: "AI Generated Video-4",
+          videoId: "v-generated",
+          reason: "not_in_creative_library",
+          adFormat: null,
+        },
+      ],
     };
     const migrated = migrateTikTokDraft(JSON.parse(JSON.stringify(draft)));
     assert.equal(migrated.importMeta?.sourceKind, "smart_plus");
     assert.equal(migrated.importMeta?.dropped[0]?.field, "smart_audience_enabled");
-    assert.equal(migrated.importMeta?.creativeCounts?.tiktokAdded, 1);
+    assert.equal(migrated.importMeta?.creativeCounts?.carried, 2);
+    assert.equal(migrated.importMeta?.notCarried[0]?.reason, "not_in_creative_library");
+  });
+
+  it("reads a pre-absent-split draft as 'not reported', never as is_aco false", () => {
+    // Draft c8bca9ff, the live Ironworks import: 45 rows, is_aco absent
+    // on every one, recorded by #944 as "true on 0 of 45".
+    const draft = createDefaultTikTokDraft("draft-legacy-import");
+    const migrated = migrateTikTokDraft({
+      ...JSON.parse(JSON.stringify(draft)),
+      importMeta: {
+        sourceCampaignId: "1876044101888033",
+        sourceCampaignName: "[IRW0001] Jamie Jones — On Sale",
+        sourceKind: "smart_plus",
+        dropped: [],
+        sourceEnhancements: {
+          isAcoOn: 0,
+          isAcoTotal: 45,
+          creativeAuthorizedOn: 0,
+          creativeAuthorizedTotal: 45,
+        },
+        creativeCounts: { chosen: 45, tiktokAdded: 45 },
+      },
+    });
+    assert.equal(migrated.importMeta?.sourceEnhancements.isAcoAbsent, 45);
+    assert.equal(migrated.importMeta?.sourceEnhancements.isAcoOff, 0);
+    // {chosen, tiktokAdded} counted the same 45 creatives twice; it
+    // cannot be restated as carried/not-carried, so the line is dropped.
+    assert.equal(migrated.importMeta?.creativeCounts, null);
+    assert.deepEqual(migrated.importMeta?.notCarried, []);
   });
 
   it("backfills omitted targetCostPerResult from benchmarkCpc for COST_CAP conversion", () => {

@@ -1,4 +1,5 @@
 import { tiktokGet } from "../client.ts";
+import { TIKTOK_VIDEO_LIBRARY_PATH } from "../creative.ts";
 import {
   TIKTOK_IMPORT_ENVELOPE_LIST_KEYS,
   requireArrayFromCandidates,
@@ -68,7 +69,6 @@ export type TikTokAdGroupGetRow = Record<string, unknown> & {
   min_android_version?: string;
   min_ios_version?: string;
   device_model_ids?: Array<string | number>;
-  connection_type?: string;
   carrier_ids?: Array<string | number>;
   isp_ids?: Array<string | number>;
   network_types?: string[];
@@ -85,27 +85,72 @@ export type TikTokAdGetRow = Record<string, unknown> & {
   identity_id?: string;
   identity_type?: string;
   identity_authorized_bc_id?: string;
-  identity_bc_id?: string;
   landing_page_url?: string;
   ad_text?: string;
   call_to_action?: string;
   is_aco?: boolean;
   creative_authorized?: boolean;
   campaign_automation_type?: string;
-  creative_list?: TikTokSmartPlusCreativeRow[];
 };
 
-export type TikTokSmartPlusCreativeRow = {
-  creative_id?: string;
-  video_id?: string;
-  image_ids?: string[];
-  ad_text?: string;
+/**
+ * `/smart_plus/ad/get/` rows are asset groups, not ads, and every
+ * creative field is nested. Shape below is verbatim from
+ * https://business-api.tiktok.com/portal/docs/get-upgraded-smart-ads/v1.3
+ * (doc-derived, pending the live capture from the raw route).
+ *
+ * #944 read `ad_id`, `creative_id`, `video_id`, `image_ids`, `ad_text`,
+ * `landing_page_url`, `call_to_action` and `identity_*` flat off these
+ * rows. None of those keys exist at that level, which is why the
+ * Ironworks import saved 45 creatives with `videoId: null`.
+ */
+export type TikTokSmartPlusAdRow = Record<string, unknown> & {
+  smart_plus_ad_id?: string;
+  ad_name?: string;
+  campaign_id?: string;
+  adgroup_id?: string;
+  operation_status?: string;
+  creative_list?: TikTokSmartPlusCreativeRow[];
+  /** Ad-level, not per creative. TikTok pairs them at delivery. */
+  ad_text_list?: Array<{ ad_text?: string }>;
+  call_to_action_list?: Array<{ call_to_action?: string }>;
+  landing_page_url_list?: Array<{ landing_page_url?: string }>;
+  ad_configuration?: TikTokSmartPlusAdConfiguration;
+};
+
+export type TikTokSmartPlusAdConfiguration = Record<string, unknown> & {
   identity_id?: string;
   identity_type?: string;
   identity_authorized_bc_id?: string;
-  landing_page_url?: string;
-  call_to_action?: string;
+  dark_post_status?: string;
+  creative_auto_add_toggle?: boolean;
+  creative_auto_enhancement_strategy_list?: string[];
+};
+
+export type TikTokSmartPlusCreativeRow = Record<string, unknown> & {
+  /**
+   * Doc: "This ID is the same as the `ad_id` you receive from `/ad/get/`
+   * when you do not specify the `ad_ids_v2` filter." This — not
+   * `ad_material_id`, and not `creative_id` (which does not exist) — is
+   * the join key to `/ad/get/`.
+   */
+  smart_plus_creative_id?: string;
+  /** Ad-specific; explicitly NOT the Creative Library id. Joins to nothing. */
+  ad_material_id?: string;
+  material_operation_status?: string;
+  creative_info?: TikTokSmartPlusCreativeInfo;
+};
+
+export type TikTokSmartPlusCreativeInfo = Record<string, unknown> & {
+  ad_format?: string;
+  material_name?: string;
+  video_info?: { video_id?: string; file_name?: string; thumbnail_mode?: string };
+  image_info?: Array<{ web_uri?: string }>;
+  music_info?: { music_id?: string };
   tiktok_item_id?: string;
+  identity_id?: string;
+  identity_type?: string;
+  identity_authorized_bc_id?: string;
 };
 
 export type TikTokSpcGetRow = Record<string, unknown> & {
@@ -180,7 +225,6 @@ export const ADGROUP_GET_FIELDS = [
   "min_android_version",
   "min_ios_version",
   "device_model_ids",
-  "connection_type",
   "carrier_ids",
   "isp_ids",
   "network_types",
@@ -354,9 +398,9 @@ export async function fetchTikTokSmartPlusAds(input: {
   campaignId: string;
   token: string;
   request?: TikTokGet;
-}): Promise<TikTokAdGetRow[]> {
+}): Promise<TikTokSmartPlusAdRow[]> {
   const request = input.request ?? tiktokGet;
-  return pageRows<TikTokAdGetRow>({
+  return pageRows<TikTokSmartPlusAdRow>({
     path: "/smart_plus/ad/get/",
     advertiserId: input.advertiserId,
     token: input.token,
@@ -367,12 +411,17 @@ export async function fetchTikTokSmartPlusAds(input: {
 }
 
 /**
- * /smart_plus/ad/get/ omits auto-added creatives. /ad/get/ with
- * campaign_automation_type UPGRADED_SMART_PLUS returns the full manual
- * ad shape, including TikTok-added rows. Never use ad_ids_v2.
+ * /smart_plus/ad/get/ omits auto-added creatives ("This field only
+ * returns creatives that you have explicitly selected… To retrieve all
+ * creatives in a campaign, including those added automatically, use
+ * /ad/get/" —
+ * https://business-api.tiktok.com/portal/docs/get-upgraded-smart-ads/v1.3).
+ * /ad/get/ with campaign_automation_type UPGRADED_SMART_PLUS returns the
+ * full manual ad shape. Never use ad_ids_v2 — the doc's
+ * smart_plus_creative_id equality holds only without that filter.
  *
- * Unverified until a live capture: `filtering.campaign_automation_type`
- * is documented, not yet seen on Ironworks.
+ * VERIFIED LIVE 2026-09-15 on advertiser 7639802149165301776: 45 rows
+ * with ad_id, ad_name, video_id, image_ids, tiktok_item_id.
  */
 export async function fetchTikTokUpgradedCreativesViaAdGet(input: {
   advertiserId: string;
@@ -406,14 +455,77 @@ export async function fetchTikTokLegacySmartCampaign(input: {
   return rows.find((row) => row.campaign_id === input.campaignId) ?? rows[0] ?? null;
 }
 
+const LIBRARY_PAGE_SIZE = 100;
+const LIBRARY_MAX_PAGES = 50;
+
+/**
+ * Every `video_id` in the advertiser's Creative Library.
+ *
+ * A relaunch recreates the campaign the operator launched, so it carries
+ * only assets that are still in the library — the same set a
+ * `VIDEO_REFERENCE` creative can reference at launch. TikTok's
+ * delivery-time variants are not in it and are reported, not imported.
+ *
+ * A failed read throws and a truncated read throws: an empty library is
+ * a claim about the advertiser, and a partial one would silently turn
+ * real originals into "not carried".
+ */
+export async function fetchTikTokCreativeLibraryVideoIds(input: {
+  advertiserId: string;
+  token: string;
+  request?: TikTokGet;
+}): Promise<string[]> {
+  const request = input.request ?? tiktokGet;
+  const ids = new Set<string>();
+  let page = 1;
+  for (;;) {
+    // Call the same path the picker uses, but inspect page_info here.
+    // `fetchTikTokVideoLibrary` defaults a missing total_page to 0 and
+    // would make this loop treat a partial library as one page.
+    const res = (await request(
+      TIKTOK_VIDEO_LIBRARY_PATH,
+      {
+        advertiser_id: input.advertiserId,
+        page,
+        page_size: LIBRARY_PAGE_SIZE,
+      },
+      input.token,
+    )) as {
+      list?: Array<{ video_id?: string }>;
+      page_info?: { total_page?: number };
+    };
+    const totalPage = res.page_info?.total_page;
+    if (typeof totalPage !== "number" || !Number.isFinite(totalPage)) {
+      throw new Error(
+        "TikTok import failed: /file/video/ad/search/ returned no page_info; refusing to decide from a partial library.",
+      );
+    }
+    for (const row of res.list ?? []) {
+      if (typeof row.video_id === "string" && row.video_id.trim()) {
+        ids.add(row.video_id.trim());
+      }
+    }
+    if (totalPage > LIBRARY_MAX_PAGES) {
+      throw new Error(
+        `TikTok import failed: Creative Library has ${totalPage} pages, more than the ${LIBRARY_MAX_PAGES}-page read cap. Refusing to decide what to carry from a partial library.`,
+      );
+    }
+    if (!totalPage || page >= totalPage) break;
+    page += 1;
+  }
+  return [...ids];
+}
+
 export type TikTokImportLiveBundle = {
   kind: TikTokLiveCampaignKind;
   campaign: TikTokCampaignGetRow;
   adGroups: TikTokAdGroupGetRow[];
+  /** `/ad/get/` — the full manual shape, chosen and TikTok-added alike. */
   ads: TikTokAdGetRow[];
-  chosenAds: TikTokAdGetRow[];
-  autoAddedAds: TikTokAdGetRow[];
+  /** `/smart_plus/ad/get/` — asset groups, explicitly-selected creatives only. */
+  smartPlusAds: TikTokSmartPlusAdRow[];
   spc: TikTokSpcGetRow | null;
+  libraryVideoIds: readonly string[];
 };
 
 export async function readTikTokLiveCampaign(input: {
@@ -427,59 +539,66 @@ export async function readTikTokLiveCampaign(input: {
     throw new Error(`TikTok campaign ${input.campaignId} was not found`);
   }
   const kind = classifyTikTokCampaign(campaign);
+  const library = fetchTikTokCreativeLibraryVideoIds(input);
+
   if (kind === "legacy_smart_plus") {
-    const spc = await fetchTikTokLegacySmartCampaign(input);
+    const [spc, libraryVideoIds] = await Promise.all([
+      fetchTikTokLegacySmartCampaign(input),
+      library,
+    ]);
     if (!spc) {
       throw new Error(
         `TikTok import failed: /campaign/spc/get/ returned no row for ${input.campaignId}`,
       );
     }
+    requireNonEmptyLibrary(libraryVideoIds);
     return {
       kind,
       campaign,
       adGroups: [],
       ads: [],
-      chosenAds: [],
-      autoAddedAds: [],
+      smartPlusAds: [],
       spc,
+      libraryVideoIds,
     };
   }
+
   if (kind === "smart_plus") {
-    const [adGroups, chosenAds, allAds] = await Promise.all([
+    const [adGroups, smartPlusAds, ads, libraryVideoIds] = await Promise.all([
       fetchTikTokSmartPlusAdGroups(input),
       fetchTikTokSmartPlusAds(input),
       fetchTikTokUpgradedCreativesViaAdGet(input),
+      library,
     ]);
     if (adGroups.length === 0) {
       throw new Error(
         `TikTok import failed: /smart_plus/adgroup/get/ returned no ad groups for ${input.campaignId}`,
       );
     }
-    if (chosenAds.length === 0) {
+    // An Upgraded Smart+ campaign may legitimately have zero explicitly
+    // selected creatives — TikTok documents creative_list as returning
+    // only what you chose. Zero across BOTH reads is the failure.
+    if (smartPlusAds.length === 0 && ads.length === 0) {
       throw new Error(
-        `TikTok import failed: /smart_plus/ad/get/ returned no ads for ${input.campaignId}`,
+        `TikTok import failed: neither /smart_plus/ad/get/ nor /ad/get/ returned an ad for ${input.campaignId}`,
       );
     }
-    const chosenIds = new Set(
-      chosenAds.flatMap((ad) => creativeKeysFromSmartPlusAd(ad)),
-    );
-    const autoAddedAds = allAds.filter((ad) => {
-      const key = ad.ad_id ?? ad.video_id ?? "";
-      return key ? !chosenIds.has(key) : false;
-    });
+    requireNonEmptyLibrary(libraryVideoIds);
     return {
       kind,
       campaign,
       adGroups,
-      ads: allAds,
-      chosenAds,
-      autoAddedAds,
+      ads,
+      smartPlusAds,
       spc: null,
+      libraryVideoIds,
     };
   }
-  const [adGroups, ads] = await Promise.all([
+
+  const [adGroups, ads, libraryVideoIds] = await Promise.all([
     fetchTikTokAdGroups(input),
     fetchTikTokAds(input),
+    library,
   ]);
   if (adGroups.length === 0) {
     throw new Error(
@@ -491,35 +610,21 @@ export async function readTikTokLiveCampaign(input: {
       `TikTok import failed: /ad/get/ returned no ads for ${input.campaignId}`,
     );
   }
+  requireNonEmptyLibrary(libraryVideoIds);
   return {
     kind,
     campaign,
     adGroups,
     ads,
-    chosenAds: ads,
-    autoAddedAds: [],
+    smartPlusAds: [],
     spc: null,
+    libraryVideoIds,
   };
 }
 
-/**
- * Chosen vs TikTok-added split. Assumes `/ad/get/` `ad_id` equals
- * `/smart_plus/ad/get/` `creative_id` (the doc-derived fixture sets
- * both to the same string, so a test cannot fail this). Unverified
- * until capture. Video ids are a second key so a mismatch still
- * matches on the asset.
- */
-function creativeKeysFromSmartPlusAd(ad: TikTokAdGetRow): string[] {
-  const keys: string[] = [];
-  if (ad.ad_id) keys.push(ad.ad_id);
-  const list = requireArrayFromCandidates<TikTokSmartPlusCreativeRow>(
-    ad,
-    ["creative_list"],
-    "/smart_plus/ad/get/ creative_list",
+function requireNonEmptyLibrary(videoIds: readonly string[]): void {
+  if (videoIds.length > 0) return;
+  throw new Error(
+    "TikTok import failed: /file/video/ad/search/ returned no videos. An empty Creative Library on an advertiser that is running ads is a read failure, not a reason to carry nothing.",
   );
-  for (const creative of list) {
-    if (creative.creative_id) keys.push(creative.creative_id);
-    if (creative.video_id) keys.push(creative.video_id);
-  }
-  return keys;
 }

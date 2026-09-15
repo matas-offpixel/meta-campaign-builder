@@ -41,14 +41,33 @@ export type TikTokImportDroppedField = {
 
 export type TikTokImportEnhancements = {
   isAcoOn: number;
+  isAcoOff: number;
+  isAcoAbsent: number;
   isAcoTotal: number;
   creativeAuthorizedOn: number;
+  creativeAuthorizedOff: number;
+  creativeAuthorizedAbsent: number;
   creativeAuthorizedTotal: number;
 };
 
 export type TikTokImportCreativeCounts = {
-  chosen: number;
-  tiktokAdded: number;
+  sourceRows: number;
+  carried: number;
+  deduped: number;
+  notCarried: number;
+  unjoined: number;
+};
+
+export type TikTokImportNotCarried = {
+  adId: string | null;
+  name: string;
+  videoId: string | null;
+  reason:
+    | "not_in_creative_library"
+    | "unsupported_ad_format"
+    | "image_ad_unsupported"
+    | "no_asset_reported";
+  adFormat: string | null;
 };
 
 export type TikTokImportMeta = {
@@ -58,6 +77,7 @@ export type TikTokImportMeta = {
   dropped: TikTokImportDroppedField[];
   sourceEnhancements: TikTokImportEnhancements;
   creativeCounts: TikTokImportCreativeCounts | null;
+  notCarried: TikTokImportNotCarried[];
 };
 
 export interface TikTokPublishedIds {

@@ -32,6 +32,7 @@ import {
 import {
   formatTikTokImportCreativeCounts,
   formatTikTokImportDroppedLine,
+  formatTikTokImportNotCarriedNames,
 } from "@/lib/tiktok/import/types";
 
 interface TikTokIdentityOption {
@@ -392,8 +393,24 @@ export function AccountSetupStep({
             <Datum>{formatTikTokImportDroppedLine(draft.importMeta.dropped)}</Datum>
           )}
           {draft.importMeta.creativeCounts && (
+            <Datum>
+              {formatTikTokImportCreativeCounts(
+                draft.importMeta.creativeCounts,
+                draft.importMeta.notCarried ?? [],
+              )}
+            </Datum>
+          )}
+          {formatTikTokImportNotCarriedNames(draft.importMeta.notCarried ?? []) && (
             <Datum className="text-muted-foreground">
-              {formatTikTokImportCreativeCounts(draft.importMeta.creativeCounts)}
+              Not carried:{" "}
+              {formatTikTokImportNotCarriedNames(draft.importMeta.notCarried ?? [])}
+            </Datum>
+          )}
+          {(draft.importMeta.creativeCounts?.unjoined ?? 0) > 0 && (
+            <Datum className="text-muted-foreground">
+              {draft.importMeta.creativeCounts!.unjoined} source ads could not be
+              matched to a creative TikTok says you selected, so their provenance
+              is unknown. Check them in Ads Manager before launching.
             </Datum>
           )}
           {draft.importMeta.dropped.length === 0 && !draft.importMeta.creativeCounts && (

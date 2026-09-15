@@ -3,6 +3,13 @@
  * campaign is never written. Launch is the existing gated writer.
  */
 
+/**
+ * `/file/video/ad/search/` is the seventh path, added deliberately: a
+ * relaunch carries only creatives that still exist in the advertiser's
+ * Creative Library, so the library is read on every import. It is the
+ * same endpoint the wizard's video picker already uses
+ * (`TIKTOK_VIDEO_LIBRARY_PATH` in `lib/tiktok/creative.ts`).
+ */
 export const TIKTOK_IMPORT_PATHS = [
   "/campaign/get/",
   "/adgroup/get/",
@@ -10,6 +17,7 @@ export const TIKTOK_IMPORT_PATHS = [
   "/smart_plus/adgroup/get/",
   "/smart_plus/ad/get/",
   "/campaign/spc/get/",
+  "/file/video/ad/search/",
 ] as const;
 
 export type TikTokImportPath = (typeof TIKTOK_IMPORT_PATHS)[number];
@@ -33,16 +41,78 @@ export type TikTokImportDroppedField = {
   sourceValue: unknown;
 };
 
+/**
+ * Absent is not false. TikTok omits `is_aco` entirely on Upgraded Smart+
+ * rows read through `/ad/get/` (live, advertiser 7639802149165301776,
+ * 2026-09-15: absent on all 45), and #944 rendered that as
+ * "is_aco true on 0 of 45" — a claim the API never made.
+ */
 export type TikTokImportEnhancements = {
   isAcoOn: number;
+  isAcoOff: number;
+  isAcoAbsent: number;
   isAcoTotal: number;
   creativeAuthorizedOn: number;
+  creativeAuthorizedOff: number;
+  creativeAuthorizedAbsent: number;
   creativeAuthorizedTotal: number;
 };
 
+/**
+ * Why a source creative did not reach `creatives.items`.
+ *
+ * `not_in_creative_library` is the rule, not an error: a relaunch
+ * recreates the campaign the operator launched, so it carries only
+ * assets that still exist in the advertiser's Creative Library.
+ * TikTok's delivery-time variants (Music_Refresh, New_Hook,
+ * AI Generated Video-N, remixed cuts) are not in it.
+ */
+export const TIKTOK_IMPORT_NOT_CARRIED_REASONS = [
+  "not_in_creative_library",
+  "unsupported_ad_format",
+  "image_ad_unsupported",
+  "no_asset_reported",
+] as const;
+
+export type TikTokImportNotCarriedReason =
+  (typeof TIKTOK_IMPORT_NOT_CARRIED_REASONS)[number];
+
+export const TIKTOK_IMPORT_NOT_CARRIED_LABELS: Record<
+  TikTokImportNotCarriedReason,
+  string
+> = {
+  not_in_creative_library: "not in the Creative Library",
+  unsupported_ad_format: "carousel — no draft equivalent",
+  image_ad_unsupported: "image ads — the TikTok draft has no image creative mode",
+  no_asset_reported: "TikTok reported no video, image or post",
+};
+
+export type TikTokImportNotCarried = {
+  /** `/ad/get/` `ad_id`, or `smart_plus_creative_id` when only that is known. */
+  adId: string | null;
+  name: string;
+  videoId: string | null;
+  reason: TikTokImportNotCarriedReason;
+  /** Documented `ad_format` when TikTok reported one. */
+  adFormat: string | null;
+};
+
+/**
+ * `sourceRows === carried + deduped + notCarried`. Every source ad is
+ * accounted for exactly once; #944's `{chosen, tiktokAdded}` counted 45
+ * creatives twice.
+ */
 export type TikTokImportCreativeCounts = {
-  chosen: number;
-  tiktokAdded: number;
+  sourceRows: number;
+  carried: number;
+  deduped: number;
+  notCarried: number;
+  /**
+   * Source rows that matched no counterpart across
+   * `/smart_plus/ad/get/` and `/ad/get/`. Provenance only — an unjoined
+   * row is still carried or not on the Creative Library rule.
+   */
+  unjoined: number;
 };
 
 export type TikTokImportMeta = {
@@ -52,6 +122,7 @@ export type TikTokImportMeta = {
   dropped: TikTokImportDroppedField[];
   sourceEnhancements: TikTokImportEnhancements;
   creativeCounts: TikTokImportCreativeCounts | null;
+  notCarried: TikTokImportNotCarried[];
 };
 
 export type TikTokLiveCampaignRow = {
@@ -93,11 +164,22 @@ export const TIKTOK_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
   "min_android_version",
   "min_ios_version",
   "device_model_ids",
-  "connection_type",
   "carrier_ids",
   "isp_ids",
   "network_types",
+  "dark_post_status",
 ] as const;
+
+/**
+ * Documented `creative_info.ad_format` values with no draft mode.
+ * https://business-api.tiktok.com/portal/docs/get-upgraded-smart-ads/v1.3
+ * A carousel is listed by id, not coerced into a VIDEO_REFERENCE with a
+ * null `videoId` — that is what #944 did to three Ironworks rows.
+ */
+export const TIKTOK_IMPORT_UNSUPPORTED_AD_FORMATS: readonly string[] = [
+  "CAROUSEL_ADS",
+  "CATALOG_CAROUSEL",
+];
 
 export const TIKTOK_IMPORT_DROPPED_LABELS: Record<string, string> = {
   budget_auto_adjust_strategy: "automatic budget adjustment",
@@ -119,10 +201,17 @@ export const TIKTOK_IMPORT_DROPPED_LABELS: Record<string, string> = {
   min_android_version: "minimum Android version",
   min_ios_version: "minimum iOS version",
   device_model_ids: "device models",
-  connection_type: "connection type",
   carrier_ids: "carriers",
   isp_ids: "ISPs",
   network_types: "network types",
+  dark_post_status: "ads-only mode",
+  ad_text_list: "extra ad texts on the asset group",
+  call_to_action_list: "extra calls to action on the asset group",
+  landing_page_url_list: "extra landing pages on the asset group",
+  display_name: "ad display name",
+  identity_conflict: "source identities disagreed",
+  unsupported_ad_format: "carousel creatives",
+  gender: "an unrecognised gender value",
 };
 
 /**
@@ -176,14 +265,55 @@ export function formatTikTokImportEnhancementLine(
     return `Source: Legacy Smart+ — fully automated creative and targeting. Relaunch: ${relaunch}.`;
   }
   const source = meta.sourceEnhancements;
+  if (source.isAcoTotal === 0) {
+    return `Source ads: none read. Relaunch: ${relaunch}.`;
+  }
+  if (source.isAcoAbsent > 0) {
+    return `Source ads: is_aco not reported on ${source.isAcoAbsent} of ${source.isAcoTotal} source ads. Relaunch: ${relaunch}.`;
+  }
   const on = source.isAcoOn > 0 || source.creativeAuthorizedOn > 0;
   return `Source ads: enhancements ${on ? "ON" : "OFF"} (is_aco true on ${source.isAcoOn} of ${source.isAcoTotal}). Relaunch: ${relaunch}.`;
 }
 
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export function formatTikTokImportCreativeCounts(
   counts: TikTokImportCreativeCounts,
+  notCarried: readonly TikTokImportNotCarried[] = [],
 ): string {
-  return `${counts.chosen} creatives you chose (assigned), ${counts.tiktokAdded} TikTok added (unassigned).`;
+  const carried = `${plural(counts.carried, "original creative", "original creatives")} carried.`;
+  if (counts.notCarried === 0) return carried;
+  const reasons = new Set(notCarried.map((item) => item.reason));
+  if (reasons.size <= 1 && reasons.has("not_in_creative_library")) {
+    return `${carried} ${plural(counts.notCarried, "TikTok-generated variant", "TikTok-generated variants")} not carried.`;
+  }
+  if (reasons.size <= 1 && reasons.has("image_ad_unsupported")) {
+    return `${carried} ${plural(counts.notCarried, "image ad", "image ads")} — the TikTok draft has no image creative mode.`;
+  }
+  const breakdown = TIKTOK_IMPORT_NOT_CARRIED_REASONS.filter((reason) =>
+    reasons.has(reason),
+  )
+    .map((reason) => {
+      const n = notCarried.filter((item) => item.reason === reason).length;
+      return `${n} ${TIKTOK_IMPORT_NOT_CARRIED_LABELS[reason]}`;
+    })
+    .join(", ");
+  return `${carried} ${counts.notCarried} not carried — ${breakdown}.`;
+}
+
+/** Names the operator can check against Ads Manager, longest list first. */
+export function formatTikTokImportNotCarriedNames(
+  notCarried: readonly TikTokImportNotCarried[],
+  limit = 6,
+): string | null {
+  if (notCarried.length === 0) return null;
+  const names = notCarried.map((item) => item.name).filter(Boolean);
+  if (names.length === 0) return null;
+  const shown = names.slice(0, limit).join(", ");
+  const rest = names.length - Math.min(limit, names.length);
+  return rest > 0 ? `${shown}, and ${rest} more.` : `${shown}.`;
 }
 
 export function relaunchCampaignName(sourceName: string): string {
@@ -196,28 +326,38 @@ export function relaunchCampaignName(sourceName: string): string {
 export function emptyImportEnhancements(): TikTokImportEnhancements {
   return {
     isAcoOn: 0,
+    isAcoOff: 0,
+    isAcoAbsent: 0,
     isAcoTotal: 0,
     creativeAuthorizedOn: 0,
+    creativeAuthorizedOff: 0,
+    creativeAuthorizedAbsent: 0,
     creativeAuthorizedTotal: 0,
   };
 }
 
+/**
+ * Three counters per flag, not two. A row that never carried the key is
+ * `absent`; only a row that carried `false` is `off`.
+ */
 export function enhancementsFromAds(
-  ads: ReadonlyArray<{
-    is_aco?: boolean | null;
-    creative_authorized?: boolean | null;
-  }>,
+  ads: ReadonlyArray<Record<string, unknown>>,
 ): TikTokImportEnhancements {
-  let isAcoOn = 0;
-  let creativeAuthorizedOn = 0;
+  const counts = emptyImportEnhancements();
+  counts.isAcoTotal = ads.length;
+  counts.creativeAuthorizedTotal = ads.length;
   for (const ad of ads) {
-    if (ad.is_aco === true) isAcoOn += 1;
-    if (ad.creative_authorized === true) creativeAuthorizedOn += 1;
+    if (!("is_aco" in ad) || ad.is_aco == null) counts.isAcoAbsent += 1;
+    else if (ad.is_aco === true) counts.isAcoOn += 1;
+    else counts.isAcoOff += 1;
+
+    if (!("creative_authorized" in ad) || ad.creative_authorized == null) {
+      counts.creativeAuthorizedAbsent += 1;
+    } else if (ad.creative_authorized === true) {
+      counts.creativeAuthorizedOn += 1;
+    } else {
+      counts.creativeAuthorizedOff += 1;
+    }
   }
-  return {
-    isAcoOn,
-    isAcoTotal: ads.length,
-    creativeAuthorizedOn,
-    creativeAuthorizedTotal: ads.length,
-  };
+  return counts;
 }
