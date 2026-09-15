@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { fetchCirqlinSignupsByTag } from "../client.ts";
+import {
+  fetchCirqlinSignupsByTag,
+  isCirqlinSignupsPayload,
+} from "../client.ts";
 import type { CirqlinSignupsPayload } from "../types.ts";
 
 const DOD: CirqlinSignupsPayload = {
@@ -71,6 +74,69 @@ describe("fetchCirqlinSignupsByTag", () => {
     if (!result.ok) {
       assert.equal(result.reason, "error");
       assert.equal(result.message, "ECONNRESET");
+    }
+  });
+
+  it("rejects counted: NaN and a malformed daily row", () => {
+    assert.equal(
+      isCirqlinSignupsPayload({
+        ...DOD,
+        totals: { ...DOD.totals, counted: Number.NaN },
+      }),
+      false,
+    );
+    assert.equal(
+      isCirqlinSignupsPayload({
+        ...DOD,
+        daily: [{ day: "not-a-day", signups: 12 }],
+      }),
+      false,
+    );
+    assert.equal(
+      isCirqlinSignupsPayload({
+        ...DOD,
+        daily: [{ day: "2026-08-18", signups: Number.NaN }],
+      }),
+      false,
+    );
+    assert.equal(isCirqlinSignupsPayload(DOD), true);
+  });
+
+  it("times out a fetch that never resolves", async () => {
+    const result = await fetchCirqlinSignupsByTag("CQ-dod-newcastle", {
+      secret: "s",
+      timeoutMs: 20,
+      fetchImpl: async (_url, init) =>
+        new Promise((_, reject) => {
+          const signal = init?.signal;
+          if (!signal) throw new Error("expected AbortSignal");
+          const onAbort = () =>
+            reject(
+              Object.assign(new Error("The operation was aborted"), {
+                name: "TimeoutError",
+              }),
+            );
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }),
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "error");
+      assert.equal(result.message, "Cirqlin fetch timed out");
+    }
+  });
+
+  it("times out a fetch that ignores AbortSignal", async () => {
+    const result = await fetchCirqlinSignupsByTag("CQ-dod-newcastle", {
+      secret: "s",
+      timeoutMs: 20,
+      fetchImpl: () => new Promise(() => {}),
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "error");
+      assert.match(result.message ?? "", /timed out/i);
     }
   });
 

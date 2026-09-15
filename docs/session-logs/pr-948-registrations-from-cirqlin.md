@@ -25,6 +25,25 @@ agreed payload.
 on `cursor/registrations-from-cirqlin` cut from that branch; this PR
 is the same commit cherry-picked onto `main`.
 
+Round 2: the card reads `snapshot_at`. Fresh (≤48h) is current;
+older is `1,843 signups · Cirqlin · as of 15 Sept`. `unauthorized`
+/ `error` do not write a London-today row (that unique key is the
+live count). They upsert a `1970-01-01` failure marker so a
+first-time miss still has a sentence after reload, and they ping
+`ads_ops` once per `cirqlin_sync_failed:<eventId>:<reason>` with
+`respectBusinessHours: false` so the 23:55 EOD run can fire.
+`not_configured` writes nothing and does not alert. The dead
+`mailchimpTagged` input is gone — the card's Mailchimp line is
+`1,686 subscribed in Mailchimp`. Fetch times out. The EOD Cirqlin
+loop measures from request start (Mailchimp shares the 300s
+`maxDuration`) and stops 30s before the kill, reporting
+`cirqlinLeft`. CPR at counted 0 still renders. The CPR label names
+all-platform spend. `no_page` sentinel days use Europe/London.
+`isCirqlinSignupsPayload` rejects `NaN` and malformed `daily[]`.
+Migration 177's events-join read policy is documented as
+deliberate. Check-run conclusions live in the PR thread, not in a
+commit that records them.
+
 ## Scope / files
 
 - `lib/cirqlin/*` — client, snapshot mapping, sync, tracker helpers
@@ -37,9 +56,9 @@ is the same commit cherry-picked onto `main`.
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build` TypeScript step)
-- [x] `npm run build` — compiled, typecheck finished, 193 static pages
-- [x] `npm test` — 5904 tests, 5900 pass, 0 fail, 4 skipped
-- [x] GitHub CI on `23930955` — 6/6 green (`npm test`, `npm run build`, `frames:check`, two Vercel previews, Vercel Preview Comments)
+- [x] `npm test` — 5919 / 5915 pass / 0 fail / 4 skipped (round 2)
+- [x] `npm run build` — compiled, typecheck finished, 193 static pages (round 2)
+- [ ] Check-run conclusions on the final head — PR thread, not a commit
 
 ## Notes
 

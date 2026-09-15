@@ -35,7 +35,7 @@ export function SignupRegistrationsCard({
             <span className="text-muted-foreground">—</span>
           )}
         </p>
-        {model.cpr && model.primary != null && model.primary > 0 ? (
+        {model.cpr ? (
           <p className="text-[11px] text-muted-foreground tabular-nums">
             {model.cpr.label}
           </p>

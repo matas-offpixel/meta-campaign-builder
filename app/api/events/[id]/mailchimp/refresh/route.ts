@@ -3,6 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
 import { syncCirqlinSignupsForEvent } from "@/lib/cirqlin/sync";
+import { notify } from "@/lib/notify/slack";
+import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import {
   syncMailchimpAudienceForEvent,
   syncMailchimpTagForEvent,
@@ -138,10 +140,13 @@ export async function POST(
 
     let cirqlin = null;
     try {
-      cirqlin = await syncCirqlinSignupsForEvent(supabase, {
-        eventId,
-        tag: mailchimpTag,
-      });
+      cirqlin = await syncCirqlinSignupsForEvent(
+        supabase,
+        { eventId, tag: mailchimpTag },
+        {
+          notify: (opts) => notify(opts, buildLiveNotifyDeps(supabase)),
+        },
+      );
     } catch (err) {
       cirqlin = {
         eventId,

@@ -9,13 +9,27 @@ import type { CirqlinFetchResult, CirqlinSignupsPayload } from "./types.ts";
 
 export const CIRQLIN_DEFAULT_API_BASE = "https://app.cirqlin.com";
 
+/** A Cirqlin that accepts the socket and never responds must not hang the cron. */
+export const CIRQLIN_FETCH_TIMEOUT_MS = 8_000;
+
 function partnerUrl(base: string, tag: string): string {
   const url = new URL("/api/partner/signups", base);
   url.searchParams.set("tag", tag);
   return url.toString();
 }
 
-function isPayload(value: unknown): value is CirqlinSignupsPayload {
+function isDailyRow(value: unknown): boolean {
+  if (value == null || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  if (typeof row.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(row.day)) {
+    return false;
+  }
+  return Number.isFinite(row.signups);
+}
+
+export function isCirqlinSignupsPayload(
+  value: unknown,
+): value is CirqlinSignupsPayload {
   if (value == null || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   if (v.ok !== true) return false;
@@ -23,9 +37,9 @@ function isPayload(value: unknown): value is CirqlinSignupsPayload {
   if (v.page == null || typeof v.page !== "object") return false;
   if (v.totals == null || typeof v.totals !== "object") return false;
   const totals = v.totals as Record<string, unknown>;
-  if (typeof totals.counted !== "number") return false;
+  if (!Number.isFinite(totals.counted)) return false;
   if (!Array.isArray(v.daily)) return false;
-  return true;
+  return v.daily.every(isDailyRow);
 }
 
 /**
@@ -41,6 +55,7 @@ export async function fetchCirqlinSignupsByTag(
     base?: string;
     secret?: string;
     fetchImpl?: typeof fetch;
+    timeoutMs?: number;
   },
 ): Promise<CirqlinFetchResult> {
   const trimmed = tag.trim();
@@ -60,18 +75,47 @@ export async function fetchCirqlinSignupsByTag(
   ).replace(/\/+$/, "");
   const fetchImpl = opts?.fetchImpl ?? fetch;
 
+  const timeoutMs = opts?.timeoutMs ?? CIRQLIN_FETCH_TIMEOUT_MS;
+  const signal = AbortSignal.timeout(timeoutMs);
   let res: Response;
   try {
-    res = await fetchImpl(partnerUrl(base, trimmed), {
+    const request = fetchImpl(partnerUrl(base, trimmed), {
       method: "GET",
       headers: { Authorization: `Bearer ${secret}` },
       cache: "no-store",
+      signal,
     });
+    const abort = new Promise<never>((_, reject) => {
+      const fail = () => {
+        reject(
+          signal.reason ??
+            new DOMException("Cirqlin fetch timed out", "TimeoutError"),
+        );
+      };
+      if (signal.aborted) {
+        fail();
+        return;
+      }
+      signal.addEventListener("abort", fail, { once: true });
+    });
+    abort.catch(() => {
+      /* race loser — do not surface as unhandled after a successful read */
+    });
+    res = await Promise.race([request, abort]);
   } catch (err) {
+    const name = err instanceof Error ? err.name : "";
+    const timedOut =
+      name === "TimeoutError" ||
+      name === "AbortError" ||
+      (err instanceof Error && /timed? ?out|aborted/i.test(err.message));
     return {
       ok: false,
       reason: "error",
-      message: err instanceof Error ? err.message : String(err),
+      message: timedOut
+        ? "Cirqlin fetch timed out"
+        : err instanceof Error
+          ? err.message
+          : String(err),
     };
   }
 
@@ -94,7 +138,7 @@ export async function fetchCirqlinSignupsByTag(
     };
   }
 
-  if (res.ok && isPayload(body)) {
+  if (res.ok && isCirqlinSignupsPayload(body)) {
     return { ok: true, payload: body };
   }
 

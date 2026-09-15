@@ -5,16 +5,17 @@
  *
  * Cirqlin counted signups are the primary number when we have a page
  * for the tag. Mailchimp is the secondary line — subscribed
- * (segment member_count) and, when we have it as a distinct figure,
- * tagged-any-status. The steps between Cirqlin's synced count and
- * Mailchimp's two numbers are Mailchimp-side and unknown until a
- * member-status breakdown is captured; the card names the sources
- * and does not invent a reason.
+ * (segment member_count). A tagged-any-status count has no source in
+ * this PR and is not invented from member_count.
  *
  * `computeRegistrationsData` is untouched. Cirqlin sits beside it.
  */
 
-import type { CirqlinSnapshotRow, CirqlinSyncBucket } from "../cirqlin/types.ts";
+import type {
+  CirqlinFetchFailureReason,
+  CirqlinSnapshotRow,
+  CirqlinSyncBucket,
+} from "../cirqlin/types.ts";
 import type { MailchimpRegistrationsData } from "../mailchimp/compute-registrations.ts";
 import {
   signupPhaseCpr,
@@ -22,18 +23,50 @@ import {
   type SignupPhaseSpendRow,
 } from "./signup-phase-cpr.ts";
 
+/** Pinned en-GB short months so "Sept" does not depend on ICU. */
+const AS_OF_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sept",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+export function fmtCirqlinAsOf(snapshotAt: string): string {
+  const day = snapshotAt.slice(0, 10);
+  const month = Number(day.slice(5, 7));
+  const d = Number(day.slice(8, 10));
+  if (!Number.isFinite(month) || !Number.isFinite(d) || month < 1 || month > 12) {
+    return day;
+  }
+  return `${d} ${AS_OF_MONTHS[month - 1]}`;
+}
+
 export type RegistrationsPrimarySource = "cirqlin" | "mailchimp" | "none";
+
+/** Same window `RegistrationsCard` applies to Mailchimp `lastSyncedAt`. */
+export const CIRQLIN_STALE_MS = 48 * 3_600_000;
+
+export const CIRQLIN_UNREACHABLE_LINE =
+  "Cirqlin could not be reached — showing Mailchimp.";
 
 export interface RegistrationsCardModel {
   source: RegistrationsPrimarySource;
   /** Large number on the card. Null → em-dash. */
   primary: number | null;
   primaryCaption: string | null;
-  /** `1,686 subscribed in Mailchimp · 1,723 tagged` */
+  /** `1,686 subscribed in Mailchimp` */
   mailchimpLine: string | null;
   /** `4 signups did not reach Mailchimp (invalid email)` */
   syncFailureLine: string | null;
-  /** Shown when Cirqlin was asked and has no page for the tag. */
+  /** Cirqlin was asked and either has no page or did not answer. */
   fallbackLine: string | null;
   cpr: SignupPhaseCpr | null;
 }
@@ -49,21 +82,48 @@ export interface BuildRegistrationsCardInput {
   spendRows: readonly SignupPhaseSpendRow[];
   generalSaleAt: string | null;
   /**
-   * Mailchimp tagged-any-status count, when a source actually
-   * captured it. We do not invent this from member_count.
+   * The event has a CRM tag, so Cirqlin was the intended source.
+   * After a live row and a `no_page` sentinel are ruled out, this
+   * is what puts the unreachable sentence on the Mailchimp number —
+   * the share page and the card's first paint have no just-tried
+   * `cirqlinFailure`. Unauthorized/error also leave a 1970-01-01
+   * marker; this flag covers the empty-snapshot case before that
+   * row is read.
    */
-  mailchimpTagged?: number | null;
+  cirqlinAsked?: boolean;
+  /**
+   * Last Cirqlin fetch reason when the caller just tried. `no_page`
+   * keeps its own sentence; other failures share the unreachable line.
+   */
+  cirqlinFailure?: CirqlinFetchFailureReason | null;
+  /** Injectable clock so stale captions can be pinned. */
+  now?: Date;
+  nowMs?: number;
+}
+
+const SENTINEL_REASONS = new Set(["no_page", "unauthorized", "error", "not_configured"]);
+
+function snapshotReason(row: CirqlinSnapshotRow | null): string | null {
+  const reason = row?.raw_json?.reason;
+  return typeof reason === "string" ? reason : null;
+}
+
+function isSentinel(row: CirqlinSnapshotRow | null): boolean {
+  const reason = snapshotReason(row);
+  return reason != null && SENTINEL_REASONS.has(reason);
+}
+
+function isNoPage(row: CirqlinSnapshotRow | null): boolean {
+  return snapshotReason(row) === "no_page";
 }
 
 function latestCirqlin(
   rows: readonly CirqlinSnapshotRow[],
+  liveOnly: boolean,
 ): CirqlinSnapshotRow | null {
-  if (rows.length === 0) return null;
-  return [...rows].sort((a, b) => a.day.localeCompare(b.day)).at(-1) ?? null;
-}
-
-function isNoPage(row: CirqlinSnapshotRow | null): boolean {
-  return row?.raw_json?.reason === "no_page";
+  const filtered = liveOnly ? rows.filter((row) => !isSentinel(row)) : [...rows];
+  if (filtered.length === 0) return null;
+  return filtered.sort((a, b) => a.day.localeCompare(b.day)).at(-1) ?? null;
 }
 
 function syncFromRaw(raw: Record<string, unknown> | null): CirqlinSyncBucket | null {
@@ -87,14 +147,8 @@ function fmtInt(n: number): string {
   return n.toLocaleString("en-GB");
 }
 
-function mailchimpSecondaryLine(
-  subscribed: number | null,
-  tagged: number | null,
-): string | null {
+function mailchimpSecondaryLine(subscribed: number | null): string | null {
   if (subscribed == null) return null;
-  if (tagged != null && tagged !== subscribed) {
-    return `${fmtInt(subscribed)} subscribed in Mailchimp · ${fmtInt(tagged)} tagged`;
-  }
   return `${fmtInt(subscribed)} subscribed in Mailchimp`;
 }
 
@@ -104,27 +158,58 @@ function syncFailureLine(sync: CirqlinSyncBucket | null): string | null {
   return `${fmtInt(sync.failed)} ${noun} did not reach Mailchimp (invalid email)`;
 }
 
+export function cirqlinPrimaryCaption(
+  snapshotAt: string,
+  now: Date,
+): string {
+  const captured = new Date(snapshotAt).getTime();
+  if (!Number.isFinite(captured)) return "signups · Cirqlin";
+  const age = now.getTime() - captured;
+  if (age <= CIRQLIN_STALE_MS) return "signups · Cirqlin";
+  return `signups · Cirqlin · as of ${fmtCirqlinAsOf(snapshotAt)}`;
+}
+
+function unreachableFallback(
+  failure: CirqlinFetchFailureReason | string | null | undefined,
+): string {
+  if (failure === "no_page") {
+    return "Cirqlin has no page for this tag — showing Mailchimp.";
+  }
+  return CIRQLIN_UNREACHABLE_LINE;
+}
+
 export function buildRegistrationsCardModel(
   input: BuildRegistrationsCardInput,
 ): RegistrationsCardModel {
-  const latest = input.cirqlinSnapshots
-    ? latestCirqlin(input.cirqlinSnapshots)
-    : null;
-  const noPage = isNoPage(latest);
-  const cirqlinLive = latest != null && !noPage ? latest : null;
+  const now =
+    input.now ??
+    (input.nowMs != null ? new Date(input.nowMs) : new Date());
+  const rows = input.cirqlinSnapshots ?? [];
+  const live = input.cirqlinSnapshots ? latestCirqlin(rows, true) : null;
+  const newest = input.cirqlinSnapshots ? latestCirqlin(rows, false) : null;
+  const noPage =
+    live == null &&
+    (isNoPage(newest) || input.cirqlinFailure === "no_page");
+  const failureReason = snapshotReason(newest);
+  const failureFromRow =
+    failureReason === "unauthorized" ||
+    failureReason === "error" ||
+    failureReason === "not_configured";
 
   const subscribed = input.mailchimp?.totalSubscribers ?? null;
-  const tagged = input.mailchimpTagged ?? null;
-  const mailchimpLine = mailchimpSecondaryLine(subscribed, tagged);
+  const mailchimpLine = mailchimpSecondaryLine(subscribed);
+  const askedFailed =
+    (input.cirqlinFailure != null && input.cirqlinFailure !== "no_page") ||
+    failureFromRow;
 
-  if (cirqlinLive) {
-    const signups = cirqlinLive.signups_total;
+  if (live) {
+    const signups = live.signups_total;
     return {
       source: "cirqlin",
       primary: signups,
-      primaryCaption: "signups · Cirqlin",
+      primaryCaption: cirqlinPrimaryCaption(live.snapshot_at, now),
       mailchimpLine,
-      syncFailureLine: syncFailureLine(syncFromRaw(cirqlinLive.raw_json)),
+      syncFailureLine: syncFailureLine(syncFromRaw(live.raw_json)),
       fallbackLine: null,
       cpr: signupPhaseCpr(input.spendRows, input.generalSaleAt, signups),
     };
@@ -138,8 +223,7 @@ export function buildRegistrationsCardModel(
       primaryCaption: signups != null ? "subscribed · Mailchimp" : null,
       mailchimpLine: null,
       syncFailureLine: null,
-      fallbackLine:
-        "Cirqlin has no page for this tag — showing Mailchimp.",
+      fallbackLine: "Cirqlin has no page for this tag — showing Mailchimp.",
       cpr:
         signups != null
           ? signupPhaseCpr(input.spendRows, input.generalSaleAt, signups)
@@ -147,7 +231,25 @@ export function buildRegistrationsCardModel(
     };
   }
 
-  // Cirqlin never asked, or never answered. Mailchimp only.
+  if (askedFailed) {
+    const signups = subscribed;
+    return {
+      source: signups != null ? "mailchimp" : "none",
+      primary: signups,
+      primaryCaption: signups != null ? "subscribed · Mailchimp" : null,
+      mailchimpLine: null,
+      syncFailureLine: null,
+      fallbackLine: unreachableFallback(
+        input.cirqlinFailure ??
+          (failureFromRow ? (failureReason as CirqlinFetchFailureReason) : null),
+      ),
+      cpr:
+        signups != null
+          ? signupPhaseCpr(input.spendRows, input.generalSaleAt, signups)
+          : null,
+    };
+  }
+
   const signups = subscribed;
   return {
     source: signups != null ? "mailchimp" : "none",
@@ -194,6 +296,7 @@ function mailchimpFromCount(
 export function buildRegistrationsCardModelForEvents(
   events: readonly PortalRegistrationsEvent[],
   spendRows: ReadonlyArray<SignupPhaseSpendRow & { event_id?: string }>,
+  now?: Date,
 ): RegistrationsCardModel {
   const tagged = events.filter((e) => e.mailchimp_tag);
   const withCirqlin = events.filter((e) => (e.cirqlin_snapshots?.length ?? 0) > 0);
@@ -209,6 +312,7 @@ export function buildRegistrationsCardModelForEvents(
       cirqlinSnapshots: null,
       spendRows: [],
       generalSaleAt: null,
+      now,
     });
   }
   const rows = spendRows.filter(
@@ -222,5 +326,7 @@ export function buildRegistrationsCardModelForEvents(
     cirqlinSnapshots: chosen.cirqlin_snapshots ?? null,
     spendRows: rows,
     generalSaleAt: chosen.general_sale_at,
+    cirqlinAsked: chosen.mailchimp_tag != null,
+    now,
   });
 }

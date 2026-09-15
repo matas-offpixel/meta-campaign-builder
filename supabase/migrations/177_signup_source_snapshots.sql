@@ -7,6 +7,11 @@
 --
 -- Join key is events.mailchimp_tag ↔ Cirqlin pages.crm_base_tag.
 -- No new column on events. Additive. Matas applies before this PR merges.
+--
+-- Read policy joins `events` for ownership instead of carrying a
+-- denormalised `user_id` like the sibling Mailchimp snapshot tables.
+-- Deliberate: this table is counts-only, the event row is the
+-- ownership source of truth, and a copied user_id would drift.
 
 CREATE TABLE IF NOT EXISTS signup_source_snapshots (
   id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

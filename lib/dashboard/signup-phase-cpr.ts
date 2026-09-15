@@ -34,7 +34,7 @@ export interface SignupPhaseCpr {
   /** Inclusive last day of the window. Null = all-time. */
   toDay: string | null;
   allTime: boolean;
-  /** `£0.79 per signup · £1,458 spent 26 Aug – 9 Sept` */
+  /** `£0.79 per signup · £1,458 all-platform spend, 26 Aug – 9 Sept` */
   label: string;
 }
 
@@ -109,11 +109,11 @@ export function signupPhaseCpr(
       ? "Cost per signup · all-time window — no spend or signups yet"
       : "Cost per signup — no spend or signups in the signup phase";
   } else if (window.allTime) {
-    label = `${money(cpr)} per signup · ${money(window.spend)} spent all-time`;
+    label = `${money(cpr)} per signup · ${money(window.spend)} all-platform spend, all-time`;
   } else if (window.fromDay && window.toDay) {
-    label = `${money(cpr)} per signup · ${money(window.spend)} spent ${fmtShortDay(window.fromDay)} – ${fmtShortDay(window.toDay)}`;
+    label = `${money(cpr)} per signup · ${money(window.spend)} all-platform spend, ${fmtShortDay(window.fromDay)} – ${fmtShortDay(window.toDay)}`;
   } else {
-    label = `${money(cpr)} per signup · ${money(window.spend)} spent`;
+    label = `${money(cpr)} per signup · ${money(window.spend)} all-platform spend`;
   }
 
   return {

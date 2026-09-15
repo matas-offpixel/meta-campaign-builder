@@ -25,7 +25,10 @@ import {
   type EventReportViewEvent,
 } from "./event-report-view";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
-import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
+import type {
+  CirqlinFetchFailureReason,
+  CirqlinSnapshotRow,
+} from "@/lib/cirqlin/types";
 import { buildRegistrationsCardModel } from "@/lib/dashboard/registrations-card-model";
 import {
   InternalActiveCreativesSection,
@@ -119,6 +122,8 @@ export function InternalEventReport({
   const [cirqlinSnapshots, setCirqlinSnapshots] = useState<
     CirqlinSnapshotRow[]
   >([]);
+  const [cirqlinFailure, setCirqlinFailure] =
+    useState<CirqlinFetchFailureReason | null>(null);
   const [funnel, setFunnel] = useState<EventFunnelView | null>(null);
   const [comparison, setComparison] = useState<CrossPlatformComparison | null>(
     null,
@@ -191,16 +196,27 @@ export function InternalEventReport({
       `/api/events/${encodeURIComponent(eventId)}/mailchimp/refresh`,
       { method: "POST", cache: "no-store" },
     );
-    if (!res.ok) {
-      let message = `HTTP ${res.status}`;
-      try {
-        const body = (await res.json()) as { error?: string };
-        if (body?.error) message = body.error;
-      } catch {
-        // Non-JSON body.
-      }
-      throw new Error(message);
+    let body: {
+      error?: string;
+      cirqlin?: { ok?: boolean; reason?: string };
+    } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      // Non-JSON body.
     }
+    if (!res.ok) {
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    const reason = body.cirqlin?.ok === false ? body.cirqlin.reason : null;
+    setCirqlinFailure(
+      reason === "unauthorized" ||
+        reason === "error" ||
+        reason === "not_configured" ||
+        reason === "no_page"
+        ? reason
+        : null,
+    );
     await Promise.all([loadRegistrationsData(), loadCirqlinSnapshots()]);
   }, [eventId, loadRegistrationsData, loadCirqlinSnapshots]);
 
@@ -399,12 +415,15 @@ export function InternalEventReport({
       cirqlinSnapshots,
       spendRows: rollupTimeline,
       generalSaleAt: event.generalSaleAt ?? null,
+      cirqlinAsked: true,
+      cirqlinFailure,
     });
   }, [
     event.mailchimpTag,
     event.generalSaleAt,
     registrationsData,
     cirqlinSnapshots,
+    cirqlinFailure,
     rollupTimeline,
   ]);
 

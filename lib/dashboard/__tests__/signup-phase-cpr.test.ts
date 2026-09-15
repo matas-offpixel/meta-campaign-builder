@@ -16,7 +16,7 @@ describe("signup-phase spend window", () => {
     );
     assert.equal(result.spend, 100);
     assert.equal(result.cpr, 1);
-    assert.equal(result.label, "£1.00 per signup · £100.00 spent 26 Aug – 9 Sept");
+    assert.equal(result.label, "£1.00 per signup · £100.00 all-platform spend, 26 Aug – 9 Sept");
   });
 
   it("skips leading zero-pad days when dating the window", () => {
@@ -43,6 +43,6 @@ describe("signup-phase spend window", () => {
     );
     assert.equal(result.allTime, true);
     assert.equal(result.spend, 100);
-    assert.equal(result.label, "£1.00 per signup · £100.00 spent all-time");
+    assert.equal(result.label, "£1.00 per signup · £100.00 all-platform spend, all-time");
   });
 });

@@ -12,12 +12,23 @@ export function isCirqlinNoPageRow(row: CirqlinSnapshotRow): boolean {
   return row.raw_json?.reason === "no_page";
 }
 
+/** Sentinels are not a day's signups — skip them in the tracker. */
+export function isCirqlinSentinelRow(row: CirqlinSnapshotRow): boolean {
+  const reason = row.raw_json?.reason;
+  return (
+    reason === "no_page" ||
+    reason === "unauthorized" ||
+    reason === "error" ||
+    reason === "not_configured"
+  );
+}
+
 /** True when Cirqlin has a real page and at least one day of counts. */
 export function hasCirqlinRegs(
   rows: readonly CirqlinSnapshotRow[] | null | undefined,
 ): boolean {
   if (!rows || rows.length === 0) return false;
-  return rows.some((row) => !isCirqlinNoPageRow(row));
+  return rows.some((row) => !isCirqlinSentinelRow(row));
 }
 
 export function cirqlinSignupsForDay(
@@ -26,7 +37,7 @@ export function cirqlinSignupsForDay(
 ): number | null {
   let found: number | null = null;
   for (const row of rows) {
-    if (isCirqlinNoPageRow(row)) continue;
+    if (isCirqlinSentinelRow(row)) continue;
     if (row.day === day) found = row.signups_day;
   }
   return found;
@@ -41,7 +52,7 @@ export function cirqlinSignupsForRange(
   let total = 0;
   let any = false;
   for (const row of rows) {
-    if (isCirqlinNoPageRow(row)) continue;
+    if (isCirqlinSentinelRow(row)) continue;
     if (row.day < startDay || row.day > endDayInclusive) continue;
     total += row.signups_day;
     any = true;
