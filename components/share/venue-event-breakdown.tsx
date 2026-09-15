@@ -32,8 +32,8 @@ import {
 import { computePortalEventSpendRowMetrics } from "@/lib/dashboard/portal-event-spend-row";
 import {
   eventTierSalesRollup,
-  resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
+  resolvePortalEventTicketCount,
   tierSalesRollup,
 } from "@/lib/dashboard/tier-channel-rollups";
 import {
@@ -663,8 +663,13 @@ function tierAllocationTotals(event: PortalEvent): {
   allocation: number | null;
   allTiersOnSaleSoon: boolean;
 } {
+  // Same resolver the Tickets card uses. A tier-less event used to
+  // short-circuit to 0 here without ever reading the snapshot or
+  // `events.tickets_sold`, which is how D.O.D showed "557 / 1,500" in
+  // the header and "0 / 1,500" one section down.
+  const sold = resolvePortalEventTicketCount(event) ?? 0;
   if (event.ticket_tiers.length === 0) {
-    return { sold: 0, allocation: null, allTiersOnSaleSoon: false };
+    return { sold, allocation: null, allTiersOnSaleSoon: false };
   }
   let onSaleCount = 0;
   for (const tier of event.ticket_tiers) {
@@ -676,12 +681,7 @@ function tierAllocationTotals(event: PortalEvent): {
   }
   const rollup = eventTierSalesRollup(event.ticket_tiers);
   return {
-    sold: resolveDisplayTicketCount({
-      ticket_tiers: event.ticket_tiers,
-      latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
-      fallback_tickets: event.tickets_sold ?? null,
-      tier_channel_sales_sum: event.tier_channel_sales_tickets ?? null,
-    }),
+    sold,
     allocation: rollup.allocation,
     allTiersOnSaleSoon: onSaleCount === 0,
   };

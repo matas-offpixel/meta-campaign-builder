@@ -138,6 +138,50 @@ export function resolveDisplayTicketCount(input: {
   return Math.max(snapshotTickets, tierTickets, fallbackTickets, channelSalesTickets, 0);
 }
 
+/** The ticket-count inputs every venue-report surface has on a portal event. */
+export interface PortalEventTicketInputs {
+  ticket_tiers: EventTicketTierRow[];
+  latest_snapshot?: { tickets_sold: number | null } | null;
+  tickets_sold?: number | null;
+  tier_channel_sales_tickets?: number | null;
+}
+
+/**
+ * Lifetime tickets sold for one event on the venue report — the single
+ * answer the Tickets card and the event-breakdown row both read.
+ *
+ * They used to resolve it separately: the card took
+ * `latest_snapshot ?? events.tickets_sold` for a tier-less event, and
+ * the breakdown short-circuited to 0 the moment an event had no ticket
+ * tiers. That is how one page said "557 / 1,500" at the top and
+ * "0 / 1,500" a section below, for the same event on the same load.
+ *
+ * `null` means no source carries a count at all — distinct from a real
+ * zero. Callers that have a further fallback (the card sums the daily
+ * rollups) need that distinction; callers that don't render 0.
+ */
+export function resolvePortalEventTicketCount(
+  event: PortalEventTicketInputs,
+): number | null {
+  const snapshot = event.latest_snapshot?.tickets_sold ?? null;
+  const fallback = event.tickets_sold ?? null;
+  const channelSales = event.tier_channel_sales_tickets ?? null;
+  if (
+    event.ticket_tiers.length === 0 &&
+    snapshot == null &&
+    fallback == null &&
+    channelSales == null
+  ) {
+    return null;
+  }
+  return resolveDisplayTicketCount({
+    ticket_tiers: event.ticket_tiers,
+    latest_snapshot_tickets: snapshot,
+    fallback_tickets: fallback,
+    tier_channel_sales_sum: channelSales,
+  });
+}
+
 /** Sum `tier_channel_sales.revenue_amount` for one tier's channel rows. */
 export function channelRevenueSumForTier(tier: EventTicketTierRow): number {
   let sum = 0;

@@ -5,8 +5,8 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import {
-  resolveDisplayTicketCount,
   resolveDisplayTicketRevenue,
+  resolvePortalEventTicketCount,
 } from "@/lib/dashboard/tier-channel-rollups";
 import { computeCanonicalEventMetrics } from "@/lib/dashboard/canonical-event-metrics";
 import { AttributionGapTile } from "@/components/dashboard/event-report/AttributionGapTile";
@@ -583,17 +583,10 @@ function latestVenueEventTickets(events: PortalEvent[]): number | null {
   let total = 0;
   let any = false;
   for (const event of events) {
-    if (event.ticket_tiers.length > 0) {
-      total += resolveDisplayTicketCount({
-        ticket_tiers: event.ticket_tiers,
-        latest_snapshot_tickets: event.latest_snapshot?.tickets_sold ?? null,
-        fallback_tickets: event.tickets_sold ?? null,
-        tier_channel_sales_sum: event.tier_channel_sales_tickets ?? null,
-      });
-      any = true;
-      continue;
-    }
-    const tickets = event.latest_snapshot?.tickets_sold ?? event.tickets_sold;
+    // Same resolver the event-breakdown row uses, so the card and the
+    // row can't disagree. `null` = no source carries a count for this
+    // event, which leaves the caller's rollup-sum fallback intact.
+    const tickets = resolvePortalEventTicketCount(event);
     if (tickets == null) continue;
     total += tickets;
     any = true;
