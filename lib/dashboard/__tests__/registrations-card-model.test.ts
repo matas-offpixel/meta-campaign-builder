@@ -238,6 +238,63 @@ describe("buildRegistrationsCardModel", () => {
     assert.equal(model.fallbackLine, UNREACHABLE);
   });
 
+  it("names the scope when Cirqlin says the tag spans pages", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: [
+        {
+          ...cirqlin[0]!,
+          raw_json: {
+            ...cirqlin[0]!.raw_json,
+            multiple: true,
+            pages: [{ id: "page-1" }, { id: "page-2" }],
+          },
+        },
+      ],
+      spendRows: [],
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.equal(model.primary, 1843);
+    assert.equal(model.scopeLine, "Counted across 2 Cirqlin pages on this tag.");
+  });
+
+  it("says nothing about scope for a single-page tag", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: [
+        {
+          ...cirqlin[0]!,
+          raw_json: {
+            ...cirqlin[0]!.raw_json,
+            multiple: false,
+            pages: [{ id: "page-1" }],
+          },
+        },
+      ],
+      spendRows: [],
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.equal(model.scopeLine, null);
+  });
+
+  it("still names a multi-page total when the pages array did not survive", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: [
+        { ...cirqlin[0]!, raw_json: { ...cirqlin[0]!.raw_json, multiple: true } },
+      ],
+      spendRows: [],
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.equal(
+      model.scopeLine,
+      "Counted across multiple Cirqlin pages on this tag.",
+    );
+  });
+
   it("does not carry a mailchimpTagged input — there is no source for it", () => {
     const src = readFileSync(
       new URL("../registrations-card-model.ts", import.meta.url),

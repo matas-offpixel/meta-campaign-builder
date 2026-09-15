@@ -35,6 +35,9 @@ export function SignupRegistrationsCard({
             <span className="text-muted-foreground">—</span>
           )}
         </p>
+        {model.scopeLine ? (
+          <p className="text-[11px] text-muted-foreground">{model.scopeLine}</p>
+        ) : null}
         {model.cpr ? (
           <p className="text-[11px] text-muted-foreground tabular-nums">
             {model.cpr.label}
