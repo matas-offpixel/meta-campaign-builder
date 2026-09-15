@@ -39,6 +39,7 @@ import {
   suggestionLabelFor,
   type TikTokImportPickerPayload,
   type TikTokImportPickerRow,
+  type TikTokImportPickerRowOrigin,
 } from "./picker.ts";
 import {
   TIKTOK_IMPORT_DROPPED_FIELDS,
@@ -320,12 +321,10 @@ function mapPacing(value: unknown): "STANDARD" | "ACCELERATED" | null {
  * the carry decision and the provenance label are made in one place.
  * ---------------------------------------------------------------------- */
 
-type TikTokImportOrigin = "chosen" | "tiktok_added" | "unjoined";
-
 type SourceCreative = {
   /** `smart_plus_creative_id` / `/ad/get/` `ad_id`. */
   key: string;
-  origin: TikTokImportOrigin;
+  origin: TikTokImportPickerRowOrigin;
   name: string;
   assetGroup: string;
   adFormat: string | null;
@@ -354,7 +353,7 @@ function inferAssetGroup(
 function sourceFromAdGetRow(
   ad: TikTokAdGetRow,
   index: number,
-  origin: TikTokImportOrigin,
+  origin: TikTokImportPickerRowOrigin,
   assetGroupNames: readonly string[] = [],
 ): SourceCreative {
   const name = asString(ad.ad_name) ?? asString(ad.ad_text) ?? `Source ad ${index + 1}`;
@@ -365,9 +364,10 @@ function sourceFromAdGetRow(
     assetGroup: inferAssetGroup(name, assetGroupNames),
     // `/ad/get/` is never asked for `ad_format` or `music_id` — those
     // names are not on the captured `/adgroup/get/` accepted list, and
-    // that list says nothing about this endpoint. Unsupported-format
-    // detection is Smart+-only until `/ad/get/` is captured the same
-    // way. Do not read a field we did not request.
+    // that list says nothing about this endpoint. Manual carousels are
+    // reported under a different reason (`image_ad_unsupported` or
+    // `no_asset_reported`) until `/ad/get/` is captured. Do not read a
+    // field we did not request.
     adFormat: null,
     videoId: asString(ad.video_id),
     imageIds: asStringArray(ad.image_ids),
@@ -449,7 +449,7 @@ function sourcesFromSmartPlusAd(
     }
     return {
       key,
-      origin: "chosen" as TikTokImportOrigin,
+      origin: "chosen" as const,
       name:
         asString(info.material_name) ??
         asString(video?.file_name) ??
@@ -500,11 +500,10 @@ function mergeSource(chosen: SourceCreative, ad: SourceCreative): SourceCreative
  * `tiktok_item_id` are the second and third keys.
  *
  * `unjoined` is always the number of `/ad/get/` rows that matched no
- * `creative_list` row. One successful join does not relabel the rest
- * `tiktok_added` — that was #944 with a smaller blast radius. Without
- * a documented TikTok split, leftover unmatched ads stay `unjoined`.
- * The picker reports `chosenJoined` / `chosenTotal` so the header can
- * say both numbers when they disagree.
+ * `creative_list` row. One successful join does not relabel the rest.
+ * Without a documented TikTok split, leftover unmatched ads stay
+ * `unjoined`. The picker reports `chosenJoined` / `chosenTotal` so the
+ * header can say both numbers when they disagree.
  */
 function joinUpgradedSources(
   chosen: SourceCreative[],
@@ -560,9 +559,18 @@ function joinUpgradedSources(
  * video_id when two copies share a stem — it is not a gate.
  * ---------------------------------------------------------------------- */
 
+function originOf(
+  sources: readonly SourceCreative[],
+): TikTokImportPickerRowOrigin {
+  return sources.some((row) => row.origin === "unjoined")
+    ? "unjoined"
+    : "chosen";
+}
+
 type UniqueRow = {
   key: string;
   kind: "video" | "spark";
+  origin: TikTokImportPickerRowOrigin;
   name: string;
   source: SourceCreative;
   assetGroups: string[];
@@ -751,6 +759,7 @@ function collectUniqueRows(
     unique.push({
       key: preferred.videoId,
       kind: "video",
+      origin: originOf(all),
       name: stem,
       source,
       assetGroups: uniqueGroups(all),
@@ -769,6 +778,7 @@ function collectUniqueRows(
     unique.push({
       key: sparkId,
       kind: "spark",
+      origin: originOf(rows),
       name: stem,
       source: { ...source, sparkPostId: sparkId },
       assetGroups: uniqueGroups(rows),
@@ -786,6 +796,7 @@ function collectUniqueRows(
     unique.push({
       key: source.key,
       kind: "video",
+      origin: source.origin,
       name: stemFromAdName(source.name, groups),
       source,
       assetGroups: uniqueGroups([source]),
@@ -808,6 +819,7 @@ function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
   const picker: TikTokImportPickerRow = {
     key: row.key,
     kind: row.kind,
+    origin: row.origin,
     name: row.name,
     thumbnailUrl: row.library?.video_cover_url ?? null,
     durationSeconds: row.library?.duration ?? null,

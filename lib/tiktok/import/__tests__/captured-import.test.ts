@@ -18,6 +18,7 @@ import {
   formatTikTokImportUnjoinedLine,
   hydratePickerThumbnails,
   matchTikTokGeneratedName,
+  type TikTokImportPickerRow,
 } from "../picker.ts";
 import { formatTikTokImportCreativeCounts } from "../types.ts";
 import { tiktokGet } from "../../client.ts";
@@ -303,51 +304,38 @@ describe("POST carry decision and mapped save", () => {
 });
 
 describe("hydratePickerThumbnails", () => {
-  it("marks a rejected /file/video/ad/info/ id thumbnailError and still returns ok", async () => {
-    const rows = [
-      {
-        key: "v-bad-id",
-        kind: "video" as const,
-        name: "Missing original",
-        thumbnailUrl: null,
-        thumbnailError: false,
-        durationSeconds: null,
-        width: null,
-        height: null,
-        assetGroups: [],
-        copies: 1,
-        inLibrary: false,
-        defaultTicked: true,
-        disabled: false,
-        suggestionReason: null,
-        unsupportedReason: null,
-        suggestionLabel: null,
-      },
-      {
-        key: "v-good-id",
-        kind: "video" as const,
-        name: "Present original",
-        thumbnailUrl: null,
-        thumbnailError: false,
-        durationSeconds: null,
-        width: null,
-        height: null,
-        assetGroups: [],
-        copies: 1,
-        inLibrary: false,
-        defaultTicked: true,
-        disabled: false,
-        suggestionReason: null,
-        unsupportedReason: null,
-        suggestionLabel: null,
-      },
-    ];
-    let calls = 0;
-    const request = (async (path: string, params: Record<string, unknown>) => {
+  function videoRow(
+    key: string,
+    extras: Partial<TikTokImportPickerRow> = {},
+  ): TikTokImportPickerRow {
+    return {
+      key,
+      kind: "video",
+      origin: "chosen",
+      name: key,
+      thumbnailUrl: null,
+      thumbnailError: false,
+      durationSeconds: null,
+      width: null,
+      height: null,
+      assetGroups: [],
+      copies: 1,
+      inLibrary: false,
+      defaultTicked: true,
+      disabled: false,
+      suggestionReason: null,
+      unsupportedReason: null,
+      suggestionLabel: null,
+      ...extras,
+    };
+  }
+
+  function infoRequest(bad: ReadonlySet<string>, sizes: number[]) {
+    return (async (path: string, params: Record<string, unknown>) => {
       assert.equal(path, "/file/video/ad/info/");
       const ids = params.video_ids as string[];
-      calls += 1;
-      if (ids.includes("v-bad-id")) {
+      sizes.push(ids.length);
+      if (ids.some((id) => bad.has(id))) {
         throw new Error("one of the video_ids is not acceptable");
       }
       return {
@@ -357,17 +345,60 @@ describe("hydratePickerThumbnails", () => {
         })),
       };
     }) as TikTokGet;
+  }
 
+  it("keeps the good id's thumbnail when a mixed chunk has one bad id", async () => {
+    const sizes: number[] = [];
     const hydrated = await hydratePickerThumbnails({
-      rows,
+      rows: [videoRow("v-bad-id"), videoRow("v-good-id")],
       advertiserId: ACCOUNT.advertiserId,
       token: "token",
-      request,
+      request: infoRequest(new Set(["v-bad-id"]), sizes),
     });
-    assert.equal(calls, 2);
+    assert.ok(sizes.includes(2));
     assert.equal(hydrated[0]?.thumbnailUrl, null);
     assert.equal(hydrated[0]?.thumbnailError, true);
-    assert.equal(hydrated[1]?.thumbnailUrl, null);
-    assert.equal(hydrated[1]?.thumbnailError, true);
+    assert.equal(hydrated[1]?.thumbnailUrl, "https://thumb/v-good-id");
+    assert.equal(hydrated[1]?.thumbnailError, false);
+  });
+
+  it("splits a 4-id chunk so one bad id does not cost the other three", async () => {
+    const keys = ["v-good-a", "v-bad-id", "v-good-b", "v-good-c"];
+    const sizes: number[] = [];
+    const hydrated = await hydratePickerThumbnails({
+      rows: keys.map((key) => videoRow(key)),
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request: infoRequest(new Set(["v-bad-id"]), sizes),
+    });
+    const budget = 2 * Math.ceil(Math.log2(keys.length)) + 1;
+    assert.ok(sizes.length <= budget, `calls=${sizes.length} sizes=${sizes.join(",")}`);
+    assert.ok(
+      sizes.some((size) => size > 1 && size < keys.length),
+      "retries a half, not each id",
+    );
+    assert.equal(hydrated.filter((row) => row.thumbnailError).length, 1);
+    assert.equal(
+      hydrated.filter((row) => row.thumbnailUrl?.startsWith("https://thumb/")).length,
+      3,
+    );
+    assert.equal(
+      hydrated.find((row) => row.key === "v-bad-id")?.thumbnailError,
+      true,
+    );
+  });
+
+  it("marks every id when every id in the chunk is bad", async () => {
+    const keys = ["v-bad-a", "v-bad-b", "v-bad-c", "v-bad-d"];
+    const sizes: number[] = [];
+    const hydrated = await hydratePickerThumbnails({
+      rows: keys.map((key) => videoRow(key)),
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request: infoRequest(new Set(keys), sizes),
+    });
+    assert.equal(hydrated.every((row) => row.thumbnailError), true);
+    assert.equal(hydrated.every((row) => row.thumbnailUrl === null), true);
+    assert.ok(sizes.length > 1);
   });
 });
