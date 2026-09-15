@@ -74,10 +74,19 @@ export function stemFromAdName(
 
 export type TikTokImportPickerRowKind = "video" | "spark";
 
+/**
+ * Provenance of a picker row. There is no third origin for ads TikTok
+ * added on its own: no documented split would assign one, and a dead
+ * union member invites the label back without the rule. Unmatched
+ * `/ad/get/` rows stay `"unjoined"`.
+ */
+export type TikTokImportPickerRowOrigin = "chosen" | "unjoined";
+
 export type TikTokImportPickerRow = {
   /** `video_id` or `tiktok_item_id` — the key `POST …/import` `carry` sends. */
   key: string;
   kind: TikTokImportPickerRowKind;
+  origin: TikTokImportPickerRowOrigin;
   name: string;
   thumbnailUrl: string | null;
   thumbnailError: boolean;
@@ -125,8 +134,8 @@ export function formatTikTokImportUnjoinedLine(unjoined: number): string | null 
 
 /**
  * When TikTok's selected set and the `/ad/get/` join disagree, say so
- * with both numbers. Do not pick a threshold that would relabel the
- * unmatched ads as `tiktok_added`.
+ * with both numbers. That is the header; the row's `origin` is the
+ * per-row claim.
  */
 export function formatTikTokImportJoinLine(
   chosenJoined: number,
@@ -135,6 +144,13 @@ export function formatTikTokImportJoinLine(
   if (chosenTotal <= 0) return null;
   if (chosenJoined === chosenTotal) return null;
   return `${chosenJoined} of ${chosenTotal} creatives TikTok says you selected matched a source ad`;
+}
+
+export function formatTikTokImportRowOriginBadge(
+  origin: TikTokImportPickerRowOrigin,
+): string | null {
+  if (origin !== "unjoined") return null;
+  return "TikTok couldn't confirm you selected this";
 }
 
 export function defaultCarryKeys(
@@ -161,6 +177,36 @@ export function suggestionLabelFor(
   return null;
 }
 
+async function loadVideoInfoChunk(input: {
+  chunk: readonly string[];
+  advertiserId: string;
+  token: string;
+  request?: TikTokGet;
+  byId: Map<string, { thumbnail_url: string | null }>;
+  failed: Set<string>;
+}): Promise<void> {
+  if (input.chunk.length === 0) return;
+  try {
+    const info = await fetchTikTokVideoInfo({
+      advertiserId: input.advertiserId,
+      token: input.token,
+      videoIds: [...input.chunk],
+      request: input.request,
+    });
+    for (const row of info) {
+      input.byId.set(row.video_id, { thumbnail_url: row.thumbnail_url });
+    }
+  } catch {
+    if (input.chunk.length === 1) {
+      input.failed.add(input.chunk[0]!);
+      return;
+    }
+    const mid = Math.floor(input.chunk.length / 2);
+    await loadVideoInfoChunk({ ...input, chunk: input.chunk.slice(0, mid) });
+    await loadVideoInfoChunk({ ...input, chunk: input.chunk.slice(mid) });
+  }
+}
+
 export async function hydratePickerThumbnails(input: {
   rows: TikTokImportPickerRow[];
   advertiserId: string;
@@ -170,10 +216,7 @@ export async function hydratePickerThumbnails(input: {
   const videoIds = [
     ...new Set(
       input.rows
-        .filter(
-          (row) =>
-            row.kind === "video" && !row.disabled && !row.thumbnailUrl,
-        )
+        .filter((row) => row.kind === "video" && !row.thumbnailUrl)
         .map((row) => row.key),
     ),
   ];
@@ -182,26 +225,14 @@ export async function hydratePickerThumbnails(input: {
   const byId = new Map<string, { thumbnail_url: string | null }>();
   const failed = new Set<string>();
   for (let i = 0; i < videoIds.length; i += TIKTOK_IMPORT_VIDEO_INFO_CHUNK) {
-    const chunk = videoIds.slice(i, i + TIKTOK_IMPORT_VIDEO_INFO_CHUNK);
-    let loaded = false;
-    for (let attempt = 0; attempt < 2 && !loaded; attempt += 1) {
-      try {
-        const info = await fetchTikTokVideoInfo({
-          advertiserId: input.advertiserId,
-          token: input.token,
-          videoIds: chunk,
-          request: input.request,
-        });
-        for (const row of info) {
-          byId.set(row.video_id, { thumbnail_url: row.thumbnail_url });
-        }
-        loaded = true;
-      } catch {
-        if (attempt === 1) {
-          for (const videoId of chunk) failed.add(videoId);
-        }
-      }
-    }
+    await loadVideoInfoChunk({
+      chunk: videoIds.slice(i, i + TIKTOK_IMPORT_VIDEO_INFO_CHUNK),
+      advertiserId: input.advertiserId,
+      token: input.token,
+      request: input.request,
+      byId,
+      failed,
+    });
   }
 
   return input.rows.map((row) => {

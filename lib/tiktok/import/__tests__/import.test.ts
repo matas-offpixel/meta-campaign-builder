@@ -48,6 +48,7 @@ import {
 } from "../readers.ts";
 import {
   formatTikTokImportJoinLine,
+  formatTikTokImportRowOriginBadge,
   hydratePickerThumbnails,
 } from "../picker.ts";
 import { handleTikTokImportRaw } from "../raw.ts";
@@ -537,6 +538,25 @@ describe("map upgraded Smart+ from the documented creative_list shape", () => {
       formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal),
       "1 of 45 creatives TikTok says you selected matched a source ad",
     );
+    assert.equal(picker.rows.length, 45);
+    const badged = picker.rows.filter(
+      (row) => formatTikTokImportRowOriginBadge(row.origin) !== null,
+    );
+    const unbadged = picker.rows.filter(
+      (row) => formatTikTokImportRowOriginBadge(row.origin) === null,
+    );
+    assert.equal(badged.length, 44);
+    assert.equal(unbadged.length, 1);
+    assert.ok(
+      picker.rows.every((row) => row.defaultTicked && !row.disabled),
+    );
+    for (const row of badged) {
+      assert.equal(row.origin, "unjoined");
+      assert.equal(
+        formatTikTokImportRowOriginBadge(row.origin),
+        "TikTok couldn't confirm you selected this",
+      );
+    }
   });
 
   it("throws when every creative_list is empty — doc-derived", () => {
@@ -1442,6 +1462,21 @@ describe("import path allowlist", () => {
           );
         }
       }
+    }
+  });
+
+  it("does not keep a dead tiktok_added origin", () => {
+    const root = join(HERE, "..");
+    const files = collectTsFiles(root).filter(
+      (file) => !file.includes("/__tests__/") && !file.includes("/__fixtures__/"),
+    );
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.equal(
+        source.includes("tiktok_added"),
+        false,
+        `${file} still names tiktok_added`,
+      );
     }
   });
 
