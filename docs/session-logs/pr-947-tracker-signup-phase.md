@@ -62,13 +62,15 @@ Changed:
 - [x] `npm run build`
 - [x] `npm test` — 5,890 tests, 0 failures
 - [x] `npx eslint` on every touched path — clean
-- [ ] `ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check` — cannot
-      be run meaningfully on a cloud VM. The baselines are Ubuntu CI raster
-      truth; here all 40 frames diff by 1–3% (two at 100%, which error under
-      the placeholder Supabase credentials the VM has to use). A run on a
-      worktree checked out at pristine `main` produced byte-identical output,
-      and the plan-frames render path imports none of the files this branch
-      touches, so CI is the real check.
+- [x] `CI / frames:check` — green on CI, which is the raster truth. It cannot
+      be run meaningfully on a cloud VM: there all 40 frames diff by 1–3% (two
+      at 100%, which error under the placeholder Supabase credentials the VM
+      has to use), and a run on a worktree checked out at pristine `main`
+      produced byte-identical output. The plan-frames render path imports none
+      of the files this branch touches.
+
+All six checks on `94518acd` are green: `npm test`, `npm run build`,
+`frames:check`, and the three Vercel checks.
 
 Visual before/after captured from a throwaway harness mounting the real
 tracker on the D.O.D rollup shape, with the "before" rendered by a
