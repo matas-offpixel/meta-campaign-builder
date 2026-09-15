@@ -140,6 +140,24 @@ describe("fetchCirqlinSignupsByTag", () => {
     }
   });
 
+  it("times out a 200 whose body never settles", async () => {
+    const result = await fetchCirqlinSignupsByTag("CQ-dod-newcastle", {
+      secret: "s",
+      timeoutMs: 20,
+      fetchImpl: async () =>
+        ({
+          status: 200,
+          ok: true,
+          json: () => new Promise(() => {}),
+        }) as Response,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "error");
+      assert.match(result.message ?? "", /timed out/i);
+    }
+  });
+
   it("returns the D.O.D payload", async () => {
     const result = await fetchCirqlinSignupsByTag("CQ-dod-newcastle", {
       secret: "s",

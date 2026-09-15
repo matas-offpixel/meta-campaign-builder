@@ -44,6 +44,17 @@ Migration 177's events-join read policy is documented as
 deliberate. Check-run conclusions live in the PR thread, not in a
 commit that records them.
 
+Round 3: the timeout stays armed through `res.json()` and the abort
+signal tears down a stalled body — a 200 whose body never arrives
+reports `error` within `CIRQLIN_FETCH_TIMEOUT_MS`. `no_page` writes
+the reserved day, not London-today, so it cannot hide 1,843. Failure
+markers on that day are ordered by `snapshot_at`, so a stale
+`no_page` does not outrank a fresh `unauthorized`. `cirqlinAsked` is
+gone. `dedupeWindowMs` is `Number.MAX_SAFE_INTEGER` on the alert.
+`not_configured` is a fetch reason only — it is not a persisted
+sentinel. The PR body no longer says the client uses
+`AbortSignal.timeout`.
+
 ## Scope / files
 
 - `lib/cirqlin/*` — client, snapshot mapping, sync, tracker helpers
@@ -56,8 +67,8 @@ commit that records them.
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build` TypeScript step)
-- [x] `npm test` — 5919 / 5915 pass / 0 fail / 4 skipped (round 2)
-- [x] `npm run build` — compiled, typecheck finished, 193 static pages (round 2)
+- [x] `npm test` — 5922 pass / 0 fail / 4 skipped (round 3)
+- [x] `npm run build` — compiled, typecheck finished, 193 static pages (round 3)
 - [ ] Check-run conclusions on the final head — PR thread, not a commit
 
 ## Notes

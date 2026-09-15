@@ -415,7 +415,6 @@ export function InternalEventReport({
       cirqlinSnapshots,
       spendRows: rollupTimeline,
       generalSaleAt: event.generalSaleAt ?? null,
-      cirqlinAsked: true,
       cirqlinFailure,
     });
   }, [

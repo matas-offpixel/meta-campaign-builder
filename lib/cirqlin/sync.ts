@@ -5,18 +5,16 @@
  * One row per (event, source, day). A Cirqlin miss never throws — the
  * Mailchimp refresh / EOD cron report it and keep writing.
  *
- * `no_page` writes a London-today sentinel. `unauthorized` / `error`
- * do not write a London-today row — that unique key is the live
- * count, and overwriting it would hide 1,843. They upsert a
- * 1970-01-01 failure marker so a first-time miss still has a
- * sentence after reload, and they ping `ads_ops` once per
- * event+reason. `not_configured` writes nothing and does not alert.
+ * `no_page` / `unauthorized` / `error` upsert a 1970-01-01 failure
+ * marker. That unique key is not a live count — writing London-today
+ * would hide 1,843. They ping `ads_ops` once per event+reason except
+ * `no_page`. `not_configured` writes nothing and does not alert; it
+ * is a fetch reason only, never a persisted row.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { fetchCirqlinSignupsByTag } from "./client.ts";
-import { londonCalendarDay } from "./london-day.ts";
 import { buildCirqlinSnapshotRows } from "./snapshot-rows.ts";
 import type { CirqlinFetchFailureReason } from "./types.ts";
 
@@ -25,6 +23,9 @@ type AnySupabase = SupabaseClient<any>;
 
 /** Reserved day so a failure marker cannot collide with Cirqlin `daily[].day`. */
 export const CIRQLIN_FAILURE_SENTINEL_DAY = "1970-01-01";
+
+/** Once per `cirqlin_sync_failed:<eventId>:<reason>`, not hourly. */
+export const CIRQLIN_ALERT_DEDUPE_WINDOW_MS = Number.MAX_SAFE_INTEGER;
 
 export interface CirqlinSyncResult {
   eventId: string;
@@ -40,6 +41,7 @@ export interface CirqlinSyncNotify {
     channel: "ads_ops";
     text: string;
     dedupeKey: string;
+    dedupeWindowMs: number;
     /** EOD is 23:55 UTC — a business-hours gate would swallow the only fire. */
     respectBusinessHours: false;
   }): Promise<unknown>;
@@ -66,6 +68,7 @@ async function alertCirqlinFailure(input: {
       channel: "ads_ops",
       text,
       dedupeKey,
+      dedupeWindowMs: CIRQLIN_ALERT_DEDUPE_WINDOW_MS,
       respectBusinessHours: false,
     });
   } catch {
@@ -108,10 +111,9 @@ async function writeSentinelRow(
 }
 
 /**
- * Fetch Cirqlin for `tag` and upsert the daily rows. `no_page` writes a
- * London-today sentinel. Network / 5xx / 401 write a reserved-day
- * marker so the card can say Cirqlin was asked and did not answer
- * without touching a live day's unique key.
+ * Fetch Cirqlin for `tag` and upsert the daily rows. `no_page`,
+ * `unauthorized` and `error` write a reserved-day marker so the card
+ * can say Cirqlin was asked without touching a live day's unique key.
  */
 export async function syncCirqlinSignupsForEvent(
   supabase: AnySupabase,
@@ -137,7 +139,7 @@ export async function syncCirqlinSignupsForEvent(
       return writeSentinelRow(supabase, {
         eventId: input.eventId,
         tag: input.tag,
-        day: londonCalendarDay(now),
+        day: CIRQLIN_FAILURE_SENTINEL_DAY,
         reason: "no_page",
         now,
       });

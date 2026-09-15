@@ -206,6 +206,7 @@ export async function GET(req: NextRequest) {
     channel: "ads_ops";
     text: string;
     dedupeKey: string;
+    dedupeWindowMs: number;
   }) => Promise<unknown> = (opts) =>
     notify(
       { ...opts, respectBusinessHours: false },

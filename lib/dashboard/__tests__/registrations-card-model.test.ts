@@ -92,7 +92,6 @@ describe("buildRegistrationsCardModel", () => {
       cirqlinSnapshots: null,
       spendRows: [],
       generalSaleAt: null,
-      cirqlinAsked: true,
       nowMs,
     });
     assert.equal(model.source, "mailchimp");
@@ -211,11 +210,47 @@ describe("buildRegistrationsCardModel", () => {
     assert.equal(model.cpr.spend, 1458);
   });
 
+  it("a stale no_page sentinel loses to a fresher unauthorized marker", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: [
+        {
+          day: "1970-01-01",
+          signups_day: 0,
+          signups_total: 0,
+          snapshot_at: "2026-09-01T12:00:00Z",
+          raw_json: { reason: "no_page", tag: "CQ-dod-newcastle" },
+        },
+        {
+          day: "1970-01-01",
+          signups_day: 0,
+          signups_total: 0,
+          snapshot_at: freshAt,
+          raw_json: { reason: "unauthorized", tag: "CQ-dod-newcastle" },
+        },
+      ],
+      spendRows: [],
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.equal(model.source, "mailchimp");
+    assert.equal(model.primary, 1686);
+    assert.equal(model.fallbackLine, UNREACHABLE);
+  });
+
   it("does not carry a mailchimpTagged input — there is no source for it", () => {
     const src = readFileSync(
       new URL("../registrations-card-model.ts", import.meta.url),
       "utf8",
     );
     assert.equal(src.includes("mailchimpTagged"), false);
+  });
+
+  it("does not carry a cirqlinAsked input — the comment described the opposite of the tests", () => {
+    const src = readFileSync(
+      new URL("../registrations-card-model.ts", import.meta.url),
+      "utf8",
+    );
+    assert.equal(src.includes("cirqlinAsked"), false);
   });
 });

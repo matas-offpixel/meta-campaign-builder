@@ -18,6 +18,15 @@ function partnerUrl(base: string, tag: string): string {
   return url.toString();
 }
 
+function isCirqlinTimeout(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : "";
+  return (
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    (err instanceof Error && /timed? ?out|aborted/i.test(err.message))
+  );
+}
+
 function isDailyRow(value: unknown): boolean {
   if (value == null || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
@@ -78,6 +87,8 @@ export async function fetchCirqlinSignupsByTag(
   const timeoutMs = opts?.timeoutMs ?? CIRQLIN_FETCH_TIMEOUT_MS;
   // Ref'd timer — `AbortSignal.timeout` is unref'd and lets a Node
   // `--test` worker drain before 20ms, cancelling the timeout tests.
+  // Keep it armed through `res.json()`: a 200 whose body never
+  // arrives is the hang this timeout exists to cut.
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort(
@@ -87,7 +98,6 @@ export async function fetchCirqlinSignupsByTag(
     );
   }, timeoutMs);
   const signal = controller.signal;
-  let res: Response;
   try {
     const request = fetchImpl(partnerUrl(base, trimmed), {
       method: "GET",
@@ -111,17 +121,57 @@ export async function fetchCirqlinSignupsByTag(
     abort.catch(() => {
       /* race loser — do not surface as unhandled after a successful read */
     });
-    res = await Promise.race([request, abort]);
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "";
-    const timedOut =
-      name === "TimeoutError" ||
-      name === "AbortError" ||
-      (err instanceof Error && /timed? ?out|aborted/i.test(err.message));
+    const res = await Promise.race([request, abort]);
+    if (res.status === 401) {
+      return { ok: false, reason: "unauthorized", status: 401 };
+    }
+    if (res.status === 404) {
+      return { ok: false, reason: "no_page", status: 404 };
+    }
+
+    let body: unknown;
+    try {
+      body = await Promise.race([res.json(), abort]);
+    } catch (err) {
+      if (isCirqlinTimeout(err)) throw err;
+      return {
+        ok: false,
+        reason: "error",
+        status: res.status,
+        message: "response was not JSON",
+      };
+    }
+
+    if (res.ok && isCirqlinSignupsPayload(body)) {
+      return { ok: true, payload: body };
+    }
+
+    const record =
+      body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+    if (res.status === 200 && record?.ok === false) {
+      return {
+        ok: false,
+        reason: "no_page",
+        status: 200,
+        message:
+          typeof record.error === "string" ? record.error : "no page for tag",
+      };
+    }
+
     return {
       ok: false,
       reason: "error",
-      message: timedOut
+      status: res.status,
+      message:
+        record && typeof record.error === "string"
+          ? record.error
+          : `unexpected status ${res.status}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "error",
+      message: isCirqlinTimeout(err)
         ? "Cirqlin fetch timed out"
         : err instanceof Error
           ? err.message
@@ -130,47 +180,4 @@ export async function fetchCirqlinSignupsByTag(
   } finally {
     clearTimeout(timer);
   }
-
-  if (res.status === 401) {
-    return { ok: false, reason: "unauthorized", status: 401 };
-  }
-  if (res.status === 404) {
-    return { ok: false, reason: "no_page", status: 404 };
-  }
-
-  let body: unknown;
-  try {
-    body = await res.json();
-  } catch {
-    return {
-      ok: false,
-      reason: "error",
-      status: res.status,
-      message: "response was not JSON",
-    };
-  }
-
-  if (res.ok && isCirqlinSignupsPayload(body)) {
-    return { ok: true, payload: body };
-  }
-
-  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
-  if (res.status === 200 && record?.ok === false) {
-    return {
-      ok: false,
-      reason: "no_page",
-      status: 200,
-      message: typeof record.error === "string" ? record.error : "no page for tag",
-    };
-  }
-
-  return {
-    ok: false,
-    reason: "error",
-    status: res.status,
-    message:
-      record && typeof record.error === "string"
-        ? record.error
-        : `unexpected status ${res.status}`,
-  };
 }

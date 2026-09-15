@@ -15,12 +15,7 @@ export function isCirqlinNoPageRow(row: CirqlinSnapshotRow): boolean {
 /** Sentinels are not a day's signups — skip them in the tracker. */
 export function isCirqlinSentinelRow(row: CirqlinSnapshotRow): boolean {
   const reason = row.raw_json?.reason;
-  return (
-    reason === "no_page" ||
-    reason === "unauthorized" ||
-    reason === "error" ||
-    reason === "not_configured"
-  );
+  return reason === "no_page" || reason === "unauthorized" || reason === "error";
 }
 
 /** True when Cirqlin has a real page and at least one day of counts. */

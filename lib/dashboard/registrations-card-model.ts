@@ -82,16 +82,6 @@ export interface BuildRegistrationsCardInput {
   spendRows: readonly SignupPhaseSpendRow[];
   generalSaleAt: string | null;
   /**
-   * The event has a CRM tag, so Cirqlin was the intended source.
-   * After a live row and a `no_page` sentinel are ruled out, this
-   * is what puts the unreachable sentence on the Mailchimp number —
-   * the share page and the card's first paint have no just-tried
-   * `cirqlinFailure`. Unauthorized/error also leave a 1970-01-01
-   * marker; this flag covers the empty-snapshot case before that
-   * row is read.
-   */
-  cirqlinAsked?: boolean;
-  /**
    * Last Cirqlin fetch reason when the caller just tried. `no_page`
    * keeps its own sentence; other failures share the unreachable line.
    */
@@ -101,7 +91,7 @@ export interface BuildRegistrationsCardInput {
   nowMs?: number;
 }
 
-const SENTINEL_REASONS = new Set(["no_page", "unauthorized", "error", "not_configured"]);
+const SENTINEL_REASONS = new Set(["no_page", "unauthorized", "error"]);
 
 function snapshotReason(row: CirqlinSnapshotRow | null): string | null {
   const reason = row?.raw_json?.reason;
@@ -123,7 +113,15 @@ function latestCirqlin(
 ): CirqlinSnapshotRow | null {
   const filtered = liveOnly ? rows.filter((row) => !isSentinel(row)) : [...rows];
   if (filtered.length === 0) return null;
-  return filtered.sort((a, b) => a.day.localeCompare(b.day)).at(-1) ?? null;
+  if (liveOnly) {
+    return filtered.sort((a, b) => a.day.localeCompare(b.day)).at(-1) ?? null;
+  }
+  // Failure markers share 1970-01-01. The latest write is the reason
+  // to show — a stale no_page must not outrank a fresh unauthorized.
+  return (
+    filtered.sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at)).at(-1) ??
+    null
+  );
 }
 
 function syncFromRaw(raw: Record<string, unknown> | null): CirqlinSyncBucket | null {
@@ -192,9 +190,7 @@ export function buildRegistrationsCardModel(
     (isNoPage(newest) || input.cirqlinFailure === "no_page");
   const failureReason = snapshotReason(newest);
   const failureFromRow =
-    failureReason === "unauthorized" ||
-    failureReason === "error" ||
-    failureReason === "not_configured";
+    failureReason === "unauthorized" || failureReason === "error";
 
   const subscribed = input.mailchimp?.totalSubscribers ?? null;
   const mailchimpLine = mailchimpSecondaryLine(subscribed);
@@ -326,7 +322,6 @@ export function buildRegistrationsCardModelForEvents(
     cirqlinSnapshots: chosen.cirqlin_snapshots ?? null,
     spendRows: rows,
     generalSaleAt: chosen.general_sale_at,
-    cirqlinAsked: chosen.mailchimp_tag != null,
     now,
   });
 }

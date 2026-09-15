@@ -950,7 +950,6 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           cirqlinSnapshots,
           spendRows: eventDailyData.timeline,
           generalSaleAt: event.generalSaleAt,
-          cirqlinAsked: true,
         })
       : null;
 
