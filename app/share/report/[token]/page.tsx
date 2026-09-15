@@ -90,6 +90,8 @@ import {
   type MailchimpAudienceSnapshotSummary,
 } from "@/components/report/mailchimp-registrations-card";
 import { computeRegistrationsData } from "@/lib/mailchimp/registrations-loader";
+import { buildRegistrationsCardModel } from "@/lib/dashboard/registrations-card-model";
+import { loadCirqlinSnapshotsForEvent } from "@/lib/db/signup-source-snapshots";
 
 function parseDatePreset(value: string | string[] | undefined): DatePreset {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -609,6 +611,13 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
       return first?.mailchimp_audience_id ?? null;
     })();
   const mailchimpTag = (eventRow.data.mailchimp_tag as string | null) ?? null;
+  let cirqlinSnapshots: Awaited<ReturnType<typeof loadCirqlinSnapshotsForEvent>> =
+    [];
+  try {
+    cirqlinSnapshots = await loadCirqlinSnapshotsForEvent(admin, event_id);
+  } catch {
+    cirqlinSnapshots = [];
+  }
 
   const mailchimpSnapshots: MailchimpAudienceSnapshotSummary[] =
     await (async () => {
@@ -790,6 +799,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
           ? (mailchimpSnapshots as { email_subscribers: number | null; snapshot_at: string }[])
           : undefined
       }
+      cirqlinSnapshots={cirqlinSnapshots}
     />
   );
 
@@ -933,6 +943,16 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         )
       : null;
 
+  const signupRegistrations =
+    mailchimpTag != null && event.kind !== "brand_campaign"
+      ? buildRegistrationsCardModel({
+          mailchimp: registrationsData,
+          cirqlinSnapshots,
+          spendRows: eventDailyData.timeline,
+          generalSaleAt: event.generalSaleAt,
+        })
+      : null;
+
   return (
     <PublicReport
       event={{
@@ -978,6 +998,7 @@ export default async function PublicReportPage({ params, searchParams }: Props) 
         ) : null
       }
       registrationsData={registrationsData}
+      signupRegistrations={signupRegistrations}
       brandRollupSpend={brandRollupSpend}
       tiktokRollupTotals={tiktokRollupTotals}
       tiktokSnapshots={tiktokSnapshots}

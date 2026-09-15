@@ -4252,6 +4252,47 @@ export type Database = {
         }
         Relationships: []
       }
+      signup_source_snapshots: {
+        Row: {
+          day: string
+          event_id: string
+          id: string
+          raw_json: Json | null
+          signups_day: number
+          signups_total: number
+          snapshot_at: string
+          source: string
+        }
+        Insert: {
+          day: string
+          event_id: string
+          id?: string
+          raw_json?: Json | null
+          signups_day?: number
+          signups_total?: number
+          snapshot_at?: string
+          source: string
+        }
+        Update: {
+          day?: string
+          event_id?: string
+          id?: string
+          raw_json?: Json | null
+          signups_day?: number
+          signups_total?: number
+          snapshot_at?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signup_source_snapshots_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ticket_sales_snapshots: {
         Row: {
           connection_id: string | null

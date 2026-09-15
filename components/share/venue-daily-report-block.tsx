@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
 import { VenueTrendChart } from "@/components/shared/venue-trend-chart";
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 import {
   additionalSpendBreakdownLinesByDate,
@@ -95,6 +96,8 @@ export interface VenueReportModel {
    * shows the prior cumulative (no Apr 28 → 29 phantom drop).
    */
   cumulativeTicketPoints: TrendChartPoint[];
+  /** Cirqlin per-day signups from the tagged event, when present. */
+  cirqlinSnapshots: CirqlinSnapshotRow[];
 }
 
 /**
@@ -251,6 +254,9 @@ export function buildVenueReportModel(
     otherSpendByDate,
     otherSpendBreakdownByDate,
     cumulativeTicketPoints,
+    cirqlinSnapshots:
+      events.find((event) => (event.cirqlin_snapshots?.length ?? 0) > 0)
+        ?.cirqlin_snapshots ?? [],
   };
 }
 
@@ -490,6 +496,7 @@ export function VenueDailyTrackerSection({
     presale,
     otherSpendByDate,
     otherSpendBreakdownByDate,
+    cirqlinSnapshots,
   } = model;
   const windowDays = useMemo(
     () => resolvePresetToDays(datePreset, customRange),
@@ -535,6 +542,7 @@ export function VenueDailyTrackerSection({
       otherSpendBreakdownByDate: windowedOtherSpendBreakdownByDate,
       suppressSyntheticToday: windowDaySet !== null,
       reportEmbed: true,
+      cirqlinSnapshots,
       milestones: {
         announcementAt: event.announcement_at,
         presaleAt: event.presale_at,
@@ -552,6 +560,7 @@ export function VenueDailyTrackerSection({
       windowedOtherSpendByDate,
       windowedOtherSpendBreakdownByDate,
       windowDaySet,
+      cirqlinSnapshots,
     ],
   );
 

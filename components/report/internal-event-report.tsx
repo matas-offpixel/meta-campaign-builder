@@ -25,6 +25,11 @@ import {
   type EventReportViewEvent,
 } from "./event-report-view";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
+import type {
+  CirqlinFetchFailureReason,
+  CirqlinSnapshotRow,
+} from "@/lib/cirqlin/types";
+import { buildRegistrationsCardModel } from "@/lib/dashboard/registrations-card-model";
 import {
   InternalActiveCreativesSection,
   type InternalActiveCreativesHandle,
@@ -114,6 +119,11 @@ export function InternalEventReport({
   >(null);
   const [registrationsData, setRegistrationsData] =
     useState<MailchimpRegistrationsData | null>(null);
+  const [cirqlinSnapshots, setCirqlinSnapshots] = useState<
+    CirqlinSnapshotRow[]
+  >([]);
+  const [cirqlinFailure, setCirqlinFailure] =
+    useState<CirqlinFetchFailureReason | null>(null);
   const [funnel, setFunnel] = useState<EventFunnelView | null>(null);
   const [comparison, setComparison] = useState<CrossPlatformComparison | null>(
     null,
@@ -162,24 +172,53 @@ export function InternalEventReport({
     }
   }, [eventId]);
 
+  const loadCirqlinSnapshots = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/events/${encodeURIComponent(eventId)}/cirqlin/snapshots`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as {
+        ok?: boolean;
+        rows?: CirqlinSnapshotRow[];
+      };
+      if (json.ok && Array.isArray(json.rows)) setCirqlinSnapshots(json.rows);
+    } catch {
+      setCirqlinSnapshots([]);
+    }
+  }, [eventId]);
+
   const handleRefreshMailchimp = useCallback(async () => {
-    // POST to mailchimp refresh, then reload registrations data.
+    // POST to mailchimp refresh (Cirqlin leg reports, does not fail this),
+    // then reload both Mailchimp and Cirqlin card sources.
     const res = await fetch(
       `/api/events/${encodeURIComponent(eventId)}/mailchimp/refresh`,
       { method: "POST", cache: "no-store" },
     );
-    if (!res.ok) {
-      let message = `HTTP ${res.status}`;
-      try {
-        const body = (await res.json()) as { error?: string };
-        if (body?.error) message = body.error;
-      } catch {
-        // Non-JSON body.
-      }
-      throw new Error(message);
+    let body: {
+      error?: string;
+      cirqlin?: { ok?: boolean; reason?: string };
+    } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      // Non-JSON body.
     }
-    await loadRegistrationsData();
-  }, [eventId, loadRegistrationsData]);
+    if (!res.ok) {
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+    const reason = body.cirqlin?.ok === false ? body.cirqlin.reason : null;
+    setCirqlinFailure(
+      reason === "unauthorized" ||
+        reason === "error" ||
+        reason === "not_configured" ||
+        reason === "no_page"
+        ? reason
+        : null,
+    );
+    await Promise.all([loadRegistrationsData(), loadCirqlinSnapshots()]);
+  }, [eventId, loadRegistrationsData, loadCirqlinSnapshots]);
 
   // Reset to "loading" synchronously when any of (eventId, datePreset,
   // customRange) changes, then let the effect kick off the fetch.
@@ -301,6 +340,12 @@ export function InternalEventReport({
   }, [loadRegistrationsData]);
 
   useEffect(() => {
+    queueMicrotask(() => {
+      void loadCirqlinSnapshots();
+    });
+  }, [loadCirqlinSnapshots]);
+
+  useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
       void fetch(`/api/events/${encodeURIComponent(eventId)}/funnel`, {
@@ -362,6 +407,24 @@ export function InternalEventReport({
       canonicalTicketsLifetime,
     ],
   );
+
+  const signupRegistrations = useMemo(() => {
+    if (!event.mailchimpTag) return null;
+    return buildRegistrationsCardModel({
+      mailchimp: registrationsData,
+      cirqlinSnapshots,
+      spendRows: rollupTimeline,
+      generalSaleAt: event.generalSaleAt ?? null,
+      cirqlinFailure,
+    });
+  }, [
+    event.mailchimpTag,
+    event.generalSaleAt,
+    registrationsData,
+    cirqlinSnapshots,
+    cirqlinFailure,
+    rollupTimeline,
+  ]);
 
   const ticketRevenue = useMemo(() => {
     let total: number | null = null;
@@ -578,6 +641,7 @@ export function InternalEventReport({
       ticketRevenue={ticketRevenue}
       additionalSpendSlot={additionalSpendSlot}
       registrationsData={registrationsData}
+      signupRegistrations={signupRegistrations}
       onRefreshRegistrations={handleRefreshMailchimp}
       funnel={funnel}
       comparison={comparison}

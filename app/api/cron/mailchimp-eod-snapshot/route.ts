@@ -4,6 +4,16 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
 import { getMailchimpCredsFromD2CConnection } from "@/lib/mailchimp/d2c-credentials-adapter";
 import { getAudienceSegments } from "@/lib/mailchimp/client";
+import {
+  cirqlinCronLeft,
+  cirqlinCronOverBudget,
+} from "@/lib/cirqlin/cron-budget";
+import {
+  syncCirqlinSignupsForEvent,
+  type CirqlinSyncResult,
+} from "@/lib/cirqlin/sync";
+import { notify } from "@/lib/notify/slack";
+import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { daySnapshotAt, isCronAuthorized, todayUtc } from "@/lib/mailchimp/tag-tracking";
 
 export const maxDuration = 300;
@@ -25,6 +35,7 @@ const DRIFT_TOLERANCE = 5;
  * This guarantees correct end-of-day data even if webhooks were missed.
  */
 export async function GET(req: NextRequest) {
+  const cronStartedAt = Date.now();
   if (!isCronAuthorized(req.headers.get("authorization"))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
@@ -176,5 +187,61 @@ export async function GET(req: NextRequest) {
     `[mailchimp-eod-snapshot] processed=${results.length} corrected=${results.filter((r) => r.action === "corrected").length}`,
   );
 
-  return NextResponse.json({ ok: true, eventsProcessed: results.length, results });
+  const { data: taggedForCirqlin } = await sb
+    .from("events")
+    .select("id, mailchimp_tag")
+    .not("mailchimp_tag", "is", null);
+
+  const cirqlinEvents: { id: string; mailchimp_tag: string }[] = [];
+  for (const raw of taggedForCirqlin ?? []) {
+    const event = raw as { id?: unknown; mailchimp_tag?: unknown };
+    if (typeof event.id !== "string") continue;
+    if (typeof event.mailchimp_tag !== "string" || !event.mailchimp_tag) continue;
+    cirqlinEvents.push({ id: event.id, mailchimp_tag: event.mailchimp_tag });
+  }
+  const cirqlinResults: CirqlinSyncResult[] = [];
+  // EOD is 23:55 UTC — outside ads_ops business hours. Skip the gate
+  // so a broken secret still pings once instead of never.
+  const notifyCirqlin: (opts: {
+    channel: "ads_ops";
+    text: string;
+    dedupeKey: string;
+    dedupeWindowMs: number;
+  }) => Promise<unknown> = (opts) =>
+    notify(
+      { ...opts, respectBusinessHours: false },
+      buildLiveNotifyDeps(supabase),
+    );
+  let cirqlinLeft = 0;
+  for (let i = 0; i < cirqlinEvents.length; i += 1) {
+    if (cirqlinCronOverBudget(cronStartedAt, Date.now())) {
+      cirqlinLeft = cirqlinCronLeft(cirqlinEvents.length, i);
+      break;
+    }
+    const ev = cirqlinEvents[i]!;
+    try {
+      cirqlinResults.push(
+        await syncCirqlinSignupsForEvent(
+          supabase,
+          { eventId: ev.id, tag: ev.mailchimp_tag },
+          { notify: notifyCirqlin },
+        ),
+      );
+    } catch (err) {
+      cirqlinResults.push({
+        eventId: ev.id,
+        ok: false,
+        reason: "error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    eventsProcessed: results.length,
+    results,
+    cirqlin: cirqlinResults,
+    cirqlinLeft,
+  });
 }

@@ -122,6 +122,8 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL=
 GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ENABLE_MULTI_PLACEMENT_ASSETS=
 MAILCHIMP_WEBHOOK_SECRET=
+CIRQLIN_PARTNER_READ_SECRET=
+CIRQLIN_API_BASE=
 D2C_TOKEN_KEY=
 D2C_BRIEF_PARSER_MODEL=
 BIRD_API_BASE=
@@ -215,6 +217,13 @@ ENABLE_BUDGET_PACING_ALERTS=
 > URL) OR an `x-mailchimp-signature` HMAC-SHA256 of the raw body matches. Without
 > it, all webhook posts are rejected `401`. See the Mailchimp tag-tracking
 > architecture note below for one-time webhook setup.
+>
+> **`CIRQLIN_PARTNER_READ_SECRET`** is the shared bearer the dashboard sends to
+> Cirqlin `GET /api/partner/signups?tag=`. Same value Cirqlin compares
+> timing-safe. Unset → the Cirqlin refresh/EOD leg reports `not_configured`
+> and the Mailchimp leg still writes. **`CIRQLIN_API_BASE`** defaults to
+> `https://app.cirqlin.com`. Join key is `events.mailchimp_tag` ↔ Cirqlin
+> `pages.crm_base_tag`. Counts only — no PII.
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
 > are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape

@@ -57,6 +57,12 @@ import {
   netNewMailchimpRegistrationsForWeek,
   weekEndSunday,
 } from "@/lib/mailchimp/tracker-registrations";
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
+import {
+  cirqlinSignupsForDay,
+  cirqlinSignupsForWeek,
+  hasCirqlinRegs,
+} from "@/lib/cirqlin/tracker-signups";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
 /**
@@ -266,6 +272,11 @@ interface Props {
      *     flow to the chart for visual continuity from campaign launch.
      */
     mailchimpSnapshots?: ReadonlyArray<MailchimpSnapshotRow>;
+    /**
+     * Cirqlin per-day signup snapshots. When present they win the
+     * REGS column (and the collapsed bucket) over Mailchimp and Meta.
+     */
+    cirqlinSnapshots?: ReadonlyArray<CirqlinSnapshotRow>;
     /**
      * Campaign milestones from the event row. They name the collapsed
      * pre-general-sale row after the phase it covers and put a marker
@@ -606,19 +617,25 @@ export function DailyTracker({
   // read net-new Mailchimp members, everything else reads the Meta
   // pixel. Mirror the builder's own condition so the header tooltip
   // names the source actually on screen.
+  const regsFromCirqlin = hasCirqlinRegs(controlled?.cirqlinSnapshots);
   const regsFromMailchimpTag =
+    !regsFromCirqlin &&
     !isBrandCampaign &&
     (controlled?.mailchimpSnapshots ?? []).some(
       (s) =>
         s.raw_json?.method !== "linear_ramp_pre_snapshot" &&
         s.raw_json?.method !== "weighted_ramp_pre_snapshot",
     );
-  const regsColumnTooltip = regsFromMailchimpTag
-    ? "Net-new Mailchimp tag members per day. Meta-attributed pixel registrations are a different source and will differ."
-    : "Meta-attributed registrations (pixel). Mailchimp tag count is on the REGISTRATIONS card — different source, will differ.";
-  const cprColumnTooltip = regsFromMailchimpTag
-    ? "Meta spend ÷ net-new Mailchimp tag members. Spend is Meta-only; the members are not all Meta-attributed."
-    : "Meta spend ÷ Meta-attributed registrations.";
+  const regsColumnTooltip = regsFromCirqlin
+    ? "Cirqlin form submissions that day (spam excluded). Mailchimp tag count and Meta pixel registrations are different sources and will differ."
+    : regsFromMailchimpTag
+      ? "Net-new Mailchimp tag members per day. Meta-attributed pixel registrations are a different source and will differ."
+      : "Meta-attributed registrations (pixel). Cirqlin signups and the Mailchimp tag count are different sources and will differ.";
+  const cprColumnTooltip = regsFromCirqlin
+    ? "Meta spend ÷ Cirqlin signups that day. Spend is Meta-only; the signups are not all Meta-attributed."
+    : regsFromMailchimpTag
+      ? "Meta spend ÷ net-new Mailchimp tag members. Spend is Meta-only; the members are not all Meta-attributed."
+      : "Meta spend ÷ Meta-attributed registrations.";
 
   const milestones = isControlled ? (controlled?.milestones ?? null) : null;
   const milestoneDays = useMemo(
@@ -637,6 +654,7 @@ export function DailyTracker({
             isBrandCampaign,
             platform: controlled?.awarenessPlatform ?? "all",
             mailchimpSnapshots: controlled?.mailchimpSnapshots,
+            cirqlinSnapshots: controlled?.cirqlinSnapshots,
             milestones,
             milestoneDays,
           })
@@ -649,6 +667,7 @@ export function DailyTracker({
             isBrandCampaign,
             platform: controlled?.awarenessPlatform ?? "all",
             mailchimpSnapshots: controlled?.mailchimpSnapshots,
+            cirqlinSnapshots: controlled?.cirqlinSnapshots,
             milestones,
             milestoneDays,
           }),
@@ -662,6 +681,7 @@ export function DailyTracker({
       isBrandCampaign,
       controlled?.awarenessPlatform,
       controlled?.mailchimpSnapshots,
+      controlled?.cirqlinSnapshots,
       milestones,
       milestoneDays,
     ],
@@ -1319,6 +1339,7 @@ function buildDisplayRows({
   isBrandCampaign,
   platform,
   mailchimpSnapshots,
+  cirqlinSnapshots,
   milestones,
   milestoneDays = EMPTY_MILESTONE_DAYS,
 }: {
@@ -1334,6 +1355,7 @@ function buildDisplayRows({
     snapshot_at: string;
     raw_json?: Record<string, unknown> | null;
   }>;
+  cirqlinSnapshots?: ReadonlyArray<CirqlinSnapshotRow>;
   milestones?: TrackerMilestones | null;
   milestoneDays?: ReadonlyMap<string, TrackerMilestoneKind[]>;
 }): DisplayRow[] {
@@ -1397,10 +1419,13 @@ function buildDisplayRows({
         otherSpendBreakdownByDate?.get(r.date),
       ),
       link_clicks: linkClicksForDisplay(r, isBrandCampaign, platform),
-      meta_regs:
-        realSnapshotsForRegs && !isBrandCampaign
-          ? netNewMailchimpRegistrationsForDay(realSnapshotsForRegs, r.date)
-          : r.meta_regs,
+      meta_regs: regsForDay({
+        date: r.date,
+        metaRegs: r.meta_regs,
+        isBrandCampaign,
+        cirqlinSnapshots,
+        mailchimpSnapshots: realSnapshotsForRegs,
+      }),
       impressions: totalImpressionsOf(r, platform),
       video_views: totalVideoViewsOf(r, platform),
       tickets_sold: r.tickets_sold,
@@ -1513,6 +1538,7 @@ function buildDisplayRows({
       meta_regs: bucketRegs({
         presale,
         mailchimpSnapshots: realSnapshotsForRegs,
+        cirqlinSnapshots,
         isBrandCampaign,
       }),
       impressions: bucketImpressions(presale, platform),
@@ -1629,6 +1655,7 @@ function buildWeeklyDisplayRows({
   isBrandCampaign,
   platform,
   mailchimpSnapshots,
+  cirqlinSnapshots,
   milestones,
   milestoneDays = EMPTY_MILESTONE_DAYS,
 }: {
@@ -1643,6 +1670,7 @@ function buildWeeklyDisplayRows({
     snapshot_at: string;
     raw_json?: Record<string, unknown> | null;
   }>;
+  cirqlinSnapshots?: ReadonlyArray<CirqlinSnapshotRow>;
   milestones?: TrackerMilestones | null;
   milestoneDays?: ReadonlyMap<string, TrackerMilestoneKind[]>;
 }): DisplayRow[] {
@@ -1822,8 +1850,9 @@ function buildWeeklyDisplayRows({
       other_spend: otherSp,
       other_spend_tooltip: fmtOtherSpendTooltipLines(otherTooltipLines),
       link_clicks: clicks,
-      meta_regs:
-        realSnapshotsForRegs && !isBrandCampaign
+      meta_regs: hasCirqlinRegs(cirqlinSnapshots)
+        ? cirqlinSignupsForWeek(cirqlinSnapshots ?? [], wk)
+        : realSnapshotsForRegs && !isBrandCampaign
           ? netNewMailchimpRegistrationsForWeek(realSnapshotsForRegs, wk)
           : regs,
       impressions,
@@ -1876,6 +1905,7 @@ function buildWeeklyDisplayRows({
       meta_regs: bucketRegs({
         presale,
         mailchimpSnapshots: realSnapshotsForRegs,
+        cirqlinSnapshots,
         isBrandCampaign,
       }),
       impressions: bucketImpressions(presale, platform),
@@ -1956,6 +1986,28 @@ function num(v: number | null | undefined): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function regsForDay({
+  date,
+  metaRegs,
+  isBrandCampaign,
+  cirqlinSnapshots,
+  mailchimpSnapshots,
+}: {
+  date: string;
+  metaRegs: number | null;
+  isBrandCampaign: boolean;
+  cirqlinSnapshots?: ReadonlyArray<CirqlinSnapshotRow>;
+  mailchimpSnapshots: ReadonlyArray<MailchimpSnapshotRow> | null;
+}): number | null {
+  if (hasCirqlinRegs(cirqlinSnapshots) && cirqlinSnapshots) {
+    return cirqlinSignupsForDay(cirqlinSnapshots, date);
+  }
+  if (mailchimpSnapshots && mailchimpSnapshots.length > 0 && !isBrandCampaign) {
+    return netNewMailchimpRegistrationsForDay(mailchimpSnapshots, date);
+  }
+  return metaRegs;
 }
 
 function paidSpendForDisplay(

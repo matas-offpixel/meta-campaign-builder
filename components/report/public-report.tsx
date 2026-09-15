@@ -26,6 +26,7 @@ import type { TikTokReportBlockData } from "./tiktok-report-block";
 import type { TikTokRollupTotals } from "./meta-insights-sections";
 import type { GoogleAdsReportBlockData } from "./google-ads-report-block";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
+import type { RegistrationsCardModel } from "@/lib/dashboard/registrations-card-model";
 import type {
   CrossPlatformComparison,
   EventFunnelView,
@@ -115,6 +116,7 @@ interface Props {
    * REGISTRATIONS card (brand_campaign events only).
    */
   registrationsData?: MailchimpRegistrationsData | null;
+  signupRegistrations?: RegistrationsCardModel | null;
   /**
    * Pre-computed per-platform spend totals from `event_daily_rollups`
    * (server-side, brand_campaign only). Passed through to EventReportView
@@ -176,6 +178,7 @@ export function PublicReport({
   additionalSpendSlot,
   mailchimpSlot,
   registrationsData,
+  signupRegistrations = null,
   brandRollupSpend,
   tiktokRollupTotals,
   tiktokSnapshots,
@@ -382,6 +385,7 @@ export function PublicReport({
       additionalSpendSlot={additionalSpendSlot}
       mailchimpSlot={mailchimpSlot}
       registrationsData={registrationsData}
+      signupRegistrations={signupRegistrations}
       brandRollupSpend={brandRollupSpend}
       tiktokRollupTotals={tiktokRollupTotals}
       tiktokSnapshots={tiktokSnapshots}
