@@ -14,6 +14,7 @@ import {
 } from "../map.ts";
 import {
   defaultCarryKeys,
+  formatTikTokImportJoinLine,
   formatTikTokImportUnjoinedLine,
   hydratePickerThumbnails,
   matchTikTokGeneratedName,
@@ -80,7 +81,7 @@ describe("Smart+ capture 1876044101888033", () => {
     );
     assert.equal(bundle.ads.length, 45);
     assert.equal(videoIds.size, 41);
-    const sparks = picker.rows.filter((row) => !row.key.startsWith("v") && !row.disabled);
+    const sparks = picker.rows.filter((row) => row.kind === "spark" && !row.disabled);
     assert.equal(sparks.length, 1);
     assert.equal(sparks[0]?.key, "7681731377242311958");
   });
@@ -96,7 +97,13 @@ describe("Smart+ capture 1876044101888033", () => {
       true,
     );
     assert.equal(picker.unjoined, 0);
+    assert.equal(picker.chosenJoined, 45);
+    assert.equal(picker.chosenTotal, 45);
     assert.equal(formatTikTokImportUnjoinedLine(picker.unjoined), null);
+    assert.equal(
+      formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal),
+      null,
+    );
   });
 
   it("lists CAROUSEL_ADS without a Spark id as unsupported, never in creatives.items", () => {
@@ -136,7 +143,7 @@ describe("Smart+ capture 1876044101888033", () => {
       assert.equal(matchTikTokGeneratedName(row.name), null, row.name);
     }
     const variants = picker.rows.filter(
-      (row) => !row.disabled && !ORIGINAL_MP4_STEMS.includes(row.name) && row.key.startsWith("v"),
+      (row) => !row.disabled && !ORIGINAL_MP4_STEMS.includes(row.name) && row.kind === "video",
     );
     for (const row of variants) {
       assert.equal(row.defaultTicked, false, row.name);
@@ -173,22 +180,49 @@ describe("Smart+ capture 1876044101888033", () => {
 });
 
 describe("manual capture 1874142286754113", () => {
-  it("has 9 rows, all ticked by default, 8 Spark + v7, no library gate", () => {
+  it("maps v7 as VIDEO_REFERENCE and the eight Spark item ids; one video_id is in the library; all stay ticked", () => {
     const bundle = bundleFromRawCapture(loadCapture(MANUAL_PATH));
     const picker = buildTikTokImportPicker(bundle);
     assert.equal(picker.rows.length, 9);
+    assert.equal(picker.unjoined, 0);
     assert.equal(
       picker.rows.filter((row) => row.defaultTicked && !row.disabled).length,
       9,
     );
-    const sparks = picker.rows.filter((row) => !row.key.startsWith("v"));
-    const videos = picker.rows.filter((row) => row.key.startsWith("v"));
+    const sparks = picker.rows.filter((row) => row.kind === "spark");
+    const videos = picker.rows.filter((row) => row.kind === "video");
     assert.equal(sparks.length, 8);
     assert.equal(videos.length, 1);
-    assert.ok(videos[0]?.name.toLowerCase().includes("v7") || videos[0]?.key);
+    assert.ok(videos[0]?.name.toLowerCase().includes("v7"));
+
+    const sparkIdsFromCapture = bundle.ads
+      .map((ad) => ad.tiktok_item_id)
+      .filter((id): id is string => Boolean(id));
+    assert.equal(sparkIdsFromCapture.length, 8);
+    const keys = picker.rows.map((row) => row.key);
+    const mapped = mapTikTokLiveCampaignToDraft(bundle, "manual-nine", ACCOUNT, {
+      carry: keys,
+    });
+    const v7 = mapped.creatives.items.find((item) => item.mode === "VIDEO_REFERENCE");
+    assert.equal(mapped.creatives.items.filter((item) => item.mode === "VIDEO_REFERENCE").length, 1);
+    assert.equal(v7?.sparkPostId, null);
+    assert.ok(v7?.name.toLowerCase().includes("v7"));
+    const sparkItems = mapped.creatives.items.filter((item) => item.mode === "SPARK_AD");
+    assert.equal(sparkItems.length, 8);
+    assert.deepEqual(
+      sparkItems.map((item) => item.sparkPostId).sort(),
+      sparkIdsFromCapture.slice().sort(),
+    );
+
+    const videoIds = bundle.ads
+      .map((ad) => ad.video_id)
+      .filter((id): id is string => Boolean(id));
+    assert.equal(videoIds.length, 9);
+    const inLibrary = videoIds.filter((id) => bundle.libraryVideoIds.includes(id));
+    assert.deepEqual(inLibrary, ["v10033g50000da3mctvog65n5k613ri0"]);
     assert.equal(
-      picker.rows.some((row) => row.unsupportedReason === "not_in_creative_library"),
-      false,
+      picker.rows.every((row) => row.defaultTicked && !row.disabled),
+      true,
     );
   });
 });
@@ -273,6 +307,7 @@ describe("hydratePickerThumbnails", () => {
     const rows = [
       {
         key: "v-bad-id",
+        kind: "video" as const,
         name: "Missing original",
         thumbnailUrl: null,
         thumbnailError: false,
@@ -290,6 +325,7 @@ describe("hydratePickerThumbnails", () => {
       },
       {
         key: "v-good-id",
+        kind: "video" as const,
         name: "Present original",
         thumbnailUrl: null,
         thumbnailError: false,
@@ -306,14 +342,13 @@ describe("hydratePickerThumbnails", () => {
         suggestionLabel: null,
       },
     ];
+    let calls = 0;
     const request = (async (path: string, params: Record<string, unknown>) => {
       assert.equal(path, "/file/video/ad/info/");
       const ids = params.video_ids as string[];
-      if (ids.includes("v-bad-id") && ids.length > 1) {
-        throw new Error("one of the video_ids is not acceptable");
-      }
+      calls += 1;
       if (ids.includes("v-bad-id")) {
-        throw new Error("video_id v-bad-id is not acceptable");
+        throw new Error("one of the video_ids is not acceptable");
       }
       return {
         list: ids.map((video_id) => ({
@@ -329,9 +364,10 @@ describe("hydratePickerThumbnails", () => {
       token: "token",
       request,
     });
+    assert.equal(calls, 2);
     assert.equal(hydrated[0]?.thumbnailUrl, null);
     assert.equal(hydrated[0]?.thumbnailError, true);
-    assert.equal(hydrated[1]?.thumbnailUrl, "https://thumb/v-good-id");
-    assert.equal(hydrated[1]?.thumbnailError, false);
+    assert.equal(hydrated[1]?.thumbnailUrl, null);
+    assert.equal(hydrated[1]?.thumbnailError, true);
   });
 });

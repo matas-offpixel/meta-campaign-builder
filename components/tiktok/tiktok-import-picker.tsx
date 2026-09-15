@@ -20,6 +20,7 @@ import {
   type TikTokLiveCampaignRow,
 } from "@/lib/tiktok/import/types";
 import {
+  formatTikTokImportJoinLine,
   formatTikTokImportUnjoinedLine,
   type TikTokImportPickerPayload,
 } from "@/lib/tiktok/import/picker";
@@ -285,6 +286,12 @@ export function TikTokImportPicker({
                   {" "}
                   · {TIKTOK_LIVE_CAMPAIGN_KIND_LABEL[picker.campaign.kind]} ·{" "}
                   {ticked.size} of {enabledCount} ticked
+                  {formatTikTokImportJoinLine(
+                    picker.chosenJoined,
+                    picker.chosenTotal,
+                  )
+                    ? ` · ${formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal)}`
+                    : ""}
                   {formatTikTokImportUnjoinedLine(picker.unjoined)
                     ? ` · ${formatTikTokImportUnjoinedLine(picker.unjoined)}`
                     : ""}

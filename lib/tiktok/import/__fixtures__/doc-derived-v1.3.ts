@@ -33,7 +33,8 @@
  * targeting_spec), targeting defaults, reader mocks, the raw-route
  * 401/403, legacy SPC (no live capture), and synthetic edges (hollow
  * rows, image-only, identity conflict, multi-ad-group, join-break
- * unjoined).
+ * unjoined, 1-of-45 partial join, empty `creative_list`, shared Spark
+ * copies).
  *
  * FALSIFIED (was UNKNOWN): `video_id` in `/file/video/ad/search/` ⇔
  * an original the operator uploaded. TikTok writes variants into the

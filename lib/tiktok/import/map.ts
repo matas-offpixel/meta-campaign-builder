@@ -363,7 +363,12 @@ function sourceFromAdGetRow(
     origin,
     name,
     assetGroup: inferAssetGroup(name, assetGroupNames),
-    adFormat: asString(ad.ad_format),
+    // `/ad/get/` is never asked for `ad_format` or `music_id` — those
+    // names are not on the captured `/adgroup/get/` accepted list, and
+    // that list says nothing about this endpoint. Unsupported-format
+    // detection is Smart+-only until `/ad/get/` is captured the same
+    // way. Do not read a field we did not request.
+    adFormat: null,
     videoId: asString(ad.video_id),
     imageIds: asStringArray(ad.image_ids),
     coverImageId: asStringArray(ad.image_ids)[0] ?? null,
@@ -374,7 +379,7 @@ function sourceFromAdGetRow(
     adText: asString(ad.ad_text) ?? "",
     cta: asString(ad.call_to_action),
     landingPageUrl: asString(ad.landing_page_url) ?? "",
-    musicId: asString(ad.music_id),
+    musicId: null,
   };
 }
 
@@ -494,15 +499,22 @@ function mergeSource(chosen: SourceCreative, ad: SourceCreative): SourceCreative
  * /ad/get/ ad_id` (without the `ad_ids_v2` filter). `video_id` and
  * `tiktok_item_id` are the second and third keys.
  *
- * When the primary key matches nothing anywhere, we do not get to call
- * the leftover `/ad/get/` rows "TikTok added" — that is exactly the
- * claim #944 made about 45 rows it had failed to join. They are marked
- * `unjoined` and counted.
+ * `unjoined` is always the number of `/ad/get/` rows that matched no
+ * `creative_list` row. One successful join does not relabel the rest
+ * `tiktok_added` — that was #944 with a smaller blast radius. Without
+ * a documented TikTok split, leftover unmatched ads stay `unjoined`.
+ * The picker reports `chosenJoined` / `chosenTotal` so the header can
+ * say both numbers when they disagree.
  */
 function joinUpgradedSources(
   chosen: SourceCreative[],
   adRows: SourceCreative[],
-): { sources: SourceCreative[]; unjoined: number } {
+): {
+  sources: SourceCreative[];
+  unjoined: number;
+  chosenJoined: number;
+  chosenTotal: number;
+} {
   const byKey = new Map(adRows.map((row) => [row.key, row]));
   const byVideo = new Map(
     adRows.filter((row) => row.videoId).map((row) => [row.videoId!, row]),
@@ -513,27 +525,33 @@ function joinUpgradedSources(
 
   const usedAdKeys = new Set<string>();
   const sources: SourceCreative[] = [];
+  let chosenJoined = 0;
   for (const entry of chosen) {
     const match =
       byKey.get(entry.key) ??
       (entry.videoId ? byVideo.get(entry.videoId) : undefined) ??
       (entry.sparkPostId ? bySpark.get(entry.sparkPostId) : undefined);
-    if (match) usedAdKeys.add(match.key);
-    sources.push(match ? mergeSource(entry, match) : entry);
+    if (match) {
+      usedAdKeys.add(match.key);
+      chosenJoined += 1;
+      sources.push(mergeSource(entry, match));
+    } else {
+      sources.push(entry);
+    }
   }
 
-  const joinWorked = usedAdKeys.size > 0 || chosen.length === 0;
   let unjoined = 0;
   for (const row of adRows) {
     if (usedAdKeys.has(row.key)) continue;
-    if (joinWorked) {
-      sources.push({ ...row, origin: "tiktok_added" });
-    } else {
-      unjoined += 1;
-      sources.push({ ...row, origin: "unjoined" });
-    }
+    unjoined += 1;
+    sources.push({ ...row, origin: "unjoined" });
   }
-  return { sources, unjoined };
+  return {
+    sources,
+    unjoined,
+    chosenJoined,
+    chosenTotal: chosen.length,
+  };
 }
 
 /* -------------------------------------------------------------------------
@@ -544,6 +562,7 @@ function joinUpgradedSources(
 
 type UniqueRow = {
   key: string;
+  kind: "video" | "spark";
   name: string;
   source: SourceCreative;
   assetGroups: string[];
@@ -597,10 +616,18 @@ function uniqueGroups(sources: readonly SourceCreative[]): string[] {
   return [...new Set(sources.map((row) => row.assetGroup).filter(Boolean))].sort();
 }
 
+type CollectedSources = {
+  sources: SourceCreative[];
+  sourceRows: number;
+  unjoined: number;
+  chosenJoined: number;
+  chosenTotal: number;
+};
+
 function collectSources(
   bundle: TikTokImportLiveBundle,
   dropped: TikTokImportDroppedField[],
-): { sources: SourceCreative[]; sourceRows: number; unjoined: number } {
+): CollectedSources {
   const groups = assetGroupNames(bundle);
   if (bundle.kind === "legacy_smart_plus") {
     const spc = bundle.spc ?? {};
@@ -622,30 +649,63 @@ function collectSources(
       landingPageUrl: asString(spc.landing_page_url) ?? "",
       musicId: null,
     }));
-    return { sources, sourceRows: sources.length, unjoined: 0 };
+    return {
+      sources,
+      sourceRows: sources.length,
+      unjoined: 0,
+      chosenJoined: 0,
+      chosenTotal: 0,
+    };
   }
   if (bundle.kind === "smart_plus") {
     const chosen: SourceCreative[] = [];
     for (const ad of bundle.smartPlusAds) {
       chosen.push(...sourcesFromSmartPlusAd(ad, chosen.length, dropped));
     }
+    const campaignId =
+      asString(bundle.campaign.campaign_id) ?? "unknown campaign";
+    if (chosen.length === 0) {
+      throw new TikTokImportSourceError(
+        `/smart_plus/ad/get/ returned ${bundle.smartPlusAds.length} asset groups and 0 creatives for ${campaignId} (${bundle.ads.length} /ad/get/ rows)`,
+      );
+    }
     const adRows = bundle.ads.map((ad, index) =>
-      sourceFromAdGetRow(ad, index, "tiktok_added", groups),
+      sourceFromAdGetRow(ad, index, "unjoined", groups),
     );
-    const { sources, unjoined } = joinUpgradedSources(chosen, adRows);
-    return { sources, sourceRows: sources.length, unjoined };
+    const { sources, unjoined, chosenJoined, chosenTotal } =
+      joinUpgradedSources(chosen, adRows);
+    return {
+      sources,
+      sourceRows: sources.length,
+      unjoined,
+      chosenJoined,
+      chosenTotal,
+    };
   }
   const sources = bundle.ads.map((ad, index) =>
     sourceFromAdGetRow(ad, index, "chosen", groups),
   );
-  return { sources, sourceRows: sources.length, unjoined: 0 };
+  return {
+    sources,
+    sourceRows: sources.length,
+    unjoined: 0,
+    chosenJoined: 0,
+    chosenTotal: 0,
+  };
 }
 
 function collectUniqueRows(
   bundle: TikTokImportLiveBundle,
   dropped: TikTokImportDroppedField[],
-): { rows: UniqueRow[]; sourceRows: number; unjoined: number } {
-  const { sources, sourceRows, unjoined } = collectSources(bundle, dropped);
+): {
+  rows: UniqueRow[];
+  sourceRows: number;
+  unjoined: number;
+  chosenJoined: number;
+  chosenTotal: number;
+} {
+  const { sources, sourceRows, unjoined, chosenJoined, chosenTotal } =
+    collectSources(bundle, dropped);
   const groups = assetGroupNames(bundle);
   const libraryById = new Map(
     (bundle.libraryVideos ?? []).map((row) => [row.video_id, row]),
@@ -690,6 +750,7 @@ function collectUniqueRows(
     const generated = matchTikTokGeneratedName(stem);
     unique.push({
       key: preferred.videoId,
+      kind: "video",
       name: stem,
       source,
       assetGroups: uniqueGroups(all),
@@ -707,10 +768,11 @@ function collectUniqueRows(
     const stem = stemFromAdName(source.name, groups) || sparkId;
     unique.push({
       key: sparkId,
+      kind: "spark",
       name: stem,
       source: { ...source, sparkPostId: sparkId },
       assetGroups: uniqueGroups(rows),
-      copies: 1,
+      copies: rows.length,
       inLibrary: false,
       library: null,
       disabled: false,
@@ -723,6 +785,7 @@ function collectUniqueRows(
     const kind = classifySource(source) as TikTokImportNotCarriedReason;
     unique.push({
       key: source.key,
+      kind: "video",
       name: stemFromAdName(source.name, groups),
       source,
       assetGroups: uniqueGroups([source]),
@@ -737,13 +800,14 @@ function collectUniqueRows(
     });
   }
 
-  return { rows: unique, sourceRows, unjoined };
+  return { rows: unique, sourceRows, unjoined, chosenJoined, chosenTotal };
 }
 
 function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
   const defaultTicked = !row.disabled && !row.suggestionReason;
   const picker: TikTokImportPickerRow = {
     key: row.key,
+    kind: row.kind,
     name: row.name,
     thumbnailUrl: row.library?.video_cover_url ?? null,
     durationSeconds: row.library?.duration ?? null,
@@ -765,7 +829,10 @@ function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
 export function buildTikTokImportPicker(
   bundle: TikTokImportLiveBundle,
 ): TikTokImportPickerPayload {
-  const { rows, unjoined } = collectUniqueRows(bundle, []);
+  const { rows, unjoined, chosenJoined, chosenTotal } = collectUniqueRows(
+    bundle,
+    [],
+  );
   return {
     campaign: {
       id: asString(bundle.campaign.campaign_id) ?? "",
@@ -774,6 +841,8 @@ export function buildTikTokImportPicker(
     },
     rows: rows.map(pickerRowFromUnique),
     unjoined,
+    chosenJoined,
+    chosenTotal,
   };
 }
 
@@ -845,6 +914,8 @@ function carryUniqueRows(input: {
     campaign: { id: "", name: "", kind: "manual" as const },
     rows: input.rows.map(pickerRowFromUnique),
     unjoined: 0,
+    chosenJoined: 0,
+    chosenTotal: 0,
   };
   const keys = new Set(input.carry ?? defaultCarryKeys(picker));
   const creatives: TikTokCreativeDraft[] = [];

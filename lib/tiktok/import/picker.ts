@@ -72,9 +72,12 @@ export function stemFromAdName(
   return adName;
 }
 
+export type TikTokImportPickerRowKind = "video" | "spark";
+
 export type TikTokImportPickerRow = {
   /** `video_id` or `tiktok_item_id` — the key `POST …/import` `carry` sends. */
   key: string;
+  kind: TikTokImportPickerRowKind;
   name: string;
   thumbnailUrl: string | null;
   thumbnailError: boolean;
@@ -99,11 +102,15 @@ export type TikTokImportPickerPayload = {
   };
   rows: TikTokImportPickerRow[];
   /**
-   * `/ad/get/` rows that did not join a `creative_list` row when the
-   * join key matched nothing anywhere. Shown once each; not a carry
+   * `/ad/get/` rows that matched no `creative_list` row on any of the
+   * three join keys. Always counted. Shown once each; not a carry
    * decision.
    */
   unjoined: number;
+  /** `creative_list` rows that matched an `/ad/get/` row. */
+  chosenJoined: number;
+  /** Every `creative_list` row TikTok reported as explicitly selected. */
+  chosenTotal: number;
 };
 
 /** Same batch size as `fetchVideoInfo` in `lib/tiktok/share-render.ts`. */
@@ -114,6 +121,20 @@ export const TIKTOK_IMPORT_VIDEO_INFO_PATH = "/file/video/ad/info/";
 export function formatTikTokImportUnjoinedLine(unjoined: number): string | null {
   if (unjoined <= 0) return null;
   return `${unjoined} source ads could not be matched to a creative TikTok says you selected — shown once each`;
+}
+
+/**
+ * When TikTok's selected set and the `/ad/get/` join disagree, say so
+ * with both numbers. Do not pick a threshold that would relabel the
+ * unmatched ads as `tiktok_added`.
+ */
+export function formatTikTokImportJoinLine(
+  chosenJoined: number,
+  chosenTotal: number,
+): string | null {
+  if (chosenTotal <= 0) return null;
+  if (chosenJoined === chosenTotal) return null;
+  return `${chosenJoined} of ${chosenTotal} creatives TikTok says you selected matched a source ad`;
 }
 
 export function defaultCarryKeys(
@@ -149,7 +170,10 @@ export async function hydratePickerThumbnails(input: {
   const videoIds = [
     ...new Set(
       input.rows
-        .filter((row) => !row.thumbnailUrl && row.key.startsWith("v"))
+        .filter(
+          (row) =>
+            row.kind === "video" && !row.disabled && !row.thumbnailUrl,
+        )
         .map((row) => row.key),
     ),
   ];
@@ -159,29 +183,22 @@ export async function hydratePickerThumbnails(input: {
   const failed = new Set<string>();
   for (let i = 0; i < videoIds.length; i += TIKTOK_IMPORT_VIDEO_INFO_CHUNK) {
     const chunk = videoIds.slice(i, i + TIKTOK_IMPORT_VIDEO_INFO_CHUNK);
-    try {
-      const info = await fetchTikTokVideoInfo({
-        advertiserId: input.advertiserId,
-        token: input.token,
-        videoIds: chunk,
-        request: input.request,
-      });
-      for (const row of info) {
-        byId.set(row.video_id, { thumbnail_url: row.thumbnail_url });
-      }
-    } catch {
-      for (const videoId of chunk) {
-        try {
-          const info = await fetchTikTokVideoInfo({
-            advertiserId: input.advertiserId,
-            token: input.token,
-            videoIds: [videoId],
-            request: input.request,
-          });
-          const hit = info[0];
-          if (hit) byId.set(hit.video_id, { thumbnail_url: hit.thumbnail_url });
-        } catch {
-          failed.add(videoId);
+    let loaded = false;
+    for (let attempt = 0; attempt < 2 && !loaded; attempt += 1) {
+      try {
+        const info = await fetchTikTokVideoInfo({
+          advertiserId: input.advertiserId,
+          token: input.token,
+          videoIds: chunk,
+          request: input.request,
+        });
+        for (const row of info) {
+          byId.set(row.video_id, { thumbnail_url: row.thumbnail_url });
+        }
+        loaded = true;
+      } catch {
+        if (attempt === 1) {
+          for (const videoId of chunk) failed.add(videoId);
         }
       }
     }
