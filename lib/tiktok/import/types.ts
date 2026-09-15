@@ -4,11 +4,11 @@
  */
 
 /**
- * `/file/video/ad/search/` is the seventh path, added deliberately: a
- * relaunch carries only creatives that still exist in the advertiser's
- * Creative Library, so the library is read on every import. It is the
- * same endpoint the wizard's video picker already uses
- * (`TIKTOK_VIDEO_LIBRARY_PATH` in `lib/tiktok/creative.ts`).
+ * Seven campaign reads plus the two Creative Library reads the picker
+ * uses. `/file/video/ad/search/` is membership, dimensions, duration,
+ * file_name. `/file/video/ad/info/` hydrates thumbnails for ids that
+ * are not in the library (the wizard already wraps it). Neither is a
+ * carry rule — the operator ticks what to keep.
  */
 export const TIKTOK_IMPORT_PATHS = [
   "/campaign/get/",
@@ -18,6 +18,7 @@ export const TIKTOK_IMPORT_PATHS = [
   "/smart_plus/ad/get/",
   "/campaign/spc/get/",
   "/file/video/ad/search/",
+  "/file/video/ad/info/",
 ] as const;
 
 export type TikTokImportPath = (typeof TIKTOK_IMPORT_PATHS)[number];
@@ -61,17 +62,19 @@ export type TikTokImportEnhancements = {
 /**
  * Why a source creative did not reach `creatives.items`.
  *
- * `not_in_creative_library` is the rule, not an error: a relaunch
- * recreates the campaign the operator launched, so it carries only
- * assets that still exist in the advertiser's Creative Library.
- * TikTok's delivery-time variants (Music_Refresh, New_Hook,
- * AI Generated Video-N, remixed cuts) are not in it.
+ * The operator ticks what to carry. `looks_tiktok_generated` is the
+ * pattern-default suggestion, not a decision. `operator_unticked` is
+ * a row the default would have kept. Disabled rows keep the
+ * unsupported / no-asset reasons. `not_in_creative_library` is only
+ * for drafts saved under the #945 rule, which the capture falsified.
  */
 export const TIKTOK_IMPORT_NOT_CARRIED_REASONS = [
-  "not_in_creative_library",
+  "looks_tiktok_generated",
+  "operator_unticked",
   "unsupported_ad_format",
   "image_ad_unsupported",
   "no_asset_reported",
+  "not_in_creative_library",
 ] as const;
 
 export type TikTokImportNotCarriedReason =
@@ -81,10 +84,12 @@ export const TIKTOK_IMPORT_NOT_CARRIED_LABELS: Record<
   TikTokImportNotCarriedReason,
   string
 > = {
-  not_in_creative_library: "not in the Creative Library",
+  looks_tiktok_generated: "looked TikTok-generated",
+  operator_unticked: "unticked by you",
   unsupported_ad_format: "carousel — no draft equivalent",
   image_ad_unsupported: "image ads — the TikTok draft has no image creative mode",
   no_asset_reported: "TikTok reported no video, image or post",
+  not_in_creative_library: "not in the Creative Library",
 };
 
 export type TikTokImportNotCarried = {
@@ -98,21 +103,14 @@ export type TikTokImportNotCarried = {
 };
 
 /**
- * `sourceRows === carried + deduped + notCarried`. Every source ad is
- * accounted for exactly once; #944's `{chosen, tiktokAdded}` counted 45
- * creatives twice.
+ * `sourceRows` is every `/ad/get/` (or Smart+ creative_list) row.
+ * `unique` is after stem-collapse. `carried` + `unticked` = unique.
  */
 export type TikTokImportCreativeCounts = {
   sourceRows: number;
+  unique: number;
   carried: number;
-  deduped: number;
-  notCarried: number;
-  /**
-   * Source rows that matched no counterpart across
-   * `/smart_plus/ad/get/` and `/ad/get/`. Provenance only — an unjoined
-   * row is still carried or not on the Creative Library rule.
-   */
-  unjoined: number;
+  unticked: number;
 };
 
 export type TikTokImportMeta = {
@@ -283,24 +281,32 @@ export function formatTikTokImportCreativeCounts(
   counts: TikTokImportCreativeCounts,
   notCarried: readonly TikTokImportNotCarried[] = [],
 ): string {
-  const carried = `${plural(counts.carried, "original creative", "original creatives")} carried.`;
-  if (counts.notCarried === 0) return carried;
-  const reasons = new Set(notCarried.map((item) => item.reason));
-  if (reasons.size <= 1 && reasons.has("not_in_creative_library")) {
-    return `${carried} ${plural(counts.notCarried, "TikTok-generated variant", "TikTok-generated variants")} not carried.`;
-  }
-  if (reasons.size <= 1 && reasons.has("image_ad_unsupported")) {
-    return `${carried} ${plural(counts.notCarried, "image ad", "image ads")} — the TikTok draft has no image creative mode.`;
+  const carried = `${plural(counts.carried, "original", "originals")} carried.`;
+  if (counts.unticked === 0) return carried;
+  const generated = notCarried.filter(
+    (item) => item.reason === "looks_tiktok_generated",
+  ).length;
+  const byYou = notCarried.filter(
+    (item) => item.reason === "operator_unticked",
+  ).length;
+  if (generated + byYou === counts.unticked && (generated > 0 || byYou > 0)) {
+    const bits = [
+      generated > 0
+        ? `${generated} looked TikTok-generated`
+        : null,
+      byYou > 0 ? `${byYou} by you` : null,
+    ].filter(Boolean);
+    return `${carried} ${plural(counts.unticked, "unticked", "unticked")} (${bits.join(", ")}).`;
   }
   const breakdown = TIKTOK_IMPORT_NOT_CARRIED_REASONS.filter((reason) =>
-    reasons.has(reason),
+    notCarried.some((item) => item.reason === reason),
   )
     .map((reason) => {
       const n = notCarried.filter((item) => item.reason === reason).length;
       return `${n} ${TIKTOK_IMPORT_NOT_CARRIED_LABELS[reason]}`;
     })
     .join(", ");
-  return `${carried} ${counts.notCarried} not carried — ${breakdown}.`;
+  return `${carried} ${counts.unticked} unticked — ${breakdown}.`;
 }
 
 /** Names the operator can check against Ads Manager, longest list first. */

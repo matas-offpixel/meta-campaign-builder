@@ -24,22 +24,19 @@
  * - `/smart_plus/ad/get/` rows do NOT carry `ad_id`, `creative_id`, flat
  *   `video_id` or flat `image_ids`. #944 read all four and got nulls.
  *
- * UNKNOWN UNTIL CAPTURE:
- * - The `creative_list[]` shape below is the documented one
- *   (https://business-api.tiktok.com/portal/docs/get-upgraded-smart-ads/v1.3)
- *   and has not yet been seen on the wire.
- * - `page_size: 1000` on `/campaign/spc/get/`.
- * - Whether `excluded_audience_ids` comes back under `targeting_spec` on
- *   an upgraded ad group that has one.
- * - The carry premise: `video_id` in `/file/video/ad/search/` ⇔ an
- *   original the operator uploaded. If that endpoint omits videos
- *   uploaded inline at ad-create, or Smart+ variants are written back
- *   into the library, Step 1 is wrong in either direction. The raw
- *   route already records the library call; the library ids against
- *   the 45 `/ad/get/` rows settle this.
- * - A legacy SPC row with no top-level `location_ids` now throws
- *   (empty location targeting is a claim). This advertiser has no
- *   legacy campaign, so that throw is unverifiable here.
+ * RETIRED as a fixture for every path the 2026-09-15 captures cover
+ * (`captured/tiktok-import-capture-1876044101888033.json` Smart+,
+ * `captured/tiktok-import-capture-1874142286754113.json` manual):
+ * `/smart_plus/ad/get/` creative_list shape, the
+ * `smart_plus_creative_id === ad_id` join, `/ad/get/` omitted keys,
+ * Creative Library membership, and the carry rule. Those tests load
+ * the captures. This file stays for envelope throws, targeting
+ * defaults, reader mocks, and the legacy SPC path — no live SPC
+ * capture exists on this advertiser.
+ *
+ * FALSIFIED (was UNKNOWN): `video_id` in `/file/video/ad/search/` ⇔
+ * an original the operator uploaded. TikTok writes variants into the
+ * library and nine inline-uploaded originals are absent.
  */
 
 export const MANUAL_CAMPAIGN_GET = {

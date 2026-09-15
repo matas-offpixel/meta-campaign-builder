@@ -188,13 +188,12 @@ function normalizeImportCreativeCounts(
 ): NonNullable<TikTokCampaignDraft["importMeta"]>["creativeCounts"] {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  if (!("carried" in record)) return null;
+  if (!("unique" in record) || !("unticked" in record)) return null;
   return {
     sourceRows: asOptionalNumber(record.sourceRows) ?? 0,
+    unique: asOptionalNumber(record.unique) ?? 0,
     carried: asOptionalNumber(record.carried) ?? 0,
-    deduped: asOptionalNumber(record.deduped) ?? 0,
-    notCarried: asOptionalNumber(record.notCarried) ?? 0,
-    unjoined: asOptionalNumber(record.unjoined) ?? 0,
+    unticked: asOptionalNumber(record.unticked) ?? 0,
   };
 }
 
