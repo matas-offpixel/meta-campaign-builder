@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
+import { syncCirqlinSignupsForEvent } from "@/lib/cirqlin/sync";
 import {
   syncMailchimpAudienceForEvent,
   syncMailchimpTagForEvent,
@@ -135,7 +136,22 @@ export async function POST(
       );
     }
 
-    return NextResponse.json({ ok: true, snapshot });
+    let cirqlin = null;
+    try {
+      cirqlin = await syncCirqlinSignupsForEvent(supabase, {
+        eventId,
+        tag: mailchimpTag,
+      });
+    } catch (err) {
+      cirqlin = {
+        eventId,
+        ok: false,
+        reason: "error" as const,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    return NextResponse.json({ ok: true, snapshot, cirqlin });
   }
 
   // Audience-level refresh — existing behaviour.

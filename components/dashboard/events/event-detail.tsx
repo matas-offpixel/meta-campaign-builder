@@ -821,6 +821,12 @@ export function EventDetail({
                                 mailchimp_tag: string | null;
                               }
                             ).mailchimp_tag ?? undefined,
+                          generalSaleAt:
+                            (
+                              event as unknown as {
+                                general_sale_at: string | null;
+                              }
+                            ).general_sale_at ?? null,
                         }}
                         datePreset={reportDatePreset}
                         customRange={reportCustomRange}

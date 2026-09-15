@@ -49,6 +49,8 @@ import {
   type GoogleAdsReportBlockData,
 } from "./google-ads-report-block";
 import { RegistrationsCard } from "./RegistrationsCard";
+import { SignupRegistrationsCard } from "./signup-registrations-card";
+import type { RegistrationsCardModel } from "@/lib/dashboard/registrations-card-model";
 import type { MailchimpRegistrationsData } from "@/lib/mailchimp/registrations-loader";
 import {
   groupTikTokCreatives,
@@ -148,6 +150,8 @@ export interface EventReportViewEvent {
    * Null → card is hidden.
    */
   mailchimpTag?: string | null;
+  /** Signup-phase CPR window ends on this day's calendar date. */
+  generalSaleAt?: string | null;
 }
 
 export type CreativesSource =
@@ -313,6 +317,12 @@ interface Props {
    */
   registrationsData?: MailchimpRegistrationsData | null;
   /**
+   * Cirqlin-first REGISTRATIONS card for tagged events. When set,
+   * replaces the Mailchimp-only headline card. `computeRegistrationsData`
+   * stays on `registrationsData`.
+   */
+  signupRegistrations?: RegistrationsCardModel | null;
+  /**
    * When provided, a Refresh button is shown on the REGISTRATIONS card
    * (internal dashboard only). Calls the parent's refresh handler which
    * should POST to /api/events/:id/mailchimp/refresh and re-load data.
@@ -432,6 +442,7 @@ export function EventReportView({
   additionalSpendSlot,
   mailchimpSlot,
   registrationsData,
+  signupRegistrations = null,
   onRefreshRegistrations,
   brandRollupSpend,
   tiktokRollupTotals,
@@ -732,6 +743,7 @@ export function EventReportView({
             eventDailySlot={eventDailySlot}
             mailchimpSlot={mailchimpSlot}
             registrationsData={registrationsData}
+            signupRegistrations={signupRegistrations}
             onRefreshRegistrations={onRefreshRegistrations}
             costPerRegistration={costPerRegistration}
             mailchimpRegistrations={mailchimpRegistrations}
@@ -837,6 +849,7 @@ interface MetaReportBlockProps {
   mailchimpSlot?: React.ReactNode;
   /** Mailchimp registration metrics — rendered as the REGISTRATIONS card for brand_campaign events. */
   registrationsData?: MailchimpRegistrationsData | null;
+  signupRegistrations?: RegistrationsCardModel | null;
   /**
    * Headline cost-per-registration for single events with a Mailchimp tag.
    * = spentTotalAll / registrationsData.totalSubscribers.
@@ -927,6 +940,7 @@ function MetaReportBlock({
   eventDailySlot,
   mailchimpSlot,
   registrationsData,
+  signupRegistrations = null,
   onRefreshRegistrations,
   costPerRegistration,
   mailchimpRegistrations,
@@ -1159,32 +1173,36 @@ function MetaReportBlock({
 
           {/* ─── REGISTRATIONS card (single events with Mailchimp tag) ── */}
           {!isBrandCampaign && event.mailchimpTag ? (
-            <div className="rounded-md border border-border bg-card p-4">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Registrations
-              </p>
-              <div className="mt-3 space-y-2 text-foreground">
-                <p className="font-heading text-xl tracking-wide tabular-nums">
-                  {mailchimpRegistrations != null ? (
-                    <>{fmtInt(mailchimpRegistrations)}</>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
+            signupRegistrations ? (
+              <SignupRegistrationsCard model={signupRegistrations} />
+            ) : (
+              <div className="rounded-md border border-border bg-card p-4">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  Registrations
                 </p>
-                {costPerRegistration != null ? (
-                  <p className="text-[11px] text-muted-foreground tabular-nums">
-                    {fmtCurrencyCompact(costPerRegistration)} cost per reg
+                <div className="mt-3 space-y-2 text-foreground">
+                  <p className="font-heading text-xl tracking-wide tabular-nums">
+                    {mailchimpRegistrations != null ? (
+                      <>{fmtInt(mailchimpRegistrations)}</>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </p>
-                ) : mailchimpRegistrations === 0 ? (
+                  {costPerRegistration != null ? (
+                    <p className="text-[11px] text-muted-foreground tabular-nums">
+                      {fmtCurrencyCompact(costPerRegistration)} cost per reg
+                    </p>
+                  ) : mailchimpRegistrations === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      0 registrations
+                    </p>
+                  ) : null}
                   <p className="text-[11px] text-muted-foreground">
-                    0 registrations
+                    · Tagged: {event.mailchimpTag}
                   </p>
-                ) : null}
-                <p className="text-[11px] text-muted-foreground">
-                  · Tagged: {event.mailchimpTag}
-                </p>
+                </div>
               </div>
-            </div>
+            )
           ) : null}
         </div>
         {channelMultiActive ? (

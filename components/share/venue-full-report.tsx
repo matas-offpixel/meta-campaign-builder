@@ -5,6 +5,10 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { paidSpendOf } from "@/lib/dashboard/paid-spend";
 import {
+  buildRegistrationsCardModelForEvents,
+  type RegistrationsCardModel,
+} from "@/lib/dashboard/registrations-card-model";
+import {
   resolveDisplayTicketRevenue,
   resolvePortalEventTicketCount,
 } from "@/lib/dashboard/tier-channel-rollups";
@@ -313,6 +317,7 @@ export function VenueFullReport({
         mailchimpRegistrations={performance.mailchimpRegistrations}
         costPerRegistration={performance.costPerRegistration}
         mailchimpTag={initialEvents[0]?.mailchimp_tag ?? null}
+        registrations={performance.registrations}
         dailySpendTrackerSlot={
           <VenuePaidMediaDailySpendTracker
             key={`${clientId}:${eventCode}`}
@@ -485,6 +490,7 @@ interface VenuePerformance {
   percentUsed: number | null;
   mailchimpRegistrations: number | null;
   costPerRegistration: number | null;
+  registrations: RegistrationsCardModel;
 }
 
 function computeVenuePerformance(
@@ -532,6 +538,8 @@ function computeVenuePerformance(
       ? totalSpend / mailchimpRegistrations
       : null;
 
+  const registrations = buildRegistrationsCardModelForEvents(events, rollups);
+
   return {
     paidMediaBudget,
     paidMediaSpent,
@@ -545,6 +553,7 @@ function computeVenuePerformance(
     percentUsed,
     mailchimpRegistrations,
     costPerRegistration,
+    registrations,
   };
 }
 

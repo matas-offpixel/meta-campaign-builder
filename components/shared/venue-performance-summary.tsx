@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react";
 
+import { SignupRegistrationsCard } from "@/components/report/signup-registrations-card";
+import type { RegistrationsCardModel } from "@/lib/dashboard/registrations-card-model";
 import { fmtCurrencyCompact } from "@/lib/dashboard/format";
 
 /**
@@ -72,6 +74,11 @@ export interface VenuePerformanceSummaryProps {
   costPerRegistration: number | null;
   /** Human-readable tag name shown as a footnote on the Registrations card. */
   mailchimpTag?: string | null;
+  /**
+   * Cirqlin-first card model. When present it replaces the Mailchimp-only
+   * Registrations cell so Cirqlin counted signups are the primary number.
+   */
+  registrations?: RegistrationsCardModel | null;
 
   /**
    * Injected into the Paid Media card below the spent/allocated rows.
@@ -104,6 +111,7 @@ export function VenuePerformanceSummary({
   mailchimpRegistrations,
   costPerRegistration,
   mailchimpTag,
+  registrations,
   dailySpendTrackerSlot,
   pacingSlot,
   title = "Performance summary",
@@ -224,34 +232,38 @@ export function VenuePerformanceSummary({
         </div>
 
         {/* ── Registrations ───────────────────────────────────────── */}
-        <div className="rounded-md border border-border bg-card p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Registrations
-          </p>
-          <div className="mt-3 space-y-2 text-foreground">
-            <p className="font-heading text-xl tracking-wide tabular-nums">
-              {mailchimpRegistrations != null ? (
-                <>{fmtNum(mailchimpRegistrations)}</>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
+        {registrations ? (
+          <SignupRegistrationsCard model={registrations} />
+        ) : (
+          <div className="rounded-md border border-border bg-card p-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Registrations
             </p>
-            {costPerRegistration != null ? (
-              <p className="text-[11px] text-muted-foreground tabular-nums">
-                {fmtMoney(costPerRegistration)} cost per reg
+            <div className="mt-3 space-y-2 text-foreground">
+              <p className="font-heading text-xl tracking-wide tabular-nums">
+                {mailchimpRegistrations != null ? (
+                  <>{fmtNum(mailchimpRegistrations)}</>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
               </p>
-            ) : mailchimpRegistrations === 0 ? (
-              <p className="text-[11px] text-muted-foreground">
-                0 registrations
-              </p>
-            ) : null}
-            {mailchimpTag ? (
-              <p className="text-[10px] text-muted-foreground/70">
-                · Tagged: {mailchimpTag}
-              </p>
-            ) : null}
+              {costPerRegistration != null ? (
+                <p className="text-[11px] text-muted-foreground tabular-nums">
+                  {fmtMoney(costPerRegistration)} cost per reg
+                </p>
+              ) : mailchimpRegistrations === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  0 registrations
+                </p>
+              ) : null}
+              {mailchimpTag ? (
+                <p className="text-[10px] text-muted-foreground/70">
+                  · Tagged: {mailchimpTag}
+                </p>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </section>
   );

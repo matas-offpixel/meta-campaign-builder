@@ -56,6 +56,37 @@ describe("bucketRegs + the CPR it feeds", () => {
     assert.equal(costPerResult(bucket.ad_spend, regs), null);
   });
 
+  it("prefers Cirqlin daily counts over Mailchimp and Meta", () => {
+    const bucket = bucketOf([
+      { date: "2026-08-26", ad_spend: 100, meta_regs: 64 },
+      { date: "2026-08-27", ad_spend: 100, meta_regs: 160 },
+    ]);
+    assert.equal(
+      bucketRegs({
+        presale: bucket,
+        mailchimpSnapshots: null,
+        cirqlinSnapshots: [
+          {
+            day: "2026-08-26",
+            signups_day: 10,
+            signups_total: 30,
+            snapshot_at: "2026-09-15T12:00:00Z",
+            raw_json: {},
+          },
+          {
+            day: "2026-08-27",
+            signups_day: 20,
+            signups_total: 30,
+            snapshot_at: "2026-09-15T12:00:00Z",
+            raw_json: {},
+          },
+        ],
+        isBrandCampaign: false,
+      }),
+      30,
+    );
+  });
+
   it("does not divide by a zero registration count", () => {
     assert.equal(costPerResult(250, 0), null);
   });

@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
 import { getMailchimpCredsFromD2CConnection } from "@/lib/mailchimp/d2c-credentials-adapter";
 import { getAudienceSegments } from "@/lib/mailchimp/client";
+import { syncCirqlinSignupsForEvent } from "@/lib/cirqlin/sync";
 import { daySnapshotAt, isCronAuthorized, todayUtc } from "@/lib/mailchimp/tag-tracking";
 
 export const maxDuration = 300;
@@ -176,5 +177,34 @@ export async function GET(req: NextRequest) {
     `[mailchimp-eod-snapshot] processed=${results.length} corrected=${results.filter((r) => r.action === "corrected").length}`,
   );
 
-  return NextResponse.json({ ok: true, eventsProcessed: results.length, results });
+  const { data: taggedForCirqlin } = await sb
+    .from("events")
+    .select("id, mailchimp_tag")
+    .not("mailchimp_tag", "is", null);
+
+  const cirqlinResults: Array<Record<string, unknown>> = [];
+  for (const event of taggedForCirqlin ?? []) {
+    const ev = event as { id: string; mailchimp_tag: string | null };
+    if (!ev.mailchimp_tag) continue;
+    try {
+      const cirqlin = await syncCirqlinSignupsForEvent(supabase, {
+        eventId: ev.id,
+        tag: ev.mailchimp_tag,
+      });
+      cirqlinResults.push(cirqlin);
+    } catch (err) {
+      cirqlinResults.push({
+        eventId: ev.id,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    eventsProcessed: results.length,
+    results,
+    cirqlin: cirqlinResults,
+  });
 }

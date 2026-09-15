@@ -28,6 +28,7 @@ import {
   type PlatformKey,
 } from "@/components/dashboard/events/event-trend-chart";
 import { DailyTracker } from "@/components/dashboard/events/daily-tracker";
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 
 /**
@@ -210,6 +211,7 @@ interface ShareProps {
    * Registrations and CPR metric series.
    */
   mailchimpSnapshots?: MailchimpSnapshotRow[];
+  cirqlinSnapshots?: CirqlinSnapshotRow[];
 }
 
 type Props = DashboardProps | ShareProps;
@@ -257,6 +259,13 @@ export function EventDailyReportBlock(props: Props) {
   const [chartMailchimpRows, setChartMailchimpRows] = useState<
     MailchimpSnapshotRow[] | undefined
   >(undefined);
+  const [cirqlinSnapshots, setCirqlinSnapshots] = useState<
+    CirqlinSnapshotRow[] | undefined
+  >(
+    props.mode === "share"
+      ? (props.cirqlinSnapshots ?? undefined)
+      : undefined,
+  );
   // Loading is true on the dashboard if no initial data; share always
   // arrives with data, so loading starts false there.
   const [loading, setLoading] = useState(
@@ -521,6 +530,24 @@ export function EventDailyReportBlock(props: Props) {
       .catch(() => {}); // non-fatal
   }, [event.id, event.kind, event.mailchimpTag, isShare]);
 
+  useEffect(() => {
+    if (isShare || !event.mailchimpTag) return;
+    fetch(`/api/events/${encodeURIComponent(event.id)}/cirqlin/snapshots`, {
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok?: boolean;
+          rows?: CirqlinSnapshotRow[];
+        };
+        if (json.ok && Array.isArray(json.rows)) {
+          setCirqlinSnapshots(json.rows);
+        }
+      })
+      .catch(() => {});
+  }, [event.id, event.mailchimpTag, isShare]);
+
   // Edit pencil + manual-entry dialog are dashboard-only by default.
   // Share mode hard-disables it; dashboard callers can opt out via
   // an explicit `isEditable={false}` (no current call site does, but
@@ -574,6 +601,7 @@ export function EventDailyReportBlock(props: Props) {
       // shareMailchimpSnapshots; tag-scoped dashboard events use the
       // async-fetched chartMailchimpRows.
       mailchimpSnapshots: shareMailchimpSnapshots ?? chartMailchimpRows,
+      cirqlinSnapshots,
       milestones: {
         announcementAt: event.announcement_at ?? null,
         presaleAt: event.presale_at ?? null,
@@ -599,6 +627,7 @@ export function EventDailyReportBlock(props: Props) {
       awarenessPlatform,
       shareMailchimpSnapshots,
       chartMailchimpRows,
+      cirqlinSnapshots,
     ],
   );
 

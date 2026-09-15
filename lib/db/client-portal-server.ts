@@ -1,6 +1,8 @@
 import "server-only";
 
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
+import { loadCirqlinSnapshotsForEvents } from "@/lib/db/signup-source-snapshots";
 import { bumpShareView, resolveShareByToken } from "@/lib/db/report-shares";
 import {
   listEventTicketTiersForEvents,
@@ -121,6 +123,11 @@ export interface PortalEvent {
    * `undefined` when the event has no Mailchimp integration.
    */
   mailchimp_snapshots?: MailchimpSnapshotRow[];
+  /**
+   * Cirqlin per-day signup snapshots for this event. Empty/undefined
+   * when the partner has never answered for the event's mailchimp_tag.
+   */
+  cirqlin_snapshots?: CirqlinSnapshotRow[];
   /** Manual tickets_sold override on the event row itself (legacy). */
   tickets_sold: number | null;
   api_tickets_sold: number | null;
@@ -1263,6 +1270,15 @@ async function loadPortalForClientId(
     }
   }
 
+  let cirqlinByEvent = new Map<string, CirqlinSnapshotRow[]>();
+  if (eventIds.length > 0) {
+    try {
+      cirqlinByEvent = await loadCirqlinSnapshotsForEvents(admin, eventIds);
+    } catch {
+      // Migration 177 unapplied — portal stays Mailchimp-only.
+    }
+  }
+
   if (devTiming) console.timeEnd(overallLabel);
   return {
     ok: true,
@@ -1335,6 +1351,7 @@ async function loadPortalForClientId(
         mailchimp_registrations: mailchimpRegsByEvent.get(e.id) ?? null,
         mailchimp_tag: (e as unknown as { mailchimp_tag?: string | null }).mailchimp_tag ?? null,
         mailchimp_snapshots: snapshotSeriesByEvent.get(e.id),
+        cirqlin_snapshots: cirqlinByEvent.get(e.id),
         status: (e as unknown as { status?: string | null }).status ?? null,
         tickets_sold: resolvedTicketsSold,
         api_tickets_sold: apiTicketsSold,

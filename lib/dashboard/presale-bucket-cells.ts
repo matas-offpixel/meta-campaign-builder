@@ -14,9 +14,14 @@
  * without rendering a 2,000-line table.
  */
 
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
 // Relative + extensioned so `node --test` can load this module without
 // the bundler's `@/` alias — same convention as the sibling helpers.
+import {
+  cirqlinSignupsForRange,
+  hasCirqlinRegs,
+} from "../cirqlin/tracker-signups.ts";
 import { netNewMailchimpRegistrationsForRange } from "../mailchimp/tracker-registrations.ts";
 
 import type { PresaleBucketTotals } from "./presale-bucket.ts";
@@ -113,24 +118,33 @@ export function bucketVideoViews(
 
 /**
  * REGS for the bucket, read from whichever source the REGS column is
- * showing on the daily rows below it: net-new Mailchimp tag members
- * when snapshots drive the column, else the summed Meta pixel counts.
- * Mixing the two in one column would make the bucket and the days
+ * showing on the daily rows below it: Cirqlin per-day when those
+ * snapshots exist, else net-new Mailchimp tag members, else Meta.
+ * Mixing sources in one column would make the bucket and the days
  * incomparable.
  */
 export function bucketRegs({
   presale,
   mailchimpSnapshots,
+  cirqlinSnapshots,
   isBrandCampaign,
 }: {
   presale: PresaleBucketTotals;
   mailchimpSnapshots: ReadonlyArray<MailchimpSnapshotRow> | null;
+  cirqlinSnapshots?: ReadonlyArray<CirqlinSnapshotRow> | null;
   isBrandCampaign: boolean;
 }): number | null {
+  const lastDay = previousDay(presale.cutoffDate);
+  if (hasCirqlinRegs(cirqlinSnapshots) && cirqlinSnapshots && lastDay && presale.earliestDate) {
+    return cirqlinSignupsForRange(
+      cirqlinSnapshots,
+      presale.earliestDate,
+      lastDay,
+    );
+  }
   if (!mailchimpSnapshots || mailchimpSnapshots.length === 0 || isBrandCampaign) {
     return presale.meta_regs;
   }
-  const lastDay = previousDay(presale.cutoffDate);
   if (!presale.earliestDate || !lastDay) return null;
   return netNewMailchimpRegistrationsForRange(
     mailchimpSnapshots,
