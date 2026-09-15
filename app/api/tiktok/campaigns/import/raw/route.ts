@@ -1,10 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isOperator } from "@/lib/auth/operator-allowlist";
 import { createClient } from "@/lib/supabase/server";
-import { credentialsForImportAdvertiser } from "@/lib/tiktok/import/account";
-import { readTikTokLiveCampaign } from "@/lib/tiktok/import/readers";
-import { recordingTikTokGet } from "@/lib/tiktok/import/record";
+import { handleTikTokImportRaw } from "@/lib/tiktok/import/raw";
 
 /**
  * GET /api/tiktok/campaigns/import/raw?advertiserId=…&campaignId=…
@@ -30,59 +27,11 @@ export async function GET(req: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
-  }
-  if (!isOperator(user.id)) {
-    return NextResponse.json({ ok: false, error: "Not permitted" }, { status: 403 });
-  }
-
-  const advertiserId = req.nextUrl.searchParams.get("advertiserId")?.trim();
-  const campaignId = req.nextUrl.searchParams.get("campaignId")?.trim();
-  if (!advertiserId || !campaignId) {
-    return NextResponse.json(
-      { ok: false, error: "advertiserId and campaignId are required" },
-      { status: 400 },
-    );
-  }
-
-  const credentials = await credentialsForImportAdvertiser(supabase, {
-    userId: user.id,
-    advertiserId,
+  const result = await handleTikTokImportRaw({
+    advertiserId: req.nextUrl.searchParams.get("advertiserId"),
+    campaignId: req.nextUrl.searchParams.get("campaignId"),
+    userId: user?.id ?? null,
+    supabase,
   });
-  if ("error" in credentials) {
-    return NextResponse.json(
-      { ok: false, error: credentials.error },
-      { status: credentials.status },
-    );
-  }
-
-  const { request, calls } = recordingTikTokGet();
-  let readError: string | null = null;
-  try {
-    await readTikTokLiveCampaign({
-      advertiserId,
-      campaignId,
-      token: credentials.token,
-      request,
-    });
-  } catch (err) {
-    // A throw is a capture too — the `/adgroup/get/` accepted-field list
-    // only exists because one request was rejected. Return everything
-    // recorded up to the throw.
-    readError = err instanceof Error ? err.message : String(err);
-  }
-
-  return NextResponse.json(
-    {
-      ok: readError == null,
-      advertiserId,
-      campaignId,
-      capturedAt: new Date().toISOString(),
-      note: "`data` is verbatim. The outer envelope (code, message, request_id) is only present on `error` because lib/tiktok/client.ts unwraps a code-0 response before this recorder sees it.",
-      readError,
-      calls,
-    },
-    { status: 200 },
-  );
+  return NextResponse.json(result.body, { status: result.status });
 }

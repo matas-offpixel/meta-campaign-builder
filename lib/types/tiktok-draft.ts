@@ -62,7 +62,11 @@ export type TikTokImportNotCarried = {
   adId: string | null;
   name: string;
   videoId: string | null;
-  reason: "not_in_creative_library" | "unsupported_ad_format" | "no_asset_reported";
+  reason:
+    | "not_in_creative_library"
+    | "unsupported_ad_format"
+    | "image_ad_unsupported"
+    | "no_asset_reported";
   adFormat: string | null;
 };
 

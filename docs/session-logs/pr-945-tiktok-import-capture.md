@@ -57,8 +57,8 @@ commits with it, amended in the two places review corrected: the join key is doc
   (`sourceRows / carried / deduped / notCarried / unjoined`); on/off/**absent** counters;
   `/file/video/ad/search/` added to `TIKTOK_IMPORT_PATHS` with the reason in a comment.
 - `lib/tiktok/import/__fixtures__/captured/adgroup-get-accepted-fields-2026-09-15.ts`
-  (new) — the accepted-field list, headed as a capture from an error body, and honest
-  that it is partial.
+  (new) — the accepted-field list, headed as a capture from an error body,
+  complete (152). `PENDING_CAPTURE` is gone.
 - `lib/tiktok/import/__fixtures__/doc-derived-v1.3.ts` — rewritten to the documented
   nesting; header now separates VERIFIED LIVE / FALSIFIED LIVE / UNKNOWN UNTIL CAPTURE.
 - `lib/types/tiktok-draft.ts`, `lib/tiktok-wizard/migrate-draft.ts` — the new
@@ -99,17 +99,21 @@ that is the bug this PR exists to fix. Consequences, accepted for now: every car
 creative has a blank `displayName` (named in `dropped[]`, so Step 1 says so and the
 operator fills it in), and a carousel is only recognised when its `ad_format` reaches
 us through `creative_list[].creative_info` — a carousel that appears only in `/ad/get/`
-is reported as `no_asset_reported` instead. Both are one-line changes once the capture
-pins the accepted lists for `/ad/get/`.
+with `image_ids` is `image_ad_unsupported`; one with none of the three assets is
+`no_asset_reported`. Both are one-line changes once the capture pins the accepted
+lists for `/ad/get/`.
 
-### The partial accepted list
+### Round 2 (2026-09-15)
 
-The live error body listed 152 names. The operator note transcribed 19 of them (two
-verbatim from the untruncated prefix, the rest read off the body). The fixture says so
-in its header, and the test requires every name `ADGROUP_GET_FIELDS` sends to be in
-either the accepted list or an explicit `PENDING_CAPTURE` list — so a new field name
-cannot be added without a decision, and a stale pending entry fails too. The capture
-round replaces the partial list with the verbatim body.
+The accepted list is now the full 152 from a re-trigger against prod. Test is
+`ADGROUP_GET_FIELDS ⊆ ACCEPTED`. An `/ad/get/` row with `image_ids` and no video
+is `image_ad_unsupported`, with its own Step 1 sentence; `no_asset_reported` is
+only a row with none of the three. A library page without `page_info` throws in
+the import reader (`lib/tiktok/creative.ts` unchanged). The fixture UNKNOWN list
+names the library-membership premise and the legacy `location_ids` throw (this
+advertiser has no legacy campaign). `ad_material_id` is no longer a join-key
+fallback. Asset groups are keyed on `smart_plus_ad_id`. 401 / 403 on the raw
+handler are behavioural.
 
 ### Unverified until capture
 
@@ -119,6 +123,10 @@ round replaces the partial list with the verbatim body.
 - `page_size: 1000` on `/campaign/spc/get/`.
 - Whether `excluded_audience_ids` arrives under `targeting_spec` on an upgraded ad
   group that has one.
+- The carry premise: `video_id` in `/file/video/ad/search/` ⇔ an original the
+  operator uploaded.
+- A legacy SPC row with no top-level `location_ids` now throws. Unverifiable on
+  this advertiser.
 
 ### Guards
 

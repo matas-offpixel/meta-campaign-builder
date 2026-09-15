@@ -320,6 +320,7 @@ type SourceCreative = {
   name: string;
   adFormat: string | null;
   videoId: string | null;
+  imageIds: string[];
   coverImageId: string | null;
   sparkPostId: string | null;
   identityId: string | null;
@@ -343,6 +344,7 @@ function sourceFromAdGetRow(
     name,
     adFormat: asString(ad.ad_format),
     videoId: asString(ad.video_id),
+    imageIds: asStringArray(ad.image_ids),
     coverImageId: asStringArray(ad.image_ids)[0] ?? null,
     sparkPostId: asString(ad.tiktok_item_id),
     identityId: asString(ad.identity_id),
@@ -384,7 +386,11 @@ function sourcesFromSmartPlusAd(
     pushDropped(dropped, "landing_page_url_list", landings.slice(1));
   }
 
-  const groupName = asString(ad.ad_name) ?? "Imported asset group";
+  const groupId =
+    asString(ad.smart_plus_ad_id) ?? `import-asset-group-${startIndex + 1}`;
+  if (!ad.smart_plus_ad_id) {
+    logUnmatchedCandidates("/smart_plus/ad/get/", ["smart_plus_ad_id"]);
+  }
   const list = requireArrayFromCandidates<TikTokSmartPlusCreativeRow>(
     ad,
     ["creative_list"],
@@ -400,10 +406,15 @@ function sourcesFromSmartPlusAd(
     );
     const video = asRecord(info.video_info);
     const images = Array.isArray(info.image_info) ? info.image_info : [];
+    const imageIds = images
+      .map((row) => asString(asRecord(row)?.web_uri))
+      .filter((id): id is string => Boolean(id));
+    // ad_material_id joins to nothing (doc: ad-specific, not the
+    // Creative Library id). Falling back to it as a draft/join key
+    // was a silent miss. import-creative-N is an invented id and
+    // cannot match an /ad/get/ ad_id.
     const key =
-      asString(creative.smart_plus_creative_id) ??
-      asString(creative.ad_material_id) ??
-      `import-creative-${index + 1}`;
+      asString(creative.smart_plus_creative_id) ?? `import-creative-${index + 1}`;
     if (!creative.smart_plus_creative_id) {
       logUnmatchedCandidates(
         `/smart_plus/ad/get/ creative_list[${offset}]`,
@@ -416,10 +427,11 @@ function sourcesFromSmartPlusAd(
       name:
         asString(info.material_name) ??
         asString(video?.file_name) ??
-        `${groupName} ${offset + 1}`,
+        `${groupId} ${offset + 1}`,
       adFormat: asString(info.ad_format),
       videoId: asString(video?.video_id),
-      coverImageId: asString(asRecord(images[0])?.web_uri),
+      imageIds,
+      coverImageId: imageIds[0] ?? null,
       sparkPostId: asString(info.tiktok_item_id),
       identityId: asString(info.identity_id) ?? asString(config.identity_id),
       identityType:
@@ -441,6 +453,7 @@ function mergeSource(chosen: SourceCreative, ad: SourceCreative): SourceCreative
     name: chosen.name || ad.name,
     adFormat: chosen.adFormat ?? ad.adFormat,
     videoId: chosen.videoId ?? ad.videoId,
+    imageIds: chosen.imageIds.length > 0 ? chosen.imageIds : ad.imageIds,
     coverImageId: chosen.coverImageId ?? ad.coverImageId,
     sparkPostId: chosen.sparkPostId ?? ad.sparkPostId,
     identityId: chosen.identityId ?? ad.identityId,
@@ -550,6 +563,12 @@ function carryCreatives(input: {
     }
     const isSpark = Boolean(source.sparkPostId);
     if (!isSpark && !source.videoId) {
+      // image_ids is an asset TikTok reported. The draft has no image
+      // mode, so this is not "no video, image or post".
+      if (source.imageIds.length > 0) {
+        notCarried.push(notCarriedFrom(source, "image_ad_unsupported"));
+        continue;
+      }
       notCarried.push(notCarriedFrom(source, "no_asset_reported"));
       continue;
     }
@@ -940,6 +959,7 @@ function mapLegacy(
     name: item.title,
     adFormat: null,
     videoId: item.videoId,
+    imageIds: [],
     coverImageId: null,
     sparkPostId: null,
     identityId: asString(spc.identity_id),

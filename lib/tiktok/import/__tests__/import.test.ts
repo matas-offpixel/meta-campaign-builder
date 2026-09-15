@@ -17,7 +17,6 @@ function mockGet(
 }
 import {
   TIKTOK_ADGROUP_GET_ACCEPTED_FIELDS,
-  TIKTOK_ADGROUP_GET_FIELDS_PENDING_CAPTURE,
   TIKTOK_ADGROUP_GET_REJECTED_FIELDS,
 } from "../__fixtures__/captured/adgroup-get-accepted-fields-2026-09-15.ts";
 import {
@@ -46,6 +45,7 @@ import {
   readTikTokLiveCampaign,
   type TikTokImportLiveBundle,
 } from "../readers.ts";
+import { handleTikTokImportRaw } from "../raw.ts";
 import { recordingTikTokGet } from "../record.ts";
 import {
   TIKTOK_IMPORT_PATHS,
@@ -145,33 +145,25 @@ describe("ADGROUP_GET_FIELDS against the captured accepted list", () => {
     }
   });
 
-  it("accounts for every field it sends: accepted, or explicitly pending capture", () => {
+  it("is a subset of the captured 152-name accepted list", () => {
+    assert.equal(TIKTOK_ADGROUP_GET_ACCEPTED_FIELDS.length, 152);
     const accepted = new Set(TIKTOK_ADGROUP_GET_ACCEPTED_FIELDS);
-    const pending = new Set(TIKTOK_ADGROUP_GET_FIELDS_PENDING_CAPTURE);
     for (const field of ADGROUP_GET_FIELDS) {
-      assert.ok(
-        accepted.has(field) || pending.has(field),
-        `${field} is in neither the captured accepted list nor the pending-capture list`,
-      );
+      assert.ok(accepted.has(field), `${field} is not in the captured accepted list`);
     }
-    // And the pending list may not carry names we no longer send — a
-    // stale entry would hide a real one.
-    for (const field of pending) {
-      assert.ok(
-        (ADGROUP_GET_FIELDS as readonly string[]).includes(field),
-        `${field} is pending capture but is not sent`,
-      );
-    }
+    assert.equal(ADGROUP_GET_FIELDS.length, 35);
   });
 
-  it("has a header saying the accepted list is a capture, and partial", () => {
+  it("has a header saying the accepted list is a complete capture, and PENDING_CAPTURE is gone", () => {
     const fixture = readFileSync(
       join(HERE, "../__fixtures__/captured/adgroup-get-accepted-fields-2026-09-15.ts"),
       "utf8",
     );
     assert.match(fixture, /CAPTURED 2026-09-15/);
     assert.match(fixture, /advertiser 7639802149165301776/);
-    assert.match(fixture, /PARTIAL/);
+    assert.match(fixture, /complete \(152\)/);
+    assert.equal(fixture.includes("PENDING_CAPTURE"), false);
+    assert.equal(fixture.includes("PARTIAL"), false);
   });
 });
 
@@ -232,6 +224,62 @@ describe("map manual campaign", () => {
     assert.equal(mapped.creatives.items[0]?.displayName, "");
     assert.ok(
       (mapped.importMeta?.dropped ?? []).some((item) => item.field === "display_name"),
+    );
+  });
+
+  it("reports an image-only /ad/get/ row as image_ad_unsupported, not no_asset_reported", () => {
+    const mapped = mapTikTokLiveCampaignToDraft(
+      manualBundle({
+        ads: [
+          MANUAL_AD_GET,
+          {
+            ad_id: "manual-image-1",
+            ad_name: "Still frame",
+            image_ids: ["img-still-1", "img-still-2"],
+          },
+        ],
+      }),
+      "draft-image",
+      ACCOUNT,
+    );
+    const entry = (mapped.importMeta?.notCarried ?? []).find(
+      (item) => item.adId === "manual-image-1",
+    );
+    assert.equal(entry?.reason, "image_ad_unsupported");
+    assert.equal(
+      mapped.importMeta?.notCarried.some((item) => item.reason === "no_asset_reported"),
+      false,
+    );
+    assert.match(
+      formatTikTokImportCreativeCounts(
+        mapped.importMeta!.creativeCounts!,
+        mapped.importMeta!.notCarried,
+      ),
+      /1 image ad — the TikTok draft has no image creative mode/,
+    );
+  });
+
+  it("throws on an all-image campaign with the true reason, not blaming a missing video", () => {
+    assert.throws(
+      () =>
+        mapTikTokLiveCampaignToDraft(
+          manualBundle({
+            ads: [
+              {
+                ad_id: "manual-image-1",
+                ad_name: "Still frame",
+                image_ids: ["img-still-1"],
+              },
+            ],
+          }),
+          "draft-all-image",
+          ACCOUNT,
+        ),
+      (err: unknown) =>
+        err instanceof TikTokImportSourceError &&
+        /none of the 1 source creatives could be carried/.test(err.message) &&
+        /image_ad_unsupported/.test(err.message) &&
+        !/no_asset_reported/.test(err.message),
     );
   });
 
@@ -383,6 +431,44 @@ describe("map upgraded Smart+ from the documented creative_list shape", () => {
     );
     assert.equal(entry?.reason, "unsupported_ad_format");
     assert.equal(entry?.adFormat, "CAROUSEL_ADS");
+    assert.equal(
+      "ad_format" in UPGRADED_AD_GET_ALL.find((row) => row.ad_id === "chosen-carousel")!,
+      false,
+      "AD_GET_FIELDS does not request ad_format; the fixture must not carry it",
+    );
+  });
+
+  it("keys unnamed creatives on smart_plus_ad_id so same-named asset groups do not collapse", () => {
+    const unnamed = (id: string, videoId: string) => ({
+      smart_plus_creative_id: id,
+      creative_info: {
+        ad_format: "SINGLE_VIDEO",
+        video_info: { video_id: videoId },
+      },
+    });
+    const mapped = mapTikTokLiveCampaignToDraft(
+      upgradedBundle({
+        libraryVideoIds: ["v-library-1", "v-library-2"],
+        smartPlusAds: [
+          {
+            smart_plus_ad_id: "group-a",
+            ad_name: "80% Sold",
+            creative_list: [unnamed("a-1", "v-library-1")],
+          },
+          {
+            smart_plus_ad_id: "group-b",
+            ad_name: "80% Sold",
+            creative_list: [unnamed("b-1", "v-library-2")],
+          },
+        ],
+        ads: [],
+      }),
+      "draft-same-name",
+      ACCOUNT,
+    );
+    const names = mapped.creatives.items.map((item) => item.name);
+    assert.deepEqual(names, ["group-a 1", "group-b 1"]);
+    assert.equal(mapped.creatives.items.length, 2);
   });
 
   it("joins on smart_plus_creative_id === /ad/get/ ad_id", () => {
@@ -936,6 +1022,36 @@ describe("readers", () => {
     );
   });
 
+  it("throws when the Creative Library page has no page_info — a missing total is a partial library", async () => {
+    await assert.rejects(
+      () =>
+        readTikTokLiveCampaign({
+          advertiserId: ACCOUNT.advertiserId,
+          campaignId: "manual-campaign-1",
+          token: "token",
+          request: mockGet(async (path) => {
+            if (path === "/campaign/get/") {
+              return {
+                list: [MANUAL_CAMPAIGN_GET],
+                page_info: { page: 1, total_page: 1 },
+              };
+            }
+            if (path === "/adgroup/get/") {
+              return {
+                list: [MANUAL_ADGROUP_GET],
+                page_info: { page: 1, total_page: 1 },
+              };
+            }
+            if (path === "/file/video/ad/search/") {
+              return { list: [{ video_id: "v901" }] };
+            }
+            return { list: [MANUAL_AD_GET], page_info: { page: 1, total_page: 1 } };
+          }),
+        }),
+      /returned no page_info/,
+    );
+  });
+
   it("throws when the Creative Library is empty — an empty library is a claim", async () => {
     await assert.rejects(
       () =>
@@ -1039,17 +1155,40 @@ describe("recording request", () => {
 });
 
 describe("raw capture route", () => {
-  const source = readFileSync(
-    join(HERE, "../../../../app/api/tiktok/campaigns/import/raw/route.ts"),
-    "utf8",
-  );
+  const source = [
+    readFileSync(
+      join(HERE, "../../../../app/api/tiktok/campaigns/import/raw/route.ts"),
+      "utf8",
+    ),
+    readFileSync(join(HERE, "../raw.ts"), "utf8"),
+  ].join("\n");
+  const unusedSupabase = {} as Parameters<typeof handleTikTokImportRaw>[0]["supabase"];
 
-  it("is a GET, session-gated, operator-gated", () => {
+  it("is a GET and writes no draft", () => {
     assert.match(source, /export async function GET\(/);
     assert.equal(source.includes("export async function POST"), false);
-    assert.match(source, /isOperator\(user\.id\)/);
-    assert.match(source, /status: 401/);
-    assert.match(source, /status: 403/);
+  });
+
+  it("returns 401 without a session", async () => {
+    const result = await handleTikTokImportRaw({
+      advertiserId: "1",
+      campaignId: "2",
+      userId: null,
+      supabase: unusedSupabase,
+    });
+    assert.equal(result.status, 401);
+    assert.equal(result.body.ok, false);
+  });
+
+  it("returns 403 for a user off the allowlist", async () => {
+    const result = await handleTikTokImportRaw({
+      advertiserId: "1",
+      campaignId: "2",
+      userId: "00000000-0000-0000-0000-000000000000",
+      supabase: unusedSupabase,
+    });
+    assert.equal(result.status, 403);
+    assert.equal(result.body.ok, false);
   });
 
   it("writes no draft and maps nothing", () => {
@@ -1097,6 +1236,9 @@ describe("fixture provenance", () => {
     assert.match(fixture, /VERIFIED LIVE/);
     assert.match(fixture, /FALSIFIED LIVE/);
     assert.match(fixture, /UNKNOWN UNTIL CAPTURE/);
+    assert.match(fixture, /carry premise/);
+    assert.match(fixture, /\/file\/video\/ad\/search\//);
+    assert.match(fixture, /legacy SPC row with no top-level `location_ids`/);
   });
 
   it("keeps captured fixtures in __fixtures__/captured so neither can be mistaken for the other", () => {

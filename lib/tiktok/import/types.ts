@@ -70,6 +70,7 @@ export type TikTokImportEnhancements = {
 export const TIKTOK_IMPORT_NOT_CARRIED_REASONS = [
   "not_in_creative_library",
   "unsupported_ad_format",
+  "image_ad_unsupported",
   "no_asset_reported",
 ] as const;
 
@@ -82,6 +83,7 @@ export const TIKTOK_IMPORT_NOT_CARRIED_LABELS: Record<
 > = {
   not_in_creative_library: "not in the Creative Library",
   unsupported_ad_format: "carousel — no draft equivalent",
+  image_ad_unsupported: "image ads — the TikTok draft has no image creative mode",
   no_asset_reported: "TikTok reported no video, image or post",
 };
 
@@ -286,6 +288,9 @@ export function formatTikTokImportCreativeCounts(
   const reasons = new Set(notCarried.map((item) => item.reason));
   if (reasons.size <= 1 && reasons.has("not_in_creative_library")) {
     return `${carried} ${plural(counts.notCarried, "TikTok-generated variant", "TikTok-generated variants")} not carried.`;
+  }
+  if (reasons.size <= 1 && reasons.has("image_ad_unsupported")) {
+    return `${carried} ${plural(counts.notCarried, "image ad", "image ads")} — the TikTok draft has no image creative mode.`;
   }
   const breakdown = TIKTOK_IMPORT_NOT_CARRIED_REASONS.filter((reason) =>
     reasons.has(reason),

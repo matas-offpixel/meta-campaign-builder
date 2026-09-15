@@ -31,6 +31,15 @@
  * - `page_size: 1000` on `/campaign/spc/get/`.
  * - Whether `excluded_audience_ids` comes back under `targeting_spec` on
  *   an upgraded ad group that has one.
+ * - The carry premise: `video_id` in `/file/video/ad/search/` ⇔ an
+ *   original the operator uploaded. If that endpoint omits videos
+ *   uploaded inline at ad-create, or Smart+ variants are written back
+ *   into the library, Step 1 is wrong in either direction. The raw
+ *   route already records the library call; the library ids against
+ *   the 45 `/ad/get/` rows settle this.
+ * - A legacy SPC row with no top-level `location_ids` now throws
+ *   (empty location targeting is a claim). This advertiser has no
+ *   legacy campaign, so that throw is unverifiable here.
  */
 
 export const MANUAL_CAMPAIGN_GET = {
@@ -280,7 +289,6 @@ export const UPGRADED_AD_GET_ALL = [
     ad_name: "auto carousel generation_1",
     campaign_id: "upgraded-campaign-1",
     adgroup_id: "upgraded-adgroup-1",
-    ad_format: "CAROUSEL_ADS",
     campaign_automation_type: "UPGRADED_SMART_PLUS",
   },
   {

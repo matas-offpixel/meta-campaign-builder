@@ -1,5 +1,5 @@
 import { tiktokGet } from "../client.ts";
-import { fetchTikTokVideoLibrary } from "../creative.ts";
+import { TIKTOK_VIDEO_LIBRARY_PATH } from "../creative.ts";
 import {
   TIKTOK_IMPORT_ENVELOPE_LIST_KEYS,
   requireArrayFromCandidates,
@@ -475,18 +475,36 @@ export async function fetchTikTokCreativeLibraryVideoIds(input: {
   token: string;
   request?: TikTokGet;
 }): Promise<string[]> {
+  const request = input.request ?? tiktokGet;
   const ids = new Set<string>();
   let page = 1;
   for (;;) {
-    const result = await fetchTikTokVideoLibrary({
-      advertiserId: input.advertiserId,
-      token: input.token,
-      page,
-      pageSize: LIBRARY_PAGE_SIZE,
-      request: input.request,
-    });
-    for (const video of result.videos) ids.add(video.video_id);
-    const totalPage = result.totalPage;
+    // Call the same path the picker uses, but inspect page_info here.
+    // `fetchTikTokVideoLibrary` defaults a missing total_page to 0 and
+    // would make this loop treat a partial library as one page.
+    const res = (await request(
+      TIKTOK_VIDEO_LIBRARY_PATH,
+      {
+        advertiser_id: input.advertiserId,
+        page,
+        page_size: LIBRARY_PAGE_SIZE,
+      },
+      input.token,
+    )) as {
+      list?: Array<{ video_id?: string }>;
+      page_info?: { total_page?: number };
+    };
+    const totalPage = res.page_info?.total_page;
+    if (typeof totalPage !== "number" || !Number.isFinite(totalPage)) {
+      throw new Error(
+        "TikTok import failed: /file/video/ad/search/ returned no page_info; refusing to decide from a partial library.",
+      );
+    }
+    for (const row of res.list ?? []) {
+      if (typeof row.video_id === "string" && row.video_id.trim()) {
+        ids.add(row.video_id.trim());
+      }
+    }
     if (totalPage > LIBRARY_MAX_PAGES) {
       throw new Error(
         `TikTok import failed: Creative Library has ${totalPage} pages, more than the ${LIBRARY_MAX_PAGES}-page read cap. Refusing to decide what to carry from a partial library.`,
