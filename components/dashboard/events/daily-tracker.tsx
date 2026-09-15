@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { costPerResult } from "@/lib/dashboard/cost-per-result";
 import { fmtCurrency } from "@/lib/dashboard/format";
 import {
   paidLinkClicksOf,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/dashboard/presale-bucket-cells";
 import {
   presaleBucketLabel,
+  presaleBucketNoun,
   TRACKER_MILESTONE_LABELS,
   TRACKER_MILESTONE_TITLES,
   trackerMilestoneDays,
@@ -764,7 +766,9 @@ export function DailyTracker({
                   ? " · Eventbrite tickets & revenue per ISO week"
                   : " · Eventbrite tickets & revenue per day"
                 : ""}
-              {presale ? " · Presale rolled up" : ""}
+              {presale
+                ? ` · ${presaleBucketNoun(presale.cutoffDate, milestones)} rolled up`
+                : ""}
             </p>
           </div>
         </div>
@@ -820,7 +824,13 @@ export function DailyTracker({
               <Th align="left">{dateColLabel}</Th>
               <Th>Day spend</Th>
               {!isBrandCampaign ? <Th>Day other</Th> : null}
-              {isBrandCampaign ? <Th>Impressions</Th> : <Th>Tickets</Th>}
+              {isBrandCampaign ? (
+                <Th>Impressions</Th>
+              ) : (
+                <Th title="Tickets sold on this day — from the ticketing sync or a manual day row. A lifetime total typed onto the event has no day to sit on, so it shows on the Tickets card, not here.">
+                  Tickets
+                </Th>
+              )}
               {isBrandCampaign ? <Th>Clicks (all)</Th> : <Th>Revenue</Th>}
               {isBrandCampaign ? <Th>Video views</Th> : <Th>CPT</Th>}
               {isBrandCampaign ? <Th>Registrations</Th> : null}
@@ -978,9 +988,9 @@ function RowEl({
   onEditClick: (row: DisplayRow) => void;
   onNotesSaved: (date: string, notes: string | null) => void;
 }) {
-  const cpt = derive(row.ad_spend, row.tickets_sold);
-  const cpl = derive(row.ad_spend, row.link_clicks);
-  const cprRegs = derive(row.meta_ad_spend, row.meta_regs);
+  const cpt = costPerResult(row.ad_spend, row.tickets_sold);
+  const cpl = costPerResult(row.ad_spend, row.link_clicks);
+  const cprRegs = costPerResult(row.meta_ad_spend, row.meta_regs);
   const cpm = row.ad_spend != null && row.impressions != null && row.impressions > 0
     ? (row.ad_spend / row.impressions) * 1000
     : null;
@@ -1946,15 +1956,6 @@ function num(v: number | null | undefined): number {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-function derive(
-  numerator: number | null,
-  denominator: number | null,
-): number | null {
-  if (numerator == null) return null;
-  if (denominator == null || denominator <= 0) return null;
-  return numerator / denominator;
 }
 
 function paidSpendForDisplay(

@@ -124,15 +124,31 @@ export interface PresaleBucketLabelInput {
 }
 
 /**
+ * True when the collapsed row is the campaign's signup phase: the
+ * event knows when it announced and when presale opened, and the
+ * bucket stops at general sale. Anything less and we can't name the
+ * phase honestly — all we know is "before general sale".
+ */
+function isSignupPhase(
+  cutoffDate: string | null,
+  milestones: TrackerMilestones | null | undefined,
+): boolean {
+  const generalSaleDay = dayOf(milestones?.generalSaleAt);
+  return (
+    dayOf(milestones?.announcementAt) !== null &&
+    dayOf(milestones?.presaleAt) !== null &&
+    generalSaleDay !== null &&
+    cutoffDate !== null &&
+    generalSaleDay === cutoffDate.slice(0, 10)
+  );
+}
+
+/**
  * Name the collapsed row after the phase it covers.
  *
- * When the event has announce AND presale dates and the bucket stops
- * at general sale, the collapsed row is the signup phase — the part of
- * the campaign that ran on a teaser and a signup form, before a ticket
- * was on sale. Say so, with the days it spans.
- *
- * Without those dates all we honestly know is "everything before
- * general sale", so that is what it says.
+ * The signup phase is the part of the campaign that ran on a teaser
+ * and a signup form, before a ticket was on sale — for D.O.D that was
+ * almost the whole thing. Say so, with the days it spans.
  */
 export function presaleBucketLabel(input: PresaleBucketLabelInput): string {
   const { cutoffDate, earliestDate, milestones } = input;
@@ -140,19 +156,21 @@ export function presaleBucketLabel(input: PresaleBucketLabelInput): string {
   const lastDay = cutoffDate ? previousDay(cutoffDate) : null;
   const end = lastDay ? fmtShortDay(lastDay) : null;
 
-  const generalSaleDay = dayOf(milestones?.generalSaleAt);
-  const isSignupPhase =
-    dayOf(milestones?.announcementAt) !== null &&
-    dayOf(milestones?.presaleAt) !== null &&
-    generalSaleDay !== null &&
-    cutoffDate !== null &&
-    generalSaleDay === cutoffDate.slice(0, 10);
-
-  if (isSignupPhase) {
+  if (isSignupPhase(cutoffDate, milestones)) {
     if (start && end) return `Signup phase (${start} – ${end})`;
     if (end) return `Signup phase (to ${end})`;
     return "Signup phase";
   }
 
   return start ? `Before general sale (from ${start})` : "Before general sale";
+}
+
+/** Short noun for the same bucket, for the table's subtitle line. */
+export function presaleBucketNoun(
+  cutoffDate: string | null,
+  milestones?: TrackerMilestones | null,
+): string {
+  return isSignupPhase(cutoffDate, milestones)
+    ? "Signup phase"
+    : "Pre-general-sale";
 }

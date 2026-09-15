@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   fmtShortDay,
   presaleBucketLabel,
+  presaleBucketNoun,
   previousDay,
   trackerMilestoneDays,
   trackerMilestonesInRange,
@@ -148,6 +149,13 @@ describe("presaleBucketLabel", () => {
       }),
       "Before general sale",
     );
+  });
+});
+
+describe("presaleBucketNoun", () => {
+  it("matches whichever label the bucket row carries", () => {
+    assert.equal(presaleBucketNoun("2026-09-09", DOD), "Signup phase");
+    assert.equal(presaleBucketNoun("2026-09-09", null), "Pre-general-sale");
   });
 });
 

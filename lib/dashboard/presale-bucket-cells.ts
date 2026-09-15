@@ -139,18 +139,6 @@ export function bucketRegs({
   );
 }
 
-/** Cost per registration for the bucket — Meta spend over the regs
- *  actually shown in the REGS cell. Null when either side is missing,
- *  so the cell reads "—" rather than "£0.00". */
-export function bucketCpr(
-  metaSpend: number | null,
-  regs: number | null,
-): number | null {
-  if (metaSpend == null) return null;
-  if (regs == null || regs <= 0) return null;
-  return metaSpend / regs;
-}
-
 /** Milestones falling inside the collapsed bucket's range. */
 export function bucketMilestones(
   milestoneDays: ReadonlyMap<string, TrackerMilestoneKind[]>,

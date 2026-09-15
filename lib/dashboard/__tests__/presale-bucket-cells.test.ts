@@ -3,9 +3,9 @@ import { describe, it } from "node:test";
 
 import type { MailchimpSnapshotRow } from "../../mailchimp/compute-registrations.ts";
 
+import { costPerResult } from "../cost-per-result.ts";
 import {
   bucketClicks,
-  bucketCpr,
   bucketImpressions,
   bucketMilestones,
   bucketRegs,
@@ -27,7 +27,7 @@ function bucketOf(
   return bucket;
 }
 
-describe("bucketRegs + bucketCpr", () => {
+describe("bucketRegs + the CPR it feeds", () => {
   it("shows the summed registrations and a cost per registration", () => {
     const bucket = bucketOf([
       { date: "2026-08-26", ad_spend: 224, meta_regs: 64 },
@@ -39,7 +39,7 @@ describe("bucketRegs + bucketCpr", () => {
       isBrandCampaign: false,
     });
     assert.equal(regs, 224);
-    assert.equal(bucketCpr(bucket.ad_spend, regs), 2);
+    assert.equal(costPerResult(bucket.ad_spend, regs), 2);
   });
 
   it("shows nothing when every day in the bucket has a null regs column", () => {
@@ -53,11 +53,11 @@ describe("bucketRegs + bucketCpr", () => {
       isBrandCampaign: false,
     });
     assert.equal(regs, null);
-    assert.equal(bucketCpr(bucket.ad_spend, regs), null);
+    assert.equal(costPerResult(bucket.ad_spend, regs), null);
   });
 
   it("does not divide by a zero registration count", () => {
-    assert.equal(bucketCpr(250, 0), null);
+    assert.equal(costPerResult(250, 0), null);
   });
 
   it("reads Mailchimp deltas when the REGS column is tag-scoped", () => {
