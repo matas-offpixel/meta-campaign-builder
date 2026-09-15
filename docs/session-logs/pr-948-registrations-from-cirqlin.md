@@ -36,9 +36,9 @@ is the same commit cherry-picked onto `main`.
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build`
-- [ ] `npm test`
+- [x] `npx tsc --noEmit` (via `npm run build` TypeScript step)
+- [x] `npm run build` — compiled, typecheck finished, 193 static pages
+- [x] `npm test` — 5904 tests, 5900 pass, 0 fail, 4 skipped
 
 ## Notes
 
