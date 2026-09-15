@@ -24,22 +24,20 @@
  * - `/smart_plus/ad/get/` rows do NOT carry `ad_id`, `creative_id`, flat
  *   `video_id` or flat `image_ids`. #944 read all four and got nulls.
  *
- * UNKNOWN UNTIL CAPTURE:
- * - The `creative_list[]` shape below is the documented one
- *   (https://business-api.tiktok.com/portal/docs/get-upgraded-smart-ads/v1.3)
- *   and has not yet been seen on the wire.
- * - `page_size: 1000` on `/campaign/spc/get/`.
- * - Whether `excluded_audience_ids` comes back under `targeting_spec` on
- *   an upgraded ad group that has one.
- * - The carry premise: `video_id` in `/file/video/ad/search/` ⇔ an
- *   original the operator uploaded. If that endpoint omits videos
- *   uploaded inline at ad-create, or Smart+ variants are written back
- *   into the library, Step 1 is wrong in either direction. The raw
- *   route already records the library call; the library ids against
- *   the 45 `/ad/get/` rows settle this.
- * - A legacy SPC row with no top-level `location_ids` now throws
- *   (empty location targeting is a claim). This advertiser has no
- *   legacy campaign, so that throw is unverifiable here.
+ * The live creative_list shape, the `smart_plus_creative_id === ad_id`
+ * join, CAROUSEL_ADS → notCarried, omitted `/ad/get/` keys, and the
+ * carry/picker rules load
+ * `captured/tiktok-import-capture-1876044101888033.json` (and the
+ * manual capture). This file is still the fixture for import.test.ts:
+ * envelope throws (missing creative_list / creative_info /
+ * targeting_spec), targeting defaults, reader mocks, the raw-route
+ * 401/403, legacy SPC (no live capture), and synthetic edges (hollow
+ * rows, image-only, identity conflict, multi-ad-group, join-break
+ * unjoined).
+ *
+ * FALSIFIED (was UNKNOWN): `video_id` in `/file/video/ad/search/` ⇔
+ * an original the operator uploaded. TikTok writes variants into the
+ * library and nine inline-uploaded originals are absent.
  */
 
 export const MANUAL_CAMPAIGN_GET = {
@@ -293,7 +291,7 @@ export const UPGRADED_AD_GET_ALL = [
   },
   {
     ad_id: "auto-music-refresh",
-    ad_name: "Music_Refresh_80% - JJ New 1",
+    ad_name: "Voyager (Live Show)-Music_Refresh-9-8",
     campaign_id: "upgraded-campaign-1",
     adgroup_id: "upgraded-adgroup-1",
     video_id: "v-generated-1",
@@ -314,9 +312,9 @@ export const UPGRADED_AD_GET_ALL = [
 ];
 
 /**
- * The advertiser's Creative Library (`/file/video/ad/search/`). The
- * generated variants above are deliberately absent: that is the carry
- * rule, not a gap in the fixture.
+ * The advertiser's Creative Library (`/file/video/ad/search/`).
+ * Membership prefers a library `video_id` when two copies share a
+ * stem. It is not a carry rule — the operator ticks what to keep.
  */
 export const CREATIVE_LIBRARY_VIDEO_IDS = ["v-library-1", "v-library-2", "v901"];
 

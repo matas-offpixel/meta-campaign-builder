@@ -458,30 +458,34 @@ export async function fetchTikTokLegacySmartCampaign(input: {
 const LIBRARY_PAGE_SIZE = 100;
 const LIBRARY_MAX_PAGES = 50;
 
+export type TikTokImportLibraryVideo = {
+  video_id: string;
+  file_name: string | null;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  video_cover_url: string | null;
+};
+
 /**
- * Every `video_id` in the advertiser's Creative Library.
+ * Creative Library rows. Used for thumbnails, dimensions, file_name,
+ * and to prefer a library `video_id` when two copies share a stem.
+ * Not a carry rule — the capture showed TikTok writes its variants
+ * into the library and omits inline-uploaded originals.
  *
- * A relaunch recreates the campaign the operator launched, so it carries
- * only assets that are still in the library — the same set a
- * `VIDEO_REFERENCE` creative can reference at launch. TikTok's
- * delivery-time variants are not in it and are reported, not imported.
- *
- * A failed read throws and a truncated read throws: an empty library is
- * a claim about the advertiser, and a partial one would silently turn
- * real originals into "not carried".
+ * A missing `page_info` still throws (a silent one-page read would
+ * lie about membership). An empty library does not throw.
  */
-export async function fetchTikTokCreativeLibraryVideoIds(input: {
+export async function fetchTikTokCreativeLibraryVideos(input: {
   advertiserId: string;
   token: string;
   request?: TikTokGet;
-}): Promise<string[]> {
+}): Promise<TikTokImportLibraryVideo[]> {
   const request = input.request ?? tiktokGet;
-  const ids = new Set<string>();
+  const videos: TikTokImportLibraryVideo[] = [];
+  const seen = new Set<string>();
   let page = 1;
   for (;;) {
-    // Call the same path the picker uses, but inspect page_info here.
-    // `fetchTikTokVideoLibrary` defaults a missing total_page to 0 and
-    // would make this loop treat a partial library as one page.
     const res = (await request(
       TIKTOK_VIDEO_LIBRARY_PATH,
       {
@@ -491,7 +495,7 @@ export async function fetchTikTokCreativeLibraryVideoIds(input: {
       },
       input.token,
     )) as {
-      list?: Array<{ video_id?: string }>;
+      list?: Array<Record<string, unknown>>;
       page_info?: { total_page?: number };
     };
     const totalPage = res.page_info?.total_page;
@@ -501,19 +505,37 @@ export async function fetchTikTokCreativeLibraryVideoIds(input: {
       );
     }
     for (const row of res.list ?? []) {
-      if (typeof row.video_id === "string" && row.video_id.trim()) {
-        ids.add(row.video_id.trim());
-      }
+      const videoId = typeof row.video_id === "string" ? row.video_id.trim() : "";
+      if (!videoId || seen.has(videoId)) continue;
+      seen.add(videoId);
+      videos.push({
+        video_id: videoId,
+        file_name: typeof row.file_name === "string" ? row.file_name : null,
+        duration: typeof row.duration === "number" ? row.duration : null,
+        width: typeof row.width === "number" ? row.width : null,
+        height: typeof row.height === "number" ? row.height : null,
+        video_cover_url:
+          typeof row.video_cover_url === "string" ? row.video_cover_url : null,
+      });
     }
     if (totalPage > LIBRARY_MAX_PAGES) {
       throw new Error(
-        `TikTok import failed: Creative Library has ${totalPage} pages, more than the ${LIBRARY_MAX_PAGES}-page read cap. Refusing to decide what to carry from a partial library.`,
+        `TikTok import failed: Creative Library has ${totalPage} pages, more than the ${LIBRARY_MAX_PAGES}-page read cap. Refusing to decide from a partial library.`,
       );
     }
     if (!totalPage || page >= totalPage) break;
     page += 1;
   }
-  return [...ids];
+  return videos;
+}
+
+export async function fetchTikTokCreativeLibraryVideoIds(input: {
+  advertiserId: string;
+  token: string;
+  request?: TikTokGet;
+}): Promise<string[]> {
+  const videos = await fetchTikTokCreativeLibraryVideos(input);
+  return videos.map((row) => row.video_id);
 }
 
 export type TikTokImportLiveBundle = {
@@ -526,6 +548,7 @@ export type TikTokImportLiveBundle = {
   smartPlusAds: TikTokSmartPlusAdRow[];
   spc: TikTokSpcGetRow | null;
   libraryVideoIds: readonly string[];
+  libraryVideos: readonly TikTokImportLibraryVideo[];
 };
 
 export async function readTikTokLiveCampaign(input: {
@@ -539,10 +562,10 @@ export async function readTikTokLiveCampaign(input: {
     throw new Error(`TikTok campaign ${input.campaignId} was not found`);
   }
   const kind = classifyTikTokCampaign(campaign);
-  const library = fetchTikTokCreativeLibraryVideoIds(input);
+  const library = fetchTikTokCreativeLibraryVideos(input);
 
   if (kind === "legacy_smart_plus") {
-    const [spc, libraryVideoIds] = await Promise.all([
+    const [spc, libraryVideos] = await Promise.all([
       fetchTikTokLegacySmartCampaign(input),
       library,
     ]);
@@ -551,7 +574,6 @@ export async function readTikTokLiveCampaign(input: {
         `TikTok import failed: /campaign/spc/get/ returned no row for ${input.campaignId}`,
       );
     }
-    requireNonEmptyLibrary(libraryVideoIds);
     return {
       kind,
       campaign,
@@ -559,12 +581,13 @@ export async function readTikTokLiveCampaign(input: {
       ads: [],
       smartPlusAds: [],
       spc,
-      libraryVideoIds,
+      libraryVideoIds: libraryVideos.map((row) => row.video_id),
+      libraryVideos,
     };
   }
 
   if (kind === "smart_plus") {
-    const [adGroups, smartPlusAds, ads, libraryVideoIds] = await Promise.all([
+    const [adGroups, smartPlusAds, ads, libraryVideos] = await Promise.all([
       fetchTikTokSmartPlusAdGroups(input),
       fetchTikTokSmartPlusAds(input),
       fetchTikTokUpgradedCreativesViaAdGet(input),
@@ -575,15 +598,11 @@ export async function readTikTokLiveCampaign(input: {
         `TikTok import failed: /smart_plus/adgroup/get/ returned no ad groups for ${input.campaignId}`,
       );
     }
-    // An Upgraded Smart+ campaign may legitimately have zero explicitly
-    // selected creatives — TikTok documents creative_list as returning
-    // only what you chose. Zero across BOTH reads is the failure.
     if (smartPlusAds.length === 0 && ads.length === 0) {
       throw new Error(
         `TikTok import failed: neither /smart_plus/ad/get/ nor /ad/get/ returned an ad for ${input.campaignId}`,
       );
     }
-    requireNonEmptyLibrary(libraryVideoIds);
     return {
       kind,
       campaign,
@@ -591,11 +610,12 @@ export async function readTikTokLiveCampaign(input: {
       ads,
       smartPlusAds,
       spc: null,
-      libraryVideoIds,
+      libraryVideoIds: libraryVideos.map((row) => row.video_id),
+      libraryVideos,
     };
   }
 
-  const [adGroups, ads, libraryVideoIds] = await Promise.all([
+  const [adGroups, ads, libraryVideos] = await Promise.all([
     fetchTikTokAdGroups(input),
     fetchTikTokAds(input),
     library,
@@ -610,7 +630,6 @@ export async function readTikTokLiveCampaign(input: {
       `TikTok import failed: /ad/get/ returned no ads for ${input.campaignId}`,
     );
   }
-  requireNonEmptyLibrary(libraryVideoIds);
   return {
     kind,
     campaign,
@@ -618,13 +637,7 @@ export async function readTikTokLiveCampaign(input: {
     ads,
     smartPlusAds: [],
     spc: null,
-    libraryVideoIds,
+    libraryVideoIds: libraryVideos.map((row) => row.video_id),
+    libraryVideos,
   };
-}
-
-function requireNonEmptyLibrary(videoIds: readonly string[]): void {
-  if (videoIds.length > 0) return;
-  throw new Error(
-    "TikTok import failed: /file/video/ad/search/ returned no videos. An empty Creative Library on an advertiser that is running ads is a read failure, not a reason to carry nothing.",
-  );
 }

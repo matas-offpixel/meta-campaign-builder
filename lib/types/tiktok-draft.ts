@@ -52,10 +52,9 @@ export type TikTokImportEnhancements = {
 
 export type TikTokImportCreativeCounts = {
   sourceRows: number;
+  unique: number;
   carried: number;
-  deduped: number;
-  notCarried: number;
-  unjoined: number;
+  unticked: number;
 };
 
 export type TikTokImportNotCarried = {
@@ -63,10 +62,12 @@ export type TikTokImportNotCarried = {
   name: string;
   videoId: string | null;
   reason:
-    | "not_in_creative_library"
+    | "looks_tiktok_generated"
+    | "operator_unticked"
     | "unsupported_ad_format"
     | "image_ad_unsupported"
-    | "no_asset_reported";
+    | "no_asset_reported"
+    | "not_in_creative_library";
   adFormat: string | null;
 };
 

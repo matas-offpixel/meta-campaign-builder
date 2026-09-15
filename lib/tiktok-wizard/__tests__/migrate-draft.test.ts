@@ -170,10 +170,9 @@ describe("migrateTikTokDraft", () => {
       },
       creativeCounts: {
         sourceRows: 3,
+        unique: 3,
         carried: 2,
-        deduped: 0,
-        notCarried: 1,
-        unjoined: 0,
+        unticked: 1,
       },
       notCarried: [
         {

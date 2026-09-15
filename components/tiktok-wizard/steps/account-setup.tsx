@@ -406,13 +406,6 @@ export function AccountSetupStep({
               {formatTikTokImportNotCarriedNames(draft.importMeta.notCarried ?? [])}
             </Datum>
           )}
-          {(draft.importMeta.creativeCounts?.unjoined ?? 0) > 0 && (
-            <Datum className="text-muted-foreground">
-              {draft.importMeta.creativeCounts!.unjoined} source ads could not be
-              matched to a creative TikTok says you selected, so their provenance
-              is unknown. Check them in Ads Manager before launching.
-            </Datum>
-          )}
           {draft.importMeta.dropped.length === 0 && !draft.importMeta.creativeCounts && (
             <Datum className="text-muted-foreground">
               Imported from TikTok. Every requested targeting field was carried.
