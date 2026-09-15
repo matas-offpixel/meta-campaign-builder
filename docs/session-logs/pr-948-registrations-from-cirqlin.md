@@ -39,6 +39,7 @@ is the same commit cherry-picked onto `main`.
 - [x] `npx tsc --noEmit` (via `npm run build` TypeScript step)
 - [x] `npm run build` — compiled, typecheck finished, 193 static pages
 - [x] `npm test` — 5904 tests, 5900 pass, 0 fail, 4 skipped
+- [x] GitHub CI on `23930955` — 6/6 green (`npm test`, `npm run build`, `frames:check`, two Vercel previews, Vercel Preview Comments)
 
 ## Notes
 
