@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 947
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/947
 - **Branch:** `cursor/tracker-signup-phase`
 
 ## Summary
@@ -61,8 +61,14 @@ Changed:
       errors reproduce identically on `main`)
 - [x] `npm run build`
 - [x] `npm test` — 5,890 tests, 0 failures
-- [x] `ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check`
 - [x] `npx eslint` on every touched path — clean
+- [ ] `ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --check` — cannot
+      be run meaningfully on a cloud VM. The baselines are Ubuntu CI raster
+      truth; here all 40 frames diff by 1–3% (two at 100%, which error under
+      the placeholder Supabase credentials the VM has to use). A run on a
+      worktree checked out at pristine `main` produced byte-identical output,
+      and the plan-frames render path imports none of the files this branch
+      touches, so CI is the real check.
 
 Visual before/after captured from a throwaway harness mounting the real
 tracker on the D.O.D rollup shape, with the "before" rendered by a
