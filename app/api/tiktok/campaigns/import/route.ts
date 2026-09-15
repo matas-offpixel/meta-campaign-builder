@@ -11,7 +11,9 @@ import {
 import { fetchTikTokAdvertiserInfo } from "@/lib/tiktok/advertiser";
 import {
   buildTikTokImportPicker,
+  classifyTikTokImportCarry,
   finalizeTikTokImportDraft,
+  formatRejectedCarryKeys,
   mapTikTokLiveCampaignToDraft,
   parseTikTokImportCarry,
 } from "@/lib/tiktok/import/map";
@@ -96,16 +98,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const picker = buildTikTokImportPicker(bundle);
+    const { accepted, rejected } = classifyTikTokImportCarry(
+      picker,
+      decision.carry,
+    );
+    if (accepted.length === 0) {
+      return NextResponse.json(
+        {
+          ok: true,
+          saved: false,
+          draft: null,
+          rejected,
+          error: formatRejectedCarryKeys(rejected),
+        },
+        { status: 200 },
+      );
+    }
     const mappedId = crypto.randomUUID();
     const mapped = mapTikTokLiveCampaignToDraft(bundle, mappedId, {
       tiktokAccountId: credentials.accountId,
       advertiserId,
       currency: advertiser.currency,
       timezone: advertiser.timezone,
-    }, { carry: decision.carry });
+    }, { carry: accepted });
     if (mapped.creatives.items.length === 0) {
       return NextResponse.json(
-        { ok: true, saved: false, draft: null },
+        {
+          ok: true,
+          saved: false,
+          draft: null,
+          rejected,
+          error: formatRejectedCarryKeys(rejected.length > 0 ? rejected : accepted),
+        },
         { status: 200 },
       );
     }

@@ -16,30 +16,37 @@ longer decides. It shows every unique source creative; the operator ticks what
 to carry. A name-pattern default suggests which rows look TikTok-generated. A
 pattern never removes a row. Nothing is saved until confirm.
 
+Round 2: unjoined rows are counted on the picker again; a failed
+`/file/video/ad/info/` id is per-row (`thumbnailError`) and does not fail
+the read; thumbnail ids are batched at 60 (same as `fetchVideoInfo` in
+`lib/tiktok/share-render.ts`); the allowlist is enforced by a recording
+`readTikTokLiveCampaign` + `hydratePickerThumbnails` run; confirm with only
+disabled/unknown keys returns `saved: false` and names them.
+
 ## Scope / files
 
 - `lib/tiktok/import/__fixtures__/captured/tiktok-import-capture-1876044101888033.json`
-  — verbatim Smart+ raw-route capture (signed library URLs stripped).
-- `lib/tiktok/import/capture.ts` — `bundleFromRawCapture`.
-- `lib/tiktok/import/picker.ts` — generated-name patterns (capture-true remix
-  regex), stem, picker rows, thumbnail hydration via `/file/video/ad/info/`.
-- `lib/tiktok/import/map.ts` — unique-by-`video_id` / Spark-by-`tiktok_item_id`,
-  stem collapse preferring a library id, Spark before carousel, two-step
-  `carry`.
-- `lib/tiktok/import/readers.ts` — library rows are metadata; empty library
-  does not throw.
-- `app/api/tiktok/campaigns/import/route.ts` — no `carry` → picker, no save;
-  `carry: []` → no save; keys → draft.
-- `components/tiktok/tiktok-import-picker.tsx` — read → tick → save.
-- `doc-derived-v1.3.ts` retired as a fixture for every path the captures cover.
+  — verbatim Smart+ raw-route capture. `_note` records that
+  `preview_url`, `video_cover_url`, `signature`,
+  `preview_url_expire_time` were stripped. Library thumbnails are never
+  exercised by the capture because `video_cover_url` was stripped.
+- `lib/tiktok/import/picker.ts` — unjoined line, `thumbnailError`, chunk 60,
+  eighth path literal `/file/video/ad/info/`.
+- `lib/tiktok/import/map.ts` — `unjoined` on the picker; `classifyTikTokImportCarry`.
+- `app/api/tiktok/campaigns/import/route.ts` — rejected keys named on nosave.
+- `components/tiktok/tiktok-import-picker.tsx` — unjoined header, thumbnail
+  unavailable, confirm disabled at zero ticked.
+- `doc-derived-v1.3.ts` — header lists the tests that still use it; library
+  comment is not a carry rule; `Music_Refresh` name matches the pattern.
 
 ## Validation
 
-- [x] `npm test` (5844 pass, 6 skipped)
-- [x] `npm run build`
-- [ ] Manual capture `tiktok-import-capture-1874142286754113.json` was not in
-      the worktree or `~/Downloads` when this branch opened. Those two tests
-      skip until the file is dropped into `captured/`.
+- [x] Import unit tests except the two that load
+      `tiktok-import-capture-1874142286754113.json`
+- [ ] Manual capture still not in `~/Downloads` or the worktree. Those two
+      tests fail (ENOENT), they do not skip.
+- [ ] Full `npm test` / `npm run build` / check-runs once the file is dropped
+      with a `_note` matching the Smart+ fixture.
 
 ## Notes
 

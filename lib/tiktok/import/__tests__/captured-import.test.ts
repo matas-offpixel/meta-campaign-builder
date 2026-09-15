@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
@@ -7,11 +7,21 @@ import { describe, it } from "node:test";
 import { bundleFromRawCapture } from "../capture.ts";
 import {
   buildTikTokImportPicker,
+  classifyTikTokImportCarry,
+  formatRejectedCarryKeys,
   mapTikTokLiveCampaignToDraft,
   parseTikTokImportCarry,
 } from "../map.ts";
-import { defaultCarryKeys, matchTikTokGeneratedName } from "../picker.ts";
+import {
+  defaultCarryKeys,
+  formatTikTokImportUnjoinedLine,
+  hydratePickerThumbnails,
+  matchTikTokGeneratedName,
+} from "../picker.ts";
 import { formatTikTokImportCreativeCounts } from "../types.ts";
+import { tiktokGet } from "../../client.ts";
+
+type TikTokGet = typeof tiktokGet;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CAPTURED = join(HERE, "../__fixtures__/captured");
@@ -48,23 +58,16 @@ function loadCapture(path: string): unknown {
 }
 
 describe("verbatim captures", () => {
-  it("loads the Smart+ capture and the mapper runs without a throw", () => {
+  it("loads both captures as fixtures and the mapper runs without a throw", () => {
     const smart = bundleFromRawCapture(loadCapture(SMART_PLUS_PATH));
     assert.doesNotThrow(() =>
       mapTikTokLiveCampaignToDraft(smart, "from-smart-capture", ACCOUNT),
     );
+    const manual = bundleFromRawCapture(loadCapture(MANUAL_PATH));
+    assert.doesNotThrow(() =>
+      mapTikTokLiveCampaignToDraft(manual, "from-manual-capture", ACCOUNT),
+    );
   });
-
-  it(
-    "loads the manual capture and the mapper runs without a throw",
-    { skip: !existsSync(MANUAL_PATH) },
-    () => {
-      const manual = bundleFromRawCapture(loadCapture(MANUAL_PATH));
-      assert.doesNotThrow(() =>
-        mapTikTokLiveCampaignToDraft(manual, "from-manual-capture", ACCOUNT),
-      );
-    },
-  );
 });
 
 describe("Smart+ capture 1876044101888033", () => {
@@ -80,6 +83,34 @@ describe("Smart+ capture 1876044101888033", () => {
     const sparks = picker.rows.filter((row) => !row.key.startsWith("v") && !row.disabled);
     assert.equal(sparks.length, 1);
     assert.equal(sparks[0]?.key, "7681731377242311958");
+  });
+
+  it("joins every creative_list id to an /ad/get/ ad_id and reports unjoined 0", () => {
+    const adIds = new Set(bundle.ads.map((ad) => ad.ad_id));
+    const creativeIds = bundle.smartPlusAds.flatMap((ad) =>
+      (ad.creative_list ?? []).map((row) => row.smart_plus_creative_id),
+    );
+    assert.equal(creativeIds.length, 45);
+    assert.equal(
+      creativeIds.every((id) => typeof id === "string" && adIds.has(id)),
+      true,
+    );
+    assert.equal(picker.unjoined, 0);
+    assert.equal(formatTikTokImportUnjoinedLine(picker.unjoined), null);
+  });
+
+  it("lists CAROUSEL_ADS without a Spark id as unsupported, never in creatives.items", () => {
+    const carousels = picker.rows.filter(
+      (row) => row.unsupportedReason === "unsupported_ad_format",
+    );
+    assert.ok(carousels.length >= 3);
+    const mapped = mapTikTokLiveCampaignToDraft(bundle, "carousel-capture", ACCOUNT);
+    assert.equal(
+      mapped.creatives.items.some((item) =>
+        carousels.some((row) => row.key === item.id),
+      ),
+      false,
+    );
   });
 
   it("collapses nine rows that share a stem with another video_id", () => {
@@ -111,12 +142,18 @@ describe("Smart+ capture 1876044101888033", () => {
       assert.equal(row.defaultTicked, false, row.name);
       assert.ok(row.suggestionReason, row.name);
     }
-    assert.equal(
-      picker.rows.some((row) => row.suggestionReason && !picker.rows.includes(row)),
-      false,
-    );
-    const generatedStillListed = picker.rows.filter((row) => row.suggestionReason);
-    assert.ok(generatedStillListed.length > 0);
+    const suggested = picker.rows.filter((row) => row.suggestionReason);
+    assert.ok(suggested.length > 0);
+    for (const row of suggested) {
+      assert.equal(
+        picker.rows.some((item) => item.key === row.key),
+        true,
+        row.name,
+      );
+      if (!row.unsupportedReason) {
+        assert.equal(row.disabled, false, row.name);
+      }
+    }
   });
 
   it("carries the Spark row from creative_list.creative_info.tiktok_item_id", () => {
@@ -133,19 +170,10 @@ describe("Smart+ capture 1876044101888033", () => {
     assert.ok(spark);
     assert.equal(spark?.sparkPostId, "7681731377242311958");
   });
-
-  it("keeps a generated name in the list when the operator would untick it", () => {
-    const generated = picker.rows.find((row) => row.suggestionReason);
-    assert.ok(generated);
-    assert.equal(generated!.defaultTicked, false);
-    assert.equal(generated!.disabled, false);
-  });
 });
 
 describe("manual capture 1874142286754113", () => {
-  it("has 9 rows, all ticked by default, 8 Spark + v7, no library gate", {
-    skip: !existsSync(MANUAL_PATH),
-  }, () => {
+  it("has 9 rows, all ticked by default, 8 Spark + v7, no library gate", () => {
     const bundle = bundleFromRawCapture(loadCapture(MANUAL_PATH));
     const picker = buildTikTokImportPicker(bundle);
     assert.equal(picker.rows.length, 9);
@@ -206,6 +234,21 @@ describe("POST carry decision and mapped save", () => {
     assert.equal(mapped.importMeta?.creativeCounts?.carried, 0);
   });
 
+  it("confirm with only disabled or unknown keys names the rejected keys and saves nothing", () => {
+    const disabled = picker.rows.filter((row) => row.disabled).map((row) => row.key);
+    assert.ok(disabled.length > 0);
+    const carry = [...disabled, "not-a-creative-key"];
+    const { accepted, rejected } = classifyTikTokImportCarry(picker, carry);
+    assert.deepEqual(accepted, []);
+    assert.deepEqual(rejected, carry);
+    assert.match(formatRejectedCarryKeys(rejected), /Rejected keys:/);
+    assert.match(formatRejectedCarryKeys(rejected), /not-a-creative-key/);
+    const mapped = mapTikTokLiveCampaignToDraft(bundle, "rejected", ACCOUNT, {
+      carry,
+    });
+    assert.equal(mapped.creatives.items.length, 0);
+  });
+
   it("Step 1 line names originals carried and unticked by reason", () => {
     const mapped = mapTikTokLiveCampaignToDraft(bundle, "defaults", ACCOUNT);
     const generated = (mapped.importMeta?.notCarried ?? []).filter(
@@ -222,5 +265,73 @@ describe("POST carry decision and mapped save", () => {
     assert.match(line, /unticked/);
     assert.equal(generated > 0, true);
     assert.equal(byYou, 0);
+  });
+});
+
+describe("hydratePickerThumbnails", () => {
+  it("marks a rejected /file/video/ad/info/ id thumbnailError and still returns ok", async () => {
+    const rows = [
+      {
+        key: "v-bad-id",
+        name: "Missing original",
+        thumbnailUrl: null,
+        thumbnailError: false,
+        durationSeconds: null,
+        width: null,
+        height: null,
+        assetGroups: [],
+        copies: 1,
+        inLibrary: false,
+        defaultTicked: true,
+        disabled: false,
+        suggestionReason: null,
+        unsupportedReason: null,
+        suggestionLabel: null,
+      },
+      {
+        key: "v-good-id",
+        name: "Present original",
+        thumbnailUrl: null,
+        thumbnailError: false,
+        durationSeconds: null,
+        width: null,
+        height: null,
+        assetGroups: [],
+        copies: 1,
+        inLibrary: false,
+        defaultTicked: true,
+        disabled: false,
+        suggestionReason: null,
+        unsupportedReason: null,
+        suggestionLabel: null,
+      },
+    ];
+    const request = (async (path: string, params: Record<string, unknown>) => {
+      assert.equal(path, "/file/video/ad/info/");
+      const ids = params.video_ids as string[];
+      if (ids.includes("v-bad-id") && ids.length > 1) {
+        throw new Error("one of the video_ids is not acceptable");
+      }
+      if (ids.includes("v-bad-id")) {
+        throw new Error("video_id v-bad-id is not acceptable");
+      }
+      return {
+        list: ids.map((video_id) => ({
+          video_id,
+          video_cover_url: `https://thumb/${video_id}`,
+        })),
+      };
+    }) as TikTokGet;
+
+    const hydrated = await hydratePickerThumbnails({
+      rows,
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request,
+    });
+    assert.equal(hydrated[0]?.thumbnailUrl, null);
+    assert.equal(hydrated[0]?.thumbnailError, true);
+    assert.equal(hydrated[1]?.thumbnailUrl, "https://thumb/v-good-id");
+    assert.equal(hydrated[1]?.thumbnailError, false);
   });
 });

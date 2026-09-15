@@ -34,6 +34,7 @@ import {
 import { TikTokImportEnvelopeError } from "../envelope.ts";
 import {
   TikTokImportSourceError,
+  buildTikTokImportPicker,
   finalizeTikTokImportDraft,
   mapTikTokLiveCampaignToDraft,
 } from "../map.ts";
@@ -45,6 +46,7 @@ import {
   readTikTokLiveCampaign,
   type TikTokImportLiveBundle,
 } from "../readers.ts";
+import { hydratePickerThumbnails } from "../picker.ts";
 import { handleTikTokImportRaw } from "../raw.ts";
 import { recordingTikTokGet } from "../record.ts";
 import {
@@ -482,11 +484,9 @@ describe("map upgraded Smart+ from the documented creative_list shape", () => {
   });
 
   it("joins on smart_plus_creative_id === /ad/get/ ad_id", () => {
-    const mapped = mapTikTokLiveCampaignToDraft(
-      upgradedBundle(),
-      "draft-join",
-      ACCOUNT,
-    );
+    const bundle = upgradedBundle();
+    assert.equal(buildTikTokImportPicker(bundle).unjoined, 0);
+    const mapped = mapTikTokLiveCampaignToDraft(bundle, "draft-join", ACCOUNT);
     assert.equal(mapped.importMeta?.creativeCounts?.sourceRows, 7);
     const notCarriedIds = (mapped.importMeta?.notCarried ?? []).map((item) => item.adId);
     assert.ok(notCarriedIds.includes("chosen-carousel"));
@@ -506,12 +506,11 @@ describe("map upgraded Smart+ from the documented creative_list shape", () => {
         },
       })),
     };
+    const bundle = upgradedBundle({ smartPlusAds: [broken] });
+    const picker = buildTikTokImportPicker(bundle);
+    assert.equal(picker.unjoined, UPGRADED_AD_GET_ALL.length);
     assert.doesNotThrow(() =>
-      mapTikTokLiveCampaignToDraft(
-        upgradedBundle({ smartPlusAds: [broken] }),
-        "draft-unjoined",
-        ACCOUNT,
-      ),
+      mapTikTokLiveCampaignToDraft(bundle, "draft-unjoined", ACCOUNT),
     );
   });
 
@@ -1160,8 +1159,9 @@ describe("fixture provenance", () => {
     );
     assert.match(fixture, /Doc-derived v1\.3 envelopes/);
     assert.match(fixture, /Not a live capture/);
-    assert.match(fixture, /RETIRED/);
+    assert.match(fixture, /still the fixture for import\.test\.ts/);
     assert.match(fixture, /legacy SPC/);
+    assert.match(fixture, /not a carry rule/);
   });
 
   it("keeps captured fixtures in __fixtures__/captured so neither can be mistaken for the other", () => {
@@ -1170,8 +1170,17 @@ describe("fixture provenance", () => {
       captured.includes("tiktok-import-capture-1876044101888033.json"),
     );
     for (const file of captured) {
-      if (file.endsWith(".json")) continue;
       const source = readFileSync(join(HERE, "../__fixtures__/captured", file), "utf8");
+      if (file.endsWith(".json")) {
+        const parsed = JSON.parse(source) as { _note?: string };
+        assert.match(
+          parsed._note ?? "",
+          /CAPTURED \d{4}-\d{2}-\d{2}/,
+          `${file} needs a _note with the capture date`,
+        );
+        assert.match(parsed._note ?? "", /video_cover_url/);
+        continue;
+      }
       assert.match(source, /CAPTURED \d{4}-\d{2}-\d{2}/, `${file} needs a capture date`);
     }
     const docDerived = readdirSync(join(HERE, "../__fixtures__"), {
@@ -1188,6 +1197,63 @@ describe("fixture provenance", () => {
 });
 
 describe("import path allowlist", () => {
+  it("records read + thumbnail hydration onto allowed paths only", async () => {
+    const { request, calls } = recordingTikTokGet(
+      mockGet(async (path) => {
+        if (path === "/campaign/get/") {
+          return {
+            list: [UPGRADED_CAMPAIGN_GET],
+            page_info: { page: 1, total_page: 1 },
+          };
+        }
+        if (path === "/smart_plus/adgroup/get/") {
+          return {
+            list: [UPGRADED_ADGROUP_GET],
+            page_info: { page: 1, total_page: 1 },
+          };
+        }
+        if (path === "/smart_plus/ad/get/") {
+          return {
+            list: [UPGRADED_SMART_PLUS_AD_GET],
+            page_info: { page: 1, total_page: 1 },
+          };
+        }
+        if (path === "/ad/get/") {
+          return { list: UPGRADED_AD_GET_ALL, page_info: { page: 1, total_page: 1 } };
+        }
+        if (path === "/file/video/ad/search/") {
+          return {
+            list: CREATIVE_LIBRARY_VIDEO_IDS.map((video_id) => ({ video_id })),
+            page_info: { page: 1, page_size: 100, total_number: 3, total_page: 1 },
+          };
+        }
+        if (path === "/file/video/ad/info/") {
+          return { list: [{ video_id: "v-generated-1", video_cover_url: "https://thumb" }] };
+        }
+        return { list: [], page_info: { page: 1, total_page: 1 } };
+      }),
+    );
+    const bundle = await readTikTokLiveCampaign({
+      advertiserId: ACCOUNT.advertiserId,
+      campaignId: "upgraded-campaign-1",
+      token: "token",
+      request,
+    });
+    const picker = buildTikTokImportPicker(bundle);
+    await hydratePickerThumbnails({
+      rows: picker.rows,
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request,
+    });
+    const allowed = new Set(TIKTOK_IMPORT_PATHS);
+    const recorded = [...new Set(calls.map((call) => call.path))];
+    for (const path of recorded) {
+      assert.ok(allowed.has(path as (typeof TIKTOK_IMPORT_PATHS)[number]), path);
+    }
+    assert.ok(recorded.includes("/file/video/ad/info/"));
+  });
+
   it("mentions only the named TikTok paths under lib/tiktok/import", () => {
     const root = join(HERE, "..");
     const files = collectTsFiles(root).filter(

@@ -600,7 +600,7 @@ function uniqueGroups(sources: readonly SourceCreative[]): string[] {
 function collectSources(
   bundle: TikTokImportLiveBundle,
   dropped: TikTokImportDroppedField[],
-): { sources: SourceCreative[]; sourceRows: number } {
+): { sources: SourceCreative[]; sourceRows: number; unjoined: number } {
   const groups = assetGroupNames(bundle);
   if (bundle.kind === "legacy_smart_plus") {
     const spc = bundle.spc ?? {};
@@ -622,7 +622,7 @@ function collectSources(
       landingPageUrl: asString(spc.landing_page_url) ?? "",
       musicId: null,
     }));
-    return { sources, sourceRows: sources.length };
+    return { sources, sourceRows: sources.length, unjoined: 0 };
   }
   if (bundle.kind === "smart_plus") {
     const chosen: SourceCreative[] = [];
@@ -632,20 +632,20 @@ function collectSources(
     const adRows = bundle.ads.map((ad, index) =>
       sourceFromAdGetRow(ad, index, "tiktok_added", groups),
     );
-    const { sources } = joinUpgradedSources(chosen, adRows);
-    return { sources, sourceRows: sources.length };
+    const { sources, unjoined } = joinUpgradedSources(chosen, adRows);
+    return { sources, sourceRows: sources.length, unjoined };
   }
   const sources = bundle.ads.map((ad, index) =>
     sourceFromAdGetRow(ad, index, "chosen", groups),
   );
-  return { sources, sourceRows: sources.length };
+  return { sources, sourceRows: sources.length, unjoined: 0 };
 }
 
 function collectUniqueRows(
   bundle: TikTokImportLiveBundle,
   dropped: TikTokImportDroppedField[],
-): { rows: UniqueRow[]; sourceRows: number } {
-  const { sources, sourceRows } = collectSources(bundle, dropped);
+): { rows: UniqueRow[]; sourceRows: number; unjoined: number } {
+  const { sources, sourceRows, unjoined } = collectSources(bundle, dropped);
   const groups = assetGroupNames(bundle);
   const libraryById = new Map(
     (bundle.libraryVideos ?? []).map((row) => [row.video_id, row]),
@@ -737,7 +737,7 @@ function collectUniqueRows(
     });
   }
 
-  return { rows: unique, sourceRows };
+  return { rows: unique, sourceRows, unjoined };
 }
 
 function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
@@ -752,6 +752,7 @@ function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
     assetGroups: row.assetGroups,
     copies: row.copies,
     inLibrary: row.inLibrary,
+    thumbnailError: false,
     defaultTicked,
     disabled: row.disabled,
     suggestionReason: row.suggestionReason,
@@ -764,7 +765,7 @@ function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
 export function buildTikTokImportPicker(
   bundle: TikTokImportLiveBundle,
 ): TikTokImportPickerPayload {
-  const { rows } = collectUniqueRows(bundle, []);
+  const { rows, unjoined } = collectUniqueRows(bundle, []);
   return {
     campaign: {
       id: asString(bundle.campaign.campaign_id) ?? "",
@@ -772,7 +773,24 @@ export function buildTikTokImportPicker(
       kind: bundle.kind,
     },
     rows: rows.map(pickerRowFromUnique),
+    unjoined,
   };
+}
+
+export function classifyTikTokImportCarry(
+  picker: TikTokImportPickerPayload,
+  carry: readonly string[],
+): { accepted: string[]; rejected: string[] } {
+  const enabled = new Set(
+    picker.rows.filter((row) => !row.disabled).map((row) => row.key),
+  );
+  const accepted = carry.filter((key) => enabled.has(key));
+  const rejected = carry.filter((key) => !enabled.has(key));
+  return { accepted, rejected };
+}
+
+export function formatRejectedCarryKeys(rejected: readonly string[]): string {
+  return `Nothing was saved. Rejected keys: ${rejected.join(", ")}.`;
 }
 
 export function parseTikTokImportCarry(body: {
@@ -826,6 +844,7 @@ function carryUniqueRows(input: {
   const picker = {
     campaign: { id: "", name: "", kind: "manual" as const },
     rows: input.rows.map(pickerRowFromUnique),
+    unjoined: 0,
   };
   const keys = new Set(input.carry ?? defaultCarryKeys(picker));
   const creatives: TikTokCreativeDraft[] = [];

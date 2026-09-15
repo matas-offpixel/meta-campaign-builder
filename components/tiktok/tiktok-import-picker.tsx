@@ -19,7 +19,10 @@ import {
   type TikTokLiveCampaignKind,
   type TikTokLiveCampaignRow,
 } from "@/lib/tiktok/import/types";
-import type { TikTokImportPickerPayload } from "@/lib/tiktok/import/picker";
+import {
+  formatTikTokImportUnjoinedLine,
+  type TikTokImportPickerPayload,
+} from "@/lib/tiktok/import/picker";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 
 export function TikTokImportPicker({
@@ -160,10 +163,16 @@ export function TikTokImportPicker({
         ok?: boolean;
         error?: string;
         saved?: boolean;
+        rejected?: string[];
         draft?: { id?: string };
       };
       if (!json.ok || !json.saved || !json.draft?.id) {
-        setError(json.error || "Nothing was saved. Tick at least one creative.");
+        setError(
+          json.error ||
+            (json.rejected?.length
+              ? `Nothing was saved. Rejected keys: ${json.rejected.join(", ")}.`
+              : "Nothing was saved. Tick at least one creative."),
+        );
         return;
       }
       onClose();
@@ -276,6 +285,9 @@ export function TikTokImportPicker({
                   {" "}
                   · {TIKTOK_LIVE_CAMPAIGN_KIND_LABEL[picker.campaign.kind]} ·{" "}
                   {ticked.size} of {enabledCount} ticked
+                  {formatTikTokImportUnjoinedLine(picker.unjoined)
+                    ? ` · ${formatTikTokImportUnjoinedLine(picker.unjoined)}`
+                    : ""}
                 </span>
               </p>
               <Button variant="ghost" size="sm" onClick={() => setPicker(null)}>
@@ -337,6 +349,11 @@ export function TikTokImportPicker({
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
+                    {row.thumbnailError && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        thumbnail unavailable
+                      </p>
+                    )}
                     {row.suggestionLabel && (
                       <p className="mt-1 text-xs text-muted-foreground">
                         {row.suggestionLabel}
@@ -349,7 +366,7 @@ export function TikTokImportPicker({
 
             <div className="mt-4 flex justify-end">
               <Button
-                disabled={saving}
+                disabled={saving || ticked.size === 0}
                 onClick={() => void confirmImport()}
               >
                 {saving ? (
