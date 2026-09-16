@@ -1,5 +1,5 @@
 import { fetchTikTokVideoInfo } from "../creative.ts";
-import { tiktokGet } from "../client.ts";
+import { TikTokApiError, tiktokGet } from "../client.ts";
 import type { TikTokLiveCampaignKind, TikTokImportNotCarriedReason } from "./types.ts";
 
 type TikTokGet = typeof tiktokGet;
@@ -177,6 +177,19 @@ export function suggestionLabelFor(
   return null;
 }
 
+/**
+ * TikTok's parameter-validation error on this endpoint: one member of
+ * `video_ids` is not a video TikTok will describe. That is the only
+ * failure that is about an id, so it is the only one that splits.
+ * Message match keeps the existing tests (a plain Error with
+ * "not acceptable"); 40002 is the live code for the same shape.
+ */
+function isUnacceptableVideoIdError(err: unknown): boolean {
+  if (err instanceof TikTokApiError && err.code === 40002) return true;
+  const message = err instanceof Error ? err.message : "";
+  return /not acceptable/i.test(message);
+}
+
 async function loadVideoInfoChunk(input: {
   chunk: readonly string[];
   advertiserId: string;
@@ -184,8 +197,9 @@ async function loadVideoInfoChunk(input: {
   request?: TikTokGet;
   byId: Map<string, { thumbnail_url: string | null }>;
   failed: Set<string>;
-}): Promise<void> {
-  if (input.chunk.length === 0) return;
+  retried?: boolean;
+}): Promise<"ok" | "abandoned"> {
+  if (input.chunk.length === 0) return "ok";
   try {
     const info = await fetchTikTokVideoInfo({
       advertiserId: input.advertiserId,
@@ -196,14 +210,30 @@ async function loadVideoInfoChunk(input: {
     for (const row of info) {
       input.byId.set(row.video_id, { thumbnail_url: row.thumbnail_url });
     }
-  } catch {
-    if (input.chunk.length === 1) {
-      input.failed.add(input.chunk[0]!);
-      return;
+    return "ok";
+  } catch (err) {
+    if (isUnacceptableVideoIdError(err)) {
+      if (input.chunk.length === 1) {
+        input.failed.add(input.chunk[0]!);
+        return "ok";
+      }
+      const mid = Math.floor(input.chunk.length / 2);
+      const left = await loadVideoInfoChunk({
+        ...input,
+        chunk: input.chunk.slice(0, mid),
+        retried: false,
+      });
+      if (left === "abandoned") return "abandoned";
+      return loadVideoInfoChunk({
+        ...input,
+        chunk: input.chunk.slice(mid),
+        retried: false,
+      });
     }
-    const mid = Math.floor(input.chunk.length / 2);
-    await loadVideoInfoChunk({ ...input, chunk: input.chunk.slice(0, mid) });
-    await loadVideoInfoChunk({ ...input, chunk: input.chunk.slice(mid) });
+    if (!input.retried) {
+      return loadVideoInfoChunk({ ...input, retried: true });
+    }
+    return "abandoned";
   }
 }
 
@@ -216,7 +246,10 @@ export async function hydratePickerThumbnails(input: {
   const videoIds = [
     ...new Set(
       input.rows
-        .filter((row) => row.kind === "video" && !row.thumbnailUrl)
+        // A blocked row's `key` is the `/ad/get/` ad_id, not a video_id.
+        // Posting it here cannot resolve, and "thumbnail unavailable" would
+        // read as a fetch that failed when the row has no video.
+        .filter((row) => row.kind === "video" && !row.disabled && !row.thumbnailUrl)
         .map((row) => row.key),
     ),
   ];
@@ -225,7 +258,7 @@ export async function hydratePickerThumbnails(input: {
   const byId = new Map<string, { thumbnail_url: string | null }>();
   const failed = new Set<string>();
   for (let i = 0; i < videoIds.length; i += TIKTOK_IMPORT_VIDEO_INFO_CHUNK) {
-    await loadVideoInfoChunk({
+    const result = await loadVideoInfoChunk({
       chunk: videoIds.slice(i, i + TIKTOK_IMPORT_VIDEO_INFO_CHUNK),
       advertiserId: input.advertiserId,
       token: input.token,
@@ -233,6 +266,7 @@ export async function hydratePickerThumbnails(input: {
       byId,
       failed,
     });
+    if (result === "abandoned") break;
   }
 
   return input.rows.map((row) => {

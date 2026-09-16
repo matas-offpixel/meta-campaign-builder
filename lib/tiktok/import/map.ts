@@ -559,6 +559,19 @@ function joinUpgradedSources(
  * video_id when two copies share a stem — it is not a gate.
  * ---------------------------------------------------------------------- */
 
+/**
+ * One picker row may collapse several `video_id`s that share a
+ * `file_name` (or the same stemmed `ad_name`). Badge the row unjoined
+ * when any source in the group is unjoined (`some`, not `every`).
+ *
+ * `every` would hide the leftover `/ad/get/` copy behind a creative
+ * TikTok also confirmed. The row is one decision; the operator should
+ * see that one of the copies was not in the selected set. Header
+ * counts stay right either way — this is the per-row claim.
+ *
+ * The 1-of-45 fixture is this shape: 44 unmatched chosen `video_id`s
+ * share a stem with 44 leftover ads, so it already depends on `some`.
+ */
 function originOf(
   sources: readonly SourceCreative[],
 ): TikTokImportPickerRowOrigin {
