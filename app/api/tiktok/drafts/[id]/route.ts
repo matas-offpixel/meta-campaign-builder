@@ -2,6 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getTikTokDraft, upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { createClient } from "@/lib/supabase/server";
+import {
+  TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH,
+  eventBelongsToClient,
+  loadTikTokImportEvent,
+  parseTikTokImportEventId,
+} from "@/lib/tiktok/import/event";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 export async function GET(
@@ -58,6 +64,22 @@ export async function PATCH(
   }
 
   const nextDraft = mergeTikTokDraft(current, body);
+  const requestedEventId = parseTikTokImportEventId({ eventId: body.eventId });
+  if (requestedEventId) {
+    const event = await loadTikTokImportEvent(supabase, {
+      eventId: requestedEventId,
+      userId: user.id,
+    });
+    if (!eventBelongsToClient(event, nextDraft.clientId)) {
+      return NextResponse.json(
+        { ok: false, error: TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH },
+        { status: 400 },
+      );
+    }
+    nextDraft.eventId = event.id;
+    nextDraft.campaignSetup.eventCode =
+      event.event_code?.trim() || nextDraft.campaignSetup.eventCode;
+  }
   const saved = await upsertTikTokDraft(supabase, id, {
     ...nextDraft,
     userId: user.id,

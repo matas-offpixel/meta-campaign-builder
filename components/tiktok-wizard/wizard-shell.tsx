@@ -13,6 +13,7 @@ import { BudgetScheduleStep } from "@/components/tiktok-wizard/steps/budget-sche
 import { CampaignSetupStep } from "@/components/tiktok-wizard/steps/campaign-setup";
 import { CreativesStep } from "@/components/tiktok-wizard/steps/creatives";
 import { OptimisationStrategyStep } from "@/components/tiktok-wizard/steps/optimisation-strategy";
+import { TikTokDraftEventSelect } from "@/components/tiktok/tiktok-draft-event-select";
 import { ReviewLaunchStep } from "@/components/tiktok-wizard/steps/review-launch";
 import { TikTokLoadTemplateModal } from "@/components/tiktok-wizard/load-template-modal";
 import { WizardFooter } from "@/components/wizard/wizard-footer";
@@ -261,6 +262,10 @@ export function TikTokWizardShell({
                 dismiss
               </button>
             </StatusLine>
+          ) : null}
+
+          {!working.eventId ? (
+            <TikTokDraftEventSelect draft={working} onSave={saveDraft} />
           ) : null}
 
           {step === 0 ? (

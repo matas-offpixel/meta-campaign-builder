@@ -1,10 +1,11 @@
 "use client";
 
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { TikTokLaunchPanel } from "@/components/tiktok-wizard/launch-panel";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import { duplicateTikTokDraft } from "@/lib/db/tiktok-drafts";
@@ -39,7 +40,7 @@ import {
   readTikTokLaunchStream,
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
-import { requestTikTokReviewScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
+import { tikTokAdvertiserClockLabel } from "@/lib/plan/tiktok-early";
 import {
   collectTikTokLaunchPreflight,
   type TikTokLaunchPreflightIssue,
@@ -144,16 +145,29 @@ export function ReviewLaunchStep({
           ? writesDisabledReason
           : undefined;
   const firstLaunchBlocker = clientIssues[0]?.message;
-  const healedSchedule = useRef(false);
+  const scheduleStartIssue = clientIssues.find(
+    (issue) => issue.id === "schedule-start-soon",
+  );
+  const scheduleOrderIssue = clientIssues.find(
+    (issue) => issue.id === "schedule-order",
+  );
+  const smartPlus = draft.optimisation.smartPlusEnabled;
 
-  useEffect(() => {
-    requestTikTokReviewScheduleHeal({
-      alreadyLaunched,
-      attempted: healedSchedule,
-      draft,
-      onSave,
-    });
-  }, [alreadyLaunched, draft, onSave]);
+  async function persistSchedule(
+    patch: Partial<TikTokCampaignDraft["budgetSchedule"]>,
+  ) {
+    setSaving(true);
+    try {
+      await onSave({
+        budgetSchedule: {
+          ...draft.budgetSchedule,
+          ...patch,
+        },
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function relaunchAsNewDraft() {
     if (relaunching) return;
@@ -590,13 +604,39 @@ export function ReviewLaunchStep({
           }
           onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
-        <KeyValue
-          label="Schedule"
-          value={`${draft.budgetSchedule.scheduleStartAt ?? "—"} → ${
-            draft.budgetSchedule.scheduleEndAt ?? "—"
-          }`}
-          onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
-        />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Input
+            id="tiktok-review-schedule-start"
+            label="Schedule start"
+            type="datetime-local"
+            value={draft.budgetSchedule.scheduleStartAt ?? ""}
+            disabled={saving || alreadyLaunched || smartPlus}
+            onChange={(event) =>
+              void persistSchedule({
+                scheduleStartAt: event.target.value || null,
+              })
+            }
+            error={scheduleStartIssue?.message}
+          />
+          <Input
+            id="tiktok-review-schedule-end"
+            label="Schedule end"
+            type="datetime-local"
+            value={draft.budgetSchedule.scheduleEndAt ?? ""}
+            disabled={saving || alreadyLaunched || smartPlus}
+            onChange={(event) =>
+              void persistSchedule({
+                scheduleEndAt: event.target.value || null,
+              })
+            }
+            error={scheduleOrderIssue?.message}
+          />
+        </div>
+        {draft.accountSetup.timezone ? (
+          <Datum className="text-xs text-muted-foreground">
+            {tikTokAdvertiserClockLabel(draft.accountSetup.timezone)}
+          </Datum>
+        ) : null}
         <KeyValue
           label="Frequency cap"
           value={

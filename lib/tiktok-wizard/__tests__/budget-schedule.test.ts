@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 import {
@@ -157,5 +160,25 @@ describe("TikTok wizard money parsing", () => {
   it("treats blank optional fields as null", () => {
     assert.equal(parseOptionalMoney(""), null);
     assert.equal(parseOptionalMoney("   "), null);
+  });
+});
+
+describe("Review schedule is edited, not healed", () => {
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  const review = readFileSync(
+    join(HERE, "../../../components/tiktok-wizard/steps/review-launch.tsx"),
+    "utf8",
+  );
+
+  it("does not call requestTikTokReviewScheduleHeal", () => {
+    assert.equal(review.includes("requestTikTokReviewScheduleHeal"), false);
+  });
+
+  it("renders start and end as datetime-local fields with the start-soon message inline", () => {
+    assert.match(review, /id="tiktok-review-schedule-start"/);
+    assert.match(review, /id="tiktok-review-schedule-end"/);
+    assert.match(review, /type="datetime-local"/);
+    assert.match(review, /schedule-start-soon/);
+    assert.match(review, /scheduleStartIssue\?\.message/);
   });
 });

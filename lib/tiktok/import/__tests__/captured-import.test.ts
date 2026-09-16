@@ -9,6 +9,7 @@ import { bundleFromRawCapture } from "../capture.ts";
 import {
   buildTikTokImportPicker,
   classifyTikTokImportCarry,
+  finalizeTikTokImportDraft,
   formatRejectedCarryKeys,
   mapTikTokLiveCampaignToDraft,
   parseTikTokImportCarry,
@@ -22,6 +23,7 @@ import {
   type TikTokImportPickerRow,
 } from "../picker.ts";
 import { formatTikTokImportCreativeCounts } from "../types.ts";
+import { collectTikTokLaunchPreflight } from "../../write/preflight.ts";
 
 type TikTokGet = typeof tiktokGet;
 
@@ -493,5 +495,41 @@ describe("hydratePickerThumbnails", () => {
         label,
       );
     }
+  });
+});
+
+describe("imported draft launch exit", () => {
+  it("7f93de68 shape with event and a future start has zero preflight issues", () => {
+    const bundle = bundleFromRawCapture(loadCapture(MANUAL_PATH));
+    const picker = buildTikTokImportPicker(bundle);
+    const mapped = mapTikTokLiveCampaignToDraft(
+      bundle,
+      "7f93de68-be46-4cc7-bfe4-b239f59a80fb",
+      ACCOUNT,
+      { carry: defaultCarryKeys(picker) },
+    );
+    const draft = finalizeTikTokImportDraft(
+      mapped,
+      "7f93de68-be46-4cc7-bfe4-b239f59a80fb",
+      [],
+      new Date("2026-09-16T16:00:00.000Z"),
+    );
+    draft.eventId = "2d5a5485-bfec-4812-9fcc-2f6f89262f6c";
+    draft.budgetSchedule.scheduleStartAt = "2026-09-17T12:00";
+    draft.budgetSchedule.scheduleEndAt = "2026-10-03T12:00";
+    assert.equal(draft.accountSetup.pixelId, "7644201699552690194");
+    assert.equal(draft.accountSetup.optimisationEvent, "ON_WEB_REGISTER");
+    assert.ok(draft.accountSetup.identityBcId);
+    assert.equal(draft.accountSetup.currency, "GBP");
+    assert.equal(draft.optimisation.bidStrategy, "COST_CAP");
+    assert.equal(draft.optimisation.targetCostPerResult, 1.5);
+    const { issues } = collectTikTokLaunchPreflight(draft, {
+      now: new Date("2026-09-16T16:00:00.000Z"),
+    });
+    assert.deepEqual(
+      issues,
+      [],
+      issues.map((issue) => `${issue.id}:${issue.field}:${issue.message}`).join(" | "),
+    );
   });
 });
