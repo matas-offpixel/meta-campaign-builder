@@ -62,6 +62,8 @@ export interface RegistrationsCardModel {
   /** Large number on the card. Null → em-dash. */
   primary: number | null;
   primaryCaption: string | null;
+  /** `Counted across 2 Cirqlin pages on this tag.` — scope, not a correction. */
+  scopeLine: string | null;
   /** `1,686 subscribed in Mailchimp` */
   mailchimpLine: string | null;
   /** `4 signups did not reach Mailchimp (invalid email)` */
@@ -145,6 +147,19 @@ function fmtInt(n: number): string {
   return n.toLocaleString("en-GB");
 }
 
+/**
+ * Cirqlin sums `totals` across every page on the tag, but we map one
+ * tag to one event. When the tag spans pages the number is right and
+ * its scope is wider than the event — say so instead of leaving it
+ * silent. Fixing the join is a later problem.
+ */
+function scopeLineFromRaw(raw: Record<string, unknown> | null): string | null {
+  if (!raw || raw.multiple !== true) return null;
+  const pages = Array.isArray(raw.pages) ? raw.pages.length : 0;
+  if (pages < 2) return "Counted across multiple Cirqlin pages on this tag.";
+  return `Counted across ${fmtInt(pages)} Cirqlin pages on this tag.`;
+}
+
 function mailchimpSecondaryLine(subscribed: number | null): string | null {
   if (subscribed == null) return null;
   return `${fmtInt(subscribed)} subscribed in Mailchimp`;
@@ -204,6 +219,7 @@ export function buildRegistrationsCardModel(
       source: "cirqlin",
       primary: signups,
       primaryCaption: cirqlinPrimaryCaption(live.snapshot_at, now),
+      scopeLine: scopeLineFromRaw(live.raw_json),
       mailchimpLine,
       syncFailureLine: syncFailureLine(syncFromRaw(live.raw_json)),
       fallbackLine: null,
@@ -217,6 +233,7 @@ export function buildRegistrationsCardModel(
       source: subscribed != null ? "mailchimp" : "none",
       primary: signups,
       primaryCaption: signups != null ? "subscribed · Mailchimp" : null,
+      scopeLine: null,
       mailchimpLine: null,
       syncFailureLine: null,
       fallbackLine: "Cirqlin has no page for this tag — showing Mailchimp.",
@@ -233,6 +250,7 @@ export function buildRegistrationsCardModel(
       source: signups != null ? "mailchimp" : "none",
       primary: signups,
       primaryCaption: signups != null ? "subscribed · Mailchimp" : null,
+      scopeLine: null,
       mailchimpLine: null,
       syncFailureLine: null,
       fallbackLine: unreachableFallback(
@@ -251,6 +269,7 @@ export function buildRegistrationsCardModel(
     source: signups != null ? "mailchimp" : "none",
     primary: signups,
     primaryCaption: signups != null ? "subscribed · Mailchimp" : null,
+    scopeLine: null,
     mailchimpLine: null,
     syncFailureLine: null,
     fallbackLine: null,
@@ -287,7 +306,9 @@ function mailchimpFromCount(
 /**
  * Venue / multi-event: prefer the single tagged event (D.O.D), else
  * the first event that has Cirqlin snapshots. Multi-event Cirqlin
- * sums are a later problem — this card is per campaign.
+ * sums are a later problem — this card is per campaign. When Cirqlin
+ * says the tag spans pages, `scopeLine` names it rather than leaving
+ * the wider scope unsaid.
  */
 export function buildRegistrationsCardModelForEvents(
   events: readonly PortalRegistrationsEvent[],

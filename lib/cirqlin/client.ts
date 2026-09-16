@@ -43,7 +43,9 @@ export function isCirqlinSignupsPayload(
   const v = value as Record<string, unknown>;
   if (v.ok !== true) return false;
   if (typeof v.tag !== "string") return false;
-  if (v.page == null || typeof v.page !== "object") return false;
+  // `pages[]`, not `page` — the live route returns every page on the
+  // tag and sums `totals` across them.
+  if (!Array.isArray(v.pages)) return false;
   if (v.totals == null || typeof v.totals !== "object") return false;
   const totals = v.totals as Record<string, unknown>;
   if (!Number.isFinite(totals.counted)) return false;
@@ -158,12 +160,15 @@ export async function fetchCirqlinSignupsByTag(
       };
     }
 
+    // A 2xx that fails the guard is a schema problem, and saying
+    // "unexpected status 200" sends the reader to HTTP instead.
     return {
       ok: false,
       reason: "error",
       status: res.status,
-      message:
-        record && typeof record.error === "string"
+      message: res.ok
+        ? "response did not match the partner payload shape"
+        : record && typeof record.error === "string"
           ? record.error
           : `unexpected status ${res.status}`,
     };

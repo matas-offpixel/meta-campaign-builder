@@ -18,21 +18,46 @@ export interface CirqlinSnapshotInsert {
   snapshot_at: string;
 }
 
+/**
+ * `daily_timezone` is not one of the fields `isCirqlinSignupsPayload`
+ * checks, and `Intl` throws on a zone it does not know. Fall back to
+ * the UTC date rather than throwing out of a pure mapper.
+ */
+export function calendarDayIn(zone: string | undefined, at: string): string {
+  const ms = Date.parse(at);
+  if (!Number.isFinite(ms)) return at.slice(0, 10);
+  if (!zone) return new Date(ms).toISOString().slice(0, 10);
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(ms);
+  } catch {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+}
+
 export function buildCirqlinSnapshotRows(
   eventId: string,
   payload: CirqlinSignupsPayload,
 ): CirqlinSnapshotInsert[] {
   const capturedAt = payload.capturedAt || new Date().toISOString();
+  // `multiple` and `daily_timezone` are persisted so a multi-page total
+  // and a non-London bucketing are both readable off the row itself.
   const sharedRaw = {
     tag: payload.tag,
-    page: payload.page,
+    pages: payload.pages,
+    multiple: payload.multiple,
     totals: payload.totals,
+    daily_timezone: payload.daily_timezone,
     sync: payload.sync,
     capturedAt: payload.capturedAt,
   };
 
   if (payload.daily.length === 0) {
-    const today = capturedAt.slice(0, 10);
+    const today = calendarDayIn(payload.daily_timezone, capturedAt);
     return [
       {
         event_id: eventId,
