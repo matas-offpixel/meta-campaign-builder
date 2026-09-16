@@ -14,6 +14,7 @@ import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { notifyRollupTicketsDeadIfNeeded } from "@/lib/ticketing/rollup-tickets-freshness";
 import { closeDueShowPredictions } from "@/lib/plan/show-close";
+import { runCampaignDailyInsightsPass } from "@/lib/insights/campaign-daily-cron";
 
 /**
  * GET /api/cron/rollup-sync-events
@@ -39,6 +40,13 @@ import { closeDueShowPredictions } from "@/lib/plan/show-close";
  *     and event_date null or within the last 180 days. This keeps Meta
  *     rollups warm for internal-ticketing clients whose campaigns still
  *     follow the bracketed `[EVENT_CODE]` convention.
+ *
+ * Also writes `campaign_daily_insights` for armed campaigns. This cron
+ * already calls the campaign-grain daily fetch (`level=campaign`,
+ * `time_increment=1`); the Armed 14-day store is the same Graph shape
+ * kept per campaign instead of summed into an event. optimisation-tick
+ * uses rolling date_presets for decisions and must not grow a second
+ * 14-day series on the write path.
  *
  * Per-event isolation:
  *   - Each event runs inside its own try/catch so one Meta rate-limit
@@ -133,6 +141,23 @@ async function runShowClosePass(
   }
 }
 
+async function runCampaignDailyPass(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+): Promise<void> {
+  try {
+    const result = await runCampaignDailyInsightsPass(supabase);
+    console.log(
+      `[cron rollup-sync-events] campaign-daily campaigns=${result.campaigns} rows=${result.rows.length} written=${result.written} skipped_no_token=${result.skippedNoToken}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[cron rollup-sync-events] campaign-daily skipped: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 function isAuthorized(req: NextRequest): boolean {
   const expected = process.env.CRON_SECRET;
   if (!expected) return false;
@@ -197,6 +222,7 @@ export async function GET(req: NextRequest) {
       `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
     );
     await runShowClosePass(supabase);
+    await runCampaignDailyPass(supabase);
     return NextResponse.json(empty);
   }
 
@@ -433,6 +459,7 @@ export async function GET(req: NextRequest) {
   }
 
   await runShowClosePass(supabase);
+  await runCampaignDailyPass(supabase);
 
   return NextResponse.json(response, { status: allOk ? 200 : 207 });
 }
