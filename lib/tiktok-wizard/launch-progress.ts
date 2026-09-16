@@ -72,6 +72,8 @@ export function buildTikTokLaunchPanelModel(input: {
   adsManagerUrl?: string | null;
   errorMessage?: string | null;
   tiktok?: { code?: number; message: string; request_id?: string } | null;
+  launchPaused?: boolean;
+  successDescription?: string | null;
 }): TikTokLaunchPanelModel {
   if (input.status === "launching") {
     const progress = input.progress ?? emptyTikTokLaunchProgress();
@@ -95,10 +97,15 @@ export function buildTikTokLaunchPanelModel(input: {
   }
 
   if (input.status === "success") {
+    const paused = input.launchPaused === true;
     return {
       state: "succeeded",
-      title: "Launched",
-      description: "Campaign created paused on TikTok. Open Ads Manager to inspect it.",
+      title: paused ? "Launched paused" : "Launched live",
+      description:
+        input.successDescription?.trim() ||
+        (paused
+          ? "Campaign created paused on TikTok. Nothing will deliver until it is enabled in Ads Manager."
+          : "Campaign created live on TikTok. Delivery starts at the schedule start."),
       boxClass: "border-emerald-500/40 bg-emerald-500/10",
       phases: [],
       campaignId: input.campaignId ?? null,
@@ -140,6 +147,7 @@ export function formatTikTokLaunchPanel(model: TikTokLaunchPanelModel): string {
   if (model.campaignId) lines.push(`campaign:${model.campaignId}`);
   if (model.adGroupCount != null) lines.push(`ad_groups:${model.adGroupCount}`);
   if (model.adCount != null) lines.push(`ads:${model.adCount}`);
+  if (model.description) lines.push(`description:${model.description}`);
   if (model.adsManagerUrl) lines.push(`ads_manager:${model.adsManagerUrl}`);
   if (model.errorMessage) lines.push(`error:${model.errorMessage}`);
   if (model.tiktokMessage) lines.push(`tiktok:${model.tiktokMessage}`);

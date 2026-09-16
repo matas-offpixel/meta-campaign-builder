@@ -282,8 +282,8 @@ describe("ad group and ad writes", () => {
     assert.equal(creatives[0].identity_type, "TT_USER");
     assert.deepEqual(creatives[0].image_ids, ["img_hero_1"]);
     assert.equal(creatives[0].video_id, "video_1");
-    assert.equal(mock.calls[0].body.operation_status, "DISABLE");
-    assert.equal(mock.calls[1].body.operation_status, "DISABLE");
+    assert.equal(mock.calls[0].body.operation_status, "ENABLE");
+    assert.equal(mock.calls[1].body.operation_status, "ENABLE");
   });
 
   it("logs outgoing /ad/create/ identity fields immediately before the write", async () => {

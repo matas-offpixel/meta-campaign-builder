@@ -180,12 +180,14 @@ ENABLE_BUDGET_PACING_ALERTS=
 > `creative_authorized: false` (literal — the Review & Launch toggle is a
 > fixed statement, not a switch). Smart+ (`draft.optimisation.smartPlusEnabled`)
 > is a hard preflight blocker — this path never calls `/smart_plus/*` or Smart
-> Creative endpoints. Campaign, ad groups, and ads are created paused
-> (`operation_status: DISABLE`) so enabling the campaign is a second, explicit
-> gate. A failed launch deletes the TikTok campaign **and** clears
-> `tiktok_write_idempotency` for that draft so retry cannot target deleted IDs.
-> Leave this unset in Vercel until a paused smoke-test campaign has been
-> verified.
+> Creative endpoints. Campaign, ad groups, and ads are created **live**
+> (`operation_status: ENABLE`) unless the operator chooses paused on Review
+> (`launchPaused: true` → all three `DISABLE`). The remaining gates are the
+> killswitch, preflight, and the Review confirmation — nothing else stands
+> between the button and delivery. A failed launch deletes the TikTok
+> campaign **and** clears `tiktok_write_idempotency` for that draft so retry
+> cannot target deleted IDs. The flag has been `true` in production since
+> 20 Aug 2026; the paused smoke test ran 21 Aug (campaign `1874142286754113`).
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII

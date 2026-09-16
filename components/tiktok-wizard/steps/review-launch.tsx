@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { TikTokLaunchPanel } from "@/components/tiktok-wizard/launch-panel";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import { duplicateTikTokDraft } from "@/lib/db/tiktok-drafts";
@@ -17,6 +18,14 @@ import {
   emptyTikTokLaunchProgress,
   type TikTokLaunchProgressView,
 } from "@/lib/tiktok-wizard/launch-progress";
+import {
+  isTikTokLaunchPaused,
+  tikTokLaunchButtonLabel,
+  tikTokLaunchConfirmMessage,
+  tikTokLaunchLiveSuccessDescription,
+  tikTokLaunchPausedSuccessDescription,
+  tikTokLaunchWasDeliveredPaused,
+} from "@/lib/tiktok-wizard/launch-live";
 import {
   buildTikTokBriefFilename,
   buildTikTokBriefMarkdown,
@@ -128,6 +137,9 @@ export function ReviewLaunchStep({
   const writesDisabledReason =
     context?.writesDisabledReason ?? TIKTOK_WRITES_DISABLED_REASON;
   const alreadyLaunched = Boolean(draft.publishedIds?.campaignId);
+  const [launchPaused, setLaunchPaused] = useState(() =>
+    isTikTokLaunchPaused(draft),
+  );
   const launchDisabled =
     launch.status === "launching" ||
     !writesEnabled ||
@@ -225,8 +237,22 @@ export function ReviewLaunchStep({
     }
   }
 
+  const launchConfirmMessage = tikTokLaunchConfirmMessage(
+    { ...draft, launchPaused },
+    { advertiserName: context?.advertiserName },
+  );
+
+  async function persistLaunchPaused(paused: boolean) {
+    setLaunchPaused(paused);
+    await onSave({ launchPaused: paused });
+  }
+
   async function launchOnTikTok() {
     if (launchDisabled) return;
+    if (!window.confirm(launchConfirmMessage)) return;
+    const paused = launchPaused;
+    await persistLaunchPaused(paused);
+    await context?.flushPendingSaves?.();
     setLaunch({ status: "launching" });
     setProgress(emptyTikTokLaunchProgress());
     try {
@@ -264,6 +290,7 @@ export function ReviewLaunchStep({
       await onSave({
         status: "published",
         publishedIds,
+        launchPaused: paused,
       });
       setLaunch({
         status: "success",
@@ -711,6 +738,13 @@ export function ReviewLaunchStep({
             ),
             errorMessage: launch.status === "error" ? launch.message : null,
             tiktok: launch.status === "error" ? launch.tiktok : null,
+            launchPaused: tikTokLaunchWasDeliveredPaused(draft),
+            successDescription: tikTokLaunchWasDeliveredPaused(draft)
+              ? tikTokLaunchPausedSuccessDescription()
+              : tikTokLaunchLiveSuccessDescription({
+                  scheduleStartAt: draft.budgetSchedule.scheduleStartAt,
+                  timezone: draft.accountSetup.timezone,
+                }),
           })}
         />
       )}
@@ -725,7 +759,10 @@ export function ReviewLaunchStep({
         )}
 
       <div className="space-y-2">
-        <div className="flex flex-wrap gap-3">
+        {!alreadyLaunched ? (
+          <Datum className="text-sm">{launchConfirmMessage}</Datum>
+        ) : null}
+        <div className="flex flex-wrap items-end gap-3">
           {alreadyLaunched ? (
             <Button
               type="button"
@@ -737,14 +774,32 @@ export function ReviewLaunchStep({
                 : "Already launched — Relaunch as a new draft"}
             </Button>
           ) : (
-            <Button
-              type="button"
-              disabled={launchDisabled}
-              title={launchTitle}
-              onClick={() => void launchOnTikTok()}
-            >
-              {launch.status === "launching" ? "Launching…" : "Launch on TikTok"}
-            </Button>
+            <>
+              <Select
+                id="tiktok-launch-mode"
+                label="Launch as"
+                className="w-44"
+                value={launchPaused ? "paused" : "live"}
+                disabled={launch.status === "launching"}
+                options={[
+                  { value: "live", label: "Launch live" },
+                  { value: "paused", label: "Launch paused" },
+                ]}
+                onChange={(event) => {
+                  void persistLaunchPaused(event.target.value === "paused");
+                }}
+              />
+              <Button
+                type="button"
+                disabled={launchDisabled}
+                title={launchTitle}
+                onClick={() => void launchOnTikTok()}
+              >
+                {launch.status === "launching"
+                  ? "Launching…"
+                  : tikTokLaunchButtonLabel(launchPaused)}
+              </Button>
+            </>
           )}
           <Button type="button" variant="outline" onClick={downloadBrief}>
             Download as brief (Markdown)

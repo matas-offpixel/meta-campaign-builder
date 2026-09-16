@@ -3,8 +3,9 @@
  *
  * { draftId } → campaign → ad groups → ads on TikTok.
  * Enhancements stay off (`is_aco: false`, `creative_authorized: false`).
- * Campaign, ad groups, and ads are created paused (`operation_status:
- * DISABLE`) so enabling the campaign is a second, explicit gate.
+ * Campaign, ad groups, and ads are created ENABLE unless the draft has
+ * `launchPaused: true`, in which case all three are DISABLE. The Review
+ * confirmation is the remaining operator gate.
  *
  * GET returns whether OFFPIXEL_TIKTOK_WRITES_ENABLED is on, so Review &
  * Launch can disable the button with a reason before the operator clicks.
