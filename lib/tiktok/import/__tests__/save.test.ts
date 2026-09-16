@@ -8,6 +8,7 @@ import { upsertTikTokDraft } from "../../../db/tiktok-drafts.ts";
 import { collectTikTokLaunchPreflight } from "../../write/preflight.ts";
 import { bundleFromRawCapture } from "../capture.ts";
 import {
+  TIKTOK_IMPORT_ACCOUNT_NOT_LINKED,
   TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH,
   TIKTOK_IMPORT_EVENT_ID_REQUIRED,
   type TikTokImportEventRow,
@@ -227,5 +228,80 @@ describe("POST /api/tiktok/campaigns/import event_id", () => {
       result.body.suggestedEventLabel,
       "matched [IRW0001] in the campaign name — change if wrong",
     );
+  });
+
+  it("returns its own message when the TikTok account is not linked to a client (save)", async () => {
+    let upserted = false;
+    let read = false;
+    const result = await handleTikTokImport({
+      userId: "user-1",
+      body: {
+        advertiserId: "7639802149165301776",
+        campaignId: "1874142286754113",
+        carry: ["v1"],
+        eventId: EVENT.id,
+      },
+      supabase: unusedSupabase,
+      deps: {
+        credentialsForAdvertiser: async () => ({
+          accountId: "acct-1",
+          token: "token",
+        }),
+        clientIdForAccount: async () => null,
+        loadEvent: async () => EVENT,
+        readCampaign: async () => {
+          read = true;
+          throw new Error("should not read");
+        },
+        upsertDraft: async () => {
+          upserted = true;
+          throw new Error("should not upsert");
+        },
+      },
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.error, TIKTOK_IMPORT_ACCOUNT_NOT_LINKED);
+    assert.equal(upserted, false);
+    assert.equal(read, false);
+  });
+
+  it("returns its own message when the TikTok account is not linked to a client (picker)", async () => {
+    const bundle = loadManualBundle();
+    const result = await handleTikTokImport({
+      userId: "user-1",
+      body: {
+        advertiserId: "7639802149165301776",
+        campaignId: "1874142286754113",
+      },
+      supabase: unusedSupabase,
+      deps: {
+        credentialsForAdvertiser: async () => ({
+          accountId: "acct-1",
+          token: "token",
+        }),
+        clientIdForAccount: async () => null,
+        readCampaign: async () => bundle,
+        fetchAdvertiser: async () => ({
+          currency: "GBP",
+          timezone: "Europe/London",
+          displayTimezone: null,
+        }),
+        hydrateThumbnails: async ({ rows }) => rows,
+      },
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.saved, false);
+    assert.equal(result.body.accountUnlinked, true);
+    assert.equal(result.body.error, TIKTOK_IMPORT_ACCOUNT_NOT_LINKED);
+    assert.deepEqual(result.body.events, []);
+  });
+
+  it("the picker dialog names the unlinked account where the select would be", () => {
+    const source = readFileSync(
+      join(HERE, "../../../../components/tiktok/tiktok-import-picker.tsx"),
+      "utf8",
+    );
+    assert.match(source, /TIKTOK_IMPORT_ACCOUNT_NOT_LINKED/);
+    assert.match(source, /accountUnlinked/);
   });
 });

@@ -508,11 +508,15 @@ describe("imported draft launch exit", () => {
       ACCOUNT,
       { carry: defaultCarryKeys(picker) },
     );
+    // import/heal clock — the 4th arg save.ts now passes (wall-clock in prod)
+    const importNow = new Date("2026-09-16T16:00:00.000Z");
+    // launch-evaluation clock — collectTikTokLaunchPreflight options.now
+    const launchNow = new Date("2026-09-16T16:00:00.000Z");
     const draft = finalizeTikTokImportDraft(
       mapped,
       "7f93de68-be46-4cc7-bfe4-b239f59a80fb",
       [],
-      new Date("2026-09-16T16:00:00.000Z"),
+      importNow,
     );
     draft.eventId = "2d5a5485-bfec-4812-9fcc-2f6f89262f6c";
     draft.budgetSchedule.scheduleStartAt = "2026-09-17T12:00";
@@ -524,7 +528,7 @@ describe("imported draft launch exit", () => {
     assert.equal(draft.optimisation.bidStrategy, "COST_CAP");
     assert.equal(draft.optimisation.targetCostPerResult, 1.5);
     const { issues } = collectTikTokLaunchPreflight(draft, {
-      now: new Date("2026-09-16T16:00:00.000Z"),
+      now: launchNow,
     });
     assert.deepEqual(
       issues,

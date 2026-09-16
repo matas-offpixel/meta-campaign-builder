@@ -1,13 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getTikTokDraft, upsertTikTokDraft } from "@/lib/db/tiktok-drafts";
+import { getTikTokDraft } from "@/lib/db/tiktok-drafts";
 import { createClient } from "@/lib/supabase/server";
-import {
-  TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH,
-  eventBelongsToClient,
-  loadTikTokImportEvent,
-  parseTikTokImportEventId,
-} from "@/lib/tiktok/import/event";
+import { handleTikTokDraftPatch } from "@/lib/tiktok-wizard/patch-draft";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 export async function GET(
@@ -38,89 +33,14 @@ export async function PATCH(
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
-
-  const current = await getTikTokDraft(supabase, id);
-  if (!current) {
-    return NextResponse.json(
-      { ok: false, error: "Draft not found" },
-      { status: 404 },
-    );
-  }
-
   const body = (await req.json().catch(() => null)) as Partial<
     TikTokCampaignDraft
   > | null;
-  if (!body || typeof body !== "object") {
-    return NextResponse.json(
-      { ok: false, error: "Invalid draft payload" },
-      { status: 400 },
-    );
-  }
-
-  const nextDraft = mergeTikTokDraft(current, body);
-  const requestedEventId = parseTikTokImportEventId({ eventId: body.eventId });
-  if (requestedEventId) {
-    const event = await loadTikTokImportEvent(supabase, {
-      eventId: requestedEventId,
-      userId: user.id,
-    });
-    if (!eventBelongsToClient(event, nextDraft.clientId)) {
-      return NextResponse.json(
-        { ok: false, error: TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH },
-        { status: 400 },
-      );
-    }
-    nextDraft.eventId = event.id;
-    nextDraft.campaignSetup.eventCode =
-      event.event_code?.trim() || nextDraft.campaignSetup.eventCode;
-  }
-  const saved = await upsertTikTokDraft(supabase, id, {
-    ...nextDraft,
-    userId: user.id,
+  const result = await handleTikTokDraftPatch({
+    userId: user?.id ?? null,
+    draftId: id,
+    body,
+    supabase,
   });
-  return NextResponse.json({ ok: true, draft: saved }, { status: 200 });
-}
-
-function mergeTikTokDraft(
-  current: TikTokCampaignDraft,
-  patch: Partial<TikTokCampaignDraft>,
-): TikTokCampaignDraft {
-  return {
-    ...current,
-    ...patch,
-    accountSetup: {
-      ...current.accountSetup,
-      ...(patch.accountSetup ?? {}),
-    },
-    campaignSetup: {
-      ...current.campaignSetup,
-      ...(patch.campaignSetup ?? {}),
-    },
-    optimisation: {
-      ...current.optimisation,
-      ...(patch.optimisation ?? {}),
-    },
-    audiences: {
-      ...current.audiences,
-      ...(patch.audiences ?? {}),
-    },
-    creatives: {
-      ...current.creatives,
-      ...(patch.creatives ?? {}),
-    },
-    budgetSchedule: {
-      ...current.budgetSchedule,
-      ...(patch.budgetSchedule ?? {}),
-    },
-    creativeAssignments: {
-      ...current.creativeAssignments,
-      ...(patch.creativeAssignments ?? {}),
-    },
-  };
+  return NextResponse.json(result.body, { status: result.status });
 }

@@ -14,6 +14,7 @@ import {
   credentialsForImportAdvertiser,
 } from "./account.ts";
 import {
+  TIKTOK_IMPORT_ACCOUNT_NOT_LINKED,
   TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH,
   TIKTOK_IMPORT_EVENT_ID_REQUIRED,
   attachTikTokImportEvent,
@@ -67,6 +68,8 @@ export type TikTokImportHandleDeps = {
   listDrafts?: typeof listTikTokDrafts;
   upsertDraft?: typeof upsertTikTokDraft;
   hydrateThumbnails?: typeof hydratePickerThumbnails;
+  /** Import/heal clock. Production uses wall-clock; tests pin it. */
+  now?: Date;
 };
 
 export async function handleTikTokImport(input: {
@@ -138,18 +141,25 @@ export async function handleTikTokImport(input: {
     tiktokAccountId: credentials.accountId,
   });
 
-  let ownedEvent: TikTokImportEventRow | null = null;
+  let verifiedEvent: TikTokImportEventRow | null = null;
   if (decision.action === "save") {
-    ownedEvent = await loadEvent(input.supabase, {
+    if (!clientId) {
+      return {
+        status: 400,
+        body: { ok: false, error: TIKTOK_IMPORT_ACCOUNT_NOT_LINKED },
+      };
+    }
+    const event = await loadEvent(input.supabase, {
       eventId: eventId!,
       userId: input.userId,
     });
-    if (!eventBelongsToClient(ownedEvent, clientId)) {
+    if (!eventBelongsToClient(event, clientId)) {
       return {
         status: 400,
         body: { ok: false, error: TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH },
       };
     }
+    verifiedEvent = event;
   }
 
   try {
@@ -172,12 +182,26 @@ export async function handleTikTokImport(input: {
         advertiserId,
         token: credentials.token,
       });
-      const events = clientId
-        ? await listEvents(input.supabase, {
-            userId: input.userId,
-            clientId,
-          })
-        : [];
+      if (!clientId) {
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            saved: false,
+            picker: { ...picker, rows },
+            clientId: null,
+            events: [],
+            suggestedEventId: null,
+            suggestedEventLabel: null,
+            accountUnlinked: true,
+            error: TIKTOK_IMPORT_ACCOUNT_NOT_LINKED,
+          },
+        };
+      }
+      const events = await listEvents(input.supabase, {
+        userId: input.userId,
+        clientId,
+      });
       const suggestion = suggestTikTokImportEvent(
         picker.campaign.name,
         events,
@@ -198,10 +222,13 @@ export async function handleTikTokImport(input: {
       };
     }
 
-    if (!ownedEvent) {
+    // Save already returned 400 unless verifiedEvent is set; picker
+    // returned above. TypeScript cannot see that, so this is the
+    // not-found path rather than a mismatch.
+    if (!verifiedEvent) {
       return {
         status: 400,
-        body: { ok: false, error: TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH },
+        body: { ok: false, error: TIKTOK_IMPORT_EVENT_ID_REQUIRED },
       };
     }
 
@@ -252,8 +279,9 @@ export async function handleTikTokImport(input: {
         mapped,
         draftId,
         tikTokDuplicateExistingNames(mapped, visible),
+        deps.now ?? new Date(),
       ),
-      ownedEvent,
+      verifiedEvent,
     );
     const saved = await upsertDraft(input.supabase, draftId, {
       ...draft,

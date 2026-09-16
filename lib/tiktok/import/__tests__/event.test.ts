@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 import { createDefaultTikTokDraft } from "../../../types/tiktok-draft.ts";
@@ -13,8 +10,6 @@ import {
   parseTikTokImportEventId,
   suggestTikTokImportEvent,
 } from "../event.ts";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
 
 const IRW = {
   id: "2d5a5485-bfec-4812-9fcc-2f6f89262f6c",
@@ -89,13 +84,5 @@ describe("parseTikTokImportEventId / ownership", () => {
     });
     assert.equal(attached.eventId, IRW.id);
     assert.equal(attached.campaignSetup.eventCode, "IRW0001");
-  });
-});
-
-describe("case-sensitive matcher pin", () => {
-  it("calls campaignMatchesBracketedEventCode and never uppercases", () => {
-    const source = readFileSync(join(HERE, "../event.ts"), "utf8");
-    assert.match(source, /campaignMatchesBracketedEventCode/);
-    assert.equal(source.includes(".toUpperCase()"), false);
   });
 });

@@ -16,6 +16,8 @@ type TypedSupabaseClient = SupabaseClient<Database>;
 export const TIKTOK_IMPORT_EVENT_ID_REQUIRED = "event_id is required";
 export const TIKTOK_IMPORT_EVENT_ID_CLIENT_MISMATCH =
   "event_id does not belong to this client";
+export const TIKTOK_IMPORT_ACCOUNT_NOT_LINKED =
+  "This TikTok account is not linked to a client";
 
 export type TikTokImportEventOption = {
   id: string;

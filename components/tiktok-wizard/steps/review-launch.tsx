@@ -1,7 +1,7 @@
 "use client";
 
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,10 @@ import {
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
 import { tikTokAdvertiserClockLabel } from "@/lib/plan/tiktok-early";
+import {
+  reviewScheduleFieldDisabled,
+  shouldPersistReviewSchedule,
+} from "@/lib/tiktok-wizard/review-schedule";
 import {
   collectTikTokLaunchPreflight,
   type TikTokLaunchPreflightIssue,
@@ -152,21 +156,28 @@ export function ReviewLaunchStep({
     (issue) => issue.id === "schedule-order",
   );
   const smartPlus = draft.optimisation.smartPlusEnabled;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const [startDraft, setStartDraft] = useState(
+    draft.budgetSchedule.scheduleStartAt ?? "",
+  );
+  const [endDraft, setEndDraft] = useState(
+    draft.budgetSchedule.scheduleEndAt ?? "",
+  );
+  const scheduleDisabled = reviewScheduleFieldDisabled({
+    alreadyLaunched,
+    smartPlus,
+  });
 
   async function persistSchedule(
     patch: Partial<TikTokCampaignDraft["budgetSchedule"]>,
   ) {
-    setSaving(true);
-    try {
-      await onSave({
-        budgetSchedule: {
-          ...draft.budgetSchedule,
-          ...patch,
-        },
-      });
-    } finally {
-      setSaving(false);
-    }
+    await onSave({
+      budgetSchedule: {
+        ...draftRef.current.budgetSchedule,
+        ...patch,
+      },
+    });
   }
 
   async function relaunchAsNewDraft() {
@@ -609,26 +620,44 @@ export function ReviewLaunchStep({
             id="tiktok-review-schedule-start"
             label="Schedule start"
             type="datetime-local"
-            value={draft.budgetSchedule.scheduleStartAt ?? ""}
-            disabled={saving || alreadyLaunched || smartPlus}
-            onChange={(event) =>
-              void persistSchedule({
-                scheduleStartAt: event.target.value || null,
-              })
-            }
+            value={startDraft}
+            disabled={scheduleDisabled}
+            onChange={(event) => {
+              const value = event.target.value;
+              setStartDraft(value);
+              if (shouldPersistReviewSchedule("change")) {
+                void persistSchedule({ scheduleStartAt: value || null });
+              }
+            }}
+            onBlur={(event) => {
+              const value = event.currentTarget.value;
+              setStartDraft(value);
+              if (shouldPersistReviewSchedule("blur")) {
+                void persistSchedule({ scheduleStartAt: value || null });
+              }
+            }}
             error={scheduleStartIssue?.message}
           />
           <Input
             id="tiktok-review-schedule-end"
             label="Schedule end"
             type="datetime-local"
-            value={draft.budgetSchedule.scheduleEndAt ?? ""}
-            disabled={saving || alreadyLaunched || smartPlus}
-            onChange={(event) =>
-              void persistSchedule({
-                scheduleEndAt: event.target.value || null,
-              })
-            }
+            value={endDraft}
+            disabled={scheduleDisabled}
+            onChange={(event) => {
+              const value = event.target.value;
+              setEndDraft(value);
+              if (shouldPersistReviewSchedule("change")) {
+                void persistSchedule({ scheduleEndAt: value || null });
+              }
+            }}
+            onBlur={(event) => {
+              const value = event.currentTarget.value;
+              setEndDraft(value);
+              if (shouldPersistReviewSchedule("blur")) {
+                void persistSchedule({ scheduleEndAt: value || null });
+              }
+            }}
             error={scheduleOrderIssue?.message}
           />
         </div>

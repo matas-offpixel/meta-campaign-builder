@@ -20,7 +20,10 @@ import {
   type TikTokLiveCampaignKind,
   type TikTokLiveCampaignRow,
 } from "@/lib/tiktok/import/types";
-import type { TikTokImportEventOption } from "@/lib/tiktok/import/event";
+import {
+  TIKTOK_IMPORT_ACCOUNT_NOT_LINKED,
+  type TikTokImportEventOption,
+} from "@/lib/tiktok/import/event";
 import {
   formatTikTokImportJoinLine,
   formatTikTokImportRowOriginBadge,
@@ -52,6 +55,7 @@ export function TikTokImportPicker({
     null,
   );
   const [eventId, setEventId] = useState("");
+  const [accountUnlinked, setAccountUnlinked] = useState(false);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -61,6 +65,7 @@ export function TikTokImportPicker({
       setSuggestedEventId(null);
       setSuggestedEventLabel(null);
       setEventId("");
+      setAccountUnlinked(false);
       setTicked(new Set());
       setError(null);
       return;
@@ -142,6 +147,7 @@ export function TikTokImportPicker({
         events?: TikTokImportEventOption[];
         suggestedEventId?: string | null;
         suggestedEventLabel?: string | null;
+        accountUnlinked?: boolean;
       };
       if (!json.ok || json.saved || !json.picker) {
         setError(json.error || "Could not read the campaign.");
@@ -152,6 +158,7 @@ export function TikTokImportPicker({
       setSuggestedEventId(json.suggestedEventId ?? null);
       setSuggestedEventLabel(json.suggestedEventLabel ?? null);
       setEventId(json.suggestedEventId ?? "");
+      setAccountUnlinked(json.accountUnlinked === true);
       setTicked(
         new Set(
           json.picker.rows
@@ -322,20 +329,26 @@ export function TikTokImportPicker({
               </Button>
             </div>
 
-            <div className="mt-3">
-              <TikTokImportEventSelect
-                id="tiktok-import-event"
-                events={events}
-                value={eventId}
-                onChange={setEventId}
-                suggestionLabel={
-                  suggestedEventId && eventId === suggestedEventId
-                    ? suggestedEventLabel
-                    : null
-                }
-                disabled={saving || events.length === 0}
-              />
-            </div>
+            {accountUnlinked ? (
+              <p className="mt-3 text-sm text-destructive">
+                {TIKTOK_IMPORT_ACCOUNT_NOT_LINKED}
+              </p>
+            ) : (
+              <div className="mt-3">
+                <TikTokImportEventSelect
+                  id="tiktok-import-event"
+                  events={events}
+                  value={eventId}
+                  onChange={setEventId}
+                  suggestionLabel={
+                    suggestedEventId && eventId === suggestedEventId
+                      ? suggestedEventLabel
+                      : null
+                  }
+                  disabled={saving || events.length === 0}
+                />
+              </div>
+            )}
 
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
@@ -418,11 +431,15 @@ export function TikTokImportPicker({
 
             <div className="mt-4 flex justify-end">
               <Button
-                disabled={saving || ticked.size === 0 || !eventId}
+                disabled={
+                  saving || accountUnlinked || ticked.size === 0 || !eventId
+                }
                 onClick={() => void confirmImport()}
               >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : accountUnlinked ? (
+                  TIKTOK_IMPORT_ACCOUNT_NOT_LINKED
                 ) : ticked.size === 0 ? (
                   "Tick at least one creative — nothing will be saved"
                 ) : !eventId ? (
