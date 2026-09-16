@@ -48,6 +48,7 @@ import {
 } from "../readers.ts";
 import {
   formatTikTokImportJoinLine,
+  formatTikTokImportRowOriginBadge,
   hydratePickerThumbnails,
 } from "../picker.ts";
 import { handleTikTokImportRaw } from "../raw.ts";
@@ -536,6 +537,95 @@ describe("map upgraded Smart+ from the documented creative_list shape", () => {
     assert.equal(
       formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal),
       "1 of 45 creatives TikTok says you selected matched a source ad",
+    );
+    assert.equal(picker.rows.length, 45);
+    const badged = picker.rows.filter(
+      (row) => formatTikTokImportRowOriginBadge(row.origin) !== null,
+    );
+    const unbadged = picker.rows.filter(
+      (row) => formatTikTokImportRowOriginBadge(row.origin) === null,
+    );
+    assert.equal(badged.length, 44);
+    assert.equal(unbadged.length, 1);
+    assert.ok(
+      picker.rows.every((row) => row.defaultTicked && !row.disabled),
+    );
+    for (const row of badged) {
+      assert.equal(row.origin, "unjoined");
+      assert.equal(
+        formatTikTokImportRowOriginBadge(row.origin),
+        "TikTok couldn't confirm you selected this",
+      );
+    }
+  });
+
+  it("badges a stem group when one of two copies is unjoined — doc-derived", () => {
+    const ads = [
+      {
+        ad_id: "partial-ad-1",
+        ad_name: "Shared stem chosen",
+        campaign_id: "upgraded-campaign-1",
+        adgroup_id: "upgraded-adgroup-1",
+        video_id: "v-stem-chosen",
+        campaign_automation_type: "UPGRADED_SMART_PLUS",
+      },
+      {
+        ad_id: "partial-ad-2",
+        ad_name: "Shared stem leftover",
+        campaign_id: "upgraded-campaign-1",
+        adgroup_id: "upgraded-adgroup-1",
+        video_id: "v-stem-unjoined",
+        campaign_automation_type: "UPGRADED_SMART_PLUS",
+      },
+    ];
+    const bundle = upgradedBundle({
+      smartPlusAds: [
+        {
+          ...UPGRADED_SMART_PLUS_AD_GET,
+          creative_list: [
+            {
+              smart_plus_creative_id: "partial-ad-1",
+              ad_material_id: "material-stem-1",
+              creative_info: {
+                ad_format: "SINGLE_VIDEO",
+                material_name: "Shared stem",
+                video_info: { video_id: "v-stem-chosen" },
+              },
+            },
+          ],
+        },
+      ],
+      ads,
+      libraryVideoIds: ["v-stem-chosen", "v-stem-unjoined"],
+      libraryVideos: [
+        {
+          video_id: "v-stem-chosen",
+          file_name: "shared-stem.mp4",
+          duration: null,
+          width: null,
+          height: null,
+          video_cover_url: null,
+        },
+        {
+          video_id: "v-stem-unjoined",
+          file_name: "shared-stem.mp4",
+          duration: null,
+          width: null,
+          height: null,
+          video_cover_url: null,
+        },
+      ],
+    });
+    const picker = buildTikTokImportPicker(bundle);
+    assert.equal(picker.chosenJoined, 1);
+    assert.equal(picker.chosenTotal, 1);
+    assert.equal(picker.unjoined, 1);
+    const row = picker.rows.find((item) => item.copies === 2);
+    assert.ok(row);
+    assert.equal(row?.origin, "unjoined");
+    assert.equal(
+      formatTikTokImportRowOriginBadge(row!.origin),
+      "TikTok couldn't confirm you selected this",
     );
   });
 
@@ -1442,6 +1532,21 @@ describe("import path allowlist", () => {
           );
         }
       }
+    }
+  });
+
+  it("does not keep a dead tiktok_added origin", () => {
+    const root = join(HERE, "..");
+    const files = collectTsFiles(root).filter(
+      (file) => !file.includes("/__tests__/") && !file.includes("/__fixtures__/"),
+    );
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      assert.equal(
+        source.includes("tiktok_added"),
+        false,
+        `${file} still names tiktok_added`,
+      );
     }
   });
 

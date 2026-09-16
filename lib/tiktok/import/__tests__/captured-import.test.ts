@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
+import { TikTokApiError, tiktokGet } from "../../client.ts";
 import { bundleFromRawCapture } from "../capture.ts";
 import {
   buildTikTokImportPicker,
@@ -18,9 +19,9 @@ import {
   formatTikTokImportUnjoinedLine,
   hydratePickerThumbnails,
   matchTikTokGeneratedName,
+  type TikTokImportPickerRow,
 } from "../picker.ts";
 import { formatTikTokImportCreativeCounts } from "../types.ts";
-import { tiktokGet } from "../../client.ts";
 
 type TikTokGet = typeof tiktokGet;
 
@@ -303,51 +304,38 @@ describe("POST carry decision and mapped save", () => {
 });
 
 describe("hydratePickerThumbnails", () => {
-  it("marks a rejected /file/video/ad/info/ id thumbnailError and still returns ok", async () => {
-    const rows = [
-      {
-        key: "v-bad-id",
-        kind: "video" as const,
-        name: "Missing original",
-        thumbnailUrl: null,
-        thumbnailError: false,
-        durationSeconds: null,
-        width: null,
-        height: null,
-        assetGroups: [],
-        copies: 1,
-        inLibrary: false,
-        defaultTicked: true,
-        disabled: false,
-        suggestionReason: null,
-        unsupportedReason: null,
-        suggestionLabel: null,
-      },
-      {
-        key: "v-good-id",
-        kind: "video" as const,
-        name: "Present original",
-        thumbnailUrl: null,
-        thumbnailError: false,
-        durationSeconds: null,
-        width: null,
-        height: null,
-        assetGroups: [],
-        copies: 1,
-        inLibrary: false,
-        defaultTicked: true,
-        disabled: false,
-        suggestionReason: null,
-        unsupportedReason: null,
-        suggestionLabel: null,
-      },
-    ];
-    let calls = 0;
-    const request = (async (path: string, params: Record<string, unknown>) => {
+  function videoRow(
+    key: string,
+    extras: Partial<TikTokImportPickerRow> = {},
+  ): TikTokImportPickerRow {
+    return {
+      key,
+      kind: "video",
+      origin: "chosen",
+      name: key,
+      thumbnailUrl: null,
+      thumbnailError: false,
+      durationSeconds: null,
+      width: null,
+      height: null,
+      assetGroups: [],
+      copies: 1,
+      inLibrary: false,
+      defaultTicked: true,
+      disabled: false,
+      suggestionReason: null,
+      unsupportedReason: null,
+      suggestionLabel: null,
+      ...extras,
+    };
+  }
+
+  function infoRequest(bad: ReadonlySet<string>, sizes: number[]) {
+    return (async (path: string, params: Record<string, unknown>) => {
       assert.equal(path, "/file/video/ad/info/");
       const ids = params.video_ids as string[];
-      calls += 1;
-      if (ids.includes("v-bad-id")) {
+      sizes.push(ids.length);
+      if (ids.some((id) => bad.has(id))) {
         throw new Error("one of the video_ids is not acceptable");
       }
       return {
@@ -357,17 +345,153 @@ describe("hydratePickerThumbnails", () => {
         })),
       };
     }) as TikTokGet;
+  }
 
+  it("keeps the good id's thumbnail when a mixed chunk has one bad id", async () => {
+    const sizes: number[] = [];
     const hydrated = await hydratePickerThumbnails({
-      rows,
+      rows: [videoRow("v-bad-id"), videoRow("v-good-id")],
       advertiserId: ACCOUNT.advertiserId,
       token: "token",
-      request,
+      request: infoRequest(new Set(["v-bad-id"]), sizes),
     });
-    assert.equal(calls, 2);
+    assert.ok(sizes.includes(2));
     assert.equal(hydrated[0]?.thumbnailUrl, null);
     assert.equal(hydrated[0]?.thumbnailError, true);
-    assert.equal(hydrated[1]?.thumbnailUrl, null);
-    assert.equal(hydrated[1]?.thumbnailError, true);
+    assert.equal(hydrated[1]?.thumbnailUrl, "https://thumb/v-good-id");
+    assert.equal(hydrated[1]?.thumbnailError, false);
+  });
+
+  it("splits a 4-id chunk so one bad id does not cost the other three", async () => {
+    const keys = ["v-good-a", "v-bad-id", "v-good-b", "v-good-c"];
+    const sizes: number[] = [];
+    const hydrated = await hydratePickerThumbnails({
+      rows: keys.map((key) => videoRow(key)),
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request: infoRequest(new Set(["v-bad-id"]), sizes),
+    });
+    const budget = 2 * Math.ceil(Math.log2(keys.length)) + 1;
+    assert.ok(sizes.length <= budget, `calls=${sizes.length} sizes=${sizes.join(",")}`);
+    assert.ok(
+      sizes.some((size) => size > 1 && size < keys.length),
+      "retries a half, not each id",
+    );
+    assert.equal(hydrated.filter((row) => row.thumbnailError).length, 1);
+    assert.equal(
+      hydrated.filter((row) => row.thumbnailUrl?.startsWith("https://thumb/")).length,
+      3,
+    );
+    assert.equal(
+      hydrated.find((row) => row.key === "v-bad-id")?.thumbnailError,
+      true,
+    );
+  });
+
+  it("marks every id when every id in the chunk is bad", async () => {
+    const keys = ["v-bad-a", "v-bad-b", "v-bad-c", "v-bad-d"];
+    const sizes: number[] = [];
+    const hydrated = await hydratePickerThumbnails({
+      rows: keys.map((key) => videoRow(key)),
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request: infoRequest(new Set(keys), sizes),
+    });
+    assert.equal(hydrated.every((row) => row.thumbnailError), true);
+    assert.equal(hydrated.every((row) => row.thumbnailUrl === null), true);
+    assert.ok(sizes.length > 1);
+    assert.equal(sizes.length, 7);
+  });
+
+  it("does not ask /file/video/ad/info/ for a blocked row, and does not mark it thumbnailError", async () => {
+    // Ironworks Smart+ capture: three blocked carousel rows whose key is
+    // an ad_id. The manual capture has none of this shape.
+    const picker = buildTikTokImportPicker(
+      bundleFromRawCapture(loadCapture(SMART_PLUS_PATH)),
+    );
+    const blocked = picker.rows.filter((row) => row.disabled);
+    assert.ok(blocked.length > 0);
+    const blockedKeys = new Set(blocked.map((row) => row.key));
+
+    const blockedOnlySizes: number[] = [];
+    const blockedHydrated = await hydratePickerThumbnails({
+      rows: blocked,
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request: infoRequest(new Set(), blockedOnlySizes),
+    });
+    assert.deepEqual(blockedOnlySizes, []);
+    assert.equal(
+      blockedHydrated.every((row) => row.thumbnailError === false),
+      true,
+    );
+
+    const mixedIds: string[] = [];
+    const mixed = await hydratePickerThumbnails({
+      rows: picker.rows,
+      advertiserId: ACCOUNT.advertiserId,
+      token: "token",
+      request: (async (path: string, params: Record<string, unknown>) => {
+        assert.equal(path, "/file/video/ad/info/");
+        const ids = params.video_ids as string[];
+        mixedIds.push(...ids);
+        return {
+          list: ids.map((video_id) => ({
+            video_id,
+            video_cover_url: `https://thumb/${video_id}`,
+          })),
+        };
+      }) as TikTokGet,
+    });
+    assert.equal(
+      mixedIds.some((id) => blockedKeys.has(id)),
+      false,
+    );
+    assert.equal(
+      mixed.filter((row) => row.disabled).every((row) => row.thumbnailError === false),
+      true,
+    );
+  });
+
+  it("retries a non-bad-id error once, then stops without marking thumbnailError", async () => {
+    const keys = ["v-a", "v-b", "v-c", "v-d"];
+    const cases: Array<{ label: string; err: Error }> = [
+      {
+        label: "429",
+        err: new TikTokApiError("Too many requests", 50001, "req-429", 429),
+      },
+      {
+        label: "401",
+        err: new TikTokApiError("Access token is invalid", 40105, "req-401", 401),
+      },
+      {
+        label: "transport",
+        err: new Error("Network error calling TikTok Business API: ECONNRESET"),
+      },
+    ];
+    for (const { label, err } of cases) {
+      const sizes: number[] = [];
+      const hydrated = await hydratePickerThumbnails({
+        rows: keys.map((key) => videoRow(key)),
+        advertiserId: ACCOUNT.advertiserId,
+        token: "token",
+        request: (async (_path: string, params: Record<string, unknown>) => {
+          const ids = params.video_ids as string[];
+          sizes.push(ids.length);
+          throw err;
+        }) as TikTokGet,
+      });
+      assert.deepEqual(sizes, [4, 4], label);
+      assert.equal(
+        hydrated.every((row) => row.thumbnailError === false),
+        true,
+        label,
+      );
+      assert.equal(
+        hydrated.every((row) => row.thumbnailUrl === null),
+        true,
+        label,
+      );
+    }
   });
 });

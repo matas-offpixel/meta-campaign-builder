@@ -174,7 +174,8 @@ export const TIKTOK_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
  * A carousel is listed by id, not coerced into a VIDEO_REFERENCE with a
  * null `videoId` — that is what #944 did to three Ironworks rows.
  *
- * Unsupported-format detection is Smart+-only until `/ad/get/`'s
+ * Manual carousels are reported under a different reason
+ * (`image_ad_unsupported` or `no_asset_reported`) until `/ad/get/`'s
  * accepted `fields` list is captured the same way as
  * `captured/adgroup-get-accepted-fields-2026-09-15.ts`. The
  * `/adgroup/get/` list says nothing about `/ad/get/`. `sourceFromAdGetRow`

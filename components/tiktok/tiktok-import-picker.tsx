@@ -21,6 +21,7 @@ import {
 } from "@/lib/tiktok/import/types";
 import {
   formatTikTokImportJoinLine,
+  formatTikTokImportRowOriginBadge,
   formatTikTokImportUnjoinedLine,
   type TikTokImportPickerPayload,
 } from "@/lib/tiktok/import/picker";
@@ -189,6 +190,12 @@ export function TikTokImportPicker({
     () => picker?.rows.filter((row) => !row.disabled).length ?? 0,
     [picker],
   );
+  const joinLine = picker
+    ? formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal)
+    : null;
+  const unjoinedLine = picker
+    ? formatTikTokImportUnjoinedLine(picker.unjoined)
+    : null;
 
   return (
     <Dialog open={open} onClose={onClose} panelClassName="max-w-3xl">
@@ -286,15 +293,8 @@ export function TikTokImportPicker({
                   {" "}
                   · {TIKTOK_LIVE_CAMPAIGN_KIND_LABEL[picker.campaign.kind]} ·{" "}
                   {ticked.size} of {enabledCount} ticked
-                  {formatTikTokImportJoinLine(
-                    picker.chosenJoined,
-                    picker.chosenTotal,
-                  )
-                    ? ` · ${formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal)}`
-                    : ""}
-                  {formatTikTokImportUnjoinedLine(picker.unjoined)
-                    ? ` · ${formatTikTokImportUnjoinedLine(picker.unjoined)}`
-                    : ""}
+                  {joinLine ? ` · ${joinLine}` : ""}
+                  {unjoinedLine ? ` · ${unjoinedLine}` : ""}
                 </span>
               </p>
               <Button variant="ghost" size="sm" onClick={() => setPicker(null)}>
@@ -305,70 +305,80 @@ export function TikTokImportPicker({
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
             <div className="mt-3 max-h-[28rem] space-y-2 overflow-auto pr-1">
-              {picker.rows.map((row) => (
-                <label
-                  key={row.key}
-                  className={`flex gap-3 rounded-md border border-border p-3 ${
-                    row.disabled ? "opacity-60" : ""
-                  }`}
-                >
-                  <Checkbox
-                    id={`tiktok-import-${row.key}`}
-                    checked={ticked.has(row.key)}
-                    disabled={row.disabled || saving}
-                    onChange={() => {
-                      if (row.disabled) return;
-                      setTicked((current) => {
-                        const next = new Set(current);
-                        if (next.has(row.key)) next.delete(row.key);
-                        else next.add(row.key);
-                        return next;
-                      });
-                    }}
-                  />
-                  {row.thumbnailUrl ? (
-                    // Signed TikTok cover URLs expire; a missing thumb is fine.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={row.thumbnailUrl}
-                      alt=""
-                      className="h-14 w-10 shrink-0 rounded object-cover bg-muted"
+              {picker.rows.map((row) => {
+                const originBadge = formatTikTokImportRowOriginBadge(row.origin);
+                return (
+                  <label
+                    key={row.key}
+                    className={`flex gap-3 rounded-md border border-border p-3 ${
+                      row.disabled ? "opacity-60" : ""
+                    }`}
+                  >
+                    <Checkbox
+                      id={`tiktok-import-${row.key}`}
+                      checked={ticked.has(row.key)}
+                      disabled={row.disabled || saving}
+                      onChange={() => {
+                        if (row.disabled) return;
+                        setTicked((current) => {
+                          const next = new Set(current);
+                          if (next.has(row.key)) next.delete(row.key);
+                          else next.add(row.key);
+                          return next;
+                        });
+                      }}
                     />
-                  ) : (
-                    <div className="h-14 w-10 shrink-0 rounded bg-muted" />
-                  )}
-                  <div className="min-w-0 flex-1 text-sm">
-                    <p className="font-medium">{row.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {[
-                        row.durationSeconds != null
-                          ? `${Math.round(row.durationSeconds)}s`
-                          : null,
-                        row.width && row.height
-                          ? `${row.width}×${row.height}`
-                          : null,
-                        row.assetGroups.length > 0
-                          ? row.assetGroups.join(", ")
-                          : null,
-                        row.inLibrary ? "in library" : "not in library",
-                        row.copies > 1 ? `${row.copies} copies on TikTok` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                    {row.thumbnailError && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        thumbnail unavailable
-                      </p>
+                    {row.thumbnailUrl ? (
+                      // Signed TikTok cover URLs expire; a missing thumb is fine.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={row.thumbnailUrl}
+                        alt=""
+                        className="h-14 w-10 shrink-0 rounded object-cover bg-muted"
+                      />
+                    ) : (
+                      <div className="h-14 w-10 shrink-0 rounded bg-muted" />
                     )}
-                    {row.suggestionLabel && (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {row.suggestionLabel}
+                    <div className="min-w-0 flex-1 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{row.name}</p>
+                        {originBadge ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {originBadge}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {[
+                          row.durationSeconds != null
+                            ? `${Math.round(row.durationSeconds)}s`
+                            : null,
+                          row.width && row.height
+                            ? `${row.width}×${row.height}`
+                            : null,
+                          row.assetGroups.length > 0
+                            ? row.assetGroups.join(", ")
+                            : null,
+                          row.inLibrary ? "in library" : "not in library",
+                          row.copies > 1 ? `${row.copies} copies on TikTok` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
-                    )}
-                  </div>
-                </label>
-              ))}
+                      {row.thumbnailError && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          thumbnail unavailable
+                        </p>
+                      )}
+                      {row.suggestionLabel && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {row.suggestionLabel}
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
             </div>
 
             <div className="mt-4 flex justify-end">
