@@ -21,6 +21,7 @@ import type { MailchimpSnapshotRow } from "../mailchimp/compute-registrations.ts
 import { netNewMailchimpRegistrationsForDay } from "../mailchimp/tracker-registrations.ts";
 
 import { resolveSignupWindow } from "./signup-window.ts";
+import { isoWeekEnd, type TrendGranularity } from "./trend-chart-data.ts";
 
 export type TrendRegistrationsSource = "cirqlin" | "mailchimp" | "meta";
 
@@ -189,6 +190,41 @@ function fmtRange(from: string, to: string): string {
   const tm = months[Number(to.slice(5, 7)) - 1] ?? to;
   if (from === to) return `${a} ${fm}`;
   return `${a} ${fm} – ${b} ${tm}`;
+}
+
+/**
+ * Last calendar day a plotted bucket covers. Daily is the day itself;
+ * weekly is the Sunday of that ISO week — the same week the chart keys
+ * by the same Monday the weekly chart plots.
+ */
+export function bucketEndDay(
+  bucketDate: string,
+  granularity: TrendGranularity,
+): string {
+  return granularity === "daily" ? bucketDate : isoWeekEnd(bucketDate);
+}
+
+/**
+ * Down-sample a daily cumulative series onto plotted buckets by taking
+ * the last value on or before each bucket's last day. Sampling at
+ * bucket ends is the same curve at lower resolution; sampling at
+ * week-starts would be a different, smaller number.
+ */
+export function sampleCumulativeAtBucketEnds(
+  dailyDates: readonly string[],
+  dailyCumulative: Array<number | null>,
+  bucketDates: readonly string[],
+  granularity: TrendGranularity,
+): Array<number | null> {
+  return bucketDates.map((bucket) => {
+    const end = bucketEndDay(bucket, granularity);
+    let latest: number | null = null;
+    for (let i = 0; i < dailyDates.length; i++) {
+      if (dailyDates[i]! > end) break;
+      if (dailyCumulative[i] != null) latest = dailyCumulative[i];
+    }
+    return latest;
+  });
 }
 
 /** Extra YYYY-MM-DD dates to prepend so the curve starts at the window. */

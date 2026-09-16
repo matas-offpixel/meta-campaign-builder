@@ -71,6 +71,15 @@ export function isoWeekStart(isoDate: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Sunday of the UTC week containing `isoDate`. */
+export function isoWeekEnd(isoDate: string): string {
+  const start = isoWeekStart(isoDate);
+  const d = new Date(`${start}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  d.setUTCDate(d.getUTCDate() + 6);
+  return d.toISOString().slice(0, 10);
+}
+
 function deriveMetrics(date: string, v: PointAccumulator): TrendChartDay {
   const cpt =
     v.spend !== null && v.spend > 0 && v.tickets !== null && v.tickets > 0

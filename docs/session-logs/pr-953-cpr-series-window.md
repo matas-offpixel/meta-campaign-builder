@@ -30,15 +30,26 @@ pill names the span (`CPR · to 9 Sept`).
 
 Weekly buckets were dividing a week of spend (including ticket
 days) by signups through the Monday. Each bucket is now sliced to
-the in-window days — `2026-09-07` carries 7–9 Sept spend against
-7–9 Sept signups — so the last weekly point equals the card. Brand
-`cpt` and the Mailchimp fallback are named in the PR body and left
-alone.
+the in-window days — `2026-09-07` is cumulative 26 Aug – 9 Sept
+spend (£1,439.37) over 26 Aug – 9 Sept signups (1,589), not a
+7–9 Sept per-bucket ratio (that would not equal the card) — so the
+last weekly point equals the card. Brand `cpt` was named and left
+alone. The Mailchimp weekly path was still mixed (named only).
+
+## Round 3
+
+Weekly registrations was summing Mondays only (D.O.D 394 vs 1,839).
+The series is now built on the daily spine and sampled at each
+bucket's last in-bucket day. Weekly Mailchimp CPR is null with a
+caption rather than a mixed-window number. The `1714aba` commit
+message still says "7–9 Sept spend against 7–9 Sept signups"; that
+commit is already on the remote, so the wording lives here and in
+the PR body instead.
 
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
-- [x] `npm test` — 5969 pass / 0 fail / 4 skipped
+- [x] `npm test` — 5972 pass / 0 fail / 4 skipped
 - [x] `npm run build` — compiled, typecheck finished, 193 static pages
 - [ ] Check-run conclusions on the final head — PR thread, not a commit
 
@@ -46,6 +57,5 @@ alone.
 
 `computeRegistrationsData` untouched. `evaluate.ts` / `apply.ts` /
 `gates.ts` / `components/plan/**` off the file list. No migration.
-The registrations series is unchanged — D.O.D still flatlines at
-1,839 across 10–16 Sept. The window is named on the CPR pill, not a
-caption.
+`signup-window.ts` and `registrations-card-model.ts` frozen this
+round. `trend-registrations.ts` is in scope.

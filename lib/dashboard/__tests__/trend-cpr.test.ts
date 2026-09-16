@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import { buildRegistrationsCardModel } from "../registrations-card-model.ts";
 import { isoWeekStart } from "../trend-chart-data.ts";
 import {
+  WEEKLY_MAILCHIMP_CPR_CAPTION,
   buildTrendCprSeries,
   cprBucketThroughDay,
   trendCprPillLabel,
@@ -199,5 +200,49 @@ describe("trend CPR series", () => {
     assert.ok(last != null);
     assert.equal(Math.round(last * 100), Math.round((card.cpr.cpr ?? 0) * 100));
     assert.equal(Math.round(last * 100) / 100, 0.91);
+  });
+
+  it("weekly all-time has no null tail and the last point still equals the card", () => {
+    const weeklyDates = [...new Set(DOD_DATES.map((day) => isoWeekStart(day)))].sort();
+    const series = buildTrendCprSeries({
+      dates: weeklyDates,
+      spendRows: DOD_SPEND_ROWS,
+      generalSaleAt: null,
+      cirqlinSnapshots: dodCirqlinDays(),
+      granularity: "weekly",
+    });
+    const i7 = weeklyDates.indexOf("2026-09-07");
+    const i14 = weeklyDates.indexOf("2026-09-14");
+    assert.ok(i7 >= 0 && i14 >= 0);
+    assert.ok(series.daily[i7] != null);
+    assert.ok(series.daily[i14] != null);
+    assert.equal(series.daily.slice(i7).some((value) => value == null), false);
+
+    const card = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: dodCirqlinDays(),
+      spendRows: DOD_SPEND_ROWS,
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.ok(card.cpr);
+    const last = lastNonNull(series.daily);
+    assert.ok(last != null);
+    assert.equal(Math.round(last * 100), Math.round((card.cpr.cpr ?? 0) * 100));
+    assert.equal(series.pillLabel, "CPR · all-time");
+  });
+
+  it("weekly Mailchimp is null with a caption rather than a mixed-window number", () => {
+    const weeklyDates = [...new Set(DOD_DATES.map((day) => isoWeekStart(day)))].sort();
+    const series = buildTrendCprSeries({
+      dates: weeklyDates,
+      spendRows: DOD_SPEND_ROWS,
+      generalSaleAt: DOD_GENERAL_SALE_AT,
+      fallbackSignups: weeklyDates.map(() => 1686),
+      fallbackSignupDates: weeklyDates,
+      granularity: "weekly",
+    });
+    assert.equal(series.daily.every((value) => value == null), true);
+    assert.equal(series.caption, WEEKLY_MAILCHIMP_CPR_CAPTION);
   });
 });

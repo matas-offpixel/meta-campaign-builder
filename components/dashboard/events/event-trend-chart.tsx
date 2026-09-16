@@ -19,6 +19,7 @@ import { buildTrendCprSeries } from "@/lib/dashboard/trend-cpr";
 import {
   buildTrendRegistrationsSeries,
   extraDaysBefore,
+  sampleCumulativeAtBucketEnds,
 } from "@/lib/dashboard/trend-registrations";
 import { hasCirqlinRegs } from "@/lib/cirqlin/tracker-signups";
 import { resolveSignupWindow } from "@/lib/dashboard/signup-window";
@@ -106,6 +107,68 @@ function nextDay(yyyymmdd: string): string | null {
   if (!Number.isFinite(d.getTime())) return null;
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+function emptyTrendDay(date: string): TrendChartDay {
+  return {
+    date,
+    spend: null,
+    tickets: null,
+    revenue: null,
+    linkClicks: null,
+    cpt: null,
+    roas: null,
+    cpc: null,
+  };
+}
+
+function padTrendDaysWithSignupWindow(
+  base: TrendChartDay[],
+  cirqlinSnapshots?: CirqlinSnapshotRow[],
+  mailchimpSnapshots?: MailchimpSnapshotRow[],
+): TrendChartDay[] {
+  const firstBaseDate = base[0]?.date ?? null;
+  const lastBaseDate = base[base.length - 1]?.date ?? null;
+  const windowStart = hasCirqlinRegs(cirqlinSnapshots)
+    ? resolveSignupWindow(cirqlinSnapshots).startDay
+    : null;
+  const cirqlinBefore = extraDaysBefore(
+    base.map((d) => d.date),
+    windowStart,
+    firstBaseDate ? previousDay(firstBaseDate) : windowStart,
+  );
+  const cirqlinAfter =
+    lastBaseDate && cirqlinSnapshots
+      ? extraDaysBefore(
+          [...base.map((d) => d.date), ...cirqlinBefore],
+          nextDay(lastBaseDate),
+          lastLiveCirqlinDay(cirqlinSnapshots),
+        )
+      : [];
+  const extraBefore = cirqlinBefore.length
+    ? cirqlinBefore
+    : !mailchimpSnapshots?.length
+      ? []
+      : [...new Set(
+          mailchimpSnapshots
+            .map((s) => s.snapshot_at.slice(0, 10))
+            .filter((d) => firstBaseDate == null || d < firstBaseDate),
+        )].sort();
+  const extraAfter = cirqlinAfter.length
+    ? cirqlinAfter
+    : !mailchimpSnapshots?.length
+      ? []
+      : [...new Set(
+          mailchimpSnapshots
+            .map((s) => s.snapshot_at.slice(0, 10))
+            .filter((d) => lastBaseDate == null || d > lastBaseDate),
+        )].sort();
+  if (extraBefore.length === 0 && extraAfter.length === 0) return base;
+  return [
+    ...extraBefore.map(emptyTrendDay),
+    ...base,
+    ...extraAfter.map(emptyTrendDay),
+  ];
 }
 
 function lastLiveCirqlinDay(
@@ -205,62 +268,19 @@ function LegacyTrendChart({
     () => hasCumulativeTicketPoints(sourcePoints),
     [sourcePoints],
   );
+  const dailyDays = useMemo(
+    () =>
+      padTrendDaysWithSignupWindow(
+        aggregateTrendChartPoints(sourcePoints, "daily"),
+        cirqlinSnapshots,
+        mailchimpSnapshots,
+      ),
+    [sourcePoints, cirqlinSnapshots, mailchimpSnapshots],
+  );
   const days = useMemo(() => {
-    const base = aggregateTrendChartPoints(sourcePoints, granularity);
-    if (granularity !== "daily") return base;
-    const emptyDay = (date: string): TrendChartDay => ({
-      date,
-      spend: null,
-      tickets: null,
-      revenue: null,
-      linkClicks: null,
-      cpt: null,
-      roas: null,
-      cpc: null,
-    });
-    const firstBaseDate = base[0]?.date ?? null;
-    const lastBaseDate = base[base.length - 1]?.date ?? null;
-    const windowStart = hasCirqlinRegs(cirqlinSnapshots)
-      ? resolveSignupWindow(cirqlinSnapshots).startDay
-      : null;
-    const cirqlinBefore = extraDaysBefore(
-      base.map((d) => d.date),
-      windowStart,
-      firstBaseDate ? previousDay(firstBaseDate) : windowStart,
-    );
-    const cirqlinAfter =
-      lastBaseDate && cirqlinSnapshots
-        ? extraDaysBefore(
-            [...base.map((d) => d.date), ...cirqlinBefore],
-            nextDay(lastBaseDate),
-            lastLiveCirqlinDay(cirqlinSnapshots),
-          )
-        : [];
-    const extraBefore = cirqlinBefore.length
-      ? cirqlinBefore
-      : !mailchimpSnapshots?.length
-        ? []
-        : [...new Set(
-            mailchimpSnapshots
-              .map((s) => s.snapshot_at.slice(0, 10))
-              .filter((d) => firstBaseDate == null || d < firstBaseDate),
-          )].sort();
-    const extraAfter = cirqlinAfter.length
-      ? cirqlinAfter
-      : !mailchimpSnapshots?.length
-        ? []
-        : [...new Set(
-            mailchimpSnapshots
-              .map((s) => s.snapshot_at.slice(0, 10))
-              .filter((d) => lastBaseDate == null || d > lastBaseDate),
-          )].sort();
-    if (extraBefore.length === 0 && extraAfter.length === 0) return base;
-    return [
-      ...extraBefore.map(emptyDay),
-      ...base,
-      ...extraAfter.map(emptyDay),
-    ];
-  }, [sourcePoints, granularity, mailchimpSnapshots, cirqlinSnapshots]);
+    if (granularity === "daily") return dailyDays;
+    return aggregateTrendChartPoints(sourcePoints, granularity);
+  }, [dailyDays, granularity, sourcePoints]);
   const summary = useMemo(
     () => summarizeTrendChartPoints(days, hasCumulativeTickets),
     [days, hasCumulativeTickets],
@@ -273,27 +293,41 @@ function LegacyTrendChart({
     ) {
       return null;
     }
-    const dates = days.map((d) => d.date);
+    const dailyDates = dailyDays.map((d) => d.date);
     const built = buildTrendRegistrationsSeries({
-      dates,
+      dates: dailyDates,
       cirqlinSnapshots,
       mailchimpSnapshots,
-      metaByDate: new Map(days.map((d) => [d.date, null])),
+      metaByDate: new Map(dailyDays.map((d) => [d.date, null])),
     });
+    const plotted = days.map((d) => d.date);
+    const sampled = sampleCumulativeAtBucketEnds(
+      dailyDates,
+      built.cumulative,
+      plotted,
+      granularity,
+    );
     const cprSeries = buildTrendCprSeries({
-      dates,
+      dates: plotted,
       spendRows: sourcePoints.map((p) => ({ date: p.date, ad_spend: p.spend })),
       generalSaleAt: milestones?.generalSaleAt ?? null,
       cirqlinSnapshots,
       fallbackSignups: built.cumulative,
+      fallbackSignupDates: dailyDates,
       granularity,
     });
     const withCpr = days.map((_, i) => ({
-      registrations: built.cumulative[i] ?? null,
+      registrations: sampled[i] ?? null,
       cpr: cprSeries.daily[i],
     }));
-    return { ...built, days: withCpr, cprPillLabel: cprSeries.pillLabel };
+    return {
+      ...built,
+      days: withCpr,
+      cprPillLabel: cprSeries.pillLabel,
+      cprCaption: cprSeries.caption,
+    };
   }, [
+    dailyDays,
     days,
     sourcePoints,
     granularity,
@@ -567,6 +601,11 @@ function LegacyTrendChart({
         {regsSeries?.reconstructedCaption ? (
           <p className="mt-2 text-[10px] text-muted-foreground">
             {regsSeries.reconstructedCaption}
+          </p>
+        ) : null}
+        {regsSeries?.cprCaption ? (
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {regsSeries.cprCaption}
           </p>
         ) : null}
       </div>

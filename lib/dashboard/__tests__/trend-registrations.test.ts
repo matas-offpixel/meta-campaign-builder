@@ -1,13 +1,29 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { isoWeekEnd, isoWeekStart } from "../trend-chart-data.ts";
 import {
+  bucketEndDay,
   buildTrendRegistrationsSeries,
   isReconstructedMailchimpSnapshot,
+  sampleCumulativeAtBucketEnds,
   trendRegistrationsSource,
 } from "../trend-registrations.ts";
 
 import { dodCirqlinDays } from "./dod-cirqlin-days.ts";
+
+function daysBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  const cursor = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  while (cursor.getTime() <= end.getTime()) {
+    out.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return out;
+}
+
+const DOD_DATES = daysBetween("2026-08-18", "2026-09-16");
 
 describe("trend registrations series", () => {
   it("names Cirqlin when those snapshots exist", () => {
@@ -97,5 +113,37 @@ describe("trend registrations series", () => {
       series.reconstructedCaption ?? "",
       /Mailchimp registrations 26 Aug – 27 Aug are reconstructed, not measured/,
     );
+  });
+
+  it("weekly D.O.D samples the daily cumulative at each bucket end — tail is 1,839", () => {
+    const daily = buildTrendRegistrationsSeries({
+      dates: DOD_DATES,
+      cirqlinSnapshots: dodCirqlinDays(),
+    });
+    const weeklyDates = [...new Set(DOD_DATES.map((day) => isoWeekStart(day)))].sort();
+    const sampled = sampleCumulativeAtBucketEnds(
+      DOD_DATES,
+      daily.cumulative,
+      weeklyDates,
+      "weekly",
+    );
+    assert.equal(sampled.at(-1), 1839);
+    assert.equal(sampled.at(-1), daily.cumulative.at(-1));
+
+    const i7 = weeklyDates.indexOf("2026-09-07");
+    const i14 = weeklyDates.indexOf("2026-09-14");
+    assert.ok(i7 >= 0 && i14 >= 0);
+    assert.equal(sampled[i7], 1839);
+    assert.equal(sampled[i14], 1839);
+
+    for (const bucket of weeklyDates) {
+      const end = bucketEndDay(bucket, "weekly");
+      assert.equal(end, isoWeekEnd(bucket));
+      const iEnd = DOD_DATES.reduce(
+        (last, day, i) => (day <= end ? i : last),
+        -1,
+      );
+      assert.equal(sampled[weeklyDates.indexOf(bucket)], daily.cumulative[iEnd] ?? null);
+    }
   });
 });
