@@ -99,13 +99,15 @@ export function trendRegsForDay(input: {
 
 export interface TrendRegistrationsSeries {
   source: TrendRegistrationsSource;
-  pillSource: string;
+  /** Null when there is nothing to name — do not print "Meta" over a blank. */
+  pillSource: string | null;
   /** Per-day counts aligned to `dates` — tracker REGS for that day. */
   daily: Array<number | null>;
   /** Running sum from the window start. */
   cumulative: Array<number | null>;
   reconstructedCaption: string | null;
   windowStart: string | null;
+  hasPlottablePoints: boolean;
 }
 
 export function buildTrendRegistrationsSeries(input: {
@@ -122,10 +124,12 @@ export function buildTrendRegistrationsSeries(input: {
       : { startDay: input.dates[0] ?? null };
   const start = window.startDay;
   const reconstructed = reconstructedMailchimpRange(input.mailchimpSnapshots);
-  const reconstructedCaption =
-    source === "mailchimp" && reconstructed
-      ? `Mailchimp registrations ${fmtRange(reconstructed.from, reconstructed.to)} are reconstructed, not measured.`
-      : null;
+  // The caption is for the rows we hid, not for the source we resolved
+  // to. A ramp-only event falls through to "meta" with no Meta data —
+  // that is exactly when the sentence must still fire.
+  const reconstructedCaption = reconstructed
+    ? `Mailchimp registrations ${fmtRange(reconstructed.from, reconstructed.to)} are reconstructed, not measured.`
+    : null;
 
   const daily: Array<number | null> = [];
   const cumulative: Array<number | null> = [];
@@ -152,13 +156,15 @@ export function buildTrendRegistrationsSeries(input: {
     cumulative.push(started ? running : null);
   }
 
+  const hasPlottablePoints = daily.some((value) => value != null);
   return {
     source,
-    pillSource: TREND_REGS_PILL[source],
+    pillSource: hasPlottablePoints ? TREND_REGS_PILL[source] : null,
     daily,
     cumulative,
     reconstructedCaption,
     windowStart: start,
+    hasPlottablePoints,
   };
 }
 

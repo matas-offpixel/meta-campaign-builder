@@ -320,6 +320,54 @@ describe("buildRegistrationsCardModel", () => {
     );
   });
 
+  it("all-time CPR with spend counts every signup from the window start, not one day", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: dodCirqlinDays(),
+      spendRows: [{ date: "2026-08-26", ad_spend: DOD_SPEND }],
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.equal(model.primary, 1839);
+    assert.ok(model.cpr);
+    assert.equal(model.cpr.allTime, true);
+    assert.equal(model.cpr.signups, 1839);
+    assert.notEqual(model.cpr.signups, 130);
+    assert.equal(model.cpr.spend, DOD_SPEND);
+    assert.match(model.cpr.label, /all-time/);
+    assert.ok(Math.abs(1839 * (model.cpr.cpr ?? 0) - DOD_SPEND) < 0.01);
+  });
+
+  it("names the gap when per-day Cirqlin history starts after the first signup", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: [
+        {
+          day: "2026-09-03",
+          signups_day: 80,
+          signups_total: 1839,
+          snapshot_at: freshAt,
+          raw_json: { totals: { counted: 1839 } },
+        },
+        {
+          day: "2026-09-04",
+          signups_day: 1347,
+          signups_total: 1839,
+          snapshot_at: freshAt,
+          raw_json: { totals: { counted: 1839 } },
+        },
+      ],
+      spendRows: [],
+      generalSaleAt: null,
+      nowMs,
+    });
+    assert.equal(model.primary, 1427);
+    assert.match(
+      model.windowLine ?? "",
+      /Per-day history starts 3 Sept; 412 earlier signups are in the total but not the daily curve\./,
+    );
+  });
+
   it("does not carry a mailchimpTagged input — there is no source for it", () => {
     const src = readFileSync(
       new URL("../registrations-card-model.ts", import.meta.url),

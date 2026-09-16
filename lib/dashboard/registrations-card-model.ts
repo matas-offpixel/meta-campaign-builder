@@ -26,7 +26,7 @@ import {
 import {
   cirqlinSignupsInWindow,
   resolveSignupWindow,
-  signupWindowLine,
+  signupCardWindowLine,
 } from "./signup-window.ts";
 
 /** Pinned en-GB short months so "Sept" does not depend on ICU. */
@@ -228,8 +228,8 @@ export function buildRegistrationsCardModel(
     const spend = signupPhaseSpend(input.spendRows, input.generalSaleAt);
     const spendSignups = cirqlinSignupsInWindow(
       rows,
-      spend.fromDay,
-      spend.toDay ?? spend.fromDay,
+      spend.allTime ? (window.startDay ?? spend.fromDay) : spend.fromDay,
+      spend.toDay,
     );
     return {
       source: "cirqlin",
@@ -239,7 +239,7 @@ export function buildRegistrationsCardModel(
       mailchimpLine,
       syncFailureLine: syncFailureLine(syncFromRaw(live.raw_json)),
       fallbackLine: null,
-      windowLine: signupWindowLine(window),
+      windowLine: signupCardWindowLine(window, live.signups_total),
       cpr: signupPhaseCpr(
         input.spendRows,
         input.generalSaleAt,

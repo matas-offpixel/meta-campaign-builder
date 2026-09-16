@@ -19,6 +19,7 @@ import {
 import type { CirqlinSnapshotRow } from "../cirqlin/types.ts";
 
 import type { PresaleBucketTotals } from "./presale-bucket.ts";
+import { fmtShortDay } from "./tracker-phase.ts";
 
 /**
  * A day at or under this count is still "the page is being built".
@@ -36,6 +37,8 @@ export interface SignupWindow {
   usedThreshold: boolean;
   /** First day with any signups (`signups_day` > 0). */
   firstSignupDay: string | null;
+  /** First live row we hold — when per-day history actually starts. */
+  firstHeldDay: string | null;
   /** Signups on days strictly before `startDay`. */
   excludedSignups: number;
   /** Signups on `startDay` and every later live day. */
@@ -81,6 +84,7 @@ export function resolveSignupWindow(
     startDay,
     usedThreshold,
     firstSignupDay,
+    firstHeldDay: live[0]?.day ?? null,
     excludedSignups,
     windowSignups,
   };
@@ -96,6 +100,37 @@ export function signupWindowLine(window: SignupWindow): string | null {
 }
 
 /**
+ * When the per-day rows we hold do not add up to Cirqlin's all-time
+ * `signups_total`, and the shortfall is not the pre-window exclusion,
+ * the daily curve is missing history — say so rather than quietly
+ * showing a smaller number.
+ */
+export function signupHistoryLine(
+  window: SignupWindow,
+  liveTotal: number | null,
+): string | null {
+  if (liveTotal == null || !Number.isFinite(liveTotal)) return null;
+  const held = window.windowSignups + window.excludedSignups;
+  const gap = liveTotal - held;
+  if (gap <= 0) return null;
+  const start = window.firstHeldDay ?? window.firstSignupDay ?? window.startDay;
+  if (!start) return null;
+  const n = gap.toLocaleString("en-GB");
+  const noun = gap === 1 ? "signup" : "signups";
+  return `Per-day history starts ${fmtShortDay(start)}; ${n} earlier ${noun} are in the total but not the daily curve.`;
+}
+
+export function signupCardWindowLine(
+  window: SignupWindow,
+  liveTotal: number | null,
+): string | null {
+  const parts = [signupWindowLine(window), signupHistoryLine(window, liveTotal)].filter(
+    (line): line is string => line != null,
+  );
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/**
  * Point the collapsed tracker bucket at the campaign start, even when
  * that day has no rollup row. Spend still sums only the rollup days;
  * REGS then covers Cirqlin days the rollup never saw.
@@ -107,6 +142,12 @@ export function applySignupWindowToBucket(
   if (!presale) return null;
   const window = resolveSignupWindow(rows);
   if (!window.startDay || window.startDay >= presale.cutoffDate) {
+    return presale;
+  }
+  // Only stretch the label earlier. A spend day before the first
+  // >5-signup day must keep its own start — shrinking it would
+  // name a narrower phase than the spend the bucket contains.
+  if (presale.earliestDate && window.startDay > presale.earliestDate) {
     return presale;
   }
   return { ...presale, earliestDate: window.startDay };

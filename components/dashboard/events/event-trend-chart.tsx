@@ -327,7 +327,7 @@ function LegacyTrendChart({
   // effect#adjusting-some-state-when-a-prop-changes) — calling setState during
   // render rather than in a useEffect, which avoids the react-hooks/set-state-in-
   // effect lint rule and avoids the extra round-trip commit.
-  const hasRegsData = regsSeries != null;
+  const hasRegsData = regsSeries?.hasPlottablePoints === true;
   const [didAutoEnableMailchimp, setDidAutoEnableMailchimp] = useState(false);
   if (hasRegsData && !didAutoEnableMailchimp) {
     setDidAutoEnableMailchimp(true);
@@ -506,7 +506,9 @@ function LegacyTrendChart({
         <div className="mt-2 flex flex-wrap gap-1.5">
           {METRICS.filter((m) => {
             // Only show registrations/cpr pills when mailchimp data is available.
-            if (m.key === "registrations" || m.key === "cpr") return !!regsSeries;
+            if (m.key === "registrations" || m.key === "cpr") {
+              return regsSeries?.hasPlottablePoints === true;
+            }
             return true;
           }).map((m) => {
             const isActive = active.has(m.key);
@@ -533,7 +535,7 @@ function LegacyTrendChart({
                   style={{ backgroundColor: m.colour }}
                   aria-hidden="true"
                 />
-                {m.key === "registrations" && regsSeries
+                {m.key === "registrations" && regsSeries?.pillSource
                   ? `${m.label} · ${regsSeries.pillSource}`
                   : m.label}
                 {latest !== null && (

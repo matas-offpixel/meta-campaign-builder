@@ -44,10 +44,22 @@ windowed to 1,839). Capture time, not a discrepancy.
 - `components/dashboard/events/event-trend-chart.tsx` — Cirqlin curve
 - Venue / share chart wrappers pass Cirqlin + milestones through
 
+## Round 2
+
+All-time CPR no longer collapses `toDay: null` onto one day — the
+helper's own open end is used, and the range starts at the window
+when the spend window is all-time, so the denominator is every
+signup from that start (1,839 on D.O.D), not 130. A ramp-only
+Mailchimp event captions the reconstruction, does not name Meta on
+the pill, and does not draw a blank series. Incomplete Cirqlin
+per-day history names the gap against `signups_total`. The bucket
+keeps its own `earliestDate` when spend starts before the window.
+Exactly 5 does not start the window; 6 does.
+
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build` TypeScript step)
-- [x] `npm test` — 5957 pass / 0 fail / 4 skipped
+- [x] `npm test` — 5963 pass / 0 fail / 4 skipped
 - [x] `npm run build` — compiled, typecheck finished, 193 static pages
 - [ ] Check-run conclusions on the final head — PR thread, not a commit
 
@@ -57,7 +69,13 @@ windowed to 1,839). Capture time, not a discrepancy.
 `gates.ts` / `components/plan/**` off the file list. No migration.
 Sentinel rows are excluded from the window search.
 
+The shared card fixture `signups_day` moved 64 → 1,843 in round 1
+so a single-row snapshot's window sum equals the old all-time
+primary. Honest for that shape; named here because editing an
+input to keep an output is the shape of test-fitting.
+
 Known, not this PR: Mailchimp net-new on the tracker fallback still
 differences reconstructed ramp rows. Any event without a Cirqlin page
 has per-day registrations that are ramp artefacts. The chart no
-longer draws them; the table still can.
+longer draws them; the table still can. A ramp-only chart now
+states that instead of drawing an unlabelled gap.

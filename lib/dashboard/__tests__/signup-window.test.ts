@@ -9,6 +9,7 @@ import {
   SIGNUP_WINDOW_THRESHOLD_LINE,
   applySignupWindowToBucket,
   resolveSignupWindow,
+  signupHistoryLine,
   signupWindowLine,
 } from "../signup-window.ts";
 
@@ -64,6 +65,30 @@ describe("resolveSignupWindow", () => {
     assert.equal(signupWindowLine(window), SIGNUP_WINDOW_THRESHOLD_LINE);
   });
 
+  it("does not start the window on a day of exactly 5; a day of 6 does", () => {
+    const window = resolveSignupWindow([
+      {
+        day: "2026-08-23",
+        signups_day: 5,
+        signups_total: 11,
+        snapshot_at: "2026-09-15T12:00:00Z",
+        raw_json: {},
+      },
+      {
+        day: "2026-08-24",
+        signups_day: 6,
+        signups_total: 11,
+        snapshot_at: "2026-09-15T12:00:00Z",
+        raw_json: {},
+      },
+    ]);
+    assert.equal(SIGNUP_WINDOW_MIN_DAY, 5);
+    assert.notEqual(window.startDay, "2026-08-23");
+    assert.equal(window.startDay, "2026-08-24");
+    assert.equal(window.usedThreshold, true);
+    assert.equal(window.excludedSignups, 5);
+  });
+
   it("says nothing when nothing was excluded", () => {
     const window = resolveSignupWindow([
       {
@@ -115,5 +140,47 @@ describe("applySignupWindowToBucket", () => {
       cirqlinSnapshots: dodCirqlinDays(),
       isBrandCampaign: false,
     }) ?? 0) + (genSale?.signups_day ?? 0), 1839);
+  });
+
+  it("keeps the bucket's own earliestDate when spend starts before the window", () => {
+    const rollup = aggregatePresaleBucket(
+      [
+        { date: "2026-08-20", ad_spend: 80, meta_regs: 0 },
+        { date: "2026-09-08", ad_spend: 50, meta_regs: 4 },
+      ],
+      "2026-09-09",
+    );
+    assert.ok(rollup);
+    assert.equal(rollup.earliestDate, "2026-08-20");
+    const bucket = applySignupWindowToBucket(rollup, dodCirqlinDays());
+    assert.ok(bucket);
+    assert.equal(bucket.earliestDate, "2026-08-20");
+  });
+});
+
+describe("signupHistoryLine", () => {
+  it("names the gap when per-day rows start after the first signup", () => {
+    const window = resolveSignupWindow([
+      {
+        day: "2026-09-03",
+        signups_day: 80,
+        signups_total: 1839,
+        snapshot_at: "2026-09-15T12:00:00Z",
+        raw_json: {},
+      },
+      {
+        day: "2026-09-04",
+        signups_day: 1347,
+        signups_total: 1839,
+        snapshot_at: "2026-09-15T12:00:00Z",
+        raw_json: {},
+      },
+    ]);
+    assert.equal(window.windowSignups, 1427);
+    assert.equal(window.excludedSignups, 0);
+    assert.equal(
+      signupHistoryLine(window, 1839),
+      "Per-day history starts 3 Sept; 412 earlier signups are in the total but not the daily curve.",
+    );
   });
 });
