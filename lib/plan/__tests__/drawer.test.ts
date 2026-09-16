@@ -1419,9 +1419,16 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
+    const src = read("lib/tiktok/write/launch.ts");
+    assert.match(src, /parseTikTokLaunchPaused\(input\.launchPaused\)/);
+    assert.match(src, /draft\.launchPaused = parsedPaused\.value/);
+    assert.match(src, /launchPaused: parsedPaused\.value/);
     const diff = execSync(`git diff ${base} -- lib/tiktok/write/launch.ts`, {
       encoding: "utf8",
     });
+    // #957 is on main. Unchanged is the freeze passing. A later PR that
+    // does touch this file still has to keep the request overlay below.
+    if (diff.trim() === "") return;
     const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
     assert.equal(
       hunkCount,
