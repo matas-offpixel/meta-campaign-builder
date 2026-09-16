@@ -19,6 +19,12 @@ export interface TikTokCampaignDraft {
   creativeIntegrityMode: boolean;
   publishedIds: TikTokPublishedIds | null;
   reviewReadyAt: string | null;
+  /**
+   * When true, campaign / ad groups / ads are created DISABLE.
+   * Absent or false → ENABLE (live). Draft JSON only — no migration.
+   * Stamp explicitly on launch so a published row is never inferred.
+   */
+  launchPaused?: boolean;
   createdAt: string;
   updatedAt: string;
   /**

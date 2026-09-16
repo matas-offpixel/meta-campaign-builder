@@ -587,6 +587,15 @@ export function tikTokBudgetFloorUnverified(
   return tikTokDailyBudgetMinimum(currency) == null;
 }
 
+export type TikTokLaunchOperationStatus = "ENABLE" | "DISABLE";
+
+/** Live unless the operator explicitly chose paused. Absent → ENABLE. */
+export function resolveTikTokLaunchOperationStatus(
+  draft: Pick<TikTokCampaignDraft, "launchPaused">,
+): TikTokLaunchOperationStatus {
+  return draft.launchPaused === true ? "DISABLE" : "ENABLE";
+}
+
 export function buildTikTokAdGroupPayload(input: {
   advertiserId: string;
   campaignId: string;
@@ -667,7 +676,7 @@ export function buildTikTokAdGroupPayload(input: {
     placement_type: "PLACEMENT_TYPE_NORMAL",
     placements: ["PLACEMENT_TIKTOK"],
     promotion_type: promotion.value,
-    operation_status: "DISABLE",
+    operation_status: resolveTikTokLaunchOperationStatus(draft),
   };
   const promotionTarget = mapTikTokPromotionTargetType(
     draft.campaignSetup.objective,
@@ -843,7 +852,7 @@ export function buildTikTokAdPayload(input: {
   return ok({
     advertiser_id: input.advertiserId,
     adgroup_id: input.adGroupId,
-    operation_status: "DISABLE",
+    operation_status: resolveTikTokLaunchOperationStatus(input.draft),
     is_aco: false,
     creatives: [creative],
   });
@@ -863,7 +872,7 @@ export function buildTikTokCampaignPayload(input: {
     campaign_name: input.draft.campaignSetup.campaignName,
     objective_type: objective.value,
     budget_mode: mapTikTokBudgetMode(input.draft.budgetSchedule.budgetMode),
-    operation_status: "DISABLE",
+    operation_status: resolveTikTokLaunchOperationStatus(input.draft),
   };
   if (input.draft.budgetSchedule.budgetAmount != null) {
     payload.budget = input.draft.budgetSchedule.budgetAmount;

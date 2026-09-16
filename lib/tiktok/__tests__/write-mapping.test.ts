@@ -262,7 +262,7 @@ describe("buildTikTokAdPayload enhancements", () => {
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.value.is_aco, false);
-    assert.equal(result.value.operation_status, "DISABLE");
+    assert.equal(result.value.operation_status, "ENABLE");
     const creatives = result.value.creatives as Array<Record<string, unknown>>;
     assert.equal(creatives[0].creative_authorized, false);
     assert.equal(creatives[0].identity_id, "identity_1");
@@ -706,9 +706,33 @@ describe("custom audiences vs saved audiences", () => {
   });
 });
 
-describe("paused payloads at every level", () => {
-  it("sets operation_status DISABLE on campaign, ad group, and ad", () => {
+describe("launch operation_status", () => {
+  it("defaults ENABLE on campaign, ad group, and ad when the draft has no choice", () => {
     const draft = payloadDraft();
+    const campaign = buildTikTokCampaignPayload({
+      advertiserId: "adv-1",
+      draft,
+    });
+    const adGroup = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0],
+    });
+    const ad = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: draft.creatives.items[0],
+    });
+    assert.equal(campaign.ok && campaign.value.operation_status, "ENABLE");
+    assert.equal(adGroup.ok && adGroup.value.operation_status, "ENABLE");
+    assert.equal(ad.ok && ad.value.operation_status, "ENABLE");
+  });
+
+  it("sets DISABLE on campaign, ad group, and ad when launchPaused is true", () => {
+    const draft = payloadDraft();
+    draft.launchPaused = true;
     const campaign = buildTikTokCampaignPayload({
       advertiserId: "adv-1",
       draft,
@@ -807,7 +831,7 @@ describe("conversions payload", () => {
       placements: ["PLACEMENT_TIKTOK"],
       promotion_type: "LEAD_GENERATION",
       promotion_target_type: "EXTERNAL_WEBSITE",
-      operation_status: "DISABLE",
+      operation_status: "ENABLE",
       languages: ["en"],
       pixel_id: "px-ironworks",
       optimization_event: "ON_WEB_REGISTER",
@@ -871,7 +895,7 @@ describe("Sales is WEB_CONVERSIONS plus two display fields", () => {
       advertiser_id: "adv-1",
       campaign_name: "Campaign",
       budget_mode: "BUDGET_MODE_DAY",
-      operation_status: "DISABLE",
+      operation_status: "ENABLE",
       budget: 50,
     };
     assert.deepEqual(traffic.value, {

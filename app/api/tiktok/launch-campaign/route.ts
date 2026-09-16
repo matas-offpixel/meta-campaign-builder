@@ -1,10 +1,12 @@
 /**
  * POST /api/tiktok/launch-campaign
  *
- * { draftId } → campaign → ad groups → ads on TikTok.
+ * { draftId, launchPaused? } → campaign → ad groups → ads on TikTok.
  * Enhancements stay off (`is_aco: false`, `creative_authorized: false`).
- * Campaign, ad groups, and ads are created paused (`operation_status:
- * DISABLE`) so enabling the campaign is a second, explicit gate.
+ * Campaign, ad groups, and ads are created ENABLE unless the request has
+ * `launchPaused: true`, in which case all three are DISABLE. The stored
+ * draft field is the remembered default, not the channel the decision
+ * travels on. The Review confirmation is the remaining operator gate.
  *
  * GET returns whether OFFPIXEL_TIKTOK_WRITES_ENABLED is on, so Review &
  * Launch can disable the button with a reason before the operator clicks.
@@ -44,9 +46,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   } = await supabase.auth.getUser();
 
   let draftId: unknown;
+  let launchPaused: unknown;
   try {
-    const body = (await req.json()) as { draftId?: unknown };
+    const body = (await req.json()) as {
+      draftId?: unknown;
+      launchPaused?: unknown;
+    };
     draftId = body?.draftId;
+    launchPaused = body?.launchPaused;
   } catch {
     return NextResponse.json(
       { ok: false, error: "Invalid request body: bad JSON" },
@@ -64,6 +71,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         const result = await handleTikTokLaunch({
           userId: user?.id ?? null,
           draftId,
+          launchPaused,
           session: supabase,
           admin: createServiceRoleClient(),
           onProgress: (progress) => {

@@ -17,7 +17,7 @@ describe("buildTikTokLaunchPanelModel", () => {
         progress: emptyTikTokLaunchProgress(),
       }),
     );
-    const succeeded = formatTikTokLaunchPanel(
+    const succeededLive = formatTikTokLaunchPanel(
       buildTikTokLaunchPanelModel({
         status: "success",
         campaignId: "campaign_1",
@@ -26,6 +26,15 @@ describe("buildTikTokLaunchPanelModel", () => {
         launchedAt: "2026-08-21T00:00:00.000Z",
         adsManagerUrl:
           "https://ads.tiktok.com/i18n/manage/campaign?aadvid=7639802149165301776",
+      }),
+    );
+    const succeededPaused = formatTikTokLaunchPanel(
+      buildTikTokLaunchPanelModel({
+        status: "success",
+        campaignId: "campaign_1",
+        adGroupCount: 3,
+        adCount: 9,
+        launchPaused: true,
       }),
     );
     const failed = formatTikTokLaunchPanel(
@@ -41,19 +50,25 @@ describe("buildTikTokLaunchPanelModel", () => {
     );
 
     assert.match(inFlight, /^state:in-flight$/m);
-    assert.match(succeeded, /^state:succeeded$/m);
+    assert.match(succeededLive, /^state:succeeded$/m);
+    assert.match(succeededPaused, /^state:succeeded$/m);
     assert.match(failed, /^state:failed$/m);
-    assert.notEqual(inFlight, succeeded);
-    assert.notEqual(succeeded, failed);
+    assert.notEqual(inFlight, succeededLive);
+    assert.notEqual(succeededLive, failed);
     assert.notEqual(inFlight, failed);
+    assert.notEqual(succeededLive, succeededPaused);
 
     assert.match(inFlight, /this is the long step/);
     assert.doesNotMatch(inFlight, /ad_groups:\d+\/\d+/);
-    assert.match(succeeded, /campaign:campaign_1/);
-    assert.match(succeeded, /ad_groups:3/);
-    assert.match(succeeded, /ads:9/);
+    assert.match(succeededLive, /campaign:campaign_1/);
+    assert.match(succeededLive, /ad_groups:3/);
+    assert.match(succeededLive, /ads:9/);
+    assert.match(succeededLive, /title:Launched live/);
+    assert.match(succeededLive, /Delivery starts at the schedule start/);
+    assert.match(succeededPaused, /title:Launched paused/);
+    assert.match(succeededPaused, /Nothing will deliver until it is enabled in Ads Manager/);
     assert.match(
-      succeeded,
+      succeededLive,
       /ads_manager:https:\/\/ads\.tiktok\.com\/i18n\/manage\/campaign\?aadvid=7639802149165301776/,
     );
     assert.match(failed, /request_id:2026082100123456789/);

@@ -66,6 +66,38 @@ describe("handleTikTokLaunch", () => {
     }
   });
 
+  it("returns 400 when launchPaused is not a boolean and writes nothing", async () => {
+    let fromCalls = 0;
+    const session = {
+      from() {
+        fromCalls += 1;
+        return new EmptyDraftSession().from();
+      },
+    };
+    const result = await handleTikTokLaunch({
+      userId: "user-1",
+      draftId: "draft-1",
+      launchPaused: "false",
+      session: session as unknown as SupabaseClient<Database>,
+      admin: new EmptyDraftSession() as unknown as SupabaseClient,
+    });
+    assert.equal(result.status, 400);
+    assert.equal(result.body.ok, false);
+    if (!result.body.ok) assert.match(result.body.error, /boolean/);
+    assert.equal(fromCalls, 0);
+  });
+
+  it("treats a missing launchPaused as live before looking up the draft", async () => {
+    const missing = await handleTikTokLaunch({
+      userId: "user-1",
+      draftId: "draft-1",
+      session: new EmptyDraftSession() as unknown as SupabaseClient<Database>,
+      admin: new EmptyDraftSession() as unknown as SupabaseClient,
+    });
+    assert.equal(missing.status, 503);
+    assert.equal(missing.body.ok, false);
+  });
+
   it("returns 404 when the draft is missing or not owned", async () => {
     process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
     const result = await handleTikTokLaunch({

@@ -44,15 +44,20 @@ const emptySchedule = {
 } as unknown as BudgetScheduleSettings;
 
 describe("paused-everywhere inventory (audit D6)", () => {
-  it("TikTok write mapping still creates ad groups and ads DISABLE", () => {
+  it("TikTok write mapping resolves operation_status instead of hard-coding it", () => {
     const mapping = source("lib/tiktok/write/mapping.ts");
-    assert.match(mapping, /operation_status:\s*["']DISABLE["']/);
-    const matches = mapping.match(/operation_status:\s*["']DISABLE["']/g) ?? [];
-    assert.ok(
-      matches.length >= 2,
-      `expected TikTok ad-group and ad payloads to set DISABLE, found ${matches.length}`,
+    assert.doesNotMatch(
+      mapping,
+      /operation_status:\s*["'](?:ENABLE|DISABLE)["']/,
     );
-    assert.doesNotMatch(mapping, /operation_status:\s*["']ENABLE["']/);
+    const uses =
+      mapping.match(/operation_status:\s*resolveTikTokLaunchOperationStatus\(/g) ??
+      [];
+    assert.equal(
+      uses.length,
+      3,
+      `expected campaign, ad-group, and ad payloads to resolve status, found ${uses.length}`,
+    );
   });
 
   it("Google campaign writer still creates campaign, ad group, and RSA PAUSED", () => {
