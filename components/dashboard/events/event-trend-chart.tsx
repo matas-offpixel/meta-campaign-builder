@@ -6,8 +6,21 @@ import {
   paidLinkClicksOf,
   paidSpendOf,
 } from "@/lib/dashboard/paid-spend";
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
 import type { TimelineRow } from "@/lib/db/event-daily-timeline";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
+import {
+  previousDay,
+  TRACKER_MILESTONE_LABELS,
+  trackerMilestoneDays,
+  type TrackerMilestones,
+} from "@/lib/dashboard/tracker-phase";
+import {
+  buildTrendRegistrationsSeries,
+  extraDaysBefore,
+} from "@/lib/dashboard/trend-registrations";
+import { hasCirqlinRegs } from "@/lib/cirqlin/tracker-signups";
+import { resolveSignupWindow } from "@/lib/dashboard/signup-window";
 import {
   aggregateTrendChartPoints,
   hasCumulativeTicketPoints,
@@ -83,6 +96,26 @@ interface Props {
   onAwarenessPlatformChange?: (platform: PlatformKey) => void;
   /** Per-day Mailchimp snapshots for brand_campaign Registrations + CPR series. */
   mailchimpSnapshots?: MailchimpSnapshotRow[];
+  cirqlinSnapshots?: CirqlinSnapshotRow[];
+  milestones?: TrackerMilestones | null;
+}
+
+function nextDay(yyyymmdd: string): string | null {
+  const d = new Date(`${yyyymmdd}T00:00:00Z`);
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function lastLiveCirqlinDay(
+  rows: readonly CirqlinSnapshotRow[],
+): string | null {
+  let latest: string | null = null;
+  for (const row of rows) {
+    if (row.raw_json?.reason) continue;
+    if (latest == null || row.day > latest) latest = row.day;
+  }
+  return latest;
 }
 
 function timelineToPoints(timeline: TimelineRow[]): TrendChartPoint[] {
@@ -154,6 +187,8 @@ function LegacyTrendChart({
   defaultGranularity = "daily",
   showGranularityToggle = true,
   mailchimpSnapshots,
+  cirqlinSnapshots,
+  milestones,
 }: Props) {
   const [granularity, setGranularity] =
     useState<TrendGranularity>(defaultGranularity);
@@ -171,33 +206,7 @@ function LegacyTrendChart({
   );
   const days = useMemo(() => {
     const base = aggregateTrendChartPoints(sourcePoints, granularity);
-    // Extend the chart window to cover any Mailchimp snapshot dates that fall
-    // outside the rollup window. Only applied to daily granularity; weekly
-    // buckets span the full ISO week so extra days land in an existing bucket.
-    if (granularity !== "daily" || !mailchimpSnapshots?.length) return base;
-    const baseDateSet = new Set(base.map((d) => d.date));
-    const firstBaseDate = base[0]?.date ?? null;
-    const lastBaseDate = base[base.length - 1]?.date ?? null;
-
-    // Mailchimp dates BEFORE the first rollup row (e.g. weighted_ramp_pre_snapshot
-    // rows that anchor the registration line to 0 on the day before launch).
-    const extraBefore = [...new Set(
-      mailchimpSnapshots
-        .map((s) => s.snapshot_at.slice(0, 10))
-        .filter((d) => !baseDateSet.has(d) && (firstBaseDate == null || d < firstBaseDate)),
-    )].sort();
-
-    // Mailchimp dates AFTER the last rollup row (PR #625: extend upper bound).
-    // Exclude dates already claimed by extraBefore — when base is empty both
-    // filters would otherwise select all snapshot dates, duplicating every label.
-    const extraBeforeSet = new Set(extraBefore);
-    const extraAfter = [...new Set(
-      mailchimpSnapshots
-        .map((s) => s.snapshot_at.slice(0, 10))
-        .filter((d) => !baseDateSet.has(d) && !extraBeforeSet.has(d) && (lastBaseDate == null || d > lastBaseDate)),
-    )].sort();
-
-    if (extraBefore.length === 0 && extraAfter.length === 0) return base;
+    if (granularity !== "daily") return base;
     const emptyDay = (date: string): TrendChartDay => ({
       date,
       spend: null,
@@ -208,59 +217,105 @@ function LegacyTrendChart({
       roas: null,
       cpc: null,
     });
-    // Pre-rollup days at the start, base in the middle, post-rollup at the end.
+    const firstBaseDate = base[0]?.date ?? null;
+    const lastBaseDate = base[base.length - 1]?.date ?? null;
+    const windowStart = hasCirqlinRegs(cirqlinSnapshots)
+      ? resolveSignupWindow(cirqlinSnapshots).startDay
+      : null;
+    const cirqlinBefore = extraDaysBefore(
+      base.map((d) => d.date),
+      windowStart,
+      firstBaseDate ? previousDay(firstBaseDate) : windowStart,
+    );
+    const cirqlinAfter =
+      lastBaseDate && cirqlinSnapshots
+        ? extraDaysBefore(
+            [...base.map((d) => d.date), ...cirqlinBefore],
+            nextDay(lastBaseDate),
+            lastLiveCirqlinDay(cirqlinSnapshots),
+          )
+        : [];
+    const extraBefore = cirqlinBefore.length
+      ? cirqlinBefore
+      : !mailchimpSnapshots?.length
+        ? []
+        : [...new Set(
+            mailchimpSnapshots
+              .map((s) => s.snapshot_at.slice(0, 10))
+              .filter((d) => firstBaseDate == null || d < firstBaseDate),
+          )].sort();
+    const extraAfter = cirqlinAfter.length
+      ? cirqlinAfter
+      : !mailchimpSnapshots?.length
+        ? []
+        : [...new Set(
+            mailchimpSnapshots
+              .map((s) => s.snapshot_at.slice(0, 10))
+              .filter((d) => lastBaseDate == null || d > lastBaseDate),
+          )].sort();
+    if (extraBefore.length === 0 && extraAfter.length === 0) return base;
     return [
       ...extraBefore.map(emptyDay),
       ...base,
       ...extraAfter.map(emptyDay),
     ];
-  }, [sourcePoints, granularity, mailchimpSnapshots]);
+  }, [sourcePoints, granularity, mailchimpSnapshots, cirqlinSnapshots]);
   const summary = useMemo(
     () => summarizeTrendChartPoints(days, hasCumulativeTickets),
     [days, hasCumulativeTickets],
   );
 
-  // Build per-day registrations + CPR from mailchimp snapshots (carry-forward semantics).
-  const mailchimpByDate = useMemo(() => {
-    if (!mailchimpSnapshots?.length) return null;
-    const m = new Map<string, number>();
-    for (const s of mailchimpSnapshots) {
-      const d = s.snapshot_at.slice(0, 10);
-      if (s.email_subscribers != null) m.set(d, s.email_subscribers);
+  const regsSeries = useMemo(() => {
+    if (
+      !hasCirqlinRegs(cirqlinSnapshots) &&
+      !(mailchimpSnapshots && mailchimpSnapshots.length > 0)
+    ) {
+      return null;
     }
-    return m;
-  }, [mailchimpSnapshots]);
-
-  // Extended per-day registration + CPR values aligned to the chart day range.
-  // Seed lastRegs at 0 (not null) so the line draws from the window start even
-  // when the first Mailchimp snapshot falls mid-window. CPR is null until a
-  // non-zero registration count exists — avoids a misleading early point.
-  const mailchimpDays = useMemo(() => {
-    if (!mailchimpByDate) return null;
-    let lastRegs = 0;
-    let runningSpend = 0;
-    return days.map((day) => {
-      if (mailchimpByDate.has(day.date)) lastRegs = mailchimpByDate.get(day.date)!;
-      if (day.spend != null && Number.isFinite(day.spend)) runningSpend += day.spend;
-      const cpr =
-        runningSpend > 0 && lastRegs > 0
-          ? runningSpend / lastRegs
-          : null;
-      return { registrations: lastRegs, cpr };
+    const built = buildTrendRegistrationsSeries({
+      dates: days.map((d) => d.date),
+      cirqlinSnapshots,
+      mailchimpSnapshots,
+      metaByDate: new Map(days.map((d) => [d.date, null])),
     });
-  }, [days, mailchimpByDate]);
+    let runningSpend = 0;
+    const withCpr = days.map((day, i) => {
+      if (day.spend != null && Number.isFinite(day.spend)) runningSpend += day.spend;
+      const registrations = built.cumulative[i] ?? null;
+      const cpr =
+        runningSpend > 0 && registrations != null && registrations > 0
+          ? runningSpend / registrations
+          : null;
+      return { registrations, cpr };
+    });
+    return { ...built, days: withCpr };
+  }, [days, cirqlinSnapshots, mailchimpSnapshots]);
 
-  // Summary values for mailchimp pills (latest carry-forward value).
-  const mailchimpSummary = useMemo(() => {
-    if (!mailchimpDays) return { registrations: null, cpr: null };
+  const regsSummary = useMemo(() => {
+    if (!regsSeries) return { registrations: null, cpr: null };
     let registrations: number | null = null;
     let cpr: number | null = null;
-    for (const d of mailchimpDays) {
+    for (const d of regsSeries.days) {
       if (d.registrations != null) registrations = d.registrations;
       if (d.cpr != null) cpr = d.cpr;
     }
     return { registrations, cpr };
-  }, [mailchimpDays]);
+  }, [regsSeries]);
+
+  const milestoneMarks = useMemo(() => {
+    const mapped = trackerMilestoneDays(milestones);
+    if (mapped.size === 0) return [];
+    return days.flatMap((day, index) => {
+      const kinds = mapped.get(day.date);
+      if (!kinds?.length) return [];
+      return kinds.map((kind) => ({
+        index,
+        date: day.date,
+        kind,
+        label: TRACKER_MILESTONE_LABELS[kind],
+      }));
+    });
+  }, [days, milestones]);
 
   const [active, setActive] = useState<Set<MetricKey>>(
     () => new Set<MetricKey>(["spend", "tickets", "cpt"]),
@@ -272,9 +327,9 @@ function LegacyTrendChart({
   // effect#adjusting-some-state-when-a-prop-changes) — calling setState during
   // render rather than in a useEffect, which avoids the react-hooks/set-state-in-
   // effect lint rule and avoids the extra round-trip commit.
-  const hasMailchimpData = (mailchimpSnapshots?.length ?? 0) > 0;
+  const hasRegsData = regsSeries != null;
   const [didAutoEnableMailchimp, setDidAutoEnableMailchimp] = useState(false);
-  if (hasMailchimpData && !didAutoEnableMailchimp) {
+  if (hasRegsData && !didAutoEnableMailchimp) {
     setDidAutoEnableMailchimp(true);
     setActive((prev) => {
       const next = new Set(prev);
@@ -334,8 +389,8 @@ function LegacyTrendChart({
   };
   const series: Series[] = METRICS.filter((m) => active.has(m.key)).map((m) => {
     const raw = days.map((d, idx) => {
-      if (m.key === "registrations") return mailchimpDays?.[idx]?.registrations ?? null;
-      if (m.key === "cpr") return mailchimpDays?.[idx]?.cpr ?? null;
+      if (m.key === "registrations") return regsSeries?.days[idx]?.registrations ?? null;
+      if (m.key === "cpr") return regsSeries?.days[idx]?.cpr ?? null;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return (d as any)[m.key] ?? null;
     });
@@ -402,6 +457,20 @@ function LegacyTrendChart({
   const labelDays = days.filter(
     (_, i) => i === 0 || i === days.length - 1 || i % labelEvery === 0,
   );
+  const milestoneSvg = milestoneMarks.map((mark) => (
+    <line
+      key={`${mark.date}-${mark.kind}`}
+      x1={xAt(mark.index)}
+      x2={xAt(mark.index)}
+      y1={PAD_T}
+      y2={PAD_T + plotH}
+      stroke="currentColor"
+      strokeOpacity={0.25}
+      strokeWidth={1}
+      strokeDasharray="3 3"
+      vectorEffect="non-scaling-stroke"
+    />
+  ));
 
   return (
     <div className={`rounded-md border border-border bg-card ${className ?? ""}`}>
@@ -437,15 +506,15 @@ function LegacyTrendChart({
         <div className="mt-2 flex flex-wrap gap-1.5">
           {METRICS.filter((m) => {
             // Only show registrations/cpr pills when mailchimp data is available.
-            if (m.key === "registrations" || m.key === "cpr") return !!mailchimpDays;
+            if (m.key === "registrations" || m.key === "cpr") return !!regsSeries;
             return true;
           }).map((m) => {
             const isActive = active.has(m.key);
             const latest =
               m.key === "registrations"
-                ? mailchimpSummary.registrations
+                ? regsSummary.registrations
                 : m.key === "cpr"
-                  ? mailchimpSummary.cpr
+                  ? regsSummary.cpr
                   : pillMetricValue(summary, m.key);
             return (
               <button
@@ -464,7 +533,9 @@ function LegacyTrendChart({
                   style={{ backgroundColor: m.colour }}
                   aria-hidden="true"
                 />
-                {m.label}
+                {m.key === "registrations" && regsSeries
+                  ? `${m.label} · ${regsSeries.pillSource}`
+                  : m.label}
                 {latest !== null && (
                   <span
                     className={`tabular-nums ${
@@ -478,6 +549,11 @@ function LegacyTrendChart({
             );
           })}
         </div>
+        {regsSeries?.reconstructedCaption ? (
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {regsSeries.reconstructedCaption}
+          </p>
+        ) : null}
       </div>
       <div className="flex p-4">
         <div
@@ -520,6 +596,7 @@ function LegacyTrendChart({
                 strokeWidth={1}
                 vectorEffect="non-scaling-stroke"
               />
+              {milestoneSvg}
               {series.map((s) =>
                 s.segments.map((seg, i) => (
                   <polyline
@@ -585,9 +662,9 @@ function LegacyTrendChart({
                         {series.map((s) => {
                           const v =
                             s.metric.key === "registrations"
-                              ? (mailchimpDays?.[idx]?.registrations ?? null)
+                              ? (regsSeries?.days[idx]?.registrations ?? null)
                               : s.metric.key === "cpr"
-                                ? (mailchimpDays?.[idx]?.cpr ?? null)
+                                ? (regsSeries?.days[idx]?.cpr ?? null)
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 : (day as any)[s.metric.key] ?? null;
                           const isSmoothedTickets =
@@ -629,6 +706,13 @@ function LegacyTrendChart({
               <span key={d.date}>{chartShortDate(d.date, granularity)}</span>
             ))}
           </div>
+          {milestoneMarks.length > 0 ? (
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {milestoneMarks
+                .map((mark) => `${mark.label} ${chartShortDate(mark.date, granularity)}`)
+                .join(" · ")}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

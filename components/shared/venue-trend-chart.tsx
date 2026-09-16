@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 import { EventTrendChart } from "@/components/dashboard/events/event-trend-chart";
 import type { TrendChartPoint } from "@/lib/dashboard/trend-chart-data";
+import type { CirqlinSnapshotRow } from "@/lib/cirqlin/types";
 import type { MailchimpSnapshotRow } from "@/lib/mailchimp/compute-registrations";
+import type { TrackerMilestones } from "@/lib/dashboard/tracker-phase";
 
 /**
  * components/shared/venue-trend-chart.tsx
@@ -52,6 +54,8 @@ export interface VenueTrendChartProps {
    * the rows (e.g. share report page-level data load).
    */
   mailchimpSnapshots?: MailchimpSnapshotRow[];
+  cirqlinSnapshots?: CirqlinSnapshotRow[];
+  milestones?: TrackerMilestones | null;
 }
 
 export function VenueTrendChart({
@@ -61,6 +65,8 @@ export function VenueTrendChart({
   mailchimpTag,
   eventId,
   mailchimpSnapshots: snapshotsProp,
+  cirqlinSnapshots,
+  milestones,
 }: VenueTrendChartProps) {
   const [fetchedSnapshots, setFetchedSnapshots] = useState<
     MailchimpSnapshotRow[] | undefined
@@ -97,6 +103,8 @@ export function VenueTrendChart({
       title={title}
       className={className}
       mailchimpSnapshots={mailchimpSnapshots}
+      cirqlinSnapshots={cirqlinSnapshots}
+      milestones={milestones}
     />
   );
 }

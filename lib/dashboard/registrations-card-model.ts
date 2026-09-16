@@ -19,9 +19,15 @@ import type {
 import type { MailchimpRegistrationsData } from "../mailchimp/compute-registrations.ts";
 import {
   signupPhaseCpr,
+  signupPhaseSpend,
   type SignupPhaseCpr,
   type SignupPhaseSpendRow,
 } from "./signup-phase-cpr.ts";
+import {
+  cirqlinSignupsInWindow,
+  resolveSignupWindow,
+  signupWindowLine,
+} from "./signup-window.ts";
 
 /** Pinned en-GB short months so "Sept" does not depend on ICU. */
 const AS_OF_MONTHS = [
@@ -70,6 +76,8 @@ export interface RegistrationsCardModel {
   syncFailureLine: string | null;
   /** Cirqlin was asked and either has no page or did not answer. */
   fallbackLine: string | null;
+  /** `4 signups before the campaign window — excluded.` */
+  windowLine: string | null;
   cpr: SignupPhaseCpr | null;
 }
 
@@ -214,7 +222,15 @@ export function buildRegistrationsCardModel(
     failureFromRow;
 
   if (live) {
-    const signups = live.signups_total;
+    const window = resolveSignupWindow(rows);
+    const signups =
+      window.startDay != null ? window.windowSignups : live.signups_total;
+    const spend = signupPhaseSpend(input.spendRows, input.generalSaleAt);
+    const spendSignups = cirqlinSignupsInWindow(
+      rows,
+      spend.fromDay,
+      spend.toDay ?? spend.fromDay,
+    );
     return {
       source: "cirqlin",
       primary: signups,
@@ -223,7 +239,12 @@ export function buildRegistrationsCardModel(
       mailchimpLine,
       syncFailureLine: syncFailureLine(syncFromRaw(live.raw_json)),
       fallbackLine: null,
-      cpr: signupPhaseCpr(input.spendRows, input.generalSaleAt, signups),
+      windowLine: signupWindowLine(window),
+      cpr: signupPhaseCpr(
+        input.spendRows,
+        input.generalSaleAt,
+        spend.fromDay != null ? spendSignups : signups,
+      ),
     };
   }
 
@@ -237,6 +258,7 @@ export function buildRegistrationsCardModel(
       mailchimpLine: null,
       syncFailureLine: null,
       fallbackLine: "Cirqlin has no page for this tag — showing Mailchimp.",
+      windowLine: null,
       cpr:
         signups != null
           ? signupPhaseCpr(input.spendRows, input.generalSaleAt, signups)
@@ -257,6 +279,7 @@ export function buildRegistrationsCardModel(
         input.cirqlinFailure ??
           (failureFromRow ? (failureReason as CirqlinFetchFailureReason) : null),
       ),
+      windowLine: null,
       cpr:
         signups != null
           ? signupPhaseCpr(input.spendRows, input.generalSaleAt, signups)
@@ -273,6 +296,7 @@ export function buildRegistrationsCardModel(
     mailchimpLine: null,
     syncFailureLine: null,
     fallbackLine: null,
+    windowLine: null,
     cpr:
       signups != null
         ? signupPhaseCpr(input.spendRows, input.generalSaleAt, signups)
