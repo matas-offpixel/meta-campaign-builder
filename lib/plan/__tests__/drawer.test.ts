@@ -1321,13 +1321,86 @@ describe("write paths are untouched", () => {
     assert.ok(base, "neither origin/main nor main exists");
     // validation.ts may drop unused step labels; validateGoogleSearchStep stays.
     // mapping.ts may prefer a SPARK_AD creative's own identity over accountSetup.
+    // preflight.ts stays in this diff (#955). The companion below asserts
+    // the hunks. Do not add it to the exclusion list.
     const diff = execSync(
       `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts'`,
       {
         encoding: "utf8",
       },
     );
-    assert.equal(diff.trim(), "", diff);
+    const byFile = contentDiffByFile(diff);
+    const others = [...byFile.keys()].filter(
+      (file) => file !== "lib/tiktok/write/preflight.ts",
+    );
+    assert.deepEqual(
+      others,
+      [],
+      `write-path files other than preflight.ts changed: ${others.join(", ")}`,
+    );
+  });
+
+  it("preflight.ts only changes collapse counting and the ad-group budget skip", () => {
+    let base = "";
+    for (const ref of ["origin/main", "main"] as const) {
+      try {
+        base = execSync(`git rev-parse --verify ${ref}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        break;
+      } catch {
+        continue;
+      }
+    }
+    assert.ok(base, "neither origin/main nor main exists");
+    const diff = execSync(
+      `git diff ${base} -- lib/tiktok/write/preflight.ts`,
+      { encoding: "utf8" },
+    );
+    if (diff.trim() === "") return;
+
+    const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
+    assert.equal(
+      hunkCount,
+      3,
+      `preflight.ts has ${hunkCount} hunks; only the skip-helper import, the already-reported skip, and collapse counting are allowed\n${diff}`,
+    );
+    assert.match(
+      diff,
+      /shouldSkipDuplicateTikTokAdGroupBudgetPayload/,
+      "missing the already-reported skip helper",
+    );
+    assert.match(diff, /ids\.length/);
+
+    const mainSrc = execSync(`git show ${base}:lib/tiktok/write/preflight.ts`, {
+      encoding: "utf8",
+    });
+    const src = read("lib/tiktok/write/preflight.ts");
+    for (const name of [
+      "canonicalTikTokPreflightField",
+      "isBlankTikTokAdGroupName",
+      "tikTokBlankAdGroupNameMessage",
+      "isAbsoluteHttpUrl",
+    ] as const) {
+      assert.equal(
+        extractNamedFunction(src, name),
+        extractNamedFunction(mainSrc, name),
+        `${name} changed; this PR only touches collect's budget skip and collapse counting`,
+      );
+    }
+
+    function exportedNames(source: string): Set<string> {
+      const names = new Set<string>();
+      for (const m of source.matchAll(/export (?:async )?function (\w+)/g)) {
+        names.add(m[1]!);
+      }
+      return names;
+    }
+    assert.deepEqual(
+      [...exportedNames(src)].filter((n) => !exportedNames(mainSrc).has(n)),
+      [],
+    );
   });
 
   it("gates.ts and apply.ts only change the pause path and the fourth gate", () => {

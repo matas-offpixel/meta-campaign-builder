@@ -4,6 +4,18 @@ import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurfa
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  parseTikTokAdGroupBudgetInput,
+  patchTikTokAdGroupBudget,
+  shouldPersistTikTokAdGroupBudget,
+  tikTokAdGroupBudgetDiffersFromCampaign,
+  tikTokAdGroupBudgetDraftValue,
+  tikTokAdGroupBudgetFieldDisabled,
+  tikTokAdGroupBudgetFloorLine,
+  tikTokAdGroupBudgetIssue,
+  tikTokAdGroupMatchCampaignLine,
+} from "@/lib/tiktok-wizard/ad-group-budget";
 import {
   describeTikTokAdGroupReconciliation,
   reconcileTikTokAdGroups,
@@ -23,7 +35,8 @@ import {
   everyAdGroupHasCreative,
   everyCreativeAssigned,
 } from "@/lib/tiktok-wizard/review";
-import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
+import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
+import type { TikTokAdGroupDraft, TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
 export function AssignCreativesStep({
   draft,
@@ -90,6 +103,32 @@ export function AssignCreativesStep({
   }
 
   const current = draft.creativeAssignments.byAdGroupId;
+  // Assign re-renders on every ad-group name keystroke. Collect rebuilds
+  // a payload per ad group and creative; this step only reads
+  // adgroup-budget-* / adgroup-budget-floor-*, so the key is id+budget
+  // plus the floor inputs — not names.
+  const assignBudgetIssueKey = [
+    draft.accountSetup.currency ?? "",
+    draft.budgetSchedule.budgetMode,
+    String(draft.budgetSchedule.budgetAmount),
+    draft.budgetSchedule.scheduleStartAt ?? "",
+    draft.budgetSchedule.scheduleEndAt ?? "",
+    adGroups.map((group) => `${group.id}:${group.budget ?? ""}`).join(","),
+  ].join("|");
+  const launchPreflight = useMemo(
+    () => collectTikTokLaunchPreflight(draft),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assignBudgetIssueKey],
+  );
+
+  async function persistAdGroupBudget(id: string, budget: number | null) {
+    await onSave({
+      budgetSchedule: {
+        ...draft.budgetSchedule,
+        adGroups: patchTikTokAdGroupBudget(adGroups, id, budget),
+      },
+    });
+  }
 
   return (
     <StepSurfaceProvider surface={surface}>
@@ -312,9 +351,17 @@ export function AssignCreativesStep({
                 disabled={saving}
                 onChange={(name) => void persistAdGroupName(adGroup.id, name)}
               />
-              <Datum className="text-xs text-muted-foreground">
-                Budget: {adGroup.budget == null ? "—" : `£${adGroup.budget}`}
-              </Datum>
+              <AdGroupBudgetField
+                adGroup={adGroup}
+                saving={saving}
+                campaignAmount={draft.budgetSchedule.budgetAmount}
+                budgetMode={draft.budgetSchedule.budgetMode}
+                startAt={draft.budgetSchedule.scheduleStartAt}
+                endAt={draft.budgetSchedule.scheduleEndAt}
+                currency={draft.accountSetup.currency}
+                issue={tikTokAdGroupBudgetIssue(launchPreflight.issues, adGroup.id)}
+                onSave={(budget) => void persistAdGroupBudget(adGroup.id, budget)}
+              />
               <Datum className="text-xs text-muted-foreground">
                 {draft.budgetSchedule.scheduleStartAt ?? "No start"} →{" "}
                 {draft.budgetSchedule.scheduleEndAt ?? "No end"}
@@ -329,6 +376,111 @@ export function AssignCreativesStep({
       </Button>
     </div>
       </StepSurfaceProvider>
+  );
+}
+
+function AdGroupBudgetField({
+  adGroup,
+  saving,
+  campaignAmount,
+  budgetMode,
+  startAt,
+  endAt,
+  currency,
+  issue,
+  onSave,
+}: {
+  adGroup: TikTokAdGroupDraft;
+  saving: boolean;
+  campaignAmount: number | null;
+  budgetMode: TikTokCampaignDraft["budgetSchedule"]["budgetMode"];
+  startAt: string | null;
+  endAt: string | null;
+  currency: string | null | undefined;
+  issue?: { message: string };
+  onSave: (budget: number | null) => void;
+}) {
+  // Seeded once. Reconciliation while this field is mounted leaves a
+  // stale box — same as Review's schedule fields (#954). Match-campaign
+  // calls setBudgetDraft. Persist on blur writes what is in the box.
+  const [budgetDraft, setBudgetDraft] = useState(
+    tikTokAdGroupBudgetDraftValue(adGroup.budget),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const floorLine = tikTokAdGroupBudgetFloorLine({
+    budgetMode,
+    startAt,
+    endAt,
+    currency,
+  });
+  const showMatch = tikTokAdGroupBudgetDiffersFromCampaign(
+    adGroup.budget,
+    campaignAmount,
+  );
+  const match =
+    showMatch && campaignAmount != null && adGroup.budget != null
+      ? tikTokAdGroupMatchCampaignLine({
+          campaignAmount,
+          adGroupBudget: adGroup.budget,
+        })
+      : null;
+
+  function saveBudgetAmount(raw: string) {
+    try {
+      const amount = parseTikTokAdGroupBudgetInput(raw);
+      if (amount != null && amount <= 0) {
+        setError("Set a budget greater than £0.");
+        return;
+      }
+      setError(null);
+      onSave(amount);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Enter a valid budget.");
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1">
+      <Input
+        id={`tiktok-adgroup-budget-${adGroup.id}`}
+        label="Budget"
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        value={budgetDraft}
+        disabled={tikTokAdGroupBudgetFieldDisabled({ saving })}
+        onChange={(event) => {
+          setBudgetDraft(event.target.value);
+          if (shouldPersistTikTokAdGroupBudget("change")) {
+            saveBudgetAmount(event.target.value);
+          }
+        }}
+        onBlur={() => {
+          if (shouldPersistTikTokAdGroupBudget("blur")) {
+            saveBudgetAmount(budgetDraft);
+          }
+        }}
+        placeholder="50"
+        error={error ?? issue?.message}
+      />
+      <Datum className="text-xs text-muted-foreground">{floorLine}</Datum>
+      {match ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Datum className="text-muted-foreground">{match.text}</Datum>
+          <button
+            type="button"
+            onClick={() => {
+              if (campaignAmount == null) return;
+              setBudgetDraft(String(campaignAmount));
+              onSave(campaignAmount);
+            }}
+            className="text-primary hover:underline"
+          >
+            {match.action}
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
