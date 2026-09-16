@@ -5,17 +5,17 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { graphGetWithToken } from "@/lib/meta/client";
-import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { graphGetWithToken } from "../meta/client.ts";
+import { resolveServerMetaToken } from "../meta/server-token.ts";
 import {
   loadArmedCampaignsForDailyInsights,
   upsertCampaignDailyInsights,
-} from "@/lib/db/campaign-daily-insights";
-import { fetchCampaignDailyInsights } from "@/lib/insights/campaign-daily-fetch";
+} from "../db/campaign-daily-insights.ts";
+import { fetchCampaignDailyInsights } from "./campaign-daily-fetch.ts";
 import {
   runCampaignDailyInsightsSync,
   type CampaignDailySyncResult,
-} from "@/lib/insights/campaign-daily";
+} from "./campaign-daily.ts";
 
 export async function runCampaignDailyInsightsPass(
   supabase: SupabaseClient,

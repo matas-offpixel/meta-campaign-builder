@@ -20,7 +20,13 @@ denominator, not a bag of action types.
 
 ## Scope / files
 
-- `supabase/migrations/178_campaign_daily_insights.sql` — unapplied
+- `supabase/migrations/178_campaign_daily_insights.sql` — applied to prod 16 Sept night
+- `lib/insights/campaign-daily.ts` — window, parse, upsert-merge, sync
+- `lib/insights/campaign-daily-fetch.ts` — Graph fetch, injected client
+- `lib/insights/campaign-daily-cron.ts` — production adapter (relative imports)
+- `lib/db/campaign-daily-insights.ts` — load armed drafts + upsert
+- `app/api/cron/rollup-sync-events/route.ts` — pass even when no events
+- `scripts/backfill-campaign-daily-insights.ts` — 14-day, dry-run default; does not import `lib/meta/client.ts` so `node --experimental-strip-types` can run it
 - `lib/insights/campaign-daily.ts` — window, parse, upsert-merge, sync
 - `lib/insights/campaign-daily-fetch.ts` — Graph fetch, injected client
 - `lib/insights/campaign-daily-cron.ts` — production adapter
@@ -38,8 +44,9 @@ denominator, not a bag of action types.
 
 - Owner is `rollup-sync-events`, not a new cron and not optimisation-tick.
   The ruling named that tick because it already pays for this Graph shape.
-- Migration 178 is not applied. Matas applies to prod, then CI.
-- Floor 4 stays a not-yet in PR C until this backfill has run.
+- Migration 178 **applied to prod** 16 Sept night (`campaign_daily_insights` in `schema_migrations`). This repo's GitHub CI uses `https://example.supabase.co` — there is no separate CI project in the MCP org to apply to (CIRQLIN is a different app).
+- Backfill dry-run then `--apply`: **62 rows** across **10** armed campaigns (one armed campaign had no Meta days in the window). Not 14×10 — Meta only returned the days it had. Gaps inside a span are absent rows (two campaigns each miss 2 days). A day Meta returns as zeros is stored as zeros, not invented.
+- Floor 4 stays a not-yet in PR C until this store is read. The morning check `≥ 14 × armed campaigns` will not pass: the longest series is 12 days, one campaign has 1. That is the truth, not a failed writer.
 - Finding 1: 3,597 wrote nothing — most because there was nothing to write.
   Not repeated as "were shadow".
 - Per-ad-set daily grain is not this PR (finding 2).

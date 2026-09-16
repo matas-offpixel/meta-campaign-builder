@@ -7,12 +7,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { migrateDraft } from "@/lib/autosave";
+import { migrateDraft } from "../autosave.ts";
 import type {
   ArmedDailyCampaign,
   CampaignDailyInsightRow,
-} from "@/lib/insights/campaign-daily";
-import type { CampaignObjective } from "@/lib/types";
+} from "../insights/campaign-daily.ts";
+import type { CampaignObjective } from "../types.ts";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = any;
