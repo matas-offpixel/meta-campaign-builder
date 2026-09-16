@@ -282,17 +282,25 @@ function LegacyTrendChart({
     });
     const cprSeries = buildTrendCprSeries({
       dates,
-      spendRows: days.map((d) => ({ date: d.date, ad_spend: d.spend })),
+      spendRows: sourcePoints.map((p) => ({ date: p.date, ad_spend: p.spend })),
       generalSaleAt: milestones?.generalSaleAt ?? null,
       cirqlinSnapshots,
       fallbackSignups: built.cumulative,
+      granularity,
     });
     const withCpr = days.map((_, i) => ({
       registrations: built.cumulative[i] ?? null,
       cpr: cprSeries.daily[i],
     }));
     return { ...built, days: withCpr, cprPillLabel: cprSeries.pillLabel };
-  }, [days, cirqlinSnapshots, mailchimpSnapshots, milestones?.generalSaleAt]);
+  }, [
+    days,
+    sourcePoints,
+    granularity,
+    cirqlinSnapshots,
+    mailchimpSnapshots,
+    milestones?.generalSaleAt,
+  ]);
 
   const regsSummary = useMemo(() => {
     if (!regsSeries) return { registrations: null, cpr: null };

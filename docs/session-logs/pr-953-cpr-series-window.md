@@ -23,11 +23,22 @@ pill names the span (`CPR · to 9 Sept`).
 - `lib/dashboard/trend-cpr.ts` — chart series
 - `components/dashboard/events/event-trend-chart.tsx` — plot + pill
 - `lib/dashboard/__tests__/trend-cpr.test.ts`
+- `lib/dashboard/trend-chart-data.ts` — export `isoWeekStart` so
+  weekly CPR uses the same Monday the chart plots
+
+## Round 2
+
+Weekly buckets were dividing a week of spend (including ticket
+days) by signups through the Monday. Each bucket is now sliced to
+the in-window days — `2026-09-07` carries 7–9 Sept spend against
+7–9 Sept signups — so the last weekly point equals the card. Brand
+`cpt` and the Mailchimp fallback are named in the PR body and left
+alone.
 
 ## Validation
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
-- [x] `npm test` — 5968 pass / 0 fail / 4 skipped
+- [x] `npm test` — 5969 pass / 0 fail / 4 skipped
 - [x] `npm run build` — compiled, typecheck finished, 193 static pages
 - [ ] Check-run conclusions on the final head — PR thread, not a commit
 

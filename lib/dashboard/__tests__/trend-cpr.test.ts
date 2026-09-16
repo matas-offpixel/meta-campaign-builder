@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildRegistrationsCardModel } from "../registrations-card-model.ts";
-import { buildTrendCprSeries, trendCprPillLabel } from "../trend-cpr.ts";
+import { isoWeekStart } from "../trend-chart-data.ts";
+import {
+  buildTrendCprSeries,
+  cprBucketThroughDay,
+  trendCprPillLabel,
+} from "../trend-cpr.ts";
 import { buildTrendRegistrationsSeries } from "../trend-registrations.ts";
 
 import {
@@ -155,5 +160,44 @@ describe("trend CPR series", () => {
     for (let i = i9; i <= i16; i++) {
       assert.equal(regs.cumulative[i], 1839);
     }
+  });
+
+  it("weekly D.O.D last point equals the card, and no bucket mixes ticket spend into signup signups", () => {
+    const weeklyDates = [...new Set(DOD_DATES.map((day) => isoWeekStart(day)))].sort();
+    const series = buildTrendCprSeries({
+      dates: weeklyDates,
+      spendRows: DOD_SPEND_ROWS,
+      generalSaleAt: DOD_GENERAL_SALE_AT,
+      cirqlinSnapshots: dodCirqlinDays(),
+      granularity: "weekly",
+    });
+    const window = {
+      fromDay: "2026-08-26" as const,
+      toDay: "2026-09-09" as const,
+    };
+    assert.equal(isoWeekStart("2026-09-09"), "2026-09-07");
+    assert.equal(cprBucketThroughDay("2026-09-07", "weekly", window), "2026-09-09");
+    assert.equal(cprBucketThroughDay("2026-09-14", "weekly", window), null);
+
+    const iLast = weeklyDates.indexOf("2026-09-07");
+    const iAfter = weeklyDates.indexOf("2026-09-14");
+    assert.ok(iLast >= 0 && iAfter >= 0);
+    assert.ok(series.daily[iLast] != null);
+    for (let i = iAfter; i < weeklyDates.length; i++) {
+      assert.equal(series.daily[i], null);
+    }
+
+    const card = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: dodCirqlinDays(),
+      spendRows: DOD_SPEND_ROWS,
+      generalSaleAt: DOD_GENERAL_SALE_AT,
+      nowMs,
+    });
+    assert.ok(card.cpr);
+    const last = lastNonNull(series.daily);
+    assert.ok(last != null);
+    assert.equal(Math.round(last * 100), Math.round((card.cpr.cpr ?? 0) * 100));
+    assert.equal(Math.round(last * 100) / 100, 0.91);
   });
 });
