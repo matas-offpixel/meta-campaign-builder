@@ -93,6 +93,54 @@ export function signupPhaseSpend(
   };
 }
 
+/**
+ * The signup side of the card's CPR. All-time counts from the campaign
+ * window start; a dated spend window counts from the first spend day.
+ * One function so the chart series cannot pick a different from-day.
+ */
+export function cprSignupFromDay(
+  spend: { allTime: boolean; fromDay: string | null },
+  windowStart: string | null,
+): string | null {
+  return spend.allTime ? (windowStart ?? spend.fromDay) : spend.fromDay;
+}
+
+/**
+ * Spend from the window start through `throughDay`, inclusive.
+ * `inWindow` is false — and spend is 0 — outside [fromDay, toDay].
+ */
+export function signupPhaseSpendThrough(
+  rows: readonly SignupPhaseSpendRow[],
+  generalSaleAt: string | null,
+  throughDay: string,
+): {
+  spend: number;
+  inWindow: boolean;
+  fromDay: string | null;
+  toDay: string | null;
+  allTime: boolean;
+} {
+  const window = signupPhaseSpend(rows, generalSaleAt);
+  if (!window.fromDay || throughDay < window.fromDay) {
+    return { ...window, spend: 0, inWindow: false };
+  }
+  if (window.toDay && throughDay > window.toDay) {
+    return { ...window, spend: 0, inWindow: false };
+  }
+  let spend = 0;
+  for (const row of rows) {
+    const day = dayOf(row.date);
+    if (!day) continue;
+    if (day < window.fromDay || day > throughDay) continue;
+    spend += rowSpend(row);
+  }
+  return {
+    ...window,
+    spend: Math.round(spend * 100) / 100,
+    inWindow: true,
+  };
+}
+
 export function signupPhaseCpr(
   rows: readonly SignupPhaseSpendRow[],
   generalSaleAt: string | null,

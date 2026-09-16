@@ -62,11 +62,21 @@ function addNullable(
   return value != null ? (current ?? 0) + value : current;
 }
 
-function isoWeekStart(isoDate: string): string {
+/** Monday of the UTC week containing `isoDate`. Same key the weekly chart uses. */
+export function isoWeekStart(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return isoDate;
   const day = d.getUTCDay() || 7;
   d.setUTCDate(d.getUTCDate() - day + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Sunday of the UTC week containing `isoDate`. */
+export function isoWeekEnd(isoDate: string): string {
+  const start = isoWeekStart(isoDate);
+  const d = new Date(`${start}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  d.setUTCDate(d.getUTCDate() + 6);
   return d.toISOString().slice(0, 10);
 }
 
