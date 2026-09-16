@@ -727,6 +727,9 @@ function collectUniqueRows(
 } {
   const { sources, sourceRows, unjoined, chosenJoined, chosenTotal } =
     collectSources(bundle, dropped);
+  if (sources.some((source) => !(source.cta ?? "").trim())) {
+    pushDropped(dropped, "call_to_action", null);
+  }
   const groups = assetGroupNames(bundle);
   const libraryById = new Map(
     (bundle.libraryVideos ?? []).map((row) => [row.video_id, row]),

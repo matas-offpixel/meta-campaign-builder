@@ -212,6 +212,7 @@ export const TIKTOK_IMPORT_DROPPED_LABELS: Record<string, string> = {
   network_types: "network types",
   dark_post_status: "ads-only mode",
   ad_text_list: "extra ad texts on the asset group",
+  call_to_action: "call to action",
   call_to_action_list: "extra calls to action on the asset group",
   landing_page_url_list: "extra landing pages on the asset group",
   display_name: "ad display name",

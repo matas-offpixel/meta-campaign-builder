@@ -21,6 +21,15 @@ import {
   commitUploadedTikTokCreatives,
   formatTikTokCreativePersistFailure,
 } from "@/lib/tiktok-wizard/persist-creatives";
+import {
+  applyTikTokCreativeCtaChange,
+  patchTikTokCreativeCta,
+  patchTikTokEveryCreativeCta,
+  shouldPersistTikTokCreativeCta,
+  tikTokCtaOptionsForDraft,
+  tikTokCreativeCtaFieldDisabled,
+  tikTokSetEveryCreativeCtaLine,
+} from "@/lib/tiktok-wizard/creative-cta";
 import { validateTikTokVideoFile } from "@/lib/tiktok-wizard/video-constraints";
 import {
   extractTikTokVideoId,
@@ -51,14 +60,6 @@ interface UploadJob {
   error: string | null;
 }
 
-const CTA_OPTIONS = [
-  { value: "LEARN_MORE", label: "Learn more" },
-  { value: "BOOK_NOW", label: "Book now" },
-  { value: "BUY_TICKETS", label: "Buy tickets" },
-  { value: "SIGN_UP", label: "Sign up" },
-  { value: "DOWNLOAD", label: "Download" },
-];
-
 export function CreativesStep({
   draft,
   onSave,
@@ -78,6 +79,7 @@ export function CreativesStep({
     () => first?.landingPageUrl || planDestinationUrl || "",
   );
   const [cta, setCta] = useState("LEARN_MORE");
+  const [setEveryCta, setSetEveryCta] = useState("LEARN_MORE");
   const [variationCount, setVariationCount] = useState("1");
   const [saving, setSaving] = useState(false);
   const [videoLookupLoading, setVideoLookupLoading] = useState(false);
@@ -111,6 +113,21 @@ export function CreativesStep({
     } finally {
       setSaving(false);
     }
+  }
+
+  const ctaOptions = tikTokCtaOptionsForDraft({
+    objective: draft.campaignSetup.objective,
+    mode: "VIDEO_REFERENCE",
+  });
+
+  async function persistCreativeCta(creativeId: string, next: string | null) {
+    await persist(
+      patchTikTokCreativeCta(itemsRef.current, creativeId, next),
+    );
+  }
+
+  async function persistEveryCreativeCta(next: string) {
+    await persist(patchTikTokEveryCreativeCta(itemsRef.current, next));
   }
 
   function patchJob(id: string, patch: Partial<UploadJob>) {
@@ -600,10 +617,10 @@ export function CreativesStep({
         />
         <Select
           id="creative-cta"
-          label="CTA"
+          label="CTA for new creatives"
           value={cta}
           onChange={(event) => setCta(event.target.value)}
-          options={CTA_OPTIONS}
+          options={ctaOptions}
         />
       </div>
 
@@ -616,6 +633,31 @@ export function CreativesStep({
       </Button>
 
       <div className="space-y-3">
+        {draft.creatives.items.length > 0 ? (
+          <div className="flex flex-wrap items-end gap-2">
+            <Select
+              id="tiktok-set-every-creative-cta"
+              label="Set every creative"
+              value={setEveryCta}
+              onChange={(event) => setSetEveryCta(event.target.value)}
+              options={ctaOptions}
+              disabled={tikTokCreativeCtaFieldDisabled({ saving })}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void persistEveryCreativeCta(setEveryCta)}
+            >
+              {
+                tikTokSetEveryCreativeCtaLine({
+                  cta: setEveryCta,
+                  count: draft.creatives.items.length,
+                }).action
+              }
+            </Button>
+          </div>
+        ) : null}
         {draft.creatives.items.map((item) => (
           <div
             key={item.id}
@@ -634,7 +676,7 @@ export function CreativesStep({
                 Video
               </div>
             )}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 space-y-2">
               <Datum className="flex min-w-0 items-center gap-1 truncate text-sm font-medium">
                 <span className="truncate">{item.name}</span>
                 {item.derivedFrom ? <ProvenanceBadge provenance="derived" /> : null}
@@ -642,9 +684,38 @@ export function CreativesStep({
               <Datum className="truncate text-xs text-muted-foreground">
                 {item.mode === "SPARK_AD"
                   ? `post ${item.sparkPostId} · ${item.identityDisplayName || item.identityType || "Spark"}`
-                  : item.videoId}{" "}
-                · {item.cta ?? "No CTA"}
+                  : item.videoId}
               </Datum>
+              <Select
+                id={`tiktok-creative-cta-${item.id}`}
+                label="CTA"
+                value={item.cta ?? ""}
+                placeholder="No CTA"
+                options={tikTokCtaOptionsForDraft({
+                  objective: draft.campaignSetup.objective,
+                  mode: item.mode,
+                })}
+                disabled={tikTokCreativeCtaFieldDisabled({ saving })}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (shouldPersistTikTokCreativeCta("change")) {
+                    applyTikTokCreativeCtaChange(
+                      { persist: (next) => void persistCreativeCta(item.id, next) },
+                      "change",
+                      value,
+                    );
+                  }
+                }}
+                onBlur={() => {
+                  if (shouldPersistTikTokCreativeCta("blur")) {
+                    applyTikTokCreativeCtaChange(
+                      { persist: (next) => void persistCreativeCta(item.id, next) },
+                      "blur",
+                      item.cta ?? "",
+                    );
+                  }
+                }}
+              />
               <Datum className="truncate text-xs text-muted-foreground">
                 {item.adText || "No ad text"}
               </Datum>

@@ -3,7 +3,6 @@
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import {
@@ -363,16 +362,9 @@ export function CampaignSetupStep({
               </StatusLine>
             )}
         </div>
-        <Input
-          id="tiktok-smart-plus-note"
-          label="Smart+ linkage"
-          value={
-            draft.optimisation.smartPlusEnabled
-              ? "Smart+ is enabled in Step 2. Bid strategy will lock there."
-              : "Smart+ can be selected here or toggled in Step 2."
-          }
-          readOnly
-        />
+        <Datum className="text-sm text-muted-foreground">
+          Smart+ is set in Step 2. A Smart+ draft cannot be launched by this writer.
+        </Datum>
       </div>
     </div>
       </StepSurfaceProvider>

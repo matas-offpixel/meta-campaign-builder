@@ -248,6 +248,36 @@ describe("map manual campaign", () => {
     );
   });
 
+  it("says when the source reported no call to action", () => {
+    const ads = [{ ...MANUAL_AD_GET }];
+    delete (ads[0] as { call_to_action?: string }).call_to_action;
+    const mapped = mapTikTokLiveCampaignToDraft(
+      manualBundle({ ads }),
+      "draft-no-cta",
+      ACCOUNT,
+    );
+    assert.equal(mapped.creatives.items[0]?.cta, null);
+    const dropped = mapped.importMeta?.dropped ?? [];
+    assert.ok(dropped.some((item) => item.field === "call_to_action"));
+    assert.match(
+      formatTikTokImportDroppedLine(dropped) ?? "",
+      /call to action \(was unset\)/,
+    );
+  });
+
+  it("does not report a missing CTA when the source sent one", () => {
+    const mapped = mapTikTokLiveCampaignToDraft(
+      manualBundle(),
+      "draft-has-cta",
+      ACCOUNT,
+    );
+    assert.equal(mapped.creatives.items[0]?.cta, "LEARN_MORE");
+    assert.equal(
+      (mapped.importMeta?.dropped ?? []).some((item) => item.field === "call_to_action"),
+      false,
+    );
+  });
+
   it("reports an image-only /ad/get/ row as image_ad_unsupported, not no_asset_reported", () => {
     const mapped = mapTikTokLiveCampaignToDraft(
       manualBundle({

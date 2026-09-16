@@ -1321,8 +1321,8 @@ describe("write paths are untouched", () => {
     assert.ok(base, "neither origin/main nor main exists");
     // validation.ts may drop unused step labels; validateGoogleSearchStep stays.
     // mapping.ts may prefer a SPARK_AD creative's own identity over accountSetup.
-    // preflight.ts stays in this diff (#955). The companion below asserts
-    // the hunks. Do not add it to the exclusion list.
+    // preflight.ts stays in this diff. The companion below asserts the hunks.
+    // Do not add it to the exclusion list.
     const diff = execSync(
       `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts'`,
       {
@@ -1340,7 +1340,7 @@ describe("write paths are untouched", () => {
     );
   });
 
-  it("preflight.ts only changes collapse counting and the ad-group budget skip", () => {
+  it("preflight.ts only changes the per-creative CTA block", () => {
     let base = "";
     for (const ref of ["origin/main", "main"] as const) {
       try {
@@ -1363,15 +1363,14 @@ describe("write paths are untouched", () => {
     const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
     assert.equal(
       hunkCount,
-      3,
-      `preflight.ts has ${hunkCount} hunks; only the skip-helper import, the already-reported skip, and collapse counting are allowed\n${diff}`,
+      2,
+      `preflight.ts has ${hunkCount} hunks; only the creative-cta import and the missing-CTA block are allowed\n${diff}`,
     );
     assert.match(
       diff,
-      /shouldSkipDuplicateTikTokAdGroupBudgetPayload/,
-      "missing the already-reported skip helper",
+      /tikTokCreativeCtaMissingMessage/,
+      "missing the per-creative CTA block",
     );
-    assert.match(diff, /ids\.length/);
 
     const mainSrc = execSync(`git show ${base}:lib/tiktok/write/preflight.ts`, {
       encoding: "utf8",
@@ -1382,11 +1381,12 @@ describe("write paths are untouched", () => {
       "isBlankTikTokAdGroupName",
       "tikTokBlankAdGroupNameMessage",
       "isAbsoluteHttpUrl",
+      "collapseTikTokLaunchPreflightIssues",
     ] as const) {
       assert.equal(
         extractNamedFunction(src, name),
         extractNamedFunction(mainSrc, name),
-        `${name} changed; this PR only touches collect's budget skip and collapse counting`,
+        `${name} changed; this PR only adds the missing-CTA block to collect`,
       );
     }
 

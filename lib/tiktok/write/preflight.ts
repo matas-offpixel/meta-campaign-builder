@@ -9,6 +9,10 @@
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
 import { shouldSkipDuplicateTikTokAdGroupBudgetPayload } from "../../tiktok-wizard/ad-group-budget.ts";
 import { validOptimisationGoalForObjective } from "../../tiktok-wizard/campaign-setup.ts";
+import {
+  tikTokCtaRequiredForObjective,
+  tikTokCreativeCtaMissingMessage,
+} from "../../tiktok-wizard/creative-cta.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
 import {
   isUnsupportedTikTokOptimisationEvent,
@@ -427,6 +431,23 @@ export function collectTikTokLaunchPreflight(
             "landing_page_url",
             `Creative "${creative.name}" needs an absolute landing page URL`,
             { scope: "creative", creativeId: creative.id },
+          ),
+        );
+      }
+      if (
+        tikTokCtaRequiredForObjective(draft.campaignSetup.objective) &&
+        !(creative.cta ?? "").trim()
+      ) {
+        issues.push(
+          issue(
+            `cta-${creative.id}`,
+            "call_to_action",
+            tikTokCreativeCtaMissingMessage(creative.name),
+            {
+              scope: "creative",
+              creativeId: creative.id,
+              reason: tikTokCreativeCtaMissingMessage(creative.name),
+            },
           ),
         );
       }
