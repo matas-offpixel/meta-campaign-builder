@@ -15,6 +15,7 @@ import {
   trackerMilestoneDays,
   type TrackerMilestones,
 } from "@/lib/dashboard/tracker-phase";
+import { buildTrendCprSeries } from "@/lib/dashboard/trend-cpr";
 import {
   buildTrendRegistrationsSeries,
   extraDaysBefore,
@@ -272,24 +273,26 @@ function LegacyTrendChart({
     ) {
       return null;
     }
+    const dates = days.map((d) => d.date);
     const built = buildTrendRegistrationsSeries({
-      dates: days.map((d) => d.date),
+      dates,
       cirqlinSnapshots,
       mailchimpSnapshots,
       metaByDate: new Map(days.map((d) => [d.date, null])),
     });
-    let runningSpend = 0;
-    const withCpr = days.map((day, i) => {
-      if (day.spend != null && Number.isFinite(day.spend)) runningSpend += day.spend;
-      const registrations = built.cumulative[i] ?? null;
-      const cpr =
-        runningSpend > 0 && registrations != null && registrations > 0
-          ? runningSpend / registrations
-          : null;
-      return { registrations, cpr };
+    const cprSeries = buildTrendCprSeries({
+      dates,
+      spendRows: days.map((d) => ({ date: d.date, ad_spend: d.spend })),
+      generalSaleAt: milestones?.generalSaleAt ?? null,
+      cirqlinSnapshots,
+      fallbackSignups: built.cumulative,
     });
-    return { ...built, days: withCpr };
-  }, [days, cirqlinSnapshots, mailchimpSnapshots]);
+    const withCpr = days.map((_, i) => ({
+      registrations: built.cumulative[i] ?? null,
+      cpr: cprSeries.daily[i],
+    }));
+    return { ...built, days: withCpr, cprPillLabel: cprSeries.pillLabel };
+  }, [days, cirqlinSnapshots, mailchimpSnapshots, milestones?.generalSaleAt]);
 
   const regsSummary = useMemo(() => {
     if (!regsSeries) return { registrations: null, cpr: null };
@@ -537,7 +540,9 @@ function LegacyTrendChart({
                 />
                 {m.key === "registrations" && regsSeries?.pillSource
                   ? `${m.label} · ${regsSeries.pillSource}`
-                  : m.label}
+                  : m.key === "cpr" && regsSeries?.cprPillLabel
+                    ? regsSeries.cprPillLabel
+                    : m.label}
                 {latest !== null && (
                   <span
                     className={`tabular-nums ${

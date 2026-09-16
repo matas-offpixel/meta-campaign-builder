@@ -18,6 +18,7 @@ import type {
 } from "../cirqlin/types.ts";
 import type { MailchimpRegistrationsData } from "../mailchimp/compute-registrations.ts";
 import {
+  cprSignupFromDay,
   signupPhaseCpr,
   signupPhaseSpend,
   type SignupPhaseCpr,
@@ -228,7 +229,7 @@ export function buildRegistrationsCardModel(
     const spend = signupPhaseSpend(input.spendRows, input.generalSaleAt);
     const spendSignups = cirqlinSignupsInWindow(
       rows,
-      spend.allTime ? (window.startDay ?? spend.fromDay) : spend.fromDay,
+      cprSignupFromDay(spend, window.startDay),
       spend.toDay,
     );
     return {
