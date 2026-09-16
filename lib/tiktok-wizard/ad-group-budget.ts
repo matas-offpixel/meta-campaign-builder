@@ -5,7 +5,6 @@
  * raises or lowers a budget without a click.
  */
 
-import type { TikTokLaunchPreflightIssue } from "../tiktok/write/preflight.ts";
 import { tikTokAdGroupBudgetFloor } from "../tiktok/write/mapping.ts";
 import type {
   TikTokAdGroupDraft,
@@ -79,15 +78,50 @@ export function tikTokAdGroupMatchCampaignLine(input: {
   };
 }
 
-export function tikTokAdGroupBudgetIssue(
-  issues: readonly TikTokLaunchPreflightIssue[],
+export function tikTokAdGroupBudgetIssue<T extends { id: string }>(
+  issues: readonly T[],
   adGroupId: string,
-): TikTokLaunchPreflightIssue | undefined {
+): T | undefined {
   return issues.find(
     (issue) =>
       issue.id === `adgroup-budget-${adGroupId}` ||
       issue.id === `adgroup-budget-floor-${adGroupId}`,
   );
+}
+
+/**
+ * Skip a payload-builder budget error only when collect already pushed
+ * `adgroup-budget-{id}` or `adgroup-budget-floor-{id}` for this group.
+ * Keyed on those ids, not on `field === "budget"`, so a later payload-only
+ * budget rule still emits.
+ */
+export function shouldSkipDuplicateTikTokAdGroupBudgetPayload(
+  issues: readonly { id: string }[],
+  adGroupId: string,
+): boolean {
+  return tikTokAdGroupBudgetIssue(issues, adGroupId) != null;
+}
+
+export function shouldPersistTikTokAdGroupBudget(
+  eventType: "change" | "blur",
+): boolean {
+  return eventType === "blur";
+}
+
+export function applyTikTokAdGroupBudgetChange(
+  writes: { persist: (raw: string) => void },
+  eventType: "change" | "blur",
+  raw: string,
+): void {
+  if (!shouldPersistTikTokAdGroupBudget(eventType)) return;
+  writes.persist(raw);
+}
+
+/** A write in flight does not disable the field. */
+export function tikTokAdGroupBudgetFieldDisabled(_input: {
+  saving: boolean;
+}): boolean {
+  return false;
 }
 
 export function tikTokAdGroupBudgetDraftValue(budget: number | null): string {

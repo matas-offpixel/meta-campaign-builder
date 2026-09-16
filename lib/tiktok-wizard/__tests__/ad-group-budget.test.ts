@@ -8,10 +8,14 @@ import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
 import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
 import { reconcileTikTokAdGroups } from "../ad-group-reconcile.ts";
 import {
+  applyTikTokAdGroupBudgetChange,
   parseTikTokAdGroupBudgetInput,
   patchTikTokAdGroupBudget,
   persistTikTokAdGroupBudgetPatch,
+  shouldPersistTikTokAdGroupBudget,
+  shouldSkipDuplicateTikTokAdGroupBudgetPayload,
   tikTokAdGroupBudgetDiffersFromCampaign,
+  tikTokAdGroupBudgetFieldDisabled,
   tikTokAdGroupBudgetFloorLine,
   tikTokAdGroupBudgetIssue,
   tikTokAdGroupMatchCampaignLine,
@@ -208,25 +212,79 @@ describe("937e9b11 ad-group budget is the number that blocks", () => {
   });
 });
 
+describe("payload budget skip is keyed on already-reported", () => {
+  it("suppresses when an explicit budget issue exists for that ad group", () => {
+    assert.equal(
+      shouldSkipDuplicateTikTokAdGroupBudgetPayload(
+        [{ id: `adgroup-budget-${LONDON_ID}` }],
+        LONDON_ID,
+      ),
+      true,
+    );
+    assert.equal(
+      shouldSkipDuplicateTikTokAdGroupBudgetPayload(
+        [{ id: `adgroup-budget-floor-${LONDON_ID}` }],
+        LONDON_ID,
+      ),
+      true,
+    );
+  });
+
+  it("does not suppress a budget-field payload error for an ad group with no explicit issue", () => {
+    assert.equal(
+      shouldSkipDuplicateTikTokAdGroupBudgetPayload(
+        [{ id: `adgroup-${LONDON_ID}-budget` }],
+        LONDON_ID,
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSkipDuplicateTikTokAdGroupBudgetPayload(
+        [{ id: `adgroup-budget-${OTHER_ID}` }],
+        LONDON_ID,
+      ),
+      false,
+    );
+    assert.equal(
+      shouldSkipDuplicateTikTokAdGroupBudgetPayload([], LONDON_ID),
+      false,
+    );
+  });
+});
+
 describe("Assign ad-group budget field (task #139)", () => {
   it("N change events produce one write, on blur, and the field stays enabled", () => {
+    const writes: string[] = [];
+    const persist = (value: string) => {
+      writes.push(value);
+    };
+    const segments = ["3", "30", "50"];
+    for (const value of segments) {
+      applyTikTokAdGroupBudgetChange({ persist }, "change", value);
+      assert.equal(tikTokAdGroupBudgetFieldDisabled({ saving: true }), false);
+    }
+    applyTikTokAdGroupBudgetChange({ persist }, "blur", "50");
+    assert.deepEqual(writes, ["50"]);
+    assert.equal(shouldPersistTikTokAdGroupBudget("change"), false);
+    assert.equal(shouldPersistTikTokAdGroupBudget("blur"), true);
+  });
+
+  it("Assign budget field is wired to persist-on-blur and stays enabled while saving", () => {
+    // node:test cannot render React in this repo, so this is a grep
+    // of the wiring, not coverage of the behaviour. The policy lives
+    // on shouldPersistTikTokAdGroupBudget / applyTikTokAdGroupBudgetChange.
     const source = readFileSync(
       join(HERE, "../../../components/tiktok-wizard/steps/assign-creatives.tsx"),
       "utf8",
     );
     assert.match(source, /const \[budgetDraft, setBudgetDraft\]/);
-    assert.match(
-      source,
-      /onChange=\{\(event\) => setBudgetDraft\(event\.target\.value\)\}/,
-    );
-    assert.match(
-      source,
-      /onBlur=\{\(\) => void saveBudgetAmount\(budgetDraft\)\}/,
-    );
+    assert.match(source, /shouldPersistTikTokAdGroupBudget\("change"\)/);
+    assert.match(source, /shouldPersistTikTokAdGroupBudget\("blur"\)/);
     const field = source.slice(
       source.indexOf("function AdGroupBudgetField"),
       source.indexOf("function AdGroupNameInput"),
     );
+    assert.match(field, /tikTokAdGroupBudgetFieldDisabled\(\{ saving \}\)/);
     assert.equal(field.includes("disabled={saving}"), false);
     assert.match(field, /tikTokAdGroupBudgetFloorLine/);
     assert.match(source, /tikTokAdGroupMatchCampaignLine/);

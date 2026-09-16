@@ -8,8 +8,10 @@ import { Input } from "@/components/ui/input";
 import {
   parseTikTokAdGroupBudgetInput,
   patchTikTokAdGroupBudget,
+  shouldPersistTikTokAdGroupBudget,
   tikTokAdGroupBudgetDiffersFromCampaign,
   tikTokAdGroupBudgetDraftValue,
+  tikTokAdGroupBudgetFieldDisabled,
   tikTokAdGroupBudgetFloorLine,
   tikTokAdGroupBudgetIssue,
   tikTokAdGroupMatchCampaignLine,
@@ -101,7 +103,23 @@ export function AssignCreativesStep({
   }
 
   const current = draft.creativeAssignments.byAdGroupId;
-  const launchPreflight = collectTikTokLaunchPreflight(draft);
+  // Assign re-renders on every ad-group name keystroke. Collect rebuilds
+  // a payload per ad group and creative; this step only reads
+  // adgroup-budget-* / adgroup-budget-floor-*, so the key is id+budget
+  // plus the floor inputs — not names.
+  const assignBudgetIssueKey = [
+    draft.accountSetup.currency ?? "",
+    draft.budgetSchedule.budgetMode,
+    String(draft.budgetSchedule.budgetAmount),
+    draft.budgetSchedule.scheduleStartAt ?? "",
+    draft.budgetSchedule.scheduleEndAt ?? "",
+    adGroups.map((group) => `${group.id}:${group.budget ?? ""}`).join(","),
+  ].join("|");
+  const launchPreflight = useMemo(
+    () => collectTikTokLaunchPreflight(draft),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assignBudgetIssueKey],
+  );
 
   async function persistAdGroupBudget(id: string, budget: number | null) {
     await onSave({
@@ -335,6 +353,7 @@ export function AssignCreativesStep({
               />
               <AdGroupBudgetField
                 adGroup={adGroup}
+                saving={saving}
                 campaignAmount={draft.budgetSchedule.budgetAmount}
                 budgetMode={draft.budgetSchedule.budgetMode}
                 startAt={draft.budgetSchedule.scheduleStartAt}
@@ -362,6 +381,7 @@ export function AssignCreativesStep({
 
 function AdGroupBudgetField({
   adGroup,
+  saving,
   campaignAmount,
   budgetMode,
   startAt,
@@ -371,6 +391,7 @@ function AdGroupBudgetField({
   onSave,
 }: {
   adGroup: TikTokAdGroupDraft;
+  saving: boolean;
   campaignAmount: number | null;
   budgetMode: TikTokCampaignDraft["budgetSchedule"]["budgetMode"];
   startAt: string | null;
@@ -379,6 +400,9 @@ function AdGroupBudgetField({
   issue?: { message: string };
   onSave: (budget: number | null) => void;
 }) {
+  // Seeded once. Reconciliation while this field is mounted leaves a
+  // stale box — same as Review's schedule fields (#954). Match-campaign
+  // calls setBudgetDraft. Persist on blur writes what is in the box.
   const [budgetDraft, setBudgetDraft] = useState(
     tikTokAdGroupBudgetDraftValue(adGroup.budget),
   );
@@ -424,8 +448,18 @@ function AdGroupBudgetField({
         inputMode="decimal"
         autoComplete="off"
         value={budgetDraft}
-        onChange={(event) => setBudgetDraft(event.target.value)}
-        onBlur={() => void saveBudgetAmount(budgetDraft)}
+        disabled={tikTokAdGroupBudgetFieldDisabled({ saving })}
+        onChange={(event) => {
+          setBudgetDraft(event.target.value);
+          if (shouldPersistTikTokAdGroupBudget("change")) {
+            saveBudgetAmount(event.target.value);
+          }
+        }}
+        onBlur={() => {
+          if (shouldPersistTikTokAdGroupBudget("blur")) {
+            saveBudgetAmount(budgetDraft);
+          }
+        }}
         placeholder="50"
         error={error ?? issue?.message}
       />

@@ -734,4 +734,22 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.deepEqual(collapsed[0]?.adGroupIds, ["ag-1", "ag-2"]);
     assert.equal(collapsed[0]?.adGroupIds?.length, 2);
   });
+
+  it("a payload budget issue with no explicit twin still survives collapse", () => {
+    const reason = "a payload-only budget rule";
+    const collapsed = collapseTikTokLaunchPreflightIssues([
+      {
+        id: "adgroup-ag-1-budget",
+        field: "budget",
+        message: `London: ${reason}`,
+        scope: "adgroup",
+        reason,
+        adGroupIds: ["ag-1"],
+      },
+    ]);
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0]?.id, "adgroup-ag-1-budget");
+    assert.equal(collapsed[0]?.field, "budget");
+    assert.equal(collapsed[0]?.message, `London: ${reason}`);
+  });
 });

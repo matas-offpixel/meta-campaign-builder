@@ -7,6 +7,7 @@
  */
 
 import type { TikTokCampaignDraft } from "../../types/tiktok-draft.ts";
+import { shouldSkipDuplicateTikTokAdGroupBudgetPayload } from "../../tiktok-wizard/ad-group-budget.ts";
 import { validOptimisationGoalForObjective } from "../../tiktok-wizard/campaign-setup.ts";
 import { suggestTikTokAdGroups } from "../../tiktok-wizard/review.ts";
 import {
@@ -397,8 +398,12 @@ export function collectTikTokLaunchPreflight(
       // adgroup-budget-* / adgroup-budget-floor-*. Payload repeats the
       // same floor under a different id; collapse then counted issues
       // (2) while memberIds de-duped to one name — the "(2 ad groups)
-      // — London" bug. Mapping still enforces the floor on write.
-      if (canonicalTikTokPreflightField(groupPayload.error.field) !== "budget") {
+      // — London" bug. Skip only when that explicit issue is already
+      // in `issues` for this ad group. Mapping still enforces the
+      // floor on write.
+      if (
+        !shouldSkipDuplicateTikTokAdGroupBudgetPayload(issues, adGroup.id)
+      ) {
         issues.push(
           issue(
             `adgroup-${adGroup.id}-${groupPayload.error.field}`,
