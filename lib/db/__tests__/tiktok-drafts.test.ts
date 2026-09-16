@@ -110,6 +110,7 @@ describe("tiktok-drafts db helpers", () => {
     const draft = await upsertTikTokDraft(client, "draft-1", {
       userId: "user-1",
       clientId: "client-1",
+      eventId: "event-1",
       campaignSetup: {
         campaignName: "[EVT] Name",
         eventCode: "EVT",
@@ -124,6 +125,11 @@ describe("tiktok-drafts db helpers", () => {
     assert.equal(payload.user_id, "user-1");
     assert.equal(payload.name, "[EVT] Name");
     assert.equal(payload.client_id, "client-1");
+    assert.equal(payload.event_id, "event-1");
+    assert.equal(
+      (payload.state as { eventId?: string }).eventId,
+      "event-1",
+    );
   });
 
   it("applies list filters and archives deletes", async () => {

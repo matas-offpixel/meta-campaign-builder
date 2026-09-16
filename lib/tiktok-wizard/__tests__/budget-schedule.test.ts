@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 import {
   applySmartPlusDefaults,
   parseOptionalMoney,
-  requestTikTokReviewScheduleHeal,
   suggestFreshTikTokSchedule,
   validateBudgetGuardrails,
 } from "../budget-schedule.ts";
@@ -106,46 +108,6 @@ describe("suggestFreshTikTokSchedule", () => {
   });
 });
 
-describe("requestTikTokReviewScheduleHeal", () => {
-  it("attempts onSave exactly once when persist fails", async () => {
-    const now = new Date("2026-08-22T12:00:00.000Z");
-    const draft = createDefaultTikTokDraft("draft-heal-once");
-    draft.budgetSchedule.scheduleStartAt = "2026-08-20T10:00";
-    draft.budgetSchedule.scheduleEndAt = "2026-09-01T10:00";
-    const attempted = { current: false };
-    let saves = 0;
-    const onSave = async () => {
-      saves += 1;
-      throw new Error("offline");
-    };
-
-    await requestTikTokReviewScheduleHeal({
-      alreadyLaunched: false,
-      attempted,
-      draft,
-      now,
-      onSave,
-    });
-    await requestTikTokReviewScheduleHeal({
-      alreadyLaunched: false,
-      attempted,
-      draft,
-      now,
-      onSave,
-    });
-    await requestTikTokReviewScheduleHeal({
-      alreadyLaunched: false,
-      attempted,
-      draft,
-      now,
-      onSave,
-    });
-
-    assert.equal(saves, 1);
-    assert.equal(attempted.current, true);
-  });
-});
-
 describe("TikTok wizard money parsing", () => {
   it("accepts currency symbols, commas, plain numbers, and pasted newlines", () => {
     assert.equal(parseOptionalMoney("£1,800"), 1800);
@@ -157,5 +119,33 @@ describe("TikTok wizard money parsing", () => {
   it("treats blank optional fields as null", () => {
     assert.equal(parseOptionalMoney(""), null);
     assert.equal(parseOptionalMoney("   "), null);
+  });
+});
+
+describe("Review schedule is edited, not healed", () => {
+  const HERE = dirname(fileURLToPath(import.meta.url));
+  const review = readFileSync(
+    join(HERE, "../../../components/tiktok-wizard/steps/review-launch.tsx"),
+    "utf8",
+  );
+
+  it("does not call requestTikTokReviewScheduleHeal", () => {
+    assert.equal(review.includes("requestTikTokReviewScheduleHeal"), false);
+  });
+
+  it("renders start and end as datetime-local fields with the start-soon message inline", () => {
+    assert.match(review, /id="tiktok-review-schedule-start"/);
+    assert.match(review, /id="tiktok-review-schedule-end"/);
+    assert.match(review, /type="datetime-local"/);
+    assert.match(review, /schedule-start-soon/);
+    assert.match(review, /scheduleStartIssue\?\.message/);
+  });
+
+  it("the Review heal helper is gone, not just unreferenced", () => {
+    const helper = readFileSync(
+      join(HERE, "../budget-schedule.ts"),
+      "utf8",
+    );
+    assert.equal(helper.includes("requestTikTokReviewScheduleHeal"), false);
   });
 });

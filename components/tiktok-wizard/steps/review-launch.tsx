@@ -1,10 +1,11 @@
 "use client";
 
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer } from "@/components/steps/step-surface";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { TikTokLaunchPanel } from "@/components/tiktok-wizard/launch-panel";
 import type { TikTokWizardContext } from "@/components/tiktok-wizard/wizard-shell";
 import { duplicateTikTokDraft } from "@/lib/db/tiktok-drafts";
@@ -39,7 +40,11 @@ import {
   readTikTokLaunchStream,
   type TikTokLaunchStreamResultEvent,
 } from "@/lib/tiktok/write/launch-stream";
-import { requestTikTokReviewScheduleHeal } from "@/lib/tiktok-wizard/budget-schedule";
+import { tikTokAdvertiserClockLabel } from "@/lib/plan/tiktok-early";
+import {
+  reviewScheduleFieldDisabled,
+  shouldPersistReviewSchedule,
+} from "@/lib/tiktok-wizard/review-schedule";
 import {
   collectTikTokLaunchPreflight,
   type TikTokLaunchPreflightIssue,
@@ -144,16 +149,36 @@ export function ReviewLaunchStep({
           ? writesDisabledReason
           : undefined;
   const firstLaunchBlocker = clientIssues[0]?.message;
-  const healedSchedule = useRef(false);
+  const scheduleStartIssue = clientIssues.find(
+    (issue) => issue.id === "schedule-start-soon",
+  );
+  const scheduleOrderIssue = clientIssues.find(
+    (issue) => issue.id === "schedule-order",
+  );
+  const smartPlus = draft.optimisation.smartPlusEnabled;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const [startDraft, setStartDraft] = useState(
+    draft.budgetSchedule.scheduleStartAt ?? "",
+  );
+  const [endDraft, setEndDraft] = useState(
+    draft.budgetSchedule.scheduleEndAt ?? "",
+  );
+  const scheduleDisabled = reviewScheduleFieldDisabled({
+    alreadyLaunched,
+    smartPlus,
+  });
 
-  useEffect(() => {
-    requestTikTokReviewScheduleHeal({
-      alreadyLaunched,
-      attempted: healedSchedule,
-      draft,
-      onSave,
+  async function persistSchedule(
+    patch: Partial<TikTokCampaignDraft["budgetSchedule"]>,
+  ) {
+    await onSave({
+      budgetSchedule: {
+        ...draftRef.current.budgetSchedule,
+        ...patch,
+      },
     });
-  }, [alreadyLaunched, draft, onSave]);
+  }
 
   async function relaunchAsNewDraft() {
     if (relaunching) return;
@@ -590,13 +615,57 @@ export function ReviewLaunchStep({
           }
           onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
         />
-        <KeyValue
-          label="Schedule"
-          value={`${draft.budgetSchedule.scheduleStartAt ?? "—"} → ${
-            draft.budgetSchedule.scheduleEndAt ?? "—"
-          }`}
-          onEdit={onOpenStep ? () => onOpenStep(5) : undefined}
-        />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Input
+            id="tiktok-review-schedule-start"
+            label="Schedule start"
+            type="datetime-local"
+            value={startDraft}
+            disabled={scheduleDisabled}
+            onChange={(event) => {
+              const value = event.target.value;
+              setStartDraft(value);
+              if (shouldPersistReviewSchedule("change")) {
+                void persistSchedule({ scheduleStartAt: value || null });
+              }
+            }}
+            onBlur={(event) => {
+              const value = event.currentTarget.value;
+              setStartDraft(value);
+              if (shouldPersistReviewSchedule("blur")) {
+                void persistSchedule({ scheduleStartAt: value || null });
+              }
+            }}
+            error={scheduleStartIssue?.message}
+          />
+          <Input
+            id="tiktok-review-schedule-end"
+            label="Schedule end"
+            type="datetime-local"
+            value={endDraft}
+            disabled={scheduleDisabled}
+            onChange={(event) => {
+              const value = event.target.value;
+              setEndDraft(value);
+              if (shouldPersistReviewSchedule("change")) {
+                void persistSchedule({ scheduleEndAt: value || null });
+              }
+            }}
+            onBlur={(event) => {
+              const value = event.currentTarget.value;
+              setEndDraft(value);
+              if (shouldPersistReviewSchedule("blur")) {
+                void persistSchedule({ scheduleEndAt: value || null });
+              }
+            }}
+            error={scheduleOrderIssue?.message}
+          />
+        </div>
+        {draft.accountSetup.timezone ? (
+          <Datum className="text-xs text-muted-foreground">
+            {tikTokAdvertiserClockLabel(draft.accountSetup.timezone)}
+          </Datum>
+        ) : null}
         <KeyValue
           label="Frequency cap"
           value={

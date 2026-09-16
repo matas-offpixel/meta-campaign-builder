@@ -1,26 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import {
-  listTikTokDrafts,
-  upsertTikTokDraft,
-} from "@/lib/db/tiktok-drafts";
-import {
-  clientIdForTikTokAccount,
-  credentialsForImportAdvertiser,
-} from "@/lib/tiktok/import/account";
-import { fetchTikTokAdvertiserInfo } from "@/lib/tiktok/advertiser";
-import {
-  buildTikTokImportPicker,
-  classifyTikTokImportCarry,
-  finalizeTikTokImportDraft,
-  formatRejectedCarryKeys,
-  mapTikTokLiveCampaignToDraft,
-  parseTikTokImportCarry,
-} from "@/lib/tiktok/import/map";
-import { hydratePickerThumbnails } from "@/lib/tiktok/import/picker";
-import { readTikTokLiveCampaign } from "@/lib/tiktok/import/readers";
-import { tikTokDuplicateExistingNames } from "@/lib/tiktok-wizard/library";
 import { createClient } from "@/lib/supabase/server";
+import { handleTikTokImport } from "@/lib/tiktok/import/save";
 
 /**
  * POST /api/tiktok/campaigns/import
@@ -28,137 +9,21 @@ import { createClient } from "@/lib/supabase/server";
  * Two steps. Without `carry`, read the live campaign and return the
  * picker — nothing is saved. `carry: []` also saves nothing. With
  * `carry: string[]` of `video_id` / `tiktok_item_id` keys, map those
- * creatives onto a draft and save. Writes nothing to TikTok.
+ * creatives onto a draft and save. The carry path requires `eventId`
+ * belonging to the resolved client — a saved draft that cannot launch
+ * is the bug this route exists not to reintroduce. Writes nothing to
+ * TikTok.
  */
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json(
-      { ok: false, error: "Not signed in" },
-      { status: 401 },
-    );
-  }
-
-  const body = (await req.json().catch(() => ({}))) as {
-    advertiserId?: string;
-    campaignId?: string;
-    carry?: unknown;
-  };
-  const advertiserId = body.advertiserId?.trim();
-  const campaignId = body.campaignId?.trim();
-  if (!advertiserId || !campaignId) {
-    return NextResponse.json(
-      { ok: false, error: "advertiserId and campaignId are required" },
-      { status: 400 },
-    );
-  }
-
-  const decision = parseTikTokImportCarry(body);
-  if (decision.action === "nosave") {
-    return NextResponse.json({ ok: true, saved: false, draft: null }, { status: 200 });
-  }
-
-  const credentials = await credentialsForImportAdvertiser(supabase, {
-    userId: user.id,
-    advertiserId,
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const result = await handleTikTokImport({
+    userId: user?.id ?? null,
+    body,
+    supabase,
   });
-  if ("error" in credentials) {
-    return NextResponse.json(
-      { ok: false, error: credentials.error },
-      { status: credentials.status },
-    );
-  }
-
-  try {
-    const [bundle, advertiser] = await Promise.all([
-      readTikTokLiveCampaign({
-        advertiserId,
-        campaignId,
-        token: credentials.token,
-      }),
-      fetchTikTokAdvertiserInfo({
-        advertiserId,
-        token: credentials.token,
-      }),
-    ]);
-
-    if (decision.action === "picker") {
-      const picker = buildTikTokImportPicker(bundle);
-      const rows = await hydratePickerThumbnails({
-        rows: picker.rows,
-        advertiserId,
-        token: credentials.token,
-      });
-      return NextResponse.json(
-        { ok: true, saved: false, picker: { ...picker, rows } },
-        { status: 200 },
-      );
-    }
-
-    const picker = buildTikTokImportPicker(bundle);
-    const { accepted, rejected } = classifyTikTokImportCarry(
-      picker,
-      decision.carry,
-    );
-    if (accepted.length === 0) {
-      return NextResponse.json(
-        {
-          ok: true,
-          saved: false,
-          draft: null,
-          rejected,
-          error: formatRejectedCarryKeys(rejected),
-        },
-        { status: 200 },
-      );
-    }
-    const mappedId = crypto.randomUUID();
-    const mapped = mapTikTokLiveCampaignToDraft(bundle, mappedId, {
-      tiktokAccountId: credentials.accountId,
-      advertiserId,
-      currency: advertiser.currency,
-      timezone: advertiser.timezone,
-    }, { carry: accepted });
-    if (mapped.creatives.items.length === 0) {
-      return NextResponse.json(
-        {
-          ok: true,
-          saved: false,
-          draft: null,
-          rejected,
-          error:
-            rejected.length > 0
-              ? formatRejectedCarryKeys(rejected)
-              : "Nothing was saved.",
-        },
-        { status: 200 },
-      );
-    }
-    mapped.clientId = await clientIdForTikTokAccount(supabase, {
-      userId: user.id,
-      tiktokAccountId: credentials.accountId,
-    });
-    const visible = await listTikTokDrafts(supabase, { userId: user.id });
-    const draftId = crypto.randomUUID();
-    const draft = finalizeTikTokImportDraft(
-      mapped,
-      draftId,
-      tikTokDuplicateExistingNames(mapped, visible),
-    );
-    const saved = await upsertTikTokDraft(supabase, draftId, {
-      ...draft,
-      userId: user.id,
-    });
-    return NextResponse.json({ ok: true, saved: true, draft: saved }, { status: 200 });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[tiktok/campaigns/import] failed:", message);
-    return NextResponse.json(
-      { ok: false, error: message || "TikTok import failed" },
-      { status: 200 },
-    );
-  }
+  return NextResponse.json(result.body, { status: result.status });
 }
