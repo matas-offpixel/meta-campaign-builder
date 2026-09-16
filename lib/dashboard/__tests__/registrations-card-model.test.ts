@@ -6,6 +6,7 @@ import type { MailchimpRegistrationsData } from "../../mailchimp/compute-registr
 import { readFileSync } from "node:fs";
 
 import { buildRegistrationsCardModel } from "../registrations-card-model.ts";
+import { DOD_GENERAL_SALE_AT, DOD_SPEND, dodCirqlinDays } from "./dod-cirqlin-days.ts";
 
 const UNREACHABLE = "Cirqlin could not be reached — showing Mailchimp.";
 
@@ -24,7 +25,7 @@ const nowMs = Date.parse("2026-09-15T18:00:00Z");
 const cirqlin: CirqlinSnapshotRow[] = [
   {
     day: "2026-08-26",
-    signups_day: 64,
+    signups_day: 1843,
     signups_total: 1843,
     snapshot_at: freshAt,
     raw_json: {
@@ -52,6 +53,7 @@ describe("buildRegistrationsCardModel", () => {
       "4 signups did not reach Mailchimp (invalid email)",
     );
     assert.equal(model.fallbackLine, null);
+    assert.equal(model.windowLine, null);
   });
 
   it("captions a snapshot older than 48h with its capture date, not as current", () => {
@@ -292,6 +294,29 @@ describe("buildRegistrationsCardModel", () => {
     assert.equal(
       model.scopeLine,
       "Counted across multiple Cirqlin pages on this tag.",
+    );
+  });
+
+  it("puts the D.O.D window total on the card, not Cirqlin's all-time 1,843", () => {
+    const model = buildRegistrationsCardModel({
+      mailchimp,
+      cirqlinSnapshots: dodCirqlinDays(),
+      spendRows: [{ date: "2026-08-26", ad_spend: DOD_SPEND }],
+      generalSaleAt: DOD_GENERAL_SALE_AT,
+      nowMs,
+    });
+    assert.equal(model.primary, 1839);
+    assert.equal(
+      model.windowLine,
+      "4 signups before the campaign window — excluded.",
+    );
+    assert.ok(model.cpr);
+    assert.equal(model.cpr.signups, 1589);
+    assert.equal(Math.round((model.cpr.cpr ?? 0) * 100) / 100, 0.91);
+    assert.ok(Math.abs(1589 * (model.cpr.cpr ?? 0) - DOD_SPEND) < 0.01);
+    assert.equal(
+      model.cpr.label,
+      "£0.91 per signup · 1,589 signups, £1,439.37 all-platform spend, 26 Aug – 9 Sept",
     );
   });
 

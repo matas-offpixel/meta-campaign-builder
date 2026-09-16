@@ -360,6 +360,7 @@ export function VenueTrendChartSection({
   mailchimpTag,
   eventId,
   mailchimpSnapshots,
+  cirqlinSnapshots,
 }: {
   model: VenueReportModel;
   datePreset: DatePreset;
@@ -377,6 +378,7 @@ export function VenueTrendChartSection({
    * and preferred on internal pages for instant paint without a second fetch.
    */
   mailchimpSnapshots?: MailchimpSnapshotRow[];
+  cirqlinSnapshots?: CirqlinSnapshotRow[];
 }) {
   const { timeline, otherSpendByDate, cumulativeTicketPoints } = model;
 
@@ -449,6 +451,12 @@ export function VenueTrendChartSection({
       mailchimpTag={mailchimpTag}
       eventId={eventId}
       mailchimpSnapshots={mailchimpSnapshots}
+      cirqlinSnapshots={cirqlinSnapshots ?? model.cirqlinSnapshots}
+      milestones={{
+        announcementAt: model.event.announcement_at,
+        presaleAt: model.event.presale_at,
+        generalSaleAt: model.event.general_sale_at,
+      }}
     />
   );
 }

@@ -382,6 +382,7 @@ export function VenueFullReport({
         mailchimpTag={initialEvents[0]?.mailchimp_tag ?? undefined}
         eventId={initialEvents[0]?.id ?? undefined}
         mailchimpSnapshots={initialEvents[0]?.mailchimp_snapshots}
+        cirqlinSnapshots={model.cirqlinSnapshots}
       />
       <VenueDailyTrackerSection
         eventCode={eventCode}

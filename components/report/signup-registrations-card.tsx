@@ -53,6 +53,11 @@ export function SignupRegistrationsCard({
             {model.syncFailureLine}
           </p>
         ) : null}
+        {model.windowLine ? (
+          <p className="text-[11px] text-muted-foreground">
+            {model.windowLine}
+          </p>
+        ) : null}
         {model.fallbackLine ? (
           <p className="text-[11px] text-muted-foreground">
             {model.fallbackLine}
