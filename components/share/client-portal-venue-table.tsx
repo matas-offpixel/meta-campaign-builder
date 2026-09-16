@@ -2262,6 +2262,12 @@ function VenueSection({
             mailchimpTag={mailchimpTag}
             eventId={primaryEvent?.id ?? null}
             mailchimpSnapshots={primaryEvent?.mailchimp_snapshots}
+            cirqlinSnapshots={primaryEvent?.cirqlin_snapshots}
+            milestones={{
+              announcementAt: primaryEvent?.announcement_at,
+              presaleAt: primaryEvent?.presale_at,
+              generalSaleAt: primaryEvent?.general_sale_at,
+            }}
           />
         </div>
       )}

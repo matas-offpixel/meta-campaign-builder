@@ -728,6 +728,12 @@ export function EventDailyReportBlock(props: Props) {
         awarenessPlatform={awarenessPlatform}
         onAwarenessPlatformChange={setAwarenessPlatform}
         mailchimpSnapshots={shareMailchimpSnapshots ?? chartMailchimpRows}
+        cirqlinSnapshots={cirqlinSnapshots}
+        milestones={{
+          announcementAt: event.announcement_at ?? null,
+          presaleAt: event.presale_at ?? null,
+          generalSaleAt: event.general_sale_at,
+        }}
       />
       <DailyTracker
         eventId={event.id}

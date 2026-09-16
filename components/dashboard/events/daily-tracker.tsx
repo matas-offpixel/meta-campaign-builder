@@ -35,6 +35,7 @@ import {
   bucketSpend,
   bucketVideoViews,
 } from "@/lib/dashboard/presale-bucket-cells";
+import { applySignupWindowToBucket } from "@/lib/dashboard/signup-window";
 import {
   presaleBucketLabel,
   presaleBucketNoun,
@@ -1360,7 +1361,8 @@ function buildDisplayRows({
   milestoneDays?: ReadonlyMap<string, TrackerMilestoneKind[]>;
 }): DisplayRow[] {
   const todayStr = ymd(new Date());
-  const generalSaleCutoff = presale?.cutoffDate ?? null;
+  const collapsed = applySignupWindowToBucket(presale, cirqlinSnapshots);
+  const generalSaleCutoff = collapsed?.cutoffDate ?? null;
 
   // All snapshots sorted ascending — used for chart continuity (includes ramp
   // rows written by syncMailchimpTagDailyHistory).
@@ -1467,10 +1469,10 @@ function buildDisplayRows({
 
   // Running totals start from the presale bucket (if any) so the
   // first daily row already includes pre-launch contribution.
-  let runSpend = presale ? paidSpendOf(presale) : 0;
-  let runClicks = presale ? paidLinkClicksOf(presale) : 0;
-  let runTickets = num(presale?.tickets_sold);
-  let runRevenue = num(presale?.revenue);
+  let runSpend = collapsed ? paidSpendOf(collapsed) : 0;
+  let runClicks = collapsed ? paidLinkClicksOf(collapsed) : 0;
+  let runTickets = num(collapsed?.tickets_sold);
+  let runRevenue = num(collapsed?.revenue);
 
   const dailyDisplay: DisplayRow[] = dailyRows.map((r) => {
     runSpend += num(r.ad_spend);
@@ -1514,12 +1516,12 @@ function buildDisplayRows({
   // Reverse so newest is on top to match the spec ("sorted date desc").
   dailyDisplay.reverse();
 
-  if (presale) {
+  if (collapsed) {
     const presaleRow: DisplayRow = {
       key: "presale",
       label: presaleBucketLabel({
-        cutoffDate: presale.cutoffDate,
-        earliestDate: presale.earliestDate,
+        cutoffDate: collapsed.cutoffDate,
+        earliestDate: collapsed.earliestDate,
         milestones,
       }),
       isPresale: true,
@@ -1530,33 +1532,33 @@ function buildDisplayRows({
       // suppresses the badge for `isPresale` rows anyway, so this
       // value is just shape-completeness.
       source: null,
-      ad_spend: bucketSpend(presale, isBrandCampaign, platform),
-      meta_ad_spend: presale.ad_spend,
+      ad_spend: bucketSpend(collapsed, isBrandCampaign, platform),
+      meta_ad_spend: collapsed.ad_spend,
       other_spend: null,
       other_spend_tooltip: null,
-      link_clicks: bucketClicks(presale, isBrandCampaign, platform),
+      link_clicks: bucketClicks(collapsed, isBrandCampaign, platform),
       meta_regs: bucketRegs({
-        presale,
+        presale: collapsed,
         mailchimpSnapshots: realSnapshotsForRegs,
         cirqlinSnapshots,
         isBrandCampaign,
       }),
-      impressions: bucketImpressions(presale, platform),
-      video_views: bucketVideoViews(presale, platform),
-      tickets_sold: presale.tickets_sold,
-      revenue: presale.revenue,
+      impressions: bucketImpressions(collapsed, platform),
+      video_views: bucketVideoViews(collapsed, platform),
+      tickets_sold: collapsed.tickets_sold,
+      revenue: collapsed.revenue,
       notes: null,
       // Presale running totals = the bucket's own numbers — it sits
       // chronologically before every dated row, so cumulative-as-of-
       // end-of-presale is just the bucket sum. Reading the table
       // bottom-up (oldest → newest) the daily running totals already
       // start FROM these values, so the sequence stays monotonic.
-      running_spend: round2(paidSpendOf(presale)),
-      running_clicks: paidLinkClicksOf(presale),
-      running_tickets: num(presale.tickets_sold),
-      running_revenue: round2(num(presale.revenue)),
+      running_spend: round2(paidSpendOf(collapsed)),
+      running_clicks: paidLinkClicksOf(collapsed),
+      running_tickets: num(collapsed.tickets_sold),
+      running_revenue: round2(num(collapsed.revenue)),
       email_subscribers: null,
-      milestones: bucketMilestones(milestoneDays, presale),
+      milestones: bucketMilestones(milestoneDays, collapsed),
     };
     // Presale is the chronologically earliest activity in the
     // dataset (everything strictly before `general_sale_at`). With
@@ -1674,7 +1676,8 @@ function buildWeeklyDisplayRows({
   milestones?: TrackerMilestones | null;
   milestoneDays?: ReadonlyMap<string, TrackerMilestoneKind[]>;
 }): DisplayRow[] {
-  const generalSaleCutoff = presale?.cutoffDate ?? null;
+  const collapsed = applySignupWindowToBucket(presale, cirqlinSnapshots);
+  const generalSaleCutoff = collapsed?.cutoffDate ?? null;
   const mailchimpSnapshotsSorted =
     mailchimpSnapshots && mailchimpSnapshots.length > 0
       ? [...mailchimpSnapshots].sort((a, b) =>
@@ -1800,10 +1803,10 @@ function buildWeeklyDisplayRows({
 
   // Running totals seeded from presale, identical seeding to the
   // daily builder so the two cadences agree on the running spine.
-  let runSpend = presale ? paidSpendOf(presale) : 0;
-  let runClicks = presale ? paidLinkClicksOf(presale) : 0;
-  let runTickets = num(presale?.tickets_sold);
-  let runRevenue = num(presale?.revenue);
+  let runSpend = collapsed ? paidSpendOf(collapsed) : 0;
+  let runClicks = collapsed ? paidLinkClicksOf(collapsed) : 0;
+  let runTickets = num(collapsed?.tickets_sold);
+  let runRevenue = num(collapsed?.revenue);
 
   const weeklyDisplay: DisplayRow[] = allWeeks.map((wk) => {
     const agg = weekMap.get(wk) ?? null;
@@ -1882,14 +1885,14 @@ function buildWeeklyDisplayRows({
   // is identical between cadences.
   weeklyDisplay.reverse();
 
-  if (presale) {
+  if (collapsed) {
     // Same bucket row as the daily builder — see that function's
     // JSDoc for the chronological-bottom rationale.
     const presaleRow: DisplayRow = {
       key: "presale",
       label: presaleBucketLabel({
-        cutoffDate: presale.cutoffDate,
-        earliestDate: presale.earliestDate,
+        cutoffDate: collapsed.cutoffDate,
+        earliestDate: collapsed.earliestDate,
         milestones,
       }),
       isPresale: true,
@@ -1897,28 +1900,28 @@ function buildWeeklyDisplayRows({
       isSynthetic: false,
       date: null,
       source: null,
-      ad_spend: bucketSpend(presale, isBrandCampaign, platform),
-      meta_ad_spend: presale.ad_spend,
+      ad_spend: bucketSpend(collapsed, isBrandCampaign, platform),
+      meta_ad_spend: collapsed.ad_spend,
       other_spend: null,
       other_spend_tooltip: null,
-      link_clicks: bucketClicks(presale, isBrandCampaign, platform),
+      link_clicks: bucketClicks(collapsed, isBrandCampaign, platform),
       meta_regs: bucketRegs({
-        presale,
+        presale: collapsed,
         mailchimpSnapshots: realSnapshotsForRegs,
         cirqlinSnapshots,
         isBrandCampaign,
       }),
-      impressions: bucketImpressions(presale, platform),
-      video_views: bucketVideoViews(presale, platform),
-      tickets_sold: presale.tickets_sold,
-      revenue: presale.revenue,
+      impressions: bucketImpressions(collapsed, platform),
+      video_views: bucketVideoViews(collapsed, platform),
+      tickets_sold: collapsed.tickets_sold,
+      revenue: collapsed.revenue,
       notes: null,
-      running_spend: round2(paidSpendOf(presale)),
-      running_clicks: paidLinkClicksOf(presale),
-      running_tickets: num(presale.tickets_sold),
-      running_revenue: round2(num(presale.revenue)),
+      running_spend: round2(paidSpendOf(collapsed)),
+      running_clicks: paidLinkClicksOf(collapsed),
+      running_tickets: num(collapsed.tickets_sold),
+      running_revenue: round2(num(collapsed.revenue)),
       email_subscribers: null,
-      milestones: bucketMilestones(milestoneDays, presale),
+      milestones: bucketMilestones(milestoneDays, collapsed),
     };
     return [...weeklyDisplay, presaleRow];
   }
