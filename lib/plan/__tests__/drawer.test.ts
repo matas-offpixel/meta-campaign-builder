@@ -1331,12 +1331,14 @@ describe("write paths are untouched", () => {
     );
     const byFile = contentDiffByFile(diff);
     const others = [...byFile.keys()].filter(
-      (file) => file !== "lib/tiktok/write/preflight.ts",
+      (file) =>
+        file !== "lib/tiktok/write/preflight.ts" &&
+        file !== "lib/tiktok/write/launch.ts",
     );
     assert.deepEqual(
       others,
       [],
-      `write-path files other than preflight.ts changed: ${others.join(", ")}`,
+      `write-path files other than preflight.ts and launch.ts changed: ${others.join(", ")}`,
     );
   });
 
@@ -1401,6 +1403,34 @@ describe("write paths are untouched", () => {
       [...exportedNames(src)].filter((n) => !exportedNames(mainSrc).has(n)),
       [],
     );
+  });
+
+  it("launch.ts only overlays request launchPaused onto the write", () => {
+    let base = "";
+    for (const ref of ["origin/main", "main"] as const) {
+      try {
+        base = execSync(`git rev-parse --verify ${ref}`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        break;
+      } catch {
+        continue;
+      }
+    }
+    assert.ok(base, "neither origin/main nor main exists");
+    const diff = execSync(`git diff ${base} -- lib/tiktok/write/launch.ts`, {
+      encoding: "utf8",
+    });
+    const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
+    assert.equal(
+      hunkCount,
+      5,
+      `launch.ts has ${hunkCount} hunks; only parse, overlay, and stamp of request launchPaused are allowed\n${diff}`,
+    );
+    assert.match(diff, /parseTikTokLaunchPaused\(input\.launchPaused\)/);
+    assert.match(diff, /draft\.launchPaused = parsedPaused\.value/);
+    assert.match(diff, /launchPaused: parsedPaused\.value/);
   });
 
   it("gates.ts and apply.ts only change the pause path and the fourth gate", () => {

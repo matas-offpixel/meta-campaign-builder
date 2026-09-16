@@ -31,6 +31,23 @@ export function isTikTokLaunchPaused(
 }
 
 /**
+ * Request-body parse for POST /api/tiktok/launch-campaign.
+ * Missing → live. Only a boolean is accepted; `"false"` is a 400, not a
+ * coercion, so it cannot silently launch live.
+ */
+export function parseTikTokLaunchPaused(
+  value: unknown,
+): { ok: true; value: boolean } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: false };
+  if (value === true) return { ok: true, value: true };
+  if (value === false) return { ok: true, value: false };
+  return {
+    ok: false,
+    error: "launchPaused must be a boolean",
+  };
+}
+
+/**
  * Success copy for a published draft. Absent on a published row means the
  * old paused writer. Absent on an unpublished draft means live.
  */
@@ -120,6 +137,9 @@ export function tikTokLaunchLiveFacts(
     draft.budgetSchedule.scheduleEndAt,
   );
   const budgetMode = draft.budgetSchedule.budgetMode;
+  // Upper bound by construction: sum of ad-group budgets × days, which can
+  // exceed TikTok's campaign-level cap. "Up to" is the honest wording — do
+  // not "fix" this downward to the campaign figure.
   const ceiling =
     dailyBudget == null
       ? null

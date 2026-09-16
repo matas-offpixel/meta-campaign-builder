@@ -28,7 +28,7 @@ enable a switch that is already on.
 
 - [x] `npx tsc --noEmit` (via `npm run build`)
 - [x] `npm run build`
-- [x] `npm test` — 6036 pass, 0 fail, 4 skipped
+- [x] `npm test` — 6042 pass, 0 fail, 4 skipped
 
 ## Notes
 
@@ -38,3 +38,8 @@ enable a switch that is already on.
   untouched so the #956 companion stays.
 - Historical published drafts with no `launchPaused` still show paused
   success copy. New live launches stamp `launchPaused: false`.
+- Round 2: the request body carries `launchPaused`. The stored field is
+  the remembered default, not the channel the decision travels on. Missing
+  means live; `"false"` is a 400. `window.confirm` is the remaining gate —
+  do not replace it with a toast. The ceiling is an upper bound (ad-group
+  sum × days can exceed the campaign cap).

@@ -251,15 +251,13 @@ export function ReviewLaunchStep({
     if (launchDisabled) return;
     if (!window.confirm(launchConfirmMessage)) return;
     const paused = launchPaused;
-    await persistLaunchPaused(paused);
-    await context?.flushPendingSaves?.();
     setLaunch({ status: "launching" });
     setProgress(emptyTikTokLaunchProgress());
     try {
       const res = await fetch("/api/tiktok/launch-campaign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draftId: draft.id }),
+        body: JSON.stringify({ draftId: draft.id, launchPaused: paused }),
       });
       const collected: { result: TikTokLaunchStreamResultEvent | null } = {
         result: null,

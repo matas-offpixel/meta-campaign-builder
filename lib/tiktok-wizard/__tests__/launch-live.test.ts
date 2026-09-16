@@ -13,6 +13,7 @@ import {
 import {
   formatTikTokLaunchClock,
   isTikTokLaunchPaused,
+  parseTikTokLaunchPaused,
   tikTokLaunchButtonLabel,
   tikTokLaunchConfirmMessage,
   tikTokLaunchLiveFacts,
@@ -222,5 +223,111 @@ describe("TikTok launch live vs paused", () => {
       formatTikTokLaunchClock("2026-09-17T09:00", "Etc/GMT"),
       "17 Sept 09:00 Etc/GMT",
     );
+  });
+
+  it("the request mode overrides a stored opposite choice at all three levels", () => {
+    const storedLive = ironworksDraft();
+    storedLive.launchPaused = false;
+    const requestPaused = parseTikTokLaunchPaused(true);
+    assert.equal(requestPaused.ok, true);
+    if (!requestPaused.ok) return;
+    storedLive.launchPaused = requestPaused.value;
+    const pausedCampaign = buildTikTokCampaignPayload({
+      advertiserId: "7639802149165301776",
+      draft: storedLive,
+    });
+    const pausedAdGroup = buildTikTokAdGroupPayload({
+      advertiserId: "7639802149165301776",
+      campaignId: "camp-1",
+      draft: storedLive,
+      adGroup: storedLive.budgetSchedule.adGroups[0],
+    });
+    const pausedAd = buildTikTokAdPayload({
+      advertiserId: "7639802149165301776",
+      adGroupId: "ag-1",
+      draft: storedLive,
+      creative: storedLive.creatives.items[0],
+    });
+    assert.equal(pausedCampaign.ok, true);
+    if (!pausedCampaign.ok) return;
+    assert.equal(pausedCampaign.value.operation_status, "DISABLE");
+    assert.equal(pausedAdGroup.ok, true);
+    if (!pausedAdGroup.ok) return;
+    assert.equal(pausedAdGroup.value.operation_status, "DISABLE");
+    assert.equal(pausedAd.ok, true);
+    if (!pausedAd.ok) return;
+    assert.equal(pausedAd.value.operation_status, "DISABLE");
+
+    const storedPaused = ironworksDraft();
+    storedPaused.launchPaused = true;
+    const requestLive = parseTikTokLaunchPaused(false);
+    assert.equal(requestLive.ok, true);
+    if (!requestLive.ok) return;
+    storedPaused.launchPaused = requestLive.value;
+    const liveCampaign = buildTikTokCampaignPayload({
+      advertiserId: "7639802149165301776",
+      draft: storedPaused,
+    });
+    const liveAdGroup = buildTikTokAdGroupPayload({
+      advertiserId: "7639802149165301776",
+      campaignId: "camp-1",
+      draft: storedPaused,
+      adGroup: storedPaused.budgetSchedule.adGroups[0],
+    });
+    const liveAd = buildTikTokAdPayload({
+      advertiserId: "7639802149165301776",
+      adGroupId: "ag-1",
+      draft: storedPaused,
+      creative: storedPaused.creatives.items[0],
+    });
+    assert.equal(liveCampaign.ok, true);
+    if (!liveCampaign.ok) return;
+    assert.equal(liveCampaign.value.operation_status, "ENABLE");
+    assert.equal(liveAdGroup.ok, true);
+    if (!liveAdGroup.ok) return;
+    assert.equal(liveAdGroup.value.operation_status, "ENABLE");
+    assert.equal(liveAd.ok, true);
+    if (!liveAd.ok) return;
+    assert.equal(liveAd.value.operation_status, "ENABLE");
+  });
+
+  it("a request with no launchPaused is live; a string is not a boolean", () => {
+    assert.deepEqual(parseTikTokLaunchPaused(undefined), {
+      ok: true,
+      value: false,
+    });
+    assert.deepEqual(parseTikTokLaunchPaused(false), {
+      ok: true,
+      value: false,
+    });
+    assert.deepEqual(parseTikTokLaunchPaused(true), {
+      ok: true,
+      value: true,
+    });
+    const coerced = parseTikTokLaunchPaused("false");
+    assert.equal(coerced.ok, false);
+    if (coerced.ok) return;
+    assert.match(coerced.error, /boolean/);
+  });
+
+  it("the POST body carries launchPaused and does not flush a save before the write", () => {
+    const source = readFileSync(
+      "components/tiktok-wizard/steps/review-launch.tsx",
+      "utf8",
+    );
+    assert.match(
+      source,
+      /JSON\.stringify\(\{\s*draftId: draft\.id,\s*launchPaused: paused\s*\}\)/,
+    );
+    const launchFn = source.slice(
+      source.indexOf("async function launchOnTikTok"),
+      source.indexOf("function downloadBrief"),
+    );
+    assert.doesNotMatch(launchFn, /persistLaunchPaused/);
+    assert.doesNotMatch(launchFn, /flushPendingSaves/);
+    const handler = readFileSync("lib/tiktok/write/launch.ts", "utf8");
+    assert.match(handler, /parseTikTokLaunchPaused\(input\.launchPaused\)/);
+    assert.match(handler, /draft\.launchPaused = parsedPaused\.value/);
+    assert.match(handler, /launchPaused: parsedPaused\.value/);
   });
 });

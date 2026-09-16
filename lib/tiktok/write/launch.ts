@@ -22,6 +22,7 @@ import { collectTikTokLaunchPreflight } from "./preflight.ts";
 import { tiktokGet } from "../client.ts";
 import { fetchTikTokAdvertiserInfo } from "../advertiser.ts";
 import type { TikTokPost, Sleep } from "./idempotency.ts";
+import { parseTikTokLaunchPaused } from "../../tiktok-wizard/launch-live.ts";
 
 export interface TikTokLaunchSuccessBody {
   ok: true;
@@ -48,6 +49,7 @@ export type TikTokLaunchResponse = {
 export async function handleTikTokLaunch(input: {
   userId: string | null;
   draftId: unknown;
+  launchPaused?: unknown;
   session: SupabaseClient<Database>;
   admin: Pick<SupabaseClient, "from">;
   request?: TikTokPost;
@@ -60,6 +62,10 @@ export async function handleTikTokLaunch(input: {
   }
   if (typeof input.draftId !== "string" || !input.draftId.trim()) {
     return { status: 400, body: { ok: false, error: "Missing required field: draftId" } };
+  }
+  const parsedPaused = parseTikTokLaunchPaused(input.launchPaused);
+  if (!parsedPaused.ok) {
+    return { status: 400, body: { ok: false, error: parsedPaused.error } };
   }
   if (!isTikTokWritesEnabled()) {
     return {
@@ -80,6 +86,7 @@ export async function handleTikTokLaunch(input: {
   if (!draft) {
     return { status: 404, body: { ok: false, error: "Draft not found" } };
   }
+  draft.launchPaused = parsedPaused.value;
 
   const advertiserId = draft.accountSetup.advertiserId;
   if (!advertiserId) {
@@ -191,6 +198,7 @@ export async function handleTikTokLaunch(input: {
       ...draft,
       userId: input.userId,
       status: "published",
+      launchPaused: parsedPaused.value,
       publishedIds: {
         campaignId: result.campaign_id,
         adgroupIds: result.adgroup_ids,
