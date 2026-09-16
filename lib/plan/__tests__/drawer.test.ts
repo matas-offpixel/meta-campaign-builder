@@ -1321,8 +1321,9 @@ describe("write paths are untouched", () => {
     assert.ok(base, "neither origin/main nor main exists");
     // validation.ts may drop unused step labels; validateGoogleSearchStep stays.
     // mapping.ts may prefer a SPARK_AD creative's own identity over accountSetup.
+    // preflight.ts collapse counts member ids, not issue rows (ad-group budget).
     const diff = execSync(
-      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts'`,
+      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts' ':!lib/tiktok/write/preflight.ts'`,
       {
         encoding: "utf8",
       },

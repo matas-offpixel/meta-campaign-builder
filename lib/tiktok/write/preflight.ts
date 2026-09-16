@@ -393,18 +393,25 @@ export function collectTikTokLaunchPreflight(
       adGroup,
     });
     if (!groupPayload.ok) {
-      issues.push(
-        issue(
-          `adgroup-${adGroup.id}-${groupPayload.error.field}`,
-          groupPayload.error.field,
-          `${adGroup.name}: ${groupPayload.error.message}`,
-          {
-            scope: "adgroup",
-            adGroupId: adGroup.id,
-            reason: groupPayload.error.message,
-          },
-        ),
-      );
+      // The explicit ad-group budget check above already emitted
+      // adgroup-budget-* / adgroup-budget-floor-*. Payload repeats the
+      // same floor under a different id; collapse then counted issues
+      // (2) while memberIds de-duped to one name — the "(2 ad groups)
+      // — London" bug. Mapping still enforces the floor on write.
+      if (canonicalTikTokPreflightField(groupPayload.error.field) !== "budget") {
+        issues.push(
+          issue(
+            `adgroup-${adGroup.id}-${groupPayload.error.field}`,
+            groupPayload.error.field,
+            `${adGroup.name}: ${groupPayload.error.message}`,
+            {
+              scope: "adgroup",
+              adGroupId: adGroup.id,
+              reason: groupPayload.error.message,
+            },
+          ),
+        );
+      }
     }
 
     for (const creative of creatives) {
@@ -601,19 +608,20 @@ export function collapseTikTokLaunchPreflightIssues(
     if (campaignKeys.has(key) || emitted[entry.scope].has(key)) continue;
     emitted[entry.scope].add(key);
     const group = scopedGroups[entry.scope].get(key) ?? [entry];
-    if (group.length === 1) {
+    const idsKey = entry.scope === "creative" ? "creativeIds" : "adGroupIds";
+    const ids = memberIds(group, idsKey);
+    if (ids.length <= 1) {
       collapsed.push(entry);
       continue;
     }
     const noun = entry.scope === "creative" ? "creatives" : "ad groups";
-    const idsKey = entry.scope === "creative" ? "creativeIds" : "adGroupIds";
     collapsed.push({
       ...entry,
       id: group[0]!.id,
       field: entry.field,
-      message: `${entry.reason} (${group.length} ${noun})`,
+      message: `${entry.reason} (${ids.length} ${noun})`,
       reason: entry.reason,
-      [idsKey]: memberIds(group, idsKey),
+      [idsKey]: ids,
     });
   }
   return collapsed;

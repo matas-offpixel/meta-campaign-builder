@@ -682,4 +682,56 @@ describe("collectTikTokLaunchPreflight", () => {
     assert.match(locationIssues[0]!.message, /6 ad groups/);
     assert.equal(locationIssues[0]?.adGroupIds?.length, 6);
   });
+
+  it("a single ad group with two budget issues has no (N ad groups) suffix", () => {
+    const reason =
+      'Ad group "London" budget 30 is below TikTok\'s GBP minimum of 50 for DAILY mode';
+    const collapsed = collapseTikTokLaunchPreflightIssues([
+      {
+        id: "adgroup-budget-1876044101888049",
+        field: "budget",
+        message: reason,
+        scope: "adgroup",
+        reason,
+        adGroupIds: ["1876044101888049"],
+      },
+      {
+        id: "adgroup-1876044101888049-budget",
+        field: "budget",
+        message: `London: ${reason}`,
+        scope: "adgroup",
+        reason,
+        adGroupIds: ["1876044101888049"],
+      },
+    ]);
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0]?.adGroupIds?.length, 1);
+    assert.equal(/\(\d+ ad groups\)/.test(collapsed[0]!.message), false);
+  });
+
+  it("where a suffix does render, N equals the names the message can resolve", () => {
+    const reason = "At least one location is required";
+    const collapsed = collapseTikTokLaunchPreflightIssues([
+      {
+        id: "adgroup-ag-1-location_ids",
+        field: "location_ids",
+        message: `London: ${reason}`,
+        scope: "adgroup",
+        reason,
+        adGroupIds: ["ag-1"],
+      },
+      {
+        id: "adgroup-ag-2-location_ids",
+        field: "location_ids",
+        message: `Manchester: ${reason}`,
+        scope: "adgroup",
+        reason,
+        adGroupIds: ["ag-2"],
+      },
+    ]);
+    assert.equal(collapsed.length, 1);
+    assert.equal(collapsed[0]?.message, `${reason} (2 ad groups)`);
+    assert.deepEqual(collapsed[0]?.adGroupIds, ["ag-1", "ag-2"]);
+    assert.equal(collapsed[0]?.adGroupIds?.length, 2);
+  });
 });
