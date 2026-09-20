@@ -24,6 +24,15 @@ import { rebuildModulesFromLegacy } from "@/lib/admin/page-modules-sync";
  * /l renderer — which reads page_events.modules after migration 139 — always
  * reflects the editor. Brand socials + YouTube come from the row's content /
  * youtube_url; hero/bottom lists are passed in already-updated.
+ *
+ * `content.artwork_url` (the admin-uploaded brand poster, set/cleared by
+ * uploadPageImage/removePageImage below) is threaded through as
+ * `artworkUrl` so it's always pinned to hero-carousel slide 1 — every call
+ * site here passes the post-mutation `content`, so an artwork upload,
+ * removal, or an unrelated save (which leaves artwork_url untouched) all
+ * resolve correctly (P0 fix, 2026-07-17 — see this function's single call
+ * into rebuildModulesFromLegacy, which previously had no artwork parameter
+ * at all and silently dropped it on every save).
  */
 function modulesFor(
   content: Record<string, unknown>,
@@ -36,6 +45,7 @@ function modulesFor(
   return {
     modules: rebuildModulesFromLegacy({
       heroImages,
+      artworkUrl: asStr(content.artwork_url),
       youtubeUrl,
       bottomImages,
       brandInstagramUrl: asStr(content.brand_instagram_url),
