@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, Loader2, PlugZap, Unplug } from "lucide-react";
 
@@ -63,9 +63,29 @@ export function ConnectionCard({
     [connection.connectedAt],
   );
   const tokenExpires = useMemo(
-    () => relativeTime(connection.tokenExpiresAt),
-    [connection.tokenExpiresAt],
+    () => connection.tokenExpiryNote ?? relativeTime(connection.tokenExpiresAt),
+    [connection.tokenExpiryNote, connection.tokenExpiresAt],
   );
+  const [accounts, setAccounts] = useState(connection.accounts);
+  const [enumeratedAt, setEnumeratedAt] = useState(connection.accountsEnumeratedAt);
+  const [refreshReport, setRefreshReport] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [refreshLockedUntil, setRefreshLockedUntil] = useState(0);
+  const [hideReconnectError, setHideReconnectError] = useState(false);
+  const accountsEnumeratedAt = useMemo(
+    () => (enumeratedAt === undefined ? null : relativeTime(enumeratedAt ?? null)),
+    [enumeratedAt],
+  );
+
+  useEffect(() => {
+    if (refreshLockedUntil <= Date.now()) return;
+    const timer = window.setTimeout(
+      () => setRefreshLockedUntil(0),
+      refreshLockedUntil - Date.now(),
+    );
+    return () => window.clearTimeout(timer);
+  }, [refreshLockedUntil]);
 
   async function handleFacebookReconnect() {
     if (!connection.reconnectHref) return;
@@ -97,8 +117,52 @@ export function ConnectionCard({
     }
   }
 
+  async function handleRefreshAccounts() {
+    if (refreshBusy || Date.now() < refreshLockedUntil) return;
+    setRefreshBusy(true);
+    setRefreshError(null);
+    try {
+      const res = await fetch("/api/google-ads/accounts/refresh", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        report?: string;
+        retryAfterMs?: number;
+        accounts?: PlatformConnectionStatus["accounts"];
+        enumeratedAt?: string | null;
+      };
+      if (!res.ok || !json.ok) {
+        setRefreshError(json.error ?? "Refresh accounts failed.");
+        if (json.retryAfterMs) setRefreshLockedUntil(Date.now() + json.retryAfterMs);
+        return;
+      }
+      setRefreshReport(json.report ?? "Refresh accounts finished.");
+      setHideReconnectError(true);
+      if (json.accounts) setAccounts(json.accounts);
+      if (json.enumeratedAt !== undefined) setEnumeratedAt(json.enumeratedAt);
+      setRefreshLockedUntil(Date.now() + 30_000);
+    } catch (err) {
+      setRefreshError(err instanceof Error ? err.message : "Refresh accounts failed.");
+    } finally {
+      setRefreshBusy(false);
+    }
+  }
+
+  const refreshLocked = Date.now() < refreshLockedUntil;
+  const visibleError =
+    refreshError ??
+    inlineError ??
+    (hideReconnectError ? null : connection.reconnectError) ??
+    connection.statusNote;
+
   return (
-    <article className="rounded-lg border border-border bg-card p-5 shadow-sm">
+    <article
+      id={connection.id === "google_ads" ? "google-ads-connection" : undefined}
+      className="rounded-lg border border-border bg-card p-5 shadow-sm"
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="font-heading text-lg tracking-wide text-foreground">
@@ -136,6 +200,14 @@ export function ConnectionCard({
           </dt>
           <dd className="mt-1 text-foreground">{tokenExpires}</dd>
         </div>
+        {enumeratedAt !== undefined ? (
+          <div>
+            <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Accounts last listed
+            </dt>
+            <dd className="mt-1 text-foreground">{accountsEnumeratedAt}</dd>
+          </div>
+        ) : null}
       </dl>
 
       <details className="mt-4 rounded-md border border-border bg-background/60 p-3">
@@ -158,13 +230,13 @@ export function ConnectionCard({
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Connected accounts
         </p>
-        {connection.accounts.length === 0 ? (
+        {accounts.length === 0 ? (
           <p className="mt-1 text-sm text-muted-foreground">
             No connected accounts found.
           </p>
         ) : (
           <ul className="mt-2 space-y-2">
-            {connection.accounts.map((account) => (
+            {accounts.map((account) => (
               <li
                 key={account.id}
                 className="rounded-md border border-border bg-background/60 px-3 py-2 text-sm"
@@ -181,11 +253,17 @@ export function ConnectionCard({
         )}
       </div>
 
-      {(connection.statusNote || inlineError) && (
-        <p className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
-          {inlineError ?? connection.statusNote}
+      {refreshReport ? (
+        <p className="mt-4 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground">
+          {refreshReport}
         </p>
-      )}
+      ) : null}
+
+      {visibleError ? (
+        <p className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800">
+          {visibleError}
+        </p>
+      ) : null}
 
       <div className="mt-5 flex flex-wrap gap-2">
         {connection.id === "facebook" ? (
@@ -203,6 +281,29 @@ export function ConnectionCard({
             )}
             Reconnect
           </Button>
+        ) : connection.id === "google_ads" && connection.reconnectHref ? (
+          <>
+            <a href={connection.reconnectHref}>
+              <Button type="button" size="sm" variant="primary">
+                <PlugZap className="h-3.5 w-3.5" />
+                Reconnect
+              </Button>
+            </a>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={refreshBusy || refreshLocked || connection.status === "disconnected"}
+              onClick={() => void handleRefreshAccounts()}
+            >
+              {refreshBusy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <PlugZap className="h-3.5 w-3.5" />
+              )}
+              Refresh accounts
+            </Button>
+          </>
         ) : connection.reconnectHref ? (
           <a href={connection.reconnectHref}>
             <Button type="button" size="sm" variant="primary">

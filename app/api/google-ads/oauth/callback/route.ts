@@ -10,6 +10,8 @@ import {
   requireGoogleAdsOAuthConfig,
   verifyGoogleAdsOAuthState,
 } from "@/lib/google-ads/oauth";
+import { googleAdsReconnectErrorCookie } from "@/lib/google-ads/reconnect-error";
+import { upsertGoogleAdsAccount } from "@/lib/google-ads/upsert-account";
 
 const STATE_COOKIE = "google_ads_oauth_nonce";
 
@@ -90,7 +92,7 @@ export async function GET(req: NextRequest) {
 
     for (const account of accounts) {
       customerId = account.customerId;
-      const accountId = await upsertGoogleAdsAccount({
+      const { id: accountId } = await upsertGoogleAdsAccount({
         userId: user.id,
         customerId: account.customerId,
         loginCustomerId: account.loginCustomerId,
@@ -129,58 +131,8 @@ export async function GET(req: NextRequest) {
 
   const res = NextResponse.redirect(`${origin}/settings?connected=google_ads&count=${connectedCount}`);
   res.cookies.delete(STATE_COOKIE);
+  res.cookies.delete(googleAdsReconnectErrorCookie("").name);
   return res;
-}
-
-async function upsertGoogleAdsAccount({
-  userId,
-  customerId,
-  loginCustomerId,
-  accountName,
-  supabase,
-}: {
-  userId: string;
-  customerId: string;
-  loginCustomerId: string | null;
-  accountName: string;
-  supabase: Awaited<ReturnType<typeof createClient>>;
-}): Promise<string> {
-  const { data: existing, error: lookupError } = await supabase
-    .from("google_ads_accounts")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("google_customer_id", customerId)
-    .maybeSingle();
-  if (lookupError) {
-    throw new Error(`Failed to look up Google Ads account: ${lookupError.message}`);
-  }
-  if (existing?.id) {
-    const { error: updateError } = await supabase
-      .from("google_ads_accounts")
-      .update({ account_name: accountName, login_customer_id: loginCustomerId })
-      .eq("id", existing.id);
-    if (updateError) {
-      throw new Error(`Failed to update Google Ads account: ${updateError.message}`);
-    }
-    return existing.id;
-  }
-
-  const { data: created, error: insertError } = await supabase
-    .from("google_ads_accounts")
-    .insert({
-      user_id: userId,
-      account_name: accountName,
-      google_customer_id: customerId,
-      login_customer_id: loginCustomerId,
-    })
-    .select("id")
-    .maybeSingle();
-  if (insertError || !created?.id) {
-    throw new Error(
-      insertError?.message ?? "Failed to create Google Ads account row.",
-    );
-  }
-  return created.id;
 }
 
 function redirectWithStatus(origin: string, message: string): NextResponse {
@@ -188,5 +140,7 @@ function redirectWithStatus(origin: string, message: string): NextResponse {
   url.searchParams.set("google_ads_oauth_error", message);
   const res = NextResponse.redirect(url);
   res.cookies.delete(STATE_COOKIE);
+  const cookie = googleAdsReconnectErrorCookie(message);
+  res.cookies.set(cookie.name, cookie.value, cookie.options);
   return res;
 }
