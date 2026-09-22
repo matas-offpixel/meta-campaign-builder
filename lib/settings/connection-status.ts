@@ -33,6 +33,12 @@ export interface PlatformConnectionStatus {
   connectedAs: string | null;
   connectedAt: string | null;
   tokenExpiresAt: string | null;
+  /** Shown instead of a relative expiry when the token's lifetime is known without a timestamp. */
+  tokenExpiryNote?: string | null;
+  /** When the Google Ads account list was last written. Distinct from `connectedAt`. */
+  accountsEnumeratedAt?: string | null;
+  /** OAuth or refresh failure that must survive the next navigation. */
+  reconnectError?: string | null;
   scopes: string[];
   accounts: ConnectionAccount[];
   reconnectHref: string | null;
@@ -122,6 +128,24 @@ function providerLabel(provider: string): string {
     default:
       return provider.replaceAll("_", " ");
   }
+}
+
+function earliestTimestamp(values: Array<string | null | undefined>): string | null {
+  let earliest: string | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    if (!earliest || value < earliest) earliest = value;
+  }
+  return earliest;
+}
+
+function latestTimestamp(values: Array<string | null | undefined>): string | null {
+  let latest: string | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    if (!latest || value > latest) latest = value;
+  }
+  return latest;
 }
 
 function userDisplayName(user: User): string {
@@ -251,8 +275,11 @@ export async function getPlatformConnectionStatuses(
       description: "Search planning, OAuth customer access and reporting.",
       status: googleAccounts.length > 0 ? "connected" : "disconnected",
       connectedAs: googleAccounts[0]?.account_name ?? null,
-      connectedAt: googleAccounts[0]?.created_at ?? null,
+      connectedAt: earliestTimestamp(googleAccounts.map((account) => account.created_at)),
+      accountsEnumeratedAt: latestTimestamp(googleAccounts.map((account) => account.updated_at)),
       tokenExpiresAt: null,
+      tokenExpiryNote:
+        googleAccounts.length > 0 ? "Offline refresh token does not expire" : null,
       scopes: [GOOGLE_ADS_OAUTH_SCOPE],
       accounts: googleAccounts.map((account) => ({
         id: account.id,

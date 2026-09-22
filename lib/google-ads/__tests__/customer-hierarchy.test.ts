@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { enumerateGoogleAdsAccounts } from "../customer-hierarchy.ts";
+import {
+  CUSTOMER_CLIENT_HIERARCHY_QUERY,
+  enumerateGoogleAdsAccounts,
+  enumerateGoogleAdsAccountsDetailed,
+} from "../customer-hierarchy.ts";
 
 const clientWithRows = (rowsByCustomerId: Record<string, unknown[]>) => ({
   async query<T>(credentials: { customerId: string }): Promise<T> {
@@ -66,6 +70,60 @@ describe("enumerateGoogleAdsAccounts", () => {
     });
 
     assert.deepEqual(accounts.map((account) => account.customerId), ["333-703-8088"]);
+  });
+
+  it("names why a non-enabled child is dropped", async () => {
+    const report = await enumerateGoogleAdsAccountsDetailed({
+      refreshToken: "refresh-token",
+      accessibleIds: ["333-703-8088"],
+      client: clientWithRows({
+        "333-703-8088": [
+          row("3337038088", "Off/Pixel MCC", { manager: true, level: 0 }),
+          row("3244108450", "LWE"),
+          row("8398183094", "Ironworks London", { status: "CANCELED" }),
+        ],
+      }),
+    });
+
+    assert.deepEqual(
+      report.accounts.map((account) => account.customerId),
+      ["333-703-8088", "324-410-8450"],
+    );
+    const dropped = report.skipped.find((skip) => skip.descriptiveName === "Ironworks London");
+    assert.equal(
+      dropped?.reason,
+      "status is CANCELED; only ENABLED accounts are kept",
+    );
+  });
+
+  it("keeps walking after a not-enabled accessible customer throws", async () => {
+    const report = await enumerateGoogleAdsAccountsDetailed({
+      refreshToken: "refresh-token",
+      accessibleIds: ["801-149-4798", "333-703-8088"],
+      client: {
+        async query<T>(credentials: { customerId: string }): Promise<T> {
+          if (credentials.customerId === "801-149-4798") {
+            throw new Error("The caller does not have permission");
+          }
+          return [
+            row("3337038088", "Off/Pixel Manager Account", { manager: true, level: 0 }),
+            row("8398183094", "Ironworks London"),
+          ] as T;
+        },
+      },
+    });
+
+    assert.deepEqual(
+      report.accounts.map((account) => account.customerId),
+      ["333-703-8088", "839-818-3094"],
+    );
+    assert.equal(report.skipped[0]?.customerId, "801-149-4798");
+    assert.match(report.skipped[0]?.reason ?? "", /does not have permission/);
+  });
+
+  it("does not filter customer_client by status", () => {
+    assert.match(CUSTOMER_CLIENT_HIERARCHY_QUERY, /FROM customer_client/);
+    assert.doesNotMatch(CUSTOMER_CLIENT_HIERARCHY_QUERY, /where/i);
   });
 
   it("adds a test suffix to test accounts", async () => {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, Mail, Music2, Search } from "lucide-react";
 
 import { Select } from "@/components/ui/select";
+import { googleCustomerMissingMessage } from "@/lib/google-ads/account-list-message";
 import type { TikTokAccount } from "@/lib/types/tiktok";
 import type { GoogleAdsAccount } from "@/lib/types/google-ads";
 
@@ -23,6 +24,8 @@ interface Props {
    */
   initialTikTokAccountId: string | null;
   initialGoogleAdsAccountId: string | null;
+  /** `clients.google_ads_customer_id`. Shown when it matches no connected row. */
+  configuredGoogleCustomerId?: string | null;
   initialMailchimpAudienceId: string | null;
   /** Existing flat-text channel IDs already present on the client row. */
   metaBusinessId: string | null;
@@ -40,6 +43,7 @@ export function PlatformAccountsCard({
   clientId,
   initialTikTokAccountId,
   initialGoogleAdsAccountId,
+  configuredGoogleCustomerId = null,
   initialMailchimpAudienceId,
   metaBusinessId,
   metaAdAccountId,
@@ -49,6 +53,7 @@ export function PlatformAccountsCard({
   const [googleAdsAccounts, setGoogleAdsAccounts] = useState<
     GoogleAdsAccount[]
   >([]);
+  const [googleAdsLoaded, setGoogleAdsLoaded] = useState(false);
   const [mailchimpAudiences, setMailchimpAudiences] = useState<
     MailchimpAudience[]
   >([]);
@@ -83,6 +88,7 @@ export function PlatformAccountsCard({
       .then((r) => r.json())
       .then((j) => {
         if (j?.ok) setGoogleAdsAccounts(j.accounts as GoogleAdsAccount[]);
+        setGoogleAdsLoaded(true);
       })
       .catch(() => undefined);
     fetch("/api/integrations/mailchimp/audiences")
@@ -127,6 +133,10 @@ export function PlatformAccountsCard({
       setSave({ kind: "error", message });
     }
   };
+
+  const missingGoogleCustomer = googleAdsLoaded
+    ? googleCustomerMissingMessage(configuredGoogleCustomerId, googleAdsAccounts)
+    : null;
 
   const metaConnected = Boolean(
     metaBusinessId && metaAdAccountId && metaPixelId,
@@ -241,6 +251,17 @@ export function PlatformAccountsCard({
               </a>
             )
           }
+          notice={
+            missingGoogleCustomer ? (
+              <p className="text-xs text-amber-800">
+                {missingGoogleCustomer.split("Refresh accounts.")[0]}
+                <a href="/settings#google-ads-connection" className="underline">
+                  Refresh accounts
+                </a>
+                .
+              </p>
+            ) : null
+          }
           saveStatus={googleAdsSave}
         />
         <PlatformRow
@@ -311,6 +332,7 @@ function PlatformRow({
   status,
   details,
   picker,
+  notice,
   saveStatus,
 }: {
   icon: React.ReactNode;
@@ -318,6 +340,7 @@ function PlatformRow({
   status: "connected" | "missing";
   details: string;
   picker?: React.ReactNode;
+  notice?: React.ReactNode;
   saveStatus?: SaveStatus;
 }) {
   return (
@@ -331,6 +354,7 @@ function PlatformRow({
       </div>
       <p className="text-xs text-muted-foreground">{details}</p>
       {picker}
+      {notice}
       {saveStatus && <SaveIndicator status={saveStatus} />}
     </div>
   );

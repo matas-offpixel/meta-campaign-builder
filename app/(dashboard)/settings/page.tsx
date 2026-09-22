@@ -1,19 +1,36 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/dashboard/page-header";
 import { PlatformConnectionsSection } from "@/components/settings/platform-connections-section";
 import { SignOutButton } from "@/components/settings/sign-out-button";
+import { GOOGLE_ADS_RECONNECT_ERROR_COOKIE } from "@/lib/google-ads/reconnect-error";
 import { getPlatformConnectionStatuses } from "@/lib/settings/connection-status";
 import { createClient } from "@/lib/supabase/server";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const connections = await getPlatformConnectionStatuses(supabase, user);
+  const params = await searchParams;
+  const cookieStore = await cookies();
+  const reconnectFromQuery = params.google_ads_oauth_error;
+  const googleAdsReconnectError =
+    cookieStore.get(GOOGLE_ADS_RECONNECT_ERROR_COOKIE)?.value ??
+    (typeof reconnectFromQuery === "string" ? reconnectFromQuery : null);
+  const connections = (await getPlatformConnectionStatuses(supabase, user)).map(
+    (connection) =>
+      connection.id === "google_ads"
+        ? { ...connection, reconnectError: googleAdsReconnectError }
+        : connection,
+  );
   const displayName =
     (typeof user.user_metadata.full_name === "string" &&
       user.user_metadata.full_name) ||
