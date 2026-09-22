@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 961
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/961
 - **Branch:** `cursor/google-search-xlsx-import-shapes`
 
 ## Summary
