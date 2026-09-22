@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 959
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/959
 - **Branch:** `cursor/google-ads-account-refresh`
 
 ## Summary
