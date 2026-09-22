@@ -10,14 +10,19 @@
  *   - Overview        — strategy meta + campaign summary table
  *                       (campaign | focus | ad groups | monthly budget |
  *                        priority | notes)
- *   - Keywords        — campaign | ad group | keyword | match type |
- *                       est cpc low | est cpc high | intent | notes
- *   - Ad Copy         — campaign | type (H1..H15, D1..D4) | content |
- *                       char count
+ *   - Keywords        — campaign | ad group | keyword | match type
+ *                       (also "Criterion Type", "Type", "Match") |
+ *                       est cpc low | est cpc high | max cpc | intent |
+ *                       notes | final url | status
+ *   - Ad Copy         — tall: campaign | type (H1..H15, D1..D4) | content
+ *                       wide: one row per ad group, Headline 1..15 and
+ *                       Description 1..4 columns (tab may be named RSAs)
  *   - Negative Keywords — scope (all / campaign name) | negative keyword |
- *                       match type | reason
- *   - Budget Phasing  — period × campaign grid (consumed coarsely; used
- *                       to derive daily_budget when monthly is missing)
+ *                       match type (also "Criterion Type") | reason
+ *   - Campaigns       — status at launch, bid strategy, max CPC cap,
+ *                       ad schedule, start, end, networks. Stored on
+ *                       notes, bid_adjustments, and ad-group default CPC.
+ *   - Budget Phasing  — not read.
  *
  * Defensive choices:
  *   - All header lookups normalise via `headerKey()` (lowercase, strip
@@ -41,7 +46,9 @@ import {
   DEFAULT_STRUCTURE_MODE,
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchAdGroupDraftNode,
+  type GoogleSearchBiddingStrategy,
   type GoogleSearchCampaignDraftNode,
+  type GoogleSearchDateRange,
   type GoogleSearchImportWarning,
   type GoogleSearchKeywordDraft,
   type GoogleSearchMatchType,
@@ -90,26 +97,45 @@ export function parseGoogleSearchPlanXlsx(
   // Step 2: overview enriches campaign meta (priority, monthly budget, notes).
   applyOverview(skeleton.campaigns, tabs.overview);
 
-  // Step 3: extract the plan-level landing URL from Ad Copy metadata
-  // rows (and fall back to Overview). Applied to every RSA below; the
-  // wizard can override per RSA.
-  const finalUrl =
+  // Step 2b: the Campaigns tab (status, bid, schedule, dates, networks).
+  // Stored on fields the tree writer already persists. Push does not
+  // read a per-campaign pause, schedule, or network flag.
+  const campaignHints = applyCampaignsSheet(
+    skeleton.campaigns,
+    tabs.campaigns,
+    warnings,
+  );
+
+  // Step 3: landing URL. Metadata above the Ad Copy / Overview header
+  // still wins. A Final URL column on Keywords (or, later, on a wide
+  // RSA row) is the fallback — those cells are below the header, so
+  // extractFinalUrlFromTab never sees them.
+  const metadataUrl =
     extractFinalUrlFromTab(tabs.adCopy) ?? extractFinalUrlFromTab(tabs.overview);
-  if (!finalUrl) {
+  const planFinalUrl = metadataUrl ?? skeleton.columnFinalUrl;
+
+  // Step 4: ad copy. Tall sheets copy one RSA onto every ad group.
+  // Wide sheets (Headline 1..N) attach each row to the named ad group.
+  applyAdCopy(
+    skeleton.campaigns,
+    tabs.adCopy,
+    warnings,
+    planFinalUrl,
+    skeleton.finalUrlByAdGroup,
+  );
+
+  const anyRsaUrl = skeleton.campaigns.some((c) =>
+    c.ad_groups.some((ag) => ag.rsas.some((rsa) => rsa.final_url)),
+  );
+  if (!planFinalUrl && !anyRsaUrl) {
     warnings.push({
       code: "missing_final_url",
       message:
-        "No landing URL found in the Ad Copy / Overview metadata. " +
+        "No landing URL found in the Ad Copy / Overview metadata or in a Final URL column. " +
         "Set a Default final URL in the wizard before push — Google " +
         "Ads rejects RSAs without finalUrls.",
     });
   }
-
-  // Step 4: ad copy attaches RSAs per campaign (one RSA per ad group; if
-  // the sheet does not split by ad group, RSAs are duplicated across all
-  // ad groups of the campaign and the wizard can prune). Each RSA's
-  // final_url defaults to the plan-level URL extracted above.
-  applyAdCopy(skeleton.campaigns, tabs.adCopy, warnings, finalUrl ?? null);
 
   // Step 5: negatives — plan-scoped or campaign-scoped.
   const negatives = parseNegativesTab(
@@ -148,10 +174,10 @@ export function parseGoogleSearchPlanXlsx(
       status: "draft",
       structure_mode: structureMode,
       total_budget: null,
-      bidding_strategy: "maximize_clicks",
+      bidding_strategy: campaignHints.biddingStrategy ?? "maximize_clicks",
       geo_targets: [],
       geo_target_type: DEFAULT_GEO_TARGET_TYPE,
-      date_range: null,
+      date_range: campaignHints.dateRange,
     },
     campaigns: finalCampaigns,
     negatives: finalNegatives,
@@ -181,9 +207,9 @@ export function parseGoogleSearchPlanXlsx(
  *
  * The merged campaign inherits no `monthly_budget` or `daily_budget` —
  * the operator sets the daily budget in the wizard (the plan `total_budget`
- * envelope is the reference figure). If all source campaigns had the same
- * daily budget, that value is used as the initial daily_budget; otherwise
- * it is left null.
+ * envelope is the reference figure). Source-campaign notes, including a
+ * Paused-at-launch line, are concatenated onto the merged campaign.
+ * Ad-group default CPC set from a campaign CPC cap stays on each ad group.
  */
 export function restructureAsSingleCampaign(
   campaigns: GoogleSearchCampaignDraftNode[],
@@ -196,6 +222,16 @@ export function restructureAsSingleCampaign(
 
   for (const campaign of campaigns) {
     const prefix = extractCCodePrefix(campaign.name);
+    if (campaign.bid_adjustments.status_at_launch === "PAUSED") {
+      warnings.push({
+        code: "sheet_field_recorded",
+        message:
+          `Campaign "${campaign.name}" is marked Paused at launch. ` +
+          "Single-campaign mode keeps that note on the merged campaign. " +
+          "Push creates the one campaign PAUSED and has no per-theme pause.",
+        context: { campaign: campaign.name },
+      });
+    }
     for (const ag of campaign.ad_groups) {
       adGroups.push({
         ...ag,
@@ -218,13 +254,27 @@ export function restructureAsSingleCampaign(
     return neg;
   });
 
+  const noteLines = campaigns
+    .map((c) => c.notes)
+    .filter((n): n is string => Boolean(n && n.trim()));
+  const launchByCampaign: Record<string, string> = {};
+  for (const source of campaigns) {
+    const status = source.bid_adjustments.status_at_launch;
+    if (typeof status === "string" && status.length > 0) {
+      launchByCampaign[source.name] = status;
+    }
+  }
+
   const campaign: GoogleSearchCampaignDraftNode = {
     name: planName,
     priority: null,
     monthly_budget: null,
     daily_budget: null,
-    bid_adjustments: {},
-    notes: null,
+    bid_adjustments:
+      Object.keys(launchByCampaign).length > 0
+        ? { status_at_launch_by_campaign: launchByCampaign }
+        : {},
+    notes: noteLines.length > 0 ? noteLines.join("\n") : null,
     sort_order: 0,
     ad_groups: adGroups,
   };
@@ -233,14 +283,77 @@ export function restructureAsSingleCampaign(
 }
 
 /**
- * Extract the C-code prefix from a campaign name.
+ * C-code anywhere in the name, as a whole token.
  * "C1 Brand Defence" → "C1"
  * "C2 – Adam Beyer" → "C2"
+ * "[IRW0001] JJ | Search | C1 Brand-Event-Venue" → "C1"
  * "Brand" → null
  */
-function extractCCodePrefix(name: string): string | null {
-  const match = /^(c\d+)/i.exec(name.trim());
-  return match ? match[1].toUpperCase() : null;
+const C_CODE_PATTERN = /\bc(\d+)\b/i;
+
+export function extractCCodePrefix(name: string): string | null {
+  const digits = cCodeDigits(name);
+  return digits ? `C${digits}` : null;
+}
+
+function cCodeDigits(name: string): string | null {
+  const match = C_CODE_PATTERN.exec(name.trim());
+  return match ? match[1] : null;
+}
+
+/**
+ * Header keys that mean "match type", in preference order.
+ * Keywords sheets from Google Ads Editor say "Criterion Type";
+ * the Negatives tab in the same workbook says "Match type".
+ */
+const MATCH_TYPE_COLUMN_KEYS = ["matchtype", "criteriontype", "type", "match"] as const;
+
+function readMatchTypeRaw(record: Record<string, unknown>): unknown {
+  for (const key of MATCH_TYPE_COLUMN_KEYS) {
+    if (!(key in record)) continue;
+    if (cell(record[key]) !== "") return record[key];
+  }
+  for (const key of MATCH_TYPE_COLUMN_KEYS) {
+    if (key in record) return record[key];
+  }
+  return undefined;
+}
+
+/**
+ * 422 copy when the parser produced no campaigns. Counts the warnings
+ * the parser already emitted so the operator is sent to the column
+ * that failed, not to a tab that parsed.
+ */
+export function describeEmptyGoogleSearchImport(
+  warnings: GoogleSearchImportWarning[],
+): string {
+  const keywordMatchDrops = warnings.filter(
+    (w) => w.code === "unknown_match_type" && w.message.startsWith("Keyword "),
+  ).length;
+  const sentences = ["Parsed 0 campaigns."];
+  if (keywordMatchDrops > 0) {
+    const rows = keywordMatchDrops === 1 ? "row was" : "rows were";
+    sentences.push(
+      `${keywordMatchDrops} keyword ${rows} dropped: unrecognised match type.`,
+    );
+  }
+  const missingCampaign = warnings.filter((w) => w.code === "missing_campaign").length;
+  if (missingCampaign > 0) {
+    const rows = missingCampaign === 1 ? "row" : "rows";
+    sentences.push(`${missingCampaign} ${rows} had no campaign.`);
+  }
+  const missingAdGroup = warnings.filter((w) => w.code === "missing_ad_group").length;
+  if (missingAdGroup > 0) {
+    const rows = missingAdGroup === 1 ? "row" : "rows";
+    sentences.push(`${missingAdGroup} ${rows} had no ad group.`);
+  }
+  if (warnings.some((w) => w.code === "missing_final_url")) {
+    sentences.push("No landing URL was found.");
+  }
+  if (sentences.length === 1) {
+    sentences.push("No keyword rows became a campaign.");
+  }
+  return sentences.join(" ");
 }
 
 const MATCH_TYPE_ALIASES: Record<string, GoogleSearchMatchType> = {
@@ -309,7 +422,32 @@ interface IndexedTabs {
   keywords: XLSX.WorkSheet | null;
   adCopy: XLSX.WorkSheet | null;
   negativeKeywords: XLSX.WorkSheet | null;
-  // budget phasing intentionally not consumed in v0 (used by Phase 2 UI).
+  campaigns: XLSX.WorkSheet | null;
+  // budget phasing intentionally not consumed (no daily-budget grid reader).
+}
+
+function sheetTokens(name: string): string[] {
+  return String(name)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0);
+}
+
+/**
+ * Ad-copy tabs by whole token. `5 RSAs` → `rsas`. `Ad Copy` → `ad` + `copy`.
+ * A bare `ad` token is not enough: it would claim `Ad Schedule` or `Radio`.
+ */
+function isAdCopySheet(name: string): boolean {
+  const tokens = sheetTokens(name);
+  if (tokens.includes("rsa") || tokens.includes("rsas") || tokens.includes("adcopy")) {
+    return true;
+  }
+  return tokens.includes("ad") && tokens.includes("copy");
+}
+
+function isCampaignsSheet(name: string): boolean {
+  const tokens = sheetTokens(name);
+  return tokens.includes("campaign") || tokens.includes("campaigns");
 }
 
 function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
@@ -318,13 +456,15 @@ function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
     keywords: null,
     adCopy: null,
     negativeKeywords: null,
+    campaigns: null,
   };
   for (const name of workbook.SheetNames) {
     const key = headerKey(name);
     const sheet = workbook.Sheets[name];
     if (key.includes("negative")) out.negativeKeywords ??= sheet;
     else if (key.includes("keyword")) out.keywords ??= sheet;
-    else if (key.includes("adcopy") || key.includes("ad")) out.adCopy ??= sheet;
+    else if (isAdCopySheet(name)) out.adCopy ??= sheet;
+    else if (isCampaignsSheet(name)) out.campaigns ??= sheet;
     else if (key.includes("overview") || key.includes("summary")) out.overview ??= sheet;
   }
   return out;
@@ -339,6 +479,10 @@ function rawRows(sheet: XLSX.WorkSheet | null): unknown[][] {
 
 interface KeywordsParseResult {
   campaigns: GoogleSearchCampaignDraftNode[];
+  /** First non-empty Final URL column value, if that column exists. */
+  columnFinalUrl: string | null;
+  /** `${campaign}::${adGroup}` → Final URL from the keyword rows. */
+  finalUrlByAdGroup: Map<string, string>;
 }
 
 function parseKeywordsTab(
@@ -348,6 +492,10 @@ function parseKeywordsTab(
   const rows = recordsFromRawRowsWithHeaderScan(rawRows(sheet), ["campaign", "keyword"]);
   const campaignMap = new Map<string, GoogleSearchCampaignDraftNode>();
   const adGroupMap = new Map<string, GoogleSearchAdGroupDraftNode>();
+  const finalUrlByAdGroup = new Map<string, string>();
+  let columnFinalUrl: string | null = null;
+  let pausedKeywordCount = 0;
+  let sawKeywordMaxCpc = false;
 
   for (const idx of rows) {
     const campaignName = cell(idx.campaign);
@@ -371,12 +519,13 @@ function parseKeywordsTab(
       continue;
     }
 
-    const matchType = normaliseMatchType(idx.matchtype);
+    const rawMatch = readMatchTypeRaw(idx);
+    const matchType = normaliseMatchType(rawMatch);
     if (!matchType) {
       warnings.push({
         code: "unknown_match_type",
-        message: `Keyword "${keywordText}" has unrecognised match type "${cell(idx.matchtype)}" — skipped.`,
-        context: { keyword: keywordText, raw: cell(idx.matchtype) || null },
+        message: `Keyword "${keywordText}" has unrecognised match type "${cell(rawMatch)}" — skipped.`,
+        context: { keyword: keywordText, raw: cell(rawMatch) || null },
       });
       continue;
     }
@@ -410,13 +559,28 @@ function parseKeywordsTab(
       campaign.ad_groups.push(adGroup);
     }
 
+    if (idx.maxcpc != null && cell(idx.maxcpc) !== "") sawKeywordMaxCpc = true;
+    const rowUrl = urlFromCell(idx.finalurl);
+    if (rowUrl) {
+      columnFinalUrl ??= rowUrl;
+      const urlKey = `${campaignName}::${adGroupName}`;
+      if (!finalUrlByAdGroup.has(urlKey)) finalUrlByAdGroup.set(urlKey, rowUrl);
+    }
+
+    const statusRaw = cell(idx.status);
+    let notes = cell(idx.notes) || null;
+    if (statusRaw && !/^enabled$/i.test(statusRaw)) {
+      notes = notes ? `${notes} (${statusRaw})` : statusRaw;
+      if (isPausedStatus(statusRaw)) pausedKeywordCount += 1;
+    }
+
     const keyword: GoogleSearchKeywordDraft = {
       keyword: keywordText,
       match_type: matchType,
-      est_cpc_low: numericOrNull(idx.estcpclow ?? idx.cpclow ?? idx.estcpc),
+      est_cpc_low: numericOrNull(idx.estcpclow ?? idx.cpclow ?? idx.estcpc ?? idx.maxcpc),
       est_cpc_high: numericOrNull(idx.estcpchigh ?? idx.cpchigh),
-      intent: cell(idx.intent) || null,
-      notes: cell(idx.notes) || null,
+      intent: cell(idx.intent ?? idx.intentnote) || null,
+      notes,
     };
 
     const dupe = adGroup.keywords.find(
@@ -433,7 +597,28 @@ function parseKeywordsTab(
     adGroup.keywords.push(keyword);
   }
 
-  return { campaigns: Array.from(campaignMap.values()) };
+  if (pausedKeywordCount > 0) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        `${pausedKeywordCount} keyword ${pausedKeywordCount === 1 ? "row is" : "rows are"} marked Paused. ` +
+        "The status is stored on the keyword notes. Push creates keywords ENABLED.",
+      context: { count: pausedKeywordCount },
+    });
+  }
+  if (sawKeywordMaxCpc) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        "Keyword Max CPC values were stored as est_cpc_low. Push does not send a keyword bid.",
+    });
+  }
+
+  return {
+    campaigns: Array.from(campaignMap.values()),
+    columnFinalUrl,
+    finalUrlByAdGroup,
+  };
 }
 
 // ─── Overview tab ──────────────────────────────────────────────────────
@@ -575,20 +760,44 @@ function applyAdCopy(
   sheet: XLSX.WorkSheet | null,
   warnings: GoogleSearchImportWarning[],
   planFinalUrl: string | null,
+  finalUrlByAdGroup: Map<string, string>,
 ): void {
   const raw = rawRows(sheet);
   if (raw.length === 0) return;
 
-  // Find the canonical header row (must contain `campaign` and `type`).
+  // Wide (Headline 1..N) wins when both shapes are present. Tall needs
+  // a Type column the wide sheet does not have.
+  let wideIdx = -1;
   let headerIdx = -1;
   for (let i = 0; i < raw.length; i += 1) {
     const keys = (raw[i] ?? []).map((c) => headerKey(c));
-    if (keys.includes(headerKey("campaign")) && keys.includes(headerKey("type"))) {
+    if (wideIdx < 0 && isWideRsaHeader(keys)) wideIdx = i;
+    if (
+      headerIdx < 0 &&
+      keys.includes(headerKey("campaign")) &&
+      keys.includes(headerKey("type"))
+    ) {
       headerIdx = i;
-      break;
     }
   }
+  if (wideIdx >= 0) {
+    applyWideAdCopy(
+      campaigns,
+      raw,
+      wideIdx,
+      warnings,
+      planFinalUrl,
+      finalUrlByAdGroup,
+    );
+    return;
+  }
   if (headerIdx < 0) return;
+
+  warnings.push({
+    code: "rsa_layout",
+    message:
+      "RSA layout: tall. One RSA per campaign was copied onto every ad group.",
+  });
 
   const headerKeys = (raw[headerIdx] ?? []).map((c) => headerKey(c));
   const campaignCol = headerKeys.indexOf(headerKey("campaign"));
@@ -608,8 +817,8 @@ function applyAdCopy(
   const skeletonByPrefix = new Map<string, string>();
   for (const c of campaigns) {
     skeletonByExact.set(normaliseCampaignKey(c.name), c.name);
-    const prefixMatch = /^c(\d+)/i.exec(c.name);
-    if (prefixMatch) skeletonByPrefix.set(prefixMatch[1], c.name);
+    const digits = cCodeDigits(c.name);
+    if (digits) skeletonByPrefix.set(digits, c.name);
   }
   const resolveCampaign = (text: string): string | null => {
     const trimmed = text.trim();
@@ -617,9 +826,9 @@ function applyAdCopy(
     const key = normaliseCampaignKey(trimmed);
     const exact = skeletonByExact.get(key);
     if (exact) return exact;
-    const prefixMatch = /^c(\d+)/i.exec(trimmed);
-    if (prefixMatch) {
-      const byPrefix = skeletonByPrefix.get(prefixMatch[1]);
+    const digits = cCodeDigits(trimmed);
+    if (digits) {
+      const byPrefix = skeletonByPrefix.get(digits);
       if (byPrefix) return byPrefix;
     }
     return null;
@@ -664,7 +873,7 @@ function applyAdCopy(
       });
       continue;
     }
-    if (!contentCell) continue;
+    if (!contentCell || contentCell.startsWith("=")) continue;
 
     const bucket = byCampaign.get(resolved) ?? { headlines: [], descriptions: [] };
     if (isHeadline) {
@@ -732,6 +941,330 @@ export function normaliseCampaignKey(name: string): string {
     .trim();
 }
 
+function isWideRsaHeader(keys: string[]): boolean {
+  return keys.includes("campaign") && keys.some((key) => /^headline\d+$/.test(key));
+}
+
+function isPausedStatus(raw: string): boolean {
+  return raw.trim().toLowerCase().startsWith("pause");
+}
+
+function urlFromCell(value: unknown): string | null {
+  const text = cell(value);
+  if (!text || text.startsWith("=")) return null;
+  const match = /https?:\/\/[^\s"'<>\]\),]+/i.exec(text);
+  if (!match) return null;
+  return stripTrailingPunctuation(match[0]);
+}
+
+/** Spreadsheet copy. Formula cells (`=MAX(LEN(...))`) are not headlines. */
+function copyCell(value: unknown): string {
+  const text = cell(value);
+  if (!text || text.startsWith("=")) return "";
+  return text;
+}
+
+function dateCell(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === "number" && value > 20000 && value < 80000) {
+    const utc = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
+    return utc.toISOString().slice(0, 10);
+  }
+  const text = cell(value);
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+  if (iso) return iso[1];
+  return text || null;
+}
+
+function normaliseBidStrategy(raw: string): GoogleSearchBiddingStrategy | null {
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes("manual")) return "manual_cpc";
+  if (s.includes("click")) return "maximize_clicks";
+  return null;
+}
+
+function normaliseLaunchStatus(raw: string): "PAUSED" | "ENABLED" | null {
+  const s = raw.trim().toLowerCase();
+  if (!s) return null;
+  if (s.startsWith("pause")) return "PAUSED";
+  if (s === "enabled" || s === "active" || s === "live") return "ENABLED";
+  return null;
+}
+
+function numberedColumns(headerKeys: string[], prefix: string): number[] {
+  const found: Array<{ index: number; n: number }> = [];
+  const pattern = new RegExp(`^${prefix}(\\d+)$`);
+  headerKeys.forEach((key, index) => {
+    const match = pattern.exec(key);
+    if (!match) return;
+    found.push({ index, n: Number(match[1]) });
+  });
+  found.sort((a, b) => a.n - b.n);
+  return found.map((entry) => entry.index);
+}
+
+function applyWideAdCopy(
+  campaigns: GoogleSearchCampaignDraftNode[],
+  raw: unknown[][],
+  headerIdx: number,
+  warnings: GoogleSearchImportWarning[],
+  planFinalUrl: string | null,
+  finalUrlByAdGroup: Map<string, string>,
+): void {
+  warnings.push({
+    code: "rsa_layout",
+    message:
+      "RSA layout: wide. Each row was attached to the named ad group, so per-ad-group copy was kept.",
+  });
+
+  const headerKeys = (raw[headerIdx] ?? []).map((c) => headerKey(c));
+  const campaignCol = headerKeys.indexOf("campaign");
+  const adGroupCol = headerKeys.indexOf("adgroup");
+  const finalUrlCol = headerKeys.indexOf("finalurl");
+  const path1Col = headerKeys.indexOf("path1");
+  const path2Col = headerKeys.indexOf("path2");
+  const headlineCols = numberedColumns(headerKeys, "headline");
+  const descriptionCols = numberedColumns(headerKeys, "description");
+
+  const byName = new Map(campaigns.map((c) => [c.name, c]));
+  const byPrefix = new Map<string, GoogleSearchCampaignDraftNode>();
+  for (const c of campaigns) {
+    const digits = cCodeDigits(c.name);
+    if (digits) byPrefix.set(digits, c);
+  }
+  const resolveCampaignNode = (text: string): GoogleSearchCampaignDraftNode | null => {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const exact = byName.get(trimmed) ?? null;
+    if (exact) return exact;
+    const folded = campaigns.find(
+      (c) => normaliseCampaignKey(c.name) === normaliseCampaignKey(trimmed),
+    );
+    if (folded) return folded;
+    const digits = cCodeDigits(trimmed);
+    return digits ? byPrefix.get(digits) ?? null : null;
+  };
+
+  for (let i = headerIdx + 1; i < raw.length; i += 1) {
+    const row = raw[i] ?? [];
+    if (row.every((c) => c == null || c === "")) continue;
+    const campaignCell = campaignCol >= 0 ? cell(row[campaignCol]) : "";
+    const adGroupName = adGroupCol >= 0 ? cell(row[adGroupCol]) : "";
+    const campaign = resolveCampaignNode(campaignCell);
+    if (!campaign || !adGroupName) {
+      warnings.push({
+        code: "ad_copy_orphan",
+        message: `Wide RSA row for "${adGroupName || campaignCell || "(blank)"}" did not match an ad group — skipped.`,
+        context: { campaign: campaignCell || null, ad_group: adGroupName || null },
+      });
+      continue;
+    }
+    const adGroup = campaign.ad_groups.find(
+      (ag) => normaliseCampaignKey(ag.name) === normaliseCampaignKey(adGroupName),
+    );
+    if (!adGroup) {
+      warnings.push({
+        code: "ad_copy_orphan",
+        message: `Wide RSA row names ad group "${adGroupName}" which is not under "${campaign.name}" — skipped.`,
+        context: { campaign: campaign.name, ad_group: adGroupName },
+      });
+      continue;
+    }
+
+    const headlines: RsaHeadline[] = [];
+    for (const col of headlineCols) {
+      const text = copyCell(row[col]);
+      if (!text) continue;
+      const overflow = classifyCharOverflow(text, "headline");
+      if (overflow) {
+        warnings.push({
+          ...overflow,
+          context: { ...overflow.context, campaign: campaign.name, ad_group: adGroup.name },
+        });
+      }
+      headlines.push({ text });
+    }
+    const descriptions: RsaDescription[] = [];
+    for (const col of descriptionCols) {
+      const text = copyCell(row[col]);
+      if (!text) continue;
+      const overflow = classifyCharOverflow(text, "description");
+      if (overflow) {
+        warnings.push({
+          ...overflow,
+          context: { ...overflow.context, campaign: campaign.name, ad_group: adGroup.name },
+        });
+      }
+      descriptions.push({ text });
+    }
+    if (headlines.length === 0 && descriptions.length === 0) continue;
+
+    const rowUrl = finalUrlCol >= 0 ? urlFromCell(row[finalUrlCol]) : null;
+    const groupUrl = finalUrlByAdGroup.get(`${campaign.name}::${adGroup.name}`) ?? null;
+    adGroup.rsas.push({
+      headlines,
+      descriptions,
+      final_url: rowUrl ?? groupUrl ?? planFinalUrl,
+      path1: path1Col >= 0 ? copyCell(row[path1Col]) || null : null,
+      path2: path2Col >= 0 ? copyCell(row[path2Col]) || null : null,
+    });
+  }
+
+  for (const campaign of campaigns) {
+    const missing = campaign.ad_groups.filter((ag) => ag.rsas.length === 0);
+    if (missing.length === 0 || campaign.ad_groups.length === 0) continue;
+    if (missing.length === campaign.ad_groups.length) {
+      warnings.push({
+        code: "empty_rsa",
+        message: `No RSA copy found for campaign "${campaign.name}".`,
+        context: { campaign: campaign.name },
+      });
+      continue;
+    }
+    for (const adGroup of missing) {
+      warnings.push({
+        code: "empty_rsa",
+        message: `No RSA copy found for ad group "${adGroup.name}" in campaign "${campaign.name}".`,
+        context: { campaign: campaign.name, ad_group: adGroup.name },
+      });
+    }
+  }
+}
+
+interface CampaignSheetHints {
+  biddingStrategy: GoogleSearchBiddingStrategy | null;
+  dateRange: GoogleSearchDateRange | null;
+}
+
+/**
+ * `3 Campaigns` holds launch status, bid strategy, a CPC cap, schedule,
+ * dates, and network flags. Those land on notes and bid_adjustments,
+ * which the existing tree writer already stores. The CPC cap is also
+ * written to each ad group's default CPC, because that is the bid push
+ * actually sends. There is no campaign-status column, and this function
+ * does not invent one.
+ */
+function applyCampaignsSheet(
+  campaigns: GoogleSearchCampaignDraftNode[],
+  sheet: XLSX.WorkSheet | null,
+  warnings: GoogleSearchImportWarning[],
+): CampaignSheetHints {
+  const empty: CampaignSheetHints = { biddingStrategy: null, dateRange: null };
+  if (!sheet) return empty;
+  const records = recordsFromRawRowsWithHeaderScan(rawRows(sheet), ["campaign"]);
+  if (records.length === 0) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        "Campaigns tab was found but had no campaign header row, so launch status, bids, schedule, and dates were not read.",
+    });
+    return empty;
+  }
+
+  const byName = new Map(campaigns.map((c) => [normaliseCampaignKey(c.name), c]));
+  const byPrefix = new Map<string, GoogleSearchCampaignDraftNode>();
+  for (const c of campaigns) {
+    const digits = cCodeDigits(c.name);
+    if (digits && !byPrefix.has(digits)) byPrefix.set(digits, c);
+  }
+
+  const strategies = new Set<GoogleSearchBiddingStrategy>();
+  const ranges: GoogleSearchDateRange[] = [];
+  let matched = 0;
+
+  for (const row of records) {
+    const name = cell(row.campaign);
+    if (!name) continue;
+    const digits = cCodeDigits(name);
+    const campaign =
+      byName.get(normaliseCampaignKey(name)) ??
+      (digits ? byPrefix.get(digits) ?? null : null);
+    if (!campaign) continue;
+    matched += 1;
+
+    const status = normaliseLaunchStatus(cell(row.statusatlaunch ?? row.status));
+    const bidRaw = cell(row.bidstrategy);
+    const bid = normaliseBidStrategy(bidRaw);
+    const cap = numericOrNull(row.maxcpccap ?? row.maxcpc);
+    const schedule = cell(row.adschedule);
+    const start = dateCell(row.start);
+    const end = dateCell(row.end);
+    const networks = cell(row.networks);
+
+    if (bid) strategies.add(bid);
+    if (start && end && /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      ranges.push({ since: start, until: end });
+    }
+    if (cap != null) {
+      for (const adGroup of campaign.ad_groups) {
+        if (adGroup.default_cpc == null) adGroup.default_cpc = cap;
+      }
+    }
+
+    const lines: string[] = [];
+    if (status === "PAUSED") lines.push("Status at launch: Paused");
+    else if (status === "ENABLED") lines.push("Status at launch: Enabled");
+    if (bidRaw) lines.push(`Bid strategy: ${bidRaw}`);
+    if (cap != null) lines.push(`Max CPC cap: ${cap}`);
+    if (schedule) lines.push(`Ad schedule: ${schedule}`);
+    if (start) lines.push(`Start: ${start}`);
+    if (end) lines.push(`End: ${end}`);
+    if (networks) lines.push(`Networks: ${networks}`);
+    if (lines.length > 0) {
+      const block = lines.join("; ");
+      campaign.notes = campaign.notes ? `${campaign.notes}\n${block}` : block;
+    }
+
+    const adjustments: Record<string, unknown> = { ...campaign.bid_adjustments };
+    if (status) adjustments.status_at_launch = status;
+    if (bidRaw) adjustments.bid_strategy = bidRaw;
+    if (cap != null) adjustments.max_cpc_cap = cap;
+    if (schedule) adjustments.ad_schedule = schedule;
+    if (start) adjustments.start = start;
+    if (end) adjustments.end = end;
+    if (networks) adjustments.networks = networks;
+    campaign.bid_adjustments = adjustments;
+  }
+
+  if (matched > 0) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        "Campaigns tab was stored on each campaign (status at launch, bid strategy, max CPC cap, ad schedule, start, end, networks). " +
+        "Max CPC cap is also written to each ad group's default CPC, which push sends as the ad group bid. " +
+        "Push still creates every campaign PAUSED and does not apply the sheet's status, ad schedule, or network flags.",
+      context: { campaigns: matched },
+    });
+  }
+
+  let biddingStrategy: GoogleSearchBiddingStrategy | null = null;
+  if (strategies.size === 1) {
+    biddingStrategy = [...strategies][0] ?? null;
+  } else if (strategies.size > 1) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        "Campaigns tab lists more than one bid strategy. The plan keeps the default maximize_clicks; each campaign's strategy is in its notes.",
+    });
+  }
+
+  const uniqueRanges = new Set(ranges.map((range) => `${range.since}|${range.until}`));
+  const dateRange = uniqueRanges.size === 1 ? ranges[0] ?? null : null;
+  if (uniqueRanges.size > 1) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        "Campaigns tab lists more than one start/end. Dates stay on each campaign's notes; the plan date range was left empty.",
+    });
+  }
+
+  return { biddingStrategy, dateRange };
+}
+
 // ─── Negative Keywords tab ─────────────────────────────────────────────
 
 function parseNegativesTab(
@@ -760,19 +1293,20 @@ function parseNegativesTab(
   const skeletonByPrefix = new Map<string, string>();
   for (const name of campaignNames) {
     skeletonByExact.set(normaliseCampaignKey(name), name);
-    const prefixMatch = /^c(\d+)/i.exec(name);
-    if (prefixMatch) skeletonByPrefix.set(prefixMatch[1], name);
+    const digits = cCodeDigits(name);
+    if (digits) skeletonByPrefix.set(digits, name);
   }
   const out: GoogleSearchNegativeDraft[] = [];
   for (const idx of rows) {
     const keyword = cell(idx.negativekeyword ?? idx.keyword);
     if (!keyword) continue;
-    const matchType = normaliseMatchType(idx.matchtype);
+    const rawMatch = readMatchTypeRaw(idx);
+    const matchType = normaliseMatchType(rawMatch);
     if (!matchType) {
       warnings.push({
         code: "unknown_match_type",
-        message: `Negative "${keyword}" has unrecognised match type "${cell(idx.matchtype)}" — skipped.`,
-        context: { keyword, raw: cell(idx.matchtype) || null },
+        message: `Negative "${keyword}" has unrecognised match type "${cell(rawMatch)}" — skipped.`,
+        context: { keyword, raw: cell(rawMatch) || null },
       });
       continue;
     }
@@ -836,9 +1370,9 @@ export function resolveNegativeScope(
   const key = normaliseCampaignKey(trimmed);
   const exact = skeletonByExact.get(key);
   if (exact) return { kind: "campaign", campaign_name: exact };
-  const prefixMatch = /^c(\d+)/i.exec(trimmed);
-  if (prefixMatch) {
-    const byPrefix = skeletonByPrefix.get(prefixMatch[1]);
+  const digits = cCodeDigits(trimmed);
+  if (digits) {
+    const byPrefix = skeletonByPrefix.get(digits);
     if (byPrefix) return { kind: "campaign", campaign_name: byPrefix };
   }
   warnings.push({

@@ -5,6 +5,8 @@ import * as XLSX from "xlsx";
 
 import {
   classifyCharOverflow,
+  describeEmptyGoogleSearchImport,
+  extractCCodePrefix,
   extractFinalUrlFromTab,
   normaliseCampaignKey,
   normaliseMatchType,
@@ -603,5 +605,370 @@ describe("parseGoogleSearchPlanXlsx — Final URL plumbing", () => {
     const buf = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
     const tree = parseGoogleSearchPlanXlsx(buf);
     assert.equal(tree.plan.geo_target_type, "PRESENCE");
+  });
+});
+
+describe("extractCCodePrefix", () => {
+  it("finds C1 inside an event-code campaign name", () => {
+    assert.equal(
+      extractCCodePrefix("[IRW0001] JJ | Search | C1 Brand-Event-Venue"),
+      "C1",
+    );
+  });
+
+  it("still matches a C-code at the start of a J2 name", () => {
+    assert.equal(extractCCodePrefix("C2 Adam Beyer"), "C2");
+    assert.equal(extractCCodePrefix("C2 – Adam Beyer"), "C2");
+  });
+
+  it("returns null when there is no C-code token", () => {
+    assert.equal(extractCCodePrefix("Brand"), null);
+    assert.equal(extractCCodePrefix("[IRW0001] JJ | Search"), null);
+  });
+});
+
+describe("describeEmptyGoogleSearchImport", () => {
+  it("names the keyword rows that were dropped for match type", () => {
+    const warnings: GoogleSearchImportWarning[] = Array.from({ length: 272 }, () => ({
+      code: "unknown_match_type" as const,
+      message: 'Keyword "jamie jones voyager" has unrecognised match type "" — skipped.',
+    }));
+    assert.equal(
+      describeEmptyGoogleSearchImport(warnings),
+      "Parsed 0 campaigns. 272 keyword rows were dropped: unrecognised match type.",
+    );
+  });
+});
+
+/**
+ * Ironworks-shaped workbook: numbered tabs, Criterion Type, wide RSAs,
+ * Final URL as a column, event-code campaign names. Counts match the
+ * measured Jamie Jones sheet (5 campaigns, 12 ad groups, 272 keywords,
+ * 256 negatives) without embedding that file.
+ */
+function buildIronworksWorkbook(): Uint8Array {
+  const themes: Array<{ code: string; theme: string; groups: string[]; cap: number; status: string }> = [
+    {
+      code: "C1",
+      theme: "Brand-Event-Venue",
+      groups: ["AG1 Event – Voyager", "AG2 Venue – Ironworks"],
+      cap: 0.4,
+      status: "Enabled",
+    },
+    {
+      code: "C2",
+      theme: "Headliner",
+      groups: ["AG1 Jamie Jones", "AG2 Voyager", "AG3 Support"],
+      cap: 0.4,
+      status: "Enabled",
+    },
+    {
+      code: "C3",
+      theme: "Genre",
+      groups: ["AG1 Techno", "AG2 House"],
+      cap: 0.4,
+      status: "Enabled",
+    },
+    {
+      code: "C4",
+      theme: "Competitors",
+      groups: ["AG1 Rival", "AG2 Similar", "AG3 Generic"],
+      cap: 0.15,
+      status: "Paused",
+    },
+    {
+      code: "C5",
+      theme: "Tickets",
+      groups: ["AG1 On Sale", "AG2 Presale"],
+      cap: 0.4,
+      status: "Enabled",
+    },
+  ];
+  const campaignName = (code: string, theme: string) =>
+    `[IRW0001] JJ | Search | ${code} ${theme}`;
+  const finalUrl =
+    "https://tickets.example/voyager?utm_source=google&utm_medium=cpc";
+
+  const slots = themes.flatMap((theme) =>
+    theme.groups.map((group) => ({ ...theme, group })),
+  );
+  const keywordRows: unknown[][] = [[
+    "Campaign",
+    "Ad Group",
+    "Keyword",
+    "Criterion Type",
+    "Max CPC",
+    "Final URL",
+    "Status",
+    "Intent / note",
+  ]];
+  const base = Math.floor(272 / slots.length);
+  const extra = 272 % slots.length;
+  const matchCycle = ["Exact", "Phrase", "Broad"];
+  let keywordIndex = 0;
+  slots.forEach((slot, slotIndex) => {
+    const count = base + (slotIndex < extra ? 1 : 0);
+    for (let i = 0; i < count; i += 1) {
+      const paused = slot.code === "C4" && slot.group === "AG1 Rival" && i === 0;
+      keywordRows.push([
+        campaignName(slot.code, slot.theme),
+        slot.group,
+        `jamie jones kw ${keywordIndex}`,
+        matchCycle[keywordIndex % matchCycle.length],
+        0.35,
+        finalUrl,
+        paused ? "Paused" : "Enabled",
+        "brand",
+      ]);
+      keywordIndex += 1;
+    }
+  });
+
+  const headlineHeaders = Array.from({ length: 15 }, (_, i) => `Headline ${i + 1}`);
+  const descriptionHeaders = Array.from({ length: 4 }, (_, i) => `Description ${i + 1}`);
+  const rsaRows: unknown[][] = [[
+    "Campaign",
+    "Ad Group",
+    "Final URL",
+    "Path 1",
+    "Path 2",
+    ...headlineHeaders,
+    ...descriptionHeaders,
+    "Longest headline",
+    "Longest description",
+    "Check",
+  ]];
+  for (const slot of slots) {
+    const lead =
+      slot.group === "AG1 Event – Voyager"
+        ? "Jamie Jones"
+        : slot.group === "AG2 Venue – Ironworks"
+          ? "Ironworks opens"
+          : `${slot.group} lead`.slice(0, 30);
+    const headlines = [lead, "Tickets on sale", "London"];
+    while (headlines.length < 15) headlines.push("");
+    const descriptions = ["Get tickets for Voyager.", "Ironworks London.", "", ""];
+    rsaRows.push([
+      campaignName(slot.code, slot.theme),
+      slot.group,
+      finalUrl,
+      "voyager",
+      "tickets",
+      ...headlines,
+      ...descriptions,
+      "=MAX(LEN(F2),LEN(G2))",
+      "=MAX(LEN(U2),LEN(V2))",
+      '=IF(F2="","", "ok")',
+    ]);
+  }
+
+  const negativeRows: unknown[][] = [[
+    "Campaign / Level",
+    "Negative Keyword",
+    "Match type",
+    "Reason",
+  ]];
+  for (let i = 0; i < 250; i += 1) {
+    negativeRows.push(["All", `neg ${i}`, "Exact", ""]);
+  }
+  for (let i = 0; i < 6; i += 1) {
+    negativeRows.push(["C4", `c4 neg ${i}`, "Phrase", "competitor"]);
+  }
+
+  const campaignRows: unknown[][] = [[
+    "Campaign",
+    "Status at launch",
+    "Bid strategy",
+    "Max CPC cap (£)",
+    "Ad schedule",
+    "Start",
+    "End",
+    "Networks",
+  ]];
+  for (const theme of themes) {
+    campaignRows.push([
+      campaignName(theme.code, theme.theme),
+      theme.status,
+      "Manual CPC",
+      theme.cap,
+      "Mon-Sun 09-23",
+      "2026-09-22",
+      "2026-10-03",
+      "Search partners off; display expansion off",
+    ]);
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([["Jamie Jones Presents Voyager — Google Search"]]),
+    "1 Summary",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([["Period", "C1", "C2"], ["Week 1", 100, 80]]),
+    "2 Budget & Phasing",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["Campaign", "Type", "Content"],
+      [campaignName("C1", "Brand-Event-Venue"), "H1", "FROM SCHEDULE"],
+    ]),
+    "Ad Schedule",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([
+      ["Campaign", "Type", "Content"],
+      [campaignName("C1", "Brand-Event-Venue"), "H1", "FROM RADIO"],
+    ]),
+    "Radio",
+  );
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(campaignRows), "3 Campaigns");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(keywordRows), "4 Keywords");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rsaRows), "5 RSAs");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(negativeRows), "6 Negatives");
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([["Audience", "Bid"], ["In-market", 10]]),
+    "7 Audiences & Bids",
+  );
+  XLSX.utils.book_append_sheet(
+    wb,
+    XLSX.utils.aoa_to_sheet([["Check", "Done"], ["Billing", "no"]]),
+    "8 Launch Checklist",
+  );
+  return new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
+}
+
+function keywordCount(tree: ReturnType<typeof parseGoogleSearchPlanXlsx>): number {
+  return tree.campaigns.reduce(
+    (sum, campaign) =>
+      sum + campaign.ad_groups.reduce((inner, ag) => inner + ag.keywords.length, 0),
+    0,
+  );
+}
+
+function adGroupCount(tree: ReturnType<typeof parseGoogleSearchPlanXlsx>): number {
+  return tree.campaigns.reduce((sum, campaign) => sum + campaign.ad_groups.length, 0);
+}
+
+function everyRsaText(tree: ReturnType<typeof parseGoogleSearchPlanXlsx>): string[] {
+  const texts: string[] = [];
+  for (const campaign of tree.campaigns) {
+    for (const adGroup of campaign.ad_groups) {
+      for (const rsa of adGroup.rsas) {
+        for (const headline of rsa.headlines) texts.push(headline.text);
+        for (const description of rsa.descriptions) texts.push(description.text);
+      }
+    }
+  }
+  return texts;
+}
+
+describe("parseGoogleSearchPlanXlsx — Ironworks wide workbook", () => {
+  const buf = buildIronworksWorkbook();
+  const tree = parseGoogleSearchPlanXlsx(buf, { structureMode: "campaign_per_theme" });
+
+  it("parses 5 campaigns, 12 ad groups, 272 keywords, and 256 negatives", () => {
+    assert.equal(tree.campaigns.length, 5);
+    assert.equal(adGroupCount(tree), 12);
+    assert.equal(keywordCount(tree), 272);
+    assert.equal(tree.negatives.length, 256);
+  });
+
+  it("keeps a distinct RSA on each ad group", () => {
+    const c1 = tree.campaigns.find((c) => extractCCodePrefix(c.name) === "C1");
+    assert.ok(c1);
+    const event = c1!.ad_groups.find((ag) => ag.name === "AG1 Event – Voyager");
+    const venue = c1!.ad_groups.find((ag) => ag.name === "AG2 Venue – Ironworks");
+    assert.equal(event?.rsas.length, 1);
+    assert.equal(venue?.rsas.length, 1);
+    assert.equal(event?.rsas[0]?.headlines[0]?.text, "Jamie Jones");
+    assert.equal(venue?.rsas[0]?.headlines[0]?.text, "Ironworks opens");
+    assert.notEqual(event?.rsas[0], venue?.rsas[0]);
+    assert.equal(tree.campaigns.reduce((n, c) => n + c.ad_groups.reduce((m, ag) => m + ag.rsas.length, 0), 0), 12);
+    const layout = tree.warnings.find((w) => w.code === "rsa_layout");
+    assert.ok(layout);
+    assert.match(layout!.message, /wide/);
+    assert.match(layout!.message, /ad group/);
+  });
+
+  it("never copies Longest headline formula cells into an RSA", () => {
+    for (const text of everyRsaText(tree)) {
+      assert.equal(text.startsWith("="), false, text);
+      assert.equal(text.includes("MAX(LEN"), false, text);
+      assert.equal(text.includes("FROM SCHEDULE"), false, text);
+      assert.equal(text.includes("FROM RADIO"), false, text);
+    }
+  });
+
+  it("reads the Final URL column and keyword Max CPC", () => {
+    assert.equal(tree.warnings.some((w) => w.code === "missing_final_url"), false);
+    const url = "https://tickets.example/voyager?utm_source=google&utm_medium=cpc";
+    for (const campaign of tree.campaigns) {
+      for (const adGroup of campaign.ad_groups) {
+        assert.equal(adGroup.rsas[0]?.final_url, url);
+        assert.equal(adGroup.rsas[0]?.path1, "voyager");
+        assert.equal(adGroup.rsas[0]?.path2, "tickets");
+        assert.equal(adGroup.keywords[0]?.est_cpc_low, 0.35);
+        assert.equal(adGroup.keywords[0]?.intent, "brand");
+      }
+    }
+  });
+
+  it("keeps C4 paused and the campaign CPC cap on the draft", () => {
+    const c4 = tree.campaigns.find((c) => extractCCodePrefix(c.name) === "C4");
+    assert.ok(c4);
+    assert.equal(c4!.bid_adjustments.status_at_launch, "PAUSED");
+    assert.match(c4!.notes ?? "", /Status at launch: Paused/);
+    assert.match(c4!.notes ?? "", /Ad schedule: Mon-Sun 09-23/);
+    assert.match(c4!.notes ?? "", /Search partners off/);
+    assert.equal(c4!.bid_adjustments.max_cpc_cap, 0.15);
+    for (const adGroup of c4!.ad_groups) {
+      assert.equal(adGroup.default_cpc, 0.15);
+    }
+    const c1 = tree.campaigns.find((c) => extractCCodePrefix(c.name) === "C1");
+    assert.equal(c1?.ad_groups[0]?.default_cpc, 0.4);
+    assert.equal(tree.plan.bidding_strategy, "manual_cpc");
+    assert.deepEqual(tree.plan.date_range, { since: "2026-09-22", until: "2026-10-03" });
+    const pausedKw = c4!.ad_groups
+      .flatMap((ag) => ag.keywords)
+      .find((kw) => kw.notes === "Paused");
+    assert.ok(pausedKw);
+  });
+
+  it("scopes a C4 negative by the C-code inside the event-code name", () => {
+    const c4 = tree.campaigns.find((c) => extractCCodePrefix(c.name) === "C4");
+    const scoped = tree.negatives.filter((n) => n.scope.kind === "campaign");
+    assert.equal(scoped.length, 6);
+    for (const neg of scoped) {
+      if (neg.scope.kind === "campaign") {
+        assert.equal(neg.scope.campaign_name, c4!.name);
+      }
+    }
+  });
+
+  it("prefixes single-campaign ad groups with C1, not the event code", () => {
+    const single = parseGoogleSearchPlanXlsx(buf, { structureMode: "single_campaign" });
+    assert.equal(single.campaigns.length, 1);
+    assert.equal(adGroupCount(single), 12);
+    assert.equal(keywordCount(single), 272);
+    assert.equal(single.negatives.length, 256);
+    const names = single.campaigns[0]!.ad_groups.map((ag) => ag.name);
+    assert.ok(names.includes("C1 – AG1 Event – Voyager"));
+    assert.ok(names.includes("C1 – AG2 Venue – Ironworks"));
+    assert.equal(names.some((name) => name.startsWith("[IRW0001]")), false);
+    const event = single.campaigns[0]!.ad_groups.find((ag) => ag.name === "C1 – AG1 Event – Voyager");
+    const venue = single.campaigns[0]!.ad_groups.find((ag) => ag.name === "C1 – AG2 Venue – Ironworks");
+    assert.equal(event?.rsas[0]?.headlines[0]?.text, "Jamie Jones");
+    assert.equal(venue?.rsas[0]?.headlines[0]?.text, "Ironworks opens");
+    assert.match(single.campaigns[0]!.notes ?? "", /Status at launch: Paused/);
+    const byCampaign = single.campaigns[0]!.bid_adjustments.status_at_launch_by_campaign as
+      | Record<string, string>
+      | undefined;
+    const pausedName = Object.entries(byCampaign ?? {}).find(([, status]) => status === "PAUSED")?.[0];
+    assert.equal(extractCCodePrefix(pausedName ?? ""), "C4");
   });
 });

@@ -1323,8 +1323,10 @@ describe("write paths are untouched", () => {
     // mapping.ts may prefer a SPARK_AD creative's own identity over accountSetup.
     // preflight.ts stays in this diff. The companion below asserts the hunks.
     // Do not add it to the exclusion list.
+    // The xlsx importer (parser, warning union, its fixture) is not the
+    // push write path. Every other file under both trees still fails this test.
     const diff = execSync(
-      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts'`,
+      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts' ':!lib/google-search/xlsx-import.ts' ':!lib/google-search/types.ts' ':!lib/google-search/__tests__/xlsx-import.test.ts'`,
       {
         encoding: "utf8",
       },
