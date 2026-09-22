@@ -4,7 +4,9 @@
  * Phase 3 — Google Search push adapter.
  *
  * Takes a `GoogleSearchPlanTree` and creates the campaigns on Google
- * Ads (all PAUSED) via `GoogleAdsClient.mutate()`. Mirrors the
+ * Ads via `GoogleAdsClient.mutate()`. Status comes from
+ * `resolveGoogleSearchPushStatus` (live by default; sheet-paused
+ * campaigns and `(PAUSED)` ad groups stay paused). Mirrors the
  * proven sequential mutate chain from the Phase 0 spike
  * (PR #442) — budget → campaign → ad group → criteria → RSAs — with
  * the launch contract recommended in that session log:
@@ -84,6 +86,14 @@ import type {
 } from "../google-search/types.ts";
 import { collectPlanFinalUrlState } from "../google-search/final-url-state.ts";
 import { resolveGeoLocations, type GeoResolution } from "./geo-resolve.ts";
+import {
+  formatGoogleSearchServingUrlBlocks,
+  formatGoogleSearchStartBlocks,
+  googleSearchLiveStartBlocks,
+  googleSearchServingRsasMissingUrl,
+  resolveGoogleSearchPushStatus,
+  type GoogleSearchEntityStatus,
+} from "./push-status.ts";
 
 // ─── Defaults (verified by the Phase 0 spike) ─────────────────────────
 
@@ -124,6 +134,15 @@ export interface PushGoogleSearchPlanInput {
   eventCode: string | null;
   client?: GoogleAdsClient;
   persister?: GoogleSearchPushPersister;
+  /**
+   * Already parsed. Absent means live. The route rejects a non-boolean
+   * before this function runs.
+   */
+  launchPaused?: boolean;
+  /** Operator confirmed a past or missing start on a campaign that will go live. */
+  confirmStart?: boolean;
+  /** Test clock. Defaults to today in Europe/London. */
+  today?: string;
 }
 
 // ─── Public entrypoint ────────────────────────────────────────────────
@@ -132,10 +151,31 @@ export async function pushGoogleSearchPlan(
   input: PushGoogleSearchPlanInput,
 ): Promise<GoogleSearchLaunchSummary> {
   const { tree, credentials, eventCode, persister } = input;
+  const launchPaused = input.launchPaused === true;
   const client = input.client ?? new GoogleAdsClient();
   const customerId = customerIdForGoogleAdsApi(credentials.customerId);
 
   const summary = createEmptySummary(tree.plan.id, customerId);
+
+  if (!input.confirmStart) {
+    const startBlocks = googleSearchLiveStartBlocks({
+      campaigns: tree.campaigns,
+      dateRange: tree.plan.date_range,
+      launchPaused,
+      today: input.today,
+    });
+    if (startBlocks.length > 0) {
+      summary.aborted = true;
+      summary.abortReason = formatGoogleSearchStartBlocks(startBlocks);
+      return summary;
+    }
+  }
+  const urlBlocks = googleSearchServingRsasMissingUrl(tree, launchPaused);
+  if (urlBlocks.length > 0) {
+    summary.aborted = true;
+    summary.abortReason = formatGoogleSearchServingUrlBlocks(urlBlocks);
+    return summary;
+  }
 
   if (!eventCode) {
     summary.warnings.push(
@@ -228,6 +268,7 @@ export async function pushGoogleSearchPlan(
         geoCache,
         sitelinks,
         sitelinkAssetByLocalId,
+        launchPaused,
       });
     } catch (err) {
       // Auth / unexpected failures abort the whole plan — record the
@@ -305,6 +346,7 @@ interface PushSingleCampaignArgs {
   sitelinks: GoogleSearchSitelink[];
   /** Map of sitelinkLocalId → `customers/.../assets/{id}` from prepareSitelinkAssets. */
   sitelinkAssetByLocalId: Map<string, string>;
+  launchPaused: boolean;
 }
 
 async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
@@ -357,6 +399,12 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
   });
 
   // ── Triad step 2: campaign ────────────────────────────────────────
+  const campaignStatus = resolveGoogleSearchPushStatus({
+    launchPaused: args.launchPaused,
+    level: "campaign",
+    campaignName: campaign.name,
+    bidAdjustments: campaign.bid_adjustments,
+  });
   const campaignOp = buildCampaignOp({
     campaign,
     budgetResource,
@@ -364,6 +412,7 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
     biddingStrategy: planTree.plan.bidding_strategy,
     geoTargetType: planTree.plan.geo_target_type,
     eventCode,
+    status: campaignStatus,
   });
 
   let campaignResource: string;
@@ -583,10 +632,18 @@ async function pushAdGroupsForCampaign(args: PushAdGroupsArgs): Promise<number> 
       });
       successCount += 1;
     } else {
+      const adGroupStatus = resolveGoogleSearchPushStatus({
+        launchPaused: args.launchPaused,
+        level: "ad_group",
+        campaignName: campaign.name,
+        bidAdjustments: campaign.bid_adjustments,
+        adGroupName: adGroup.name,
+      });
       const adGroupOp = buildAdGroupOp({
         adGroup,
         campaignResource: campaignResourceName,
         customerId: args.customerId,
+        status: adGroupStatus,
       });
       try {
         const res = await client.mutate(credentials, "adGroups", [adGroupOp]);
@@ -640,6 +697,7 @@ async function pushAdGroupsForCampaign(args: PushAdGroupsArgs): Promise<number> 
       adGroupResource,
       persister,
       summary,
+      launchPaused: args.launchPaused,
     });
   }
 
@@ -806,6 +864,7 @@ interface PushRsasArgs {
   adGroupResource: string;
   persister?: GoogleSearchPushPersister;
   summary: GoogleSearchLaunchSummary;
+  launchPaused: boolean;
 }
 
 async function pushAdGroupRsas(args: PushRsasArgs): Promise<void> {
@@ -844,8 +903,15 @@ async function pushAdGroupRsas(args: PushRsasArgs): Promise<void> {
   );
   if (pending.length === 0) return;
 
+  const adStatus = resolveGoogleSearchPushStatus({
+    launchPaused: args.launchPaused,
+    level: "ad",
+    campaignName: campaign.name,
+    bidAdjustments: campaign.bid_adjustments,
+    adGroupName: adGroup.name,
+  });
   const operations: GoogleAdsMutateOperation[] = pending.map((rsa) =>
-    buildRsaOp(rsa, adGroupResource),
+    buildRsaOp(rsa, adGroupResource, adStatus),
   );
 
   let res: GoogleAdsMutateResponse | null = null;
@@ -934,6 +1000,7 @@ export function buildCampaignOp(args: {
   /** Defaults to PRESENCE — recommended for ticketed events. */
   geoTargetType?: GoogleSearchGeoTargetType;
   eventCode: string | null;
+  status: GoogleSearchEntityStatus;
 }): { create: Record<string, unknown> } {
   const {
     campaign,
@@ -942,12 +1009,13 @@ export function buildCampaignOp(args: {
     biddingStrategy,
     geoTargetType = "PRESENCE",
     eventCode,
+    status,
   } = args;
   const create: Record<string, unknown> = {
     resourceName: `customers/${customerId}/campaigns/-2`,
     name: prefixCampaignName(campaign.name, eventCode),
     advertisingChannelType: "SEARCH",
-    status: "PAUSED",
+    status,
     campaignBudget: budgetResource,
     networkSettings: {
       targetGoogleSearch: true,
@@ -979,8 +1047,9 @@ export function buildAdGroupOp(args: {
   adGroup: GoogleSearchAdGroupNode;
   campaignResource: string;
   customerId: string;
+  status: GoogleSearchEntityStatus;
 }): { create: Record<string, unknown> } {
-  const { adGroup, campaignResource, customerId } = args;
+  const { adGroup, campaignResource, customerId, status } = args;
   const cpcMicros =
     adGroup.default_cpc != null
       ? Math.max(MIN_DAILY_BUDGET_MICROS, Math.round(adGroup.default_cpc * 1_000_000))
@@ -990,7 +1059,7 @@ export function buildAdGroupOp(args: {
       resourceName: `customers/${customerId}/adGroups/-3`,
       campaign: campaignResource,
       name: adGroup.name.slice(0, 255),
-      status: "PAUSED",
+      status,
       type: "SEARCH_STANDARD",
       cpcBidMicros: String(cpcMicros),
     },
@@ -1026,6 +1095,7 @@ export function buildNegativeOp(
 export function buildRsaOp(
   rsa: GoogleSearchRsa,
   adGroupResource: string,
+  status: GoogleSearchEntityStatus,
 ): { create: Record<string, unknown> } {
   const ad: Record<string, unknown> = {
     responsiveSearchAd: {
@@ -1050,7 +1120,7 @@ export function buildRsaOp(
   return {
     create: {
       adGroup: adGroupResource,
-      status: "PAUSED",
+      status,
       ad,
     },
   };

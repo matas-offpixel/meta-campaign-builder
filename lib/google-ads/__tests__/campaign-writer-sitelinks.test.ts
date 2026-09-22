@@ -147,7 +147,7 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
       structure_mode: "single_campaign",
       geo_targets: [],
       geo_target_type: "PRESENCE",
-      date_range: null,
+      date_range: { since: "2099-06-01", until: "2099-06-30" },
       pushed_at: null,
       created_at: "2026-05-21T00:00:00Z",
       updated_at: "2026-05-21T00:00:00Z",
@@ -309,11 +309,14 @@ describe("pushGoogleSearchPlan — sitelink asset + campaign link", () => {
       sitelinks: [sitelink({ final_url: null })],
     });
 
+    // Live would refuse before any mutate, because the RSA has no final URL.
+    // Paused still creates the campaign and records the sitelink as failed.
     const summary = await pushGoogleSearchPlan({
       tree: treeWithNoLanding,
       credentials: CREDS,
       eventCode: "J2",
       client,
+      launchPaused: true,
     });
 
     // No assets:mutate happens when there's nothing to push.

@@ -332,7 +332,7 @@ function makeSingleCampaignTree(): GoogleSearchPlanTree {
       bidding_strategy: "maximize_clicks",
       geo_targets: [],
       geo_target_type: "PRESENCE",
-      date_range: null,
+      date_range: { since: "2099-06-01", until: "2099-06-30" },
       pushed_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

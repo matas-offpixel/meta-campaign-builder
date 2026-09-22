@@ -24,6 +24,11 @@ import {
   googleAdsCampaignDeepLink,
   type GoogleSearchLaunchSummary,
 } from "@/lib/google-ads/campaign-writer-types";
+import {
+  describeGoogleSearchPush,
+  formatGoogleSearchStartBlocks,
+  googleSearchLiveStartBlocks,
+} from "@/lib/google-ads/push-status";
 
 interface Props {
   surface?: StepSurface;
@@ -40,8 +45,19 @@ type PushState =
 
 export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Props) {
   const [state, setState] = useState<PushState>({ phase: "idle" });
+  const [launchPaused, setLaunchPaused] = useState(false);
+  const [confirmStart, setConfirmStart] = useState(false);
   const issues = validateGoogleSearchPlan(tree);
   const blocking = hasHardErrors(issues);
+  const outcome = describeGoogleSearchPush(tree, launchPaused);
+  const startBlocks = launchPaused
+    ? []
+    : googleSearchLiveStartBlocks({
+        campaigns: tree.campaigns,
+        dateRange: tree.plan.date_range,
+        launchPaused: false,
+      });
+  const startBlocked = startBlocks.length > 0 && !confirmStart;
 
   const totals = {
     campaigns: tree.campaigns.length,
@@ -69,7 +85,11 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
         // already-pushed plan to pick up newly-added rows. Per-row
         // idempotency on the adapter still prevents duplicates for
         // rows that already carry pushed_resource_name.
-        body: JSON.stringify({ force: opts.force === true }),
+        body: JSON.stringify({
+          force: opts.force === true,
+          launchPaused,
+          confirmStart,
+        }),
       });
       const json = (await res.json().catch(() => null)) as
         | GoogleSearchLaunchSummary
@@ -116,8 +136,8 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
         <CardHeader>
           <CardTitle>Push to Google Ads</CardTitle>
           <CardDescription>
-            Creates everything PAUSED on the linked Google Ads account so you can review in the
-            Google Ads UI before going live. Campaigns auto-prefixed with the event code so the
+            Creates the plan on the linked Google Ads account. Live is the default. A campaign the
+            sheet marks Paused stays paused. Campaigns are prefixed with the event code so the
             reporting layer picks them up.
           </CardDescription>
         </CardHeader>
@@ -178,6 +198,40 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
           </div>
         )}
 
+        <Datum className="mt-5 text-sm text-foreground">{outcome}</Datum>
+
+        {startBlocks.length > 0 && (
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <StatusLine tone="alert">{formatGoogleSearchStartBlocks(startBlocks)}</StatusLine>
+            <label className="mt-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={confirmStart}
+                onChange={(event) => setConfirmStart(event.target.checked)}
+              />
+              Push live anyway
+            </label>
+            {onOpenStep ? (
+              <button
+                type="button"
+                className="mt-2 underline-offset-2 hover:underline"
+                onClick={() => onOpenStep(0)}
+              >
+                Fix the start date in Plan Setup
+              </button>
+            ) : null}
+          </div>
+        )}
+
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={launchPaused}
+            onChange={(event) => setLaunchPaused(event.target.checked)}
+          />
+          Create paused instead of live
+        </label>
+
         <div className="mt-5 flex items-center gap-3">
           <button
             id="gs-push-trigger"
@@ -198,7 +252,7 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
                   (state.phase === "refused" && state.reason === "already_pushed"),
               })
             }
-            disabled={blocking || state.phase === "pushing"}
+            disabled={blocking || startBlocked || state.phase === "pushing"}
           >
             {state.phase === "pushing" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -213,11 +267,10 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
                 ? "Push again (re-attempt failures, force)"
                 : state.phase === "refused" && state.reason === "already_pushed"
                   ? "Push again (force re-push)"
-                  : "Push to Google Ads (PAUSED)"}
+                  : launchPaused
+                    ? "Push paused to Google Ads"
+                    : "Push live to Google Ads"}
           </Button>
-          <span className="text-xs text-muted-foreground">
-            All resources are created paused. Toggle Active in the Google Ads UI when ready.
-          </span>
         </div>
       </Card>
 
@@ -226,7 +279,11 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
       )}
 
       {state.phase === "complete" && (
-        <ResultsCard summary={state.summary} eventCodeMissing={!tree.plan.event_id} />
+        <ResultsCard
+          summary={state.summary}
+          eventCodeMissing={!tree.plan.event_id}
+          launchPaused={launchPaused}
+        />
       )}
     </div>
       </StepSurfaceProvider>
@@ -262,9 +319,11 @@ function RefusedCard({ reason, details }: { reason: string; details?: string }) 
 function ResultsCard({
   summary,
   eventCodeMissing,
+  launchPaused,
 }: {
   summary: GoogleSearchLaunchSummary;
   eventCodeMissing: boolean;
+  launchPaused: boolean;
 }) {
   const tone = summary.aborted
     ? "destructive"
@@ -300,7 +359,11 @@ function ResultsCard({
               .
             </span>
             <span className="mt-1 block">
-              All status=PAUSED on Google Ads. Toggle Active when ready.
+              {summary.aborted
+                ? "Push stopped before creating campaigns."
+                : launchPaused
+                  ? "Created paused. Nothing will serve until it is enabled in Google Ads."
+                  : "Live campaigns begin serving immediately. Campaigns the sheet marked Paused were created paused."}
             </span>
             {eventCodeMissing && (
               <span className="mt-1 block text-amber-700">
@@ -462,6 +525,12 @@ function humanReason(reason: string): string {
       return "This plan was already pushed. Click Push again above to deliberately re-push (the adapter will skip rows that already exist on Google Ads).";
     case "validation_failed":
       return "Validation failed — fix the hard errors on the earlier steps before pushing.";
+    case "start_date_blocked":
+      return "A campaign about to go live has a start date in the past, or no start date.";
+    case "invalid_launch_paused":
+      return "launchPaused must be a boolean. Nothing was created.";
+    case "invalid_confirm_start":
+      return "confirmStart must be a boolean. Nothing was created.";
     case "no_google_ads_account_linked":
       return "No Google Ads account linked — pick one in Plan Setup.";
     case "no_credentials_for_account":

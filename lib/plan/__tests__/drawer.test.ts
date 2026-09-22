@@ -1325,8 +1325,10 @@ describe("write paths are untouched", () => {
     // Do not add it to the exclusion list.
     // The xlsx importer (parser, warning union, its fixture) is not the
     // push write path. Every other file under both trees still fails this test.
+    // single-campaign-mode.test.ts only gained a future date_range so the
+    // live-default start gate does not abort a fixture that never had a start.
     const diff = execSync(
-      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts' ':!lib/google-search/xlsx-import.ts' ':!lib/google-search/types.ts' ':!lib/google-search/__tests__/xlsx-import.test.ts'`,
+      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts' ':!lib/google-search/xlsx-import.ts' ':!lib/google-search/types.ts' ':!lib/google-search/__tests__/xlsx-import.test.ts' ':!lib/google-search/__tests__/single-campaign-mode.test.ts'`,
       {
         encoding: "utf8",
       },
