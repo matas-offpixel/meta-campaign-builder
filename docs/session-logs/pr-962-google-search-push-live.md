@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 962
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/962
 - **Branch:** `cursor/google-search-push-live`
 
 ## Summary
