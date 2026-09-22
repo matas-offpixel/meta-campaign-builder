@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 960
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/960
 - **Branch:** `cursor/drawer-guard-empty-diff`
 
 ## Summary
