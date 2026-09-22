@@ -332,7 +332,13 @@ export interface GoogleSearchImportWarning {
     /** In `single_campaign` mode, a campaign-scoped negative was promoted to
      *  plan-scoped because all C-codes share one campaign and per-C-code
      *  campaign-scope is meaningless. */
-    | "campaign_negative_promoted_to_plan";
+    | "campaign_negative_promoted_to_plan"
+    /** Which Ad Copy shape was read: tall (one RSA copied onto every ad
+     *  group) or wide (one row, attached to the named ad group). */
+    | "rsa_layout"
+    /** A sheet field was stored on the draft but push does not apply it
+     *  (launch status, schedule, networks, keyword status, keyword Max CPC). */
+    | "sheet_field_recorded";
   message: string;
   /** Free-form context for the wizard to display. */
   context?: Record<string, string | number | null>;

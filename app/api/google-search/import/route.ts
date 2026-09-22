@@ -8,7 +8,10 @@ import {
   DEFAULT_STRUCTURE_MODE,
   type GoogleSearchStructureMode,
 } from "@/lib/google-search/types";
-import { parseGoogleSearchPlanXlsx } from "@/lib/google-search/xlsx-import";
+import {
+  describeEmptyGoogleSearchImport,
+  parseGoogleSearchPlanXlsx,
+} from "@/lib/google-search/xlsx-import";
 
 /**
  * POST /api/google-search/import
@@ -81,7 +84,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         ok: false,
-        error: "Parsed 0 campaigns from the xlsx — check the Keywords tab structure.",
+        error: describeEmptyGoogleSearchImport(draft.warnings),
         warnings: draft.warnings,
       },
       { status: 422 },
