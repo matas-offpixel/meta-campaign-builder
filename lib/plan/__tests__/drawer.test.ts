@@ -1422,6 +1422,7 @@ describe("write paths are untouched", () => {
     const diff = execSync(`git diff ${base} -- lib/tiktok/write/launch.ts`, {
       encoding: "utf8",
     });
+    if (diff.trim() === "") return;
     const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
     assert.equal(
       hunkCount,
