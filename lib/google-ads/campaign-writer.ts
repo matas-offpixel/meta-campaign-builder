@@ -1019,7 +1019,10 @@ export function buildCampaignOp(args: {
     campaignBudget: budgetResource,
     networkSettings: {
       targetGoogleSearch: true,
-      targetSearchNetwork: true,
+      // Every build sheet says "Google Search only. Turn OFF Search
+      // Partners and OFF Display Expansion." targetSearchNetwork is
+      // Search Partners.
+      targetSearchNetwork: false,
       targetContentNetwork: false,
       targetPartnerSearchNetwork: false,
     },

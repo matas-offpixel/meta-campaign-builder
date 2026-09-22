@@ -266,7 +266,7 @@ describe("pushGoogleSearchPlan — full success", () => {
     );
     assert.deepEqual(campaignCreate.networkSettings, {
       targetGoogleSearch: true,
-      targetSearchNetwork: true,
+      targetSearchNetwork: false,
       targetContentNetwork: false,
       targetPartnerSearchNetwork: false,
     });
