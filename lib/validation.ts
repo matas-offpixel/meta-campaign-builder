@@ -7,6 +7,7 @@ import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
+import { findAdSetLocationProblems } from "./meta/location-targeting.ts";
 
 export interface ValidationResult {
   valid: boolean;
@@ -280,6 +281,12 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
   if (bs.startDate && bs.endDate && bs.startDate >= bs.endDate) {
     errors.push("End date must be after start date");
   }
+  errors.push(
+    ...findAdSetLocationProblems(
+      (draft.adSetSuggestions ?? []).filter((s) => s.enabled),
+      bs,
+    ),
+  );
   return { valid: errors.length === 0, errors };
 }
 

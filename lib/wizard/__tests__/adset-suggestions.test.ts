@@ -76,15 +76,16 @@ describe("createBlankAdSetSuggestion", () => {
     assert.equal(blank.enabled, true);
   });
 
-  it("defaults location to the first configured location group when present", () => {
+  it("targets every configured location together, like a generated ad set", () => {
     const blank = createBlankAdSetSuggestion([NEWCASTLE, MANCHESTER], FALLBACK_UK);
-    assert.equal(blank.locationGroupId, "grp_newcastle");
-    assert.equal(blank.locationLabel, "Newcastle +40km");
+    assert.deepEqual(blank.locationGroupIds, ["grp_newcastle", "grp_manchester"]);
+    assert.deepEqual(blank.geoLocations?.cities?.map((c) => c.key), ["111", "222"]);
   });
 
   it("falls back to the UK-nationwide fallback group when no location groups are configured", () => {
     const blank = createBlankAdSetSuggestion([], FALLBACK_UK);
     assert.equal(blank.locationGroupId, undefined);
+    assert.equal(blank.locationGroupIds, undefined);
     assert.equal(blank.locationLabel, "UK (nationwide)");
     assert.deepEqual(blank.geoLocations?.countries, ["GB"]);
   });
@@ -421,9 +422,9 @@ describe("duplicateSuggestionsUnderLocationGroup", () => {
     ];
     const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
     assert.equal(newRows.length, 1); // "b" is disabled, skipped
-    assert.equal(newRows[0].locationGroupId, "grp_manchester");
+    assert.deepEqual(newRows[0].locationGroupIds, ["grp_manchester"]);
     assert.equal(newRows[0].locationLabel, "Manchester +30km");
-    assert.equal(newRows[0].name, "Page Group", "the badge carries the location, not the name");
+    assert.equal(newRows[0].name, "Page Group — Manchester +30km");
   });
 
   it("skips rows already assigned to the target group (no-op duplication)", () => {
@@ -432,7 +433,7 @@ describe("duplicateSuggestionsUnderLocationGroup", () => {
     assert.equal(newRows.length, 0);
   });
 
-  it("strips a legacy location suffix so the copy carries no stale location", () => {
+  it("strips a prior location suffix before appending the new one (no suffix chaining)", () => {
     const rows = [
       makeSuggestion({
         id: "a",
@@ -443,7 +444,7 @@ describe("duplicateSuggestionsUnderLocationGroup", () => {
       }),
     ];
     const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
-    assert.equal(newRows[0].name, "Page Group");
+    assert.equal(newRows[0].name, "Page Group — Manchester +30km");
   });
 
   it("returns only new rows — caller is responsible for appending", () => {

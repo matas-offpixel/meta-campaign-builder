@@ -1,4 +1,4 @@
-import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, LocationTargetingGroup, LocationPreset } from "./types";
+import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, BudgetScheduleSettings, LocationTargetingGroup, LocationPreset } from "./types";
 import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
 import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
 
@@ -19,6 +19,57 @@ function resolvePresetLabelFromGeo(geo: AdSetGeoLocations | undefined): string |
     return "UK";
   }
   return undefined;
+}
+
+/**
+ * Search used to wrap an "Exclude" result in a group of its own, which then
+ * generated ad sets that targeted nothing but an exclusion. Move every
+ * exclusion-only group's selections into the campaign exclusion pool and drop
+ * the group. Returns groupId → the pooled selection ids, so ad sets that
+ * pointed at such a group can carry the exclusion instead.
+ */
+function migrateExclusionOnlyGroups(bs: BudgetScheduleSettings): Map<string, string[]> {
+  const moved = new Map<string, string[]>();
+  const pool = [...(bs.excludedLocations ?? [])];
+  const kept: LocationTargetingGroup[] = [];
+  for (const g of bs.locationGroups ?? []) {
+    const exclusionOnly = g.selections.length > 0 && g.selections.every((s) => s.mode === "exclude");
+    if (!exclusionOnly) {
+      kept.push(g);
+      continue;
+    }
+    for (const sel of g.selections) {
+      if (!pool.some((p) => p.id === sel.id)) pool.push(sel);
+    }
+    moved.set(g.id, g.selections.map((s) => s.id));
+  }
+  if (bs.locationGroups) bs.locationGroups = kept;
+  bs.excludedLocations = pool;
+  return moved;
+}
+
+/**
+ * Multi-city ad sets: give a pre-multi-city row `locationGroupIds` only where
+ * that changes nothing at launch.
+ *   - `locationGroupId` resolves → `[locationGroupId]`. `locationsToGeo` of
+ *     one group equals the `groupToGeo` it launched with.
+ *   - It pointed at an exclusion-only group (moved to the pool above) →
+ *     `[]` plus that exclusion. That row had no included area and Meta
+ *     rejected it; now Step 5 names it as having no locations.
+ *   - It dangles, or there was never an FK → untouched; the stamped
+ *     `geoLocations` snapshot (or the GB default) still applies.
+ * Rows that already carry `locationGroupIds` are left alone.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateAdSetLocationIds(s: any, groups: LocationTargetingGroup[], moved: Map<string, string[]>) {
+  if (Array.isArray(s.locationGroupIds) || typeof s.locationGroupId !== "string") return {};
+  if (groups.some((g) => g.id === s.locationGroupId)) return { locationGroupIds: [s.locationGroupId] };
+  const pooled = moved.get(s.locationGroupId);
+  if (pooled) {
+    const existing: string[] = Array.isArray(s.excludedLocationIds) ? s.excludedLocationIds : [];
+    return { locationGroupIds: [], excludedLocationIds: [...new Set([...existing, ...pooled])] };
+  }
+  return {};
 }
 
 /**
@@ -369,6 +420,7 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     draft.budgetSchedule.locationGroups = migrateLocationPresets(draft.budgetSchedule.locationPresets);
     console.log("[migrateDraft] Migrated locationPresets →", draft.budgetSchedule.locationGroups.length, "locationGroups");
   }
+  const movedExclusionGroups = migrateExclusionOnlyGroups(draft.budgetSchedule);
   const defaultBase = draft.budgetSchedule?.budgetAmount ?? 50;
   const defaultGuardrails = {
     baseAdSetBudget: defaultBase,
@@ -419,6 +471,7 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
         advantagePlus: s.advantagePlus ?? false,
         geoLocations: s.geoLocations ?? undefined,
         locationLabel: label,
+        ...migrateAdSetLocationIds(s, draft.budgetSchedule.locationGroups ?? [], movedExclusionGroups),
       };
     },
   ) as CampaignDraft["adSetSuggestions"];
