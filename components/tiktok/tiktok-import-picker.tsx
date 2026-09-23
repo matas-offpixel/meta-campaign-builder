@@ -57,6 +57,7 @@ export function TikTokImportPicker({
   const [eventId, setEventId] = useState("");
   const [accountUnlinked, setAccountUnlinked] = useState(false);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [adGroupId, setAdGroupId] = useState("");
 
   useEffect(() => {
     if (!open) {
@@ -67,6 +68,7 @@ export function TikTokImportPicker({
       setEventId("");
       setAccountUnlinked(false);
       setTicked(new Set());
+      setAdGroupId("");
       setError(null);
       return;
     }
@@ -166,6 +168,13 @@ export function TikTokImportPicker({
             .map((row) => row.key),
         ),
       );
+      setAdGroupId(
+        json.picker.targetingDiffers
+          ? ""
+          : json.picker.adGroups?.length === 1
+            ? json.picker.adGroups[0]?.id ?? ""
+            : "",
+      );
     } catch {
       setError("Could not read the campaign.");
     } finally {
@@ -175,6 +184,7 @@ export function TikTokImportPicker({
 
   async function confirmImport() {
     if (!picker || ticked.size === 0 || !eventId) return;
+    if (picker.targetingDiffers && !adGroupId) return;
     setSaving(true);
     setError(null);
     try {
@@ -186,6 +196,9 @@ export function TikTokImportPicker({
           campaignId: picker.campaign.id,
           carry: [...ticked],
           eventId,
+          ...(picker.targetingDiffers && adGroupId
+            ? { adGroupId }
+            : {}),
         }),
       });
       const json = (await res.json()) as {
@@ -213,9 +226,18 @@ export function TikTokImportPicker({
     }
   }
 
+  const visibleRows = useMemo(() => {
+    if (!picker) return [];
+    if (!picker.targetingDiffers || !adGroupId) return picker.rows;
+    return picker.rows.filter(
+      (row) =>
+        row.adGroupIds.length === 0 || row.adGroupIds.includes(adGroupId),
+    );
+  }, [picker, adGroupId]);
+
   const enabledCount = useMemo(
-    () => picker?.rows.filter((row) => !row.disabled).length ?? 0,
-    [picker],
+    () => visibleRows.filter((row) => !row.disabled).length,
+    [visibleRows],
   );
   const joinLine = picker
     ? formatTikTokImportJoinLine(picker.chosenJoined, picker.chosenTotal)
@@ -352,8 +374,44 @@ export function TikTokImportPicker({
 
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
+            {picker.adGroups.length > 1 && (
+              <div className="mt-3 space-y-2 rounded-md border border-border p-3 text-sm">
+                {picker.targetingDiffers ? (
+                  <p className="text-destructive">{picker.targetingDiffMessage}</p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    {picker.adGroups.length} ad groups share the same targeting —
+                    both will be carried with their own budget, name and creatives.
+                  </p>
+                )}
+                {picker.targetingDiffers && (
+                  <fieldset className="space-y-2">
+                    <legend className="text-xs font-medium text-muted-foreground">
+                      Import this ad group
+                    </legend>
+                    {picker.adGroups.map((group) => (
+                      <label
+                        key={group.id}
+                        className="flex items-center gap-2"
+                      >
+                        <input
+                          type="radio"
+                          name="tiktok-import-adgroup"
+                          value={group.id}
+                          checked={adGroupId === group.id}
+                          disabled={saving}
+                          onChange={() => setAdGroupId(group.id)}
+                        />
+                        <span>{group.name}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+              </div>
+            )}
+
             <div className="mt-3 max-h-[28rem] space-y-2 overflow-auto pr-1">
-              {picker.rows.map((row) => {
+              {visibleRows.map((row) => {
                 const originBadge = formatTikTokImportRowOriginBadge(row.origin);
                 return (
                   <label
@@ -432,7 +490,11 @@ export function TikTokImportPicker({
             <div className="mt-4 flex justify-end">
               <Button
                 disabled={
-                  saving || accountUnlinked || ticked.size === 0 || !eventId
+                  saving ||
+                  accountUnlinked ||
+                  ticked.size === 0 ||
+                  !eventId ||
+                  (Boolean(picker.targetingDiffers) && !adGroupId)
                 }
                 onClick={() => void confirmImport()}
               >
@@ -444,6 +506,8 @@ export function TikTokImportPicker({
                   "Tick at least one creative — nothing will be saved"
                 ) : !eventId ? (
                   "Pick an event — nothing will be saved"
+                ) : picker.targetingDiffers && !adGroupId ? (
+                  "Pick an ad group — nothing will be saved"
                 ) : (
                   `Save ${ticked.size} ${ticked.size === 1 ? "creative" : "creatives"}`
                 )}

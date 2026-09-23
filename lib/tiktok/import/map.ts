@@ -19,7 +19,6 @@ import {
 import { logUnmatchedCandidates } from "../unmatched-candidates.ts";
 import type {
   TikTokAdGetRow,
-  TikTokAdGroupGetRow,
   TikTokCampaignGetRow,
   TikTokImportLibraryVideo,
   TikTokImportLiveBundle,
@@ -32,6 +31,14 @@ import {
   requireObjectFromCandidates,
   requireStringFromCandidates,
 } from "./envelope.ts";
+import {
+  filterBundleToAdGroup,
+  formatAdGroupTargetingDiff,
+  inspectImportAdGroups,
+  notCarriedForSkippedAdGroups,
+  viewsFromAdGroups,
+  type ImportAdGroupView,
+} from "./adgroup-targeting.ts";
 import {
   defaultCarryKeys,
   matchTikTokGeneratedName,
@@ -159,26 +166,6 @@ function stringsFromKeyedList(value: unknown, key: string): string[] {
   return value
     .map((row) => asString(asRecord(row)?.[key]))
     .filter((item): item is string => Boolean(item));
-}
-
-function unwrapManualTargeting(
-  group: TikTokAdGroupGetRow,
-): Record<string, unknown> {
-  if (group.targeting_spec && typeof group.targeting_spec === "object") {
-    return { ...group, ...group.targeting_spec };
-  }
-  return group;
-}
-
-function unwrapUpgradedTargeting(
-  group: TikTokAdGroupGetRow,
-): Record<string, unknown> {
-  const spec = requireObjectFromCandidates(
-    group,
-    ["targeting_spec"],
-    "/smart_plus/adgroup/get/ targeting_spec",
-  );
-  return { ...group, ...spec };
 }
 
 function mapObjective(value: unknown): TikTokObjective | null {
@@ -324,6 +311,7 @@ function mapPacing(value: unknown): "STANDARD" | "ACCELERATED" | null {
 type SourceCreative = {
   /** `smart_plus_creative_id` / `/ad/get/` `ad_id`. */
   key: string;
+  adGroupId: string | null;
   origin: TikTokImportPickerRowOrigin;
   name: string;
   assetGroup: string;
@@ -359,6 +347,7 @@ function sourceFromAdGetRow(
   const name = asString(ad.ad_name) ?? asString(ad.ad_text) ?? `Source ad ${index + 1}`;
   return {
     key: asString(ad.ad_id) ?? `import-creative-${index + 1}`,
+    adGroupId: asString(ad.adgroup_id),
     origin,
     name,
     assetGroup: inferAssetGroup(name, assetGroupNames),
@@ -449,6 +438,7 @@ function sourcesFromSmartPlusAd(
     }
     return {
       key,
+      adGroupId: asString(ad.adgroup_id),
       origin: "chosen" as const,
       name:
         asString(info.material_name) ??
@@ -477,6 +467,7 @@ function sourcesFromSmartPlusAd(
 function mergeSource(chosen: SourceCreative, ad: SourceCreative): SourceCreative {
   return {
     ...chosen,
+    adGroupId: chosen.adGroupId ?? ad.adGroupId,
     name: chosen.name || ad.name,
     assetGroup: chosen.assetGroup || ad.assetGroup,
     adFormat: chosen.adFormat ?? ad.adFormat,
@@ -587,6 +578,7 @@ type UniqueRow = {
   name: string;
   source: SourceCreative;
   assetGroups: string[];
+  adGroupIds: string[];
   copies: number;
   inLibrary: boolean;
   library: TikTokImportLibraryVideo | null;
@@ -637,6 +629,16 @@ function uniqueGroups(sources: readonly SourceCreative[]): string[] {
   return [...new Set(sources.map((row) => row.assetGroup).filter(Boolean))].sort();
 }
 
+function adGroupIdsOf(sources: readonly SourceCreative[]): string[] {
+  return [
+    ...new Set(
+      sources
+        .map((row) => row.adGroupId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ].sort();
+}
+
 type CollectedSources = {
   sources: SourceCreative[];
   sourceRows: number;
@@ -654,6 +656,7 @@ function collectSources(
     const spc = bundle.spc ?? {};
     const sources = creativesFromSpc(spc).map((item, index) => ({
       key: `import-creative-${index + 1}`,
+      adGroupId: null,
       origin: "chosen" as const,
       name: item.title,
       assetGroup: "",
@@ -779,6 +782,7 @@ function collectUniqueRows(
       name: stem,
       source,
       assetGroups: uniqueGroups(all),
+      adGroupIds: adGroupIdsOf(all),
       copies: copies.length,
       inLibrary: libraryIds.has(preferred.videoId),
       library: libraryById.get(preferred.videoId) ?? null,
@@ -798,6 +802,7 @@ function collectUniqueRows(
       name: stem,
       source: { ...source, sparkPostId: sparkId },
       assetGroups: uniqueGroups(rows),
+      adGroupIds: adGroupIdsOf(rows),
       copies: rows.length,
       inLibrary: false,
       library: null,
@@ -816,6 +821,7 @@ function collectUniqueRows(
       name: stemFromAdName(source.name, groups),
       source,
       assetGroups: uniqueGroups([source]),
+      adGroupIds: adGroupIdsOf([source]),
       copies: 1,
       inLibrary: false,
       library: null,
@@ -842,6 +848,7 @@ function pickerRowFromUnique(row: UniqueRow): TikTokImportPickerRow {
     width: row.library?.width ?? null,
     height: row.library?.height ?? null,
     assetGroups: row.assetGroups,
+    adGroupIds: row.adGroupIds,
     copies: row.copies,
     inLibrary: row.inLibrary,
     thumbnailError: false,
@@ -861,12 +868,16 @@ export function buildTikTokImportPicker(
     bundle,
     [],
   );
+  const inspection = inspectImportAdGroups(bundle);
   return {
     campaign: {
       id: asString(bundle.campaign.campaign_id) ?? "",
       name: asString(bundle.campaign.campaign_name) ?? "Imported campaign",
       kind: bundle.kind,
     },
+    adGroups: inspection.groups,
+    targetingDiffers: inspection.targetingDiffers,
+    targetingDiffMessage: inspection.targetingDiffMessage,
     rows: rows.map(pickerRowFromUnique),
     unjoined,
     chosenJoined,
@@ -911,6 +922,8 @@ type CarryResult = {
   creatives: TikTokCreativeDraft[];
   notCarried: TikTokImportNotCarried[];
   counts: TikTokImportCreativeCounts;
+  /** Source ad groups each carried creative ran in. */
+  assignmentAdGroupIds: Record<string, string[]>;
 };
 
 function notCarriedFromUnique(
@@ -940,6 +953,9 @@ function carryUniqueRows(input: {
 }): CarryResult {
   const picker = {
     campaign: { id: "", name: "", kind: "manual" as const },
+    adGroups: [] as Array<{ id: string; name: string }>,
+    targetingDiffers: false,
+    targetingDiffMessage: null,
     rows: input.rows.map(pickerRowFromUnique),
     unjoined: 0,
     chosenJoined: 0,
@@ -948,6 +964,7 @@ function carryUniqueRows(input: {
   const keys = new Set(input.carry ?? defaultCarryKeys(picker));
   const creatives: TikTokCreativeDraft[] = [];
   const notCarried: TikTokImportNotCarried[] = [];
+  const assignmentAdGroupIds: Record<string, string[]> = {};
 
   for (const row of input.rows) {
     const take = keys.has(row.key) && !row.disabled;
@@ -979,6 +996,7 @@ function carryUniqueRows(input: {
       cta: source.cta,
       musicId: source.musicId,
     });
+    assignmentAdGroupIds[source.key] = row.adGroupIds;
   }
 
   pushDropped(input.dropped, "display_name", null);
@@ -991,6 +1009,7 @@ function carryUniqueRows(input: {
       carried: creatives.length,
       unticked: input.rows.length - creatives.length,
     },
+    assignmentAdGroupIds,
   };
 }
 
@@ -1080,11 +1099,32 @@ function creativesFromSpc(
 
 function assignCreatives(
   adGroupIds: string[],
-  creativeIds: string[],
+  creatives: readonly TikTokCreativeDraft[],
+  assignmentAdGroupIds: Record<string, string[]>,
 ): Record<string, string[]> {
-  if (adGroupIds.length === 0) return {};
-  return { [adGroupIds[0]!]: creativeIds };
+  const out: Record<string, string[]> = {};
+  for (const id of adGroupIds) out[id] = [];
+  if (adGroupIds.length <= 1) {
+    if (adGroupIds[0]) {
+      out[adGroupIds[0]] = creatives.map((item) => item.id);
+    }
+    return out;
+  }
+  const known = new Set(adGroupIds);
+  for (const creative of creatives) {
+    const targets = (assignmentAdGroupIds[creative.id] ?? []).filter((id) =>
+      known.has(id),
+    );
+    for (const id of targets) out[id]!.push(creative.id);
+  }
+  return out;
 }
+
+export type TikTokImportMapOptions = {
+  carry?: string[];
+  /** When source ad groups differ in representable targeting, import this one. */
+  adGroupId?: string;
+};
 
 export function mapTikTokLiveCampaignToDraft(
   bundle: TikTokImportLiveBundle,
@@ -1095,7 +1135,7 @@ export function mapTikTokLiveCampaignToDraft(
     currency?: string | null;
     timezone?: string | null;
   },
-  options?: { carry?: string[] },
+  options?: TikTokImportMapOptions,
 ): TikTokCampaignDraft {
   const draft = createDefaultTikTokDraft(draftId);
   draft.accountSetup.tiktokAccountId = account.tiktokAccountId;
@@ -1142,39 +1182,73 @@ function applyCampaignFields(
 
 function applyBudgetAndSchedule(
   draft: TikTokCampaignDraft,
-  group: Record<string, unknown>,
+  views: readonly ImportAdGroupView[],
   campaign: TikTokCampaignGetRow,
-  groupId: string,
-  groupName: string,
 ): void {
-  const budget = asNumber(group.budget) ?? asNumber(campaign.budget);
-  draft.budgetSchedule.budgetMode = mapBudgetMode(
-    group.budget_mode ?? campaign.budget_mode,
-  );
-  draft.budgetSchedule.budgetAmount = budget;
-  if (draft.budgetSchedule.budgetMode === "DAILY") {
-    draft.budgetSchedule.dailyBudget = budget;
-  } else {
-    draft.budgetSchedule.lifetimeBudget = budget;
+  const first = views[0];
+  if (!first) {
+    draft.budgetSchedule.adGroups = [];
+    return;
   }
-  draft.budgetSchedule.scheduleStartAt = asString(group.schedule_start_time);
-  draft.budgetSchedule.scheduleEndAt = asString(group.schedule_end_time);
-  draft.budgetSchedule.adGroups = [
-    { id: groupId, name: groupName, budget, startAt: null, endAt: null },
-  ];
+  if (views.length === 1) {
+    const group = first.raw;
+    const budget = asNumber(group.budget) ?? asNumber(campaign.budget);
+    draft.budgetSchedule.budgetMode = mapBudgetMode(
+      group.budget_mode ?? campaign.budget_mode,
+    );
+    draft.budgetSchedule.budgetAmount = budget;
+    if (draft.budgetSchedule.budgetMode === "DAILY") {
+      draft.budgetSchedule.dailyBudget = budget;
+    } else {
+      draft.budgetSchedule.lifetimeBudget = budget;
+    }
+    draft.budgetSchedule.scheduleStartAt = asString(group.schedule_start_time);
+    draft.budgetSchedule.scheduleEndAt = asString(group.schedule_end_time);
+    draft.budgetSchedule.adGroups = [
+      {
+        id: first.id,
+        name: first.name,
+        budget,
+        startAt: null,
+        endAt: null,
+      },
+    ];
+    return;
+  }
+
+  draft.budgetSchedule.budgetMode = mapBudgetMode(
+    campaign.budget_mode ?? first.raw.budget_mode,
+  );
+  const campaignBudget = asNumber(campaign.budget);
+  draft.budgetSchedule.budgetAmount = campaignBudget;
+  if (draft.budgetSchedule.budgetMode === "DAILY") {
+    draft.budgetSchedule.dailyBudget = campaignBudget;
+  } else {
+    draft.budgetSchedule.lifetimeBudget = campaignBudget;
+  }
+  draft.budgetSchedule.scheduleStartAt = asString(first.raw.schedule_start_time);
+  draft.budgetSchedule.scheduleEndAt = asString(first.raw.schedule_end_time);
+  draft.budgetSchedule.adGroups = views.map((group) => ({
+    id: group.id,
+    name: group.name,
+    budget: asNumber(group.raw.budget) ?? campaignBudget,
+    startAt: null,
+    endAt: null,
+  }));
 }
 
 function applyImportedCreatives(
   bundle: TikTokImportLiveBundle,
   draft: TikTokCampaignDraft,
-  groupId: string,
+  groupIds: string[],
   dropped: TikTokImportDroppedField[],
-  options?: { carry?: string[] },
+  options?: TikTokImportMapOptions,
   preferredIdentity?: {
     identityId: string | null;
     identityType: TikTokAccountSetup["identityType"];
     identityBcId: string | null;
   },
+  extraNotCarried: TikTokImportNotCarried[] = [],
 ): void {
   const { rows, sourceRows } = collectUniqueRows(bundle, dropped);
   const carried = carryUniqueRows({
@@ -1185,8 +1259,9 @@ function applyImportedCreatives(
   });
   draft.creatives.items = carried.creatives;
   draft.creativeAssignments.byAdGroupId = assignCreatives(
-    [groupId],
-    carried.creatives.map((item) => item.id),
+    groupIds,
+    carried.creatives,
+    carried.assignmentAdGroupIds,
   );
   const identity = resolveAccountIdentity(
     carried.creatives,
@@ -1196,92 +1271,130 @@ function applyImportedCreatives(
   draft.accountSetup.identityId = identity.identityId;
   draft.accountSetup.identityType = identity.identityType;
   draft.accountSetup.identityBcId = identity.identityBcId;
-  draft.importMeta = buildMeta(bundle, dropped, bundle.ads, carried);
+  draft.importMeta = buildMeta(bundle, dropped, bundle.ads, carried, {
+    extraNotCarried,
+    adGroupsCarried: groupIds.length,
+  });
+}
+
+function resolveImportAdGroups(
+  bundle: TikTokImportLiveBundle,
+  adGroupId?: string,
+): {
+  bundle: TikTokImportLiveBundle;
+  views: ImportAdGroupView[];
+  skippedNotCarried: TikTokImportNotCarried[];
+} {
+  const views = viewsFromAdGroups(bundle.adGroups, bundle.kind);
+  const message = formatAdGroupTargetingDiff(views, bundle.kind);
+  if (!message) {
+    return { bundle, views, skippedNotCarried: [] };
+  }
+  const pick = adGroupId?.trim();
+  if (!pick) {
+    throw new TikTokImportSourceError(message);
+  }
+  const chosen = views.filter((group) => group.id === pick);
+  if (chosen.length === 0) {
+    throw new TikTokImportSourceError(
+      `ad group ${pick} is not on the source campaign. ${message}`,
+    );
+  }
+  return {
+    bundle: filterBundleToAdGroup(bundle, pick),
+    views: chosen,
+    skippedNotCarried: notCarriedForSkippedAdGroups(
+      views.filter((group) => group.id !== pick),
+    ),
+  };
 }
 
 function mapManual(
   bundle: TikTokImportLiveBundle,
   draft: TikTokCampaignDraft,
-  options?: { carry?: string[] },
+  options?: TikTokImportMapOptions,
 ): TikTokCampaignDraft {
-  const group = bundle.adGroups[0] ?? {};
-  if (bundle.adGroups.length > 1) {
+  const resolved = resolveImportAdGroups(bundle, options?.adGroupId);
+  const first = resolved.views[0];
+  if (!first) {
     throw new TikTokImportSourceError(
-      `the source campaign has ${bundle.adGroups.length} ad groups and this import maps one. Ad groups 2–${bundle.adGroups.length} would be silently lost.`,
+      "the source campaign reported no ad groups",
     );
   }
-  const dropped = collectDroppedFields([bundle.campaign, group]);
-  applyCampaignFields(draft, bundle.campaign, group);
-  draft.audiences = applyTargeting(
-    draft.audiences,
-    unwrapManualTargeting(group),
-    dropped,
-  );
-  const pacing = mapPacing(group.pacing);
+  const dropped = collectDroppedFields([
+    resolved.bundle.campaign,
+    ...resolved.bundle.adGroups,
+    ...resolved.views.map((group) => group.raw),
+  ]);
+  applyCampaignFields(draft, resolved.bundle.campaign, first.raw);
+  draft.audiences = applyTargeting(draft.audiences, first.raw, dropped);
+  const pacing = mapPacing(first.raw.pacing);
   if (pacing) draft.optimisation.pacing = pacing;
-  const cap = asNumber(group.conversion_bid_price) ?? asNumber(group.bid_price);
+  const cap =
+    asNumber(first.raw.conversion_bid_price) ?? asNumber(first.raw.bid_price);
   if (cap != null) draft.optimisation.targetCostPerResult = cap;
-  const groupId = asString(group.adgroup_id) ?? "import-adgroup-1";
-  applyBudgetAndSchedule(
+  applyBudgetAndSchedule(draft, resolved.views, resolved.bundle.campaign);
+  applyImportedCreatives(
+    resolved.bundle,
     draft,
-    group,
-    bundle.campaign,
-    groupId,
-    asString(group.adgroup_name) ?? "Imported ad group",
+    resolved.views.map((group) => group.id),
+    dropped,
+    options,
+    undefined,
+    resolved.skippedNotCarried,
   );
-
-  applyImportedCreatives(bundle, draft, groupId, dropped, options);
   return draft;
 }
 
 function mapUpgraded(
   bundle: TikTokImportLiveBundle,
   draft: TikTokCampaignDraft,
-  options?: { carry?: string[] },
+  options?: TikTokImportMapOptions,
 ): TikTokCampaignDraft {
-  if (bundle.adGroups.length > 1) {
+  const resolved = resolveImportAdGroups(bundle, options?.adGroupId);
+  const first = resolved.views[0];
+  if (!first) {
     throw new TikTokImportSourceError(
-      `the source campaign has ${bundle.adGroups.length} Smart+ ad groups and this import maps one. Ad groups 2–${bundle.adGroups.length} would be silently lost.`,
+      "the source campaign reported no Smart+ ad groups",
     );
   }
-  const rawGroup = bundle.adGroups[0] ?? {};
-  const group = unwrapUpgradedTargeting(rawGroup);
-  const configs = bundle.smartPlusAds
+  const configs = resolved.bundle.smartPlusAds
     .map((ad) => asRecord(ad.ad_configuration))
     .filter((config): config is Record<string, unknown> => Boolean(config));
   const dropped = collectDroppedFields([
-    bundle.campaign,
-    rawGroup,
-    group,
+    resolved.bundle.campaign,
+    ...resolved.bundle.adGroups,
+    ...resolved.views.map((group) => group.raw),
     ...configs,
   ]);
 
-  applyCampaignFields(draft, bundle.campaign, group);
-  draft.audiences = applyTargeting(draft.audiences, group, dropped);
-  const pacing = mapPacing(group.pacing);
+  applyCampaignFields(draft, resolved.bundle.campaign, first.raw);
+  draft.audiences = applyTargeting(draft.audiences, first.raw, dropped);
+  const pacing = mapPacing(first.raw.pacing);
   if (pacing) draft.optimisation.pacing = pacing;
-  const groupId = asString(group.adgroup_id) ?? "import-adgroup-1";
-  applyBudgetAndSchedule(
-    draft,
-    group,
-    bundle.campaign,
-    groupId,
-    asString(group.adgroup_name) ?? "Imported ad group",
-  );
+  applyBudgetAndSchedule(draft, resolved.views, resolved.bundle.campaign);
 
   const config = configs[0];
-  applyImportedCreatives(bundle, draft, groupId, dropped, options, {
-    identityId: asString(config?.identity_id),
-    identityType: mapIdentityType(config?.identity_type),
-    identityBcId: asString(config?.identity_authorized_bc_id),
-  });
+  applyImportedCreatives(
+    resolved.bundle,
+    draft,
+    resolved.views.map((group) => group.id),
+    dropped,
+    options,
+    {
+      identityId: asString(config?.identity_id),
+      identityType: mapIdentityType(config?.identity_type),
+      identityBcId: asString(config?.identity_authorized_bc_id),
+    },
+    resolved.skippedNotCarried,
+  );
   return draft;
 }
 
 function mapLegacy(
   bundle: TikTokImportLiveBundle,
   draft: TikTokCampaignDraft,
-  options?: { carry?: string[] },
+  options?: TikTokImportMapOptions,
 ): TikTokCampaignDraft {
   const spc = bundle.spc ?? {};
   const dropped = collectDroppedFields([bundle.campaign, spc]);
@@ -1296,9 +1409,30 @@ function mapLegacy(
     draft.audiences.ageMax = spcAge.ageMax;
   }
   const groupId = "import-adgroup-1";
-  applyBudgetAndSchedule(draft, spc, bundle.campaign, groupId, "Imported ad group");
+  applyBudgetAndSchedule(
+    draft,
+    [
+      {
+        index: 1,
+        id: groupId,
+        name: "Imported ad group",
+        raw: spc,
+        targeting: {
+          locationCodes: [],
+          age: "absent",
+          genders: [],
+          languages: [],
+          interestCategoryIds: [],
+          interestKeywordIds: [],
+          behaviourCategoryIds: [],
+          customAudienceIds: [],
+        },
+      },
+    ],
+    bundle.campaign,
+  );
 
-  applyImportedCreatives(bundle, draft, groupId, dropped, options, {
+  applyImportedCreatives(bundle, draft, [groupId], dropped, options, {
     identityId: asString(spc.identity_id),
     identityType: mapIdentityType(spc.identity_type),
     identityBcId: null,
@@ -1311,6 +1445,10 @@ function buildMeta(
   dropped: TikTokImportDroppedField[],
   ads: TikTokAdGetRow[],
   carried: CarryResult,
+  extras?: {
+    extraNotCarried?: TikTokImportNotCarried[];
+    adGroupsCarried?: number;
+  },
 ): TikTokImportMeta {
   return {
     sourceCampaignId: asString(bundle.campaign.campaign_id) ?? "",
@@ -1321,7 +1459,10 @@ function buildMeta(
     sourceEnhancements:
       ads.length > 0 ? enhancementsFromAds(ads) : emptyImportEnhancements(),
     creativeCounts: carried.counts,
-    notCarried: carried.notCarried,
+    notCarried: [...carried.notCarried, ...(extras?.extraNotCarried ?? [])],
+    ...(extras?.adGroupsCarried != null
+      ? { adGroupsCarried: extras.adGroupsCarried }
+      : {}),
   };
 }
 

@@ -30,6 +30,7 @@ import {
   tikTokSalesPixelNotFiredMessage,
 } from "@/lib/plan/tiktok-early";
 import {
+  formatTikTokImportAdGroupsCarried,
   formatTikTokImportCreativeCounts,
   formatTikTokImportDroppedLine,
   formatTikTokImportNotCarriedNames,
@@ -391,6 +392,11 @@ export function AccountSetupStep({
         <StatusLine className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           {formatTikTokImportDroppedLine(draft.importMeta.dropped) && (
             <Datum>{formatTikTokImportDroppedLine(draft.importMeta.dropped)}</Datum>
+          )}
+          {formatTikTokImportAdGroupsCarried(draft.importMeta.adGroupsCarried) && (
+            <Datum>
+              {formatTikTokImportAdGroupsCarried(draft.importMeta.adGroupsCarried)}
+            </Datum>
           )}
           {draft.importMeta.creativeCounts && (
             <Datum>

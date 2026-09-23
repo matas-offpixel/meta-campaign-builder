@@ -50,6 +50,7 @@ export type TikTokImportBody = {
   campaignId?: unknown;
   carry?: unknown;
   eventId?: unknown;
+  adGroupId?: unknown;
 };
 
 export type TikTokImportHandleDeps = {
@@ -250,12 +251,16 @@ export async function handleTikTokImport(input: {
       };
     }
     const mappedId = crypto.randomUUID();
+    const adGroupId =
+      typeof input.body.adGroupId === "string" && input.body.adGroupId.trim()
+        ? input.body.adGroupId.trim()
+        : undefined;
     const mapped = mapTikTokLiveCampaignToDraft(bundle, mappedId, {
       tiktokAccountId: credentials.accountId,
       advertiserId,
       currency: advertiser.currency,
       timezone: advertiser.timezone,
-    }, { carry: accepted });
+    }, { carry: accepted, adGroupId });
     if (mapped.creatives.items.length === 0) {
       return {
         status: 200,

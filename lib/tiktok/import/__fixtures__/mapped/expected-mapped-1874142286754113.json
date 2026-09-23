@@ -1,0 +1,227 @@
+{
+  "campaignSetup": {
+    "campaignName": "[IRW0001] Jamie Jones -signup 13",
+    "eventCode": null,
+    "objective": "LEAD_GENERATION",
+    "optimisationGoal": "CONVERSION",
+    "bidStrategy": "COST_CAP",
+    "salesDestination": "WEBSITE"
+  },
+  "audiences": {
+    "interestGroups": [],
+    "interestCategoryIds": [],
+    "interestCategoryLabels": {},
+    "interestKeywordIds": [],
+    "behaviourCategoryIds": [],
+    "behaviourCategoryLabels": {},
+    "customAudienceIds": [],
+    "customAudienceLabels": {},
+    "lookalikeAudienceIds": [],
+    "lookalikeAudienceLabels": {},
+    "locationCodes": [
+      "2648110"
+    ],
+    "locationLabels": {},
+    "languageLabels": {},
+    "ageMin": 18,
+    "ageMax": 100,
+    "genders": [],
+    "languages": [
+      "en"
+    ]
+  },
+  "budgetSchedule": {
+    "budgetMode": "DAILY",
+    "budgetAmount": 50,
+    "scheduleStartAt": "2026-08-21 15:41:00",
+    "scheduleEndAt": "2026-08-25 11:30:00",
+    "automaticSchedule": false,
+    "frequencyCap": null,
+    "lifetimeBudget": null,
+    "dailyBudget": 50,
+    "adGroups": [
+      {
+        "id": "1874142350263441",
+        "name": "London - Wide",
+        "budget": 50,
+        "startAt": null,
+        "endAt": null
+      }
+    ]
+  },
+  "optimisation": {
+    "smartPlusEnabled": false,
+    "bidStrategy": "COST_CAP",
+    "targetCostPerResult": 1.5,
+    "benchmarkCpv": null,
+    "benchmarkCpc": null,
+    "benchmarkCpm": null,
+    "pacing": "STANDARD",
+    "maxDailySpend": null,
+    "maxLifetimeSpend": null,
+    "guardrails": []
+  },
+  "creatives": {
+    "items": [
+      {
+        "id": "1874142379272801",
+        "name": "TikTok creative · v7",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000da3md2nog65tgn908rug",
+        "sparkPostId": null,
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142469032289",
+        "name": "TikTok creative · v9",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3md4fog65n13l9r7sg",
+        "sparkPostId": "7676496060252130583",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142462783601",
+        "name": "TikTok creative · v5",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3mcvnog65qe81prac0",
+        "sparkPostId": "7676496061896068374",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142421206129",
+        "name": "TikTok creative · v4",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3mcuvog65oaqtut7a0",
+        "sparkPostId": "7676496065578732822",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142405150881",
+        "name": "TikTok creative · v10",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3md3vog65q3vneqn4g",
+        "sparkPostId": "7676496062990798102",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142379814225",
+        "name": "TikTok creative · v6",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3md1fog65r5qdiq9r0",
+        "sparkPostId": "7676496060252065047",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142298025026",
+        "name": "TikTok creative · v3",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3mctvog65n5k613ri0",
+        "sparkPostId": "7676496071186599190",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142298013058",
+        "name": "TikTok creative · v2",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3mcsfog65ih6cht2tg",
+        "sparkPostId": "7676496060252097815",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1874142253234625",
+        "name": "TikTok creative · v8",
+        "mode": "SPARK_AD",
+        "videoId": "v10033g50000da3md3fog65vprnthffg",
+        "sparkPostId": "7676496060289961238",
+        "cta": "SIGN_UP",
+        "landingPageUrl": "https://www.evntr.ee/jamiejones",
+        "adText": "LINEUP ANNOUNCED: Jamie Jones presents Voyager - 3 special sets spanning past, present and future.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      }
+    ]
+  },
+  "creativeAssignments": {
+    "byAdGroupId": {
+      "1874142350263441": [
+        "1874142379272801",
+        "1874142469032289",
+        "1874142462783601",
+        "1874142421206129",
+        "1874142405150881",
+        "1874142379814225",
+        "1874142298025026",
+        "1874142298013058",
+        "1874142253234625"
+      ]
+    }
+  },
+  "accountSetup": {
+    "identityId": "f5096207-c327-581f-93a4-e4f2f708069f",
+    "identityType": "BC_AUTH_TT",
+    "identityBcId": "7629750024332378128",
+    "pixelId": "7644201699552690194",
+    "optimisationEvent": "ON_WEB_REGISTER"
+  },
+  "importMeta": {
+    "sourceCampaignId": "1874142286754113",
+    "sourceCampaignName": "[IRW0001] Jamie Jones -signup 13",
+    "sourceKind": "manual",
+    "dropped": [
+      {
+        "field": "placements",
+        "sourceValue": [
+          "PLACEMENT_TIKTOK"
+        ]
+      },
+      {
+        "field": "placement_type",
+        "sourceValue": "PLACEMENT_TYPE_NORMAL"
+      },
+      {
+        "field": "display_name",
+        "sourceValue": null
+      }
+    ],
+    "sourceEnhancements": {
+      "isAcoOn": 0,
+      "isAcoOff": 9,
+      "isAcoAbsent": 0,
+      "isAcoTotal": 9,
+      "creativeAuthorizedOn": 0,
+      "creativeAuthorizedOff": 9,
+      "creativeAuthorizedAbsent": 0,
+      "creativeAuthorizedTotal": 9
+    },
+    "creativeCounts": {
+      "sourceRows": 9,
+      "unique": 9,
+      "carried": 9,
+      "unticked": 0
+    },
+    "notCarried": []
+  }
+}

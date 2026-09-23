@@ -303,5 +303,8 @@ describe("POST /api/tiktok/campaigns/import event_id", () => {
     );
     assert.match(source, /TIKTOK_IMPORT_ACCOUNT_NOT_LINKED/);
     assert.match(source, /accountUnlinked/);
+    assert.match(source, /targetingDiffers/);
+    assert.match(source, /adGroupId/);
+    assert.match(source, /Pick an ad group/);
   });
 });

@@ -328,19 +328,122 @@ describe("map manual campaign", () => {
     assert.equal(mapped.importMeta?.notCarried[0]?.reason, "image_ad_unsupported");
   });
 
-  it("refuses a multi-ad-group source campaign rather than losing groups 2..n", () => {
+  it("carries matching-targeting ad groups and names the field when ages differ", () => {
+    const mapped = mapTikTokLiveCampaignToDraft(
+      manualBundle({
+        adGroups: [
+          MANUAL_ADGROUP_GET,
+          {
+            ...MANUAL_ADGROUP_GET,
+            adgroup_id: "two",
+            adgroup_name: "Lookalike 3%",
+            budget: 40,
+          },
+        ],
+        ads: [
+          MANUAL_AD_GET,
+          {
+            ...MANUAL_AD_GET,
+            ad_id: "manual-ad-2",
+            adgroup_id: "two",
+            ad_name: "Lookalike clip",
+            video_id: "v902",
+          },
+        ],
+      }),
+      "draft-two-groups",
+      ACCOUNT,
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 2);
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.id, "manual-adgroup-1");
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.budget, 80);
+    assert.equal(mapped.budgetSchedule.adGroups[1]?.id, "two");
+    assert.equal(mapped.budgetSchedule.adGroups[1]?.name, "Lookalike 3%");
+    assert.equal(mapped.budgetSchedule.adGroups[1]?.budget, 40);
+    assert.equal(mapped.importMeta?.adGroupsCarried, 2);
+    assert.deepEqual(
+      mapped.creativeAssignments.byAdGroupId["manual-adgroup-1"],
+      [MANUAL_AD_GET.ad_id],
+    );
+    assert.deepEqual(mapped.creativeAssignments.byAdGroupId.two, ["manual-ad-2"]);
+
     assert.throws(
       () =>
         mapTikTokLiveCampaignToDraft(
           manualBundle({
-            adGroups: [MANUAL_ADGROUP_GET, { ...MANUAL_ADGROUP_GET, adgroup_id: "two" }],
+            adGroups: [
+              MANUAL_ADGROUP_GET,
+              {
+                ...MANUAL_ADGROUP_GET,
+                adgroup_id: "two",
+                adgroup_name: "Lookalike 3%",
+                age_groups: ["AGE_25_34", "AGE_35_44"],
+              },
+            ],
           }),
-          "draft-two-groups",
+          "draft-two-groups-age",
           ACCOUNT,
         ),
       (err: unknown) =>
-        err instanceof TikTokImportSourceError && /2 ad groups/.test(err.message),
+        err instanceof TikTokImportSourceError &&
+        /Lookalike 3%/.test(err.message) &&
+        /ages 25–44/.test(err.message) &&
+        /18–34/.test(err.message) &&
+        /one audience/.test(err.message),
     );
+  });
+
+  it("imports the chosen ad group when targeting differs and lists the other as not carried", () => {
+    const mapped = mapTikTokLiveCampaignToDraft(
+      manualBundle({
+        adGroups: [
+          MANUAL_ADGROUP_GET,
+          {
+            ...MANUAL_ADGROUP_GET,
+            adgroup_id: "two",
+            adgroup_name: "Lookalike 3%",
+            age_groups: ["AGE_25_34", "AGE_35_44"],
+          },
+        ],
+        ads: [
+          MANUAL_AD_GET,
+          { ...MANUAL_AD_GET, ad_id: "manual-ad-2", adgroup_id: "two", video_id: "v902" },
+        ],
+      }),
+      "draft-pick-one",
+      ACCOUNT,
+      { adGroupId: "manual-adgroup-1" },
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 1);
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.id, "manual-adgroup-1");
+    assert.equal(mapped.importMeta?.adGroupsCarried, 1);
+    const skipped = (mapped.importMeta?.notCarried ?? []).filter(
+      (item) => item.reason === "adgroup_targeting_differs",
+    );
+    assert.equal(skipped.length, 1);
+    assert.equal(skipped[0]?.adId, "two");
+    assert.equal(skipped[0]?.name, "Lookalike 3%");
+    assert.equal(mapped.creatives.items.some((item) => item.id === "manual-ad-2"), false);
+  });
+
+  it("does not refuse when only an uncarriable targeting field differs", () => {
+    const mapped = mapTikTokLiveCampaignToDraft(
+      manualBundle({
+        adGroups: [
+          MANUAL_ADGROUP_GET,
+          {
+            ...MANUAL_ADGROUP_GET,
+            adgroup_id: "two",
+            adgroup_name: "Same audience, other placements",
+            placements: ["PLACEMENT_TIKTOK", "PLACEMENT_PANGLE"],
+          },
+        ],
+      }),
+      "draft-uncarriable-diff",
+      ACCOUNT,
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 2);
+    assert.equal(mapped.importMeta?.adGroupsCarried, 2);
   });
 });
 

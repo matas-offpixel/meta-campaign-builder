@@ -1,0 +1,451 @@
+{
+  "campaignSetup": {
+    "campaignName": "[IRW0001]  Jamie Jones — On Sale",
+    "eventCode": null,
+    "objective": "CONVERSIONS",
+    "optimisationGoal": "CONVERSION",
+    "bidStrategy": "COST_CAP",
+    "salesDestination": "WEBSITE"
+  },
+  "audiences": {
+    "interestGroups": [],
+    "interestCategoryIds": [],
+    "interestCategoryLabels": {},
+    "interestKeywordIds": [],
+    "behaviourCategoryIds": [],
+    "behaviourCategoryLabels": {},
+    "customAudienceIds": [],
+    "customAudienceLabels": {},
+    "lookalikeAudienceIds": [],
+    "lookalikeAudienceLabels": {},
+    "locationCodes": [
+      "2648110"
+    ],
+    "locationLabels": {},
+    "languageLabels": {},
+    "ageMin": 18,
+    "ageMax": 54,
+    "genders": [],
+    "languages": [
+      "en"
+    ]
+  },
+  "budgetSchedule": {
+    "budgetMode": "DAILY",
+    "budgetAmount": 30,
+    "scheduleStartAt": "2026-09-11 14:43:17",
+    "scheduleEndAt": "2036-09-08 14:43:17",
+    "automaticSchedule": false,
+    "frequencyCap": null,
+    "lifetimeBudget": null,
+    "dailyBudget": 30,
+    "adGroups": [
+      {
+        "id": "1876044101888049",
+        "name": "London",
+        "budget": 30,
+        "startAt": null,
+        "endAt": null
+      }
+    ]
+  },
+  "optimisation": {
+    "smartPlusEnabled": false,
+    "bidStrategy": "COST_CAP",
+    "targetCostPerResult": null,
+    "benchmarkCpv": null,
+    "benchmarkCpc": null,
+    "benchmarkCpm": null,
+    "pacing": "STANDARD",
+    "maxDailySpend": null,
+    "maxLifetimeSpend": null,
+    "guardrails": []
+  },
+  "creatives": {
+    "items": [
+      {
+        "id": "1876120282794210",
+        "name": "JJ - Lineup - Motion 1_cKoHRCX4.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000da2tklnog65qfau5n9fg",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876120282794226",
+        "name": "JJ - Lineup - Motion Classic 1_bh2JPt5k.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000da2tklnog65nt26n6ipg",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876120282795010",
+        "name": "JJ - Lineup - Motion 3_OtKHmiPn.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000da2tklnog65qc36gdsl0",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876125161341537",
+        "name": "JJ - Lineup - Motion Classic 2_WaBQHo8P.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000da2tklnog65r7177c8dg",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876125161341553",
+        "name": "80% - JJ Classic 2_sSPFriEa.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000dah8i27og65o6m6v5000",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876125161341569",
+        "name": "80% - JJ Classic 1_TsM7pLQI.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000dah8htfog65jirgdj0kg",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876134925607138",
+        "name": "80% - JJ New 1_vaES07ge.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000dah8i6vog65v1l71bv7g",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876134925607154",
+        "name": "80% - JJ New 2_57AZyiz0.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000dah8ia7og65gnesjn63g",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876045159695538",
+        "name": "JJ - Lineup - Motion 2_PO30WehD.mp4",
+        "mode": "VIDEO_REFERENCE",
+        "videoId": "v10033g50000dai0n4nog65jgcoa19gg",
+        "sparkPostId": null,
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      },
+      {
+        "id": "1876045157945778",
+        "name": "1876044970251377 24",
+        "mode": "SPARK_AD",
+        "videoId": null,
+        "sparkPostId": "7681731377242311958",
+        "cta": null,
+        "landingPageUrl": "https://ironworksldn.seetickets.com/event/jamie-jones/the-ironworks/3675926?utm_source=tiktok&utm_id=__CAMPAIGN_ID__&utm_campaign=__CAMPAIGN_NAME__&utm_medium=paid",
+        "adText": "Final tickets - Jamie Jones presents Voyager (3 sets) for the Ironworks venue opening on 3rd Oct.",
+        "identityId": "f5096207-c327-581f-93a4-e4f2f708069f"
+      }
+    ]
+  },
+  "creativeAssignments": {
+    "byAdGroupId": {
+      "1876044101888049": [
+        "1876120282794210",
+        "1876120282794226",
+        "1876120282795010",
+        "1876125161341537",
+        "1876125161341553",
+        "1876125161341569",
+        "1876134925607138",
+        "1876134925607154",
+        "1876045159695538",
+        "1876045157945778"
+      ]
+    }
+  },
+  "accountSetup": {
+    "identityId": "f5096207-c327-581f-93a4-e4f2f708069f",
+    "identityType": "BC_AUTH_TT",
+    "identityBcId": "7629750024332378128",
+    "pixelId": "7644201699552690194",
+    "optimisationEvent": "SHOPPING"
+  },
+  "importMeta": {
+    "sourceCampaignId": "1876044101888033",
+    "sourceCampaignName": "[IRW0001]  Jamie Jones — On Sale",
+    "sourceKind": "smart_plus",
+    "dropped": [
+      {
+        "field": "budget_auto_adjust_strategy",
+        "sourceValue": "AUTO_BUDGET_INCREASE"
+      },
+      {
+        "field": "targeting_optimization_mode",
+        "sourceValue": "AUTOMATIC"
+      },
+      {
+        "field": "suggestion_audience_enabled",
+        "sourceValue": true
+      },
+      {
+        "field": "placements",
+        "sourceValue": [
+          "PLACEMENT_PANGLE",
+          "PLACEMENT_TIKTOK"
+        ]
+      },
+      {
+        "field": "placement_type",
+        "sourceValue": "PLACEMENT_TYPE_AUTOMATIC"
+      },
+      {
+        "field": "creative_auto_add_toggle",
+        "sourceValue": true
+      },
+      {
+        "field": "dark_post_status",
+        "sourceValue": "ON"
+      },
+      {
+        "field": "call_to_action",
+        "sourceValue": null
+      },
+      {
+        "field": "unsupported_ad_format",
+        "sourceValue": "CAROUSEL_ADS"
+      },
+      {
+        "field": "display_name",
+        "sourceValue": null
+      }
+    ],
+    "sourceEnhancements": {
+      "isAcoOn": 0,
+      "isAcoOff": 0,
+      "isAcoAbsent": 45,
+      "isAcoTotal": 45,
+      "creativeAuthorizedOn": 0,
+      "creativeAuthorizedOff": 0,
+      "creativeAuthorizedAbsent": 45,
+      "creativeAuthorizedTotal": 45
+    },
+    "creativeCounts": {
+      "sourceRows": 45,
+      "unique": 36,
+      "carried": 10,
+      "unticked": 26
+    },
+    "notCarried": [
+      {
+        "adId": "1876115582233986",
+        "name": "AI Generated Video-7",
+        "videoId": "v10033g50000daig9svog65id4dkuh5g",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582234002",
+        "name": "Voyager (Live Show)-Music_Refresh-9-8",
+        "videoId": "v10033g50000daig9unog65kuhic1bag",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582234018",
+        "name": "Voyager (Live Show)-Music_Refresh-2-11",
+        "videoId": "v10033g50000daiga1nog65p4u487t7g",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582234034",
+        "name": "Voyager (Live Show)-Music_Refresh-1-13",
+        "videoId": "v10033g50000daiga27og65mim6noqgg",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582235138",
+        "name": "Voyager Live Show (Live Event)-New_Hook-0-1",
+        "videoId": "v10033g50000daig73vog65tv35j7030",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582235154",
+        "name": "AI Generated Video-2_1lBURe_0",
+        "videoId": "v10033g50000daig9tnog65uvkg020v0",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582235170",
+        "name": "AI Generated Video-3_whjuDP_1",
+        "videoId": "v10033g50000daig9ufog65r1088cj9g",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582235186",
+        "name": "AI Generated Video-1_JStL5J_2",
+        "videoId": "v10033g50000daig9unog65sivgociv0",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237250",
+        "name": "Voyager (Live Show)-Music_Refresh-0-9",
+        "videoId": "v10033g50000daiga0nog65n25mt2rvg",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237266",
+        "name": "AI Generated Video-6",
+        "videoId": "v10033g50000daig9sfog65ksp35116g",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237282",
+        "name": "AI Generated Video-5",
+        "videoId": "v10033g50000daig9sfog65na1ttojf0",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237298",
+        "name": "Voyager (Live Show)-Music_Refresh-13-12",
+        "videoId": "v10033g50000daiga1nog65qr0gnv0jg",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237826",
+        "name": "Voyager (Live Show)-New_Hook-10-14",
+        "videoId": "v10033g50000daiga77og65pq9l7e320",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237842",
+        "name": "Voyager (Live Show)-Music_Refresh-3-10",
+        "videoId": "v10033g50000daig9vvog65po3q1ibo0",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876115582237858",
+        "name": "AI Generated Video-4",
+        "videoId": "v10033g50000daig9svog65ogsj30drg",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876120295094369",
+        "name": "Voyager (Live Show)-Music_Refresh-0-4_dy6tlN_0",
+        "videoId": "v10033g50000daihupfog65paaelkd40",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876120295094385",
+        "name": "Voyager (Live Show)-Music_Refresh-2-5_LllxPn_1",
+        "videoId": "v10033g50000daihur7og65vr73tl6h0",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876120295095489",
+        "name": "AI Generated Video-1_K4h4d9_2",
+        "videoId": "v10033g50000daihuo7og65gnevisir0",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876125162963153",
+        "name": "v10033g50000da2tklnog65nt26n6ipg_1200101-2",
+        "videoId": "v10033g50000daiihgfog65j1nq7q6kg",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876125162963169",
+        "name": "v10033g50000da2tklnog65qfau5n9fg_1200101-3",
+        "videoId": "v10033g50000daiihf7og65m18bre830",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876125162963185",
+        "name": "v10033g50000da2tklnog65qc36gdsl0_1200101-1",
+        "videoId": "v10033g50000daiihhfog65mim6s6n2g",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876125162964353",
+        "name": "v10033g50000da2tklnog65nt26n6ipg_1200101-3",
+        "videoId": "v10033g50000daiihevog65ukp4jv5og",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876125162964369",
+        "name": "v10033g50000da2tklnog65qfau5n9fg_1200101-2",
+        "videoId": "v10033g50000daiihfnog65ui1p3b140",
+        "reason": "looks_tiktok_generated",
+        "adFormat": "SINGLE_VIDEO"
+      },
+      {
+        "adId": "1876058788447282",
+        "name": "auto carousel generation_16ghdu3l_0",
+        "videoId": null,
+        "reason": "unsupported_ad_format",
+        "adFormat": "CAROUSEL_ADS"
+      },
+      {
+        "adId": "1876063890108642",
+        "name": "auto carousel generation_1qmu8d8p_0",
+        "videoId": null,
+        "reason": "unsupported_ad_format",
+        "adFormat": "CAROUSEL_ADS"
+      },
+      {
+        "adId": "1876068664887858",
+        "name": "auto carousel generation_-1ifxi1y_0",
+        "videoId": null,
+        "reason": "unsupported_ad_format",
+        "adFormat": "CAROUSEL_ADS"
+      }
+    ]
+  }
+}

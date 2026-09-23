@@ -60,13 +60,16 @@ export type TikTokImportEnhancements = {
 };
 
 /**
- * Why a source creative did not reach `creatives.items`.
+ * Why a source creative (or ad group) did not reach the draft.
  *
  * The operator ticks what to carry. `looks_tiktok_generated` is the
  * pattern-default suggestion, not a decision. `operator_unticked` is
  * a row the default would have kept. Disabled rows keep the
  * unsupported / no-asset reasons. `not_in_creative_library` is only
  * for drafts saved under the #945 rule, which the capture falsified.
+ * `adgroup_targeting_differs` is an ad group, not a creative — listed
+ * when the operator picks one of several groups whose targeting the
+ * draft cannot hold together.
  */
 export const TIKTOK_IMPORT_NOT_CARRIED_REASONS = [
   "looks_tiktok_generated",
@@ -75,6 +78,7 @@ export const TIKTOK_IMPORT_NOT_CARRIED_REASONS = [
   "image_ad_unsupported",
   "no_asset_reported",
   "not_in_creative_library",
+  "adgroup_targeting_differs",
 ] as const;
 
 export type TikTokImportNotCarriedReason =
@@ -90,6 +94,7 @@ export const TIKTOK_IMPORT_NOT_CARRIED_LABELS: Record<
   image_ad_unsupported: "image ads — the TikTok draft has no image creative mode",
   no_asset_reported: "TikTok reported no video, image or post",
   not_in_creative_library: "not in the Creative Library",
+  adgroup_targeting_differs: "ad group targeting differs",
 };
 
 export type TikTokImportNotCarried = {
@@ -121,6 +126,8 @@ export type TikTokImportMeta = {
   sourceEnhancements: TikTokImportEnhancements;
   creativeCounts: TikTokImportCreativeCounts | null;
   notCarried: TikTokImportNotCarried[];
+  /** Source ad groups written onto `budgetSchedule.adGroups`. Absent on drafts saved before this field existed. */
+  adGroupsCarried?: number;
 };
 
 export type TikTokLiveCampaignRow = {
@@ -286,16 +293,26 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
+export function formatTikTokImportAdGroupsCarried(
+  count: number | null | undefined,
+): string | null {
+  if (count == null || count < 1) return null;
+  return `${plural(count, "ad group", "ad groups")} carried`;
+}
+
 export function formatTikTokImportCreativeCounts(
   counts: TikTokImportCreativeCounts,
   notCarried: readonly TikTokImportNotCarried[] = [],
 ): string {
+  const creativeNotCarried = notCarried.filter(
+    (item) => item.reason !== "adgroup_targeting_differs",
+  );
   const carried = `${plural(counts.carried, "original", "originals")} carried.`;
   if (counts.unticked === 0) return carried;
-  const generated = notCarried.filter(
+  const generated = creativeNotCarried.filter(
     (item) => item.reason === "looks_tiktok_generated",
   ).length;
-  const byYou = notCarried.filter(
+  const byYou = creativeNotCarried.filter(
     (item) => item.reason === "operator_unticked",
   ).length;
   if (generated + byYou === counts.unticked && (generated > 0 || byYou > 0)) {
@@ -307,11 +324,13 @@ export function formatTikTokImportCreativeCounts(
     ].filter(Boolean);
     return `${carried} ${plural(counts.unticked, "unticked", "unticked")} (${bits.join(", ")}).`;
   }
-  const breakdown = TIKTOK_IMPORT_NOT_CARRIED_REASONS.filter((reason) =>
-    notCarried.some((item) => item.reason === reason),
+  const breakdown = TIKTOK_IMPORT_NOT_CARRIED_REASONS.filter(
+    (reason) =>
+      reason !== "adgroup_targeting_differs" &&
+      creativeNotCarried.some((item) => item.reason === reason),
   )
     .map((reason) => {
-      const n = notCarried.filter((item) => item.reason === reason).length;
+      const n = creativeNotCarried.filter((item) => item.reason === reason).length;
       return `${n} ${TIKTOK_IMPORT_NOT_CARRIED_LABELS[reason]}`;
     })
     .join(", ");

@@ -73,7 +73,8 @@ export type TikTokImportNotCarried = {
     | "unsupported_ad_format"
     | "image_ad_unsupported"
     | "no_asset_reported"
-    | "not_in_creative_library";
+    | "not_in_creative_library"
+    | "adgroup_targeting_differs";
   adFormat: string | null;
 };
 
@@ -85,6 +86,7 @@ export type TikTokImportMeta = {
   sourceEnhancements: TikTokImportEnhancements;
   creativeCounts: TikTokImportCreativeCounts | null;
   notCarried: TikTokImportNotCarried[];
+  adGroupsCarried?: number;
 };
 
 export interface TikTokPublishedIds {
