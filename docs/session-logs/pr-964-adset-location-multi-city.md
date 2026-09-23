@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending (opens after #963 merges)
-- **URL:** pending
+- **Number:** 964
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/964
 - **Branch:** `cursor/adset-location-multi-city`
 
 ## Summary
@@ -31,7 +31,7 @@ every location. **Split by city** is explicit, on the row.
   countries and regions (it dropped them before). `locationsToGeo` merges a
   set of groups plus pooled exclusions. `resolveAdSetGeoLocations` has a
   four-rule precedence in its doc comment. `findAdSetLocationProblems` is the
-  shared preflight.
+  preflight (blockers); `findAdSetLocationWarnings` lists what only warns.
 - `lib/meta/adset.ts`: the pool is passed through. An emptied multi-city row
   throws instead of defaulting to GB.
 - `lib/validation.ts`: Step 5 runs `findAdSetLocationProblems` on enabled ad
@@ -85,9 +85,27 @@ every location. **Split by city** is explicit, on the row.
   request that bypasses the client reaches Meta and gets Meta's own error.
   Lifting the freeze for a Phase 0 call is a one-line follow-up.
 
+## Round 2 (Matas review, 23 Sept)
+
+- **Country-contains-location is a warning now, not a blocker.** Meta's
+  location help (365561350785642) describes it as a supported Ads Manager
+  flow, and my claim that Meta rejects it was not sourced.
+  `findAdSetLocationWarnings` keeps the detection and names both sides.
+  `ValidationResult.warnings` (optional; never affects `valid`) carries it,
+  Review aggregates it, and Step 5 shows it next to the budget-share warning.
+  Promote it back only with a Meta error code from a real launch.
+- **Meta's documented caps block** (help 782267941863427): 25 countries and
+  250 cities per ad set, counted on the resolved targeting, so a city chosen
+  twice counts once. The postcode cap (50,000) is not reachable: the model has
+  no postcode location type, and the location search asks Meta for
+  `city,region,country` only.
+- **No location blocs added.** The search never returns `europe` or other
+  blocs, so none can be selected, and nothing in the tree labels any
+  selection "EU".
+
 ## Validation
 
-- [x] `npm test`: 6122 pass, 0 fail
+- [x] `npm test`: 6127 pass, 0 fail (round 2)
 - [x] `npm run build`
 - [x] `npx tsc --noEmit`: no errors outside the pre-existing `__tests__` set
 - New: `lib/wizard/__tests__/adset-multi-city.test.ts`. Rewritten:

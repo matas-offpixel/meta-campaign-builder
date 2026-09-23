@@ -234,51 +234,89 @@ function covers(ex: Place, inc: Place): boolean {
   return ex.kind !== "city" || ex.radiusKm >= inc.radiusKm;
 }
 
+/** Meta's documented per-ad-set location limits (business help 782267941863427). */
+export const META_MAX_COUNTRIES_PER_AD_SET = 25;
+export const META_MAX_CITIES_PER_AD_SET = 250;
+
+type LocationSchedule = Pick<BudgetScheduleSettings, "locationGroups" | "excludedLocations"> | undefined;
+
+interface AdSetPlaces {
+  name: string;
+  chosen: LocationTargetingGroup[];
+  includes: Place[];
+  excludes: Place[];
+}
+
+function adSetName(adSet: AdSetSuggestion, i: number): string {
+  return `"${adSet.name?.trim() || `Ad Set #${i + 1}`}"`;
+}
+
+/** The included and excluded places an ad set's chosen locations add up to; `null` for a legacy row with no ids. */
+function adSetPlaces(
+  adSet: AdSetSuggestion,
+  i: number,
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[],
+): AdSetPlaces | null {
+  const ids = adSetLocationGroupIds(adSet);
+  if (ids === undefined) return null;
+  const chosen = pick(ids, groups);
+  const includes: Place[] = [];
+  const excludes: Place[] = [];
+  for (const g of chosen) {
+    const incSels = g.selections.filter((s) => s.mode === "include");
+    for (const sel of g.selections) {
+      const label = sel.mode === "include" && incSels.length === 1 ? g.label : selectionLabel(sel);
+      const place = toPlace(sel, label);
+      if (place) (sel.mode === "include" ? includes : excludes).push(place);
+    }
+  }
+  for (const sel of pick(adSet.excludedLocationIds, pool)) {
+    const place = toPlace(sel, selectionLabel(sel));
+    if (place) excludes.push(place);
+  }
+  return { name: adSetName(adSet, i), chosen, includes, excludes };
+}
+
 /**
  * Everything about an ad set's locations that Meta would reject or that
  * would launch somewhere the operator did not choose. Each message names the
- * ad set and both sides of the conflict. Shared by Step 5 `validateStep` and
- * the launch route's Phase 0 preflight, so the UI and launch cannot disagree.
+ * ad set and both sides of the conflict. Blocks Step 5 `validateStep`.
  *
+ *   - More countries or cities than Meta allows in one ad set, counted on
+ *     the targeting actually sent (after duplicates merge).
  *   - Zero locations on a multi-city row (would otherwise fall back to UK).
  *     Legacy rows without `locationGroupIds` keep their snapshot / GB
  *     behaviour and are not reported for this.
  *   - Locations chosen but none of them includes anywhere.
  *   - An exclusion that removes an included location outright.
- *   - An included country that already contains another included location
- *     (Meta rejects overlapping locations in one ad set).
  */
-export function findAdSetLocationProblems(
-  adSets: AdSetSuggestion[],
-  budgetSchedule: Pick<BudgetScheduleSettings, "locationGroups" | "excludedLocations"> | undefined,
-): string[] {
+export function findAdSetLocationProblems(adSets: AdSetSuggestion[], budgetSchedule: LocationSchedule): string[] {
   const groups = budgetSchedule?.locationGroups ?? [];
   const pool = budgetSchedule?.excludedLocations ?? [];
   const problems: string[] = [];
 
   adSets.forEach((adSet, i) => {
-    const name = `"${adSet.name?.trim() || `Ad Set #${i + 1}`}"`;
-    const ids = adSetLocationGroupIds(adSet);
-    if (ids === undefined) return;
-    const chosen = pick(ids, groups);
+    const geo = resolveAdSetGeoLocations(adSet, groups, pool);
+    const countries = geo?.countries?.length ?? 0;
+    const cities = geo?.cities?.length ?? 0;
+    if (countries > META_MAX_COUNTRIES_PER_AD_SET) {
+      problems.push(
+        `${adSetName(adSet, i)} targets ${countries} countries — Meta allows at most ${META_MAX_COUNTRIES_PER_AD_SET} per ad set. Split it, or remove some.`,
+      );
+    }
+    if (cities > META_MAX_CITIES_PER_AD_SET) {
+      problems.push(
+        `${adSetName(adSet, i)} targets ${cities} cities — Meta allows at most ${META_MAX_CITIES_PER_AD_SET} per ad set. Split it, or remove some.`,
+      );
+    }
+
+    const places = adSetPlaces(adSet, i, groups, pool);
+    if (!places) return;
+    const { name, chosen, includes, excludes } = places;
     if (chosen.length === 0) {
       if (adSet.locationGroupIds) problems.push(`${name} has no locations — pick at least one on its row.`);
       return;
-    }
-
-    const includes: Place[] = [];
-    const excludes: Place[] = [];
-    for (const g of chosen) {
-      const incSels = g.selections.filter((s) => s.mode === "include");
-      for (const sel of g.selections) {
-        const label = sel.mode === "include" && incSels.length === 1 ? g.label : selectionLabel(sel);
-        const place = toPlace(sel, label);
-        if (place) (sel.mode === "include" ? includes : excludes).push(place);
-      }
-    }
-    for (const sel of pick(adSet.excludedLocationIds, pool)) {
-      const place = toPlace(sel, selectionLabel(sel));
-      if (place) excludes.push(place);
     }
 
     if (includes.length === 0) {
@@ -297,16 +335,37 @@ export function findAdSetLocationProblems(
           : `${name}: "${inc.label}" is included and excluded ("${ex.label}") — remove one.`,
       );
     }
+  });
 
-    for (const country of includes.filter((p) => p.kind === "country")) {
-      const inside = includes.find((p) => p.kind !== "country" && p.countryCode === country.key);
+  return problems;
+}
+
+/**
+ * Location shapes Meta accepts but that are probably not what the operator
+ * meant. Shown on Step 5; never blocks.
+ *
+ *   - An included country that already contains another included location.
+ *     Ads Manager supports this, so it warns only. Promote it to
+ *     `findAdSetLocationProblems` only with a Meta error code from a real
+ *     launch that rejected it.
+ */
+export function findAdSetLocationWarnings(adSets: AdSetSuggestion[], budgetSchedule: LocationSchedule): string[] {
+  const groups = budgetSchedule?.locationGroups ?? [];
+  const pool = budgetSchedule?.excludedLocations ?? [];
+  const warnings: string[] = [];
+
+  adSets.forEach((adSet, i) => {
+    const places = adSetPlaces(adSet, i, groups, pool);
+    if (!places) return;
+    for (const country of places.includes.filter((p) => p.kind === "country")) {
+      const inside = places.includes.find((p) => p.kind !== "country" && p.countryCode === country.key);
       if (inside) {
-        problems.push(
-          `${name}: "${country.label}" already contains "${inside.label}" — Meta rejects overlapping locations in one ad set. Remove one, or Split by city.`,
+        warnings.push(
+          `${places.name}: "${country.label}" already contains "${inside.label}", so "${inside.label}" adds no reach. Remove one, or Split by city to report them separately.`,
         );
       }
     }
   });
 
-  return problems;
+  return warnings;
 }

@@ -13,7 +13,10 @@ import { describe, it } from "node:test";
 import { migrateDraft } from "../../autosave.ts";
 import { buildAdSetPayload, buildMetaTargeting } from "../../meta/adset.ts";
 import {
+  META_MAX_CITIES_PER_AD_SET,
+  META_MAX_COUNTRIES_PER_AD_SET,
   findAdSetLocationProblems,
+  findAdSetLocationWarnings,
   groupToGeo,
   locationsToGeo,
   resolveAdSetGeoLocations,
@@ -297,13 +300,22 @@ describe("preflight: an exclusion that empties the included area", () => {
     assert.ok(both.some((p) => p.includes('"London, England, United Kingdom (+40 km)" is included and excluded')), both.join("\n"));
   });
 
-  it("an included country that already contains an included city is refused (Meta rejects overlaps)", () => {
-    const problems = findAdSetLocationProblems(
-      [row({ name: "Broad", locationGroupIds: [UK.id, NEWCASTLE.id] })],
-      { locationGroups: [UK, NEWCASTLE] },
-    );
-    assert.equal(problems.length, 1);
-    assert.match(problems[0], /"UK \(nationwide\)" already contains "Newcastle upon Tyne/);
+  it("an included country that already contains an included city is a warning, not a blocker", () => {
+    const broad = [row({ name: "Broad", locationGroupIds: [UK.id, NEWCASTLE.id] })];
+    const schedule = { locationGroups: [UK, NEWCASTLE] };
+    assert.deepEqual(findAdSetLocationProblems(broad, schedule), []);
+    const warnings = findAdSetLocationWarnings(broad, schedule);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /"Broad"/);
+    assert.match(warnings[0], /"UK \(nationwide\)" already contains "Newcastle upon Tyne/);
+
+    const result = validateStep(5, draftWith(broad, schedule));
+    assert.equal(result.valid, true, result.errors.join("\n"));
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(result.warnings, warnings);
+    const review = validateStep(7, draftWith(broad, schedule));
+    assert.ok(!review.errors.some((e) => e.includes("already contains")), review.errors.join("\n"));
+    assert.deepEqual(review.warnings, warnings);
   });
 
   it("blocks the launch gate: Review (step 7) carries the same problem, before any Meta call", () => {
@@ -313,6 +325,78 @@ describe("preflight: an exclusion that empties the included area", () => {
     );
     const review = validateStep(7, draftWith(londonOnly, { locationGroups: [LONDON], excludedLocations: [EXCL_LONDON] }));
     assert.ok(review.errors.some((e) => e.includes('"London fans"') && e.includes("whole included area")), review.errors.join("\n"));
+  });
+});
+
+describe("Meta's per-ad-set location caps block Step 5", () => {
+  function manyCities(n: number, id = "grp_many", keyPrefix = "c"): LocationTargetingGroup {
+    return {
+      id,
+      label: `${n} cities`,
+      source: "manual",
+      selections: Array.from({ length: n }, (_, i) => ({
+        id: `${id}_${i}`, source: "search" as const, label: `City ${i}`, mode: "include" as const,
+        locationType: "city" as const, locationKey: `${keyPrefix}${i}`, radius: 10, distanceUnit: "kilometer" as const, countryCode: "GB",
+      })),
+    };
+  }
+  function manyCountries(n: number): LocationTargetingGroup {
+    return {
+      id: "grp_countries",
+      label: `${n} countries`,
+      source: "manual",
+      selections: Array.from({ length: n }, (_, i) => ({
+        id: `cc_${i}`, source: "search" as const, label: `Country ${i}`, mode: "include" as const,
+        locationType: "country" as const, countryCode: `C${i}`,
+      })),
+    };
+  }
+  function check(groups: LocationTargetingGroup[]) {
+    const rows = [row({ name: "Everywhere", locationGroupIds: groups.map((g) => g.id) })];
+    return validateStep(5, draftWith(rows, { locationGroups: groups }));
+  }
+
+  it("the limits are Meta's documented 250 cities and 25 countries", () => {
+    assert.equal(META_MAX_CITIES_PER_AD_SET, 250);
+    assert.equal(META_MAX_COUNTRIES_PER_AD_SET, 25);
+  });
+
+  it("251 cities blocks, naming the ad set, the count and the limit; 250 passes", () => {
+    const over = check([manyCities(251)]);
+    assert.equal(over.valid, false);
+    assert.ok(
+      over.errors.some((e) => e.includes('"Everywhere"') && e.includes("251 cities") && e.includes("at most 250")),
+      over.errors.join("\n"),
+    );
+    const atLimit = check([manyCities(250)]);
+    assert.equal(atLimit.valid, true, atLimit.errors.join("\n"));
+  });
+
+  it("26 countries blocks, naming the ad set, the count and the limit; 25 passes", () => {
+    const over = check([manyCountries(26)]);
+    assert.equal(over.valid, false);
+    assert.ok(
+      over.errors.some((e) => e.includes('"Everywhere"') && e.includes("26 countries") && e.includes("at most 25")),
+      over.errors.join("\n"),
+    );
+    const atLimit = check([manyCountries(25)]);
+    assert.equal(atLimit.valid, true, atLimit.errors.join("\n"));
+  });
+
+  it("counts what is sent to Meta: a city in two chosen locations counts once", () => {
+    assert.equal(check([manyCities(250), manyCities(1, "grp_repeat")]).valid, true);
+  });
+
+  it("bulk Apply to crosses the cap on every ad set it reaches, and each is named", () => {
+    const groups = [manyCities(200, "grp_a", "a"), manyCities(60, "grp_b", "b")];
+    const rows = applyLocationsToAdSets(
+      [row({ id: "r1", name: "One" }), row({ id: "r2", name: "Two" })],
+      ["r1", "r2"], ["grp_a", "grp_b"], groups,
+    );
+    const problems = findAdSetLocationProblems(rows, { locationGroups: groups });
+    assert.equal(problems.length, 2);
+    assert.match(problems[0], /"One" targets 260 cities/);
+    assert.match(problems[1], /"Two" targets 260 cities/);
   });
 });
 

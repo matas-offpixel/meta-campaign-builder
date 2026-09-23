@@ -63,6 +63,7 @@ import {
 } from "@/lib/meta/placement-config";
 import {
   adSetLocationGroupIds,
+  findAdSetLocationWarnings,
   groupTier,
   withGroupTier,
 } from "@/lib/meta/location-targeting";
@@ -1298,6 +1299,10 @@ export function BudgetSchedule({
     adSetSuggestions,
     bs.budgetAmount,
   );
+  const locationWarnings = findAdSetLocationWarnings(
+    adSetSuggestions.filter((s) => s.enabled),
+    bs,
+  );
 
   const days = useMemo(() => {
     if (!bs.startDate || !bs.endDate) return 0;
@@ -1608,6 +1613,17 @@ export function BudgetSchedule({
                   <StatusLine className="mt-0.5 text-warning/80">
                     Review before launch — a single oversized blank/Wide set can outspend the rest of the campaign.
                   </StatusLine>
+                </div>
+              </div>
+            )}
+
+            {locationWarnings.length > 0 && (
+              <div className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <div className="space-y-0.5 text-xs text-warning">
+                  {locationWarnings.map((w) => (
+                    <StatusLine key={w}>{w}</StatusLine>
+                  ))}
                 </div>
               </div>
             )}

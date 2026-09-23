@@ -7,11 +7,13 @@ import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
-import { findAdSetLocationProblems } from "./meta/location-targeting.ts";
+import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
 
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+  /** Worth the operator's attention; never affects `valid`. */
+  warnings?: string[];
 }
 
 export function validateStep(
@@ -281,13 +283,10 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
   if (bs.startDate && bs.endDate && bs.startDate >= bs.endDate) {
     errors.push("End date must be after start date");
   }
-  errors.push(
-    ...findAdSetLocationProblems(
-      (draft.adSetSuggestions ?? []).filter((s) => s.enabled),
-      bs,
-    ),
-  );
-  return { valid: errors.length === 0, errors };
+  const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled);
+  errors.push(...findAdSetLocationProblems(enabled, bs));
+  const warnings = findAdSetLocationWarnings(enabled, bs);
+  return { valid: errors.length === 0, errors, ...(warnings.length ? { warnings } : {}) };
 }
 
 function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
@@ -346,9 +345,15 @@ function validateReview(draft: CampaignDraft): ValidationResult {
     (s) => s !== 7,
   );
   const allErrors: string[] = [];
+  const allWarnings: string[] = [];
   for (const step of visible) {
     const result = validateStep(step, draft);
     allErrors.push(...result.errors);
+    allWarnings.push(...(result.warnings ?? []));
   }
-  return { valid: allErrors.length === 0, errors: allErrors };
+  return {
+    valid: allErrors.length === 0,
+    errors: allErrors,
+    ...(allWarnings.length ? { warnings: allWarnings } : {}),
+  };
 }
