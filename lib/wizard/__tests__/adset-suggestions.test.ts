@@ -423,7 +423,7 @@ describe("duplicateSuggestionsUnderLocationGroup", () => {
     assert.equal(newRows.length, 1); // "b" is disabled, skipped
     assert.equal(newRows[0].locationGroupId, "grp_manchester");
     assert.equal(newRows[0].locationLabel, "Manchester +30km");
-    assert.equal(newRows[0].name, "Page Group — Manchester +30km");
+    assert.equal(newRows[0].name, "Page Group", "the badge carries the location, not the name");
   });
 
   it("skips rows already assigned to the target group (no-op duplication)", () => {
@@ -432,7 +432,7 @@ describe("duplicateSuggestionsUnderLocationGroup", () => {
     assert.equal(newRows.length, 0);
   });
 
-  it("strips a prior location suffix before appending the new one (no suffix chaining)", () => {
+  it("strips a legacy location suffix so the copy carries no stale location", () => {
     const rows = [
       makeSuggestion({
         id: "a",
@@ -443,7 +443,7 @@ describe("duplicateSuggestionsUnderLocationGroup", () => {
       }),
     ];
     const newRows = duplicateSuggestionsUnderLocationGroup(rows, MANCHESTER);
-    assert.equal(newRows[0].name, "Page Group — Manchester +30km");
+    assert.equal(newRows[0].name, "Page Group");
   });
 
   it("returns only new rows — caller is responsible for appending", () => {
