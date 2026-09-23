@@ -72,8 +72,15 @@ import {
   applyBulkDailyBudget,
   duplicateSuggestionsUnderLocationGroup,
   clearUnsupportedAdvantagePlus,
+  reassignAdSetLocationGroup,
+  shortLocationLabel,
+  stampLocationGroup,
   MAX_ADSET_NAME_LENGTH,
   AD_SET_BUDGET_SHARE_WARNING_THRESHOLD,
+  ADSET_ROW_MAIN_CLASS,
+  ADSET_ROW_NAME_COLUMN_CLASS,
+  ADSET_ROW_NAME_INPUT_CLASS,
+  ADSET_ROW_LOCATION_BADGE_CLASS,
 } from "@/lib/wizard/adset-suggestions";
 import {
   isAdvantageAudienceSupportedForObjective,
@@ -433,21 +440,12 @@ function generateSuggestions(
   const suggestions: AdSetSuggestion[] = [];
   for (const base of baseSuggestions) {
     for (const group of groups) {
-      const geo = groupToGeo(group);
-      const suffix = groups.length > 1 ? ` — ${group.label}` : "";
-      suggestions.push({
-        ...base,
-        id: groups.length > 1 ? `${base.id}_${group.id}` : base.id,
-        name: `${base.name}${suffix}`,
-        geoLocations: geo,
-        locationLabel: group.label,
-        // Only stamp a real FK when the group came from the operator's
-        // configured `locationGroups` — the synthetic UK-nationwide
-        // fallback isn't a real group, so per-row reassignment (the
-        // location dropdown) has nothing to look up and correctly falls
-        // back to the stamped `geoLocations` snapshot above.
-        locationGroupId: locationGroups.length > 0 ? group.id : undefined,
-      });
+      suggestions.push(
+        stampLocationGroup(base, group, {
+          groupCount: groups.length,
+          configured: locationGroups.length > 0,
+        }),
+      );
     }
   }
 
@@ -1675,12 +1673,12 @@ export function BudgetSchedule({
                     className={`border-b border-border last:border-b-0 ${s.enabled ? "" : "opacity-50"}`}
                   >
                     {/* ── Main row ────────────────────────────────────────── */}
-                    <div className="flex items-center gap-3 px-4 py-3">
+                    <div className={ADSET_ROW_MAIN_CLASS}>
                       <Checkbox
                         checked={s.enabled}
                         onChange={() => updateSuggestion(s.id, { enabled: !s.enabled })}
                       />
-                      <div className="flex-1 min-w-0">
+                      <div className={ADSET_ROW_NAME_COLUMN_CLASS}>
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
@@ -1689,17 +1687,19 @@ export function BudgetSchedule({
                               updateSuggestion(s.id, { name: e.target.value.slice(0, MAX_ADSET_NAME_LENGTH) })
                             }
                             maxLength={MAX_ADSET_NAME_LENGTH}
-                            title="Click to rename this ad set"
+                            title={s.name || "Click to rename this ad set"}
                             placeholder="Ad set name"
-                            className="min-w-0 flex-1 truncate rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none"
+                            className={ADSET_ROW_NAME_INPUT_CLASS}
                           />
                           <Badge variant="outline" className="text-[10px] shrink-0">
                             {SOURCE_LABELS[s.sourceType] || s.sourceType}
                           </Badge>
                           {s.locationLabel && locationGroups.length > 1 && (
-                            <Badge variant="primary" className="text-[10px] shrink-0">
-                              {s.locationLabel}
-                            </Badge>
+                            <span title={s.locationLabel} className="flex min-w-0">
+                              <Badge variant="primary" className={ADSET_ROW_LOCATION_BADGE_CLASS}>
+                                <span className="truncate">{shortLocationLabel(s.locationLabel)}</span>
+                              </Badge>
+                            </span>
                           )}
                         </div>
                         <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
@@ -1713,11 +1713,11 @@ export function BudgetSchedule({
                             onChange={(e) => {
                               const group = locationGroups.find((g) => g.id === e.target.value);
                               if (!group) return;
-                              updateSuggestion(s.id, {
-                                locationGroupId: group.id,
-                                locationLabel: group.label,
-                                geoLocations: groupToGeo(group),
-                              });
+                              onSuggestionsChange(
+                                adSetSuggestions.map((row) =>
+                                  row.id === s.id ? reassignAdSetLocationGroup(row, group) : row,
+                                ),
+                              );
                             }}
                             title="Location group for this ad set"
                             className="max-w-[8.5rem] rounded border border-border bg-card px-1.5 py-1 text-[11px]"

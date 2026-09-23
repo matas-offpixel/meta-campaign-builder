@@ -332,14 +332,75 @@ export function applyBulkDailyBudget(
 
 /**
  * Strip a trailing " — <label>" location suffix from an ad set name, if
- * present. Used before re-appending a *different* location's suffix so
- * repeated duplication doesn't chain suffixes ("Page Group — A — B — C").
+ * present. Drafts generated before the row grew a location badge carry the
+ * full group label in the name; reassigning or duplicating such a row must
+ * not leave the old location behind in the name.
  */
 function stripLocationSuffix(name: string, label: string | undefined): string {
   if (!label) return name;
   const suffix = ` — ${label}`;
   return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
 }
+
+/**
+ * Badge text for a location group label. The stored label is the full Meta
+ * path ("Newcastle upon Tyne, England, United Kingdom (+200 km)"); the row
+ * badge only needs the place and the radius ("Newcastle upon Tyne +200km").
+ * The full label stays stored and goes in the badge's `title`.
+ */
+export function shortLocationLabel(label: string): string {
+  const radius = /\(?\+\s*(\d+)\s*(km|mi)\)?\s*$/i.exec(label);
+  const withoutRadius = radius ? label.slice(0, radius.index).trim() : label.trim();
+  const place = withoutRadius.split(",")[0].trim();
+  return radius ? `${place} +${radius[1]}${radius[2].toLowerCase()}` : place;
+}
+
+/**
+ * Stamp one location group onto a generated ad set. The name is left as the
+ * audience name: once the campaign has more than one group the row shows the
+ * location as a badge, and with one group there is nothing to tell apart.
+ * `configured` is false for the synthetic UK-nationwide fallback, which is
+ * not a real group and so gets no `locationGroupId`.
+ */
+export function stampLocationGroup(
+  base: Omit<AdSetSuggestion, "geoLocations" | "locationLabel">,
+  group: LocationTargetingGroup,
+  opts: { groupCount: number; configured: boolean },
+): AdSetSuggestion {
+  return {
+    ...base,
+    id: opts.groupCount > 1 ? `${base.id}_${group.id}` : base.id,
+    geoLocations: groupToGeo(group),
+    locationLabel: group.label,
+    locationGroupId: opts.configured ? group.id : undefined,
+  };
+}
+
+/** Per-row location change: move the ad set to `group`, dropping any old location suffix from its name. */
+export function reassignAdSetLocationGroup(
+  suggestion: AdSetSuggestion,
+  group: LocationTargetingGroup,
+): AdSetSuggestion {
+  return {
+    ...suggestion,
+    name: stripLocationSuffix(suggestion.name, suggestion.locationLabel),
+    locationGroupId: group.id,
+    locationLabel: group.label,
+    geoLocations: groupToGeo(group),
+  };
+}
+
+/**
+ * Step 5 ad-set row layout. The right-hand controls are ~650px of fixed-width
+ * inputs, so the row wraps them under the name before the name column falls
+ * below its minimum; inside the column the location badge is the element that
+ * gives way, never the name input.
+ */
+export const ADSET_ROW_MAIN_CLASS = "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3";
+export const ADSET_ROW_NAME_COLUMN_CLASS = "min-w-[14rem] flex-1";
+export const ADSET_ROW_NAME_INPUT_CLASS =
+  "min-w-[8rem] flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none";
+export const ADSET_ROW_LOCATION_BADGE_CLASS = "min-w-0 max-w-[9rem] text-[10px]";
 
 /**
  * "Generate audience set × location" bonus (task #118): duplicate every
@@ -362,7 +423,7 @@ export function duplicateSuggestionsUnderLocationGroup(
     .map((s) => ({
       ...s,
       id: `${s.id}_${targetGroup.id}_${Date.now()}`,
-      name: `${stripLocationSuffix(s.name, s.locationLabel)} — ${targetGroup.label}`,
+      name: stripLocationSuffix(s.name, s.locationLabel),
       geoLocations: geo,
       locationLabel: targetGroup.label,
       locationGroupId: targetGroup.id,
