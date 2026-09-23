@@ -42,7 +42,7 @@ import type {
   AudienceSettings,
   LocationTargetingGroup,
   LocationSelection,
-  LookalikeRange,
+  LocationTier,
   CampaignSettings,
   PlacementConfig,
   PlacementPublisherPlatform,
@@ -61,7 +61,13 @@ import {
   buildPlacementConfigTargeting,
   validatePlacementConfig,
 } from "@/lib/meta/placement-config";
-import { groupToGeo } from "@/lib/meta/location-targeting";
+import {
+  adSetLocationGroupIds,
+  findAdSetLocationWarnings,
+  groupTier,
+  withGroupTier,
+} from "@/lib/meta/location-targeting";
+import { generateSuggestions } from "@/lib/wizard/generate-adset-suggestions";
 import {
   createBlankAdSetSuggestion,
   defaultBlankAdSetBudget,
@@ -72,15 +78,23 @@ import {
   applyBulkDailyBudget,
   duplicateSuggestionsUnderLocationGroup,
   clearUnsupportedAdvantagePlus,
-  reassignAdSetLocationGroup,
+  addLocationToEveryAdSet,
+  adSetExclusionSummary,
+  adSetLocationSummary,
+  adSetsTargetingLocation,
+  applyExclusionsToAdSets,
+  applyLocationsToAdSets,
+  locationIdsForQuickPick,
+  locationOptions,
   shortLocationLabel,
-  stampLocationGroup,
+  splitAdSetByLocation,
+  type LocationQuickPick,
   MAX_ADSET_NAME_LENGTH,
   AD_SET_BUDGET_SHARE_WARNING_THRESHOLD,
   ADSET_ROW_MAIN_CLASS,
   ADSET_ROW_NAME_COLUMN_CLASS,
   ADSET_ROW_NAME_INPUT_CLASS,
-  ADSET_ROW_LOCATION_BADGE_CLASS,
+  ADSET_ROW_LOCATION_CONTROL_CLASS,
 } from "@/lib/wizard/adset-suggestions";
 import {
   isAdvantageAudienceSupportedForObjective,
@@ -172,7 +186,7 @@ function searchResultToSelection(
     mode,
     locationType: result.type as "city" | "country" | "region",
     locationKey: result.type !== "country" ? result.key : undefined,
-    countryCode: result.type === "country" ? result.country_code : undefined,
+    countryCode: result.country_code || undefined,
     radius: result.type === "city" ? (radius ?? 40) : undefined,
     distanceUnit: result.type === "city" ? (distanceUnit ?? "kilometer") : undefined,
   };
@@ -256,26 +270,6 @@ async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGro
   return { id: config.id, label: config.label, source: "preset", selections };
 }
 
-/** Compute a stable fingerprint for a LocationTargetingGroup's effective geo. */
-function geoFingerprint(group: LocationTargetingGroup): string {
-  const geo = groupToGeo(group);
-  return JSON.stringify(geo, Object.keys(geo).sort());
-}
-
-/** Deduplicate location groups that produce identical geo_locations payloads. */
-function deduplicateLocationGroups(groups: LocationTargetingGroup[]): LocationTargetingGroup[] {
-  const seen = new Map<string, LocationTargetingGroup>();
-  for (const g of groups) {
-    const fp = geoFingerprint(g);
-    if (!seen.has(fp)) {
-      seen.set(fp, g);
-    } else {
-      console.log(`[deduplicateLocationGroups] Dropping duplicate: "${g.label}" matches "${seen.get(fp)!.label}"`);
-    }
-  }
-  return Array.from(seen.values());
-}
-
 // ─── Ad set generation ───────────────────────────────────────────────────────
 
 interface BudgetScheduleProps {
@@ -297,171 +291,20 @@ interface BudgetScheduleProps {
   onSettingsChange: (settings: CampaignSettings) => void;
 }
 
-function generateSuggestions(
-  audiences: AudienceSettings,
-  budget: number,
-  locationGroups: LocationTargetingGroup[],
-): AdSetSuggestion[] {
-  const baseSuggestions: Omit<AdSetSuggestion, "geoLocations" | "locationLabel">[] = [];
-  const age = suggestAgeRange(audiences);
-  // Declared here (before any forEach that references it) to avoid TDZ crash in the
-  // minified/bundled build where the original let/const was placed further down.
-  const RANGE_LABELS: Record<string, string> = { "0-1%": "1%", "1-2%": "2%", "2-3%": "3%" };
-
-  audiences.pageGroups.forEach((g) => {
-    if (g.pageIds.length === 0) return;
-    baseSuggestions.push({
-      id: `as_pg_${g.id}`,
-      name: g.name || "Page Group",
-      sourceType: "page_group",
-      sourceId: g.id,
-      sourceName: `${g.name || "Untitled"} (${g.pageIds.length} pages)`,
-      ageMin: age.min,
-      ageMax: age.max,
-      budgetPerDay: 0,
-      advantagePlus: false,
-      enabled: true,
-    });
-  });
-
-  audiences.customAudienceGroups.forEach((g) => {
-    if (g.audienceIds.length === 0) return;
-    baseSuggestions.push({
-      id: `as_ca_${g.id}`,
-      name: g.name || "Custom Audiences",
-      sourceType: "custom_group",
-      sourceId: g.id,
-      sourceName: `${g.name || "Untitled"} (${g.audienceIds.length} audiences)`,
-      ageMin: age.min,
-      ageMax: age.max,
-      budgetPerDay: 0,
-      advantagePlus: false,
-      enabled: true,
-    });
-    // Lookalike ad sets from this custom audience group (one per tier)
-    if (g.lookalike && g.lookalikeRanges?.length) {
-      for (const range of g.lookalikeRanges) {
-        const pctLabel = RANGE_LABELS[range] ?? range;
-        baseSuggestions.push({
-          id: `as_ca_lal_${g.id}_${range}`,
-          name: `${g.name || "Custom Audiences"} — ${pctLabel} Lookalike`,
-          sourceType: "custom_group_lookalike",
-          sourceId: g.id,
-          sourceName: `${g.name || "Untitled"} ${pctLabel} Lookalike`,
-          lookalikeRange: range,
-          ageMin: age.min,
-          ageMax: age.max,
-          budgetPerDay: 0,
-          advantagePlus: false,
-          enabled: true,
-        });
-      }
-    }
-  });
-
-  audiences.savedAudiences.audienceIds.forEach((id, i) => {
-    baseSuggestions.push({
-      id: `as_sa_${id}`,
-      name: `Saved Audience ${i + 1}`,
-      sourceType: "saved_audience",
-      sourceId: id,
-      sourceName: id,
-      ageMin: age.min,
-      ageMax: age.max,
-      budgetPerDay: 0,
-      advantagePlus: false,
-      enabled: true,
-    });
-  });
-
-  audiences.interestGroups.forEach((g) => {
-    if (g.interests.length === 0) return;
-    baseSuggestions.push({
-      id: `as_ig_${g.id}`,
-      name: g.name || "Interest Group",
-      sourceType: "interest_group",
-      sourceId: g.id,
-      sourceName: `${g.name || "Untitled"} (${g.interests.length} interests)`,
-      ageMin: age.min,
-      ageMax: age.max,
-      budgetPerDay: 0,
-      advantagePlus: false,
-      enabled: true,
-    });
-  });
-
-  // Lookalike ad sets from page groups with lookalike enabled
-  audiences.pageGroups.forEach((g) => {
-    if (!g.lookalike || g.pageIds.length === 0) return;
-    const ranges = g.lookalikeRanges?.length ? g.lookalikeRanges : ["0-1%"];
-    for (const range of ranges) {
-      const pctLabel = RANGE_LABELS[range] ?? range;
-      baseSuggestions.push({
-        id: `as_lal_${g.id}_${range}`,
-        name: `${g.name || "Page Group"} — ${pctLabel} Lookalike`,
-        sourceType: "lookalike_group",
-        sourceId: g.id,
-        sourceName: `${g.name || "Untitled"} ${pctLabel} Lookalike`,
-        ageMin: age.min,
-        ageMax: age.max,
-        budgetPerDay: 0,
-        advantagePlus: false,
-        enabled: true,
-      });
-    }
-  });
-
-  // Lookalike ad sets from SelectedPagesLookalikeGroups (one per range per group)
-  (audiences.selectedPagesLookalikeGroups ?? []).forEach((g) => {
-    if (g.selectedPageIds.length === 0) return;
-    const ranges: LookalikeRange[] = g.lookalikeRanges?.length ? g.lookalikeRanges : ["0-1%"];
-    for (const range of ranges) {
-      const pctLabel = RANGE_LABELS[range] ?? range;
-      baseSuggestions.push({
-        id: `as_splal_${g.id}_${range}`,
-        name: `${g.name || "Selected Pages"} — ${pctLabel} Lookalike`,
-        sourceType: "selected_pages_lookalike",
-        sourceId: g.id,
-        sourceName: `${g.name || "Selected Pages"} (${g.selectedPageIds.length} pages, ${pctLabel})`,
-        lookalikeRange: range,
-        ageMin: age.min,
-        ageMax: age.max,
-        budgetPerDay: 0,
-        advantagePlus: false,
-        enabled: true,
-      });
-    }
-  });
-
-  const groups = locationGroups.length > 0
-    ? deduplicateLocationGroups(locationGroups)
-    : [FALLBACK_UK_NATIONWIDE];
-
-  const suggestions: AdSetSuggestion[] = [];
-  for (const base of baseSuggestions) {
-    for (const group of groups) {
-      suggestions.push(
-        stampLocationGroup(base, group, {
-          groupCount: groups.length,
-          configured: locationGroups.length > 0,
-        }),
-      );
-    }
-  }
-
-  const enabled = suggestions.filter((s) => s.enabled);
-  const perSet = enabled.length > 0 ? Math.round((budget / enabled.length) * 100) / 100 : 0;
-  return suggestions.map((s) => ({ ...s, budgetPerDay: s.enabled ? perSet : 0 }));
-}
-
 // ─── Location Picker Component ───────────────────────────────────────────────
 
 function LocationPicker({
   groups,
   onChange,
+  exclusions,
+  onExclusionsChange,
+  adSetSuggestions,
 }: {
   groups: LocationTargetingGroup[];
   onChange: (groups: LocationTargetingGroup[]) => void;
+  exclusions: LocationSelection[];
+  onExclusionsChange: (exclusions: LocationSelection[]) => void;
+  adSetSuggestions: AdSetSuggestion[];
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [addMode, setAddMode] = useState<"include" | "exclude">("include");
@@ -477,6 +320,12 @@ function LocationPicker({
 
   const addFromSearch = (result: LocationSearchResult) => {
     const selection = searchResultToSelection(result, addMode, addRadius);
+    if (addMode === "exclude") {
+      onExclusionsChange([...exclusions, selection]);
+      setSearchQuery("");
+      locationSearch.clear();
+      return;
+    }
     const newGroup: LocationTargetingGroup = {
       id: `manual_${Date.now()}`,
       label: selection.label + (result.type === "city" && addRadius ? ` (+${addRadius} km)` : ""),
@@ -516,6 +365,13 @@ function LocationPicker({
     const next = groups.filter((g) => g.id !== id);
     onChange(next);
   };
+
+  const setTier = (id: string, tier: LocationTier) =>
+    onChange(groups.map((g) => (g.id === id ? withGroupTier(g, groupTier(g) === tier ? undefined : tier) : g)));
+
+  const enabledAdSets = adSetSuggestions.filter((s) => s.enabled);
+  const exclusionUseCount = (id: string) =>
+    enabledAdSets.filter((s) => s.excludedLocationIds?.includes(id)).length;
 
   const formatResultLabel = (r: LocationSearchResult) => {
     const parts = [r.name, r.region, r.country_name].filter(Boolean);
@@ -635,7 +491,7 @@ function LocationPicker({
       {groups.length > 0 && (
         <div>
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Active Location Groups ({groups.length})
+            Locations ({groups.length})
           </span>
           <div className="mt-2 space-y-1.5">
             {groups.map((g) => (
@@ -667,11 +523,31 @@ function LocationPicker({
                     ))}
                   </div>
                 </div>
+                <div className="ml-2 flex shrink-0 items-center gap-1" role="group" aria-label="Tier">
+                  {(["primary", "secondary"] as const).map((tier) => {
+                    const on = groupTier(g) === tier;
+                    return (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => setTier(g.id, tier)}
+                        aria-pressed={on}
+                        title={on ? `Tagged ${tier} — click to clear` : `Tag as ${tier}`}
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors
+                          ${on
+                            ? "border-primary bg-primary-light text-primary"
+                            : "border-border text-muted-foreground hover:border-foreground/20"}`}
+                      >
+                        {tier === "primary" ? "Primary" : "Secondary"}
+                      </button>
+                    );
+                  })}
+                </div>
                 <button
                   type="button"
                   onClick={() => removeGroup(g.id)}
-                  className="ml-2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
-                  title="Remove location group"
+                  className="ml-1 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0"
+                  title="Remove location"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -680,7 +556,8 @@ function LocationPicker({
           </div>
           {groups.length > 1 && (
             <StatusLine className="mt-2 text-[11px] text-muted-foreground">
-              {groups.length} groups — each audience will produce {groups.length} ad sets (one per location group).
+              {groups.length} locations — Generate makes one ad set per audience targeting all {groups.length}{" "}
+              together. Narrow or split an ad set from its row.
             </StatusLine>
           )}
         </div>
@@ -690,6 +567,47 @@ function LocationPicker({
         <StatusLine className="text-xs text-muted-foreground">
           No locations selected — ad sets will default to UK nationwide targeting.
         </StatusLine>
+      )}
+
+      {exclusions.length > 0 && (
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Exclusion pool ({exclusions.length})
+          </span>
+          <div className="mt-2 space-y-1.5">
+            {exclusions.map((sel) => {
+              const used = exclusionUseCount(sel.id);
+              return (
+                <div
+                  key={sel.id}
+                  className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
+                >
+                  <span className="min-w-0 truncate text-[11px] rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
+                    − {sel.label}
+                    {sel.radius ? ` (${sel.radius} km)` : ""}
+                    {sel.locationType === "city" ? "" : ` [${sel.locationType}]`}
+                  </span>
+                  <div className="ml-2 flex shrink-0 items-center gap-2">
+                    <span className={`text-[11px] ${used === 0 ? "text-warning" : "text-muted-foreground"}`}>
+                      {used === 0 ? "on no ad sets yet" : `on ${used} of ${enabledAdSets.length} ad sets`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onExclusionsChange(exclusions.filter((e) => e.id !== sel.id))}
+                      className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      title="Remove from the exclusion pool"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <StatusLine className="mt-2 text-[11px] text-muted-foreground">
+            An exclusion only applies to the ad sets you pick on each row&apos;s Excl control.
+          </StatusLine>
+        </div>
       )}
     </div>
   );
@@ -1205,13 +1123,14 @@ export function BudgetSchedule({
     onSuggestionsChange(adSetSuggestions.map((s) => (s.id === id ? { ...s, ...patch } : s)));
 
   const locationGroups = useMemo(() => bs.locationGroups ?? [], [bs.locationGroups]);
+  const exclusionPool = useMemo(() => bs.excludedLocations ?? [], [bs.excludedLocations]);
 
   const handleLocationGroupsChange = (groups: LocationTargetingGroup[]) => {
     onBudgetChange({ ...bs, locationGroups: groups });
   };
 
   const handleGenerate = () => {
-    const next = generateSuggestions(audiences, bs.budgetAmount, locationGroups);
+    const next = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
     onSuggestionsChange(next);
   };
 
@@ -1333,16 +1252,39 @@ export function BudgetSchedule({
   // ── "Generate audience set × location" bonus (refinement pack #5) ────────
   const unrepresentedLocationGroups = useMemo(() => {
     if (locationGroups.length < 2 || adSetSuggestions.length === 0) return [];
-    const representedIds = new Set(
-      adSetSuggestions.map((s) => s.locationGroupId).filter((id): id is string => Boolean(id)),
-    );
-    return locationGroups.filter((g) => !representedIds.has(g.id));
+    return locationGroups.filter((g) => adSetsTargetingLocation(adSetSuggestions, g.id).length === 0);
   }, [locationGroups, adSetSuggestions]);
 
   const generateUnderLocationGroup = (group: LocationTargetingGroup) => {
-    const newRows = duplicateSuggestionsUnderLocationGroup(adSetSuggestions, group);
+    const newRows = duplicateSuggestionsUnderLocationGroup(adSetSuggestions, group, locationGroups, exclusionPool);
     if (newRows.length === 0) return;
     onSuggestionsChange([...adSetSuggestions, ...newRows]);
+  };
+
+  const addUnderEveryAdSet = (group: LocationTargetingGroup) =>
+    onSuggestionsChange(addLocationToEveryAdSet(adSetSuggestions, group, locationGroups, exclusionPool));
+
+  // ── Per-row locations / exclusions dialog ─────────────────────────────────
+  const [locationDialog, setLocationDialog] = useState<{ adSetId: string; kind: "include" | "exclude" } | null>(
+    null,
+  );
+  const dialogAdSet = locationDialog ? adSetSuggestions.find((s) => s.id === locationDialog.adSetId) : undefined;
+
+  const applyLocationDialog = (selectedIds: string[], targetIds: string[]) => {
+    if (!locationDialog) return;
+    onSuggestionsChange(
+      locationDialog.kind === "include"
+        ? applyLocationsToAdSets(adSetSuggestions, targetIds, selectedIds, locationGroups, exclusionPool)
+        : applyExclusionsToAdSets(adSetSuggestions, targetIds, selectedIds, locationGroups, exclusionPool),
+    );
+    setLocationDialog(null);
+  };
+
+  const splitFromDialog = (selectedIds: string[]) => {
+    if (!dialogAdSet) return;
+    const narrowed = applyLocationsToAdSets(adSetSuggestions, [dialogAdSet.id], selectedIds, locationGroups, exclusionPool);
+    onSuggestionsChange(splitAdSetByLocation(narrowed, dialogAdSet.id, locationGroups, exclusionPool));
+    setLocationDialog(null);
   };
 
   const enabledCount = adSetSuggestions.filter((s) => s.enabled).length;
@@ -1356,6 +1298,10 @@ export function BudgetSchedule({
   const oversizedBudgetAdSets = findAdSetsExceedingBudgetShare(
     adSetSuggestions,
     bs.budgetAmount,
+  );
+  const locationWarnings = findAdSetLocationWarnings(
+    adSetSuggestions.filter((s) => s.enabled),
+    bs,
   );
 
   const days = useMemo(() => {
@@ -1469,12 +1415,16 @@ export function BudgetSchedule({
           <CardTitle>Location Targeting</CardTitle>
         </div>
         <CardDescription className="mt-1">
-          Select preset locations or search Meta&apos;s location database. Each group generates separate ad sets per audience.
+          Select preset locations or search Meta&apos;s location database. Tag each as primary or secondary to
+          pick them in one click on an ad set. Searching with Exclude adds to the exclusion pool.
         </CardDescription>
         <div className="mt-4">
           <LocationPicker
             groups={locationGroups}
             onChange={handleLocationGroupsChange}
+            exclusions={exclusionPool}
+            onExclusionsChange={(excludedLocations) => onBudgetChange({ ...bs, excludedLocations })}
+            adSetSuggestions={adSetSuggestions}
           />
         </div>
 
@@ -1488,18 +1438,21 @@ export function BudgetSchedule({
                 key={g.id}
                 className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary-light px-3 py-2"
               >
-                <span className="flex items-center gap-1.5 text-xs text-foreground">
+                <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground">
                   <Wand2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-                  Duplicate every enabled ad set under <span className="font-semibold">{g.label}</span> too?
+                  <span className="truncate">
+                    <span className="font-semibold" title={g.label}>{shortLocationLabel(g.label)}</span> isn&apos;t on
+                    any ad set yet.
+                  </span>
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => generateUnderLocationGroup(g)}
-                >
-                  Generate audience set × location
-                </Button>
+                <div className="flex shrink-0 gap-2">
+                  <Button variant="outline" size="sm" onClick={() => addUnderEveryAdSet(g)}>
+                    Add to every ad set
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => generateUnderLocationGroup(g)}>
+                    Duplicate ad sets for it
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -1664,9 +1617,22 @@ export function BudgetSchedule({
               </div>
             )}
 
+            {locationWarnings.length > 0 && (
+              <div className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                <div className="space-y-0.5 text-xs text-warning">
+                  {locationWarnings.map((w) => (
+                    <StatusLine key={w}>{w}</StatusLine>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="rounded-lg border border-border overflow-hidden">
               {adSetSuggestions.map((s) => {
                 const isBlank = s.sourceType === "blank";
+                const locationSummary = adSetLocationSummary(s, locationGroups);
+                const exclusionSummary = adSetExclusionSummary(s, exclusionPool);
                 return (
                   <div
                     key={s.id}
@@ -1694,41 +1660,36 @@ export function BudgetSchedule({
                           <Badge variant="outline" className="text-[10px] shrink-0">
                             {SOURCE_LABELS[s.sourceType] || s.sourceType}
                           </Badge>
-                          {s.locationLabel && locationGroups.length > 1 && (
-                            <span title={s.locationLabel} className="flex min-w-0">
-                              <Badge variant="primary" className={ADSET_ROW_LOCATION_BADGE_CLASS}>
-                                <span className="truncate">{shortLocationLabel(s.locationLabel)}</span>
-                              </Badge>
-                            </span>
-                          )}
                         </div>
                         <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {/* Per-row location group assignment (refinement pack #5) —
-                            only shown once there's a real choice to make. */}
-                        {locationGroups.length > 1 && (
-                          <select
-                            value={s.locationGroupId ?? ""}
-                            onChange={(e) => {
-                              const group = locationGroups.find((g) => g.id === e.target.value);
-                              if (!group) return;
-                              onSuggestionsChange(
-                                adSetSuggestions.map((row) =>
-                                  row.id === s.id ? reassignAdSetLocationGroup(row, group) : row,
-                                ),
-                              );
-                            }}
-                            title="Location group for this ad set"
-                            className="max-w-[8.5rem] rounded border border-border bg-card px-1.5 py-1 text-[11px]"
+                        {/* Per-row locations — only once there's a real choice,
+                            or when the row has lost all of its locations. */}
+                        {(locationGroups.length > 1 || locationSummary.empty) && (
+                          <button
+                            type="button"
+                            onClick={() => setLocationDialog({ adSetId: s.id, kind: "include" })}
+                            title={locationSummary.title}
+                            className={`${ADSET_ROW_LOCATION_CONTROL_CLASS} ${
+                              locationSummary.empty
+                                ? "border-destructive bg-destructive/10 text-destructive"
+                                : "border-border bg-card text-foreground hover:bg-muted"
+                            }`}
                           >
-                            {!s.locationGroupId && (
-                              <option value="">{s.locationLabel ?? "Default location"}</option>
-                            )}
-                            {locationGroups.map((g) => (
-                              <option key={g.id} value={g.id}>{g.label}</option>
-                            ))}
-                          </select>
+                            <MapPin className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{locationSummary.text}</span>
+                          </button>
+                        )}
+                        {exclusionPool.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setLocationDialog({ adSetId: s.id, kind: "exclude" })}
+                            title={exclusionSummary.title}
+                            className={`${ADSET_ROW_LOCATION_CONTROL_CLASS} border-border bg-card text-muted-foreground hover:bg-muted`}
+                          >
+                            <span className="truncate">{exclusionSummary.text}</span>
+                          </button>
                         )}
                         <div className="flex items-center gap-1">
                           <input
@@ -1898,7 +1859,198 @@ export function BudgetSchedule({
         currency={bs.currency}
         rowCount={adSetSuggestions.length}
       />
+      {locationDialog && dialogAdSet && (
+        <AdSetLocationsDialog
+          kind={locationDialog.kind}
+          adSet={dialogAdSet}
+          adSets={adSetSuggestions}
+          options={
+            locationDialog.kind === "include"
+              ? locationOptions(locationGroups)
+              : exclusionPool.map((p) => ({
+                  id: p.id,
+                  label: p.radius ? `${p.label} (+${p.radius} km)` : p.label,
+                }))
+          }
+          initialSelected={
+            locationDialog.kind === "include"
+              ? adSetLocationGroupIds(dialogAdSet) ?? []
+              : dialogAdSet.excludedLocationIds ?? []
+          }
+          onClose={() => setLocationDialog(null)}
+          onApply={applyLocationDialog}
+          onSplit={locationDialog.kind === "include" ? splitFromDialog : undefined}
+        />
+      )}
     </div>
     </StepSurfaceProvider>
+  );
+}
+
+// ─── Per-row locations / exclusions dialog ──────────────────────────────────
+//
+// Mounted only while open, so each open starts from the row's current state.
+// Chooses from locations already on the campaign — no Meta search here.
+
+interface LocationOption {
+  id: string;
+  label: string;
+  tier?: LocationTier;
+}
+
+function AdSetLocationsDialog({
+  kind,
+  adSet,
+  adSets,
+  options,
+  initialSelected,
+  onClose,
+  onApply,
+  onSplit,
+}: {
+  kind: "include" | "exclude";
+  adSet: AdSetSuggestion;
+  adSets: AdSetSuggestion[];
+  options: LocationOption[];
+  initialSelected: string[];
+  onClose: () => void;
+  onApply: (selectedIds: string[], targetAdSetIds: string[]) => void;
+  onSplit?: (selectedIds: string[]) => void;
+}) {
+  const optionIds = new Set(options.map((o) => o.id));
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(initialSelected.filter((id) => optionIds.has(id))),
+  );
+  const [targets, setTargets] = useState<Set<string>>(() => new Set([adSet.id]));
+
+  const toggle = (set: Set<string>, id: string) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+  const quickPick = (pick: LocationQuickPick) => setSelected(new Set(locationIdsForQuickPick(options, pick)));
+
+  const hasTier = (tier: LocationTier) => options.some((o) => o.tier === tier);
+  const selectedIds = options.filter((o) => selected.has(o.id)).map((o) => o.id);
+  const targetIds = adSets.filter((s) => targets.has(s.id)).map((s) => s.id);
+  const title = kind === "include" ? "Locations" : "Exclusions";
+
+  return (
+    <Dialog open onClose={onClose} ariaLabel={`${title} for ${adSet.name}`}>
+      <DialogContent>
+        <DialogHeader onClose={onClose}>
+          <DialogTitle>
+            {title} · {adSet.name || "Ad set"}
+          </DialogTitle>
+          <DialogDescription>
+            {kind === "include"
+              ? "Every location ticked here is targeted by one ad set."
+              : "Pooled exclusions ticked here are removed from this ad set's targeting."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-wrap items-center gap-1 text-[11px]">
+          <button type="button" onClick={() => quickPick("all")} className="rounded px-1.5 py-0.5 text-primary hover:underline">
+            All
+          </button>
+          {kind === "include" && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <button
+                type="button"
+                disabled={!hasTier("primary")}
+                onClick={() => quickPick("primary")}
+                title={hasTier("primary") ? undefined : "No location is tagged primary in Location Targeting"}
+                className="rounded px-1.5 py-0.5 text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+              >
+                All primary
+              </button>
+              <span className="text-muted-foreground">·</span>
+              <button
+                type="button"
+                disabled={!hasTier("secondary")}
+                onClick={() => quickPick("secondary")}
+                title={hasTier("secondary") ? undefined : "No location is tagged secondary in Location Targeting"}
+                className="rounded px-1.5 py-0.5 text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+              >
+                All secondary
+              </button>
+            </>
+          )}
+          <span className="text-muted-foreground">·</span>
+          <button type="button" onClick={() => quickPick("none")} className="rounded px-1.5 py-0.5 text-destructive hover:underline">
+            None
+          </button>
+        </div>
+
+        <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+          {options.map((o) => (
+            <li key={o.id}>
+              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-border px-2.5 py-1.5 hover:bg-muted/50">
+                <Checkbox checked={selected.has(o.id)} onChange={() => setSelected((prev) => toggle(prev, o.id))} />
+                <span className="min-w-0 flex-1 truncate text-xs" title={o.label}>{o.label}</span>
+                {o.tier && (
+                  <Badge variant={o.tier === "primary" ? "primary" : "outline"} className="shrink-0 text-[10px]">
+                    {o.tier}
+                  </Badge>
+                )}
+              </label>
+            </li>
+          ))}
+        </ul>
+        {kind === "include" && selectedIds.length === 0 && (
+          <StatusLine tone="alert" className="mt-2 text-xs text-destructive">
+            An ad set with no locations can&apos;t launch.
+          </StatusLine>
+        )}
+
+        {adSets.length > 1 && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Apply to</span>
+              <span className="flex gap-1 text-[11px]">
+                <button type="button" onClick={() => setTargets(new Set(adSets.map((s) => s.id)))} className="px-1.5 text-primary hover:underline">
+                  All ad sets
+                </button>
+                <span className="text-muted-foreground">·</span>
+                <button type="button" onClick={() => setTargets(new Set([adSet.id]))} className="px-1.5 text-primary hover:underline">
+                  Only this one
+                </button>
+              </span>
+            </div>
+            <ul className="mt-1 max-h-40 space-y-1 overflow-y-auto">
+              {adSets.map((s) => (
+                <li key={s.id}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1 hover:bg-muted/50">
+                    <Checkbox checked={targets.has(s.id)} onChange={() => setTargets((prev) => toggle(prev, s.id))} />
+                    <span className="min-w-0 flex-1 truncate text-xs">{s.name || "Untitled ad set"}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {onSplit && selectedIds.length > 1 && (
+          <div className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-2">
+            <StatusLine className="text-[11px] text-muted-foreground">
+              One ad set pools the budget and exits learning faster. Splitting gives each city its own CPR:
+              Meta reports cost per ad set, so a combined ad set can&apos;t tell you what one city cost.
+            </StatusLine>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => onSplit(selectedIds)}>
+              Split this ad set into {selectedIds.length}, one per location
+            </Button>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" disabled={targetIds.length === 0} onClick={() => onApply(selectedIds, targetIds)}>
+            Apply to {targetIds.length} ad set{targetIds.length !== 1 ? "s" : ""}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -20,13 +20,14 @@ import type {
   BudgetScheduleSettings,
   PlacementConfig,
   LocationTargetingGroup,
+  LocationSelection,
 } from "@/lib/types";
 // Relative + explicit extension (not the "@/" alias): this is a VALUE import,
 // not type-only, so `--experimental-strip-types` does not erase it — plain
 // Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
-import { resolveAdSetGeoLocations } from "./location-targeting.ts";
+import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "./location-targeting.ts";
 import { META_INITIATE_CHECKOUT_EVENT } from "./campaign.ts";
 
 // ─── Optimization goal mapping ────────────────────────────────────────────────
@@ -325,10 +326,11 @@ function toUnixTs(dateStr: string): number {
  *                                    via custom_audiences when a real Meta ID exists)
  *
  * Geo-location note:
- *   Resolved via `resolveAdSetGeoLocations` — prefers a fresh lookup of
- *   `adSet.locationGroupId` against `locationGroups` (task #118, multi-
- *   location per campaign) over the stamped `adSet.geoLocations` snapshot.
- *   Defaults to { countries: ["GB"] } when neither is present.
+ *   Resolved via `resolveAdSetGeoLocations` — `adSet.locationGroupIds`
+ *   (multi-city) resolved fresh against `locationGroups` + pooled
+ *   `excludedLocations`, else the legacy `locationGroupId`, else the stamped
+ *   `adSet.geoLocations` snapshot. Defaults to { countries: ["GB"] } only for
+ *   a legacy row with none of those; an empty multi-city row throws.
  *
  * Interest / custom-audience IDs:
  *   Mock IDs ("int1", "ca2") are filtered out. Only real numeric Meta IDs (10+ digits)
@@ -347,6 +349,7 @@ export function buildMetaTargeting(
   adSet: AdSetSuggestion,
   audiences: AudienceSettings,
   locationGroups?: LocationTargetingGroup[],
+  excludedLocations?: LocationSelection[],
 ): MetaTargeting {
   // ── Advantage+ OFF: strict age enforcement ───────────────────────────────
   // age_min / age_max at targeting root = hard limits Meta enforces.
@@ -358,8 +361,13 @@ export function buildMetaTargeting(
   // Instead, pass the user's chosen range as individual_setting inside
   // targeting_automation; Meta treats these as audience *suggestions* and
   // may expand beyond them.
-  // Resolve geo: locationGroupId (fresh) → per-ad-set geoLocations snapshot → default GB
-  const rawGeo = resolveAdSetGeoLocations(adSet, locationGroups);
+  // Resolve geo — precedence is documented on resolveAdSetGeoLocations. The
+  // GB default below is only for legacy rows that never had a location; a
+  // multi-city row the operator emptied must fail here, not launch UK-wide.
+  const rawGeo = resolveAdSetGeoLocations(adSet, locationGroups, excludedLocations);
+  if (adSet.locationGroupIds && rawGeo && geoHasNoIncludedArea(rawGeo)) {
+    throw new Error(`Ad set "${adSet.name}" has no included locations — refusing to default it to UK nationwide.`);
+  }
   const geoLocations: MetaGeoLocations = rawGeo
     ? { countries: rawGeo.countries, cities: rawGeo.cities, regions: rawGeo.regions }
     : { countries: ["GB"] };
@@ -841,7 +849,12 @@ export function buildAdSetPayload(
     // Always explicit — omitting causes Meta to pick a default that may require
     // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
     bid_strategy: mapBidStrategy(effectiveGoal),
-    targeting: buildMetaTargeting(adSet, audiences, budgetSchedule.locationGroups),
+    targeting: buildMetaTargeting(
+      adSet,
+      audiences,
+      budgetSchedule.locationGroups,
+      budgetSchedule.excludedLocations,
+    ),
     // Wizard default ACTIVE so spend begins immediately. Plan fan-out
     // threads PAUSED via entityStatus without changing standalone launches.
     status: entityStatus,

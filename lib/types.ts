@@ -781,15 +781,30 @@ export interface LocationSelection {
   locationType: "city" | "country" | "region";
   /** Meta location key — for cities and regions */
   locationKey?: string;
-  /** ISO country code — for country-level targeting */
+  /**
+   * ISO country code. Always set for country-level targeting; also recorded
+   * for cities and regions picked from search (Meta returns it), so preflight
+   * can tell that an included city sits inside an excluded or included country.
+   */
   countryCode?: string;
   radius?: number;
   distanceUnit?: "kilometer" | "mile";
+  /**
+   * Operator tag set in the Location Targeting picker. Drives "All primary" /
+   * "All secondary" on the ad-set row. Absent = untiered.
+   */
+  tier?: LocationTier;
 }
 
+export type LocationTier = "primary" | "secondary";
+
 /**
- * A group of location selections that together define a single targeting spec.
- * Each group generates its own set of ad sets (one per audience).
+ * One location on the campaign as the picker shows it: a searched city,
+ * region or country, or a preset. An ad set targets a SET of these
+ * (`AdSetSuggestion.locationGroupIds`), combined into one `geo_locations`.
+ * A group's own `exclude` selections travel with it — only the
+ * "UK excl London" preset makes those. Search-added exclusions never become a
+ * group; they go to `BudgetScheduleSettings.excludedLocations`.
  */
 export interface LocationTargetingGroup {
   id: string;
@@ -810,8 +825,14 @@ export interface BudgetScheduleSettings {
   timezone: string;
   /** @deprecated — use locationGroups instead */
   locationPresets?: LocationPreset[];
-  /** Unified location model — each group generates separate ad sets */
+  /** The campaign's locations. Each ad set picks a set of them. */
   locationGroups?: LocationTargetingGroup[];
+  /**
+   * Exclusion pool: `mode: "exclude"` selections the operator has lined up.
+   * An exclusion only reaches Meta on the ad sets that list its id in
+   * `AdSetSuggestion.excludedLocationIds`.
+   */
+  excludedLocations?: LocationSelection[];
 }
 
 // ─── Ad set suggestions ───
@@ -821,7 +842,9 @@ export interface AdSetGeoLocations {
   cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
   regions?: { key: string }[];
   excluded_geo_locations?: {
+    countries?: string[];
     cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
+    regions?: { key: string }[];
   };
 }
 
@@ -866,8 +889,20 @@ export interface AdSetSuggestion {
    * Suggestions"). When absent — including every draft created before this
    * field existed — falls back to the stamped `geoLocations` snapshot
    * above, so old drafts behave identically to before.
+   *
+   * Superseded by `locationGroupIds` whenever that is present; kept for
+   * drafts persisted before multi-city ad sets.
    */
   locationGroupId?: string;
+  /**
+   * The campaign locations this ad set targets, combined into one ad set.
+   * Present (even empty) = this list is the whole truth at launch and an
+   * empty or fully-dangling list is a blocker, never UK nationwide. Absent =
+   * a pre-multi-city row; `locationGroupId` / `geoLocations` apply.
+   */
+  locationGroupIds?: string[];
+  /** Ids into `BudgetScheduleSettings.excludedLocations` applied to this ad set. */
+  excludedLocationIds?: string[];
   /**
    * For sourceType "selected_pages_lookalike" only — which percentage tier
    * this ad set targets. Used by buildMetaTargeting to look up the correct

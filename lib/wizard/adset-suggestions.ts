@@ -15,12 +15,17 @@
  *   - "Generate audience set × location" bonus → duplicateSuggestionsUnderLocationGroup
  */
 
-import type { AdSetSuggestion, LocationTargetingGroup } from "@/lib/types";
+import type { AdSetSuggestion, LocationSelection, LocationTargetingGroup, LocationTier } from "@/lib/types";
 // Relative + explicit extension (not the "@/" alias): this is a VALUE
 // import, not type-only, so `--experimental-strip-types` does not erase it —
 // plain Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" import above which vanishes entirely at runtime.
-import { groupToGeo } from "../meta/location-targeting.ts";
+import {
+  adSetLocationGroupIds,
+  groupTier,
+  groupToGeo,
+  locationsToGeo,
+} from "../meta/location-targeting.ts";
 import { nextDuplicateName } from "../duplicate-name.ts";
 
 /**
@@ -140,9 +145,9 @@ export function findAdSetsExceedingBudgetShare(
  * `lib/meta/adset.ts` `buildMetaTargeting` for the belt-and-braces backend
  * enforcement of the same rule).
  *
- * Defaults its location to the first configured location group (matching
- * every other newly-generated ad set); falls back to `fallbackGroup`
- * (UK nationwide) when no location group is configured yet.
+ * Targets every configured location together (matching every other
+ * newly-generated ad set); falls back to `fallbackGroup` (UK nationwide)
+ * when no location group is configured yet.
  *
  * `defaultBudgetPerDay` defaults to {@link MIN_BLANK_AD_SET_BUDGET} (£1) so
  * even a caller that skips `defaultBlankAdSetBudget` entirely can never
@@ -155,23 +160,23 @@ export function createBlankAdSetSuggestion(
   fallbackGroup: LocationTargetingGroup,
   defaultBudgetPerDay: number = MIN_BLANK_AD_SET_BUDGET,
 ): AdSetSuggestion {
-  const primary = locationGroups[0];
-  const effectiveGroup = primary ?? fallbackGroup;
-  return {
-    id: `as_blank_${Date.now()}`,
-    name: "Blank (no audience)",
-    sourceType: "blank",
-    sourceId: "",
-    sourceName: "No audience source — Advantage+ Audience only",
-    ageMin: 18,
-    ageMax: 65,
-    budgetPerDay: defaultBudgetPerDay > 0 ? defaultBudgetPerDay : MIN_BLANK_AD_SET_BUDGET,
-    advantagePlus: true,
-    enabled: true,
-    geoLocations: groupToGeo(effectiveGroup),
-    locationLabel: effectiveGroup.label,
-    locationGroupId: primary?.id,
-  };
+  const configured = locationGroups.length > 0;
+  return stampLocations(
+    {
+      id: `as_blank_${Date.now()}`,
+      name: "Blank (no audience)",
+      sourceType: "blank",
+      sourceId: "",
+      sourceName: "No audience source — Advantage+ Audience only",
+      ageMin: 18,
+      ageMax: 65,
+      budgetPerDay: defaultBudgetPerDay > 0 ? defaultBudgetPerDay : MIN_BLANK_AD_SET_BUDGET,
+      advantagePlus: true,
+      enabled: true,
+    },
+    configured ? locationGroups : [fallbackGroup],
+    { configured },
+  );
 }
 
 /**
@@ -338,8 +343,10 @@ export function applyBulkDailyBudget(
  */
 function stripLocationSuffix(name: string, label: string | undefined): string {
   if (!label) return name;
-  const suffix = ` — ${label}`;
-  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
+  for (const suffix of [` — ${label}`, ` — ${shortLocationLabel(label)}`]) {
+    if (name.endsWith(suffix)) return name.slice(0, -suffix.length);
+  }
+  return name;
 }
 
 /**
@@ -355,77 +362,285 @@ export function shortLocationLabel(label: string): string {
   return radius ? `${place} +${radius[1]}${radius[2].toLowerCase()}` : place;
 }
 
+/** Labels of the groups an id list resolves to, in campaign order; dangling ids are dropped. */
+function resolveGroups(ids: readonly string[], groups: LocationTargetingGroup[]): LocationTargetingGroup[] {
+  const wanted = new Set(ids);
+  return groups.filter((g) => wanted.has(g.id));
+}
+
+function resolveExclusions(ids: readonly string[] | undefined, pool: LocationSelection[]): LocationSelection[] {
+  if (!ids?.length) return [];
+  const wanted = new Set(ids);
+  return pool.filter((p) => wanted.has(p.id));
+}
+
+/** `locationLabel` for a set of locations: the full labels joined, for logs and the row tooltip. */
+function joinedLabel(groups: LocationTargetingGroup[]): string | undefined {
+  return groups.length ? groups.map((g) => g.label).join(" · ") : undefined;
+}
+
 /**
- * Stamp one location group onto a generated ad set. The name is left as the
- * audience name: once the campaign has more than one group the row shows the
- * location as a badge, and with one group there is nothing to tell apart.
- * `configured` is false for the synthetic UK-nationwide fallback, which is
- * not a real group and so gets no `locationGroupId`.
+ * Point an ad set at exactly `locationIds`, restamping the `geoLocations`
+ * snapshot and `locationLabel` from the same conversion launch uses.
+ *
+ * A name without a location in it is the operator's and is left alone. A name
+ * ending in its old location (a legacy generated row, or a split row) loses
+ * it, and takes the new one only if the row still isolates one location — so
+ * a row can never be named for a city it no longer targets.
  */
-export function stampLocationGroup(
-  base: Omit<AdSetSuggestion, "geoLocations" | "locationLabel">,
-  group: LocationTargetingGroup,
-  opts: { groupCount: number; configured: boolean },
+export function setAdSetLocations(
+  suggestion: AdSetSuggestion,
+  locationIds: readonly string[],
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[] = [],
 ): AdSetSuggestion {
+  const chosen = resolveGroups(locationIds, groups);
+  const stripped = stripLocationSuffix(suggestion.name, suggestion.locationLabel);
+  const name =
+    stripped === suggestion.name
+      ? suggestion.name
+      : chosen.length === 1
+        ? nameForLocation(stripped, undefined, chosen[0])
+        : stripped;
   return {
-    ...base,
-    id: opts.groupCount > 1 ? `${base.id}_${group.id}` : base.id,
-    geoLocations: groupToGeo(group),
-    locationLabel: group.label,
-    locationGroupId: opts.configured ? group.id : undefined,
+    ...suggestion,
+    name,
+    locationGroupIds: chosen.map((g) => g.id),
+    locationGroupId: undefined,
+    geoLocations: chosen.length
+      ? locationsToGeo(chosen, resolveExclusions(suggestion.excludedLocationIds, pool))
+      : undefined,
+    locationLabel: joinedLabel(chosen),
   };
 }
 
-/** Per-row location change: move the ad set to `group`, dropping any old location suffix from its name. */
-export function reassignAdSetLocationGroup(
+/** Apply exactly `exclusionIds` from the campaign pool to an ad set. */
+export function setAdSetExclusions(
   suggestion: AdSetSuggestion,
-  group: LocationTargetingGroup,
+  exclusionIds: readonly string[],
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[],
 ): AdSetSuggestion {
+  const excludedLocationIds = resolveExclusions(exclusionIds, pool).map((p) => p.id);
+  const ids = adSetLocationGroupIds(suggestion);
+  const chosen = ids ? resolveGroups(ids, groups) : [];
   return {
     ...suggestion,
-    name: stripLocationSuffix(suggestion.name, suggestion.locationLabel),
-    locationGroupId: group.id,
-    locationLabel: group.label,
-    geoLocations: groupToGeo(group),
+    excludedLocationIds,
+    ...(chosen.length
+      ? { geoLocations: locationsToGeo(chosen, resolveExclusions(excludedLocationIds, pool)) }
+      : {}),
   };
+}
+
+/** Row-control bulk apply: give every ad set in `targetIds` the same locations. */
+export function applyLocationsToAdSets(
+  suggestions: AdSetSuggestion[],
+  targetIds: readonly string[],
+  locationIds: readonly string[],
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[] = [],
+): AdSetSuggestion[] {
+  const targets = new Set(targetIds);
+  return suggestions.map((s) => (targets.has(s.id) ? setAdSetLocations(s, locationIds, groups, pool) : s));
+}
+
+/** Row-control bulk apply: give every ad set in `targetIds` the same pooled exclusions. */
+export function applyExclusionsToAdSets(
+  suggestions: AdSetSuggestion[],
+  targetIds: readonly string[],
+  exclusionIds: readonly string[],
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[],
+): AdSetSuggestion[] {
+  const targets = new Set(targetIds);
+  return suggestions.map((s) => (targets.has(s.id) ? setAdSetExclusions(s, exclusionIds, groups, pool) : s));
+}
+
+export type LocationQuickPick = "all" | "primary" | "secondary" | "none";
+
+/** The row control's options: every campaign location with the tier set in the picker. */
+export function locationOptions(groups: LocationTargetingGroup[]): { id: string; label: string; tier?: LocationTier }[] {
+  return groups.map((g) => ({ id: g.id, label: g.label, tier: groupTier(g) }));
+}
+
+/** Ids behind the row control's All / All primary / All secondary / None. */
+export function locationIdsForQuickPick(
+  options: readonly { id: string; tier?: LocationTier }[],
+  pick: LocationQuickPick,
+): string[] {
+  if (pick === "none") return [];
+  return options.filter((o) => pick === "all" || o.tier === pick).map((o) => o.id);
+}
+
+/**
+ * Generate default: one ad set per audience targeting every campaign location
+ * together. `configured` is false for the synthetic UK-nationwide fallback,
+ * which is not a real group, so the row keeps only the stamped snapshot.
+ */
+export function stampLocations(
+  base: Omit<AdSetSuggestion, "geoLocations" | "locationLabel">,
+  groups: LocationTargetingGroup[],
+  opts: { configured: boolean },
+): AdSetSuggestion {
+  if (!opts.configured) {
+    const fallback = groups[0];
+    return { ...base, geoLocations: fallback ? groupToGeo(fallback) : undefined, locationLabel: fallback?.label };
+  }
+  return setAdSetLocations({ ...base } as AdSetSuggestion, groups.map((g) => g.id), groups);
+}
+
+/** Name for a row that isolates one location: the audience name plus the short location, within the name cap. */
+function nameForLocation(name: string, previousLabel: string | undefined, group: LocationTargetingGroup): string {
+  const suffix = ` — ${shortLocationLabel(group.label)}`;
+  return `${truncateForSuffix(stripLocationSuffix(name, previousLabel), suffix)}${suffix}`;
+}
+
+function uniqueId(candidate: string, taken: Set<string>): string {
+  let id = candidate;
+  for (let n = 2; taken.has(id); n += 1) id = `${candidate}_${n}`;
+  taken.add(id);
+  return id;
+}
+
+/**
+ * Split by city: replace ad set `id` with one ad set per location it
+ * targets, in place. Each copy keeps the row's exclusions and settings, takes
+ * an even share of its daily budget (so the campaign total is unchanged), and
+ * carries the location in its name — that name is what Meta reports per-city
+ * CPR under. A row with fewer than two locations is returned unchanged.
+ */
+export function splitAdSetByLocation(
+  suggestions: AdSetSuggestion[],
+  id: string,
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[] = [],
+): AdSetSuggestion[] {
+  const idx = suggestions.findIndex((s) => s.id === id);
+  if (idx === -1) return suggestions;
+  const source = suggestions[idx];
+  const chosen = resolveGroups(adSetLocationGroupIds(source) ?? [], groups);
+  if (chosen.length < 2) return suggestions;
+  const taken = new Set(suggestions.map((s) => s.id));
+  taken.delete(source.id);
+  const share = roundMoney(source.budgetPerDay / chosen.length);
+  const copies = chosen.map((g) =>
+    setAdSetLocations(
+      {
+        ...source,
+        id: uniqueId(`${source.id}_${g.id}`, taken),
+        name: nameForLocation(source.name, source.locationLabel, g),
+        budgetPerDay: share,
+      },
+      [g.id],
+      groups,
+      pool,
+    ),
+  );
+  return [...suggestions.slice(0, idx), ...copies, ...suggestions.slice(idx + 1)];
+}
+
+/** Every ad set that targets `groupId` (by its effective location ids). */
+export function adSetsTargetingLocation(suggestions: AdSetSuggestion[], groupId: string): AdSetSuggestion[] {
+  return suggestions.filter((s) => adSetLocationGroupIds(s)?.includes(groupId));
+}
+
+/**
+ * A location added after ad sets exist is on none of them. "Add to every ad
+ * set" — the combined default: append it to every enabled row's locations.
+ */
+export function addLocationToEveryAdSet(
+  suggestions: AdSetSuggestion[],
+  group: LocationTargetingGroup,
+  groups: LocationTargetingGroup[],
+  pool: LocationSelection[] = [],
+): AdSetSuggestion[] {
+  return suggestions.map((s) => {
+    if (!s.enabled) return s;
+    const ids = adSetLocationGroupIds(s) ?? [];
+    if (ids.includes(group.id)) return s;
+    return setAdSetLocations(s, [...ids, group.id], groups, pool);
+  });
 }
 
 /**
  * Step 5 ad-set row layout. The right-hand controls are ~650px of fixed-width
  * inputs, so the row wraps them under the name before the name column falls
- * below its minimum; inside the column the location badge is the element that
- * gives way, never the name input.
+ * below its minimum.
  */
 export const ADSET_ROW_MAIN_CLASS = "flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3";
 export const ADSET_ROW_NAME_COLUMN_CLASS = "min-w-[14rem] flex-1";
 export const ADSET_ROW_NAME_INPUT_CLASS =
   "min-w-[8rem] flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-foreground hover:border-border focus:border-primary focus:bg-card focus:outline-none";
-export const ADSET_ROW_LOCATION_BADGE_CLASS = "min-w-0 max-w-[9rem] text-[10px]";
+/** The closed row control: capped and truncating, full list in its `title`. */
+export const ADSET_ROW_LOCATION_CONTROL_CLASS =
+  "inline-flex min-w-0 max-w-[9rem] items-center gap-1 rounded border px-1.5 py-1 text-[11px]";
 
 /**
- * "Generate audience set × location" bonus (task #118): duplicate every
- * currently-ENABLED ad set that isn't already assigned to `targetGroup`
- * under that new location group — one new row per existing audience, same
- * pattern as the audience × location cross-product `generateSuggestions`
- * already does at first-generation time.
- *
- * Manual-confirm only — the caller renders a button/banner and calls this
- * on click; it never runs automatically when a group is added. Returns ONLY
- * the new rows; the caller appends them to the existing array.
+ * Closed-control summary for an ad set's locations. One location reads as
+ * its short label; more read as a count, with the full list for the tooltip,
+ * so a long list never re-breaks the row.
+ */
+export function adSetLocationSummary(
+  suggestion: AdSetSuggestion,
+  groups: LocationTargetingGroup[],
+): { text: string; title: string; empty: boolean } {
+  const ids = adSetLocationGroupIds(suggestion);
+  if (ids === undefined) {
+    const label = suggestion.locationLabel ?? "UK (nationwide)";
+    return { text: shortLocationLabel(label), title: `${label} (from before per-row locations)`, empty: false };
+  }
+  const chosen = resolveGroups(ids, groups);
+  if (chosen.length === 0) return { text: "No locations", title: "No locations — this ad set can't launch", empty: true };
+  if (chosen.length === 1) return { text: shortLocationLabel(chosen[0].label), title: chosen[0].label, empty: false };
+  const allCities = chosen.every((g) => g.selections.every((s) => s.locationType === "city"));
+  return {
+    text: `${chosen.length} ${allCities ? "cities" : "locations"}`,
+    title: chosen.map((g) => g.label).join("\n"),
+    empty: false,
+  };
+}
+
+/** Closed-control summary for the pooled exclusions applied to an ad set. */
+export function adSetExclusionSummary(
+  suggestion: AdSetSuggestion,
+  pool: LocationSelection[],
+): { text: string; title: string } {
+  const applied = resolveExclusions(suggestion.excludedLocationIds, pool);
+  if (applied.length === 0) return { text: "Excl: none", title: "No pooled exclusions applied to this ad set" };
+  const labels = applied.map((p) => (p.radius ? `${p.label} (+${p.radius} km)` : p.label));
+  return {
+    text: applied.length === 1 ? `Excl: ${shortLocationLabel(labels[0])}` : `Excl: ${applied.length}`,
+    title: labels.join("\n"),
+  };
+}
+
+/**
+ * "Duplicate ad sets for it" — the split alternative to
+ * {@link addLocationToEveryAdSet} for a location added after ad sets exist:
+ * one new row per enabled ad set that doesn't target it yet, targeting only
+ * that location and named for it. Manual-confirm only. Returns ONLY the new
+ * rows; the caller appends them.
  */
 export function duplicateSuggestionsUnderLocationGroup(
   suggestions: AdSetSuggestion[],
   targetGroup: LocationTargetingGroup,
+  groups: LocationTargetingGroup[] = [targetGroup],
+  pool: LocationSelection[] = [],
 ): AdSetSuggestion[] {
-  const geo = groupToGeo(targetGroup);
+  const allGroups = groups.some((g) => g.id === targetGroup.id) ? groups : [...groups, targetGroup];
   return suggestions
-    .filter((s) => s.enabled && s.locationGroupId !== targetGroup.id)
-    .map((s) => ({
-      ...s,
-      id: `${s.id}_${targetGroup.id}_${Date.now()}`,
-      name: stripLocationSuffix(s.name, s.locationLabel),
-      geoLocations: geo,
-      locationLabel: targetGroup.label,
-      locationGroupId: targetGroup.id,
-    }));
+    .filter((s) => s.enabled && !adSetLocationGroupIds(s)?.includes(targetGroup.id))
+    .map((s) =>
+      setAdSetLocations(
+        {
+          ...s,
+          id: `${s.id}_${targetGroup.id}_${Date.now()}`,
+          name: nameForLocation(s.name, s.locationLabel, targetGroup),
+        },
+        [targetGroup.id],
+        allGroups,
+        pool,
+      ),
+    );
 }
