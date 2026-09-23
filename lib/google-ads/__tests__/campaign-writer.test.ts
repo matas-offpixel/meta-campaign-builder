@@ -9,7 +9,7 @@
  * Cases covered (see PR session log + Phase 3 prompt):
  *
  *  1. Full successful push — sequential chain, EU political ads field
- *     present, all PAUSED, `[event_code]` prefix applied.
+ *     present, live by default (ENABLED), `[event_code]` prefix applied.
  *  2. Triad failure (campaign mutate fails) — budget rolled back.
  *  3. Triad failure (all ad groups fail) — campaign + budget rolled
  *     back, campaign demoted to `campaignsFailed`.
@@ -156,7 +156,7 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
       structure_mode: "single_campaign",
       geo_targets: [],
       geo_target_type: "PRESENCE",
-      date_range: null,
+      date_range: { since: "2099-06-01", until: "2099-06-30" },
       pushed_at: null,
       created_at: "2026-05-21T00:00:00Z",
       updated_at: "2026-05-21T00:00:00Z",
@@ -259,14 +259,14 @@ describe("pushGoogleSearchPlan — full success", () => {
     assert.ok("create" in campaignOp);
     const campaignCreate = (campaignOp as { create: Record<string, unknown> }).create;
     assert.equal(campaignCreate.advertisingChannelType, "SEARCH");
-    assert.equal(campaignCreate.status, "PAUSED");
+    assert.equal(campaignCreate.status, "ENABLED");
     assert.equal(
       campaignCreate.containsEuPoliticalAdvertising,
       "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
     );
     assert.deepEqual(campaignCreate.networkSettings, {
       targetGoogleSearch: true,
-      targetSearchNetwork: true,
+      targetSearchNetwork: false,
       targetContentNetwork: false,
       targetPartnerSearchNetwork: false,
     });
@@ -274,11 +274,11 @@ describe("pushGoogleSearchPlan — full success", () => {
     assert.ok((campaignCreate.targetSpend as { cpcBidCeilingMicros?: string })?.cpcBidCeilingMicros);
     assert.equal(campaignCreate.manualCpc, undefined);
 
-    // Ad group PAUSED + SEARCH_STANDARD.
+    // Ad group ENABLED + SEARCH_STANDARD. Live is the default.
     const adGroupOp = calls[2].operations[0];
     assert.ok("create" in adGroupOp);
     const adGroupCreate = (adGroupOp as { create: Record<string, unknown> }).create;
-    assert.equal(adGroupCreate.status, "PAUSED");
+    assert.equal(adGroupCreate.status, "ENABLED");
     assert.equal(adGroupCreate.type, "SEARCH_STANDARD");
 
     // adGroupCriteria has partialFailure ON, with 1 keyword + 1 negative bundled.
@@ -291,11 +291,13 @@ describe("pushGoogleSearchPlan — full success", () => {
       return create.negative === true ? "negative" : "keyword";
     });
     assert.deepEqual(criteriaOps, ["keyword", "negative"]);
+    const keywordCreate = (calls[3].operations[0] as { create: Record<string, unknown> }).create;
+    assert.equal(keywordCreate.status, "ENABLED");
 
-    // RSA: PAUSED, has finalUrls + headlines + descriptions.
+    // RSA: ENABLED, has finalUrls + headlines + descriptions.
     assert.equal(calls[4].options.partialFailure, true);
     const rsaCreate = (calls[4].operations[0] as { create: Record<string, unknown> }).create;
-    assert.equal(rsaCreate.status, "PAUSED");
+    assert.equal(rsaCreate.status, "ENABLED");
     const adRsa = rsaCreate.ad as { responsiveSearchAd: { headlines: unknown[]; descriptions: unknown[] }; finalUrls?: string[] };
     assert.equal(adRsa.finalUrls?.[0], "https://offpixel.com/j2");
     assert.equal(adRsa.responsiveSearchAd.headlines.length, 3);
@@ -846,10 +848,9 @@ describe("pushGoogleSearchPlan — RSA final URL guard", () => {
     assert.deepEqual(ad.finalUrls, ["https://offpixel.com/j2"]);
   });
 
-  it("skips the mutate call entirely and partial-fails RSAs whose final_url is null", async () => {
+  it("refuses the whole push before any mutate when a serving RSA has no final URL", async () => {
     const { client, calls } = makeFakeClient();
     const t = tree();
-    // Strip the URL from the lone RSA in the fixture.
     t.campaigns[0].ad_groups[0].rsas[0].final_url = null;
 
     const summary = await pushGoogleSearchPlan({
@@ -859,19 +860,11 @@ describe("pushGoogleSearchPlan — RSA final URL guard", () => {
       client,
     });
 
-    // The fan-out adGroupAds:mutate call should never be made — no
-    // pushable RSAs remain after the URL-block guard pre-filter.
-    assert.equal(
-      calls.some((c) => c.resource === "adGroupAds"),
-      false,
-      "adGroupAds:mutate must NOT be called when every pending RSA is URL-blocked",
-    );
-
-    assert.equal(summary.rsasFailed.length, 1);
-    assert.equal(summary.rsasFailed[0].localId, "rsa-1");
-    assert.match(summary.rsasFailed[0].error, /no final url/i);
-    assert.equal(summary.rsasCreated.length, 0);
-    assert.equal(summary.partialFailure, true);
+    assert.equal(calls.length, 0);
+    assert.equal(summary.aborted, true);
+    assert.equal(summary.ok, false);
+    assert.match(summary.abortReason ?? "", /no final URL/i);
+    assert.equal(summary.campaignsCreated.length, 0);
   });
 
   it("partial-fails RSAs whose final_url is not http(s) and still pushes the rest", async () => {
@@ -1061,5 +1054,264 @@ describe("pushGoogleSearchPlan — geo location criteria", () => {
       client,
     });
     assert.ok(!calls.some((c) => c.resource === "campaignCriteria"));
+  });
+});
+
+function createStatuses(calls: MutateCall[], resource: string): string[] {
+  return calls
+    .filter((call) => call.resource === resource)
+    .flatMap((call) =>
+      call.operations.map((op) => {
+        if (!("create" in op)) return "";
+        return String((op as { create: { status?: string } }).create.status ?? "");
+      }),
+    );
+}
+
+describe("pushGoogleSearchPlan — live default and sheet pauses", () => {
+  it("creates campaign, ad group, and ad PAUSED when launchPaused is true, and leaves keywords ENABLED", async () => {
+    const { client, calls } = makeFakeClient();
+    const summary = await pushGoogleSearchPlan({
+      tree: tree(),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+      launchPaused: true,
+    });
+    assert.equal(summary.ok, true);
+    assert.deepEqual(createStatuses(calls, "campaigns"), ["PAUSED"]);
+    assert.deepEqual(createStatuses(calls, "adGroups"), ["PAUSED"]);
+    assert.deepEqual(createStatuses(calls, "adGroupAds"), ["PAUSED"]);
+    assert.deepEqual(createStatuses(calls, "adGroupCriteria").filter((status) => status === "ENABLED").length > 0, true);
+    const keyword = calls.find((call) => call.resource === "adGroupCriteria")?.operations[0];
+    assert.equal((keyword as { create: { status: string } }).create.status, "ENABLED");
+  });
+
+  it("creates a sheet-paused campaign PAUSED under the live default, in both stored shapes", async () => {
+    const { client, calls } = makeFakeClient();
+    const perTheme = tree({
+      campaigns: [
+        campaign({
+          name: "C4 Genre-Discovery",
+          bid_adjustments: { status_at_launch: "PAUSED" },
+        }),
+      ],
+    });
+    const perThemeSummary = await pushGoogleSearchPlan({
+      tree: perTheme,
+      credentials: CREDS,
+      eventCode: "IRW0001",
+      client,
+    });
+    assert.equal(perThemeSummary.ok, true);
+    assert.deepEqual(createStatuses(calls, "campaigns"), ["PAUSED"]);
+    assert.deepEqual(createStatuses(calls, "adGroups"), ["ENABLED"]);
+    assert.deepEqual(createStatuses(calls, "adGroupAds"), ["ENABLED"]);
+
+    const { client: mappedClient, calls: mappedCalls } = makeFakeClient();
+    const mapped = tree({
+      campaigns: [
+        campaign({
+          name: "C4 Genre-Discovery",
+          bid_adjustments: {
+            status_at_launch_by_campaign: { "C4 Genre-Discovery": "PAUSED" },
+          },
+        }),
+      ],
+    });
+    const mappedSummary = await pushGoogleSearchPlan({
+      tree: mapped,
+      credentials: CREDS,
+      eventCode: "IRW0001",
+      client: mappedClient,
+    });
+    assert.equal(mappedSummary.ok, true);
+    assert.deepEqual(createStatuses(mappedCalls, "campaigns"), ["PAUSED"]);
+  });
+
+  it("pauses an ad group whose name contains (PAUSED) and keeps the campaign live", async () => {
+    const { client, calls } = makeFakeClient();
+    const summary = await pushGoogleSearchPlan({
+      tree: tree({
+        campaigns: [
+          campaign({
+            name: "C4 Conquest",
+            ad_groups: [
+              adGroup({ name: "AG1 Intent" }),
+              adGroup({
+                id: "ag-2",
+                name: "AG2 Past Off/Pixel clients (PAUSED)",
+              }),
+            ],
+          }),
+        ],
+      }),
+      credentials: CREDS,
+      eventCode: "IRW0005",
+      client,
+    });
+    assert.equal(summary.ok, true);
+    assert.deepEqual(createStatuses(calls, "campaigns"), ["ENABLED"]);
+    assert.deepEqual(createStatuses(calls, "adGroups"), ["ENABLED", "PAUSED"]);
+    assert.deepEqual(createStatuses(calls, "adGroupAds"), ["ENABLED", "PAUSED"]);
+    const keywordStatuses = calls
+      .filter((call) => call.resource === "adGroupCriteria")
+      .flatMap((call) => call.operations)
+      .filter((op) => "create" in op && (op as { create: { negative?: boolean } }).create.negative !== true)
+      .map((op) => (op as { create: { status: string } }).create.status);
+    assert.deepEqual(keywordStatuses, ["ENABLED", "ENABLED"]);
+  });
+
+  it("resolves IRW0005 to 4 live campaigns and C5 paused, including the name-paused ad group", async () => {
+    const { client, calls } = makeFakeClient();
+    const live = (id: string, name: string) =>
+      campaign({ id, name, bid_adjustments: { status_at_launch: "ENABLED" } });
+    const t = tree({
+      campaigns: [
+        live("c1", "[IRW0005] Appetite Halloween | Search | C1 Brand"),
+        live("c2", "[IRW0005] Appetite Halloween | Search | C2 Generic"),
+        live("c3", "[IRW0005] Appetite Halloween | Search | C3 Venue"),
+        campaign({
+          id: "c4",
+          name: "[IRW0005] Appetite Halloween | Search | C4 Conquest",
+          bid_adjustments: { status_at_launch: "ENABLED" },
+          ad_groups: [
+            adGroup({ id: "ag4a", name: "AG1 Intent" }),
+            adGroup({ id: "ag4b", name: "AG2 Past Off/Pixel clients (PAUSED)" }),
+          ],
+        }),
+        campaign({
+          id: "c5",
+          name: "[IRW0005] Appetite Halloween | Search | C5 Artist-Lineup",
+          bid_adjustments: { status_at_launch: "PAUSED", start: "2026-09-17" },
+        }),
+      ],
+    });
+    const summary = await pushGoogleSearchPlan({
+      tree: t,
+      credentials: CREDS,
+      eventCode: "IRW0005",
+      client,
+      today: "2026-09-22",
+    });
+    assert.equal(summary.aborted, false, summary.abortReason);
+    assert.equal(summary.ok, true);
+    const campaignStatuses = createStatuses(calls, "campaigns");
+    assert.equal(campaignStatuses.filter((status) => status === "ENABLED").length, 4);
+    assert.equal(campaignStatuses.filter((status) => status === "PAUSED").length, 1);
+    assert.equal(campaignStatuses[4], "PAUSED");
+    const c4AdGroups = calls.filter((call) => call.resource === "adGroups").map((call) => {
+      const create = (call.operations[0] as { create: { name: string; status: string } }).create;
+      return `${create.name}:${create.status}`;
+    });
+    assert.ok(c4AdGroups.includes("AG2 Past Off/Pixel clients (PAUSED):PAUSED"));
+  });
+
+  it("does not pause a merged campaign just because one source in the map is PAUSED", async () => {
+    const { client, calls } = makeFakeClient();
+    const summary = await pushGoogleSearchPlan({
+      tree: tree({
+        campaigns: [
+          campaign({
+            name: "[IRW0005] Search",
+            bid_adjustments: {
+              status_at_launch_by_campaign: {
+                "C1 Brand": "ENABLED",
+                "C5 Artist-Lineup": "PAUSED",
+                "C15 Other": "ENABLED",
+              },
+            },
+            ad_groups: [
+              adGroup({ id: "ag-c1", name: "C1 – Brand" }),
+              adGroup({ id: "ag-c5", name: "C5 – Artist-Lineup" }),
+              adGroup({ id: "ag-c15", name: "C15 – Other" }),
+            ],
+          }),
+        ],
+      }),
+      credentials: CREDS,
+      eventCode: "IRW0005",
+      client,
+    });
+    assert.equal(summary.ok, true);
+    assert.deepEqual(createStatuses(calls, "campaigns"), ["ENABLED"]);
+    assert.deepEqual(createStatuses(calls, "adGroups"), ["ENABLED", "PAUSED", "ENABLED"]);
+  });
+
+  it("blocks a past or missing start on a campaign about to go live and writes nothing", async () => {
+    const { client, calls } = makeFakeClient();
+    const past = await pushGoogleSearchPlan({
+      tree: tree({
+        plan: {
+          ...tree().plan,
+          date_range: { since: "2026-09-17", until: "2026-10-04" },
+        },
+        campaigns: [campaign({ name: "[IRW0001] JJ | Search | C1 Brand" })],
+      }),
+      credentials: CREDS,
+      eventCode: "IRW0001",
+      client,
+      today: "2026-09-22",
+    });
+    assert.equal(calls.length, 0);
+    assert.equal(past.aborted, true);
+    assert.match(past.abortReason ?? "", /C1 Brand/);
+    assert.match(past.abortReason ?? "", /2026-09-17/);
+
+    const { client: absentClient, calls: absentCalls } = makeFakeClient();
+    const absent = await pushGoogleSearchPlan({
+      tree: tree({
+        plan: { ...tree().plan, date_range: null },
+      }),
+      credentials: CREDS,
+      eventCode: "IRW0001",
+      client: absentClient,
+      today: "2026-09-22",
+    });
+    assert.equal(absentCalls.length, 0);
+    assert.match(absent.abortReason ?? "", /no start date/);
+  });
+
+  it("lets confirmStart push a past start live, and does not block a sheet-paused campaign's past start", async () => {
+    const { client, calls } = makeFakeClient();
+    const confirmed = await pushGoogleSearchPlan({
+      tree: tree({
+        plan: {
+          ...tree().plan,
+          date_range: { since: "2026-09-17", until: "2026-10-04" },
+        },
+      }),
+      credentials: CREDS,
+      eventCode: "IRW0001",
+      client,
+      confirmStart: true,
+      today: "2026-09-22",
+    });
+    assert.equal(confirmed.ok, true);
+    assert.deepEqual(createStatuses(calls, "campaigns"), ["ENABLED"]);
+
+    const { client: siblingClient, calls: siblingCalls } = makeFakeClient();
+    const sibling = await pushGoogleSearchPlan({
+      tree: tree({
+        plan: {
+          ...tree().plan,
+          date_range: { since: "2099-06-01", until: "2099-06-30" },
+        },
+        campaigns: [
+          campaign({
+            id: "paused",
+            name: "C4 Genre-Discovery",
+            bid_adjustments: { status_at_launch: "PAUSED", start: "2020-01-01" },
+          }),
+          campaign({ id: "live", name: "C1 Brand" }),
+        ],
+      }),
+      credentials: CREDS,
+      eventCode: "IRW0001",
+      client: siblingClient,
+      today: "2026-09-22",
+    });
+    assert.equal(sibling.aborted, false, sibling.abortReason);
+    assert.deepEqual(createStatuses(siblingCalls, "campaigns"), ["PAUSED", "ENABLED"]);
   });
 });

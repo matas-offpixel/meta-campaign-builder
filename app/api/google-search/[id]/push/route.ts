@@ -21,6 +21,12 @@ import {
   type GoogleSearchPushPersister,
 } from "@/lib/google-ads/campaign-writer";
 import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
+import {
+  formatGoogleSearchStartBlocks,
+  googleSearchLiveStartBlocks,
+  parseGoogleSearchConfirmStart,
+  parseGoogleSearchLaunchPaused,
+} from "@/lib/google-ads/push-status";
 
 // Sequential mutate chain across many campaigns can run minutes —
 // match the other ads-platform routes that talk to Google Ads.
@@ -35,12 +41,14 @@ export const maxDuration = 300;
  * prefix, then runs `pushGoogleSearchPlan`. Returns a
  * `GoogleSearchLaunchSummary` that the wizard's Push step renders.
  *
- * Body: `{ force?: boolean }`. The route refuses to re-push a plan
- * that's already been pushed (status='pushed' OR any row carries a
- * `pushed_resource_name`) unless `force: true` is sent. The push
- * adapter is per-row idempotent regardless — this is defence in
- * depth against a double-click or stale-tab re-launch slipping
- * through and creating duplicate live campaigns.
+ * Body: `{ force?: boolean, launchPaused?: boolean, confirmStart?: boolean }`.
+ * `launchPaused` defaults to live. A present non-boolean is 400 and
+ * writes nothing — it is never coerced. The route refuses to re-push
+ * a plan that's already been pushed (status='pushed' OR any row
+ * carries a `pushed_resource_name`) unless `force: true` is sent.
+ * A live campaign with a past or missing start is 422 unless
+ * `confirmStart: true`. Review's hard errors, including a missing
+ * RSA final URL, still 422 before any Google call.
  */
 export async function POST(
   req: NextRequest,
@@ -55,8 +63,28 @@ export async function POST(
     return NextResponse.json({ ok: false, reason: "unauthenticated" }, { status: 401 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { force?: boolean } | null;
+  const body = (await req.json().catch(() => ({}))) as {
+    force?: boolean;
+    launchPaused?: unknown;
+    confirmStart?: unknown;
+  } | null;
   const force = body?.force === true;
+  // Parsed before the plan is loaded. An unparseable value returns 400
+  // and never reaches Google.
+  const launchPaused = parseGoogleSearchLaunchPaused(body?.launchPaused);
+  if (!launchPaused.ok) {
+    return NextResponse.json(
+      { ok: false, reason: "invalid_launch_paused", details: launchPaused.error },
+      { status: 400 },
+    );
+  }
+  const confirmStart = parseGoogleSearchConfirmStart(body?.confirmStart);
+  if (!confirmStart.ok) {
+    return NextResponse.json(
+      { ok: false, reason: "invalid_confirm_start", details: confirmStart.error },
+      { status: 400 },
+    );
+  }
 
   let tree;
   try {
@@ -88,6 +116,24 @@ export async function POST(
       },
       { status: 422 },
     );
+  }
+
+  if (!confirmStart.value) {
+    const startBlocks = googleSearchLiveStartBlocks({
+      campaigns: tree.campaigns,
+      dateRange: tree.plan.date_range,
+      launchPaused: launchPaused.value,
+    });
+    if (startBlocks.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          reason: "start_date_blocked",
+          details: formatGoogleSearchStartBlocks(startBlocks),
+        },
+        { status: 422 },
+      );
+    }
   }
 
   if (!tree.plan.google_ads_account_id) {
@@ -189,6 +235,8 @@ export async function POST(
       },
       eventCode,
       persister,
+      launchPaused: launchPaused.value,
+      confirmStart: confirmStart.value,
     });
     return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
   } catch (err) {

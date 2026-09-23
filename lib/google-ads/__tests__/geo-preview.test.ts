@@ -106,6 +106,7 @@ function makeMinimalTree(): GoogleSearchPlanTree {
       google_ads_account_id: "acct-1",
       geo_targets: [],
       geo_target_type: "PRESENCE",
+      date_range: { since: "2099-06-01", until: "2099-06-30" },
       total_budget: 1000,
       bidding_strategy: "target_cpa",
       target_cpa: 10,

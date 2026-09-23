@@ -71,7 +71,7 @@ function buildFreshTree(): { store: MemorySupabase; tree: GoogleSearchPlanTree }
         bidding_strategy: "maximize_clicks",
         geo_targets: [],
         geo_target_type: "PRESENCE",
-        date_range: null,
+        date_range: { since: "2099-06-01", until: "2099-06-30" },
         pushed_at: null,
         created_at: "2026-05-21T00:00:00Z",
         updated_at: "2026-05-21T00:00:00Z",

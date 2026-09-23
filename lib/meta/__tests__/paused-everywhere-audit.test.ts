@@ -60,14 +60,16 @@ describe("paused-everywhere inventory (audit D6)", () => {
     );
   });
 
-  it("Google campaign writer still creates campaign, ad group, and RSA PAUSED", () => {
+  it("Google campaign writer resolves campaign, ad group, and RSA status once", () => {
     const writer = source("lib/google-ads/campaign-writer.ts");
-    assert.match(writer, /status:\s*["']PAUSED["']/);
-    const paused = writer.match(/status:\s*["']PAUSED["']/g) ?? [];
-    assert.ok(
-      paused.length >= 3,
-      `expected Google campaign + ad group + RSA to be PAUSED, found ${paused.length}`,
+    assert.doesNotMatch(writer, /status:\s*["']PAUSED["']/);
+    const uses = writer.match(/resolveGoogleSearchPushStatus\(/g) ?? [];
+    assert.equal(
+      uses.length,
+      3,
+      `expected campaign, ad group, and RSA to resolve status, found ${uses.length}`,
     );
+    assert.match(writer, /status:\s*["']ENABLED["']/);
   });
 
   it("resolveMetaLaunchEntityStatus defaults ACTIVE and pins PAUSED for plan fan-out", () => {
