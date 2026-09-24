@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --conditions react-server --experimental-strip-types --test 'lib/**/__tests__/*.test.ts'",
+    "test": "node --conditions react-server --experimental-strip-types --test 'lib/**/__tests__/*.test.ts' 'components/meta/**/__tests__/*.test.ts'",
     "bundle-remotion": "node --experimental-strip-types scripts/bundle-remotion.ts",
     "prebuild": "npm run bundle-remotion",
     "frames": "ENABLE_PLAN_FRAMES=1 npm run build && ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update",
