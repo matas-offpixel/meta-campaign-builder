@@ -38,6 +38,10 @@ import type { ActiveCreativeThumbnailSource } from "@/lib/reporting/active-creat
 import { extractVideoIdsFromCreative } from "@/lib/audiences/extract-video-ids-from-creative";
 import { extractPageIdsFromCreative } from "@/lib/audiences/extract-page-ids-from-creative";
 import { LPV_ACTION_PRIORITY } from "@/lib/insights/lpv-priority-chain";
+import {
+  CREATIVE_BATCH_FIELDS,
+  CREATIVE_BATCH_SIZE,
+} from "@/lib/meta/creative-batch-fields";
 
 /**
  * lib/reporting/active-creatives-fetch.ts
@@ -833,15 +837,10 @@ const ADS_OUTER_RETRY_DELAY_MS = 500;
  * keeps the parallel fan-out below comfortably below the per-account
  * rate ceiling for typical events (≤500 creatives = 10 calls).
  */
-// Meta's documented cap is 50, but on heavy events (e.g. 372 distinct
-// creatives with Advantage+ asset_feed_spec trees) the 50-id payload
-// trips Meta's "reduce the amount of data you're asking for"
-// (meta_code=1) cap on ~60% of batches, silently dropping those
-// creatives from hydration. Halving to 25 keeps each batch under the
-// cap on observed worst-case events. Concurrency is still gated by
-// AD_INSIGHT_CHUNK_CONCURRENCY=1 so the extra request count doesn't
-// risk rate-limit 429s.
-const CREATIVE_BATCH_SIZE = 25;
+// CREATIVE_BATCH_SIZE / CREATIVE_BATCH_FIELDS live in
+// lib/meta/creative-batch-fields.ts so the importer reuses the same
+// list. Concurrency is still gated by AD_INSIGHT_CHUNK_CONCURRENCY=1
+// so the extra request count doesn't risk rate-limit 429s.
 
 /**
  * Pause before the single retry of a creative batch that came back
@@ -849,55 +848,6 @@ const CREATIVE_BATCH_SIZE = 25;
  * same "ride out the moment" posture at a different boundary.
  */
 const CREATIVE_BATCH_RETRY_DELAY_MS = 500;
-
-/**
- * Field list pulled per creative in phase 2. Mirrors the bulky
- * subtree the old single-phase /ads call requested inline — same
- * fields, just reachable through the batched endpoint, which
- * Meta does NOT subject to the same per-page expansion budget
- * that triggers `meta_code=1 reduce the amount of data` on /ads.
- *
- * `object_story_spec` and `asset_feed_spec` are requested as flat
- * field names; Meta returns the full sub-tree for each (this is
- * the same shape the old nested-field syntax produced, so
- * `extractCopy` / `extractPreview` / `deriveAssetSignature` keep
- * working without per-shape branching).
- */
-const CREATIVE_BATCH_FIELDS = [
-  "id",
-  "name",
-  "title",
-  "body",
-  "thumbnail_url",
-  "image_url",
-  "video_id",
-  "object_story_id",
-  "effective_object_story_id",
-  "instagram_permalink_url",
-  "call_to_action_type",
-  "link_url",
-  "object_story_spec",
-  "asset_feed_spec",
-  // PR-snapshot-cache — needed alongside the existing OSS / AFS
-  // fields so `extractPageIdsFromCreative` can resolve the FB
-  // Page that owns each video for Advantage+ creatives that
-  // surface the page id in the per-platform block rather than on
-  // top-level OSS. One extra Graph field on an already-paid
-  // batched call — does NOT add per-ad fan-out and stays
-  // comfortably under `CREATIVE_BATCH_SIZE=25`'s response budget.
-  "platform_customizations",
-  // PR #74 — earlier PR #71 also requested nested-expansion
-  // forms for the two parents above (asset_feed_spec.videos /
-  // .images and object_story_spec.link_data.child_attachments)
-  // on the assumption Meta would union them with the flat
-  // parent. It does not: Meta's field parser rejects duplicate
-  // top-level field names with "Syntax error" and fails the
-  // whole batch, so PR #73's diagnostic logs caught
-  // creative_batch_done hydrated=0 on every share render. The
-  // flat form already returns the full sub-tree (see comment
-  // block above), which is what extractPreview's waterfall
-  // reads, so the nested forms were redundant from the start.
-].join(",");
 
 /**
  * Phase-2 creative payload fetcher (PR #59 — fix/ads-payload-split).
