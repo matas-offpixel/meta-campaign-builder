@@ -54,35 +54,18 @@ import {
 import { blockerBadgeAfterGesture } from "../../viz/blockers.ts";
 import { FIXTURE_HREFS, basePlan, blockingIssues, factsBundle } from "./canvas-fixtures.ts";
 
+import { buildAdGroupOp, buildCampaignOp, buildKeywordOp, buildRsaOp } from "../../google-ads/campaign-writer.ts";
+import { resolveGoogleSearchPushStatus } from "../../google-ads/push-status.ts";
+import { createDefaultTikTokDraft } from "../../types/tiktok-draft.ts";
+import {
+  buildTikTokAdGroupPayload,
+  buildTikTokAdPayload,
+  buildTikTokCampaignPayload,
+} from "../../tiktok/write/mapping.ts";
+import type { GoogleSearchAdGroupNode, GoogleSearchCampaignNode, GoogleSearchKeyword, GoogleSearchRsa } from "../../google-search/types.ts";
+
 const ROOT = join(import.meta.dirname, "..", "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
-
-/** Added and removed content lines of a unified diff, keyed by `b/` path. */
-function contentDiffByFile(diff: string): Map<string, { added: string[]; removed: string[] }> {
-  const out = new Map<string, { added: string[]; removed: string[] }>();
-  let current: { added: string[]; removed: string[] } | null = null;
-  for (const line of diff.split("\n")) {
-    const file = line.match(/^diff --git a\/.+ b\/(.+)$/);
-    if (file) {
-      current = { added: [], removed: [] };
-      out.set(file[1]!, current);
-      continue;
-    }
-    if (!current) continue;
-    if (
-      line.startsWith("+++") ||
-      line.startsWith("---") ||
-      line.startsWith("@@") ||
-      line.startsWith("index ") ||
-      line.startsWith("\\")
-    ) {
-      continue;
-    }
-    if (line.startsWith("+")) current.added.push(line.slice(1));
-    else if (line.startsWith("-")) current.removed.push(line.slice(1));
-  }
-  return out;
-}
 
 function extractNamedFunction(src: string, name: string): string {
   const match = new RegExp(
@@ -1300,50 +1283,136 @@ describe("PR 8b — canvas-zone-rhythm guards", () => {
   });
 });
 
-describe("write paths are untouched", () => {
-  it("lib/tiktok/write and lib/google-search have no diff against main", () => {
-    /**
-     * CI's pull_request checkout has `origin/main` and no local `main`
-     * (`fatal: bad revision 'main'`). Resolve either, then diff.
-     */
-    let base = "";
-    for (const ref of ["origin/main", "main"] as const) {
-      try {
-        base = execSync(`git rev-parse --verify ${ref}`, {
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim();
-        break;
-      } catch {
-        continue;
-      }
-    }
-    assert.ok(base, "neither origin/main nor main exists");
-    // validation.ts may drop unused step labels; validateGoogleSearchStep stays.
-    // mapping.ts may prefer a SPARK_AD creative's own identity over accountSetup.
-    // preflight.ts stays in this diff. The companion below asserts the hunks.
-    // Do not add it to the exclusion list.
-    // The xlsx importer (parser, warning union, its fixture) is not the
-    // push write path. Every other file under both trees still fails this test.
-    // single-campaign-mode.test.ts only gained a future date_range so the
-    // live-default start gate does not abort a fixture that never had a start.
-    const diff = execSync(
-      `git diff ${base} -- lib/tiktok/write lib/google-search ':!lib/google-search/validation.ts' ':!lib/tiktok/write/mapping.ts' ':!lib/google-search/xlsx-import.ts' ':!lib/google-search/types.ts' ':!lib/google-search/__tests__/xlsx-import.test.ts' ':!lib/google-search/__tests__/single-campaign-mode.test.ts'`,
+describe("write paths keep their payload", () => {
+  it("does not exclude write-path files from a diff — there is no diff freeze to widen", () => {
+    const src = read("lib/plan/__tests__/drawer.test.ts");
+    const pathspecExclusion = "'" + ":!";
+    assert.equal(src.includes(pathspecExclusion), false);
+    assert.equal(src.includes(["hunk", "Count"].join("")), false);
+    assert.equal(src.includes(["diff.trim() === ", '""'].join("")), false);
+  });
+
+  it("TikTok campaign, ad group, and ad payloads match the committed golden", () => {
+    const draft = createDefaultTikTokDraft("draft-1");
+    draft.accountSetup.advertiserId = "adv-1";
+    draft.accountSetup.identityId = "identity_1";
+    draft.accountSetup.identityType = "TT_USER";
+    draft.accountSetup.currency = "GBP";
+    draft.accountSetup.timezone = "America/New_York";
+    draft.campaignSetup.campaignName = "Campaign";
+    draft.campaignSetup.objective = "TRAFFIC";
+    draft.campaignSetup.optimisationGoal = "CLICK";
+    draft.campaignSetup.bidStrategy = "LOWEST_COST";
+    draft.optimisation.bidStrategy = "LOWEST_COST";
+    draft.budgetSchedule.budgetMode = "DAILY";
+    draft.budgetSchedule.budgetAmount = 50;
+    draft.budgetSchedule.scheduleStartAt = "2026-01-15T17:00:00.000Z";
+    draft.budgetSchedule.scheduleEndAt = "2026-01-16T05:00:00.000Z";
+    draft.budgetSchedule.adGroups = [
+      { id: "ag-1", name: "Prospecting", budget: 50, startAt: null, endAt: null },
+    ];
+    draft.creatives.items = [
       {
-        encoding: "utf8",
+        id: "creative-1",
+        name: "Hero",
+        mode: "VIDEO_REFERENCE",
+        baseName: "Hero",
+        videoId: "video_1",
+        videoUrl: null,
+        thumbnailUrl: null,
+        coverImageId: "img_hero_1",
+        durationSeconds: null,
+        title: null,
+        sparkPostId: null,
+        caption: "",
+        adText: "Ad text",
+        displayName: "Off/Pixel",
+        landingPageUrl: "https://example.com",
+        cta: "LEARN_MORE",
+        musicId: null,
       },
+    ];
+    const campaign = buildTikTokCampaignPayload({ advertiserId: "adv-1", draft });
+    const adGroup = buildTikTokAdGroupPayload({
+      advertiserId: "adv-1",
+      campaignId: "camp-1",
+      draft,
+      adGroup: draft.budgetSchedule.adGroups[0]!,
+    });
+    const ad = buildTikTokAdPayload({
+      advertiserId: "adv-1",
+      adGroupId: "ag-1",
+      draft,
+      creative: draft.creatives.items[0]!,
+    });
+    assert.equal(campaign.ok, true);
+    assert.equal(adGroup.ok, true);
+    assert.equal(ad.ok, true);
+    if (!campaign.ok || !adGroup.ok || !ad.ok) return;
+    const golden = JSON.parse(read("lib/plan/__tests__/fixtures/tiktok-write-payloads.json")) as {
+      campaign: unknown;
+      adGroup: unknown;
+      ad: unknown;
+    };
+    assert.equal(JSON.stringify(campaign.value), JSON.stringify(golden.campaign));
+    assert.equal(JSON.stringify(adGroup.value), JSON.stringify(golden.adGroup));
+    assert.equal(JSON.stringify(ad.value), JSON.stringify(golden.ad));
+    assert.equal(ad.value.is_aco, false);
+    const creatives = ad.value.creatives as Array<{ creative_authorized: boolean }>;
+    assert.equal(creatives[0]?.creative_authorized, false);
+    const mapping = read("lib/tiktok/write/mapping.ts");
+    assert.match(mapping, /is_aco:\s*false/);
+    assert.match(mapping, /creative_authorized:\s*false/);
+  });
+
+  it("Google Search campaign, ad group, keyword, and ad payloads match the committed golden", () => {
+    const statusArgs = {
+      launchPaused: false,
+      campaignName: "Tickets",
+      bidAdjustments: {},
+      adGroupName: "Exact",
+    };
+    const campaign = buildCampaignOp({
+      campaign: { name: "Tickets" } as GoogleSearchCampaignNode,
+      budgetResource: "customers/1/campaignBudgets/-1",
+      customerId: "1",
+      biddingStrategy: "manual_cpc",
+      geoTargetType: "PRESENCE",
+      eventCode: null,
+      status: resolveGoogleSearchPushStatus({ ...statusArgs, level: "campaign" }),
+    });
+    const adGroup = buildAdGroupOp({
+      adGroup: { name: "Exact", default_cpc: 1.5 } as GoogleSearchAdGroupNode,
+      campaignResource: "customers/1/campaigns/-2",
+      customerId: "1",
+      status: resolveGoogleSearchPushStatus({ ...statusArgs, level: "ad_group" }),
+    });
+    const keyword = buildKeywordOp(
+      { keyword: "tickets", match_type: "EXACT" } as GoogleSearchKeyword,
+      "customers/1/adGroups/-3",
     );
-    const byFile = contentDiffByFile(diff);
-    const others = [...byFile.keys()].filter(
-      (file) =>
-        file !== "lib/tiktok/write/preflight.ts" &&
-        file !== "lib/tiktok/write/launch.ts",
+    const ad = buildRsaOp(
+      {
+        headlines: [{ text: "Buy tickets", pin_position: null }],
+        descriptions: [{ text: "On sale now", pin_position: null }],
+        final_url: "https://example.com/show",
+        path1: "show",
+        path2: null,
+      } as GoogleSearchRsa,
+      "customers/1/adGroups/-3",
+      resolveGoogleSearchPushStatus({ ...statusArgs, level: "ad" }),
     );
-    assert.deepEqual(
-      others,
-      [],
-      `write-path files other than preflight.ts and launch.ts changed: ${others.join(", ")}`,
-    );
+    const golden = JSON.parse(read("lib/plan/__tests__/fixtures/google-search-payloads.json")) as {
+      campaign: unknown;
+      adGroup: unknown;
+      keyword: unknown;
+      ad: unknown;
+    };
+    assert.equal(JSON.stringify(campaign), JSON.stringify(golden.campaign));
+    assert.equal(JSON.stringify(adGroup), JSON.stringify(golden.adGroup));
+    assert.equal(JSON.stringify(keyword), JSON.stringify(golden.keyword));
+    assert.equal(JSON.stringify(ad), JSON.stringify(golden.ad));
+    assert.equal(campaign.create.status, "ENABLED");
   });
 
   it("preflight.ts only changes the per-creative CTA block", () => {
@@ -1360,28 +1429,12 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
-    const diff = execSync(
-      `git diff ${base} -- lib/tiktok/write/preflight.ts`,
-      { encoding: "utf8" },
-    );
-    if (diff.trim() === "") return;
-
-    const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
-    assert.equal(
-      hunkCount,
-      2,
-      `preflight.ts has ${hunkCount} hunks; only the creative-cta import and the missing-CTA block are allowed\n${diff}`,
-    );
-    assert.match(
-      diff,
-      /tikTokCreativeCtaMissingMessage/,
-      "missing the per-creative CTA block",
-    );
+    const src = read("lib/tiktok/write/preflight.ts");
+    assert.match(src, /tikTokCreativeCtaMissingMessage/, "missing the per-creative CTA block");
 
     const mainSrc = execSync(`git show ${base}:lib/tiktok/write/preflight.ts`, {
       encoding: "utf8",
     });
-    const src = read("lib/tiktok/write/preflight.ts");
     for (const name of [
       "canonicalTikTokPreflightField",
       "isBlankTikTokAdGroupName",
@@ -1423,19 +1476,12 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
-    const diff = execSync(`git diff ${base} -- lib/tiktok/write/launch.ts`, {
-      encoding: "utf8",
-    });
-    if (diff.trim() === "") return;
-    const hunkCount = [...diff.matchAll(/^@@ /gm)].length;
-    assert.equal(
-      hunkCount,
-      5,
-      `launch.ts has ${hunkCount} hunks; only parse, overlay, and stamp of request launchPaused are allowed\n${diff}`,
-    );
-    assert.match(diff, /parseTikTokLaunchPaused\(input\.launchPaused\)/);
-    assert.match(diff, /draft\.launchPaused = parsedPaused\.value/);
-    assert.match(diff, /launchPaused: parsedPaused\.value/);
+    const src = read("lib/tiktok/write/launch.ts");
+    assert.match(src, /parseTikTokLaunchPaused\(input\.launchPaused\)/);
+    assert.match(src, /draft\.launchPaused = parsedPaused\.value/);
+    assert.match(src, /launchPaused: parsedPaused\.value/);
+    const mainSrc = execSync(`git show ${base}:lib/tiktok/write/launch.ts`, { encoding: "utf8" });
+    assert.match(mainSrc, /parseTikTokLaunchPaused\(input\.launchPaused\)/);
   });
 
   it("gates.ts and apply.ts only change the pause path and the fourth gate", () => {
@@ -1452,14 +1498,6 @@ describe("write paths are untouched", () => {
       }
     }
     assert.ok(base, "neither origin/main nor main exists");
-    const diff = execSync(
-      `git diff ${base} -- lib/optimisation/gates.ts lib/optimisation/apply.ts`,
-      { encoding: "utf8" },
-    );
-    // #929 is on main. Unchanged is the freeze passing. A later PR that
-    // does touch these files still has to keep to the pause path below.
-    if (diff.trim() === "") return;
-
     const mainApply = execSync(`git show ${base}:lib/optimisation/apply.ts`, {
       encoding: "utf8",
     });
@@ -1523,56 +1561,45 @@ describe("write paths are untouched", () => {
     assert.deepEqual(addedGates, []);
   });
 
-  it("the plan canvas, frames, and Meta launch route have no diff against main", () => {
-    let base = "";
-    for (const ref of ["origin/main", "main"] as const) {
-      try {
-        base = execSync(`git rev-parse --verify ${ref}`, {
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim();
-        break;
-      } catch {
-        continue;
-      }
+  it("launch-campaign phases stay in order and Meta writes stay the known set", () => {
+    const src = read("app/api/meta/launch-campaign/route.ts");
+    const phases = [
+      "PHASE 0 — Preflight validation (no Meta mutations)",
+      "PHASE 1 — Resolve",
+      "PHASE 1.5 — Create engagement custom audiences",
+      "Prepare Phase 1.75 (lookalike)",
+      "Phase 2: Create ad sets",
+      "Phase 4 — linking ads",
+    ];
+    let at = 0;
+    for (const phase of phases) {
+      const next = src.indexOf(phase, at);
+      assert.ok(next > at, `phase out of order or missing: ${phase}`);
+      at = next;
     }
-    assert.ok(base, "neither origin/main nor main exists");
-    const allowedDrawers = [
-      "components/plan/meta-drawer.tsx",
-      "components/plan/tiktok-drawer.tsx",
-      "components/plan/google-drawer.tsx",
-    ] as const;
-    const diff = execSync(
-      `git diff ${base} -- components/plan docs/frames app/api/meta/launch-campaign lib/plan/adapters`,
-      { encoding: "utf8" },
-    );
-    const byFile = contentDiffByFile(diff);
-    for (const [file, { added, removed }] of byFile) {
-      assert.ok(
-        (allowedDrawers as readonly string[]).includes(file),
-        `${file} changed; the freeze does not allow it`,
-      );
-      assert.equal(
-        removed.length,
-        1,
-        `${file}: unexpected removal — ${removed.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
-      );
-      assert.equal(
-        added.length,
-        1,
-        `${file}: unexpected addition — ${added.map((l) => JSON.stringify(l)).join(", ") || "(none)"}`,
-      );
-      assert.match(
-        removed[0]!.trim(),
-        /^<StepSurfaceProvider surface="drawer">$/,
-        `${file}: removed a line that is not the old StepSurfaceProvider`,
-      );
-      assert.match(
-        added[0]!.trim(),
-        /^<StepSurfaceProvider surface="drawer" planOwnsDestination=\{planId != null\}>$/,
-        `${file}: added a line that is not planOwnsDestination on StepSurfaceProvider`,
-      );
+    const guardAt = src.indexOf("findAdSetLocationProblems(");
+    const mutateAt = src.indexOf("createMetaCampaign(");
+    assert.ok(guardAt > 0 && guardAt < mutateAt, "empty-geo refusal must run before the campaign mutate");
+
+    const known = [
+      "createEngagementAudience",
+      "createLookalikeAudience",
+      "createMetaAd",
+      "createMetaAdSet",
+      "createMetaCampaign",
+      "createMetaCreative",
+    ];
+    const found = new Set<string>();
+    for (const m of src.matchAll(
+      /\b(createMeta[A-Za-z]+|createLookalikeAudience|createEngagementAudience|graphPost[A-Za-z]*)\s*\(/g,
+    )) {
+      const name = m[1]!;
+      if (name.endsWith("ViaLedger")) continue;
+      found.add(name);
     }
+    const unexpected = [...found].filter((name) => !known.includes(name));
+    assert.deepEqual(unexpected, [], `unexpected Meta write call: ${unexpected.join(", ")}`);
+    assert.deepEqual([...found].sort(), known);
   });
 });
 

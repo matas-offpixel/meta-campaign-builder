@@ -127,6 +127,7 @@ import { assertSameObjective } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
+import { findAdSetLocationProblems } from "@/lib/meta/location-targeting";
 import {
   bindLaunchAdSetRecorder,
   type RecordCreatedAdSet,
@@ -1398,6 +1399,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   phaseDurations["preflight"] = elapsed(preflightStart);
   console.log(`[launch-campaign] Preflight done in ${phaseDurations["preflight"]}ms — ${preflightWarnings.length} warning(s)`);
+
+  // An emptied multi-city row resolves to no included area. Refuse it here,
+  // before any mutate, so a request that skips the client gate does not
+  // reach Meta. validateStep still blocks the wizard; this is the same check.
+  const locationProblems = findAdSetLocationProblems(
+    (draft.adSetSuggestions ?? []).filter((s) => s.enabled),
+    draft.budgetSchedule,
+  );
+  if (locationProblems.length > 0) {
+    return NextResponse.json(
+      { error: "Ad set locations are not launchable", details: locationProblems },
+      { status: 400 },
+    );
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 1 — Resolve `metaCampaignId`
