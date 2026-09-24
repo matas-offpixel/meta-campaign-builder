@@ -8,7 +8,9 @@ import {
   type ReactNode,
 } from "react";
 
+import { Combobox } from "@/components/ui/combobox";
 import { Select } from "@/components/ui/select";
+import { metaPixelPickerOptions } from "@/lib/meta/account-picker-options";
 import { formatCampaignStat } from "@/lib/audiences/format-campaign-spend";
 import { filterPagesByQuery } from "@/lib/audiences/filter-pages-by-query";
 import { videoPickerAutoSelectSignature } from "@/lib/audiences/video-picker-auto-select";
@@ -896,23 +898,26 @@ function PixelSourcePicker({
 
   return (
     <div className="space-y-3">
-      <Select
-        id="pixel-source"
+      <Combobox
         label="Pixel"
         value={value.pixelId ?? ""}
-        onChange={(event) => {
-          const pixel = (pixels ?? []).find((p) => p.id === event.target.value);
+        onChange={(next) => {
+          const pixel = (pixels ?? []).find((p) => p.id === next);
           onChange({
             ...value,
             pixelId: pixel?.id ?? "",
             pixelName: pixel?.name,
           });
         }}
-        placeholder="Choose pixel"
-        options={(pixels ?? []).map((pixel) => ({
-          value: pixel.id,
-          label: `${pixel.name} · ${pixel.id}${pixel.lastFiredTime ? ` · last fired ${pixel.lastFiredTime}` : ""}`,
-        }))}
+        placeholder={loading ? "Loading pixels…" : "Choose pixel"}
+        loading={loading}
+        emptyText="No pixels match"
+        options={metaPixelPickerOptions(pixels ?? []).map((option) => {
+          const pixel = (pixels ?? []).find((p) => p.id === option.value);
+          return pixel?.lastFiredTime
+            ? { ...option, sublabel: `${option.sublabel} · last fired ${pixel.lastFiredTime}` }
+            : option;
+        })}
       />
       <Select
         id="pixel-event"

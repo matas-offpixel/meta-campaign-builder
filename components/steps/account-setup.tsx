@@ -5,12 +5,15 @@ import Link from "next/link";
 import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2, Info } from "lucide-react";
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { Card, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import type { CampaignSettings } from "@/lib/types";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
+import {
+  metaAdAccountPickerOptions,
+  metaPixelPickerOptions,
+} from "@/lib/meta/account-picker-options";
 import { adAccountUnavailableLabel } from "@/lib/meta/fetch-ad-accounts";
 import { Sparkles } from "lucide-react";
 
@@ -316,15 +319,13 @@ export function AccountSetup({
             loading={accounts.loading && accounts.data.length === 0}
             disabled={facebookConnectionIssue || (accounts.data.length === 0 && !accounts.loading)}
             emptyText="No ad accounts found"
-            options={accounts.data.map((a) => {
-              const unavailable = adAccountUnavailableLabel(a);
+            options={metaAdAccountPickerOptions(accounts.data, (account) => {
+              const unavailable = adAccountUnavailableLabel(account);
               return {
-                value: a.id,
-                label: a.name,
                 sublabel: unavailable
                   ? unavailable
-                  : `${a.id} · ${a.currency} · ${accountStatusLabel(a.account_status)}`,
-                dimmed: a.account_status !== 1 || !!unavailable,
+                  : `${account.currency} · ${accountStatusLabel(account.account_status)}`,
+                dimmed: account.account_status !== 1 || !!unavailable,
                 disabled: !!unavailable,
               };
             })}
@@ -369,9 +370,9 @@ export function AccountSetup({
           )}
         </CardDescription>
         <div className="mt-3">
-          <Select
+          <Combobox
             value={settings.metaPixelId ?? ""}
-            onChange={(e) => handlePixelChange(e.target.value)}
+            onChange={handlePixelChange}
             placeholder={
               facebookConnectionIssue
                 ? "Connect in Settings to load pixels"
@@ -381,13 +382,12 @@ export function AccountSetup({
                     ? "Loading pixels…"
                     : "Select pixel (optional)…"
             }
+            loading={pixels.loading && !facebookConnectionIssue}
             disabled={facebookConnectionIssue || !settings.metaAdAccountId || pixels.loading}
+            emptyText="No pixels match"
             options={[
               { value: "", label: "None" },
-              ...pixels.data.map((p) => ({
-                value: p.id,
-                label: `${p.name} (${p.id})`,
-              })),
+              ...metaPixelPickerOptions(pixels.data),
             ]}
           />
           <FieldStatus
