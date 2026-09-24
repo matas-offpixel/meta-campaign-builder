@@ -1,0 +1,54 @@
+{
+  "campaign": {
+    "create": {
+      "resourceName": "customers/1/campaigns/-2",
+      "name": "Tickets",
+      "advertisingChannelType": "SEARCH",
+      "status": "ENABLED",
+      "campaignBudget": "customers/1/campaignBudgets/-1",
+      "networkSettings": {
+        "targetGoogleSearch": true,
+        "targetSearchNetwork": false,
+        "targetContentNetwork": false,
+        "targetPartnerSearchNetwork": false
+      },
+      "geoTargetTypeSetting": {
+        "positiveGeoTargetType": "PRESENCE",
+        "negativeGeoTargetType": "PRESENCE"
+      },
+      "containsEuPoliticalAdvertising": "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
+      "manualCpc": {}
+    }
+  },
+  "adGroup": {
+    "create": {
+      "resourceName": "customers/1/adGroups/-3",
+      "campaign": "customers/1/campaigns/-2",
+      "name": "Exact",
+      "status": "ENABLED",
+      "type": "SEARCH_STANDARD",
+      "cpcBidMicros": "1500000"
+    }
+  },
+  "keyword": {
+    "create": {
+      "adGroup": "customers/1/adGroups/-3",
+      "status": "ENABLED",
+      "keyword": { "text": "tickets", "matchType": "EXACT" }
+    }
+  },
+  "ad": {
+    "create": {
+      "adGroup": "customers/1/adGroups/-3",
+      "status": "ENABLED",
+      "ad": {
+        "responsiveSearchAd": {
+          "headlines": [{ "text": "Buy tickets" }],
+          "descriptions": [{ "text": "On sale now" }],
+          "path1": "show"
+        },
+        "finalUrls": ["https://example.com/show"]
+      }
+    }
+  }
+}

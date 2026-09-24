@@ -1,0 +1,53 @@
+{
+  "campaign": {
+    "advertiser_id": "adv-1",
+    "campaign_name": "Campaign",
+    "objective_type": "TRAFFIC",
+    "budget_mode": "BUDGET_MODE_DAY",
+    "operation_status": "ENABLE",
+    "budget": 50
+  },
+  "adGroup": {
+    "advertiser_id": "adv-1",
+    "campaign_id": "camp-1",
+    "adgroup_name": "Prospecting",
+    "budget": 50,
+    "budget_mode": "BUDGET_MODE_DAY",
+    "schedule_type": "SCHEDULE_START_END",
+    "schedule_start_time": "2026-01-15 12:00:00",
+    "optimization_goal": "CLICK",
+    "billing_event": "CPC",
+    "bid_type": "BID_TYPE_NO_BID",
+    "pacing": "PACING_MODE_SMOOTH",
+    "location_ids": ["2635167"],
+    "age_groups": ["AGE_18_24", "AGE_25_34", "AGE_35_44", "AGE_45_54", "AGE_55_100"],
+    "gender": "GENDER_UNLIMITED",
+    "placement_type": "PLACEMENT_TYPE_NORMAL",
+    "placements": ["PLACEMENT_TIKTOK"],
+    "promotion_type": "WEBSITE",
+    "operation_status": "ENABLE",
+    "schedule_end_time": "2026-01-16 00:00:00",
+    "languages": ["en"]
+  },
+  "ad": {
+    "advertiser_id": "adv-1",
+    "adgroup_id": "ag-1",
+    "operation_status": "ENABLE",
+    "is_aco": false,
+    "creatives": [
+      {
+        "ad_name": "Hero",
+        "ad_format": "SINGLE_VIDEO",
+        "ad_text": "Ad text",
+        "display_name": "Off/Pixel",
+        "landing_page_url": "https://example.com",
+        "identity_id": "identity_1",
+        "identity_type": "TT_USER",
+        "creative_authorized": false,
+        "video_id": "video_1",
+        "image_ids": ["img_hero_1"],
+        "call_to_action": "LEARN_MORE"
+      }
+    ]
+  }
+}
