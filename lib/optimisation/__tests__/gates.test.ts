@@ -104,6 +104,31 @@ describe("optimisationPauseDryRunGates — 8-row table × fourth gate", () => {
   }
 });
 
+/**
+ * CLAUDE.md: a budget write needs ENABLE_OPTIMISATION_WRITES,
+ * optimisation_automation_enabled and optimisation_automation_live; a pause
+ * write needs those three plus ENABLE_OPTIMISATION_PAUSE_WRITES. The fourth
+ * never changes the budget-write answer.
+ */
+describe("every gate combination resolves as CLAUDE.md states", () => {
+  const bools = [false, true];
+  for (const writes of bools) {
+    for (const enabled of bools) {
+      for (const live of bools) {
+        for (const pauseWrites of bools) {
+          it(`writes=${writes} enabled=${enabled} live=${live} pauseWrites=${pauseWrites}`, () => {
+            const budget = optimisationDryRunGates(writes, enabled, live);
+            const pause = optimisationPauseDryRunGates(writes, enabled, live, pauseWrites);
+            assert.equal(budget.dryRun, !(writes && enabled && live), "budget write");
+            assert.equal(pause.dryRun, !(writes && enabled && live && pauseWrites), "pause write");
+            if (budget.dryRun) assert.equal(pause.reason, budget.reason, "first closed gate wins");
+          });
+        }
+      }
+    }
+  }
+});
+
 describe("optimisationPauseDryRunGates is what production calls", () => {
   it("the tick runner and the cron route call the helper, not a sibling", () => {
     const runner = readFileSync("lib/optimisation/tick-runner.ts", "utf8");
