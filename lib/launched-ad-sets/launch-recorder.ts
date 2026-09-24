@@ -9,7 +9,7 @@ import { resolveDraftEventId } from "../campaign-event.ts";
 import { createServiceRoleClient } from "../supabase/server.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../types.ts";
 import { recordLaunchedAdSet, uuidOrNull } from "./record.ts";
-import { phaseAtLaunchFromEvent } from "./snapshot.ts";
+import { phaseAtLaunchFromEvent, stampLaunchGeo } from "./snapshot.ts";
 
 export type RecordCreatedAdSetAccepted = {
   ageModeOverride?: "strict" | null;
@@ -85,7 +85,11 @@ export async function bindLaunchAdSetRecorder(input: {
       objective: input.draft.settings.objective,
       phaseAtLaunch,
       descriptorSource: "launch",
-      suggestion,
+      suggestion: stampLaunchGeo(
+        suggestion,
+        input.draft.budgetSchedule.locationGroups,
+        input.draft.budgetSchedule.excludedLocations,
+      ),
       audiences: input.draft.audiences,
       ageModeOverride: accepted?.ageModeOverride,
       launchNote: accepted?.note,

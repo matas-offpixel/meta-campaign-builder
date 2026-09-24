@@ -1,22 +1,24 @@
 /**
  * lib/wizard/generate-adset-suggestions.ts
  *
- * Step 5 "Generate Suggestions": one ad set per audience source, each
- * targeting every campaign location together. Per-city ad sets are an
- * explicit Split by city on the row (`splitAdSetByLocation`), never the
- * default. Moved out of `components/steps/budget-schedule.tsx` so the
- * generate rule is testable without rendering.
+ * Step 5 "Generate Suggestions": one ad set per audience source per
+ * non-empty picker tier. Untiered locations are not swept into a tier —
+ * they stay on All and Custom. When no location is tiered, each audience
+ * still gets one ad set targeting every campaign location together.
+ * Per-city ad sets are an explicit Split by city on the row
+ * (`splitAdSetByLocation`), never the default.
  */
 
 import type {
   AdSetSuggestion,
   AudienceSettings,
   LocationTargetingGroup,
+  LocationTier,
   LookalikeRange,
 } from "@/lib/types";
 import { suggestAgeRange } from "../interest-suggestions.ts";
-import { groupToGeo } from "../meta/location-targeting.ts";
-import { stampLocations } from "./adset-suggestions.ts";
+import { groupTier, groupToGeo } from "../meta/location-targeting.ts";
+import { nameForTier, stampLocations } from "./adset-suggestions.ts";
 
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
@@ -190,16 +192,41 @@ export function generateSuggestions(
     }
   });
 
-  const groups = locationGroups.length > 0
-    ? deduplicateLocationGroups(locationGroups)
-    : [fallbackGroup];
+  const configured = locationGroups.length > 0;
+  const unique = configured ? deduplicateLocationGroups(locationGroups) : [fallbackGroup];
+  const slices = configured ? generateSlices(unique) : [{ groups: unique }];
 
-  const suggestions = baseSuggestions.map((base) =>
-    stampLocations(base, groups, { configured: locationGroups.length > 0 }),
+  const suggestions = baseSuggestions.flatMap((base) =>
+    slices.map((slice) =>
+      stampLocations(
+        slice.tier
+          ? {
+              ...base,
+              id: `${base.id}_${slice.tier}`,
+              name: nameForTier(base.name, undefined, slice.tier),
+              locationTier: slice.tier,
+            }
+          : base,
+        slice.groups,
+        { configured },
+      ),
+    ),
   );
 
   const enabled = suggestions.filter((s) => s.enabled);
   const perSet = enabled.length > 0 ? Math.round((budget / enabled.length) * 100) / 100 : 0;
   return suggestions.map((s) => ({ ...s, budgetPerDay: s.enabled ? perSet : 0 }));
+}
+
+/** One slice per non-empty tier. No tiers tagged → one slice of every location. */
+function generateSlices(
+  groups: LocationTargetingGroup[],
+): { tier?: LocationTier; groups: LocationTargetingGroup[] }[] {
+  const slices: { tier: LocationTier; groups: LocationTargetingGroup[] }[] = [];
+  for (const tier of ["primary", "secondary"] as const) {
+    const members = groups.filter((g) => groupTier(g) === tier);
+    if (members.length) slices.push({ tier, groups: members });
+  }
+  return slices.length > 0 ? slices : [{ groups }];
 }
 

@@ -6,6 +6,7 @@ import {
   type CreateAdSetsRequest,
 } from "@/lib/meta/adset";
 import { recordLaunchedAdSet } from "@/lib/launched-ad-sets/record";
+import { stampLaunchGeo } from "@/lib/launched-ad-sets/snapshot";
 
 export async function POST(request: Request) {
   // ── 1. Auth ───────────────────────────────────────────────────────────────
@@ -86,7 +87,11 @@ export async function POST(request: Request) {
         objective,
         phaseAtLaunch: null,
         descriptorSource: "launch",
-        suggestion,
+        suggestion: stampLaunchGeo(
+          suggestion,
+          budgetSchedule?.locationGroups,
+          budgetSchedule?.excludedLocations,
+        ),
         audiences: audiences ?? null,
       });
     }

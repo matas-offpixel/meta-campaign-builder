@@ -904,6 +904,12 @@ export interface AdSetSuggestion {
   /** Ids into `BudgetScheduleSettings.excludedLocations` applied to this ad set. */
   excludedLocationIds?: string[];
   /**
+   * The picker tier this row follows. Generate sets it so a later picker
+   * edit updates `locationGroupIds` without renaming. Absent = All, Custom,
+   * or Split by city — membership is the stamped ids, not a live tier.
+   */
+  locationTier?: LocationTier;
+  /**
    * For sourceType "selected_pages_lookalike" only — which percentage tier
    * this ad set targets. Used by buildMetaTargeting to look up the correct
    * lookalike audience IDs from SelectedPagesLookalikeGroup.lookalikeAudienceIdsByRange.

@@ -8,6 +8,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { migrateDraft } from "../../autosave.ts";
@@ -26,12 +27,14 @@ import { validateStep } from "../../validation.ts";
 import {
   applyExclusionsToAdSets,
   applyLocationsToAdSets,
+  followLocationTiers,
   locationIdsForQuickPick,
   locationOptions,
   setAdSetLocations,
   splitAdSetByLocation,
 } from "../adset-suggestions.ts";
 import { generateSuggestions, geoFingerprint } from "../generate-adset-suggestions.ts";
+import { snapshotAudienceDescriptor, stampLaunchGeo } from "../../launched-ad-sets/snapshot.ts";
 import type {
   AdSetSuggestion,
   AudienceSettings,
@@ -85,6 +88,14 @@ const EXCL_IRELAND: LocationSelection = {
 
 const audiences = {
   pageGroups: [1, 2, 3, 4, 5].map((n) => ({ id: `pg${n}`, name: `Pages ${n}`, pageIds: [`p${n}`], lookalike: false })),
+  customAudienceGroups: [],
+  savedAudiences: { audienceIds: [] },
+  interestGroups: [],
+  selectedPagesLookalikeGroups: [],
+} as unknown as AudienceSettings;
+
+const twoAudiences = {
+  pageGroups: [1, 2].map((n) => ({ id: `pg${n}`, name: `Pages ${n}`, pageIds: [`p${n}`], lookalike: false })),
   customAudienceGroups: [],
   savedAudiences: { audienceIds: [] },
   interestGroups: [],
@@ -169,6 +180,125 @@ describe("generate: cities combine into one ad set per audience", () => {
     const fallback = generateSuggestions(audiences, 100, [], UK);
     assert.equal(fallback.length, 5);
     assert.ok(fallback.every((r) => r.locationGroupIds === undefined && r.geoLocations?.countries?.[0] === "GB"));
+  });
+});
+
+describe("generate: one ad set per audience per non-empty tier", () => {
+  const groups = [
+    withGroupTier(NEWCASTLE, "primary"),
+    withGroupTier(BELFAST, "secondary"),
+    LONDON,
+  ];
+  const rows = generateSuggestions(twoAudiences, 100, groups, UK);
+
+  it("two audiences with Primary and Secondary is four ad sets, named for the tier", () => {
+    assert.equal(rows.length, 4);
+    assert.deepEqual(
+      rows.map((r) => r.name),
+      ["Pages 1 — Primary", "Pages 1 — Secondary", "Pages 2 — Primary", "Pages 2 — Secondary"],
+    );
+    assert.ok(rows.every((r) => r.budgetPerDay === 25));
+  });
+
+  it("the picker rule line is the place the operator learns the four-ad-set rule", () => {
+    const src = readFileSync(new URL("../../../components/steps/budget-schedule.tsx", import.meta.url), "utf8");
+    assert.match(src, /Generate makes one ad set per audience per non-empty tier/);
+    assert.match(src, /Two audiences with Primary and Secondary is four ad sets/);
+    assert.match(src, /Untiered locations stay on All and Custom/);
+  });
+
+  it("an untiered location is in neither tier's ad sets and is present under All", () => {
+    for (const r of rows.filter((row) => row.locationTier === "primary")) {
+      assert.deepEqual(r.locationGroupIds, ["grp_newcastle"]);
+    }
+    for (const r of rows.filter((row) => row.locationTier === "secondary")) {
+      assert.deepEqual(r.locationGroupIds, ["grp_belfast"]);
+    }
+    assert.ok(rows.every((r) => !r.locationGroupIds?.includes("grp_london")));
+    assert.deepEqual(locationIdsForQuickPick(locationOptions(groups), "all"), [
+      "grp_newcastle",
+      "grp_belfast",
+      "grp_london",
+    ]);
+  });
+
+  it("a tier with no locations generates nothing and raises no error", () => {
+    const onlyPrimary = [withGroupTier(NEWCASTLE, "primary"), LONDON];
+    const generated = generateSuggestions(twoAudiences, 100, onlyPrimary, UK);
+    assert.equal(generated.length, 2);
+    assert.ok(generated.every((r) => r.locationTier === "primary"));
+    assert.ok(generated.every((r) => r.name.endsWith(" — Primary")));
+    assert.ok(generated.every((r) => !r.locationGroupIds?.includes("grp_london")));
+  });
+
+  it("adding a location to a tier renames nothing but changes what that ad set resolves to", () => {
+    const glasgow = city("grp_glasgow", "Glasgow, Scotland, United Kingdom (+40 km)", "333", 40, "GB");
+    const nextGroups = [...groups, withGroupTier(glasgow, "secondary")];
+    const followed = followLocationTiers(rows, nextGroups);
+    assert.deepEqual(
+      followed.map((r) => r.name),
+      rows.map((r) => r.name),
+    );
+    const secondary = followed.find((r) => r.name === "Pages 1 — Secondary");
+    assert.ok(secondary);
+    assert.deepEqual(secondary.locationGroupIds, ["grp_belfast", "grp_glasgow"]);
+    assert.deepEqual(resolveAdSetGeoLocations(secondary, nextGroups)?.cities?.map((c) => c.key), ["222", "333"]);
+    assert.deepEqual(
+      rows.find((r) => r.name === "Pages 1 — Secondary")?.locationGroupIds,
+      ["grp_belfast"],
+    );
+  });
+
+  it("Split by city of a Primary row names each copy for its city", () => {
+    const primaryCities = [withGroupTier(NEWCASTLE, "primary"), withGroupTier(BELFAST, "primary")];
+    const generated = generateSuggestions(twoAudiences, 100, primaryCities, UK);
+    const source = generated.find((r) => r.name === "Pages 1 — Primary");
+    assert.ok(source);
+    assert.deepEqual(source.locationGroupIds, ["grp_newcastle", "grp_belfast"]);
+    const split = splitAdSetByLocation([source], source.id, primaryCities);
+    assert.deepEqual(
+      split.map((r) => r.name),
+      ["Pages 1 — Newcastle upon Tyne +200km", "Pages 1 — Belfast +40km"],
+    );
+    assert.ok(split.every((r) => r.locationTier === undefined));
+  });
+
+  it("an operator-typed name survives a tier change", () => {
+    const typed = { ...rows[0], name: "Headline fans" };
+    const moved = setAdSetLocations(typed, ["grp_belfast"], groups);
+    assert.equal(moved.name, "Headline fans");
+    const followed = followLocationTiers([typed], [
+      withGroupTier(NEWCASTLE, "primary"),
+      withGroupTier(city("grp_glasgow", "Glasgow +40km", "333", 40, "GB"), "primary"),
+      withGroupTier(BELFAST, "secondary"),
+    ]);
+    assert.equal(followed[0].name, "Headline fans");
+  });
+
+  it("a generated row moved between tiers drops the stale suffix", () => {
+    const moved = setAdSetLocations(rows[0], ["grp_belfast"], groups);
+    assert.equal(rows[0].name, "Pages 1 — Primary");
+    assert.equal(moved.name, "Pages 1 — Secondary");
+    assert.equal(moved.locationTier, "secondary");
+  });
+});
+
+describe("launch stamp", () => {
+  it("records the resolved locations, and editing the tier afterwards leaves the stamp unchanged", () => {
+    const groups = [withGroupTier(NEWCASTLE, "primary"), withGroupTier(BELFAST, "secondary")];
+    const primary = generateSuggestions(twoAudiences, 100, groups, UK).find((r) => r.locationTier === "primary");
+    assert.ok(primary);
+    const stamped = stampLaunchGeo(primary, groups);
+    const snap = snapshotAudienceDescriptor(stamped, emptyAudiences);
+    assert.deepEqual(snap.geo?.cities?.map((c) => c.key), ["111"]);
+
+    const glasgow = city("grp_glasgow", "Glasgow, Scotland, United Kingdom (+40 km)", "333", 40, "GB");
+    const edited = [...groups, withGroupTier(glasgow, "primary")];
+    const live = followLocationTiers([primary], edited)[0];
+    assert.deepEqual(live.locationGroupIds, ["grp_newcastle", "grp_glasgow"]);
+    assert.deepEqual(stamped.geoLocations?.cities?.map((c) => c.key), ["111"]);
+    assert.deepEqual(snapshotAudienceDescriptor(stamped, emptyAudiences).geo, snap.geo);
+    assert.deepEqual(resolveAdSetGeoLocations(live, edited)?.cities?.map((c) => c.key), ["111", "333"]);
   });
 });
 

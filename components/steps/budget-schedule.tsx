@@ -84,6 +84,7 @@ import {
   adSetsTargetingLocation,
   applyExclusionsToAdSets,
   applyLocationsToAdSets,
+  followLocationTiers,
   locationIdsForQuickPick,
   locationOptions,
   shortLocationLabel,
@@ -554,12 +555,19 @@ function LocationPicker({
               </div>
             ))}
           </div>
-          {groups.length > 1 && (
+          {(groups.some((g) => groupTier(g) === "primary") ||
+            groups.some((g) => groupTier(g) === "secondary")) && (
             <StatusLine className="mt-2 text-[11px] text-muted-foreground">
-              {groups.length} locations — Generate makes one ad set per audience targeting all {groups.length}{" "}
-              together. Narrow or split an ad set from its row.
+              Generate makes one ad set per audience per non-empty tier. Two audiences with Primary and Secondary is four ad sets. Untiered locations stay on All and Custom.
             </StatusLine>
           )}
+          {groups.length > 1 &&
+            !groups.some((g) => groupTier(g) === "primary" || groupTier(g) === "secondary") && (
+              <StatusLine className="mt-2 text-[11px] text-muted-foreground">
+                {groups.length} locations — Generate makes one ad set per audience targeting all {groups.length}{" "}
+                together. Narrow or split an ad set from its row.
+              </StatusLine>
+            )}
         </div>
       )}
 
@@ -1127,6 +1135,8 @@ export function BudgetSchedule({
 
   const handleLocationGroupsChange = (groups: LocationTargetingGroup[]) => {
     onBudgetChange({ ...bs, locationGroups: groups });
+    const next = followLocationTiers(adSetSuggestions, groups);
+    if (next.some((s, i) => s !== adSetSuggestions[i])) onSuggestionsChange(next);
   };
 
   const handleGenerate = () => {

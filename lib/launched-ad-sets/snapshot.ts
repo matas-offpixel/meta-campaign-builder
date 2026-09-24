@@ -5,11 +5,14 @@
  */
 
 import { deriveCampaignPlanPhase, type CampaignPlanPhase } from "../plan/phase.ts";
+import { resolveAdSetGeoLocations } from "../meta/location-targeting.ts";
 import type {
   AdSetGeoLocations,
   AdSetSuggestion,
   AudienceSettings,
   InterestGroup,
+  LocationSelection,
+  LocationTargetingGroup,
 } from "../types.ts";
 
 export type DescriptorSource = "launch" | "backfill_from_launch_summary";
@@ -66,6 +69,22 @@ export function snapshotAudienceDescriptor(
         : null,
     suggestionId: suggestion.id,
     initialDailyBudgetPence: Number.isFinite(budget) ? Math.round(budget * 100) : 0,
+  };
+}
+
+/**
+ * Write `resolveAdSetGeoLocations` onto the suggestion at launch. The
+ * four-rule precedence is unchanged — this is a snapshot of its output, so
+ * a later picker edit cannot rewrite `launched_ad_sets.geo`.
+ */
+export function stampLaunchGeo(
+  suggestion: AdSetSuggestion,
+  locationGroups: LocationTargetingGroup[] | undefined,
+  excludedLocations?: LocationSelection[],
+): AdSetSuggestion {
+  return {
+    ...suggestion,
+    geoLocations: resolveAdSetGeoLocations(suggestion, locationGroups, excludedLocations),
   };
 }
 
