@@ -542,6 +542,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
       enabled: raw.status === "ACTIVE",
       locationGroupIds,
       excludedLocationIds,
+      importedFromAdSetId: id,
     };
     adSets.push(suggestion);
     assignments[id] = [];
