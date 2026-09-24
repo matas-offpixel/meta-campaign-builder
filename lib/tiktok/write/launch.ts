@@ -109,14 +109,14 @@ export async function handleTikTokLaunch(input: {
     token: credentials.accessToken,
   });
 
-  const coversResolved = await hydrateDraftCoverImageIds({
+  const covers = await hydrateDraftCoverImageIds({
     draft,
     token: credentials.accessToken,
     request: input.request,
     requestGet: input.requestGet,
     sleep: input.sleep,
   });
-  if (coversResolved > 0) {
+  if (covers.resolved > 0 || covers.failed > 0) {
     try {
       await upsertTikTokDraft(input.session, draft.id, {
         ...draft,

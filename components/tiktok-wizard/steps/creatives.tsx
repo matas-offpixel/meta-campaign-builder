@@ -17,6 +17,7 @@ import {
   nextTikTokCreativeNames,
 } from "@/lib/tiktok-wizard/creative-items";
 import { refreshExpiredTikTokThumbnails } from "@/lib/tiktok-wizard/creative-thumbnails";
+import { resolveTikTokCreativeCovers } from "@/lib/tiktok-wizard/resolve-cover";
 import {
   commitUploadedTikTokCreatives,
   formatTikTokCreativePersistFailure,
@@ -130,6 +131,13 @@ export function CreativesStep({
     await persist(patchTikTokEveryCreativeCta(itemsRef.current, next));
   }
 
+  async function persistResolvedCovers(items: TikTokCreativeDraft[], advertiserId: string) {
+    const resolved = await resolveTikTokCreativeCovers({ advertiserId, items });
+    if (resolved.some((item, index) => item !== items[index])) {
+      await persist(resolved);
+    }
+  }
+
   function patchJob(id: string, patch: Partial<UploadJob>) {
     setUploadJobs((current) =>
       current.map((job) => (job.id === id ? { ...job, ...patch } : job)),
@@ -224,6 +232,7 @@ export function CreativesStep({
           variationCount: count,
         });
         itemsRef.current = persisted;
+        await persistResolvedCovers(persisted, advertiserId);
         patchJob(jobId, { stage: "done", videoId: result.videoId, thumbnailUrl });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Upload failed";
@@ -279,8 +288,10 @@ export function CreativesStep({
         musicId: null,
       })),
     ];
+    const advertiserId = draft.accountSetup.advertiserId;
     try {
       await persist(nextItems);
+      if (advertiserId) await persistResolvedCovers(itemsRef.current, advertiserId);
     } catch {
       // persist already set the operator-facing error
     }
@@ -323,6 +334,7 @@ export function CreativesStep({
     });
     try {
       await persist(nextItems);
+      await persistResolvedCovers(itemsRef.current, advertiserId);
     } catch {
       // persist already set the operator-facing error
     }
@@ -719,6 +731,9 @@ export function CreativesStep({
               <Datum className="truncate text-xs text-muted-foreground">
                 {item.adText || "No ad text"}
               </Datum>
+              {item.coverImageError ? (
+                <Datum className="text-xs text-destructive">{item.coverImageError}</Datum>
+              ) : null}
             </div>
             <Button
               type="button"

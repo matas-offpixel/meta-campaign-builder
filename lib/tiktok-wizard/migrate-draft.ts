@@ -331,6 +331,7 @@ function tikTokCoverImageIsServerResolvable(
   if (candidates.length === 0) return false;
   return candidates.every((creative) => {
     if (!creative.videoId?.trim() || creative.coverImageId?.trim()) return false;
+    if (creative.coverImageError?.trim()) return false;
     return Boolean(creative.thumbnailUrl?.trim() || creative.videoId);
   });
 }
@@ -345,6 +346,8 @@ function normalizeTikTokCreativeItem(
     ...item,
     coverImageId:
       typeof item.coverImageId === "string" ? item.coverImageId : null,
+    coverImageError:
+      typeof item.coverImageError === "string" ? item.coverImageError : null,
   };
 }
 

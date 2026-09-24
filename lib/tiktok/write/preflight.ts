@@ -451,13 +451,23 @@ export function collectTikTokLaunchPreflight(
           ),
         );
       }
+      const storedCoverError = creative.coverImageError?.trim() ?? "";
+      if (storedCoverError) {
+        issues.push(
+          issue(`cover-${creative.id}`, "image_ids", storedCoverError, {
+            scope: "creative",
+            creativeId: creative.id,
+            reason: storedCoverError,
+          }),
+        );
+      }
       const adPayload = buildTikTokAdPayload({
         advertiserId: draft.accountSetup.advertiserId ?? "",
         adGroupId: "preflight",
         draft,
         creative,
       });
-      if (!adPayload.ok) {
+      if (!adPayload.ok && !(storedCoverError && adPayload.error.field === "image_ids")) {
         issues.push(
           issue(
             `ad-${creative.id}-${adPayload.error.field}`,

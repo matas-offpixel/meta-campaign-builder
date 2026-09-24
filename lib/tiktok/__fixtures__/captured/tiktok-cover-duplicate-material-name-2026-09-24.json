@@ -1,0 +1,10 @@
+{
+  "_note": "CAPTURED 2026-09-24 from Vercel production runtime logs, deployment dpl_JBEKGK9HbhdVnfRkCWoLvZsntFJN, POST /api/tiktok/launch-campaign 200. Advertiser 7639802149165301776, draft e3b2cf0a-87e0-4bbb-b6bc-36117397845e. Five creatives, all the same error.",
+  "lines": [
+    "[tiktok/cover-image] hydrate draft=e3b2cf0a-87e0-4bbb-b6bc-36117397845e creative=1b12c5ae-91b9-4578-aa60-2ebc01c6e37c failed: Duplicate material name.",
+    "[tiktok/cover-image] hydrate draft=e3b2cf0a-87e0-4bbb-b6bc-36117397845e creative=a4e73b52-54d9-4bd4-861c-e2df65d98915 failed: Duplicate material name.",
+    "[tiktok/cover-image] hydrate draft=e3b2cf0a-87e0-4bbb-b6bc-36117397845e creative=dff7d44c-3e65-415d-a3e8-ede7c30c7455 failed: Duplicate material name.",
+    "[tiktok/cover-image] hydrate draft=e3b2cf0a-87e0-4bbb-b6bc-36117397845e creative=cf9741c4-0e8a-4f48-b98c-be66eff697f4 failed: Duplicate material name.",
+    "[tiktok/cover-image] hydrate draft=e3b2cf0a-87e0-4bbb-b6bc-36117397845e creative=a50fc325-6e15-4bad-a8ce-6aa3ef46b374 failed: Duplicate material name."
+  ]
+}
