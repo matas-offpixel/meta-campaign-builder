@@ -335,18 +335,31 @@ export function applyBulkDailyBudget(
   return suggestions.map((s) => ({ ...s, budgetPerDay }));
 }
 
+const TIER_NAME_SUFFIX: Record<LocationTier, string> = {
+  primary: " — Primary",
+  secondary: " — Secondary",
+};
+
 /**
  * Strip a trailing " — <label>" location suffix from an ad set name, if
  * present. Drafts generated before the row grew a location badge carry the
  * full group label in the name; reassigning or duplicating such a row must
  * not leave the old location behind in the name.
+ *
+ * Also strips the generated tier suffix so a row moved between Primary and
+ * Secondary does not keep a stale one. An operator-typed name never ends
+ * in these suffixes, so it is left alone.
  */
 function stripLocationSuffix(name: string, label: string | undefined): string {
-  if (!label) return name;
-  for (const suffix of [` — ${label}`, ` — ${shortLocationLabel(label)}`]) {
-    if (name.endsWith(suffix)) return name.slice(0, -suffix.length);
+  let n = name;
+  for (const suffix of Object.values(TIER_NAME_SUFFIX)) {
+    if (n.endsWith(suffix)) n = n.slice(0, -suffix.length);
   }
-  return name;
+  if (!label) return n;
+  for (const suffix of [` — ${label}`, ` — ${shortLocationLabel(label)}`]) {
+    if (n.endsWith(suffix)) return n.slice(0, -suffix.length);
+  }
+  return n;
 }
 
 /**
@@ -379,14 +392,30 @@ function joinedLabel(groups: LocationTargetingGroup[]): string | undefined {
   return groups.length ? groups.map((g) => g.label).join(" · ") : undefined;
 }
 
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const wanted = new Set(a);
+  return b.every((id) => wanted.has(id));
+}
+
+/** True when `ids` is exactly the current membership of one picker tier. */
+function matchingTier(ids: readonly string[], groups: LocationTargetingGroup[]): LocationTier | undefined {
+  for (const tier of ["primary", "secondary"] as const) {
+    const memberIds = groups.filter((g) => groupTier(g) === tier).map((g) => g.id);
+    if (memberIds.length > 0 && sameIds(memberIds, ids)) return tier;
+  }
+  return undefined;
+}
+
 /**
  * Point an ad set at exactly `locationIds`, restamping the `geoLocations`
  * snapshot and `locationLabel` from the same conversion launch uses.
  *
- * A name without a location in it is the operator's and is left alone. A name
- * ending in its old location (a legacy generated row, or a split row) loses
- * it, and takes the new one only if the row still isolates one location — so
- * a row can never be named for a city it no longer targets.
+ * A name without a location or tier in it is the operator's and is left
+ * alone. A generated name ending in its old location or tier loses it, and
+ * takes a tier suffix when the ids are exactly one picker tier, or a city
+ * suffix only when the row still isolates one location — so a row can never
+ * be named for a city or tier it no longer targets.
  */
 export function setAdSetLocations(
   suggestion: AdSetSuggestion,
@@ -396,17 +425,24 @@ export function setAdSetLocations(
 ): AdSetSuggestion {
   const chosen = resolveGroups(locationIds, groups);
   const stripped = stripLocationSuffix(suggestion.name, suggestion.locationLabel);
+  const tier = matchingTier(
+    chosen.map((g) => g.id),
+    groups,
+  );
   const name =
     stripped === suggestion.name
       ? suggestion.name
-      : chosen.length === 1
-        ? nameForLocation(stripped, undefined, chosen[0])
-        : stripped;
+      : tier
+        ? nameForTier(stripped, undefined, tier)
+        : chosen.length === 1
+          ? nameForLocation(stripped, undefined, chosen[0])
+          : stripped;
   return {
     ...suggestion,
     name,
     locationGroupIds: chosen.map((g) => g.id),
     locationGroupId: undefined,
+    locationTier: tier,
     geoLocations: chosen.length
       ? locationsToGeo(chosen, resolveExclusions(suggestion.excludedLocationIds, pool))
       : undefined,
@@ -474,9 +510,9 @@ export function locationIdsForQuickPick(
 }
 
 /**
- * Generate default: one ad set per audience targeting every campaign location
- * together. `configured` is false for the synthetic UK-nationwide fallback,
- * which is not a real group, so the row keeps only the stamped snapshot.
+ * Generate default: stamp the given groups onto one audience row.
+ * `configured` is false for the synthetic UK-nationwide fallback, which is
+ * not a real group, so the row keeps only the stamped snapshot.
  */
 export function stampLocations(
   base: Omit<AdSetSuggestion, "geoLocations" | "locationLabel">,
@@ -490,10 +526,37 @@ export function stampLocations(
   return setAdSetLocations({ ...base } as AdSetSuggestion, groups.map((g) => g.id), groups);
 }
 
+/** Name for a generated tier row: the audience name plus Primary or Secondary. */
+export function nameForTier(name: string, previousLabel: string | undefined, tier: LocationTier): string {
+  const suffix = TIER_NAME_SUFFIX[tier];
+  return `${truncateForSuffix(stripLocationSuffix(name, previousLabel), suffix)}${suffix}`;
+}
+
 /** Name for a row that isolates one location: the audience name plus the short location, within the name cap. */
 function nameForLocation(name: string, previousLabel: string | undefined, group: LocationTargetingGroup): string {
   const suffix = ` — ${shortLocationLabel(group.label)}`;
   return `${truncateForSuffix(stripLocationSuffix(name, previousLabel), suffix)}${suffix}`;
+}
+
+/**
+ * Keep a generated Primary / Secondary row pointed at the picker's current
+ * membership of that tier. Ids follow; the name and the `geoLocations`
+ * snapshot do not — launch writes the snapshot from `resolveAdSetGeoLocations`.
+ */
+export function followLocationTiers(
+  suggestions: AdSetSuggestion[],
+  groups: LocationTargetingGroup[],
+): AdSetSuggestion[] {
+  return suggestions.map((s) => {
+    if (s.locationTier !== "primary" && s.locationTier !== "secondary") return s;
+    const ids = groups.filter((g) => groupTier(g) === s.locationTier).map((g) => g.id);
+    return {
+      ...s,
+      locationGroupIds: ids,
+      locationGroupId: undefined,
+      locationLabel: joinedLabel(resolveGroups(ids, groups)),
+    };
+  });
 }
 
 function uniqueId(candidate: string, taken: Set<string>): string {

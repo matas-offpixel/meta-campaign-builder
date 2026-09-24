@@ -71,6 +71,11 @@ describe("Phase 0 wiring", () => {
     assert.doesNotMatch(LAUNCH, /void recordCreatedAdSet/);
   });
 
+  it("launch writes resolveAdSetGeoLocations onto the suggestion before the row is recorded", () => {
+    assert.match(source("lib/launched-ad-sets/launch-recorder.ts"), /stampLaunchGeo\(/);
+    assert.match(CREATE, /stampLaunchGeo\(/);
+  });
+
   it("the diff does not recommend an audience", () => {
     const files = [
       "lib/launched-ad-sets/snapshot.ts",
