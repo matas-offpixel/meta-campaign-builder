@@ -67,7 +67,7 @@ test("community buttons use the approved redirect, never a raw invite link", () 
   for (const d of defs) {
     const url = d.button!.url;
     if (url.includes("/j/")) {
-      assert.equal(url, "https://app.offpixel.co.uk/j/DHjPw1HRvipCu6S6ZT6d5P");
+      assert.equal(url, "https://crqln.com/j/DHjPw1HRvipCu6S6ZT6d5P");
     }
     assert.ok(!url.includes("chat.whatsapp.com"), `raw invite link leaked: ${url}`);
   }
@@ -76,7 +76,7 @@ test("community buttons use the approved redirect, never a raw invite link", () 
 test("a bare invite code is accepted and still routed through the redirect", () => {
   assert.equal(
     communityRedirectUrl("DHjPw1HRvipCu6S6ZT6d5P"),
-    "https://app.offpixel.co.uk/j/DHjPw1HRvipCu6S6ZT6d5P",
+    "https://crqln.com/j/DHjPw1HRvipCu6S6ZT6d5P",
   );
 });
 

@@ -17,11 +17,12 @@
  *    variable-driven because they are reused across events. Both patterns are
  *    valid; do not "unify" them.
  *
- *  - **Community buttons always go through the approved-domain redirect**
- *    (`app.offpixel.co.uk/j/{invite}`, Meta 2388081). Raw `chat.whatsapp.com`
- *    links do not get approved — the two legacy Throwback templates carrying
- *    them are both `inactive`. `communityRedirectUrl` enforces this; there is
- *    no code path that emits a raw invite link.
+ *  - **Community buttons always go through the cirqlin interstitial**
+ *    (`https://crqln.com/j/{invite}`). Raw `chat.whatsapp.com` links do not
+ *    get approved. `app.offpixel.co.uk/j/{invite}` is the deprecated
+ *    redirect (Sep 2026) and stays only on templates Meta already approved.
+ *    `communityRedirectUrl` is the builder for new templates; there is no
+ *    code path that emits a raw invite link.
  *
  *  - **Ticket buttons are plain URLs.** The redirect exists solely for
  *    WhatsApp invites and must not be applied to ticket links.
@@ -34,8 +35,14 @@ import type { D2CJobType } from "../../types.ts";
 import { extractWhatsappInviteCode } from "../hydrate-variables.ts";
 import type { BrandTemplateDefinition } from "./types.ts";
 
-/** Approved-domain redirect base for WhatsApp community invites (Meta 2388081). */
-export const COMMUNITY_REDIRECT_BASE = "https://app.offpixel.co.uk/j/";
+/**
+ * WhatsApp community button URL format: crqln.com/j/{code}
+ * (was app.offpixel.co.uk/j/{code} — deprecated Sep 2026 after WhatsApp's
+ * classifier began flagging the offpixel subdomain). Offpixel still
+ * resolves for messages already out; do not use it for new templates.
+ * Already-approved Bird templates keep their old URL (Meta re-approval).
+ */
+export const COMMUNITY_REDIRECT_BASE = "https://crqln.com/j/";
 
 export class EventTemplateInputError extends Error {
   readonly code = "D2C_EVENT_TEMPLATE_INPUT_INVALID";
