@@ -34,6 +34,8 @@ import type {
   WizardMode,
 } from "@/lib/types";
 import { inferRulesObjectiveFromRules } from "@/lib/optimisation-rules";
+import type { MetaImportMeta } from "@/lib/meta/import/types";
+import { IMPORT_OBJECTIVE_NEW_CAMPAIGN_NOTICE } from "@/lib/wizard/import-edits";
 import { ATTACH_CAMPAIGN_CAP, CROSS_CAMPAIGN_ADSET_CAP } from "@/lib/types";
 import { OPTIMISATION_GOALS_BY_OBJECTIVE } from "@/lib/mock-data";
 import {
@@ -58,6 +60,8 @@ interface CampaignSetupProps {
    */
   optimisationStrategy?: OptimisationStrategySettings;
   onOptimisationStrategyChange?: (strategy: OptimisationStrategySettings) => void;
+  /** Set when the draft was read from a live Meta campaign. */
+  importedFrom?: Pick<MetaImportMeta, "sourceCampaignId" | "sourceCampaignName"> | null;
 }
 
 const OBJECTIVES: {
@@ -125,6 +129,7 @@ export function CampaignSetup({
   onChange,
   optimisationStrategy,
   onOptimisationStrategyChange,
+  importedFrom = null,
 }: CampaignSetupProps) {
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
@@ -985,6 +990,12 @@ export function CampaignSetup({
           <Card>
             <CardTitle>Campaign Objective</CardTitle>
             <CardDescription>What outcome do you want from this campaign?</CardDescription>
+            {importedFrom ? (
+              <Datum className="mt-3 block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+                Imported from {importedFrom.sourceCampaignName || importedFrom.sourceCampaignId}.{" "}
+                {IMPORT_OBJECTIVE_NEW_CAMPAIGN_NOTICE}
+              </Datum>
+            ) : null}
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               {OBJECTIVES.map((obj) => {
                 const Icon = obj.icon;

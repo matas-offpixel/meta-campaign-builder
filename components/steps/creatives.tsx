@@ -34,6 +34,11 @@ import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/met
 import { extractVideoFrameFromUrl } from "@/lib/meta/video-frame-extract";
 import { CTA_OPTIONS } from "@/lib/mock-data";
 import {
+  isAbsoluteHttpUrl,
+  setEveryCreativeDestinationUrl,
+  setEveryCreativeUrlLine,
+} from "@/lib/wizard/import-edits";
+import {
   useFetchPages,
   useFetchInstagramAccounts,
   useFetchPagePosts,
@@ -169,6 +174,8 @@ function CreativesBody({
   );
   const [activeId, setActiveId] = useState<string | null>(creatives[0]?.id ?? null);
   const [appliedField, setAppliedField] = useState<BulkField | null>(null);
+  const [everyUrl, setEveryUrl] = useState("");
+  const everyUrlValid = isAbsoluteHttpUrl(everyUrl);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bulkVariationInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -1836,6 +1843,36 @@ function CreativesBody({
                 </div>
                 
               </div>
+
+              {creatives.length > 0 && (
+                <Card>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[16rem] flex-1">
+                      <Input
+                        id="meta-set-every-creative-url"
+                        label="Set every creative's destination URL"
+                        value={everyUrl}
+                        onChange={(e) => setEveryUrl(e.target.value)}
+                        placeholder="https://"
+                        error={
+                          everyUrl.trim() && !everyUrlValid
+                            ? "Use an absolute http(s) URL"
+                            : undefined
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!everyUrlValid}
+                      onClick={() => onChange(setEveryCreativeDestinationUrl(creatives, everyUrl))}
+                    >
+                      {setEveryCreativeUrlLine(creatives.length)}
+                    </Button>
+                  </div>
+                </Card>
+              )}
 
               {/* ─── Bulk apply ─── */}
               {creatives.length > 1 && (

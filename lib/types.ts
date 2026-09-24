@@ -923,6 +923,12 @@ export interface AdSetSuggestion {
    */
   placementConfig?: PlacementConfig;
   /**
+   * The live Meta ad set this row was read from by the importer. Not a
+   * launch record — the row has not been launched and launches as a new
+   * ad set. Absent on every row an operator added.
+   */
+  importedFromAdSetId?: string;
+  /**
    * @deprecated Do not use — this field is no longer stamped during launch.
    * Per-run Meta IDs are stored in LaunchSummary.adSetLaunchResults instead.
    */

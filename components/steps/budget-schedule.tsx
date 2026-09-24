@@ -69,6 +69,11 @@ import {
 } from "@/lib/meta/location-targeting";
 import { generateSuggestions } from "@/lib/wizard/generate-adset-suggestions";
 import {
+  IMPORTED_AD_SET_BADGE,
+  importedAdSetTitle,
+  mergeGeneratedWithImported,
+} from "@/lib/wizard/import-edits";
+import {
   createBlankAdSetSuggestion,
   defaultBlankAdSetBudget,
   findAdSetsExceedingBudgetShare,
@@ -1140,8 +1145,8 @@ export function BudgetSchedule({
   };
 
   const handleGenerate = () => {
-    const next = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
-    onSuggestionsChange(next);
+    const generated = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
+    onSuggestionsChange(mergeGeneratedWithImported(adSetSuggestions, generated));
   };
 
   const distributeBudget = () => {
@@ -1670,6 +1675,14 @@ export function BudgetSchedule({
                           <Badge variant="outline" className="text-[10px] shrink-0">
                             {SOURCE_LABELS[s.sourceType] || s.sourceType}
                           </Badge>
+                          {s.importedFromAdSetId ? (
+                            <span
+                              className="shrink-0 text-[10px] text-muted-foreground"
+                              title={importedAdSetTitle(s.importedFromAdSetId)}
+                            >
+                              {IMPORTED_AD_SET_BADGE} · {s.importedFromAdSetId}
+                            </span>
+                          ) : null}
                         </div>
                         <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
                       </div>

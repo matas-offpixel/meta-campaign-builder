@@ -8,6 +8,7 @@ import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts"
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
+import { importedAccountProblem, objectivePixelProblem } from "./wizard/import-edits.ts";
 
 export interface ValidationResult {
   valid: boolean;
@@ -42,6 +43,8 @@ function validateAccountSetup(draft: CampaignDraft): ValidationResult {
   const hasAccount =
     !!draft.settings.metaAdAccountId || !!draft.settings.adAccountId;
   if (!hasAccount) errors.push("Ad account is required");
+  const accountProblem = importedAccountProblem(draft);
+  if (accountProblem) errors.push(accountProblem);
   // Facebook page and Instagram account are selected per ad in the Creatives step.
   return { valid: errors.length === 0, errors };
 }
@@ -121,6 +124,10 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   if (!draft.settings.campaignName.trim()) errors.push("Campaign name is required");
   if (!draft.settings.objective) errors.push("Campaign objective is required");
   if (!draft.settings.optimisationGoal) errors.push("Optimisation goal is required");
+  if (draft.importMeta) {
+    const pixelProblem = objectivePixelProblem(draft);
+    if (pixelProblem) errors.push(pixelProblem);
+  }
   return { valid: errors.length === 0, errors };
 }
 

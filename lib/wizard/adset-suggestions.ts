@@ -270,6 +270,7 @@ export function duplicateAdSetSuggestion(
       suggestions.map((s) => s.name),
     ),
     advantagePlus: copyAdvantagePlus,
+    importedFromAdSetId: undefined,
   };
   const next = [...suggestions];
   next.splice(idx + 1, 0, clone);

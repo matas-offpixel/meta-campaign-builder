@@ -161,7 +161,12 @@ export function MetaDrawerDetails({
             </StepDisclosure>
             {showCampaignSetup ? (
               <StepDisclosure id="campaign" label="campaign">
-                <CampaignSetup surface="drawer" settings={s} onChange={onSettingsChange} />
+                <CampaignSetup
+                  surface="drawer"
+                  settings={s}
+                  onChange={onSettingsChange}
+                  importedFrom={draft.importMeta ?? null}
+                />
               </StepDisclosure>
             ) : null}
             {onBudgetChange ? (

@@ -427,6 +427,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
           <CampaignSetup
             settings={draft.settings}
             onChange={updateSettings}
+            importedFrom={draft.importMeta ?? null}
             optimisationStrategy={draft.optimisationStrategy}
             onOptimisationStrategyChange={updateOptimisationStrategy}
           />
