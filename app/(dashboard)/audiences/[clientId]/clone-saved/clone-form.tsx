@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import { metaAdAccountPickerOptions } from "@/lib/meta/account-picker-options";
 import type { MetaAdAccount } from "@/lib/types";
 
 interface SavedAudience {
@@ -475,36 +477,35 @@ function AccountPickerSection({
           {loadError}
         </p>
       )}
-      <div className="mt-3">
-        <select
+      <div className="mt-3 max-w-lg">
+        <Combobox
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={onChange}
           disabled={disabled || loading || options.length === 0}
-          className="h-9 w-full max-w-lg rounded-md border border-border-strong bg-background px-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-        >
-          <option value="">
-            {loading
+          loading={loading}
+          placeholder={
+            loading
               ? "Loading ad accounts…"
               : options.length === 0
                 ? "No ad accounts available"
-                : "— Pick an ad account —"}
-          </option>
-          {options.map((a) => {
+                : "— Pick an ad account —"
+          }
+          emptyText="No ad accounts match"
+          options={[
+            { value: "", label: "— Pick an ad account —" },
+            ...metaAdAccountPickerOptions(options, (account) => {
             const unavailable =
-              a.unavailableReason === "rate_limited"
+              account.unavailableReason === "rate_limited"
                 ? "rate limited — try later"
-                : a.unavailableReason
+                : account.unavailableReason
                   ? "unavailable — try later"
                   : null;
-            return (
-              <option key={a.id} value={a.id} disabled={!!unavailable}>
-                {unavailable
-                  ? `${a.name} · ${unavailable}`
-                  : `${a.name} · ${a.id}`}
-              </option>
-            );
-          })}
-        </select>
+            return unavailable
+              ? { sublabel: unavailable, disabled: true, dimmed: true }
+              : {};
+          }),
+          ]}
+        />
         {disabled && disabledHint && (
           <p className="mt-1 text-xs text-muted-foreground">{disabledHint}</p>
         )}

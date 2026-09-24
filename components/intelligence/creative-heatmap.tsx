@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
+import { metaAdAccountPickerOptions } from "@/lib/meta/account-picker-options";
 import {
   useCreativeHeatmap,
   type UseCreativeHeatmapResult,
@@ -361,17 +362,15 @@ function CreativeHeatmapInner({
             disabled={adAccountsLoading}
             loading={adAccountsLoading}
             emptyText="No ad accounts match"
-            options={adAccounts.map((a) => {
+            options={metaAdAccountPickerOptions(adAccounts, (account) => {
               const unavailable =
-                a.unavailableReason === "rate_limited"
+                account.unavailableReason === "rate_limited"
                   ? "rate limited — try later"
-                  : a.unavailableReason
+                  : account.unavailableReason
                     ? "unavailable — try later"
                     : null;
               return {
-                value: a.id,
-                label: `${a.name} (${a.currency})`,
-                sublabel: unavailable ?? a.id,
+                sublabel: unavailable ?? account.currency,
                 disabled: !!unavailable,
                 dimmed: !!unavailable,
               };

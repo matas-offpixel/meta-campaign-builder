@@ -23,7 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Select } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
+import { metaAdAccountPickerOptions } from "@/lib/meta/account-picker-options";
 import type { MetaImportEventOption } from "@/lib/meta/import/event";
 import type { MetaImportPickerPayload } from "@/lib/meta/import/picker";
 import {
@@ -248,17 +249,15 @@ export function MetaImportPicker({
 
         {!picker && !saved && (
           <>
-            <Select
-              id="meta-import-account"
+            <Combobox
               label="Ad account"
               value={adAccountId}
-              onChange={(event) => setAdAccountId(event.target.value)}
+              onChange={setAdAccountId}
               disabled={loadingAccounts}
+              loading={loadingAccounts}
               placeholder={loadingAccounts ? "Loading ad accounts…" : "Select ad account"}
-              options={accounts.map((account) => ({
-                value: account.id,
-                label: `${account.name} (${account.id})`,
-              }))}
+              emptyText="No ad accounts match"
+              options={metaAdAccountPickerOptions(accounts)}
             />
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
             <div className="mt-4 max-h-[28rem] overflow-auto rounded-md border border-border">
