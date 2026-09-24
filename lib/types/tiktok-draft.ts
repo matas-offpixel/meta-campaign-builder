@@ -245,6 +245,12 @@ export interface TikTokCreativeDraft {
   thumbnailExpiresAt?: string | null;
   /** TikTok Asset Library image id for the video cover (`image_ids` on /ad/create/). */
   coverImageId?: string | null;
+  /**
+   * Set when cover upload failed. Absent or null means the cover resolved
+   * or has not been tried. The Creatives row shows this; launch preflight
+   * repeats it.
+   */
+  coverImageError?: string | null;
   durationSeconds: number | null;
   title: string | null;
   sparkPostId: string | null;
