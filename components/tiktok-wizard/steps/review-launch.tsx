@@ -62,7 +62,7 @@ import type {
   TikTokAdGroupDraft,
   TikTokCampaignDraft,
 } from "@/lib/types/tiktok-draft";
-import { formatTikTokImportEnhancementLine } from "@/lib/tiktok/import/types";
+import { formatTikTokImportAdGroupsCarried, formatTikTokImportEnhancementLine } from "@/lib/tiktok/import/types";
 
 type LaunchState =
   | { status: "idle" }
@@ -469,6 +469,11 @@ export function ReviewLaunchStep({
           <Datum className="text-sm">
             {formatTikTokImportEnhancementLine(draft.importMeta)}
           </Datum>
+          {formatTikTokImportAdGroupsCarried(draft.importMeta.adGroupsCarried) && (
+            <Datum className="text-sm">
+              {formatTikTokImportAdGroupsCarried(draft.importMeta.adGroupsCarried)}
+            </Datum>
+          )}
           <Datum className="text-xs text-muted-foreground">
             The source campaign is not touched. Pause it in Ads Manager when you
             are ready. Launch creates a new paused campaign through the

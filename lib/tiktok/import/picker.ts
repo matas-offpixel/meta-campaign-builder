@@ -101,6 +101,13 @@ export type TikTokImportPickerRow = {
   suggestionReason: string | null;
   unsupportedReason: TikTokImportNotCarriedReason | null;
   suggestionLabel: string | null;
+  /** Source `adgroup_id`s this unique row ran in. Empty when unknown. */
+  adGroupIds: string[];
+};
+
+export type TikTokImportPickerAdGroup = {
+  id: string;
+  name: string;
 };
 
 export type TikTokImportPickerPayload = {
@@ -109,6 +116,9 @@ export type TikTokImportPickerPayload = {
     name: string;
     kind: TikTokLiveCampaignKind;
   };
+  adGroups: TikTokImportPickerAdGroup[];
+  targetingDiffers: boolean;
+  targetingDiffMessage: string | null;
   rows: TikTokImportPickerRow[];
   /**
    * `/ad/get/` rows that matched no `creative_list` row on any of the

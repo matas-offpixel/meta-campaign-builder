@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 import { TikTokApiError, tiktokGet } from "../../client.ts";
 import { bundleFromRawCapture } from "../capture.ts";
 import {
+  TikTokImportSourceError,
   buildTikTokImportPicker,
   classifyTikTokImportCarry,
   finalizeTikTokImportDraft,
@@ -36,6 +37,10 @@ const SMART_PLUS_PATH = join(
 const MANUAL_PATH = join(
   CAPTURED,
   "tiktok-import-capture-1874142286754113.json",
+);
+const RUDIMENTAL_PATH = join(
+  CAPTURED,
+  "tiktok-import-capture-1877146768391633.json",
 );
 
 const ACCOUNT = {
@@ -328,6 +333,7 @@ describe("hydratePickerThumbnails", () => {
       suggestionReason: null,
       unsupportedReason: null,
       suggestionLabel: null,
+      adGroupIds: [],
       ...extras,
     };
   }
@@ -535,5 +541,183 @@ describe("imported draft launch exit", () => {
       [],
       issues.map((issue) => `${issue.id}:${issue.field}:${issue.message}`).join(" | "),
     );
+  });
+});
+
+function stableMapped(draft: ReturnType<typeof mapTikTokLiveCampaignToDraft>) {
+  const importMeta = draft.importMeta
+    ? (() => {
+        const { adGroupsCarried: _omit, ...rest } = draft.importMeta;
+        return rest;
+      })()
+    : null;
+  return {
+    campaignSetup: draft.campaignSetup,
+    audiences: draft.audiences,
+    budgetSchedule: draft.budgetSchedule,
+    optimisation: draft.optimisation,
+    creatives: {
+      items: draft.creatives.items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        mode: item.mode,
+        videoId: item.videoId,
+        sparkPostId: item.sparkPostId,
+        cta: item.cta,
+        landingPageUrl: item.landingPageUrl,
+        adText: item.adText,
+        identityId: item.identityId,
+      })),
+    },
+    creativeAssignments: draft.creativeAssignments,
+    accountSetup: {
+      identityId: draft.accountSetup.identityId,
+      identityType: draft.accountSetup.identityType,
+      identityBcId: draft.accountSetup.identityBcId,
+      pixelId: draft.accountSetup.pixelId,
+      optimisationEvent: draft.accountSetup.optimisationEvent,
+    },
+    importMeta,
+  };
+}
+
+describe("single-ad-group captures stay byte-identical", () => {
+  it("Smart+ 1876044101888033 matches the frozen mapped output", () => {
+    const bundle = bundleFromRawCapture(loadCapture(SMART_PLUS_PATH));
+    const mapped = mapTikTokLiveCampaignToDraft(bundle, "freeze-smart", ACCOUNT);
+    const expected = JSON.parse(
+      readFileSync(join(CAPTURED, "../mapped/expected-mapped-1876044101888033.json"), "utf8"),
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 1);
+    assert.equal(mapped.importMeta?.adGroupsCarried, 1);
+    assert.deepEqual(stableMapped(mapped), expected);
+  });
+
+  it("manual 1874142286754113 matches the frozen mapped output", () => {
+    const bundle = bundleFromRawCapture(loadCapture(MANUAL_PATH));
+    const mapped = mapTikTokLiveCampaignToDraft(bundle, "freeze-manual", ACCOUNT);
+    const expected = JSON.parse(
+      readFileSync(join(CAPTURED, "../mapped/expected-mapped-1874142286754113.json"), "utf8"),
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 1);
+    assert.deepEqual(stableMapped(mapped), expected);
+  });
+});
+
+describe("RUDIMENTAL capture 1877146768391633", () => {
+  const captured = bundleFromRawCapture(loadCapture(RUDIMENTAL_PATH));
+
+  it("is two Smart+ ad groups whose locations differ", () => {
+    assert.equal(captured.kind, "smart_plus");
+    assert.equal(captured.adGroups.length, 2);
+    assert.equal(captured.adGroups[0]?.adgroup_name, "NEWCASTLE");
+    assert.equal(captured.adGroups[1]?.adgroup_name, "SECONDARY");
+    const picker = buildTikTokImportPicker(captured);
+    assert.equal(picker.targetingDiffers, true);
+    assert.match(picker.targetingDiffMessage ?? "", /NEWCASTLE/);
+    assert.match(picker.targetingDiffMessage ?? "", /SECONDARY/);
+    assert.match(picker.targetingDiffMessage ?? "", /locations/);
+  });
+
+  it("refuses the whole campaign naming the location values", () => {
+    assert.throws(
+      () => mapTikTokLiveCampaignToDraft(captured, "rudimental-refuse", ACCOUNT),
+      (err: unknown) =>
+        err instanceof TikTokImportSourceError &&
+        /SECONDARY/.test(err.message) &&
+        /locations/.test(err.message) &&
+        /NEWCASTLE/.test(err.message) &&
+        /one audience/.test(err.message),
+    );
+  });
+
+  it("imports the chosen ad group and lists the other as adgroup_targeting_differs", () => {
+    const newcastle = String(captured.adGroups[0]?.adgroup_id);
+    const secondary = String(captured.adGroups[1]?.adgroup_id);
+    const mapped = mapTikTokLiveCampaignToDraft(
+      captured,
+      "rudimental-pick",
+      ACCOUNT,
+      { adGroupId: newcastle },
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 1);
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.id, newcastle);
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.name, "NEWCASTLE");
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.budget, 20);
+    assert.equal(mapped.importMeta?.adGroupsCarried, 1);
+    const skipped = (mapped.importMeta?.notCarried ?? []).filter(
+      (item) => item.reason === "adgroup_targeting_differs",
+    );
+    assert.equal(skipped.length, 1);
+    assert.equal(skipped[0]?.adId, secondary);
+    assert.equal(skipped[0]?.name, "SECONDARY");
+    const assigned = mapped.creativeAssignments.byAdGroupId[newcastle] ?? [];
+    assert.equal(assigned.length, mapped.creatives.items.length);
+    assert.equal(mapped.creatives.items.length > 0, true);
+  });
+
+  it("carries both ad groups when representable targeting is copied to match", () => {
+    const first = captured.adGroups[0]!;
+    const second = captured.adGroups[1]!;
+    const matching = {
+      ...captured,
+      adGroups: [
+        first,
+        { ...second, targeting_spec: first.targeting_spec },
+      ],
+    };
+    const mapped = mapTikTokLiveCampaignToDraft(
+      matching,
+      "rudimental-match",
+      ACCOUNT,
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 2);
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.id, first.adgroup_id);
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.name, "NEWCASTLE");
+    assert.equal(mapped.budgetSchedule.adGroups[0]?.budget, 20);
+    assert.equal(mapped.budgetSchedule.adGroups[1]?.id, second.adgroup_id);
+    assert.equal(mapped.budgetSchedule.adGroups[1]?.name, "SECONDARY");
+    assert.equal(mapped.budgetSchedule.adGroups[1]?.budget, 20);
+    assert.equal(mapped.importMeta?.adGroupsCarried, 2);
+    const newcastleAds = captured.ads.filter(
+      (ad) => ad.adgroup_id === first.adgroup_id,
+    );
+    const secondaryAds = captured.ads.filter(
+      (ad) => ad.adgroup_id === second.adgroup_id,
+    );
+    assert.equal(newcastleAds.length, 2);
+    assert.equal(secondaryAds.length, 2);
+    const byGroup = mapped.creativeAssignments.byAdGroupId;
+    const newcastleIds = byGroup[String(first.adgroup_id)] ?? [];
+    const secondaryIds = byGroup[String(second.adgroup_id)] ?? [];
+    assert.equal(newcastleIds.length > 0, true);
+    assert.equal(secondaryIds.length > 0, true);
+    const itemIds = new Set(mapped.creatives.items.map((item) => item.id));
+    assert.equal(newcastleIds.every((id) => itemIds.has(id)), true);
+    assert.equal(secondaryIds.every((id) => itemIds.has(id)), true);
+  });
+
+  it("does not refuse when only an uncarriable targeting field differs", () => {
+    const first = captured.adGroups[0]!;
+    const second = captured.adGroups[1]!;
+    const matching = {
+      ...captured,
+      adGroups: [
+        first,
+        {
+          ...second,
+          targeting_spec: {
+            ...(first.targeting_spec as Record<string, unknown>),
+          },
+          placements: ["PLACEMENT_TIKTOK", "PLACEMENT_PANGLE"],
+        },
+      ],
+    };
+    const mapped = mapTikTokLiveCampaignToDraft(
+      matching,
+      "rudimental-uncarriable",
+      ACCOUNT,
+    );
+    assert.equal(mapped.budgetSchedule.adGroups.length, 2);
   });
 });

@@ -141,6 +141,10 @@ function normalizeImportMeta(
             ),
         )
       : [],
+    ...(typeof record.adGroupsCarried === "number" &&
+    Number.isFinite(record.adGroupsCarried)
+      ? { adGroupsCarried: record.adGroupsCarried }
+      : {}),
   };
 }
 
