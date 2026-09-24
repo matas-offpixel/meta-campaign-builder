@@ -18,6 +18,7 @@ import { loadTemplatesFromDb, saveTemplateToDb, deleteTemplateFromDb } from "@/l
 import { applyTemplate } from "@/lib/templates";
 import { SaveTemplateModal } from "@/components/templates/save-template-modal";
 import { NewCampaignModal } from "@/components/library/new-campaign-modal";
+import { MetaImportButton } from "@/components/meta/meta-import-button";
 import { EventPickDialog } from "@/components/library/event-pick-dialog";
 import { useFetchEvents } from "@/lib/hooks/useEvents";
 import { toPlanEventOption } from "@/lib/campaign-event";
@@ -244,6 +245,7 @@ export function CampaignLibrary() {
             <p className="mt-0.5 text-xs text-muted-foreground">Manage drafts, published campaigns, and templates</p>
           </div>
           <div className="flex items-center gap-2">
+            <MetaImportButton />
             <Button onClick={handleNewCampaign} disabled={!userId}>
               <Plus className="h-4 w-4" />
               New Campaign

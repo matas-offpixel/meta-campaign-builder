@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { MetaImportReport } from "@/components/meta/meta-import-report";
 import { AccountSetup } from "@/components/steps/account-setup";
 import { BudgetSchedule } from "@/components/steps/budget-schedule";
 import { CampaignSetup } from "@/components/steps/campaign-setup";
@@ -101,7 +102,14 @@ export function MetaDrawerDetails({
       <InfoTip label={META_DRAWER_COPY.detailsTip} />
 
       {open ? (
-        <dl className="mt-2 grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-0">
+        <div className="mt-2 space-y-2">
+        {draft.importMeta ? (
+          <MetaImportReport
+            meta={draft.importMeta}
+            adSetCount={draft.adSetSuggestions?.length ?? 0}
+          />
+        ) : null}
+        <dl className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-0">
           {rows.map((row) => (
             <div key={row.id} className="col-span-3 grid h-9 grid-cols-subgrid items-center border-b border-border" data-row={row.id}>
               <dt className={`${VIZ_TYPE.label} text-muted-foreground`}>{row.label}</dt>
@@ -188,6 +196,7 @@ export function MetaDrawerDetails({
             ) : null}
           </div>
         </dl>
+        </div>
       ) : null}
     </section>
   );

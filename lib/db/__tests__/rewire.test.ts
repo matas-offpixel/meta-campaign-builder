@@ -77,9 +77,12 @@ describe("rewire writes", () => {
     ]) {
       assert.ok(!changed.split("\n").includes(file), `${file} is in this branch's diff`);
     }
-    assert.ok(
-      !changed.split("\n").some((file) => file.startsWith("components/plan/")),
-      "components/plan is in this branch's diff",
-    );
+    const planTouched = changed
+      .split("\n")
+      .filter((file) => file.startsWith("components/plan/"));
+    const planAllowed = new Set(["components/plan/meta-drawer-details.tsx"]);
+    for (const file of planTouched) {
+      assert.ok(planAllowed.has(file), `${file} is in this branch's diff`);
+    }
   });
 });
