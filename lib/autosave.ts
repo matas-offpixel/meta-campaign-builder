@@ -516,6 +516,10 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     }
   }
 
+  if (raw.importMeta !== undefined) {
+    draft.importMeta = raw.importMeta as CampaignDraft["importMeta"];
+  }
+
   return draft;
 }
 
