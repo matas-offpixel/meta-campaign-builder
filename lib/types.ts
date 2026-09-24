@@ -1615,6 +1615,11 @@ export interface CampaignDraft {
   adSetSuggestions: AdSetSuggestion[];
   creativeAssignments: CreativeAssignmentMatrix;
   status: "draft" | "published" | "archived";
+  /**
+   * Set when the draft was read from a live Meta campaign. Absent on
+   * drafts built in the wizard. Shape lives in `lib/meta/import/types`.
+   */
+  importMeta?: import("./meta/import/types").MetaImportMeta;
   /** Set after a successful POST to Meta — the live campaign ID (e.g. "23849562890000") */
   metaCampaignId?: string;
   /** Populated after launch — records what was created and what failed */

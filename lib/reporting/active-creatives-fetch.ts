@@ -1,5 +1,9 @@
 import "server-only";
 
+import { deriveAssetSignature } from "./asset-signature.ts";
+
+export { deriveAssetSignature };
+
 import {
   graphGetWithToken,
   graphPostWithToken,
@@ -389,76 +393,6 @@ function extractThumbnailSource(
       creative?.asset_feed_spec?.images?.[0]?.hash?.trim() ||
       null,
   };
-}
-
-/**
- * Derive a stable asset signature for the second-layer grouper.
- * First non-null in the priority order wins:
- *   1. object_story_spec.video_data.video_id → "video:${id}"
- *   2. object_story_spec.link_data.image_hash → "image:${hash}"
- *   3. asset_feed_spec.images[].hash (sorted)  → "assetset:${hashes}"
- *   4. asset_feed_spec.videos[].video_id (sorted) → "videoset:${ids}"
- *   5. top-level creative.video_id              → "video:${id}"
- *
- * Pure / structural — exported for unit tests and re-use from any
- * fetch path that produces the same RawCreative shape (e.g. a
- * future share-side fetch that also wants the signature).
- *
- * Returns `null` when nothing usable is present (placeholder
- * creatives, mis-tagged ads, or an Advantage+ shell where the
- * asset_feed_spec is empty across both images and videos — in
- * that case the waterfall falls through to thumbnail / name).
- *
- * PR #49: tier 4 (`asset_feed_spec.videos[]`) added because
- * Advantage+ video creatives carry their video ids inside the
- * asset-feed spec rather than top-level `video_id` /
- * `object_story_spec.video_data`. Without this tier, sibling
- * Advantage+ video re-uploads fell through to the weaker
- * creative_id fallback and rendered as duplicate cards.
- */
-export function deriveAssetSignature(
-  creative: RawCreative | undefined,
-): string | null {
-  if (!creative) return null;
-  const oss = creative.object_story_spec;
-  // 1. object_story_spec.video_data — single-asset video creatives.
-  const ossVideoId = oss?.video_data?.video_id?.trim();
-  if (ossVideoId) return `video:${ossVideoId}`;
-
-  // 2. object_story_spec.link_data.image_hash — single-image link ads.
-  const imageHash = oss?.link_data?.image_hash?.trim();
-  if (imageHash) return `image:${imageHash}`;
-
-  // 3. Advantage+ image asset-set. Sort so two Meta payloads listing
-  // the same set in different orders collapse to one signature.
-  const afsImageHashes = creative.asset_feed_spec?.images
-    ?.map((i) => i.hash?.trim())
-    .filter((h): h is string => !!h && h.length > 0)
-    .sort();
-  if (afsImageHashes && afsImageHashes.length > 0) {
-    return `assetset:${afsImageHashes.join("|")}`;
-  }
-
-  // 4. Advantage+ video asset-set (PR #49). Same shape as the image
-  // tier — sorted ids so order-independent. Distinct prefix so the
-  // grouper can tell videosets apart from imagesets.
-  const afsVideoIds = creative.asset_feed_spec?.videos
-    ?.map((v) => v.video_id?.trim())
-    .filter((id): id is string => !!id && id.length > 0)
-    .sort();
-  if (afsVideoIds && afsVideoIds.length > 0) {
-    return `videoset:${afsVideoIds.join("|")}`;
-  }
-
-  // 5. Top-level creative.video_id — last-resort for video creatives
-  // that didn't surface a video_data block. Kept lower than
-  // asset_feed_spec.videos so an Advantage+ shell with both
-  // populated picks the deduplicated set rather than a single
-  // representative id.
-  const topVideoId = creative.video_id?.trim();
-  if (topVideoId) return `video:${topVideoId}`;
-
-  return null;
 }
 
 /**

@@ -124,3 +124,68 @@ export type MetaLiveCampaignBundle = {
   ads: Record<string, unknown>[];
   creatives: Record<string, Record<string, unknown>>;
 };
+
+/**
+ * Targeting keys the draft has no field for. Named once so a new Meta
+ * key cannot fall through an `if` and disappear.
+ */
+export const META_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
+  "locales",
+  "genders",
+  "device_platforms",
+  "publisher_platforms",
+  "facebook_positions",
+  "instagram_positions",
+  "targeting_automation",
+  "targeting_relaxation_types",
+  "brand_safety_content_filter_levels",
+  "attribution_spec",
+  "destination_type",
+  "location_types",
+  "age_range",
+] as const;
+
+/** Absent is not empty. A read that never returned the key stays absent. */
+export type MetaImportFlexibleSpec = {
+  state: "absent" | "empty" | "present";
+  interestIds: string[];
+};
+
+export type MetaImportDropped = {
+  field: string;
+  adSetId?: string;
+  adSetName?: string;
+  creativeId?: string;
+  value: unknown;
+};
+
+export type MetaImportNotCarried = {
+  id: string;
+  name: string;
+  reason: string;
+};
+
+export type MetaImportReadProgress = {
+  adSetsRead: number;
+  adsRead: number;
+  creativesRead: number;
+};
+
+export type MetaImportMeta = {
+  sourceCampaignId: string;
+  sourceCampaignName: string;
+  sourceAdAccountId: string;
+  dropped: MetaImportDropped[];
+  notCarried: MetaImportNotCarried[];
+  creativeCounts: { read: number; carried: number; notCarried: number };
+  /** Per source ad set. Absent stays distinct from an empty array. */
+  flexibleSpec: Record<string, MetaImportFlexibleSpec>;
+  /** `X-App-Usage` call_count when a read reported one. */
+  appUsageCallCount: number | null;
+};
+
+export const META_IMPORT_EVENT_ID_REQUIRED = "event_id is required";
+export const META_IMPORT_EVENT_ID_CLIENT_MISMATCH =
+  "event_id does not belong to this client";
+export const META_IMPORT_ACCOUNT_NOT_LINKED =
+  "This ad account is not linked to a client";

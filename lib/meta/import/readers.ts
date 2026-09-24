@@ -13,6 +13,7 @@ import {
   META_IMPORT_CAMPAIGN_FIELDS,
   META_IMPORT_EXTRA_PAGE_SLEEP_MS,
   META_IMPORT_PAGE_LIMIT,
+  type MetaImportReadProgress,
   type MetaImportRequest,
   type MetaLiveCampaignBundle,
 } from "./types.ts";
@@ -41,6 +42,14 @@ function normalizeAdAccountId(id: string): string {
   return trimmed.startsWith("act_") ? trimmed.slice(4) : trimmed;
 }
 
+function throwRead(message: string, progress: MetaImportReadProgress): never {
+  const error = new Error(message) as Error & {
+    metaImportProgress: MetaImportReadProgress;
+  };
+  error.metaImportProgress = progress;
+  throw error;
+}
+
 function creativeIdFromAd(ad: Record<string, unknown>): string | null {
   const creative = ad.creative;
   if (typeof creative === "string" && creative) return creative;
@@ -62,6 +71,7 @@ async function pageAll(
   let after: string | undefined;
   let page = 0;
   for (;;) {
+    // Same 1s gap as bulk-attach list-adsets between paged reads.
     if (page > 0) await sleep(META_IMPORT_EXTRA_PAGE_SLEEP_MS);
     const params: Record<string, string> = {
       fields,
@@ -127,6 +137,11 @@ export async function readMetaLiveCampaign(input: {
   sleep?: (ms: number) => Promise<void>;
 }): Promise<MetaLiveCampaignBundle> {
   const sleep = input.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const progress: MetaImportReadProgress = {
+    adSetsRead: 0,
+    adsRead: 0,
+    creativesRead: 0,
+  };
   const campaignPath = `/${input.campaignId}`;
   const campaign = asRecord(
     await input.request.get(
@@ -155,9 +170,11 @@ export async function readMetaLiveCampaign(input: {
     input.token,
     sleep,
   );
+  progress.adSetsRead = adSets.length;
   if (adSets.length === 0) {
-    throw new Error(
+    throwRead(
       `Meta import failed: /{campaign_id}/adsets returned no ad sets for ${input.campaignId}`,
+      progress,
     );
   }
 
@@ -168,9 +185,11 @@ export async function readMetaLiveCampaign(input: {
     input.token,
     sleep,
   );
+  progress.adsRead = ads.length;
   if (ads.length === 0) {
-    throw new Error(
+    throwRead(
       `Meta import failed: /{campaign_id}/ads returned no ads for ${input.campaignId}`,
+      progress,
     );
   }
 
@@ -178,8 +197,9 @@ export async function readMetaLiveCampaign(input: {
     .map(creativeIdFromAd)
     .filter((id): id is string => id != null);
   if (creativeIds.length === 0) {
-    throw new Error(
+    throwRead(
       `Meta import failed: ${ads.length} ads on ${input.campaignId} had no creative id`,
+      progress,
     );
   }
 
@@ -189,9 +209,11 @@ export async function readMetaLiveCampaign(input: {
     input.token,
     sleep,
   );
+  progress.creativesRead = Object.keys(creatives).length;
   if (Object.keys(creatives).length === 0) {
-    throw new Error(
+    throwRead(
       `Meta import failed: creative batch returned no creatives for ${input.campaignId} (${creativeIds.length} ids)`,
+      progress,
     );
   }
 
