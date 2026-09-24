@@ -1,0 +1,104 @@
+{
+  "abo_scale_up": {
+    "wire": [
+      { "method": "POST", "path": "/adset_1", "body": { "daily_budget": 13000 } }
+    ],
+    "outcome": {
+      "kind": "applied",
+      "wrote": true,
+      "dryRun": false,
+      "applied": true,
+      "appliedAt": "2026-08-20T12:00:00.000Z",
+      "budgetBeforePence": 10000,
+      "budgetAfterPence": 13000,
+      "guardrailNote": null,
+      "metaResponseJson": { "success": true }
+    }
+  },
+  "cbo_scale_down": {
+    "wire": [
+      { "method": "POST", "path": "/camp_1", "body": { "daily_budget": 8000 } }
+    ],
+    "outcome": {
+      "kind": "applied",
+      "wrote": true,
+      "dryRun": false,
+      "applied": true,
+      "appliedAt": "2026-08-20T12:00:00.000Z",
+      "budgetBeforePence": 10000,
+      "budgetAfterPence": 8000,
+      "guardrailNote": null,
+      "metaResponseJson": { "success": true }
+    }
+  },
+  "pause_reduced_to_floor": {
+    "wire": [
+      { "method": "POST", "path": "/adset_1", "body": { "daily_budget": 5000 } }
+    ],
+    "outcome": {
+      "kind": "pause_reduced_to_floor",
+      "wrote": true,
+      "dryRun": false,
+      "applied": true,
+      "appliedAt": "2026-08-20T12:00:00.000Z",
+      "budgetBeforePence": 10000,
+      "budgetAfterPence": 5000,
+      "guardrailNote": "reduced_to_pause_floor",
+      "metaResponseJson": {
+        "success": true,
+        "adset_id": "adset_1",
+        "budget_before_pence": 10000,
+        "budget_after_pence": 5000
+      }
+    }
+  },
+  "paused_at_floor": {
+    "wire": [
+      { "method": "POST", "path": "/adset_1", "body": { "status": "PAUSED" } }
+    ],
+    "outcome": {
+      "kind": "paused",
+      "wrote": true,
+      "dryRun": false,
+      "applied": true,
+      "appliedAt": "2026-08-20T12:00:00.000Z",
+      "budgetBeforePence": 5000,
+      "budgetAfterPence": 5000,
+      "guardrailNote": "paused_at_floor",
+      "metaResponseJson": {
+        "success": true,
+        "adset_id": "adset_1",
+        "budget_at_pause_pence": 5000,
+        "status": "PAUSED"
+      }
+    }
+  },
+  "pause_fourth_gate_closed": {
+    "wire": [],
+    "outcome": {
+      "kind": "pause_recommended",
+      "wrote": false,
+      "dryRun": true,
+      "applied": false,
+      "appliedAt": null,
+      "budgetBeforePence": 10000,
+      "budgetAfterPence": 10000,
+      "guardrailNote": null,
+      "metaResponseJson": null
+    }
+  },
+  "scale_up_shadow": {
+    "wire": [],
+    "outcome": {
+      "kind": "shadow",
+      "wrote": false,
+      "dryRun": true,
+      "applied": false,
+      "appliedAt": null,
+      "budgetBeforePence": 10000,
+      "budgetAfterPence": 13000,
+      "guardrailNote": null,
+      "metaResponseJson": null
+    }
+  }
+}
