@@ -61,6 +61,12 @@ npm run lint     # ESLint
 | `/admin/login` + `/admin/auth/callback` | CLIENT dashboard magic-link login (OP909 — distinct from operator `/login`) |
 | `/admin/[clientSlug]/*` | Client self-service dashboard: pages, fans, insights, integrations, settings. Auth = session + `client_users` membership + slug match (403 on mismatch). See `docs/ADMIN_DASHBOARD_ARCHITECTURE.md` |
 
+### WhatsApp community button URL
+
+New D2C templates use `https://crqln.com/j/{code}` (`COMMUNITY_REDIRECT_BASE` in `lib/d2c/bird/templates/from-event.ts`). That path is an HTML interstitial on cirqlin, not a 302.
+
+`app.offpixel.co.uk/j/{code}` is deprecated as of Sep 2026 after WhatsApp's classifier began flagging the offpixel subdomain. The offpixel URL still resolves for messages already out. Do not use it for new templates. Do not edit already-approved Bird templates (Meta re-approval) or already-scheduled Mailchimp campaigns.
+
 ### Canvas + drawers
 
 `/plan/[id]`, `/campaign/[id]`, `/tiktok-campaign/[id]`, and `/google-search/[id]` all mount `components/viz/drawer.tsx`. The old eight-step ladders are gone; each drawer is a tab bar.

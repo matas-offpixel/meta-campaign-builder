@@ -43,7 +43,9 @@
  *
  * `wa_community_invite`: the original ask's pseudocode passed
  * `copy.whatsapp_community_url` straight through, but every template's
- * button URL is `https://app.offpixel.co.uk/j/{{wa_community_invite}}` —
+ * button URL is `https://crqln.com/j/{{wa_community_invite}}` on new
+ * templates (`communityRedirectUrl`). Already-approved templates still
+ * embed `https://app.offpixel.co.uk/j/{{wa_community_invite}}` —
  * that variable is the INVITE CODE (the last path segment of a
  * `chat.whatsapp.com/...` URL), not the full URL. Passing the full URL would
  * double up the domain in the rendered button link. Reuses
