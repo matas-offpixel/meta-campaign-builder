@@ -192,5 +192,5 @@ export type MetaImportMeta = {
 export const META_IMPORT_EVENT_ID_REQUIRED = "event_id is required";
 export const META_IMPORT_EVENT_ID_CLIENT_MISMATCH =
   "event_id does not belong to this client";
-export const META_IMPORT_ACCOUNT_NOT_LINKED =
-  "This ad account is not linked to a client";
+export const META_IMPORT_NO_EVENTS_ON_ACCOUNT =
+  "No events run on this ad account. Create the event first.";

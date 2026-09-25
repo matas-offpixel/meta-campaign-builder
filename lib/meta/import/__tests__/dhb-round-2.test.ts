@@ -213,7 +213,8 @@ describe("DHB capture", () => {
         deps: {
           tokenForUser: async () => ({ token: "t" }),
           clientIdForAccount: async () => "client",
-          loadEvent: async () => ({ id: "e1", client_id: "client" }) as never,
+          loadEvent: async () =>
+            ({ id: "e1", client_id: "client", meta_ad_account_id: ACCOUNT }) as never,
           readCampaign: async () => bundle,
           saveDraft: async () => {
             saved += 1;
@@ -231,7 +232,8 @@ describe("DHB capture", () => {
     const deps = (bundle: MetaLiveCampaignBundle) => ({
       tokenForUser: async () => ({ token: "t" }),
       clientIdForAccount: async () => "client",
-      loadEvent: async () => ({ id: "e1", client_id: "client" }) as never,
+      loadEvent: async () =>
+        ({ id: "e1", client_id: "client", meta_ad_account_id: ACCOUNT }) as never,
       readCampaign: async () => bundle,
     });
 
