@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 976
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/976
 - **Branch:** `cursor/creative-name-from-filename`
 
 ## Summary
