@@ -161,8 +161,8 @@ describe("appendUploadedTikTokCreatives", () => {
   });
 
   it("two sequential pastes get distinct names continuing the sequence", () => {
-    const first = nextTikTokCreativeNames("Hero", 0, 2);
-    const second = nextTikTokCreativeNames("Hero", first.length, 2);
+    const first = nextTikTokCreativeNames(["Hero", "Hero"], [], 1, true);
+    const second = nextTikTokCreativeNames(["Hero", "Hero"], first, 1, true);
     const names = [...first, ...second];
     assert.equal(new Set(names).size, names.length);
     assert.deepEqual(names, nameCreativeVariations("Hero", 4));
@@ -265,5 +265,90 @@ describe("appendUploadedTikTokCreatives", () => {
       items[0]!.id,
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
+  });
+
+  it("names a default-base upload after the file, and variations off that stem", () => {
+    let n = 0;
+    const single = appendUploadedTikTokCreatives({
+      existing: [],
+      uploads: [
+        {
+          videoId: "v1",
+          thumbnailUrl: null,
+          durationSeconds: 8,
+          fileName: "CamelPhat_Ironworks_9x16.mp4",
+        },
+      ],
+      ...SHARED,
+      baseName: "TikTok creative",
+      newId: () => `id-${++n}`,
+    });
+    assert.equal(single[0]?.name, "CamelPhat_Ironworks_9x16");
+    assert.equal(single[0]?.baseName, "CamelPhat_Ironworks_9x16");
+
+    n = 0;
+    const variations = appendUploadedTikTokCreatives({
+      existing: [],
+      uploads: [
+        {
+          videoId: "v1",
+          thumbnailUrl: null,
+          durationSeconds: 8,
+          fileName: "CamelPhat_Ironworks_9x16.mp4",
+        },
+      ],
+      ...SHARED,
+      baseName: "TikTok creative",
+      variationCount: 3,
+      newId: () => `id-${++n}`,
+    });
+    assert.deepEqual(
+      variations.map((item) => item.name),
+      [
+        "CamelPhat_Ironworks_9x16 · v1",
+        "CamelPhat_Ironworks_9x16 · v2",
+        "CamelPhat_Ironworks_9x16 · v3",
+      ],
+    );
+  });
+
+  it("keeps two uploads of the same stem distinct and falls back for a dotfile", () => {
+    let n = 0;
+    const items = appendUploadedTikTokCreatives({
+      existing: [],
+      uploads: [
+        { videoId: "v1", thumbnailUrl: null, durationSeconds: 1, fileName: "same.mp4" },
+        { videoId: "v2", thumbnailUrl: null, durationSeconds: 1, fileName: "same.mp4" },
+        { videoId: "v3", thumbnailUrl: null, durationSeconds: 1, fileName: ".mp4" },
+      ],
+      ...SHARED,
+      baseName: "TikTok creative",
+      newId: () => `id-${++n}`,
+    });
+    assert.deepEqual(
+      items.map((item) => item.name),
+      ["same", "same · v2", "TikTok creative"],
+    );
+    assert.equal(new Set(items.map((item) => item.name)).size, 3);
+  });
+
+  it("honours an operator-typed base instead of the filename", () => {
+    let n = 0;
+    const items = appendUploadedTikTokCreatives({
+      existing: [],
+      uploads: [
+        {
+          videoId: "v1",
+          thumbnailUrl: null,
+          durationSeconds: 1,
+          fileName: "CamelPhat_Ironworks_9x16.mp4",
+        },
+      ],
+      ...SHARED,
+      baseName: "Hero",
+      newId: () => `id-${++n}`,
+    });
+    assert.equal(items[0]?.name, "Hero · v1");
+    assert.equal(items[0]?.baseName, "Hero");
   });
 });

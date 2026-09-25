@@ -6,6 +6,7 @@
  * launcher requires videoId. Google is copy, not a control.
  */
 
+import { creativeNameFromFilename } from "../creative-name-from-filename.ts";
 import type { CampaignDraft, AdCreativeDraft } from "../types.ts";
 import type {
   TikTokCampaignDraft,
@@ -288,7 +289,7 @@ function derivedTikTokCreative(
     landingPageUrl: string;
   },
 ): TikTokCreativeDraft {
-  const name = routed.filename.replace(/\.[^.]+$/, "") || "TikTok creative";
+  const name = creativeNameFromFilename(routed.filename, "TikTok creative");
   return {
     id: crypto.randomUUID(),
     name,

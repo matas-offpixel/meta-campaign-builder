@@ -53,6 +53,7 @@ import {
   createDefaultCaption,
 } from "@/lib/campaign-defaults";
 import { connectFacebookAccount } from "@/lib/facebook-connect";
+import { nameMetaCreativeFromAssets } from "@/lib/creative-name-from-filename";
 import { nextDuplicateName } from "@/lib/duplicate-name";
 import {
   bindUploadToAssetSlot,
@@ -431,7 +432,11 @@ function CreativesBody({
   // applied to the freshest variation state, not a stale closure snapshot.
   const updateAssetVariation = useCallback(
     (adId: string, varId: string, updater: AssetVariationUpdater) => {
-      onChange(applyVariationUpdate(creativesRef.current, adId, varId, updater));
+      onChange(
+        applyVariationUpdate(creativesRef.current, adId, varId, updater).map((creative) =>
+          creative.id === adId ? nameMetaCreativeFromAssets(creative) : creative,
+        ),
+      );
     },
     [onChange],
   );
@@ -547,7 +552,11 @@ function CreativesBody({
     const entries: (Entry & { variation: AssetVariation })[] = fileArray.map((file, i) => {
       const variation = createDefaultAssetVariation(ratios);
       variation.name = `Variation ${currentVarCount + i + 1}`;
-      variation.assets[0] = { ...variation.assets[0], uploadStatus: "uploading" };
+      variation.assets[0] = {
+        ...variation.assets[0],
+        uploadStatus: "uploading",
+        fileName: file.name,
+      };
       return { variationId: variation.id, assetId: variation.assets[0].id, file, variation };
     });
 
@@ -555,7 +564,10 @@ function CreativesBody({
     onChange(
       creativesRef.current.map((c) =>
         c.id === active.id
-          ? { ...c, assetVariations: [...(c.assetVariations ?? []), ...entries.map((e) => e.variation)] }
+          ? nameMetaCreativeFromAssets({
+              ...c,
+              assetVariations: [...(c.assetVariations ?? []), ...entries.map((e) => e.variation)],
+            })
           : c,
       ),
     );
@@ -570,6 +582,7 @@ function CreativesBody({
         });
 
         const patch: Partial<Asset> = {
+          fileName: entry.file.name,
           uploadedUrl: result.url,
           thumbnailUrl: result.previewUrl ?? result.url,
           assetHash: result.hash,
@@ -2234,10 +2247,11 @@ function AssetSlot({
       setLocalPreviewUrl(blobUrl);
     }
 
-    onUpdate({ uploadStatus: "uploading", error: undefined });
+    onUpdate({ uploadStatus: "uploading", error: undefined, fileName: file.name });
     try {
       const result = await upload({ file, type: mediaType, adAccountId });
       onUpdate({
+        fileName: file.name,
         uploadedUrl: result.url,
         thumbnailUrl: result.previewUrl ?? result.url,
         assetHash: result.hash,

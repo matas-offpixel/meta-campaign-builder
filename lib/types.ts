@@ -527,6 +527,12 @@ export interface Asset {
   videoId?: string;
   /** CR.1 registry row written at upload. Absent on historical assets. */
   registryAssetId?: string;
+  /**
+   * Original `File.name` from the picker. Absent on assets saved before this
+   * field existed. Never backfilled from `storagePath` — that is a storage
+   * key, not the name the operator gave the file.
+   */
+  fileName?: string;
   /** Object path in `storageBucket` when the original bytes were kept. */
   storagePath?: string;
   storageBucket?: string;
