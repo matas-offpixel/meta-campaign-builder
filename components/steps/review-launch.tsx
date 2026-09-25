@@ -179,7 +179,11 @@ function buildLaunchEvents(
         ? attachedCampaigns.length > 1
           ? `Attached to ${attachedCampaigns.length} existing campaigns`
           : `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
-        : `Campaign created`,
+        : summary.campaignCreateOutcome === "reused"
+          ? "Campaign reused"
+          : summary.campaignCreateOutcome === "recreated"
+            ? "Campaign recreated"
+            : "Campaign created",
     metaId: summary.metaCampaignId,
     durationMs: summary.phaseDurations?.campaign,
   });

@@ -88,6 +88,25 @@ export function mapLaunchTokenError(
  * Ad create refused because the creative has no website URL (subcode
  * 2061015). This is not the Development-mode bucket.
  */
+/**
+ * Ad set refused because its parent campaign is archived (subcode
+ * 1487866). This is not the Development-mode bucket.
+ */
+export function archivedCampaignMessage(
+  campaignId: string,
+  err: { code?: number; subcode?: number; message?: string; userMsg?: string },
+): string | null {
+  const text = `${err.message ?? ""} ${err.userMsg ?? ""}`;
+  const hit =
+    err.subcode === 1487866 || /may not be added to archived campaigns/i.test(text);
+  if (!hit) return null;
+  const id = campaignId.trim() || "unknown";
+  return (
+    `Campaign ${id} is archived in Meta. Unarchive it in Ads Manager, ` +
+    `or duplicate this draft to launch a new campaign.`
+  );
+}
+
 export function websiteUrlRequiredMessage(
   creativeName: string,
   err: { code?: number; subcode?: number; message?: string; userMsg?: string },

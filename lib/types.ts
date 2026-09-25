@@ -1441,6 +1441,11 @@ export interface LaunchSummary {
   launchRunId: string;
   metaCampaignId: string;
   /**
+   * Whether Phase 1 minted the campaign, reused a live ledger id, or
+   * replaced an archived one. Absent on launches from before this field.
+   */
+  campaignCreateOutcome?: "created" | "reused" | "recreated";
+  /**
    * Per-suggestion launch outcomes for this run.
    * Key = AdSetSuggestion.id. Allows the UI to show per-suggestion
    * status without mutating the editable suggestion objects.
