@@ -182,6 +182,11 @@ export type MetaImportMeta = {
   flexibleSpec: Record<string, MetaImportFlexibleSpec>;
   /** `X-App-Usage` call_count when a read reported one. */
   appUsageCallCount: number | null;
+  /**
+   * A creative whose source had no headline. The name is not used in its place.
+   * Absent on drafts imported before this field existed.
+   */
+  copyNotes?: { creativeId: string; text: string }[];
 };
 
 export const META_IMPORT_EVENT_ID_REQUIRED = "event_id is required";

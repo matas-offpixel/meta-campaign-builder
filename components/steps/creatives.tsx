@@ -30,6 +30,7 @@ import {
   applyVariationUpdate,
   type AssetVariationUpdater,
 } from "@/lib/creatives/asset-variation-updater";
+import { importedHeadlineNote } from "@/lib/meta/import/creative-copy";
 import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/meta/upload";
 import { extractVideoFrameFromUrl } from "@/lib/meta/video-frame-extract";
 import { CTA_OPTIONS } from "@/lib/mock-data";
@@ -94,6 +95,8 @@ interface CreativesProps {
   queueLibrary?: QueueLibraryItem[];
   onResetQueueBinding?: () => void;
   planDestinationUrl?: string;
+  /** Imported creatives whose source had no headline. */
+  copyNotes?: readonly { creativeId: string; text: string }[];
 }
 
 const ASSET_MODES: { value: AssetMode; label: string; desc: string }[] = [
@@ -152,6 +155,7 @@ function CreativesBody({
   queueLibrary,
   onResetQueueBinding,
   planDestinationUrl = "",
+  copyNotes,
 }: CreativesProps) {
   const drawer = useIsDrawer();
   const planOwnsDestination = usePlanOwnsDestination();
@@ -771,6 +775,9 @@ function CreativesBody({
                     </span>
                     <div className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{c.name || `Ad ${i + 1}`}</span>
+                      {importedHeadlineNote(c, copyNotes) ? (
+                        <span className="block text-[11px] text-muted-foreground">{importedHeadlineNote(c, copyNotes)}</span>
+                      ) : null}
                       {page && <span className="block truncate text-[11px] text-muted-foreground">{page.name}</span>}
                       <div className="mt-0.5 flex gap-1">
                         <Badge variant={(c.sourceType ?? "new") === "existing_post" ? "warning" : "outline"} className="text-[8px] px-1 py-0">
@@ -1194,12 +1201,19 @@ function CreativesBody({
                       ))}
 
                       <div className="grid grid-cols-2 gap-4">
-                        <Input
-                          label="Headline"
-                          value={active.headline}
-                          onChange={(e) => updateAd(active.id, { headline: e.target.value })}
-                          placeholder="Event headline"
-                        />
+                        <div>
+                          <Input
+                            label="Headline"
+                            value={active.headline}
+                            onChange={(e) => updateAd(active.id, { headline: e.target.value })}
+                            placeholder="Event headline"
+                          />
+                          {importedHeadlineNote(active, copyNotes) ? (
+                            <StatusLine className="mt-1 text-xs text-muted-foreground">
+                              {importedHeadlineNote(active, copyNotes)}
+                            </StatusLine>
+                          ) : null}
+                        </div>
                         <Input
                           label="Description"
                           value={active.description}
