@@ -65,7 +65,37 @@ export type MapMetaLiveCampaignInput = {
   clientId?: string;
   eventId?: string;
   now?: string;
+  /** `campaign_drafts.id` is a uuid. Defaults to a fresh one. */
+  draftId?: string;
 };
+
+export const META_IMPORT_CARRY_KEY_REJECTED = "carry_key_rejected";
+
+/** Creative ids the operator can carry: read, and with a resolvable asset. */
+export function carriableMetaCreativeIds(bundle: MetaLiveCampaignBundle): Set<string> {
+  const ids = new Set<string>();
+  for (const [key, raw] of Object.entries(bundle.creatives)) {
+    const creative = raw as RawCreative & { id?: string };
+    const id = str(creative.id) ?? key;
+    if (deriveAssetSignature({ ...creative, id })) ids.add(id);
+  }
+  return ids;
+}
+
+export function classifyMetaImportCarry(
+  bundle: MetaLiveCampaignBundle,
+  carry: readonly string[],
+): { accepted: string[]; rejected: string[] } {
+  const carriable = carriableMetaCreativeIds(bundle);
+  return {
+    accepted: carry.filter((key) => carriable.has(key)),
+    rejected: carry.filter((key) => !carriable.has(key)),
+  };
+}
+
+export function formatRejectedMetaCarryKeys(rejected: readonly string[]): string {
+  return `Nothing was saved. Rejected keys: ${rejected.join(", ")}.`;
+}
 
 type CitySpec = {
   key: string;
@@ -576,6 +606,14 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     creatives.push(draftCreative);
   }
 
+  const readIds = new Set(
+    creativeIds.map((key) => str((input.bundle.creatives[key] as { id?: unknown }).id) ?? key),
+  );
+  for (const key of carry) {
+    if (readIds.has(key)) continue;
+    notCarried.push({ id: key, name: key, reason: META_IMPORT_CARRY_KEY_REJECTED });
+  }
+
   const carriedIds = new Set(creatives.map((creative) => creative.id));
   for (const ad of input.bundle.ads) {
     const adSetId = str(ad.adset_id);
@@ -591,7 +629,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     (sum, adSet) => sum + (Number.isFinite(adSet.budgetPerDay) ? adSet.budgetPerDay : 0),
     0,
   );
-  draft.id = `import:${str(campaign.id) ?? "campaign"}`;
+  draft.id = input.draftId ?? globalThis.crypto.randomUUID();
   draft.settings.clientId = input.clientId ?? "";
   draft.settings.eventId = input.eventId ?? "";
   draft.settings.adAccountId = account;

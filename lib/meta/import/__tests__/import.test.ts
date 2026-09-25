@@ -344,6 +344,22 @@ describe("fixture provenance", () => {
     }
   });
 
+  it("no captured fixture carries an access token", () => {
+    const fixturesDir = join(capturedDir, "..");
+    const files = [
+      ...readdirSync(capturedDir).map((file) => join(capturedDir, file)),
+      ...readdirSync(fixturesDir)
+        .filter((file) => file.endsWith(".json"))
+        .map((file) => join(fixturesDir, file)),
+    ];
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      const raw = readFileSync(file, "utf8");
+      assert.doesNotMatch(raw, /access_token=(?!REDACTED)[^&"\\]+/, file);
+      assert.doesNotMatch(raw, /EAA[A-Za-z0-9]{20,}/, file);
+    }
+  });
+
   it("the live capture's cities have key, and flexible_spec is an array with interest ids", () => {
     const cap = JSON.parse(
       readFileSync(

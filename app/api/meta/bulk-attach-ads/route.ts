@@ -45,6 +45,7 @@ import {
   buildAdPayload,
   validateCreativePayload,
 } from "@/lib/meta/creative";
+import { metaAdName } from "@/lib/creative-name-from-filename";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { resolvePageIdentity } from "@/lib/meta/page-token";
 import {
@@ -408,7 +409,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       // One ad per selected ad set.
       for (const adSetId of adSetIds) {
-        const adName = `${creative.name} — ${adSetId}`;
+        const adName = metaAdName(creative.name);
         const adPayload = buildAdPayload(adName, metaCreativeId, adSetId);
         try {
           const { id: adId } = await createMetaAd(adAccountId, adPayload, token);

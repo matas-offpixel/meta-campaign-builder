@@ -67,6 +67,16 @@ export function creativeNameFromFilename(filename: string, fallback: string): st
   return capped || fallback;
 }
 
+/**
+ * A Meta ad's name is its creative's name, the same in every ad set it runs
+ * in. Reporting groups ads by name (`groupCreativesByName`); a per-ad-set
+ * suffix splits one creative into one row per ad set. The ad id tells them
+ * apart, and Meta allows duplicate ad names.
+ */
+export function metaAdName(creativeName: string): string {
+  return capCreativeName(creativeName) || "Ad";
+}
+
 export function withCreativeVariationSuffix(base: string, variation: number): string {
   const suffix = ` · v${variation}`;
   return `${capCreativeName(base, suffix.length)}${suffix}`;

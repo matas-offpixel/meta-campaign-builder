@@ -8,7 +8,11 @@ import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts"
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
-import { importedAccountProblem, objectivePixelProblem } from "./wizard/import-edits.ts";
+import {
+  importedAccountProblem,
+  importedAdSetsDefineAudience,
+  objectivePixelProblem,
+} from "./wizard/import-edits.ts";
 
 export interface ValidationResult {
   valid: boolean;
@@ -163,7 +167,13 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
   const hasSaved = audiences.savedAudiences.audienceIds.length > 0;
   const hasInterests = audiences.interestGroups.some((g) => g.interests.length > 0);
 
-  if (!hasPageGroups && !hasCustom && !hasSaved && !hasInterests) {
+  if (
+    !hasPageGroups &&
+    !hasCustom &&
+    !hasSaved &&
+    !hasInterests &&
+    !importedAdSetsDefineAudience(draft)
+  ) {
     errors.push("Select at least one audience source");
   }
 

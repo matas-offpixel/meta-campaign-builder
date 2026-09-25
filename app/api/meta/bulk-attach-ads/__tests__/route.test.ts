@@ -22,6 +22,7 @@ import { describe, it } from "node:test";
 
 import { classifyLaunchMetaCode, mapLaunchTokenError } from "../../../../../lib/meta/launch-error-classify.ts";
 import { buildAdPayload } from "../../../../../lib/meta/creative.ts";
+import { metaAdName } from "../../../../../lib/creative-name-from-filename.ts";
 
 // Mirror route constants (changes here must match the route file).
 const BULK_ATTACH_CAP = 8;
@@ -205,18 +206,18 @@ describe("buildAdPayload — used in bulk-attach loop", () => {
     assert.equal(payload.name, "My Ad — Retargeting");
   });
 
-  it("generates distinct ad names per ad set", () => {
+  it("names every ad after the creative, whichever ad set it lands in", () => {
     const adSets = [
       { id: "as_1", name: "18-24 Retargeting" },
       { id: "as_2", name: "25-34 Lookalike" },
     ];
     const creativeName = "New Video — Summer";
     const payloads = adSets.map((adSet) =>
-      buildAdPayload(`${creativeName} — ${adSet.name}`, "cre_XYZ", adSet.id),
+      buildAdPayload(metaAdName(creativeName), "cre_XYZ", adSet.id),
     );
-    assert.equal(payloads[0].name, "New Video — Summer — 18-24 Retargeting");
-    assert.equal(payloads[1].name, "New Video — Summer — 25-34 Lookalike");
-    assert.notEqual(payloads[0].name, payloads[1].name);
+    assert.equal(payloads[0].name, "New Video — Summer");
+    assert.equal(payloads[1].name, "New Video — Summer");
+    assert.notEqual(payloads[0].adset_id, payloads[1].adset_id);
   });
 });
 

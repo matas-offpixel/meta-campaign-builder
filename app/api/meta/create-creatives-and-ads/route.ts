@@ -21,6 +21,7 @@ import {
   type CreativeCreationResult,
   type CreativeFailureResult,
 } from "@/lib/meta/creative";
+import { metaAdName } from "@/lib/creative-name-from-filename";
 import type { AdCreativeDraft, AdSetSuggestion } from "@/lib/types";
 
 // Same ceiling as /api/meta/launch-campaign — this route can create many
@@ -293,7 +294,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       const adPayload = buildAdPayload(
-        `${creative.name} — ${adSet.name}`,
+        metaAdName(creative.name),
         metaCreativeId,
         adSet.metaAdSetId,
       );

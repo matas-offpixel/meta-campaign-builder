@@ -88,6 +88,8 @@ try {
 const SIGNED = ["thumbnail_url", "image_url"];
 function stripSigned(value) {
   if (Array.isArray(value)) return value.map(stripSigned);
+  // Graph paging.next / paging.previous URLs carry the caller's access_token.
+  if (typeof value === "string") return value.replace(/access_token=[^&"]+/g, "access_token=REDACTED");
   if (!value || typeof value !== "object") return value;
   const next = {};
   for (const [key, item] of Object.entries(value)) {

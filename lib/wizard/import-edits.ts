@@ -5,6 +5,7 @@
  */
 
 import { buildPromotedObject, resolveOptimisationGoal } from "../meta/adset.ts";
+import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "../meta/location-targeting.ts";
 import type {
   AdCreativeDraft,
   AdSetSuggestion,
@@ -32,6 +33,31 @@ const OBJECTIVE_LABELS: Record<CampaignObjective, string> = {
 
 export function isImportedAdSet(adSet: AdSetSuggestion): boolean {
   return Boolean(adSet.importedFromAdSetId);
+}
+
+/**
+ * An imported row that resolves to a place and an age range. Broad and
+ * Advantage+ ad sets carry nothing else, and Meta delivers them as they are.
+ */
+export function importedAdSetCarriesTargeting(
+  adSet: AdSetSuggestion,
+  draft: Pick<CampaignDraft, "budgetSchedule">,
+): boolean {
+  if (!isImportedAdSet(adSet)) return false;
+  if (!Number.isFinite(adSet.ageMin) || !Number.isFinite(adSet.ageMax)) return false;
+  const geo = resolveAdSetGeoLocations(
+    adSet,
+    draft.budgetSchedule.locationGroups,
+    draft.budgetSchedule.excludedLocations,
+  );
+  return geo != null && !geoHasNoIncludedArea(geo);
+}
+
+/** The imported ad sets are the audience definition, as live ad sets are in attach mode. */
+export function importedAdSetsDefineAudience(
+  draft: Pick<CampaignDraft, "adSetSuggestions" | "budgetSchedule">,
+): boolean {
+  return draft.adSetSuggestions.some((adSet) => importedAdSetCarriesTargeting(adSet, draft));
 }
 
 function audienceKey(adSet: AdSetSuggestion): string {
