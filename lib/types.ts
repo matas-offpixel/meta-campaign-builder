@@ -434,6 +434,11 @@ export interface CustomAudienceGroup {
   id: string;
   name: string;
   audienceIds: string[];
+  /**
+   * Names the import read alongside each id. Optional: drafts saved
+   * before this field existed load without it and render the id.
+   */
+  audienceNames?: Record<string, string>;
   /** When true, lookalike ad sets will be created from this group's audiences at launch */
   lookalike?: boolean;
   /** Lookalike percentage tiers to create ad sets for (e.g. ["0-1%", "1-2%"]) */

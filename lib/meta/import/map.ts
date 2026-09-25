@@ -496,6 +496,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     }
 
     const availableIds: string[] = [];
+    const audienceNames: Record<string, string> = {};
     for (const rawAudience of Array.isArray(targeting.custom_audiences) ? targeting.custom_audiences : []) {
       const row = asRecord(rawAudience);
       const audienceId = str(row?.id);
@@ -513,6 +514,8 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
         continue;
       }
       availableIds.push(audienceId);
+      const audienceName = str(row?.name);
+      if (audienceName) audienceNames[audienceId] = audienceName;
     }
 
     let customGroupId = "";
@@ -524,6 +527,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
           id: customGroupId,
           name: name,
           audienceIds: [...availableIds].sort(),
+          audienceNames,
         });
       }
     }
