@@ -1,4 +1,4 @@
-import { classifyImportedExistingPost } from "./creative-copy.ts";
+import { classifyImportedExistingPost, importedExistingPostMedia } from "./creative-copy.ts";
 import { deriveAssetSignature } from "../../reporting/asset-signature.ts";
 import { extractPreview } from "../../reporting/creative-preview-extract.ts";
 import type { RawCreative } from "../../reporting/creative-preview-extract.ts";
@@ -47,7 +47,9 @@ export function buildMetaImportPicker(bundle: MetaLiveCampaignBundle): MetaImpor
     const raw = creative as RawCreative;
     const existing = classifyImportedExistingPost(raw);
     const signature = deriveAssetSignature(raw);
-    const canCarry = existing != null && !("unreachable" in existing) ? true : signature != null;
+    const postMedia =
+      existing != null && !("unreachable" in existing) ? importedExistingPostMedia(raw) : null;
+    const canCarry = postMedia != null || (existing == null && signature != null);
     const preview = extractPreview(raw);
     const mediaType = signature?.startsWith("video") ? "video" : signature ? "image" : null;
     rows.push({

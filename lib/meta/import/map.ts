@@ -17,8 +17,10 @@ import type { RawCreative } from "../../reporting/creative-preview-extract.ts";
 import {
   assetsFromCreative,
   classifyImportedExistingPost,
+  CTA_FROM_META,
   extractImportedCreativeCopy,
   IMPORTED_HEADLINE_ABSENT,
+  importedExistingPostMedia,
   type ImportCreativeSource,
   type ImportedExistingPost,
 } from "./creative-copy.ts";
@@ -85,8 +87,10 @@ export function carriableMetaCreativeIds(bundle: MetaLiveCampaignBundle): Set<st
   for (const [key, raw] of Object.entries(bundle.creatives)) {
     const creative = raw as RawCreative & { id?: string };
     const id = str(creative.id) ?? key;
-    const existing = classifyImportedExistingPost({ ...creative, id } as ImportCreativeSource);
-    if ((existing && !("unreachable" in existing)) || deriveAssetSignature({ ...creative, id })) {
+    const source = { ...creative, id } as ImportCreativeSource;
+    const existing = classifyImportedExistingPost(source);
+    const postMedia = existing && !("unreachable" in existing) ? importedExistingPostMedia(source) : null;
+    if (postMedia || (existing == null && deriveAssetSignature({ ...creative, id }))) {
       ids.add(id);
     }
   }
@@ -425,7 +429,15 @@ function creativeDraft(
 function existingPostDraft(
   creative: RawCreative & { id: string },
   post: ImportedExistingPost,
+  mediaType: "video" | "image",
+  dropped: MetaImportDropped[],
 ): AdCreativeDraft {
+  const source = creative as ImportCreativeSource;
+  const rawCta = source.call_to_action_type?.trim().toUpperCase() ?? "";
+  const mapped = rawCta ? CTA_FROM_META[rawCta] : undefined;
+  if (rawCta && !mapped) {
+    drop(dropped, "call_to_action_type", rawCta, { creativeId: creative.id });
+  }
   return {
     id: creative.id,
     name: str(creative.name) ?? creative.id,
@@ -434,14 +446,14 @@ function existingPostDraft(
       pageId: post.pageId,
       instagramAccountId: post.instagramAccountId ?? "",
     },
-    mediaType: "video",
+    mediaType,
     assetMode: "single",
     assetVariations: [],
     captions: [],
     headline: "",
     description: "",
-    destinationUrl: "",
-    cta: "" as AdCreativeDraft["cta"],
+    destinationUrl: str(source.link_url) ?? "",
+    cta: mapped ?? ("" as AdCreativeDraft["cta"]),
     existingPost: {
       source: post.source,
       postId: post.postId,
@@ -607,15 +619,20 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     const existing = classifyImportedExistingPost(named as ImportCreativeSource);
     if (existing) {
       const name = str(named.name) ?? id;
-      if (!carry.has(id)) {
-        notCarried.push({ id, name, reason: "operator_unticked" });
-        continue;
-      }
       if ("unreachable" in existing) {
         notCarried.push({ id, name, reason: "post_unreachable" });
         continue;
       }
-      creatives.push(existingPostDraft(named, existing));
+      const mediaType = importedExistingPostMedia(named as ImportCreativeSource);
+      if (!mediaType) {
+        notCarried.push({ id, name, reason: "no_media_reported" });
+        continue;
+      }
+      if (!carry.has(id)) {
+        notCarried.push({ id, name, reason: "operator_unticked" });
+        continue;
+      }
+      creatives.push(existingPostDraft(named, existing, mediaType, dropped));
       continue;
     }
     const signature = deriveAssetSignature(named);

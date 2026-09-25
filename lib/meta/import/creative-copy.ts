@@ -64,6 +64,7 @@ export type ImportCreativeSource = {
   name?: string;
   image_hash?: string;
   video_id?: string;
+  image_url?: string;
   body?: string;
   title?: string;
   link_url?: string;
@@ -148,6 +149,15 @@ export function classifyImportedExistingPost(
     };
   }
   return { unreachable: true };
+}
+
+/** Video if `video_id` is set, otherwise image if a hash or url is set. Neither is not a guess. */
+export function importedExistingPostMedia(
+  creative: ImportCreativeSource,
+): "video" | "image" | null {
+  if (creative.video_id?.trim()) return "video";
+  if (creative.image_hash?.trim() || creative.image_url?.trim()) return "image";
+  return null;
 }
 
 function texts(rows: TextRow[] | undefined): string[] {

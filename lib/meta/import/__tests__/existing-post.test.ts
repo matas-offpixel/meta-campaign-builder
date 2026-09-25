@@ -23,6 +23,8 @@ describe("boosted post import", () => {
         effective_object_story_id: "111_222",
         video_id: "vid",
         body: "Sign up link in bio",
+        link_url: "https://www.schak-newcastle.com/",
+        call_to_action_type: "SIGN_UP",
         instagram_permalink_url: "https://www.instagram.com/reel/EXAMPLE/",
       }),
       adAccountId: "act_1",
@@ -35,6 +37,9 @@ describe("boosted post import", () => {
     assert.equal(creative.existingPost?.postId, "111_222");
     assert.equal(creative.identity.pageId, "111");
     assert.equal(creative.name, "Sign up link in bio Tickets on sale this Friday 2026-09-23-e86c8b00");
+    assert.equal(creative.mediaType, "video");
+    assert.equal(creative.destinationUrl, "https://www.schak-newcastle.com/");
+    assert.equal(creative.cta, "sign_up");
     assert.deepEqual(creative.captions, []);
 
     const checked = createDefaultDraft();
@@ -52,6 +57,7 @@ describe("boosted post import", () => {
       bundle: bundle({
         name: "IG post",
         object_story_id: "178900",
+        image_hash: "abc",
         object_story_spec: { page_id: "555", instagram_user_id: "999" },
       }),
       adAccountId: "act_1",
@@ -63,6 +69,48 @@ describe("boosted post import", () => {
     assert.equal(creative.existingPost?.postId, "178900");
     assert.equal(creative.existingPost?.instagramAccountId, "999");
     assert.equal(creative.identity.pageId, "555");
+    assert.equal(creative.mediaType, "image");
+  });
+
+  it("carries link_url and drops a CTA the app does not have", () => {
+    const draft = mapMetaLiveCampaign({
+      bundle: bundle({
+        name: "IG post",
+        effective_object_story_id: "111_222",
+        image_url: "https://example.com/post.jpg",
+        instagram_permalink_url: "https://www.instagram.com/p/EXAMPLE/",
+        link_url: "https://www.schak-newcastle.com/",
+        call_to_action_type: "SEE_DETAILS",
+      }),
+      adAccountId: "act_1",
+      carry: ["c1"],
+      availability: [],
+    });
+    const creative = draft.creatives[0]!;
+    assert.equal(creative.mediaType, "image");
+    assert.equal(creative.destinationUrl, "https://www.schak-newcastle.com/");
+    assert.equal(creative.cta, "");
+    assert.equal(
+      draft.importMeta?.dropped.some(
+        (row) => row.field === "call_to_action_type" && row.value === "SEE_DETAILS",
+      ),
+      true,
+    );
+  });
+
+  it("does not guess video when the post reports no media", () => {
+    const draft = mapMetaLiveCampaign({
+      bundle: bundle({
+        name: "No media",
+        effective_object_story_id: "111_222",
+        instagram_permalink_url: "https://www.instagram.com/p/EXAMPLE/",
+      }),
+      adAccountId: "act_1",
+      carry: ["c1"],
+      availability: [],
+    });
+    assert.equal(draft.creatives.length, 0);
+    assert.equal(draft.importMeta?.notCarried[0]?.reason, "no_media_reported");
   });
 
   it("does not carry a story id that cannot be launched", () => {
