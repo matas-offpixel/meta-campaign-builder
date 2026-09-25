@@ -246,6 +246,13 @@ export interface MetaCreativePayload {
    */
   source_instagram_media_id?: string;
   /**
+   * Website destination on an existing-post boost. Captured from a leads
+   * boost of an Instagram Reel: `call_to_action.value.link` sits on the
+   * creative next to `source_instagram_media_id`. `link_url` and
+   * `object_story_spec` were empty on that creative.
+   */
+  call_to_action?: MetaCallToAction;
+  /**
    * IG business/creator account id — used in two contexts:
    *
    * 1. **Existing-post boosts**: the content account that owns the
@@ -991,11 +998,11 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
 
     // Do NOT include instagram_actor_id — it is not valid for this creative type
     // and causes (#100) rejections when combined with source_instagram_media_id.
-    return {
+    return withExistingPostDestination({
       name: creative.name || "Existing IG Post Creative",
       source_instagram_media_id: postId,
       instagram_user_id: igUserId,
-    } as MetaCreativePayload;
+    }, creative);
   }
 
   // ── Facebook existing post ──────────────────────────────────────────────
@@ -1004,10 +1011,27 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
   // If postId already contains the page prefix, use as-is.
   const storyId = postId.includes("_") ? postId : `${pageId}_${postId}`;
 
-  return {
+  return withExistingPostDestination({
     name: creative.name || "Existing Post Creative",
     object_story_id: storyId,
-  };
+  }, creative);
+}
+
+/**
+ * A destination the operator typed. The captured Reel boost carries it as
+ * `call_to_action.value.link` on the creative, not as `link_url`. An empty
+ * URL leaves the payload bare — an engagement boost must stay that way.
+ * CTA type is the draft's CTA. A URL with no CTA still needs a type on
+ * this object, so that one case uses LEARN_MORE.
+ */
+function withExistingPostDestination(
+  payload: MetaCreativePayload,
+  creative: AdCreativeDraft,
+): MetaCreativePayload {
+  const link = creative.destinationUrl?.trim() ?? "";
+  if (!link) return payload;
+  const type = creative.cta && CTA_MAP[creative.cta] ? CTA_MAP[creative.cta] : "LEARN_MORE";
+  return { ...payload, call_to_action: { type, value: { link } } };
 }
 
 /**
@@ -1500,11 +1524,11 @@ export function sanitizeCreativeForStrictMode(
     }
   }
 
-  // Both existing-post branches (ig_existing_post and fb_existing_post) are
-  // already-published content — degrees_of_freedom_spec is irrelevant and
-  // Meta may reject enhancement opt-outs in that context.  Keep payloads
-  // minimal: { name, source_instagram_media_id, instagram_user_id } for IG
-  // and { name, object_story_id } for FB.
+  // Existing-post boosts stay free of degrees_of_freedom_spec. A destination
+  // the operator typed is call_to_action on the same object — an Instagram
+  // Reel in an offsite campaign is refused (subcode 2061015) without
+  // call_to_action.value.link. A feed carousel in the same ad set is accepted
+  // without it, so an empty URL still leaves the payload bare.
   const optedOutFeatures: string[] = [];
   if (payload.source_instagram_media_id || payload.object_story_id) {
     // Remove any stale degrees_of_freedom_spec that may have been set by a

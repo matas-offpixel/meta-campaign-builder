@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   classifyLaunchMetaCode,
   mapLaunchTokenError,
+  websiteUrlRequiredMessage,
 } from "../launch-error-classify.ts";
 
 /**
@@ -64,5 +65,22 @@ describe("mapLaunchTokenError", () => {
     assert.equal(m.status, 401);
     assert.equal(m.reconnect, true);
     assert.match(m.message, /reconnect Facebook/i);
+  });
+});
+
+describe("website URL required", () => {
+  it("names the creative and does not mention Development mode", () => {
+    const message = websiteUrlRequiredMessage("Feed Post v1", {
+      code: 100,
+      subcode: 2061015,
+      userMsg: "The website URL field is required. Please complete the field to continue.",
+    });
+    assert.match(message ?? "", /Feed Post v1/);
+    assert.match(message ?? "", /destination URL/);
+    assert.doesNotMatch(message ?? "", /Development mode/);
+  });
+
+  it("leaves other ad errors alone", () => {
+    assert.equal(websiteUrlRequiredMessage("Feed Post v1", { code: 100, subcode: 1815676 }), null);
   });
 });
