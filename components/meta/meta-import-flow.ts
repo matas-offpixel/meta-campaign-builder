@@ -1,4 +1,23 @@
+import type { MetaImportPickerRow } from "@/lib/meta/import/picker";
 import type { MetaImportMeta, MetaImportNotCarried } from "@/lib/meta/import/types";
+
+/** Select all: every row that can be carried. A row with no asset stays unticked. */
+export function metaImportSelectAll(rows: readonly MetaImportPickerRow[]): Set<string> {
+  return new Set(rows.filter((row) => !row.disabled).map((row) => row.key));
+}
+
+export function metaImportDeselectAll(): Set<string> {
+  return new Set();
+}
+
+export function metaImportTickedLine(
+  ticked: ReadonlySet<string>,
+  rows: readonly MetaImportPickerRow[],
+): string {
+  const carriable = rows.filter((row) => !row.disabled);
+  const count = carriable.filter((row) => ticked.has(row.key)).length;
+  return `${count} of ${carriable.length} ticked`;
+}
 
 /** Read posts no `carry`, so the route returns the picker and saves nothing. */
 export function metaImportReadBody(adAccountId: string, campaignId: string): {

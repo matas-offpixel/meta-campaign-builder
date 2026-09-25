@@ -1,0 +1,11 @@
+{
+  "_note": "CAPTURED 2026-09-25 — GET /me/adaccounts?fields=id,name,account_id,currency,account_status,timezone_name (AD_ACCOUNT_BASE_FIELDS), the row for the Deep House Bible account. Verbatim Graph.",
+  "row": {
+    "id": "act_968594768066330",
+    "name": "DHB",
+    "account_id": "968594768066330",
+    "currency": "USD",
+    "account_status": 1,
+    "timezone_name": "America/New_York"
+  }
+}

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "../../db/database.types.ts";
+import type { Database, Json } from "../../db/database.types.ts";
 import type { CampaignDraft } from "../../types.ts";
 import { parseAppUsageHeader } from "../app-usage.ts";
 import { facebookTokenForImport } from "./account.ts";
@@ -10,7 +10,12 @@ import {
   loadMetaImportEvent,
   type MetaImportEventRow,
 } from "./event.ts";
-import { mapMetaLiveCampaign, parseMetaImportCarry } from "./map.ts";
+import {
+  classifyMetaImportCarry,
+  formatRejectedMetaCarryKeys,
+  mapMetaLiveCampaign,
+  parseMetaImportCarry,
+} from "./map.ts";
 import type { MetaAudienceAvailability } from "./map.ts";
 import { buildMetaImportPicker } from "./picker.ts";
 import { readMetaLiveCampaign } from "./readers.ts";
@@ -69,6 +74,31 @@ async function defaultAvailability(
   return rows.map((row) => ({ id: row.id, available: row.available }));
 }
 
+/**
+ * Written with the route's session client. `saveDraftToDb` builds a
+ * browser client and only warns on error, which reported `saved: true`
+ * for a row that was never written.
+ */
+export async function insertImportedDraft(
+  supabase: TypedSupabaseClient,
+  draft: CampaignDraft,
+  userId: string,
+): Promise<void> {
+  const { error } = await supabase.from("campaign_drafts").insert({
+    id: draft.id,
+    user_id: userId,
+    name: draft.settings.campaignName || null,
+    objective: draft.settings.objective || null,
+    status: draft.status ?? "draft",
+    ad_account_id: draft.settings.adAccountId || null,
+    client_id: draft.settings.clientId || null,
+    event_id: draft.settings.eventId || null,
+    draft_json: draft as unknown as Json,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`Draft save failed: ${error.message}`);
+}
+
 function defaultAppUsage(): number | null {
   return null;
 }
@@ -119,11 +149,7 @@ export async function handleMetaImport(input: {
   const loadEvent = deps.loadEvent ?? loadMetaImportEvent;
   const readCampaign = deps.readCampaign ?? readMetaLiveCampaign;
   const saveDraft =
-    deps.saveDraft ??
-    (async (draft, userId) => {
-      const { saveDraftToDb } = await import("../../db/drafts.ts");
-      await saveDraftToDb(draft, userId);
-    });
+    deps.saveDraft ?? ((draft, userId) => insertImportedDraft(input.supabase, draft, userId));
   const audienceAvailability = deps.audienceAvailability ?? defaultAvailability;
   const appUsageCallCount = deps.appUsageCallCount ?? defaultAppUsage;
 
@@ -193,17 +219,35 @@ export async function handleMetaImport(input: {
     };
   }
 
+  const { accepted, rejected } = classifyMetaImportCarry(bundle, decision.carry);
+  console.log(
+    `[meta/import] carry campaign=${guard.campaignId} received=${decision.carry.length} accepted=${accepted.length} rejected=${rejected.join(",") || "none"}`,
+  );
+  if (rejected.length > 0) {
+    return {
+      status: 400,
+      body: { ok: false, saved: false, error: formatRejectedMetaCarryKeys(rejected), rejected },
+    };
+  }
+
   const availability = await audienceAvailability(audienceIds(bundle), credentials.token);
   const draft = mapMetaLiveCampaign({
     bundle,
     adAccountId: guard.adAccountId,
-    carry: decision.carry,
+    carry: accepted,
     availability,
     appUsageCallCount: appUsageCallCount(),
     clientId: clientId ?? undefined,
     eventId: event?.id,
   });
-  await saveDraft(draft, input.userId!);
+  try {
+    await saveDraft(draft, input.userId!);
+  } catch (err) {
+    return {
+      status: 500,
+      body: { ok: false, saved: false, error: err instanceof Error ? err.message : String(err) },
+    };
+  }
   return {
     status: 200,
     body: { ok: true, saved: true, draftId: draft.id, importMeta: draft.importMeta },

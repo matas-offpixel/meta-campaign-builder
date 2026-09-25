@@ -10,8 +10,11 @@ import {
   metaImportErrorText,
   metaImportNotCarriedLine,
   metaImportReadBody,
+  metaImportDeselectAll,
   metaImportSaveBlocked,
   metaImportSaveBody,
+  metaImportSelectAll,
+  metaImportTickedLine,
 } from "@/components/meta/meta-import-flow";
 import { MetaImportReport } from "@/components/meta/meta-import-report";
 import { Button } from "@/components/ui/button";
@@ -178,13 +181,7 @@ export function MetaImportPicker({
       setPicker(json.picker);
       setClientId(json.clientId ?? null);
       setEventId("");
-      setTicked(
-        new Set(
-          json.picker.rows
-            .filter((row) => row.defaultTicked && !row.disabled)
-            .map((row) => row.key),
-        ),
-      );
+      setTicked(metaImportSelectAll(json.picker.rows));
     } catch {
       setError("Could not read the campaign.");
     } finally {
@@ -320,7 +317,7 @@ export function MetaImportPicker({
                 <span className="font-medium">{picker.campaign.name}</span>
                 <span className="text-muted-foreground">
                   {" "}
-                  · {picker.adSets.length} ad sets · {ticked.size} ticked
+                  · {picker.adSets.length} ad sets
                   {picker.campaign.objective ? ` · ${picker.campaign.objective}` : ""}
                 </span>
               </p>
@@ -359,6 +356,30 @@ export function MetaImportPicker({
                 ))}
               </ul>
             )}
+
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                {metaImportTickedLine(ticked, picker.rows)}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => setTicked(metaImportSelectAll(picker.rows))}
+                >
+                  Select all
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => setTicked(metaImportDeselectAll())}
+                >
+                  Deselect all
+                </Button>
+              </div>
+            </div>
 
             <div className="mt-3 max-h-[28rem] space-y-2 overflow-auto pr-1">
               {picker.rows.map((row) => (

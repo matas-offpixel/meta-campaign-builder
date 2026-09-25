@@ -89,6 +89,7 @@ import {
   sanitizeCreativeForStrictMode,
   creativeTriggersVariationRotation,
 } from "@/lib/meta/creative";
+import { metaAdName } from "@/lib/creative-name-from-filename";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
 import { applyPageInstagramOverridesToCreatives } from "@/lib/meta/apply-page-instagram-overrides";
 import { createWithEventSourceRecovery } from "@/lib/audiences/event-source-recovery";
@@ -4045,7 +4046,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         (async () => {
           const adStart = Date.now();
           const adPayload = buildAdPayload(
-            `${creative.name} — ${adSetName}`,
+            metaAdName(creative.name),
             creativeEntry.metaCreativeId,
             metaAdSetId,
             entityStatus,
@@ -4461,7 +4462,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           ciAdTasks.push(
             (async () => {
               const adPayload = buildAdPayload(
-                `${creative.name} — ${adSetName}`,
+                metaAdName(creative.name),
                 creativeEntry.metaCreativeId,
                 metaAdSetId,
                 entityStatus,
