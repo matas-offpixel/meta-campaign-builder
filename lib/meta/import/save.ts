@@ -17,6 +17,12 @@ import {
   parseMetaImportCarry,
 } from "./map.ts";
 import type { MetaAudienceAvailability } from "./map.ts";
+import { buildMultiGetBatch } from "../graph-multi-get-parse.ts";
+import {
+  applyResolvedPageAudiences,
+  readCustomAudienceRules,
+  type AudienceRuleBatch,
+} from "./page-audiences.ts";
 import { buildMetaImportPicker } from "./picker.ts";
 import { readMetaLiveCampaign } from "./readers.ts";
 import { guardMetaImportRaw } from "./raw-guard.ts";
@@ -46,7 +52,29 @@ export type MetaImportHandleDeps = {
   ) => Promise<MetaAudienceAvailability[]>;
   appUsageCallCount?: () => number | null;
   graph?: Parameters<typeof readMetaLiveCampaign>[0]["request"];
+  postAudienceBatch?: (batch: ReturnType<typeof buildMultiGetBatch>, token: string) => Promise<AudienceRuleBatch>;
 };
+
+async function postAudienceRuleBatch(
+  batch: ReturnType<typeof buildMultiGetBatch>,
+  token: string,
+): Promise<AudienceRuleBatch> {
+  const version = process.env.META_API_VERSION ?? "v21.0";
+  const body = new URLSearchParams();
+  body.set("access_token", token);
+  body.set("batch", JSON.stringify(batch));
+  body.set("include_headers", "false");
+  const res = await fetch(`https://graph.facebook.com/${version}/`, {
+    method: "POST",
+    body,
+    cache: "no-store",
+  });
+  const data: unknown = await res.json();
+  return {
+    responses: Array.isArray(data) ? data : [],
+    usageHeader: res.headers.get("x-app-usage"),
+  };
+}
 
 function audienceIds(bundle: MetaLiveCampaignBundle): string[] {
   const ids = new Set<string>();
@@ -231,7 +259,7 @@ export async function handleMetaImport(input: {
   }
 
   const availability = await audienceAvailability(audienceIds(bundle), credentials.token);
-  const draft = mapMetaLiveCampaign({
+  let draft = mapMetaLiveCampaign({
     bundle,
     adAccountId: guard.adAccountId,
     carry: accepted,
@@ -240,6 +268,24 @@ export async function handleMetaImport(input: {
     clientId: clientId ?? undefined,
     eventId: event?.id,
   });
+  const audienceRuleIds = draft.audiences.customAudienceGroups.flatMap((group) => group.audienceIds);
+  if (audienceRuleIds.length > 0) {
+    try {
+      const postAudienceBatch = deps.postAudienceBatch ?? postAudienceRuleBatch;
+      const rules = await readCustomAudienceRules({
+        ids: audienceRuleIds,
+        postBatch: (batch) => postAudienceBatch(batch, credentials.token),
+      });
+      console.log(
+        `[meta/import] audience rules calls=${rules.calls} read=${rules.reads.length} stopped=${rules.stopped ?? "no"}`,
+      );
+      draft = applyResolvedPageAudiences(draft, rules.reads);
+    } catch (err) {
+      console.error(
+        `[meta/import] audience rule read failed, audiences stay under Custom: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   try {
     await saveDraft(draft, input.userId!);
   } catch (err) {

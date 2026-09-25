@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Plus, Trash2, ChevronDown, ChevronUp, XCircle, Loader2, Download, Shuff
 import type { CustomAudienceGroup, CustomAudience, LookalikeRange } from "@/lib/types";
 import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
+import { pageDerivedBadge } from "@/lib/meta/import/page-audiences";
 
 interface CustomAudiencesPanelProps {
   groups: CustomAudienceGroup[];
@@ -57,6 +58,12 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const caState = useFetchCustomAudiences(adAccountId);
+
+  const hasImportedAudiences = groups.some((group) => group.audienceIds.length > 0);
+  useEffect(() => {
+    if (!adAccountId || !hasImportedAudiences || caState.loaded || caState.loading || caState.error) return;
+    caState.fetch();
+  }, [adAccountId, hasImportedAudiences, caState.loaded, caState.loading, caState.error, caState.fetch]);
 
   const totalSelected = useMemo(
     () => groups.reduce((sum, g) => sum + g.audienceIds.length, 0),
@@ -350,9 +357,12 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                     <div className="flex flex-wrap gap-1.5">
                       {group.audienceIds.map((id) => {
                         const a = caState.data.find((ca) => ca.id === id);
+                        const label = a?.name ?? group.audienceNames?.[id] ?? id;
+                        const derived = pageDerivedBadge(label);
                         return (
                           <Badge key={id} variant="primary" onRemove={() => toggleAudience(group.id, id)}>
-                            {a?.name ?? id}
+                            {label}
+                            {derived ? <span className="ml-1 font-normal opacity-80">{derived}</span> : null}
                           </Badge>
                         );
                       })}

@@ -1,0 +1,371 @@
+{
+  "_note": "CAPTURED 2026-09-25 \u2014 batched POST / custom audience reads (id,name,subtype,rule), 25 per call, for the 68 distinct custom audiences on campaign 120249957259050453. Rules are verbatim Graph. access_token redacted.",
+  "adAccountId": "act_968594768066330",
+  "campaignId": "120249957259050453",
+  "calls": [
+    {
+      "method": "POST",
+      "path": "/",
+      "ids": [
+        "120249428134180453",
+        "120249428134610453",
+        "120249428134740453",
+        "120249428142980453",
+        "120249428143410453",
+        "120249428143720453",
+        "120249955627300453",
+        "120249955627560453",
+        "120249955628440453",
+        "120249955628580453",
+        "120212663095010453",
+        "120212663095110453",
+        "120212663095430453",
+        "120212663095570453",
+        "120214018938930453",
+        "120245969090810453",
+        "120245969090890453",
+        "120245969090960453",
+        "120245969091510453",
+        "120245969092030453",
+        "120245969092080453",
+        "120245969092400453",
+        "120245969092930453",
+        "120245969093020453",
+        "120245969093680453"
+      ],
+      "data": [
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249428134180453\",\"name\":\"Ahmed Spins  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":170368522824409}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249428134610453\",\"name\":\"Ahmed Spins  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400034415031}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249428134740453\",\"name\":\"Ahmed Spins  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400034415031}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249428142980453\",\"name\":\"Deep House Bible  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":104589464429084}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249428143410453\",\"name\":\"Deep House Bible  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841414606202049}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249428143720453\",\"name\":\"Deep House Bible  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841414606202049}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955627300453\",\"name\":\"Ahmed Spins  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400034415031}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955627560453\",\"name\":\"Ahmed Spins  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400034415031}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955628440453\",\"name\":\"Deep House Bible  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841414606202049}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955628580453\",\"name\":\"Deep House Bible  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841414606202049}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120212663095010453\",\"name\":\"Ankho\\u00ef [IGF]\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"id\\\":126955827512749,\\\"type\\\":\\\"ig_business\\\"}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"INSTAGRAM_PROFILE_FOLLOW\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120212663095110453\",\"name\":\"Ankho\\u00ef [IGE365]\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"id\\\":126955827512749,\\\"type\\\":\\\"ig_business\\\"}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120212663095430453\",\"name\":\"Ankho\\u00ef [FBL]\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"id\\\":646911249061341,\\\"type\\\":\\\"page\\\"}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120212663095570453\",\"name\":\"Ankho\\u00ef [FBE365]\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"id\\\":646911249061341,\\\"type\\\":\\\"page\\\"}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120214018938930453\",\"name\":\"DHB Pixel\",\"subtype\":\"WEBSITE\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"pixel\\\",\\\"id\\\":361462699910737}],\\\"retention_seconds\\\":15552000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"url\\\",\\\"operator\\\":\\\"i_contains\\\",\\\"value\\\":\\\"\\\"}]},\\\"template\\\":\\\"ALL_VISITORS\\\"}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969090810453\",\"name\":\"Ahmed Spins  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":170368522824409}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969090890453\",\"name\":\"Ahmed Spins  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":170368522824409}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969090960453\",\"name\":\"Deep House Bible  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":104589464429084}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969091510453\",\"name\":\"Deep House Bible  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":104589464429084}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969092030453\",\"name\":\"Francis Mercier  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":173092553543}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969092080453\",\"name\":\"Francis Mercier  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":173092553543}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969092400453\",\"name\":\"Alex Wann  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":333307273847094}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969092930453\",\"name\":\"Alex Wann  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":333307273847094}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969093020453\",\"name\":\"Romemusic   FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":629129366954901}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245969093680453\",\"name\":\"Romemusic   FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":629129366954901}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/",
+      "ids": [
+        "120249955628880453",
+        "120249955629100453",
+        "120249955629460453",
+        "120249955629690453",
+        "120249955630020453",
+        "120249955630360453",
+        "120249957263150453",
+        "120249957271000453",
+        "120249957271430453",
+        "120249957271740453",
+        "120249957272270453",
+        "120249957273210453",
+        "120249957273630453",
+        "120249957274130453",
+        "120249957274860453",
+        "120249957274960453",
+        "120249957275130453",
+        "120249957276000453",
+        "120249957276140453",
+        "120249957276600453",
+        "120249957277410453",
+        "120249957277480453",
+        "120249957278000453",
+        "120249957278330453",
+        "120249957278660453"
+      ],
+      "data": [
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955628880453\",\"name\":\"Francis Mercier  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400428973125}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955629100453\",\"name\":\"Francis Mercier  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400428973125}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955629460453\",\"name\":\"Alex Wann  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841407292080967}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955629690453\",\"name\":\"Alex Wann  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841407292080967}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955630020453\",\"name\":\"Romemusic   IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400059854218}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249955630360453\",\"name\":\"Romemusic   IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400059854218}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957263150453\",\"name\":\"Luciano Official Page  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":154015134541}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957271000453\",\"name\":\"Luciano Official Page  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400298114983}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957271430453\",\"name\":\"Luciano Official Page  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400298114983}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957271740453\",\"name\":\"Roolh  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":103292941427950}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957272270453\",\"name\":\"Roolh  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":103292941427950}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957273210453\",\"name\":\"Roolh  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841432680773161}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957273630453\",\"name\":\"Roolh  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841432680773161}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957274130453\",\"name\":\"Saraga  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":137480102981875}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957274860453\",\"name\":\"Saraga  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":137480102981875}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957274960453\",\"name\":\"Saraga  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401381470710}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957275130453\",\"name\":\"Saraga  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401381470710}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957276000453\",\"name\":\"Rafael Music  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":399061813517479}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957276140453\",\"name\":\"Rafael Music  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":399061813517479}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957276600453\",\"name\":\"Rafael Music  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841418400775466}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957277410453\",\"name\":\"Rafael Music  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841418400775466}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957277480453\",\"name\":\"Josh Baker  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":1625594471042446}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957278000453\",\"name\":\"Josh Baker  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":1625594471042446}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957278330453\",\"name\":\"Josh Baker  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401262435826}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957278660453\",\"name\":\"Josh Baker  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401262435826}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "path": "/",
+      "ids": [
+        "120249957279630453",
+        "120249957279950453",
+        "120249957280410453",
+        "120249957280610453",
+        "120249957280670453",
+        "120249957280920453",
+        "120249957281010453",
+        "120249957281500453",
+        "120249957282280453",
+        "120249957282770453",
+        "120249957282880453",
+        "120249957283180453",
+        "120249957283370453",
+        "120249957284040453",
+        "120249957284530453",
+        "120249957284830453",
+        "120245090283820453",
+        "120245090390510453"
+      ],
+      "data": [
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957279630453\",\"name\":\"Carlita  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":1752132221480677}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957279950453\",\"name\":\"Carlita  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":1752132221480677}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957280410453\",\"name\":\"Carlita  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400231034485}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957280610453\",\"name\":\"Carlita  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400231034485}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957280670453\",\"name\":\"Bedouin  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":566173616752787}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957280920453\",\"name\":\"Bedouin  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":566173616752787}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957281010453\",\"name\":\"Bedouin  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401720674728}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957281500453\",\"name\":\"Bedouin  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401720674728}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957282280453\",\"name\":\"Jamie Jones  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":296612498763}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957282770453\",\"name\":\"Jamie Jones  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":296612498763}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957282880453\",\"name\":\"Jamie Jones  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400416314863}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957283180453\",\"name\":\"Jamie Jones  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841400416314863}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957283370453\",\"name\":\"Beltran  FB Likes\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":100689064827129}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_liked\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957284040453\",\"name\":\"Beltran  FB Engagement 365d\",\"subtype\":\"ENGAGEMENT\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"page\\\",\\\"id\\\":100689064827129}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"page_engaged\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957284530453\",\"name\":\"Beltran  IG Followers\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401624577008}],\\\"retention_seconds\\\":0,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120249957284830453\",\"name\":\"Beltran  IG Engagement 365d\",\"subtype\":\"IG_BUSINESS\",\"rule\":\"{\\\"inclusions\\\":{\\\"operator\\\":\\\"or\\\",\\\"rules\\\":[{\\\"event_sources\\\":[{\\\"type\\\":\\\"ig_business\\\",\\\"id\\\":17841401624577008}],\\\"retention_seconds\\\":31536000,\\\"filter\\\":{\\\"operator\\\":\\\"and\\\",\\\"filters\\\":[{\\\"field\\\":\\\"event\\\",\\\"operator\\\":\\\"eq\\\",\\\"value\\\":\\\"ig_business_profile_all\\\"}]}}]}}\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245090283820453\",\"name\":\"Lookalike (1\\u0025) - People who like Ahmed Spins\",\"subtype\":\"LOOKALIKE\"}"
+        },
+        {
+          "code": 200,
+          "body": "{\"id\":\"120245090390510453\",\"name\":\"Lookalike (1\\u0025) - People who like Deep House Bible\",\"subtype\":\"LOOKALIKE\"}"
+        }
+      ]
+    }
+  ]
+}
