@@ -256,9 +256,10 @@ export function CreativesStep({
     const videoInfo = await loadVideoInfo(videoId);
     if (!videoInfo) return;
     const names = nextTikTokCreativeNames(
-      baseName,
-      itemsRef.current.length,
-      count,
+      Array.from({ length: count }, () => baseName.trim() || "TikTok creative"),
+      itemsRef.current.map((item) => item.name),
+      1,
+      true,
     );
     const displayName =
       draft.accountSetup.identityDisplayName ??

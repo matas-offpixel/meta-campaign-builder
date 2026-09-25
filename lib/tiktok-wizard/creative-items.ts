@@ -1,4 +1,10 @@
-import { nameCreativeVariations } from "../tiktok/creative.ts";
+import {
+  capCreativeName,
+  creativeNameFromFilename,
+  isExplicitTikTokBaseName,
+  TIKTOK_CREATIVE_DEFAULT_NAME,
+  withCreativeVariationSuffix,
+} from "../creative-name-from-filename.ts";
 import type { TikTokSparkPost } from "../tiktok/spark-posts.ts";
 import { defaultTikTokSparkPosterExpiry } from "../tiktok/video-preview.ts";
 import type { TikTokCreativeDraft } from "../types/tiktok-draft.ts";
@@ -18,18 +24,73 @@ export function clampTikTokVariationCount(raw: string | number): number {
 }
 
 /**
- * Number names across existing + this batch so 14 files become v1…v14,
- * not fourteen copies of "base · v1". The sequence is one list of
- * existingCount + addedCount names; we return only the new slice.
+ * One base per upload. `variationCount` is how many creatives that upload
+ * becomes.
+ *
+ * `numberSingles` (an operator-typed base) keeps the historical shape: every
+ * creative is `base · vN`, including a batch of one. Filename bases leave a
+ * single creative as the bare stem so it matches the plan canvas, and only
+ * a multi-variation upload adds ` · vN`.
+ *
+ * Names already in `existingNames`, including a bare stem, are skipped, so
+ * two files with the same stem stay distinct when the base varies per file.
  */
 export function nextTikTokCreativeNames(
-  baseName: string,
-  existingCount: number,
-  addedCount: number,
+  bases: readonly string[],
+  existingNames: readonly string[],
+  variationCount: number,
+  numberSingles = false,
 ): string[] {
-  return nameCreativeVariations(baseName, existingCount + addedCount).slice(
-    existingCount,
-  );
+  const count = clampTikTokVariationCount(variationCount);
+  const taken = new Set(existingNames);
+  const names: string[] = [];
+  for (const base of bases) {
+    const allocated = allocateTikTokCreativeNames(base, count, taken, numberSingles);
+    for (const name of allocated) {
+      taken.add(name);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function allocateTikTokCreativeNames(
+  base: string,
+  count: number,
+  taken: Set<string>,
+  numberSingles: boolean,
+): string[] {
+  if (!numberSingles && count === 1) {
+    if (!taken.has(base)) return [base];
+    let n = 2;
+    while (taken.has(withCreativeVariationSuffix(base, n))) n += 1;
+    return [withCreativeVariationSuffix(base, n)];
+  }
+  const out: string[] = [];
+  let n = 1;
+  while (out.length < count) {
+    const candidate = withCreativeVariationSuffix(base, n);
+    n += 1;
+    if (!taken.has(candidate)) out.push(candidate);
+  }
+  return out;
+}
+
+function uploadBases(baseName: string, fileNames: readonly string[]): {
+  bases: string[];
+  explicit: boolean;
+} {
+  const explicit = isExplicitTikTokBaseName(baseName);
+  if (explicit) {
+    const base = capCreativeName(baseName.trim());
+    return { explicit: true, bases: fileNames.map(() => base) };
+  }
+  return {
+    explicit: false,
+    bases: fileNames.map((fileName) =>
+      creativeNameFromFilename(fileName, TIKTOK_CREATIVE_DEFAULT_NAME),
+    ),
+  };
 }
 
 export function appendUploadedTikTokCreatives(input: {
@@ -46,16 +107,21 @@ export function appendUploadedTikTokCreatives(input: {
   const count = clampTikTokVariationCount(input.variationCount ?? 1);
   const next = [...input.existing];
   const newId = input.newId ?? (() => crypto.randomUUID());
-  const resolvedBase = input.baseName.trim() || "TikTok creative";
+  const { bases, explicit } = uploadBases(
+    input.baseName,
+    input.uploads.map((upload) => upload.fileName),
+  );
   const names = nextTikTokCreativeNames(
-    resolvedBase,
-    input.existing.length,
-    input.uploads.length * count,
+    bases,
+    input.existing.map((item) => item.name),
+    count,
+    explicit,
   );
   let nameIndex = 0;
-  for (const upload of input.uploads) {
+  input.uploads.forEach((upload, uploadIndex) => {
+    const resolvedBase = bases[uploadIndex] ?? TIKTOK_CREATIVE_DEFAULT_NAME;
     for (let variation = 0; variation < count; variation += 1) {
-      const name = names[nameIndex] ?? `${resolvedBase} · v${nameIndex + 1}`;
+      const name = names[nameIndex] ?? withCreativeVariationSuffix(resolvedBase, nameIndex + 1);
       nameIndex += 1;
       next.push({
         id: newId(),
@@ -78,7 +144,7 @@ export function appendUploadedTikTokCreatives(input: {
         musicId: null,
       });
     }
-  }
+  });
   return next;
 }
 
@@ -94,15 +160,16 @@ export function appendSparkTikTokCreatives(input: {
 }): TikTokCreativeDraft[] {
   const next = [...input.existing];
   const newId = input.newId ?? (() => crypto.randomUUID());
-  const resolvedBase = input.baseName.trim() || "TikTok creative";
+  const resolvedBase = capCreativeName(input.baseName.trim() || TIKTOK_CREATIVE_DEFAULT_NAME);
   const names = nextTikTokCreativeNames(
-    resolvedBase,
-    input.existing.length,
-    input.posts.length,
+    input.posts.map(() => resolvedBase),
+    input.existing.map((item) => item.name),
+    1,
+    true,
   );
   const now = input.now ?? Date.now();
   input.posts.forEach((post, index) => {
-    const name = names[index] ?? `${resolvedBase} · v${index + 1}`;
+    const name = names[index] ?? withCreativeVariationSuffix(resolvedBase, index + 1);
     next.push({
       id: newId(),
       name,

@@ -2,6 +2,7 @@ import {
   createDefaultAsset,
   createDefaultAssetVariation,
 } from "@/lib/campaign-defaults";
+import { nameMetaCreativeFromAssets } from "@/lib/creative-name-from-filename";
 import { getAspectRatioSlots } from "@/lib/meta/upload";
 import type { AdCreativeDraft, Asset, AssetMode, AssetRatio } from "@/lib/types";
 
@@ -44,6 +45,7 @@ export function bindUploadToAssetSlot(
 ): Asset {
   return {
     ...slot,
+    fileName: upload.fileName,
     uploadedUrl: upload.url,
     thumbnailUrl: upload.previewUrl ?? upload.url,
     assetHash: upload.hash,
@@ -116,12 +118,12 @@ export function applyUploadedAssetsToCreative(
   });
 
   return {
-    creative: {
+    creative: nameMetaCreativeFromAssets({
       ...creative,
       mediaType,
       assetMode,
       assetVariations: variations,
-    },
+    }),
     skippedMediaType,
     skippedAspect,
   };
