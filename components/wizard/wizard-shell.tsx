@@ -465,6 +465,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             settings={draft.settings}
             onSettingsChange={updateSettings}
             adAccountId={draft.settings.metaAdAccountId}
+            copyNotes={draft.importMeta?.copyNotes}
           />
         )}
         {step === 5 && (

@@ -16,6 +16,7 @@ import {
   mapMetaLiveCampaign,
   parseMetaImportCarry,
 } from "./map.ts";
+import { unlabeledImageHashes, type ImportCreativeSource } from "./creative-copy.ts";
 import { buildMetaImportPicker } from "./picker.ts";
 import { readMetaLiveCampaign } from "./readers.ts";
 import { guardMetaImportRaw } from "./raw-guard.ts";
@@ -41,6 +42,15 @@ export type MetaImportHandleDeps = {
   saveDraft?: (draft: CampaignDraft, userId: string) => Promise<void>;
   appUsageCallCount?: () => number | null;
   graph?: Parameters<typeof readMetaLiveCampaign>[0]["request"];
+  /**
+   * One read of width and height for image hashes that have no placement
+   * label. Default is `GET /act_{id}/adimages?hashes=`. Failure returns {}.
+   */
+  imageSizes?: (
+    adAccountId: string,
+    hashes: string[],
+    token: string,
+  ) => Promise<Record<string, { width: number; height: number }>>;
 };
 
 /**
@@ -66,6 +76,47 @@ export async function insertImportedDraft(
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`Draft save failed: ${error.message}`);
+}
+
+async function defaultImageSizes(
+  adAccountId: string,
+  hashes: string[],
+  token: string,
+): Promise<Record<string, { width: number; height: number }>> {
+  if (hashes.length === 0) return {};
+  const account = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+  const version = process.env.META_API_VERSION ?? "v21.0";
+  const sizes: Record<string, { width: number; height: number }> = {};
+  try {
+    for (let i = 0; i < hashes.length; i += 50) {
+      const chunk = hashes.slice(i, i + 50);
+      const params = new URLSearchParams({
+        access_token: token,
+        hashes: JSON.stringify(chunk),
+        fields: "hash,width,height",
+      });
+      const res = await fetch(`https://graph.facebook.com/${version}/${account}/adimages?${params}`, {
+        cache: "no-store",
+      });
+      const payload = (await res.json()) as {
+        data?: { hash?: string; width?: number; height?: number }[];
+        images?: Record<string, { hash?: string; width?: number; height?: number }>;
+      };
+      const rows = [
+        ...(payload.data ?? []),
+        ...Object.values(payload.images ?? {}),
+      ];
+      for (const row of rows) {
+        if (!row.hash || typeof row.width !== "number" || typeof row.height !== "number") continue;
+        sizes[row.hash] = { width: row.width, height: row.height };
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[meta/import] adimages size read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return sizes;
 }
 
 function defaultAppUsage(): number | null {
@@ -198,6 +249,11 @@ export async function handleMetaImport(input: {
     };
   }
 
+  const imageSizes = deps.imageSizes ?? defaultImageSizes;
+  const hashes = unlabeledImageHashes(
+    Object.values(bundle.creatives) as ImportCreativeSource[],
+  );
+  const sizes = await imageSizes(guard.adAccountId, hashes, credentials.token);
   const draft = mapMetaLiveCampaign({
     bundle,
     adAccountId: guard.adAccountId,
@@ -206,6 +262,7 @@ export async function handleMetaImport(input: {
     appUsageCallCount: appUsageCallCount(),
     clientId: clientId ?? undefined,
     eventId: event?.id,
+    imageSizes: sizes,
   });
   try {
     await saveDraft(draft, input.userId!);

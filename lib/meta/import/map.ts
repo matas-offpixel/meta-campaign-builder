@@ -5,8 +5,6 @@ import { mapMetaObjectiveToInternal } from "../campaign.ts";
 import type {
   AdCreativeDraft,
   AdSetSuggestion,
-  Asset,
-  CTAType,
   CampaignDraft,
   CustomAudienceGroup,
   InterestGroup,
@@ -15,8 +13,13 @@ import type {
   LocationTargetingGroup,
 } from "../../types.ts";
 import { deriveAssetSignature } from "../../reporting/asset-signature.ts";
-import { extractPreview } from "../../reporting/creative-preview-extract.ts";
 import type { RawCreative } from "../../reporting/creative-preview-extract.ts";
+import {
+  assetsFromCreative,
+  extractImportedCreativeCopy,
+  IMPORTED_HEADLINE_ABSENT,
+  type ImportCreativeSource,
+} from "./creative-copy.ts";
 import type {
   MetaImportDropped,
   MetaImportFlexibleSpec,
@@ -24,14 +27,6 @@ import type {
   MetaLiveCampaignBundle,
 } from "./types.ts";
 import { META_IMPORT_UNCARRIABLE_TARGETING_FIELDS } from "./types.ts";
-
-/** Inverse of `CTA_MAP` in `lib/meta/creative.ts`. Unmapped values are not defaulted. */
-const CTA_FROM_META: Record<string, CTAType> = {
-  SIGN_UP: "sign_up",
-  LEARN_MORE: "learn_more",
-  BOOK_NOW: "book_now",
-  BUY_TICKETS: "buy_tickets",
-};
 
 const HANDLED_TARGETING = new Set<string>([
   "age_min",
@@ -72,6 +67,12 @@ export type MapMetaLiveCampaignInput = {
   now?: string;
   /** `campaign_drafts.id` is a uuid. Defaults to a fresh one. */
   draftId?: string;
+  /**
+   * Width and height from one `GET /act_{id}/adimages?hashes=` read.
+   * Used only for an image with no placement label. Absent sizes stay
+   * Single and are named on `dropped`.
+   */
+  imageSizes?: Readonly<Record<string, { width: number; height: number }>>;
 };
 
 export const META_IMPORT_CARRY_KEY_REJECTED = "carry_key_rejected";
@@ -364,69 +365,47 @@ function interestSuggestions(
   return out;
 }
 
-function assetFromSignature(signature: string): { mediaType: "image" | "video"; assets: Asset[] } {
-  const colon = signature.indexOf(":");
-  const kind = signature.slice(0, colon);
-  const rest = signature.slice(colon + 1);
-  const parts = (rest ?? "").split("|").filter(Boolean);
-  if (kind === "video" || kind === "videoset") {
-    return {
-      mediaType: "video",
-      assets: parts.map((videoId) => ({
-        id: `asset:${videoId}`,
-        aspectRatio: "1:1" as const,
-        videoId,
-        uploadStatus: "uploaded" as const,
-      })),
-    };
-  }
-  return {
-    mediaType: "image",
-    assets: parts.map((assetHash) => ({
-      id: `asset:${assetHash}`,
-      aspectRatio: "1:1" as const,
-      assetHash,
-      uploadStatus: "uploaded" as const,
-    })),
-  };
-}
-
 function creativeDraft(
   creative: RawCreative & { id: string },
   dropped: MetaImportDropped[],
+  imageSizes: Readonly<Record<string, { width: number; height: number }>>,
+  headlineNotes: { creativeId: string; text: string }[],
 ): AdCreativeDraft | null {
   const signature = deriveAssetSignature(creative);
   if (!signature) return null;
-  const preview = extractPreview(creative);
-  const { mediaType, assets } = assetFromSignature(signature);
-  const metaCta = preview.call_to_action_type?.trim().toUpperCase() ?? "";
-  const cta = CTA_FROM_META[metaCta];
-  if (!cta) {
-    const afs = creative.asset_feed_spec?.call_to_action_types;
-    if (metaCta || (afs && afs.length > 0)) {
-      drop(dropped, "call_to_action_type", metaCta || afs, { creativeId: creative.id });
-    }
+  const source = creative as ImportCreativeSource;
+  const built = assetsFromCreative(source, imageSizes);
+  if (!built) return null;
+  const copy = extractImportedCreativeCopy(source);
+  for (const row of copy.dropped) {
+    drop(dropped, row.field, row.value, { creativeId: creative.id });
   }
-  const oss = creative.object_story_spec as
-    | { page_id?: string; instagram_user_id?: string; link_data?: { description?: string } }
-    | undefined;
-  const description = oss?.link_data?.description?.trim() ?? "";
+  if (built.aspectUnrecorded) {
+    drop(dropped, "aspect_ratio", "not_recorded", { creativeId: creative.id });
+  }
+  if (copy.headlineAbsent) {
+    headlineNotes.push({ creativeId: creative.id, text: IMPORTED_HEADLINE_ABSENT });
+  }
+  const oss = source.object_story_spec;
   return {
     id: creative.id,
-    name: str(creative.name) ?? preview.headline ?? creative.id,
+    name: str(creative.name) ?? creative.id,
     sourceType: "new",
     identity: {
       pageId: str(oss?.page_id) ?? "",
       instagramAccountId: str(oss?.instagram_user_id) ?? "",
     },
-    mediaType,
-    assetMode: assets.length > 1 ? "full" : "single",
-    assetVariations: [{ id: `var:${creative.id}`, name: "Imported", assets }],
-    captions: [{ id: `cap:${creative.id}`, text: preview.body ?? "" }],
-    headline: preview.headline ?? "",
-    description,
-    destinationUrl: preview.link_url ?? "",
-    cta: cta ?? ("" as CTAType),
+    mediaType: built.mediaType,
+    assetMode: built.assetMode,
+    assetVariations: [{ id: `var:${creative.id}`, name: "Imported", assets: built.assets }],
+    captions: (copy.captions.length > 0 ? copy.captions : [""]).map((text, index) => ({
+      id: `cap:${creative.id}:${index}`,
+      text,
+    })),
+    headline: copy.headline,
+    description: copy.description,
+    destinationUrl: copy.destinationUrl,
+    cta: copy.cta || ("" as AdCreativeDraft["cta"]),
     enhancements: {
       enabled: false,
       textOptimizations: false,
@@ -578,6 +557,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   }
 
   const creatives: AdCreativeDraft[] = [];
+  const headlineNotes: { creativeId: string; text: string }[] = [];
   const creativeIds = Object.keys(input.bundle.creatives);
   for (const creativeId of creativeIds) {
     const creative = input.bundle.creatives[creativeId] as RawCreative & { id?: string };
@@ -600,7 +580,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
       });
       continue;
     }
-    const draftCreative = creativeDraft(named, dropped);
+    const draftCreative = creativeDraft(named, dropped, input.imageSizes ?? {}, headlineNotes);
     if (!draftCreative) continue;
     creatives.push(draftCreative);
   }
@@ -666,6 +646,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     },
     flexibleSpec,
     appUsageCallCount: input.appUsageCallCount ?? null,
+    copyNotes: headlineNotes,
   };
   return draft;
 }

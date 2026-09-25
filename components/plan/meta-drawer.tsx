@@ -332,6 +332,7 @@ export function MetaDrawer({
               onSettingsChange={updateSettings}
               adAccountId={settings.metaAdAccountId || settings.adAccountId}
               planDestinationUrl={destinationUrl}
+              copyNotes={draft.importMeta?.copyNotes}
             />
           ) : null}
 
