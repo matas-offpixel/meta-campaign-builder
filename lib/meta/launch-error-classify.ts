@@ -83,3 +83,21 @@ export function mapLaunchTokenError(
   }
   return { kind, status: 401, reconnect: true, message: RECONNECT_MESSAGE };
 }
+
+/**
+ * Ad create refused because the creative has no website URL (subcode
+ * 2061015). This is not the Development-mode bucket.
+ */
+export function websiteUrlRequiredMessage(
+  creativeName: string,
+  err: { code?: number; subcode?: number; message?: string; userMsg?: string },
+): string | null {
+  const text = `${err.message ?? ""} ${err.userMsg ?? ""}`;
+  const hit = err.subcode === 2061015 || /website URL field is required/i.test(text);
+  if (!hit) return null;
+  const name = creativeName.trim() || "This creative";
+  return (
+    `"${name}" is an Instagram video in a campaign that optimises for a website event. ` +
+    `Set its destination URL on the creative in the Creatives step, then launch again.`
+  );
+}

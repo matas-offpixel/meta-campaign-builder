@@ -617,6 +617,12 @@ export interface ExistingPostSelection {
    */
   instagramAccountId?: string;
   /**
+   * Instagram media kind from the post picker (`IMAGE` / `VIDEO` /
+   * `CAROUSEL_ALBUM`). A video is the post type that needs a destination
+   * URL in an offsite campaign. A carousel does not.
+   */
+  mediaKind?: "image" | "video" | "carousel";
+  /**
    * Manual placement selection. When present overrides Meta's automatic
    * placements for the ad set created for this creative. Populated by the
    * placement toggles in the Creatives step; defaults to platform-appropriate

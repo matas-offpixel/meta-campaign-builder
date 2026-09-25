@@ -195,6 +195,25 @@ function isValidUrl(value: string): boolean {
   }
 }
 
+const OFFSITE_OBJECTIVES = new Set([
+  "purchase",
+  "initiate_checkout",
+  "registration",
+  "traffic",
+]);
+
+/** An Instagram video boosted into an offsite campaign. A carousel is not. */
+function existingPostVideoNeedsUrl(
+  draft: CampaignDraft,
+  creative: CampaignDraft["creatives"][number],
+): boolean {
+  if (creative.existingPost?.source !== "instagram") return false;
+  if (creative.existingPost.mediaKind !== "video") return false;
+  const objective = draft.settings.objective;
+  if (!objective || !OFFSITE_OBJECTIVES.has(objective)) return false;
+  return !creative.destinationUrl?.trim();
+}
+
 function validateCreatives(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
   if (draft.creatives.length === 0) {
@@ -252,6 +271,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
 
     if (sourceType === "existing_post") {
       if (!c.existingPost?.postId) errors.push(`${label}: Select an existing post`);
+      if (existingPostVideoNeedsUrl(draft, c)) {
+        errors.push(
+          `${label}: This is an Instagram video. This campaign optimises for a website event; the boosted post needs a destination URL`,
+        );
+      }
     }
 
     // Asset completeness: dual/full mode requires all aspect ratio slots to have

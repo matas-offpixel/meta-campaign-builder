@@ -59,7 +59,7 @@ import {
   type IgMismatchEntry,
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
-import { mapLaunchTokenError } from "@/lib/meta/launch-error-classify";
+import { mapLaunchTokenError, websiteUrlRequiredMessage } from "@/lib/meta/launch-error-classify";
 import {
   buildRateLimitUiState,
   isMetaRateLimitCode,
@@ -4058,7 +4058,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             console.log(`[launch-campaign] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             creativeEntry.ads.push({ adSetName, metaAdId: adRes.id, durationMs: dur });
           } catch (err) {
-            const message = formatMetaError(err);
+            const websiteUrl = err instanceof MetaApiError
+              ? websiteUrlRequiredMessage(creative.name, err)
+              : null;
+            const message = websiteUrl ?? formatMetaError(err);
             console.error(`[launch-campaign] Phase 4 ✗  ad failed: ${creative.name} × ${adSetName}: ${message}`);
             creativeEntry.adsFailed.push({ adSetName, error: message });
           }

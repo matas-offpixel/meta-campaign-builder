@@ -1523,6 +1523,7 @@ function CreativesBody({
                                           postId: post.id,
                                           postPreview: post.caption,
                                           instagramAccountId: post.igUserId,
+                                          mediaKind: post.mediaType,
                                         },
                                       })
                                     }
