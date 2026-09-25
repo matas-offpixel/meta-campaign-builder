@@ -64,6 +64,14 @@ export type ImportCreativeSource = {
   name?: string;
   image_hash?: string;
   video_id?: string;
+  image_url?: string;
+  body?: string;
+  title?: string;
+  link_url?: string;
+  call_to_action_type?: string;
+  object_story_id?: string;
+  effective_object_story_id?: string;
+  instagram_permalink_url?: string;
   object_story_spec?: {
     page_id?: string;
     instagram_user_id?: string;
@@ -72,6 +80,85 @@ export type ImportCreativeSource = {
   };
   asset_feed_spec?: Feed;
 };
+
+export type ImportedExistingPost = {
+  source: "facebook" | "instagram";
+  postId: string;
+  pageId: string;
+  instagramAccountId?: string;
+};
+
+function storyText(value: string | undefined): string {
+  return value?.trim() ?? "";
+}
+
+/** App-built creatives keep `sourceType: "new"` even when Meta also returns a story id. */
+function hasAppBuiltSpec(creative: ImportCreativeSource): boolean {
+  const feed = creative.asset_feed_spec;
+  if (
+    feed &&
+    (feed.bodies ||
+      feed.titles ||
+      feed.descriptions ||
+      feed.link_urls ||
+      feed.images ||
+      feed.videos)
+  ) {
+    return true;
+  }
+  const oss = creative.object_story_spec;
+  return Boolean(oss?.link_data || oss?.video_data);
+}
+
+/**
+ * A boosted post has `object_story_id` or `effective_object_story_id` and no
+ * app-built spec. Instagram only when `instagram_user_id` is set and the
+ * story id is a bare media id. A `{page}_{post}` id is the Facebook story
+ * Meta already uses to relaunch — SCHAK's boosted posts have that shape on
+ * `effective_object_story_id` and no `instagram_user_id`.
+ * `null` means this is not an existing post. `{ unreachable: true }` means
+ * the id is present but cannot be launched.
+ */
+export function classifyImportedExistingPost(
+  creative: ImportCreativeSource,
+): ImportedExistingPost | { unreachable: true } | null {
+  if (hasAppBuiltSpec(creative)) return null;
+  const permalink = storyText(creative.instagram_permalink_url);
+  const igUser = storyText(creative.object_story_spec?.instagram_user_id);
+  if (!permalink && !igUser) return null;
+  const explicit = storyText(creative.object_story_id);
+  const effective = storyText(creative.effective_object_story_id);
+  const storyId = explicit || effective;
+  if (!storyId) return null;
+
+  const bare = !storyId.includes("_");
+  if (igUser && bare) {
+    return {
+      source: "instagram",
+      postId: storyId,
+      pageId: storyText(creative.object_story_spec?.page_id),
+      instagramAccountId: igUser,
+    };
+  }
+  const pagePost = explicit.includes("_") ? explicit : effective.includes("_") ? effective : "";
+  if (pagePost) {
+    return {
+      source: "facebook",
+      postId: pagePost,
+      pageId: pagePost.slice(0, pagePost.indexOf("_")),
+    };
+  }
+  return { unreachable: true };
+}
+
+/** Video if `video_id` is set, otherwise image if a hash or url is set. Neither is not a guess. */
+export function importedExistingPostMedia(
+  creative: ImportCreativeSource,
+): "video" | "image" | null {
+  if (creative.video_id?.trim()) return "video";
+  if (creative.image_hash?.trim() || creative.image_url?.trim()) return "image";
+  return null;
+}
 
 function texts(rows: TextRow[] | undefined): string[] {
   if (!Array.isArray(rows)) return [];

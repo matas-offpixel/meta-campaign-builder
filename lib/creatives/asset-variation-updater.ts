@@ -18,6 +18,7 @@
  * `lib/creatives/__tests__/asset-variation-updater.test.ts`.
  */
 
+import { nameMetaCreativeFromAssets } from "../creative-name-from-filename.ts";
 import type { AdCreativeDraft, AssetVariation } from "@/lib/types";
 
 /**
@@ -59,4 +60,19 @@ export function applyVariationUpdate(
       }),
     };
   });
+}
+
+/**
+ * The Meta wizard's upload write. Applies the slot patch, then names the
+ * creative from the first filename while the name is still `Ad N` or blank.
+ */
+export function applyNamedVariationUpdate(
+  creatives: AdCreativeDraft[],
+  adId: string,
+  varId: string,
+  updater: AssetVariationUpdater,
+): AdCreativeDraft[] {
+  return applyVariationUpdate(creatives, adId, varId, updater).map((creative) =>
+    creative.id === adId ? nameMetaCreativeFromAssets(creative) : creative,
+  );
 }

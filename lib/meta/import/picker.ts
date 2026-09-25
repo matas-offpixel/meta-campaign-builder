@@ -1,3 +1,4 @@
+import { classifyImportedExistingPost, importedExistingPostMedia } from "./creative-copy.ts";
 import { deriveAssetSignature } from "../../reporting/asset-signature.ts";
 import { extractPreview } from "../../reporting/creative-preview-extract.ts";
 import type { RawCreative } from "../../reporting/creative-preview-extract.ts";
@@ -44,7 +45,11 @@ export function buildMetaImportPicker(bundle: MetaLiveCampaignBundle): MetaImpor
   const rows: MetaImportPickerRow[] = [];
   for (const [id, creative] of Object.entries(bundle.creatives)) {
     const raw = creative as RawCreative;
+    const existing = classifyImportedExistingPost(raw);
     const signature = deriveAssetSignature(raw);
+    const postMedia =
+      existing != null && !("unreachable" in existing) ? importedExistingPostMedia(raw) : null;
+    const canCarry = postMedia != null || (existing == null && signature != null);
     const preview = extractPreview(raw);
     const mediaType = signature?.startsWith("video") ? "video" : signature ? "image" : null;
     rows.push({
@@ -53,9 +58,9 @@ export function buildMetaImportPicker(bundle: MetaLiveCampaignBundle): MetaImpor
       mediaType,
       thumbnailUrl: preview.image_url,
       copies: copies.get(str(raw.id) ?? id) ?? 0,
-      defaultTicked: signature != null,
-      disabled: signature == null,
-      unsupportedReason: signature == null ? "no_asset_reported" : null,
+      defaultTicked: canCarry,
+      disabled: !canCarry,
+      unsupportedReason: canCarry ? null : "no_asset_reported",
     });
   }
 
