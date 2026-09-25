@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 985
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/985
 - **Branch:** `cursor/meta-ledger-archived-campaign`
 
 ## Summary
