@@ -201,6 +201,36 @@ export async function listFailedMetaWrites(
     .map((row) => ({ op_kind: row.op_kind, op_payload_hash: row.op_payload_hash }));
 }
 
+/**
+ * A stored campaign id Meta will no longer accept. Drops that campaign
+ * row and the draft's ad-set and ad rows, whose parent id is dead.
+ * Creative uploads stay. No new column — delete is the invalidation,
+ * same as the TikTok rollback clear.
+ */
+export async function invalidateDeadCampaignLedger(
+  context: Pick<MetaWriteContext, "supabase" | "draftId">,
+  campaignRowId: string,
+): Promise<void> {
+  const drop = async (eqs: Record<string, string>) => {
+    let query = context.supabase.from("meta_write_idempotency").delete();
+    for (const [column, value] of Object.entries(eqs)) {
+      query = query.eq(column, value);
+    }
+    const { error } = await query;
+    const unavailable = ledgerUnavailableReason(error);
+    if (unavailable) {
+      console.warn(
+        `[meta-write-idempotency] invalidate skipped (${unavailable}) draft=${context.draftId}`,
+      );
+      return;
+    }
+    if (error) throw new Error(error.message);
+  };
+  await drop({ id: campaignRowId });
+  await drop({ draft_id: context.draftId, op_kind: "adset_create" });
+  await drop({ draft_id: context.draftId, op_kind: "ad_create" });
+}
+
 export async function clearMetaWriteIdempotency(
   context: Pick<MetaWriteContext, "supabase" | "draftId">,
 ): Promise<void> {
