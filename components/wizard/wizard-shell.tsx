@@ -455,6 +455,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             clientId={draft.settings.clientId}
             eventId={draft.settings.eventId}
             campaignName={draft.settings.campaignName}
+            imported={draft.importMeta != null}
           />
         )}
         {step === 4 && (
