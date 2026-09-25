@@ -1021,8 +1021,8 @@ function buildExistingPostCreative(creative: AdCreativeDraft): MetaCreativePaylo
  * A destination the operator typed. The captured Reel boost carries it as
  * `call_to_action.value.link` on the creative, not as `link_url`. An empty
  * URL leaves the payload bare — an engagement boost must stay that way.
- * CTA type is the draft's CTA. A URL with no CTA still needs a type on
- * this object, so that one case uses LEARN_MORE.
+ * CTA type is the draft's CTA. A URL without a CTA is a Step 5 block;
+ * this function throws rather than inventing a button.
  */
 function withExistingPostDestination(
   payload: MetaCreativePayload,
@@ -1030,7 +1030,12 @@ function withExistingPostDestination(
 ): MetaCreativePayload {
   const link = creative.destinationUrl?.trim() ?? "";
   if (!link) return payload;
-  const type = creative.cta && CTA_MAP[creative.cta] ? CTA_MAP[creative.cta] : "LEARN_MORE";
+  const type = creative.cta && CTA_MAP[creative.cta] ? CTA_MAP[creative.cta] : "";
+  if (!type) {
+    throw new Error(
+      `"${creative.name || "This creative"}": A destination URL needs a call to action`,
+    );
+  }
   return { ...payload, call_to_action: { type, value: { link } } };
 }
 
