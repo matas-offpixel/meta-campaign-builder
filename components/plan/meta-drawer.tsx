@@ -319,6 +319,7 @@ export function MetaDrawer({
               clientId={settings.clientId}
               eventId={settings.eventId}
               campaignName={settings.campaignName}
+              imported={draft.importMeta != null}
             />
           ) : null}
 

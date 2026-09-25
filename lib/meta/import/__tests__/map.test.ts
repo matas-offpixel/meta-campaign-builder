@@ -154,9 +154,13 @@ describe("Ironworks capture maps to a draft", () => {
       true,
     );
 
-    assert.ok(draft.importMeta?.notCarried.some((row) => row.id === unavailable && row.reason === "unavailable_on_ad_account"));
+    const carried = draft.audiences.customAudienceGroups.find((group) =>
+      group.audienceIds.includes(unavailable),
+    );
+    assert.ok(carried);
+    assert.equal(carried.audienceNames?.[unavailable], "Jamie Jones Pixel");
     assert.equal(
-      draft.audiences.customAudienceGroups.some((group) => group.audienceIds.includes(unavailable)),
+      draft.importMeta?.notCarried.some((row) => row.id === unavailable),
       false,
     );
     assert.equal(draft.creatives.every((creative) => creative.metaCreativeId), true);

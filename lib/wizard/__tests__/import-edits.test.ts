@@ -207,7 +207,7 @@ describe("§1 adding audiences leaves imported rows alone", () => {
     );
   });
 
-  it("an account change after import blocks instead of trusting the stale availability check", async () => {
+  it("an account change after import blocks", async () => {
     const draft = await importedDraft();
     assert.equal(importedAccountProblem(draft), null);
     assert.equal(importedAccountProblem({ ...draft, settings: { ...draft.settings, metaAdAccountId: "1967530076312" } }), null);

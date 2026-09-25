@@ -91,9 +91,10 @@ function bareAccount(id: string | undefined): string {
 }
 
 /**
- * Custom audiences were checked against the source ad account at import.
- * On another account that check says nothing, and an unshared audience
- * fails at launch.
+ * Custom audiences on an imported draft were read from ad sets on the
+ * source account. Another account may not be able to target them.
+ * The account change is blocked; the import itself does not drop an
+ * audience a live ad set is already targeting.
  */
 export function importedAccountProblem(draft: CampaignDraft): string | null {
   const source = draft.importMeta?.sourceAdAccountId;
@@ -104,7 +105,7 @@ export function importedAccountProblem(draft: CampaignDraft): string | null {
     (s) => isImportedAdSet(s) && s.sourceType === "custom_group",
   );
   if (!carried) return null;
-  return `Custom audiences were checked on ${source} when this campaign was imported. This draft now uses ${current}. Switch back to ${source}, or re-import from ${current}.`;
+  return `Custom audiences were read from ad sets on ${source}. This draft now uses ${current}. Switch back to ${source}, or re-import from ${current}.`;
 }
 
 const PIXEL_PROBE = "pixel";

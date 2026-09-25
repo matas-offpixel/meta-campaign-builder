@@ -60,6 +60,11 @@ export type MapMetaLiveCampaignInput = {
   bundle: MetaLiveCampaignBundle;
   adAccountId: string;
   carry: readonly string[];
+  /**
+   * Ignored. An audience a live ad set on this account is targeting is
+   * carried with the name the read returned. Changing the ad account
+   * after import is blocked separately (`importedAccountProblem`).
+   */
   availability: readonly MetaAudienceAvailability[];
   appUsageCallCount?: number | null;
   clientId?: string;
@@ -454,7 +459,6 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   const notCarried: MetaImportNotCarried[] = [];
   const flexibleSpec: Record<string, MetaImportFlexibleSpec> = {};
   const bucket: GeoBucket = { groups: new Map(), pool: new Map() };
-  const availability = new Map(input.availability.map((row) => [row.id, row.available]));
   const carry = new Set(input.carry);
   const optimisationGoal = resolveOptimisationGoal("conversions", objective);
 
@@ -504,15 +508,9 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
         drop(dropped, "custom_audiences", rawAudience, ctx);
         continue;
       }
-      const known = availability.get(audienceId);
-      if (known !== true) {
-        notCarried.push({
-          id: audienceId,
-          name: str(row?.name) ?? audienceId,
-          reason: known === false ? "unavailable_on_ad_account" : "availability_unknown",
-        });
-        continue;
-      }
+      // A live ad set on this account is already targeting this audience.
+      // That is the availability proof. The account's custom-audience list
+      // misses audiences shared in from another Business Manager.
       availableIds.push(audienceId);
       const audienceName = str(row?.name);
       if (audienceName) audienceNames[audienceId] = audienceName;
@@ -520,16 +518,13 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
 
     let customGroupId = "";
     if (availableIds.length > 0) {
-      const key = [...availableIds].sort().join(",");
-      customGroupId = `custom:${key}`;
-      if (!customGroups.has(customGroupId)) {
-        customGroups.set(customGroupId, {
-          id: customGroupId,
-          name: name,
-          audienceIds: [...availableIds].sort(),
-          audienceNames,
-        });
-      }
+      customGroupId = `custom:${id}`;
+      customGroups.set(customGroupId, {
+        id: customGroupId,
+        name: name,
+        audienceIds: [...availableIds].sort(),
+        audienceNames,
+      });
     }
 
     if (interestGroupId && customGroupId) {

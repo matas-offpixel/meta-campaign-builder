@@ -20,6 +20,7 @@ import {
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
+import { importedPageDerivedSentence } from "@/lib/meta/import/page-audiences";
 
 interface AudiencesStepProps {
   /**
@@ -41,6 +42,8 @@ interface AudiencesStepProps {
   eventId?: string;
   /** Campaign/event name passed to AI interest discovery for richer suggestions */
   campaignName?: string;
+  /** Imported drafts keep page-derived audiences in Custom. */
+  imported?: boolean;
 }
 
 export function AudiencesStep({
@@ -54,6 +57,7 @@ export function AudiencesStep({
   clientId,
   eventId,
   campaignName,
+  imported = false,
 }: AudiencesStepProps) {
   const [activeTab, setActiveTab] = useState<AudienceTab>(() =>
     initialAudienceTab(audiences),
@@ -148,6 +152,9 @@ export function AudiencesStep({
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={(id) => setActiveTab(id as AudienceTab)} />
 
       <TabPanel active={activeTab === "pages"}>
+        {imported ? (
+          <ImportedPageDerivedLine groups={audiences.customAudienceGroups} />
+        ) : null}
         <PageAudiencesPanel
           groups={audiences.pageGroups}
           onChange={(pageGroups) => onChange({ ...audiences, pageGroups })}
@@ -204,6 +211,16 @@ export function AudiencesStep({
     </div>
     </StepSurfaceProvider>
   );
+}
+
+function ImportedPageDerivedLine({
+  groups,
+}: {
+  groups: AudienceSettings["customAudienceGroups"];
+}) {
+  const line = importedPageDerivedSentence(groups);
+  if (!line) return null;
+  return <StatusLine className="mb-3 text-sm text-muted-foreground">{line}</StatusLine>;
 }
 
 function dashIfZero(n: number): string {

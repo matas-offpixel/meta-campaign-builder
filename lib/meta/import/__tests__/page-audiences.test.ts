@@ -5,51 +5,21 @@ import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 import { migrateDraft } from "../../../autosave.ts";
-import type { GraphBatchSubResponse } from "../../graph-multi-get-parse.ts";
+import { generateSuggestions } from "../../../wizard/generate-adset-suggestions.ts";
+import { mergeGeneratedWithImported } from "../../../wizard/import-edits.ts";
 import { mapMetaLiveCampaign } from "../map.ts";
-import { readMetaLiveCampaign } from "../readers.ts";
 import {
-  AUDIENCE_RULE_BATCH_SIZE,
-  applyResolvedPageAudiences,
+  importedPageDerivedSentence,
   pageDerivedBadge,
   pageDerivedFromName,
-  readCustomAudienceRules,
-  resolvePageAudience,
-  type AudienceRuleRead,
 } from "../page-audiences.ts";
+import { readMetaLiveCampaign } from "../readers.ts";
 import type { MetaImportRecordedCall, MetaImportRequest, MetaLiveCampaignBundle } from "../types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CAPTURED = join(HERE, "../__fixtures__/captured");
 const ACCOUNT = "act_968594768066330";
 const CAMPAIGN_ID = "120249957259050453";
-
-type AudienceCapture = {
-  calls: { ids: string[]; data: GraphBatchSubResponse[] }[];
-};
-
-function loadAudienceCapture(): AudienceCapture {
-  return JSON.parse(
-    readFileSync(join(CAPTURED, `../meta-import-audiences-${CAMPAIGN_ID}.json`), "utf8"),
-  ) as AudienceCapture;
-}
-
-function readsFromCapture(capture: AudienceCapture): AudienceRuleRead[] {
-  const reads: AudienceRuleRead[] = [];
-  for (const call of capture.calls) {
-    for (const sub of call.data) {
-      const body = JSON.parse(sub.body ?? "null") as { id?: string; name?: string; subtype?: string; rule?: unknown };
-      if (!body?.id) continue;
-      reads.push({
-        id: body.id,
-        name: body.name ?? null,
-        subtype: body.subtype ?? null,
-        rule: body.rule ?? null,
-      });
-    }
-  }
-  return reads;
-}
 
 async function dhbBundle(): Promise<MetaLiveCampaignBundle> {
   const capture = JSON.parse(
@@ -130,86 +100,97 @@ describe("page-derived names", () => {
   });
 });
 
-describe("DHB audience rules", () => {
-  const capture = loadAudienceCapture();
-  const reads = readsFromCapture(capture);
+function customAudiences(adSet: MetaLiveCampaignBundle["adSets"][number]) {
+  const targeting = adSet.targeting as { custom_audiences?: { id?: string }[] };
+  return (targeting.custom_audiences ?? []).flatMap((row) => (row.id ? [row.id] : []));
+}
 
-  it("issues one call per 25 ids", async () => {
-    let calls = 0;
-    const result = await readCustomAudienceRules({
-      ids: capture.calls.flatMap((call) => call.ids),
-      postBatch: async (batch) => {
-        const call = capture.calls[calls];
-        calls += 1;
-        assert.ok(batch.length <= AUDIENCE_RULE_BATCH_SIZE);
-        assert.equal(batch.length, call?.ids.length);
-        return { responses: call?.data ?? [], usageHeader: null };
-      },
-    });
-    assert.equal(calls, 3);
-    assert.equal(result.calls, 3);
-    assert.equal(result.reads.length, 68);
-    assert.equal(result.stopped, null);
-  });
-
-  it("stops before the next call when app usage is hot", async () => {
-    let calls = 0;
-    const result = await readCustomAudienceRules({
-      ids: capture.calls.flatMap((call) => call.ids),
-      postBatch: async () => {
-        const call = capture.calls[calls];
-        calls += 1;
-        return {
-          responses: call?.data ?? [],
-          usageHeader: '{"call_count":90,"total_time":1,"total_cputime":1}',
-        };
-      },
-    });
-    assert.equal(calls, 1);
-    assert.equal(result.stopped, "usage");
-    assert.equal(result.reads.length, 25);
-  });
-
-  it("moves page-resolved audiences onto page groups and out of Custom", async () => {
+describe("DHB audiences stay as the ad set targeted them", () => {
+  it("one custom group per ad set, including one of 60, and Pages stays empty", async () => {
     const bundle = await dhbBundle();
-    const draft = applyResolvedPageAudiences(
-      mapMetaLiveCampaign({
-        bundle,
-        adAccountId: ACCOUNT,
-        carry: [],
-        availability: allAvailable(bundle),
-      }),
-      reads,
+    const draft = mapMetaLiveCampaign({
+      bundle,
+      adAccountId: ACCOUNT,
+      carry: [],
+      availability: [{ id: "120249428134180453", available: false }],
+    });
+
+    assert.equal(draft.audiences.pageGroups.length, 0);
+    assert.equal(draft.adSetSuggestions.length, bundle.adSets.length);
+    assert.equal(
+      draft.adSetSuggestions.filter((row) => row.enabled).length,
+      bundle.adSets.filter((row) => row.status === "ACTIVE").length,
+    );
+    assert.equal(
+      draft.adSetSuggestions.some((row) => row.sourceType === "page_group"),
+      false,
     );
 
-    const resolved = reads.map(resolvePageAudience).filter((row) => row != null);
-    assert.equal(resolved.length, 31);
+    const sourced = bundle.adSets.filter((row) => customAudiences(row).length > 0);
+    assert.equal(draft.audiences.customAudienceGroups.length, sourced.length);
+    const groupIds = new Set<string>();
+    for (const adSet of sourced) {
+      const group = draft.audiences.customAudienceGroups.find((row) => row.id === `custom:${adSet.id}`);
+      assert.ok(group, String(adSet.name));
+      assert.equal(groupIds.has(group.id), false);
+      groupIds.add(group.id);
+      assert.deepEqual([...group.audienceIds].sort(), [...customAudiences(adSet)].sort());
+      const suggestion = draft.adSetSuggestions.find((row) => row.importedFromAdSetId === adSet.id);
+      assert.equal(suggestion?.sourceType, "custom_group");
+      assert.equal(suggestion?.sourceId, group.id);
+    }
 
-    const ahmed = resolved.find((row) => row.audienceId === "120249428134180453");
-    assert.deepEqual(
-      { pageId: ahmed?.pageId, type: ahmed?.engagementType },
-      { pageId: "170368522824409", type: "fb_engagement_365d" },
+    const launched = draft.adSetSuggestions.find((row) => row.name === "All customs 2");
+    assert.ok(launched);
+    const launchedGroup = draft.audiences.customAudienceGroups.find((row) => row.id === launched.sourceId);
+    assert.equal(launchedGroup?.audienceIds.length, 60);
+    assert.equal(launchedGroup?.audienceIds.includes("120245969090890453"), true);
+    assert.equal(
+      launchedGroup?.audienceNames?.["120245969090890453"],
+      "Ahmed Spins  FB Engagement 365d",
     );
-    const pageGroup = draft.audiences.pageGroups.find((group) => group.pageIds.includes("170368522824409"));
-    assert.ok(pageGroup);
-    assert.equal(pageGroup.name, "Ahmed Spins");
-    assert.ok(pageGroup.engagementTypes.includes("fb_engagement_365d"));
-    assert.ok(pageGroup.engagementAudienceIds?.includes("120249428134180453"));
-
-    const customIds = new Set(
-      draft.audiences.customAudienceGroups.flatMap((group) => group.audienceIds),
+    assert.equal(
+      pageDerivedBadge(launchedGroup?.audienceNames?.["120245969090890453"]),
+      "page-derived · Ahmed Spins",
     );
-    assert.equal(customIds.has("120249428134180453"), false);
-    assert.equal(customIds.has("120214018938930453"), true);
 
-    const ig = draft.audiences.customAudienceGroups
-      .flatMap((group) => group.audienceIds.map((id) => ({ id, name: group.audienceNames?.[id] })))
-      .find((row) => row.id === "120249428134740453");
-    assert.equal(pageDerivedBadge(ig?.name), "page-derived · Ahmed Spins");
-    assert.equal(resolvePageAudience(reads.find((row) => row.id === "120249428134740453")!), null);
+    const primary = draft.audiences.customAudienceGroups.find((row) => row.name === "DHB Primary");
+    assert.equal(primary?.audienceIds.length, 10);
+    assert.equal(primary?.audienceIds.includes("120249428134180453"), true);
+    assert.equal(
+      primary?.audienceNames?.["120249428134180453"],
+      "Ahmed Spins  FB Engagement 365d",
+    );
+    assert.equal(
+      draft.importMeta?.notCarried.some((row) => row.id === "120249428134180453"),
+      false,
+    );
 
-    const derived = new Set(draft.audiences.pageGroups.flatMap((group) => group.engagementAudienceIds ?? []));
-    for (const id of derived) assert.equal(customIds.has(id), false);
-    assert.equal(derived.size, 31);
+    assert.equal(
+      importedPageDerivedSentence(draft.audiences.customAudienceGroups),
+      "61 page-derived audiences are in Custom, as the source ad sets targeted them.",
+    );
+    assert.equal(importedPageDerivedSentence([]), null);
+
+    const locations = draft.budgetSchedule.locationGroups ?? [];
+    assert.ok(locations[0]);
+    const generated = generateSuggestions(draft.audiences, 500, locations, locations[0]);
+    assert.equal(generated.some((row) => row.sourceType === "page_group"), false);
+    const merged = mergeGeneratedWithImported(draft.adSetSuggestions, generated);
+    assert.equal(
+      merged.filter((row) => row.importedFromAdSetId).length,
+      bundle.adSets.length,
+    );
+    assert.equal(merged.some((row) => row.sourceType === "page_group"), false);
+  });
+
+  it("the Pages tab says the page-derived audiences stayed in Custom", () => {
+    const step = readFileSync(join(HERE, "../../../../components/steps/audiences/audiences-step.tsx"), "utf8");
+    assert.match(step, /importedPageDerivedSentence/);
+    assert.match(step, /ImportedPageDerivedLine/);
+    const wizard = readFileSync(join(HERE, "../../../../components/wizard/wizard-shell.tsx"), "utf8");
+    const drawer = readFileSync(join(HERE, "../../../../components/plan/meta-drawer.tsx"), "utf8");
+    assert.match(wizard, /imported=\{draft\.importMeta != null\}/);
+    assert.match(drawer, /imported=\{draft\.importMeta != null\}/);
   });
 });

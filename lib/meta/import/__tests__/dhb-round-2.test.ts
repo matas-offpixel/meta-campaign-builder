@@ -215,7 +215,6 @@ describe("DHB capture", () => {
           clientIdForAccount: async () => "client",
           loadEvent: async () => ({ id: "e1", client_id: "client" }) as never,
           readCampaign: async () => bundle,
-          audienceAvailability: async () => [],
           saveDraft: async () => {
             saved += 1;
           },
@@ -234,7 +233,6 @@ describe("DHB capture", () => {
       clientIdForAccount: async () => "client",
       loadEvent: async () => ({ id: "e1", client_id: "client" }) as never,
       readCampaign: async () => bundle,
-      audienceAvailability: async () => [],
     });
 
     it("stores a uuid draft id with the operator's session client", async () => {
