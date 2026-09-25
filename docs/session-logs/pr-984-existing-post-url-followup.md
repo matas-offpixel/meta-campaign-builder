@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:**
+- **Number:** 984
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/984
 - **Branch:** `cursor/existing-post-url-followup`
 
 ## Summary
