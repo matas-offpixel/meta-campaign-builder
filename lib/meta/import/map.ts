@@ -16,9 +16,11 @@ import { deriveAssetSignature } from "../../reporting/asset-signature.ts";
 import type { RawCreative } from "../../reporting/creative-preview-extract.ts";
 import {
   assetsFromCreative,
+  classifyImportedExistingPost,
   extractImportedCreativeCopy,
   IMPORTED_HEADLINE_ABSENT,
   type ImportCreativeSource,
+  type ImportedExistingPost,
 } from "./creative-copy.ts";
 import type {
   MetaImportDropped,
@@ -83,7 +85,10 @@ export function carriableMetaCreativeIds(bundle: MetaLiveCampaignBundle): Set<st
   for (const [key, raw] of Object.entries(bundle.creatives)) {
     const creative = raw as RawCreative & { id?: string };
     const id = str(creative.id) ?? key;
-    if (deriveAssetSignature({ ...creative, id })) ids.add(id);
+    const existing = classifyImportedExistingPost({ ...creative, id } as ImportCreativeSource);
+    if ((existing && !("unreachable" in existing)) || deriveAssetSignature({ ...creative, id })) {
+      ids.add(id);
+    }
   }
   return ids;
 }
@@ -417,6 +422,42 @@ function creativeDraft(
   };
 }
 
+function existingPostDraft(
+  creative: RawCreative & { id: string },
+  post: ImportedExistingPost,
+): AdCreativeDraft {
+  return {
+    id: creative.id,
+    name: str(creative.name) ?? creative.id,
+    sourceType: "existing_post",
+    identity: {
+      pageId: post.pageId,
+      instagramAccountId: post.instagramAccountId ?? "",
+    },
+    mediaType: "video",
+    assetMode: "single",
+    assetVariations: [],
+    captions: [],
+    headline: "",
+    description: "",
+    destinationUrl: "",
+    cta: "" as AdCreativeDraft["cta"],
+    existingPost: {
+      source: post.source,
+      postId: post.postId,
+      instagramAccountId: post.instagramAccountId,
+    },
+    enhancements: {
+      enabled: false,
+      textOptimizations: false,
+      visualEnhancements: false,
+      musicEnhancements: false,
+      autoVariations: false,
+    },
+    metaCreativeId: creative.id,
+  };
+}
+
 /**
  * Map a live Meta campaign onto a `CampaignDraft`. Targeting the draft
  * cannot represent is named on `importMeta.dropped` and never defaulted.
@@ -563,6 +604,20 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     const creative = input.bundle.creatives[creativeId] as RawCreative & { id?: string };
     const id = str(creative.id) ?? creativeId;
     const named = { ...creative, id };
+    const existing = classifyImportedExistingPost(named as ImportCreativeSource);
+    if (existing) {
+      const name = str(named.name) ?? id;
+      if (!carry.has(id)) {
+        notCarried.push({ id, name, reason: "operator_unticked" });
+        continue;
+      }
+      if ("unreachable" in existing) {
+        notCarried.push({ id, name, reason: "post_unreachable" });
+        continue;
+      }
+      creatives.push(existingPostDraft(named, existing));
+      continue;
+    }
     const signature = deriveAssetSignature(named);
     if (!signature) {
       notCarried.push({

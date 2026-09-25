@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  applyNamedVariationUpdate,
   applyVariationUpdate,
   type AssetVariationUpdater,
 } from "../asset-variation-updater.ts";
@@ -191,5 +192,44 @@ describe("applyVariationUpdate — functional updater", () => {
     assert.equal(finalAssets.find((a) => a.id === "a")?.uploadStatus, "uploading",
       "confirms the old bug: stale patch B reverts A back to uploading");
     assert.equal(finalAssets.find((a) => a.id === "b")?.uploadStatus, "uploaded");
+  });
+});
+
+describe("applyNamedVariationUpdate", () => {
+  it("renames Ad 3 from the uploaded filename", () => {
+    const asset = { ...makeAsset("a1"), aspectRatio: "9:16" as const };
+    const creative = { ...makeCreative("c1", makeVariation("v1", [asset])), name: "Ad 3" };
+    const next = applyNamedVariationUpdate([creative], "c1", "v1", (prev) => ({
+      assets: prev.assets.map((row) =>
+        row.id === "a1" ? { ...row, fileName: "CamelPhat_Ironworks_9x16.mp4" } : row,
+      ),
+    }));
+    assert.equal(next[0]?.name, "CamelPhat_Ironworks_9x16");
+  });
+
+  it("leaves an operator-typed name", () => {
+    const asset = makeAsset("a1");
+    const creative = { ...makeCreative("c1", makeVariation("v1", [asset])), name: "Hero" };
+    const next = applyNamedVariationUpdate([creative], "c1", "v1", (prev) => ({
+      assets: prev.assets.map((row) =>
+        row.id === "a1" ? { ...row, fileName: "CamelPhat_Ironworks_9x16.mp4" } : row,
+      ),
+    }));
+    assert.equal(next[0]?.name, "Hero");
+  });
+
+  it("does not rename when a later aspect lands on an already-named creative", () => {
+    const feed = { ...makeAsset("feed"), aspectRatio: "4:5" as const, fileName: "cut_4x5.mp4" };
+    const story = { ...makeAsset("story"), aspectRatio: "9:16" as const };
+    const creative = {
+      ...makeCreative("c1", makeVariation("v1", [feed, story])),
+      name: "cut_4x5",
+    };
+    const next = applyNamedVariationUpdate([creative], "c1", "v1", (prev) => ({
+      assets: prev.assets.map((row) =>
+        row.id === "story" ? { ...row, fileName: "cut_9x16.mp4" } : row,
+      ),
+    }));
+    assert.equal(next[0]?.name, "cut_4x5");
   });
 });

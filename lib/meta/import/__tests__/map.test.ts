@@ -221,6 +221,9 @@ describe("Ironworks capture maps to a draft", () => {
     delete creative.video_id;
     delete creative.asset_feed_spec;
     delete creative.image_hash;
+    delete creative.object_story_id;
+    delete creative.effective_object_story_id;
+    delete creative.instagram_permalink_url;
     const draft = mapMetaLiveCampaign({
       bundle,
       adAccountId: ACCOUNT,

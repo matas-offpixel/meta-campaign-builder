@@ -27,7 +27,7 @@ import {
 } from "@/lib/meta/placements";
 import { useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
 import {
-  applyVariationUpdate,
+  applyNamedVariationUpdate,
   type AssetVariationUpdater,
 } from "@/lib/creatives/asset-variation-updater";
 import { importedHeadlineNote } from "@/lib/meta/import/creative-copy";
@@ -436,11 +436,7 @@ function CreativesBody({
   // applied to the freshest variation state, not a stale closure snapshot.
   const updateAssetVariation = useCallback(
     (adId: string, varId: string, updater: AssetVariationUpdater) => {
-      onChange(
-        applyVariationUpdate(creativesRef.current, adId, varId, updater).map((creative) =>
-          creative.id === adId ? nameMetaCreativeFromAssets(creative) : creative,
-        ),
-      );
+      onChange(applyNamedVariationUpdate(creativesRef.current, adId, varId, updater));
     },
     [onChange],
   );
@@ -598,7 +594,7 @@ function CreativesBody({
         onChange(
           creativesRef.current.map((c) => {
             if (c.id !== active.id) return c;
-            return {
+            return nameMetaCreativeFromAssets({
               ...c,
               assetVariations: (c.assetVariations ?? []).map((v) =>
                 v.id !== entry.variationId
@@ -610,7 +606,7 @@ function CreativesBody({
                       ),
                     },
               ),
-            };
+            });
           }),
         );
       } catch (err) {
