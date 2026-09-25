@@ -35,6 +35,7 @@ import {
   fetchAdAccountTosStatus,
   fetchAdAccountIgActors,
   fetchCampaignById,
+  fetchCampaignByIdForLedger,
   fetchAdSetById,
   fetchAdSetsForCampaign,
   fetchCustomAudienceAvailability,
@@ -60,7 +61,7 @@ import {
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
 import { archivedCampaignMessage, mapLaunchTokenError, websiteUrlRequiredMessage } from "@/lib/meta/launch-error-classify";
-import { CampaignLedgerObjectiveError, runCampaignCreateLedger } from "@/lib/meta/campaign-ledger";
+import { CampaignLedgerObjectiveError, CampaignLedgerVerifyError, runCampaignCreateLedger } from "@/lib/meta/campaign-ledger";
 import {
   buildRateLimitUiState,
   isMetaRateLimitCode,
@@ -1711,7 +1712,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         payload: campaignLedgerPayload,
         draftObjective: campaignPayload.objective,
         campaignName: campaignPayload.name,
-        fetchCampaign: (id) => fetchCampaignById(id, launchToken),
+        fetchCampaign: (id) => fetchCampaignByIdForLedger(id, launchToken),
         create: async () => (await createMetaCampaign(campaignPayload)).id,
       });
       metaCampaignId = campaignRes.id;
@@ -1723,6 +1724,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch (err) {
       if (err instanceof CampaignLedgerObjectiveError) {
         return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      if (err instanceof CampaignLedgerVerifyError) {
+        console.error(
+          "[launch-campaign] Phase 1 ✗  could not verify stored campaign:",
+          err.message,
+          err.source instanceof MetaApiError ? err.source.toJSON() : "",
+        );
+        if (isMetaRateLimitCode(err.code, err.subcode)) {
+          return rateLimitJsonResponse(err.source ?? err, adAccountId);
+        }
+        return NextResponse.json(
+          {
+            error: err.message,
+            metaError: err.source instanceof MetaApiError ? err.source.toJSON() : undefined,
+          },
+          { status: 502 },
+        );
       }
       const message = err instanceof MetaApiError ? err.message : String(err);
       console.error(

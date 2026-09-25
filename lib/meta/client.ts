@@ -847,6 +847,28 @@ export async function fetchCampaignById(
   }
 }
 
+/**
+ * The ledger re-fetch. Same fields as {@link fetchCampaignById}, but a
+ * Graph error is thrown instead of collapsed to null. A null there is
+ * indistinguishable from "archived", and a retry after a rate limit
+ * would create a second live campaign.
+ *
+ * fetchCampaignById stays null-on-error. The attach path depends on that.
+ */
+export async function fetchCampaignByIdForLedger(
+  campaignId: string,
+  token?: string,
+): Promise<RawMetaCampaign> {
+  const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time";
+  const res = token
+    ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
+    : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });
+  if (!res?.id) {
+    throw new MetaApiError(`Meta returned an empty campaign for ${campaignId}.`);
+  }
+  return res;
+}
+
 // ─── Ad-set listing (live, scoped to a single campaign) ────────────────────
 
 /**

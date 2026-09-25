@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
   CampaignLedgerObjectiveError,
+  CampaignLedgerVerifyError,
   runCampaignCreateLedger,
 } from "../campaign-ledger.ts";
 import type { MetaWriteContext } from "../write-idempotency.ts";
@@ -269,5 +271,154 @@ describe("SCHAK launch, archive, launch", () => {
       },
     );
     assert.equal(creates, 0);
+  });
+
+  it("a rate-limit re-fetch leaves the ledger row and does not create", async () => {
+    const db = new Memory();
+    const ctx = context(db);
+    await runCampaignCreateLedger({
+      context: ctx,
+      payload,
+      draftObjective: "initiate_checkout",
+      campaignName: payload.name,
+      fetchCampaign: async () => null,
+      create: async () => "120251973029760755",
+    });
+    let creates = 0;
+    await assert.rejects(
+      () =>
+        runCampaignCreateLedger({
+          context: ctx,
+          payload,
+          draftObjective: "initiate_checkout",
+          campaignName: payload.name,
+          fetchCampaign: async () => {
+            throw Object.assign(new Error("User request limit reached"), { code: 17 });
+          },
+          create: async () => {
+            creates += 1;
+            return "second-campaign";
+          },
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof CampaignLedgerVerifyError);
+        assert.equal(err.code, 17);
+        assert.match(err.message, /Failed to verify the stored campaign 120251973029760755/);
+        assert.match(err.message, /Retry the launch/);
+        return true;
+      },
+    );
+    assert.equal(creates, 0);
+    assert.equal(db.rows.some((row) => row.op_result_id === "120251973029760755"), true);
+  });
+
+  it("an expired token on re-fetch leaves the ledger row and does not create", async () => {
+    const db = new Memory();
+    const ctx = context(db);
+    await runCampaignCreateLedger({
+      context: ctx,
+      payload,
+      draftObjective: "initiate_checkout",
+      campaignName: payload.name,
+      fetchCampaign: async () => null,
+      create: async () => "120251973029760755",
+    });
+    let creates = 0;
+    await assert.rejects(
+      () =>
+        runCampaignCreateLedger({
+          context: ctx,
+          payload,
+          draftObjective: "initiate_checkout",
+          campaignName: payload.name,
+          fetchCampaign: async () => {
+            throw Object.assign(new Error("Error validating access token"), { code: 190 });
+          },
+          create: async () => {
+            creates += 1;
+            return "second-campaign";
+          },
+        }),
+      (err: unknown) => {
+        assert.ok(err instanceof CampaignLedgerVerifyError);
+        assert.equal(err.code, 190);
+        assert.match(err.message, /Failed to verify the stored campaign/);
+        assert.match(err.message, /Retry the launch/);
+        return true;
+      },
+    );
+    assert.equal(creates, 0);
+    assert.equal(db.rows.some((row) => row.op_result_id === "120251973029760755"), true);
+  });
+
+  it("recreates when the re-fetch is code 100 subcode 33 and logs not_found_or_no_permission", async () => {
+    const db = new Memory();
+    const ctx = context(db);
+    await runCampaignCreateLedger({
+      context: ctx,
+      payload,
+      draftObjective: "initiate_checkout",
+      campaignName: payload.name,
+      fetchCampaign: async () => null,
+      create: async () => "120251973029760755",
+    });
+    db.rows.push({
+      id: "adset-row",
+      user_id: "user-1",
+      event_id: "event-1",
+      draft_id: "draft-schak",
+      op_kind: "adset_create",
+      op_payload_hash: "adset",
+      op_result_id: "adset-old",
+      op_status: "success",
+    });
+    const logs: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    };
+    let creates = 0;
+    try {
+      const second = await runCampaignCreateLedger({
+        context: ctx,
+        payload,
+        draftObjective: "initiate_checkout",
+        campaignName: payload.name,
+        fetchCampaign: async () => {
+          throw Object.assign(
+            new Error("Unsupported get request. Object does not exist, cannot be loaded due to missing permissions"),
+            { code: 100, subcode: 33 },
+          );
+        },
+        create: async () => {
+          creates += 1;
+          return "120259999999999755";
+        },
+      });
+      assert.equal(second.outcome, "recreated");
+      assert.equal(second.id, "120259999999999755");
+    } finally {
+      console.log = original;
+    }
+    assert.equal(creates, 1);
+    assert.match(logs.join("\n"), /status=not_found_or_no_permission/);
+    assert.equal(db.rows.some((row) => row.op_result_id === "120251973029760755"), false);
+    assert.equal(db.rows.some((row) => row.op_kind === "adset_create"), false);
+    assert.equal(db.rows.some((row) => row.op_result_id === "120259999999999755"), true);
+  });
+});
+
+describe("Phase 1 verify failure", () => {
+  it("sends a rate-limit re-fetch through the rate-limit response and a token error through 502", () => {
+    const route = readFileSync("app/api/meta/launch-campaign/route.ts", "utf8");
+    const start = route.indexOf("err instanceof CampaignLedgerVerifyError");
+    const end = route.indexOf("campaign creation failed", start);
+    assert.ok(start > 0 && end > start);
+    const slice = route.slice(start, end);
+    assert.match(slice, /isMetaRateLimitCode\(err\.code, err\.subcode\)/);
+    assert.match(slice, /return rateLimitJsonResponse\(err\.source \?\? err, adAccountId\)/);
+    assert.match(slice, /status: 502/);
+    assert.doesNotMatch(slice, /recordWizardMetaLaunch/);
+    assert.match(route, /fetchCampaign: \(id\) => fetchCampaignByIdForLedger\(id, launchToken\)/);
   });
 });

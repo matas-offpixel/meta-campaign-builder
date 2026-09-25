@@ -21,10 +21,14 @@ A `campaign_create` ledger hit was handing back an archived Meta campaign and lo
 
 ## Validation
 
-- [x] `npm test` — 6319 tests, 6316 pass, 3 skipped, 0 fail
+- [x] `npm test` — 6323 tests, 6319 pass, 4 skipped, 0 fail (round 2)
 - [x] `npm run build` — compiled
-- [ ] CI check-run conclusions (reported in the thread, not committed)
+- [ ] CI check-run conclusions for round 2 (reported in the thread, not committed)
 
 ## Notes
 
 No `invalidated_at`. Creative upload rows are kept. Attach-mode checks were not changed.
+
+## Round 2
+
+A null from `fetchCampaignById` is every Graph failure, not just a missing campaign. The ledger re-fetch is `fetchCampaignByIdForLedger`, which throws. Only ARCHIVED, DELETED, code 100 / subcode 33, and code 803 recreate. Subcode 33 is logged as `not_found_or_no_permission`. A rate limit returns the existing 429. Any other re-fetch error is a 502 (`Failed to verify the stored campaign … Retry the launch.`) and the ledger row stays. `fetchCampaignById` still returns null for the attach path.
