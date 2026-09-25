@@ -59,7 +59,9 @@ describe("save", () => {
     const picker = source("components/meta/meta-import-picker.tsx");
     assert.match(picker, /metaImportSaveBlocked\(eventId, ticked\.size\)/);
     assert.match(picker, /Pick an event — nothing will be saved/);
-    assert.match(picker, /disabled=\{saving \|\| accountUnlinked \|\| blocked\}/);
+    assert.match(picker, /disabled=\{saving \|\| noEventsOnAccount \|\| blocked\}/);
+    assert.match(picker, /META_IMPORT_NO_EVENTS_ON_ACCOUNT/);
+    assert.doesNotMatch(picker, /This ad account is not linked to a client/);
   });
 
   it("save posts the ticked ids and the draft opens at the returned id", () => {

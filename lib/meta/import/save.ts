@@ -6,9 +6,12 @@ import { parseAppUsageHeader } from "../app-usage.ts";
 import { facebookTokenForImport } from "./account.ts";
 import {
   clientIdForMetaAdAccount,
-  eventBelongsToClient,
+  eventRunsOnAdAccount,
+  listMetaImportEvents,
   loadMetaImportEvent,
+  suggestMetaImportEvent,
   type MetaImportEventRow,
+  type MetaImportListedEvent,
 } from "./event.ts";
 import {
   classifyMetaImportCarry,
@@ -22,7 +25,6 @@ import { readMetaLiveCampaign } from "./readers.ts";
 import { guardMetaImportRaw } from "./raw-guard.ts";
 import type { MetaImportReadProgress, MetaLiveCampaignBundle } from "./types.ts";
 import {
-  META_IMPORT_ACCOUNT_NOT_LINKED,
   META_IMPORT_EVENT_ID_CLIENT_MISMATCH,
   META_IMPORT_EVENT_ID_REQUIRED,
 } from "./types.ts";
@@ -37,6 +39,7 @@ export type MetaImportResult = {
 export type MetaImportHandleDeps = {
   tokenForUser?: typeof facebookTokenForImport;
   clientIdForAccount?: typeof clientIdForMetaAdAccount;
+  listEvents?: typeof listMetaImportEvents;
   loadEvent?: typeof loadMetaImportEvent;
   readCampaign?: typeof readMetaLiveCampaign;
   saveDraft?: (draft: CampaignDraft, userId: string) => Promise<void>;
@@ -166,6 +169,7 @@ export async function handleMetaImport(input: {
   const deps = input.deps ?? {};
   const tokenForUser = deps.tokenForUser ?? facebookTokenForImport;
   const clientIdForAccount = deps.clientIdForAccount ?? clientIdForMetaAdAccount;
+  const listEvents = deps.listEvents ?? listMetaImportEvents;
   const loadEvent = deps.loadEvent ?? loadMetaImportEvent;
   const readCampaign = deps.readCampaign ?? readMetaLiveCampaign;
   const saveDraft =
@@ -177,18 +181,10 @@ export async function handleMetaImport(input: {
     return { status: credentials.status, body: { ok: false, error: credentials.error } };
   }
 
-  const clientId = await clientIdForAccount(input.supabase, {
-    userId: input.userId!,
-    adAccountId: guard.adAccountId,
-  });
-
   let event: MetaImportEventRow | null = null;
   if (decision.action === "save") {
-    if (!clientId) {
-      return { status: 400, body: { ok: false, error: META_IMPORT_ACCOUNT_NOT_LINKED } };
-    }
     event = await loadEvent(input.supabase, { eventId, userId: input.userId! });
-    if (!eventBelongsToClient(event, clientId)) {
+    if (!event || !eventRunsOnAdAccount(event, guard.adAccountId)) {
       return { status: 400, body: { ok: false, error: META_IMPORT_EVENT_ID_CLIENT_MISMATCH } };
     }
   }
@@ -226,13 +222,26 @@ export async function handleMetaImport(input: {
   }
 
   if (decision.action === "picker") {
+    const events: MetaImportListedEvent[] = await listEvents(input.supabase, {
+      userId: input.userId!,
+      adAccountId: guard.adAccountId,
+    });
+    const suggestedClientId = await clientIdForAccount(input.supabase, {
+      userId: input.userId!,
+      adAccountId: guard.adAccountId,
+    });
     return {
       status: 200,
       body: {
         ok: true,
         saved: false,
         picker: buildMetaImportPicker(bundle),
-        clientId,
+        events,
+        suggestedEventId: suggestMetaImportEvent(
+          typeof bundle.campaign.name === "string" ? bundle.campaign.name : "",
+          events,
+          suggestedClientId,
+        ),
         appUsageCallCount: appUsageCallCount(),
       },
     };
@@ -260,7 +269,7 @@ export async function handleMetaImport(input: {
     carry: accepted,
     availability: [],
     appUsageCallCount: appUsageCallCount(),
-    clientId: clientId ?? undefined,
+    clientId: event!.client_id,
     eventId: event?.id,
     imageSizes: sizes,
   });

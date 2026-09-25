@@ -31,7 +31,7 @@ import { metaAdAccountPickerOptions } from "@/lib/meta/account-picker-options";
 import type { MetaImportEventOption } from "@/lib/meta/import/event";
 import type { MetaImportPickerPayload } from "@/lib/meta/import/picker";
 import {
-  META_IMPORT_ACCOUNT_NOT_LINKED,
+  META_IMPORT_NO_EVENTS_ON_ACCOUNT,
   type MetaImportMeta,
 } from "@/lib/meta/import/types";
 import type { MetaAdAccount, MetaCampaignSummary, MetaCampaignsResponse } from "@/lib/types";
@@ -41,7 +41,8 @@ type PickerResponse = {
   saved?: boolean;
   error?: string;
   picker?: MetaImportPickerPayload;
-  clientId?: string | null;
+  events?: MetaImportEventOption[];
+  suggestedEventId?: string | null;
   draftId?: string;
   importMeta?: MetaImportMeta;
 };
@@ -63,7 +64,6 @@ export function MetaImportPicker({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<MetaImportPickerPayload | null>(null);
-  const [clientId, setClientId] = useState<string | null>(null);
   const [events, setEvents] = useState<MetaImportEventOption[]>([]);
   const [eventId, setEventId] = useState("");
   const [ticked, setTicked] = useState<Set<string>>(new Set());
@@ -72,7 +72,6 @@ export function MetaImportPicker({
   useEffect(() => {
     if (!open) {
       setPicker(null);
-      setClientId(null);
       setEvents([]);
       setEventId("");
       setTicked(new Set());
@@ -139,31 +138,6 @@ export function MetaImportPicker({
     };
   }, [open, adAccountId]);
 
-  useEffect(() => {
-    if (!clientId) {
-      setEvents([]);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/events?clientId=${encodeURIComponent(clientId)}`, { cache: "no-store" })
-      .then((res) => res.json())
-      .then((json: { ok?: boolean; events?: MetaImportEventOption[]; error?: string }) => {
-        if (cancelled) return;
-        if (!json.ok) {
-          setError(json.error || "Could not load events.");
-          setEvents([]);
-          return;
-        }
-        setEvents(json.events ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Could not load events.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [clientId]);
-
   async function readCampaign(campaignId: string) {
     setReadingId(campaignId);
     setError(null);
@@ -179,8 +153,8 @@ export function MetaImportPicker({
         return;
       }
       setPicker(json.picker);
-      setClientId(json.clientId ?? null);
-      setEventId("");
+      setEvents(json.events ?? []);
+      setEventId(json.suggestedEventId ?? "");
       setTicked(metaImportSelectAll(json.picker.rows));
     } catch {
       setError("Could not read the campaign.");
@@ -226,7 +200,7 @@ export function MetaImportPicker({
     router.push(href);
   }
 
-  const accountUnlinked = picker != null && !clientId;
+  const noEventsOnAccount = picker != null && events.length === 0;
   const blocked = metaImportSaveBlocked(eventId, ticked.size);
   const uncarriedRows = picker?.rows.filter((row) => row.disabled) ?? [];
 
@@ -326,8 +300,8 @@ export function MetaImportPicker({
               </Button>
             </div>
 
-            {accountUnlinked ? (
-              <p className="mt-3 text-sm text-destructive">{META_IMPORT_ACCOUNT_NOT_LINKED}</p>
+            {noEventsOnAccount ? (
+              <p className="mt-3 text-sm text-destructive">{META_IMPORT_NO_EVENTS_ON_ACCOUNT}</p>
             ) : (
               <div className="mt-3">
                 <MetaImportEventSelect
@@ -426,13 +400,13 @@ export function MetaImportPicker({
 
             <div className="mt-4 flex justify-end">
               <Button
-                disabled={saving || accountUnlinked || blocked}
+                disabled={saving || noEventsOnAccount || blocked}
                 onClick={() => void confirmImport()}
               >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : accountUnlinked ? (
-                  META_IMPORT_ACCOUNT_NOT_LINKED
+                ) : noEventsOnAccount ? (
+                  META_IMPORT_NO_EVENTS_ON_ACCOUNT
                 ) : ticked.size === 0 ? (
                   "Tick at least one creative — nothing will be saved"
                 ) : !eventId ? (

@@ -33,7 +33,7 @@ export function MetaImportEventSelect({
       onChange={(event) => onChange(event.target.value)}
       disabled={disabled}
       error={error}
-      placeholder={events.length === 0 ? "No events for this client" : "Select event"}
+      placeholder={events.length === 0 ? "No events run on this ad account" : "Select event"}
       options={events.map((event) => ({
         value: event.id,
         label: formatMetaImportEventOptionLabel(event),
