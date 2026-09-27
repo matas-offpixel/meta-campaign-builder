@@ -124,7 +124,7 @@ Unaliased invite codes pass through byte-identical, including `?mode=gi_t`.
 
 Matas mints the bearer (`openssl rand -hex 32`) and sets the same value on both Vercel projects. Cursor does not hold it.
 
-- Hit: `200` `{ slug, invite_code, effective_destination }`, cached 60s.
+- Hit: `200` `{ slug, invite_code, effective_destination, interstitial_enabled }`, cached 60s. `interstitial_enabled` defaults false. Cirqlin renders the card only when it is true; otherwise it 302s.
 - No alias: `404`.
 - Lookup failure or unset bearer: `200` with `invite_code: null` and `degraded: true` (`lookup_failed` or `not_configured`).
 

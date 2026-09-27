@@ -42,7 +42,10 @@ function bearerMatches(header: string | null, secret: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-type CachedRead = { destination_invite_code: string | null };
+type CachedRead = {
+  destination_invite_code: string | null;
+  interstitial_enabled: boolean;
+};
 
 export async function GET(
   req: NextRequest,
@@ -65,6 +68,7 @@ export async function GET(
       rateLimited: !rate.allowed,
       lookupError: null,
       destinationInviteCode: null,
+      interstitialEnabled: false,
     });
     const headers = new Headers();
     if (mapped.cacheControl) headers.set("Cache-Control", mapped.cacheControl);
@@ -75,14 +79,21 @@ export async function GET(
   }
 
   let destinationInviteCode: string | null = null;
+  let interstitialEnabled = false;
   let lookupError: unknown | null = null;
   let fromCache = false;
 
   try {
     const cache = await getAliasRuntimeCache();
     const cached = (await cache.get(aliasReadCacheKey(slug))) as CachedRead | null;
-    if (cached && typeof cached === "object" && "destination_invite_code" in cached) {
+    if (
+      cached &&
+      typeof cached === "object" &&
+      "destination_invite_code" in cached &&
+      "interstitial_enabled" in cached
+    ) {
       destinationInviteCode = cached.destination_invite_code;
+      interstitialEnabled = cached.interstitial_enabled === true;
       fromCache = true;
     }
   } catch (err) {
@@ -97,11 +108,15 @@ export async function GET(
       const service = createServiceRoleClient();
       const row = await getAliasLookupBySlug(service, slug);
       destinationInviteCode = row?.destination_invite_code ?? null;
+      interstitialEnabled = row?.interstitial_enabled === true;
       try {
         const cache = await getAliasRuntimeCache();
         await cache.set(
           aliasReadCacheKey(slug),
-          { destination_invite_code: destinationInviteCode } satisfies CachedRead,
+          {
+            destination_invite_code: destinationInviteCode,
+            interstitial_enabled: interstitialEnabled,
+          } satisfies CachedRead,
           { ttl: ALIAS_READ_CACHE_TTL_SECONDS, tags: [aliasCacheTag(slug)] },
         );
       } catch (err) {
@@ -126,6 +141,7 @@ export async function GET(
     rateLimited: false,
     lookupError,
     destinationInviteCode,
+    interstitialEnabled,
   });
   const headers = new Headers();
   if (mapped.cacheControl) headers.set("Cache-Control", mapped.cacheControl);

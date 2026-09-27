@@ -8,7 +8,9 @@
 
 ## Summary
 
-Mixed-case invite codes and dotted runbook slugs can be repointed from `wa_community_alias_destinations`, which is the authoritative invite code. `active_invite_code` stays a cache written in the same transaction. The public `/j` lookup stays fail-open for both slug-shaped and invite-shaped segments. Cirqlin's interstitial is unchanged until Decision 2 is picked.
+Mixed-case invite codes and dotted runbook slugs can be repointed from `wa_community_alias_destinations`, which is the authoritative invite code. `active_invite_code` stays a cache written in the same transaction. The public `/j` lookup stays fail-open for both slug-shaped and invite-shaped segments.
+
+Follow-up: migration 178 also adds `wa_community_aliases.interstitial_enabled boolean not null default false`, and `GET /api/community-aliases/:slug` returns it next to the invite code. Cirqlin #454 renders the card only when the field is true. Default false means every alias 302s until someone turns the card on.
 
 ## Scope / files
 

@@ -9,6 +9,9 @@
 -- wa_community_aliases.active_invite_code cannot drift from the active
 -- wa_community_alias_destinations.invite_code.
 --
+-- interstitial_enabled defaults false. Cirqlin 302s unless this is true.
+-- The card is opt-in per alias (cirqlin #454).
+--
 -- Authority (Decision 1): wa_community_alias_destinations is the source of
 -- truth for the invite code (partial unique uq_wa_community_alias_destinations_one_active
 -- plus the audit table). active_invite_code is a denormalised cache written
@@ -45,6 +48,7 @@
 --   drop function if exists assert_wa_alias_invite_homes(uuid);
 --   drop function if exists repoint_community_alias(text, text, uuid, text);
 --   drop function if exists create_community_alias(text, uuid, text, text, text, text, uuid, text);
+--   alter table wa_community_aliases drop column if exists interstitial_enabled;
 --   alter table wa_community_aliases drop column if exists event_ref;
 --   alter table wa_community_aliases drop constraint wa_community_aliases_slug_format;
 --   alter table wa_community_aliases add constraint wa_community_aliases_slug_format
@@ -99,12 +103,17 @@ end $$;
 alter table wa_community_aliases
   add column if not exists event_ref text;
 
+alter table wa_community_aliases
+  add column if not exists interstitial_enabled boolean not null default false;
+
 comment on column wa_community_aliases.slug is
   'Path segment under /j/{slug}. Letters, digits, hyphens, and dots. Case-sensitive. A mixed-case invite code is a valid slug so /j/{code} can be repointed. Migration 178.';
 comment on column wa_community_aliases.active_invite_code is
   'Denormalised cache of the active wa_community_alias_destinations.invite_code. Destinations are authoritative. Written only in the same transaction by create_community_alias / repoint_community_alias. Migration 178.';
 comment on column wa_community_aliases.event_ref is
   'Optional label for an ephemeral event that does not warrant a clients row. Migration 178.';
+comment on column wa_community_aliases.interstitial_enabled is
+  'When true, cirqlin renders the group card. When false, crqln.com/j/{slug} 302s straight to WhatsApp. Default false. Migration 178.';
 
 -- ── homes guard ──────────────────────────────────────────────────────────────
 

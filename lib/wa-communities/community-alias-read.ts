@@ -14,6 +14,8 @@ export type CommunityAliasReadBody = {
   slug: string;
   invite_code: string | null;
   effective_destination: string | null;
+  /** Cirqlin renders the card only when this is true. Absent or false → 302. */
+  interstitial_enabled: boolean;
   degraded?: boolean;
   reason?: "not_configured" | "lookup_failed";
 };
@@ -31,6 +33,7 @@ export function communityAliasReadResponse(args: {
   rateLimited: boolean;
   lookupError: unknown | null;
   destinationInviteCode: string | null;
+  interstitialEnabled: boolean;
 }): CommunityAliasHttpResult {
   if (args.rateLimited) {
     return {
@@ -47,6 +50,7 @@ export function communityAliasReadResponse(args: {
         slug: args.slug,
         invite_code: null,
         effective_destination: null,
+        interstitial_enabled: false,
         degraded: true,
         reason: "not_configured",
       },
@@ -69,6 +73,7 @@ export function communityAliasReadResponse(args: {
         slug: args.slug,
         invite_code: null,
         effective_destination: null,
+        interstitial_enabled: false,
         degraded: true,
         reason: "lookup_failed",
       },
@@ -90,6 +95,7 @@ export function communityAliasReadResponse(args: {
       slug: args.slug,
       invite_code: args.destinationInviteCode,
       effective_destination: whatsappCommunityRedirectUrl(args.destinationInviteCode),
+      interstitial_enabled: args.interstitialEnabled,
     },
     cacheControl: "private, max-age=60",
   };

@@ -114,12 +114,14 @@ async function appendEvent(
 export async function getAliasLookupBySlug(
   supabase: AnySupabaseClient,
   slug: string,
-): Promise<{ destination_invite_code: string | null } | null> {
+): Promise<{ destination_invite_code: string | null; interstitial_enabled: boolean } | null> {
   if (!isValidSlug(slug)) return null;
   const sb = asAny(supabase);
   const { data, error } = await sb
     .from("wa_community_aliases")
-    .select("is_active, wa_community_alias_destinations ( invite_code, is_active )")
+    .select(
+      "is_active, interstitial_enabled, wa_community_alias_destinations ( invite_code, is_active )",
+    )
     .eq("slug", slug)
     .maybeSingle();
   if (error) {
@@ -137,7 +139,10 @@ export async function getAliasLookupBySlug(
     destinations: destRaw,
   });
   if (!code) return null;
-  return { destination_invite_code: code };
+  return {
+    destination_invite_code: code,
+    interstitial_enabled: row.interstitial_enabled === true,
+  };
 }
 
 async function afterMutation(

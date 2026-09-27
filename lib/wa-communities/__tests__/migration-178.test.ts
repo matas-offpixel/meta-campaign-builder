@@ -21,6 +21,10 @@ describe("migration 178", () => {
     assert.match(sql, /repoint_community_alias/);
     assert.match(sql, /create_community_alias/);
     assert.match(sql, /event_ref/);
+    assert.match(
+      sql,
+      /add column if not exists interstitial_enabled boolean not null default false/,
+    );
     assert.match(sql, /deferrable initially deferred/);
   });
 });
