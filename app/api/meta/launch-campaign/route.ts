@@ -35,6 +35,7 @@ import {
   fetchAdAccountTosStatus,
   fetchAdAccountIgActors,
   fetchCampaignById,
+  fetchCampaignByIdForLedger,
   fetchAdSetById,
   fetchAdSetsForCampaign,
   fetchCustomAudienceAvailability,
@@ -59,7 +60,8 @@ import {
   type IgMismatchEntry,
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
-import { mapLaunchTokenError, websiteUrlRequiredMessage } from "@/lib/meta/launch-error-classify";
+import { archivedCampaignMessage, mapLaunchTokenError, websiteUrlRequiredMessage } from "@/lib/meta/launch-error-classify";
+import { CampaignLedgerObjectiveError, CampaignLedgerVerifyError, runCampaignCreateLedger } from "@/lib/meta/campaign-ledger";
 import {
   buildRateLimitUiState,
   isMetaRateLimitCode,
@@ -375,8 +377,10 @@ function rateLimitJsonResponse(
   });
 }
 
-function formatMetaError(err: unknown): string {
+function formatMetaError(err: unknown, campaignId?: string): string {
   if (err instanceof MetaApiError) {
+    const archived = archivedCampaignMessage(campaignId ?? "", err);
+    if (archived) return archived;
     const parts: string[] = [err.message];
     if (err.code) parts.push(`code=${err.code}`);
     if (err.subcode) parts.push(`subcode=${err.subcode}`);
@@ -1436,6 +1440,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         : " (wizard default ACTIVE per 2026-06-04 product decision)"),
   );
   let metaCampaignId: string;
+  let campaignCreateOutcome: "created" | "reused" | "recreated" | undefined;
   // All validated campaigns for multi-campaign attach_campaign launches.
   // Entry 0 === the "primary" campaign whose id is mirrored into metaCampaignId.
   // The loop after Phase 4 uses entries 1..N for the additional campaigns.
@@ -1696,20 +1701,47 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         "[launch-campaign] Phase 1 payload:", JSON.stringify({ ...campaignPayload, token: `[${launchTokenSource}]` }, null, 2),
       );
 
-      const campaignRes = await runMetaWrite(
-        "campaign_create",
-        {
-          adAccountId,
-          name: campaignPayload.name,
-          objective: campaignPayload.objective,
-          status: entityStatus,
-        },
-        () => createMetaCampaign(campaignPayload),
-      );
+      const campaignLedgerPayload = {
+        adAccountId,
+        name: campaignPayload.name,
+        objective: campaignPayload.objective,
+        status: entityStatus,
+      };
+      const campaignRes = await runCampaignCreateLedger({
+        context: metaWriteCtx,
+        payload: campaignLedgerPayload,
+        draftObjective: campaignPayload.objective,
+        campaignName: campaignPayload.name,
+        fetchCampaign: (id) => fetchCampaignByIdForLedger(id, launchToken),
+        create: async () => (await createMetaCampaign(campaignPayload)).id,
+      });
       metaCampaignId = campaignRes.id;
+      campaignCreateOutcome = campaignRes.outcome;
       phaseDurations["campaign"] = elapsed(phase1Start);
-      console.log(`[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} (${phaseDurations["campaign"]}ms)`);
+      console.log(
+        `[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} outcome=${campaignCreateOutcome} (${phaseDurations["campaign"]}ms)`,
+      );
     } catch (err) {
+      if (err instanceof CampaignLedgerObjectiveError) {
+        return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      if (err instanceof CampaignLedgerVerifyError) {
+        console.error(
+          "[launch-campaign] Phase 1 ✗  could not verify stored campaign:",
+          err.message,
+          err.source instanceof MetaApiError ? err.source.toJSON() : "",
+        );
+        if (isMetaRateLimitCode(err.code, err.subcode)) {
+          return rateLimitJsonResponse(err.source ?? err, adAccountId);
+        }
+        return NextResponse.json(
+          {
+            error: err.message,
+            metaError: err.source instanceof MetaApiError ? err.source.toJSON() : undefined,
+          },
+          { status: 502 },
+        );
+      }
       const message = err instanceof MetaApiError ? err.message : String(err);
       console.error(
         "[launch-campaign] Phase 1 ✗  campaign creation failed:",
@@ -3459,7 +3491,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           });
         } else {
           const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
-          const message = formatMetaError(reason.err);
+          const message = formatMetaError(reason.err, metaCampaignId);
           console.error("[launch-campaign] Phase 2 ✗  ad set failed:", reason.adSet.name, ":", message);
           adSetsFailed.push({ name: reason.adSet.name, error: message });
           adSetLaunchResults[reason.adSet.id] = { launchStatus: "failed", error: message };
@@ -4320,7 +4352,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             });
           } else {
             const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
-            const message = formatMetaError(reason.err);
+            const message = formatMetaError(reason.err, nextCampaign.id);
             console.error(`[launch-campaign] MC[${ci}] Phase 2 ✗  ad set failed: ${reason.adSet.name}: ${message}`);
             ciAdSetsFailed.push({ name: reason.adSet.name, error: message });
           }
@@ -4509,6 +4541,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const summary: LaunchSummary = {
     launchRunId,
     metaCampaignId,
+    campaignCreateOutcome,
     adSetLaunchResults: Object.keys(adSetLaunchResults).length > 0 ? adSetLaunchResults : undefined,
     totalDurationMs,
     phaseDurations,

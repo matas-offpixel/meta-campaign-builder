@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   classifyLaunchMetaCode,
   mapLaunchTokenError,
+  archivedCampaignMessage,
   websiteUrlRequiredMessage,
 } from "../launch-error-classify.ts";
 
@@ -82,5 +83,18 @@ describe("website URL required", () => {
 
   it("leaves other ad errors alone", () => {
     assert.equal(websiteUrlRequiredMessage("Feed Post v1", { code: 100, subcode: 1815676 }), null);
+  });
+});
+
+describe("archived campaign", () => {
+  it("names the campaign and does not mention Development mode", () => {
+    const message = archivedCampaignMessage("120251973029760755", {
+      code: 100,
+      subcode: 1487866,
+      userMsg: "Ad Sets may not be added to archived Campaigns.",
+    });
+    assert.match(message ?? "", /120251973029760755/);
+    assert.match(message ?? "", /archived in Meta/);
+    assert.doesNotMatch(message ?? "", /Development mode/);
   });
 });
