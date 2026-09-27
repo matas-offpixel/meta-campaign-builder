@@ -38,6 +38,7 @@ describe("boosted post import", () => {
     assert.equal(creative.identity.pageId, "111");
     assert.equal(creative.name, "Sign up link in bio Tickets on sale this Friday 2026-09-23-e86c8b00");
     assert.equal(creative.mediaType, "video");
+    assert.equal(creative.existingPost?.mediaKind, "video");
     assert.equal(creative.destinationUrl, "https://www.schak-newcastle.com/");
     assert.equal(creative.cta, "sign_up");
     assert.deepEqual(creative.captions, []);
@@ -70,6 +71,49 @@ describe("boosted post import", () => {
     assert.equal(creative.existingPost?.instagramAccountId, "999");
     assert.equal(creative.identity.pageId, "555");
     assert.equal(creative.mediaType, "image");
+    assert.equal(creative.existingPost?.mediaKind, undefined);
+    assert.equal(
+      draft.importMeta?.dropped.some((row) => row.field === "media_kind" && row.value === "not_recorded"),
+      true,
+    );
+  });
+
+  it("reads the URL from call_to_action.value.link for thirteen boosted videos", () => {
+    const creatives: MetaLiveCampaignBundle["creatives"] = {};
+    const ids: string[] = [];
+    for (let i = 0; i < 13; i++) {
+      const id = `c${i}`;
+      ids.push(id);
+      creatives[id] = {
+        id,
+        name: `Schak feed ${i}`,
+        effective_object_story_id: "111_222",
+        video_id: "vid",
+        instagram_permalink_url: "https://www.instagram.com/reel/EXAMPLE/",
+        call_to_action: { type: "SIGN_UP", value: { link: "https://www.schak-newcastle.com/" } },
+      };
+    }
+    const draft = mapMetaLiveCampaign({
+      bundle: {
+        campaign: { id: "1", name: "[NX26-SCHAK] SCHAK Signup", objective: "OUTCOME_LEADS" },
+        adSets: [],
+        ads: [],
+        creatives,
+      },
+      adAccountId: "act_1",
+      carry: ids,
+      availability: [],
+    });
+    assert.equal(draft.creatives.length, 13);
+    assert.ok(draft.creatives.every((c) => c.destinationUrl === "https://www.schak-newcastle.com/"));
+    assert.ok(draft.creatives.every((c) => c.cta === "sign_up"));
+    assert.ok(draft.creatives.every((c) => c.existingPost?.mediaKind === "video"));
+    const checked = createDefaultDraft();
+    checked.settings.objective = "registration";
+    checked.creatives = draft.creatives;
+    const joined = validateStep(4, checked).errors.join("\n");
+    assert.doesNotMatch(joined, /destination URL/i);
+    assert.doesNotMatch(joined, /call to action/);
   });
 
   it("carries link_url and drops a CTA the app does not have", () => {

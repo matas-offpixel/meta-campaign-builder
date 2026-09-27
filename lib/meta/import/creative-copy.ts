@@ -69,6 +69,7 @@ export type ImportCreativeSource = {
   title?: string;
   link_url?: string;
   call_to_action_type?: string;
+  call_to_action?: Cta;
   object_story_id?: string;
   effective_object_story_id?: string;
   instagram_permalink_url?: string;

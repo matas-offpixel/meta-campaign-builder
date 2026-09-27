@@ -28,6 +28,11 @@ export const CREATIVE_BATCH_FIELD_LIST = [
   "instagram_permalink_url",
   "call_to_action_type",
   "link_url",
+  // Flat sibling of call_to_action_type. A batch that asks for both
+  // returns the nested { type, value.link } object; Meta does not
+  // treat the two names as a duplicate field (unlike the nested
+  // expansions PR #74 had to drop).
+  "call_to_action",
   "object_story_spec",
   "asset_feed_spec",
   // PR-snapshot-cache — needed alongside the existing OSS / AFS

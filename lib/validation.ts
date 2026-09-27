@@ -276,6 +276,9 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
           `${label}: This is an Instagram video. This campaign optimises for a website event; the boosted post needs a destination URL`,
         );
       }
+      if (c.destinationUrl?.trim() && !c.cta) {
+        errors.push(`${label}: A destination URL needs a call to action`);
+      }
     }
 
     // Asset completeness: dual/full mode requires all aspect ratio slots to have

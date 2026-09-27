@@ -433,10 +433,15 @@ function existingPostDraft(
   dropped: MetaImportDropped[],
 ): AdCreativeDraft {
   const source = creative as ImportCreativeSource;
-  const rawCta = source.call_to_action_type?.trim().toUpperCase() ?? "";
+  const linkFromCta = source.call_to_action?.value?.link?.trim() ?? "";
+  const rawCta = (source.call_to_action?.type || source.call_to_action_type || "").trim().toUpperCase();
   const mapped = rawCta ? CTA_FROM_META[rawCta] : undefined;
   if (rawCta && !mapped) {
     drop(dropped, "call_to_action_type", rawCta, { creativeId: creative.id });
+  }
+  const mediaKind = mediaType === "video" ? "video" : undefined;
+  if (!mediaKind) {
+    drop(dropped, "media_kind", "not_recorded", { creativeId: creative.id });
   }
   return {
     id: creative.id,
@@ -452,12 +457,13 @@ function existingPostDraft(
     captions: [],
     headline: "",
     description: "",
-    destinationUrl: str(source.link_url) ?? "",
+    destinationUrl: linkFromCta || (str(source.link_url) ?? ""),
     cta: mapped ?? ("" as AdCreativeDraft["cta"]),
     existingPost: {
       source: post.source,
       postId: post.postId,
       instagramAccountId: post.instagramAccountId,
+      mediaKind,
     },
     enhancements: {
       enabled: false,

@@ -65,6 +65,13 @@ describe("existing post destination", () => {
     assert.equal(payload.source_instagram_media_id, undefined);
   });
 
+  it("throws when a URL is set and the CTA is empty", async () => {
+    await assert.rejects(
+      () => buildCreativePayload(existing({ destinationUrl: URL, cta: "" as AdCreativeDraft["cta"] })),
+      /A destination URL needs a call to action/,
+    );
+  });
+
   it("leaves a boost with no URL bare", async () => {
     const payload = await buildCreativePayload(existing());
     assert.equal(payload.call_to_action, undefined);
@@ -82,6 +89,10 @@ describe("existing post destination", () => {
     const blocked = validateStep(4, video);
     assert.match(blocked.errors.join("\n"), /Feed Post v1/);
     assert.match(blocked.errors.join("\n"), /Instagram video/);
+
+    const urlOnly = createDefaultDraft();
+    urlOnly.creatives = [existing({ destinationUrl: URL, cta: "" as AdCreativeDraft["cta"] })];
+    assert.match(validateStep(4, urlOnly).errors.join("\n"), /"Feed Post v1": A destination URL needs a call to action/);
 
     const carousel = createDefaultDraft();
     carousel.settings.objective = "initiate_checkout";
