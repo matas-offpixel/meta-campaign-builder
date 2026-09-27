@@ -17,6 +17,11 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import {
+  locationSearchQuery,
+  parseLocationSearchHits,
+  parseLocationSearchTypes,
+} from "@/lib/meta/location-search";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 
 const API_VERSION = process.env.META_API_VERSION ?? "v21.0";
@@ -78,13 +83,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const types = req.nextUrl.searchParams.get("types") ?? "city,region,country";
+  const types = parseLocationSearchTypes(req.nextUrl.searchParams.get("types"));
+  if (!types) {
+    return NextResponse.json(
+      { error: "types must be city, region, country, or country_group", data: [] },
+      { status: 400 },
+    );
+  }
+  const search = locationSearchQuery(query, types);
 
   const url = new URL(`${BASE}/search`);
   url.searchParams.set("access_token", token);
-  url.searchParams.set("type", "adgeolocation");
-  url.searchParams.set("q", query.trim());
-  url.searchParams.set("location_types", JSON.stringify(types.split(",")));
+  url.searchParams.set("type", search.type);
+  url.searchParams.set("q", search.q);
+  url.searchParams.set("location_types", search.location_types);
   url.searchParams.set("limit", "15");
 
   // Safe URL for logging — strips access_token so we never log the user's
@@ -94,7 +106,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     .replace(/access_token=[^&]+/, "access_token=…REDACTED");
 
   console.log(
-    `[/api/meta/location-search] Searching "${query.trim()}" types=${types} ` +
+    `[/api/meta/location-search] Searching "${query.trim()}" types=${types.join(",")} ` +
     `(tokenSource=${tokenSource}) → ${urlSafe}`,
   );
 
@@ -163,29 +175,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const raw = (json.data as Array<{
-    key: string;
-    name: string;
-    type: string;
-    country_code: string;
-    country_name: string;
-    region: string;
-    region_id?: number;
-    supports_region?: boolean;
-    supports_city?: boolean;
-  }>) ?? [];
-
-  const data = raw.map((item) => ({
-    key: item.key,
-    name: item.name,
-    type: item.type,
-    country_code: item.country_code,
-    country_name: item.country_name,
-    region: item.region,
-    region_id: item.region_id,
-    supports_region: item.supports_region,
-    supports_city: item.supports_city,
-  }));
+  const data = parseLocationSearchHits(json.data);
 
   console.log(
     `[/api/meta/location-search] Returning ${data.length} results ` +

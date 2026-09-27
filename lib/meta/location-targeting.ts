@@ -23,7 +23,16 @@ import type {
 } from "@/lib/types";
 
 type GeoCity = NonNullable<AdSetGeoLocations["cities"]>[number];
-type GeoArea = { countries?: string[]; cities?: GeoCity[]; regions?: { key: string }[] };
+type GeoArea = {
+  countries?: string[];
+  cities?: GeoCity[];
+  regions?: { key: string }[];
+  country_groups?: string[];
+};
+
+function areaHas(area: GeoArea): boolean {
+  return !!(area.countries?.length || area.cities?.length || area.regions?.length || area.country_groups?.length);
+}
 
 function pushSelection(target: GeoArea, sel: LocationSelection): void {
   if (sel.locationType === "country" && sel.countryCode) {
@@ -35,6 +44,9 @@ function pushSelection(target: GeoArea, sel: LocationSelection): void {
   } else if (sel.locationType === "region" && sel.locationKey) {
     target.regions = target.regions ?? [];
     target.regions.push({ key: sel.locationKey });
+  } else if (sel.locationType === "country_group" && sel.locationKey) {
+    target.country_groups = target.country_groups ?? [];
+    target.country_groups.push(sel.locationKey);
   }
 }
 
@@ -48,6 +60,7 @@ function unionArea(parts: GeoArea[]): GeoArea {
   const countries = new Set<string>();
   const regions = new Map<string, { key: string }>();
   const cities = new Map<string, GeoCity>();
+  const countryGroups = new Set<string>();
   for (const part of parts) {
     for (const c of part.countries ?? []) countries.add(c);
     for (const r of part.regions ?? []) regions.set(r.key, r);
@@ -57,11 +70,13 @@ function unionArea(parts: GeoArea[]): GeoArea {
         cities.set(c.key, c);
       }
     }
+    for (const g of part.country_groups ?? []) countryGroups.add(g);
   }
   const out: GeoArea = {};
   if (countries.size) out.countries = [...countries];
   if (cities.size) out.cities = [...cities.values()];
   if (regions.size) out.regions = [...regions.values()];
+  if (countryGroups.size) out.country_groups = [...countryGroups];
   return out;
 }
 
@@ -69,7 +84,7 @@ function selectionsToGeo(selections: LocationSelection[]): AdSetGeoLocations {
   const geo: AdSetGeoLocations = {};
   const excluded: GeoArea = {};
   for (const sel of selections) pushSelection(sel.mode === "include" ? geo : excluded, sel);
-  if (excluded.countries?.length || excluded.cities?.length || excluded.regions?.length) {
+  if (areaHas(excluded)) {
     geo.excluded_geo_locations = excluded;
   }
   return geo;
@@ -108,7 +123,7 @@ export function locationsToGeo(
 
   const geo: AdSetGeoLocations = unionArea(includes);
   const excluded = unionArea(excludes);
-  if (excluded.countries || excluded.cities || excluded.regions) geo.excluded_geo_locations = excluded;
+  if (areaHas(excluded)) geo.excluded_geo_locations = excluded;
   return geo;
 }
 
@@ -167,7 +182,7 @@ export function resolveAdSetGeoLocations(
 
 /** True when the resolved geo includes nothing — Meta has no area to deliver in. */
 export function geoHasNoIncludedArea(geo: AdSetGeoLocations): boolean {
-  return !geo.countries?.length && !geo.cities?.length && !geo.regions?.length;
+  return !geo.countries?.length && !geo.cities?.length && !geo.regions?.length && !geo.country_groups?.length;
 }
 
 /**
@@ -195,6 +210,8 @@ interface Place {
   kind: LocationSelection["locationType"];
   key: string;
   countryCode?: string;
+  /** ISO codes inside a country group, when the search hit recorded them. */
+  memberCountryCodes?: string[];
   radiusKm: number;
   label: string;
 }
@@ -216,9 +233,14 @@ function toPlace(sel: LocationSelection, label: string): Place | null {
       sel.locationType === "country"
         ? sel.countryCode
         : sel.countryCode ?? (sel.locationKey === LONDON_CITY_KEY ? "GB" : undefined),
+    memberCountryCodes: sel.locationType === "country_group" ? sel.memberCountryCodes : undefined,
     radiusKm: radiusKm(sel.radius, sel.distanceUnit),
     label,
   };
+}
+
+function placeCountryCode(place: Place): string | undefined {
+  return place.kind === "country" ? place.key : place.countryCode;
 }
 
 /**
@@ -229,12 +251,25 @@ function toPlace(sel: LocationSelection, label: string): Place | null {
  * does not have.
  */
 function covers(ex: Place, inc: Place): boolean {
+  if (ex.kind === "country_group") {
+    if (inc.kind === "country_group") return inc.key === ex.key;
+    const code = placeCountryCode(inc);
+    return !!code && (ex.memberCountryCodes?.includes(code) ?? false);
+  }
   if (ex.kind === "country") return inc.kind === "country" ? inc.key === ex.key : inc.countryCode === ex.key;
   if (ex.kind !== inc.kind || ex.key !== inc.key) return false;
   return ex.kind !== "city" || ex.radiusKm >= inc.radiusKm;
 }
 
-/** Meta's documented per-ad-set location limits (business help 782267941863427). */
+/**
+ * Meta's documented per-ad-set location limits.
+ * Countries and postcodes: business help 782267941863427 ("25 countries, 250
+ * cities and 50,000 postcodes etc."). Cities, regions, custom locations,
+ * geo markets, and zips: Marketing API targeting restrictions.
+ *
+ * That restrictions table does not list `country_groups`, and the bulk-upload
+ * article does not give them a number. Preflight does not invent one.
+ */
 export const META_MAX_COUNTRIES_PER_AD_SET = 25;
 export const META_MAX_CITIES_PER_AD_SET = 250;
 
@@ -344,10 +379,10 @@ export function findAdSetLocationProblems(adSets: AdSetSuggestion[], budgetSched
  * Location shapes Meta accepts but that are probably not what the operator
  * meant. Shown on Step 5; never blocks.
  *
- *   - An included country that already contains another included location.
- *     Ads Manager supports this, so it warns only. Promote it to
- *     `findAdSetLocationProblems` only with a Meta error code from a real
- *     launch that rejected it.
+ *   - An included country or country group that already contains another
+ *     included location. Ads Manager supports this, so it warns only.
+ *     Promote it to `findAdSetLocationProblems` only with a Meta error
+ *     code from a real launch that rejected it.
  */
 export function findAdSetLocationWarnings(adSets: AdSetSuggestion[], budgetSchedule: LocationSchedule): string[] {
   const groups = budgetSchedule?.locationGroups ?? [];
@@ -357,11 +392,21 @@ export function findAdSetLocationWarnings(adSets: AdSetSuggestion[], budgetSched
   adSets.forEach((adSet, i) => {
     const places = adSetPlaces(adSet, i, groups, pool);
     if (!places) return;
-    for (const country of places.includes.filter((p) => p.kind === "country")) {
-      const inside = places.includes.find((p) => p.kind !== "country" && p.countryCode === country.key);
+    const redundant = (outer: Place, inner: Place): boolean => {
+      if (outer.kind === "country") return inner.kind !== "country" && inner.countryCode === outer.key;
+      if (outer.kind === "country_group") {
+        if (inner.kind === "country_group") return false;
+        const code = placeCountryCode(inner);
+        return !!code && (outer.memberCountryCodes?.includes(code) ?? false);
+      }
+      return false;
+    };
+    for (const outer of places.includes) {
+      if (outer.kind !== "country" && outer.kind !== "country_group") continue;
+      const inside = places.includes.find((inner) => inner !== outer && redundant(outer, inner));
       if (inside) {
         warnings.push(
-          `${places.name}: "${country.label}" already contains "${inside.label}", so "${inside.label}" adds no reach. Remove one, or Split by city to report them separately.`,
+          `${places.name}: "${outer.label}" already contains "${inside.label}", so "${inside.label}" adds no reach. Remove one, or Split by city to report them separately.`,
         );
       }
     }

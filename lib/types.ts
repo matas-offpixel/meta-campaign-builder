@@ -782,13 +782,15 @@ export interface AdCreativeDraft {
 export interface MetaGeoLocationResult {
   key: string;
   name: string;
-  type: "city" | "region" | "country" | "zip" | "geo_market" | "electoral_district";
+  type: "city" | "region" | "country" | "country_group" | "zip" | "geo_market" | "electoral_district";
   country_code: string;
   country_name: string;
   region: string;
   region_id?: number;
   supports_region?: boolean;
   supports_city?: boolean;
+  /** ISO codes Meta returns for a country_group hit. */
+  country_codes?: string[];
 }
 
 /**
@@ -801,15 +803,22 @@ export interface LocationSelection {
   source: "preset" | "search";
   label: string;
   mode: "include" | "exclude";
-  locationType: "city" | "country" | "region";
-  /** Meta location key — for cities and regions */
+  locationType: "city" | "country" | "region" | "country_group";
+  /** Meta location key — for cities, regions, and country groups. Not a country code. */
   locationKey?: string;
   /**
    * ISO country code. Always set for country-level targeting; also recorded
    * for cities and regions picked from search (Meta returns it), so preflight
    * can tell that an included city sits inside an excluded or included country.
+   * A country group does not set this — its members are `memberCountryCodes`.
    */
   countryCode?: string;
+  /**
+   * ISO codes inside a country group, from the search hit that produced it.
+   * Preflight uses them the same way it uses a city's country code. Absent
+   * when the group was imported without a name lookup.
+   */
+  memberCountryCodes?: string[];
   radius?: number;
   distanceUnit?: "kilometer" | "mile";
   /**
@@ -864,10 +873,13 @@ export interface AdSetGeoLocations {
   countries?: string[];
   cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
   regions?: { key: string }[];
+  /** Meta country-group keys, the same shape as `countries`. */
+  country_groups?: string[];
   excluded_geo_locations?: {
     countries?: string[];
     cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
     regions?: { key: string }[];
+    country_groups?: string[];
   };
 }
 
