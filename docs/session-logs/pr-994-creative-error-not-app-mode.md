@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 994
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/994
 - **Branch:** `cursor/creative-error-not-app-mode`
 
 ## Summary
