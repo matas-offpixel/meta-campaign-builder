@@ -1644,7 +1644,14 @@ export interface LaunchSummary {
     ads: { adSetName: string; metaAdId: string; durationMs?: number }[];
     adsFailed: { adSetName: string; error: string }[];
   }[];
-  creativesFailed: { name: string; error: string; skippedReason?: string }[];
+  creativesFailed: {
+    name: string;
+    error: string;
+    skippedReason?: string;
+    /** Set when `skippedReason === "permission"`: the assets the token lacked access to. */
+    pageId?: string;
+    instagramAccountId?: string;
+  }[];
   adsCreated: number;
   adsFailed: number;
 }

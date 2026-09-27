@@ -5,6 +5,8 @@ import {
   classifyLaunchMetaCode,
   mapLaunchTokenError,
   archivedCampaignMessage,
+  classifyCreativeCreateError,
+  creativeFailureBanners,
   websiteUrlRequiredMessage,
 } from "../launch-error-classify.ts";
 
@@ -96,5 +98,173 @@ describe("archived campaign", () => {
     assert.match(message ?? "", /120251973029760755/);
     assert.match(message ?? "", /archived in Meta/);
     assert.doesNotMatch(message ?? "", /Development mode/);
+  });
+});
+
+describe("classifyCreativeCreateError", () => {
+  const identity = {
+    creativeName: "Feed Post v1",
+    campaignId: "120251973029760755",
+    pageId: "104583921000001",
+    instagramAccountId: "17841400000000001",
+  };
+
+  it("code 200 'Permissions error' → permission naming the page, not app_mode", () => {
+    const r = classifyCreativeCreateError(
+      { code: 200, message: "(#200) Permissions error" },
+      identity,
+    );
+    assert.equal(r.kind, "permission");
+    assert.equal(r.skippedReason, "permission");
+    assert.match(r.message, /Page 104583921000001/);
+    assert.match(r.message, /Instagram account 17841400000000001/);
+    assert.match(r.message, /lacks a permission/);
+    assert.match(r.message, /\/business-managers/);
+    assert.doesNotMatch(r.message, /Development|Live\/Public/);
+  });
+
+  it("code 10 and subcodes 1349125 / 1349131 → permission", () => {
+    for (const err of [
+      { code: 10, message: "Application does not have permission for this action" },
+      { code: 100, subcode: 1349125, message: "Invalid parameter" },
+      { code: 100, subcode: 1349131, message: "Invalid parameter" },
+    ]) {
+      assert.equal(classifyCreativeCreateError(err, identity).kind, "permission", JSON.stringify(err));
+    }
+  });
+
+  it("explicit 'app is in development mode' → app_mode with the existing skippedReason", () => {
+    const r = classifyCreativeCreateError(
+      { code: 100, message: "Cannot create this creative: the app is in development mode." },
+      identity,
+    );
+    assert.equal(r.kind, "app_mode");
+    assert.equal(r.skippedReason, "app_mode_blocked");
+    assert.match(r.message, /Live\/Public mode/);
+  });
+
+  it("Meta's 'created by an app that is in development mode' wording → app_mode", () => {
+    const r = classifyCreativeCreateError(
+      {
+        code: 100,
+        subcode: 1885183,
+        userMsg: "Ads creative post was created by an app that is in development mode. It must be in public to create this ad.",
+      },
+      identity,
+    );
+    assert.equal(r.kind, "app_mode");
+  });
+
+  it("explicit app-mode wording wins over code 200", () => {
+    const r = classifyCreativeCreateError(
+      { code: 200, message: "Permissions error", userMsg: "Switch the app to Live mode to continue." },
+      identity,
+    );
+    assert.equal(r.kind, "app_mode");
+  });
+
+  it("'development' in an unrelated sentence → other, with codes appended and no advice", () => {
+    const r = classifyCreativeCreateError(
+      { code: 100, subcode: 1487390, message: "Invalid parameter: the development of this asset failed" },
+      identity,
+    );
+    assert.equal(r.kind, "other");
+    assert.equal(r.skippedReason, undefined);
+    assert.equal(r.message, "Invalid parameter: the development of this asset failed · code=100 · subcode=1487390");
+  });
+
+  it("non-Meta errors → other with the raw message", () => {
+    const r = classifyCreativeCreateError(new Error("socket hang up"), identity);
+    assert.equal(r.kind, "other");
+    assert.equal(r.message, "socket hang up");
+  });
+
+  it("2061015 → the existing website-URL helper text", () => {
+    const err = {
+      code: 100,
+      subcode: 2061015,
+      userMsg: "The website URL field is required. Please complete the field to continue.",
+    };
+    const r = classifyCreativeCreateError(err, identity);
+    assert.equal(r.kind, "website_url_required");
+    assert.equal(
+      r.message,
+      `"Feed Post v1" is an Instagram video in a campaign that optimises for a website event. ` +
+        `Set its destination URL on the creative in the Creatives step, then launch again.`,
+    );
+    assert.equal(r.message, websiteUrlRequiredMessage("Feed Post v1", err));
+  });
+
+  it("1487866 → the existing archived-campaign helper text", () => {
+    const err = { code: 100, subcode: 1487866, userMsg: "Ad Sets may not be added to archived Campaigns." };
+    const r = classifyCreativeCreateError(err, identity);
+    assert.equal(r.kind, "archived_campaign");
+    assert.equal(
+      r.message,
+      "Campaign 120251973029760755 is archived in Meta. Unarchive it in Ads Manager, " +
+        "or duplicate this draft to launch a new campaign.",
+    );
+    assert.equal(r.message, archivedCampaignMessage("120251973029760755", err));
+  });
+});
+
+describe("creativeFailureBanners", () => {
+  it("three permission failures and no app-mode failures → permission banner only", () => {
+    const banners = creativeFailureBanners({
+      creativesCreated: [{ name: "Story v1" }],
+      creativesFailed: [
+        { skippedReason: "permission", pageId: "111", instagramAccountId: "999" },
+        { skippedReason: "permission", pageId: "111", instagramAccountId: "999" },
+        { skippedReason: "permission", pageId: "222" },
+      ],
+    });
+    assert.equal(banners.appMode, null);
+    assert.ok(banners.permission);
+    assert.equal(banners.permission.title, "3 creatives blocked — launch token lacks permission");
+    assert.equal(
+      banners.permission.body,
+      "Meta refused these creatives because the launch token lacks a permission on " +
+        "Page 111, Instagram account 999 and Page 222. " +
+        "Grant access to those assets in Business Managers, then relaunch.",
+    );
+    const rendered = `${banners.permission.title} ${banners.permission.body}`;
+    assert.doesNotMatch(rendered, /Development mode|app mode|Live\/Public/i);
+  });
+
+  it("all creatives blocked by permission → body says the structure was created", () => {
+    const banners = creativeFailureBanners({
+      creativesCreated: [],
+      creativesFailed: [{ skippedReason: "permission", pageId: "111" }],
+    });
+    assert.equal(banners.permission?.allBlocked, true);
+    assert.equal(
+      banners.permission?.body,
+      "Your campaign and ad sets were created in Meta, but no creatives were launched. " +
+        "Meta refused this creative because the launch token lacks a permission on Page 111. " +
+        "Grant access to that asset in Business Managers, then relaunch.",
+    );
+  });
+
+  it("app-mode failures keep the existing Development-mode titles", () => {
+    const partial = creativeFailureBanners({
+      creativesCreated: [{}],
+      creativesFailed: [{ skippedReason: "app_mode_blocked" }, { skippedReason: "app_mode_blocked" }],
+    });
+    assert.equal(partial.appMode?.title, "2 creatives blocked by Meta app mode");
+    assert.equal(partial.permission, null);
+
+    const all = creativeFailureBanners({
+      creativesCreated: [],
+      creativesFailed: [{ skippedReason: "app_mode_blocked" }],
+    });
+    assert.equal(all.appMode?.title, "Campaign structure created — creatives not launched");
+  });
+
+  it("plain failures show neither banner", () => {
+    const banners = creativeFailureBanners({
+      creativesCreated: [],
+      creativesFailed: [{}, { skippedReason: "validation" }],
+    });
+    assert.deepEqual(banners, { appMode: null, permission: null });
   });
 });

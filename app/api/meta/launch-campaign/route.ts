@@ -60,7 +60,13 @@ import {
   type IgMismatchEntry,
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
-import { archivedCampaignMessage, mapLaunchTokenError, websiteUrlRequiredMessage } from "@/lib/meta/launch-error-classify";
+import {
+  archivedCampaignMessage,
+  classifyCreativeCreateError,
+  creativeFailureBanners,
+  mapLaunchTokenError,
+  websiteUrlRequiredMessage,
+} from "@/lib/meta/launch-error-classify";
 import { CampaignLedgerObjectiveError, CampaignLedgerVerifyError, runCampaignCreateLedger } from "@/lib/meta/campaign-ledger";
 import {
   buildRateLimitUiState,
@@ -3754,23 +3760,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // If a future branch re-introduces instagram_actor_id, add targeted
         // retry logic here (not a blanket actor-swap loop).
 
-        const isAppModeError =
-          rawMessage.toLowerCase().includes("development") ||
-          rawMessage.toLowerCase().includes("live mode") ||
-          rawMessage.toLowerCase().includes("app is not live") ||
-          userMsg.toLowerCase().includes("development") ||
-          (isMetaErr && err.code === 200);
-
-        const message = isAppModeError
-          ? `Creative blocked — this ad type requires your Meta app to be in Live/Public mode. ` +
-            `Ads will not deliver until the app is switched to Live mode in Meta for Developers → App Settings → Status. ` +
-            `Original error: ${rawMessage}`
-          : rawMessage;
+        const creativeIgId =
+          creativePayload.instagram_user_id ??
+          creativePayload.object_story_spec?.instagram_user_id ??
+          undefined;
+        const classified = classifyCreativeCreateError(err, {
+          creativeName: creative.name,
+          campaignId: metaCampaignId,
+          pageId: creativePageId,
+          instagramAccountId: creativeIgId,
+        });
 
         console.error(
           `[launch-campaign] Phase 3 ✗  creative failed: "${creative.name}"`,
           JSON.stringify({
             path: isMultiPlacement ? "multi_placement" : "single_asset",
+            kind: classified.kind,
             code: isMetaErr ? (err as MetaApiError).code : undefined,
             subcode: isMetaErr ? (err as MetaApiError).subcode : undefined,
             userMsg,
@@ -3779,8 +3784,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
         creativesFailed.push({
           name: creative.name,
-          error: message,
-          skippedReason: isAppModeError ? "app_mode_blocked" : undefined,
+          error: classified.message,
+          skippedReason: classified.skippedReason,
+          ...(classified.kind === "permission"
+            ? {
+                ...(creativePageId ? { pageId: creativePageId } : {}),
+                ...(creativeIgId ? { instagramAccountId: creativeIgId } : {}),
+              }
+            : {}),
         });
       }
     }
@@ -3813,6 +3824,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         allBlocked
           ? "ALL creatives blocked — campaign structure was created but no ads launched."
           : "Partial block — some creatives succeeded.",
+      );
+    }
+
+    const permissionBanner = creativeFailureBanners({ creativesFailed, creativesCreated }).permission;
+    if (permissionBanner) {
+      preflightWarnings.push({
+        stage: "creative",
+        message: `${permissionBanner.title}. ${permissionBanner.body}`,
+        severity: "red",
+      });
+      console.error(
+        `[launch-campaign] Phase 3 ⛔ permission: ${permissionBanner.count} creative(s) rejected on ` +
+          `${permissionBanner.assets.join(", ") || "(unknown assets)"}.`,
       );
     }
   })();

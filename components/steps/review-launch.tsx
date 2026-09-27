@@ -38,6 +38,7 @@ import {
   type BusinessUseCaseBucket,
 } from "@/lib/meta/app-usage";
 import { type RateLimitUiState } from "@/lib/meta/rate-limit-ui";
+import { creativeFailureBanners } from "@/lib/meta/launch-error-classify";
 import { useBucCooldown } from "@/lib/hooks/useBucCooldown";
 import { AutomationArmControl } from "@/components/optimisation/automation-arm-control";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
@@ -404,16 +405,19 @@ function buildLaunchEvents(
   }
   for (const c of summary.creativesFailed) {
     const isAppModeBlocked = c.skippedReason === "app_mode_blocked";
+    const isPermissionBlocked = c.skippedReason === "permission";
     events.push({
       id: uid("cr-fail"),
       stage: "creative",
       entity: c.name,
-      // app_mode_blocked is a hard failure (the creative was actively rejected),
-      // not a skip — show it as failed so users understand it needs action.
-      status: isAppModeBlocked ? "failed" : c.skippedReason ? "skipped" : "failed",
+      // app_mode_blocked / permission are hard failures (the creative was actively
+      // rejected), not skips — show them as failed so users understand they need action.
+      status: isAppModeBlocked || isPermissionBlocked ? "failed" : c.skippedReason ? "skipped" : "failed",
       label: isAppModeBlocked
         ? "Creative blocked — Meta app not in Live/Public mode"
-        : c.skippedReason
+        : isPermissionBlocked
+          ? "Creative blocked — launch token lacks permission"
+          : c.skippedReason
           ? `Creative skipped — ${c.skippedReason}`
           : "Creative failed",
       detail: c.error,
@@ -532,10 +536,13 @@ function SummaryCounts({ summary }: { summary: LaunchSummary }) {
   const lalDeferred = summary.lookalikesDeferred?.length ?? 0;
   const lalSkipped = summary.lookalikeAudiencesFailed?.filter((f) => f.skippedReason).length ?? 0;
   const asSkipped = summary.adSetsFailed.filter((f) => f.skippedReason).length;
-  // app_mode_blocked is shown as a hard failure in the event log, so don't count
-  // it as "skipped" in the summary chip — keeps the counts consistent.
+  // app_mode_blocked / permission are shown as hard failures in the event log, so
+  // don't count them as "skipped" in the summary chip — keeps the counts consistent.
   const crSkipped = summary.creativesFailed.filter(
-    (f) => f.skippedReason && f.skippedReason !== "app_mode_blocked",
+    (f) =>
+      f.skippedReason &&
+      f.skippedReason !== "app_mode_blocked" &&
+      f.skippedReason !== "permission",
   ).length;
 
   return (
@@ -962,12 +969,9 @@ export function ReviewLaunch({
       launchSummary.creativesFailed.length > 0 ||
       launchSummary.adsFailed > 0);
 
-  // App-mode blocking — creatives rejected because Meta app is in Development mode
-  const appModeBlockedCreatives =
-    launchSummary?.creativesFailed.filter((c) => c.skippedReason === "app_mode_blocked") ?? [];
-  const allCreativesBlocked =
-    appModeBlockedCreatives.length > 0 &&
-    (launchSummary?.creativesCreated.length ?? 0) === 0;
+  const creativeBanners = launchSummary ? creativeFailureBanners(launchSummary) : null;
+  const appModeBanner = creativeBanners?.appMode ?? null;
+  const permissionBanner = creativeBanners?.permission ?? null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -1057,29 +1061,52 @@ export function ReviewLaunch({
               )}
 
               {/* App mode blocking banner */}
-              {appModeBlockedCreatives.length > 0 && (
+              {appModeBanner && (
                 <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
                   <div className="flex items-start gap-2">
                     <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                     <div>
                       <Datum className="text-sm font-semibold text-destructive">
-                        {allCreativesBlocked
-                          ? "Campaign structure created — creatives not launched"
-                          : `${appModeBlockedCreatives.length} creative${appModeBlockedCreatives.length !== 1 ? "s" : ""} blocked by Meta app mode`}
+                        {appModeBanner.title}
                       </Datum>
                       <Datum className="mt-1 text-xs text-destructive/80">
-                        {allCreativesBlocked
+                        {appModeBanner.allBlocked
                           ? "Your campaign and ad sets were created in Meta, but no creatives were launched because "
                           : "Some creatives could not launch because "}
                         your Meta app is in <strong>Development mode</strong>. Ads will not deliver until you switch to{" "}
                         <strong>Live/Public mode</strong> in{" "}
                         <span className="font-mono">Meta for Developers → App Settings → Status</span>.
-                        {allCreativesBlocked && (
+                        {appModeBanner.allBlocked && (
                           <span className="mt-1 block">
                             The campaign structure is live in Meta Ads Manager — you can relaunch creatives once the app is in Live mode.
                           </span>
                         )}
                       </Datum>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {permissionBanner && (
+                <div
+                  className="rounded-lg border border-destructive/40 bg-destructive/5 p-3"
+                  data-testid="creative-permission-banner"
+                >
+                  <div className="flex items-start gap-2">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    <div>
+                      <Datum className="text-sm font-semibold text-destructive">
+                        {permissionBanner.title}
+                      </Datum>
+                      <Datum className="mt-1 text-xs text-destructive/80">
+                        {permissionBanner.body}
+                      </Datum>
+                      <Link
+                        href="/business-managers"
+                        className="mt-2 inline-flex text-xs font-medium text-destructive underline underline-offset-2"
+                      >
+                        Open Business Managers
+                      </Link>
                     </div>
                   </div>
                 </div>
