@@ -235,6 +235,7 @@ describe("DHB capture", () => {
       loadEvent: async () =>
         ({ id: "e1", client_id: "client", meta_ad_account_id: ACCOUNT }) as never,
       readCampaign: async () => bundle,
+      countryGroupLabels: async () => ({}),
     });
 
     it("stores a uuid draft id with the operator's session client", async () => {
