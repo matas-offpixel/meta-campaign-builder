@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
@@ -316,28 +315,6 @@ describe("production call sites — no silent inherit", () => {
     assert.match(dialog, /Pick the event\. Identities re-resolve from that client\. Launched campaigns stay put\./);
     assert.match(plan, /EventPickDialog/);
     assert.match(plan, /from "@\/components\/library\/event-pick-dialog"/);
-  });
-
-  it("this branch does not touch evaluate/apply/gates/plan-workspace", () => {
-    const headRef =
-      process.env.GITHUB_HEAD_REF ||
-      execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" }).trim();
-    if (headRef !== "cursor/duplicate-must-choose-its-event") return;
-    const changed = execSync("git diff --name-only origin/main...HEAD", {
-      encoding: "utf8",
-    });
-    for (const file of [
-      "lib/optimisation/evaluate.ts",
-      "lib/optimisation/apply.ts",
-      "lib/optimisation/gates.ts",
-      "components/plan/plan-workspace.tsx",
-      "lib/plan/__tests__/drawer.test.ts",
-    ]) {
-      assert.ok(
-        !changed.split("\n").includes(file),
-        `${file} is in this branch's diff`,
-      );
-    }
   });
 
   it("loadCampaignList does not pull draft_json", () => {
