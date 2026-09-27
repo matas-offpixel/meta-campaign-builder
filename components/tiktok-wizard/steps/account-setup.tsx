@@ -5,8 +5,15 @@ import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  tikTokAdvertiserPickerOptions,
+  tikTokAdvertiserSelectionPatch,
+  tikTokPixelPickerOptions,
+  tikTokPixelSelectionPatch,
+} from "@/lib/tiktok/account-picker-options";
 import {
   nextManualIdentityHatchOpen,
   shouldOpenManualIdentityHatch,
@@ -270,20 +277,7 @@ export function AccountSetupStep({
   });
 
   async function saveAccount(accountId: string) {
-    const account = accounts.find((candidate) => candidate.id === accountId);
-    await persist({
-      tiktokAccountId: account?.id ?? null,
-      advertiserId: account?.tiktok_advertiser_id ?? null,
-      identityId: null,
-      identityDisplayName: null,
-      identityManualName: null,
-      identityBcId: null,
-      identityType: null,
-      pixelId: null,
-      pixelName: null,
-      optimisationEvent: null,
-      currency: null,
-    });
+    await persist(tikTokAdvertiserSelectionPatch(accounts, accountId));
     setManualIdentityId("");
     setManualIdentityType("");
     setManualIdentityName("");
@@ -321,12 +315,7 @@ export function AccountSetupStep({
   }
 
   async function savePixel(pixelId: string) {
-    const pixel = pixels.find((candidate) => candidate.pixel_id === pixelId);
-    await persist({
-      pixelId: pixel?.pixel_id ?? null,
-      pixelName: pixel?.pixel_name ?? null,
-      optimisationEvent: null,
-    });
+    await persist(tikTokPixelSelectionPatch(pixels, pixelId));
   }
 
   async function saveOptimisationEvent(optimizationEvent: string) {
@@ -426,19 +415,14 @@ export function AccountSetupStep({
         </div>
       )}
 
-      <Select
-        id="tiktok-advertiser"
+      <Combobox
         label="TikTok advertiser"
         value={draft.accountSetup.tiktokAccountId ?? ""}
-        onChange={(event) => void saveAccount(event.target.value)}
+        onChange={(value) => void saveAccount(value)}
         disabled={loadingAccounts || saving}
         placeholder={loadingAccounts ? "Loading advertisers..." : "Select advertiser"}
-        options={accounts
-          .filter((account) => Boolean(account.tiktok_advertiser_id))
-          .map((account) => ({
-            value: account.id,
-            label: `${account.account_name} (${account.tiktok_advertiser_id})`,
-          }))}
+        emptyText="No advertisers match"
+        options={tikTokAdvertiserPickerOptions(accounts)}
       />
 
       {!loadingAccounts && accounts.filter((account) => Boolean(account.tiktok_advertiser_id)).length === 0 && (
@@ -534,17 +518,14 @@ export function AccountSetupStep({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Select
-          id="tiktok-pixel"
+        <Combobox
           label="TikTok pixel"
           value={draft.accountSetup.pixelId ?? ""}
-          onChange={(event) => void savePixel(event.target.value)}
+          onChange={(value) => void savePixel(value)}
           disabled={!draft.accountSetup.advertiserId || loadingDetails || saving || pixels.length === 0}
           placeholder={loadingDetails ? "Loading pixels..." : "Select pixel"}
-          options={pixels.map((pixel) => ({
-            value: pixel.pixel_id,
-            label: pixel.status ? `${pixel.pixel_name} · ${pixel.status}` : pixel.pixel_name,
-          }))}
+          emptyText="No pixels match"
+          options={tikTokPixelPickerOptions(pixels)}
         />
         <Select
           id="tiktok-optimisation-event"
