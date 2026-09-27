@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 991
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/991
 - **Branch:** `cursor/adset-push-one-click`
 
 ## Summary
@@ -19,8 +19,8 @@ The published-library audience push no longer previews before it writes. Apply p
 
 ## Validation
 
-- [ ] `npm test`
-- [ ] `npm run build`
+- [x] `npm test` — 6359 tests, 6355 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 20.1s, TypeScript finished in 35.4s
 - [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
