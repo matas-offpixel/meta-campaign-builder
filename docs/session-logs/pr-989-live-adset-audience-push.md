@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 989
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/989
 - **Branch:** `cursor/live-adset-audience-push`
 
 ## Summary
