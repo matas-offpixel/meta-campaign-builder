@@ -6,7 +6,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -24,9 +23,25 @@ import type { CampaignListItem, MetaAdSetSummary } from "@/lib/types";
 interface AudiencePushResult {
   adSetId: string;
   adSetName: string | null;
-  outcome: "ready" | "written" | "noop" | "refused" | "failed";
+  outcome: "written" | "noop" | "refused" | "failed";
   reason: string | null;
   diff: string | null;
+}
+
+interface AppliedRow extends AudiencePushResult {
+  audienceId: string;
+  audienceName: string;
+  direction: AudienceListDirection;
+  appliedAction: AudienceListAction;
+}
+
+interface ApplyInput {
+  audienceId: string;
+  audienceName: string;
+  direction: AudienceListDirection;
+  action: AudienceListAction;
+  adSetIds: string[];
+  replace: boolean;
 }
 
 export function AdSetAudiencePush({
@@ -47,12 +62,13 @@ export function AdSetAudiencePush({
   const [audienceId, setAudienceId] = useState("");
   const [direction, setDirection] = useState<AudienceListDirection>("include");
   const [action, setAction] = useState<AudienceListAction>("add");
-  const [preview, setPreview] = useState<AudiencePushResult[] | null>(null);
-  const [applied, setApplied] = useState<AudiencePushResult[] | null>(null);
-  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const [applied, setApplied] = useState<AppliedRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const audiences = useFetchCustomAudiences(dialogOpen ? adAccountId : undefined);
   const fetchedFor = useRef<string | null>(null);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (!dialogOpen) return;
@@ -81,8 +97,7 @@ export function AdSetAudiencePush({
     audiences.fetch();
   }, [dialogOpen, adAccountId, campaign.id, audiences.fetch]);
 
-  function resetPreview() {
-    setPreview(null);
+  function clearResults() {
     setApplied(null);
     setError(null);
   }
@@ -92,15 +107,18 @@ export function AdSetAudiencePush({
       const exists = current.some((item) => item.id === adSet.id);
       return exists ? current.filter((item) => item.id !== adSet.id) : [...current, adSet];
     });
-    resetPreview();
+    clearResults();
   }
 
   const audience = audiences.data.find((item) => item.id === audienceId) ?? null;
-  const readyCount = preview?.filter((row) => row.outcome === "ready").length ?? 0;
 
-  async function post(commit: boolean) {
-    if (!open || !audience) return;
-    setBusy(commit ? "apply" : "preview");
+  async function apply(input: ApplyInput) {
+    if (!open) return;
+    if (!input.audienceId || input.adSetIds.length === 0) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setRemovingId(input.replace ? null : (input.adSetIds[0] ?? null));
     setError(null);
     try {
       const res = await fetch("/api/meta/adset-audience", {
@@ -108,24 +126,40 @@ export function AdSetAudiencePush({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           draftId: campaign.id,
-          audienceId: audience.id,
-          audienceName: audience.name,
-          direction,
-          action,
-          adSetIds: selected.map((adSet) => adSet.id),
-          commit,
+          audienceId: input.audienceId,
+          audienceName: input.audienceName,
+          direction: input.direction,
+          action: input.action,
+          adSetIds: input.adSetIds,
+          commit: true,
         }),
       });
       const json = (await res.json()) as { error?: string; results?: AudiencePushResult[] };
       if (!res.ok || json.error) {
         throw new Error(json.error ?? `HTTP ${res.status}`);
       }
-      if (commit) setApplied(json.results ?? []);
-      else setPreview(json.results ?? []);
+      const stamped: AppliedRow[] = (json.results ?? []).map((row) => ({
+        ...row,
+        audienceId: input.audienceId,
+        audienceName: input.audienceName,
+        direction: input.direction,
+        appliedAction: input.action,
+      }));
+      setApplied((current) => {
+        if (input.replace || !current) return stamped;
+        const byId = new Map(stamped.map((row) => [row.adSetId, row]));
+        const merged = current.map((row) => byId.get(row.adSetId) ?? row);
+        for (const row of stamped) {
+          if (!current.some((item) => item.adSetId === row.adSetId)) merged.push(row);
+        }
+        return merged;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
     } finally {
-      setBusy(null);
+      inFlight.current = false;
+      setBusy(false);
+      setRemovingId(null);
     }
   }
 
@@ -160,23 +194,51 @@ export function AdSetAudiencePush({
             <DialogHeader onClose={() => setDialogOpen(false)}>
               <DialogTitle>Add audience to ad sets</DialogTitle>
               <DialogDescription>
-                {campaign.name || "Published campaign"}. Remove uses the same read and writes the
-                list without this audience.
+                {campaign.name || "Published campaign"}. Apply writes this audience onto the
+                selected ad sets. Remove on a written row takes it back off that ad set.
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="flex gap-2">
-                <ModeButton current={action} value="add" onPick={(value) => { setAction(value); resetPreview(); }}>
+                <ModeButton
+                  current={action}
+                  value="add"
+                  onPick={(value) => {
+                    setAction(value);
+                    clearResults();
+                  }}
+                >
                   Add
                 </ModeButton>
-                <ModeButton current={action} value="remove" onPick={(value) => { setAction(value); resetPreview(); }}>
+                <ModeButton
+                  current={action}
+                  value="remove"
+                  onPick={(value) => {
+                    setAction(value);
+                    clearResults();
+                  }}
+                >
                   Remove
                 </ModeButton>
-                <ModeButton current={direction} value="include" onPick={(value) => { setDirection(value); resetPreview(); }}>
+                <ModeButton
+                  current={direction}
+                  value="include"
+                  onPick={(value) => {
+                    setDirection(value);
+                    clearResults();
+                  }}
+                >
                   Include
                 </ModeButton>
-                <ModeButton current={direction} value="exclude" onPick={(value) => { setDirection(value); resetPreview(); }}>
+                <ModeButton
+                  current={direction}
+                  value="exclude"
+                  onPick={(value) => {
+                    setDirection(value);
+                    clearResults();
+                  }}
+                >
                   Exclude
                 </ModeButton>
               </div>
@@ -190,7 +252,7 @@ export function AdSetAudiencePush({
                   value={audienceId}
                   onChange={(event) => {
                     setAudienceId(event.target.value);
-                    resetPreview();
+                    clearResults();
                   }}
                 >
                   <option value="">
@@ -215,53 +277,62 @@ export function AdSetAudiencePush({
 
               {error && <p className="text-sm text-destructive">{error}</p>}
 
-              {preview && (
-                <div className="space-y-2">
-                  <p className="text-sm text-amber-800 dark:text-amber-300">{LEARNING_PHASE_WARNING}</p>
-                  <ul className="space-y-1 text-sm">
-                    {preview.map((row) => (
-                      <li key={row.adSetId}>
-                        {row.diff ?? `${row.adSetName || row.adSetId}: ${row.reason}`}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <div className="flex flex-col items-end gap-1.5">
+                <Button
+                  disabled={!open || !audience || selected.length === 0 || busy || Boolean(draftError)}
+                  onClick={() => {
+                    if (!open || !audience) return;
+                    void apply({
+                      audienceId: audience.id,
+                      audienceName: audience.name,
+                      direction,
+                      action,
+                      adSetIds: selected.map((adSet) => adSet.id),
+                      replace: true,
+                    });
+                  }}
+                >
+                  {busy && !removingId ? "Writing…" : "Apply"}
+                </Button>
+                <p className="max-w-md text-right text-sm text-amber-800 dark:text-amber-300">
+                  {LEARNING_PHASE_WARNING}
+                </p>
+              </div>
 
               {applied && (
-                <ul className="space-y-1 text-sm">
+                <ul className="space-y-2 text-sm">
                   {applied.map((row) => (
-                    <li key={row.adSetId}>
-                      {row.adSetName || row.adSetId}: {row.outcome}
-                      {row.reason ? ` — ${row.reason}` : ""}
-                      {row.diff ? ` — ${row.diff}` : ""}
+                    <li key={row.adSetId} className="flex items-start justify-between gap-3">
+                      <p>
+                        {row.adSetName || row.adSetId}: {row.outcome}
+                        {row.reason ? ` — ${row.reason}` : ""}
+                        {row.diff ? ` — ${row.diff}` : ""}
+                      </p>
+                      {row.outcome === "written" && row.appliedAction === "add" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!open || busy}
+                          onClick={() => {
+                            if (!open) return;
+                            void apply({
+                              audienceId: row.audienceId,
+                              audienceName: row.audienceName,
+                              direction: row.direction,
+                              action: "remove",
+                              adSetIds: [row.adSetId],
+                              replace: false,
+                            });
+                          }}
+                        >
+                          {removingId === row.adSetId ? "Removing…" : "Remove"}
+                        </Button>
+                      )}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-
-            <DialogFooter>
-              <Button
-                variant="outline"
-                disabled={!audience || selected.length === 0 || busy !== null || Boolean(draftError)}
-                onClick={() => {
-                  if (!open) return;
-                  void post(false);
-                }}
-              >
-                {busy === "preview" ? "Reading…" : "Show diff"}
-              </Button>
-              <Button
-                disabled={!open || readyCount === 0 || busy !== null}
-                onClick={() => {
-                  if (!open) return;
-                  void post(true);
-                }}
-              >
-                {busy === "apply" ? "Writing…" : action === "remove" ? "Remove" : "Confirm"}
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
