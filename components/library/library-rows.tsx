@@ -33,6 +33,7 @@ import {
   type CampaignPlanTemplate,
   type PlanLibraryItem,
 } from "@/lib/plan/library";
+import { AdSetAudiencePush } from "@/components/library/adset-audience-push";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
 
 export { filterLibraryPlans };
@@ -130,6 +131,8 @@ export interface CampaignRowProps {
   onCancelDelete?: () => void;
   onRelaunch?: (id: string) => void;
   onSaveAsTemplate?: (id: string) => void;
+  /** Published rows only. Null while the write-gate request is in flight. */
+  targetingWritesEnabled?: boolean | null;
 }
 
 export function CampaignRow({
@@ -147,6 +150,7 @@ export function CampaignRow({
   onCancelDelete,
   onRelaunch,
   onSaveAsTemplate,
+  targetingWritesEnabled,
 }: CampaignRowProps) {
   const objective = OBJECTIVE_LABELS[c.objective ?? ""] ?? c.objective ?? "—";
   const objectiveMark = objective.slice(0, 1).toUpperCase();
@@ -215,6 +219,10 @@ export function CampaignRow({
             </div>
           ) : (
             <>
+              {c.status === "published" && variant === "manage" && targetingWritesEnabled !== undefined && (
+                <AdSetAudiencePush campaign={c} writesEnabled={targetingWritesEnabled} />
+              )}
+
               <Button size="sm" onClick={() => onOpen?.(c.id)}>
                 Open
               </Button>

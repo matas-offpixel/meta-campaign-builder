@@ -113,6 +113,7 @@ TIKTOK_TOKEN_KEY=
 TIKTOK_VIDEO_UPLOAD_MODE=
 OFFPIXEL_TIKTOK_WRITES_ENABLED=
 OFFPIXEL_META_AUDIENCE_WRITES_ENABLED=
+OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED=
 GOOGLE_ADS_DEVELOPER_TOKEN=
 GOOGLE_ADS_CLIENT_ID=
 GOOGLE_ADS_CLIENT_SECRET=
@@ -297,6 +298,16 @@ ENABLE_BUDGET_PACING_ALERTS=
 > regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
 > greps the tree to keep it that way.
 
+> **`OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED`** must be exactly `"true"`
+> to POST a custom audience onto a live ad set from the Published library
+> (`lib/meta/adset-targeting-write.ts`). Unset or any other value leaves
+> the control visible and disabled, and the apply route returns 403 with
+> no Graph POST. The write is a read of the whole `targeting` object, a
+> change to `custom_audiences` or `excluded_custom_audiences` only, then a
+> write-back. It is recorded on `meta_write_idempotency` as
+> `adset_targeting_update` (migration 179). It is not an optimisation
+> budget/pause write and it does not run through the launch route.
+
 > **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120) must be set to `"1"` in
 > Vercel prod env vars to activate `/api/cron/optimisation-tick` (every 4h).
 > Unset/anything else = fully disabled, the route responds 200 with
@@ -385,7 +396,7 @@ ENABLE_BUDGET_PACING_ALERTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). Unapplied — Matas applies. 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Unapplied — Matas applies. Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
