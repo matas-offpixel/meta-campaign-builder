@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 993
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/993
 - **Branch:** `cursor/import-country-group-labels`
 
 ## Summary
