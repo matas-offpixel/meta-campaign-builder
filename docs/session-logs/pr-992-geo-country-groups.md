@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 992
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/992
 - **Branch:** `cursor/geo-country-groups`
 
 ## Summary
@@ -21,8 +21,8 @@ Location targeting can include a Meta country group. Search asks for `country_gr
 
 ## Validation
 
-- [ ] `npm test`
-- [ ] `npm run build`
+- [x] `npm test` — 6375 tests, 6371 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 15.8s, TypeScript finished in 33.3s
 - [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
