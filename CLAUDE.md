@@ -305,7 +305,7 @@ ENABLE_BUDGET_PACING_ALERTS=
 > no Graph POST. The write is a read of the whole `targeting` object, a
 > change to `custom_audiences` or `excluded_custom_audiences` only, then a
 > write-back. It is recorded on `meta_write_idempotency` as
-> `adset_targeting_update` (migration 178). It is not an optimisation
+> `adset_targeting_update` (migration 179). It is not an optimisation
 > budget/pause write and it does not run through the launch route.
 
 > **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120) must be set to `"1"` in
@@ -396,7 +396,7 @@ ENABLE_BUDGET_PACING_ALERTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). Unapplied — Matas applies. 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Unapplied — Matas applies. Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default

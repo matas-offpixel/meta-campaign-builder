@@ -288,6 +288,60 @@ describe("ad set audience push", () => {
     );
   });
 
+  it("add, remove, add, remove each POST once, and retrying the third step does not", async () => {
+    const adSetId = "1515151515";
+    async function runSequence(steps: Array<"add" | "remove">, staleOnLast = false) {
+      const db = memoryLedger();
+      let included = false;
+      let writes = 0;
+      let step = 0;
+      const outcomes = [];
+      for (const action of steps) {
+        step += 1;
+        const stale = staleOnLast && step === steps.length;
+        const result = await applyAdSetAudienceChanges({
+          adSetIds: [adSetId],
+          audience: AUDIENCE,
+          direction: "include",
+          action,
+          campaignId: CAMPAIGN_ID,
+          writesEnabled: true,
+          ledger: db.context,
+          graph: {
+            async read() {
+              const targeting = fourteenFieldTargeting();
+              if (included && !stale) {
+                (targeting.custom_audiences as unknown[]).push({
+                  id: AUDIENCE.id,
+                  name: AUDIENCE.name,
+                });
+              }
+              return snapshot(adSetId, targeting);
+            },
+            async write(_id, targeting) {
+              writes += 1;
+              const list = targeting.custom_audiences as Array<{ id: string }>;
+              included = list.some((entry) => entry.id === AUDIENCE.id);
+            },
+          },
+        });
+        outcomes.push(result[0]);
+      }
+      return { writes, outcomes };
+    }
+
+    const four = await runSequence(["add", "remove", "add", "remove"]);
+    assert.equal(four.writes, 4);
+    assert.deepEqual(
+      four.outcomes.map((row) => row?.outcome),
+      ["written", "written", "written", "written"],
+    );
+
+    const retried = await runSequence(["add", "remove", "add", "add"], true);
+    assert.equal(retried.writes, 3);
+    assert.equal(retried.outcomes[3]?.outcome, "noop");
+  });
+
   it("remove writes the list without the audience and leaves every other field", async () => {
     const original = fourteenFieldTargeting();
     (original.custom_audiences as unknown[]).push({ id: AUDIENCE.id, name: AUDIENCE.name });
@@ -427,6 +481,7 @@ function memoryLedger(): {
   lookupError: { code?: string; message?: string } | null;
 } {
   const rows: IdempotencyRow[] = [];
+  let nextId = 1;
   const state: { lookupError: { code?: string; message?: string } | null } = { lookupError: null };
 
   class Builder {
@@ -434,6 +489,7 @@ function memoryLedger(): {
     private pendingUpsert: { id?: string } | null = null;
     private pendingUpdate: Record<string, unknown> | null = null;
     private selected = false;
+    private pendingDelete = false;
 
     select() {
       this.selected = true;
@@ -467,7 +523,7 @@ function memoryLedger(): {
         this.pendingUpsert = row;
       } else {
         const inserted = {
-          id: `idem_${rows.length + 1}`,
+          id: `idem_${nextId++}`,
           op_result_id: null,
           op_status: "pending",
           ...payload,
@@ -480,6 +536,11 @@ function memoryLedger(): {
 
     update(patch: Record<string, unknown>) {
       this.pendingUpdate = patch;
+      return this;
+    }
+
+    delete() {
+      this.pendingDelete = true;
       return this;
     }
 
@@ -498,6 +559,15 @@ function memoryLedger(): {
     }
 
     then(onFulfilled?: (value: { data: null; error: null }) => unknown) {
+      if (this.pendingDelete) {
+        for (let index = rows.length - 1; index >= 0; index -= 1) {
+          const candidate = rows[index]!;
+          const match = Object.entries(this.eqs).every(
+            ([key, value]) => candidate[key] === value,
+          );
+          if (match) rows.splice(index, 1);
+        }
+      }
       const value = { data: null, error: null };
       return Promise.resolve(onFulfilled ? onFulfilled(value) : value);
     }

@@ -1,4 +1,8 @@
--- Migration 178 — ledger op for live ad-set targeting updates
+-- Migration 179 — ledger op for live ad-set targeting updates
+--
+-- 178 is 178_wa_community_alias_repoint.sql on cursor/community-alias-repoint.
+-- origin/main's highest numbered migration at this change is 177, so the
+-- next free number after that 178 merges is 179.
 --
 -- meta_write_idempotency.op_kind is a CHECK. A targeting push records
 -- op_kind = 'adset_targeting_update'. Until this is applied, that insert

@@ -258,6 +258,33 @@ export async function invalidateDeadCampaignLedger(
   await drop({ draft_id: context.draftId, op_kind: "ad_create" });
 }
 
+/**
+ * Drops one ledger row by the same delete-by-hash invalidation as
+ * `invalidateDeadCampaignLedger`. A targeting add and its remove are
+ * different triples; after one succeeds, the other triple must be gone
+ * so a deliberate reversal is not short-circuited as a retry.
+ */
+export async function invalidateMetaWritePayload(
+  context: Pick<MetaWriteContext, "supabase" | "draftId">,
+  opKind: MetaWriteOpKind,
+  payload: unknown,
+): Promise<void> {
+  const { error } = await context.supabase
+    .from("meta_write_idempotency")
+    .delete()
+    .eq("draft_id", context.draftId)
+    .eq("op_kind", opKind)
+    .eq("op_payload_hash", hashMetaWritePayload(payload));
+  const unavailable = ledgerUnavailableReason(error);
+  if (unavailable) {
+    console.warn(
+      `[meta-write-idempotency] invalidate skipped (${unavailable}) draft=${context.draftId}`,
+    );
+    return;
+  }
+  if (error) throw new Error(error.message);
+}
+
 export async function clearMetaWriteIdempotency(
   context: Pick<MetaWriteContext, "supabase" | "draftId">,
 ): Promise<void> {

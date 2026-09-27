@@ -17,6 +17,7 @@ import {
 } from "./adset-targeting-copy.ts";
 import type { MetaWriteContext } from "./write-idempotency.ts";
 import {
+  invalidateMetaWritePayload,
   MetaWriteLedgerRequiredError,
   withMetaWriteIdempotency,
 } from "./write-idempotency.ts";
@@ -346,6 +347,18 @@ export async function applyAdSetAudienceChanges(
         },
         { required: true },
       );
+      if (wrote) {
+        await invalidateMetaWritePayload(
+          request.ledger,
+          "adset_targeting_update",
+          adsetTargetingLedgerTriple({
+            adSetId,
+            audienceId: request.audience.id,
+            direction: request.direction,
+            action: request.action === "add" ? "remove" : "add",
+          }),
+        );
+      }
       const outcome: AdSetAudienceOutcome = {
         adSetId,
         adSetName,
