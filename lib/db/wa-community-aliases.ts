@@ -2,6 +2,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { purgeAliasCache, type CachePurgeResult } from "@/lib/wa-communities/alias-cache";
+import { inviteHomesAgree } from "@/lib/wa-communities/invite-homes";
+import { authoritativeDestination } from "@/lib/wa-communities/resolve";
 import type {
   WaCommunityAlias,
   WaCommunityAliasDestination,
@@ -14,6 +17,16 @@ import {
   isValidSlug,
   normaliseInviteInput,
 } from "@/lib/wa-communities/slug";
+
+export type AliasCachePurge = CachePurgeResult | "skipped";
+
+export type AliasWriteResult =
+  | {
+      ok: true;
+      alias: WaCommunityAliasWithDestinations;
+      cachePurge: AliasCachePurge;
+    }
+  | { ok: false; error: string };
 
 /**
  * lib/db/wa-community-aliases.ts
@@ -33,7 +46,7 @@ function asAny(supabase: AnySupabaseClient): AnySupabaseClient {
 }
 
 const ALIAS_COLUMNS =
-  "id, slug, client_id, brand, is_active, notes, active_invite_code, created_at, updated_at, created_by_user_id, updated_by_user_id";
+  "id, slug, client_id, brand, is_active, notes, active_invite_code, event_ref, created_at, updated_at, created_by_user_id, updated_by_user_id";
 
 const DESTINATION_COLUMNS =
   "id, alias_id, invite_code, label, sort_order, is_active, activated_at, created_at";
@@ -47,6 +60,7 @@ function mapAlias(raw: Record<string, unknown>): WaCommunityAlias {
     is_active: Boolean(raw.is_active),
     notes: (raw.notes as string | null) ?? null,
     active_invite_code: (raw.active_invite_code as string | null) ?? null,
+    event_ref: (raw.event_ref as string | null) ?? null,
     created_at: raw.created_at as string,
     updated_at: raw.updated_at as string,
     created_by_user_id: (raw.created_by_user_id as string | null) ?? null,
@@ -90,28 +104,67 @@ async function appendEvent(
   }
 }
 
-/** Public-route lookup: active alias by exact slug. */
+/**
+ * Public-route lookup by exact path segment.
+ *
+ * Reads the active destination row, not active_invite_code. Throws on a
+ * database error so lookupAliasFailOpen can passthrough. A missing row and
+ * an inactive alias both return null (nothing to follow).
+ */
 export async function getAliasLookupBySlug(
   supabase: AnySupabaseClient,
   slug: string,
-): Promise<{ is_active: boolean; active_invite_code: string | null } | null> {
+): Promise<{ destination_invite_code: string | null } | null> {
   if (!isValidSlug(slug)) return null;
   const sb = asAny(supabase);
   const { data, error } = await sb
     .from("wa_community_aliases")
-    .select("is_active, active_invite_code")
+    .select("is_active, wa_community_alias_destinations ( invite_code, is_active )")
     .eq("slug", slug)
     .maybeSingle();
   if (error) {
     console.error("[wa-community-aliases getAliasLookupBySlug]", error.message);
-    return null;
+    throw new Error(error.message);
   }
   if (!data) return null;
   const row = data as Record<string, unknown>;
-  return {
+  const destRaw =
+    (row.wa_community_alias_destinations as
+      | { invite_code: string; is_active: boolean }[]
+      | null) ?? [];
+  const code = authoritativeDestination({
     is_active: Boolean(row.is_active),
-    active_invite_code: (row.active_invite_code as string | null) ?? null,
-  };
+    destinations: destRaw,
+  });
+  if (!code) return null;
+  return { destination_invite_code: code };
+}
+
+async function afterMutation(
+  supabase: AnySupabaseClient,
+  aliasId: string,
+  slug: string,
+  options?: { expectHomesAgree?: boolean },
+): Promise<AliasWriteResult> {
+  const cachePurge = await purgeAliasCache(slug);
+  const full = await getAliasWithDestinations(supabase, aliasId);
+  if (!full) return { ok: false, error: "Saved but failed to reload." };
+  const active = full.destinations.find((d) => d.is_active);
+  const homesAgree = inviteHomesAgree(
+    full.active_invite_code,
+    active?.invite_code ?? null,
+  );
+  if (!homesAgree) {
+    console.error("[wa-community-aliases] invite homes diverged", {
+      slug,
+      cache: full.active_invite_code,
+      destination: active?.invite_code ?? null,
+    });
+    if (options?.expectHomesAgree !== false) {
+      return { ok: false, error: "Invite code homes diverged after write." };
+    }
+  }
+  return { ok: true, alias: full, cachePurge };
 }
 
 export async function listAliasesWithDestinations(
@@ -182,18 +235,20 @@ export type CreateAliasInput = {
   /** Initial destination invite code or full WhatsApp URL. */
   invite_code: string;
   label?: string | null;
+  event_ref?: string | null;
   user_id: string;
 };
 
 export async function createAlias(
   supabase: AnySupabaseClient,
   input: CreateAliasInput,
-): Promise<{ ok: true; alias: WaCommunityAliasWithDestinations } | { ok: false; error: string }> {
-  const slug = input.slug.trim().toLowerCase();
+): Promise<AliasWriteResult> {
+  const slug = input.slug.trim();
   if (!isValidSlug(slug)) {
     return {
       ok: false,
-      error: "Slug must be lowercase alphanumeric with hyphens (e.g. throwback-madrid).",
+      error:
+        "Slug must be letters, digits, hyphens, and dots (e.g. throwback-madrid or Throwback-Porto-17.10.26). Case is kept.",
     };
   }
   const inviteCode = normaliseInviteInput(input.invite_code);
@@ -205,57 +260,29 @@ export async function createAlias(
   }
 
   const sb = asAny(supabase);
-  const { data: aliasRow, error: aliasError } = await sb
-    .from("wa_community_aliases")
-    .insert({
-      slug,
-      client_id: input.client_id ?? null,
-      brand: input.brand?.trim() || null,
-      notes: input.notes?.trim() || null,
-      is_active: true,
-      active_invite_code: inviteCode,
-      created_by_user_id: input.user_id,
-      updated_by_user_id: input.user_id,
-    })
-    .select(ALIAS_COLUMNS)
-    .single();
+  const { data, error } = await sb.rpc("create_community_alias", {
+    p_slug: slug,
+    p_client_id: input.client_id ?? null,
+    p_brand: input.brand?.trim() || null,
+    p_notes: input.notes?.trim() || null,
+    p_invite_code: inviteCode,
+    p_label: input.label?.trim() || null,
+    p_actor: input.user_id,
+    p_event_ref: input.event_ref?.trim() || null,
+  });
 
-  if (aliasError || !aliasRow) {
-    const msg = aliasError?.message ?? "Failed to create alias";
-    if (msg.includes("wa_community_aliases_slug_unique") || msg.includes("duplicate")) {
+  if (error || !data) {
+    const msg = error?.message ?? "Failed to create alias";
+    if (msg.includes("wa_community_aliases_slug_unique") || msg.includes("duplicate") || msg.includes("23505")) {
       return { ok: false, error: `Slug "${slug}" is already taken.` };
     }
     console.error("[wa-community-aliases createAlias]", msg);
     return { ok: false, error: msg };
   }
 
-  const alias = mapAlias(aliasRow as Record<string, unknown>);
-
-  const { error: destError } = await sb.from("wa_community_alias_destinations").insert({
-    alias_id: alias.id,
-    invite_code: inviteCode,
-    label: input.label?.trim() || "Group 1",
-    sort_order: 0,
-    is_active: true,
-    activated_at: new Date().toISOString(),
-  });
-
-  if (destError) {
-    console.error("[wa-community-aliases createAlias dest]", destError.message);
-    await sb.from("wa_community_aliases").delete().eq("id", alias.id);
-    return { ok: false, error: destError.message };
-  }
-
-  await appendEvent(supabase, {
-    alias_id: alias.id,
-    user_id: input.user_id,
-    action: "created",
-    detail: { slug, invite_code: inviteCode },
-  });
-
-  const full = await getAliasWithDestinations(supabase, alias.id);
-  if (!full) return { ok: false, error: "Created but failed to reload." };
-  return { ok: true, alias: full };
+  const aliasId = (data as { alias_id?: string }).alias_id;
+  if (!aliasId) return { ok: false, error: "Created but failed to reload." };
+  return afterMutation(supabase, aliasId, slug);
 }
 
 export type UpdateAliasInput = {
@@ -270,7 +297,7 @@ export async function updateAlias(
   supabase: AnySupabaseClient,
   id: string,
   input: UpdateAliasInput,
-): Promise<{ ok: true; alias: WaCommunityAliasWithDestinations } | { ok: false; error: string }> {
+): Promise<AliasWriteResult> {
   const sb = asAny(supabase);
   const patch: Record<string, unknown> = {
     updated_by_user_id: input.user_id,
@@ -279,6 +306,9 @@ export async function updateAlias(
   if (input.brand !== undefined) patch.brand = input.brand?.trim() || null;
   if (input.notes !== undefined) patch.notes = input.notes?.trim() || null;
   if (input.is_active !== undefined) patch.is_active = input.is_active;
+
+  const existing = await getAliasWithDestinations(supabase, id);
+  if (!existing) return { ok: false, error: "Alias not found." };
 
   const { error } = await sb.from("wa_community_aliases").update(patch).eq("id", id);
   if (error) {
@@ -300,9 +330,7 @@ export async function updateAlias(
     detail: patch,
   });
 
-  const full = await getAliasWithDestinations(supabase, id);
-  if (!full) return { ok: false, error: "Updated but failed to reload." };
-  return { ok: true, alias: full };
+  return afterMutation(supabase, id, existing.slug, { expectHomesAgree: false });
 }
 
 export type AddDestinationInput = {
@@ -317,7 +345,7 @@ export async function addDestination(
   supabase: AnySupabaseClient,
   aliasId: string,
   input: AddDestinationInput,
-): Promise<{ ok: true; alias: WaCommunityAliasWithDestinations } | { ok: false; error: string }> {
+): Promise<AliasWriteResult> {
   const inviteCode = normaliseInviteInput(input.invite_code);
   if (!isValidInviteCode(inviteCode)) {
     return {
@@ -365,82 +393,68 @@ export async function addDestination(
     return activateDestination(supabase, aliasId, (destRow as { id: string }).id, input.user_id);
   }
 
-  const full = await getAliasWithDestinations(supabase, aliasId);
-  if (!full) return { ok: false, error: "Added but failed to reload." };
-  return { ok: true, alias: full };
+  return afterMutation(supabase, aliasId, existing.slug, { expectHomesAgree: false });
 }
 
 /**
- * One-click repoint: mark destination active, clear siblings, stamp alias.
+ * One-click repoint. The database function writes the destination and the
+ * cache in one transaction; this then purges the runtime cache.
  */
+export async function repointCommunityAlias(
+  supabase: AnySupabaseClient,
+  slug: string,
+  inviteCode: string,
+  userId: string,
+  label?: string | null,
+): Promise<AliasWriteResult> {
+  const code = normaliseInviteInput(inviteCode);
+  if (!isValidInviteCode(code)) {
+    return {
+      ok: false,
+      error: "Invite code must be 8–30 alphanumeric characters (or a chat.whatsapp.com URL).",
+    };
+  }
+  const sb = asAny(supabase);
+  const { data, error } = await sb.rpc("repoint_community_alias", {
+    p_slug: slug,
+    p_invite_code: code,
+    p_actor: userId,
+    p_label: label ?? null,
+  });
+  if (error || !data) {
+    const msg = error?.message ?? "Repoint failed";
+    console.error("[wa-community-aliases repointCommunityAlias]", msg);
+    return { ok: false, error: msg };
+  }
+  const aliasId = (data as { alias_id?: string }).alias_id;
+  const returnedSlug = (data as { slug?: string }).slug ?? slug;
+  if (!aliasId) return { ok: false, error: "Repointed but failed to reload." };
+  return afterMutation(supabase, aliasId, returnedSlug);
+}
+
 export async function activateDestination(
   supabase: AnySupabaseClient,
   aliasId: string,
   destinationId: string,
   userId: string,
-): Promise<{ ok: true; alias: WaCommunityAliasWithDestinations } | { ok: false; error: string }> {
+): Promise<AliasWriteResult> {
   const existing = await getAliasWithDestinations(supabase, aliasId);
   if (!existing) return { ok: false, error: "Alias not found." };
 
   const target = existing.destinations.find((d) => d.id === destinationId);
   if (!target) return { ok: false, error: "Destination not found on this alias." };
 
-  if (target.is_active && existing.active_invite_code === target.invite_code) {
-    return { ok: true, alias: existing };
+  if (target.is_active && inviteHomesAgree(existing.active_invite_code, target.invite_code)) {
+    return { ok: true, alias: existing, cachePurge: "skipped" };
   }
 
-  const previousCode = existing.active_invite_code;
-  const sb = asAny(supabase);
-  const now = new Date().toISOString();
-
-  // Clear other actives first so the partial unique index stays happy.
-  const { error: clearError } = await sb
-    .from("wa_community_alias_destinations")
-    .update({ is_active: false })
-    .eq("alias_id", aliasId)
-    .eq("is_active", true);
-  if (clearError) {
-    console.error("[wa-community-aliases activateDestination clear]", clearError.message);
-    return { ok: false, error: clearError.message };
-  }
-
-  const { error: setError } = await sb
-    .from("wa_community_alias_destinations")
-    .update({ is_active: true, activated_at: now })
-    .eq("id", destinationId)
-    .eq("alias_id", aliasId);
-  if (setError) {
-    console.error("[wa-community-aliases activateDestination set]", setError.message);
-    return { ok: false, error: setError.message };
-  }
-
-  const { error: aliasError } = await sb
-    .from("wa_community_aliases")
-    .update({
-      active_invite_code: target.invite_code,
-      updated_by_user_id: userId,
-      is_active: true,
-    })
-    .eq("id", aliasId);
-  if (aliasError) {
-    console.error("[wa-community-aliases activateDestination alias]", aliasError.message);
-    return { ok: false, error: aliasError.message };
-  }
-
-  await appendEvent(supabase, {
-    alias_id: aliasId,
-    user_id: userId,
-    action: "repointed",
-    detail: {
-      from_invite_code: previousCode,
-      to_invite_code: target.invite_code,
-      destination_id: destinationId,
-    },
-  });
-
-  const full = await getAliasWithDestinations(supabase, aliasId);
-  if (!full) return { ok: false, error: "Repointed but failed to reload." };
-  return { ok: true, alias: full };
+  return repointCommunityAlias(
+    supabase,
+    existing.slug,
+    target.invite_code,
+    userId,
+    target.label,
+  );
 }
 
 export async function removeDestination(
@@ -448,7 +462,7 @@ export async function removeDestination(
   aliasId: string,
   destinationId: string,
   userId: string,
-): Promise<{ ok: true; alias: WaCommunityAliasWithDestinations } | { ok: false; error: string }> {
+): Promise<AliasWriteResult> {
   const existing = await getAliasWithDestinations(supabase, aliasId);
   if (!existing) return { ok: false, error: "Alias not found." };
 
@@ -485,9 +499,7 @@ export async function removeDestination(
     .update({ updated_by_user_id: userId })
     .eq("id", aliasId);
 
-  const full = await getAliasWithDestinations(supabase, aliasId);
-  if (!full) return { ok: false, error: "Removed but failed to reload." };
-  return { ok: true, alias: full };
+  return afterMutation(supabase, aliasId, existing.slug, { expectHomesAgree: false });
 }
 
 export async function listRecentEvents(

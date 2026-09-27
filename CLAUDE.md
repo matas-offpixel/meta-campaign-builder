@@ -129,6 +129,7 @@ GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY=
 ENABLE_MULTI_PLACEMENT_ASSETS=
 MAILCHIMP_WEBHOOK_SECRET=
 CIRQLIN_PARTNER_READ_SECRET=
+CIRQLIN_TO_DASHBOARD_BEARER=
 CIRQLIN_API_BASE=
 D2C_TOKEN_KEY=
 D2C_BRIEF_PARSER_MODEL=
@@ -232,6 +233,13 @@ ENABLE_BUDGET_PACING_ALERTS=
 > and the Mailchimp leg still writes. **`CIRQLIN_API_BASE`** defaults to
 > `https://app.cirqlin.com`. Join key is `events.mailchimp_tag` ↔ Cirqlin
 > `pages.crm_base_tag`. Counts only — no PII.
+>
+> **`CIRQLIN_TO_DASHBOARD_BEARER`** is the shared bearer Cirqlin sends to
+> `GET /api/community-aliases/{slug}` so crqln.com can resolve a repointable
+> WhatsApp invite. Matas mints it (`openssl rand -hex 32`) and sets the same
+> value on both Vercel projects. Neither Cursor nor Cowork holds it. Unset →
+> the route returns 200 with `invite_code: null` and `degraded: true` so
+> cirqlin passes the raw code through. See `docs/community-aliases.md`.
 
 > **`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`** and **`GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`**
 > are **not required for the Asset Queue** (as of `cc/asset-queue-public-sheet-fetch`). The scrape

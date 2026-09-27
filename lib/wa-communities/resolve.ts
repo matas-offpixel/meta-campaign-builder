@@ -1,20 +1,38 @@
 /**
  * Pure resolve logic for /j/{segment}.
  *
- * Lookup order (see product brief):
- *   1. If the segment is a valid slug, try the alias table.
- *   2. Alias hit + active + has destination → redirect there.
- *   3. Alias hit but inactive / no destination → 404.
- *   4. No alias + valid invite code → passthrough (legacy templates).
- *   5. Valid slug shape but unknown, and not an invite → 404.
- *   6. Otherwise → 400 invalid.
+ * Lookup order:
+ *   1. Segment matches neither the slug shape nor an invite code → 404.
+ *   2. Lookup returned an authoritative destination code → redirect there.
+ *   3. Otherwise (no alias, inactive alias, lookup failed open) → passthrough
+ *      to chat.whatsapp.com/{segment} with the segment bytes unchanged.
+ *
+ * The destination code comes from wa_community_alias_destinations (the
+ * active row). aliases.active_invite_code is a cache and is not read here.
  */
 
-import { isValidInviteCode, isValidSlug } from "./slug.ts";
+import { isValidInviteCode, isWellFormedSegment } from "./slug.ts";
+
+/**
+ * Destination code the public redirect is allowed to follow.
+ * Inactive aliases and rows with no active destination yield null so the
+ * segment passes through. The cache column is not consulted.
+ */
+export function authoritativeDestination(
+  row: {
+    is_active: boolean;
+    destinations: { invite_code: string; is_active: boolean }[];
+  } | null,
+): string | null {
+  if (!row?.is_active) return null;
+  const active = row.destinations.find((d) => d.is_active);
+  if (!active || !isValidInviteCode(active.invite_code)) return null;
+  return active.invite_code;
+}
 
 export type AliasLookupRow = {
-  is_active: boolean;
-  active_invite_code: string | null;
+  /** Active destination invite code. Null when there is nothing to follow. */
+  destination_invite_code: string | null;
 };
 
 export type ResolveOutcome =
@@ -29,46 +47,32 @@ export type ResolveOutcome =
       status: 302;
       inviteCode: string;
     }
-  | { kind: "not_found"; status: 404 }
-  | { kind: "invalid"; status: 400 };
+  | { kind: "not_found"; status: 404 };
 
 /**
- * Resolve a path segment given an optional alias row from the DB.
- * `alias` is null when no row matched the slug (or the segment was not
- * slug-shaped and we skipped the lookup).
+ * Resolve a path segment given an optional alias lookup.
+ * `alias` is null when no destination is in force (no row, inactive alias,
+ * or the lookup failed open and the caller passed null).
  */
 export function resolveInviteSegment(
   segment: string,
   alias: AliasLookupRow | null,
 ): ResolveOutcome {
-  if (isValidSlug(segment)) {
-    if (alias) {
-      if (!alias.is_active || !alias.active_invite_code) {
-        return { kind: "not_found", status: 404 };
-      }
-      if (!isValidInviteCode(alias.active_invite_code)) {
-        return { kind: "not_found", status: 404 };
-      }
-      return {
-        kind: "alias",
-        status: 302,
-        slug: segment,
-        inviteCode: alias.active_invite_code,
-      };
-    }
-    // Unknown slug — fall through to invite passthrough when the segment
-    // also looks like a raw invite (all-lowercase 8–30 alnum).
-    if (isValidInviteCode(segment)) {
-      return { kind: "passthrough", status: 302, inviteCode: segment };
-    }
+  if (!isWellFormedSegment(segment)) {
     return { kind: "not_found", status: 404 };
   }
 
-  if (isValidInviteCode(segment)) {
-    return { kind: "passthrough", status: 302, inviteCode: segment };
+  const code = alias?.destination_invite_code ?? null;
+  if (code && isValidInviteCode(code)) {
+    return {
+      kind: "alias",
+      status: 302,
+      slug: segment,
+      inviteCode: code,
+    };
   }
 
-  return { kind: "invalid", status: 400 };
+  return { kind: "passthrough", status: 302, inviteCode: segment };
 }
 
 export function whatsappCommunityRedirectUrl(inviteCode: string): string {

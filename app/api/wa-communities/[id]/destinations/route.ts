@@ -61,7 +61,11 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
     }
-    return NextResponse.json({ ok: true, alias: result.alias });
+    return NextResponse.json({
+      ok: true,
+      alias: result.alias,
+      cachePurge: result.cachePurge,
+    });
   }
 
   if (!body.invite_code) {
@@ -81,7 +85,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, alias: result.alias }, { status: 201 });
+  return NextResponse.json(
+    { ok: true, alias: result.alias, cachePurge: result.cachePurge },
+    { status: 201 },
+  );
 }
 
 /** DELETE /api/wa-communities/[id]/destinations?destination_id=… */
@@ -109,5 +116,9 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
   }
-  return NextResponse.json({ ok: true, alias: result.alias });
+  return NextResponse.json({
+    ok: true,
+    alias: result.alias,
+    cachePurge: result.cachePurge,
+  });
 }

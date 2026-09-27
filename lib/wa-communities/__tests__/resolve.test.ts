@@ -1,27 +1,39 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { inviteHomesAgree } from "../invite-homes.ts";
+import {
+  authoritativeDestination,
+  resolveInviteSegment,
+  whatsappCommunityRedirectUrl,
+} from "../resolve.ts";
 import {
   isValidInviteCode,
   isValidSlug,
   normaliseInviteInput,
 } from "../slug.ts";
-import {
-  resolveInviteSegment,
-  whatsappCommunityRedirectUrl,
-} from "../resolve.ts";
+
+const THROWBACK_CODES = [
+  "BEkbaKi9HUS3Tjl1ULBbe1",
+  "DHjPw1HRvipCu6S6ZT6d5P",
+  "HyDdYMsXYCv4WNQe5DeMuU",
+] as const;
 
 describe("slug + invite validation", () => {
-  it("accepts lowercase hyphenated slugs", () => {
+  it("accepts current slugs, dotted runbook slugs, and mixed-case invite codes", () => {
     assert.equal(isValidSlug("throwback"), true);
     assert.equal(isValidSlug("throwback-madrid"), true);
-    assert.equal(isValidSlug("j2-melodic"), true);
+    assert.equal(isValidSlug("fever105-sheffield"), true);
+    assert.equal(isValidSlug("Throwback-Porto-17.10.26"), true);
+    assert.equal(isValidSlug("Closa-Selects-Barcelona-30.10.26"), true);
+    assert.equal(isValidSlug("BEkbaKi9HUS3Tjl1ULBbe1"), true);
   });
 
-  it("rejects invalid slug shapes", () => {
-    assert.equal(isValidSlug("Throwback"), false);
+  it("rejects separators in the wrong place", () => {
     assert.equal(isValidSlug("-bad"), false);
     assert.equal(isValidSlug("bad-"), false);
+    assert.equal(isValidSlug("bad."), false);
+    assert.equal(isValidSlug(".bad"), false);
     assert.equal(isValidSlug("has_under"), false);
     assert.equal(isValidSlug("has space"), false);
     assert.equal(isValidSlug(""), false);
@@ -51,11 +63,33 @@ describe("slug + invite validation", () => {
   });
 });
 
-describe("resolveInviteSegment", () => {
-  it("alias resolves to current destination", () => {
-    const out = resolveInviteSegment("throwback-madrid", {
+describe("authoritativeDestination", () => {
+  it("reads the active destination and ignores the cache column", () => {
+    const code = authoritativeDestination({
       is_active: true,
-      active_invite_code: "IPCpHTE8JMu9JT5DenZglv",
+      destinations: [
+        { invite_code: "AAAAAAAA11111111", is_active: false },
+        { invite_code: "BBBBBBBB22222222", is_active: true },
+      ],
+    });
+    assert.equal(code, "BBBBBBBB22222222");
+  });
+
+  it("returns null when the alias is inactive even if a destination is flagged active", () => {
+    assert.equal(
+      authoritativeDestination({
+        is_active: false,
+        destinations: [{ invite_code: "DdsCUNGsF1RAZlGXkA5L81", is_active: true }],
+      }),
+      null,
+    );
+  });
+});
+
+describe("resolveInviteSegment", () => {
+  it("alias resolves to the destination code", () => {
+    const out = resolveInviteSegment("throwback-madrid", {
+      destination_invite_code: "IPCpHTE8JMu9JT5DenZglv",
     });
     assert.deepEqual(out, {
       kind: "alias",
@@ -65,59 +99,49 @@ describe("resolveInviteSegment", () => {
     });
   });
 
-  it("unknown slug 404s (not invite-shaped)", () => {
-    const out = resolveInviteSegment("unknown-brand", null);
-    assert.deepEqual(out, { kind: "not_found", status: 404 });
-  });
-
-  it("inactive alias 404s", () => {
-    const out = resolveInviteSegment("throwback", {
-      is_active: false,
-      active_invite_code: "IPCpHTE8JMu9JT5DenZglv",
-    });
-    assert.deepEqual(out, { kind: "not_found", status: 404 });
-  });
-
-  it("alias without destination 404s", () => {
-    const out = resolveInviteSegment("throwback", {
-      is_active: true,
-      active_invite_code: null,
-    });
-    assert.deepEqual(out, { kind: "not_found", status: 404 });
-  });
-
-  it("raw invite code still passes through", () => {
-    const code = "IPCpHTE8JMu9JT5DenZglv";
-    const out = resolveInviteSegment(code, null);
-    assert.deepEqual(out, {
-      kind: "passthrough",
-      status: 302,
-      inviteCode: code,
-    });
-  });
-
-  it("mixed-case invite bypasses slug lookup path and passthroughs", () => {
-    // Mixed case fails SLUG_RE, so alias is never consulted.
+  it("mixed-case invite follows the alias when a destination is in force", () => {
     const code = "BEkbaKi9HUS3Tjl1ULBbe1";
     const out = resolveInviteSegment(code, {
-      is_active: true,
-      active_invite_code: "SHOULD_NOT_USE",
+      destination_invite_code: "CCCCCCCC33333333",
     });
-    assert.equal(out.kind, "passthrough");
-    if (out.kind === "passthrough") {
-      assert.equal(out.inviteCode, code);
+    assert.equal(out.kind, "alias");
+    if (out.kind === "alias") {
+      assert.equal(out.inviteCode, "CCCCCCCC33333333");
+      assert.notEqual(out.inviteCode, code);
     }
   });
 
-  it("repointing changes destination with same slug (no template change)", () => {
+  it("unaliased mixed-case invite passes through byte-identical", () => {
+    for (const code of THROWBACK_CODES) {
+      const out = resolveInviteSegment(code, null);
+      assert.deepEqual(out, {
+        kind: "passthrough",
+        status: 302,
+        inviteCode: code,
+      });
+      assert.equal(
+        whatsappCommunityRedirectUrl(out.kind === "passthrough" ? out.inviteCode : ""),
+        `https://chat.whatsapp.com/${code}?mode=gi_t`,
+      );
+    }
+  });
+
+  it("unknown well-formed slug passes through", () => {
+    const out = resolveInviteSegment("unknown-brand", null);
+    assert.deepEqual(out, {
+      kind: "passthrough",
+      status: 302,
+      inviteCode: "unknown-brand",
+    });
+  });
+
+  it("repointing changes destination with the same slug", () => {
     const slug = "jackies";
     const before = resolveInviteSegment(slug, {
-      is_active: true,
-      active_invite_code: "AAAAAAAA11111111",
+      destination_invite_code: "AAAAAAAA11111111",
     });
     const after = resolveInviteSegment(slug, {
-      is_active: true,
-      active_invite_code: "BBBBBBBB22222222",
+      destination_invite_code: "BBBBBBBB22222222",
     });
     assert.equal(before.kind, "alias");
     assert.equal(after.kind, "alias");
@@ -128,41 +152,34 @@ describe("resolveInviteSegment", () => {
     }
   });
 
-  it("lowercase invite-shaped unknown segment still passthroughs", () => {
-    // 8+ lowercase alnum matches both slug + invite; unknown alias → passthrough.
-    const out = resolveInviteSegment("abcdefghij", null);
-    assert.deepEqual(out, {
-      kind: "passthrough",
-      status: 302,
-      inviteCode: "abcdefghij",
-    });
-  });
-
-  it("short non-hyphenated string (not invite-length) 404s", () => {
-    // Fails INVITE_RE (<8 chars) but matches SLUG_RE — must not redirect.
-    assert.deepEqual(resolveInviteSegment("hello", null), {
+  it("garbage is 404", () => {
+    assert.deepEqual(resolveInviteSegment("!!bad!!", null), {
       kind: "not_found",
       status: 404,
     });
-    assert.deepEqual(resolveInviteSegment("abc", null), {
-      kind: "not_found",
-      status: 404,
-    });
-    assert.deepEqual(resolveInviteSegment("short", null), {
+    assert.deepEqual(resolveInviteSegment("has space", null), {
       kind: "not_found",
       status: 404,
     });
   });
 
-  it("garbage returns 400", () => {
-    const out = resolveInviteSegment("!!bad!!", null);
-    assert.deepEqual(out, { kind: "invalid", status: 400 });
-  });
-
-  it("builds WhatsApp redirect URL", () => {
+  it("builds WhatsApp redirect URL with the code unchanged", () => {
     assert.equal(
-      whatsappCommunityRedirectUrl("ABC12345"),
-      "https://chat.whatsapp.com/ABC12345?mode=gi_t",
+      whatsappCommunityRedirectUrl("BEkbaKi9HUS3Tjl1ULBbe1"),
+      "https://chat.whatsapp.com/BEkbaKi9HUS3Tjl1ULBbe1?mode=gi_t",
     );
+  });
+});
+
+describe("invite homes", () => {
+  it("agrees when both are null or both hold the same code", () => {
+    assert.equal(inviteHomesAgree(null, null), true);
+    assert.equal(inviteHomesAgree("AAAAAAAA11111111", "AAAAAAAA11111111"), true);
+  });
+
+  it("disagrees when the cache and the active destination differ", () => {
+    assert.equal(inviteHomesAgree(null, "DdsCUNGsF1RAZlGXkA5L81"), false);
+    assert.equal(inviteHomesAgree("AAAAAAAA11111111", "BBBBBBBB22222222"), false);
+    assert.equal(inviteHomesAgree("AAAAAAAA11111111", null), false);
   });
 });
