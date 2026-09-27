@@ -15,7 +15,22 @@ export type MetaWriteOpKind =
   | "campaign_create"
   | "adset_create"
   | "ad_create"
-  | "creative_upload";
+  | "creative_upload"
+  | "adset_targeting_update";
+
+/**
+ * Thrown only when a caller passes `{ required: true }` and the ledger
+ * cannot record the op. Launch creates stay fall-open: they omit `required`
+ * and still proceed when the table is absent.
+ */
+export class MetaWriteLedgerRequiredError extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`Meta write ledger is required (${reason})`);
+    this.name = "MetaWriteLedgerRequiredError";
+    this.reason = reason;
+  }
+}
 
 export interface MetaWriteContext {
   supabase: Pick<SupabaseClient, "from">;
@@ -72,8 +87,15 @@ export async function withMetaWriteIdempotency(
   opKind: MetaWriteOpKind,
   payload: unknown,
   run: () => Promise<string>,
+  options?: { required?: boolean },
 ): Promise<string> {
+  const required = options?.required === true;
+  const refuse = (reason: string): never => {
+    throw new MetaWriteLedgerRequiredError(reason);
+  };
+
   if (!context?.draftId || !context.userId) {
+    if (required) refuse("no_context");
     return run();
   }
 
@@ -88,12 +110,14 @@ export async function withMetaWriteIdempotency(
 
   const lookupUnavailable = ledgerUnavailableReason(lookupError);
   if (lookupUnavailable) {
+    if (required) refuse(lookupUnavailable);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (${lookupUnavailable}); proceeding without idempotency`,
     );
     return run();
   }
   if (lookupError) {
+    if (required) refuse(`ledger_error:${lookupError.code ?? "unknown"}`);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (ledger_error:${lookupError.code ?? "unknown"}); proceeding without idempotency`,
     );
@@ -125,12 +149,14 @@ export async function withMetaWriteIdempotency(
 
   const pendingUnavailable = ledgerUnavailableReason(pendingError);
   if (pendingUnavailable) {
+    if (required) refuse(pendingUnavailable);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (${pendingUnavailable}); proceeding without idempotency`,
     );
     return run();
   }
   if (pendingError) {
+    if (required) refuse(`ledger_error:${pendingError.code ?? "unknown"}`);
     console.warn(
       `[meta-write-idempotency] ledger unavailable (ledger_error:${pendingError.code ?? "unknown"}); proceeding without idempotency`,
     );
@@ -139,6 +165,7 @@ export async function withMetaWriteIdempotency(
 
   const rowId = (pending as { id?: string } | null)?.id ?? existingRow?.id ?? null;
   if (!rowId) {
+    if (required) refuse("row_not_returned");
     console.warn(
       "[meta-write-idempotency] ledger unavailable (row_not_returned); proceeding without idempotency",
     );

@@ -46,6 +46,7 @@ export function CampaignLibrary() {
   const [armedCount, setArmedCount] = useState(0);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [targetingWritesEnabled, setTargetingWritesEnabled] = useState<boolean | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Save-as-template modal
@@ -74,6 +75,12 @@ export function CampaignLibrary() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setUserId(user.id);
+      fetch("/api/meta/adset-targeting-writes")
+        .then(async (res) => {
+          const json = (await res.json()) as { enabled?: boolean };
+          setTargetingWritesEnabled(res.ok && json.enabled === true);
+        })
+        .catch(() => setTargetingWritesEnabled(false));
 
       const [items, armedRes] = await Promise.all([
         loadCampaignList(user.id),
@@ -358,6 +365,7 @@ export function CampaignLibrary() {
                   onCancelDelete={() => setConfirmDeleteId(null)}
                   onRelaunch={handleRelaunch}
                   onSaveAsTemplate={handleSaveAsTemplate}
+                  targetingWritesEnabled={targetingWritesEnabled}
                 />
               ))}
             </div>

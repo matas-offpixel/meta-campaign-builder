@@ -113,6 +113,7 @@ TIKTOK_TOKEN_KEY=
 TIKTOK_VIDEO_UPLOAD_MODE=
 OFFPIXEL_TIKTOK_WRITES_ENABLED=
 OFFPIXEL_META_AUDIENCE_WRITES_ENABLED=
+OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED=
 GOOGLE_ADS_DEVELOPER_TOKEN=
 GOOGLE_ADS_CLIENT_ID=
 GOOGLE_ADS_CLIENT_SECRET=
@@ -296,6 +297,16 @@ ENABLE_BUDGET_PACING_ALERTS=
 > `lib/meta/thumbnail-proxy-server.ts`) now routes through this helper; a
 > regression-guard test (`lib/meta/__tests__/video-thumbnail-cache-guard.test.ts`)
 > greps the tree to keep it that way.
+
+> **`OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED`** must be exactly `"true"`
+> to POST a custom audience onto a live ad set from the Published library
+> (`lib/meta/adset-targeting-write.ts`). Unset or any other value leaves
+> the control visible and disabled, and the apply route returns 403 with
+> no Graph POST. The write is a read of the whole `targeting` object, a
+> change to `custom_audiences` or `excluded_custom_audiences` only, then a
+> write-back. It is recorded on `meta_write_idempotency` as
+> `adset_targeting_update` (migration 178). It is not an optimisation
+> budget/pause write and it does not run through the launch route.
 
 > **`ENABLE_OPTIMISATION_AUTOMATION`** (task #120) must be set to `"1"` in
 > Vercel prod env vars to activate `/api/cron/optimisation-tick` (every 4h).
