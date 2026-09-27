@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 986
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/986
 - **Branch:** `cursor/community-alias-repoint`
 
 ## Summary
