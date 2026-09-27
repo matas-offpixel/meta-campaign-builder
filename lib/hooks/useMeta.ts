@@ -1520,10 +1520,12 @@ export interface LocationSearchResult {
   key: string;
   name: string;
   type: string;
-  country_code: string;
-  country_name: string;
-  region: string;
+  country_code?: string;
+  country_name?: string;
+  region?: string;
   region_id?: number;
+  /** ISO codes on a country_group hit. */
+  country_codes?: string[];
 }
 
 export function useLocationSearch(): {
@@ -1553,7 +1555,7 @@ export function useLocationSearch(): {
     timerRef.current = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/meta/location-search?q=${encodeURIComponent(query.trim())}&types=city,region,country`,
+          `/api/meta/location-search?q=${encodeURIComponent(query.trim())}&types=city,region,country,country_group`,
         );
         const json = (await res.json()) as {
           data?: LocationSearchResult[];

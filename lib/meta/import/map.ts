@@ -47,8 +47,14 @@ const HANDLED_GEO = new Set<string>([
   "cities",
   "countries",
   "regions",
+  "country_groups",
   ...META_IMPORT_UNCARRIABLE_TARGETING_FIELDS,
 ]);
+
+export type CountryGroupLabel = {
+  name: string;
+  countryCodes?: string[];
+};
 
 export type MetaAudienceAvailability = {
   id: string;
@@ -77,6 +83,12 @@ export type MapMetaLiveCampaignInput = {
    * Single and are named on `dropped`.
    */
   imageSizes?: Readonly<Record<string, { width: number; height: number }>>;
+  /**
+   * Names for country-group keys, from a location search the caller already
+   * ran. This mapper does not call Meta. A missing name keeps the key and
+   * is flagged `label_unresolved`.
+   */
+  countryGroupLabels?: Readonly<Record<string, CountryGroupLabel>>;
 };
 
 export const META_IMPORT_CARRY_KEY_REJECTED = "carry_key_rejected";
@@ -244,6 +256,29 @@ function regionSelection(
   };
 }
 
+function countryGroupSelection(
+  key: string,
+  label: string,
+  id: string,
+  mode: "include" | "exclude",
+  memberCountryCodes: string[] | undefined,
+): LocationSelection {
+  return {
+    id,
+    source: "search",
+    label,
+    mode,
+    locationType: "country_group",
+    locationKey: key,
+    memberCountryCodes,
+  };
+}
+
+function countryGroupKey(raw: unknown): string | null {
+  if (typeof raw === "string") return raw.trim() || null;
+  return str(asRecord(raw)?.key);
+}
+
 type GeoBucket = {
   groups: Map<string, LocationTargetingGroup>;
   pool: Map<string, LocationSelection>;
@@ -261,6 +296,7 @@ function readGeo(
   dropped: MetaImportDropped[],
   ctx: { adSetId?: string; adSetName?: string },
   mode: "include" | "exclude",
+  countryGroupLabels: Readonly<Record<string, CountryGroupLabel>> | undefined,
 ): string[] {
   if (!geo) return [];
   dropUncarriable(dropped, geo, ctx);
@@ -307,6 +343,28 @@ function readGeo(
       ensureGroup(bucket, id, name, regionSelection(key, name, id, "include"));
     } else if (!bucket.pool.has(id)) {
       bucket.pool.set(id, regionSelection(key, name, id, "exclude"));
+    }
+    ids.push(id);
+  }
+
+  for (const raw of Array.isArray(geo.country_groups) ? geo.country_groups : []) {
+    const key = countryGroupKey(raw);
+    if (!key) {
+      drop(dropped, "country_groups", raw, ctx);
+      continue;
+    }
+    const lookedUp = countryGroupLabels?.[key];
+    const objectName = str(asRecord(raw)?.name);
+    const name = lookedUp?.name || objectName;
+    if (!name) drop(dropped, "label_unresolved", key, ctx);
+    const label = name ?? key;
+    const memberCountryCodes = lookedUp?.countryCodes;
+    const id = `${mode === "exclude" ? "excl:" : ""}country_group:${key}`;
+    const selection = countryGroupSelection(key, label, id, mode, memberCountryCodes);
+    if (mode === "include") {
+      ensureGroup(bucket, id, label, selection);
+    } else if (!bucket.pool.has(id)) {
+      bucket.pool.set(id, selection);
     }
     ids.push(id);
   }
@@ -570,13 +628,14 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     }
 
     const geo = asRecord(targeting.geo_locations);
-    const locationGroupIds = readGeo(geo, bucket, dropped, ctx, "include");
+    const locationGroupIds = readGeo(geo, bucket, dropped, ctx, "include", input.countryGroupLabels);
     const excludedLocationIds = readGeo(
       asRecord(targeting.excluded_geo_locations),
       bucket,
       dropped,
       ctx,
       "exclude",
+      input.countryGroupLabels,
     );
 
     const ageMin = num(targeting.age_min);

@@ -328,6 +328,86 @@ describe("DHB capture", () => {
     });
   });
 
+  describe("country groups", () => {
+    it("keeps country ad sets as countries and round-trips europe as a group key", async () => {
+      const draft = importDraft(await bundlePromise);
+      const groups = draft.budgetSchedule.locationGroups ?? [];
+
+      for (const name of ["DHB Primary – EU", "Wide – EU"]) {
+        const row = draft.adSetSuggestions.find((item) => item.name === name);
+        assert.ok(row, name);
+        const selected = groups.filter((group) => row.locationGroupIds?.includes(group.id));
+        assert.equal(selected.length, 1, name);
+        const sel = selected[0]?.selections[0];
+        assert.equal(sel?.locationType, "country_group");
+        assert.equal(sel?.locationKey, "europe");
+        assert.equal(sel?.countryCode, undefined);
+        assert.equal(sel?.label, "europe");
+        assert.equal(sel?.memberCountryCodes, undefined);
+      }
+
+      const unresolved = (draft.importMeta?.dropped ?? []).filter((row) => row.field === "label_unresolved");
+      assert.deepEqual(
+        unresolved.map((row) => row.adSetName).sort(),
+        ["DHB Primary – EU", "Wide – EU"],
+      );
+      assert.ok(unresolved.every((row) => row.value === "europe"));
+      assert.equal(
+        (draft.importMeta?.dropped ?? []).some((row) => row.field === "country_groups"),
+        false,
+      );
+
+      const v2 = draft.adSetSuggestions.find((item) => item.name === "Wide – V2");
+      assert.ok(v2);
+      const v2Groups = groups.filter((group) => v2.locationGroupIds?.includes(group.id));
+      assert.deepEqual(
+        v2Groups.flatMap((group) => group.selections.map((sel) => [sel.locationType, sel.countryCode])),
+        [["country", "AE"]],
+      );
+    });
+
+    it("a label lookup names Europe and stores the member codes", async () => {
+      const bundle = await bundlePromise;
+      const draft = mapMetaLiveCampaign({
+        bundle,
+        adAccountId: ACCOUNT,
+        carry: defaultMetaImportCarry(buildMetaImportPicker(bundle)),
+        availability: [],
+        countryGroupLabels: { europe: { name: "Europe", countryCodes: ["GB", "FR"] } },
+      });
+      const row = draft.adSetSuggestions.find((item) => item.name === "Wide – EU");
+      assert.ok(row);
+      const group = (draft.budgetSchedule.locationGroups ?? []).find((item) =>
+        row.locationGroupIds?.includes(item.id),
+      );
+      const sel = group?.selections[0];
+      assert.equal(sel?.label, "Europe");
+      assert.equal(sel?.locationKey, "europe");
+      assert.deepEqual(sel?.memberCountryCodes, ["GB", "FR"]);
+      assert.equal(
+        (draft.importMeta?.dropped ?? []).some((item) => item.field === "label_unresolved"),
+        false,
+      );
+    });
+
+    it("an excluded country group lands in the exclusion pool", async () => {
+      const bundle = structuredClone(await bundlePromise);
+      const eu = bundle.adSets.find((row) => row.name === "Wide – EU");
+      assert.ok(eu);
+      const targeting = eu.targeting as { excluded_geo_locations?: { country_groups: string[] } };
+      targeting.excluded_geo_locations = { country_groups: ["eea"] };
+      const draft = importDraft(bundle);
+      const row = draft.adSetSuggestions.find((item) => item.name === "Wide – EU");
+      assert.deepEqual(row?.excludedLocationIds, ["excl:country_group:eea"]);
+      const pooled = (draft.budgetSchedule.excludedLocations ?? []).find(
+        (sel) => sel.locationKey === "eea",
+      );
+      assert.equal(pooled?.locationType, "country_group");
+      assert.equal(pooled?.mode, "exclude");
+      assert.equal(pooled?.label, "eea");
+    });
+  });
+
   describe("picker select all", () => {
     it("ticks every carriable row and no asset-less row; deselect clears", async () => {
       const picker = buildMetaImportPicker(await bundlePromise);

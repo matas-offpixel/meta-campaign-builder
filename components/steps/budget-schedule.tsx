@@ -54,6 +54,13 @@ import type {
 import { TIMEZONES } from "@/lib/mock-data";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { useLocationSearch, type LocationSearchResult } from "@/lib/hooks/useMeta";
+import {
+  EUROPE_EXCL_UK_PRESET,
+  EUROPE_PRESET,
+  matchPresetLocation,
+  selectionFromGeoResult,
+  type LocationPresetConfig,
+} from "@/lib/meta/location-search";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import { CalendarClock } from "lucide-react";
 import {
@@ -112,24 +119,7 @@ import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurfa
 // Presets are resolved at runtime via the same Meta location-search API
 // as manual searches, guaranteeing identical location objects.
 
-interface PresetConfig {
-  id: string;
-  short: string;
-  label: string;
-  steps: PresetSearchStep[];
-}
-
-interface PresetSearchStep {
-  query: string;
-  type: "city" | "country";
-  /** For city, match by country_code to avoid Oxnard-type ambiguity */
-  matchCountryCode?: string;
-  mode: "include" | "exclude";
-  radius?: number;
-  distanceUnit?: "kilometer" | "mile";
-}
-
-const PRESET_CONFIGS: PresetConfig[] = [
+const PRESET_CONFIGS: LocationPresetConfig[] = [
   {
     id: "preset_gb_nationwide",
     short: "UK",
@@ -153,6 +143,8 @@ const PRESET_CONFIGS: PresetConfig[] = [
       { query: "London", type: "city", matchCountryCode: "GB", mode: "exclude", radius: 40, distanceUnit: "kilometer" },
     ],
   },
+  EUROPE_PRESET,
+  EUROPE_EXCL_UK_PRESET,
 ];
 
 /** UK nationwide fallback (country-level, no API call needed) */
@@ -180,22 +172,8 @@ function searchResultToSelection(
   radius?: number,
   distanceUnit?: "kilometer" | "mile",
   source: "search" | "preset" = "search",
-): LocationSelection {
-  const label = [result.name, result.region, result.country_name]
-    .filter(Boolean)
-    .join(", ");
-
-  return {
-    id: `${result.type}_${result.key}_${mode}_${Date.now()}`,
-    source,
-    label,
-    mode,
-    locationType: result.type as "city" | "country" | "region",
-    locationKey: result.type !== "country" ? result.key : undefined,
-    countryCode: result.country_code || undefined,
-    radius: result.type === "city" ? (radius ?? 40) : undefined,
-    distanceUnit: result.type === "city" ? (distanceUnit ?? "kilometer") : undefined,
-  };
+): LocationSelection | null {
+  return selectionFromGeoResult(result, mode, radius, distanceUnit, source);
 }
 
 // Known-good London city key from Meta's location database.
@@ -206,11 +184,11 @@ const LONDON_VERIFIED_KEY = "2421178";
  * Resolve a preset via Meta location search so it produces the identical
  * LocationSelection objects as manual search. Returns null on failure.
  */
-async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGroup | null> {
+async function resolvePreset(config: LocationPresetConfig): Promise<LocationTargetingGroup | null> {
   const selections: LocationSelection[] = [];
 
   for (const step of config.steps) {
-    const typesParam = step.type === "country" ? "country" : "city";
+    const typesParam = step.type;
     const res = await fetch(
       `/api/meta/location-search?q=${encodeURIComponent(step.query)}&types=${typesParam}`,
     );
@@ -235,9 +213,7 @@ async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGro
       return null;
     }
 
-    let match = step.matchCountryCode
-      ? json.data.find((r) => r.country_code === step.matchCountryCode && r.type === step.type)
-      : json.data[0];
+    let match = matchPresetLocation(step, json.data ?? []);
 
     // Fallback: if Meta search didn't return a GB London city, use verified key
     if (!match && step.query === "London" && step.type === "city" && step.matchCountryCode === "GB") {
@@ -268,9 +244,9 @@ async function resolvePreset(config: PresetConfig): Promise<LocationTargetingGro
       match = { ...match, key: LONDON_VERIFIED_KEY };
     }
 
-    selections.push(
-      searchResultToSelection(match, step.mode, step.radius, step.distanceUnit, "preset"),
-    );
+    const selection = searchResultToSelection(match, step.mode, step.radius, step.distanceUnit, "preset");
+    if (!selection) return null;
+    selections.push(selection);
   }
 
   return { id: config.id, label: config.label, source: "preset", selections };
@@ -326,6 +302,7 @@ function LocationPicker({
 
   const addFromSearch = (result: LocationSearchResult) => {
     const selection = searchResultToSelection(result, addMode, addRadius);
+    if (!selection) return;
     if (addMode === "exclude") {
       onExclusionsChange([...exclusions, selection]);
       setSearchQuery("");
@@ -343,7 +320,7 @@ function LocationPicker({
     locationSearch.clear();
   };
 
-  const togglePreset = useCallback(async (config: PresetConfig) => {
+  const togglePreset = useCallback(async (config: LocationPresetConfig) => {
     const existing = groups.find((g) => g.id === config.id);
     if (existing) {
       onChange(groups.filter((g) => g.id !== config.id));
@@ -389,6 +366,7 @@ function LocationPicker({
       case "city": return "City";
       case "region": return "Region";
       case "country": return "Country";
+      case "country_group": return "Group";
       default: return t;
     }
   };
@@ -409,6 +387,7 @@ function LocationPicker({
                 key={config.id}
                 type="button"
                 disabled={resolving}
+                title={config.title}
                 onClick={() => togglePreset(config)}
                 className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors
                   ${active
@@ -437,7 +416,7 @@ function LocationPicker({
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search cities, regions, countries…"
+              placeholder="Search cities, regions, countries, groups…"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="w-full rounded-md border border-border bg-card py-2 pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none"

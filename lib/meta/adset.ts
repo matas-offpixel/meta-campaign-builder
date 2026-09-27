@@ -72,6 +72,8 @@ export interface MetaGeoLocations {
   countries?: string[];
   cities?: { key: string; radius?: number; distance_unit?: "mile" | "kilometer" }[];
   regions?: { key: string }[];
+  /** Meta country-group keys, the same shape as `countries`. */
+  country_groups?: string[];
 }
 
 /**
@@ -369,7 +371,12 @@ export function buildMetaTargeting(
     throw new Error(`Ad set "${adSet.name}" has no included locations — refusing to default it to UK nationwide.`);
   }
   const geoLocations: MetaGeoLocations = rawGeo
-    ? { countries: rawGeo.countries, cities: rawGeo.cities, regions: rawGeo.regions }
+    ? {
+        countries: rawGeo.countries,
+        cities: rawGeo.cities,
+        regions: rawGeo.regions,
+        ...(rawGeo.country_groups?.length ? { country_groups: rawGeo.country_groups } : {}),
+      }
     : { countries: ["GB"] };
 
   // Blank ad sets always run Advantage+ Audience — there's no manual
