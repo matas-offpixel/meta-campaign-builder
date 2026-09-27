@@ -316,18 +316,46 @@ describe("import save", () => {
 });
 
 describe("importer writes nothing to Meta", () => {
-  it("has no write helper and no location search", () => {
+  const write =
+    /\b(createMeta[A-Za-z]+|createLookalikeAudience|createEngagementAudience|graphPost[A-Za-z]*)\s*\(/;
+
+  it("has no write helper", () => {
     const files = [
       ...collectTs(IMPORT_ROOT),
       join(HERE, "../../../../app/api/meta/campaigns/import/route.ts"),
     ];
-    const write =
-      /\b(createMeta[A-Za-z]+|createLookalikeAudience|createEngagementAudience|graphPost[A-Za-z]*)\s*\(/;
     for (const file of files) {
       const source = readFileSync(file, "utf8");
       assert.equal(write.test(source), false, file);
-      assert.equal(source.includes("location-search"), false, file);
       assert.equal(source.includes("fetchAdSetsForCampaign"), false, file);
     }
+  });
+
+  it("uses location search only in save.ts, as a country-group name lookup", () => {
+    const files = [
+      ...collectTs(IMPORT_ROOT),
+      join(HERE, "../../../../app/api/meta/campaigns/import/route.ts"),
+    ];
+    const save = join(IMPORT_ROOT, "save.ts");
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      if (!source.includes("location-search")) continue;
+      assert.equal(file, save, `${file} must not reach location search`);
+      const imports = [
+        ...source.matchAll(/import\s*\{([^}]*)\}\s*from\s*"([^"]*location-search[^"]*)"/g),
+      ];
+      assert.equal(imports.length, 1, file);
+      assert.equal(imports[0]![2], "../location-search.ts");
+      assert.deepEqual(
+        imports[0]![1]!.split(",").map((name) => name.trim()).filter(Boolean).sort(),
+        ["locationSearchQuery", "parseLocationSearchHits"],
+      );
+      assert.equal(source.split("location-search").length - 1, 1, "only the import names it");
+      assert.match(source, /locationSearchQuery\(\s*key\s*,\s*\["country_group"\]\s*\)/);
+    }
+
+    const helper = readFileSync(join(HERE, "../../location-search.ts"), "utf8");
+    assert.equal(write.test(helper), false);
+    assert.equal(/\bfetch\s*\(/.test(helper), false);
   });
 });
