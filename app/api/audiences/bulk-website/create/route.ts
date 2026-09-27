@@ -39,6 +39,8 @@ interface BulkWebsiteCreateBody {
   urlKeywords?: unknown;
   retentions?: unknown;
   createOnMeta?: unknown;
+  /** Single-cell override. The matrix omits it and keeps generated names. */
+  name?: unknown;
 }
 
 interface CellResultSuccess {
@@ -97,6 +99,10 @@ export async function POST(req: NextRequest) {
       retentions: parsed.retentions,
     };
     const preview = buildWebsitePreview(sourceOpts);
+    const nameOverride = typeof body?.name === "string" ? body.name.trim() : "";
+    if (nameOverride && preview.cells.length === 1) {
+      preview.cells[0] = { ...preview.cells[0]!, name: nameOverride };
+    }
 
     const inserts = websitePreviewToInserts(preview, {
       userId: user.id,

@@ -562,7 +562,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(typeof rule.inclusions.rules[0].retention_seconds, "number");
     assert.equal(rule.inclusions.rules[0].filter.operator, "and");
     const filters = rule.inclusions.rules[0].filter.filters;
-    assert.equal(filters.length, 2, "OR-group + trailing empty filter");
+    assert.equal(filters.length, 3, "OR-group + trailing empty filter + event");
     const urlGroup = filters[0] as UrlOrGroupWithTemplate;
     assert.equal(urlGroup.operator, "or");
     assert.equal(urlGroup.template, "VISITORS_BY_URL");
@@ -573,6 +573,10 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(trailing.field, "url");
     assert.equal(trailing.operator, "i_contains");
     assert.equal(trailing.value, "");
+    const event = filters[2] as EventLeaf;
+    assert.equal(event.field, "event");
+    assert.equal(event.operator, "eq");
+    assert.equal(event.value, "PageView");
   });
 
   it("website pixel multi-URL: OR group + trailing empty, values unchanged", () => {
@@ -590,7 +594,7 @@ describe("buildMetaCustomAudiencePayload", () => {
     );
     const rule = JSON.parse(payload.rule) as EngagementRuleShape;
     const filters = rule.inclusions.rules[0].filter.filters;
-    assert.equal(filters.length, 2);
+    assert.equal(filters.length, 3);
     const urlGroup = filters[0] as UrlOrGroupWithTemplate;
     assert.equal(urlGroup.operator, "or");
     assert.equal(urlGroup.template, "VISITORS_BY_URL");
@@ -602,6 +606,9 @@ describe("buildMetaCustomAudiencePayload", () => {
     const trailing = filters[1] as EventLeaf;
     assert.equal(trailing.field, "url");
     assert.equal(trailing.value, "");
+    const event = filters[2] as EventLeaf;
+    assert.equal(event.field, "event");
+    assert.equal(event.value, "ViewContent");
   });
 
   it("website pixel https:// is NOT stripped from URL values (Meta stores scheme)", () => {
@@ -647,6 +654,57 @@ describe("buildMetaCustomAudiencePayload", () => {
     assert.equal(only.field, "event");
     assert.equal(only.operator, "eq");
     assert.equal(only.value, "PageView");
+  });
+
+  it("each funnel event is the event filter value, with no event_name key", () => {
+    const events = [
+      "PageView",
+      "ViewContent",
+      "InitiateCheckout",
+      "Purchase",
+      "Lead",
+      "CompleteRegistration",
+    ] as const;
+    for (const pixelEvent of events) {
+      const payload = buildMetaCustomAudiencePayload(
+        audience({
+          audienceSubtype: "website_pixel",
+          retentionDays: 180,
+          sourceId: "111",
+          sourceMeta: { subtype: "website_pixel", pixelEvent },
+        }),
+      );
+      const rule = JSON.parse(payload.rule) as EngagementRuleShape;
+      assert.equal(rule.inclusions.rules[0].retention_seconds, 180 * 86_400);
+      const only = rule.inclusions.rules[0].filter.filters[0] as EventLeaf;
+      assert.equal(only.field, "event");
+      assert.equal(only.value, pixelEvent);
+      assert.equal(JSON.stringify(rule).includes("event_name"), false);
+    }
+  });
+
+  it("Purchase / 180d / URL contains keeps the URL group and names the event", () => {
+    const payload = buildMetaCustomAudiencePayload(
+      audience({
+        name: "[NX26-SCHAK] Purchase 180d",
+        audienceSubtype: "website_pixel",
+        retentionDays: 180,
+        sourceId: "111222333",
+        sourceMeta: {
+          subtype: "website_pixel",
+          pixelEvent: "Purchase",
+          urlContains: ["https://www.schak-newcastle.com/"],
+        },
+      }),
+    );
+    const rule = JSON.parse(payload.rule) as EngagementRuleShape;
+    const filters = rule.inclusions.rules[0].filter.filters;
+    assert.equal(rule.inclusions.rules[0].retention_seconds, 15_552_000);
+    const urlGroup = filters[0] as UrlOrGroupWithTemplate;
+    assert.equal(urlGroup.template, "VISITORS_BY_URL");
+    assert.equal(urlGroup.filters[0].value, "https://www.schak-newcastle.com/");
+    const event = filters[2] as EventLeaf;
+    assert.deepEqual(event, { field: "event", operator: "eq", value: "Purchase" });
   });
 });
 

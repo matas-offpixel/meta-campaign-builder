@@ -176,7 +176,13 @@ export function AudiencesStep({
         </div>
       </TabPanel>
       <TabPanel active={activeTab === "custom"}>
-        <CustomAudiencesPanel groups={audiences.customAudienceGroups} onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })} adAccountId={adAccountId} />
+        <CustomAudiencesPanel
+          groups={audiences.customAudienceGroups}
+          onChange={(customAudienceGroups) => onChange({ ...audiences, customAudienceGroups })}
+          adAccountId={adAccountId}
+          clientId={clientId}
+          campaignName={campaignName}
+        />
       </TabPanel>
       <TabPanel active={activeTab === "offpixel_custom"}>
         {clientId ? (
