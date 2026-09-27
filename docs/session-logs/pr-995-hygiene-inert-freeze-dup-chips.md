@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 995
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/995
 - **Branch:** `cursor/hygiene-inert-freeze-dup-chips`
 
 ## Summary
