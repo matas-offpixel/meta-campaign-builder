@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 996
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/996
 - **Branch:** `cursor/searchable-selects-tiktok-google`
 
 ## Summary
