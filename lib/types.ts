@@ -439,6 +439,12 @@ export interface CustomAudienceGroup {
    * before this field existed load without it and render the id.
    */
   audienceNames?: Record<string, string>;
+  /**
+   * Meta ids added from the creator that are still filling. Meta takes
+   * minutes to hours. Not polled — launch treats operation_status 441 as
+   * available (lib/audiences/ca-availability-recovery.ts).
+   */
+  populatingAudienceIds?: string[];
   /** When true, lookalike ad sets will be created from this group's audiences at launch */
   lookalike?: boolean;
   /** Lookalike percentage tiers to create ad sets for (e.g. ["0-1%", "1-2%"]) */

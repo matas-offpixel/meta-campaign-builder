@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ChevronDown, ChevronUp, XCircle, Loader2, Download, Shuffle } from "lucide-react";
 import type { CustomAudienceGroup, CustomAudience, LookalikeRange } from "@/lib/types";
 import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
+import { NewAudienceControl } from "./new-audience-control";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
 import { pageDerivedBadge } from "@/lib/meta/import/page-audiences";
 
@@ -17,6 +18,10 @@ interface CustomAudiencesPanelProps {
   groups: CustomAudienceGroup[];
   onChange: (groups: CustomAudienceGroup[]) => void;
   adAccountId?: string;
+  clientId?: string;
+  campaignName?: string;
+  /** Server-known write flag. Omitted → the control asks /api/audiences/writes-enabled. */
+  writesEnabled?: boolean;
 }
 
 const TYPE_LABELS: Record<CustomAudience["type"], string> = {
@@ -50,7 +55,14 @@ function createEmptyGroup(): CustomAudienceGroup {
   };
 }
 
-export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAudiencesPanelProps) {
+export function CustomAudiencesPanel({
+  groups,
+  onChange,
+  adAccountId,
+  clientId,
+  campaignName,
+  writesEnabled,
+}: CustomAudiencesPanelProps) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(groups[0]?.id ?? null);
   const [searchByGroup, setSearchByGroup] = useState<Record<string, string>>({});
   const [typeFilterByGroup, setTypeFilterByGroup] = useState<Record<string, CustomAudience["type"] | null>>({});
@@ -153,6 +165,19 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
               <button type="button" onClick={() => setConfirmClearAll(false)} className="text-xs text-muted-foreground hover:underline">Cancel</button>
             </div>
           )}
+          <NewAudienceControl
+            writesEnabled={writesEnabled}
+            adAccountId={adAccountId}
+            clientId={clientId}
+            campaignName={campaignName}
+            groups={groups}
+            selectedGroupId={expandedGroupId}
+            onAttached={(next, groupId) => {
+              onChange(next);
+              setExpandedGroupId(groupId);
+            }}
+            onCreated={caState.noteCreated}
+          />
           <Button size="sm" onClick={addGroup}>
             <Plus className="h-3.5 w-3.5" />
             New Group
@@ -339,6 +364,9 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                             onChange={() => toggleAudience(group.id, audience.id)}
                           />
                           <span className="flex-1 text-sm">{audience.name}</span>
+                          {group.populatingAudienceIds?.includes(audience.id) ? (
+                            <Badge variant="warning">populating</Badge>
+                          ) : null}
                           <Badge variant={TYPE_BADGE_VARIANT[audience.type]}>
                             {TYPE_LABELS[audience.type]}
                           </Badge>
@@ -362,6 +390,9 @@ export function CustomAudiencesPanel({ groups, onChange, adAccountId }: CustomAu
                         return (
                           <Badge key={id} variant="primary" onRemove={() => toggleAudience(group.id, id)}>
                             {label}
+                            {group.populatingAudienceIds?.includes(id) ? (
+                              <span className="ml-1 font-normal opacity-80">populating</span>
+                            ) : null}
                             {derived ? <span className="ml-1 font-normal opacity-80">{derived}</span> : null}
                           </Badge>
                         );

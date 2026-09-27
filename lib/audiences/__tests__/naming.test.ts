@@ -82,6 +82,18 @@ describe("buildAudienceName", () => {
     assert.equal(name, "[WC26-MANCHESTER] pixel 30d");
   });
 
+  it("pixel event replaces the generic pixel phrase", () => {
+    const name = buildAudienceName({
+      scope: "event",
+      client,
+      event: { eventCode: "NX26-SCHAK", name: "SCHAK On Sale" },
+      subtype: "website_pixel",
+      retentionDays: 180,
+      pixelEvent: "Purchase",
+    });
+    assert.equal(name, "[NX26-SCHAK] Purchase 180d");
+  });
+
   it("client-scoped FB engagement uses client slug", () => {
     const name = buildAudienceName({
       scope: "client",
