@@ -56,6 +56,11 @@ References/
 # supabase CLI scratch (linked-project metadata, gen-types cache)
 supabase/.temp/
 
+# Agent worktree checkouts. These live INSIDE the repo, so a `git add -A`
+# from the repo root commits them as mode-160000 gitlinks — which is how
+# 89d834e (#875) landed two broken submodule entries on main. Never track.
+.claude/worktrees/
+
 # scripts/repair-video-thumbnails.mjs resumability checkpoint (task #128) —
 # local run state, never shared across machines/operators.
 scripts/.repair-video-thumbnails-checkpoint.json
