@@ -31,6 +31,34 @@ export function pageDerivedBadge(name: string | null | undefined): string | null
   return `page-derived · ${parsed.page}`;
 }
 
+export type CustomAudienceChip = { id: string; label: string; derived: string | null };
+
+/**
+ * One chip per selected id. Meta lets two audiences share a name (a
+ * re-launch writes a fresh `${page}  IG Followers`), so a name held by
+ * more than one id carries the id, or the chips read as a duplicate.
+ */
+export function customAudienceChips(
+  ids: readonly string[],
+  nameOf: (id: string) => string | null | undefined,
+): CustomAudienceChip[] {
+  const names = ids.map((id) => nameOf(id) || null);
+  const holders = new Map<string, Set<string>>();
+  ids.forEach((id, index) => {
+    const name = names[index];
+    if (!name) return;
+    const set = holders.get(name) ?? new Set<string>();
+    set.add(id);
+    holders.set(name, set);
+  });
+  return ids.map((id, index) => {
+    const name = names[index];
+    if (!name) return { id, label: id, derived: null };
+    const shared = (holders.get(name)?.size ?? 0) > 1;
+    return { id, label: shared ? `${name} · ${id}` : name, derived: pageDerivedBadge(name) };
+  });
+}
+
 /**
  * How many distinct custom audiences carry a page-derived badge.
  * The Pages tab says this when an imported draft has no page groups:

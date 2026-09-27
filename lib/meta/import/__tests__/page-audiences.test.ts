@@ -7,8 +7,10 @@ import { describe, it } from "node:test";
 import { migrateDraft } from "../../../autosave.ts";
 import { generateSuggestions } from "../../../wizard/generate-adset-suggestions.ts";
 import { mergeGeneratedWithImported } from "../../../wizard/import-edits.ts";
+import { buildMetaTargeting } from "../../adset.ts";
 import { mapMetaLiveCampaign } from "../map.ts";
 import {
+  customAudienceChips,
   importedPageDerivedSentence,
   pageDerivedBadge,
   pageDerivedFromName,
@@ -100,6 +102,31 @@ describe("page-derived names", () => {
   });
 });
 
+describe("custom audience chips", () => {
+  it("adds the id only where two ids share a name, and falls back to the id", () => {
+    const names: Record<string, string> = {
+      "1111111111": "Fans",
+      "2222222222": "Fans",
+      "3333333333": "Buyers",
+    };
+    assert.deepEqual(
+      customAudienceChips(["1111111111", "2222222222", "3333333333", "4444444444"], (id) => names[id]),
+      [
+        { id: "1111111111", label: "Fans · 1111111111", derived: null },
+        { id: "2222222222", label: "Fans · 2222222222", derived: null },
+        { id: "3333333333", label: "Buyers", derived: null },
+        { id: "4444444444", label: "4444444444", derived: null },
+      ],
+    );
+  });
+
+  it("the Selected chips use customAudienceChips, keyed by id", () => {
+    const panel = readFileSync(join(HERE, "../../../../components/steps/audiences/custom-audiences-panel.tsx"), "utf8");
+    assert.match(panel, /customAudienceChips\(\s*group\.audienceIds/);
+    assert.match(panel, /<Badge key=\{id\} variant="primary"/);
+  });
+});
+
 function customAudiences(adSet: MetaLiveCampaignBundle["adSets"][number]) {
   const targeting = adSet.targeting as { custom_audiences?: { id?: string }[] };
   return (targeting.custom_audiences ?? []).flatMap((row) => (row.id ? [row.id] : []));
@@ -182,6 +209,64 @@ describe("DHB audiences stay as the ad set targeted them", () => {
       bundle.adSets.length,
     );
     assert.equal(merged.some((row) => row.sourceType === "page_group"), false);
+  });
+
+  it("DHB Primary – USA holds ten ids once each, four pairs sharing a name", async () => {
+    const bundle = await dhbBundle();
+    const draft = mapMetaLiveCampaign({
+      bundle,
+      adAccountId: ACCOUNT,
+      carry: [],
+      availability: allAvailable(bundle),
+    });
+
+    for (const group of draft.audiences.customAudienceGroups) {
+      assert.equal(new Set(group.audienceIds).size, group.audienceIds.length, group.name);
+    }
+
+    const adSet = bundle.adSets.find((row) => row.name === "DHB Primary – USA");
+    assert.ok(adSet);
+    assert.equal(adSet.id, "120249960783160453");
+    const raw = customAudiences(adSet);
+    assert.equal(raw.length, 10);
+    assert.equal(new Set(raw).size, 10);
+
+    const group = draft.audiences.customAudienceGroups.find((row) => row.id === `custom:${adSet.id}`);
+    assert.ok(group);
+    assert.deepEqual([...group.audienceIds].sort(), [...raw].sort());
+
+    const pairs: [string, string, string][] = [
+      ["Ahmed Spins  IG Followers", "120249428134610453", "120249955627300453"],
+      ["Ahmed Spins  IG Engagement 365d", "120249428134740453", "120249955627560453"],
+      ["Deep House Bible  IG Followers", "120249428143410453", "120249955628440453"],
+      ["Deep House Bible  IG Engagement 365d", "120249428143720453", "120249955628580453"],
+    ];
+    for (const [name, first, second] of pairs) {
+      assert.equal(group.audienceNames?.[first], name);
+      assert.equal(group.audienceNames?.[second], name);
+    }
+
+    const chips = customAudienceChips(group.audienceIds, (id) => group.audienceNames?.[id]);
+    assert.equal(chips.length, 10);
+    assert.equal(new Set(chips.map((chip) => chip.label)).size, 10);
+    for (const [name, first, second] of pairs) {
+      assert.equal(chips.find((chip) => chip.id === first)?.label, `${name} · ${first}`);
+      assert.equal(chips.find((chip) => chip.id === second)?.label, `${name} · ${second}`);
+    }
+    const unique = chips.find((chip) => chip.id === "120249428134180453");
+    assert.equal(unique?.label, "Ahmed Spins  FB Engagement 365d");
+    assert.equal(unique?.derived, "page-derived · Ahmed Spins");
+    assert.equal(
+      chips.find((chip) => chip.id === "120249955627300453")?.derived,
+      "page-derived · Ahmed Spins",
+    );
+
+    const suggestion = draft.adSetSuggestions.find((row) => row.importedFromAdSetId === adSet.id);
+    assert.ok(suggestion);
+    const sent = (buildMetaTargeting(suggestion, draft.audiences, draft.budgetSchedule.locationGroups).custom_audiences ?? [])
+      .map((row) => row.id);
+    assert.equal(sent.length, raw.length);
+    assert.deepEqual([...sent].sort(), [...raw].sort());
   });
 
   it("the Pages tab says the page-derived audiences stayed in Custom", () => {
