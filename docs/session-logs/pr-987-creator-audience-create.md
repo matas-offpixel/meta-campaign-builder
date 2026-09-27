@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 987
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/987
 - **Branch:** `cursor/creator-audience-create`
 
 ## Summary
