@@ -111,6 +111,7 @@ TIKTOK_APP_SECRET=
 TIKTOK_REDIRECT_URI=
 TIKTOK_TOKEN_KEY=
 TIKTOK_VIDEO_UPLOAD_MODE=
+META_VIDEO_UPLOAD_MODE=
 OFFPIXEL_TIKTOK_WRITES_ENABLED=
 OFFPIXEL_META_AUDIENCE_WRITES_ENABLED=
 OFFPIXEL_META_ADSET_TARGETING_WRITES_ENABLED=
@@ -170,6 +171,13 @@ ENABLE_BUDGET_PACING_ALERTS=
 > `/business-managers` + `docs/session-logs/pr-pending-ops-business-manager-asset-sync.md`.
 
 > **`FACEBOOK_OAUTH_SCOPES`** — optional comma-separated override for the Facebook OAuth dialog scope list (and the settings UI missing-permissions check); set on deployments whose Meta app cannot request `instagram_basic`.
+
+> **`META_VIDEO_UPLOAD_MODE`** — Storage-path video transport on
+> `POST /api/meta/upload-asset`. Default (unset) is `file_url`: the route
+> signs the object for 30 minutes and Meta downloads it. Set to `multipart`
+> or `UPLOAD_BY_FILE` to roll back to the route downloading the file and
+> posting it as `source`. Images always use that download path. A wrong
+> client SHA-256 only misses dedupe.
 
 > **`TIKTOK_VIDEO_UPLOAD_MODE`** — TikTok Asset Library upload transport
 > (`POST /api/tiktok/creative/upload`). Default `UPLOAD_BY_FILE` (multipart
