@@ -13,7 +13,8 @@ const MIN_LONG_EDGE = 640;
 const MAX_ATTEMPTS = 48;
 
 export interface CompressedUploadImage {
-  bytes: Uint8Array;
+  /** A standalone ArrayBuffer so `new File([bytes])` type-checks. */
+  bytes: ArrayBuffer;
   /** JPEG byte length after compression. Always ≤ MAX_IMAGE_BYTES. */
   byteLength: number;
 }
@@ -24,6 +25,12 @@ export interface CompressedUploadImage {
  * scale down with the original aspect ratio until the file fits or the long
  * edge hits {@link MIN_LONG_EDGE}.
  */
+function copyToArrayBuffer(buf: Buffer): ArrayBuffer {
+  const copy = new ArrayBuffer(buf.length);
+  new Uint8Array(copy).set(buf);
+  return copy;
+}
+
 export async function compressUploadImage(input: Uint8Array): Promise<CompressedUploadImage> {
   const source = Buffer.from(input);
   const meta = await sharp(source, { failOn: "none" }).metadata();
@@ -44,7 +51,7 @@ export async function compressUploadImage(input: Uint8Array): Promise<Compressed
     }
     const buf = await pipeline.jpeg({ quality }).toBuffer();
     if (buf.length <= MAX_IMAGE_BYTES) {
-      return { bytes: new Uint8Array(buf), byteLength: buf.length };
+      return { bytes: copyToArrayBuffer(buf), byteLength: buf.length };
     }
 
     if (quality - QUALITY_STEP >= QUALITY_FLOOR) {
