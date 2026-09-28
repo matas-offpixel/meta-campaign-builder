@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 999
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/999
 - **Branch:** `cursor/asset-queue-retry-requeue`
 
 ## Summary
@@ -19,9 +19,9 @@ Error rows in the asset queue only offered Skip, and skipped rows had no way bac
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build` (when applicable)
-- [ ] `npm test` (when applicable)
+- [x] `npm test` — 6445 tests, 6441 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 17.2s, TypeScript in 32.8s. The only warning is the known `render-reel` `export const config`.
+- [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
 
