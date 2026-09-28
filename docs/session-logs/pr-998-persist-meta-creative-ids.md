@@ -20,9 +20,9 @@ Launch built `updatedCreatives`, stamped `metaCreativeId` as Phase 3 created eac
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build` (when applicable)
-- [ ] `npm test` (when applicable)
+- [x] `npm test` — 6439 tests, 6435 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 18.5s, TypeScript in 32.7s. The only warning is the known `render-reel` `export const config`.
+- [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
 
