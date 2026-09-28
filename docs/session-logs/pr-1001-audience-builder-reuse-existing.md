@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1001
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1001
 - **Branch:** `cursor/audience-builder-reuse-existing`
 
 ## Summary
@@ -24,10 +24,9 @@ The picker GET is a field extension on the existing `GET /{adAccountId}/customau
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build` (when applicable)
-- [ ] `npm test` (when applicable)
-- [ ] CI
+- [x] `npm test` — 6444 tests, 6440 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 16.6s, TypeScript in 34.2s. The only warning is the known `render-reel` `export const config`.
+- [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
 
