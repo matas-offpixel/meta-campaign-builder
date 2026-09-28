@@ -12,7 +12,7 @@ import type { CustomAudienceGroup, CustomAudience, LookalikeRange } from "@/lib/
 import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
 import { NewAudienceControl } from "./new-audience-control";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
-import { pageDerivedBadge } from "@/lib/meta/import/page-audiences";
+import { customAudienceChips } from "@/lib/meta/import/page-audiences";
 
 interface CustomAudiencesPanelProps {
   groups: CustomAudienceGroup[];
@@ -383,20 +383,18 @@ export function CustomAudiencesPanel({
                   <div>
                     <label className="mb-1.5 block text-sm font-medium">Selected ({group.audienceIds.length})</label>
                     <div className="flex flex-wrap gap-1.5">
-                      {group.audienceIds.map((id) => {
-                        const a = caState.data.find((ca) => ca.id === id);
-                        const label = a?.name ?? group.audienceNames?.[id] ?? id;
-                        const derived = pageDerivedBadge(label);
-                        return (
-                          <Badge key={id} variant="primary" onRemove={() => toggleAudience(group.id, id)}>
-                            {label}
-                            {group.populatingAudienceIds?.includes(id) ? (
-                              <span className="ml-1 font-normal opacity-80">populating</span>
-                            ) : null}
-                            {derived ? <span className="ml-1 font-normal opacity-80">{derived}</span> : null}
-                          </Badge>
-                        );
-                      })}
+                      {customAudienceChips(
+                        group.audienceIds,
+                        (id) => caState.data.find((ca) => ca.id === id)?.name ?? group.audienceNames?.[id],
+                      ).map(({ id, label, derived }) => (
+                        <Badge key={id} variant="primary" onRemove={() => toggleAudience(group.id, id)}>
+                          {label}
+                          {group.populatingAudienceIds?.includes(id) ? (
+                            <span className="ml-1 font-normal opacity-80">populating</span>
+                          ) : null}
+                          {derived ? <span className="ml-1 font-normal opacity-80">{derived}</span> : null}
+                        </Badge>
+                      ))}
                     </div>
                   </div>
                 )}
