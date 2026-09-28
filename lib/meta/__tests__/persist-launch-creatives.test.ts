@@ -41,15 +41,12 @@ describe("stampPublishedCreatives", () => {
         {
           name: "Feed",
           metaCreativeId: "meta-cr-feed",
-          ads: [
-            { adSetName: "UK", metaAdId: "ad-feed-1", durationMs: 11 },
-            { adSetName: "IE", metaAdId: "ad-feed-2", durationMs: 12 },
-          ],
+          ads: [{ metaAdId: "ad-feed-1" }, { metaAdId: "ad-feed-2" }],
         },
         {
           name: "Story",
           metaCreativeId: "meta-cr-story",
-          ads: [{ adSetName: "UK", metaAdId: "ad-story-1", durationMs: 9 }],
+          ads: [{ metaAdId: "ad-story-1" }],
         },
       ],
       new Map<string, string[]>([
