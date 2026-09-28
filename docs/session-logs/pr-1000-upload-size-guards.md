@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1000
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1000
 - **Branch:** `cursor/upload-size-guards`
 
 ## Summary
@@ -21,10 +21,10 @@ Creatives-slot uploads now decide locally before any request: images over 30 MB 
 
 ## Validation
 
-- [ ] `npx tsc --noEmit`
-- [ ] `npm run build` (when applicable)
-- [ ] `npm test` (when applicable)
+- [x] `npm test` — 6447 tests, 6443 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 16.4s, TypeScript in 34.8s. The only warning is the known `render-reel` `export const config`.
+- [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
 
-Route runtime is nodejs, so sharp is used for oversized images. `file_url` (`metaVideoUploadMode`, `uploadStoredVideoByUrl`, `downloadSignedStorageObject`) was not modified. No server-side video compression. No new dependency; sharp stays in devDependencies.
+Route runtime is nodejs, so sharp is used for oversized images. `file_url` (`metaVideoUploadMode`, `uploadStoredVideoByUrl`, `downloadSignedStorageObject`) was not modified. No server-side video compression. No new dependency; sharp stays in devDependencies. The slot notice and the compressed-size line are `StatusLine`s, because a raw paragraph fails the creator-surface chrome guard.
