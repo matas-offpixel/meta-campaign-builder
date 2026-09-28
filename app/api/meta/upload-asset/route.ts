@@ -12,7 +12,13 @@ import {
   MetaApiError,
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
-import { validateAssetFile, type AssetUploadType, type UploadAssetResult } from "@/lib/meta/upload";
+import { compressUploadImage } from "@/lib/meta/compress-upload-image";
+import {
+  validateAssetFile,
+  MAX_IMAGE_BYTES,
+  type AssetUploadType,
+  type UploadAssetResult,
+} from "@/lib/meta/upload";
 import { uploadStoredVideoByUrl } from "@/lib/meta/storage-video-by-url";
 import {
   META_STORAGE_FETCH_TTL_SECONDS,
@@ -230,8 +236,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       mimeType: file.type,
     });
 
-    // Step 3: validate
-    const { isValid, error: validationError } = validateAssetFile(file, type);
+    // Step 3: validate. Images over 30 MB stay on this path and are recompressed
+    // in the image branch below, before uploadImageAsset.
+    const { isValid, error: validationError } = validateAssetFile(
+      file,
+      type,
+      type === "image" ? { skipByteLimit: true } : undefined,
+    );
     if (!isValid) {
       // Clean up storage
       await storage.storage.from(storageBucket).remove([storagePath]).catch(() => {});
@@ -243,8 +254,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     if (type === "image") {
       try {
-        const { hash, url } = await uploadImageAsset(adAccountId, file, resolvedFileName, uploadToken);
-        const result: UploadAssetResult = { assetType: "image", url, hash, previewUrl: url };
+        let imageFile = file;
+        let compressedBytes: number | undefined;
+        if (imageFile.size > MAX_IMAGE_BYTES) {
+          const compressed = await compressUploadImage(bytes);
+          compressedBytes = compressed.byteLength;
+          const baseName = imageFile.name.replace(/\.[^.]+$/, "") || "upload";
+          imageFile = new File([compressed.bytes], `${baseName}.jpg`, { type: "image/jpeg" });
+        }
+        const { hash, url } = await uploadImageAsset(adAccountId, imageFile, imageFile.name, uploadToken);
+        const result: UploadAssetResult = {
+          assetType: "image",
+          url,
+          hash,
+          previewUrl: url,
+          ...(compressedBytes !== undefined ? { compressedBytes } : {}),
+        };
         console.log("[upload-asset] ✓ Image uploaded to Meta via storage path:", { hash, url });
         result.registryAssetId = await registerMetaUpload({
           supabase,
@@ -341,7 +366,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     uploadPath: "FormData → Meta (direct)",
   });
 
-  const { isValid, error: validationError } = validateAssetFile(file, type);
+  const { isValid, error: validationError } = validateAssetFile(
+    file,
+    type,
+    type === "image" ? { skipByteLimit: true } : undefined,
+  );
   if (!isValid) {
     console.warn("[upload-asset] validation failed:", validationError);
     return NextResponse.json({ error: validationError }, { status: 400 });
@@ -360,8 +389,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     let result: UploadAssetResult;
     if (type === "image") {
-      const { hash, url } = await uploadImageAsset(adAccountId, file, file.name, uploadToken);
-      result = { assetType: "image", url, hash, previewUrl: url };
+      let imageFile = file;
+      let compressedBytes: number | undefined;
+      if (imageFile.size > MAX_IMAGE_BYTES) {
+        const compressed = await compressUploadImage(bytes);
+        compressedBytes = compressed.byteLength;
+        const baseName = imageFile.name.replace(/\.[^.]+$/, "") || "upload";
+        imageFile = new File([compressed.bytes], `${baseName}.jpg`, { type: "image/jpeg" });
+      }
+      const { hash, url } = await uploadImageAsset(adAccountId, imageFile, imageFile.name, uploadToken);
+      result = {
+        assetType: "image",
+        url,
+        hash,
+        previewUrl: url,
+        ...(compressedBytes !== undefined ? { compressedBytes } : {}),
+      };
     } else {
       const { videoId, previewUrl } = await uploadVideoAsset(adAccountId, file, file.name, uploadToken);
       result = { assetType: "video", url: previewUrl ?? "", videoId, previewUrl };
