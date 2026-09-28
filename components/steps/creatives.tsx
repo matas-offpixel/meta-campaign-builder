@@ -2573,12 +2573,12 @@ function AssetSlot({
           </div>
         )}
         {uploadNotice ? (
-          <p className="absolute inset-x-1.5 bottom-1.5 z-10 text-center text-[10px] leading-snug text-foreground">{uploadNotice}</p>
+          <StatusLine className="absolute inset-x-1.5 bottom-1.5 z-10 text-center text-[10px] leading-snug text-foreground">{uploadNotice}</StatusLine>
         ) : null}
       </div>
 
       {compressedNote ? (
-        <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">{compressedNote}</p>
+        <StatusLine className="px-0.5 text-[10px] leading-snug text-muted-foreground">{compressedNote}</StatusLine>
       ) : null}
 
       {/* ── Footer: type badge + (video only) thumbnail-frame picker ── */}
