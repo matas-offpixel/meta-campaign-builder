@@ -173,11 +173,15 @@ ENABLE_BUDGET_PACING_ALERTS=
 > **`FACEBOOK_OAUTH_SCOPES`** — optional comma-separated override for the Facebook OAuth dialog scope list (and the settings UI missing-permissions check); set on deployments whose Meta app cannot request `instagram_basic`.
 
 > **`META_VIDEO_UPLOAD_MODE`** — Storage-path video transport on
-> `POST /api/meta/upload-asset`. Default (unset) is `file_url`: the route
-> signs the object for 30 minutes and Meta downloads it. Set to `multipart`
-> or `UPLOAD_BY_FILE` to roll back to the route downloading the file and
-> posting it as `source`. Images always use that download path. A wrong
-> client SHA-256 only misses dedupe.
+> `POST /api/meta/upload-asset`. Unset (the default) is multipart: the
+> route downloads the object and posts it as `source`, today's path. Set
+> to exactly `file_url` to sign the object for 30 minutes and let Meta
+> download it. The default flips to `file_url` after one live Bournemouth
+> upload is confirmed. When confirming, record: the `POST /act_{id}/advideos`
+> status and JSON keys, and which field holds the video id; `GET /{id}?fields=status`
+> timestamps until `video_status` is `ready`, including whether the first
+> GET errors; and when `picture` stops being the encoding placeholder.
+> Images always download. A wrong client SHA-256 only misses dedupe.
 
 > **`TIKTOK_VIDEO_UPLOAD_MODE`** — TikTok Asset Library upload transport
 > (`POST /api/tiktok/creative/upload`). Default `UPLOAD_BY_FILE` (multipart

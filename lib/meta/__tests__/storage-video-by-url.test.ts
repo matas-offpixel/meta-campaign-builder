@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { META_VIDEO_SIGNED_URL_TTL_SECONDS, metaVideoUploadMode, parseAdvideosId } from "../video-file-url.ts";
+import {
+  META_VIDEO_SIGNED_URL_TTL_SECONDS,
+  downloadSignedStorageObject,
+  metaVideoUploadMode,
+  parseAdvideosId,
+} from "../video-file-url.ts";
 import { uploadStoredVideoByUrl, type StorageVideoByUrlDeps } from "../storage-video-by-url.ts";
 
 const HASH = "ab".repeat(32);
@@ -116,16 +121,48 @@ describe("storage video by url", () => {
     const byUrl = readFileSync(new URL("../storage-video-by-url.ts", import.meta.url), "utf8");
     const fields = readFileSync(new URL("../video-file-url.ts", import.meta.url), "utf8");
     assert.match(route, /createSignedUrl\(storagePath, META_STORAGE_FETCH_TTL_SECONDS\)/);
-    assert.match(route, /videoBlob = await fileRes\.blob\(\)/);
+    assert.match(route, /downloadSignedStorageObject\(signedData\.signedUrl\)/);
     assert.match(route, /uploadImageAsset\(/);
     assert.match(route, /uploadVideoAsset\(/);
     assert.equal(byUrl.includes(".blob("), false);
     assert.equal(byUrl.includes("arrayBuffer("), false);
     assert.equal(byUrl.includes("new File("), false);
-    assert.equal(fields.includes(".blob("), false);
     assert.equal(fields.includes("arrayBuffer("), false);
-    assert.equal(metaVideoUploadMode(undefined), "file_url");
+    const fileUrlBranch = route.slice(route.indexOf('metaVideoUploadMode() === "file_url"'), route.indexOf("Step 1:"));
+    assert.equal(fileUrlBranch.includes("downloadSignedStorageObject"), false);
+    assert.equal(metaVideoUploadMode(undefined), "multipart");
+    assert.equal(metaVideoUploadMode(""), "multipart");
     assert.equal(metaVideoUploadMode("multipart"), "multipart");
-    assert.equal(metaVideoUploadMode("UPLOAD_BY_FILE"), "multipart");
+    assert.equal(metaVideoUploadMode("FILE_URL"), "multipart");
+    assert.equal(metaVideoUploadMode("file_url"), "file_url");
+  });
+
+  it("unset env fetches the signed URL; file_url does not", async () => {
+    assert.equal(metaVideoUploadMode(undefined), "multipart");
+    const downloads: string[] = [];
+    const blob = await downloadSignedStorageObject(SIGNED, async (input) => {
+      downloads.push(String(input));
+      return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+    });
+    assert.deepEqual(downloads, [SIGNED]);
+    assert.equal(blob.size, 4);
+
+    const graphCalls: string[] = [];
+    const { deps } = harness({
+      fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        graphCalls.push(url);
+        if (url.includes("supabase.co")) throw new Error(`file_url path fetched storage: ${url}`);
+        assert.equal(metaVideoUploadMode("file_url"), "file_url");
+        return new Response(JSON.stringify({ id: "vid_bournemouth" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }) as typeof fetch,
+    });
+    const result = await uploadStoredVideoByUrl(deps);
+    assert.equal(graphCalls.length, 1);
+    assert.equal(graphCalls.some((url) => url.includes("supabase.co")), false);
+    assert.equal(result.videoId, "vid_bournemouth");
   });
 });

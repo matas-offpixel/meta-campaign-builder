@@ -14,11 +14,16 @@ import {
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { validateAssetFile, type AssetUploadType, type UploadAssetResult } from "@/lib/meta/upload";
 import { uploadStoredVideoByUrl } from "@/lib/meta/storage-video-by-url";
-import { META_STORAGE_FETCH_TTL_SECONDS, StorageVideoInputError, metaVideoUploadMode } from "@/lib/meta/video-file-url";
+import {
+  META_STORAGE_FETCH_TTL_SECONDS,
+  StorageVideoInputError,
+  downloadSignedStorageObject,
+  metaVideoUploadMode,
+} from "@/lib/meta/video-file-url";
 
-// File-url videos return as soon as Meta accepts the URL, then this
-// function polls status. Multipart rollback of a large file still needs
-// the long budget. Vercel's default 10s (Hobby) / 60s (Pro) is too short.
+// file_url returns as soon as Meta accepts the URL, then this function
+// polls status. The multipart path (the default) of a large file still
+// needs the long budget. Vercel's default 10s (Hobby) / 60s (Pro) is too short.
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -101,8 +106,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       uploadPath: "Supabase Storage → Meta",
     });
 
-    // Videos let Meta pull the object. Images, and the multipart rollback,
-    // still download it below.
+    // file_url is opt-in. Unset keeps the download below.
     if (type === "video" && metaVideoUploadMode() === "file_url") {
       const token = uploadToken ?? process.env.META_ACCESS_TOKEN;
       if (!token) {
@@ -198,11 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Step 2: fetch the video from storage
     let videoBlob: Blob;
     try {
-      const fileRes = await fetch(signedData.signedUrl);
-      if (!fileRes.ok) {
-        throw new Error(`Storage fetch failed: HTTP ${fileRes.status}`);
-      }
-      videoBlob = await fileRes.blob();
+      videoBlob = await downloadSignedStorageObject(signedData.signedUrl);
     } catch (fetchErr) {
       console.error("[upload-asset] Failed to fetch from storage:", fetchErr);
       return NextResponse.json(

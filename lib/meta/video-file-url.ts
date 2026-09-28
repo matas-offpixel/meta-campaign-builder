@@ -30,15 +30,26 @@ export const DEFAULT_VIDEO_STATUS_DELAYS_MS = [0, 2_000, 5_000, 10_000, 10_000, 
 export type MetaVideoUploadMode = "file_url" | "multipart";
 
 /**
- * Default is `file_url` (Meta pulls). `multipart` or `UPLOAD_BY_FILE` is
- * the rollback: the route downloads the object and posts it as `source`.
+ * Unset is multipart: the route downloads the object and posts `source`,
+ * today's path. `file_url` runs only when the env var is exactly that.
+ * The default flips to `file_url` after one live Bournemouth upload.
  */
 export function metaVideoUploadMode(
   raw = process.env.META_VIDEO_UPLOAD_MODE,
 ): MetaVideoUploadMode {
-  const value = raw?.trim();
-  if (value === "multipart" || value === "UPLOAD_BY_FILE") return "multipart";
-  return "file_url";
+  return raw?.trim() === "file_url" ? "file_url" : "multipart";
+}
+
+/** The multipart path. Same request the route used to make inline. */
+export async function downloadSignedStorageObject(
+  signedUrl: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Blob> {
+  const fileRes = await fetchImpl(signedUrl);
+  if (!fileRes.ok) {
+    throw new Error(`Storage fetch failed: HTTP ${fileRes.status}`);
+  }
+  return fileRes.blob();
 }
 
 export function videoMimeFromName(fileName: string, contentType?: string | null): string {

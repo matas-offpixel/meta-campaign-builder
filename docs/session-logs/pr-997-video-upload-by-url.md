@@ -8,13 +8,13 @@
 
 ## Summary
 
-`POST /api/meta/upload-asset` was downloading a Storage video into the function (`blob()`, then `arrayBuffer()`, then a multipart POST to Meta). A 140 MB file died with HTTP 500. Storage-path videos now sign the object for 30 minutes and `POST /act_{id}/advideos` with `file_url`, so Meta downloads it. The route does not fetch that URL. Images, and `META_VIDEO_UPLOAD_MODE=multipart`, still download the object.
+`POST /api/meta/upload-asset` was downloading a Storage video into the function (`blob()`, then `arrayBuffer()`, then a multipart POST to Meta). A 140 MB file died with HTTP 500. The `file_url` path signs the object for 30 minutes and lets Meta download it, and it does not fetch that URL. It is opt-in: `META_VIDEO_UPLOAD_MODE` unset stays on the multipart download. `file_url` runs only when the env var is exactly `file_url`. The default flips after one live Bournemouth upload is confirmed.
 
 ## Scope / files
 
-- `lib/meta/video-file-url.ts` — mode (default `file_url`; `multipart` / `UPLOAD_BY_FILE` is the rollback), 1800 s TTL, request body (`file_url`, `name`, `title`, `thumb_offset`), id parser, `video_status` wait.
+- `lib/meta/video-file-url.ts` — mode (unset is multipart; exactly `file_url` opts in), 1800 s TTL, request body (`file_url`, `name`, `title`, `thumb_offset`), id parser, `video_status` wait. `downloadSignedStorageObject` is the unchanged multipart download.
 - `lib/meta/storage-video-by-url.ts` — the storage-path video orchestrator. No `blob()`, `arrayBuffer()`, or `File`.
-- `app/api/meta/upload-asset/route.ts` — video + default mode calls that orchestrator. Image path still signs for 120 s and downloads.
+- `app/api/meta/upload-asset/route.ts` — calls the orchestrator only when the mode is exactly `file_url`. Otherwise, including unset, it still downloads the signed URL. Images always download.
 - `lib/creatives/sha256-stream.ts` + `lib/hooks/useUploadAsset.ts` — the browser hashes the File while streaming it, and sends `contentHash` and `byteSize`. The route trusts the hash for dedupe only.
 - `lib/creatives/register-upload.ts` — registry lookup and insert accept that identity when the route has no bytes. No migration. No `hash_source` column.
 - `CLAUDE.md` — `META_VIDEO_UPLOAD_MODE`.
@@ -39,8 +39,8 @@ The id parser is the multipart path's parser: `id`, then `video_id`. No live `fi
 
 ## Validation
 
-- [x] `npm test` — 6434 tests, 6430 pass, 4 skipped, 0 fail
-- [x] `npm run build` — compiled in 18.0s, TypeScript in 32.9s. The only warning is the known `render-reel` `export const config`. Built against a hardlinked `node_modules`; the worktree symlink is restored.
+- [x] `npm test` — 6435 tests, 6431 pass, 4 skipped, 0 fail
+- [x] `npm run build` — compiled in 15.9s, TypeScript in 32.8s. The only warning is the known `render-reel` `export const config`. Built against a hardlinked `node_modules`; the worktree symlink is restored.
 - [ ] CI check-run conclusions (reported in the thread, not committed)
 
 ## Notes
