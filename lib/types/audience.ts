@@ -97,6 +97,11 @@ export interface MetaCustomAudience {
   statusError: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Set on the create response when an existing Meta audience was reused.
+   * Not a column on meta_custom_audiences.
+   */
+  reused?: boolean;
 }
 
 export type MetaCustomAudienceInsert = Omit<
@@ -110,5 +115,5 @@ export type MetaCustomAudienceInsert = Omit<
 >;
 
 export type MetaCustomAudienceUpdate = Partial<
-  Omit<MetaCustomAudience, "id" | "userId" | "createdAt" | "updatedAt">
+  Omit<MetaCustomAudience, "id" | "userId" | "createdAt" | "updatedAt" | "reused">
 >;

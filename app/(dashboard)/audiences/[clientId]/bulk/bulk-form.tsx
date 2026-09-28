@@ -31,7 +31,7 @@ type VideoSourceMode = "campaign_walk" | "video_ids";
 type Phase = "idle" | "previewing" | "previewed" | "creating" | "done";
 
 interface WriteResult {
-  successes: Array<{ audienceId: string; metaAudienceId: string; name: string }>;
+  successes: Array<{ audienceId: string; metaAudienceId: string; name: string; reused?: boolean }>;
   failures: Array<{ audienceId: string; error: string; name: string }>;
 }
 
@@ -282,6 +282,7 @@ export function BulkVideoForm({
                 name={s.name}
                 status="success"
                 detail={`Meta ID: ${s.metaAudienceId}`}
+                reused={s.reused}
               />
             ))}
             {writeResult.failures.map((f) => (
@@ -799,10 +800,12 @@ function AudienceResultRow({
   name,
   status,
   detail,
+  reused,
 }: {
   name: string;
   status: "success" | "failed";
   detail: string;
+  reused?: boolean;
 }) {
   return (
     <div
@@ -817,7 +820,10 @@ function AudienceResultRow({
       </span>
       <div className="min-w-0 flex-1">
         <p className="font-medium truncate">{name}</p>
-        <p className="text-xs text-muted-foreground truncate">{detail}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {detail}
+          {reused ? <span> · reused</span> : null}
+        </p>
       </div>
     </div>
   );

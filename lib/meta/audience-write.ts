@@ -32,6 +32,12 @@ import {
   type PageAccessResult,
 } from "@/lib/meta/page-access";
 import { createWithEventSourceRecovery } from "@/lib/audiences/event-source-recovery";
+import {
+  listAccountCustomAudiences,
+  reuseOrCreateCustomAudience,
+  type ListedMetaCustomAudience,
+  type MetaGraphFetch,
+} from "@/lib/meta/reuse-existing-audience";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -54,6 +60,8 @@ export { buildMetaCustomAudiencePayload } from "@/lib/meta/audience-payload";
 export interface MetaAudienceWriteSuccess {
   audienceId: string;
   metaAudienceId: string;
+  /** True when the Meta id already existed for this rule. Not a DB column. */
+  reused?: boolean;
 }
 
 export interface MetaAudienceWriteFailure {
@@ -152,6 +160,24 @@ export function assertMetaAudienceWritesEnabled() {
   }
 }
 
+/** A failed list is not a match. Create continues as today. Never log the token. */
+async function listExistingForReuse(
+  adAccountId: string,
+  token: string,
+  fetchImpl: MetaGraphFetch,
+): Promise<ListedMetaCustomAudience[]> {
+  try {
+    return await listAccountCustomAudiences(adAccountId, token, fetchImpl);
+  } catch (err) {
+    const message = (err instanceof Error ? err.message : String(err)).replace(
+      /access_token=[^&\s]+/gi,
+      "access_token=REDACTED",
+    );
+    console.warn(`[audience-write] existing audience lookup failed: ${message}`);
+    return [];
+  }
+}
+
 export async function createMetaCustomAudience(
   audienceId: string,
   options: {
@@ -161,6 +187,8 @@ export async function createMetaCustomAudience(
     pageAccess?: MetaPageAccessResolver;
     /** Injectable seed remediation; defaults to the live BM ADVERTISE grant. */
     remediateSeeds?: SeedRemediator;
+    /** Injectable GET /customaudiences. Defaults to global fetch. No token logging. */
+    fetchExistingAudiences?: MetaGraphFetch;
   },
 ): Promise<MetaCustomAudience> {
   assertMetaAudienceWritesEnabled();
@@ -188,63 +216,85 @@ export async function createMetaCustomAudience(
       });
     const post = options.request ?? postMetaAudienceForm;
     const pageIds = pageEngagementPageIds(audienceForWrite);
-
-    // Oversized page-engagement set → split into ≤5-source audiences (Meta's
-    // hard cap). Returns the primary row; extra parts are persisted as siblings.
-    if (
-      CHUNKABLE_SUBTYPES.has(audience.audienceSubtype) &&
-      pageIds.length > MAX_PAGE_ENGAGEMENT_SOURCES
-    ) {
-      return await writeSplitPageEngagement({
-        supabase,
-        audience,
-        audienceForWrite,
-        pageIds,
-        token,
-        post,
-        userId: options.userId,
-        warning,
-      });
-    }
-
-    // Oversized video-views set → split into ≤200-video audiences (Meta's
-    // hard cap, #2654 subcode 1870231). Same two-phase write as page split.
-    if (audience.audienceSubtype === "video_views") {
-      const videoIds = videoViewVideoIds(audienceForWrite);
-      if (videoIds.length > MAX_VIDEO_VIEWS_VIDEOS) {
-        return await writeSplitVideoViews({
-          supabase,
-          audience,
-          videoIds,
+    // Payload after the prefilter, so the rule is what a create would post.
+    // The lookup runs before split and before any POST. A hit skips both.
+    const payload = buildMetaCustomAudiencePayload(audienceForWrite);
+    const existing = await listExistingForReuse(
+      audience.metaAdAccountId,
+      token,
+      options.fetchExistingAudiences ?? fetch,
+    );
+    const notes: { recovery: string | null } = { recovery: null };
+    const split: { row: MetaCustomAudience | null } = { row: null };
+    const outcome = await reuseOrCreateCustomAudience({
+      payload,
+      existing,
+      create: async () => {
+        if (
+          CHUNKABLE_SUBTYPES.has(audience.audienceSubtype) &&
+          pageIds.length > MAX_PAGE_ENGAGEMENT_SOURCES
+        ) {
+          split.row = await writeSplitPageEngagement({
+            supabase,
+            audience,
+            audienceForWrite,
+            pageIds,
+            token,
+            post,
+            userId: options.userId,
+            warning,
+          });
+          if (!split.row.metaAudienceId) {
+            throw new Error("Meta audience id missing after write");
+          }
+          return split.row.metaAudienceId;
+        }
+        if (audience.audienceSubtype === "video_views") {
+          const videoIds = videoViewVideoIds(audienceForWrite);
+          if (videoIds.length > MAX_VIDEO_VIEWS_VIDEOS) {
+            split.row = await writeSplitVideoViews({
+              supabase,
+              audience,
+              videoIds,
+              token,
+              post,
+              userId: options.userId,
+            });
+            if (!split.row.metaAudienceId) {
+              throw new Error("Meta audience id missing after write");
+            }
+            return split.row.metaAudienceId;
+          }
+        }
+        const created = await createAudienceWithSeedRecovery({
+          audience: audienceForWrite,
+          adAccountId: audience.metaAdAccountId,
           token,
           post,
+          supabase,
+          idempotencyKey,
           userId: options.userId,
+          audienceRowId: audience.id,
+          seedNames,
+          remediate: options.remediateSeeds,
         });
-      }
-    }
-
-    const { metaAudienceId, recoveryNote } = await createAudienceWithSeedRecovery({
-      audience: audienceForWrite,
-      adAccountId: audience.metaAdAccountId,
-      token,
-      post,
-      supabase,
-      idempotencyKey,
-      userId: options.userId,
-      audienceRowId: audience.id,
-      seedNames,
-      remediate: options.remediateSeeds,
+        notes.recovery = created.recoveryNote;
+        return created.metaAudienceId;
+      },
     });
+    // Split persistence already wrote the primary row. A reuse must not
+    // overwrite that, and must not have called this branch at all.
+    if (split.row) return split.row;
 
     const updated = await updateAudience(audience.id, {
       status: "ready",
-      metaAudienceId,
+      metaAudienceId: outcome.metaAudienceId,
       // Non-fatal warnings (prefilter drops, and anything the 1713140 recovery
       // had to do) recorded on a successful create.
-      statusError: [warning, recoveryNote].filter(Boolean).join(" ") || null,
+      statusError: [warning, outcome.reused ? null : notes.recovery].filter(Boolean).join(" ") || null,
     });
     if (!updated) throw new Error("Audience not found after Meta write");
-    return updated;
+    return outcome.reused ? { ...updated, reused: true } : updated;
   } catch (err) {
     const message = formatMetaWriteError(err);
     const updated = await updateAudience(audience.id, {
@@ -750,6 +800,7 @@ export async function createMetaCustomAudienceBatch(
         successes.push({
           audienceId,
           metaAudienceId: updated.metaAudienceId,
+          ...(updated.reused ? { reused: true } : {}),
         });
       } catch (err) {
         failures.push({
