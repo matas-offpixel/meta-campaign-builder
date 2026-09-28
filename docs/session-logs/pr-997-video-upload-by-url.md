@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 997
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/997
 - **Branch:** `cursor/video-upload-by-url`
 
 ## Summary
