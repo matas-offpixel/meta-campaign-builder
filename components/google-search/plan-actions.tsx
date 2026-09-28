@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { Loader2, Plus, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import {
+  googleAdsAccountPickerOptions,
+  googleSearchEventPickerOptions,
+} from "@/lib/google-ads/account-picker-options";
 
 type StructureMode = "single_campaign" | "campaign_per_theme";
 
@@ -89,36 +94,24 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end gap-2">
-        <label className="space-y-1 text-xs">
+        <div className="w-64 space-y-1 text-xs">
           <span className="block font-medium text-muted-foreground">Linked event (optional)</span>
-          <select
+          <Combobox
             value={eventId}
-            onChange={(e) => setEventId(e.target.value)}
-            className="h-8 rounded-md border border-border-strong bg-background px-2 text-xs"
-          >
-            <option value="">— none —</option>
-            {events.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.event_code ? `${e.name} (${e.event_code})` : e.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-1 text-xs">
+            onChange={setEventId}
+            emptyText="No events match"
+            options={[{ value: "", label: "— none —" }, ...googleSearchEventPickerOptions(events)]}
+          />
+        </div>
+        <div className="w-64 space-y-1 text-xs">
           <span className="block font-medium text-muted-foreground">Ads account</span>
-          <select
+          <Combobox
             value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-            className="h-8 rounded-md border border-border-strong bg-background px-2 text-xs"
-          >
-            <option value="">— pick later —</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.account_name ?? "Account"} ({a.google_customer_id ?? "—"})
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={setAccountId}
+            emptyText="No accounts match"
+            options={[{ value: "", label: "— pick later —" }, ...googleAdsAccountPickerOptions(accounts)]}
+          />
+        </div>
         <label className="space-y-1 text-xs">
           <span className="block font-medium text-muted-foreground">Structure</span>
           <select
