@@ -13,6 +13,7 @@
  *   pending (umbrella)         → [Review & Confirm modal] → confirmed
  *   confirmed (umbrella)       → [Open Bulk Attach] → bulk-attach wizard (?queueId=)
  *   error                      → [Retry / Skip]
+ *   skipped                    → [Re-queue] (row stays collapsed)
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -23,6 +24,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { AssetQueueRow, AssetQueueStatus } from "@/lib/db/asset-queue";
+import { decideQueueAction, projectQueueAction } from "@/lib/clients/asset-queue/queue-actions";
 
 interface ScrapeResult {
   scraped: number;
@@ -352,10 +354,12 @@ function QueueRowCard({
   row,
   clientId,
   onUpdate,
+  onOptimistic,
 }: {
   row: AssetQueueRow;
   clientId: string;
   onUpdate: () => void;
+  onOptimistic: (next: AssetQueueRow) => void;
 }) {
   const router = useRouter();
   const [preparing, setPreparing] = useState(false);
@@ -419,6 +423,27 @@ function QueueRowCard({
       body: JSON.stringify({ action: "skip" }),
     });
     onUpdate();
+  }
+
+  async function handleQueueAction(action: "retry" | "requeue") {
+    const decision = decideQueueAction(row, action);
+    if (decision.statusCode !== 200) return;
+    const previous = row;
+    onOptimistic(projectQueueAction(row, decision));
+    try {
+      const res = await fetch(`/api/clients/${clientId}/asset-queue/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        onOptimistic(previous);
+        return;
+      }
+      onUpdate();
+    } catch {
+      onOptimistic(previous);
+    }
   }
 
   return (
@@ -503,6 +528,9 @@ function QueueRowCard({
                 Open Bulk Attach
               </Link>
             )}
+            {row.status === "error" && (
+              <button onClick={() => void handleQueueAction("retry")} className="inline-flex items-center rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">Retry</button>
+            )}
             {(row.status === "matched" || row.status === "matched_umbrella" || row.status === "pending" || row.status === "error") && (
               <button
                 onClick={handleSkip}
@@ -522,6 +550,9 @@ function QueueRowCard({
                 <ExternalLink className="h-3 w-3" />
                 Ads Manager
               </a>
+            )}
+            {row.status === "skipped" && (
+              <button onClick={() => void handleQueueAction("requeue")} className="inline-flex items-center rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent">Re-queue</button>
             )}
           </div>
         </div>
@@ -739,7 +770,15 @@ export function AssetQueuePanel({ clientId, hasConfig: hasConfigProp }: AssetQue
                 </div>
                 <div className="space-y-2">
                   {group.map((row) => (
-                    <QueueRowCard key={row.id} row={row} clientId={clientId} onUpdate={loadQueue} />
+                    <QueueRowCard
+                      key={row.id}
+                      row={row}
+                      clientId={clientId}
+                      onUpdate={loadQueue}
+                      onOptimistic={(next) => {
+                        setRows((prev) => prev.map((r) => (r.id === next.id ? next : r)));
+                      }}
+                    />
                   ))}
                 </div>
               </section>
