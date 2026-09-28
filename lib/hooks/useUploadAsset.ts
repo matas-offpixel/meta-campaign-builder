@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import type { UploadAssetResult, AssetUploadType } from "@/lib/meta/upload";
+import { sha256HexOfBlob } from "@/lib/creatives/sha256-stream";
 import { createClient } from "@/lib/supabase/client";
 
 export interface UploadAssetParams {
@@ -26,7 +27,9 @@ const STORAGE_BUCKET = "campaign-assets";
  *
  *   1. Client uploads file directly to Supabase Storage — no serverless body, no limit.
  *   2. Client sends only { storagePath, type, adAccountId } (tiny JSON) to the API route.
- *   3. API route downloads from storage and forwards to Meta's adimages / advideos endpoint.
+ *      Videos also send a streaming SHA-256 and the byte size, for dedupe.
+ *      The server does not download a video; Meta pulls a signed URL.
+ *   3. Images: the API route downloads from storage and forwards to Meta.
  *   4. API route registers the bytes in creative_assets (CR.1) and keeps
  *      the storage object so later TikTok fan-out can reuse it. A duplicate
  *      of bytes already on this ad account skips the Meta re-upload.
@@ -107,6 +110,22 @@ export async function uploadAssetViaStorage(
 
   console.log("[uploadAssetViaStorage] Storage upload complete, handing off to server");
 
+  let contentHash: string | undefined;
+  let byteSize: number | undefined;
+  if (params.type === "video") {
+    byteSize = params.file.size;
+    try {
+      const hashed = await sha256HexOfBlob(params.file);
+      contentHash = hashed.contentHash;
+      byteSize = hashed.byteSize;
+    } catch (err) {
+      console.warn(
+        "[uploadAssetViaStorage] content hash failed; dedupe skipped",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // Send only the path — no raw bytes — so the serverless function body stays tiny.
   let res: Response;
   try {
@@ -119,6 +138,8 @@ export async function uploadAssetViaStorage(
         type: params.type,
         adAccountId: params.adAccountId,
         fileName: params.file.name,
+        contentType: params.file.type,
+        ...(params.type === "video" ? { contentHash, byteSize } : {}),
       }),
     });
   } catch (networkErr) {

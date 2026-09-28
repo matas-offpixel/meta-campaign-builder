@@ -13,9 +13,17 @@ import {
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { validateAssetFile, type AssetUploadType, type UploadAssetResult } from "@/lib/meta/upload";
+import { uploadStoredVideoByUrl } from "@/lib/meta/storage-video-by-url";
+import {
+  META_STORAGE_FETCH_TTL_SECONDS,
+  StorageVideoInputError,
+  downloadSignedStorageObject,
+  metaVideoUploadMode,
+} from "@/lib/meta/video-file-url";
 
-// 28 MB videos can take 60-90s to upload to Meta over a slow link.
-// Without this, Vercel's default 10s (Hobby) / 60s (Pro) limit kills the function.
+// file_url returns as soon as Meta accepts the URL, then this function
+// polls status. The multipart path (the default) of a large file still
+// needs the long budget. Vercel's default 10s (Hobby) / 60s (Pro) is too short.
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -33,7 +41,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The campaign-assets bucket has no SELECT RLS policy (intentional — prevents
   // cross-user path enumeration). createSignedUrl and object deletion therefore
   // must use the service-role client, which bypasses RLS. Auth is already
-  // enforced above; storagePaths are UUIDs; signed-URL TTL is 120 s.
+  // enforced above; storagePaths are UUIDs. The image path signs for 120 s.
+  // A file_url video signs for 30 minutes so Meta can download it.
   const storage = createServiceRoleClient();
 
   // ── Resolve token ─────────────────────────────────────────────────────────
@@ -60,6 +69,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       adAccountId?: string;
       fileName?: string;
       aspectRatio?: string;
+      contentHash?: string;
+      byteSize?: number;
+      contentType?: string;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -67,7 +79,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid JSON body", detail: String(parseErr) }, { status: 400 });
     }
 
-    const { storagePath, storageBucket = "campaign-assets", type, adAccountId, fileName, aspectRatio } = body;
+    const {
+      storagePath,
+      storageBucket = "campaign-assets",
+      type,
+      adAccountId,
+      fileName,
+      aspectRatio,
+      contentHash,
+      byteSize,
+      contentType,
+    } = body;
 
     if (!storagePath) return NextResponse.json({ error: "Missing storagePath" }, { status: 400 });
     if (!adAccountId) return NextResponse.json({ error: "Missing adAccountId" }, { status: 400 });
@@ -84,6 +106,76 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       uploadPath: "Supabase Storage → Meta",
     });
 
+    // file_url is opt-in. Unset keeps the download below.
+    if (type === "video" && metaVideoUploadMode() === "file_url") {
+      const token = uploadToken ?? process.env.META_ACCESS_TOKEN;
+      if (!token) {
+        return NextResponse.json(
+          { error: "META_ACCESS_TOKEN is not configured. Add it to .env.local." },
+          { status: 500 },
+        );
+      }
+      const resolvedFileName = fileName ?? storagePath.split("/").pop() ?? "video.mp4";
+      try {
+        const result = await uploadStoredVideoByUrl({
+          storagePath,
+          storageBucket,
+          fileName: resolvedFileName,
+          adAccountId,
+          token,
+          contentHash,
+          byteSize,
+          contentType,
+          aspectRatio,
+          userId: user.id,
+          supabase,
+          createSignedUrl: async (bucket, path, ttlSeconds) => {
+            const { data, error } = await storage.storage.from(bucket).createSignedUrl(path, ttlSeconds);
+            if (error || !data?.signedUrl) return { error: error?.message ?? "unknown error" };
+            return { signedUrl: data.signedUrl };
+          },
+          remove: async (bucket, path) => {
+            await storage.storage.from(bucket).remove([path]).catch(() => {});
+          },
+          findExisting: async (client, input) => {
+            const hit = await findExistingMetaChannelUpload(client, {
+              userId: input.userId,
+              identity: input.identity,
+              adAccountId: input.adAccountId,
+            });
+            if (!hit) return null;
+            const reused = existingMetaResult(hit, "video");
+            return {
+              videoId: reused.videoId ?? hit.platformId,
+              previewUrl: reused.previewUrl ?? "",
+              registryAssetId: reused.registryAssetId,
+            };
+          },
+          register: async (input) =>
+            registerMetaUpload({
+              supabase: input.supabase,
+              userId: input.userId,
+              identity: input.identity,
+              fileName: input.fileName,
+              mediaKind: "video",
+              adAccountId: input.adAccountId,
+              storageBucket: input.storageBucket,
+              storagePath: input.storagePath,
+              result: input.result,
+              slotHint: input.slotHint,
+            }),
+        });
+        return NextResponse.json(result, { status: 201 });
+      } catch (err) {
+        if (err instanceof StorageVideoInputError) {
+          return NextResponse.json({ error: err.message }, { status: 400 });
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[upload-asset] file_url upload failed", message.slice(0, 200));
+        return NextResponse.json({ error: message }, { status: 502 });
+      }
+    }
+
     // ── Step 1: create a signed URL so we can download the file ──────────────
     // Uses the service-role client so RLS on storage.objects doesn't block the
     // read. The bucket has no SELECT policy by design — adding one would allow
@@ -97,7 +189,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { data: signedData, error: signedError } = await storage.storage
       .from(storageBucket)
-      .createSignedUrl(storagePath, 120); // 2-minute window
+      .createSignedUrl(storagePath, META_STORAGE_FETCH_TTL_SECONDS);
 
     if (signedError || !signedData?.signedUrl) {
       console.error("[upload-asset] Failed to create signed URL:", signedError);
@@ -110,11 +202,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Step 2: fetch the video from storage
     let videoBlob: Blob;
     try {
-      const fileRes = await fetch(signedData.signedUrl);
-      if (!fileRes.ok) {
-        throw new Error(`Storage fetch failed: HTTP ${fileRes.status}`);
-      }
-      videoBlob = await fileRes.blob();
+      videoBlob = await downloadSignedStorageObject(signedData.signedUrl);
     } catch (fetchErr) {
       console.error("[upload-asset] Failed to fetch from storage:", fetchErr);
       return NextResponse.json(
