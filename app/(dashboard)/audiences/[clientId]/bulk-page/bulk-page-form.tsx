@@ -44,6 +44,7 @@ interface CellResult {
   retentionDays: number;
   willSplit: boolean;
   partCount: number;
+  reused?: boolean;
 }
 
 interface CellFailure {
@@ -289,6 +290,7 @@ export function BulkPageAudiencesForm({
                     ? `Meta ID: ${s.metaAudienceId}${s.willSplit ? ` · split into ${s.partCount} parts` : ""}`
                     : "Saved (no Meta ID returned)"
                 }
+                reused={s.reused}
               />
             ))}
             {failures.map((f) => (
@@ -691,10 +693,12 @@ function CellResultRow({
   name,
   status,
   detail,
+  reused,
 }: {
   name: string;
   status: "success" | "failed";
   detail: string;
+  reused?: boolean;
 }) {
   return (
     <div
@@ -709,7 +713,10 @@ function CellResultRow({
       </span>
       <div className="min-w-0 flex-1">
         <p className="font-medium truncate">{name}</p>
-        <p className="text-xs text-muted-foreground truncate">{detail}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {detail}
+          {reused ? <span> · reused</span> : null}
+        </p>
       </div>
     </div>
   );

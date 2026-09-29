@@ -49,6 +49,7 @@ interface CellResultSuccess {
   name: string;
   pixelEvent: BulkWebsitePixelEvent;
   retentionDays: number;
+  reused?: boolean;
 }
 
 interface CellResultFailure {
@@ -169,6 +170,7 @@ async function writeCellsWithConcurrency(
           name: draft.name,
           pixelEvent: cell.pixelEvent,
           retentionDays: cell.retentionDays,
+          ...(updated.reused ? { reused: true } : {}),
         });
       } catch (err) {
         failures.push({
