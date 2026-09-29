@@ -32,6 +32,7 @@ import {
 } from "@/lib/creatives/asset-variation-updater";
 import { importedHeadlineNote } from "@/lib/meta/import/creative-copy";
 import { getAspectRatioSlots, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from "@/lib/meta/upload";
+import { planCreativeUpload } from "@/lib/meta/upload-size-guard";
 import { extractVideoFrameFromUrl } from "@/lib/meta/video-frame-extract";
 import { CTA_OPTIONS } from "@/lib/mock-data";
 import {
@@ -2176,6 +2177,8 @@ function AssetSlot({
   const [framePickerSaving, setFramePickerSaving] = useState(false);
   const [framePickerError, setFramePickerError] = useState<string | null>(null);
   const [customThumbnailUrl, setCustomThumbnailUrl] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [compressedNote, setCompressedNote] = useState<string | null>(null);
   const customThumbnailUrlRef = useRef<string | null>(null);
   customThumbnailUrlRef.current = customThumbnailUrl;
 
@@ -2236,16 +2239,20 @@ function AssetSlot({
   async function handleFile(file: File) {
     if (!adAccountId || isUploading) return;
 
-    // Pre-upload size guard — gives a clear error before touching any network.
-    const maxBytes = mediaType === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-    const maxLabel = mediaType === "video" ? "200 MB" : "30 MB";
-    if (file.size > maxBytes) {
+    // Size decision before any network. A refuse returns before the upload call.
+    const plan = planCreativeUpload({ byteSize: file.size, mediaType });
+    if (plan.action === "refuse") {
+      setUploadNotice(null);
+      setCompressedNote(null);
       onUpdate({
         uploadStatus: "error",
-        error: `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is ${maxLabel}.`,
+        error: plan.message,
       });
       return;
     }
+
+    setUploadNotice(plan.notice ?? null);
+    setCompressedNote(null);
 
     // For video files create a local blob preview immediately so the slot
     // renders a real video frame before (and even if) Meta returns a thumbnail.
@@ -2259,8 +2266,18 @@ function AssetSlot({
     }
 
     onUpdate({ uploadStatus: "uploading", error: undefined, fileName: file.name });
+    if (plan.notice) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
     try {
       const result = await upload({ file, type: mediaType, adAccountId });
+      setUploadNotice(null);
+      if (typeof result.compressedBytes === "number") {
+        const mb = (result.compressedBytes / 1024 / 1024).toFixed(1);
+        setCompressedNote(`Compressed to ${mb} MB`);
+      }
       onUpdate({
         fileName: file.name,
         uploadedUrl: result.url,
@@ -2271,6 +2288,7 @@ function AssetSlot({
         uploadStatus: "uploaded",
       });
     } catch (err) {
+      setUploadNotice(null);
       onUpdate({
         uploadStatus: "error",
         error: err instanceof Error ? err.message : "Upload failed",
@@ -2316,6 +2334,8 @@ function AssetSlot({
     setLocalPreviewUrl(null);
     if (customThumbnailUrl) URL.revokeObjectURL(customThumbnailUrl);
     setCustomThumbnailUrl(null);
+    setUploadNotice(null);
+    setCompressedNote(null);
     setFramePickerOpen(false);
     setFramePickerError(null);
     onUpdate({
@@ -2355,7 +2375,7 @@ function AssetSlot({
       >
         {/* ── Uploading spinner ── */}
         {isUploading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-2 text-center">
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             <span className="text-[10px] text-muted-foreground">Uploading…</span>
           </div>
@@ -2552,7 +2572,14 @@ function AssetSlot({
             )}
           </div>
         )}
+        {uploadNotice ? (
+          <StatusLine className="absolute inset-x-1.5 bottom-1.5 z-10 text-center text-[10px] leading-snug text-foreground">{uploadNotice}</StatusLine>
+        ) : null}
       </div>
+
+      {compressedNote ? (
+        <StatusLine className="px-0.5 text-[10px] leading-snug text-muted-foreground">{compressedNote}</StatusLine>
+      ) : null}
 
       {/* ── Footer: type badge + (video only) thumbnail-frame picker ── */}
       {isUploaded && (

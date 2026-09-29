@@ -32,6 +32,11 @@ export interface UploadAssetResult {
   previewUrl?: string;
   /** CR.1 registry id when registration succeeded. Additive. */
   registryAssetId?: string;
+  /**
+   * Set when the upload route recompressed an image over 30 MB to a JPEG.
+   * Byte length of that JPEG. Absent when the original bytes were sent.
+   */
+  compressedBytes?: number;
 }
 
 // ─── Slot layout ─────────────────────────────────────────────────────────────
@@ -63,6 +68,7 @@ export function getAspectRatioSlots(
 export function validateAssetFile(
   file: File | Blob,
   type: AssetUploadType,
+  options?: { skipByteLimit?: boolean },
 ): { isValid: boolean; error: string | null } {
   const mimeType = "type" in file ? file.type : "";
   const size = file.size;
@@ -74,7 +80,9 @@ export function validateAssetFile(
         error: `Unsupported image type "${mimeType}". Use JPEG or PNG.`,
       };
     }
-    if (size > MAX_IMAGE_BYTES) {
+    // The upload route skips this cap and recompresses before uploadImageAsset.
+    // Every other caller still rejects images over 30 MB.
+    if (!options?.skipByteLimit && size > MAX_IMAGE_BYTES) {
       return {
         isValid: false,
         error: `Image is too large (${(size / 1024 / 1024).toFixed(1)} MB). Maximum is 30 MB.`,
