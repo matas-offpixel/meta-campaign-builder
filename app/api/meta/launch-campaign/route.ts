@@ -135,6 +135,7 @@ import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/
 import { assertSameObjective } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
+import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
 import { isObjectiveIncompatibilityError } from "@/lib/meta/error-classify";
 import { findAdSetLocationProblems } from "@/lib/meta/location-targeting";
 import {
@@ -4161,6 +4162,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   const campaignAttachResults: CampaignAttachResult[] = [];
+  // Ad ids from the MC[ci] loop, keyed by creative name. Phase 4 ids stay on
+  // creativesCreated[].ads. Counts (ciAdsCreated / campaignAttachResults) are
+  // unchanged — this map only feeds the published creative stamp.
+  const multiCampaignAdIdsByName = new Map<string, string[]>();
 
   if (isMultiCampaignAttach && !isAttachAllAdSets) {
     // Record the first campaign's result from the main Phase 2+4 above.
@@ -4530,6 +4535,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const adRes = await createMetaAdViaLedger(adAccountId, adPayload, launchToken);
                 console.log(`[launch-campaign] MC[${ci}] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id}`);
                 ciAdsCreated++;
+                const recordedMcAdIds = multiCampaignAdIdsByName.get(creative.name);
+                if (recordedMcAdIds) recordedMcAdIds.push(adRes.id);
+                else multiCampaignAdIdsByName.set(creative.name, [adRes.id]);
               } catch (err) {
                 const message = formatMetaError(err);
                 console.error(`[launch-campaign] MC[${ci}] Phase 4 ✗  ad failed: ${creative.name} × ${adSetName}: ${message}`);
@@ -4621,6 +4629,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const publishedDraft: CampaignDraft = {
     ...draft,
     metaCampaignId,
+    creatives: stampPublishedCreatives(
+      updatedCreatives,
+      creativesCreated,
+      multiCampaignAdIdsByName,
+    ),
     adSetSuggestions: cleanSuggestions as CampaignDraft["adSetSuggestions"],
     launchSummary: summary,
     status: "published",

@@ -771,6 +771,11 @@ export interface AdCreativeDraft {
   enhancements: CreativeEnhancementSettings;
   /** Set after a successful POST to Meta — the live ad creative ID */
   metaCreativeId?: string;
+  /**
+   * Live ad ids created for this creative. Phase 4 ids first, then any
+   * multi-campaign attach ids. Stored on the published draft only.
+   */
+  metaAdIds?: string[];
 }
 
 // ─── Budget & schedule types ───
