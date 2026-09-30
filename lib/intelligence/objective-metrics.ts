@@ -1,3 +1,4 @@
+import { classifySignupSalesStage } from "../dashboard/funnel-stage-classifier.ts";
 import type { CreativeInsightRow } from "@/lib/types/intelligence";
 
 /**
@@ -93,11 +94,22 @@ export interface ObjectivePreset {
  */
 export function groupForObjective(
   objective: string | null | undefined,
+  customEventType?: string | null,
 ): ObjectiveGroup {
+  // COMPLETE_REGISTRATION on OUTCOME_SALES is a signup campaign. Checking
+  // the objective string alone would file every new registration launch
+  // under sales.
+  const signupSales = classifySignupSalesStage({
+    objective,
+    customEventType,
+  });
+  if (signupSales === "signup") return "leads";
+  if (signupSales === "sales") return "sales";
+
   if (!objective) return "other";
   const o = objective.toUpperCase();
 
-  // Leads / lead generation
+  // Leads / lead generation (legacy names that are not OUTCOME_LEADS).
   if (
     o.includes("LEAD") ||
     o.includes("REGISTRATION") ||

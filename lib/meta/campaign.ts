@@ -21,19 +21,30 @@ import type { CampaignObjective } from "@/lib/types";
 // ─────────────────────────────────────────────────────
 // purchase           →  OUTCOME_SALES      (conversions, catalog sales)
 // initiate_checkout  →  OUTCOME_SALES      (same Meta objective; event differs)
-// registration       →  OUTCOME_LEADS      (lead gen, event registration)
+// registration       →  OUTCOME_SALES      (same Meta objective; event differs)
 // traffic            →  OUTCOME_TRAFFIC    (link clicks, landing page views)
 // awareness          →  OUTCOME_AWARENESS  (reach, brand awareness)
 // engagement         →  OUTCOME_ENGAGEMENT (post engagement, video views)
 //
-// initiate_checkout is not a distinct Meta objective. The differentiator is
-// promoted_object.custom_event_type on the ad set (INITIATED_CHECKOUT, confirmed
-// 2026-09-10 via POST /act_…/adsets — INITIATE_CHECKOUT is rejected).
+// registration used to map to OUTCOME_LEADS. A Meta campaign objective is
+// immutable, so a signup campaign could not be duplicated in Ads Manager
+// into a purchase campaign. Under OUTCOME_SALES the ad set carries the
+// conversion event. Live check 2026-09-30 on act_968594768066330: paused
+// campaign 120250186568200453 + ad set 120250186568390453 came back
+// objective OUTCOME_SALES, optimization_goal OFFSITE_CONVERSIONS,
+// destination_type WEBSITE, promoted_object.custom_event_type
+// COMPLETE_REGISTRATION (pixel 361462699910737). Both objects were deleted
+// after the read-back.
+//
+// initiate_checkout and registration are not distinct Meta objectives. The
+// differentiator is promoted_object.custom_event_type on the ad set
+// (INITIATED_CHECKOUT, confirmed 2026-09-10 — INITIATE_CHECKOUT is rejected;
+// COMPLETE_REGISTRATION, confirmed 2026-09-30).
 
 export const OBJECTIVE_MAP: Record<CampaignObjective, string> = {
   purchase: "OUTCOME_SALES",
   initiate_checkout: "OUTCOME_SALES",
-  registration: "OUTCOME_LEADS",
+  registration: "OUTCOME_SALES",
   traffic: "OUTCOME_TRAFFIC",
   awareness: "OUTCOME_AWARENESS",
   engagement: "OUTCOME_ENGAGEMENT",
@@ -66,8 +77,9 @@ export interface MetaCampaignPayload {
 }
 
 /**
- * Campaign-level Graph payload. Purchase and initiate_checkout are identical
- * here (`OUTCOME_SALES`); the event lives on the ad set's promoted_object.
+ * Campaign-level Graph payload. Purchase, initiate_checkout, and
+ * registration are identical here (`OUTCOME_SALES`); the event lives on
+ * the ad set's promoted_object.
  */
 export function buildCampaignPayload(input: {
   name: string;
@@ -93,12 +105,14 @@ export function buildCampaignPayload(input: {
  * support — e.g. legacy objectives like APP_INSTALLS, MESSAGES, or
  * conversion-style objectives we haven't wired up).
  *
- * `OUTCOME_SALES` maps to two internals. When `customEventType` is the
- * confirmed InitiateCheckout enum, return `initiate_checkout`. Otherwise
- * default to `purchase` — campaign listings do not include
- * `promoted_object` (that field lives on ad sets), so a live sales
- * campaign without an event type must not silently become
- * `initiate_checkout`.
+ * `OUTCOME_SALES` maps to three internals. `COMPLETE_REGISTRATION` is
+ * `registration`. The confirmed InitiateCheckout enum is
+ * `initiate_checkout`. Otherwise default to `purchase` — campaign listings
+ * do not include `promoted_object` (that field lives on ad sets), so a live
+ * sales campaign without an event type must stay `purchase`.
+ *
+ * `OUTCOME_LEADS` / `LEAD_GENERATION` stay `registration`. Campaigns
+ * launched before this mapping change keep that objective forever.
  *
  * Returns `undefined` when the objective is not one we recognise.
  */
@@ -118,6 +132,7 @@ export function mapMetaObjectiveToInternal(
     v === "PRODUCT_CATALOG_SALES" ||
     v === "STORE_VISITS"
   ) {
+    if (event === "COMPLETE_REGISTRATION") return "registration";
     if (event === META_INITIATE_CHECKOUT_EVENT) return "initiate_checkout";
     return "purchase";
   }
@@ -138,6 +153,58 @@ export function mapMetaObjectiveToInternal(
     return "engagement";
   }
   return undefined;
+}
+
+const SALES_FAMILY = new Set([
+  "OUTCOME_SALES",
+  "CONVERSIONS",
+  "PRODUCT_CATALOG_SALES",
+  "STORE_VISITS",
+]);
+
+/** Purchase wins a tie so a split campaign does not become a signup import. */
+const SALES_TIE_BREAK: CampaignObjective[] = [
+  "purchase",
+  "initiate_checkout",
+  "registration",
+];
+
+/**
+ * Importer objective for one live campaign. Sales-family objectives are
+ * decided by the ad sets' `promoted_object.custom_event_type`: the most
+ * common event wins, empty events do not vote, and a tie falls through to
+ * purchase. `minorityEvents` are the losing event enums, for `dropped[]`.
+ * `OUTCOME_LEADS` ignores the events and stays `registration`.
+ */
+export function importedObjectiveFromAdSetEvents(
+  rawObjective: string | null | undefined,
+  events: Array<string | null | undefined>,
+): { objective: CampaignObjective | undefined; minorityEvents: string[] } {
+  const base = mapMetaObjectiveToInternal(rawObjective);
+  if (!base) return { objective: undefined, minorityEvents: [] };
+  const family = (rawObjective ?? "").trim().toUpperCase();
+  if (!SALES_FAMILY.has(family)) return { objective: base, minorityEvents: [] };
+
+  const counts = new Map<CampaignObjective, { count: number; event: string }>();
+  for (const raw of events) {
+    const event = raw?.trim().toUpperCase() ?? "";
+    if (!event) continue;
+    const voted = mapMetaObjectiveToInternal(family, event);
+    if (!voted) continue;
+    const prev = counts.get(voted);
+    if (prev) prev.count += 1;
+    else counts.set(voted, { count: 1, event });
+  }
+  if (counts.size === 0) return { objective: "purchase", minorityEvents: [] };
+
+  const ranked = [...counts.entries()].sort((a, b) => {
+    if (b[1].count !== a[1].count) return b[1].count - a[1].count;
+    return SALES_TIE_BREAK.indexOf(a[0]) - SALES_TIE_BREAK.indexOf(b[0]);
+  });
+  return {
+    objective: ranked[0][0],
+    minorityEvents: ranked.slice(1).map(([, row]) => row.event),
+  };
 }
 
 // ─── Request / response types ─────────────────────────────────────────────────

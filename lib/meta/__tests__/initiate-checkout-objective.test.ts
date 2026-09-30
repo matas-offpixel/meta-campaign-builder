@@ -4,8 +4,9 @@
  * The ad-set promoted_object.custom_event_type is INITIATED_CHECKOUT —
  * confirmed against Meta 2026-09-10 (INITIATE_CHECKOUT is rejected, code 100).
  *
- * Existing objectives are pinned field-for-field so this addition cannot
- * change purchase / registration / traffic / awareness / engagement payloads.
+ * Purchase, traffic, awareness, and engagement payloads are pinned
+ * field-for-field. Registration's campaign objective is OUTCOME_SALES;
+ * its ad set payload is otherwise unchanged.
  *
  * Run: node --experimental-strip-types --test lib/meta/__tests__/initiate-checkout-objective.test.ts
  */
@@ -113,7 +114,7 @@ const PINNED_CAMPAIGNS = {
   },
   registration: {
     name: "Fixture Campaign",
-    objective: "OUTCOME_LEADS",
+    objective: "OUTCOME_SALES",
     buying_type: "AUCTION",
     status: "ACTIVE",
     is_adset_budget_sharing_enabled: false,
@@ -282,6 +283,17 @@ describe("mapMetaObjectiveToInternal — OUTCOME_SALES ambiguity", () => {
     assert.equal(
       mapMetaObjectiveToInternal("OUTCOME_SALES", "INITIATE_CHECKOUT"),
       "purchase",
+    );
+  });
+
+  it("classifies COMPLETE_REGISTRATION as registration", () => {
+    assert.equal(
+      mapMetaObjectiveToInternal("OUTCOME_SALES", "COMPLETE_REGISTRATION"),
+      "registration",
+    );
+    assert.equal(
+      mapMetaObjectiveToInternal("CONVERSIONS", "complete_registration"),
+      "registration",
     );
   });
 

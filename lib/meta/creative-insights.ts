@@ -31,6 +31,11 @@ interface RawAd {
     objective?: string;
   };
   adset_id?: string;
+  adset?: {
+    promoted_object?: {
+      custom_event_type?: string;
+    };
+  };
   creative?: {
     id?: string;
     name?: string;
@@ -158,6 +163,10 @@ export async function fetchCreativeInsights(
     // second join.
     "campaign{name,objective}",
     "adset_id",
+    // Signup campaigns now launch as OUTCOME_SALES. The ad set event is
+    // what keeps them in the leads group. One small object, not another
+    // insights expansion.
+    "adset{promoted_object}",
     "creative{id,name,thumbnail_url}",
     `insights.date_preset(${datePreset}){spend,impressions,clicks,actions,cpm,cpc,ctr,frequency,reach}`,
   ].join(",");
@@ -224,6 +233,7 @@ export async function fetchCreativeInsights(
         campaignId: ad.campaign_id ?? null,
         campaignName: ad.campaign?.name ?? null,
         campaignObjective: ad.campaign?.objective ?? null,
+        customEventType: ad.adset?.promoted_object?.custom_event_type ?? null,
         adsetId: ad.adset_id ?? null,
         creativeId: ad.creative?.id ?? null,
         creativeName: ad.creative?.name ?? null,

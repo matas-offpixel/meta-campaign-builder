@@ -1150,10 +1150,10 @@ export function BudgetSchedule({
     onSuggestionsChange([...adSetSuggestions, blank]);
   };
 
-  // task #126 — objective-gated: registration/awareness campaigns can't run
-  // Advantage+ Audience at all (Meta rejects it, subcode 1870196), so the
-  // per-row toggle is disabled below and a duplicate never flips into a mode
-  // Meta would just reject.
+  // task #126 — objective-gated. Awareness still can't run Advantage+
+  // Audience (Meta rejects it, subcode 1870196). Registration used to be
+  // blocked because it launched as OUTCOME_LEADS; under OUTCOME_SALES the
+  // toggle is offered. The helper is the source of truth.
   const advantagePlusSupported = isAdvantageAudienceSupportedForObjective(
     settings.objective,
     settings.optimisationGoal,

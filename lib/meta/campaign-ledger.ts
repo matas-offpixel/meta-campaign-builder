@@ -141,6 +141,28 @@ export async function runCampaignCreateLedger(input: {
   const expected = mapObjectiveToMeta(input.draftObjective);
   const actual = (live.objective ?? "").trim().toUpperCase();
   if (actual !== expected) {
+    // A registration draft launched before the OUTCOME_SALES mapping has a
+    // ledger hit whose live campaign is OUTCOME_LEADS. That objective cannot
+    // be edited. Drop the hit and mint OUTCOME_SALES. Every other mismatch
+    // still refuses — the live campaign is not one this draft should replace.
+    const legacyRegistration =
+      input.draftObjective === "registration" &&
+      (actual === "OUTCOME_LEADS" || actual === "LEAD_GENERATION");
+    if (legacyRegistration) {
+      console.log(
+        `[campaign-ledger] registration relaunch ${actual} → ${expected}; recreating id=${hit.op_result_id}`,
+      );
+      if (input.context) {
+        await invalidateDeadCampaignLedger(input.context, hit.id);
+      }
+      const id = await withMetaWriteIdempotency(
+        input.context,
+        "campaign_create",
+        input.payload,
+        input.create,
+      );
+      return { id, outcome: "recreated" };
+    }
     const liveInternal = actual || "unknown";
     throw new CampaignLedgerObjectiveError(
       campaignObjectiveChangedMessage(live.name?.trim() || input.campaignName, input.draftObjective, liveInternal),
