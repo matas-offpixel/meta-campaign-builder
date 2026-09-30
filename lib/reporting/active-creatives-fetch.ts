@@ -36,6 +36,7 @@ import { resolvePresetToDays } from "@/lib/insights/date-chunks";
 import type { CustomDateRange, DatePreset } from "@/lib/insights/types";
 import {
   extractPreview,
+  firstPresentCopy,
   type RawCreative,
 } from "@/lib/reporting/creative-preview-extract";
 import type { ActiveCreativeThumbnailSource } from "@/lib/reporting/active-creatives-group";
@@ -363,17 +364,20 @@ function extractCopy(
 ): { headline: string | null; body: string | null } {
   if (!creative) return { headline: null, body: null };
   const oss = creative.object_story_spec;
-  const headline =
-    creative.title?.trim() ||
-    oss?.link_data?.name?.trim() ||
-    oss?.video_data?.title?.trim() ||
-    null;
-  const body =
-    creative.body?.trim() ||
-    oss?.link_data?.message?.trim() ||
-    oss?.link_data?.description?.trim() ||
-    oss?.video_data?.message?.trim() ||
-    null;
+  const headline = firstPresentCopy([
+    creative.asset_feed_spec?.titles?.[0]?.text,
+    creative.title,
+    oss?.link_data?.name,
+    oss?.video_data?.title,
+  ]);
+  const body = firstPresentCopy([
+    creative.body,
+    oss?.link_data?.message,
+    creative.asset_feed_spec?.bodies?.[0]?.text,
+    oss?.link_data?.description,
+    creative.asset_feed_spec?.descriptions?.[0]?.text,
+    oss?.video_data?.message,
+  ]);
   return { headline, body };
 }
 

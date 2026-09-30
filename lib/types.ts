@@ -1671,6 +1671,12 @@ export interface LaunchSummary {
     metaCreativeId: string;
     /** "page_only" or "page_and_ig" */
     identityMode?: "page_only" | "page_and_ig";
+    /**
+     * Set when a blank headline or description was sent as a single space
+     * so Meta could not scrape the destination page. "headline: none",
+     * "description: none", or both.
+     */
+    copyNote?: string;
     durationMs?: number;
     ads: { adSetName: string; metaAdId: string; durationMs?: number }[];
     adsFailed: { adSetName: string; error: string }[];

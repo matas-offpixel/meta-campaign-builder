@@ -1,6 +1,7 @@
 import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, BudgetScheduleSettings, LocationTargetingGroup, LocationPreset } from "./types";
 import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
 import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
+import { readBlankCopy } from "./meta/creative.ts";
 
 const STORAGE_KEY = "campaign_draft";
 
@@ -264,8 +265,8 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
                 (c as Record<string, unknown>).primaryText as string ?? "",
             },
           ],
-    headline: c.headline ?? "",
-    description: c.description ?? "",
+    headline: readBlankCopy(c.headline),
+    description: readBlankCopy(c.description),
     destinationUrl: c.destinationUrl ?? "",
     cta: c.cta ?? "book_now",
     existingPost: c.existingPost,

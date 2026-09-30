@@ -98,6 +98,7 @@ import {
   validateCreativePayload,
   sanitizeCreativeForStrictMode,
   creativeTriggersVariationRotation,
+  suppressedCopyNote,
 } from "@/lib/meta/creative";
 import { metaAdName } from "@/lib/creative-name-from-filename";
 import { createIgActorValidator } from "@/lib/meta/ig-actor-validator";
@@ -3787,10 +3788,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const identityMode: "page_only" | "page_and_ig" =
           igId && /^\d{10,}$/.test(igId) ? "page_and_ig" : "page_only";
 
+        const copyNote = suppressedCopyNote(creative);
         creativesCreated.push({
           name: creative.name,
           metaCreativeId,
           identityMode,
+          ...(copyNote ? { copyNote } : {}),
           durationMs: dur,
           ads: [],
           adsFailed: [],

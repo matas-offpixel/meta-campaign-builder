@@ -389,6 +389,67 @@ function pickPrimaryCaption(creative: AdCreativeDraft): string {
   return creative.captions?.find((c) => c.text?.trim())?.text?.trim() ?? "";
 }
 
+/**
+ * A blank headline or description is sent as a single space.
+ *
+ * Meta stores `""` as absent and then scrapes the destination page —
+ * `og:title` into the headline, `og:description` into the description.
+ * Proven live 2026-09-30 on act_968594768066330, probe campaign
+ * `120250184738460453` (ads zz-1..zz-7):
+ *   - asset_feed_spec descriptions `[{text:""}]` (creative 2076871546280437)
+ *     read back as the page's og:description
+ *   - asset_feed_spec descriptions `[{text:" "}]` (ad 120250184747020453,
+ *     creative 3596321990508549) read back as `" "`
+ *   - asset_feed_spec titles `[{text:" "}]` (ad 120250184996260453,
+ *     creative 1834646800881210) read back as `" "`
+ *   - link_data `description: " "` / `name: " "` (ads 120250184742660453 and
+ *     120250184997590453) — the same
+ * Ads Manager confirmed zz-5 (spaces, creative 1834646800881210) renders
+ * blank and zz-7 (nothing sent, creative 2403727703789123) renders the
+ * page tags. The seven live DHB Dubai ads were corrected the same way
+ * (creative 1095493156197655).
+ *
+ * Do not "clean this up" to an empty string or by omitting the field.
+ * An empty string is byte-identical to omitting it, and that is what Meta scrapes.
+ * Operator-typed text is returned unchanged, including its own spacing.
+ */
+export function blankAsNoScrape(text: string | undefined | null): string {
+  if (text != null && text.trim().length > 0) return text;
+  return " ";
+}
+
+/** True when the launcher field is empty or whitespace, so a space will be sent. */
+export function isBlankCopy(text: string | undefined | null): boolean {
+  return text == null || text.trim().length === 0;
+}
+
+/**
+ * Read-back of {@link blankAsNoScrape}. A whitespace-only value is an absent
+ * field — the space must not reappear as headline or description content.
+ * Text that contains a real character is returned unchanged.
+ */
+export function readBlankCopy(text: string | undefined | null): string {
+  if (text == null || text.trim().length === 0) return "";
+  return text;
+}
+
+/**
+ * Launch-summary note for a new creative whose headline or description was
+ * blank. Existing-post boosts have no copy of their own and are not noted.
+ * Returns null when both fields carry operator text.
+ */
+export function suppressedCopyNote(creative: {
+  sourceType?: string;
+  headline?: string;
+  description?: string;
+}): string | null {
+  if (creative.sourceType === "existing_post") return null;
+  const parts: string[] = [];
+  if (isBlankCopy(creative.headline)) parts.push("headline: none");
+  if (isBlankCopy(creative.description)) parts.push("description: none");
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 // ─── Creative payload builders ────────────────────────────────────────────────
 
 function buildLinkCreative(
@@ -401,8 +462,8 @@ function buildLinkCreative(
   const linkData: MetaLinkData = {
     message: caption,
     link: creative.destinationUrl,
-    name: creative.headline || undefined,
-    description: creative.description || undefined,
+    name: blankAsNoScrape(creative.headline),
+    description: blankAsNoScrape(creative.description),
     call_to_action: {
       type: cta,
       value: { link: creative.destinationUrl },
@@ -515,10 +576,9 @@ async function buildVideoCreative(
     },
   };
 
-  // title is valid in video_data; description is NOT — omit it
-  if (creative.headline) {
-    videoData.title = creative.headline;
-  }
+  // title is valid in video_data; description is NOT — leave description unset.
+  // A blank headline is still sent as a space so Meta cannot scrape og:title.
+  videoData.title = blankAsNoScrape(creative.headline);
 
   // Meta requires image_url OR image_hash (subcode=1443226). We send
   // image_url only — never image_hash (/adimages is App-Review-blocked).
@@ -668,10 +728,9 @@ function buildMultiPlacementCreative(
     link_urls: [{ website_url: creative.destinationUrl }],
     call_to_action_types: [cta],
     optimization_type: "PLACEMENT",
+    titles: [{ text: blankAsNoScrape(creative.headline) }],
+    descriptions: [{ text: blankAsNoScrape(creative.description) }],
   };
-
-  if (creative.headline) spec.titles = [{ text: creative.headline }];
-  if (creative.description) spec.descriptions = [{ text: creative.description }];
 
   if (plan.mediaKind === "video") {
     spec.ad_formats = ["SINGLE_VIDEO"];
@@ -846,10 +905,9 @@ function buildVariationRotationCreative(
     bodies: [{ text: caption }],
     link_urls: [{ website_url: creative.destinationUrl }],
     call_to_action_types: [cta],
+    titles: [{ text: blankAsNoScrape(creative.headline) }],
+    descriptions: [{ text: blankAsNoScrape(creative.description) }],
   };
-
-  if (creative.headline) spec.titles = [{ text: creative.headline }];
-  if (creative.description) spec.descriptions = [{ text: creative.description }];
 
   if (plan.mediaKind === "video") {
     spec.ad_formats = ["SINGLE_VIDEO"];
@@ -1066,7 +1124,8 @@ async function buildSingleAssetFromVertical(
       message: caption,
       call_to_action: { type: cta, value: { link: creative.destinationUrl } },
     };
-    if (creative.headline) videoData.title = creative.headline;
+    // description is not valid in video_data. A blank headline is still a space.
+    videoData.title = blankAsNoScrape(creative.headline);
     // Same image_url-only treatment as buildVideoCreative (PR #767 regression fix).
     const imageUrl = await resolveVideoThumbnailImageUrl(
       creative.name,
@@ -1085,8 +1144,8 @@ async function buildSingleAssetFromVertical(
     const linkData: MetaLinkData = {
       message: caption,
       link: creative.destinationUrl,
-      name: creative.headline || undefined,
-      description: creative.description || undefined,
+      name: blankAsNoScrape(creative.headline),
+      description: blankAsNoScrape(creative.description),
       call_to_action: { type: cta, value: { link: creative.destinationUrl } },
       image_hash: plan.vertical.assetHash,
     };
