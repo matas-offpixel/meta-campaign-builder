@@ -196,6 +196,14 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSteps]);
 
+  const openedOnCampaign = useRef(false);
+  useEffect(() => {
+    if (!hydrated || openedOnCampaign.current) return;
+    if (!draft.settings.attachSubmodePending) return;
+    openedOnCampaign.current = true;
+    setStep(1);
+  }, [hydrated, draft.settings.attachSubmodePending]);
+
   const handleContinue = () => {
     const idx = visibleSteps.indexOf(step);
     if (idx === -1 || idx >= visibleSteps.length - 1) return;

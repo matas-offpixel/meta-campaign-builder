@@ -13,6 +13,7 @@ import {
   importedAdSetsDefineAudience,
   objectivePixelProblem,
 } from "./wizard/import-edits.ts";
+import { ADD_SUBMODE_REQUIRED } from "./library/add-to-campaign.ts";
 
 export interface ValidationResult {
   valid: boolean;
@@ -56,6 +57,11 @@ function validateAccountSetup(draft: CampaignDraft): ValidationResult {
 function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   const errors: string[] = [];
   const mode = draft.settings.wizardMode ?? "new";
+
+  if (draft.settings.attachSubmodePending) {
+    errors.push(ADD_SUBMODE_REQUIRED);
+    return { valid: false, errors };
+  }
 
   if (mode === "attach_adset") {
     // Attaching to one or more existing ad sets (possibly cross-campaign).

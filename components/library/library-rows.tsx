@@ -130,6 +130,10 @@ export interface CampaignRowProps {
   onConfirmDelete?: (id: string) => void;
   onCancelDelete?: () => void;
   onRelaunch?: (id: string) => void;
+  /** Published rows. Opens the wizard on the Selected campaign block. */
+  onAddToCampaign?: (id: string) => void;
+  /** Set when the live read refused this row. */
+  addToCampaignError?: string | null;
   onSaveAsTemplate?: (id: string) => void;
   /** Published rows only. Null while the write-gate request is in flight. */
   targetingWritesEnabled?: boolean | null;
@@ -149,6 +153,8 @@ export function CampaignRow({
   onConfirmDelete,
   onCancelDelete,
   onRelaunch,
+  onAddToCampaign,
+  addToCampaignError,
   onSaveAsTemplate,
   targetingWritesEnabled,
 }: CampaignRowProps) {
@@ -227,6 +233,12 @@ export function CampaignRow({
                 Open
               </Button>
 
+              {c.status === "published" && onAddToCampaign && (
+                <Button size="sm" variant="outline" onClick={() => onAddToCampaign(c.id)}>
+                  Add to campaign
+                </Button>
+              )}
+
               {c.status === "published" && (
                 <Button size="sm" variant="outline" onClick={() => onRelaunch?.(c.id)}>
                   <RotateCcw className="h-3.5 w-3.5" />
@@ -259,6 +271,9 @@ export function CampaignRow({
           )}
         </div>
       </div>
+      {addToCampaignError ? (
+        <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">{addToCampaignError}</p>
+      ) : null}
     </div>
   );
 }

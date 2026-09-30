@@ -1190,6 +1190,15 @@ export interface CampaignSettings {
   wizardMode?: WizardMode;
 
   /**
+   * Add to campaign opened the attach family but the operator has not
+   * picked Create new ad set or Attach ads to all existing ad sets.
+   * `wizardMode` stays `"attach_campaign"` so the existing Selected
+   * campaign block renders; this flag keeps both cards unselected and
+   * blocks continue. Cleared when a card is picked. Not a launch mode.
+   */
+  attachSubmodePending?: boolean;
+
+  /**
    * **Creative Integrity Mode** — when `true` (default), every ad creative
    * POST is run through {@link sanitizeCreativeForStrictMode} so Meta
    * publishes the ad exactly as configured: no Advantage+ enhancements, no
@@ -1296,6 +1305,11 @@ export interface ExistingMetaCampaignSnapshot {
   effectiveStatus?: string;
   /** When the picker captured this snapshot. */
   capturedAt: string;
+  /**
+   * The campaign Add to campaign opened from. It stays in the selection.
+   * Further campaigns from the picker are not locked.
+   */
+  locked?: boolean;
 }
 
 /** Captured-at-selection snapshot of a live Meta ad set. */

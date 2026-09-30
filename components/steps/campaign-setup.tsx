@@ -209,12 +209,15 @@ export function CampaignSetup({
   };
 
   const mode: WizardMode = settings.wizardMode ?? "new";
-  const isAttachCampaign = mode === "attach_campaign";
+  const submodePending = settings.attachSubmodePending === true;
+  const isAttachCampaign = mode === "attach_campaign" && !submodePending;
   const isAttachAdSet = mode === "attach_adset";
   const isAttachAllAdSets = mode === "attach_all_adsets";
   // `attach_all_adsets` is a sub-mode of the "attach campaign" flow — both
-  // modes share the campaign picker and selected-campaigns card.
-  const isAttachCampaignFamily = isAttachCampaign || isAttachAllAdSets;
+  // modes share the campaign picker and selected-campaigns card. A pending
+  // Add-to-campaign entry is in that family with neither card chosen.
+  const isAttachCampaignFamily =
+    isAttachCampaign || isAttachAllAdSets || (submodePending && mode === "attach_campaign");
   const isAttach = isAttachCampaignFamily || isAttachAdSet;
 
   const availableGoals = OPTIMISATION_GOALS_BY_OBJECTIVE[settings.objective] || [];
@@ -267,32 +270,38 @@ export function CampaignSetup({
   // ── Mode toggle ───────────────────────────────────────────────────────────
 
   const setMode = (next: WizardMode) => {
-    if (next === mode) return;
+    // Pending uses attach_campaign only so the Selected campaign block
+    // renders. "Create new ad set" is that same mode, so the early
+    // return would swallow the click that clears the pending flag.
+    if (next === mode && !submodePending) return;
     if (next === "new") {
       const {
         existingMetaCampaign: _dropC,
         existingMetaCampaigns: _dropCs,
         existingMetaAdSet: _dropAS,
         existingMetaAdSets: _dropASs,
+        attachSubmodePending: _dropPending,
         ...rest
       } = settings;
-      void _dropC; void _dropCs; void _dropAS; void _dropASs;
+      void _dropC; void _dropCs; void _dropAS; void _dropASs; void _dropPending;
       onChange({ ...rest, wizardMode: "new" });
       return;
     }
     if (next === "attach_campaign" || next === "attach_all_adsets") {
       // Keep the campaign snapshots (still valid) but drop ad set snapshots.
+      // Picking a card is the choice Add to campaign left open.
       const {
         existingMetaAdSet: _dropAS,
         existingMetaAdSets: _dropASs,
+        attachSubmodePending: _dropPending,
         ...rest
       } = settings;
-      void _dropAS; void _dropASs;
-      onChange({ ...rest, wizardMode: next });
+      void _dropAS; void _dropASs; void _dropPending;
+      onChange({ ...rest, wizardMode: next, attachSubmodePending: false });
       return;
     }
     // next === "attach_adset" — multi-campaign allowed (mixed objectives OK).
-    onChange({ ...settings, wizardMode: "attach_adset" });
+    onChange({ ...settings, wizardMode: "attach_adset", attachSubmodePending: false });
   };
 
   // ── Picker selection ──────────────────────────────────────────────────────
@@ -342,6 +351,9 @@ export function CampaignSetup({
     if (!campaign.compatible || !campaign.internalObjective) return;
 
     const alreadySelected = selectedCampaignIds.has(campaign.id);
+    if (alreadySelected && selectedCampaigns.some((c) => c.id === campaign.id && c.locked)) {
+      return;
+    }
     let nextList: ExistingMetaCampaignSnapshot[];
 
     if (alreadySelected) {
@@ -378,7 +390,12 @@ export function CampaignSetup({
 
     onChange({
       ...settings,
-      wizardMode: isAttachAllAdSets ? "attach_all_adsets" : "attach_campaign",
+      wizardMode: settings.attachSubmodePending
+        ? "attach_campaign"
+        : isAttachAllAdSets
+          ? "attach_all_adsets"
+          : "attach_campaign",
+      attachSubmodePending: settings.attachSubmodePending ? true : undefined,
       objective: firstCamp ? firstInternal : settings.objective,
       optimisationGoal: nextGoal as OptimisationGoal,
       existingMetaCampaigns: nextList,
@@ -403,6 +420,9 @@ export function CampaignSetup({
       if (!campaign.compatible || !campaign.internalObjective) return;
 
       const alreadySelected = selectedCampaignIds.has(campaign.id);
+      if (alreadySelected && selectedCampaigns.some((c) => c.id === campaign.id && c.locked)) {
+        return;
+      }
       let nextList: ExistingMetaCampaignSnapshot[];
 
       if (alreadySelected) {
@@ -735,6 +755,7 @@ export function CampaignSetup({
                         <span>Raw objective: {camp.objective}</span>
                       </div>
                     </div>
+                    {camp.locked ? null : (
                     <button
                       type="button"
                       onClick={() => {
@@ -750,6 +771,7 @@ export function CampaignSetup({
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -787,7 +809,7 @@ export function CampaignSetup({
                       icon: ListChecks,
                     },
                   ] as const).map(({ value, label, desc, icon: Icon }) => {
-                    const isSubSelected = mode === value;
+                    const isSubSelected = !submodePending && mode === value;
                     return (
                       <button
                         key={value}
