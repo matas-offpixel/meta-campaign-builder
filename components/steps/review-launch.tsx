@@ -183,8 +183,8 @@ function buildLaunchEvents(
         : summary.campaignCreateOutcome === "reused"
           ? "Campaign reused"
           : summary.campaignCreateOutcome === "recreated"
-            ? "Campaign recreated"
-            : "Campaign created",
+            ? `Campaign recreated${summary.metaObjective ? ` · ${summary.metaObjective}` : ""}`
+            : `Campaign created${summary.metaObjective ? ` · ${summary.metaObjective}` : ""}`,
     metaId: summary.metaCampaignId,
     durationMs: summary.phaseDurations?.campaign,
   });

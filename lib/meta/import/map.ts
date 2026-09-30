@@ -1,7 +1,7 @@
 import { createDefaultDraft } from "../../campaign-defaults.ts";
 import { normalizeAdAccountId } from "../ad-account.ts";
 import { META_DESTINATION_TYPE_UNSET, resolveOptimisationGoal } from "../adset.ts";
-import { mapMetaObjectiveToInternal } from "../campaign.ts";
+import { importedObjectiveFromAdSetEvents, mapMetaObjectiveToInternal } from "../campaign.ts";
 import type {
   AdCreativeDraft,
   AdSetSuggestion,
@@ -542,7 +542,12 @@ function existingPostDraft(
 export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDraft {
   const campaign = input.bundle.campaign;
   const rawObjective = str(campaign.objective);
-  const objective = mapMetaObjectiveToInternal(rawObjective);
+  const adSetEvents = input.bundle.adSets.map((raw) => {
+    const promoted = asRecord(raw.promoted_object);
+    return str(promoted?.custom_event_type);
+  });
+  const voted = importedObjectiveFromAdSetEvents(rawObjective, adSetEvents);
+  const objective = voted.objective;
   if (!objective) {
     throw new Error(
       `Meta import refused: objective ${rawObjective ?? "(missing)"} is not supported`,
@@ -577,6 +582,10 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     }
     if (Object.prototype.hasOwnProperty.call(raw, "promoted_object")) {
       drop(dropped, "promoted_object", raw.promoted_object, ctx);
+    }
+    const event = str(asRecord(raw.promoted_object)?.custom_event_type);
+    if (event && mapMetaObjectiveToInternal(rawObjective, event) !== objective) {
+      drop(dropped, "objective_event_mixed", { event, kept: objective }, ctx);
     }
 
     const flexible = flexibleSpecOf(targeting);

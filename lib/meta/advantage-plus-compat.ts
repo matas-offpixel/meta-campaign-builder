@@ -24,14 +24,13 @@ import type { CampaignObjective, OptimisationGoal } from "@/lib/types";
  * Per Meta docs (API v23.0):
  *   - Supported: OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_SALES,
  *     OUTCOME_APP_PROMOTION (this app has no app-promotion objective yet).
- *   - NOT supported: OUTCOME_AWARENESS (any optimisation goal), and
- *     OUTCOME_LEADS with a LEAD_GENERATION-style optimisation goal — this
- *     app's `"registration"` objective (→ `OUTCOME_LEADS`, see
- *     `OBJECTIVE_MAP` in `lib/meta/campaign.ts`) always resolves to that
- *     shape today (both of its valid goals, `conversions` and
- *     `complete_registration`, map to `OFFSITE_CONVERSIONS` — see
- *     `OPTIMISATION_GOAL_MAP` in `lib/meta/adset.ts` — which Meta treats the
- *     same way for Advantage+ eligibility under `OUTCOME_LEADS`).
+ *   - NOT supported: OUTCOME_AWARENESS (any optimisation goal).
+ *
+ * `"registration"` used to map to OUTCOME_LEADS, and Advantage+ was rejected
+ * there (subcode 1870196 — East End Dubs Newcastle signup v2). It now maps
+ * to OUTCOME_SALES, which accepts `advantage_audience`, so the toggle is
+ * offered. Already-launched OUTCOME_LEADS campaigns are unchanged; this
+ * gate only looks at the internal objective the next launch will send.
  *
  * Keyed by objective first (not a flat allow-list) so a future
  * objective/goal combo that Meta supports on some goals but not others can
@@ -41,7 +40,6 @@ const UNSUPPORTED_GOALS_BY_OBJECTIVE: Partial<
   Record<CampaignObjective, ReadonlySet<OptimisationGoal> | "all">
 > = {
   awareness: "all",
-  registration: "all",
 };
 
 export function isAdvantageAudienceSupportedForObjective(

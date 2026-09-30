@@ -1495,6 +1495,12 @@ export interface LaunchSummary {
    */
   campaignCreateOutcome?: "created" | "reused" | "recreated";
   /**
+   * Meta objective string actually sent on a create or recreate
+   * (`OUTCOME_SALES`, `OUTCOME_TRAFFIC`, …). Absent when the launch
+   * attached to a campaign that already existed.
+   */
+  metaObjective?: string;
+  /**
    * Per-suggestion launch outcomes for this run.
    * Key = AdSetSuggestion.id. Allows the UI to show per-suggestion
    * status without mutating the editable suggestion objects.

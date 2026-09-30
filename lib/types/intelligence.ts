@@ -123,8 +123,18 @@ export interface CreativeInsightRow {
    * group-mapping (leads / sales / traffic / awareness / engagement /
    * other) lives in `lib/intelligence/objective-metrics.ts` (H3) so
    * we never embed business rules in the wire shape.
+   *
+   * A registration campaign launched after the OUTCOME_SALES mapping
+   * carries `OUTCOME_SALES` here. Signup versus sales is the ad set
+   * event in `customEventType`, not this string.
    */
   campaignObjective: string | null;
+  /**
+   * `promoted_object.custom_event_type` on the ad set, when the insights
+   * fetch included it. Absent on snapshot rows written before that field
+   * was stored; those still group by `campaignObjective` alone.
+   */
+  customEventType?: string | null;
   adsetId: string | null;
   creativeId: string | null;
   creativeName: string | null;

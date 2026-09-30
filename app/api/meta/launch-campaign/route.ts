@@ -77,6 +77,7 @@ import type { BusinessUseCaseSnapshot } from "@/lib/meta/app-usage";
 import type { EngagementAudienceSpec, EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
   mapMetaObjectiveToInternal,
+  mapObjectiveToMeta,
   validateCampaignPayload,
 } from "@/lib/meta/campaign";
 import {
@@ -1468,6 +1469,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
   let metaCampaignId: string;
   let campaignCreateOutcome: "created" | "reused" | "recreated" | undefined;
+  let metaObjective: string | undefined;
   // All validated campaigns for multi-campaign attach_campaign launches.
   // Entry 0 === the "primary" campaign whose id is mirrored into metaCampaignId.
   // The loop after Phase 4 uses entries 1..N for the additional campaigns.
@@ -1773,6 +1775,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       metaCampaignId = campaignRes.id;
       campaignCreateOutcome = campaignRes.outcome;
+      if (campaignRes.outcome === "created" || campaignRes.outcome === "recreated") {
+        metaObjective = mapObjectiveToMeta(campaignPayload.objective);
+      }
       phaseDurations["campaign"] = elapsed(phase1Start);
       console.log(
         `[launch-campaign] Phase 1 ✓  campaignId: ${metaCampaignId} outcome=${campaignCreateOutcome} (${phaseDurations["campaign"]}ms)`,
@@ -4617,6 +4622,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     launchRunId,
     metaCampaignId,
     campaignCreateOutcome,
+    metaObjective,
     adSetLaunchResults: Object.keys(adSetLaunchResults).length > 0 ? adSetLaunchResults : undefined,
     totalDurationMs,
     phaseDurations,

@@ -89,6 +89,12 @@ function strEq(a: string | null | undefined, b: string | null | undefined): bool
   return (a ?? null) === (b ?? null);
 }
 
+function customEventFromRaw(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const event = (raw as { custom_event_type?: unknown }).custom_event_type;
+  return typeof event === "string" && event.trim() ? event.trim() : null;
+}
+
 function num(v: number | null | undefined): number {
   if (v == null || !Number.isFinite(v)) return 0;
   return Number(v);
@@ -121,6 +127,9 @@ function rowToInsert(
     campaign_id: row.campaignId,
     campaign_name: row.campaignName,
     campaign_objective: row.campaignObjective,
+    raw_insights: row.customEventType?.trim()
+      ? { custom_event_type: row.customEventType.trim() }
+      : null,
     adset_id: row.adsetId,
     creative_id: row.creativeId,
     creative_name: row.creativeName,
@@ -138,7 +147,6 @@ function rowToInsert(
     registrations: row.registrations,
     cpl: row.cpl,
     fatigue_score: row.fatigueScore,
-    raw_insights: null,
     snapshot_at: new Date().toISOString(),
   };
 }
@@ -165,6 +173,7 @@ function rowFromDb(row: SnapshotRow): CreativeInsightRow {
     campaignId: row.campaign_id,
     campaignName: row.campaign_name,
     campaignObjective: row.campaign_objective,
+    customEventType: customEventFromRaw(row.raw_insights),
     adsetId: row.adset_id,
     creativeId: row.creative_id,
     creativeName: row.creative_name,
@@ -231,7 +240,8 @@ function creativeDataMatch(ins: SnapshotInsert, ex: Record<string, any>): boolea
     numEq(ins.reach, ex.reach) &&
     numEq(ins.link_clicks, ex.link_clicks) &&
     numEq(ins.purchases, ex.purchases) &&
-    numEq(ins.registrations, ex.registrations)
+    numEq(ins.registrations, ex.registrations) &&
+    JSON.stringify(ins.raw_insights ?? null) === JSON.stringify(ex.raw_insights ?? null)
   );
 }
 
@@ -268,7 +278,7 @@ export async function upsertCreativeSnapshots(
     const { data: existing } = await sb
       .from(TABLE)
       .select(
-        "ad_id,ad_name,ad_status,campaign_id,campaign_name,campaign_objective,adset_id,creative_id,creative_name,thumbnail_url,fatigue_score,spend,impressions,clicks,ctr,cpm,cpc,frequency,reach,link_clicks,purchases,registrations,cpl",
+        "ad_id,ad_name,ad_status,campaign_id,campaign_name,campaign_objective,adset_id,creative_id,creative_name,thumbnail_url,fatigue_score,spend,impressions,clicks,ctr,cpm,cpc,frequency,reach,link_clicks,purchases,registrations,cpl,raw_insights",
       )
       .eq("user_id", userId)
       .eq("ad_account_id", adAccountId)

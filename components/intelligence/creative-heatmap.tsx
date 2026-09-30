@@ -248,7 +248,9 @@ function CreativeHeatmapInner({
       other: 0,
     };
     if (!rows) return counts;
-    for (const r of rows) counts[groupForObjective(r.campaignObjective)] += 1;
+    for (const r of rows) {
+      counts[groupForObjective(r.campaignObjective, r.customEventType)] += 1;
+    }
     return counts;
   }, [rows]);
 
@@ -260,7 +262,7 @@ function CreativeHeatmapInner({
     }
     if (objective !== "all") {
       next = next.filter(
-        (r) => groupForObjective(r.campaignObjective) === objective,
+        (r) => groupForObjective(r.campaignObjective, r.customEventType) === objective,
       );
     }
     return applySort(next, sort);

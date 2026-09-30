@@ -12,7 +12,8 @@ import { describe, it } from "node:test";
  * `mc-phase2-salvage-parity.test.ts` guards for the salvage ladder).
  *
  * Without this check, an ad set with `advantagePlus: true` on an
- * objective/goal Meta doesn't support (e.g. Registration → OUTCOME_LEADS)
+ * objective/goal Meta doesn't support (awareness; registration used to be
+ * OUTCOME_LEADS and was blocked, and now launches as OUTCOME_SALES)
  * would still get created via the salvage ladder's 1870196 handler
  * (`lib/audiences/adset-create-with-salvage.ts`) stripping the flag and
  * retrying — succeeding silently with no warning that the ad set no longer

@@ -273,6 +273,102 @@ describe("SCHAK launch, archive, launch", () => {
     assert.equal(creates, 0);
   });
 
+  it("recreates a registration draft whose live campaign is still OUTCOME_LEADS", async () => {
+    const db = new Memory();
+    const ctx = context(db);
+    const registrationPayload = {
+      adAccountId: "act_606252931141334",
+      name: "[NX26-SCHAK] SCHAK Signup",
+      objective: "registration",
+      status: "ACTIVE",
+    };
+    let creates = 0;
+    await runCampaignCreateLedger({
+      context: ctx,
+      payload: registrationPayload,
+      draftObjective: "registration",
+      campaignName: registrationPayload.name,
+      fetchCampaign: async () => null,
+      create: async () => {
+        creates += 1;
+        return "120250000000000001";
+      },
+    });
+    db.rows.push({
+      id: "adset-row",
+      user_id: "user-1",
+      event_id: "event-1",
+      draft_id: "draft-schak",
+      op_kind: "adset_create",
+      op_payload_hash: "adset",
+      op_result_id: "adset-old",
+      op_status: "success",
+    });
+    const second = await runCampaignCreateLedger({
+      context: ctx,
+      payload: registrationPayload,
+      draftObjective: "registration",
+      campaignName: registrationPayload.name,
+      fetchCampaign: async () => ({
+        id: "120250000000000001",
+        name: registrationPayload.name,
+        effective_status: "ACTIVE",
+        objective: "OUTCOME_LEADS",
+      }),
+      create: async () => {
+        creates += 1;
+        return "120250000000000002";
+      },
+    });
+    assert.equal(second.outcome, "recreated");
+    assert.equal(second.id, "120250000000000002");
+    assert.equal(creates, 2);
+    assert.equal(db.rows.some((row) => row.op_result_id === "120250000000000001"), false);
+    assert.equal(db.rows.some((row) => row.op_kind === "adset_create"), false);
+    assert.equal(db.rows.some((row) => row.op_result_id === "120250000000000002"), true);
+  });
+
+  it("still refuses a registration draft whose live campaign is a different objective", async () => {
+    const db = new Memory();
+    const ctx = context(db);
+    const registrationPayload = {
+      adAccountId: "act_606252931141334",
+      name: "[NX26-SCHAK] SCHAK Signup",
+      objective: "registration",
+      status: "PAUSED",
+    };
+    await runCampaignCreateLedger({
+      context: ctx,
+      payload: registrationPayload,
+      draftObjective: "registration",
+      campaignName: registrationPayload.name,
+      fetchCampaign: async () => null,
+      create: async () => "120250000000000003",
+    });
+    let creates = 0;
+    await assert.rejects(
+      () =>
+        runCampaignCreateLedger({
+          context: ctx,
+          payload: registrationPayload,
+          draftObjective: "registration",
+          campaignName: registrationPayload.name,
+          fetchCampaign: async () => ({
+            id: "120250000000000003",
+            name: registrationPayload.name,
+            effective_status: "ACTIVE",
+            objective: "OUTCOME_TRAFFIC",
+          }),
+          create: async () => {
+            creates += 1;
+            return "nope";
+          },
+        }),
+      (err: unknown) => err instanceof CampaignLedgerObjectiveError,
+    );
+    assert.equal(creates, 0);
+  });
+
   it("a rate-limit re-fetch leaves the ledger row and does not create", async () => {
     const db = new Memory();
     const ctx = context(db);
