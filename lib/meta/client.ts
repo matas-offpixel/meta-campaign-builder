@@ -2204,11 +2204,16 @@ export async function uploadImageAsset(
 
   if (!response.ok || json.error) {
     const e = (json.error ?? {}) as Record<string, unknown>;
+    const userMsg = typeof e.error_user_msg === "string" ? e.error_user_msg : undefined;
+    const userTitle = typeof e.error_user_title === "string" ? e.error_user_title : undefined;
     throw new MetaApiError(
-      (e.message as string) ?? `HTTP ${response.status}`,
-      e.code as number | undefined,
-      e.type as string | undefined,
-      e.fbtrace_id as string | undefined,
+      userMsg ?? userTitle ?? (typeof e.message === "string" ? e.message : `HTTP ${response.status}`),
+      typeof e.code === "number" ? e.code : undefined,
+      typeof e.type === "string" ? e.type : undefined,
+      typeof e.fbtrace_id === "string" ? e.fbtrace_id : undefined,
+      typeof e.error_subcode === "number" ? e.error_subcode : undefined,
+      userMsg ?? userTitle,
+      e,
     );
   }
 
