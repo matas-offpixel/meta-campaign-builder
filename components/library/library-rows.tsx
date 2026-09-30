@@ -34,6 +34,7 @@ import {
   type PlanLibraryItem,
 } from "@/lib/plan/library";
 import { AdSetAudiencePush } from "@/components/library/adset-audience-push";
+import { AdSetDestinationPush } from "@/components/library/adset-destination-push";
 import type { CampaignDraft, CampaignListItem, CampaignTemplate } from "@/lib/types";
 
 export { filterLibraryPlans };
@@ -226,7 +227,10 @@ export function CampaignRow({
           ) : (
             <>
               {c.status === "published" && variant === "manage" && targetingWritesEnabled !== undefined && (
-                <AdSetAudiencePush campaign={c} writesEnabled={targetingWritesEnabled} />
+                <>
+                  <AdSetAudiencePush campaign={c} writesEnabled={targetingWritesEnabled} />
+                  <AdSetDestinationPush campaign={c} writesEnabled={targetingWritesEnabled} />
+                </>
               )}
 
               <Button size="sm" onClick={() => onOpen?.(c.id)}>

@@ -157,7 +157,7 @@ export interface AdSetAudienceRequest {
   graph: AdSetTargetingGraph;
 }
 
-const META_OBJECT_ID = /^[0-9]{5,32}$/;
+export const META_OBJECT_ID = /^[0-9]{5,32}$/;
 
 function logOutcome(outcome: AdSetAudienceOutcome): void {
   console.log(
@@ -181,7 +181,11 @@ function refused(
   };
 }
 
-function deadReason(status: string): string | null {
+/**
+ * Ad sets that must never be written to, whatever the change is. Shared with
+ * `adset-destination-write.ts`.
+ */
+export function deadReason(status: string): string | null {
   const normalized = status.trim().toUpperCase();
   if (normalized === "ARCHIVED") return "Ad set is ARCHIVED";
   if (normalized === "DELETED") return "Ad set is DELETED";

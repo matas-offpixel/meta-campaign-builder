@@ -16,7 +16,8 @@ export type MetaWriteOpKind =
   | "adset_create"
   | "ad_create"
   | "creative_upload"
-  | "adset_targeting_update";
+  | "adset_targeting_update"
+  | "adset_destination_update";
 
 /**
  * Thrown only when a caller passes `{ required: true }` and the ledger
