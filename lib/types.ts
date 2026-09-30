@@ -969,6 +969,18 @@ export interface AdSetSuggestion {
    */
   importedFromAdSetId?: string;
   /**
+   * `destination_type` as the importer read it off the live ad set, verbatim,
+   * including Meta's literal `"UNDEFINED"`. Absent when the read never
+   * returned the key.
+   *
+   * Recorded so an import shows what the source campaign actually carried.
+   * It does NOT decide the relaunch payload: `resolveAdSetDestinationType`
+   * owns that, and a website-bound objective always relaunches as `WEBSITE`
+   * regardless of what the source had — a source ad set reading `UNDEFINED`
+   * is the damage being fixed, not a setting to preserve.
+   */
+  importedDestinationType?: string;
+  /**
    * @deprecated Do not use — this field is no longer stamped during launch.
    * Per-run Meta IDs are stored in LaunchSummary.adSetLaunchResults instead.
    */

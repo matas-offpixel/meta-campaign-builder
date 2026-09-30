@@ -1,7 +1,22 @@
 /**
  * Tests for resolveAdSetDestinationType / buildAdSetPayload destination_type
- * (Traffic Edit-UI "Facebook event" mis-default fix — PR #770) and the
- * existing-post boost compatibility guard (task #132 / subcode 1815676).
+ * and the website-destination preflight.
+ *
+ * The expectations here are pinned to live Graph probes run 2026-09-30 on
+ * act_932846012721428 (create PAUSED → read back → delete, per objective and
+ * per valid optimisation goal):
+ *
+ *   traffic, registration, purchase, initiate_checkout, awareness
+ *                                     → destination_type=WEBSITE ACCEPTED
+ *   engagement (post_engagement, video_views)
+ *                                     → REJECTED code=100 subcode=2490408,
+ *                                       while the same ad set without the
+ *                                       field is ACCEPTED (matched control)
+ *
+ * Boosts were probed separately on the real DHB page: object_story_id and
+ * source_instagram_media_id creatives, each with and without #983's
+ * call_to_action.value.link, all attached to a destination_type=WEBSITE ad set
+ * with no subcode 1815676. #777's whole-ad-set downgrade is therefore gone.
  *
  * Run: node --test lib/meta/__tests__/adset-destination-type.test.ts
  */
@@ -11,9 +26,11 @@ import { describe, it } from "node:test";
 
 import {
   buildAdSetPayload,
+  findAdSetsWithoutWebsiteDestination,
+  isWebsiteDestinationObjective,
   resolveAdSetDestinationType,
-  adSetHasBoostCreative,
-  findAdSetsWithMixedBoostAndLinkCreatives,
+  websiteDestinationRefusalMessage,
+  WEBSITE_DESTINATION_OBJECTIVES,
 } from "../adset.ts";
 import type {
   AdSetSuggestion,
@@ -52,11 +69,7 @@ const schedule: BudgetScheduleSettings = {
   endDate: "",
 } as unknown as BudgetScheduleSettings;
 
-function build(
-  objective: CampaignObjective,
-  goal: OptimisationGoal,
-  hasBoostCreative?: boolean,
-) {
+function build(objective: CampaignObjective, goal: OptimisationGoal) {
   return buildAdSetPayload(
     makeAdSet(),
     "cam_001",
@@ -64,118 +77,187 @@ function build(
     schedule,
     goal,
     objective,
-    undefined,
-    undefined,
-    undefined,
-    hasBoostCreative,
   );
 }
 
-describe("resolveAdSetDestinationType", () => {
-  it("returns WEBSITE for every traffic optimisation goal (LPV / link clicks / reach / impressions)", () => {
-    for (const goal of [
-      "landing_page_views",
-      "link_clicks",
-      "reach",
-      "impressions",
-    ] as OptimisationGoal[]) {
-      assert.equal(
-        resolveAdSetDestinationType("traffic", goal),
-        "WEBSITE",
-        `traffic + ${goal}`,
-      );
+/** Every goal the wizard accepts per objective (VALID_GOALS_BY_OBJECTIVE). */
+const GOALS_BY_OBJECTIVE: Record<CampaignObjective, OptimisationGoal[]> = {
+  traffic: ["landing_page_views", "link_clicks", "reach", "impressions"],
+  purchase: ["conversions", "value"],
+  initiate_checkout: ["conversions", "value"],
+  registration: ["conversions", "complete_registration"],
+  awareness: ["reach", "impressions", "video_views"],
+  engagement: ["post_engagement", "video_views"],
+};
+
+describe("resolveAdSetDestinationType — golden per objective", () => {
+  it("returns WEBSITE for every website-bound objective, on every valid goal", () => {
+    for (const objective of WEBSITE_DESTINATION_OBJECTIVES) {
+      for (const goal of GOALS_BY_OBJECTIVE[objective]) {
+        assert.equal(
+          resolveAdSetDestinationType(objective, goal),
+          "WEBSITE",
+          `${objective} + ${goal} must resolve to WEBSITE`,
+        );
+      }
     }
   });
 
-  it("returns WEBSITE for registration (OUTCOME_LEADS website Sign Up path, not Instant Forms / LEAD)", () => {
-    assert.equal(resolveAdSetDestinationType("registration", "conversions"), "WEBSITE");
-    assert.equal(
-      resolveAdSetDestinationType("registration", "complete_registration"),
-      "WEBSITE",
-    );
+  it("covers traffic, registration, purchase, initiate_checkout and awareness", () => {
+    assert.deepEqual([...WEBSITE_DESTINATION_OBJECTIVES].sort(), [
+      "awareness",
+      "initiate_checkout",
+      "purchase",
+      "registration",
+      "traffic",
+    ]);
   });
 
-  it("returns undefined for awareness / engagement / purchase (Meta defaults correctly)", () => {
-    assert.equal(resolveAdSetDestinationType("awareness", "reach"), undefined);
-    assert.equal(resolveAdSetDestinationType("engagement", "post_engagement"), undefined);
-    assert.equal(resolveAdSetDestinationType("purchase", "conversions"), undefined);
-  });
-
-  it("OMITS WEBSITE when hasBoostCreative is true (task #132 / subcode 1815676)", () => {
-    assert.equal(resolveAdSetDestinationType("traffic", "landing_page_views", true), undefined);
-    assert.equal(resolveAdSetDestinationType("registration", "conversions", true), undefined);
+  it("returns undefined for engagement on every goal (Meta rejects WEBSITE, subcode 2490408)", () => {
+    for (const goal of GOALS_BY_OBJECTIVE.engagement) {
+      assert.equal(
+        resolveAdSetDestinationType("engagement", goal),
+        undefined,
+        `engagement + ${goal} must stay unset`,
+      );
+    }
+    assert.equal(isWebsiteDestinationObjective("engagement"), false);
   });
 });
 
 describe("buildAdSetPayload — destination_type", () => {
-  it("sets destination_type=WEBSITE for OUTCOME_TRAFFIC + all-link creatives", () => {
-    const payload = build("traffic", "landing_page_views", false);
-    assert.equal(payload.optimization_goal, "LANDING_PAGE_VIEWS");
-    assert.equal(payload.destination_type, "WEBSITE");
+  it("sets destination_type=WEBSITE on every website-bound objective", () => {
+    for (const objective of WEBSITE_DESTINATION_OBJECTIVES) {
+      for (const goal of GOALS_BY_OBJECTIVE[objective]) {
+        assert.equal(
+          build(objective, goal).destination_type,
+          "WEBSITE",
+          `${objective} + ${goal}`,
+        );
+      }
+    }
   });
 
-  it("sets destination_type=WEBSITE for OUTCOME_TRAFFIC + LINK_CLICKS", () => {
-    const payload = build("traffic", "link_clicks");
-    assert.equal(payload.optimization_goal, "LINK_CLICKS");
-    assert.equal(payload.destination_type, "WEBSITE");
-  });
-
-  it("OMITS destination_type for traffic when any boost creative is assigned", () => {
-    const payload = build("traffic", "landing_page_views", true);
-    assert.equal(payload.destination_type, undefined);
-    assert.ok(!("destination_type" in payload), "key must be absent so Meta accepts object_story_id boosts");
-  });
-
-  it("OMITS destination_type for registration when a boost creative is assigned", () => {
-    const payload = build("registration", "conversions", true);
-    assert.equal(payload.destination_type, undefined);
-  });
-
-  it("OMITS destination_type for awareness / engagement / purchase", () => {
-    assert.equal(build("awareness", "reach").destination_type, undefined);
-    assert.equal(build("engagement", "post_engagement").destination_type, undefined);
-    assert.equal(build("purchase", "conversions").destination_type, undefined);
-  });
-});
-
-describe("adSetHasBoostCreative", () => {
-  const creatives = [
-    { id: "cr_link", sourceType: "new" },
-    { id: "cr_boost", sourceType: "existing_post" },
-  ];
-
-  it("returns true when the ad set has an existing_post creative assigned", () => {
+  it("On Sale ad sets now carry a destination (the regression this PR fixes)", () => {
+    assert.equal(build("purchase", "conversions").destination_type, "WEBSITE");
     assert.equal(
-      adSetHasBoostCreative("as1", { as1: ["cr_link", "cr_boost"] }, creatives),
+      build("initiate_checkout", "conversions").destination_type,
+      "WEBSITE",
+    );
+  });
+
+  it("omits the key entirely for engagement — never sends an empty value", () => {
+    const payload = build("engagement", "post_engagement");
+    assert.equal(payload.destination_type, undefined);
+    assert.ok(
+      !("destination_type" in payload),
+      "key must be absent, not undefined — Meta rejects WEBSITE here",
+    );
+  });
+
+  it("a boost assigned to the ad set no longer changes the payload", () => {
+    // #777 threaded a hasBoostCreative flag as a 10th positional argument and
+    // dropped the field when it was true. The parameter is gone; a stray extra
+    // argument must not resurrect the behaviour.
+    const withStrayFlag = (
+      buildAdSetPayload as unknown as (
+        ...args: unknown[]
+      ) => ReturnType<typeof buildAdSetPayload>
+    )(
+      makeAdSet(),
+      "cam_001",
+      emptyAudiences,
+      schedule,
+      "landing_page_views",
+      "traffic",
+      undefined,
+      undefined,
+      undefined,
       true,
     );
-  });
-
-  it("returns false when every assigned creative is a new/link creative", () => {
-    assert.equal(
-      adSetHasBoostCreative("as1", { as1: ["cr_link"] }, creatives),
-      false,
-    );
-  });
-
-  it("returns false when the ad set has no assignments", () => {
-    assert.equal(adSetHasBoostCreative("as1", {}, creatives), false);
+    assert.equal(withStrayFlag.destination_type, "WEBSITE");
   });
 });
 
-describe("findAdSetsWithMixedBoostAndLinkCreatives", () => {
-  it("flags ad sets that mix a boost with a link creative", () => {
-    const mixed = findAdSetsWithMixedBoostAndLinkCreatives(
-      { as1: ["cr_link", "cr_boost"], as2: ["cr_link"] },
-      [
-        { id: "cr_link", name: "Ad1", sourceType: "new" },
-        { id: "cr_boost", name: "Ad3", sourceType: "existing_post" },
-      ],
-      [
-        { id: "as1", name: "Wide" },
-        { id: "as2", name: "Retargeting" },
-      ],
+describe("findAdSetsWithoutWebsiteDestination", () => {
+  it("passes ad sets that carry WEBSITE", () => {
+    assert.deepEqual(
+      findAdSetsWithoutWebsiteDestination("traffic", [
+        { id: "1", name: "Wide", destinationType: "WEBSITE" },
+      ]),
+      [],
     );
-    assert.deepEqual(mixed, [{ adSetId: "as1", adSetName: "Wide" }]);
+  });
+
+  it("refuses Meta's literal UNDEFINED", () => {
+    const refusals = findAdSetsWithoutWebsiteDestination("purchase", [
+      { id: "120249993287300453", name: "DHB", destinationType: "UNDEFINED" },
+    ]);
+    assert.deepEqual(refusals, [
+      { adSetId: "120249993287300453", adSetName: "DHB", found: "UNDEFINED" },
+    ]);
+  });
+
+  it("treats an absent value as no destination", () => {
+    for (const destinationType of [undefined, null, ""]) {
+      const refusals = findAdSetsWithoutWebsiteDestination("traffic", [
+        { id: "1", name: "Wide", destinationType },
+      ]);
+      assert.equal(refusals.length, 1);
+      assert.equal(refusals[0].found, "UNDEFINED");
+    }
+  });
+
+  it("refuses a Facebook event destination by name", () => {
+    const refusals = findAdSetsWithoutWebsiteDestination("traffic", [
+      { id: "1", name: "DHB Primary 2", destinationType: "FACEBOOK_EVENT" },
+    ]);
+    assert.deepEqual(refusals, [
+      { adSetId: "1", adSetName: "DHB Primary 2", found: "FACEBOOK_EVENT" },
+    ]);
+  });
+
+  it("never refuses an engagement ad set — it cannot carry WEBSITE", () => {
+    assert.deepEqual(
+      findAdSetsWithoutWebsiteDestination("engagement", [
+        { id: "1", name: "DHB Fans", destinationType: "ON_POST" },
+        { id: "2", name: "Wide", destinationType: "UNDEFINED" },
+      ]),
+      [],
+    );
+  });
+
+  it("reports every offending ad set, not just the first", () => {
+    const refusals = findAdSetsWithoutWebsiteDestination("purchase", [
+      { id: "1", name: "DHB", destinationType: "UNDEFINED" },
+      { id: "2", name: "DHB 1% LL", destinationType: "WEBSITE" },
+      { id: "3", name: "DHB Adv+", destinationType: "UNDEFINED" },
+    ]);
+    assert.deepEqual(
+      refusals.map((r) => r.adSetName),
+      ["DHB", "DHB Adv+"],
+    );
+  });
+});
+
+describe("websiteDestinationRefusalMessage", () => {
+  it("names the ad set, its id, and what it carries instead", () => {
+    const message = websiteDestinationRefusalMessage("traffic", [
+      { adSetId: "120250102006540453", adSetName: "DHB Primary 2", found: "UNDEFINED" },
+    ]);
+    assert.match(message, /DHB Primary 2/);
+    assert.match(message, /120250102006540453/);
+    assert.match(message, /UNDEFINED/);
+    assert.match(message, /traffic/);
+  });
+
+  it("names every ad set when several are refused", () => {
+    const message = websiteDestinationRefusalMessage("purchase", [
+      { adSetId: "1", adSetName: "DHB", found: "UNDEFINED" },
+      { adSetId: "2", adSetName: "DHB Adv+", found: "UNDEFINED" },
+    ]);
+    assert.match(message, /DHB"/);
+    assert.match(message, /DHB Adv\+/);
+    assert.match(message, /2 ad sets do not carry/);
   });
 });

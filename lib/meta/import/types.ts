@@ -140,7 +140,6 @@ export const META_IMPORT_UNCARRIABLE_TARGETING_FIELDS = [
   "targeting_relaxation_types",
   "brand_safety_content_filter_levels",
   "attribution_spec",
-  "destination_type",
   "location_types",
   "age_range",
 ] as const;

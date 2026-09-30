@@ -885,6 +885,11 @@ export interface RawMetaAdSet {
   effective_status?: string;
   created_time?: string;
   updated_time?: string;
+  /**
+   * Meta returns the literal `"UNDEFINED"` for an ad set created without one.
+   * See `META_DESTINATION_TYPE_UNSET` in lib/meta/adset.ts.
+   */
+  destination_type?: string;
   /** Subset of `targeting` fields used for the picker's audience-summary line. */
   targeting?: {
     age_min?: number;
@@ -1010,7 +1015,7 @@ export async function fetchAdSetById(
   token?: string,
 ): Promise<RawMetaAdSet | null> {
   try {
-    const fields = "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,created_time,updated_time";
+    const fields = "id,name,campaign_id,optimization_goal,billing_event,status,effective_status,destination_type,created_time,updated_time";
     const res = token
       ? await graphGetWithToken<RawMetaAdSet>(`/${adSetId}`, { fields }, token)
       : await graphGet<RawMetaAdSet>(`/${adSetId}`, { fields });

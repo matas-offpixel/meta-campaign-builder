@@ -1,6 +1,6 @@
 import { createDefaultDraft } from "../../campaign-defaults.ts";
 import { normalizeAdAccountId } from "../ad-account.ts";
-import { resolveOptimisationGoal } from "../adset.ts";
+import { META_DESTINATION_TYPE_UNSET, resolveOptimisationGoal } from "../adset.ts";
 import { mapMetaObjectiveToInternal } from "../campaign.ts";
 import type {
   AdCreativeDraft,
@@ -648,6 +648,18 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     const automation = asRecord(targeting.targeting_automation);
     const advantagePlus = automation?.advantage_audience === 1;
 
+    // What the live ad set carries as a destination, verbatim. Meta answers
+    // "UNDEFINED" for an ad set created without one — that is the state this
+    // import is most likely to find, and the one relaunch has to correct
+    // rather than copy, so it is named on `dropped` as defaulted.
+    const importedDestinationType = str(raw.destination_type) ?? undefined;
+    if (
+      !importedDestinationType ||
+      importedDestinationType.toUpperCase() === META_DESTINATION_TYPE_UNSET
+    ) {
+      drop(dropped, "destination_type_defaulted", raw.destination_type ?? null, ctx);
+    }
+
     const sourceType = customGroupId
       ? "custom_group"
       : interestGroupId
@@ -669,6 +681,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
       locationGroupIds,
       excludedLocationIds,
       importedFromAdSetId: id,
+      ...(importedDestinationType ? { importedDestinationType } : {}),
     };
     adSets.push(suggestion);
     assignments[id] = [];
