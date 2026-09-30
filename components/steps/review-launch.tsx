@@ -377,7 +377,9 @@ function buildLaunchEvents(
       stage: "creative",
       entity: c.name,
       status: "success",
-      label: `Creative created · ${identityLabel}`,
+      label: c.copyNote
+        ? `Creative created · ${identityLabel} · ${c.copyNote}`
+        : `Creative created · ${identityLabel}`,
       metaId: c.metaCreativeId,
       durationMs: c.durationMs,
     });

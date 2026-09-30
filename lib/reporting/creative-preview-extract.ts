@@ -50,6 +50,7 @@ export interface RawCreative {
     }>;
     titles?: Array<{ text?: string }>;
     bodies?: Array<{ text?: string }>;
+    descriptions?: Array<{ text?: string }>;
     call_to_action_types?: string[];
     link_urls?: Array<{ website_url?: string }>;
   };
@@ -58,9 +59,28 @@ export interface RawCreative {
 export type { PreviewTier } from "@/lib/reporting/preview-tier";
 
 /**
- * Subset of {@link PreviewTier} that produces a low-resolution
- * stand-in rather than a full-size marketer asset.
+ * First value that contains a real character. Whitespace-only values —
+ * the single space `blankAsNoScrape` sends — count as absent.
+ * `nameFallback` is used only when every copy field was missing entirely.
+ * An explicit blank must not be replaced by the creative's internal name.
  */
+export function firstPresentCopy(
+  values: ReadonlyArray<string | null | undefined>,
+  nameFallback?: string | null,
+): string | null {
+  let sawBlank = false;
+  for (const value of values) {
+    if (value == null) continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+    sawBlank = true;
+  }
+  if (sawBlank) return null;
+  const name = nameFallback?.trim();
+  return name ? name : null;
+}
+
+/** Tiers that produce a low-resolution stand-in rather than a full-size asset. */
 const LOW_RES_PREVIEW_TIERS: ReadonlySet<PreviewTier> = new Set([
   "top_thumbnail_url",
   "afs_video_thumb",
@@ -134,11 +154,18 @@ export function extractPreview(
 
   const instagram_permalink_url =
     creative.instagram_permalink_url?.trim() || null;
-  const headline =
-    ld?.name?.trim() ||
-    creative.title?.trim() ||
-    creative.name?.trim() ||
-    null;
+  // A single space is the launcher's "blank" sentinel (blankAsNoScrape). It
+  // must not surface as headline copy, and it must not fall through to the
+  // creative's internal name — that name is what clients were seeing.
+  const headline = firstPresentCopy(
+    [
+      afs?.titles?.[0]?.text,
+      ld?.name,
+      vd?.title,
+      creative.title,
+    ],
+    creative.name,
+  );
   const body =
     ld?.message?.trim() ||
     creative.body?.trim() ||
