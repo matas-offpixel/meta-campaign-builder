@@ -159,6 +159,10 @@ const PINNED_AD_SETS = {
       pixel_id: "pixel_fixture",
       custom_event_type: "PURCHASE",
     },
+    // Added by the website-destination default. On Sale ad sets carried no
+    // destination at all before it, so Ads Manager showed one the launcher
+    // never chose. Meta accepts WEBSITE on OUTCOME_SALES — verified live.
+    destination_type: "WEBSITE",
   },
   registration: {
     name: "Fixture Ad Set",
@@ -195,7 +199,12 @@ const PINNED_AD_SETS = {
     bid_strategy: "LOWEST_COST_WITHOUT_CAP",
     targeting: SHARED_TARGETING,
     status: "ACTIVE",
+    // OUTCOME_AWARENESS accepts WEBSITE on all three of its goals — verified
+    // live. #770 left awareness out without testing it.
+    destination_type: "WEBSITE",
   },
+  // engagement is the one objective with no destination: Meta rejects WEBSITE
+  // on OUTCOME_ENGAGEMENT with code=100 subcode=2490408.
   engagement: {
     name: "Fixture Ad Set",
     campaign_id: "cam_001",

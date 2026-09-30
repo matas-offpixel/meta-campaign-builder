@@ -215,16 +215,12 @@ export interface MetaAdSetPayload {
   status: "PAUSED" | "ACTIVE";
   promoted_object?: MetaPromotedObject;
   /**
-   * Where the ad set sends people. Required for OUTCOME_TRAFFIC /
-   * OUTCOME_LEADS website campaigns — omitting it lets Meta's newer Ads
-   * Manager Edit UI default the destination radio to "Facebook event" when
-   * the associated Page has upcoming events (Modern Funktion Traffic
-   * reproducer, draft campaign 120251191631740755). Delivery still works
-   * via `link_data.link`, but an operator saving the Edit view would nuke
-   * the website destination. See {@link resolveAdSetDestinationType}.
-   *
-   * Omitted when the ad set has an existing-post (boost) creative assigned
-   * — Meta rejects boost ads under WEBSITE with subcode 1815676 (task #132).
+   * Where the ad set sends people. Set for every objective that sends people
+   * to a site; omitted only for engagement, which Meta refuses to accept it
+   * on. Delivery works either way via `link_data.link`, but an ad set left
+   * without one reads back as `"UNDEFINED"` and the Ads Manager Edit view
+   * shows a destination the launcher never chose — saving that view writes it
+   * in. See {@link resolveAdSetDestinationType}.
    *
    * Meta enum: WEBSITE | APP | MESSENGER | INSTAGRAM_DIRECT | PHONE_CALL |
    * FACEBOOK_EVENT | LEAD | WHATSAPP.
@@ -720,81 +716,143 @@ export function mapBidStrategy(_goal: OptimisationGoal): string {
 }
 
 /**
- * Resolve Meta ad set `destination_type` for wizard website-bound objectives.
+ * Objectives whose ad sets send people to a website, and so must carry an
+ * explicit `destination_type: "WEBSITE"`.
  *
- * OUTCOME_TRAFFIC / OUTCOME_LEADS (registration) website creatives need an
- * explicit `destination_type: "WEBSITE"` — omitting it lets Meta's newer Ads
- * Manager Edit UI default the destination radio to "Facebook event" whenever
- * the associated Page has upcoming events (Modern Funktion Traffic
- * reproducer, campaign 120251191631740755 — PR #770).
+ * Omitting the field does not disable delivery — the ad still follows
+ * `link_data.link` — but Meta stores the ad set as `destination_type:
+ * "UNDEFINED"`, and an operator opening the Ads Manager Edit view sees the
+ * destination radio sitting on something the launcher never chose. Saving
+ * that view writes it in. Every `OUTCOME_SALES` ad set this tool has ever
+ * launched reads `UNDEFINED` today.
  *
- * BUT: setting WEBSITE rejects existing-post (boost) ads with code=100
- * subcode=1815676 "Non-website ads are not allowed in ad sets with website
- * destination type" (task #132 / PR #770 regression). So when ANY assigned
- * creative is an existing-post boost, we omit the field (pre-#770 behaviour)
- * — link ads in that ad set still deliver via `link_data.link`, and the
- * boost attaches.
+ * `engagement` is deliberately absent. Meta rejects `WEBSITE` on
+ * `OUTCOME_ENGAGEMENT` with code=100 subcode=2490408, for both goals the
+ * wizard offers (`post_engagement`, `video_views`), while the identical ad
+ * set without the field is accepted — engagement ad sets get `ON_POST` from
+ * Meta instead. Verified live 2026-09-30 against a matched control; see the
+ * session log for the captured request/response pairs.
  *
- * Returns `"WEBSITE"` for traffic / registration when `hasBoostCreative` is
- * falsy. Returns `undefined` for awareness / engagement / purchase, and for
- * traffic/registration ad sets that carry a boost creative.
+ * `awareness` IS included: `OUTCOME_AWARENESS` accepts `WEBSITE` on all
+ * three of its goals (reach, impressions, video_views), verified the same
+ * way. #770 left it out without testing it.
+ */
+export const WEBSITE_DESTINATION_OBJECTIVES: readonly CampaignObjective[] = [
+  "traffic",
+  "registration",
+  "purchase",
+  "initiate_checkout",
+  "awareness",
+];
+
+/** True when {@link resolveAdSetDestinationType} returns `"WEBSITE"`. */
+export function isWebsiteDestinationObjective(
+  objective: CampaignObjective,
+): boolean {
+  return WEBSITE_DESTINATION_OBJECTIVES.includes(objective);
+}
+
+/**
+ * Meta returns the literal string `"UNDEFINED"` — not `null`, not an absent
+ * key — for an ad set created without `destination_type`. Anything that reads
+ * the field back off the Graph has to treat that as "no destination".
+ */
+export const META_DESTINATION_TYPE_UNSET = "UNDEFINED";
+
+/**
+ * Resolve Meta ad set `destination_type`.
+ *
+ * `"WEBSITE"` for every objective in {@link WEBSITE_DESTINATION_OBJECTIVES},
+ * `undefined` for engagement. The optimisation goal does not affect the
+ * answer — every valid goal per objective was probed live.
+ *
+ * Boost creatives no longer change this. #777 omitted the field for the whole
+ * ad set whenever one assigned creative was an `existing_post`, because Meta
+ * rejected boosts under a website destination with code=100 subcode=1815676.
+ * That rejection no longer happens: an existing-post ad attaches to a
+ * `WEBSITE` ad set whether or not the creative carries #983's
+ * `call_to_action.value.link`, for both `object_story_id` and
+ * `source_instagram_media_id` boosts. Verified live 2026-09-30 across the
+ * full matrix. The cost of #777's guard was that one boosted post silently
+ * stripped the destination from every website ad beside it.
  */
 export function resolveAdSetDestinationType(
   objective: CampaignObjective,
   _optimisationGoal: OptimisationGoal,
-  hasBoostCreative?: boolean,
 ): MetaAdSetDestinationType | undefined {
-  if (hasBoostCreative) return undefined;
-  if (objective === "traffic" || objective === "registration") {
-    return "WEBSITE";
-  }
-  return undefined;
+  return isWebsiteDestinationObjective(objective) ? "WEBSITE" : undefined;
+}
+
+// ─── Website-destination preflight ───────────────────────────────────────────
+
+/** One ad set a `new` creative is about to be launched into. */
+export interface AdSetDestinationCandidate {
+  id: string;
+  name: string;
+  /**
+   * The ad set's destination: the value {@link resolveAdSetDestinationType}
+   * returns for an ad set this launch is about to create, or the value read
+   * off the Graph for an existing ad set being attached to. Meta's
+   * `"UNDEFINED"` and an absent value both count as no destination.
+   */
+  destinationType?: string | null;
+}
+
+export interface AdSetDestinationRefusal {
+  adSetId: string;
+  adSetName: string;
+  /** What Meta currently has, for the operator-facing message. */
+  found: string;
 }
 
 /**
- * True when `adSetId` has at least one `existing_post` creative assigned in
- * the draft's assignment matrix (`adSetId → creativeId[]`, the Assign
- * Creatives / {@link invertAssignments} convention).
+ * Ad sets that would receive a `new` (non-boost) ad while carrying something
+ * other than a website destination, on an objective that must be website-bound.
  *
- * Pure — no Meta calls. Used to decide whether {@link buildAdSetPayload}
- * may set `destination_type=WEBSITE` (task #132).
+ * This is the "exactly as on launcher" guarantee. A new creative built from an
+ * uploaded asset and a typed URL is a website ad; if the ad set it lands in
+ * says otherwise, the Ads Manager Edit view contradicts the launcher and an
+ * operator saving that view changes where the ad points. Refusing is better
+ * than launching an ad nobody can edit safely.
+ *
+ * Pure. Engagement objectives return `[]` — they cannot carry `WEBSITE` at all.
  */
-export function adSetHasBoostCreative(
-  adSetId: string,
-  assignments: Record<string, string[]>,
-  creatives: ReadonlyArray<{ id: string; sourceType?: string }>,
-): boolean {
-  const assignedIds = assignments[adSetId] ?? [];
-  if (assignedIds.length === 0) return false;
-  const byId = new Map(creatives.map((c) => [c.id, c]));
-  return assignedIds.some((cid) => byId.get(cid)?.sourceType === "existing_post");
+export function findAdSetsWithoutWebsiteDestination(
+  objective: CampaignObjective,
+  adSets: ReadonlyArray<AdSetDestinationCandidate>,
+): AdSetDestinationRefusal[] {
+  if (!isWebsiteDestinationObjective(objective)) return [];
+  const refusals: AdSetDestinationRefusal[] = [];
+  for (const adSet of adSets) {
+    const found = (adSet.destinationType ?? "").trim().toUpperCase();
+    if (found === "WEBSITE") continue;
+    refusals.push({
+      adSetId: adSet.id,
+      adSetName: adSet.name,
+      found: found || META_DESTINATION_TYPE_UNSET,
+    });
+  }
+  return refusals;
 }
 
 /**
- * Ad set ids that have both an existing-post boost AND at least one
- * non-boost (new / link) creative assigned. Powers the Step 6 soft info
- * note (task #132) — Meta Edit UI may show "Facebook event" as destination
- * because we omit `destination_type` for boost compatibility.
+ * Operator-facing refusal. Names every ad set and what it carries instead, so
+ * the message is actionable without opening Ads Manager.
  */
-export function findAdSetsWithMixedBoostAndLinkCreatives(
-  assignments: Record<string, string[]>,
-  creatives: ReadonlyArray<{ id: string; name?: string; sourceType?: string }>,
-  adSets: ReadonlyArray<{ id: string; name: string }>,
-): Array<{ adSetId: string; adSetName: string }> {
-  const byId = new Map(creatives.map((c) => [c.id, c]));
-  const mixed: Array<{ adSetId: string; adSetName: string }> = [];
-  for (const adSet of adSets) {
-    const assigned = (assignments[adSet.id] ?? [])
-      .map((cid) => byId.get(cid))
-      .filter((c): c is { id: string; name?: string; sourceType?: string } => Boolean(c));
-    if (assigned.length < 2) continue;
-    const hasBoost = assigned.some((c) => c.sourceType === "existing_post");
-    const hasLink = assigned.some((c) => c.sourceType !== "existing_post");
-    if (hasBoost && hasLink) {
-      mixed.push({ adSetId: adSet.id, adSetName: adSet.name });
-    }
-  }
-  return mixed;
+export function websiteDestinationRefusalMessage(
+  objective: CampaignObjective,
+  refusals: ReadonlyArray<AdSetDestinationRefusal>,
+): string {
+  const listed = refusals
+    .map((r) => `"${r.adSetName}" (${r.adSetId}) has destination ${r.found}`)
+    .join("; ");
+  return (
+    `This is a ${objective} campaign, so its ads send people to a website, but ` +
+    `${refusals.length} ad set${refusals.length > 1 ? "s do" : " does"} not carry a website destination: ${listed}. ` +
+    `Launching here would produce ads whose destination in Ads Manager contradicts the launcher. ` +
+    `Set the destination to Website on ${refusals.length > 1 ? "those ad sets" : "that ad set"} first — ` +
+    `the Published library's "Set website destination" action does it — then launch again.`
+  );
 }
 
 // ─── Full payload builder ─────────────────────────────────────────────────────
@@ -824,14 +882,6 @@ export function buildAdSetPayload(
    * constrains which platform it can render on.
    */
   campaignPlacementConfig?: PlacementConfig,
-  /**
-   * When true, this ad set has an existing-post (boost) creative assigned —
-   * omit `destination_type` even for traffic/registration so Meta accepts
-   * the boost (subcode 1815676). Threaded from the draft's
-   * `creativeAssignments` via {@link adSetHasBoostCreative}; never inferred
-   * by re-fetching Meta.
-   */
-  hasBoostCreative?: boolean,
   /**
    * Create-time status. Wizard default ACTIVE (spend starts immediately).
    * Plan fan-out passes PAUSED. Omitting keeps today's wizard behaviour.
@@ -906,14 +956,10 @@ export function buildAdSetPayload(
   const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);
   if (promotedObject) payload.promoted_object = promotedObject;
 
-  // Explicit website destination for Traffic / registration — omitted when
-  // any assigned creative is an existing-post boost (task #132 / subcode
-  // 1815676). See resolveAdSetDestinationType.
-  const destinationType = resolveAdSetDestinationType(
-    objective,
-    effectiveGoal,
-    hasBoostCreative,
-  );
+  // Explicit website destination for every objective that sends people to a
+  // site. Only engagement is left without one. See
+  // resolveAdSetDestinationType.
+  const destinationType = resolveAdSetDestinationType(objective, effectiveGoal);
   if (destinationType) {
     payload.destination_type = destinationType;
   }

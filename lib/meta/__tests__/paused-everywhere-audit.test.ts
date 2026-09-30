@@ -98,7 +98,6 @@ describe("paused-everywhere inventory (audit D6)", () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       "PAUSED",
     );
     assert.equal(activeAdSet.status, "ACTIVE");

@@ -87,7 +87,9 @@ import {
   sanitizeTargetingInterestsBeforeLaunch,
   hasAudienceTargeting,
   buildEmptyTargetingReason,
-  adSetHasBoostCreative,
+  findAdSetsWithoutWebsiteDestination,
+  resolveAdSetDestinationType,
+  websiteDestinationRefusalMessage,
 } from "@/lib/meta/adset";
 import {
   buildCreativePayload,
@@ -813,21 +815,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // task #132 — ad sets that have an existing-post (boost) creative assigned
-  // must NOT send destination_type=WEBSITE (subcode 1815676). Computed once
-  // from the draft's assignment matrix; never re-fetched from Meta.
-  // Uses draft.creatives (sourceType is stable; IG actor patching later does
-  // not change boost-vs-link classification).
-  const boostAdSetIds = new Set<string>();
-  {
-    for (const adSet of enabledSets) {
-      if (adSetHasBoostCreative(adSet.id, draft.creativeAssignments ?? {}, draft.creatives)) {
-        boostAdSetIds.add(adSet.id);
-      }
-    }
-    if (boostAdSetIds.size > 0) {
-      console.log(
-        `[launch-campaign] destination_type — omitting WEBSITE on ${boostAdSetIds.size} ad set(s) with existing-post boost creatives (task #132)`,
+  // Website-destination guard for the ad sets this launch is about to create.
+  // resolveAdSetDestinationType returns WEBSITE for every website-bound
+  // objective, so this cannot fire today — it exists so that a future change
+  // to the resolver fails the launch loudly instead of quietly shipping ads
+  // whose Ads Manager destination contradicts the launcher.
+  if ((draft.settings.wizardMode ?? "new") === "new") {
+    const resolvedDestination = resolveAdSetDestinationType(
+      draft.settings.objective,
+      draft.settings.optimisationGoal,
+    );
+    const newAdSetRefusals = findAdSetsWithoutWebsiteDestination(
+      draft.settings.objective,
+      enabledSets.map((adSet) => ({
+        id: adSet.id,
+        name: adSet.name,
+        destinationType: resolvedDestination,
+      })),
+    );
+    if (newAdSetRefusals.length > 0) {
+      console.error(
+        `[launch-campaign] ✗ website-destination guard — objective=${draft.settings.objective} ` +
+          `resolved destination_type=${resolvedDestination ?? "(omitted)"} for ` +
+          `${newAdSetRefusals.length} ad set(s) to be created`,
+      );
+      return NextResponse.json(
+        {
+          error: websiteDestinationRefusalMessage(
+            draft.settings.objective,
+            newAdSetRefusals,
+          ),
+        },
+        { status: 409 },
       );
     }
   }
@@ -1646,6 +1665,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             },
             { status: 400 },
           );
+        }
+
+        // Website-destination preflight. Every ad this launch adds to the
+        // picked ad sets is built from an uploaded asset and a typed URL, so
+        // it is a website ad. If the live ad set says otherwise, the Ads
+        // Manager Edit view will contradict the launcher — refuse rather than
+        // ship an ad the operator cannot safely edit.
+        if (draft.creatives.some((c) => c.sourceType !== "existing_post")) {
+          const destinationRefusals = findAdSetsWithoutWebsiteDestination(
+            internal,
+            results.map((r) => ({
+              id: r.live!.id,
+              name: r.live!.name,
+              destinationType: r.live!.destination_type,
+            })),
+          );
+          if (destinationRefusals.length > 0) {
+            console.error(
+              `[launch-campaign] Phase 1 (attach_adset) ✗ website-destination preflight — ` +
+                `objective=${internal} refused ${destinationRefusals.length} ad set(s): ` +
+                destinationRefusals
+                  .map((r) => `${r.adSetId} "${r.adSetName}" destination=${r.found}`)
+                  .join("; "),
+            );
+            return NextResponse.json(
+              { error: websiteDestinationRefusalMessage(internal, destinationRefusals) },
+              { status: 409 },
+            );
+          }
         }
 
         for (const r of results) attachedLiveAdSets.push(r.live!);
@@ -3238,7 +3286,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
-            boostAdSetIds.has(adSet.id),
             entityStatus,
           );
 
@@ -3418,7 +3465,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                   dynamicAdSetIds.has(adSet.id),
                   draft.settings.placementConfig,
-                  boostAdSetIds.has(adSet.id),
             entityStatus,
                 );
                 // Apply Meta's alternatives (or remove entirely when none) and
@@ -3902,7 +3948,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
           dynamicAdSetIds.has(adSet.id),
           draft.settings.placementConfig,
-          boostAdSetIds.has(adSet.id),
             entityStatus,
         );
 
@@ -3968,7 +4013,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
-            boostAdSetIds.has(adSet.id),
             entityStatus,
           );
           const salvaged = await createAdSetWithSalvage(
@@ -4245,7 +4289,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
-              boostAdSetIds.has(adSet.id),
             entityStatus,
             );
 
@@ -4314,7 +4357,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                     draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                     dynamicAdSetIds.has(adSet.id),
                     draft.settings.placementConfig,
-                    boostAdSetIds.has(adSet.id),
             entityStatus,
                   );
                   let retryPayload = applyInterestReplacements(rebuiltPayload, replacements);
@@ -4422,7 +4464,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
-            boostAdSetIds.has(adSet.id),
             entityStatus,
           );
           if (!hasAudienceTargeting(adSetPayload.targeting, adSet)) {
@@ -4467,7 +4508,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
-              boostAdSetIds.has(adSet.id),
             entityStatus,
             );
             const salvaged = await createAdSetWithSalvage(
