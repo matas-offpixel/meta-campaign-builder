@@ -92,6 +92,15 @@ export function mapLaunchTokenError(
  * Ad set refused because its parent campaign is archived (subcode
  * 1487866). This is not the Development-mode bucket.
  */
+/** The #985 refusal. Shared by launch (subcode 1487866) and Add to campaign. */
+export function archivedCampaignRefusal(campaignId: string): string {
+  const id = campaignId.trim() || "unknown";
+  return (
+    `Campaign ${id} is archived in Meta. Unarchive it in Ads Manager, ` +
+    `or duplicate this draft to launch a new campaign.`
+  );
+}
+
 export function archivedCampaignMessage(
   campaignId: string,
   err: { code?: number; subcode?: number; message?: string; userMsg?: string },
@@ -100,11 +109,7 @@ export function archivedCampaignMessage(
   const hit =
     err.subcode === 1487866 || /may not be added to archived campaigns/i.test(text);
   if (!hit) return null;
-  const id = campaignId.trim() || "unknown";
-  return (
-    `Campaign ${id} is archived in Meta. Unarchive it in Ads Manager, ` +
-    `or duplicate this draft to launch a new campaign.`
-  );
+  return archivedCampaignRefusal(campaignId);
 }
 
 export function websiteUrlRequiredMessage(
