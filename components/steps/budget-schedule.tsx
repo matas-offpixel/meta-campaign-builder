@@ -89,6 +89,7 @@ import {
   applyBulkAgeRange,
   applyBulkDailyBudget,
   applyBulkLifetimeBudget,
+  convertAdSetBudgetsOnTypeChange,
   duplicateSuggestionsUnderLocationGroup,
   clearUnsupportedAdvantagePlus,
   addLocationToEveryAdSet,
@@ -1395,7 +1396,18 @@ export function BudgetSchedule({
               <button
                 key={type}
                 type="button"
-                onClick={() => updateBs({ budgetType: type })}
+                onClick={() => {
+                  if (type === bs.budgetType) return;
+                  onSuggestionsChange(
+                    convertAdSetBudgetsOnTypeChange(
+                      adSetSuggestions,
+                      type,
+                      bs.budgetAmount,
+                      days > 0 ? days : 0,
+                    ),
+                  );
+                  updateBs({ budgetType: type });
+                }}
                 className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
                   ${bs.budgetType === type ? "border-foreground bg-foreground text-background" : "border-border-strong hover:bg-card"}`}
               >

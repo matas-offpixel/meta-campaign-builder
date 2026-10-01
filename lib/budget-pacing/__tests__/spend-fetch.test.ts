@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { fetchCampaignSpendPence, type BudgetPacingGraphFetcher } from "../spend-fetch.ts";
+import {
+  fetchCampaignPacingSnapshot,
+  fetchCampaignSpendPence,
+  lifetimeDenominatorMinor,
+  PACING_BATCH_FIELDS,
+  type BudgetPacingGraphFetcher,
+} from "../spend-fetch.ts";
 
 test("empty campaign list makes no calls and returns an empty map", async () => {
   let calls = 0;
@@ -81,4 +87,50 @@ test("a batched node missing entirely from the response resolves to 0", async ()
   const result = await fetchCampaignSpendPence(fetcher, ids, "token");
   assert.equal(result["id0"], 0);
   assert.equal(Object.keys(result).length, 21);
+});
+
+test("lifetimeDenominatorMinor prefers a positive campaign lifetime budget", () => {
+  assert.deepEqual(
+    lifetimeDenominatorMinor({
+      lifetime_budget: "5000",
+      adsets: { data: [{ lifetime_budget: "100" }] },
+    }),
+    [5000],
+  );
+});
+
+test("lifetimeDenominatorMinor sums positive ad set lifetimes and drops zeros", () => {
+  assert.deepEqual(
+    lifetimeDenominatorMinor({
+      lifetime_budget: "0",
+      adsets: { data: [{ lifetime_budget: "0" }, { lifetime_budget: 2500 }, {}] },
+    }),
+    [2500],
+  );
+  assert.deepEqual(lifetimeDenominatorMinor({}), []);
+});
+
+test("pacing snapshot reads lifetime on the same batch and keeps the other campaign when one id is missing", async () => {
+  const calls: { path: string; params: Record<string, string> }[] = [];
+  const fetcher: BudgetPacingGraphFetcher = async (path, params) => {
+    calls.push({ path, params });
+    return {
+      good: {
+        id: "good",
+        lifetime_budget: "5000",
+        adsets: { data: [{ lifetime_budget: "100" }] },
+        insights: { data: [{ spend: "12.50" }] },
+      },
+    } as never;
+  };
+  const result = await fetchCampaignPacingSnapshot(fetcher, ["good", "bad"], "token");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "");
+  assert.equal(calls[0].params.fields, PACING_BATCH_FIELDS);
+  assert.match(PACING_BATCH_FIELDS, /lifetime_budget/);
+  assert.match(PACING_BATCH_FIELDS, /adsets\.limit\(200\)\{lifetime_budget\}/);
+  assert.deepEqual(result.lifetimeBudgetsMinor.good, [5000]);
+  assert.equal(result.spendPence.good, 1250);
+  assert.equal("bad" in result.lifetimeBudgetsMinor, false);
+  assert.equal(result.spendPence.bad, 0);
 });

@@ -82,7 +82,11 @@ import {
   mapObjectiveToMeta,
   validateCampaignPayload,
 } from "@/lib/meta/campaign";
-import { refuseSilentDailyLaunch } from "@/lib/meta/budget-launch";
+import {
+  budgetScheduleForAttach,
+  positiveBudgetMinor,
+  refuseSilentDailyLaunch,
+} from "@/lib/meta/budget-launch";
 import {
   buildAdSetPayload,
   extractDeprecatedReplacements,
@@ -1478,8 +1482,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // All validated campaigns for multi-campaign attach_campaign launches.
   // Entry 0 === the "primary" campaign whose id is mirrored into metaCampaignId.
   // The loop after Phase 4 uses entries 1..N for the additional campaigns.
-  type VerifiedLiveCampaign = { id: string; name: string; objective: string };
+  type VerifiedLiveCampaign = {
+    id: string;
+    name: string;
+    objective: string;
+    daily_budget?: string | number;
+    lifetime_budget?: string | number;
+  };
   const verifiedCampaigns: VerifiedLiveCampaign[] = [];
+
+  function budgetScheduleForCreatedAdSets(campaignId: string) {
+    if (wizardMode !== "attach_campaign") return draft.budgetSchedule;
+    const live = verifiedCampaigns.find((c) => c.id === campaignId);
+    return budgetScheduleForAttach(draft.budgetSchedule, live ?? {});
+  }
+
+  function preflightAdSetPayloads(
+    schedule: typeof draft.budgetSchedule,
+    campaignId: string,
+  ) {
+    try {
+      return {
+        payloads: enabledSets.map((adSet) =>
+          buildAdSetPayload(
+            adSet,
+            campaignId,
+            draft.audiences,
+            schedule,
+            draft.settings.optimisationGoal,
+            draft.settings.objective,
+            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            false,
+            draft.settings.placementConfig,
+            entityStatus,
+          ),
+        ),
+      };
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : "Could not build the ad set budget.",
+      };
+    }
+  }
   // Captured in attach_adset so Phase 2 can seed adSetMetaIds without
   // re-fetching, and so logging can include the verified live names.
   // One entry per selected live ad set. Only successfully-verified ad
@@ -1575,7 +1619,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
 
       metaCampaignId = live.id;
-      verifiedCampaigns.push({ id: live.id, name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id, objective: live.objective ?? "" });
+      verifiedCampaigns.push({
+        id: live.id,
+        name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id,
+        objective: live.objective ?? "",
+        daily_budget: live.daily_budget,
+        lifetime_budget: live.lifetime_budget,
+      });
 
       // ── attach_campaign multi-campaign: validate additional campaigns ──────
       if (isMultiCampaignAttach && attachCampaignSnapshots.length > 1) {
@@ -1603,7 +1653,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 `(snapshot: "${snap.objective}", live: "${c.objective}"). Re-open Step 1 and re-select.`,
               );
             }
-            return { id: c.id, name: c.name ?? snap.id, objective: c.objective ?? "" };
+            return {
+              id: c.id,
+              name: c.name ?? snap.id,
+              objective: c.objective ?? "",
+              daily_budget: c.daily_budget,
+              lifetime_budget: c.lifetime_budget,
+            };
           }),
         );
         for (const r of additionalResults) {
@@ -1751,6 +1807,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 502 },
       );
     }
+
+    if (wizardMode === "attach_campaign") {
+      for (const campaign of verifiedCampaigns) {
+        const schedule = budgetScheduleForAttach(draft.budgetSchedule, campaign);
+        const built = preflightAdSetPayloads(schedule, campaign.id);
+        if ("error" in built) {
+          return NextResponse.json({ error: built.error }, { status: 400 });
+        }
+        const budgetRefusal = refuseSilentDailyLaunch({
+          budgetLevel: schedule.budgetLevel,
+          budgetType: schedule.budgetType,
+          campaign: {
+            daily_budget: positiveBudgetMinor(campaign.daily_budget) ?? undefined,
+            lifetime_budget: positiveBudgetMinor(campaign.lifetime_budget) ?? undefined,
+          },
+          adSets: built.payloads,
+        });
+        if (budgetRefusal) {
+          return NextResponse.json({ error: budgetRefusal }, { status: 400 });
+        }
+      }
+    }
   } else {
     const launchBudget = {
       level: draft.budgetSchedule.budgetLevel,
@@ -1763,20 +1841,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       status: entityStatus,
       budget: launchBudget,
     });
-    const adSetGraphPayloads = enabledSets.map((adSet) =>
-      buildAdSetPayload(
-        adSet,
-        "preflight",
-        draft.audiences,
-        draft.budgetSchedule,
-        draft.settings.optimisationGoal,
-        draft.settings.objective,
-        draft.settings.metaPixelId || draft.settings.pixelId || undefined,
-        false,
-        draft.settings.placementConfig,
-        entityStatus,
-      ),
-    );
+    const built = preflightAdSetPayloads(draft.budgetSchedule, "preflight");
+    if ("error" in built) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    const adSetGraphPayloads = built.payloads;
     const budgetRefusal = refuseSilentDailyLaunch({
       budgetLevel: launchBudget.level,
       budgetType: launchBudget.type,
@@ -3337,7 +3406,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             adSet,
             metaCampaignId,
             draft.audiences,
-            draft.budgetSchedule,
+            budgetScheduleForCreatedAdSets(metaCampaignId),
             draft.settings.optimisationGoal,
             phase2Objective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
@@ -3517,7 +3586,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 }
 
                 const rebuiltPayload = buildAdSetPayload(
-                  adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
+                  adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
                   draft.settings.optimisationGoal, phase2Objective,
                   draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                   dynamicAdSetIds.has(adSet.id),
@@ -4001,7 +4070,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           adSet,
           metaCampaignId,
           draft.audiences,
-          draft.budgetSchedule,
+          budgetScheduleForCreatedAdSets(metaCampaignId),
           draft.settings.optimisationGoal,
           phase2Objective,
           draft.settings.metaPixelId || draft.settings.pixelId || undefined,
@@ -4067,7 +4136,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // brings it to full parity.
         try {
           const adSetPayload = buildAdSetPayload(
-            adSet, metaCampaignId, draft.audiences, draft.budgetSchedule,
+            adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
             draft.settings.optimisationGoal, phase2Objective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
@@ -4342,7 +4411,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               adSet,
               nextCampaign.id,
               draft.audiences,
-              draft.budgetSchedule,
+              budgetScheduleForCreatedAdSets(nextCampaign.id),
               draft.settings.optimisationGoal,
               ciObjective,
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
@@ -4411,7 +4480,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const replacements = extractDeprecatedReplacements(err.rawErrorData, err.message);
                 if (replacements.length > 0) {
                   const rebuiltPayload = buildAdSetPayload(
-                    adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
+                    adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
                     draft.settings.optimisationGoal, ciObjective,
                     draft.settings.metaPixelId || draft.settings.pixelId || undefined,
                     dynamicAdSetIds.has(adSet.id),
@@ -4518,7 +4587,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         let prep2b: PrepareAdSetPayloadResult | undefined;
         try {
           const adSetPayload = buildAdSetPayload(
-            adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
+            adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
             draft.settings.optimisationGoal, ciObjective,
             draft.settings.metaPixelId || draft.settings.pixelId || undefined,
             dynamicAdSetIds.has(adSet.id),
@@ -4562,7 +4631,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           // task #125 — same shared salvage ladder as standard Phase 2b.
           try {
             const adSetPayload = buildAdSetPayload(
-              adSet, nextCampaign.id, draft.audiences, draft.budgetSchedule,
+              adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
               draft.settings.optimisationGoal, ciObjective,
               draft.settings.metaPixelId || draft.settings.pixelId || undefined,
               dynamicAdSetIds.has(adSet.id),

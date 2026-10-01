@@ -97,6 +97,8 @@ Standalone Meta still launches ACTIVE from `ReviewLaunch` (launch panel only). S
 - `app/api/meta/*` — route handlers for ad accounts, pages, audiences, pixels, campaign creation, ad sets, creatives, asset upload, launch
 - `lib/hooks/` — `useMeta`, `useCreateCampaign`, `useCreateAdSets`, `useCreateCreativesAndAds`, `useUploadAsset`, `useLaunchCampaign`
 
+Step 6 Daily / Lifetime and Ad set level / Campaign level (CBO) are live-wired. A launch sends `lifetime_budget` plus ad set `end_time`, or a campaign `daily_budget` / `lifetime_budget` with `LOWEST_COST_WITHOUT_CAP`, when those toggles are set. They used to be stored on the draft and ignored. Campaign `stop_time` is read-only on Marketing API v21.0; the end date Meta keeps is the ad set `end_time`.
+
 ### Auth
 
 `proxy.ts` (Next.js 16 middleware) calls `lib/supabase/proxy.ts` to refresh sessions and guard routes. Public paths in `lib/auth/public-routes.ts` (`/login`, `/auth/*`). Three Supabase clients: `lib/supabase/client.ts` (browser), `lib/supabase/server.ts` (server components/route handlers), `lib/supabase/proxy.ts` (middleware only).

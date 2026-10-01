@@ -726,6 +726,9 @@ export interface RawMetaCampaign {
   buying_type?: string;
   created_time?: string;
   updated_time?: string;
+  /** Minor units. Absent, 0, or "0" means this campaign is not CBO. */
+  daily_budget?: string | number;
+  lifetime_budget?: string | number;
 }
 
 export interface FetchCampaignsResult {
@@ -832,7 +835,7 @@ export async function fetchCampaignById(
   token?: string,
 ): Promise<RawMetaCampaign | null> {
   try {
-    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time";
+    const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time,daily_budget,lifetime_budget";
     const res = token
       ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
       : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });
@@ -861,7 +864,7 @@ export async function fetchCampaignByIdForLedger(
   campaignId: string,
   token?: string,
 ): Promise<RawMetaCampaign> {
-  const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time";
+  const fields = "id,name,objective,status,effective_status,buying_type,created_time,updated_time,daily_budget,lifetime_budget";
   const res = token
     ? await graphGetWithToken<RawMetaCampaign>(`/${campaignId}`, { fields }, token)
     : await graphGet<RawMetaCampaign>(`/${campaignId}`, { fields });

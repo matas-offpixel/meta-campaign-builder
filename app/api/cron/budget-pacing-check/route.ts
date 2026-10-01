@@ -1,11 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { graphGetWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import {
-  fetchCampaignLifetimeBudgetsMinor,
-  fetchCampaignSpendPence,
+  fetchCampaignPacingSnapshot,
   type BudgetPacingGraphFetcher,
 } from "@/lib/budget-pacing/spend-fetch";
 import { runBudgetPacingTick, type BudgetPacingTickSummary } from "@/lib/budget-pacing/tick-runner";
@@ -83,27 +81,26 @@ export async function GET(req: NextRequest) {
 
   const notifyDeps = buildLiveNotifyDeps(supabase);
 
+  // One batch for spend and lifetime budgets. Both tick deps share it so
+  // a second pass cannot issue another Graph read.
+  let pacingSnapshot: ReturnType<typeof fetchCampaignPacingSnapshot> | null = null;
+  const pacingRead = (campaignIds: string[]) => {
+    pacingSnapshot ??= fetchCampaignPacingSnapshot(
+      graphMultiGetByIds as BudgetPacingGraphFetcher,
+      campaignIds,
+      token as string,
+    );
+    return pacingSnapshot;
+  };
+
   let summary: BudgetPacingTickSummary;
   try {
     summary = await runBudgetPacingTick(enabled, {
       loadPublishedCampaigns: () => loadPublishedCampaignsForBudgetPacing(supabase),
       fetchSpendPence: (campaignIds) =>
-        // Two fetchers: the ≤20 path is a real GET per campaign, the
-        // >20 path reads many nodes at once and can no longer use the
-        // `ids=` multi-read Meta removed in v26.0. See
-        // lib/meta/graph-multi-get-parse.ts.
-        fetchCampaignSpendPence(
-          graphGetWithToken as BudgetPacingGraphFetcher,
-          campaignIds,
-          token as string,
-          graphMultiGetByIds as BudgetPacingGraphFetcher,
-        ),
+        pacingRead(campaignIds).then((read) => read.spendPence),
       fetchLiveLifetimeBudgetsMinor: (campaignIds) =>
-        fetchCampaignLifetimeBudgetsMinor(
-          graphGetWithToken as BudgetPacingGraphFetcher,
-          campaignIds,
-          token as string,
-        ),
+        pacingRead(campaignIds).then((read) => read.lifetimeBudgetsMinor),
       notify: (opts) => notify(opts, notifyDeps),
     });
   } catch (err) {

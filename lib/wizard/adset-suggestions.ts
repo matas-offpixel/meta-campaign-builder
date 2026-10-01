@@ -344,6 +344,43 @@ export function applyBulkLifetimeBudget(
   return suggestions.map((s) => ({ ...s, budgetLifetime }));
 }
 
+function roundMajor(amount: number): number {
+  return Math.round(amount * 100) / 100;
+}
+
+/**
+ * Daily ↔ Lifetime on the Budget step. Each enabled row is converted so
+ * it does not sit at 0 after the toggle. When the scheduled length is
+ * unknown, the campaign amount is split across enabled rows the same way
+ * Distribute does.
+ */
+export function convertAdSetBudgetsOnTypeChange(
+  suggestions: AdSetSuggestion[],
+  nextType: "daily" | "lifetime",
+  budgetAmount: number,
+  scheduledDays: number,
+): AdSetSuggestion[] {
+  const enabledCount = suggestions.filter((s) => s.enabled).length;
+  const share = enabledCount > 0 ? roundMajor(budgetAmount / enabledCount) : 0;
+  const daysKnown = scheduledDays > 0;
+
+  return suggestions.map((s) => {
+    if (!s.enabled) return s;
+    if (!daysKnown) {
+      return nextType === "lifetime"
+        ? { ...s, budgetLifetime: share }
+        : { ...s, budgetPerDay: share };
+    }
+    if (nextType === "lifetime") {
+      const converted = roundMajor(s.budgetPerDay * scheduledDays);
+      return { ...s, budgetLifetime: converted > 0 ? converted : share };
+    }
+    const source = s.budgetLifetime ?? 0;
+    const converted = source > 0 ? roundMajor(source / scheduledDays) : 0;
+    return { ...s, budgetPerDay: converted > 0 ? converted : share };
+  });
+}
+
 const TIER_NAME_SUFFIX: Record<LocationTier, string> = {
   primary: " — Primary",
   secondary: " — Secondary",

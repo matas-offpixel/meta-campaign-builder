@@ -125,6 +125,10 @@ export async function runBudgetPacingTick(
     try {
       lifetimeByCampaign = await deps.fetchLiveLifetimeBudgetsMinor(campaigns.map((c) => c.campaignId));
     } catch (err) {
+      // A total failure (every batch chunk threw) leaves this map empty,
+      // so every campaign uses daily × days. A single unread campaign is
+      // omitted by the fetcher and must not land here — that would drop
+      // the campaigns that were read.
       console.error(
         "[budget-pacing-check] fetchLiveLifetimeBudgetsMinor failed; daily plans still apply where no lifetime total was read",
         err,

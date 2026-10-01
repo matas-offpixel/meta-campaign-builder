@@ -163,23 +163,70 @@ export function lifetimeDenominatorMinor(node: RawLifetimeNode): number[] {
 }
 
 /**
- * Live lifetime budgets (minor units) keyed by campaign id. One GET per
- * campaign. An empty list means "no lifetime budget" — the plan then uses
- * daily × days.
+ * Spend and lifetime budgets in one `graphMultiGetByIds` read. The
+ * lifetime fields ride the same batch as insights, including when there
+ * are 20 or fewer campaigns — a separate GET per campaign is not used.
+ *
+ * A campaign missing from a successful batch is omitted from
+ * `lifetimeBudgetsMinor` (the plan then uses daily × days) and logged.
+ * Other campaigns in the batch are kept. The call throws only when every
+ * chunk failed, so one bad id cannot discard the map.
  */
-export async function fetchCampaignLifetimeBudgetsMinor(
-  fetcher: BudgetPacingGraphFetcher,
+export const PACING_BATCH_FIELDS =
+  "lifetime_budget,adsets.limit(200){lifetime_budget},insights.date_preset(maximum){spend}";
+
+export interface CampaignPacingSnapshot {
+  spendPence: Record<string, number>;
+  lifetimeBudgetsMinor: Record<string, number[]>;
+}
+
+export async function fetchCampaignPacingSnapshot(
+  multiGetFetcher: BudgetPacingGraphFetcher,
   campaignIds: string[],
   token: string,
-): Promise<Record<string, number[]>> {
-  const result: Record<string, number[]> = {};
-  for (const campaignId of campaignIds) {
-    const node = await fetcher<RawLifetimeNode>(
-      `/${campaignId}`,
-      { fields: "lifetime_budget,adsets.limit(200){lifetime_budget}" },
-      token,
-    );
-    result[campaignId] = lifetimeDenominatorMinor(node);
+): Promise<CampaignPacingSnapshot> {
+  const spendPence: Record<string, number> = {};
+  const lifetimeBudgetsMinor: Record<string, number[]> = {};
+  if (campaignIds.length === 0) return { spendPence, lifetimeBudgetsMinor };
+
+  let anySuccess = false;
+  let lastError: unknown;
+  for (let i = 0; i < campaignIds.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = campaignIds.slice(i, i + BATCH_CHUNK_SIZE);
+    let nodes: Record<string, RawLifetimeNode & RawBatchedNode>;
+    try {
+      nodes = await multiGetFetcher<Record<string, RawLifetimeNode & RawBatchedNode>>(
+        "",
+        { ids: chunk.join(","), fields: PACING_BATCH_FIELDS },
+        token,
+      );
+      anySuccess = true;
+    } catch (err) {
+      lastError = err;
+      console.error(
+        `[budget-pacing] batch read failed for ${chunk.join(",")}; those campaigns keep the daily formula`,
+        err,
+      );
+      for (const campaignId of chunk) spendPence[campaignId] = 0;
+      continue;
+    }
+    for (const campaignId of chunk) {
+      const node = nodes[campaignId];
+      if (!node) {
+        console.error(
+          `[budget-pacing] lifetime budget unread for ${campaignId}; daily plan stands`,
+        );
+        spendPence[campaignId] = 0;
+        continue;
+      }
+      spendPence[campaignId] = parseSpendPence(node.insights?.data?.[0]?.spend);
+      lifetimeBudgetsMinor[campaignId] = lifetimeDenominatorMinor(node);
+    }
   }
-  return result;
+  if (!anySuccess) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Budget pacing batch read failed");
+  }
+  return { spendPence, lifetimeBudgetsMinor };
 }

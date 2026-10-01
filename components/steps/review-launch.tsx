@@ -28,6 +28,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
+import { describeLaunchBudget } from "@/lib/meta/budget-launch";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
   failedAdLabelsFromSummary,
@@ -1224,6 +1225,19 @@ export function ReviewLaunch({
           showDecisions={draft.status === "published"}
         />
       )}
+
+      <span data-testid="launch-budget-line">
+        <Datum className="text-sm text-foreground">
+          {describeLaunchBudget({
+            budgetLevel: bs.budgetLevel,
+            budgetType: bs.budgetType,
+            budgetAmount: bs.budgetAmount,
+            currency: bs.currency || "GBP",
+            enabledAdSetCount: draft.adSetSuggestions.filter((row) => row.enabled).length,
+            endDate: bs.endDate,
+          })}
+        </Datum>
+      </span>
 
       {/* ── Launch error modal ─────────────────────────────────────────────── */}
       {launchError && (

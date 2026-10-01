@@ -238,7 +238,8 @@ export async function prepareAdSetPayloadForCreate(
     payload.lifetime_budget == null &&
     payload.bid_strategy == null;
   if (!hasDaily && !hasLifetime && !campaignBudget) {
-    throw new Error(`Ad set "${adSet.name}" has no budget — set a daily budget in Step 5.`);
+    const kind = payload.lifetime_budget != null ? "lifetime budget" : "daily budget";
+    throw new Error(`Ad set "${adSet.name}" has no ${kind} — set a ${kind} on the Budget step.`);
   }
 
   return { payload, freshReadinessResults, preflightDroppedCount, preflightDroppedNote };
