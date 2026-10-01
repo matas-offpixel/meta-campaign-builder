@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --conditions react-server --experimental-strip-types --test 'lib/**/__tests__/*.test.ts' 'components/meta/**/__tests__/*.test.ts'",
+    "test": "node --conditions react-server --experimental-strip-types --test 'lib/**/__tests__/*.test.ts' 'components/meta/**/__tests__/*.test.ts' && vitest run",
     "bundle-remotion": "node --experimental-strip-types scripts/bundle-remotion.ts",
     "prebuild": "npm run bundle-remotion",
     "frames": "ENABLE_PLAN_FRAMES=1 npm run build && ENABLE_PLAN_FRAMES=1 node scripts/plan-frames/run.mjs --update",
@@ -38,6 +38,8 @@
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/papaparse": "^5.5.2",
     "@types/pixelmatch": "^5.2.6",
@@ -46,12 +48,14 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "jsdom": "^26.1.0",
     "pixelmatch": "^7.2.0",
     "pngjs": "^7.0.0",
     "server-only": "0.0.1",
     "sharp": "0.34.5",
     "tailwindcss": "^4",
     "tsx": "4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }

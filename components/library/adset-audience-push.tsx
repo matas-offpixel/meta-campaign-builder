@@ -47,12 +47,24 @@ interface ApplyInput {
 export function AdSetAudiencePush({
   campaign,
   writesEnabled,
+  open: openControlled,
+  onOpenChange,
 }: {
   campaign: CampaignListItem;
   writesEnabled: boolean | null;
+  /** When set, the parent owns the dialog and this component renders no trigger. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const open = writesEnabled === true;
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const canWrite = writesEnabled === true;
+  const controlled = openControlled !== undefined;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const dialogOpen = controlled ? Boolean(openControlled) : uncontrolledOpen;
+
+  function setDialogOpen(next: boolean) {
+    if (controlled) onOpenChange?.(next);
+    else setUncontrolledOpen(next);
+  }
   const [metaCampaignId, setMetaCampaignId] = useState<string | null>(null);
   const [adAccountId, setAdAccountId] = useState<string | undefined>(
     campaign.adAccountId ?? undefined,
@@ -113,7 +125,7 @@ export function AdSetAudiencePush({
   const audience = audiences.data.find((item) => item.id === audienceId) ?? null;
 
   async function apply(input: ApplyInput) {
-    if (!open) return;
+    if (!canWrite) return;
     if (!input.audienceId || input.adSetIds.length === 0) return;
     if (inFlight.current) return;
     inFlight.current = true;
@@ -164,31 +176,35 @@ export function AdSetAudiencePush({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={!open}
-        title={
-          writesEnabled === true
-            ? "Add audience to ad sets"
-            : writesEnabled === false
-              ? ADSET_TARGETING_WRITES_DISABLED_MESSAGE
-              : "Checking the targeting write gate"
-        }
-        onClick={() => {
-          if (!open) return;
-          setDialogOpen(true);
-        }}
-      >
-        Add audience to ad sets
-      </Button>
-      {writesEnabled === false && (
-        <p className="max-w-[18rem] text-right text-[10px] leading-snug text-muted-foreground">
-          {ADSET_TARGETING_WRITES_DISABLED_MESSAGE}
-        </p>
+    <>
+      {!controlled && (
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canWrite}
+            title={
+              writesEnabled === true
+                ? "Add audience to ad sets"
+                : writesEnabled === false
+                  ? ADSET_TARGETING_WRITES_DISABLED_MESSAGE
+                  : "Checking the targeting write gate"
+            }
+            onClick={() => {
+              if (!canWrite) return;
+              setDialogOpen(true);
+            }}
+          >
+            Add audience to ad sets
+          </Button>
+          {writesEnabled === false && (
+            <p className="max-w-[18rem] text-right text-[10px] leading-snug text-muted-foreground">
+              {ADSET_TARGETING_WRITES_DISABLED_MESSAGE}
+            </p>
+          )}
+        </div>
       )}
-      {dialogOpen && open && (
+      {dialogOpen && (
         <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} panelClassName="max-w-2xl">
           <DialogContent className="max-h-[85vh] overflow-y-auto">
             <DialogHeader onClose={() => setDialogOpen(false)}>
@@ -200,6 +216,13 @@ export function AdSetAudiencePush({
             </DialogHeader>
 
             <div className="space-y-4">
+              {writesEnabled !== true && (
+                <p className="text-sm text-muted-foreground">
+                  {writesEnabled === false
+                    ? ADSET_TARGETING_WRITES_DISABLED_MESSAGE
+                    : "Checking the targeting write gate"}
+                </p>
+              )}
               <div className="flex gap-2">
                 <ModeButton
                   current={action}
@@ -279,9 +302,9 @@ export function AdSetAudiencePush({
 
               <div className="flex flex-col items-end gap-1.5">
                 <Button
-                  disabled={!open || !audience || selected.length === 0 || busy || Boolean(draftError)}
+                  disabled={!canWrite || !audience || selected.length === 0 || busy || Boolean(draftError)}
                   onClick={() => {
-                    if (!open || !audience) return;
+                    if (!canWrite || !audience) return;
                     void apply({
                       audienceId: audience.id,
                       audienceName: audience.name,
@@ -312,9 +335,9 @@ export function AdSetAudiencePush({
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={!open || busy}
+                          disabled={!canWrite || busy}
                           onClick={() => {
-                            if (!open) return;
+                            if (!canWrite) return;
                             void apply({
                               audienceId: row.audienceId,
                               audienceName: row.audienceName,
@@ -336,7 +359,7 @@ export function AdSetAudiencePush({
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </>
   );
 }
 

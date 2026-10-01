@@ -23,7 +23,7 @@ describe("ad set audience push applies on one click", () => {
   });
 
   it("keeps the learning-phase sentence under Apply", () => {
-    const applyButton = between('disabled={!open || !audience', "{LEARNING_PHASE_WARNING}");
+    const applyButton = between('disabled={!canWrite || !audience', "{LEARNING_PHASE_WARNING}");
     assert.match(applyButton, /"Apply"/);
     assert.equal(applyButton.includes("preview"), false);
     assert.equal(applyButton.includes("applied"), false);
@@ -55,13 +55,13 @@ describe("ad set audience push applies on one click", () => {
   });
 
   it("disables the control when the gate is off and returns before fetch", () => {
-    assert.match(ui, /disabled=\{!open\}/);
+    assert.match(ui, /disabled=\{!canWrite\}/);
     assert.match(ui, /ADSET_TARGETING_WRITES_DISABLED_MESSAGE/);
     assert.match(ui, /writesEnabled === false/);
     const applyFn = ui.indexOf("async function apply");
     const fetchAt = ui.indexOf('fetch("/api/meta/adset-audience"');
-    const guard = ui.indexOf("if (!open) return", applyFn);
+    const guard = ui.indexOf("if (!canWrite) return", applyFn);
     assert.ok(applyFn > 0 && guard > applyFn && guard < fetchAt);
-    assert.match(ui, /disabled=\{!open \|\| !audience/);
+    assert.match(ui, /disabled=\{!canWrite \|\| !audience/);
   });
 });
