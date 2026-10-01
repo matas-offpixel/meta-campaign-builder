@@ -433,8 +433,8 @@ describe("targeting push stays off the launch route", () => {
     const gateAt = route.indexOf("if (commit && !adsetTargetingWritesEnabled())");
     const postAt = route.indexOf("await graphPostWithToken");
     assert.ok(gateAt > 0 && postAt > gateAt);
-    assert.match(ui, /disabled=\{!open\}/);
-    assert.match(ui, /if \(!open\) return/);
+    assert.match(ui, /disabled=\{!canWrite\}/);
+    assert.match(ui, /if \(!canWrite\) return/);
     assert.match(ui, /CrossCampaignAdSetPicker/);
     assert.match(ui, /LEARNING_PHASE_WARNING/);
     assert.equal(ui.includes("customaudiences"), false);

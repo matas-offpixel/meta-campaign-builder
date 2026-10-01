@@ -36,12 +36,24 @@ interface DestinationResult {
 export function AdSetDestinationPush({
   campaign,
   writesEnabled,
+  open: openControlled,
+  onOpenChange,
 }: {
   campaign: CampaignListItem;
   writesEnabled: boolean | null;
+  /** When set, the parent owns the dialog and this component renders no trigger. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const open = writesEnabled === true;
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const canWrite = writesEnabled === true;
+  const controlled = openControlled !== undefined;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const dialogOpen = controlled ? Boolean(openControlled) : uncontrolledOpen;
+
+  function setDialogOpen(next: boolean) {
+    if (controlled) onOpenChange?.(next);
+    else setUncontrolledOpen(next);
+  }
   const [metaCampaignId, setMetaCampaignId] = useState<string | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
   const [selected, setSelected] = useState<MetaAdSetSummary[]>([]);
@@ -80,7 +92,7 @@ export function AdSetDestinationPush({
   }
 
   async function send(commit: boolean) {
-    if (!open || selected.length === 0) return;
+    if (!canWrite || selected.length === 0) return;
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
@@ -114,26 +126,28 @@ export function AdSetDestinationPush({
   const wouldChange = (planned ?? []).filter((row) => row.outcome === "ready").length;
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={!open}
-        title={
-          writesEnabled === true
-            ? "Set the ad sets' destination to Website"
-            : writesEnabled === false
-              ? ADSET_DESTINATION_WRITES_DISABLED_MESSAGE
-              : "Checking the ad-set write gate"
-        }
-        onClick={() => {
-          if (!open) return;
-          setDialogOpen(true);
-        }}
-      >
-        Set website destination
-      </Button>
-      {dialogOpen && open && (
+    <>
+      {!controlled && (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!canWrite}
+          title={
+            writesEnabled === true
+              ? "Set the ad sets' destination to Website"
+              : writesEnabled === false
+                ? ADSET_DESTINATION_WRITES_DISABLED_MESSAGE
+                : "Checking the ad-set write gate"
+          }
+          onClick={() => {
+            if (!canWrite) return;
+            setDialogOpen(true);
+          }}
+        >
+          Set website destination
+        </Button>
+      )}
+      {dialogOpen && (
         <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} panelClassName="max-w-2xl">
           <DialogContent className="max-h-[85vh] overflow-y-auto">
             <DialogHeader onClose={() => setDialogOpen(false)}>
@@ -148,6 +162,13 @@ export function AdSetDestinationPush({
             </DialogHeader>
 
             <div className="space-y-4">
+              {writesEnabled !== true && (
+                <p className="text-sm text-muted-foreground">
+                  {writesEnabled === false
+                    ? ADSET_DESTINATION_WRITES_DISABLED_MESSAGE
+                    : "Checking the ad-set write gate"}
+                </p>
+              )}
               {draftError && <p className="text-sm text-destructive">{draftError}</p>}
 
               {metaCampaignId && (
@@ -163,14 +184,14 @@ export function AdSetDestinationPush({
               <div className="flex items-center justify-end gap-2">
                 <Button
                   variant="outline"
-                  disabled={!open || selected.length === 0 || busy || Boolean(draftError)}
+                  disabled={!canWrite || selected.length === 0 || busy || Boolean(draftError)}
                   onClick={() => void send(false)}
                 >
                   {busy && !applied ? "Checking…" : "Check current destination"}
                 </Button>
                 <Button
                   disabled={
-                    !open ||
+                    !canWrite ||
                     selected.length === 0 ||
                     busy ||
                     Boolean(draftError) ||
@@ -205,6 +226,6 @@ export function AdSetDestinationPush({
           </DialogContent>
         </Dialog>
       )}
-    </div>
+    </>
   );
 }

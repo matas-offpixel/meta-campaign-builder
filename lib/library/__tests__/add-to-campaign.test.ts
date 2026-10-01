@@ -212,7 +212,8 @@ describe("Add to campaign wiring", () => {
   it("puts one Add to campaign button on published rows and no mode query", () => {
     const rows = read("components/library/library-rows.tsx");
     assert.match(rows, /c\.status === "published" && onAddToCampaign/);
-    assert.match(rows, />\s*Add to campaign\s*</);
+    assert.match(rows, /label: "Add to campaign"/);
+    assert.equal((rows.match(/label: "Add to campaign"/g) ?? []).length, 1);
     assert.doesNotMatch(rows, /Add to campaign ▾/);
     assert.doesNotMatch(rows, /mode=/);
     const library = read("components/library/campaign-library.tsx");
