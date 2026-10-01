@@ -757,6 +757,12 @@ export interface PagePost {
 export interface AdCreativeDraft {
   id: string;
   name: string;
+  /**
+   * Who the name belongs to. `"operator"` is set only by the Ad Name field
+   * and is the only value a later upload will not replace. Absent on drafts
+   * saved before the flag; `migrateDraft` fills it.
+   */
+  nameSource?: "generated" | "file" | "operator";
   sourceType: AdSourceType;
   identity: CreativeIdentity;
   mediaType: "image" | "video";

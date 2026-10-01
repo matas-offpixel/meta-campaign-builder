@@ -55,7 +55,7 @@ import {
   createDefaultCaption,
 } from "@/lib/campaign-defaults";
 import { connectFacebookAccount } from "@/lib/facebook-connect";
-import { nameMetaCreativeFromAssets } from "@/lib/creative-name-from-filename";
+import { copiedCreativeNameSource, nameMetaCreativeFromAssets } from "@/lib/creative-name-from-filename";
 import { nextDuplicateName } from "@/lib/duplicate-name";
 import {
   bindUploadToAssetSlot,
@@ -293,6 +293,7 @@ function CreativesBody({
         source.name,
         creatives.map((c) => c.name),
       ),
+      nameSource: copiedCreativeNameSource(source.nameSource),
       identity: { ...(source.identity ?? { pageId: "", instagramAccountId: "" }) },
       assetVariations: (source.assetVariations ?? []).map((v) => ({
         ...v,
@@ -813,7 +814,9 @@ function CreativesBody({
                   <Input
                     label="Ad Name"
                     value={active.name}
-                    onChange={(e) => updateAd(active.id, { name: e.target.value })}
+                    onChange={(e) =>
+                      updateAd(active.id, { name: e.target.value, nameSource: "operator" })
+                    }
                     placeholder="e.g. J2 — Artist Artwork A"
                   />
 

@@ -118,6 +118,7 @@ export function createDefaultCreative(): AdCreativeDraft {
   return {
     id: crypto.randomUUID(),
     name: "",
+    nameSource: "generated",
     sourceType: "new",
     identity: {
       pageId: "",

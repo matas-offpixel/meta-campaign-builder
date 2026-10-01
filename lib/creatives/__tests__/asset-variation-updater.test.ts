@@ -198,7 +198,11 @@ describe("applyVariationUpdate — functional updater", () => {
 describe("applyNamedVariationUpdate", () => {
   it("renames Ad 3 from the uploaded filename", () => {
     const asset = { ...makeAsset("a1"), aspectRatio: "9:16" as const };
-    const creative = { ...makeCreative("c1", makeVariation("v1", [asset])), name: "Ad 3" };
+    const creative = {
+      ...makeCreative("c1", makeVariation("v1", [asset])),
+      name: "Ad 3",
+      nameSource: "generated" as const,
+    };
     const next = applyNamedVariationUpdate([creative], "c1", "v1", (prev) => ({
       assets: prev.assets.map((row) =>
         row.id === "a1" ? { ...row, fileName: "CamelPhat_Ironworks_9x16.mp4" } : row,
@@ -209,7 +213,11 @@ describe("applyNamedVariationUpdate", () => {
 
   it("leaves an operator-typed name", () => {
     const asset = makeAsset("a1");
-    const creative = { ...makeCreative("c1", makeVariation("v1", [asset])), name: "Hero" };
+    const creative = {
+      ...makeCreative("c1", makeVariation("v1", [asset])),
+      name: "Hero",
+      nameSource: "operator" as const,
+    };
     const next = applyNamedVariationUpdate([creative], "c1", "v1", (prev) => ({
       assets: prev.assets.map((row) =>
         row.id === "a1" ? { ...row, fileName: "CamelPhat_Ironworks_9x16.mp4" } : row,
@@ -224,6 +232,7 @@ describe("applyNamedVariationUpdate", () => {
     const creative = {
       ...makeCreative("c1", makeVariation("v1", [feed, story])),
       name: "cut_4x5",
+      nameSource: "file" as const,
     };
     const next = applyNamedVariationUpdate([creative], "c1", "v1", (prev) => ({
       assets: prev.assets.map((row) =>
