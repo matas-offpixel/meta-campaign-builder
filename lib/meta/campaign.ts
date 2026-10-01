@@ -9,7 +9,7 @@
  * No API calls here — import createMetaCampaign from lib/meta/client.ts.
  */
 
-import type { CampaignObjective } from "@/lib/types";
+import type { BudgetLevel, BudgetType, CampaignObjective } from "@/lib/types";
 
 // ─── Objective mapping ────────────────────────────────────────────────────────
 //
@@ -72,27 +72,72 @@ export interface MetaCampaignPayload {
   objective: string;
   buying_type: "AUCTION";
   status: "ACTIVE" | "PAUSED";
-  is_adset_budget_sharing_enabled: false;
+  /**
+   * ABO marker. Omitted on CBO: the paused probes that created a campaign
+   * budget (`lib/meta/__fixtures__/budget-probes/zz-budget-probe.json`)
+   * did not send this field.
+   */
+  is_adset_budget_sharing_enabled?: false;
   special_ad_categories: [];
+  /** Minor units. CBO daily only. */
+  daily_budget?: number;
+  /** Minor units. CBO lifetime only. */
+  lifetime_budget?: number;
+  /** Required on a campaign that holds the budget. Probe b and probe c. */
+  bid_strategy?: "LOWEST_COST_WITHOUT_CAP";
+}
+
+export interface CampaignBudgetInput {
+  level: BudgetLevel;
+  type: BudgetType;
+  /** Major units (£). Converted to minor units on the wire. */
+  amountMajor: number;
 }
 
 /**
  * Campaign-level Graph payload. Purchase, initiate_checkout, and
  * registration are identical here (`OUTCOME_SALES`); the event lives on
  * the ad set's promoted_object.
+ *
+ * Ad set level (the default, including every existing daily draft) sends
+ * no budget key and `is_adset_budget_sharing_enabled: false`.
+ *
+ * Campaign level sends `daily_budget` or `lifetime_budget` plus
+ * `bid_strategy: LOWEST_COST_WITHOUT_CAP`, and omits
+ * `is_adset_budget_sharing_enabled`. Campaign `stop_time` is read-only on
+ * v21.0 (probe c: the POST is accepted and the field is absent on
+ * readback). The end date that Meta keeps is the ad set `end_time`, which
+ * then reads back as the campaign `stop_time`.
  */
 export function buildCampaignPayload(input: {
   name: string;
   objective: CampaignObjective;
   status?: "ACTIVE" | "PAUSED";
+  budget?: CampaignBudgetInput;
 }): MetaCampaignPayload {
-  return {
+  const base = {
     name: input.name,
     objective: mapObjectiveToMeta(input.objective),
-    buying_type: "AUCTION",
+    buying_type: "AUCTION" as const,
     status: input.status ?? "ACTIVE",
-    is_adset_budget_sharing_enabled: false,
-    special_ad_categories: [],
+    special_ad_categories: [] as [],
+  };
+  const budget = input.budget;
+  if (!budget || budget.level !== "campaign") {
+    return { ...base, is_adset_budget_sharing_enabled: false };
+  }
+  const minor = Math.round(budget.amountMajor * 100);
+  if (budget.type === "lifetime") {
+    return {
+      ...base,
+      lifetime_budget: minor,
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+    };
+  }
+  return {
+    ...base,
+    daily_budget: minor,
+    bid_strategy: "LOWEST_COST_WITHOUT_CAP",
   };
 }
 

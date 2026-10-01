@@ -329,7 +329,13 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
     errors.push("Budget amount must be greater than 0");
   }
   if (!bs.startDate) errors.push("Start date is required");
-  if (!bs.endDate) errors.push("End date is required");
+  if (!bs.endDate) {
+    errors.push(
+      bs.budgetType === "lifetime"
+        ? "Lifetime budgets need an end date."
+        : "End date is required",
+    );
+  }
   if (bs.startDate && bs.endDate && bs.startDate >= bs.endDate) {
     errors.push("End date must be after start date");
   }

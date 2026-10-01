@@ -17,7 +17,9 @@ import type {
   CampaignObjective,
   AdSetSuggestion,
   AudienceSettings,
+  BudgetLevel,
   BudgetScheduleSettings,
+  BudgetType,
   PlacementConfig,
   LocationTargetingGroup,
   LocationSelection,
@@ -192,15 +194,18 @@ export interface MetaAdSetPayload {
   billing_event: string;
   optimization_goal: string;
   /**
-   * Must always be set explicitly. Omitting it causes Meta to infer a default
-   * strategy that can require bid_amount or bid_constraints.
+   * Must be set on an ad set that holds its own budget. Omitting it there
+   * causes Meta to infer a default that can require bid_amount.
+   * Omitted entirely under campaign budget optimisation: the bid strategy
+   * lives on the campaign, and a paused probe of a budget-less ad set
+   * succeeded only when this field was absent.
    *
    * LOWEST_COST_WITHOUT_CAP — autobid, no constraints required (default for this tool).
    * LOWEST_COST_WITH_BID_CAP — requires bid_amount.
    * COST_CAP — requires bid_amount.
    * MINIMUM_ROAS — requires bid_constraints.roas_average_floor.
    */
-  bid_strategy: string;
+  bid_strategy?: string;
   targeting: MetaTargeting;
   /**
    * Unix timestamp. Omit entirely when no explicit start date is chosen —
@@ -892,20 +897,20 @@ export function buildAdSetPayload(
   // that are incompatible with the campaign objective (see resolveOptimisationGoal).
   const effectiveGoal = resolveOptimisationGoal(optimisationGoal, objective);
 
-  // daily_budget must be in the smallest currency unit (pence / cents).
-  // budgetPerDay is stored in the major currency unit (£/€/$), so multiply by 100.
+  // Money is minor units on the wire. Draft amounts are major units (£).
   // Math.round prevents floating-point noise (e.g. £2.50 → 250, not 249.99999).
-  const dailyBudgetMinorUnits = Math.round(adSet.budgetPerDay * 100);
+  // A missing budgetLevel/budgetType is a daily ad-set budget: that is every
+  // draft this builder has ever launched, and the pinned ABO payloads.
+  const level: BudgetLevel = budgetSchedule.budgetLevel ?? "ad_set";
+  const type: BudgetType = budgetSchedule.budgetType ?? "daily";
+  const cbo = level === "campaign";
+  const lifetimeAbo = !cbo && type === "lifetime";
 
   const payload: MetaAdSetPayload = {
     name: adSet.name,
     campaign_id: campaignId,
-    daily_budget: dailyBudgetMinorUnits,
     billing_event: mapBillingEvent(effectiveGoal),
     optimization_goal: mapOptimisationGoal(effectiveGoal),
-    // Always explicit — omitting causes Meta to pick a default that may require
-    // bid_amount or bid_constraints, resulting in code 100 "Invalid parameter".
-    bid_strategy: mapBidStrategy(effectiveGoal),
     targeting: buildMetaTargeting(
       adSet,
       audiences,
@@ -918,6 +923,19 @@ export function buildAdSetPayload(
     // start_time and end_time are added below only when explicitly set —
     // sending null / 0 is rejected by Meta as "Invalid parameter".
   };
+
+  if (cbo) {
+    // Probe b: a campaign-budget ad set carries no budget and no bid_strategy.
+    // Meta rejects an ad-set budget under CBO.
+  } else if (lifetimeAbo) {
+    // Probe a: lifetime_budget + end_time, no daily_budget. Meta's readback
+    // stores daily_budget "0" even when it was not sent — do not send 0.
+    payload.lifetime_budget = Math.round((adSet.budgetLifetime ?? 0) * 100);
+    payload.bid_strategy = mapBidStrategy(effectiveGoal);
+  } else {
+    payload.daily_budget = Math.round(adSet.budgetPerDay * 100);
+    payload.bid_strategy = mapBidStrategy(effectiveGoal);
+  }
 
   // ── Placement targeting (task #117) ────────────────────────────────────
   // Applied unconditionally so every ad set — not just existing-post boosts
@@ -985,9 +1003,10 @@ export function buildAdSetPayload(
     `\n  optimisationGoal (draft): ${optimisationGoal} → (effective): ${effectiveGoal}`,
     `\n  optimization_goal: ${payload.optimization_goal}`,
     `\n  billing_event:     ${payload.billing_event}`,
-    `\n  bid_strategy:      ${payload.bid_strategy}`,
+    `\n  bid_strategy:      ${payload.bid_strategy ?? "(omitted — campaign budget)"}`,
     `\n  destination_type:  ${payload.destination_type ?? "(omitted)"}`,
-    `\n  daily_budget:      ${payload.daily_budget} minor units (= ${adSet.budgetPerDay} major)`,
+    `\n  daily_budget:      ${payload.daily_budget ?? "(omitted)"}`,
+    `\n  lifetime_budget:   ${payload.lifetime_budget ?? "(omitted)"}`,
     `\n  age mode:          ${ageMode} (${adSet.ageMin}–${adSet.ageMax})`,
     `\n  location:          ${adSet.locationLabel ?? "default GB"}`,
     `\n  placements:        ${placementTargeting ? JSON.stringify(placementTargeting) : "automatic (Advantage+ Placements)"}`,
@@ -1019,11 +1038,16 @@ export function buildAdSetPayload(
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-export function validateAdSetPayloads(adSets: AdSetSuggestion[]): {
+export function validateAdSetPayloads(
+  adSets: AdSetSuggestion[],
+  budget?: { level?: BudgetLevel; type?: BudgetType },
+): {
   isValid: boolean;
   errors: string[];
 } {
   const errors: string[] = [];
+  const cbo = budget?.level === "campaign";
+  const lifetime = !cbo && budget?.type === "lifetime";
 
   if (adSets.length === 0) {
     errors.push("No enabled ad sets to create");
@@ -1032,7 +1056,13 @@ export function validateAdSetPayloads(adSets: AdSetSuggestion[]): {
   adSets.forEach((s, i) => {
     const label = s.name || `Ad Set #${i + 1}`;
     if (!s.name?.trim()) errors.push(`${label}: name is required`);
-    if (!s.budgetPerDay || s.budgetPerDay <= 0) {
+    if (cbo) {
+      // The campaign holds the budget. An ad-set amount is not sent.
+    } else if (lifetime) {
+      if (!(s.budgetLifetime != null && s.budgetLifetime > 0)) {
+        errors.push(`${label}: lifetime budget must be greater than 0`);
+      }
+    } else if (!s.budgetPerDay || s.budgetPerDay <= 0) {
       errors.push(`${label}: daily budget must be greater than 0`);
     }
     if (s.ageMin >= s.ageMax) {

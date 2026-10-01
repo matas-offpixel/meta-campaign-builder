@@ -155,9 +155,9 @@ export interface PrepareAdSetPayloadResult {
  * attempt; feed its result into that attempt and, if it fails, into
  * `createAdSetWithSalvage` below.
  *
- * Throws a plain `Error` when `payload.daily_budget` is missing or <= 0 —
- * callers should let this propagate (or wrap it in whatever failure shape
- * their own call site uses) rather than ever reaching Meta with it.
+ * Throws a plain `Error` when an ad-set-budget payload has no positive
+ * `daily_budget` or `lifetime_budget`. A campaign-budget ad set (neither
+ * budget field, and no `bid_strategy`) is allowed: the campaign holds both.
  */
 export async function prepareAdSetPayloadForCreate(
   params: PrepareAdSetPayloadParams,
@@ -228,8 +228,18 @@ export async function prepareAdSetPayloadForCreate(
   }
 
   // ── task #122 FIX 3: hard budget validation (Meta subcode 1885272) ───────
-  if (!payload.daily_budget || payload.daily_budget <= 0) {
-    throw new Error(`Ad set "${adSet.name}" has no budget — set a daily budget in Step 5.`);
+  // Daily ABO still requires daily_budget > 0. Lifetime ABO requires
+  // lifetime_budget > 0 and must not be blocked for lacking daily_budget.
+  // CBO ad sets carry neither field and no bid_strategy (probe b).
+  const hasDaily = typeof payload.daily_budget === "number" && payload.daily_budget > 0;
+  const hasLifetime = typeof payload.lifetime_budget === "number" && payload.lifetime_budget > 0;
+  const campaignBudget =
+    payload.daily_budget == null &&
+    payload.lifetime_budget == null &&
+    payload.bid_strategy == null;
+  if (!hasDaily && !hasLifetime && !campaignBudget) {
+    const kind = payload.lifetime_budget != null ? "lifetime budget" : "daily budget";
+    throw new Error(`Ad set "${adSet.name}" has no ${kind} — set a ${kind} on the Budget step.`);
   }
 
   return { payload, freshReadinessResults, preflightDroppedCount, preflightDroppedNote };

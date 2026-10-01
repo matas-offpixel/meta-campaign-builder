@@ -128,3 +128,105 @@ export async function fetchCampaignSpendPence(
   }
   return fetchSpendBatched(multiGetFetcher, campaignIds, token);
 }
+
+interface RawLifetimeNode {
+  lifetime_budget?: string | number | null;
+  adsets?: { data?: { lifetime_budget?: string | number | null }[] } | null;
+}
+
+/** A Graph `lifetime_budget` of 0, "0", or absent is not a lifetime budget. */
+export function positiveLifetimeMinor(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    const parsed = Number(value);
+    return parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * Denominator for one live campaign. A positive campaign `lifetime_budget`
+ * wins on its own (CBO). Otherwise the positive ad-set lifetime budgets.
+ * Zeros are dropped so an ABO daily ad set, which Meta reads back as
+ * `lifetime_budget: "0"`, does not become a lifetime plan.
+ */
+export function lifetimeDenominatorMinor(node: RawLifetimeNode): number[] {
+  const campaign = positiveLifetimeMinor(node.lifetime_budget);
+  if (campaign != null) return [campaign];
+  const rows = node.adsets?.data ?? [];
+  const out: number[] = [];
+  for (const row of rows) {
+    const amount = positiveLifetimeMinor(row.lifetime_budget);
+    if (amount != null) out.push(amount);
+  }
+  return out;
+}
+
+/**
+ * Spend and lifetime budgets in one `graphMultiGetByIds` read. The
+ * lifetime fields ride the same batch as insights, including when there
+ * are 20 or fewer campaigns — a separate GET per campaign is not used.
+ *
+ * A campaign missing from a successful batch is omitted from
+ * `lifetimeBudgetsMinor` (the plan then uses daily × days) and logged.
+ * Other campaigns in the batch are kept. The call throws only when every
+ * chunk failed, so one bad id cannot discard the map.
+ */
+export const PACING_BATCH_FIELDS =
+  "lifetime_budget,adsets.limit(200){lifetime_budget},insights.date_preset(maximum){spend}";
+
+export interface CampaignPacingSnapshot {
+  spendPence: Record<string, number>;
+  lifetimeBudgetsMinor: Record<string, number[]>;
+}
+
+export async function fetchCampaignPacingSnapshot(
+  multiGetFetcher: BudgetPacingGraphFetcher,
+  campaignIds: string[],
+  token: string,
+): Promise<CampaignPacingSnapshot> {
+  const spendPence: Record<string, number> = {};
+  const lifetimeBudgetsMinor: Record<string, number[]> = {};
+  if (campaignIds.length === 0) return { spendPence, lifetimeBudgetsMinor };
+
+  let anySuccess = false;
+  let lastError: unknown;
+  for (let i = 0; i < campaignIds.length; i += BATCH_CHUNK_SIZE) {
+    const chunk = campaignIds.slice(i, i + BATCH_CHUNK_SIZE);
+    let nodes: Record<string, RawLifetimeNode & RawBatchedNode>;
+    try {
+      nodes = await multiGetFetcher<Record<string, RawLifetimeNode & RawBatchedNode>>(
+        "",
+        { ids: chunk.join(","), fields: PACING_BATCH_FIELDS },
+        token,
+      );
+      anySuccess = true;
+    } catch (err) {
+      lastError = err;
+      console.error(
+        `[budget-pacing] batch read failed for ${chunk.join(",")}; those campaigns keep the daily formula`,
+        err,
+      );
+      for (const campaignId of chunk) spendPence[campaignId] = 0;
+      continue;
+    }
+    for (const campaignId of chunk) {
+      const node = nodes[campaignId];
+      if (!node) {
+        console.error(
+          `[budget-pacing] lifetime budget unread for ${campaignId}; daily plan stands`,
+        );
+        spendPence[campaignId] = 0;
+        continue;
+      }
+      spendPence[campaignId] = parseSpendPence(node.insights?.data?.[0]?.spend);
+      lifetimeBudgetsMinor[campaignId] = lifetimeDenominatorMinor(node);
+    }
+  }
+  if (!anySuccess) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("Budget pacing batch read failed");
+  }
+  return { spendPence, lifetimeBudgetsMinor };
+}

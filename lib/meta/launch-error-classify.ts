@@ -112,6 +112,27 @@ export function archivedCampaignMessage(
   return archivedCampaignRefusal(campaignId);
 }
 
+/**
+ * Lifetime ad set created with no end date. Probe d on
+ * act_606252931141334: HTTP 400, code 100, error_subcode 1487094,
+ * error_user_title "No end date entered".
+ */
+export const LIFETIME_BUDGET_END_DATE_SUBCODE = 1487094;
+
+export function lifetimeBudgetEndDateMessage(err: {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  userMsg?: string;
+}): string | null {
+  const text = `${err.message ?? ""} ${err.userMsg ?? ""}`;
+  const hit =
+    err.subcode === LIFETIME_BUDGET_END_DATE_SUBCODE ||
+    /lifetime as the budget type must have an end date/i.test(text);
+  if (!hit) return null;
+  return "Lifetime budgets need an end date.";
+}
+
 export function websiteUrlRequiredMessage(
   creativeName: string,
   err: { code?: number; subcode?: number; message?: string; userMsg?: string },

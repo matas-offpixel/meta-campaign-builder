@@ -7,6 +7,7 @@ import {
   archivedCampaignMessage,
   classifyCreativeCreateError,
   creativeFailureBanners,
+  lifetimeBudgetEndDateMessage,
   websiteUrlRequiredMessage,
 } from "../launch-error-classify.ts";
 
@@ -85,6 +86,18 @@ describe("website URL required", () => {
 
   it("leaves other ad errors alone", () => {
     assert.equal(websiteUrlRequiredMessage("Feed Post v1", { code: 100, subcode: 1815676 }), null);
+  });
+});
+
+describe("lifetime budget end date", () => {
+  it("maps probe d subcode 1487094 to the end-date blocker", () => {
+    const message = lifetimeBudgetEndDateMessage({
+      code: 100,
+      subcode: 1487094,
+      userMsg:
+        "Ad sets using lifetime as the budget type must have an end date. Enter an end date more than 24 hours after the start time.",
+    });
+    assert.equal(message, "Lifetime budgets need an end date.");
   });
 });
 

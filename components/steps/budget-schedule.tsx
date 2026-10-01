@@ -88,6 +88,8 @@ import {
   deleteAdSetSuggestion,
   applyBulkAgeRange,
   applyBulkDailyBudget,
+  applyBulkLifetimeBudget,
+  convertAdSetBudgetsOnTypeChange,
   duplicateSuggestionsUnderLocationGroup,
   clearUnsupportedAdvantagePlus,
   addLocationToEveryAdSet,
@@ -1046,6 +1048,7 @@ function BulkBudgetModal({
   initialBudget,
   currency,
   rowCount,
+  lifetime = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1053,22 +1056,24 @@ function BulkBudgetModal({
   initialBudget: number;
   currency: string;
   rowCount: number;
+  lifetime?: boolean;
 }) {
   const [budget, setBudget] = useState(initialBudget);
   const invalid = !(budget > 0);
+  const noun = lifetime ? "total" : "daily budget";
 
   return (
-    <Dialog open={open} onClose={onClose} ariaLabel="Set all daily budgets">
+    <Dialog open={open} onClose={onClose} ariaLabel={lifetime ? "Set all totals" : "Set all daily budgets"}>
       <DialogContent>
         <DialogHeader onClose={onClose}>
-          <DialogTitle>Set all daily budgets</DialogTitle>
+          <DialogTitle>{lifetime ? "Set all totals" : "Set all daily budgets"}</DialogTitle>
           <DialogDescription>
-            Overwrites the daily budget on all {rowCount} ad set{rowCount !== 1 ? "s" : ""} below.
+            Overwrites the {noun} on all {rowCount} ad set{rowCount !== 1 ? "s" : ""} below.
             Reversible for 5 seconds via an undo toast.
           </DialogDescription>
         </DialogHeader>
         <Input
-          label={`Daily budget (${currency})`}
+          label={`${lifetime ? "Total" : "Daily budget"} (${currency})`}
           type="number"
           value={budget}
           onChange={(e) => setBudget(Number(e.target.value))}
@@ -1125,18 +1130,32 @@ export function BudgetSchedule({
 
   const handleGenerate = () => {
     const generated = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
-    onSuggestionsChange(mergeGeneratedWithImported(adSetSuggestions, generated));
+    if (bs.budgetType !== "lifetime") {
+      onSuggestionsChange(mergeGeneratedWithImported(adSetSuggestions, generated));
+      return;
+    }
+    const generatedIds = new Set(generated.map((row) => row.id));
+    onSuggestionsChange(
+      mergeGeneratedWithImported(adSetSuggestions, generated).map((row) =>
+        generatedIds.has(row.id)
+          ? { ...row, budgetLifetime: row.budgetPerDay, budgetPerDay: 0 }
+          : row,
+      ),
+    );
   };
 
   const distributeBudget = () => {
+    if (bs.budgetLevel === "campaign") return;
     const enabled = adSetSuggestions.filter((s) => s.enabled);
     if (enabled.length === 0) return;
     const perSet = Math.round((bs.budgetAmount / enabled.length) * 100) / 100;
     onSuggestionsChange(
-      adSetSuggestions.map((s) => ({
-        ...s,
-        budgetPerDay: s.enabled ? perSet : 0,
-      }))
+      adSetSuggestions.map((s) => {
+        if (!s.enabled) return s;
+        return bs.budgetType === "lifetime"
+          ? { ...s, budgetLifetime: perSet }
+          : { ...s, budgetPerDay: perSet };
+      }),
     );
   };
 
@@ -1145,9 +1164,18 @@ export function BudgetSchedule({
     // task #122 (FIX 3) — never let a blank ad set default to a 0 daily
     // budget; Meta rejects ad set creation outright (subcode 1885272) if it
     // does. See defaultBlankAdSetBudget's doc comment.
-    const defaultBudget = defaultBlankAdSetBudget(adSetSuggestions, bs.budgetAmount);
+    const budgetRows =
+      bs.budgetType === "lifetime"
+        ? adSetSuggestions.map((row) => ({ ...row, budgetPerDay: row.budgetLifetime ?? 0 }))
+        : adSetSuggestions;
+    const defaultBudget = defaultBlankAdSetBudget(budgetRows, bs.budgetAmount);
     const blank = createBlankAdSetSuggestion(locationGroups, FALLBACK_UK_NATIONWIDE, defaultBudget);
-    onSuggestionsChange([...adSetSuggestions, blank]);
+    onSuggestionsChange([
+      ...adSetSuggestions,
+      bs.budgetType === "lifetime"
+        ? { ...blank, budgetLifetime: blank.budgetPerDay, budgetPerDay: 0 }
+        : blank,
+    ]);
   };
 
   // task #126 — objective-gated. Awareness still can't run Advantage+
@@ -1235,10 +1263,13 @@ export function BudgetSchedule({
     setAgeModalOpen(false);
   };
 
-  const applyBulkBudgets = (budgetPerDay: number) => {
+  const applyBulkBudgets = (amount: number) => {
+    const lifetime = bs.budgetType === "lifetime";
     applyWithUndo(
-      `Daily budget set to ${bs.currency} ${budgetPerDay.toFixed(2)} for ${adSetSuggestions.length} ad set${adSetSuggestions.length !== 1 ? "s" : ""}. `,
-      applyBulkDailyBudget(adSetSuggestions, budgetPerDay),
+      `${lifetime ? "Total" : "Daily budget"} set to ${bs.currency} ${amount.toFixed(2)} for ${adSetSuggestions.length} ad set${adSetSuggestions.length !== 1 ? "s" : ""}. `,
+      lifetime
+        ? applyBulkLifetimeBudget(adSetSuggestions, amount)
+        : applyBulkDailyBudget(adSetSuggestions, amount),
     );
     setBudgetModalOpen(false);
   };
@@ -1282,17 +1313,26 @@ export function BudgetSchedule({
   };
 
   const enabledCount = adSetSuggestions.filter((s) => s.enabled).length;
+  const campaignBudget = bs.budgetLevel === "campaign";
+  const lifetimeBudget = bs.budgetType === "lifetime";
   const totalDaily = adSetSuggestions
     .filter((s) => s.enabled)
     .reduce((sum, s) => sum + s.budgetPerDay, 0);
+  const totalLifetime = adSetSuggestions
+    .filter((s) => s.enabled)
+    .reduce((sum, s) => sum + (s.budgetLifetime ?? 0), 0);
   // Soft warning (Puzzle Southampton 2026-08-13): blank/Wide defaults used
-  // to land at £100 on small campaigns. Flag any enabled ad set whose daily
-  // budget is >30% of the campaign total so the operator catches it before
-  // launch — does not block.
-  const oversizedBudgetAdSets = findAdSetsExceedingBudgetShare(
-    adSetSuggestions,
-    bs.budgetAmount,
-  );
+  // to land at £100 on small campaigns. Flag any enabled ad set whose share
+  // is >30% of the campaign total. Hidden under CBO, where the rows have no
+  // amount. Under lifetime the share is budgetLifetime.
+  const oversizedBudgetAdSets = campaignBudget
+    ? []
+    : findAdSetsExceedingBudgetShare(
+        lifetimeBudget
+          ? adSetSuggestions.map((row) => ({ ...row, budgetPerDay: row.budgetLifetime ?? 0 }))
+          : adSetSuggestions,
+        bs.budgetAmount,
+      );
   const locationWarnings = findAdSetLocationWarnings(
     adSetSuggestions.filter((s) => s.enabled),
     bs,
@@ -1356,7 +1396,18 @@ export function BudgetSchedule({
               <button
                 key={type}
                 type="button"
-                onClick={() => updateBs({ budgetType: type })}
+                onClick={() => {
+                  if (type === bs.budgetType) return;
+                  onSuggestionsChange(
+                    convertAdSetBudgetsOnTypeChange(
+                      adSetSuggestions,
+                      type,
+                      bs.budgetAmount,
+                      days > 0 ? days : 0,
+                    ),
+                  );
+                  updateBs({ budgetType: type });
+                }}
                 className={`rounded-md border px-4 py-2 text-sm font-medium transition-colors
                   ${bs.budgetType === type ? "border-foreground bg-foreground text-background" : "border-border-strong hover:bg-card"}`}
               >
@@ -1493,19 +1544,23 @@ export function BudgetSchedule({
               <Users className="h-3.5 w-3.5" />
               Set all ages
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setBudgetModalOpen(true)}
-              disabled={adSetSuggestions.length === 0}
-            >
-              <CalendarRange className="h-3.5 w-3.5" />
-              Set all budgets
-            </Button>
-            <Button variant="outline" size="sm" onClick={distributeBudget} disabled={enabledCount === 0}>
-              <DollarSign className="h-3.5 w-3.5" />
-              Distribute Budget
-            </Button>
+            {campaignBudget ? null : (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBudgetModalOpen(true)}
+                  disabled={adSetSuggestions.length === 0}
+                >
+                  <CalendarRange className="h-3.5 w-3.5" />
+                  Set all budgets
+                </Button>
+                <Button variant="outline" size="sm" onClick={distributeBudget} disabled={enabledCount === 0}>
+                  <DollarSign className="h-3.5 w-3.5" />
+                  Distribute Budget
+                </Button>
+              </>
+            )}
             <Button size="sm" onClick={handleGenerate}>
               <Zap className="h-3.5 w-3.5" />
               Generate Suggestions
@@ -1570,8 +1625,24 @@ export function BudgetSchedule({
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>Active: {enabledCount}/{adSetSuggestions.length}</span>
               <span>
-                Daily Total: <span className="font-medium text-foreground">{bs.currency} {totalDaily.toFixed(2)}</span>
-                {days > 0 && <> · Total Spend ({days}d): <span className="font-medium text-foreground">{bs.currency} {(totalDaily * days).toFixed(2)}</span></>}
+                {campaignBudget ? (
+                  <>
+                    {lifetimeBudget ? "Lifetime" : "Daily"}:{" "}
+                    <span className="font-medium text-foreground">{bs.currency} {bs.budgetAmount.toFixed(2)}</span>
+                    {lifetimeBudget && days > 0 && <> · {days} days</>}
+                  </>
+                ) : lifetimeBudget ? (
+                  <>
+                    Lifetime Total:{" "}
+                    <span className="font-medium text-foreground">{bs.currency} {totalLifetime.toFixed(2)}</span>
+                    {days > 0 && <> · {days} days</>}
+                  </>
+                ) : (
+                  <>
+                    Daily Total: <span className="font-medium text-foreground">{bs.currency} {totalDaily.toFixed(2)}</span>
+                    {days > 0 && <> · Total Spend ({days}d): <span className="font-medium text-foreground">{bs.currency} {(totalDaily * days).toFixed(2)}</span></>}
+                  </>
+                )}
               </span>
             </div>
 
@@ -1583,7 +1654,7 @@ export function BudgetSchedule({
                     {oversizedBudgetAdSets.length === 1 ? (
                       <>
                         <span className="font-medium">{oversizedBudgetAdSets[0].name}</span>
-                        {" "}has a daily budget of {bs.currency}{" "}
+                        {" "}has a {lifetimeBudget ? "total" : "daily budget"} of {bs.currency}{" "}
                         {oversizedBudgetAdSets[0].budgetPerDay.toFixed(2)} (
                         {Math.round(oversizedBudgetAdSets[0].shareOfCampaign * 100)}% of the{" "}
                         {bs.currency} {bs.budgetAmount.toFixed(2)} campaign total) — over the{" "}
@@ -1591,7 +1662,7 @@ export function BudgetSchedule({
                       </>
                     ) : (
                       <>
-                        {oversizedBudgetAdSets.length} ad sets have a daily budget over{" "}
+                        {oversizedBudgetAdSets.length} ad sets have a {lifetimeBudget ? "total" : "daily budget"} over{" "}
                         {Math.round(AD_SET_BUDGET_SHARE_WARNING_THRESHOLD * 100)}% of the{" "}
                         {bs.currency} {bs.budgetAmount.toFixed(2)} campaign total:{" "}
                         {oversizedBudgetAdSets
@@ -1714,18 +1785,27 @@ export function BudgetSchedule({
                             title={s.advantagePlus ? "Age suggestion (Advantage+)" : "Strict age max"}
                           />
                         </div>
+                        {campaignBudget ? null : (
                         <div className="flex items-center gap-1">
                           <span className="text-xs text-muted-foreground">{bs.currency}</span>
                           <input
                             type="number"
-                            value={s.budgetPerDay}
-                            onChange={(e) => updateSuggestion(s.id, { budgetPerDay: Number(e.target.value) })}
+                            value={lifetimeBudget ? (s.budgetLifetime ?? 0) : s.budgetPerDay}
+                            onChange={(e) =>
+                              updateSuggestion(
+                                s.id,
+                                lifetimeBudget
+                                  ? { budgetLifetime: Number(e.target.value) }
+                                  : { budgetPerDay: Number(e.target.value) },
+                              )
+                            }
                             className="w-16 rounded border border-border px-1.5 py-1 text-center text-xs"
                             min={0}
                             step={0.01}
                           />
-                          <span className="text-xs text-muted-foreground">/day</span>
+                          <span className="text-xs text-muted-foreground">{lifetimeBudget ? "total" : "/day"}</span>
                         </div>
+                        )}
                         <button
                           type="button"
                           onClick={() => {
@@ -1857,9 +1937,14 @@ export function BudgetSchedule({
         open={budgetModalOpen}
         onClose={() => setBudgetModalOpen(false)}
         onApply={applyBulkBudgets}
-        initialBudget={adSetSuggestions[0]?.budgetPerDay ?? 0}
+        initialBudget={
+          lifetimeBudget
+            ? (adSetSuggestions[0]?.budgetLifetime ?? 0)
+            : (adSetSuggestions[0]?.budgetPerDay ?? 0)
+        }
         currency={bs.currency}
         rowCount={adSetSuggestions.length}
+        lifetime={lifetimeBudget}
       />
       {locationDialog && dialogAdSet && (
         <AdSetLocationsDialog
