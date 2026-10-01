@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createDefaultAssetVariation, createDefaultCreative } from "../campaign-defaults.ts";
+import { readFileSync } from "node:fs";
+
+import { migrateDraft } from "../autosave.ts";
+import { createDefaultAssetVariation, createDefaultCreative, createDefaultDraft } from "../campaign-defaults.ts";
 import {
+  copiedCreativeNameSource,
   CREATIVE_NAME_MAX_LENGTH,
   creativeNameFromFilename,
   META_AD_NAME_LIMIT,
@@ -10,6 +14,9 @@ import {
   TIKTOK_AD_NAME_LIMIT,
 } from "../creative-name-from-filename.ts";
 import { nextDuplicateName } from "../duplicate-name.ts";
+import { seedAddToCampaignDraft, type LiveCampaignForAdd } from "../library/add-to-campaign.ts";
+import { applyTemplate } from "../templates.ts";
+import type { AdCreativeDraft, CampaignTemplate } from "../types.ts";
 import { mergeRoutedTikTokCreatives } from "../plan/asset-routing.ts";
 import { uniqueTikTokFileName } from "../tiktok/upload.ts";
 import { appendUploadedTikTokCreatives } from "../tiktok-wizard/creative-items.ts";
@@ -111,8 +118,132 @@ describe("nameMetaCreativeFromAssets", () => {
       creativeNameFromFilename("CamelPhat_Ironworks_9x16.mp4", "TikTok creative"),
     );
 
-    const typed = nameMetaCreativeFromAssets({ ...named, name: "Operator cut" });
+    const typed = nameMetaCreativeFromAssets({
+      ...named,
+      name: "Operator cut",
+      nameSource: "operator",
+    });
     assert.equal(typed.name, "Operator cut");
+    assert.equal(typed.nameSource, "operator");
+  });
+
+  it("renames a duplicated Promo Video 2 from the first uploaded file", () => {
+    const source = createDefaultCreative();
+    source.name = "Promo Video";
+    source.nameSource = "generated";
+    const copy: AdCreativeDraft = {
+      ...source,
+      id: "copy",
+      name: nextDuplicateName(source.name, [source.name]),
+      nameSource: copiedCreativeNameSource(source.nameSource),
+    };
+    assert.equal(copy.name, "Promo Video 2");
+    assert.equal(copy.nameSource, "generated");
+    copy.assetVariations[0]!.assets[0]!.fileName = "CamelPhat_Ironworks_9x16.mp4";
+    const named = nameMetaCreativeFromAssets(copy);
+    assert.equal(named.name, "CamelPhat_Ironworks_9x16");
+    assert.equal(named.nameSource, "file");
+
+    named.assetVariations[0]!.assets.push({
+      ...named.assetVariations[0]!.assets[0]!,
+      id: "later",
+      aspectRatio: "4:5",
+      fileName: "Other_Cut.mp4",
+    });
+    assert.equal(nameMetaCreativeFromAssets(named).name, "CamelPhat_Ironworks_9x16");
+
+    const typedSource = createDefaultCreative();
+    typedSource.name = "Promo Video";
+    typedSource.nameSource = "operator";
+    assert.equal(copiedCreativeNameSource(typedSource.nameSource), "operator");
+  });
+
+  it("renames a template-loaded name from the first uploaded file", () => {
+    const draft = createDefaultDraft();
+    const creative = createDefaultCreative();
+    creative.name = "Promo Video";
+    delete creative.nameSource;
+    const { id: _id, status: _status, createdAt: _created, updatedAt: _updated, ...snapshot } = draft;
+    const template: CampaignTemplate = {
+      id: "tpl",
+      name: "Promo template",
+      description: "",
+      tags: [],
+      snapshot: { ...snapshot, creatives: [creative] },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const applied = applyTemplate(template);
+    const loaded = applied.creatives[0]!;
+    assert.equal(loaded.name, "Promo Video");
+    assert.equal(loaded.nameSource, "generated");
+    loaded.assetVariations[0]!.assets[0]!.fileName = "CamelPhat_Ironworks_9x16.mp4";
+    const named = nameMetaCreativeFromAssets(loaded);
+    assert.equal(named.name, "CamelPhat_Ironworks_9x16");
+    assert.equal(named.nameSource, "file");
+  });
+
+  it("leaves a name typed in the Ad Name field", () => {
+    const creative = createDefaultCreative();
+    creative.name = "Operator cut";
+    creative.nameSource = "operator";
+    creative.assetVariations[0]!.assets[0]!.fileName = "CamelPhat_Ironworks_9x16.mp4";
+    const named = nameMetaCreativeFromAssets(creative);
+    assert.equal(named.name, "Operator cut");
+    assert.equal(named, creative);
+    const step = readFileSync(new URL("../../components/steps/creatives.tsx", import.meta.url), "utf8");
+    assert.match(step, /nameSource: "operator"/);
+    assert.match(step, /copiedCreativeNameSource\(source\.nameSource\)/);
+  });
+
+  it("keeps a migrated Promo Video that has no flag", () => {
+    const draft = migrateDraft({
+      creatives: [{ id: "legacy", name: "Promo Video" }],
+    } as unknown as Record<string, unknown>);
+    const creative = draft.creatives[0]!;
+    assert.equal(creative.name, "Promo Video");
+    assert.equal(creative.nameSource, "operator");
+    creative.assetVariations[0]!.assets = [
+      {
+        id: "a1",
+        aspectRatio: "9:16",
+        uploadStatus: "uploaded",
+        fileName: "CamelPhat_Ironworks_9x16.mp4",
+      },
+    ];
+    assert.equal(nameMetaCreativeFromAssets(creative).name, "Promo Video");
+
+    const kept = migrateDraft({
+      creatives: [{ id: "kept", name: "Promo Video", nameSource: "generated" }],
+    } as unknown as Record<string, unknown>);
+    assert.equal(kept.creatives[0]?.nameSource, "generated");
+    assert.equal(kept.creatives[0]?.name, "Promo Video");
+  });
+
+  it("renames a name carried in by Add to campaign", () => {
+    const source = createDefaultDraft();
+    source.status = "published";
+    const creative = createDefaultCreative();
+    creative.name = "Promo Video";
+    creative.nameSource = "operator";
+    source.creatives = [creative];
+    const live: LiveCampaignForAdd = {
+      id: "120249428134610453",
+      name: "Ahmed Spins",
+      objective: "OUTCOME_SALES",
+      status: "ACTIVE",
+      effectiveStatus: "ACTIVE",
+      buyingType: "AUCTION",
+    };
+    const seeded = seedAddToCampaignDraft(source, live, {
+      id: "added",
+      now: "2026-10-01T12:00:00.000Z",
+    });
+    const carried = seeded.creatives[0]!;
+    assert.equal(carried.name, "Promo Video");
+    assert.equal(carried.nameSource, "generated");
+    carried.assetVariations[0]!.assets[0]!.fileName = "CamelPhat_Ironworks_9x16.mp4";
+    assert.equal(nameMetaCreativeFromAssets(carried).name, "CamelPhat_Ironworks_9x16");
   });
 
   it("keeps today's name when no asset has a fileName", () => {

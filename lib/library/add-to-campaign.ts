@@ -108,6 +108,8 @@ function blankCreative(source: AdCreativeDraft | undefined): AdCreativeDraft {
   return {
     id: crypto.randomUUID(),
     name: base.name,
+    // The carried name was not typed into this draft's Ad Name field.
+    nameSource: "generated",
     sourceType: "new",
     identity: {
       pageId: base.identity.pageId,

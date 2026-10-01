@@ -1,6 +1,7 @@
 import type { CampaignDraft, AdCreativeDraft, AssetVariation, Asset, AssetRatio, AdSetGeoLocations, BudgetScheduleSettings, LocationTargetingGroup, LocationPreset } from "./types";
 import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
 import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
+import { isGeneratedMetaCreativeName } from "./creative-name-from-filename.ts";
 import { readBlankCopy } from "./meta/creative.ts";
 
 const STORAGE_KEY = "campaign_draft";
@@ -247,9 +248,18 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
           },
         ];
 
+  const name = c.name ?? "";
+  const nameSource =
+    c.nameSource === "generated" || c.nameSource === "file" || c.nameSource === "operator"
+      ? c.nameSource
+      : isGeneratedMetaCreativeName(name)
+        ? "generated"
+        : "operator";
+
   return {
     id: c.id,
-    name: c.name ?? "",
+    name,
+    nameSource,
     sourceType: c.sourceType ?? "new",
     identity: c.identity ?? { pageId: "", instagramAccountId: "" },
     mediaType: c.mediaType ?? "image",
