@@ -359,3 +359,51 @@ describe("importer writes nothing to Meta", () => {
     assert.equal(/\bfetch\s*\(/.test(helper), false);
   });
 });
+
+describe("budget probe c imports as CBO lifetime", () => {
+  it("reads the campaign lifetime_budget and does not invent an ad set daily budget", () => {
+    const fixture = JSON.parse(
+      readFileSync(join(HERE, "../../__fixtures__/budget-probes/zz-budget-probe.json"), "utf8"),
+    ) as {
+      probes: {
+        c: { readback: Record<string, unknown> };
+        b: { adsetReadback?: Record<string, unknown> };
+      };
+    };
+    const campaign = fixture.probes.c.readback;
+    const draft = mapMetaLiveCampaign({
+      bundle: {
+        campaign,
+        adSets: [
+          {
+            id: "120252046531910755",
+            name: "zz-budget-probe-cbo-end-via-adset-row",
+            status: "PAUSED",
+            campaign_id: campaign.id,
+            targeting: {
+              age_min: 18,
+              age_max: 65,
+              geo_locations: { countries: ["GB"] },
+            },
+          },
+        ],
+        ads: [],
+        creatives: {},
+      },
+      adAccountId: "act_606252931141334",
+      carry: [],
+      availability: [],
+    });
+
+    assert.equal(draft.budgetSchedule.budgetLevel, "campaign");
+    assert.equal(draft.budgetSchedule.budgetType, "lifetime");
+    assert.equal(draft.budgetSchedule.budgetAmount, 50);
+    assert.equal(draft.adSetSuggestions.length, 1);
+    assert.equal(draft.adSetSuggestions[0]?.budgetPerDay, 0);
+    assert.equal(draft.adSetSuggestions[0]?.budgetLifetime, undefined);
+    assert.equal(
+      draft.importMeta?.dropped.some((row) => row.field === "daily_budget"),
+      false,
+    );
+  });
+});

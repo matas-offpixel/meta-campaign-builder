@@ -149,6 +149,13 @@ function num(value: unknown): number | null {
   return null;
 }
 
+/** Meta reads the unused budget type back as "0". That is not a budget. */
+function positiveBudgetMinor(value: unknown): number | null {
+  const parsed = num(value);
+  if (parsed == null || parsed <= 0) return null;
+  return parsed;
+}
+
 function dateOnly(value: unknown): string {
   const raw = str(value);
   return raw ? raw.slice(0, 10) : "";
@@ -563,6 +570,11 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   const carry = new Set(input.carry);
   const optimisationGoal = resolveOptimisationGoal("conversions", objective);
 
+  const campaignDailyMinor = positiveBudgetMinor(campaign.daily_budget);
+  const campaignLifetimeMinor = positiveBudgetMinor(campaign.lifetime_budget);
+  const campaignBudgetConflict = campaignDailyMinor != null && campaignLifetimeMinor != null;
+  const cbo = !campaignBudgetConflict && (campaignDailyMinor != null || campaignLifetimeMinor != null);
+
   const interestGroups = new Map<string, InterestGroup>();
   const customGroups = new Map<string, CustomAudienceGroup>();
   const adSets: AdSetSuggestion[] = [];
@@ -651,8 +663,26 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     const ageMax = num(targeting.age_max);
     if (ageMin == null) drop(dropped, "age_min", targeting.age_min ?? null, ctx);
     if (ageMax == null) drop(dropped, "age_max", targeting.age_max ?? null, ctx);
-    const daily = num(raw.daily_budget);
-    if (daily == null) drop(dropped, "daily_budget", raw.daily_budget ?? null, ctx);
+    const dailyRaw = num(raw.daily_budget);
+    const dailyMinor = positiveBudgetMinor(raw.daily_budget);
+    const lifetimeMinor = positiveBudgetMinor(raw.lifetime_budget);
+    let budgetPerDay = Number.NaN;
+    let budgetLifetime: number | undefined;
+    if (cbo) {
+      // The campaign holds the budget. A child ad set reads both budget
+      // fields as "0"; that is not a missing daily budget.
+      budgetPerDay = 0;
+    } else if (lifetimeMinor != null && dailyMinor == null) {
+      budgetPerDay = 0;
+      budgetLifetime = lifetimeMinor / 100;
+    } else if (dailyMinor != null && lifetimeMinor != null) {
+      drop(dropped, "daily_budget", raw.daily_budget ?? null, ctx);
+      drop(dropped, "lifetime_budget", raw.lifetime_budget ?? null, ctx);
+    } else if (dailyRaw == null) {
+      drop(dropped, "daily_budget", raw.daily_budget ?? null, ctx);
+    } else {
+      budgetPerDay = dailyRaw / 100;
+    }
 
     const automation = asRecord(targeting.targeting_automation);
     const advantagePlus = automation?.advantage_audience === 1;
@@ -684,7 +714,8 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
       sourceName: name,
       ageMin: ageMin ?? Number.NaN,
       ageMax: ageMax ?? Number.NaN,
-      budgetPerDay: daily == null ? Number.NaN : daily / 100,
+      budgetPerDay,
+      ...(budgetLifetime != null ? { budgetLifetime } : {}),
       advantagePlus,
       enabled: raw.status === "ACTIVE",
       locationGroupIds,
@@ -778,9 +809,47 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   draft.settings.wizardMode = "new";
   draft.audiences.interestGroups = [...interestGroups.values()];
   draft.audiences.customAudienceGroups = [...customGroups.values()];
-  draft.budgetSchedule.budgetLevel = "ad_set";
-  draft.budgetSchedule.budgetType = "daily";
-  draft.budgetSchedule.budgetAmount = dailyTotal;
+  if (campaignBudgetConflict) {
+    drop(dropped, "daily_budget", campaign.daily_budget ?? null);
+    drop(dropped, "lifetime_budget", campaign.lifetime_budget ?? null);
+  }
+  const lifetimeShares = adSets.reduce(
+    (sum, adSet) => sum + (adSet.budgetLifetime ?? 0),
+    0,
+  );
+  const anyDailyShare = adSets.some(
+    (adSet) => Number.isFinite(adSet.budgetPerDay) && adSet.budgetPerDay > 0,
+  );
+  const anyLifetimeShare = adSets.some((adSet) => (adSet.budgetLifetime ?? 0) > 0);
+  if (cbo && campaignLifetimeMinor != null) {
+    draft.budgetSchedule.budgetLevel = "campaign";
+    draft.budgetSchedule.budgetType = "lifetime";
+    draft.budgetSchedule.budgetAmount = campaignLifetimeMinor / 100;
+  } else if (cbo && campaignDailyMinor != null) {
+    draft.budgetSchedule.budgetLevel = "campaign";
+    draft.budgetSchedule.budgetType = "daily";
+    draft.budgetSchedule.budgetAmount = campaignDailyMinor / 100;
+  } else if (anyLifetimeShare && anyDailyShare) {
+    for (const adSet of adSets) {
+      if ((adSet.budgetLifetime ?? 0) <= 0) continue;
+      drop(dropped, "lifetime_budget", adSet.budgetLifetime ?? null, {
+        adSetId: adSet.id,
+        adSetName: adSet.name,
+      });
+      adSet.budgetLifetime = undefined;
+    }
+    draft.budgetSchedule.budgetLevel = "ad_set";
+    draft.budgetSchedule.budgetType = "daily";
+    draft.budgetSchedule.budgetAmount = dailyTotal;
+  } else if (anyLifetimeShare) {
+    draft.budgetSchedule.budgetLevel = "ad_set";
+    draft.budgetSchedule.budgetType = "lifetime";
+    draft.budgetSchedule.budgetAmount = lifetimeShares;
+  } else {
+    draft.budgetSchedule.budgetLevel = "ad_set";
+    draft.budgetSchedule.budgetType = "daily";
+    draft.budgetSchedule.budgetAmount = dailyTotal;
+  }
   draft.budgetSchedule.startDate = dateOnly(campaign.start_time);
   draft.budgetSchedule.endDate = dateOnly(campaign.stop_time);
   draft.budgetSchedule.locationGroups = [...bucket.groups.values()];

@@ -29,7 +29,7 @@ import { computeCampaignBudgetPlan } from "./plan.ts";
 import { budgetThresholdReached } from "../notify/templates.ts";
 import type { NotifyOptions, NotifyResult } from "../notify/slack.ts";
 
-/** 25 → 100 inclusive, per the task #121 brief. Not deduplicated against a real Meta-side lifetime_budget — see `plan.ts`'s doc comment for why the denominator is the ad-set daily-budget sum instead. */
+/** 25 → 100 inclusive, per the task #121 brief. A live lifetime_budget, when the fetcher returns one, replaces the daily × days denominator. */
 export const BUDGET_PACING_THRESHOLDS = [25, 50, 60, 70, 80, 90, 100] as const;
 
 export interface BudgetPacingCampaignInput {
@@ -48,6 +48,11 @@ export interface BudgetPacingTickDeps {
   loadPublishedCampaigns: () => Promise<BudgetPacingCampaignInput[]>;
   /** Keyed by `campaignId`, pence. */
   fetchSpendPence: (campaignIds: string[]) => Promise<Record<string, number>>;
+  /**
+   * Live `lifetime_budget` values, minor units, keyed by campaign id.
+   * Omitted keeps the draft daily × days plan.
+   */
+  fetchLiveLifetimeBudgetsMinor?: (campaignIds: string[]) => Promise<Record<string, number[]>>;
   notify: (opts: NotifyOptions) => Promise<NotifyResult>;
   now?: Date;
 }
@@ -115,10 +120,23 @@ export async function runBudgetPacingTick(
     };
   }
 
+  let lifetimeByCampaign: Record<string, number[]> = {};
+  if (deps.fetchLiveLifetimeBudgetsMinor) {
+    try {
+      lifetimeByCampaign = await deps.fetchLiveLifetimeBudgetsMinor(campaigns.map((c) => c.campaignId));
+    } catch (err) {
+      console.error(
+        "[budget-pacing-check] fetchLiveLifetimeBudgetsMinor failed; daily plans still apply where no lifetime total was read",
+        err,
+      );
+    }
+  }
+
   for (const campaign of campaigns) {
     try {
       const plan = computeCampaignBudgetPlan({
         enabledDailyBudgetsMajor: campaign.enabledDailyBudgetsMajor,
+        liveLifetimeBudgetsMinor: lifetimeByCampaign[campaign.campaignId],
         startDate: campaign.startDate,
         endDate: campaign.endDate,
         now,

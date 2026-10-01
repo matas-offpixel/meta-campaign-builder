@@ -919,6 +919,12 @@ export interface AdSetSuggestion {
   ageMin: number;
   ageMax: number;
   budgetPerDay: number;
+  /**
+   * This ad set's share of a lifetime budget, in major units (£).
+   * Written only when `budgetSchedule.budgetType === "lifetime"`.
+   * Daily drafts leave it unset; `budgetPerDay` keeps its existing meaning.
+   */
+  budgetLifetime?: number;
   advantagePlus: boolean;
   /** User-controlled toggle — never modified by launch results */
   enabled: boolean;

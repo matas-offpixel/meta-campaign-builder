@@ -128,3 +128,58 @@ export async function fetchCampaignSpendPence(
   }
   return fetchSpendBatched(multiGetFetcher, campaignIds, token);
 }
+
+interface RawLifetimeNode {
+  lifetime_budget?: string | number | null;
+  adsets?: { data?: { lifetime_budget?: string | number | null }[] } | null;
+}
+
+/** A Graph `lifetime_budget` of 0, "0", or absent is not a lifetime budget. */
+export function positiveLifetimeMinor(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    const parsed = Number(value);
+    return parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * Denominator for one live campaign. A positive campaign `lifetime_budget`
+ * wins on its own (CBO). Otherwise the positive ad-set lifetime budgets.
+ * Zeros are dropped so an ABO daily ad set, which Meta reads back as
+ * `lifetime_budget: "0"`, does not become a lifetime plan.
+ */
+export function lifetimeDenominatorMinor(node: RawLifetimeNode): number[] {
+  const campaign = positiveLifetimeMinor(node.lifetime_budget);
+  if (campaign != null) return [campaign];
+  const rows = node.adsets?.data ?? [];
+  const out: number[] = [];
+  for (const row of rows) {
+    const amount = positiveLifetimeMinor(row.lifetime_budget);
+    if (amount != null) out.push(amount);
+  }
+  return out;
+}
+
+/**
+ * Live lifetime budgets (minor units) keyed by campaign id. One GET per
+ * campaign. An empty list means "no lifetime budget" — the plan then uses
+ * daily × days.
+ */
+export async function fetchCampaignLifetimeBudgetsMinor(
+  fetcher: BudgetPacingGraphFetcher,
+  campaignIds: string[],
+  token: string,
+): Promise<Record<string, number[]>> {
+  const result: Record<string, number[]> = {};
+  for (const campaignId of campaignIds) {
+    const node = await fetcher<RawLifetimeNode>(
+      `/${campaignId}`,
+      { fields: "lifetime_budget,adsets.limit(200){lifetime_budget}" },
+      token,
+    );
+    result[campaignId] = lifetimeDenominatorMinor(node);
+  }
+  return result;
+}

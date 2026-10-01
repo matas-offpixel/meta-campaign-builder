@@ -14,6 +14,8 @@ import type {
   MetaInstagramAccount,
   PageIgOption,
   PageIgResponse,
+  BudgetLevel,
+  BudgetType,
   CampaignObjective,
 } from "@/lib/types";
 import { buildCampaignPayload } from "./campaign";
@@ -2495,17 +2497,26 @@ export async function createMetaCampaign(params: {
   name: string;
   objective: CampaignObjective;
   status?: "ACTIVE" | "PAUSED";
+  /**
+   * Omitted (or level `ad_set`) keeps today's ABO payload: no budget key.
+   * Level `campaign` puts the budget and bid strategy on the campaign.
+   */
+  budget?: {
+    level: BudgetLevel;
+    type: BudgetType;
+    amountMajor: number;
+  };
   /** OAuth or system token. When supplied uses graphPostWithToken instead of the env-var graphPost. */
   token?: string;
 }): Promise<{ id: string }> {
-  const { adAccountId, name, objective, status = "ACTIVE", token } = params;
+  const { adAccountId, name, objective, status = "ACTIVE", budget, token } = params;
   const accountPath = withActPrefix(adAccountId);
 
   // Minimal valid payload — only fields that belong at campaign level.
   // buying_type is required by Meta; omitting it triggers code 100 "Invalid parameter".
   // is_adset_budget_sharing_enabled: false = ad-set-level budgets (not campaign budget optimisation).
   // special_ad_categories must be present (empty array = no special category restrictions).
-  const payload = buildCampaignPayload({ name, objective, status });
+  const payload = buildCampaignPayload({ name, objective, status, budget });
 
   console.log(
     "[createMetaCampaign] Sending payload to",

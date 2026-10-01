@@ -3,7 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { graphGetWithToken } from "@/lib/meta/client";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
-import { fetchCampaignSpendPence, type BudgetPacingGraphFetcher } from "@/lib/budget-pacing/spend-fetch";
+import {
+  fetchCampaignLifetimeBudgetsMinor,
+  fetchCampaignSpendPence,
+  type BudgetPacingGraphFetcher,
+} from "@/lib/budget-pacing/spend-fetch";
 import { runBudgetPacingTick, type BudgetPacingTickSummary } from "@/lib/budget-pacing/tick-runner";
 import { loadPublishedCampaignsForBudgetPacing } from "@/lib/db/budget-pacing-campaigns";
 import { notify } from "@/lib/notify/slack";
@@ -93,6 +97,12 @@ export async function GET(req: NextRequest) {
           campaignIds,
           token as string,
           graphMultiGetByIds as BudgetPacingGraphFetcher,
+        ),
+      fetchLiveLifetimeBudgetsMinor: (campaignIds) =>
+        fetchCampaignLifetimeBudgetsMinor(
+          graphGetWithToken as BudgetPacingGraphFetcher,
+          campaignIds,
+          token as string,
         ),
       notify: (opts) => notify(opts, notifyDeps),
     });

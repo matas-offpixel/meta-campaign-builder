@@ -336,6 +336,14 @@ export function applyBulkDailyBudget(
   return suggestions.map((s) => ({ ...s, budgetPerDay }));
 }
 
+/** Bulk-write budgetLifetime. Does not change budgetPerDay. */
+export function applyBulkLifetimeBudget(
+  suggestions: AdSetSuggestion[],
+  budgetLifetime: number,
+): AdSetSuggestion[] {
+  return suggestions.map((s) => ({ ...s, budgetLifetime }));
+}
+
 const TIER_NAME_SUFFIX: Record<LocationTier, string> = {
   primary: " — Primary",
   secondary: " — Secondary",

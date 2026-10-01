@@ -64,6 +64,7 @@ import {
   archivedCampaignMessage,
   classifyCreativeCreateError,
   creativeFailureBanners,
+  lifetimeBudgetEndDateMessage,
   mapLaunchTokenError,
   websiteUrlRequiredMessage,
 } from "@/lib/meta/launch-error-classify";
@@ -76,10 +77,12 @@ import {
 import type { BusinessUseCaseSnapshot } from "@/lib/meta/app-usage";
 import type { EngagementAudienceSpec, EngagementAudienceType, TypedSeed } from "@/lib/meta/client";
 import {
+  buildCampaignPayload,
   mapMetaObjectiveToInternal,
   mapObjectiveToMeta,
   validateCampaignPayload,
 } from "@/lib/meta/campaign";
+import { refuseSilentDailyLaunch } from "@/lib/meta/budget-launch";
 import {
   buildAdSetPayload,
   extractDeprecatedReplacements,
@@ -392,6 +395,8 @@ function formatMetaError(err: unknown, campaignId?: string): string {
   if (err instanceof MetaApiError) {
     const archived = archivedCampaignMessage(campaignId ?? "", err);
     if (archived) return archived;
+    const lifetimeEnd = lifetimeBudgetEndDateMessage(err);
+    if (lifetimeEnd) return lifetimeEnd;
     const parts: string[] = [err.message];
     if (err.code) parts.push(`code=${err.code}`);
     if (err.subcode) parts.push(`subcode=${err.subcode}`);
@@ -1747,23 +1752,69 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
   } else {
+    const launchBudget = {
+      level: draft.budgetSchedule.budgetLevel,
+      type: draft.budgetSchedule.budgetType,
+      amountMajor: draft.budgetSchedule.budgetAmount,
+    };
+    const campaignGraphPayload = buildCampaignPayload({
+      name: draft.settings.campaignName.trim(),
+      objective: draft.settings.objective,
+      status: entityStatus,
+      budget: launchBudget,
+    });
+    const adSetGraphPayloads = enabledSets.map((adSet) =>
+      buildAdSetPayload(
+        adSet,
+        "preflight",
+        draft.audiences,
+        draft.budgetSchedule,
+        draft.settings.optimisationGoal,
+        draft.settings.objective,
+        draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+        false,
+        draft.settings.placementConfig,
+        entityStatus,
+      ),
+    );
+    const budgetRefusal = refuseSilentDailyLaunch({
+      budgetLevel: launchBudget.level,
+      budgetType: launchBudget.type,
+      campaign: campaignGraphPayload,
+      adSets: adSetGraphPayloads,
+    });
+    if (budgetRefusal) {
+      return NextResponse.json({ error: budgetRefusal }, { status: 400 });
+    }
+
     try {
       const campaignPayload = {
         adAccountId,
         name: draft.settings.campaignName.trim(),
         objective: draft.settings.objective,
         status: entityStatus,
+        budget: launchBudget,
         token: launchToken,
       };
       console.log(
         "[launch-campaign] Phase 1 payload:", JSON.stringify({ ...campaignPayload, token: `[${launchTokenSource}]` }, null, 2),
       );
 
+      // Daily ABO keeps the historical ledger key so a retry still finds
+      // the campaign it already created. Lifetime and CBO add the budget
+      // fields, so they cannot reuse an ABO campaign minted before this.
       const campaignLedgerPayload = {
         adAccountId,
         name: campaignPayload.name,
         objective: campaignPayload.objective,
         status: entityStatus,
+        ...(launchBudget.level === "campaign" || launchBudget.type === "lifetime"
+          ? {
+              budgetLevel: launchBudget.level,
+              budgetType: launchBudget.type,
+              budgetAmount: launchBudget.amountMajor,
+            }
+          : {}),
       };
       const campaignRes = await runCampaignCreateLedger({
         context: metaWriteCtx,

@@ -1,0 +1,262 @@
+{
+  "account": "act_606252931141334",
+  "apiVersion": "v21.0",
+  "endTimeUnix": 1791417600,
+  "probes": {
+    "a": {
+      "request": {
+        "name": "zz-budget-probe-abo-lifetime",
+        "campaign_id": "120252046472160755",
+        "lifetime_budget": 5000,
+        "billing_event": "IMPRESSIONS",
+        "optimization_goal": "LANDING_PAGE_VIEWS",
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+        "targeting": {
+          "geo_locations": {
+            "countries": [
+              "GB"
+            ]
+          },
+          "targeting_automation": {
+            "advantage_audience": 1
+          }
+        },
+        "destination_type": "WEBSITE",
+        "end_time": 1791417600,
+        "status": "PAUSED"
+      },
+      "response": {
+        "id": "120252046472350755"
+      },
+      "readback": {
+        "id": "120252046472350755",
+        "name": "zz-budget-probe-abo-lifetime",
+        "status": "PAUSED",
+        "effective_status": "PAUSED",
+        "daily_budget": "0",
+        "lifetime_budget": "5000",
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+        "end_time": "2026-10-08T01:00:00+0100",
+        "start_time": "2026-10-01T18:06:38+0100",
+        "campaign_id": "120252046472160755"
+      }
+    },
+    "b": {
+      "campaignRequest": {
+        "name": "zz-budget-probe-cbo-daily",
+        "objective": "OUTCOME_TRAFFIC",
+        "buying_type": "AUCTION",
+        "status": "PAUSED",
+        "special_ad_categories": [],
+        "daily_budget": 2000,
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP"
+      },
+      "campaignResponse": {
+        "id": "120252046472630755"
+      },
+      "campaignReadback": {
+        "id": "120252046472630755",
+        "name": "zz-budget-probe-cbo-daily",
+        "status": "PAUSED",
+        "effective_status": "PAUSED",
+        "objective": "OUTCOME_TRAFFIC",
+        "start_time": "2026-10-01T18:06:42+0100",
+        "daily_budget": "2000",
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP"
+      },
+      "adSetRequest": {
+        "name": "zz-budget-probe-cbo-daily-adset",
+        "campaign_id": "120252046472630755",
+        "billing_event": "IMPRESSIONS",
+        "optimization_goal": "LANDING_PAGE_VIEWS",
+        "targeting": {
+          "geo_locations": {
+            "countries": [
+              "GB"
+            ]
+          },
+          "targeting_automation": {
+            "advantage_audience": 1
+          }
+        },
+        "destination_type": "WEBSITE",
+        "status": "PAUSED"
+      },
+      "adSetResponse": {
+        "id": "120252046473010755"
+      },
+      "adSetReadback": {
+        "id": "120252046473010755",
+        "name": "zz-budget-probe-cbo-daily-adset",
+        "status": "PAUSED",
+        "campaign_id": "120252046472630755"
+      }
+    },
+    "c": {
+      "request": {
+        "name": "zz-budget-probe-cbo-lifetime",
+        "objective": "OUTCOME_TRAFFIC",
+        "buying_type": "AUCTION",
+        "status": "PAUSED",
+        "special_ad_categories": [],
+        "lifetime_budget": 5000,
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+        "stop_time": 1791417600
+      },
+      "response": {
+        "id": "120252046473540755"
+      },
+      "readback": {
+        "id": "120252046473540755",
+        "name": "zz-budget-probe-cbo-lifetime",
+        "status": "PAUSED",
+        "effective_status": "PAUSED",
+        "objective": "OUTCOME_TRAFFIC",
+        "buying_type": "AUCTION",
+        "start_time": "1970-01-01T00:59:59+0100",
+        "lifetime_budget": "5000",
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP"
+      }
+    },
+    "d": {
+      "request": {
+        "name": "zz-budget-probe-abo-lifetime-no-end",
+        "campaign_id": "120252046472160755",
+        "lifetime_budget": 5000,
+        "billing_event": "IMPRESSIONS",
+        "optimization_goal": "LANDING_PAGE_VIEWS",
+        "bid_strategy": "LOWEST_COST_WITHOUT_CAP",
+        "targeting": {
+          "geo_locations": {
+            "countries": [
+              "GB"
+            ]
+          },
+          "targeting_automation": {
+            "advantage_audience": 1
+          }
+        },
+        "destination_type": "WEBSITE",
+        "status": "PAUSED"
+      },
+      "response": {
+        "error": {
+          "message": "Invalid parameter",
+          "type": "OAuthException",
+          "code": 100,
+          "error_subcode": 1487094,
+          "error_user_title": "No end date entered",
+          "error_user_msg": "Ad sets using lifetime as the budget type must have an end date. Enter an end date more than 24 hours after the start time."
+        }
+      }
+    }
+  },
+  "deleted": [
+    {
+      "id": "120252046472160755",
+      "httpStatus": 200,
+      "body": {
+        "success": true
+      }
+    },
+    {
+      "id": "120252046472630755",
+      "httpStatus": 200,
+      "body": {
+        "success": true
+      }
+    },
+    {
+      "id": "120252046473540755",
+      "httpStatus": 200,
+      "body": {
+        "success": true
+      }
+    }
+  ],
+  "afterDelete": {
+    "120252046472160755": {
+      "httpStatus": 200,
+      "body": {
+        "id": "120252046472160755",
+        "status": "DELETED",
+        "effective_status": "DELETED"
+      }
+    },
+    "120252046472350755": {
+      "httpStatus": 200,
+      "body": {
+        "id": "120252046472350755",
+        "status": "DELETED",
+        "effective_status": "DELETED"
+      }
+    },
+    "120252046472630755": {
+      "httpStatus": 200,
+      "body": {
+        "id": "120252046472630755",
+        "status": "DELETED",
+        "effective_status": "DELETED"
+      }
+    },
+    "120252046473010755": {
+      "httpStatus": 200,
+      "body": {
+        "id": "120252046473010755",
+        "status": "DELETED",
+        "effective_status": "DELETED"
+      }
+    },
+    "120252046473540755": {
+      "httpStatus": 200,
+      "body": {
+        "id": "120252046473540755",
+        "status": "DELETED",
+        "effective_status": "DELETED"
+      }
+    }
+  },
+  "cSchedule": {
+    "finding": "Campaign stop_time is read-only on v21.0. Probe c POSTed stop_time and the readback omitted it. A later paused campaign with lifetime_budget and no stop_time, plus a budget-less ad set whose end_time was the same unix timestamp, read the campaign stop_time back as that end. Both objects were then deleted.",
+    "campaignRequest": {
+      "name": "zz-budget-probe-cbo-end-via-adset",
+      "objective": "OUTCOME_TRAFFIC",
+      "buying_type": "AUCTION",
+      "status": "PAUSED",
+      "special_ad_categories": [],
+      "lifetime_budget": 5000,
+      "bid_strategy": "LOWEST_COST_WITHOUT_CAP"
+    },
+    "campaignResponse": { "id": "120252046530340755" },
+    "adSetRequest": {
+      "name": "zz-budget-probe-cbo-end-via-adset-row",
+      "campaign_id": "120252046530340755",
+      "billing_event": "IMPRESSIONS",
+      "optimization_goal": "LANDING_PAGE_VIEWS",
+      "targeting": {
+        "geo_locations": { "countries": ["GB"] },
+        "targeting_automation": { "advantage_audience": 1 }
+      },
+      "destination_type": "WEBSITE",
+      "end_time": 1791417600,
+      "status": "PAUSED"
+    },
+    "adSetResponse": { "id": "120252046531910755" },
+    "campaignReadback": {
+      "id": "120252046530340755",
+      "status": "PAUSED",
+      "start_time": "2026-10-01T18:08:51+0100",
+      "stop_time": "2026-10-08T01:00:00+0100",
+      "lifetime_budget": "5000"
+    },
+    "adSetReadback": {
+      "id": "120252046531910755",
+      "end_time": "2026-10-08T01:00:00+0100",
+      "status": "PAUSED"
+    },
+    "deleted": [
+      { "id": "120252046530340755", "httpStatus": 200, "body": { "success": true } },
+      { "id": "120252046531910755", "status": "DELETED", "effective_status": "DELETED" }
+    ]
+  }
+}
