@@ -79,11 +79,11 @@ describe("creatives slot calls the plan before any upload", () => {
 });
 
 describe("upload route image compression", () => {
-  const route = readFileSync("app/api/meta/upload-asset/route.ts", "utf8");
+  const route = readFileSync("lib/meta/upload-asset-handler.ts", "utf8");
 
   it("calls the compressor only when the image is over MAX_IMAGE_BYTES", () => {
     const body = route.replace(
-      /import \{ compressUploadImage \} from "@\/lib\/meta\/compress-upload-image";\n/,
+      /import \{ compressUploadImage \} from "\.\/compress-upload-image\.ts";\n/,
       "",
     );
     const parts = body.split("compressUploadImage");
@@ -97,7 +97,7 @@ describe("upload route image compression", () => {
     const fileUrl = between(
       route,
       'metaVideoUploadMode() === "file_url"',
-      "downloadSignedStorageObject",
+      "Step 1:",
     );
     assert.equal(fileUrl.includes("compressUploadImage"), false);
     assert.equal(fileUrl.includes("compress-upload-image"), false);

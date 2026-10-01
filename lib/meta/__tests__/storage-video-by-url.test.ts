@@ -117,11 +117,11 @@ describe("storage video by url", () => {
   });
 
   it("the image path still downloads the object; the file_url module does not", () => {
-    const route = readFileSync(new URL("../../../app/api/meta/upload-asset/route.ts", import.meta.url), "utf8");
+    const route = readFileSync(new URL("../upload-asset-handler.ts", import.meta.url), "utf8");
     const byUrl = readFileSync(new URL("../storage-video-by-url.ts", import.meta.url), "utf8");
     const fields = readFileSync(new URL("../video-file-url.ts", import.meta.url), "utf8");
-    assert.match(route, /createSignedUrl\(storagePath, META_STORAGE_FETCH_TTL_SECONDS\)/);
-    assert.match(route, /downloadSignedStorageObject\(signedData\.signedUrl\)/);
+    assert.match(route, /createSignedUrl\(\s*storageBucket,\s*storagePath,\s*META_STORAGE_FETCH_TTL_SECONDS,/);
+    assert.match(route, /download\(signedData\.signedUrl\)/);
     assert.match(route, /uploadImageAsset\(/);
     assert.match(route, /uploadVideoAsset\(/);
     assert.equal(byUrl.includes(".blob("), false);
