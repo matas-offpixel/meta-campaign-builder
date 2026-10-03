@@ -63,9 +63,9 @@ npm run lint     # ESLint
 
 ### WhatsApp community button URL
 
-New D2C templates use `https://crqln.com/j/{code}` (`COMMUNITY_REDIRECT_BASE` in `lib/d2c/bird/templates/from-event.ts`). That path is an HTML interstitial on cirqlin, not a 302.
+New D2C templates use `https://crqln.com/j/{code}` (`COMMUNITY_REDIRECT_BASE` in `lib/d2c/bird/templates/from-event.ts`). As of cirqlin #454 that path is a 302 to `chat.whatsapp.com/{code}?mode=gi_t` by default, and the click is logged on the way through. The HTML card is opt-in per alias (`interstitial_enabled`, default false).
 
-`app.offpixel.co.uk/j/{code}` is deprecated as of Sep 2026 after WhatsApp's classifier began flagging the offpixel subdomain. The offpixel URL still resolves for messages already out. Do not use it for new templates. Do not edit already-approved Bird templates (Meta re-approval) or already-scheduled Mailchimp campaigns.
+`app.offpixel.co.uk/j/{code}` is not deprecated. New templates route through `crqln.com` for the click log, not because the offpixel subdomain was flagged: the Sep 2026 WhatsApp classifier hit came from lead-form ads. The offpixel URL still resolves for messages already out. Do not edit already-approved Bird templates (Meta re-approval) or already-scheduled Mailchimp campaigns.
 
 ### Canvas + drawers
 
@@ -410,7 +410,7 @@ ENABLE_BUDGET_PACING_ALERTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Unapplied — Matas applies. Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration on main:** `179_meta_write_idempotency_adset_targeting.sql` (#989; `adset_targeting_update` on the Meta write ledger). Unapplied — Matas applies. `178_wa_community_alias_repoint.sql` is applied and ledgered on production and lands with PR #986; it was renumbered from a clash with #989's file. Earlier note kept for the windows: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
