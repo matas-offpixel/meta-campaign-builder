@@ -116,6 +116,7 @@ export function MetaDrawer({
     flush,
     setDraft,
     updateSettings,
+    updateDraft,
     updateAudiences,
     updateCreatives,
     handlePageInstagramOverride,
@@ -357,6 +358,7 @@ export function MetaDrawer({
           <MetaDrawerDetails
             draft={draft}
             onSettingsChange={updateSettings}
+            onApplyDraft={updateDraft}
             onBudgetChange={updateBudgetSchedule}
             onStrategyChange={updateOptimisationStrategy}
             /* In an attach mode the pickers own the `⊞` tab (decision 2). */

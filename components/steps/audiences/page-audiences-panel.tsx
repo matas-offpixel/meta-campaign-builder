@@ -36,6 +36,7 @@ import {
   type PageGenreClassification,
 } from "@/lib/genre-classification";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
+import { audienceReadyState } from "@/lib/audiences/audience-account";
 
 interface PageAudiencesPanelProps {
   groups: PageAudienceGroup[];
@@ -610,6 +611,53 @@ export function PageAudiencesPanel({
   const [otherPagesExpanded, setOtherPagesExpanded] = useState(false);
 
   const CONFIRM_THRESHOLD = 5;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const audienceIdsMissingAccount = useMemo(() => {
+    const ids: string[] = [];
+    for (const group of groups) {
+      for (const status of group.engagementAudienceStatuses ?? []) {
+        if (status.id && status.accountId === undefined) ids.push(status.id);
+      }
+    }
+    return [...new Set(ids)].sort().join(",");
+  }, [groups]);
+
+  useEffect(() => {
+    if (!audienceIdsMissingAccount) return;
+    const ids = audienceIdsMissingAccount.split(",");
+    let cancelled = false;
+    void fetch("/api/meta/audience-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    })
+      .then((response) => response.json())
+      .then((body: { audiences?: { id: string; accountId?: string }[] }) => {
+        if (cancelled) return;
+        const byId = new Map(
+          (body.audiences ?? []).map((row) => [row.id, row.accountId ?? ""]),
+        );
+        if (byId.size === 0) return;
+        let changed = false;
+        const next = groupsRef.current.map((group) => ({
+          ...group,
+          engagementAudienceStatuses: (group.engagementAudienceStatuses ?? []).map((status) => {
+            if (status.accountId !== undefined || !byId.has(status.id)) return status;
+            changed = true;
+            return { ...status, accountId: byId.get(status.id) || "" };
+          }),
+        }));
+        if (changed) onChangeRef.current(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [audienceIdsMissingAccount]);
 
   // ── Real page data ───────────────────────────────────────────────────────
   const businessPages = useFetchPages(adAccountId);
@@ -1103,7 +1151,12 @@ export function PageAudiencesPanel({
                       if (!group.engagementTypes.includes(eo.value)) return null;
                       const allStatuses: EngagementAudienceStatus[] = group.engagementAudienceStatuses ?? [];
                       const typeStatuses = allStatuses.filter((s) => s.type === eo.value);
-                      const anyReady = typeStatuses.some((s) => s.readyForLookalike);
+                      const foreign = typeStatuses
+                        .map((status) => audienceReadyState(status, adAccountId))
+                        .find((state) => !state.ready && state.label.startsWith("⚠"));
+                      const anyReady = typeStatuses.some(
+                        (status) => audienceReadyState(status, adAccountId).ready,
+                      );
                       const anyPopulating = typeStatuses.some((s) => s.populating);
                       const anyCreated = typeStatuses.length > 0;
                       return (
@@ -1112,20 +1165,28 @@ export function PageAudiencesPanel({
                           {!anyCreated && (
                             <span className="text-[10px] text-muted-foreground/60 italic">will be created at launch</span>
                           )}
-                          {anyCreated && anyReady && (
+                          {foreign ? (
+                            <span
+                              data-testid="audience-account-warning"
+                              className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600"
+                            >
+                              {foreign.label}
+                            </span>
+                          ) : null}
+                          {anyCreated && anyReady && !foreign && (
                             <span className="inline-flex items-center gap-1 text-[10px] text-success font-medium">
                               <span>✓ ready</span>
-                              <span className="text-muted-foreground/60">· ID {typeStatuses.find((s) => s.readyForLookalike)?.id?.slice(-8)}</span>
+                              <span className="text-muted-foreground/60">· ID {typeStatuses.find((s) => audienceReadyState(s, adAccountId).ready)?.id?.slice(-8)}</span>
                             </span>
                           )}
-                          {anyCreated && anyPopulating && !anyReady && (
+                          {anyCreated && anyPopulating && !anyReady && !foreign && (
                             <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-medium">
                               <Clock className="h-3 w-3" />
                               <span>populating</span>
                               <span className="text-muted-foreground/60">· ID {typeStatuses.find((s) => s.populating)?.id?.slice(-8)}</span>
                             </span>
                           )}
-                          {anyCreated && !anyReady && !anyPopulating && (
+                          {anyCreated && !anyReady && !anyPopulating && !foreign && (
                             <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
                               <span>created</span>
                               <span className="text-muted-foreground/60">· ID {typeStatuses[0]?.id?.slice(-8)}</span>

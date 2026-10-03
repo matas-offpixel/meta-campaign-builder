@@ -60,10 +60,12 @@ import {
   type IgMismatchEntry,
 } from "@/lib/meta/ig-identity-guard";
 import { validateMetaToken } from "@/lib/meta/server-token";
+import { foreignAccountLaunchError } from "@/lib/meta/account-scope-preflight";
 import {
   archivedCampaignMessage,
   classifyCreativeCreateError,
   creativeFailureBanners,
+  cityRadiusMessage,
   lifetimeBudgetEndDateMessage,
   mapLaunchTokenError,
   websiteUrlRequiredMessage,
@@ -401,6 +403,8 @@ function formatMetaError(err: unknown, campaignId?: string): string {
     if (archived) return archived;
     const lifetimeEnd = lifetimeBudgetEndDateMessage(err);
     if (lifetimeEnd) return lifetimeEnd;
+    const cityRadius = cityRadiusMessage(err);
+    if (cityRadius) return cityRadius;
     const parts: string[] = [err.message];
     if (err.code) parts.push(`code=${err.code}`);
     if (err.subcode) parts.push(`subcode=${err.subcode}`);
@@ -751,8 +755,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     creatives: draft.creatives.length,
   });
 
+  const foreignAccount = await foreignAccountLaunchError({
+    draft,
+    adAccountId,
+    token: launchToken,
+    supabase,
+    userId: user.id,
+  });
+  if (foreignAccount) {
+    return NextResponse.json({ error: foreignAccount }, { status: 400 });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
-  // Dynamic Creative planning (variation rotation) — runs before any Meta call
+  // Dynamic Creative planning (variation rotation) — runs before any Meta write
   //
   // A creative with N variations (Single mode) is built as a Dynamic-Creative
   // asset_feed_spec (see buildVariationRotationCreative). Meta only rotates the
@@ -2385,6 +2400,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             existingStatus.lastReadinessDescription = readiness.description;
             existingStatus.readyForLookalike = readiness.ready;
             existingStatus.populating = readiness.populating;
+            if (readiness.accountId) existingStatus.accountId = readiness.accountId;
           }
           console.log(
             `[launch-campaign] Phase 1.5 — reusing existing ${et} audience ${existingStatus.id}` +

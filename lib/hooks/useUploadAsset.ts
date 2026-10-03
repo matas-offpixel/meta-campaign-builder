@@ -169,6 +169,45 @@ export async function uploadAssetViaStorage(
   return json as UploadAssetResult;
 }
 
+/**
+ * Send an asset that is already in Storage to the current ad account.
+ * The Meta ids were cleared by an account switch; the registry row was not.
+ */
+export async function reuploadStoredAsset(params: {
+  storagePath: string;
+  storageBucket?: string;
+  type: AssetUploadType;
+  adAccountId: string;
+  fileName?: string;
+}): Promise<UploadAssetResult> {
+  const res = await fetch("/api/meta/upload-asset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      storagePath: params.storagePath,
+      storageBucket: params.storageBucket ?? STORAGE_BUCKET,
+      type: params.type,
+      adAccountId: params.adAccountId,
+      fileName: params.fileName,
+    }),
+  });
+
+  let json: unknown;
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    json = await res.json();
+  } else {
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+    json = {};
+  }
+  if (!res.ok) {
+    const errBody = json as { error?: string };
+    throw new Error(errBody.error ?? `HTTP ${res.status}`);
+  }
+  return json as UploadAssetResult;
+}
+
 export function useUploadAsset(): UseUploadAssetReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

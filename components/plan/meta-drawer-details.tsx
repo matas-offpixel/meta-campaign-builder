@@ -34,6 +34,7 @@ import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
 export function MetaDrawerDetails({
   draft,
   onSettingsChange,
+  onApplyDraft,
   onBudgetChange,
   onStrategyChange,
   showCampaignSetup = true,
@@ -42,6 +43,7 @@ export function MetaDrawerDetails({
 }: {
   draft: CampaignDraft;
   onSettingsChange: (settings: CampaignSettings) => void;
+  onApplyDraft?: (updater: (draft: CampaignDraft) => CampaignDraft) => void;
   onBudgetChange?: (budgetSchedule: BudgetScheduleSettings) => void;
   onStrategyChange?: (strategy: OptimisationStrategySettings) => void;
   /**
@@ -156,6 +158,8 @@ export function MetaDrawerDetails({
                 surface="drawer"
                 settings={s}
                 onChange={onSettingsChange}
+                draft={draft}
+                onApplyDraft={onApplyDraft}
                 campaignId={draft.id}
               />
             </StepDisclosure>

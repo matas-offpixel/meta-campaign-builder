@@ -8,12 +8,23 @@ import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts"
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
+import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
+import { audienceAccountMismatch, belongsToOtherAccountLabel } from "./audiences/audience-account.ts";
 import {
   importedAccountProblem,
   importedAdSetsDefineAudience,
   objectivePixelProblem,
 } from "./wizard/import-edits.ts";
 import { ADD_SUBMODE_REQUIRED } from "./library/add-to-campaign.ts";
+
+/** Uploaded on the draft, but the Meta id was cleared with the previous ad account. */
+export function slotNeedsAccountReupload(slot: {
+  uploadStatus?: string;
+  assetHash?: string;
+  videoId?: string;
+}): boolean {
+  return slot.uploadStatus === "uploaded" && !slot.assetHash?.trim() && !slot.videoId?.trim();
+}
 
 export interface ValidationResult {
   valid: boolean;
@@ -183,6 +194,15 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
     errors.push("Select at least one audience source");
   }
 
+  const launchAccount = draft.settings.metaAdAccountId || draft.settings.adAccountId;
+  for (const group of audiences.pageGroups) {
+    for (const status of group.engagementAudienceStatuses ?? []) {
+      if (!audienceAccountMismatch(status.accountId, launchAccount)) continue;
+      const name = group.name || "Page group";
+      errors.push(`${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`);
+    }
+  }
+
   for (const pageId of findMultiIgPagesMissingOverride(draft)) {
     errors.push(
       `Page ${pageId} has multiple linked Instagram accounts — pick one in the Instagram Account section below`,
@@ -227,6 +247,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
     return { valid: false, errors };
   }
 
+  const accountName =
+    draft.settings.metaAdAccountId?.trim() ||
+    draft.settings.adAccountId?.trim() ||
+    "this ad account";
+
   draft.creatives.forEach((c, i) => {
     const label = c.name?.trim() ? `"${c.name}"` : `Ad #${i + 1}`;
     if (!c.identity?.pageId) errors.push(`${label}: Facebook page is required`);
@@ -268,6 +293,10 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload still in progress`);
               } else if (slot.uploadStatus === "error") {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload failed — retry or remove`);
+              } else if (slotNeedsAccountReupload(slot)) {
+                errors.push(
+                  `${label} › ${varLabel} › ${slot.aspectRatio}: Re-upload to ${accountName} — this asset belongs to the previous ad account`,
+                );
               }
             }
           }
@@ -341,6 +370,8 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
   }
   const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled);
   errors.push(...findAdSetLocationProblems(enabled, bs));
+  const radiusProblem = cityRadiusProblemInDraft(draft);
+  if (radiusProblem) errors.push(radiusProblem);
   const warnings = findAdSetLocationWarnings(enabled, bs);
   return { valid: errors.length === 0, errors, ...(warnings.length ? { warnings } : {}) };
 }

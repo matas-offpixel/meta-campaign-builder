@@ -55,7 +55,9 @@ function city(id: string, label: string, key: string, radius: number, countryCod
   };
 }
 
-const NEWCASTLE = city("grp_newcastle", "Newcastle upon Tyne, England, United Kingdom (+200 km)", "111", 200, "GB");
+// The label still says "+200 km" because ad set names are parsed from it.
+// The stored radius stays inside Meta's 80 km city cap.
+const NEWCASTLE = city("grp_newcastle", "Newcastle upon Tyne, England, United Kingdom (+200 km)", "111", 80, "GB");
 const BELFAST = city("grp_belfast", "Belfast, Northern Ireland, United Kingdom (+40 km)", "222", 40, "GB");
 const LONDON = city("grp_london", "London, England, United Kingdom (+40 km)", "2421178", 40);
 

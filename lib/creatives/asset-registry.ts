@@ -373,3 +373,51 @@ export async function loadAssetsByIds(
   }
   return { ok: true, assets: (data ?? []).map(rowToCreativeAsset) };
 }
+
+/**
+ * Meta channel rows for these platform ids, any operator. The scope is the
+ * ad account, not the user who uploaded. A missing table is reported and
+ * must not fail a launch.
+ */
+export async function listMetaChannelScopes(
+  supabase: unknown,
+  platformIds: string[],
+): Promise<
+  | { ok: true; rows: { platformId: string; scope: string }[] }
+  | { ok: false; tableMissing: boolean; error: string }
+> {
+  if (platformIds.length === 0) return { ok: true, rows: [] };
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          in: (
+            col: string,
+            values: string[],
+          ) => Promise<{
+            data: { platform_id?: string; scope?: string }[] | null;
+            error: { code?: string; message?: string } | null;
+          }>;
+        };
+      };
+    };
+  };
+  const { data, error } = await client
+    .from(CREATIVE_ASSET_CHANNEL_IDS_TABLE)
+    .select("platform_id, scope")
+    .eq("channel", "meta")
+    .in("platform_id", platformIds);
+  if (error) {
+    return {
+      ok: false,
+      tableMissing: isRelationMissing(error),
+      error: error.message ?? "creative_asset_channel_ids list failed",
+    };
+  }
+  const rows: { platformId: string; scope: string }[] = [];
+  for (const row of data ?? []) {
+    if (!row.platform_id || !row.scope) continue;
+    rows.push({ platformId: row.platform_id, scope: row.scope });
+  }
+  return { ok: true, rows };
+}

@@ -428,6 +428,8 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
           <AccountSetup
             settings={draft.settings}
             onChange={updateSettings}
+            draft={draft}
+            onApplyDraft={updateDraft}
             campaignId={draftId}
           />
         )}
