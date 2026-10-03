@@ -17,6 +17,15 @@ import {
 } from "./wizard/import-edits.ts";
 import { ADD_SUBMODE_REQUIRED } from "./library/add-to-campaign.ts";
 
+/** Uploaded on the draft, but the Meta id was cleared with the previous ad account. */
+export function slotNeedsAccountReupload(slot: {
+  uploadStatus?: string;
+  assetHash?: string;
+  videoId?: string;
+}): boolean {
+  return slot.uploadStatus === "uploaded" && !slot.assetHash?.trim() && !slot.videoId?.trim();
+}
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
@@ -238,6 +247,11 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
     return { valid: false, errors };
   }
 
+  const accountName =
+    draft.settings.metaAdAccountId?.trim() ||
+    draft.settings.adAccountId?.trim() ||
+    "this ad account";
+
   draft.creatives.forEach((c, i) => {
     const label = c.name?.trim() ? `"${c.name}"` : `Ad #${i + 1}`;
     if (!c.identity?.pageId) errors.push(`${label}: Facebook page is required`);
@@ -279,6 +293,10 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload still in progress`);
               } else if (slot.uploadStatus === "error") {
                 errors.push(`${label} › ${varLabel} › ${slot.aspectRatio}: Upload failed — retry or remove`);
+              } else if (slotNeedsAccountReupload(slot)) {
+                errors.push(
+                  `${label} › ${varLabel} › ${slot.aspectRatio}: Re-upload to ${accountName} — this asset belongs to the previous ad account`,
+                );
               }
             }
           }

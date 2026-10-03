@@ -13,6 +13,7 @@ Switching the ad account on a draft used to keep the previous account's image ha
 ## Scope / files
 
 - `lib/wizard/account-switch.ts` — confirm/cancel draft transform
+- `lib/validation.ts` — an uploaded slot with no Meta id blocks launch
 - `components/steps/account-setup.tsx` — confirm dialog; wizard and plan drawer apply the full draft
 - `lib/audiences/audience-account.ts` — `account_id` compared to the draft account; "⚠ belongs to act_… — rebuild"
 - `app/api/meta/audience-accounts/route.ts` — one batched read for the audiences step
@@ -24,7 +25,7 @@ Switching the ad account on a draft used to keep the previous account's image ha
 ## Validation
 
 - [x] `npm run build`
-- [x] `npm test` (6602 pass, 4 skipped)
+- [x] `npm test` (6605 pass, 4 skipped)
 - [ ] `npx tsc --noEmit` — still fails on pre-existing test-file errors; the build is the typecheck
 
 ## Notes
@@ -33,4 +34,4 @@ Fixtures, both on Electric Studios (`act_1073273492854557`): custom audience `12
 
 A video with no `creative_asset_channel_ids` row is allowed, unverified, and logged as `["account-scope-preflight"] video {id} unverified`. It is not refused. The registry landed on 26 Aug (migration 161), so a Meta video draft from before then has no row. An imported video sets `videoId` and does not record a channel id. `register()` can return undefined. A launch by a different operator than the uploader used to miss the row because the read filtered `user_id`; that filter is gone, because the scope is the ad account. A row whose scope is a different account is the refusal. A thrown audience batch or adimages read is also unverified and does not refuse; only a successful read that proves a mismatch refuses. The post-create audience refusal (the one that said the campaign was created and nothing was added) is gone.
 
-No capture documents a Meta floor on city radius, so there is no minimum in the picker. 0 and an omitted radius are no radius. The ceiling stays 80 km / 50 mi. A 1487110 whose text says the radius is too small uses its own sentence; the captured "isn't within the specified bounds" message stays the ceiling sentence. An account switch keeps `registryAssetId` (the Storage row is not Meta-scoped) and clears only the Meta ids. The multi-city fixture's Newcastle radius is stored as 80 km so the budget check does not fail that suite; its label still says "+200 km" because ad set names are parsed from the label.
+No capture documents a Meta floor on city radius, so there is no minimum in the picker. 0 and an omitted radius are no radius. The ceiling stays 80 km / 50 mi. A 1487110 whose text says the radius is too small uses its own sentence; the captured "isn't within the specified bounds" message stays the ceiling sentence. An account switch keeps `registryAssetId` (the Storage row is not Meta-scoped) and clears only the Meta ids. That leaves `uploadStatus` as uploaded, so a single-mode slot was not a launch blocker and Meta then rejected the creative for having no image hash or video id. Step 4 now errors on that slot — `Re-upload to {account} — this asset belongs to the previous ad account` — which is the same check as the Re-upload button. A slot that still has its hash or video id is not flagged. The multi-city fixture's Newcastle radius is stored as 80 km so the budget check does not fail that suite; its label still says "+200 km" because ad set names are parsed from the label.

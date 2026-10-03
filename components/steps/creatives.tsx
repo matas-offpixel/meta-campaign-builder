@@ -67,6 +67,7 @@ import {
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
 import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
+import { slotNeedsAccountReupload } from "@/lib/validation";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import type { WizardDestinationUrlFieldId } from "@/lib/wizard/lp-destination-fields";
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface, useIsDrawer, usePlanOwnsDestination } from "@/components/steps/step-surface";
@@ -2238,13 +2239,7 @@ function AssetSlot({
   const isUploaded  = asset.uploadStatus === "uploaded";
   const isError     = asset.uploadStatus === "error";
   const isVideo     = mediaType === "video";
-  const needsReupload = Boolean(
-    adAccountId &&
-      asset.registryAssetId &&
-      asset.storagePath &&
-      !asset.assetHash &&
-      !asset.videoId,
-  );
+  const needsReupload = Boolean(adAccountId && slotNeedsAccountReupload(asset));
 
   async function handleReupload() {
     if (!adAccountId || !asset.storagePath || isUploading) return;

@@ -6,6 +6,7 @@ import {
   createDefaultDraft,
 } from "../../campaign-defaults.ts";
 import { extractMetaDraftAssetRefs } from "../../plan/asset-routing.ts";
+import { validateStep } from "../../validation.ts";
 import { commitAccountSwitch } from "../account-switch.ts";
 
 const OLD = "act_1073273492854557";
@@ -206,4 +207,61 @@ describe("account switch", () => {
     assert.equal(next, draft);
     assert.equal(JSON.stringify(next), JSON.stringify(draft));
   });
+
+  it("single-mode image slot after switch is a re-upload error", () => {
+    const next = commitAccountSwitch(singleImageDraft(), NEXT, "confirm");
+    const asset = next.creatives[0]!.assetVariations[0]!.assets[0]!;
+    assert.equal(asset.uploadStatus, "uploaded");
+    assert.equal(asset.assetHash, undefined);
+    assert.equal(asset.videoId, undefined);
+    const result = validateStep(4, next);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.includes(reuploadMessage()));
+  });
+
+  it("re-upload that sets assetHash passes", () => {
+    const next = commitAccountSwitch(singleImageDraft(), NEXT, "confirm");
+    next.creatives[0]!.assetVariations[0]!.assets[0]!.assetHash =
+      "b7a997f09b47f16d684c7a147190d275";
+    const result = validateStep(4, next);
+    assert.equal(result.errors.some((error) => error.includes("Re-upload to")), false);
+    assert.equal(result.valid, true);
+  });
+
+  it("a legacy asset with registryAssetId and assetHash is untouched", () => {
+    const draft = singleImageDraft();
+    const before = draft.creatives[0]!.assetVariations[0]!.assets[0]!;
+    const result = validateStep(4, draft);
+    const after = draft.creatives[0]!.assetVariations[0]!.assets[0]!;
+    assert.equal(after.registryAssetId, "registry-1");
+    assert.equal(after.assetHash, before.assetHash);
+    assert.equal(after.uploadStatus, "uploaded");
+    assert.equal(result.errors.some((error) => error.includes("Re-upload to")), false);
+    assert.equal(result.valid, true);
+  });
 });
+
+function reuploadMessage(): string {
+  return `"Artwork" › "Variation 1" › 9:16: Re-upload to ${NEXT} — this asset belongs to the previous ad account`;
+}
+
+function singleImageDraft() {
+  const draft = createDefaultDraft();
+  draft.settings.adAccountId = OLD;
+  draft.settings.metaAdAccountId = OLD;
+  const creative = createDefaultCreative();
+  creative.name = "Artwork";
+  creative.mediaType = "image";
+  creative.assetMode = "single";
+  creative.identity.pageId = "111";
+  creative.captions[0]!.text = "Tonight";
+  creative.destinationUrl = "https://tickets.example.com";
+  const asset = creative.assetVariations[0]!.assets[0]!;
+  asset.fileName = "poster.jpg";
+  asset.storagePath = "images/poster.jpg";
+  asset.assetHash = "b7a997f09b47f16d684c7a147190d275";
+  asset.registryAssetId = "registry-1";
+  asset.uploadStatus = "uploaded";
+  draft.creatives = [creative];
+  return draft;
+}
