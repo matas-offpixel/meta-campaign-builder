@@ -25,7 +25,7 @@ import {
   resolveExistingPostPlacements,
   validatePlacementSelection,
 } from "@/lib/meta/placements";
-import { useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
+import { reuploadStoredAsset, useUploadAsset, uploadAssetViaStorage } from "@/lib/hooks/useUploadAsset";
 import {
   applyNamedVariationUpdate,
   type AssetVariationUpdater,
@@ -2238,6 +2238,40 @@ function AssetSlot({
   const isUploaded  = asset.uploadStatus === "uploaded";
   const isError     = asset.uploadStatus === "error";
   const isVideo     = mediaType === "video";
+  const needsReupload = Boolean(
+    adAccountId &&
+      asset.registryAssetId &&
+      asset.storagePath &&
+      !asset.assetHash &&
+      !asset.videoId,
+  );
+
+  async function handleReupload() {
+    if (!adAccountId || !asset.storagePath || isUploading) return;
+    onUpdate({ uploadStatus: "uploading", error: undefined });
+    try {
+      const result = await reuploadStoredAsset({
+        storagePath: asset.storagePath,
+        storageBucket: asset.storageBucket,
+        type: mediaType,
+        adAccountId,
+        fileName: asset.fileName,
+      });
+      onUpdate({
+        uploadedUrl: result.url,
+        thumbnailUrl: result.previewUrl ?? result.url,
+        assetHash: result.hash,
+        videoId: result.videoId,
+        registryAssetId: result.registryAssetId ?? asset.registryAssetId,
+        uploadStatus: "uploaded",
+      });
+    } catch (err) {
+      onUpdate({
+        uploadStatus: "error",
+        error: err instanceof Error ? err.message : "Upload failed",
+      });
+    }
+  }
 
   async function handleFile(file: File) {
     if (!adAccountId || isUploading) return;
@@ -2358,6 +2392,21 @@ function AssetSlot({
         <span className="text-[11px] font-semibold">{ratioInfo.label}</span>
         <span className="text-[10px] text-muted-foreground">{ratioInfo.desc}</span>
       </div>
+
+      {needsReupload && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 w-full text-[11px]"
+          disabled={isUploading}
+          onClick={() => {
+            void handleReupload();
+          }}
+        >
+          Re-upload to {adAccountId}
+        </Button>
+      )}
 
       {/* ── Aspect-ratio preview / upload zone ─────────────────────────────
           group/slot enables the X remove button to appear on hover without

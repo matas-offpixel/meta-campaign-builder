@@ -375,46 +375,37 @@ export async function loadAssetsByIds(
 }
 
 /**
- * Platform ids already recorded for this user on the Meta channel in one of
- * `scopes` (the ad account, with and without `act_`). One query. A missing
- * table is reported and must not fail an upload; a successful read that
- * omits an id means that video is not in this account.
+ * Meta channel rows for these platform ids, any operator. The scope is the
+ * ad account, not the user who uploaded. A missing table is reported and
+ * must not fail a launch.
  */
-export async function listMetaPlatformIdsInScope(
+export async function listMetaChannelScopes(
   supabase: unknown,
-  userId: string,
-  scopes: string[],
   platformIds: string[],
 ): Promise<
-  | { ok: true; platformIds: string[] }
+  | { ok: true; rows: { platformId: string; scope: string }[] }
   | { ok: false; tableMissing: boolean; error: string }
 > {
-  if (platformIds.length === 0 || scopes.length === 0) return { ok: true, platformIds: [] };
+  if (platformIds.length === 0) return { ok: true, rows: [] };
   const client = supabase as {
     from: (table: string) => {
       select: (cols: string) => {
         eq: (col: string, value: string) => {
-          eq: (col: string, value: string) => {
-            in: (col: string, values: string[]) => {
-              in: (
-                col: string,
-                values: string[],
-              ) => Promise<{
-                data: { platform_id?: string }[] | null;
-                error: { code?: string; message?: string } | null;
-              }>;
-            };
-          };
+          in: (
+            col: string,
+            values: string[],
+          ) => Promise<{
+            data: { platform_id?: string; scope?: string }[] | null;
+            error: { code?: string; message?: string } | null;
+          }>;
         };
       };
     };
   };
   const { data, error } = await client
     .from(CREATIVE_ASSET_CHANNEL_IDS_TABLE)
-    .select("platform_id")
-    .eq("user_id", userId)
+    .select("platform_id, scope")
     .eq("channel", "meta")
-    .in("scope", scopes)
     .in("platform_id", platformIds);
   if (error) {
     return {
@@ -423,8 +414,10 @@ export async function listMetaPlatformIdsInScope(
       error: error.message ?? "creative_asset_channel_ids list failed",
     };
   }
-  return {
-    ok: true,
-    platformIds: [...new Set((data ?? []).map((row) => row.platform_id).filter((id): id is string => !!id))],
-  };
+  const rows: { platformId: string; scope: string }[] = [];
+  for (const row of data ?? []) {
+    if (!row.platform_id || !row.scope) continue;
+    rows.push({ platformId: row.platform_id, scope: row.scope });
+  }
+  return { ok: true, rows };
 }

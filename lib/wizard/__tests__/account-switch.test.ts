@@ -5,13 +5,14 @@ import {
   createDefaultCreative,
   createDefaultDraft,
 } from "../../campaign-defaults.ts";
+import { extractMetaDraftAssetRefs } from "../../plan/asset-routing.ts";
 import { commitAccountSwitch } from "../account-switch.ts";
 
 const OLD = "act_1073273492854557";
 const NEXT = "act_606252931141334";
 
 describe("account switch", () => {
-  it("clears hashes, video ids, and registry ids but keeps fileName and aspectRatio", () => {
+  it("clears hashes and video ids and keeps the registry id", () => {
     const draft = createDefaultDraft();
     draft.settings.adAccountId = OLD;
     draft.settings.metaAdAccountId = OLD;
@@ -36,16 +37,51 @@ describe("account switch", () => {
     const cleared = next.creatives[0]!.assetVariations[0]!.assets[0]!;
     assert.equal(cleared.assetHash, undefined);
     assert.equal(cleared.videoId, undefined);
-    assert.equal(cleared.registryAssetId, undefined);
+    assert.equal(cleared.registryAssetId, "registry-1");
     assert.equal(cleared.uploadedUrl, undefined);
     assert.equal(cleared.thumbnailUrl, undefined);
-    assert.equal(cleared.uploadStatus, "pending");
+    assert.equal(cleared.uploadStatus, "uploaded");
     assert.equal(cleared.fileName, "poster.jpg");
     assert.equal(cleared.aspectRatio, "4:5");
     assert.equal(cleared.storagePath, "creatives/poster.jpg");
     assert.equal(next.creatives[0]!.name, "Artwork");
     assert.equal(next.creatives[0]!.nameSource, "operator");
     assert.equal(draft.creatives[0]!.assetVariations[0]!.assets[0]!.assetHash, "b7a997f09b47f16d684c7a147190d275");
+  });
+
+  it("plan-linked draft keeps registry refs across a switch", () => {
+    const draft = createDefaultDraft();
+    draft.settings.adAccountId = OLD;
+    draft.settings.metaAdAccountId = OLD;
+    const creative = createDefaultCreative();
+    creative.name = "Artwork";
+    creative.mediaType = "video";
+    const kept = creative.assetVariations[0]!.assets[0]!;
+    kept.fileName = "clip.mp4";
+    kept.storagePath = "videos/clip.mp4";
+    kept.videoId = "999";
+    kept.registryAssetId = "registry-1";
+    kept.uploadStatus = "uploaded";
+    creative.assetVariations[0]!.assets.push({
+      id: "loose-asset",
+      aspectRatio: "9:16",
+      fileName: "extra.mp4",
+      videoId: "888",
+      uploadStatus: "uploaded",
+    });
+    draft.creatives = [creative];
+
+    const next = commitAccountSwitch(draft, NEXT, "confirm");
+    const refs = extractMetaDraftAssetRefs(next);
+    assert.equal(refs.some((ref) => ref.registryAssetId === "registry-1"), true);
+    const cleared = next.creatives[0]!.assetVariations[0]!.assets[0]!;
+    assert.equal(cleared.registryAssetId, "registry-1");
+    assert.equal(cleared.videoId, undefined);
+    assert.equal(cleared.uploadStatus, "uploaded");
+    const pending = next.creatives[0]!.assetVariations[0]!.assets[1]!;
+    assert.equal(pending.registryAssetId, undefined);
+    assert.equal(pending.uploadStatus, "pending");
+    assert.equal(pending.videoId, undefined);
   });
 
   it("clears audience Meta ids but keeps the group definition", () => {

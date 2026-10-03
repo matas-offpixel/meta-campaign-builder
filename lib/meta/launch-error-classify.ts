@@ -15,7 +15,11 @@
  * runner (no `@/` imports, no `server-only`).
  */
 
-import { CITY_RADIUS_MESSAGE, CITY_RADIUS_SUBCODE } from "./location-radius.ts";
+import {
+  CITY_RADIUS_MESSAGE,
+  CITY_RADIUS_SUBCODE,
+  CITY_RADIUS_TOO_SMALL_MESSAGE,
+} from "./location-radius.ts";
 
 /**
  * App/user/account-level rate limits. The fix is to wait — NOT reconnect
@@ -137,7 +141,8 @@ export function lifetimeBudgetEndDateMessage(err: {
 
 /**
  * City radius above Meta's documented ceiling (80 km / 50 mi).
- * Subcode 1487110, "geographical radius isn't within the specified bounds".
+ * Subcode 1487110, "geographical radius isn't within the specified bounds",
+ * is that ceiling unless the text says the radius is too small.
  */
 export function cityRadiusMessage(err: {
   code?: number;
@@ -150,6 +155,9 @@ export function cityRadiusMessage(err: {
     err.subcode === CITY_RADIUS_SUBCODE ||
     /geographical radius isn.t within/i.test(text);
   if (!hit) return null;
+  if (/too small|below the minimum|minimum radius|at least \d/i.test(text)) {
+    return CITY_RADIUS_TOO_SMALL_MESSAGE;
+  }
   return CITY_RADIUS_MESSAGE;
 }
 

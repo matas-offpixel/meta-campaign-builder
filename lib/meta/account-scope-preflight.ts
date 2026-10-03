@@ -1,23 +1,86 @@
-import type { CampaignDraft } from "@/lib/types";
+import type { CampaignDraft } from "../types.ts";
 import {
   collectAudienceAccountRefs,
   foreignAudienceRefusals,
-} from "@/lib/audiences/audience-account";
-import { graphGetWithToken } from "@/lib/meta/client";
-import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
-import { withActPrefix, withoutActPrefix } from "@/lib/meta/ad-account-id";
-import { listMetaPlatformIdsInScope } from "@/lib/creatives/asset-registry";
+} from "../audiences/audience-account.ts";
+import { withActPrefix } from "./ad-account-id.ts";
 import {
   assetAccountChecks,
-  hashesInAdImagesResponse,
+  collectAdImageHashes,
   refuseForeignAssets,
+  videoIdsProvenOnAnotherAccount,
   type AssetAccountCheck,
-} from "@/lib/meta/asset-account-preflight";
+} from "./asset-account-preflight.ts";
+
+type AudienceRows = Record<string, { account_id?: string } | undefined>;
+
+export interface AccountScopeReads {
+  graphGet?: (
+    path: string,
+    params: Record<string, string>,
+    token: string,
+  ) => Promise<unknown>;
+  graphMultiGet?: (
+    path: string,
+    params: { ids: string; fields: string },
+    token: string,
+  ) => Promise<AudienceRows>;
+  listVideoScopes?: (
+    supabase: unknown,
+    platformIds: string[],
+  ) => Promise<
+    | { ok: true; rows: { platformId: string; scope: string }[] }
+    | { ok: false; tableMissing: boolean; error: string }
+  >;
+  /** Absolute paging.next URL. It already carries the token; do not log it. */
+  fetchNext?: (url: string) => Promise<unknown>;
+}
+
+async function defaultGraphGet(
+  path: string,
+  params: Record<string, string>,
+  token: string,
+): Promise<unknown> {
+  const { graphGetWithToken } = await import("./client.ts");
+  return graphGetWithToken(path, params, token);
+}
+
+async function defaultGraphMultiGet(
+  path: string,
+  params: { ids: string; fields: string },
+  token: string,
+): Promise<AudienceRows> {
+  const { graphMultiGetByIds } = await import("./graph-multi-get.ts");
+  return graphMultiGetByIds<{ account_id?: string }>(path, params, token);
+}
+
+async function defaultListVideoScopes(
+  supabase: unknown,
+  platformIds: string[],
+): Promise<
+  | { ok: true; rows: { platformId: string; scope: string }[] }
+  | { ok: false; tableMissing: boolean; error: string }
+> {
+  const { listMetaChannelScopes } = await import("../creatives/asset-registry.ts");
+  return listMetaChannelScopes(supabase, platformIds);
+}
+
+async function fetchGraphNext(url: string): Promise<unknown> {
+  const res = await fetch(url);
+  const json = (await res.json()) as unknown;
+  if (!res.ok) {
+    const message =
+      (json as { error?: { message?: string } } | null)?.error?.message ??
+      `HTTP ${res.status}`;
+    throw new Error(message);
+  }
+  return json;
+}
 
 /**
- * One batched audience read and one batched image read, then a single
- * registry read for videos. A mismatch returns before any campaign,
- * ad set, or creative POST.
+ * One batched audience read and a paged image read, then one registry read
+ * for videos. A thrown read is unverified and does not refuse. A mismatch
+ * returns before any campaign, ad set, or creative POST.
  */
 export async function foreignAccountLaunchError(args: {
   draft: CampaignDraft;
@@ -25,13 +88,14 @@ export async function foreignAccountLaunchError(args: {
   token: string;
   supabase: unknown;
   userId: string;
-}): Promise<string | null> {
+} & AccountScopeReads): Promise<string | null> {
   const problems: string[] = [];
 
   const refs = collectAudienceAccountRefs(args.draft);
   if (refs.length > 0) {
     try {
-      const rows = await graphMultiGetByIds<{ account_id?: string }>(
+      const graphMultiGet = args.graphMultiGet ?? defaultGraphMultiGet;
+      const rows = await graphMultiGet(
         "",
         { ids: refs.map((ref) => ref.id).join(","), fields: "id,name,account_id" },
         args.token,
@@ -44,65 +108,71 @@ export async function foreignAccountLaunchError(args: {
       const refusal = foreignAudienceRefusals(refs, accountIdByAudienceId, args.adAccountId);
       if (refusal) problems.push(refusal);
     } catch (err) {
-      console.error("[launch-campaign] audience account check failed:", err);
-      problems.push(
-        "Could not verify which ad account these audiences belong to. Launch was not sent.",
-      );
+      console.error("[account-scope-preflight] audience account check failed:", err);
     }
   }
 
   const checks = assetAccountChecks(args.draft);
   const images = checks.filter((check) => check.kind === "image");
   const videos = checks.filter((check) => check.kind === "video");
-  const verified: AssetAccountCheck[] = [];
+  const verifiedImages: AssetAccountCheck[] = [];
   let presentHashes = new Set<string>();
-  let videoIdsInAccount = new Set<string>();
+  let videoIdsInOtherAccount = new Set<string>();
 
   if (images.length > 0) {
     try {
-      const body = await graphGetWithToken<unknown>(
-        `/${withActPrefix(args.adAccountId)}/adimages`,
-        {
-          hashes: JSON.stringify([...new Set(images.map((check) => check.key))]),
-          fields: "hash",
+      const graphGet = args.graphGet ?? defaultGraphGet;
+      const fetchNext = args.fetchNext ?? fetchGraphNext;
+      presentHashes = await collectAdImageHashes({
+        hashes: images.map((check) => check.key),
+        fetchPage: async (query) => {
+          if ("next" in query) return fetchNext(query.next);
+          return graphGet(
+            `/${withActPrefix(args.adAccountId)}/adimages`,
+            {
+              hashes: JSON.stringify(query.hashes),
+              fields: "hash",
+              limit: query.limit,
+            },
+            args.token,
+          );
         },
-        args.token,
-      );
-      presentHashes = hashesInAdImagesResponse(body);
-      verified.push(...images);
+      });
+      verifiedImages.push(...images);
     } catch (err) {
-      console.error("[launch-campaign] adimages account check failed:", err);
-      problems.push(
-        "Could not verify which ad account these images belong to. Launch was not sent.",
-      );
+      console.error("[account-scope-preflight] adimages account check failed:", err);
     }
   }
 
   if (videos.length > 0) {
-    const scopes = [...new Set([args.adAccountId, withoutActPrefix(args.adAccountId)].filter(Boolean))];
-    const listed = await listMetaPlatformIdsInScope(
-      args.supabase,
-      args.userId,
-      scopes,
-      [...new Set(videos.map((check) => check.key))],
-    );
-    if (!listed.ok) {
-      if (!listed.tableMissing) {
-        console.error("[launch-campaign] video registry account check failed:", listed.error);
-        problems.push(
-          "Could not verify which ad account these videos belong to. Launch was not sent.",
+    try {
+      const listVideoScopes = args.listVideoScopes ?? defaultListVideoScopes;
+      const listed = await listVideoScopes(
+        args.supabase,
+        [...new Set(videos.map((check) => check.key))],
+      );
+      if (!listed.ok) {
+        console.error("[account-scope-preflight] video registry read failed:", listed.error);
+      } else {
+        const classified = videoIdsProvenOnAnotherAccount(
+          videos,
+          listed.rows,
+          args.adAccountId,
         );
+        for (const id of classified.unverified) {
+          console.info(`["account-scope-preflight"] video ${id} unverified`);
+        }
+        videoIdsInOtherAccount = classified.foreign;
       }
-    } else {
-      videoIdsInAccount = new Set(listed.platformIds);
-      verified.push(...videos);
+    } catch (err) {
+      console.error("[account-scope-preflight] video registry read failed:", err);
     }
   }
 
   const assetRefusal = refuseForeignAssets({
-    checks: verified,
+    checks: [...verifiedImages, ...videos.filter((check) => videoIdsInOtherAccount.has(check.key))],
     presentHashes,
-    videoIdsInAccount,
+    videoIdsInOtherAccount,
   });
   if (assetRefusal) problems.push(assetRefusal);
   return problems.length > 0 ? problems.join(" ") : null;

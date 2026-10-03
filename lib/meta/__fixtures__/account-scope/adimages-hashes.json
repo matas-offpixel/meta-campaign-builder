@@ -1,13 +1,43 @@
 {
   "adAccountId": "act_1073273492854557",
   "fields": "hash",
-  "hashes": ["b7a997f09b47f16d684c7a147190d275"],
-  "response": {
-    "data": [
-      {
-        "hash": "b7a997f09b47f16d684c7a147190d275",
-        "id": "1073273492854557:b7a997f09b47f16d684c7a147190d275"
+  "limit": 1,
+  "hashes": [
+    "b7a997f09b47f16d684c7a147190d275",
+    "f55a2b19688745a0745d1462d2a9e6d3"
+  ],
+  "capturedAt": "2026-10-03",
+  "note": "Live GET /act/adimages?hashes=&fields=hash&limit=1, then paging.next. access_token was removed from paging URLs.",
+  "pages": [
+    {
+      "data": [
+        {
+          "hash": "b7a997f09b47f16d684c7a147190d275",
+          "id": "1073273492854557:b7a997f09b47f16d684c7a147190d275"
+        }
+      ],
+      "paging": {
+        "cursors": {
+          "before": "QVFIVDAxeUY3RGdjTmRlS2g1NnNUdFJYTWdUMVlEaHRfc1BQRFN6WkhCSWJnS0JVcDU2dmk0RkJrNmVuN0NONnJjQ0ZAKaWMybTEzTWhza2FRaFlsNlUyTGpn",
+          "after": "QVFIVDAxeUY3RGdjTmRlS2g1NnNUdFJYTWdUMVlEaHRfc1BQRFN6WkhCSWJnS0JVcDU2dmk0RkJrNmVuN0NONnJjQ0ZAKaWMybTEzTWhza2FRaFlsNlUyTGpn"
+        },
+        "next": "https://graph.facebook.com/v25.0/act_1073273492854557/adimages?hashes=%5B%22b7a997f09b47f16d684c7a147190d275%22%2C%22f55a2b19688745a0745d1462d2a9e6d3%22%5D&fields=hash&limit=1&after=QVFIVDAxeUY3RGdjTmRlS2g1NnNUdFJYTWdUMVlEaHRfc1BQRFN6WkhCSWJnS0JVcDU2dmk0RkJrNmVuN0NONnJjQ0ZAKaWMybTEzTWhza2FRaFlsNlUyTGpn"
       }
-    ]
-  }
+    },
+    {
+      "data": [
+        {
+          "hash": "f55a2b19688745a0745d1462d2a9e6d3",
+          "id": "1073273492854557:f55a2b19688745a0745d1462d2a9e6d3"
+        }
+      ],
+      "paging": {
+        "cursors": {
+          "before": "QVFIVHJabjVzcnMwcm96TUJFdjZAMdkRla1FPd2JpUUx0VGxxSXFLd2JGTXJoOXQ5M2QxWXk4bDJ3bkNGSGJjWElWUnp4aU0yZAVl0VjRWUzhTU0RmNE5UbHdn",
+          "after": "QVFIVHJabjVzcnMwcm96TUJFdjZAMdkRla1FPd2JpUUx0VGxxSXFLd2JGTXJoOXQ5M2QxWXk4bDJ3bkNGSGJjWElWUnp4aU0yZAVl0VjRWUzhTU0RmNE5UbHdn"
+        },
+        "previous": "https://graph.facebook.com/v25.0/act_1073273492854557/adimages?hashes=%5B%22b7a997f09b47f16d684c7a147190d275%22%2C%22f55a2b19688745a0745d1462d2a9e6d3%22%5D&fields=hash&limit=1&before=QVFIVHJabjVzcnMwcm96TUJFdjZAMdkRla1FPd2JpUUx0VGxxSXFLd2JGTXJoOXQ5M2QxWXk4bDJ3bkNGSGJjWElWUnp4aU0yZAVl0VjRWUzhTU0RmNE5UbHdn"
+      }
+    }
+  ]
 }

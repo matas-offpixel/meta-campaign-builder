@@ -6,8 +6,27 @@ export interface AudienceAccountRef {
   name: string;
 }
 
+export const AUDIENCE_ACCOUNT_ID_LIMIT = 200;
+const AUDIENCE_ID_RE = /^\d{10,}$/;
+
 function isMetaAudienceId(id: string | undefined): id is string {
-  return !!id && /^\d{10,}$/.test(id);
+  return !!id && AUDIENCE_ID_RE.test(id);
+}
+
+/** Ids the audiences step may ask Graph about. Non-matching ids are dropped. */
+export function parseAudienceAccountIds(
+  raw: unknown,
+): { ok: true; ids: string[] } | { ok: false; status: 400; error: string } {
+  if (!Array.isArray(raw)) {
+    return { ok: false, status: 400, error: "Invalid JSON body" };
+  }
+  const ids = [
+    ...new Set(raw.map((id) => String(id).trim()).filter((id) => AUDIENCE_ID_RE.test(id))),
+  ];
+  if (ids.length > AUDIENCE_ACCOUNT_ID_LIMIT) {
+    return { ok: false, status: 400, error: "Too many audiences" };
+  }
+  return { ok: true, ids };
 }
 
 /**

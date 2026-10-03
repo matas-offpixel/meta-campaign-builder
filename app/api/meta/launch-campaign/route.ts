@@ -62,10 +62,6 @@ import {
 import { validateMetaToken } from "@/lib/meta/server-token";
 import { foreignAccountLaunchError } from "@/lib/meta/account-scope-preflight";
 import {
-  audienceAccountMismatch,
-  foreignAudienceRefusal,
-} from "@/lib/audiences/audience-account";
-import {
   archivedCampaignMessage,
   classifyCreativeCreateError,
   creativeFailureBanners,
@@ -2405,25 +2401,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             existingStatus.readyForLookalike = readiness.ready;
             existingStatus.populating = readiness.populating;
             if (readiness.accountId) existingStatus.accountId = readiness.accountId;
-            if (
-              readiness.accountId &&
-              audienceAccountMismatch(readiness.accountId, adAccountId)
-            ) {
-              return NextResponse.json(
-                {
-                  error:
-                    `${foreignAudienceRefusal({
-                      name: existingStatus.pageName || group.name || "Audience",
-                      id: existingStatus.id,
-                      audienceAccountId: readiness.accountId,
-                    })}` +
-                    (metaCampaignId
-                      ? ` Campaign ${metaCampaignId} was created and nothing was added under this audience.`
-                      : ""),
-                },
-                { status: 400 },
-              );
-            }
           }
           console.log(
             `[launch-campaign] Phase 1.5 — reusing existing ${et} audience ${existingStatus.id}` +

@@ -5,6 +5,7 @@ import { createDefaultDraft } from "../../campaign-defaults.ts";
 import { cityRadiusMessage } from "../launch-error-classify.ts";
 import {
   CITY_RADIUS_MESSAGE,
+  CITY_RADIUS_TOO_SMALL_MESSAGE,
   cityRadiusOutOfRange,
   cityRadiusProblemInDraft,
 } from "../location-radius.ts";
@@ -60,6 +61,34 @@ describe("city radius bounds", () => {
         message: "geographical radius isn't within the specified bounds",
       }),
       CITY_RADIUS_MESSAGE,
+    );
+  });
+
+  it("radius 0 passes", () => {
+    assert.equal(cityRadiusOutOfRange(0, "kilometer"), false);
+    assert.equal(cityRadiusProblemInDraft(draftWithCity(0, "kilometer")), null);
+    assert.equal(
+      validateStep(5, draftWithCity(0, "kilometer")).errors.includes(CITY_RADIUS_MESSAGE),
+      false,
+    );
+  });
+
+  it("undefined radius passes", () => {
+    assert.equal(cityRadiusOutOfRange(undefined, "kilometer"), false);
+    const draft = draftWithCity(40, "kilometer");
+    draft.budgetSchedule.locationGroups[0]!.selections[0]!.radius = undefined;
+    assert.equal(cityRadiusProblemInDraft(draft), null);
+    assert.equal(validateStep(5, draft).errors.includes(CITY_RADIUS_MESSAGE), false);
+  });
+
+  it("maps a too-small 1487110 away from the 80 km sentence", () => {
+    assert.equal(
+      cityRadiusMessage({
+        code: 100,
+        subcode: 1487110,
+        message: "The radius is below the minimum",
+      }),
+      CITY_RADIUS_TOO_SMALL_MESSAGE,
     );
   });
 });

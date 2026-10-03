@@ -445,9 +445,9 @@ function LocationPicker({
             value={addRadius}
             onChange={(e) => setAddRadius(clampCityRadius(Number(e.target.value), "kilometer"))}
             className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-xs"
-            min={1}
+            min={0}
             max={80}
-            title="Radius (km) for city targeting. Meta allows up to 80 km."
+            title="Radius (km) for city targeting. 0 means no radius. Meta allows up to 80 km."
           />
           <span className="self-center text-[10px] text-muted-foreground">km</span>
         </div>

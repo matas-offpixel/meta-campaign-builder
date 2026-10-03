@@ -19,12 +19,7 @@ function isMetaAudienceId(id: string | undefined): id is string {
 
 function assetBelongsToAccount(asset: Asset): boolean {
   return Boolean(
-    asset.assetHash ||
-      asset.videoId ||
-      asset.uploadedUrl ||
-      asset.thumbnailUrl ||
-      asset.registryAssetId ||
-      asset.uploadStatus === "uploaded",
+    asset.assetHash || asset.videoId || asset.uploadedUrl || asset.thumbnailUrl,
   );
 }
 
@@ -107,14 +102,14 @@ export function accountSwitchConfirmCopy(
 }
 
 function clearAsset(asset: Asset): Asset {
+  const keepRegistry = Boolean(asset.registryAssetId);
   return {
     ...asset,
     uploadedUrl: undefined,
     thumbnailUrl: undefined,
     assetHash: undefined,
     videoId: undefined,
-    registryAssetId: undefined,
-    uploadStatus: "pending",
+    uploadStatus: keepRegistry ? asset.uploadStatus : "pending",
     error: undefined,
   };
 }

@@ -1,19 +1,20 @@
 import type { CampaignDraft } from "../types.ts";
 
-/** Meta's documented ceiling for a city radius. */
+/** Meta's documented ceiling for a city radius. 0 means no radius. */
 export const CITY_RADIUS_MAX_KM = 80;
 export const CITY_RADIUS_MAX_MI = 50;
-export const CITY_RADIUS_MIN = 1;
 export const CITY_RADIUS_MESSAGE = "Meta allows up to 80 km (50 mi) around a city";
+/** 1487110 whose text says the radius is below a floor, not above the ceiling. */
+export const CITY_RADIUS_TOO_SMALL_MESSAGE = "Meta rejected this city radius as too small.";
 export const CITY_RADIUS_SUBCODE = 1487110;
 
 export function cityRadiusOutOfRange(
   radius: number | null | undefined,
   unit?: "kilometer" | "mile" | string | null,
 ): boolean {
-  if (radius == null || !Number.isFinite(radius)) return false;
+  if (radius == null || !Number.isFinite(radius) || radius === 0) return false;
   const max = unit === "mile" ? CITY_RADIUS_MAX_MI : CITY_RADIUS_MAX_KM;
-  return radius < CITY_RADIUS_MIN || radius > max;
+  return radius > max;
 }
 
 export function clampCityRadius(
@@ -21,8 +22,8 @@ export function clampCityRadius(
   unit: "kilometer" | "mile" = "kilometer",
 ): number {
   const max = unit === "mile" ? CITY_RADIUS_MAX_MI : CITY_RADIUS_MAX_KM;
-  if (!Number.isFinite(radius)) return CITY_RADIUS_MIN;
-  return Math.min(max, Math.max(CITY_RADIUS_MIN, radius));
+  if (!Number.isFinite(radius) || radius === 0) return 0;
+  return Math.min(max, radius);
 }
 
 export function cityRadiusProblemInDraft(draft: CampaignDraft): string | null {

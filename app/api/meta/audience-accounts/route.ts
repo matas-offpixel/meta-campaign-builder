@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { parseAudienceAccountIds } from "@/lib/audiences/audience-account";
 import { graphMultiGetByIds } from "@/lib/meta/graph-multi-get";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
 import { createClient } from "@/lib/supabase/server";
@@ -22,16 +23,16 @@ export async function POST(req: NextRequest) {
   let ids: string[] = [];
   try {
     const body = (await req.json()) as { ids?: unknown };
-    if (!Array.isArray(body.ids)) throw new Error("ids required");
-    ids = [...new Set(body.ids.map((id) => String(id).trim()).filter((id) => /^\d{10,}$/.test(id)))];
+    const parsed = parseAudienceAccountIds(body.ids);
+    if (!parsed.ok) {
+      return NextResponse.json({ ok: false, error: parsed.error }, { status: parsed.status });
+    }
+    ids = parsed.ids;
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
   if (ids.length === 0) {
     return NextResponse.json({ ok: true, audiences: [] });
-  }
-  if (ids.length > 200) {
-    return NextResponse.json({ ok: false, error: "Too many audiences" }, { status: 400 });
   }
 
   let token: string;
