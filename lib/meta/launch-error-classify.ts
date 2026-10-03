@@ -15,6 +15,8 @@
  * runner (no `@/` imports, no `server-only`).
  */
 
+import { CITY_RADIUS_MESSAGE, CITY_RADIUS_SUBCODE } from "./location-radius.ts";
+
 /**
  * App/user/account-level rate limits. The fix is to wait — NOT reconnect
  * Facebook, and NOT burn more BUC budget with in-launch transient retries.
@@ -131,6 +133,24 @@ export function lifetimeBudgetEndDateMessage(err: {
     /lifetime as the budget type must have an end date/i.test(text);
   if (!hit) return null;
   return "Lifetime budgets need an end date.";
+}
+
+/**
+ * City radius above Meta's documented ceiling (80 km / 50 mi).
+ * Subcode 1487110, "geographical radius isn't within the specified bounds".
+ */
+export function cityRadiusMessage(err: {
+  code?: number;
+  subcode?: number;
+  message?: string;
+  userMsg?: string;
+}): string | null {
+  const text = `${err.message ?? ""} ${err.userMsg ?? ""}`;
+  const hit =
+    err.subcode === CITY_RADIUS_SUBCODE ||
+    /geographical radius isn.t within/i.test(text);
+  if (!hit) return null;
+  return CITY_RADIUS_MESSAGE;
 }
 
 export function websiteUrlRequiredMessage(

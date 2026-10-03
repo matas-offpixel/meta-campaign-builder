@@ -373,3 +373,58 @@ export async function loadAssetsByIds(
   }
   return { ok: true, assets: (data ?? []).map(rowToCreativeAsset) };
 }
+
+/**
+ * Platform ids already recorded for this user on the Meta channel in one of
+ * `scopes` (the ad account, with and without `act_`). One query. A missing
+ * table is reported and must not fail an upload; a successful read that
+ * omits an id means that video is not in this account.
+ */
+export async function listMetaPlatformIdsInScope(
+  supabase: unknown,
+  userId: string,
+  scopes: string[],
+  platformIds: string[],
+): Promise<
+  | { ok: true; platformIds: string[] }
+  | { ok: false; tableMissing: boolean; error: string }
+> {
+  if (platformIds.length === 0 || scopes.length === 0) return { ok: true, platformIds: [] };
+  const client = supabase as {
+    from: (table: string) => {
+      select: (cols: string) => {
+        eq: (col: string, value: string) => {
+          eq: (col: string, value: string) => {
+            in: (col: string, values: string[]) => {
+              in: (
+                col: string,
+                values: string[],
+              ) => Promise<{
+                data: { platform_id?: string }[] | null;
+                error: { code?: string; message?: string } | null;
+              }>;
+            };
+          };
+        };
+      };
+    };
+  };
+  const { data, error } = await client
+    .from(CREATIVE_ASSET_CHANNEL_IDS_TABLE)
+    .select("platform_id")
+    .eq("user_id", userId)
+    .eq("channel", "meta")
+    .in("scope", scopes)
+    .in("platform_id", platformIds);
+  if (error) {
+    return {
+      ok: false,
+      tableMissing: isRelationMissing(error),
+      error: error.message ?? "creative_asset_channel_ids list failed",
+    };
+  }
+  return {
+    ok: true,
+    platformIds: [...new Set((data ?? []).map((row) => row.platform_id).filter((id): id is string => !!id))],
+  };
+}

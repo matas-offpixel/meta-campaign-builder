@@ -1579,6 +1579,8 @@ export interface AudienceReadinessResult {
   populating: boolean;
   code: number;
   description: string;
+  /** Numeric Meta account_id. Absent when the read did not return one. */
+  accountId?: string;
 }
 
 /**
@@ -1594,11 +1596,12 @@ export async function checkAudienceReadiness(
   try {
     const res = await graphGetWithToken<{
       id: string;
+      account_id?: string;
       operation_status?: { code: number; description: string };
       approximate_count_lower_bound?: number;
     }>(
       `/${audienceId}`,
-      { fields: "id,operation_status,approximate_count_lower_bound" },
+      { fields: "id,account_id,operation_status,approximate_count_lower_bound" },
       effectiveToken,
     );
     const code = res.operation_status?.code ?? 200;
@@ -1608,6 +1611,7 @@ export async function checkAudienceReadiness(
       populating: code === 441,
       code,
       description,
+      accountId: res.account_id ? String(res.account_id) : undefined,
     };
   } catch (err) {
     console.warn(`[checkAudienceReadiness] API error for ${audienceId}:`, err);

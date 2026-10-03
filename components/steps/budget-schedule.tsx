@@ -54,6 +54,7 @@ import type {
 import { TIMEZONES } from "@/lib/mock-data";
 import { suggestAgeRange } from "@/lib/interest-suggestions";
 import { useLocationSearch, type LocationSearchResult } from "@/lib/hooks/useMeta";
+import { clampCityRadius } from "@/lib/meta/location-radius";
 import {
   EUROPE_EXCL_UK_PRESET,
   EUROPE_PRESET,
@@ -175,7 +176,11 @@ function searchResultToSelection(
   distanceUnit?: "kilometer" | "mile",
   source: "search" | "preset" = "search",
 ): LocationSelection | null {
-  return selectionFromGeoResult(result, mode, radius, distanceUnit, source);
+  const appliedRadius =
+    result.type === "city"
+      ? clampCityRadius(radius ?? 40, distanceUnit ?? "kilometer")
+      : radius;
+  return selectionFromGeoResult(result, mode, appliedRadius, distanceUnit, source);
 }
 
 // Known-good London city key from Meta's location database.
@@ -438,11 +443,11 @@ function LocationPicker({
           <input
             type="number"
             value={addRadius}
-            onChange={(e) => setAddRadius(Number(e.target.value))}
+            onChange={(e) => setAddRadius(clampCityRadius(Number(e.target.value), "kilometer"))}
             className="w-16 rounded-md border border-border bg-card px-2 py-1 text-center text-xs"
-            min={0}
+            min={1}
             max={80}
-            title="Radius (km) for city targeting"
+            title="Radius (km) for city targeting. Meta allows up to 80 km."
           />
           <span className="self-center text-[10px] text-muted-foreground">km</span>
         </div>

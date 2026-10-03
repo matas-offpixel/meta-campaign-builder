@@ -388,6 +388,12 @@ export interface EngagementAudienceStatus {
   populating: boolean;
   /** Lookalike audience ID if a lookalike was successfully created from this source */
   lookalikeId?: string;
+  /**
+   * Numeric Meta `account_id` from GET /{custom_audience_id}. Absent until
+   * the audiences step has read it. A mismatch with the draft ad account
+   * means the audience is not ready.
+   */
+  accountId?: string;
 }
 
 export interface PageAudienceGroup {

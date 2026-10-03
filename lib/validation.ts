@@ -8,6 +8,8 @@ import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts"
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
+import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
+import { audienceAccountMismatch, belongsToOtherAccountLabel } from "./audiences/audience-account.ts";
 import {
   importedAccountProblem,
   importedAdSetsDefineAudience,
@@ -183,6 +185,15 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
     errors.push("Select at least one audience source");
   }
 
+  const launchAccount = draft.settings.metaAdAccountId || draft.settings.adAccountId;
+  for (const group of audiences.pageGroups) {
+    for (const status of group.engagementAudienceStatuses ?? []) {
+      if (!audienceAccountMismatch(status.accountId, launchAccount)) continue;
+      const name = group.name || "Page group";
+      errors.push(`${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`);
+    }
+  }
+
   for (const pageId of findMultiIgPagesMissingOverride(draft)) {
     errors.push(
       `Page ${pageId} has multiple linked Instagram accounts — pick one in the Instagram Account section below`,
@@ -341,6 +352,8 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
   }
   const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled);
   errors.push(...findAdSetLocationProblems(enabled, bs));
+  const radiusProblem = cityRadiusProblemInDraft(draft);
+  if (radiusProblem) errors.push(radiusProblem);
   const warnings = findAdSetLocationWarnings(enabled, bs);
   return { valid: errors.length === 0, errors, ...(warnings.length ? { warnings } : {}) };
 }

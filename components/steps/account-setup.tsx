@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertCircle, AlertTriangle, RefreshCw, CheckCircle2, Info } from "lucide-react";
 import { CardDescription, Datum, StatusLine, StepSurfaceProvider, type StepSurface } from "@/components/steps/step-surface";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
-import type { CampaignSettings } from "@/lib/types";
+import type { CampaignDraft, CampaignSettings } from "@/lib/types";
+import { withoutActPrefix } from "@/lib/meta/ad-account-id";
+import {
+  accountSwitchConfirmCopy,
+  accountSwitchImpact,
+  commitAccountSwitch,
+} from "@/lib/wizard/account-switch";
 import { useFetchAdAccounts, useFetchPixels, useFacebookConnectionStatus } from "@/lib/hooks/useMeta";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import {
@@ -72,6 +78,9 @@ interface AccountSetupProps {
   surface?: StepSurface;
   settings: CampaignSettings;
   onChange: (settings: CampaignSettings) => void;
+  /** Full draft, so a confirmed account switch can clear account-scoped rows. */
+  draft?: CampaignDraft;
+  onApplyDraft?: (updater: (draft: CampaignDraft) => CampaignDraft) => void;
   /** Used as OAuth return path after linking Facebook */
   campaignId?: string;
 }
@@ -80,8 +89,11 @@ export function AccountSetup({
   surface = "wizard",
   settings,
   onChange,
+  draft,
+  onApplyDraft,
   campaignId,
 }: AccountSetupProps) {
+  const [pendingAccountId, setPendingAccountId] = useState<string | null>(null);
   const update = (patch: Partial<CampaignSettings>) =>
     onChange({ ...settings, ...patch });
 
@@ -140,12 +152,7 @@ export function AccountSetup({
         // Auto-select the only available (non-rate-limited) account
         const only = selectableAccounts[0];
         console.log("[AccountSetup] Stale/missing account — auto-selecting:", only.id);
-        update({
-          adAccountId: only.id,
-          metaAdAccountId: only.id,
-          metaPixelId: undefined,
-          pixelId: undefined,
-        });
+        handleAccountChange(only.id);
       } else if (storedId) {
         // Multiple accounts available but stored ID isn't among them — clear stale
         console.warn("[AccountSetup] Stored account", storedId, "not found in Meta accounts — clearing.");
@@ -178,15 +185,46 @@ export function AccountSetup({
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  function handleAccountChange(id: string) {
-    console.log("[AccountSetup] User selected account:", id);
-    // Keep both fields identical; clear downstream pixel selection
+  function accountLabel(id: string): string {
+    if (!id) return "the previous ad account";
+    const bare = withoutActPrefix(id);
+    const account = accounts.data.find(
+      (row) => withoutActPrefix(row.id) === bare || withoutActPrefix(row.account_id) === bare,
+    );
+    const name = account?.name.trim();
+    return name || id;
+  }
+
+  function applyAccount(id: string) {
+    if (draft && onApplyDraft) {
+      onApplyDraft((current) => commitAccountSwitch(current, id, "confirm"));
+      return;
+    }
     update({
       adAccountId: id,
       metaAdAccountId: id,
       metaPixelId: undefined,
       pixelId: undefined,
     });
+  }
+
+  function handleAccountChange(id: string) {
+    if (!id) return;
+    const current = settings.metaAdAccountId || settings.adAccountId || "";
+    if (withoutActPrefix(id) === withoutActPrefix(current)) return;
+    console.log("[AccountSetup] User selected account:", id);
+    const impact = draft ? accountSwitchImpact(draft) : null;
+    if (impact?.needsConfirm) {
+      setPendingAccountId(id);
+      return;
+    }
+    applyAccount(id);
+  }
+
+  function confirmAccountSwitch() {
+    if (!pendingAccountId) return;
+    applyAccount(pendingAccountId);
+    setPendingAccountId(null);
   }
 
   function handlePixelChange(pixelId: string) {
@@ -397,6 +435,45 @@ export function AccountSetup({
           />
         </div>
       </Card>
+      {pendingAccountId && draft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="account-switch-confirm-copy"
+            data-testid="account-switch-confirm"
+            className="w-full max-w-md rounded-lg border border-border bg-card p-4 shadow-lg"
+          >
+            <span id="account-switch-confirm-copy" data-testid="account-switch-confirm-copy">
+              <StatusLine>
+                {accountSwitchConfirmCopy(
+                  accountSwitchImpact(draft),
+                  accountLabel(settings.metaAdAccountId || settings.adAccountId || ""),
+                  accountLabel(pendingAccountId),
+                )}
+              </StatusLine>
+            </span>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                data-testid="account-switch-cancel"
+                className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground"
+                onClick={() => setPendingAccountId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="account-switch-confirm-button"
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"
+                onClick={confirmAccountSwitch}
+              >
+                Switch account
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
     </StepSurfaceProvider>
   );
