@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1011
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1011
 - **Branch:** `cursor/account-switch-invalidation`
 
 ## Summary
