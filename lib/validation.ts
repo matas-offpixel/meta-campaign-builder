@@ -169,13 +169,34 @@ function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-function validateAudiences(draft: CampaignDraft): ValidationResult {
-  // Inherited from live ad sets in attach_adset / attach_all_adsets mode.
-  if (
+function foreignAudienceNotes(draft: CampaignDraft): string[] {
+  const notes: string[] = [];
+  const launchAccount = draft.settings.metaAdAccountId || draft.settings.adAccountId;
+  for (const group of draft.audiences.pageGroups) {
+    for (const status of group.engagementAudienceStatuses ?? []) {
+      if (!audienceAccountMismatch(status.accountId, launchAccount)) continue;
+      const name = group.name || "Page group";
+      notes.push(`${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`);
+    }
+  }
+  return notes;
+}
+
+function audiencesComeFromLiveAdSets(draft: CampaignDraft): boolean {
+  return (
     draft.settings.wizardMode === "attach_adset" ||
     draft.settings.wizardMode === "attach_all_adsets"
-  ) {
-    return { valid: true, errors: [] };
+  );
+}
+
+function validateAudiences(draft: CampaignDraft): ValidationResult {
+  // Attach-to-ad-set launches never send the draft's audiences. A foreign
+  // audience is a note, not a blocker.
+  if (audiencesComeFromLiveAdSets(draft)) {
+    const warnings = foreignAudienceNotes(draft);
+    return warnings.length > 0
+      ? { valid: true, errors: [], warnings }
+      : { valid: true, errors: [] };
   }
   const errors: string[] = [];
   const { audiences } = draft;
@@ -194,14 +215,7 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
     errors.push("Select at least one audience source");
   }
 
-  const launchAccount = draft.settings.metaAdAccountId || draft.settings.adAccountId;
-  for (const group of audiences.pageGroups) {
-    for (const status of group.engagementAudienceStatuses ?? []) {
-      if (!audienceAccountMismatch(status.accountId, launchAccount)) continue;
-      const name = group.name || "Page group";
-      errors.push(`${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`);
-    }
-  }
+  errors.push(...foreignAudienceNotes(draft));
 
   for (const pageId of findMultiIgPagesMissingOverride(draft)) {
     errors.push(

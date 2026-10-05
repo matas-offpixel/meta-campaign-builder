@@ -68,24 +68,69 @@ export function foreignAudienceRefusal(input: {
   return `Audience ${name} (${input.id}) belongs to ${act} — rebuild it on this ad account.`;
 }
 
+/** At most three names, then a count of the rest. */
+export function summariseNamedList(names: readonly string[]): string {
+  const shown = names.slice(0, 3);
+  const rest = names.length - shown.length;
+  if (rest <= 0) return shown.join(", ");
+  return `${shown.join(", ")}, +${rest} more`;
+}
+
+function accountActLabel(
+  accountId: string,
+  accountNames?: ReadonlyMap<string, string>,
+): string {
+  const bare = withoutActPrefix(accountId);
+  const act = `act_${bare}`;
+  const name = accountNames?.get(bare) ?? accountNames?.get(act);
+  return name ? `${act} (${name})` : act;
+}
+
+/**
+ * One sentence for every audience that lives on another ad account.
+ * Names at most three, then "+N more". Account names are parenthetical
+ * only when the ad-account list resolved them.
+ */
+export function summariseForeignAudiences(input: {
+  launchAdAccountId: string;
+  items: readonly { name: string; accountId: string }[];
+  accountNames?: ReadonlyMap<string, string>;
+}): string | null {
+  const groups = new Map<string, string[]>();
+  for (const item of input.items) {
+    const bare = withoutActPrefix(item.accountId);
+    const names = groups.get(bare) ?? [];
+    names.push(item.name.trim() || "Audience");
+    groups.set(bare, names);
+  }
+  if (groups.size === 0) return null;
+  const launchLabel = accountActLabel(input.launchAdAccountId, input.accountNames);
+  const sentences: string[] = [];
+  for (const [bare, names] of groups) {
+    const count = names.length;
+    const noun = count === 1 ? "audience" : "audiences";
+    const verb = count === 1 ? "belongs" : "belong";
+    const foreignLabel = accountActLabel(bare, input.accountNames);
+    sentences.push(
+      `${count} ${noun} in this draft ${verb} to ${foreignLabel}, not ${launchLabel}: ${summariseNamedList(names)}. Rebuild them on this ad account or clear them on the Audiences step.`,
+    );
+  }
+  return sentences.join(" ");
+}
+
 export function foreignAudienceRefusals(
   refs: readonly AudienceAccountRef[],
   accountIdByAudienceId: Readonly<Record<string, string | undefined>>,
   launchAdAccountId: string,
+  accountNames?: ReadonlyMap<string, string>,
 ): string | null {
-  const lines: string[] = [];
+  const items: { name: string; accountId: string }[] = [];
   for (const ref of refs) {
     const accountId = accountIdByAudienceId[ref.id];
     if (!accountId || !audienceAccountMismatch(accountId, launchAdAccountId)) continue;
-    lines.push(
-      foreignAudienceRefusal({
-        name: ref.name,
-        id: ref.id,
-        audienceAccountId: accountId,
-      }),
-    );
+    items.push({ name: ref.name, accountId });
   }
-  return lines.length > 0 ? lines.join(" ") : null;
+  return summariseForeignAudiences({ launchAdAccountId, items, accountNames });
 }
 
 export function collectAudienceAccountRefs(draft: CampaignDraft): AudienceAccountRef[] {

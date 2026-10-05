@@ -46,6 +46,11 @@ interface PageAudiencesPanelProps {
   /** Selected Pages Lookalike groups — separate from standard page groups */
   splalGroups?: SelectedPagesLookalikeGroup[];
   onSplalGroupsChange?: (groups: SelectedPagesLookalikeGroup[]) => void;
+  /**
+   * Attach-to-ad-set launches do not send these audiences. A foreign
+   * account is a note, not an error.
+   */
+  accountMismatchMuted?: boolean;
 }
 
 const ENGAGEMENT_OPTIONS: { value: EngagementType; label: string }[] = [
@@ -592,6 +597,7 @@ export function PageAudiencesPanel({
   adAccountId,
   splalGroups = [],
   onSplalGroupsChange,
+  accountMismatchMuted = false,
 }: PageAudiencesPanelProps) {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -1168,7 +1174,9 @@ export function PageAudiencesPanel({
                           {foreign ? (
                             <span
                               data-testid="audience-account-warning"
-                              className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600"
+                              className={`inline-flex items-center gap-1 text-[10px] font-medium ${
+                                accountMismatchMuted ? "text-muted-foreground" : "text-amber-600"
+                              }`}
                             >
                               {foreign.label}
                             </span>

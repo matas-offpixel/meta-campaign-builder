@@ -27,6 +27,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
+import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
 import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
 import { describeLaunchBudget } from "@/lib/meta/budget-launch";
 import { formatAttachMultiCampaignReviewLine } from "@/lib/meta/attach-objective";
@@ -70,8 +71,10 @@ interface ReviewLaunchProps {
   draft: CampaignDraft;
   /** True while the launch API call is in-flight */
   isLaunching?: boolean;
-  /** Set when the Meta campaign creation call fails */
+  /** Set when the launch call fails */
   launchError?: string | null;
+  /** `preflight` when we refused before a Meta write. Absent keeps the Meta wording. */
+  launchErrorSource?: LaunchErrorSource | null;
   /** Named BUC / rate-limit state from a 429 launch abort. */
   launchRateLimit?: RateLimitUiState | null;
   onDismissLaunchError?: () => void;
@@ -883,6 +886,7 @@ export function ReviewLaunch({
   draft,
   isLaunching = false,
   launchError,
+  launchErrorSource = null,
   launchRateLimit = null,
   onDismissLaunchError,
   onRetryLaunch,
@@ -913,6 +917,10 @@ export function ReviewLaunch({
     bucket: BusinessUseCaseBucket | null;
     warn: boolean;
   } | null>(null);
+  const [launchErrorCopied, setLaunchErrorCopied] = useState(false);
+  const launchFailureText = launchRateLimit
+    ? formatLaunchRateLimitMessage(launchRateLimit, prelaunchUsage?.accountName)
+    : launchError ?? "";
 
   useEffect(() => {
     if (!adAccountId || launchSummary) return;
@@ -1252,7 +1260,7 @@ export function ReviewLaunch({
       {/* ── Launch error modal ─────────────────────────────────────────────── */}
       {launchError && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4"
+          className="fixed inset-x-0 top-0 bottom-20 z-40 flex items-center justify-center bg-foreground/40 p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Campaign launch failed"
@@ -1265,9 +1273,11 @@ export function ReviewLaunch({
                   <Datum className="font-heading text-lg tracking-wide">
                     Launch Failed
                   </Datum>
-                  <Datum className="mt-1 text-sm text-muted-foreground">
-                    Meta returned an error. Your draft has not been changed.
-                  </Datum>
+                  <span data-testid="launch-failure-lead">
+                    <Datum className="mt-1 text-sm text-muted-foreground">
+                      {launchFailureLead(launchErrorSource)}
+                    </Datum>
+                  </span>
                 </div>
               </div>
               {onDismissLaunchError && (
@@ -1282,12 +1292,30 @@ export function ReviewLaunch({
               )}
             </div>
 
-            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <Datum className="text-sm text-destructive" data-testid="launch-error-message">
-                {launchRateLimit
-                  ? formatLaunchRateLimitMessage(launchRateLimit, prelaunchUsage?.accountName)
-                  : launchError}
-              </Datum>
+            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5">
+              <div className="flex justify-end px-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(launchFailureText).then(
+                      () => {
+                        setLaunchErrorCopied(true);
+                        window.setTimeout(() => setLaunchErrorCopied(false), 1500);
+                      },
+                      () => {},
+                    );
+                  }}
+                >
+                  {launchErrorCopied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+              <div className="max-h-48 overflow-y-auto px-4 pb-3" data-testid="launch-error-message">
+                <Datum className="whitespace-pre-wrap text-sm text-destructive">
+                  {launchFailureText}
+                </Datum>
+              </div>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">

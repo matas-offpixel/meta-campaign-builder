@@ -72,7 +72,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   } = draftController;
 
   // Launch state
-  const { mutate: launchCampaign, loading: launching, error: launchError, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
+  const { mutate: launchCampaign, loading: launching, error: launchError, errorSource: launchErrorSource, rateLimit: launchRateLimit, resetError: dismissLaunchError } = useLaunchCampaign();
   const [launchSummary, setLaunchSummary] = useState<LaunchSummary | null>(null);
   const launchAccountId = draft.settings.metaAdAccountId || draft.settings.adAccountId || null;
   const launchCooldown = useBucCooldown(launchAccountId, launchRateLimit);
@@ -534,6 +534,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             draft={draft}
             isLaunching={launching}
             launchError={launchError}
+            launchErrorSource={launchErrorSource}
             launchRateLimit={launchRateLimit}
             onDismissLaunchError={dismissLaunchError}
             launchSummary={launchSummary}

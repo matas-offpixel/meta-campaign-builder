@@ -161,6 +161,10 @@ export function AudiencesStep({
           adAccountId={adAccountId}
           splalGroups={audiences.selectedPagesLookalikeGroups ?? []}
           onSplalGroupsChange={(selectedPagesLookalikeGroups) => onChange({ ...audiences, selectedPagesLookalikeGroups })}
+          accountMismatchMuted={
+            settings.wizardMode === "attach_adset" ||
+            settings.wizardMode === "attach_all_adsets"
+          }
         />
         <div className="mt-4">
           <PageInstagramOverridesPanel

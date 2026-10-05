@@ -62,7 +62,7 @@ describe("foreign asset preflight", () => {
     assert.equal(posted, false);
     assert.equal(
       refusal,
-      "Image poster.jpg on Artwork was uploaded to a different ad account — re-upload it.",
+      "1 image belongs to a different ad account: poster.jpg — re-upload it.",
     );
   });
 
@@ -144,7 +144,7 @@ describe("foreign asset preflight", () => {
       presentHashes: present,
       videoIdsInOtherAccount: new Set(),
     });
-    assert.match(refusal ?? "", /Image other\.jpg on Artwork was uploaded to a different ad account/);
+    assert.match(refusal ?? "", /1 image belongs to a different ad account: other\.jpg — re-upload it\./);
     assert.equal(
       refuseForeignAssets({
         checks: [
