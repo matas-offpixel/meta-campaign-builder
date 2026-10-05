@@ -7,7 +7,8 @@ import { PageAudiencesPanel } from "./page-audiences-panel";
 import { CustomAudiencesPanel } from "./custom-audiences-panel";
 import { SavedAudiencesPanel } from "./saved-audiences-panel";
 import { InterestGroupsPanel } from "./interest-groups-panel";
-import type { AudienceSettings, AudienceTab, CampaignSettings } from "@/lib/types";
+import type { AdSetSuggestion, AudienceSettings, AudienceTab, CampaignSettings } from "@/lib/types";
+import { enabledAdSetSourceIds } from "@/lib/audiences/audience-account";
 import { initialAudienceTab } from "@/lib/interest-preset-surface";
 import { FUNNEL_STAGE_LABELS } from "@/lib/audiences/metadata";
 import type { MetaCustomAudience } from "@/lib/types/audience";
@@ -44,6 +45,8 @@ interface AudiencesStepProps {
   campaignName?: string;
   /** Imported drafts keep page-derived audiences in Custom. */
   imported?: boolean;
+  /** Enabled rows decide which foreign-account notes are blockers. */
+  adSetSuggestions?: AdSetSuggestion[];
 }
 
 export function AudiencesStep({
@@ -58,6 +61,7 @@ export function AudiencesStep({
   eventId,
   campaignName,
   imported = false,
+  adSetSuggestions,
 }: AudiencesStepProps) {
   const [activeTab, setActiveTab] = useState<AudienceTab>(() =>
     initialAudienceTab(audiences),
@@ -164,6 +168,9 @@ export function AudiencesStep({
           accountMismatchMuted={
             settings.wizardMode === "attach_adset" ||
             settings.wizardMode === "attach_all_adsets"
+          }
+          referencedGroupIds={
+            adSetSuggestions ? enabledAdSetSourceIds(adSetSuggestions) : undefined
           }
         />
         <div className="mt-4">

@@ -16,10 +16,14 @@
  * Attach-to-existing-live-campaign never changes the parent campaign status.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { NextRequest, NextResponse } from "next/server";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
-import { stampLaunchErrorSource } from "@/lib/meta/launch-failure-copy";
+import {
+  isLaunchErrorSource,
+  type LaunchErrorSource,
+} from "@/lib/meta/launch-failure-copy";
 import { resolveMetaLaunchEntityStatus } from "@/lib/meta/launch-status";
 import { withMetaTransientRetry } from "@/lib/meta/transient-retry";
 import {
@@ -221,7 +225,10 @@ async function createEngagementAudienceWithRecovery(
   return createWithEventSourceRecovery<{ id: string }>({
     requested: [spec.sourceId],
     names: spec.pageName ? { [spec.sourceId]: spec.pageName } : undefined,
-    create: () => createEngagementAudience(adAccountId, spec),
+    create: () => {
+      markLaunchGraphPost();
+      return createEngagementAudience(adAccountId, spec);
+    },
     remediate: (sourceIds) =>
       remediateAudienceSeeds(supabase, sourceIds, { actorUserId: userId }),
     onWarn: (m) => console.warn(`[launch-campaign] engagement audience recovery: ${m}`),
@@ -387,13 +394,27 @@ function logLaunchMetaCallCounts(phase: string): void {
   );
 }
 
+const launchWriteState = new AsyncLocalStorage<{ sent: boolean }>();
+
+/** A Graph POST in this request has left the process. Later 400s are partial. */
+function markLaunchGraphPost(): void {
+  const store = launchWriteState.getStore();
+  if (store) store.sent = true;
+}
+
 function launchJson(body: unknown, init?: ResponseInit): NextResponse {
   const status = typeof init?.status === "number" ? init.status : 200;
-  const stamped =
-    body && typeof body === "object" && !Array.isArray(body)
-      ? stampLaunchErrorSource(body as Record<string, unknown>, status)
-      : body;
-  return NextResponse.json(stamped, init);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json(body, init);
+  }
+  const record = body as Record<string, unknown>;
+  const explicit = isLaunchErrorSource(record.source) ? record.source : undefined;
+  const sent = launchWriteState.getStore()?.sent ?? false;
+  let source: LaunchErrorSource | undefined = explicit;
+  if (!source && status === 502) source = "meta";
+  if (!source && status === 400) source = sent ? "partial" : "preflight";
+  if (!source) return NextResponse.json(record, init);
+  return NextResponse.json({ ...record, source }, init);
 }
 
 function rateLimitJsonResponse(
@@ -482,6 +503,10 @@ export type LaunchCampaignResult = LaunchSummary;
 export const maxDuration = 800;
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  return launchWriteState.run({ sent: false }, () => launchCampaign(req));
+}
+
+async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   const launchStart = Date.now();
   const phaseDurations: Record<string, number> = {};
   // Unique ID for this launch run — lets callers distinguish results across re-launches
@@ -537,6 +562,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   ): Promise<{ id: string }> => {
     const id = await withMetaWriteIdempotency(metaWriteCtx, opKind, payload, async () => {
       const execute = async () => {
+        markLaunchGraphPost();
         const res = await run();
         return res.id;
       };
@@ -1956,7 +1982,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         draftObjective: campaignPayload.objective,
         campaignName: campaignPayload.name,
         fetchCampaign: (id) => fetchCampaignByIdForLedger(id, launchToken),
-        create: async () => (await createMetaCampaign(campaignPayload)).id,
+        create: async () => {
+          markLaunchGraphPost();
+          return (await createMetaCampaign(campaignPayload)).id;
+        },
       });
       metaCampaignId = campaignRes.id;
       campaignCreateOutcome = campaignRes.outcome;

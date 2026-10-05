@@ -321,6 +321,7 @@ export function MetaDrawer({
               eventId={settings.eventId}
               campaignName={settings.campaignName}
               imported={draft.importMeta != null}
+              adSetSuggestions={draft.adSetSuggestions}
             />
           ) : null}
 

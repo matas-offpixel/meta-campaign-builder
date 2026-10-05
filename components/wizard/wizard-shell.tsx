@@ -466,6 +466,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             eventId={draft.settings.eventId}
             campaignName={draft.settings.campaignName}
             imported={draft.importMeta != null}
+            adSetSuggestions={draft.adSetSuggestions}
           />
         )}
         {step === 4 && (

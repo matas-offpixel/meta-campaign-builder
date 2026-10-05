@@ -1,9 +1,38 @@
-import type { CampaignDraft } from "../types.ts";
+import type { AdSetSuggestion, AudienceSettings, CampaignDraft } from "../types.ts";
 import { withoutActPrefix } from "../meta/ad-account-id.ts";
+import { buildMetaTargeting } from "../meta/adset.ts";
 
 export interface AudienceAccountRef {
   id: string;
   name: string;
+  /** Set when the id is a lookalike, so the summary names the parent group once. */
+  lookalikeGroup?: string;
+}
+
+const GROUP_SOURCE_TYPES = new Set<AdSetSuggestion["sourceType"]>([
+  "page_group",
+  "lookalike_group",
+  "custom_group",
+  "custom_group_lookalike",
+  "selected_pages_lookalike",
+]);
+
+const LOOKALIKE_SOURCE_TYPES = new Set<AdSetSuggestion["sourceType"]>([
+  "lookalike_group",
+  "custom_group_lookalike",
+  "selected_pages_lookalike",
+]);
+
+/** Group ids an enabled ad set will resolve through buildMetaTargeting. */
+export function enabledAdSetSourceIds(
+  adSets: readonly Pick<AdSetSuggestion, "enabled" | "sourceType" | "sourceId">[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const adSet of adSets) {
+    if (!adSet.enabled || !GROUP_SOURCE_TYPES.has(adSet.sourceType)) continue;
+    if (adSet.sourceId) ids.add(adSet.sourceId);
+  }
+  return ids;
 }
 
 export const AUDIENCE_ACCOUNT_ID_LIMIT = 200;
@@ -91,16 +120,39 @@ function accountActLabel(
  * Names at most three, then "+N more". Account names are parenthetical
  * only when the ad-account list resolved them.
  */
+function summaryLabels(
+  items: readonly { name: string; lookalikeGroup?: string }[],
+): string[] {
+  const labels: string[] = [];
+  const lookalikeCounts = new Map<string, number>();
+  const lookalikeOrder: string[] = [];
+  for (const item of items) {
+    if (!item.lookalikeGroup) {
+      labels.push(item.name.trim() || "Audience");
+      continue;
+    }
+    const count = lookalikeCounts.get(item.lookalikeGroup) ?? 0;
+    if (count === 0) lookalikeOrder.push(item.lookalikeGroup);
+    lookalikeCounts.set(item.lookalikeGroup, count + 1);
+  }
+  const lookalikeLabels = lookalikeOrder.map((group) => {
+    const count = lookalikeCounts.get(group) ?? 0;
+    const noun = count === 1 ? "lookalike" : "lookalikes";
+    return `${group} (${count} ${noun})`;
+  });
+  return [...lookalikeLabels, ...labels];
+}
+
 export function summariseForeignAudiences(input: {
   launchAdAccountId: string;
-  items: readonly { name: string; accountId: string }[];
+  items: readonly { name: string; accountId: string; lookalikeGroup?: string }[];
   accountNames?: ReadonlyMap<string, string>;
 }): string | null {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, { name: string; lookalikeGroup?: string }[]>();
   for (const item of input.items) {
     const bare = withoutActPrefix(item.accountId);
     const names = groups.get(bare) ?? [];
-    names.push(item.name.trim() || "Audience");
+    names.push({ name: item.name.trim() || "Audience", lookalikeGroup: item.lookalikeGroup });
     groups.set(bare, names);
   }
   if (groups.size === 0) return null;
@@ -112,7 +164,7 @@ export function summariseForeignAudiences(input: {
     const verb = count === 1 ? "belongs" : "belong";
     const foreignLabel = accountActLabel(bare, input.accountNames);
     sentences.push(
-      `${count} ${noun} in this draft ${verb} to ${foreignLabel}, not ${launchLabel}: ${summariseNamedList(names)}. Rebuild them on this ad account or clear them on the Audiences step.`,
+      `${count} ${noun} in this draft ${verb} to ${foreignLabel}, not ${launchLabel}: ${summariseNamedList(summaryLabels(names))}. Rebuild them on this ad account or clear them on the Audiences step.`,
     );
   }
   return sentences.join(" ");
@@ -124,54 +176,87 @@ export function foreignAudienceRefusals(
   launchAdAccountId: string,
   accountNames?: ReadonlyMap<string, string>,
 ): string | null {
-  const items: { name: string; accountId: string }[] = [];
+  const items: { name: string; accountId: string; lookalikeGroup?: string }[] = [];
   for (const ref of refs) {
     const accountId = accountIdByAudienceId[ref.id];
     if (!accountId || !audienceAccountMismatch(accountId, launchAdAccountId)) continue;
-    items.push({ name: ref.name, accountId });
+    items.push({ name: ref.name, accountId, lookalikeGroup: ref.lookalikeGroup });
   }
   return summariseForeignAudiences({ launchAdAccountId, items, accountNames });
 }
 
+function groupNameForAdSet(adSet: AdSetSuggestion, audiences: AudienceSettings): string {
+  switch (adSet.sourceType) {
+    case "custom_group":
+    case "custom_group_lookalike":
+      return (
+        audiences.customAudienceGroups.find((group) => group.id === adSet.sourceId)?.name ||
+        adSet.sourceName ||
+        adSet.name ||
+        "Custom audience"
+      );
+    case "page_group":
+    case "lookalike_group":
+      return (
+        audiences.pageGroups.find((group) => group.id === adSet.sourceId)?.name ||
+        adSet.sourceName ||
+        adSet.name ||
+        "Page group"
+      );
+    case "selected_pages_lookalike":
+      return (
+        audiences.selectedPagesLookalikeGroups.find((group) => group.id === adSet.sourceId)?.name ||
+        adSet.sourceName ||
+        adSet.name ||
+        "Lookalike"
+      );
+    case "saved_audience":
+      return adSet.sourceName || adSet.name || "Saved audience";
+    default:
+      return adSet.sourceName || adSet.name || "Audience";
+  }
+}
+
+function labelForSentAudience(
+  id: string,
+  adSet: AdSetSuggestion,
+  audiences: AudienceSettings,
+  groupName: string,
+): string {
+  if (adSet.sourceType === "page_group" || adSet.sourceType === "lookalike_group") {
+    const group = audiences.pageGroups.find((row) => row.id === adSet.sourceId);
+    const status = group?.engagementAudienceStatuses?.find((row) => row.id === id);
+    if (status?.pageName) return `${status.pageName} — ${groupName}`;
+  }
+  if (adSet.sourceType === "saved_audience") return adSet.sourceName || adSet.name || groupName;
+  return groupName;
+}
+
+/**
+ * Meta audience ids enabled ad sets will send. The ids come from
+ * buildMetaTargeting, so a group no enabled row references is absent.
+ */
 export function collectAudienceAccountRefs(draft: CampaignDraft): AudienceAccountRef[] {
-  const byId = new Map<string, string>();
-  const add = (id: string | undefined, name: string) => {
-    if (!isMetaAudienceId(id) || byId.has(id)) return;
-    byId.set(id, name.trim() || "Audience");
-  };
-
-  for (const group of draft.audiences.pageGroups) {
-    const name = group.name || "Page group";
-    for (const id of group.customAudienceIds) add(id, name);
-    for (const id of group.engagementAudienceIds ?? []) add(id, name);
-    for (const id of group.lookalikeAudienceIds ?? []) add(id, `${name} lookalike`);
-    for (const status of group.engagementAudienceStatuses ?? []) {
-      add(status.id, status.pageName ? `${status.pageName} — ${name}` : name);
-      add(status.lookalikeId, `${name} lookalike`);
-    }
-  }
-  for (const group of draft.audiences.customAudienceGroups) {
-    const name = group.name || "Custom audience";
-    for (const id of group.audienceIds) add(id, name);
-    for (const list of Object.values(group.lookalikeAudienceIdsByRange ?? {})) {
-      for (const id of list) add(id, `${name} lookalike`);
-    }
-  }
-  for (const id of draft.audiences.savedAudiences.audienceIds) add(id, "Saved audience");
-  for (const id of draft.audiences.offpixelCustomAudienceIds ?? []) add(id, "Off Pixel audience");
-  for (const group of draft.audiences.selectedPagesLookalikeGroups) {
-    const name = group.name || "Lookalike";
-    for (const list of Object.values(group.engagementAudienceIdsByPage ?? {})) {
-      for (const id of list) add(id, name);
-    }
-    for (const list of Object.values(group.lookalikeAudienceIdsByRange ?? {})) {
-      for (const id of list) add(id, `${name} lookalike`);
-    }
-  }
+  const byId = new Map<string, AudienceAccountRef>();
   for (const adSet of draft.adSetSuggestions ?? []) {
-    if (!adSet.enabled || adSet.sourceType !== "saved_audience") continue;
-    add(adSet.sourceId, adSet.sourceName || adSet.name);
+    if (!adSet.enabled) continue;
+    let targeting;
+    try {
+      targeting = buildMetaTargeting(adSet, draft.audiences);
+    } catch (err) {
+      console.error("[account-scope-preflight] targeting for audience refs failed:", err);
+      continue;
+    }
+    const groupName = groupNameForAdSet(adSet, draft.audiences);
+    const lookalike = LOOKALIKE_SOURCE_TYPES.has(adSet.sourceType);
+    for (const audience of targeting.custom_audiences ?? []) {
+      if (!isMetaAudienceId(audience.id) || byId.has(audience.id)) continue;
+      byId.set(audience.id, {
+        id: audience.id,
+        name: labelForSentAudience(audience.id, adSet, draft.audiences, groupName),
+        lookalikeGroup: lookalike ? groupName : undefined,
+      });
+    }
   }
-
-  return [...byId].map(([id, name]) => ({ id, name }));
+  return [...byId.values()];
 }
