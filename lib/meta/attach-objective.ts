@@ -34,13 +34,22 @@ export interface AttachAdSetVoteRow {
 
 export interface AttachCampaignVoteInput {
   objective?: string | null;
-  adsets?: { data?: AttachAdSetVoteRow[] | null } | null;
+  adsets?: {
+    data?: AttachAdSetVoteRow[] | null;
+    paging?: { next?: string | null } | null;
+  } | null;
 }
 
 export interface ResolvedAttachObjective {
   objective: CampaignObjective | undefined;
+  /**
+   * "adsets" only when at least one ad set cast a conversion-event vote.
+   * A traffic campaign whose ad sets have no promoted_object stays "campaign".
+   */
   objectiveSource: "campaign" | "adsets";
   adSetCount: number;
+  /** True when Graph returned paging.next — the vote saw the first 50 only. */
+  adSetCountTruncated: boolean;
   minorityEvents: string[];
   /** Human name of the winning conversion event. Absent when nothing voted. */
   conversionEvent: string | null;
@@ -75,12 +84,35 @@ export function attachChipLabel(objective: CampaignObjective): string {
 export function attachObjectiveChipTitle(
   source: "campaign" | "adsets",
   adSetCount: number,
+  truncated = false,
 ): string {
-  if (source === "campaign" || adSetCount === 0) {
-    return "No ad sets yet — from the campaign objective";
+  if (source !== "adsets" || adSetCount === 0) {
+    return adSetCount === 0
+      ? "No ad sets yet — from the campaign objective"
+      : "From the campaign objective";
   }
-  const noun = adSetCount === 1 ? "ad set's" : "ad sets'";
-  return `Resolved from ${adSetCount} ${noun} conversion event`;
+  const countLabel = truncated ? "50+" : String(adSetCount);
+  const noun = !truncated && adSetCount === 1 ? "ad set's" : "ad sets'";
+  return `Resolved from ${countLabel} ${noun} conversion event`;
+}
+
+const SALES_FAMILY = new Set([
+  "OUTCOME_SALES",
+  "CONVERSIONS",
+  "PRODUCT_CATALOG_SALES",
+  "STORE_VISITS",
+]);
+
+/** A sales-family ad set with a conversion event. Traffic and leads do not vote. */
+function adSetCastVote(
+  rawObjective: string | null | undefined,
+  event: string | null | undefined,
+): boolean {
+  const trimmed = event?.trim() ?? "";
+  if (!trimmed) return false;
+  const family = (rawObjective ?? "").trim().toUpperCase();
+  if (!SALES_FAMILY.has(family)) return false;
+  return mapMetaObjectiveToInternal(family, trimmed) != null;
 }
 
 function mostCommon(values: string[]): string | null {
@@ -138,7 +170,10 @@ export function resolveAttachCampaign(raw: AttachCampaignVoteInput): ResolvedAtt
   const rows = raw.adsets?.data ?? [];
   const events = rows.map((row) => row?.promoted_object?.custom_event_type);
   const voted = importedObjectiveFromAdSetEvents(raw.objective, events);
-  const objectiveSource = rows.length > 0 ? "adsets" : "campaign";
+  const objectiveSource = events.some((event) => adSetCastVote(raw.objective, event))
+    ? "adsets"
+    : "campaign";
+  const adSetCountTruncated = Boolean(raw.adsets?.paging?.next);
   const pixelId = mostCommon(
     rows
       .map((row) => row?.promoted_object?.pixel_id?.trim() ?? "")
@@ -153,10 +188,60 @@ export function resolveAttachCampaign(raw: AttachCampaignVoteInput): ResolvedAtt
     objective: voted.objective,
     objectiveSource,
     adSetCount: rows.length,
+    adSetCountTruncated,
     minorityEvents: voted.minorityEvents,
     conversionEvent,
     pixelId,
   };
+}
+
+/**
+ * Draft objective is the first selected campaign. Compare it only when
+ * exactly one campaign is selected. Two or more keep their own voted
+ * objectives (#596 / #749) and are listed on the Review line instead.
+ */
+export function assertAttachSelectionObjectives(input: {
+  draftObjective: CampaignObjective;
+  selectedCount: number;
+  campaigns: Array<{ name: string; resolvedObjective: CampaignObjective }>;
+}): { ok: true } | { ok: false; message: string } {
+  if (input.selectedCount !== 1) return { ok: true };
+  const only = input.campaigns[0];
+  if (!only) return { ok: true };
+  return assertAttachDraftObjective({
+    draftObjective: input.draftObjective,
+    campaignName: only.name,
+    resolvedObjective: only.resolvedObjective,
+  });
+}
+
+const LEADS_OBJECTIVES = new Set(["OUTCOME_LEADS", "LEAD_GENERATION"]);
+
+/** Event named on the Review line. Leads have no pixel event, so they read "Lead". */
+export function attachCampaignEventLabel(input: {
+  conversionEvent?: string | null;
+  internalObjective?: CampaignObjective;
+  objective?: string | null;
+}): string {
+  if (input.conversionEvent) return input.conversionEvent;
+  const raw = (input.objective ?? "").trim().toUpperCase();
+  if (LEADS_OBJECTIVES.has(raw)) return "Lead";
+  if (input.internalObjective) return attachChipLabel(input.internalObjective);
+  return raw || "Unknown";
+}
+
+/** "DAN SHAKE - Signup → Complete registration · GDS Sign up → Lead" */
+export function formatAttachMultiCampaignReviewLine(
+  campaigns: Array<{
+    name: string;
+    conversionEvent?: string | null;
+    internalObjective?: CampaignObjective;
+    objective?: string | null;
+  }>,
+): string {
+  return campaigns
+    .map((campaign) => `${campaign.name} → ${attachCampaignEventLabel(campaign)}`)
+    .join(" · ");
 }
 
 /**

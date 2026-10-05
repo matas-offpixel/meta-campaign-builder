@@ -12,8 +12,10 @@ import type { AdSetSuggestion, AudienceSettings, BudgetScheduleSettings } from "
 import { buildAdSetPayload } from "../adset.ts";
 import {
   assertAttachDraftObjective,
+  assertAttachSelectionObjectives,
   attachChipLabel,
   attachObjectiveChipTitle,
+  formatAttachMultiCampaignReviewLine,
   resolveAttachCampaign,
 } from "../attach-objective.ts";
 
@@ -81,6 +83,23 @@ describe("resolveAttachCampaign", () => {
     assert.equal(resolved.conversionEvent, "Purchase");
   });
 
+  it("3 purchase / 3 registration tie is purchase", () => {
+    const resolved = resolveAttachCampaign({
+      objective: "OUTCOME_SALES",
+      ...rows([
+        "PURCHASE",
+        "PURCHASE",
+        "PURCHASE",
+        "COMPLETE_REGISTRATION",
+        "COMPLETE_REGISTRATION",
+        "COMPLETE_REGISTRATION",
+      ]),
+    });
+    assert.equal(resolved.objective, "purchase");
+    assert.deepEqual(resolved.minorityEvents, ["COMPLETE_REGISTRATION"]);
+    assert.equal(resolved.objectiveSource, "adsets");
+  });
+
   it("no ad sets falls back to the campaign objective", () => {
     const resolved = resolveAttachCampaign({ objective: "OUTCOME_SALES" });
     assert.equal(resolved.objective, "purchase");
@@ -101,11 +120,51 @@ describe("resolveAttachCampaign", () => {
     assert.equal(resolved.objective, "registration");
     assert.deepEqual(resolved.minorityEvents, []);
     assert.equal(resolved.conversionEvent, null);
+    assert.equal(resolved.objectiveSource, "campaign");
+    assert.equal(
+      attachObjectiveChipTitle(resolved.objectiveSource, resolved.adSetCount),
+      "From the campaign objective",
+    );
+  });
+
+  it("traffic campaign with ad sets but no promoted_object is campaign", () => {
+    const resolved = resolveAttachCampaign({
+      objective: "OUTCOME_TRAFFIC",
+      adsets: {
+        data: [{ optimization_goal: "LINK_CLICKS" }, { optimization_goal: "LANDING_PAGE_VIEWS" }],
+      },
+    });
+    assert.equal(resolved.objective, "traffic");
+    assert.equal(resolved.adSetCount, 2);
+    assert.equal(resolved.objectiveSource, "campaign");
+    assert.equal(
+      attachObjectiveChipTitle(resolved.objectiveSource, resolved.adSetCount),
+      "From the campaign objective",
+    );
+  });
+
+  it("paging.next shows 50+ ad sets in the chip title", () => {
+    const resolved = resolveAttachCampaign({
+      objective: "OUTCOME_SALES",
+      adsets: {
+        ...rows(["COMPLETE_REGISTRATION"]).adsets,
+        paging: { next: "https://graph.facebook.com/v21.0/next" },
+      },
+    });
+    assert.equal(resolved.adSetCountTruncated, true);
     assert.equal(resolved.objectiveSource, "adsets");
+    assert.equal(
+      attachObjectiveChipTitle(
+        resolved.objectiveSource,
+        resolved.adSetCount,
+        resolved.adSetCountTruncated,
+      ),
+      "Resolved from 50+ ad sets' conversion event",
+    );
   });
 });
 
-describe("assertSameObjective", () => {
+describe("assertAttachDraftObjective", () => {
   it("registration draft + signup target passes", () => {
     const result = assertAttachDraftObjective({
       draftObjective: "registration",
@@ -141,6 +200,81 @@ describe("assertSameObjective", () => {
       result.message,
       "DAN SHAKE - Signup optimises for Complete registration; this draft is set to Purchase. Change the draft's objective on the Campaign step.",
     );
+  });
+});
+
+describe("attach selection", () => {
+  it("single purchase target + registration draft refuses", () => {
+    const result = assertAttachSelectionObjectives({
+      draftObjective: "registration",
+      selectedCount: 1,
+      campaigns: [{ name: "DAN SHAKE - Purchase", resolvedObjective: "purchase" }],
+    });
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(
+      result.message,
+      "DAN SHAKE - Purchase optimises for Purchase; this draft is set to Signup. Change the draft's objective on the Campaign step.",
+    );
+  });
+
+  it("two targets with different objectives pass and each payload carries its own event", () => {
+    const purchase = resolveAttachCampaign({
+      objective: "OUTCOME_SALES",
+      ...rows(["PURCHASE"], "pixel-purchase"),
+    });
+    const signup = resolveAttachCampaign({
+      objective: "OUTCOME_SALES",
+      ...rows(["COMPLETE_REGISTRATION"], "pixel-signup"),
+    });
+    const result = assertAttachSelectionObjectives({
+      draftObjective: "purchase",
+      selectedCount: 2,
+      campaigns: [
+        { name: "Purchase campaign", resolvedObjective: purchase.objective! },
+        { name: "DAN SHAKE - Signup", resolvedObjective: signup.objective! },
+      ],
+    });
+    assert.deepEqual(result, { ok: true });
+    assert.equal(
+      formatAttachMultiCampaignReviewLine([
+        {
+          name: "DAN SHAKE - Signup",
+          conversionEvent: signup.conversionEvent,
+          internalObjective: signup.objective,
+          objective: "OUTCOME_SALES",
+        },
+        {
+          name: "GDS Sign up",
+          internalObjective: "registration",
+          objective: "OUTCOME_LEADS",
+        },
+      ]),
+      "DAN SHAKE - Signup → Complete registration · GDS Sign up → Lead",
+    );
+
+    const purchasePayload = buildAdSetPayload(
+      makeAdSet(),
+      "purchase-campaign",
+      emptyAudiences,
+      schedule,
+      "conversions",
+      purchase.objective!,
+      purchase.pixelId!,
+    );
+    const signupPayload = buildAdSetPayload(
+      makeAdSet(),
+      "signup-campaign",
+      emptyAudiences,
+      schedule,
+      "conversions",
+      signup.objective!,
+      signup.pixelId!,
+    );
+    assert.equal(purchasePayload.promoted_object?.custom_event_type, "PURCHASE");
+    assert.equal(purchasePayload.promoted_object?.pixel_id, "pixel-purchase");
+    assert.equal(signupPayload.promoted_object?.custom_event_type, "COMPLETE_REGISTRATION");
+    assert.equal(signupPayload.promoted_object?.pixel_id, "pixel-signup");
   });
 });
 

@@ -25,6 +25,8 @@ import type {
   MetaAdPayload,
 } from "./creative";
 import type { UploadAssetResult } from "./upload";
+import { ATTACH_ADSET_VOTE_FIELDS } from "./attach-objective.ts";
+import { isReduceDataError } from "./error-classify";
 import { withActPrefix } from "./ad-account-id.ts";
 import { followCursors, PAGES_LIST_PAGE_SIZE } from "./pages-list-response.ts";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
@@ -45,6 +47,8 @@ import {
   buildVideoUploadFields,
   buildVideoThumbnailOverrideRequest,
 } from "./video-upload-request.ts";
+
+export { isReduceDataError };
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -455,9 +459,8 @@ function getRetryBudget(
 // `isReduceDataError` lives in a separate, dependency-free module so
 // the unit tests (Node strip-only mode, which can't parse the
 // MetaApiError class's parameter properties) can import the helper
-// without dragging in this whole client. Re-export keeps the
-// canonical `lib/meta/client` import surface intact for callers.
-export { isReduceDataError } from "./error-classify";
+// without dragging in this whole client. Re-exported above so the
+// canonical `lib/meta/client` import surface stays intact.
 
 function reasonLabel(httpStatus: number, metaCode: number | undefined): string {
   if (
@@ -739,6 +742,8 @@ export interface RawMetaCampaign {
         pixel_id?: string;
       };
     }>;
+    /** Set when more than 50 ad sets exist. The vote does not fetch the rest. */
+    paging?: { next?: string };
   };
 }
 
@@ -772,6 +777,11 @@ export async function fetchCampaignsForAccount(params: {
   limit?: number;
   /** Pagination cursor returned by a previous call. */
   after?: string;
+  /**
+   * Attach picker only. Nested ad sets make a 50×50 page heavy enough for
+   * Graph code 1 / subcode 99; the caller retries that page without them.
+   */
+  withAdSets?: boolean;
   /** OAuth or system token. When supplied uses graphGetWithToken instead of the env-var graphGet. */
   token?: string;
 }): Promise<FetchCampaignsResult> {
@@ -781,44 +791,62 @@ export async function fetchCampaignsForAccount(params: {
     nameContains,
     limit = 25,
     after,
+    withAdSets = false,
     token,
   } = params;
 
-  const fields = [
-    "id",
-    "name",
-    "objective",
-    "status",
-    "effective_status",
-    "buying_type",
-    "created_time",
-    "updated_time",
-    "adsets.limit(50){promoted_object,optimization_goal}",
-  ].join(",");
-
-  const queryParams: Record<string, string> = {
-    fields,
-    limit: String(Math.min(Math.max(1, limit), 50)),
+  const accountPath = withActPrefix(adAccountId);
+  const requestPage = async (includeAdSets: boolean) => {
+    const fields = [
+      "id",
+      "name",
+      "objective",
+      "status",
+      "effective_status",
+      "buying_type",
+      "created_time",
+      "updated_time",
+      ...(includeAdSets ? [ATTACH_ADSET_VOTE_FIELDS] : []),
+    ].join(",");
+    const queryParams: Record<string, string> = {
+      fields,
+      limit: String(Math.min(Math.max(1, limit), 50)),
+    };
+    if (filter === "relevant") {
+      queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+    }
+    if (nameContains?.trim()) {
+      queryParams.filtering = JSON.stringify([
+        { field: "name", operator: "CONTAIN", value: nameContains.trim() },
+      ]);
+    }
+    if (after) queryParams.after = after;
+    return token
+      ? graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(
+          `/${accountPath}/campaigns`,
+          queryParams,
+          token,
+        )
+      : graphGet<GraphPagedResponse<RawMetaCampaign>>(
+          `/${accountPath}/campaigns`,
+          queryParams,
+        );
   };
 
-  // Server-side status filter for the "relevant" view. Meta accepts a JSON
-  // array of effective_status values via the dedicated query param.
-  if (filter === "relevant") {
-    queryParams.effective_status = JSON.stringify(["ACTIVE", "PAUSED"]);
+  let res: GraphPagedResponse<RawMetaCampaign>;
+  try {
+    res = await requestPage(withAdSets);
+  } catch (err) {
+    const reduce =
+      isReduceDataError(err) ||
+      (err instanceof MetaApiError && err.code === 1 && err.subcode === 99);
+    if (!withAdSets || !reduce) throw err;
+    console.warn(
+      `[fetchCampaignsForAccount] adsets edge too heavy (code 1 / subcode 99); ` +
+        `retrying page without ad sets adAccountId=${adAccountId}`,
+    );
+    res = await requestPage(false);
   }
-
-  if (nameContains?.trim()) {
-    queryParams.filtering = JSON.stringify([
-      { field: "name", operator: "CONTAIN", value: nameContains.trim() },
-    ]);
-  }
-
-  if (after) queryParams.after = after;
-
-  const accountPath = withActPrefix(adAccountId);
-  const res = token
-    ? await graphGetWithToken<GraphPagedResponse<RawMetaCampaign>>(`/${accountPath}/campaigns`, queryParams, token)
-    : await graphGet<GraphPagedResponse<RawMetaCampaign>>(`/${accountPath}/campaigns`, queryParams);
 
   // Sort newest first by updated_time then created_time so the picker's
   // "recency" promise holds even when Meta returns a non-deterministic order.

@@ -16,6 +16,8 @@
  *                Meta `filtering=[{field:"name",operator:"CONTAIN",…}]`)
  *   limit        page size, default 25, max 50
  *   after        cursor returned by a previous call's `paging.after`
+ *   withAdSets   "1" — attach picker only. Nested ad sets for the
+ *                conversion-event vote. Other callers omit it.
  *
  * Response:
  *   { data: MetaCampaignSummary[], count: number,
@@ -53,6 +55,7 @@ function deriveCompatibility(raw: RawMetaCampaign): {
   internalObjective?: ReturnType<typeof mapMetaObjectiveToInternal>;
   objectiveSource: "campaign" | "adsets";
   adSetCount: number;
+  adSetCountTruncated: boolean;
   conversionEvent: string | null;
   pixelId: string | null;
   reason?: string;
@@ -62,6 +65,7 @@ function deriveCompatibility(raw: RawMetaCampaign): {
   const vote = {
     objectiveSource: voted.objectiveSource,
     adSetCount: voted.adSetCount,
+    adSetCountTruncated: voted.adSetCountTruncated,
     conversionEvent: voted.conversionEvent,
     pixelId: voted.pixelId,
   };
@@ -102,6 +106,7 @@ function toSummary(raw: RawMetaCampaign): MetaCampaignSummary {
     internalObjective: c.internalObjective,
     objectiveSource: c.objectiveSource,
     adSetCount: c.adSetCount,
+    ...(c.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
     ...(c.conversionEvent ? { conversionEvent: c.conversionEvent } : {}),
     ...(c.pixelId ? { pixelId: c.pixelId } : {}),
     status: raw.status ?? "",
@@ -143,6 +148,7 @@ export async function GET(req: NextRequest) {
     filterParam === "all" ? "all" : "relevant";
   const search = req.nextUrl.searchParams.get("search")?.trim() || undefined;
   const after = req.nextUrl.searchParams.get("after") ?? undefined;
+  const withAdSets = req.nextUrl.searchParams.get("withAdSets") === "1";
   const rawLimit = Number(req.nextUrl.searchParams.get("limit") ?? DEFAULT_LIMIT);
   const limit = Number.isFinite(rawLimit)
     ? Math.min(Math.max(1, Math.trunc(rawLimit)), MAX_LIMIT)
@@ -163,7 +169,8 @@ export async function GET(req: NextRequest) {
 
   console.log(
     `[/api/meta/campaigns] fetch start adAccountId=${adAccountId} filter=${filter}` +
-      ` search=${search ?? "-"} limit=${limit} after=${after ? "yes" : "no"} tokenSource=${tokenSource}`,
+      ` search=${search ?? "-"} limit=${limit} after=${after ? "yes" : "no"}` +
+      ` withAdSets=${withAdSets ? "1" : "0"} tokenSource=${tokenSource}`,
   );
 
   try {
@@ -173,6 +180,7 @@ export async function GET(req: NextRequest) {
       nameContains: search,
       limit,
       after,
+      withAdSets,
       token,
     });
 

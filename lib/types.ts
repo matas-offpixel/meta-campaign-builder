@@ -1329,10 +1329,12 @@ export interface ExistingMetaCampaignSnapshot {
    * `settings.objective` on older drafts that pre-date this field.
    */
   internalObjective?: CampaignObjective;
-  /** "adsets" when the conversion event was read; "campaign" when none were. */
+  /** "adsets" when at least one ad set voted; "campaign" when none did. */
   objectiveSource?: "campaign" | "adsets";
   /** Ad sets included in the vote (capped at 50). */
   adSetCount?: number;
+  /** Graph returned another ad set page. The chip says "50+". */
+  adSetCountTruncated?: boolean;
   /** Winning conversion event, e.g. "Complete registration". */
   conversionEvent?: string;
   /** Most common promoted_object.pixel_id among those ad sets. */
@@ -1429,9 +1431,10 @@ export interface MetaCampaignSummary {
   objective: string;
   /** Internal objective if the raw Meta value maps to one we support. */
   internalObjective?: CampaignObjective;
-  /** "adsets" when the chip came from the conversion event; otherwise "campaign". */
+  /** "adsets" when at least one ad set voted; otherwise "campaign". */
   objectiveSource?: "campaign" | "adsets";
   adSetCount?: number;
+  adSetCountTruncated?: boolean;
   /** Winning conversion event for the selected-campaign line. */
   conversionEvent?: string;
   pixelId?: string;

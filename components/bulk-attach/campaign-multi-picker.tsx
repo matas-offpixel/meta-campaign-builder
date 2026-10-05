@@ -255,6 +255,7 @@ export function CampaignMultiPicker({
                             title={attachObjectiveChipTitle(
                               c.objectiveSource ?? "campaign",
                               c.adSetCount ?? 0,
+                              c.adSetCountTruncated === true,
                             )}
                           >
                             <Badge variant="primary">{attachChipLabel(c.internalObjective)}</Badge>

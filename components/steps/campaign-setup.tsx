@@ -370,6 +370,7 @@ export function CampaignSetup({
         internalObjective: campaign.internalObjective ?? undefined,
         objectiveSource: campaign.objectiveSource,
         adSetCount: campaign.adSetCount,
+        ...(campaign.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
         ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
         ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
         status: campaign.status,
@@ -443,6 +444,7 @@ export function CampaignSetup({
             internalObjective: campaign.internalObjective ?? undefined,
             objectiveSource: campaign.objectiveSource,
             adSetCount: campaign.adSetCount,
+            ...(campaign.adSetCountTruncated ? { adSetCountTruncated: true } : {}),
             ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
             ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
             status: campaign.status,
@@ -758,6 +760,7 @@ export function CampaignSetup({
                               ? attachObjectiveChipTitle(
                                   camp.objectiveSource ?? "campaign",
                                   camp.adSetCount ?? 0,
+                                  camp.adSetCountTruncated === true,
                                 )
                               : undefined
                           }

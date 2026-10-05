@@ -1032,6 +1032,7 @@ export function useFetchCampaigns(
         adAccountId: adAccountId ?? "",
         filter,
         limit: String(limit),
+        withAdSets: "1",
       });
       if (search?.trim()) params.set("search", search.trim());
       if (after) params.set("after", after);

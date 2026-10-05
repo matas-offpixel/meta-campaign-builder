@@ -14,8 +14,9 @@ Attach mode was reading `OUTCOME_SALES` as purchase, so new ad sets under a sign
 
 - `GET /api/meta/campaigns` and `fetchCampaignById` request `adsets.limit(50){promoted_object,optimization_goal}` and resolve the chip from that vote
 - `attach_campaign` builds new ad sets with the voted objective and, when the draft has no pixel, the most common `pixel_id`
-- A draft whose objective does not match a selected campaign is refused before any create, naming the conversion event
-- `attach_adset` and `attach_all_adsets` still add ads only; mixed campaigns are still not blocked against each other
+- A single selected campaign is refused when its voted objective differs from the draft. Two or more campaigns are not: each ad set uses that campaign's own event, and Review lists them (`Name → event`)
+- The campaign list asks for ad sets only when the attach picker sends `withAdSets=1`. A Graph "reduce the amount of data" error retries that page without the edge
+- `attach_adset` and `attach_all_adsets` still add ads only
 
 ## Validation
 
@@ -26,3 +27,5 @@ Attach mode was reading `OUTCOME_SALES` as purchase, so new ad sets under a sign
 ## Notes
 
 Fixture `lib/meta/__fixtures__/attach-objective/120250922487440239.json`: objective `OUTCOME_SALES`, 6 ad sets, all `COMPLETE_REGISTRATION`, pixel `2261755947685271`.
+
+Drafts saved before this deploy against a signup campaign stored the old objective-only mapping, so the snapshot says purchase while the live vote is registration. Launch then returns 409: objective changed since you picked it (snapshot: "purchase", live: "registration"). The campaign did not change in Ads Manager. Re-open the Campaign step and re-select it.

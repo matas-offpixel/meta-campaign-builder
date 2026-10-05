@@ -145,7 +145,7 @@ import type {
   CampaignObjective,
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
-import { assertAttachDraftObjective, assertSameObjective, resolveAttachCampaign } from "@/lib/meta/attach-objective";
+import { assertAttachSelectionObjectives, assertSameObjective, resolveAttachCampaign } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
@@ -1845,17 +1845,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (wizardMode === "attach_campaign") {
-      for (const campaign of verifiedCampaigns) {
-        if (campaign.internalObjective && campaign.internalObjective !== draft.settings.objective) {
-          const mismatch = assertAttachDraftObjective({
-            draftObjective: draft.settings.objective,
-            campaignName: campaign.name,
-            resolvedObjective: campaign.internalObjective,
-          });
-          if (!mismatch.ok) {
-            return NextResponse.json({ error: mismatch.message }, { status: 400 });
-          }
-        }
+      // The draft objective is the first campaign's. Compare it only for a
+      // single selection. Mixed campaigns each keep their own voted event.
+      const gate = assertAttachSelectionObjectives({
+        draftObjective: draft.settings.objective,
+        selectedCount: verifiedCampaigns.length,
+        campaigns: verifiedCampaigns.flatMap((campaign) =>
+          campaign.internalObjective
+            ? [{ name: campaign.name, resolvedObjective: campaign.internalObjective }]
+            : [],
+        ),
+      });
+      if (!gate.ok) {
+        return NextResponse.json({ error: gate.message }, { status: 400 });
       }
       for (const campaign of verifiedCampaigns) {
         const schedule = budgetScheduleForAttach(draft.budgetSchedule, campaign);
