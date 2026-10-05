@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1014
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1014
 - **Branch:** `cursor/preflight-enabled-adsets-only`
 
 ## Summary
