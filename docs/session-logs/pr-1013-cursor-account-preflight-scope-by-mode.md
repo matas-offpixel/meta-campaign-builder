@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1013
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1013
 - **Branch:** `cursor/account-preflight-scope-by-mode`
 
 ## Summary
