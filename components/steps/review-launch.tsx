@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
 import { describeLaunchBudget } from "@/lib/meta/budget-launch";
+import { formatAttachMultiCampaignReviewLine } from "@/lib/meta/attach-objective";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
   failedAdLabelsFromSummary,
@@ -179,7 +180,7 @@ function buildLaunchEvents(
           }${attachedCampaignName ? ` (campaign "${attachedCampaignName}")` : ""}`
         : wizardMode === "attach_campaign"
         ? attachedCampaigns.length > 1
-          ? `Attached to ${attachedCampaigns.length} existing campaigns`
+          ? formatAttachMultiCampaignReviewLine(attachedCampaigns)
           : `Attached to existing campaign${attachedCampaignName ? ` "${attachedCampaignName}"` : ""}`
         : summary.campaignCreateOutcome === "reused"
           ? "Campaign reused"
@@ -1225,6 +1226,15 @@ export function ReviewLaunch({
           showDecisions={draft.status === "published"}
         />
       )}
+
+      {wizardMode === "attach_campaign" &&
+        (draft.settings.existingMetaCampaigns ?? []).length > 1 && (
+          <span data-testid="attach-review-line">
+            <Datum className="text-sm text-foreground">
+              {formatAttachMultiCampaignReviewLine(draft.settings.existingMetaCampaigns ?? [])}
+            </Datum>
+          </span>
+        )}
 
       <span data-testid="launch-budget-line">
         <Datum className="text-sm text-foreground">

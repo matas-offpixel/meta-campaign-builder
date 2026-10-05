@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { isCampaignRuntimeActive } from "@/lib/bulk-attach/campaign-active";
+import { attachChipLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
 import type { MetaCampaignSummary } from "@/lib/types";
 import { useFetchCampaigns } from "@/lib/hooks/useMeta";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
@@ -249,9 +250,20 @@ export function CampaignMultiPicker({
                         <StatusPill status={c.effectiveStatus ?? c.status} />
                       </div>
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                        <span className="capitalize">
-                          {objectiveLabel(c.objective)}
-                        </span>
+                        {c.internalObjective ? (
+                          <span
+                            title={attachObjectiveChipTitle(
+                              c.objectiveSource ?? "campaign",
+                              c.adSetCount ?? 0,
+                              c.adSetCountTruncated === true,
+                            )}
+                          >
+                            <Badge variant="primary">{attachChipLabel(c.internalObjective)}</Badge>
+                          </span>
+                        ) : (
+                          <span className="capitalize">{objectiveLabel(c.objective)}</span>
+                        )}
+                        <span>Raw objective: {c.objective || "—"}</span>
                         <code className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
                           {c.id}
                         </code>

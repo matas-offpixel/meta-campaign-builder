@@ -145,7 +145,7 @@ import type {
   CampaignObjective,
 } from "@/lib/types";
 import { attachedAdSetKey, ATTACH_CAMPAIGN_CAP, ATTACH_ALL_ADSETS_CAP } from "@/lib/types";
-import { assertSameObjective } from "@/lib/meta/attach-objective";
+import { assertAttachSelectionObjectives, assertSameObjective, resolveAttachCampaign } from "@/lib/meta/attach-objective";
 import { shouldSkipAdSetCreation } from "@/lib/meta/attach-adset-skip";
 import { buildAttachAllAdSetsMap } from "@/lib/meta/attach-all-adsets";
 import { stampPublishedCreatives } from "@/lib/meta/persist-launch-creatives";
@@ -1501,9 +1501,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     id: string;
     name: string;
     objective: string;
+    internalObjective?: CampaignObjective;
+    pixelId?: string;
     daily_budget?: string | number;
     lifetime_budget?: string | number;
   };
+  function pixelForCreatedAdSet(campaignId: string): string | undefined {
+    const fromDraft = draft.settings.metaPixelId || draft.settings.pixelId || undefined;
+    if (fromDraft) return fromDraft;
+    if (wizardMode !== "attach_campaign") return undefined;
+    return verifiedCampaigns.find((campaign) => campaign.id === campaignId)?.pixelId;
+  }
   const verifiedCampaigns: VerifiedLiveCampaign[] = [];
 
   function budgetScheduleForCreatedAdSets(campaignId: string) {
@@ -1515,6 +1523,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   function preflightAdSetPayloads(
     schedule: typeof draft.budgetSchedule,
     campaignId: string,
+    objective: CampaignObjective = draft.settings.objective,
   ) {
     try {
       return {
@@ -1525,8 +1534,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             draft.audiences,
             schedule,
             draft.settings.optimisationGoal,
-            draft.settings.objective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            objective,
+            pixelForCreatedAdSet(campaignId),
             false,
             draft.settings.placementConfig,
             entityStatus,
@@ -1587,7 +1596,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
 
-      const internal = mapMetaObjectiveToInternal(live.objective);
+      const voted = resolveAttachCampaign(live);
+      const objectiveOnly = mapMetaObjectiveToInternal(live.objective);
+      const internal =
+        wizardMode === "attach_campaign" ? voted.objective : objectiveOnly;
       if (!internal) {
         return NextResponse.json(
           {
@@ -1619,14 +1631,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // differ when multiple campaigns with different objectives are selected.
       if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
         const snap0 = attachCampaignSnapshots[0];
-        const snappedInternal = snap0?.internalObjective
-          ? snap0.internalObjective
-          : mapMetaObjectiveToInternal(snap0?.objective ?? "");
-        if (snappedInternal && internal !== snappedInternal) {
+        const snappedInternal =
+          wizardMode === "attach_campaign"
+            ? snap0?.internalObjective
+              ? snap0.internalObjective
+              : mapMetaObjectiveToInternal(snap0?.objective ?? "")
+            : mapMetaObjectiveToInternal(snap0?.objective ?? "") ?? snap0?.internalObjective;
+        const liveInternal = wizardMode === "attach_campaign" ? internal : objectiveOnly;
+        if (snappedInternal && liveInternal && liveInternal !== snappedInternal) {
           const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
           return NextResponse.json(
             {
-              error: `Campaign "${campName}" objective changed since you picked it (snapshot: "${snappedInternal}", live: "${internal}"). Re-open Step 1 and re-select.`,
+              error: `Campaign "${campName}" objective changed since you picked it (snapshot: "${snappedInternal}", live: "${liveInternal}"). Re-open Step 1 and re-select.`,
             },
             { status: 409 },
           );
@@ -1638,6 +1654,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         id: live.id,
         name: live.name ?? attachCampaignSnapshots[0]?.name ?? live.id,
         objective: live.objective ?? "",
+        internalObjective: internal,
+        ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
         daily_budget: live.daily_budget,
         lifetime_budget: live.lifetime_budget,
       });
@@ -1657,7 +1675,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               throw new Error(`Campaign "${c.name}" uses buying type "${c.buying_type}" — only AUCTION is supported`);
             if (c.effective_status && blockedStatuses.has(c.effective_status))
               throw new Error(`Campaign "${c.name}" is ${c.effective_status.toLowerCase()} — can't add ad sets to it`);
-            const ciInternal = mapMetaObjectiveToInternal(c.objective);
+            const voted = resolveAttachCampaign(c);
+            const ciInternal = voted.objective;
             if (!ciInternal)
               throw new Error(`Campaign "${c.name}" has an unsupported objective "${c.objective ?? "unknown"}"`);
             // GOAL 1 — per-campaign snapshot drift detection: compare live
@@ -1672,6 +1691,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               id: c.id,
               name: c.name ?? snap.id,
               objective: c.objective ?? "",
+              internalObjective: ciInternal,
+              ...(voted.pixelId ? { pixelId: voted.pixelId } : {}),
               daily_budget: c.daily_budget,
               lifetime_budget: c.lifetime_budget,
             };
@@ -1824,9 +1845,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (wizardMode === "attach_campaign") {
+      // The draft objective is the first campaign's. Compare it only for a
+      // single selection. Mixed campaigns each keep their own voted event.
+      const gate = assertAttachSelectionObjectives({
+        draftObjective: draft.settings.objective,
+        selectedCount: verifiedCampaigns.length,
+        campaigns: verifiedCampaigns.flatMap((campaign) =>
+          campaign.internalObjective
+            ? [{ name: campaign.name, resolvedObjective: campaign.internalObjective }]
+            : [],
+        ),
+      });
+      if (!gate.ok) {
+        return NextResponse.json({ error: gate.message }, { status: 400 });
+      }
       for (const campaign of verifiedCampaigns) {
         const schedule = budgetScheduleForAttach(draft.budgetSchedule, campaign);
-        const built = preflightAdSetPayloads(schedule, campaign.id);
+        const built = preflightAdSetPayloads(
+          schedule,
+          campaign.id,
+          campaign.internalObjective ?? draft.settings.objective,
+        );
         if ("error" in built) {
           return NextResponse.json({ error: built.error }, { status: 400 });
         }
@@ -3322,13 +3361,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     : enabledSets.filter((s) => LOOKALIKE_TYPES.has(s.sourceType));
 
   const phase2Objective =
-    wizardMode === "attach_campaign" || isAttachAllAdSets
-      ? internalObjectiveForAttachCampaign(
+    wizardMode === "attach_campaign"
+      ? (verifiedCampaigns.find((campaign) => campaign.id === metaCampaignId)?.internalObjective ??
+        internalObjectiveForAttachCampaign(
           metaCampaignId,
           attachCampaignSnapshots,
           draft.settings.objective,
-        )
-      : draft.settings.objective;
+        ))
+      : isAttachAllAdSets
+        ? internalObjectiveForAttachCampaign(
+            metaCampaignId,
+            attachCampaignSnapshots,
+            draft.settings.objective,
+          )
+        : draft.settings.objective;
 
   // task #125 — single source-of-truth dependency bundle for the shared
   // ad-set-create salvage ladder (lib/audiences/adset-create-with-salvage.ts),
@@ -3425,7 +3471,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             budgetScheduleForCreatedAdSets(metaCampaignId),
             draft.settings.optimisationGoal,
             phase2Objective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            pixelForCreatedAdSet(metaCampaignId),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
             entityStatus,
@@ -3604,7 +3650,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                 const rebuiltPayload = buildAdSetPayload(
                   adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
                   draft.settings.optimisationGoal, phase2Objective,
-                  draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+                  pixelForCreatedAdSet(metaCampaignId),
                   dynamicAdSetIds.has(adSet.id),
                   draft.settings.placementConfig,
             entityStatus,
@@ -4089,7 +4135,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           budgetScheduleForCreatedAdSets(metaCampaignId),
           draft.settings.optimisationGoal,
           phase2Objective,
-          draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+          pixelForCreatedAdSet(metaCampaignId),
           dynamicAdSetIds.has(adSet.id),
           draft.settings.placementConfig,
             entityStatus,
@@ -4154,7 +4200,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const adSetPayload = buildAdSetPayload(
             adSet, metaCampaignId, draft.audiences, budgetScheduleForCreatedAdSets(metaCampaignId),
             draft.settings.optimisationGoal, phase2Objective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            pixelForCreatedAdSet(metaCampaignId),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
             entityStatus,
@@ -4403,11 +4449,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
 
-      const ciObjective = internalObjectiveForAttachCampaign(
-        nextCampaign.id,
-        attachCampaignSnapshots,
-        draft.settings.objective,
-      );
+      const ciObjective =
+        nextCampaign.internalObjective ??
+        internalObjectiveForAttachCampaign(
+          nextCampaign.id,
+          attachCampaignSnapshots,
+          draft.settings.objective,
+        );
 
       // Standard ad sets (batches of 5, same as Phase 2).
       const CI_BATCH_SIZE = 5;
@@ -4430,7 +4478,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               budgetScheduleForCreatedAdSets(nextCampaign.id),
               draft.settings.optimisationGoal,
               ciObjective,
-              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+              pixelForCreatedAdSet(nextCampaign.id),
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
             entityStatus,
@@ -4498,7 +4546,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   const rebuiltPayload = buildAdSetPayload(
                     adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
                     draft.settings.optimisationGoal, ciObjective,
-                    draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+                    pixelForCreatedAdSet(nextCampaign.id),
                     dynamicAdSetIds.has(adSet.id),
                     draft.settings.placementConfig,
             entityStatus,
@@ -4605,7 +4653,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           const adSetPayload = buildAdSetPayload(
             adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
             draft.settings.optimisationGoal, ciObjective,
-            draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+            pixelForCreatedAdSet(nextCampaign.id),
             dynamicAdSetIds.has(adSet.id),
             draft.settings.placementConfig,
             entityStatus,
@@ -4649,7 +4697,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const adSetPayload = buildAdSetPayload(
               adSet, nextCampaign.id, draft.audiences, budgetScheduleForCreatedAdSets(nextCampaign.id),
               draft.settings.optimisationGoal, ciObjective,
-              draft.settings.metaPixelId || draft.settings.pixelId || undefined,
+              pixelForCreatedAdSet(nextCampaign.id),
               dynamicAdSetIds.has(adSet.id),
               draft.settings.placementConfig,
             entityStatus,

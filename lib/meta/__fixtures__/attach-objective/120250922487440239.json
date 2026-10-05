@@ -1,0 +1,74 @@
+{
+  "campaignId": "120250922487440239",
+  "fields": "objective,adsets.limit(50){promoted_object,optimization_goal}",
+  "capturedAt": "2026-10-05",
+  "note": "Live GET /{campaign_id}?fields=objective,adsets.limit(50){promoted_object,optimization_goal}. No access token.",
+  "response": {
+    "objective": "OUTCOME_SALES",
+    "adsets": {
+      "data": [
+        {
+          "promoted_object": {
+            "pixel_id": "2261755947685271",
+            "custom_event_type": "COMPLETE_REGISTRATION",
+            "smart_pse_enabled": false
+          },
+          "optimization_goal": "OFFSITE_CONVERSIONS",
+          "id": "120250922504010239"
+        },
+        {
+          "promoted_object": {
+            "pixel_id": "2261755947685271",
+            "custom_event_type": "COMPLETE_REGISTRATION",
+            "smart_pse_enabled": false
+          },
+          "optimization_goal": "OFFSITE_CONVERSIONS",
+          "id": "120250922503450239"
+        },
+        {
+          "promoted_object": {
+            "pixel_id": "2261755947685271",
+            "custom_event_type": "COMPLETE_REGISTRATION",
+            "smart_pse_enabled": false
+          },
+          "optimization_goal": "OFFSITE_CONVERSIONS",
+          "id": "120250922502750239"
+        },
+        {
+          "promoted_object": {
+            "pixel_id": "2261755947685271",
+            "custom_event_type": "COMPLETE_REGISTRATION",
+            "smart_pse_enabled": false
+          },
+          "optimization_goal": "OFFSITE_CONVERSIONS",
+          "id": "120250922502100239"
+        },
+        {
+          "promoted_object": {
+            "pixel_id": "2261755947685271",
+            "custom_event_type": "COMPLETE_REGISTRATION",
+            "smart_pse_enabled": false
+          },
+          "optimization_goal": "OFFSITE_CONVERSIONS",
+          "id": "120250922501590239"
+        },
+        {
+          "promoted_object": {
+            "pixel_id": "2261755947685271",
+            "custom_event_type": "COMPLETE_REGISTRATION",
+            "smart_pse_enabled": false
+          },
+          "optimization_goal": "OFFSITE_CONVERSIONS",
+          "id": "120250922500670239"
+        }
+      ],
+      "paging": {
+        "cursors": {
+          "before": "QVFIVGkzaV9XekcwVXNiZATFqR1g3MHpUSjdKbHZA2SVF6bHJ1YjBOak1nUng5Q2VKTUE2RjlybGpMalNldy02X2IxRjZArM0szRDI2OWVYTS1RWWUtZAUhfRV93",
+          "after": "QVFIVGw1OXlkQWd3dEZAXMHQzay1lZAjhyUTZAmV3VyVmFYNXVOZAXlrVlhnOHMyNjVFaTRTb21mUW1OdGhZAMXR5Tk93djR3WGhmWENPUjNUTEpJUlBrcHN5SHJB"
+        }
+      }
+    },
+    "id": "120250922487440239"
+  }
+}
