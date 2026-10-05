@@ -1,9 +1,10 @@
-import type { CampaignDraft } from "../types.ts";
+import type { CampaignDraft, WizardMode } from "../types.ts";
 import {
+  audienceAccountMismatch,
   collectAudienceAccountRefs,
   foreignAudienceRefusals,
 } from "../audiences/audience-account.ts";
-import { withActPrefix } from "./ad-account-id.ts";
+import { withActPrefix, withoutActPrefix } from "./ad-account-id.ts";
 import {
   assetAccountChecks,
   collectAdImageHashes,
@@ -34,6 +35,11 @@ export interface AccountScopeReads {
   >;
   /** Absolute paging.next URL. It already carries the token; do not log it. */
   fetchNext?: (url: string) => Promise<unknown>;
+  /**
+   * Ad-account id → display name. Used only after an audience mismatch,
+   * so image-hash reads are not asked for names.
+   */
+  listAccountNames?: (token: string) => Promise<ReadonlyMap<string, string>>;
 }
 
 async function defaultGraphGet(
@@ -65,6 +71,34 @@ async function defaultListVideoScopes(
   return listMetaChannelScopes(supabase, platformIds);
 }
 
+function namesFromAdAccounts(body: unknown): Map<string, string> {
+  const data = (body as { data?: Array<{ id?: string; name?: string; account_id?: string }> } | null)
+    ?.data;
+  const names = new Map<string, string>();
+  if (!Array.isArray(data)) return names;
+  for (const row of data) {
+    const name = row?.name?.trim();
+    if (!name) continue;
+    if (row.account_id) names.set(withoutActPrefix(String(row.account_id)), name);
+    if (row.id) names.set(withoutActPrefix(String(row.id)), name);
+  }
+  return names;
+}
+
+async function defaultListAccountNames(token: string): Promise<ReadonlyMap<string, string>> {
+  const body = await defaultGraphGet(
+    "/me/adaccounts",
+    { fields: "id,name,account_id", limit: "200" },
+    token,
+  );
+  return namesFromAdAccounts(body);
+}
+
+/** Audience checks create ad sets. Attach-to-ad-set launches do not. */
+export function launchSendsAudiences(mode: WizardMode): boolean {
+  return mode === "new" || mode === "attach_campaign";
+}
+
 async function fetchGraphNext(url: string): Promise<unknown> {
   const res = await fetch(url);
   const json = (await res.json()) as unknown;
@@ -88,27 +122,53 @@ export async function foreignAccountLaunchError(args: {
   token: string;
   supabase: unknown;
   userId: string;
+  /** Omitted means the draft's mode, and a missing draft mode means a new campaign. */
+  wizardMode?: WizardMode;
 } & AccountScopeReads): Promise<string | null> {
   const problems: string[] = [];
+  const wizardMode = args.wizardMode ?? args.draft.settings.wizardMode ?? "new";
 
-  const refs = collectAudienceAccountRefs(args.draft);
-  if (refs.length > 0) {
-    try {
-      const graphMultiGet = args.graphMultiGet ?? defaultGraphMultiGet;
-      const rows = await graphMultiGet(
-        "",
-        { ids: refs.map((ref) => ref.id).join(","), fields: "id,name,account_id" },
-        args.token,
-      );
-      const accountIdByAudienceId: Record<string, string | undefined> = {};
-      for (const ref of refs) {
-        const accountId = rows[ref.id]?.account_id;
-        if (accountId) accountIdByAudienceId[ref.id] = String(accountId);
+  if (!launchSendsAudiences(wizardMode)) {
+    console.info(`["account-scope-preflight"] audiences skipped: mode=${wizardMode}`);
+  } else {
+    const refs = collectAudienceAccountRefs(args.draft);
+    if (refs.length > 0) {
+      try {
+        const graphMultiGet = args.graphMultiGet ?? defaultGraphMultiGet;
+        const rows = await graphMultiGet(
+          "",
+          { ids: refs.map((ref) => ref.id).join(","), fields: "id,name,account_id" },
+          args.token,
+        );
+        const accountIdByAudienceId: Record<string, string | undefined> = {};
+        for (const ref of refs) {
+          const accountId = rows[ref.id]?.account_id;
+          if (accountId) accountIdByAudienceId[ref.id] = String(accountId);
+        }
+        const mismatched = refs.some((ref) => {
+          const accountId = accountIdByAudienceId[ref.id];
+          return !!accountId && audienceAccountMismatch(accountId, args.adAccountId);
+        });
+        let accountNames: ReadonlyMap<string, string> | undefined;
+        if (mismatched) {
+          try {
+            const listAccountNames = args.listAccountNames
+              ?? (args.graphMultiGet ? null : defaultListAccountNames);
+            accountNames = listAccountNames ? await listAccountNames(args.token) : undefined;
+          } catch (err) {
+            console.error("[account-scope-preflight] ad account name lookup failed:", err);
+          }
+        }
+        const refusal = foreignAudienceRefusals(
+          refs,
+          accountIdByAudienceId,
+          args.adAccountId,
+          accountNames,
+        );
+        if (refusal) problems.push(refusal);
+      } catch (err) {
+        console.error("[account-scope-preflight] audience account check failed:", err);
       }
-      const refusal = foreignAudienceRefusals(refs, accountIdByAudienceId, args.adAccountId);
-      if (refusal) problems.push(refusal);
-    } catch (err) {
-      console.error("[account-scope-preflight] audience account check failed:", err);
     }
   }
 

@@ -1,3 +1,4 @@
+import { summariseNamedList } from "../audiences/audience-account.ts";
 import { withoutActPrefix } from "./ad-account-id.ts";
 import type { CampaignDraft } from "../types.ts";
 
@@ -84,34 +85,43 @@ export function videoIdsProvenOnAnotherAccount(
   return { foreign, unverified };
 }
 
-export function foreignAssetMessage(
-  kind: "Image" | "Video",
-  fileName: string,
-  creativeName: string,
-): string {
-  return `${kind} ${fileName} on ${creativeName} was uploaded to a different ad account — re-upload it.`;
+function foreignAssetSentence(kind: "image" | "video", fileNames: readonly string[]): string {
+  const count = fileNames.length;
+  const noun = count === 1 ? kind : `${kind}s`;
+  const verb = count === 1 ? "belongs" : "belong";
+  const pronoun = count === 1 ? "it" : "them";
+  return `${count} ${noun} ${verb} to a different ad account: ${summariseNamedList(fileNames)} — re-upload ${pronoun}.`;
 }
 
 /**
  * Images: a hash missing after the full adimages walk is not in this
  * account. Videos: only an id proven to sit in a different account.
  * A video with no registry row is not in `videoIdsInOtherAccount`.
+ * One sentence per kind, naming at most three files.
  */
 export function refuseForeignAssets(input: {
   checks: readonly AssetAccountCheck[];
   presentHashes: ReadonlySet<string>;
   videoIdsInOtherAccount: ReadonlySet<string>;
 }): string | null {
-  const lines: string[] = [];
+  const images: string[] = [];
+  const videos: string[] = [];
+  const seenImages = new Set<string>();
+  const seenVideos = new Set<string>();
   for (const check of input.checks) {
-    if (check.kind === "image" && !input.presentHashes.has(check.key)) {
-      lines.push(foreignAssetMessage("Image", check.fileName, check.creativeName));
+    if (check.kind === "image" && !input.presentHashes.has(check.key) && !seenImages.has(check.key)) {
+      seenImages.add(check.key);
+      images.push(check.fileName);
     }
-    if (check.kind === "video" && input.videoIdsInOtherAccount.has(check.key)) {
-      lines.push(foreignAssetMessage("Video", check.fileName, check.creativeName));
+    if (check.kind === "video" && input.videoIdsInOtherAccount.has(check.key) && !seenVideos.has(check.key)) {
+      seenVideos.add(check.key);
+      videos.push(check.fileName);
     }
   }
-  return lines.length > 0 ? lines.join(" ") : null;
+  const sentences: string[] = [];
+  if (images.length > 0) sentences.push(foreignAssetSentence("image", images));
+  if (videos.length > 0) sentences.push(foreignAssetSentence("video", videos));
+  return sentences.length > 0 ? sentences.join(" ") : null;
 }
 
 export function assetAccountChecks(draft: CampaignDraft): AssetAccountCheck[] {

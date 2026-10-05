@@ -180,7 +180,7 @@ describe("launch budget preflight", () => {
     assert.match(fnBody, /catch \(err\)/);
     assert.match(
       routeSrc,
-      /if \("error" in built\) \{\s*return NextResponse\.json\(\{ error: built\.error \}, \{ status: 400 \}\);/,
+      /if \("error" in built\) \{\s*return launchJson\(\{ error: built\.error \}, \{ status: 400 \}\);/,
     );
     const attachAt = routeSrc.indexOf("budgetScheduleForAttach(draft.budgetSchedule, campaign)");
     assert.ok(attachAt > 0);

@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { stampLaunchErrorSource } from "@/lib/meta/launch-failure-copy";
 import { resolveMetaLaunchEntityStatus } from "@/lib/meta/launch-status";
 import { withMetaTransientRetry } from "@/lib/meta/transient-retry";
 import {
@@ -386,13 +387,22 @@ function logLaunchMetaCallCounts(phase: string): void {
   );
 }
 
+function launchJson(body: unknown, init?: ResponseInit): NextResponse {
+  const status = typeof init?.status === "number" ? init.status : 200;
+  const stamped =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? stampLaunchErrorSource(body as Record<string, unknown>, status)
+      : body;
+  return NextResponse.json(stamped, init);
+}
+
 function rateLimitJsonResponse(
   err: unknown,
   adAccountId?: string | null,
   bucOverride?: BusinessUseCaseSnapshot | null,
 ): NextResponse {
   logLaunchMetaCallCounts("rate-limit abort");
-  return NextResponse.json(launchRateLimitPayload(err, adAccountId, bucOverride), {
+  return launchJson(launchRateLimitPayload(err, adAccountId, bucOverride), {
     status: 429,
   });
 }
@@ -484,7 +494,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    return launchJson({ error: "Unauthorised" }, { status: 401 });
   }
 
   // ── Parse body ─────────────────────────────────────────────────────────────
@@ -508,7 +518,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     clientIgMap = body.igAccountMap ?? {};
     createPaused = body.createPaused === true;
   } catch (err) {
-    return NextResponse.json(
+    return launchJson(
       { error: `Invalid request body: ${err instanceof Error ? err.message : "bad JSON"}` },
       { status: 400 },
     );
@@ -632,7 +642,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   if (!launchToken) {
-    return NextResponse.json(
+    return launchJson(
       {
         error:
           "No Facebook access token available. Connect your Facebook account in Account Setup before launching.",
@@ -648,7 +658,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error(
       `[launch-campaign] ⛔ Stored token is EXPIRED (expires_at=${dbTokenExpiresAt}) — blocking launch.`,
     );
-    return NextResponse.json(
+    return launchJson(
       {
         error:
           "Your Facebook connection has expired. Please reconnect Facebook in Account Setup before launching.",
@@ -695,7 +705,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           liveTokenValidation.bucUsage ?? null,
         );
       }
-      return NextResponse.json(
+      return launchJson(
         {
           error: mapped.message,
           tokenExpired: true,
@@ -738,7 +748,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     "| resolved:", adAccountId || "(NONE)",
   );
   if (!adAccountId) {
-    return NextResponse.json(
+    return launchJson(
       { error: "Ad account ID is required. Go back to Account Setup and select an ad account." },
       { status: 400 },
     );
@@ -761,9 +771,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     token: launchToken,
     supabase,
     userId: user.id,
+    wizardMode: draft.settings.wizardMode ?? "new",
   });
   if (foreignAccount) {
-    return NextResponse.json({ error: foreignAccount }, { status: 400 });
+    return launchJson({ error: foreignAccount }, { status: 400 });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -824,7 +835,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       console.error(
         `[launch-campaign] ✗ Dynamic Creative guard: ${dynamicViolations.length} ad set(s) violate the one-ad-per-dynamic-ad-set rule — ${detail}`,
       );
-      return NextResponse.json(
+      return launchJson(
         {
           error:
             "A variation-rotation creative uses Dynamic Creative, and a Dynamic Creative ad set can contain only ONE ad. " +
@@ -865,7 +876,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           `resolved destination_type=${resolvedDestination ?? "(omitted)"} for ` +
           `${newAdSetRefusals.length} ad set(s) to be created`,
       );
-      return NextResponse.json(
+      return launchJson(
         {
           error: websiteDestinationRefusalMessage(
             draft.settings.objective,
@@ -956,13 +967,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (wizardMode === "attach_campaign" || isAttachAllAdSets) {
     if (attachCampaignSnapshots.length === 0) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Attach mode requires at least one existing campaign selected" },
         { status: 400 },
       );
     }
     if (attachCampaignSnapshots.length > ATTACH_CAMPAIGN_CAP) {
-      return NextResponse.json(
+      return launchJson(
         { error: `Maximum ${ATTACH_CAMPAIGN_CAP} campaigns per attach launch` },
         { status: 400 },
       );
@@ -1003,13 +1014,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   } else if (wizardMode === "attach_adset") {
     if (attachCampaignSnapshots.length === 0) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Attach-to-ad-set mode requires the parent campaign to be selected" },
         { status: 400 },
       );
     }
     if (attachAdSetIds.length === 0) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Attach-to-ad-set mode requires at least one existing ad set id" },
         { status: 400 },
       );
@@ -1021,7 +1032,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       (s) => s.campaignId && !allowedCampaignIds.has(s.campaignId),
     );
     if (orphan) {
-      return NextResponse.json(
+      return launchJson(
         {
           error:
             `Ad set "${orphan.name}" belongs to campaign ` +
@@ -1039,7 +1050,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     if (!campaignValidation.isValid) {
-      return NextResponse.json(
+      return launchJson(
         { error: "Campaign validation failed", fields: campaignValidation.errors },
         { status: 400 },
       );
@@ -1435,7 +1446,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     if (igUserIdErrors.length > 0) {
-      return NextResponse.json(
+      return launchJson(
         {
           error:
             "Instagram existing-post preflight failed — no instagram_user_id available",
@@ -1465,7 +1476,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     draft.budgetSchedule,
   );
   if (locationProblems.length > 0) {
-    return NextResponse.json(
+    return launchJson(
       { error: "Ad set locations are not launchable", details: locationProblems },
       { status: 400 },
     );
@@ -1586,7 +1597,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
       const live = await fetchCampaignById(attachTargetId!, launchToken ?? undefined);
       if (!live) {
-        return NextResponse.json(
+        return launchJson(
           {
             error:
               "Selected existing campaign not found in Meta. It may have been deleted, archived, or moved out of this ad account.",
@@ -1601,7 +1612,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const internal =
         wizardMode === "attach_campaign" ? voted.objective : objectiveOnly;
       if (!internal) {
-        return NextResponse.json(
+        return launchJson(
           {
             error: `Selected campaign has an unsupported objective "${live.objective ?? "unknown"}". This wizard can only add ad sets to campaigns whose objective maps to one of: purchase, registration, traffic, awareness, engagement.`,
           },
@@ -1609,7 +1620,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
       if (live.buying_type && live.buying_type !== "AUCTION") {
-        return NextResponse.json(
+        return launchJson(
           {
             error: `Selected campaign uses buying type "${live.buying_type}" — this wizard only creates AUCTION ad sets.`,
           },
@@ -1618,7 +1629,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       const blocked = new Set(["ARCHIVED", "DELETED"]);
       if (live.effective_status && blocked.has(live.effective_status)) {
-        return NextResponse.json(
+        return launchJson(
           {
             error: `Selected campaign is ${live.effective_status.toLowerCase()} — can't add new ad sets to it.`,
           },
@@ -1640,7 +1651,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const liveInternal = wizardMode === "attach_campaign" ? internal : objectiveOnly;
         if (snappedInternal && liveInternal && liveInternal !== snappedInternal) {
           const campName = snap0?.name ?? attachTargetId ?? "selected campaign";
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Campaign "${campName}" objective changed since you picked it (snapshot: "${snappedInternal}", live: "${liveInternal}"). Re-open Step 1 and re-select.`,
             },
@@ -1700,7 +1711,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
         for (const r of additionalResults) {
           if (r.status === "rejected") {
-            return NextResponse.json(
+            return launchJson(
               { error: `Multi-campaign validation failed: ${(r.reason as Error).message}` },
               { status: 400 },
             );
@@ -1731,7 +1742,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
         const missing = results.filter((r) => !r.live).map((r) => r.id);
         if (missing.length > 0) {
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Selected ad set${missing.length > 1 ? "s" : ""} not found in Meta — may have been deleted, archived, or moved: ${missing.join(", ")}`,
               metaError: { error: "adset_not_found", adSetIds: missing },
@@ -1746,7 +1757,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           (r) => r.live!.campaign_id && !allowedCampaignIdsP1.has(r.live!.campaign_id),
         );
         if (orphan) {
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Selected ad set "${orphan.live!.name}" no longer belongs to any of the selected campaigns — re-open Step 1 and re-pick.`,
             },
@@ -1759,7 +1770,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             r.live!.effective_status && blocked.has(r.live!.effective_status!),
         );
         if (archived) {
-          return NextResponse.json(
+          return launchJson(
             {
               error: `Selected ad set "${archived.live!.name}" is ${archived.live!.effective_status!.toLowerCase()} — can't add new ads to it.`,
             },
@@ -1789,7 +1800,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   .map((r) => `${r.adSetId} "${r.adSetName}" destination=${r.found}`)
                   .join("; "),
             );
-            return NextResponse.json(
+            return launchJson(
               { error: websiteDestinationRefusalMessage(internal, destinationRefusals) },
               { status: 409 },
             );
@@ -1835,7 +1846,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (isMetaRateLimitCode(code, subcode)) {
         return rateLimitJsonResponse(err, adAccountId);
       }
-      return NextResponse.json(
+      return launchJson(
         {
           error: `Failed to verify the existing campaign: ${message}`,
           metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
@@ -1857,7 +1868,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         ),
       });
       if (!gate.ok) {
-        return NextResponse.json({ error: gate.message }, { status: 400 });
+        return launchJson({ error: gate.message }, { status: 400 });
       }
       for (const campaign of verifiedCampaigns) {
         const schedule = budgetScheduleForAttach(draft.budgetSchedule, campaign);
@@ -1867,7 +1878,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           campaign.internalObjective ?? draft.settings.objective,
         );
         if ("error" in built) {
-          return NextResponse.json({ error: built.error }, { status: 400 });
+          return launchJson({ error: built.error }, { status: 400 });
         }
         const budgetRefusal = refuseSilentDailyLaunch({
           budgetLevel: schedule.budgetLevel,
@@ -1879,7 +1890,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           adSets: built.payloads,
         });
         if (budgetRefusal) {
-          return NextResponse.json({ error: budgetRefusal }, { status: 400 });
+          return launchJson({ error: budgetRefusal }, { status: 400 });
         }
       }
     }
@@ -1897,7 +1908,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
     const built = preflightAdSetPayloads(draft.budgetSchedule, "preflight");
     if ("error" in built) {
-      return NextResponse.json({ error: built.error }, { status: 400 });
+      return launchJson({ error: built.error }, { status: 400 });
     }
     const adSetGraphPayloads = built.payloads;
     const budgetRefusal = refuseSilentDailyLaunch({
@@ -1907,7 +1918,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       adSets: adSetGraphPayloads,
     });
     if (budgetRefusal) {
-      return NextResponse.json({ error: budgetRefusal }, { status: 400 });
+      return launchJson({ error: budgetRefusal }, { status: 400 });
     }
 
     try {
@@ -1958,7 +1969,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     } catch (err) {
       if (err instanceof CampaignLedgerObjectiveError) {
-        return NextResponse.json({ error: err.message }, { status: 409 });
+        return launchJson({ error: err.message }, { status: 409 });
       }
       if (err instanceof CampaignLedgerVerifyError) {
         console.error(
@@ -1969,7 +1980,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         if (isMetaRateLimitCode(err.code, err.subcode)) {
           return rateLimitJsonResponse(err.source ?? err, adAccountId);
         }
-        return NextResponse.json(
+        return launchJson(
           {
             error: err.message,
             metaError: err.source instanceof MetaApiError ? err.source.toJSON() : undefined,
@@ -1996,7 +2007,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (isMetaRateLimitCode(code, subcode)) {
         return rateLimitJsonResponse(err, adAccountId);
       }
-      return NextResponse.json(
+      return launchJson(
         {
           error: `Failed to create campaign: ${message}`,
           metaError: err instanceof MetaApiError ? err.toJSON() : undefined,
@@ -2173,7 +2184,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (multiIgPreflightErrors.length > 0) {
-    return NextResponse.json(
+    return launchJson(
       {
         error: "Launch preflight failed — Instagram account required for multi-IG pages",
         details: multiIgPreflightErrors,
@@ -2324,7 +2335,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       `[launch-campaign] Phase 1.5 ✗ BLOCKED — ${igMismatches.length} creative(s) ` +
         `reference an Instagram account this ad account will not accept:\n  ${details.join("\n  ")}`,
     );
-    return NextResponse.json(
+    return launchJson(
       {
         error: "Launch preflight failed — Instagram account not authorised on this ad account",
         details,
@@ -3304,7 +3315,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     if (adSetMetaIds.size === 0) {
-      return NextResponse.json(
+      return launchJson(
         {
           error: `No active or paused ad sets found across the selected campaigns. Make sure each campaign has at least one active ad set.`,
         },
@@ -4919,5 +4930,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // The client stores the full summary but does not overwrite adSetSuggestions.
   // ═══════════════════════════════════════════════════════════════════════════
 
-  return NextResponse.json(summary, { status: 201 });
+  return launchJson(summary, { status: 201 });
 }
