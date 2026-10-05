@@ -3,7 +3,10 @@
 import { useState, useCallback } from "react";
 import type { CampaignDraft, LaunchSummary } from "@/lib/types";
 import { setFbTokenExpiredGlobal } from "@/lib/hooks/useMeta";
-import type { LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
+import {
+  resolveLaunchErrorSource,
+  type LaunchErrorSource,
+} from "@/lib/meta/launch-failure-copy";
 import {
   writeBucCooldown,
   type RateLimitUiState,
@@ -91,7 +94,7 @@ export function useLaunchCampaign(): UseLaunchCampaignReturn {
           rateLimited?: boolean;
           rateLimit?: RateLimitUiState;
         };
-        setErrorSource(errBody.source === "preflight" ? "preflight" : "meta");
+        setErrorSource(resolveLaunchErrorSource(errBody.source, res.status));
         if (errBody.rateLimited && errBody.rateLimit) {
           setRateLimit(errBody.rateLimit);
           const id = errBody.rateLimit.adAccountId;

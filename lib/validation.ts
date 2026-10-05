@@ -9,7 +9,11 @@ import { validateCreativeAssetCompleteness } from "./validation/asset-completene
 import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
 import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
-import { audienceAccountMismatch, belongsToOtherAccountLabel } from "./audiences/audience-account.ts";
+import {
+  audienceAccountMismatch,
+  belongsToOtherAccountLabel,
+  enabledAdSetSourceIds,
+} from "./audiences/audience-account.ts";
 import {
   importedAccountProblem,
   importedAdSetsDefineAudience,
@@ -169,17 +173,21 @@ function validateOptimisationStrategy(draft: CampaignDraft): ValidationResult {
   return { valid: errors.length === 0, errors };
 }
 
-function foreignAudienceNotes(draft: CampaignDraft): string[] {
-  const notes: string[] = [];
+function foreignAudienceNotes(draft: CampaignDraft): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
   const launchAccount = draft.settings.metaAdAccountId || draft.settings.adAccountId;
+  const referenced = enabledAdSetSourceIds(draft.adSetSuggestions ?? []);
   for (const group of draft.audiences.pageGroups) {
     for (const status of group.engagementAudienceStatuses ?? []) {
       if (!audienceAccountMismatch(status.accountId, launchAccount)) continue;
       const name = group.name || "Page group";
-      notes.push(`${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`);
+      const line = `${name}: ${belongsToOtherAccountLabel(status.accountId ?? "")}`;
+      if (referenced.has(group.id)) errors.push(line);
+      else warnings.push(line);
     }
   }
-  return notes;
+  return { errors, warnings };
 }
 
 function audiencesComeFromLiveAdSets(draft: CampaignDraft): boolean {
@@ -193,7 +201,8 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
   // Attach-to-ad-set launches never send the draft's audiences. A foreign
   // audience is a note, not a blocker.
   if (audiencesComeFromLiveAdSets(draft)) {
-    const warnings = foreignAudienceNotes(draft);
+    const foreign = foreignAudienceNotes(draft);
+    const warnings = [...foreign.errors, ...foreign.warnings];
     return warnings.length > 0
       ? { valid: true, errors: [], warnings }
       : { valid: true, errors: [] };
@@ -215,7 +224,8 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
     errors.push("Select at least one audience source");
   }
 
-  errors.push(...foreignAudienceNotes(draft));
+  const foreign = foreignAudienceNotes(draft);
+  errors.push(...foreign.errors);
 
   for (const pageId of findMultiIgPagesMissingOverride(draft)) {
     errors.push(
@@ -223,7 +233,11 @@ function validateAudiences(draft: CampaignDraft): ValidationResult {
     );
   }
 
-  return { valid: errors.length === 0, errors };
+  return {
+    valid: errors.length === 0,
+    errors,
+    ...(foreign.warnings.length ? { warnings: foreign.warnings } : {}),
+  };
 }
 
 function isValidUrl(value: string): boolean {

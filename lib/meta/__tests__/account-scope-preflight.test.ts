@@ -7,6 +7,7 @@ import { createDefaultCreative, createDefaultDraft } from "../../campaign-defaul
 import { validateStep } from "../../validation.ts";
 import { foreignAccountLaunchError } from "../account-scope-preflight.ts";
 import type { WizardMode } from "../../types.ts";
+import type { AdSetSuggestion } from "../../types.ts";
 
 const LAUNCH = "act_606252931141334";
 const OTHER = "act_1073273492854557";
@@ -51,7 +52,10 @@ function draftWith(input: {
         lookalike: false,
         lookalikeRanges: [],
         customAudienceIds: [],
-        engagementAudienceIds: input.audienceId ? [input.audienceId] : [],
+        engagementAudienceIds: [
+          ...(input.audienceId ? [input.audienceId] : []),
+          ...names.map((_, index) => audienceIdAt(index)),
+        ],
         engagementAudienceStatuses: names.map((pageName, index) => ({
           id: audienceIdAt(index),
           type: "ig_engagement_365d" as const,
@@ -61,6 +65,20 @@ function draftWith(input: {
           readyForLookalike: true,
           populating: false,
         })),
+      },
+    ];
+    draft.adSetSuggestions = [
+      {
+        id: "adset-main",
+        name: "Similar Pages",
+        sourceType: "page_group",
+        sourceId: "group-1",
+        sourceName: "Similar Pages",
+        ageMin: 18,
+        ageMax: 65,
+        budgetPerDay: 20,
+        advantagePlus: true,
+        enabled: true,
       },
     ];
   }
@@ -341,5 +359,115 @@ describe("foreignAccountLaunchError", () => {
     assert.equal(result.valid, true);
     assert.equal(result.errors.some((error) => error.includes("belongs to")), false);
     assert.ok(result.warnings?.some((warning) => warning.includes("belongs to act_1073273492854557")));
+  });
+
+  function suggestion(
+    id: string,
+    name: string,
+    sourceId: string,
+    sourceType: AdSetSuggestion["sourceType"],
+    enabled: boolean,
+    lookalikeRange?: AdSetSuggestion["lookalikeRange"],
+  ): AdSetSuggestion {
+    return {
+      id,
+      name,
+      sourceType,
+      sourceId,
+      sourceName: name,
+      ageMin: 18,
+      ageMax: 65,
+      budgetPerDay: 20,
+      advantagePlus: true,
+      enabled,
+      lookalikeRange,
+    };
+  }
+
+  function wideLookalikeDraft(wideEnabled: boolean) {
+    const draft = createDefaultDraft();
+    draft.settings.adAccountId = LAUNCH;
+    draft.settings.metaAdAccountId = LAUNCH;
+    const wideIds = Array.from({ length: 7 }, (_, index) =>
+      `12025119144824${String(index).padStart(4, "0")}`,
+    );
+    draft.audiences.customAudienceGroups = [
+      { id: "colyn", name: "Colyn", audienceIds: ["120251191448250000"] },
+      { id: "curated", name: "Similar Pages - Curated", audienceIds: ["120251191448250001"] },
+      {
+        id: "wide",
+        name: "Similar Pages - Wide",
+        audienceIds: [],
+        lookalikeAudienceIdsByRange: { "0-1%": wideIds },
+      },
+    ];
+    draft.adSetSuggestions = [
+      suggestion("a1", "Colyn", "colyn", "custom_group", true),
+      suggestion("a2", "Similar Pages - Curated", "curated", "custom_group", true),
+      suggestion("a3", "Similar Pages - Wide", "wide", "custom_group_lookalike", wideEnabled, "0-1%"),
+    ];
+    return { draft, wideIds };
+  }
+
+  it("disabled ad set referencing foreign lookalikes does not refuse", async () => {
+    const { draft, wideIds } = wideLookalikeDraft(false);
+    let requested = "";
+    const error = await foreignAccountLaunchError({
+      draft,
+      adAccountId: LAUNCH,
+      token: "test-token",
+      supabase: {},
+      userId: "operator-2",
+      wizardMode: "new",
+      graphMultiGet: async (_path, params) => {
+        requested = params.ids;
+        const rows: Record<string, { account_id: string }> = {};
+        for (const id of params.ids.split(",")) {
+          rows[id] = {
+            account_id: wideIds.includes(id) ? "584836032177995" : "606252931141334",
+          };
+        }
+        return rows;
+      },
+      listVideoScopes: async () => ({ ok: true, rows: [] }),
+    });
+    assert.equal(error, null);
+    for (const id of wideIds) assert.equal(requested.includes(id), false);
+  });
+
+  it("enabling that ad set refuses Similar Pages - Wide (7 lookalikes) once", async () => {
+    const { draft, wideIds } = wideLookalikeDraft(true);
+    const error = await foreignAccountLaunchError({
+      draft,
+      adAccountId: LAUNCH,
+      token: "test-token",
+      supabase: {},
+      userId: "operator-2",
+      wizardMode: "new",
+      graphMultiGet: async (_path, params) => {
+        const rows: Record<string, { account_id: string }> = {};
+        for (const id of params.ids.split(",")) {
+          rows[id] = {
+            account_id: wideIds.includes(id) ? "584836032177995" : "606252931141334",
+          };
+        }
+        return rows;
+      },
+      listVideoScopes: async () => ({ ok: true, rows: [] }),
+    });
+    const phrase = "Similar Pages - Wide (7 lookalikes)";
+    assert.equal(error?.split(phrase).length, 2);
+    assert.match(error ?? "", /7 audiences in this draft belong to act_584836032177995/);
+  });
+
+  it("validateStep: foreign group unreferenced by any enabled ad set is not in errors", () => {
+    const draft = draftWith({ audienceNames: ["Luuk van Dijk"] });
+    draft.adSetSuggestions = draft.adSetSuggestions.map((adSet) => ({ ...adSet, enabled: false }));
+    const status = draft.audiences.pageGroups[0]?.engagementAudienceStatuses?.[0];
+    assert.ok(status);
+    status.accountId = "584836032177995";
+    const result = validateStep(3, draft);
+    assert.equal(result.errors.some((error) => error.includes("belongs to")), false);
+    assert.ok(result.warnings?.some((warning) => warning.includes("belongs to act_584836032177995")));
   });
 });

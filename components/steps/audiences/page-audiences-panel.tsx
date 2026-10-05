@@ -51,6 +51,8 @@ interface PageAudiencesPanelProps {
    * account is a note, not an error.
    */
   accountMismatchMuted?: boolean;
+  /** Groups an enabled ad set will send. Others show the account note muted. */
+  referencedGroupIds?: ReadonlySet<string>;
 }
 
 const ENGAGEMENT_OPTIONS: { value: EngagementType; label: string }[] = [
@@ -598,6 +600,7 @@ export function PageAudiencesPanel({
   splalGroups = [],
   onSplalGroupsChange,
   accountMismatchMuted = false,
+  referencedGroupIds,
 }: PageAudiencesPanelProps) {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -1175,7 +1178,10 @@ export function PageAudiencesPanel({
                             <span
                               data-testid="audience-account-warning"
                               className={`inline-flex items-center gap-1 text-[10px] font-medium ${
-                                accountMismatchMuted ? "text-muted-foreground" : "text-amber-600"
+                                accountMismatchMuted ||
+                                (referencedGroupIds != null && !referencedGroupIds.has(group.id))
+                                  ? "text-muted-foreground"
+                                  : "text-amber-600"
                               }`}
                             >
                               {foreign.label}
