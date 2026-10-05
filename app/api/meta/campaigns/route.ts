@@ -37,6 +37,7 @@ import {
   type RawMetaCampaign,
 } from "@/lib/meta/client";
 import { resolveServerMetaToken } from "@/lib/meta/server-token";
+import { resolveAttachCampaign } from "@/lib/meta/attach-objective";
 import { mapMetaObjectiveToInternal } from "@/lib/meta/campaign";
 import { normalizeAdAccountId } from "@/lib/meta/ad-account";
 import type {
@@ -50,12 +51,24 @@ const MAX_LIMIT = 50;
 function deriveCompatibility(raw: RawMetaCampaign): {
   compatible: boolean;
   internalObjective?: ReturnType<typeof mapMetaObjectiveToInternal>;
+  objectiveSource: "campaign" | "adsets";
+  adSetCount: number;
+  conversionEvent: string | null;
+  pixelId: string | null;
   reason?: string;
 } {
-  const internal = mapMetaObjectiveToInternal(raw.objective);
+  const voted = resolveAttachCampaign(raw);
+  const internal = voted.objective;
+  const vote = {
+    objectiveSource: voted.objectiveSource,
+    adSetCount: voted.adSetCount,
+    conversionEvent: voted.conversionEvent,
+    pixelId: voted.pixelId,
+  };
   if (!internal) {
     return {
       compatible: false,
+      ...vote,
       reason: `Objective "${raw.objective ?? "unknown"}" not supported by this wizard.`,
     };
   }
@@ -63,6 +76,7 @@ function deriveCompatibility(raw: RawMetaCampaign): {
     return {
       compatible: false,
       internalObjective: internal,
+      ...vote,
       reason: `Buying type "${raw.buying_type}" not supported (this wizard only creates auction ad sets).`,
     };
   }
@@ -72,10 +86,11 @@ function deriveCompatibility(raw: RawMetaCampaign): {
     return {
       compatible: false,
       internalObjective: internal,
+      ...vote,
       reason: `Campaign is ${raw.effective_status.toLowerCase()}; can't add ad sets.`,
     };
   }
-  return { compatible: true, internalObjective: internal };
+  return { compatible: true, internalObjective: internal, ...vote };
 }
 
 function toSummary(raw: RawMetaCampaign): MetaCampaignSummary {
@@ -85,6 +100,10 @@ function toSummary(raw: RawMetaCampaign): MetaCampaignSummary {
     name: raw.name,
     objective: raw.objective ?? "",
     internalObjective: c.internalObjective,
+    objectiveSource: c.objectiveSource,
+    adSetCount: c.adSetCount,
+    ...(c.conversionEvent ? { conversionEvent: c.conversionEvent } : {}),
+    ...(c.pixelId ? { pixelId: c.pixelId } : {}),
     status: raw.status ?? "",
     effectiveStatus: raw.effective_status,
     buyingType: raw.buying_type,

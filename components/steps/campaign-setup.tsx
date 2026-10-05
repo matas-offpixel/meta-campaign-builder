@@ -43,6 +43,7 @@ import {
   Plus, Link2, Layers, AlertCircle, Info, X, ListChecks,
 } from "lucide-react";
 import { CampaignMultiPicker } from "@/components/bulk-attach/campaign-multi-picker";
+import { attachChipLabel, attachObjectiveChipTitle } from "@/lib/meta/attach-objective";
 import { AdSetPicker } from "./adset-picker";
 import { CrossCampaignAdSetPicker } from "./cross-campaign-adset-picker";
 
@@ -367,6 +368,10 @@ export function CampaignSetup({
         // Store internalObjective so we can reconstruct settings.objective when
         // this campaign later moves to the front of the list (e.g. first is deselected).
         internalObjective: campaign.internalObjective ?? undefined,
+        objectiveSource: campaign.objectiveSource,
+        adSetCount: campaign.adSetCount,
+        ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
+        ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
         status: campaign.status,
         effectiveStatus: campaign.effectiveStatus,
         capturedAt: new Date().toISOString(),
@@ -436,6 +441,10 @@ export function CampaignSetup({
             name: campaign.name,
             objective: campaign.objective,
             internalObjective: campaign.internalObjective ?? undefined,
+            objectiveSource: campaign.objectiveSource,
+            adSetCount: campaign.adSetCount,
+            ...(campaign.conversionEvent ? { conversionEvent: campaign.conversionEvent } : {}),
+            ...(campaign.pixelId ? { pixelId: campaign.pixelId } : {}),
             status: campaign.status,
             effectiveStatus: campaign.effectiveStatus,
             capturedAt: new Date().toISOString(),
@@ -743,9 +752,22 @@ export function CampaignSetup({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="truncate font-medium">{camp.name}</span>
-                        <Badge variant="primary">
-                          {(camp.internalObjective && OBJECTIVE_LABELS[camp.internalObjective]) ?? camp.objective}
-                        </Badge>
+                        <span
+                          title={
+                            camp.internalObjective
+                              ? attachObjectiveChipTitle(
+                                  camp.objectiveSource ?? "campaign",
+                                  camp.adSetCount ?? 0,
+                                )
+                              : undefined
+                          }
+                        >
+                          <Badge variant="primary">
+                            {camp.internalObjective
+                              ? attachChipLabel(camp.internalObjective)
+                              : camp.objective}
+                          </Badge>
+                        </span>
                         {camp.effectiveStatus && (
                           <Badge variant="outline">{camp.effectiveStatus}</Badge>
                         )}
@@ -754,6 +776,12 @@ export function CampaignSetup({
                         <code className="rounded bg-muted px-1.5 py-0.5">{camp.id}</code>
                         <span>Raw objective: {camp.objective}</span>
                       </div>
+                      {camp.conversionEvent ? (
+                        <Datum className="mt-1 text-[11px] text-muted-foreground">
+                          Conversion event: {camp.conversionEvent}
+                          {camp.pixelId ? ` · pixel ${camp.pixelId}` : ""}
+                        </Datum>
+                      ) : null}
                     </div>
                     {camp.locked ? null : (
                     <button
