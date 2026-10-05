@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1012
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1012
 - **Branch:** `cursor/attach-inherits-conversion-event`
 
 ## Summary
