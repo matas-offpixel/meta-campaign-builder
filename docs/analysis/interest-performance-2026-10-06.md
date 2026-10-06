@@ -1,6 +1,6 @@
 # Interest-cluster performance — registration phase
 
-Generated 2026-10-06T20:47:54.559Z · source data: `2026-10-06` JSON beside this file. Read-only against Meta, prod and Cirqlin.
+Generated 2026-10-06T21:04:48.917Z · source data: `2026-10-06` JSON beside this file. Read-only against Meta, prod and Cirqlin.
 
 GBP normalisation: 1 EUR = £0.848824, 1 USD = £0.753239 (frankfurter.app (ECB reference), 2026-10-06). Reach is summed across ad sets and is not deduplicated.
 
@@ -36,6 +36,8 @@ Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by 
 
 ### 4theFans
 
+Client median CPR £0.84 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Football Prospecting - Edinburgh 40km - 18-50 | Football (football), FIFA World Cup, FIFA (professional organisation), football fans (football) (4) | 20 | 18 | 1 | £2,800.75 | 4184 | £0.67 | pixel | 149.39 | 1.719% | 0 / 20 | 0 / 0 | 2026-01-12 → 2026-04-09 |
@@ -46,6 +48,8 @@ Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by 
 
 ### Deep House Bible
 
+Client median CPR £2.64 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Prospecting - Medolic & Business Techno - ES (18-45) | KEINEMUSIK, House music (music), Carl Cox (3) | 4 | 2 | 1 | £245.02 (USD 325.29) | 110 | £2.23 | pixel | 44.89 | 1.119% | 0 / 4 | 0 / 0 | 2026-01-22 → 2026-08-19 |
@@ -54,6 +58,8 @@ Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by 
 | 4 | Prospecting - streaming - 21-45 - Miami (80km) | Spotify (streaming service), SoundCloud, Apple Music (3) | 8 | 8 | 1 | £240.46 (USD 319.24) | 81 | £2.97 | pixel | 33.68 | 0.982% | 0 / 8 | 0 / 0 | 2026-03-24 → 2026-05-03 |
 
 ### Electric Brixton
+
+Client median CPR £1.97 (median of non-thin cluster CPRs; all clusters when none is non-thin).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -65,6 +71,8 @@ Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by 
 
 ### IRONWORKS
 
+Client median CPR £1.60 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | [IG] Prospecting - Publications - London 30km - 18-40 | Mixmag (1) | 6 | 6 | 1 | £894.87 | 956 | £0.94 | pixel | 106.83 | 2.293% | 0 / 6 | 0 / 0 | 2026-05-27 → 2026-07-29 |
@@ -75,15 +83,21 @@ Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by 
 
 ### Innellea
 
+Client median CPR £1.19 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+
 No non-thin cluster (6 clusters, all thin).
 
 ### Junction 2
+
+Client median CPR £3.40 (median of non-thin cluster CPRs; all clusters when none is non-thin).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | LWE (20%) \| Junction 2 \| [UTB033] Junction 2 (2025) \| Christmas Sign up \|\| Interests \| VLA/Story \| 20 Dec 2024 - 10 Jan 2025 | Mount Kimbie, Music festivals (events), Moxie, DVS1, Electronic music (music), Nina Kraviz (6) | 3 | 3 | 1 | £4,027.59 | 1184 | £3.40 | pixel | 29.4 | 0.967% | 0 / 3 | 0 / 0 | 2024-12-09 → 2025-02-04 |
 
 ### Louder / Parable
+
+Client median CPR £2.76 (median of non-thin cluster CPRs; all clusters when none is non-thin).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -95,6 +109,8 @@ No non-thin cluster (6 clusters, all thin).
 
 ### Off/Pixel
 
+Client median CPR £1.90 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Fashion | Fashion design (design), Luxury Lifestyle (website), Vogue (magazine), Designer clothing (clothing) (4) | 5 | 5 | 1 | £190.03 | 131 | £1.45 | pixel | 68.94 | 2.279% | 0 / 5 | 0 / 0 | 2026-08-26 → 2026-09-09 |
@@ -104,6 +120,8 @@ No non-thin cluster (6 clusters, all thin).
 | 5 | Prospecting - Streetwear | New Balance (footwear), HYPEBEAST, Streetwear Shop, Streetwear (clothing), adidas originals, Stussy (6) | 14 | 12 | 1 | £179.02 | 94 | £1.90 | pixel | 52.51 | 1.344% | 0 / 14 | 0 / 0 | 2026-07-29 → 2026-09-30 |
 
 ### Puzzle
+
+Client median CPR £2.13 (median of non-thin cluster CPRs; all clusters when none is non-thin).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|

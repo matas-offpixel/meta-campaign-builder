@@ -5,10 +5,14 @@
 //   npx tsx --env-file=.env.local scripts/interest-performance.mts \
 //     [--since 2026-01-01] [--refresh] [--cirqlin-csv docs/analysis/cirqlin-signup-utms-2026-10-06.csv]
 //
+//   npx tsx scripts/interest-performance.mts \
+//     --seed-keys=docs/analysis/interest-clusters-seed-keys.json [--report docs/analysis/interest-performance-<date>.json]
+//
 // Raw ad sets are cached at scripts/out/interest-insights/<account_id>/<adset_id>.json
 // (custom audience lists replaced by their counts). Re-runs read the cache
-// unless --refresh. Writes docs/analysis/interest-performance-<date>.{md,json}
-// and docs/analysis/interest-templates-seed.json.
+// unless --refresh. Writes docs/analysis/interest-performance-<date>.{md,json}.
+// --seed-keys reads only the report JSON and writes
+// docs/analysis/interest-templates-seed.json; supabase/migrations/182 embeds that file.
 //
 // Requires env: META_ACCESS_TOKEN, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 
@@ -35,13 +39,15 @@ import {
   regActionsOf,
   registrationReason,
   renderInterestReport,
-  seedFromReport,
+  clientMedianCpr,
+  seedFromKeys,
   whatToTestNext,
   type AggregateContext,
   type AnalysisAdSet,
   type InterestReportJson,
   type LaunchedDescriptor,
   type RegActionType,
+  type SeedKey,
 } from "../lib/analysis/interest-performance.ts";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
@@ -50,6 +56,8 @@ const OUT_DIR = path.join(ROOT, "docs/analysis");
 
 const args = process.argv.slice(2);
 function flag(name: string): string | null {
+  const inline = args.find((a) => a.startsWith(`--${name}=`));
+  if (inline) return inline.slice(name.length + 3);
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? (args[i + 1] ?? null) : null;
 }
@@ -57,6 +65,29 @@ const SINCE = flag("since");
 const REFRESH = args.includes("--refresh");
 const TODAY = new Date().toISOString().slice(0, 10);
 const CIRQLIN_CSV = flag("cirqlin-csv") ?? latestCirqlinCsv();
+
+const SEED_KEYS = flag("seed-keys");
+if (SEED_KEYS) {
+  writeSeed(SEED_KEYS, flag("report") ?? latestReportJson());
+  process.exit(0);
+}
+
+/** Seed-only mode: no Meta or Supabase calls, the report JSON is the whole input. */
+function writeSeed(keysPath: string, reportPath: string | null) {
+  if (!reportPath) throw new Error("No docs/analysis/interest-performance-*.json — pass --report");
+  const json = JSON.parse(readFileSync(reportPath, "utf8")) as InterestReportJson;
+  const keys = JSON.parse(readFileSync(keysPath, "utf8")) as SeedKey[];
+  const seed = seedFromKeys(json, keys);
+  const out = path.join(OUT_DIR, "interest-templates-seed.json");
+  writeFileSync(out, `${JSON.stringify(seed, null, 2)}\n`);
+  console.log(`wrote ${path.relative(ROOT, out)}: ${seed.length} clusters from ${path.relative(ROOT, reportPath)}`);
+}
+
+function latestReportJson(): string | null {
+  if (!existsSync(OUT_DIR)) return null;
+  const files = readdirSync(OUT_DIR).filter((f) => /^interest-performance-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+  return files.length ? path.join(OUT_DIR, files[files.length - 1]) : null;
+}
 
 const TOKEN = process.env.META_ACCESS_TOKEN;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -485,7 +516,13 @@ async function main() {
   const perClient = clientsSeen.map((client) => {
     const cs = buildClusters(clustered.filter((a) => a.clientName === client), ctx);
     const r = rankClusters(cs.filter((c) => !c.thin)).concat(rankClusters(cs.filter((c) => c.thin)));
-    return { client, ranked: r.map((c) => c.key), clusters: cs, nonThin: cs.filter((c) => !c.thin).length };
+    return {
+      client,
+      ranked: r.map((c) => c.key),
+      clusters: cs,
+      nonThin: cs.filter((c) => !c.thin).length,
+      medianCpr: clientMedianCpr(cs),
+    };
   });
   const interests = buildInterestStats(clustered, ctx);
   const rankedInterests = rankClusters(
@@ -547,7 +584,6 @@ async function main() {
   const base = path.join(OUT_DIR, `interest-performance-${TODAY}`);
   writeFileSync(`${base}.json`, `${JSON.stringify(json, null, 2)}\n`);
   writeFileSync(`${base}.md`, renderInterestReport(json));
-  writeFileSync(path.join(OUT_DIR, "interest-templates-seed.json"), `${JSON.stringify(seedFromReport(json), null, 2)}\n`);
   console.log(
     `wrote ${path.relative(ROOT, base)}.{md,json}: ${registration.length} registration ad sets, ${clusters.length} clusters (${clusters.filter((c) => !c.thin).length} non-thin)`,
   );

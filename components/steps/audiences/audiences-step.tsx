@@ -223,6 +223,7 @@ export function AudiencesStep({
           audiences={audiences}
           onChange={(interestGroups) => onChange({ ...audiences, interestGroups })}
           campaignName={campaignName}
+          clientId={clientId}
         />
       </TabPanel>
     </div>

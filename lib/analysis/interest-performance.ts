@@ -753,7 +753,14 @@ export interface InterestReportJson {
   actionTypes: AccountActionFinding[];
   clusters: ClusterStats[];
   ranked: string[];
-  perClient: { client: string; ranked: string[]; clusters: ClusterStats[]; nonThin: number }[];
+  perClient: {
+    client: string;
+    ranked: string[];
+    clusters: ClusterStats[];
+    nonThin: number;
+    /** See {@link clientMedianCpr}. */
+    medianCpr: number | null;
+  }[];
   interests: InterestStats[];
   rankedInterests: string[];
   noActions: { id: string; name: string; accountId: string; campaignName: string; spend: number; currency: string; hasInsights: boolean }[];
@@ -853,6 +860,8 @@ export function renderInterestReport(json: InterestReportJson): string {
     const map = new Map(pc.clusters.map((c) => [c.key, c]));
     const top = pc.ranked.map((k) => map.get(k)!).filter((c) => c && !c.thin).slice(0, 5);
     out.push(`### ${pc.client}`);
+    out.push("");
+    out.push(`Client median CPR ${gbp(pc.medianCpr ?? null)} (median of non-thin cluster CPRs; all clusters when none is non-thin).`);
     out.push("");
     if (!top.length) {
       out.push(`No non-thin cluster (${pc.clusters.length} clusters, all thin).`);
@@ -993,38 +1002,114 @@ export function renderInterestReport(json: InterestReportJson): string {
   return out.join("\n");
 }
 
+/**
+ * A client's typical CPR: the median CPR of its non-thin clusters, or of
+ * all its clusters with a CPR when none is non-thin. Even counts average
+ * the middle two.
+ */
+export function clientMedianCpr(clusters: readonly ClusterStats[]): number | null {
+  const withCpr = clusters.filter((c) => c.cpr != null);
+  const nonThin = withCpr.filter((c) => !c.thin);
+  const pool = (nonThin.length ? nonThin : withCpr).map((c) => c.cpr as number).sort((a, b) => a - b);
+  if (!pool.length) return null;
+  const mid = pool.length / 2;
+  return round(pool.length % 2 ? pool[Math.floor(mid)] : (pool[mid - 1] + pool[mid]) / 2);
+}
+
+export type SeedVertical = "music" | "football" | "other";
+
+/** One curated row in the seed-keys file. */
+export interface SeedKey {
+  /** Cluster key in the report JSON (sorted interest ids, comma-joined). */
+  key: string;
+  name: string;
+  vertical: SeedVertical;
+  /** Take evidence from this client's slice of the cluster only. */
+  client?: string;
+  confidence?: "thin";
+  /** Interests left out of the seeded group; evidence stays as measured with them. */
+  drop?: { id: string; reason: string }[];
+  note?: string;
+}
+
 export interface SeedCluster {
   name: string;
+  vertical: SeedVertical;
   interestIds: string[];
   interests: { id: string; name: string }[];
   evidence: {
+    clusterKey: string;
     adSets: number;
     spend: number;
     registrations: number;
-    cpr: number;
+    cpr: number | null;
     cprSource: "first_party" | "pixel";
     clients: string[];
+    /** Cluster CPR ÷ the spend-weighted median CPR of its clients. Below 1 beats the client's norm. */
+    cprIndex: number | null;
+    clientMedianCpr: number | null;
+    confidence?: "thin";
+    note?: string;
+    dropped?: { id: string; name: string; reason: string }[];
   };
 }
 
-/** Top `n` non-thin clusters with a CPR, as the saved-cluster seed. Spend and CPR are GBP. */
-export function seedFromReport(json: InterestReportJson, n = 8): SeedCluster[] {
+/**
+ * Seed rows from curated keys, in the file's order. Evidence and
+ * interest names come from the report JSON; a key missing from it throws.
+ * Spend and CPR are GBP.
+ */
+export function seedFromKeys(json: InterestReportJson, keys: readonly SeedKey[]): SeedCluster[] {
   const byKey = new Map(json.clusters.map((c) => [c.key, c]));
-  return json.ranked
-    .map((k) => byKey.get(k)!)
-    .filter((c) => c && !c.thin && c.cpr != null)
-    .slice(0, n)
-    .map((c) => ({
-      name: c.name,
-      interestIds: c.interestIds,
-      interests: c.interests.map((i) => ({ id: i.id, name: i.name ?? i.id })),
+  const perClient = new Map(json.perClient.map((pc) => [pc.client, pc]));
+  const sliceOf = (client: string, key: string) => perClient.get(client)?.clusters.find((c) => c.key === key);
+  return keys.map((k) => {
+    const whole = byKey.get(k.key);
+    if (!whole) throw new Error(`Seed key not in report: ${k.name} (${k.key})`);
+    const c = k.client ? sliceOf(k.client, k.key) : whole;
+    if (!c) throw new Error(`Seed key ${k.name} has no slice for client ${k.client}`);
+    let weighted = 0;
+    let weight = 0;
+    for (const client of c.clients) {
+      const median = perClient.get(client)?.medianCpr ?? null;
+      const spend = sliceOf(client, k.key)?.spendGbp ?? 0;
+      if (median == null || spend <= 0) continue;
+      weighted += median * spend;
+      weight += spend;
+    }
+    const clientMedian = weight > 0 ? round(weighted / weight) : null;
+    const dropIds = new Set((k.drop ?? []).map((d) => d.id));
+    for (const id of dropIds) {
+      if (!c.interestIds.includes(id)) throw new Error(`Seed key ${k.name}: drop id ${id} not in cluster`);
+    }
+    const interests = c.interests.map((i) => ({ id: i.id, name: i.name ?? i.id }));
+    return {
+      name: k.name,
+      vertical: k.vertical,
+      interestIds: c.interestIds.filter((id) => !dropIds.has(id)),
+      interests: interests.filter((i) => !dropIds.has(i.id)),
       evidence: {
+        clusterKey: k.key,
         adSets: c.adSets,
         spend: c.spendGbp,
         registrations: c.cprSource === "first_party" ? c.fpSignups : c.registrations,
-        cpr: c.cpr as number,
+        cpr: c.cpr,
         cprSource: c.cprSource,
         clients: c.clients,
+        cprIndex: c.cpr != null && clientMedian ? round(c.cpr / clientMedian) : null,
+        clientMedianCpr: clientMedian,
+        ...(k.confidence ? { confidence: k.confidence } : {}),
+        ...(k.note ? { note: k.note } : {}),
+        ...(k.drop?.length
+          ? {
+              dropped: k.drop.map((d) => ({
+                id: d.id,
+                name: interests.find((i) => i.id === d.id)?.name ?? d.id,
+                reason: d.reason,
+              })),
+            }
+          : {}),
       },
-    }));
+    };
+  });
 }

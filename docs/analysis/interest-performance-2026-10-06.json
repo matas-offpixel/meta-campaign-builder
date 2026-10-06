@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T20:47:54.559Z",
+  "generatedAt": "2026-10-06T21:04:48.917Z",
   "since": null,
   "fx": {
     "base": "GBP",
@@ -21767,7 +21767,8 @@
           ]
         }
       ],
-      "nonThin": 6
+      "nonThin": 6,
+      "medianCpr": 0.84
     },
     {
       "client": "Deep House Bible",
@@ -24341,7 +24342,8 @@
           ]
         }
       ],
-      "nonThin": 4
+      "nonThin": 4,
+      "medianCpr": 2.64
     },
     {
       "client": "Electric Brixton",
@@ -26319,7 +26321,8 @@
           ]
         }
       ],
-      "nonThin": 10
+      "nonThin": 10,
+      "medianCpr": 1.97
     },
     {
       "client": "IRONWORKS",
@@ -32436,7 +32439,8 @@
           ]
         }
       ],
-      "nonThin": 27
+      "nonThin": 27,
+      "medianCpr": 1.6
     },
     {
       "client": "Innellea",
@@ -32953,7 +32957,8 @@
           ]
         }
       ],
-      "nonThin": 0
+      "nonThin": 0,
+      "medianCpr": 1.19
     },
     {
       "client": "Junction 2",
@@ -34449,7 +34454,8 @@
           ]
         }
       ],
-      "nonThin": 1
+      "nonThin": 1,
+      "medianCpr": 3.4
     },
     {
       "client": "Louder / Parable",
@@ -37957,7 +37963,8 @@
           ]
         }
       ],
-      "nonThin": 18
+      "nonThin": 18,
+      "medianCpr": 2.76
     },
     {
       "client": "Off/Pixel",
@@ -39874,7 +39881,8 @@
           ]
         }
       ],
-      "nonThin": 9
+      "nonThin": 9,
+      "medianCpr": 1.9
     },
     {
       "client": "Puzzle",
@@ -42399,7 +42407,8 @@
           ]
         }
       ],
-      "nonThin": 3
+      "nonThin": 3,
+      "medianCpr": 2.13
     }
   ],
   "interests": [
