@@ -253,22 +253,21 @@ describe("Ironworks capture maps to a draft", () => {
 });
 
 describe("import save", () => {
-  it("returns 400 and writes nothing when carry has no eventId", async () => {
-    let saved = 0;
+  it("a carry with no eventId is not refused before the campaign is read", async () => {
     const result = await handleMetaImport({
       userId: OPERATOR,
       body: { adAccountId: ACCOUNT, campaignId: "52522388611107", carry: ["1"] },
       supabase: {} as never,
       deps: {
         tokenForUser: async () => ({ token: "t" }),
-        saveDraft: async () => {
-          saved += 1;
+        readCampaign: async () => {
+          throw new Error("read started");
         },
       },
     });
-    assert.equal(result.status, 400);
-    assert.equal(result.body.error, "event_id is required");
-    assert.equal(saved, 0);
+    assert.equal(result.status, 502);
+    assert.match(String(result.body.error), /read started/);
+    assert.notEqual(result.body.error, "event_id is required");
   });
 
   it("carry [] saves nothing", async () => {

@@ -74,6 +74,8 @@ export type MapMetaLiveCampaignInput = {
   appUsageCallCount?: number | null;
   clientId?: string;
   eventId?: string;
+  /** Recorded on `importMeta`. Does not change what was carried. */
+  eventAttachment?: "none" | "event";
   now?: string;
   /** `campaign_drafts.id` is a uuid. Defaults to a fresh one. */
   draftId?: string;
@@ -875,6 +877,7 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     flexibleSpec,
     appUsageCallCount: input.appUsageCallCount ?? null,
     copyNotes: headlineNotes,
+    ...(input.eventAttachment ? { eventAttachment: input.eventAttachment } : {}),
   };
   return draft;
 }

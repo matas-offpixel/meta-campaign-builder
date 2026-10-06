@@ -596,7 +596,7 @@ export function CampaignSetup({
             Wired to an event that is not in this list.
           </Datum>
         ) : (
-          <Datum className="mt-2 text-xs text-muted-foreground">No event linked.</Datum>
+          <Datum className="mt-2 text-xs text-muted-foreground">No event attached</Datum>
         )}
         {codeMismatch ? (
           <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-700/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">

@@ -10,6 +10,11 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
+  META_IMPORT_NO_EVENT_LABEL,
+  META_IMPORT_NO_EVENTS_YET,
+  metaImportEventPickerOptions,
+} from "../../../lib/meta/import/event.ts";
+import {
   metaImportCountsLine,
   metaImportDraftHref,
   metaImportErrorText,
@@ -51,16 +56,23 @@ describe("read saves nothing", () => {
 });
 
 describe("save", () => {
-  it("the event select blocks save until an event is chosen", () => {
-    assert.equal(metaImportSaveBlocked("", 2), true);
-    assert.equal(metaImportSaveBlocked("   ", 2), true);
-    assert.equal(metaImportSaveBlocked("evt-1", 0), true);
-    assert.equal(metaImportSaveBlocked("evt-1", 1), false);
+  it("Picker: Import enabled with zero events", () => {
+    assert.equal(metaImportSaveBlocked(2), false);
+    assert.equal(metaImportSaveBlocked(0), true);
+    const options = metaImportEventPickerOptions([]);
+    assert.deepEqual(options, [{ value: "", label: META_IMPORT_NO_EVENT_LABEL }]);
+    assert.equal(
+      META_IMPORT_NO_EVENTS_YET,
+      "No events yet — import without one and attach on the Campaign step",
+    );
     const picker = source("components/meta/meta-import-picker.tsx");
-    assert.match(picker, /metaImportSaveBlocked\(eventId, ticked\.size\)/);
-    assert.match(picker, /Pick an event — nothing will be saved/);
-    assert.match(picker, /disabled=\{saving \|\| noEventsOnAccount \|\| blocked\}/);
-    assert.match(picker, /META_IMPORT_NO_EVENTS_ON_ACCOUNT/);
+    assert.match(picker, /metaImportSaveBlocked\(ticked\.size\)/);
+    assert.match(picker, /META_IMPORT_NO_EVENTS_YET/);
+    assert.match(picker, /disabled=\{saving \|\| blocked\}/);
+    assert.doesNotMatch(picker, /noEventsOnAccount/);
+    assert.doesNotMatch(picker, /META_IMPORT_NO_EVENTS_ON_ACCOUNT/);
+    assert.doesNotMatch(picker, /Pick an event — nothing will be saved/);
+    assert.doesNotMatch(picker, /disabled=\{saving \|\| events\.length === 0\}/);
     assert.doesNotMatch(picker, /This ad account is not linked to a client/);
   });
 
