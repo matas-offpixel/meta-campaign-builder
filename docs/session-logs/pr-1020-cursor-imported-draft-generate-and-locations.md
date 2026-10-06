@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1020
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1020
 - **Branch:** `cursor/imported-draft-generate-and-locations`
 
 ## Summary
