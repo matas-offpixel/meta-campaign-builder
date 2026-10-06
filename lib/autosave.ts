@@ -4,6 +4,7 @@ import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
 import { isGeneratedMetaCreativeName } from "./creative-name-from-filename.ts";
 import { readBlankCopy } from "./meta/creative.ts";
 import { migrateEndDateSource } from "./wizard/event-end-date.ts";
+import { repairImportedLocations } from "./wizard/imported-locations.ts";
 
 const STORAGE_KEY = "campaign_draft";
 
@@ -542,6 +543,8 @@ export function migrateDraft(
   if (raw.importMeta !== undefined) {
     draft.importMeta = raw.importMeta as CampaignDraft["importMeta"];
   }
+
+  repairImportedLocations(draft);
 
   return draft;
 }

@@ -193,6 +193,11 @@ export type MetaImportMeta = {
    * Absent on drafts imported before this field existed.
    */
   eventAttachment?: "none" | "event";
+  /**
+   * Imported ad sets whose empty location ids were filled once from
+   * `dropped` geo. A later clear of those ids stays cleared.
+   */
+  restoredDroppedLocationAdSetIds?: string[];
 };
 
 export const META_IMPORT_EVENT_ID_CLIENT_MISMATCH =
