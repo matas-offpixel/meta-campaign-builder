@@ -1,6 +1,6 @@
 # Interest-cluster performance — registration phase
 
-Generated 2026-10-06T21:04:48.917Z · source data: `2026-10-06` JSON beside this file. Read-only against Meta, prod and Cirqlin.
+Generated 2026-10-06T21:31:17.995Z · source data: `2026-10-06` JSON beside this file. Read-only against Meta, prod and Cirqlin.
 
 GBP normalisation: 1 EUR = £0.848824, 1 USD = £0.753239 (frankfurter.app (ECB reference), 2026-10-06). Reach is summed across ad sets and is not deduplicated.
 
@@ -8,7 +8,7 @@ GBP normalisation: 1 EUR = £0.848824, 1 USD = £0.753239 (frankfurter.app (ECB 
 
 18725 ad sets read across 14 accounts. 2567 are registration phase (77 by campaign objective, 154 by optimization goal, 2336 by promoted object). 1163 of those carry interests and are clustered; 1404 have no interests. 308 registration ad sets were launched by the app (134 from the launch-summary backfill), 2259 were not launched by the app.
 
-Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by first-party CPR where UTM-measured ad sets cover at least 80% of the cluster's spend, else pixel CPR; registrations per £100 breaks ties. The Source column says which.
+Thin = fewer than 3 ad sets with at least £5 spend each, or under £150 spend in total. Ranking: non-thin clusters by first-party CPR where UTM-measured ad sets cover at least 80% of the cluster's spend, else pixel CPR; registrations per £100 breaks ties. The Source column says which.
 
 "With CA / other type": ad sets in the cluster that also targeted a custom audience (so not interest-only), and ad sets that reported only a registration type other than their account's chosen one (counted as 0 registrations here).
 
@@ -17,38 +17,38 @@ Thin = fewer than 3 ad sets or under £150 spend. Ranking: non-thin clusters by 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Football Prospecting - Edinburgh 40km - 18-50 | Football (football), FIFA World Cup, FIFA (professional organisation), football fans (football) (4) | 20 | 18 | 1 | £2,800.75 | 4184 | £0.67 | pixel | 149.39 | 1.719% | 0 / 20 | 0 / 0 | 2026-01-12 → 2026-04-09 |
-| 2 | Electronic Music Interests (5 interests) | Music festivals (events), Ultra Music Festival, Electronic dance music (music), Electronic music (music), Electronic music festivals (music event) (5) | 3 | 3 | 2 | £262.65 (EUR 1.72, USD 346.75) | 366 | £0.72 | pixel | 139.35 | 0.813% | 3 / 0 | 0 / 0 | 2026-06-04 → 2027-01-01 |
-| 3 | Fashion & Streetwear (14 interests) | Maison Margiela, Raf Simons, Comme des Garçons, Fashion design (design), Helmut Lang (fashion brand), Yohji Yamamoto +4 (10) | 3 | 3 | 2 | £190.22 (EUR 1.93, USD 250.36) | 234 | £0.81 | pixel | 123.02 | 0.788% | 3 / 0 | 0 / 0 | 2026-06-04 → 2027-01-01 |
-| 4 | Lifestyle & Nightlife (6 interests) | luxury travel (travel and tourism), Ibiza, A Luxury Travel Blog, Nightclubs (bars, clubs and nightlife), SEAT Ibiza, Music radio (radio) (6) | 3 | 3 | 2 | £194.59 (EUR 1.76, USD 256.35) | 239 | £0.81 | pixel | 122.82 | 0.812% | 3 / 0 | 0 / 0 | 2026-06-04 → 2027-01-01 |
-| 5 | Football interests - Dublin 40km | UEFA Champions League, Premier League (football league), football fans (football) (3) | 15 | 13 | 1 | £1,086.56 | 1317 | £0.83 | pixel | 121.21 | 2.956% | 0 / 15 | 0 / 1 | 2026-03-06 → 2026-05-16 |
-| 6 | Disc Genre (1 interests) | Electronic dance music (music), Disco (2) | 11 | 11 | 3 | £355.78 | 365 fp / 373 px | £0.83 | first-party | 104.84 | 2.287% | 10 / 1 | 0 / 0 | 2026-08-28 → 2026-10-30 |
-| 7 | Football interests | UEFA Champions League, Premier League (football league), UEFA Europa League (football competition), Aston Villa F.C., football fans (football) (5) | 3 | 3 | 1 | £385.92 | 452 | £0.85 | pixel | 117.12 | 2.957% | 0 / 3 | 0 / 0 | 2026-05-01 → 2026-05-08 |
-| 8 | Arsenal Fans - Dublin 40km | Arsenal F.C., Thierry Henry (2) | 10 | 10 | 1 | £181.55 | 196 | £0.93 | pixel | 107.96 | 3.188% | 0 / 10 | 0 / 0 | 2026-03-06 → 2026-05-05 |
-| 9 | [IG] Prospecting - Publications - London 30km - 18-40 | Mixmag (1) | 6 | 6 | 1 | £894.87 | 956 | £0.94 | pixel | 106.83 | 2.293% | 0 / 6 | 0 / 0 | 2026-05-27 → 2026-07-29 |
-| 10 | Media & Entertainment (9 interests) | Tidal (service), Amazon Music (streaming service), Spotify (streaming service), Deezer, SoundCloud, YouTube Music +3 (9) | 3 | 3 | 2 | £283.04 (EUR 1.7, USD 373.85) | 297 | £0.95 | pixel | 104.93 | 0.821% | 3 / 0 | 0 / 0 | 2026-06-04 → 2027-01-01 |
-| 11 | Activities & Culture (8 interests) | Interior design (design), Contemporary art (visual art), National Gallery of Art, Art exhibition (visual art), Street art, Contemporary art gallery (visual art) +2 (8) | 3 | 3 | 2 | £211.56 (EUR 1.51, USD 279.16) | 215 | £0.98 | pixel | 101.63 | 0.73% | 3 / 0 | 0 / 0 | 2026-06-04 → 2027-01-01 |
-| 12 | [IG] Prospecting - radio + music news - London 30km - 18-40 | Entertainment News, BBC Radio, Electronic dance music (music), Capital Xtra, NTS Radio, Music and audio streaming (music) +2 (8) | 6 | 6 | 1 | £1,545.89 | 1376 | £1.12 | pixel | 89.01 | 2.033% | 0 / 6 | 0 / 0 | 2026-05-27 → 2026-07-29 |
-| 13 | [IG] Prospecting - Electronic Music - London 30km - 18-40 | Electronic music (music) (1) | 22 | 22 | 2 | £1,846.22 | 1551 | £1.19 | pixel | 84.01 | 2.035% | 0 / 22 | 0 / 0 | 2025-01-29 → 2026-07-29 |
-| 14 | [IG] Prospecting - Festival Commercial - London 30km - 18-40 | Burning Man, Tomorrowland (festival), Lollapalooza, Coachella Valley Music and Arts Festival (4) | 32 | 18 | 1 | £3,580.58 | 2965 | £1.21 | pixel | 82.81 | 2.073% | 0 / 32 | 0 / 0 | 2025-01-29 → 2026-07-29 |
-| 15 | Prospecting - microgenre - 21-45 - Miami (80km) | Deep house (1) | 15 | 13 | 2 | £924.57 (USD 65.52) | 757 | £1.22 | pixel | 81.88 | 1.99% | 0 / 15 | 0 / 0 | 2026-03-24 → 2026-07-10 |
+| 2 | Football interests - Dublin 40km | UEFA Champions League, Premier League (football league), football fans (football) (3) | 15 | 13 | 1 | £1,086.56 | 1317 | £0.83 | pixel | 121.21 | 2.956% | 0 / 15 | 0 / 1 | 2026-03-06 → 2026-05-16 |
+| 3 | Disc Genre (1 interests) | Electronic dance music (music), Disco (2) | 11 | 11 | 3 | £355.78 | 365 fp / 373 px | £0.83 | first-party | 104.84 | 2.287% | 10 / 1 | 0 / 0 | 2026-08-28 → 2026-10-30 |
+| 4 | Arsenal Fans - Dublin 40km | Arsenal F.C., Thierry Henry (2) | 10 | 10 | 1 | £181.55 | 196 | £0.93 | pixel | 107.96 | 3.188% | 0 / 10 | 0 / 0 | 2026-03-06 → 2026-05-05 |
+| 5 | [IG] Prospecting - Publications - London 30km - 18-40 | Mixmag (1) | 6 | 6 | 1 | £894.87 | 956 | £0.94 | pixel | 106.83 | 2.293% | 0 / 6 | 0 / 0 | 2026-05-27 → 2026-07-29 |
+| 6 | [IG] Prospecting - radio + music news - London 30km - 18-40 | Entertainment News, BBC Radio, Electronic dance music (music), Capital Xtra, NTS Radio, Music and audio streaming (music) +2 (8) | 6 | 6 | 1 | £1,545.89 | 1376 | £1.12 | pixel | 89.01 | 2.033% | 0 / 6 | 0 / 0 | 2026-05-27 → 2026-07-29 |
+| 7 | [IG] Prospecting - Electronic Music - London 30km - 18-40 | Electronic music (music) (1) | 22 | 22 | 2 | £1,846.22 | 1551 | £1.19 | pixel | 84.01 | 2.035% | 0 / 22 | 0 / 0 | 2025-01-29 → 2026-07-29 |
+| 8 | [IG] Prospecting - Festival Commercial - London 30km - 18-40 | Burning Man, Tomorrowland (festival), Lollapalooza, Coachella Valley Music and Arts Festival (4) | 32 | 18 | 1 | £3,580.58 | 2965 | £1.21 | pixel | 82.81 | 2.073% | 0 / 32 | 0 / 0 | 2025-01-29 → 2026-07-29 |
+| 9 | Prospecting - microgenre - 21-45 - Miami (80km) | Deep house (1) | 15 | 13 | 2 | £924.57 (USD 65.52) | 757 | £1.22 | pixel | 81.88 | 1.99% | 0 / 15 | 0 / 0 | 2026-03-24 → 2026-07-10 |
+| 10 | Streaming | Spotify (streaming service), SoundCloud, Apple Music (3) | 41 | 37 | 4 | £2,175.09 (USD 319.24) | 1743 | £1.25 | pixel | 80.13 | 2.022% | 6 / 35 | 0 / 0 | 2026-03-24 → 2026-10-06 |
+| 11 | [IG] Prospecting - Melodic Techno - London 30km - 18-40 | KEINEMUSIK, Carl Cox (2) | 24 | 19 | 3 | £1,557.83 (USD 96.48) | 1215 | £1.28 | pixel | 77.99 | 2.15% | 1 / 23 | 0 / 0 | 2026-02-24 → 2026-08-25 |
+| 12 | [IG] Prospecting - Melodic Techno - London 30km - 18-40 | Maceo Plex, KEINEMUSIK, Stephan Bodzin, Damian Lazarus, Adriatique, Dixon +6 (12) | 6 | 6 | 1 | £153.55 | 109 | £1.41 | pixel | 70.99 | 1.1% | 0 / 6 | 0 / 0 | 2025-01-29 → 2025-03-18 |
+| 13 | [IG] Prospecting - Labels Other - London 30km - 18-40 | Defected Records, Suara, Toolroom Records, Crosstown Rebels, Hot Creations, Elrow (6) | 6 | 6 | 1 | £276.56 | 192 | £1.44 | pixel | 69.42 | 1.475% | 0 / 6 | 0 / 0 | 2025-01-29 → 2025-03-18 |
+| 14 | [IG] Prospecting - House Music - London 30km - 18-40 | House music (music) (1) | 23 | 23 | 2 | £1,518.58 | 1007 | £1.51 | pixel | 66.31 | 1.683% | 0 / 23 | 0 / 1 | 2025-01-29 → 2026-07-27 |
+| 15 | [IG] Prospecting - Commercial Artists - London 30km - 18-40 | CamelPhat, MK, Marc Kinchen, Sonny Fodera, Chris Lake, Vintage Culture (6) | 11 | 11 | 1 | £771.57 | 505 | £1.53 | pixel | 65.45 | 1.212% | 0 / 11 | 0 / 0 | 2025-01-29 → 2025-03-18 |
 
 ## Per client — top 5 non-thin clusters
 
 ### 4theFans
 
-Client median CPR £0.84 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £1.03 (£7,543.76 ÷ 7293 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Football Prospecting - Edinburgh 40km - 18-50 | Football (football), FIFA World Cup, FIFA (professional organisation), football fans (football) (4) | 20 | 18 | 1 | £2,800.75 | 4184 | £0.67 | pixel | 149.39 | 1.719% | 0 / 20 | 0 / 0 | 2026-01-12 → 2026-04-09 |
 | 2 | Football interests - Dublin 40km | UEFA Champions League, Premier League (football league), football fans (football) (3) | 15 | 13 | 1 | £1,086.56 | 1317 | £0.83 | pixel | 121.21 | 2.956% | 0 / 15 | 0 / 1 | 2026-03-06 → 2026-05-16 |
-| 3 | Football interests | UEFA Champions League, Premier League (football league), UEFA Europa League (football competition), Aston Villa F.C., football fans (football) (5) | 3 | 3 | 1 | £385.92 | 452 | £0.85 | pixel | 117.12 | 2.957% | 0 / 3 | 0 / 0 | 2026-05-01 → 2026-05-08 |
-| 4 | Arsenal Fans - Dublin 40km | Arsenal F.C., Thierry Henry (2) | 10 | 10 | 1 | £181.55 | 196 | £0.93 | pixel | 107.96 | 3.188% | 0 / 10 | 0 / 0 | 2026-03-06 → 2026-05-05 |
-| 5 | Broad (All USA) | UEFA Champions League, Arsenal F.C., Football (football), Thierry Henry, Premier League (football league), Football (sports) (6) | 20 | 1 | 1 | £657.03 | 0 | — | pixel | 0 | 6.033% | 0 / 20 | 1 / 20 | 2026-08-26 → 2026-10-04 |
+| 3 | Arsenal Fans - Dublin 40km | Arsenal F.C., Thierry Henry (2) | 10 | 10 | 1 | £181.55 | 196 | £0.93 | pixel | 107.96 | 3.188% | 0 / 10 | 0 / 0 | 2026-03-06 → 2026-05-05 |
+| 4 | Broad (All USA) | UEFA Champions League, Arsenal F.C., Football (football), Thierry Henry, Premier League (football league), Football (sports) (6) | 20 | 1 | 1 | £657.03 | 0 | — | pixel | 0 | 6.033% | 0 / 20 | 1 / 20 | 2026-08-26 → 2026-10-04 |
+| 5 | Brighton | Boxing (sport) (1) | 8 | 2 | 1 | £162.61 | 0 | — | pixel | 0 | 3.412% | 0 / 8 | 0 / 8 | 2026-09-30 → 2026-10-20 |
 
 ### Deep House Bible
 
-Client median CPR £2.64 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £1.34 (£3,232.60 ÷ 2413 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -59,19 +59,19 @@ Client median CPR £2.64 (median of non-thin cluster CPRs; all clusters when non
 
 ### Electric Brixton
 
-Client median CPR £1.97 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £2.06 (£4,191.56 ÷ 2034 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Music Media (4 interests) | Boiler Room, Mixmag, NTS Radio, Music news and media (music) (4) | 9 | 9 | 1 | £221.94 | 123 fp / 134 px | £1.51 | first-party | 60.38 | 1.778% | 9 / 0 | 0 / 0 | 2026-08-27 → 2026-10-13 |
 | 2 | Disc Genre (1 interests) | Electronic dance music (music), Disco (2) | 8 | 8 | 1 | £241.33 | 149 | £1.62 | pixel | 61.74 | 1.92% | 8 / 0 | 0 / 0 | 2026-09-23 → 2026-10-13 |
 | 3 | Prospecting - Streetwear | New Balance (footwear), HYPEBEAST, Streetwear Shop, Streetwear (clothing), adidas originals, Stussy (6) | 18 | 16 | 1 | £326.94 | 174 | £1.88 | pixel | 53.22 | 1.198% | 7 / 11 | 0 / 0 | 2026-07-27 → 2026-10-06 |
-| 4 | Wide | Music festivals (events), Technology (computers and electronics) (2) | 8 | 6 | 1 | £379.78 | 198 fp / 205 px | £1.92 | first-party | 53.98 | 1.571% | 2 / 6 | 0 / 0 | 2026-07-27 → 2026-09-18 |
-| 5 | Lifestyle (3 interests) | Ibiza, Nightclubs (bars, clubs and nightlife), nightlife (bars, clubs and nightlife) (3) | 9 | 9 | 1 | £217.37 | 111 | £1.96 | pixel | 51.07 | 2.354% | 9 / 0 | 0 / 0 | 2026-08-27 → 2026-10-13 |
+| 4 | Lifestyle (3 interests) | Ibiza, Nightclubs (bars, clubs and nightlife), nightlife (bars, clubs and nightlife) (3) | 9 | 9 | 1 | £217.37 | 111 | £1.96 | pixel | 51.07 | 2.354% | 9 / 0 | 0 / 0 | 2026-08-27 → 2026-10-13 |
+| 5 | Latest phone users | iPhone (smartphone), Apple iPhone Fans, iPhone Lovers, IPhone & Apple (4) | 19 | 17 | 1 | £438.66 | 197 fp / 226 px | £1.97 | first-party | 51.52 | 1.477% | 7 / 12 | 0 / 0 | 2026-07-27 → 2026-10-06 |
 
 ### IRONWORKS
 
-Client median CPR £1.60 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £1.43 (£27,679.72 ÷ 19300 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -83,13 +83,13 @@ Client median CPR £1.60 (median of non-thin cluster CPRs; all clusters when non
 
 ### Innellea
 
-Client median CPR £1.19 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £2.83 (£8.50 ÷ 3 pixel registrations across every registration-phase ad set with interests).
 
 No non-thin cluster (6 clusters, all thin).
 
 ### Junction 2
 
-Client median CPR £3.40 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £2.97 (£5,142.82 ÷ 1729 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -97,7 +97,7 @@ Client median CPR £3.40 (median of non-thin cluster CPRs; all clusters when non
 
 ### Louder / Parable
 
-Client median CPR £2.76 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £2.85 (£8,196.82 ÷ 2873 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -109,19 +109,19 @@ Client median CPR £2.76 (median of non-thin cluster CPRs; all clusters when non
 
 ### Off/Pixel
 
-Client median CPR £1.90 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £2.01 (£3,082.33 ÷ 1530 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 1 | Fashion | Fashion design (design), Luxury Lifestyle (website), Vogue (magazine), Designer clothing (clothing) (4) | 5 | 5 | 1 | £190.03 | 131 | £1.45 | pixel | 68.94 | 2.279% | 0 / 5 | 0 / 0 | 2026-08-26 → 2026-09-09 |
-| 2 | Music Media | Boiler Room, Mixmag, NTS Radio, Music news and media (music) (4) | 5 | 5 | 1 | £377.81 | 240 | £1.57 | pixel | 63.52 | 2.057% | 0 / 5 | 0 / 0 | 2026-08-26 → 2026-09-09 |
-| 3 | Streaming | Tidal (service), Amazon Music (streaming service), Spotify (streaming service), Deezer, SoundCloud, YouTube Music +2 (8) | 5 | 5 | 1 | £179.90 | 100 | £1.80 | pixel | 55.59 | 1.659% | 0 / 5 | 0 / 0 | 2026-08-26 → 2026-09-09 |
-| 4 | Latest phone users | iPhone (smartphone), Apple iPhone Fans, iPhone Lovers, IPhone & Apple (4) | 14 | 12 | 1 | £368.95 | 204 | £1.81 | pixel | 55.29 | 1.2% | 0 / 14 | 0 / 0 | 2026-07-29 → 2026-09-30 |
-| 5 | Prospecting - Streetwear | New Balance (footwear), HYPEBEAST, Streetwear Shop, Streetwear (clothing), adidas originals, Stussy (6) | 14 | 12 | 1 | £179.02 | 94 | £1.90 | pixel | 52.51 | 1.344% | 0 / 14 | 0 / 0 | 2026-07-29 → 2026-09-30 |
+| 2 | Latest phone users | iPhone (smartphone), Apple iPhone Fans, iPhone Lovers, IPhone & Apple (4) | 14 | 12 | 1 | £368.95 | 204 | £1.81 | pixel | 55.29 | 1.2% | 0 / 14 | 0 / 0 | 2026-07-29 → 2026-09-30 |
+| 3 | Streaming | Spotify (streaming service), SoundCloud, Apple Music (3) | 10 | 8 | 1 | £272.84 | 122 | £2.24 | pixel | 44.71 | 1.188% | 0 / 10 | 0 / 0 | 2026-07-29 → 2026-08-14 |
+| 4 | Music Interests (meta interests) | Boiler Room, Mixmag, Gala, NTS Radio (4) | 10 | 8 | 1 | £333.29 | 144 | £2.31 | pixel | 43.21 | 1.54% | 0 / 10 | 0 / 0 | 2026-07-29 → 2026-08-14 |
+| 5 | Prospecting - Fashionistas | Maison Margiela, 032c, Helmut Lang (fashion brand), Rick Owens, Vogue (magazine), Fashion models (modelling) (6) | 14 | 12 | 1 | £315.54 | 133 | £2.37 | pixel | 42.15 | 1.166% | 0 / 14 | 0 / 0 | 2026-07-29 → 2026-09-30 |
 
 ### Puzzle
 
-Client median CPR £2.13 (median of non-thin cluster CPRs; all clusters when none is non-thin).
+Client baseline CPR £2.03 (£1,679.41 ÷ 828 pixel registrations across every registration-phase ad set with interests).
 
 | # | Cluster (most common name) | Interests | Ad sets | Campaigns | Clients | Spend (GBP) | Regs | CPR | Source | Regs/£100 | CTR | App / manual | With CA / other type | Dates |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -138,23 +138,23 @@ Spend and registrations are the full totals of every ad set that targeted the in
 | 1 | FIFA (professional organisation) | 6003432221791 | 20 | 1 | 0 | £2,800.75 | 4184 | £0.67 | 149.39 | £700.19 | 1046 | 4theFans |
 | 2 | FIFA World Cup | 6003175194449 | 30 | 6 | 0 | £3,349.91 | 4541 | £0.74 | 135.56 | £926.33 | 1221.8 | 4theFans |
 | 3 | football fans (football) | 6003474194264 | 45 | 6 | 0 | £4,987.63 | 6473 | £0.77 | 129.78 | £1,290.72 | 1681.5 | 4theFans |
-| 4 | A Luxury Travel Blog | 6003218161847 | 3 | 1 | 0 | £194.59 | 239 | £0.81 | 122.82 | £32.43 | 39.8 | Deep House Bible, Innellea |
-| 5 | SEAT Ibiza | 6003651391313 | 3 | 1 | 0 | £194.59 | 239 | £0.81 | 122.82 | £32.43 | 39.8 | Deep House Bible, Innellea |
-| 6 | Aston Villa F.C. | 6003472078063 | 9 | 3 | 3 | £385.92 | 452 | £0.85 | 117.12 | £77.18 | 90.4 | 4theFans |
-| 7 | Interior design (design) | 6002920953955 | 3 | 1 | 0 | £211.56 | 215 | £0.98 | 101.63 | £26.44 | 26.9 | Deep House Bible, Innellea |
-| 8 | National Gallery of Art | 6003012556997 | 3 | 1 | 0 | £211.56 | 215 | £0.98 | 101.63 | £26.44 | 26.9 | Deep House Bible, Innellea |
-| 9 | Art exhibition (visual art) | 6003174397615 | 3 | 1 | 0 | £211.56 | 215 | £0.98 | 101.63 | £26.44 | 26.9 | Deep House Bible, Innellea |
-| 10 | Football (football) | 6003107902433 | 50 | 8 | 0 | £4,515.84 | 4541 | £0.99 | 100.56 | £1,165.40 | 1221.8 | 4theFans |
-| 11 | Music radio (radio) | 6840320758807 | 12 | 3 | 0 | £2,023.52 | 1912 | £1.06 | 94.49 | £257.12 | 244.8 | Deep House Bible, IRONWORKS, Innellea |
-| 12 | Tidal (service) | 1711794862401024 | 24 | 4 | 0 | £693.87 | 646 | £1.07 | 93.1 | £90.73 | 91 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Off/Pixel |
-| 13 | Deezer | 6003148839749 | 24 | 4 | 0 | £693.87 | 646 | £1.07 | 93.1 | £90.73 | 91 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Off/Pixel |
-| 14 | YouTube Music | 6003277780179 | 24 | 4 | 0 | £693.87 | 646 | £1.07 | 93.1 | £90.73 | 91 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Off/Pixel |
-| 15 | UEFA Europa League (football competition) | 6003350242199 | 7 | 3 | 0 | £1,038.20 | 956 | £1.09 | 92.08 | £207.64 | 191.2 | 4theFans |
-| 16 | Entertainment News | 6002992430794 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
-| 17 | BBC Radio | 6003142803216 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
-| 18 | Capital Xtra | 6003402644747 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
-| 19 | Music industry services (music) | 6892292894574 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
-| 20 | UEFA Champions League | 6002995710444 | 42 | 5 | 0 | £2,781.79 | 2273 | £1.22 | 81.71 | £679.33 | 630.2 | 4theFans |
+| 4 | Football (football) | 6003107902433 | 50 | 8 | 0 | £4,515.84 | 4541 | £0.99 | 100.56 | £1,165.40 | 1221.8 | 4theFans |
+| 5 | Music radio (radio) | 6840320758807 | 12 | 3 | 0 | £2,023.52 | 1912 | £1.06 | 94.49 | £257.12 | 244.8 | Deep House Bible, IRONWORKS, Innellea |
+| 6 | Tidal (service) | 1711794862401024 | 24 | 4 | 0 | £693.87 | 646 | £1.07 | 93.1 | £90.73 | 91 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Off/Pixel |
+| 7 | Deezer | 6003148839749 | 24 | 4 | 0 | £693.87 | 646 | £1.07 | 93.1 | £90.73 | 91 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Off/Pixel |
+| 8 | YouTube Music | 6003277780179 | 24 | 4 | 0 | £693.87 | 646 | £1.07 | 93.1 | £90.73 | 91 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Off/Pixel |
+| 9 | UEFA Europa League (football competition) | 6003350242199 | 7 | 3 | 0 | £1,038.20 | 956 | £1.09 | 92.08 | £207.64 | 191.2 | 4theFans |
+| 10 | Entertainment News | 6002992430794 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
+| 11 | BBC Radio | 6003142803216 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
+| 12 | Capital Xtra | 6003402644747 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
+| 13 | Music industry services (music) | 6892292894574 | 6 | 1 | 0 | £1,545.89 | 1376 | £1.12 | 89.01 | £193.24 | 172 | IRONWORKS |
+| 14 | UEFA Champions League | 6002995710444 | 42 | 5 | 0 | £2,781.79 | 2273 | £1.22 | 81.71 | £679.33 | 630.2 | 4theFans |
+| 15 | Electronic music festivals (music event) | 6808891387078 | 41 | 9 | 0 | £1,049.65 | 852 | £1.23 | 81.17 | £265.42 | 225.4 | Deep House Bible, Electric Brixton, IRONWORKS, Innellea, Junction 2, Louder / Parable, Off/Pixel |
+| 16 | Sky Sports | 6002983075419 | 13 | 5 | 0 | £193.33 | 153 | £1.26 | 79.14 | £47.54 | 37.6 | 4theFans |
+| 17 | BT Sport | 6008461382636 | 10 | 4 | 0 | £193.33 | 153 | £1.26 | 79.14 | £47.54 | 37.6 | 4theFans |
+| 18 | Burning Man | 6002949651174 | 50 | 5 | 0 | £4,170.43 | 3242 | £1.29 | 77.74 | £967.06 | 778.8 | Deep House Bible, IRONWORKS, Louder / Parable |
+| 19 | Lollapalooza | 6003434244943 | 50 | 5 | 0 | £4,170.43 | 3242 | £1.29 | 77.74 | £967.06 | 778.8 | Deep House Bible, IRONWORKS, Louder / Parable |
+| 20 | Nottingham Forest | 6003356908154 | 6 | 3 | 2 | £536.18 | 414 | £1.30 | 77.21 | £194.95 | 155.9 | 4theFans |
 
 ## Per-account registration action type
 
@@ -283,7 +283,7 @@ The token read every account.
 
 ## Thin clusters
 
-137 thin clusters. Listed by pixel CPR; too little data to rank.
+147 thin clusters. Listed by pixel CPR; too little data to rank.
 
 | Cluster | Interests | Ad sets | Spend (GBP) | Regs | CPR | Clients |
 |---|---|---|---|---|---|---|
@@ -291,9 +291,15 @@ The token read every account.
 | Streaming (5 interests) | Tidal (service), Spotify (streaming service), Deezer, YouTube Music +1 (5) | 1 | £100.32 | 191 | £0.45 | IRONWORKS |
 | House Music (1 interests) | Electronic dance music (music), House music (music) (2) | 1 | £99.67 | 202 | £0.47 | IRONWORKS |
 | Electronic Music (2 interests) | Electronic music (music), Electronic music festivals (music event) (2) | 1 | £69.43 | 124 | £0.47 | IRONWORKS |
+| Electronic Music Interests (5 interests) | Music festivals (events), Ultra Music Festival, Electronic dance music (music), Electronic music (music) +1 (5) | 3 | £262.65 | 366 | £0.72 | Deep House Bible, Innellea |
 | [IG] Festivals Prospecting - Santa Teresa 40km - 18-45 | Burning Man, Tomorrowland (festival), Lollapalooza, Coachella Valley Music and Arts Festival +1 (5) | 3 | £36.00 | 50 | £0.72 | Deep House Bible |
 | [IG] Venues Prospecting - Santa Teresa 40km - 18-45 | Amsterdam Dance Event, Ushuaïa Ibiza Beach Hotel, DC10 (nightclub), Ushuaia +4 (8) | 3 | £26.37 | 33 | £0.80 | Deep House Bible |
+| Fashion & Streetwear (14 interests) | Maison Margiela, Raf Simons, Comme des Garçons, Fashion design (design) +6 (10) | 3 | £190.22 | 234 | £0.81 | Deep House Bible, Innellea |
+| Lifestyle & Nightlife (6 interests) | luxury travel (travel and tourism), Ibiza, A Luxury Travel Blog, Nightclubs (bars, clubs and nightlife) +2 (6) | 3 | £194.59 | 239 | £0.81 | Deep House Bible, Innellea |
+| Football interests | UEFA Champions League, Premier League (football league), UEFA Europa League (football competition), Aston Villa F.C. +1 (5) | 3 | £385.92 | 452 | £0.85 | 4theFans |
+| Media & Entertainment (9 interests) | Tidal (service), Amazon Music (streaming service), Spotify (streaming service), Deezer +5 (9) | 3 | £283.04 | 297 | £0.95 | Deep House Bible, Innellea |
 | LWE (20%) \| Bridge \| Innervisions takeover \| Sign Up \|\| Interests \| Video Link Ad \| 18 Feb 2026 - 27 Feb 2026 | Electronic dance music (music), Mixmag, House music (music), Music and audio streaming (music) (4) | 1 | £6.77 | 7 | £0.97 | IRONWORKS |
+| Activities & Culture (8 interests) | Interior design (design), Contemporary art (visual art), National Gallery of Art, Art exhibition (visual art) +4 (8) | 3 | £211.56 | 215 | £0.98 | Deep House Bible, Innellea |
 | Sport TV interests - London 40km | Sky Sports, Arsenal F.C., Premier League (football league), BT Sport (4) | 4 | £117.80 | 119 | £0.99 | 4theFans |
 | [IG] Labels Prospecting - Santa Teresa 40km - 18-45 | DIYNAMIC MUSIC, Anjuna, Anjunabeats, Anjunadeep +2 (6) | 3 | £33.04 | 32 | £1.03 | Deep House Bible |
 | [IG] Fashion Prospecting - Santa Teresa 40km - 18-45 | Maison Margiela, Balenciaga (fashion brand), Cristóbal Balenciaga, GQ +14 (18) | 3 | £35.42 | 32 | £1.11 | Deep House Bible |
@@ -312,6 +318,7 @@ The token read every account.
 | Prospecting - fashion - 21-45 - Miami (80km) | Maison Margiela, Balenciaga (fashion brand), Raf Simons, METAL Magazine +11 (15) | 3 | £76.14 | 59 | £1.29 | Deep House Bible, IRONWORKS, Puzzle |
 | Prospecting - House Artists - 18-40 - Southampton (30km) | Patrick Topping, Joseph Capriati, Nic Fanciulli, Claude VonStroke +9 (13) | 1 | £99.08 | 71 | £1.40 | Puzzle |
 | Football interests - London 40km | UEFA Champions League, Premier League (football league), UEFA Europa League (football competition), Crystal Palace F.C. +1 (5) | 2 | £281.76 | 201 | £1.40 | 4theFans |
+| Music Interests (meta interests) | Techno (music), Boiler Room, Mixmag, Gala +1 (5) | 6 | £154.05 | 108 | £1.42 | Electric Brixton, Off/Pixel |
 | LWE (20%) \| Junction 2 \| [UTB022] Junction 2 (2024) \| Sign up \|\| Interests \| VLA/Story \| 24 Nov 2023 - 30 Nov 2023 | CamelPhat (1) | 1 | £141.62 | 99 | £1.43 | Junction 2 |
 | Genre - Live Electronic Music - 18-50 - Berlin (30km) | Immersive technology, Live electronic music (2) | 1 | £14.67 | 10 | £1.47 | IRONWORKS |
 | Genre - Ambient - 18-50 - Berlin (30km) | Philip Glass, Oneohtrix Point Never, Ambient, Ambient music +6 (10) | 1 | £57.45 | 39 | £1.47 | IRONWORKS |
@@ -323,6 +330,7 @@ The token read every account.
 | [IG] Prospecting - Headsy - London 30km - 18-40 | Moodymann, DJ Q, Jamie xx, Four Tet +15 (19) | 6 | £108.72 | 60 | £1.81 | IRONWORKS |
 | [IG] Prospecting - Labels Other - Boston Manor Park +5km - 18-40 | Defected Records, Suara, Toolroom Records, Crosstown Rebels +1 (5) | 5 | £123.18 | 66 | £1.87 | IRONWORKS |
 | Music Interests - Commercial | Burning Man, Spotify (streaming service), Ultra Music Festival, SoundCloud +3 (7) | 1 | £60.43 | 32 | £1.89 | Louder / Parable |
+| Wide | Music festivals (events), Technology (computers and electronics) (2) | 8 | £379.78 | 205 | £1.92 | Electric Brixton |
 | [IG] Melodic Prospecting - Santa Teresa 40km - 18-45 | Maceo Plex, KEINEMUSIK, Stephan Bodzin, Damian Lazarus +11 (15) | 1 | £13.56 | 7 | £1.94 | Deep House Bible |
 | LWE (20%) \| Junction 2 \| [UTB033] Junction 2 (2025) \| Second Wave Artist - Sign up \|\| Interests \| VLA/Story \| 29 Jan 2025 - 04 Feb 2025 | Music festivals (events), Adam Beyer, Electronic music (music) (3) | 1 | £319.59 | 159 | £2.01 | Junction 2 |
 | Prospecting - Shelling Techno  - 18-50 - Berlin (30km) | Marcel Dettmann, Robert Hood, Ben Sims, MARCEL DETTMANN +12 (16) | 1 | £14.28 | 7 | £2.04 | IRONWORKS |
@@ -351,6 +359,7 @@ The token read every account.
 | Genre - IDM - 18-50 - Berlin (30km) | Intelligent dance music (1) | 1 | £6.22 | 2 | £3.11 | IRONWORKS |
 | Media & Entertainment | Boiler Room, Glastonbury, Mixmag, Glastonbury Festival +1 (5) | 5 | £63.19 | 20 | £3.16 | Electric Brixton, Off/Pixel, Puzzle |
 | Genre - Techno  - 18-50 - Berlin (30km) | Techno (music), Hardtechno, Detroit techno, Acid techno (4) | 1 | £6.45 | 2 | £3.23 | IRONWORKS |
+| Prospecting - Afrobeat - London | Afrobeat (music) (1) | 3 | £420.65 | 127 | £3.31 | Louder / Parable |
 | [IG] Prospecting - Halloween- London 30km - 18-40 | Halloween (celebration) (1) | 2 | £99.62 | 30 | £3.32 | IRONWORKS, Louder / Parable |
 | Prospecting - Yoga  - 18-50 - Berlin (30km) | Ashtanga vinyasa yoga, Yoga (spirituality), hot yoga (fitness), Hatha yoga (4) | 1 | £6.92 | 2 | £3.46 | IRONWORKS |
 | Prospecting - Electronic Music | Tech house, Electronic dance music (music), House music (music), Electronic music (music) +2 (6) | 5 | £13.85 | 4 | £3.46 | Electric Brixton, Off/Pixel |
@@ -377,6 +386,7 @@ The token read every account.
 | French House - London 40km | House music (music), French language (2) | 1 | £26.41 | 4 | £6.60 | Louder / Parable |
 | EDM – Interests | Afrojack, Armin van Buuren, David Guetta, Diplo +7 (11) | 2 | £77.47 | 11 | £7.04 | Louder / Parable |
 | Luxury Fashion | Fendi, Giorgio Armani, Coco Chanel, Moschino +3 (7) | 5 | £15.19 | 2 | £7.60 | Louder / Parable, Puzzle |
+| LWE (15%) \| ION Festival \| [ION006] ION Festival 2024 \| Announcement/Sign-Up \|\| Interests \| VLA/Story \| 07 Nov 2023 - 24 Nov 2023 | Field Day (festival), Resident Advisor, Dimensions Festival (3) | 4 | £308.35 | 38 | £8.11 | IRONWORKS |
 | prospecting: headsy - 18-65 -  (50km) | Moodymann, DJ Q, Warp (record label), Jamie xx +20 (24) | 1 | £9.44 | 1 | £9.44 | Puzzle |
 | Streaming | Tidal (service), Spotify (streaming service), Deezer, SoundCloud +2 (6) | 5 | £9.58 | 1 | £9.58 | Electric Brixton, Off/Pixel |
 | DR banana & Gene - House engaged | Tech house, Electronic dance music (music), House music (music), Fitness services (fitness) (4) | 2 | £40.41 | 1 | £40.41 | Puzzle |
@@ -431,29 +441,27 @@ The token read every account.
 
 Pairs from the top 25 non-thin interests (pixel CPR of ad sets containing each) that the same client has run, but never in one ad set.
 
-- FIFA (professional organisation) (£0.67) + Aston Villa F.C. (£0.85) — both run separately for 4theFans
 - FIFA (professional organisation) (£0.67) + UEFA Europa League (football competition) (£1.09) — both run separately for 4theFans
 - FIFA (professional organisation) (£0.67) + UEFA Champions League (£1.22) — both run separately for 4theFans
 - FIFA (professional organisation) (£0.67) + Sky Sports (£1.26) — both run separately for 4theFans
 - FIFA (professional organisation) (£0.67) + BT Sport (£1.26) — both run separately for 4theFans
-- FIFA World Cup (£0.74) + Aston Villa F.C. (£0.85) — both run separately for 4theFans
+- FIFA (professional organisation) (£0.67) + Nottingham Forest (£1.30) — both run separately for 4theFans
 - FIFA World Cup (£0.74) + UEFA Europa League (football competition) (£1.09) — both run separately for 4theFans
 - FIFA World Cup (£0.74) + UEFA Champions League (£1.22) — both run separately for 4theFans
 - FIFA World Cup (£0.74) + Sky Sports (£1.26) — both run separately for 4theFans
 - FIFA World Cup (£0.74) + BT Sport (£1.26) — both run separately for 4theFans
+- FIFA World Cup (£0.74) + Nottingham Forest (£1.30) — both run separately for 4theFans
 - football fans (football) (£0.77) + Sky Sports (£1.26) — both run separately for 4theFans
 - football fans (football) (£0.77) + BT Sport (£1.26) — both run separately for 4theFans
-- A Luxury Travel Blog (£0.81) + Interior design (design) (£0.98) — both run separately for Deep House Bible, Innellea
-- A Luxury Travel Blog (£0.81) + National Gallery of Art (£0.98) — both run separately for Deep House Bible, Innellea
-- A Luxury Travel Blog (£0.81) + Art exhibition (visual art) (£0.98) — both run separately for Deep House Bible, Innellea
+- Football (football) (£0.99) + UEFA Europa League (football competition) (£1.09) — both run separately for 4theFans
+- Football (football) (£0.99) + Sky Sports (£1.26) — both run separately for 4theFans
+- Football (football) (£0.99) + BT Sport (£1.26) — both run separately for 4theFans
 
 ### Strong clusters not yet run for a client where a similar cluster worked
 
-Similar = Jaccard ≥ 0.5 on interest ids. Worked = that client's CPR for the similar cluster ≤ the median non-thin CPR (£1.86).
+Similar = Jaccard ≥ 0.5 on interest ids. Worked = that client's CPR for the similar cluster ≤ the median non-thin CPR (£1.89).
 
-- Try **Electronic Music Interests (5 interests)** (£0.72 pixel) on **IRONWORKS** — its sibling Music & Nightlife (4 interests) ran 1 ad sets there at £1.56 (Jaccard 0.5).
-- Try **Electronic Music Interests (5 interests)** (£0.72 pixel) on **Junction 2** — its sibling Festivals Electronic Music - Local ran 3 ad sets there at £1.56 (Jaccard 0.5).
-- Try **Lifestyle & Nightlife (6 interests)** (£0.81 pixel) on **IRONWORKS** — its sibling Lifestyle & Nightlife ran 2 ad sets there at £1.67 (Jaccard 0.5).
+- Try **[IG] Prospecting - Festival Commercial - London 30km - 18-40** (£1.21 pixel) on **Deep House Bible** — its sibling [IG] Festivals Prospecting - Santa Teresa 40km - 18-45 ran 3 ad sets there at £0.72 (Jaccard 0.8).
 
 ## Footnote — ad sets outside the registration phase
 

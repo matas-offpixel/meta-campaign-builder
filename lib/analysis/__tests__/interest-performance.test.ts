@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   buildClusters,
   chooseAccountActionType,
+  clientBaselineCpr,
+  clusterEvidence,
   clusterKey,
   interestsOfTargeting,
   joinFirstParty,
@@ -13,7 +18,12 @@ import {
   registrationReason,
   type AggregateContext,
   type AnalysisAdSet,
+  type InterestReportJson,
 } from "../interest-performance.ts";
+
+const REPORT: InterestReportJson = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../docs/analysis/interest-performance-2026-10-06.json"), "utf8"),
+);
 
 function adSet(overrides: Partial<AnalysisAdSet> = {}): AnalysisAdSet {
   return {
@@ -145,5 +155,33 @@ describe("interest-performance", () => {
     assert.equal(byId.get("c3")!.matchedBy, "campaign_id");
     assert.equal(byId.get("c3")!.adSetLevel, "campaign-level only");
     assert.equal(result.unmatchedPaidSignups, 4);
+  });
+
+  it("thin counts only ad sets with at least £5 spend", () => {
+    const funded = [adSet({ id: "1", spend: 100 }), adSet({ id: "2", spend: 100 })];
+    const [twoPlusCrumb] = buildClusters([...funded, adSet({ id: "3", spend: 1.44 })], ctx());
+    assert.equal(twoPlusCrumb.adSets, 3);
+    assert.equal(twoPlusCrumb.fundedAdSets, 2);
+    assert.equal(twoPlusCrumb.thin, true);
+    const [three] = buildClusters([...funded, adSet({ id: "3", spend: 5 })], ctx());
+    assert.equal(three.fundedAdSets, 3);
+    assert.equal(three.thin, false);
+  });
+
+  it("client baseline is pooled spend ÷ registrations, thin clusters included", () => {
+    const rows = [adSet({ id: "1", spend: 100 }), adSet({ id: "2", spend: 2, regActions: { complete_registration: 10 } })];
+    assert.deepEqual(clientBaselineCpr(rows, ctx()), { spendGbp: 102, registrations: 60, baselineCpr: 1.7 });
+    assert.equal(clientBaselineCpr([adSet({ regActions: {} })], ctx()).baselineCpr, null);
+
+    const dhb = REPORT.perClient.find((p) => p.client === "Deep House Bible")!;
+    assert.ok(Math.abs(dhb.spendGbp - dhb.clusters.reduce((n, c) => n + c.spendGbp, 0)) < 0.05);
+    assert.equal(dhb.registrations, dhb.clusters.reduce((n, c) => n + c.registrations, 0));
+    assert.equal(dhb.baselineCpr, Math.round((dhb.spendGbp / dhb.registrations) * 100) / 100);
+    assert.equal(dhb.baselineCpr, 1.34);
+    const fashion = "467691106721833,6003030212255,6003154507633,6003266266843,6003351852600,6003359659004,6003359784404,6003392552125,6003552041427,6003739371891";
+    const ev = clusterEvidence(REPORT, fashion, { client: "Deep House Bible" })!.evidence;
+    assert.equal(ev.clientBaselineCpr, 1.34);
+    assert.equal(ev.cprIndex, Math.round((ev.cpr! / 1.34) * 100) / 100);
+    assert.equal(ev.confidence, "thin");
   });
 });

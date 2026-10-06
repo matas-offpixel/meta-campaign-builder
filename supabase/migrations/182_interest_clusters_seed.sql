@@ -2,7 +2,7 @@
 --
 -- Rows are docs/analysis/interest-templates-seed.json, embedded verbatim
 -- between the $seed$ tags (lib/__tests__/interest-clusters.test.ts keeps
--- the two identical). Regenerate the file with:
+-- the two identical). Regenerate both with:
 --   npx tsx scripts/interest-performance.mts --seed-keys=docs/analysis/interest-clusters-seed-keys.json
 --
 -- Idempotent on (user_id, name): a re-run inserts nothing and leaves
@@ -24,14 +24,15 @@ begin
     return;
   end if;
 
-  insert into interest_clusters (user_id, name, vertical, interests, evidence, source)
+  insert into interest_clusters (user_id, name, vertical, interests, evidence, source, unresolved)
   select
     v_user_id,
     s ->> 'name',
     s ->> 'vertical',
     s -> 'interests',
     s -> 'evidence',
-    'seed'
+    'seed',
+    coalesce(s -> 'unresolved', '[]'::jsonb)
   from jsonb_array_elements($seed$
 [
   {
@@ -49,6 +50,7 @@ begin
     "evidence": {
       "clusterKey": "6003182953366",
       "adSets": 6,
+      "fundedAdSets": 6,
       "spend": 894.87,
       "registrations": 956,
       "cpr": 0.94,
@@ -56,8 +58,8 @@ begin
       "clients": [
         "IRONWORKS"
       ],
-      "cprIndex": 0.59,
-      "clientMedianCpr": 1.6
+      "cprIndex": 0.66,
+      "clientBaselineCpr": 1.43
     }
   },
   {
@@ -110,6 +112,7 @@ begin
     "evidence": {
       "clusterKey": "6002992430794,6003142803216,6003155409305,6003402644747,6015454246390,6816985058496,6840320758807,6892292894574",
       "adSets": 6,
+      "fundedAdSets": 6,
       "spend": 1545.89,
       "registrations": 1376,
       "cpr": 1.12,
@@ -117,8 +120,8 @@ begin
       "clients": [
         "IRONWORKS"
       ],
-      "cprIndex": 0.7,
-      "clientMedianCpr": 1.6
+      "cprIndex": 0.78,
+      "clientBaselineCpr": 1.43
     }
   },
   {
@@ -136,6 +139,7 @@ begin
     "evidence": {
       "clusterKey": "6003902397066",
       "adSets": 22,
+      "fundedAdSets": 19,
       "spend": 1846.22,
       "registrations": 1551,
       "cpr": 1.19,
@@ -144,8 +148,8 @@ begin
         "IRONWORKS",
         "Louder / Parable"
       ],
-      "cprIndex": 0.69,
-      "clientMedianCpr": 1.72
+      "cprIndex": 0.75,
+      "clientBaselineCpr": 1.58
     }
   },
   {
@@ -178,6 +182,7 @@ begin
     "evidence": {
       "clusterKey": "6002949651174,6003289429270,6003434244943,6003716027062",
       "adSets": 32,
+      "fundedAdSets": 23,
       "spend": 3580.58,
       "registrations": 2965,
       "cpr": 1.21,
@@ -185,8 +190,8 @@ begin
       "clients": [
         "IRONWORKS"
       ],
-      "cprIndex": 0.76,
-      "clientMedianCpr": 1.6
+      "cprIndex": 0.85,
+      "clientBaselineCpr": 1.43
     }
   },
   {
@@ -204,6 +209,7 @@ begin
     "evidence": {
       "clusterKey": "6003596378473",
       "adSets": 15,
+      "fundedAdSets": 10,
       "spend": 924.57,
       "registrations": 757,
       "cpr": 1.22,
@@ -212,8 +218,8 @@ begin
         "Deep House Bible",
         "IRONWORKS"
       ],
-      "cprIndex": 0.73,
-      "clientMedianCpr": 1.66
+      "cprIndex": 0.85,
+      "clientBaselineCpr": 1.43
     }
   },
   {
@@ -241,6 +247,7 @@ begin
     "evidence": {
       "clusterKey": "6002969794329,6003253526111,937077532996593",
       "adSets": 41,
+      "fundedAdSets": 16,
       "spend": 2175.09,
       "registrations": 1743,
       "cpr": 1.25,
@@ -251,8 +258,8 @@ begin
         "IRONWORKS",
         "Off/Pixel"
       ],
-      "cprIndex": 0.7,
-      "clientMedianCpr": 1.78
+      "cprIndex": 0.81,
+      "clientBaselineCpr": 1.55
     }
   },
   {
@@ -275,6 +282,7 @@ begin
     "evidence": {
       "clusterKey": "6003179570015,6003717043662",
       "adSets": 24,
+      "fundedAdSets": 13,
       "spend": 1557.83,
       "registrations": 1215,
       "cpr": 1.28,
@@ -284,8 +292,8 @@ begin
         "IRONWORKS",
         "Louder / Parable"
       ],
-      "cprIndex": 0.72,
-      "clientMedianCpr": 1.79
+      "cprIndex": 0.8,
+      "clientBaselineCpr": 1.6
     }
   },
   {
@@ -308,6 +316,7 @@ begin
     "evidence": {
       "clusterKey": "6003155409305,6003320931941",
       "adSets": 11,
+      "fundedAdSets": 6,
       "spend": 355.78,
       "registrations": 365,
       "cpr": 0.83,
@@ -318,7 +327,7 @@ begin
         "Off/Pixel"
       ],
       "cprIndex": 0.45,
-      "clientMedianCpr": 1.85
+      "clientBaselineCpr": 1.86
     }
   },
   {
@@ -376,6 +385,7 @@ begin
     "evidence": {
       "clusterKey": "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,6840320758807,937077532996593",
       "adSets": 3,
+      "fundedAdSets": 2,
       "spend": 283.04,
       "registrations": 297,
       "cpr": 0.95,
@@ -384,8 +394,9 @@ begin
         "Deep House Bible",
         "Innellea"
       ],
-      "cprIndex": 0.36,
-      "clientMedianCpr": 2.63
+      "cprIndex": 0.7,
+      "clientBaselineCpr": 1.35,
+      "confidence": "thin"
     }
   },
   {
@@ -448,6 +459,7 @@ begin
     "evidence": {
       "clusterKey": "467691106721833,6003030212255,6003154507633,6003266266843,6003351852600,6003359659004,6003359784404,6003392552125,6003552041427,6003739371891",
       "adSets": 2,
+      "fundedAdSets": 2,
       "spend": 188.58,
       "registrations": 233,
       "cpr": 0.81,
@@ -455,8 +467,8 @@ begin
       "clients": [
         "Deep House Bible"
       ],
-      "cprIndex": 0.31,
-      "clientMedianCpr": 2.64,
+      "cprIndex": 0.6,
+      "clientBaselineCpr": 1.34,
       "confidence": "thin"
     }
   },
@@ -495,6 +507,7 @@ begin
     "evidence": {
       "clusterKey": "6003011087019,6003190279924,6003218161847,6003361714600,6003651391313,6840320758807",
       "adSets": 2,
+      "fundedAdSets": 2,
       "spend": 193.09,
       "registrations": 239,
       "cpr": 0.81,
@@ -502,8 +515,8 @@ begin
       "clients": [
         "Deep House Bible"
       ],
-      "cprIndex": 0.31,
-      "clientMedianCpr": 2.64,
+      "cprIndex": 0.6,
+      "clientBaselineCpr": 1.34,
       "confidence": "thin",
       "note": "measured with SEAT Ibiza included",
       "dropped": [
@@ -545,6 +558,7 @@ begin
     "evidence": {
       "clusterKey": "6002944044446,6003143160640,6003227434158,6003343155628",
       "adSets": 14,
+      "fundedAdSets": 3,
       "spend": 368.95,
       "registrations": 204,
       "cpr": 1.81,
@@ -552,8 +566,8 @@ begin
       "clients": [
         "Off/Pixel"
       ],
-      "cprIndex": 0.95,
-      "clientMedianCpr": 1.9
+      "cprIndex": 0.9,
+      "clientBaselineCpr": 2.01
     }
   },
   {
@@ -591,6 +605,7 @@ begin
     "evidence": {
       "clusterKey": "6003108826384,6003135979608,6003155409305,6003902397066,6808891387078",
       "adSets": 2,
+      "fundedAdSets": 2,
       "spend": 261.19,
       "registrations": 364,
       "cpr": 0.72,
@@ -598,8 +613,8 @@ begin
       "clients": [
         "Deep House Bible"
       ],
-      "cprIndex": 0.27,
-      "clientMedianCpr": 2.64,
+      "cprIndex": 0.54,
+      "clientBaselineCpr": 1.34,
       "confidence": "thin"
     }
   },
@@ -633,6 +648,7 @@ begin
     "evidence": {
       "clusterKey": "6003107902433,6003175194449,6003432221791,6003474194264",
       "adSets": 20,
+      "fundedAdSets": 18,
       "spend": 2800.75,
       "registrations": 4184,
       "cpr": 0.67,
@@ -640,8 +656,8 @@ begin
       "clients": [
         "4theFans"
       ],
-      "cprIndex": 0.8,
-      "clientMedianCpr": 0.84
+      "cprIndex": 0.65,
+      "clientBaselineCpr": 1.03
     }
   },
   {
@@ -669,6 +685,7 @@ begin
     "evidence": {
       "clusterKey": "6002995710444,6003306191253,6003474194264",
       "adSets": 15,
+      "fundedAdSets": 12,
       "spend": 1086.56,
       "registrations": 1317,
       "cpr": 0.83,
@@ -676,8 +693,8 @@ begin
       "clients": [
         "4theFans"
       ],
-      "cprIndex": 0.99,
-      "clientMedianCpr": 0.84
+      "cprIndex": 0.81,
+      "clientBaselineCpr": 1.03
     }
   },
   {
@@ -700,6 +717,7 @@ begin
     "evidence": {
       "clusterKey": "6003064617670,6003115921142",
       "adSets": 10,
+      "fundedAdSets": 6,
       "spend": 181.55,
       "registrations": 196,
       "cpr": 0.93,
@@ -707,8 +725,8 @@ begin
       "clients": [
         "4theFans"
       ],
-      "cprIndex": 1.11,
-      "clientMedianCpr": 0.84
+      "cprIndex": 0.9,
+      "clientBaselineCpr": 1.03
     }
   }
 ]

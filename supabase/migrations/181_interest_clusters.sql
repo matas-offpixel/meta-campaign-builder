@@ -4,10 +4,13 @@
 -- Audiences step. A pick copies the interests into a new draft group;
 -- nothing here is read at launch. Seeds (migration 182) come from
 -- docs/analysis/interest-templates-seed.json, built from the 2026-10-06
--- interest-performance report.
+-- interest-performance report; library rows (migration 183) from
+-- docs/analysis/interest-library-seed.json.
 --
--- clients.vertical: the strip shows only clusters of the draft client's
--- vertical. Backfill: 4theFans → football, every other client → music.
+-- clients.vertical: the strip shows clusters of the draft client's
+-- vertical plus 'lifestyle' clusters, which show on every client. No
+-- client reads as music. Backfill: 4theFans → football, every other
+-- client → music.
 --
 -- Apply manually after review.
 
@@ -22,7 +25,16 @@ begin
   end if;
 end $$;
 
-update clients set vertical = 'football' where slug = '4thefans';
+do $$
+declare
+  v_rows integer;
+begin
+  update clients set vertical = 'football' where slug = '4thefans';
+  get diagnostics v_rows = row_count;
+  if v_rows = 0 then
+    raise notice '181: no client with slug 4thefans — vertical not set';
+  end if;
+end $$;
 
 comment on column clients.vertical is
   'music | football | other. Filters the saved interest clusters strip in the Audiences step. Migration 181.';
@@ -31,10 +43,11 @@ create table if not exists interest_clusters (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users (id) on delete cascade,
   name          text not null,
-  vertical      text not null check (vertical in ('music', 'football', 'other')),
+  vertical      text not null check (vertical in ('music', 'football', 'lifestyle', 'other')),
   interests     jsonb not null default '[]'::jsonb,
   evidence      jsonb,
-  source        text not null check (source in ('seed', 'operator')),
+  source        text not null check (source in ('seed', 'library', 'operator')),
+  unresolved    jsonb not null default '[]'::jsonb,
   use_count     integer not null default 0,
   last_used_at  timestamptz,
   archived_at   timestamptz,
@@ -44,7 +57,7 @@ create table if not exists interest_clusters (
 );
 
 comment on table interest_clusters is
-  'Saved interest sets. interests = [{id,name}] Meta interest ids. evidence = report figures (adSets, spend GBP, registrations, cpr, cprSource, cprIndex, clients, confidence) or null. Archive, never delete. Migration 181.';
+  'Saved interest sets. interests = [{id,name}] Meta interest ids. evidence = report figures (adSets, spend GBP, registrations, cpr, cprSource, cprIndex, clients, confidence) or null. unresolved = library names Meta search did not match. Archive, never delete. Migration 181.';
 
 create index if not exists interest_clusters_user_idx
   on interest_clusters (user_id, archived_at, use_count desc);
@@ -62,5 +75,23 @@ drop trigger if exists interest_clusters_updated_at on interest_clusters;
 create trigger interest_clusters_updated_at
   before update on interest_clusters
   for each row execute procedure update_updated_at_column();
+
+-- One statement, so concurrent picks cannot lose a count. RLS still
+-- applies (security invoker); the user_id filter makes a foreign id a no-op.
+create or replace function increment_interest_cluster_use(p_id uuid)
+returns setof interest_clusters
+language sql
+security invoker
+set search_path = public
+as $$
+  update interest_clusters
+     set use_count = use_count + 1,
+         last_used_at = now()
+   where id = p_id
+     and user_id = auth.uid()
+  returning *;
+$$;
+
+grant execute on function increment_interest_cluster_use(uuid) to authenticated;
 
 notify pgrst, 'reload schema';

@@ -1,0 +1,1392 @@
+-- Migration 183 — interest library clusters for the operator
+--
+-- Rows are docs/analysis/interest-library-seed.json, embedded verbatim
+-- between the $seed$ tags. Regenerate both with:
+--   npx tsx --env-file=.env.local scripts/import-interest-library.mts
+-- Unresolved and skipped names: docs/analysis/interest-library-unresolved.md.
+--
+-- Idempotent on (user_id, name). Skips with a notice when the operator
+-- user is absent. Requires migrations 181 and 182. Apply manually after review.
+
+do $$
+declare
+  v_user_id uuid;
+begin
+  select id into v_user_id from auth.users where email = 'matas@offpixel.co.uk' limit 1;
+  if v_user_id is null then
+    raise notice 'migration 183: operator user not found, no clusters seeded';
+    return;
+  end if;
+
+  insert into interest_clusters (user_id, name, vertical, interests, evidence, source, unresolved)
+  select
+    v_user_id,
+    s ->> 'name',
+    s ->> 'vertical',
+    s -> 'interests',
+    s -> 'evidence',
+    'library',
+    coalesce(s -> 'unresolved', '[]'::jsonb)
+  from jsonb_array_elements($seed$
+[
+  {
+    "name": "Artists — EDM",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003032453893",
+        "name": "Afrojack"
+      },
+      {
+        "id": "6003101306197",
+        "name": "Armin van Buuren"
+      },
+      {
+        "id": "6003122128722",
+        "name": "David Guetta"
+      },
+      {
+        "id": "6003246873267",
+        "name": "Diplo"
+      },
+      {
+        "id": "6003582564838",
+        "name": "Steve Aoki"
+      },
+      {
+        "id": "6007828452206",
+        "name": "The Chainsmokers"
+      },
+      {
+        "id": "6003350444039",
+        "name": "Skrillex"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "EDM",
+      "resolved": [
+        {
+          "query": "Afrojack",
+          "id": "6003032453893",
+          "name": "Afrojack",
+          "match": "exact"
+        },
+        {
+          "query": "Armin Van Buuren",
+          "id": "6003101306197",
+          "name": "Armin van Buuren",
+          "match": "exact"
+        },
+        {
+          "query": "David Guetta",
+          "id": "6003122128722",
+          "name": "David Guetta",
+          "match": "exact"
+        },
+        {
+          "query": "Diplo",
+          "id": "6003246873267",
+          "name": "Diplo",
+          "match": "exact"
+        },
+        {
+          "query": "Steve Aoki",
+          "id": "6003582564838",
+          "name": "Steve Aoki",
+          "match": "exact"
+        },
+        {
+          "query": "The Chainsmokers",
+          "id": "6007828452206",
+          "name": "The Chainsmokers",
+          "match": "exact"
+        },
+        {
+          "query": "Skrillex",
+          "id": "6003350444039",
+          "name": "Skrillex",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — POP ARTISTS",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003700476383",
+        "name": "Calvin Harris"
+      },
+      {
+        "id": "6003122128722",
+        "name": "David Guetta"
+      },
+      {
+        "id": "6003246873267",
+        "name": "Diplo"
+      },
+      {
+        "id": "6015908022889",
+        "name": "Martin Garrix"
+      },
+      {
+        "id": "6003368990002",
+        "name": "Swedish House Mafia"
+      },
+      {
+        "id": "6003350444039",
+        "name": "Skrillex"
+      },
+      {
+        "id": "6007828452206",
+        "name": "The Chainsmokers"
+      },
+      {
+        "id": "453465171503229",
+        "name": "Camila Cabello"
+      },
+      {
+        "id": "6003032453893",
+        "name": "Afrojack"
+      },
+      {
+        "id": "6004036178770",
+        "name": "Pitbull (rapper)"
+      },
+      {
+        "id": "6018375369348",
+        "name": "DJ Snake"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [
+      "Marshmello"
+    ],
+    "library": {
+      "tab": "Artists",
+      "column": "POP ARTISTS",
+      "resolved": [
+        {
+          "query": "Calvin Harris",
+          "id": "6003700476383",
+          "name": "Calvin Harris",
+          "match": "exact"
+        },
+        {
+          "query": "David Guetta",
+          "id": "6003122128722",
+          "name": "David Guetta",
+          "match": "exact"
+        },
+        {
+          "query": "Diplo",
+          "id": "6003246873267",
+          "name": "Diplo",
+          "match": "exact"
+        },
+        {
+          "query": "Martin Garrix",
+          "id": "6015908022889",
+          "name": "Martin Garrix",
+          "match": "exact"
+        },
+        {
+          "query": "Swedish House Mafia",
+          "id": "6003368990002",
+          "name": "Swedish House Mafia",
+          "match": "exact"
+        },
+        {
+          "query": "Skrillex",
+          "id": "6003350444039",
+          "name": "Skrillex",
+          "match": "exact"
+        },
+        {
+          "query": "The Chainsmokers",
+          "id": "6007828452206",
+          "name": "The Chainsmokers",
+          "match": "exact"
+        },
+        {
+          "query": "Camila Cabello",
+          "id": "453465171503229",
+          "name": "Camila Cabello",
+          "match": "exact"
+        },
+        {
+          "query": "Afrojack",
+          "id": "6003032453893",
+          "name": "Afrojack",
+          "match": "exact"
+        },
+        {
+          "query": "Pitbull",
+          "id": "6004036178770",
+          "name": "Pitbull (rapper)",
+          "match": "contains"
+        },
+        {
+          "query": "DJ Snake",
+          "id": "6018375369348",
+          "name": "DJ Snake",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Business Techno",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003717043662",
+        "name": "Carl Cox"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Business Techno",
+      "resolved": [
+        {
+          "query": "Carl Cox",
+          "id": "6003717043662",
+          "name": "Carl Cox",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Melodic",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003179570015",
+        "name": "KEINEMUSIK"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "6003179570015",
+      "adSets": 10,
+      "fundedAdSets": 7,
+      "spend": 267.5,
+      "registrations": 79,
+      "cpr": 3.39,
+      "cprSource": "pixel",
+      "clients": [
+        "Louder / Parable"
+      ],
+      "cprIndex": 1.19,
+      "clientBaselineCpr": 2.85
+    },
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Melodic",
+      "resolved": [
+        {
+          "query": "KEINEMUSIK",
+          "id": "6003179570015",
+          "name": "KEINEMUSIK",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Trance",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003101306197",
+        "name": "Armin van Buuren"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Trance",
+      "resolved": [
+        {
+          "query": "Armin van Buuren",
+          "id": "6003101306197",
+          "name": "Armin van Buuren",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Trance Genre",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003805457383",
+        "name": "Trance music"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Trance Genre",
+      "resolved": [
+        {
+          "query": "Trance music",
+          "id": "6003805457383",
+          "name": "Trance music",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Genres",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6004139436106",
+        "name": "New wave music"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Genres",
+      "resolved": [
+        {
+          "query": "New Wave Music",
+          "id": "6004139436106",
+          "name": "New wave music",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Punk",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003280772823",
+        "name": "Punk rock"
+      },
+      {
+        "id": "6003328637897",
+        "name": "Post-punk"
+      },
+      {
+        "id": "6002970980594",
+        "name": "Garage rock"
+      },
+      {
+        "id": "6003352237730",
+        "name": "Grunge"
+      },
+      {
+        "id": "6003645766746",
+        "name": "Bauhaus"
+      },
+      {
+        "id": "6003125702939",
+        "name": "Thee Oh Sees"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Punk",
+      "resolved": [
+        {
+          "query": "Punk Rock",
+          "id": "6003280772823",
+          "name": "Punk rock",
+          "match": "exact"
+        },
+        {
+          "query": "Post-Punk",
+          "id": "6003328637897",
+          "name": "Post-punk",
+          "match": "exact"
+        },
+        {
+          "query": "Garage Rock",
+          "id": "6002970980594",
+          "name": "Garage rock",
+          "match": "exact"
+        },
+        {
+          "query": "Grunge",
+          "id": "6003352237730",
+          "name": "Grunge",
+          "match": "exact"
+        },
+        {
+          "query": "Bauhaus",
+          "id": "6003645766746",
+          "name": "Bauhaus",
+          "match": "exact"
+        },
+        {
+          "query": "Thee Oh Sees",
+          "id": "6003125702939",
+          "name": "Thee Oh Sees",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Artists — Metal",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003475887071",
+        "name": "Thrash metal"
+      },
+      {
+        "id": "6003633122583",
+        "name": "Heavy metal music (music)"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Artists",
+      "column": "Metal",
+      "resolved": [
+        {
+          "query": "Thrash Metal",
+          "id": "6003475887071",
+          "name": "Thrash metal",
+          "match": "exact"
+        },
+        {
+          "query": "Heavy Metal",
+          "id": "6003633122583",
+          "name": "Heavy metal music (music)",
+          "match": "contains"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Festivals Venues — Tech House",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003289429270",
+        "name": "Tomorrowland (festival)"
+      },
+      {
+        "id": "6003716027062",
+        "name": "Coachella Valley Music and Arts Festival"
+      },
+      {
+        "id": "6003434244943",
+        "name": "Lollapalooza"
+      },
+      {
+        "id": "6003135979608",
+        "name": "Ultra Music Festival"
+      },
+      {
+        "id": "6002949651174",
+        "name": "Burning Man"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "6002949651174,6003135979608,6003289429270,6003434244943,6003716027062",
+      "adSets": 6,
+      "fundedAdSets": 5,
+      "spend": 224.33,
+      "registrations": 94,
+      "cpr": 2.39,
+      "cprSource": "pixel",
+      "clients": [
+        "Deep House Bible",
+        "IRONWORKS"
+      ],
+      "cprIndex": 1.76,
+      "clientBaselineCpr": 1.36
+    },
+    "unresolved": [],
+    "library": {
+      "tab": "Festivals Venues",
+      "column": "Tech House",
+      "resolved": [
+        {
+          "query": "Tomorrowland",
+          "id": "6003289429270",
+          "name": "Tomorrowland (festival)",
+          "match": "contains"
+        },
+        {
+          "query": "Coachella Valley Music and Arts Festival",
+          "id": "6003716027062",
+          "name": "Coachella Valley Music and Arts Festival",
+          "match": "exact"
+        },
+        {
+          "query": "Lollapalooza",
+          "id": "6003434244943",
+          "name": "Lollapalooza",
+          "match": "exact"
+        },
+        {
+          "query": "Ultra Music Festival",
+          "id": "6003135979608",
+          "name": "Ultra Music Festival",
+          "match": "exact"
+        },
+        {
+          "query": "Burning Man",
+          "id": "6002949651174",
+          "name": "Burning Man",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Festivals Venues — Headsy / Wide Ranging",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003009781819",
+        "name": "Boiler Room"
+      },
+      {
+        "id": "6003616498687",
+        "name": "Gala"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "6003009781819,6003616498687",
+      "adSets": 4,
+      "fundedAdSets": 1,
+      "spend": 85.27,
+      "registrations": 36,
+      "cpr": 2.37,
+      "cprSource": "pixel",
+      "clients": [
+        "Puzzle"
+      ],
+      "cprIndex": 1.17,
+      "clientBaselineCpr": 2.03,
+      "confidence": "thin"
+    },
+    "unresolved": [],
+    "library": {
+      "tab": "Festivals Venues",
+      "column": "Headsy / Wide Ranging",
+      "resolved": [
+        {
+          "query": "Boiler Room",
+          "id": "6003009781819",
+          "name": "Boiler Room",
+          "match": "exact"
+        },
+        {
+          "query": "Gala",
+          "id": "6003616498687",
+          "name": "Gala",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Other — Radio",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6015454246390",
+        "name": "NTS Radio"
+      },
+      {
+        "id": "6003182953366",
+        "name": "Mixmag"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Other",
+      "column": "Radio",
+      "resolved": [
+        {
+          "query": "NTS Radio",
+          "id": "6015454246390",
+          "name": "NTS Radio",
+          "match": "exact"
+        },
+        {
+          "query": "Mixmag",
+          "id": "6003182953366",
+          "name": "Mixmag",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Other — Wider Electronic",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003253526111",
+        "name": "SoundCloud"
+      },
+      {
+        "id": "6003182953366",
+        "name": "Mixmag"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "6003182953366,6003253526111",
+      "adSets": 1,
+      "fundedAdSets": 1,
+      "spend": 25.14,
+      "registrations": 6,
+      "cpr": 4.19,
+      "cprSource": "pixel",
+      "clients": [
+        "Louder / Parable"
+      ],
+      "cprIndex": 1.47,
+      "clientBaselineCpr": 2.85,
+      "confidence": "thin"
+    },
+    "unresolved": [],
+    "library": {
+      "tab": "Other",
+      "column": "Wider Electronic",
+      "resolved": [
+        {
+          "query": "Soundcloud",
+          "id": "6003253526111",
+          "name": "SoundCloud",
+          "match": "exact"
+        },
+        {
+          "query": "Mixmag",
+          "id": "6003182953366",
+          "name": "Mixmag",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Other — Record Shops",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003253526111",
+        "name": "SoundCloud"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Other",
+      "column": "Record Shops",
+      "resolved": [
+        {
+          "query": "Soundcloud",
+          "id": "6003253526111",
+          "name": "SoundCloud",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Other — Commercial Radio",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6002984448523",
+        "name": "Capital FM"
+      },
+      {
+        "id": "6002928514373",
+        "name": "Radio 1"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": "Other",
+      "column": "Commercial Radio",
+      "resolved": [
+        {
+          "query": "Capital FM",
+          "id": "6002984448523",
+          "name": "Capital FM",
+          "match": "exact"
+        },
+        {
+          "query": "Radio 1",
+          "id": "6002928514373",
+          "name": "Radio 1",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Other — Wide radio",
+    "vertical": "music",
+    "interests": [
+      {
+        "id": "6003182953366",
+        "name": "Mixmag"
+      },
+      {
+        "id": "6002964263329",
+        "name": "MTV (television network)"
+      },
+      {
+        "id": "6003240910010",
+        "name": "Pandora Radio"
+      },
+      {
+        "id": "6002933146962",
+        "name": "The Fader"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "6002933146962,6002964263329,6003182953366,6003240910010",
+      "adSets": 8,
+      "fundedAdSets": 4,
+      "spend": 245.69,
+      "registrations": 66,
+      "cpr": 3.72,
+      "cprSource": "pixel",
+      "clients": [
+        "Louder / Parable"
+      ],
+      "cprIndex": 1.31,
+      "clientBaselineCpr": 2.85
+    },
+    "unresolved": [],
+    "library": {
+      "tab": "Other",
+      "column": "Wide radio",
+      "resolved": [
+        {
+          "query": "Mixmag",
+          "id": "6003182953366",
+          "name": "Mixmag",
+          "match": "exact"
+        },
+        {
+          "query": "MTV",
+          "id": "6002964263329",
+          "name": "MTV (television network)",
+          "match": "contains"
+        },
+        {
+          "query": "Pandora Radio",
+          "id": "6003240910010",
+          "name": "Pandora Radio",
+          "match": "exact"
+        },
+        {
+          "query": "The Fader",
+          "id": "6002933146962",
+          "name": "The Fader",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Prospecting - Fashionistas",
+    "vertical": "lifestyle",
+    "interests": [
+      {
+        "id": "467691106721833",
+        "name": "Maison Margiela"
+      },
+      {
+        "id": "6002983066219",
+        "name": "Balenciaga (fashion brand)"
+      },
+      {
+        "id": "6003023143356",
+        "name": "GQ"
+      },
+      {
+        "id": "6003030212255",
+        "name": "Raf Simons"
+      },
+      {
+        "id": "6003145134190",
+        "name": "Dazed & Confused (magazine)"
+      },
+      {
+        "id": "6003154507633",
+        "name": "Comme des Garçons"
+      },
+      {
+        "id": "6003192486414",
+        "name": "Alexander Wang (designer)"
+      },
+      {
+        "id": "6003254626969",
+        "name": "v magazine"
+      },
+      {
+        "id": "6003359659004",
+        "name": "Yohji Yamamoto"
+      },
+      {
+        "id": "6003359784404",
+        "name": "Rick Owens"
+      },
+      {
+        "id": "6003537562673",
+        "name": "Another Magazine"
+      },
+      {
+        "id": "6003686979507",
+        "name": "I.D. (magazine)"
+      },
+      {
+        "id": "6004119918789",
+        "name": "Ann Demeulemeester"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "467691106721833,6002983066219,6003023143356,6003030212255,6003145134190,6003154507633,6003192486414,6003254626969,6003359659004,6003359784404,6003537562673,6003686979507,6004119918789",
+      "adSets": 18,
+      "fundedAdSets": 11,
+      "spend": 549.65,
+      "registrations": 185,
+      "cpr": 2.97,
+      "cprSource": "pixel",
+      "clients": [
+        "Deep House Bible",
+        "Louder / Parable",
+        "Puzzle"
+      ],
+      "cprIndex": 1.34,
+      "clientBaselineCpr": 2.21
+    },
+    "unresolved": [
+      "METAL Magazine",
+      "Damir Doma"
+    ],
+    "library": {
+      "tab": null,
+      "column": "Prospecting - Fashionistas",
+      "resolved": [
+        {
+          "query": "Maison Margiela",
+          "id": "467691106721833",
+          "name": "Maison Margiela",
+          "match": "exact"
+        },
+        {
+          "query": "Balenciaga",
+          "id": "6002983066219",
+          "name": "Balenciaga (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "GQ",
+          "id": "6003023143356",
+          "name": "GQ",
+          "match": "exact"
+        },
+        {
+          "query": "Raf Simons",
+          "id": "6003030212255",
+          "name": "Raf Simons",
+          "match": "exact"
+        },
+        {
+          "query": "Dazed & Confused",
+          "id": "6003145134190",
+          "name": "Dazed & Confused (magazine)",
+          "match": "contains"
+        },
+        {
+          "query": "Comme des Garçons",
+          "id": "6003154507633",
+          "name": "Comme des Garçons",
+          "match": "exact"
+        },
+        {
+          "query": "Alexander Wang",
+          "id": "6003192486414",
+          "name": "Alexander Wang (designer)",
+          "match": "contains"
+        },
+        {
+          "query": "v magazine",
+          "id": "6003254626969",
+          "name": "v magazine",
+          "match": "exact"
+        },
+        {
+          "query": "Yohji Yamamoto",
+          "id": "6003359659004",
+          "name": "Yohji Yamamoto",
+          "match": "exact"
+        },
+        {
+          "query": "Rick Owens",
+          "id": "6003359784404",
+          "name": "Rick Owens",
+          "match": "exact"
+        },
+        {
+          "query": "Another Magazine",
+          "id": "6003537562673",
+          "name": "Another Magazine",
+          "match": "exact"
+        },
+        {
+          "query": "I.D.",
+          "id": "6003686979507",
+          "name": "I.D. (magazine)",
+          "match": "contains"
+        },
+        {
+          "query": "Ann Demeulemeester",
+          "id": "6004119918789",
+          "name": "Ann Demeulemeester",
+          "match": "exact"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Prospecting - Luxury fashion",
+    "vertical": "lifestyle",
+    "interests": [
+      {
+        "id": "6002983066219",
+        "name": "Balenciaga (fashion brand)"
+      },
+      {
+        "id": "6002984797619",
+        "name": "Fendi"
+      },
+      {
+        "id": "6003137508950",
+        "name": "Giorgio Armani"
+      },
+      {
+        "id": "6003165411122",
+        "name": "Gucci (fashion brand)"
+      },
+      {
+        "id": "6003200432882",
+        "name": "Givenchy (fashion brand)"
+      },
+      {
+        "id": "6003241714213",
+        "name": "Burberry (clothing)"
+      },
+      {
+        "id": "6003246053342",
+        "name": "Prada (fashion brand)"
+      },
+      {
+        "id": "6003279451780",
+        "name": "Chanel (fashion brand)"
+      },
+      {
+        "id": "6003284320325",
+        "name": "Coco Chanel"
+      },
+      {
+        "id": "6003308770453",
+        "name": "Moschino"
+      },
+      {
+        "id": "6003368599202",
+        "name": "Louis Vuitton (fashion brand)"
+      },
+      {
+        "id": "6003435546331",
+        "name": "Versace (fashion brand)"
+      },
+      {
+        "id": "6003512455442",
+        "name": "Bottega Veneta"
+      },
+      {
+        "id": "6003516735664",
+        "name": "Yves Saint Laurent (brand)"
+      },
+      {
+        "id": "6003713880583",
+        "name": "Armani (clothing)"
+      },
+      {
+        "id": "6003746294946",
+        "name": "Christian Dior (fashion designer)"
+      },
+      {
+        "id": "6007828099136",
+        "name": "Luxury goods (retail)"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [],
+    "library": {
+      "tab": null,
+      "column": "Prospecting - Luxury fashion",
+      "resolved": [
+        {
+          "query": "Balenciaga",
+          "id": "6002983066219",
+          "name": "Balenciaga (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Fendi",
+          "id": "6002984797619",
+          "name": "Fendi",
+          "match": "exact"
+        },
+        {
+          "query": "Giorgio Armani",
+          "id": "6003137508950",
+          "name": "Giorgio Armani",
+          "match": "exact"
+        },
+        {
+          "query": "Gucci",
+          "id": "6003165411122",
+          "name": "Gucci (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Givenchy",
+          "id": "6003200432882",
+          "name": "Givenchy (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Burberry",
+          "id": "6003241714213",
+          "name": "Burberry (clothing)",
+          "match": "contains"
+        },
+        {
+          "query": "Prada",
+          "id": "6003246053342",
+          "name": "Prada (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Chanel",
+          "id": "6003279451780",
+          "name": "Chanel (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Coco Chanel",
+          "id": "6003284320325",
+          "name": "Coco Chanel",
+          "match": "exact"
+        },
+        {
+          "query": "Moschino",
+          "id": "6003308770453",
+          "name": "Moschino",
+          "match": "exact"
+        },
+        {
+          "query": "Louis Vuitton",
+          "id": "6003368599202",
+          "name": "Louis Vuitton (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Versace",
+          "id": "6003435546331",
+          "name": "Versace (fashion brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Bottega Veneta",
+          "id": "6003512455442",
+          "name": "Bottega Veneta",
+          "match": "exact"
+        },
+        {
+          "query": "Yves Saint Laurent",
+          "id": "6003516735664",
+          "name": "Yves Saint Laurent (brand)",
+          "match": "contains"
+        },
+        {
+          "query": "Armani",
+          "id": "6003713880583",
+          "name": "Armani (clothing)",
+          "match": "contains"
+        },
+        {
+          "query": "Christian Dior",
+          "id": "6003746294946",
+          "name": "Christian Dior (fashion designer)",
+          "match": "contains"
+        },
+        {
+          "query": "Luxury goods",
+          "id": "6007828099136",
+          "name": "Luxury goods (retail)",
+          "match": "contains"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Lifestyle",
+    "vertical": "lifestyle",
+    "interests": [
+      {
+        "id": "6003011087019",
+        "name": "luxury travel (travel and tourism)"
+      },
+      {
+        "id": "6002915656955",
+        "name": "small luxury hotels world"
+      },
+      {
+        "id": "6007828099136",
+        "name": "Luxury goods (retail)"
+      },
+      {
+        "id": "6003175076849",
+        "name": "Four Seasons Hotels and Resorts"
+      },
+      {
+        "id": "6003495081227",
+        "name": "Ritz-Carlton Hotel Company"
+      }
+    ],
+    "evidence": {
+      "clusterKey": "6002915656955,6003011087019,6003175076849,6003495081227,6007828099136",
+      "adSets": 18,
+      "fundedAdSets": 11,
+      "spend": 371.86,
+      "registrations": 126,
+      "cpr": 2.95,
+      "cprSource": "pixel",
+      "clients": [
+        "Deep House Bible",
+        "Louder / Parable"
+      ],
+      "cprIndex": 1.57,
+      "clientBaselineCpr": 1.88
+    },
+    "unresolved": [],
+    "library": {
+      "tab": null,
+      "column": "Lifestyle",
+      "resolved": [
+        {
+          "query": "Luxury Travel",
+          "id": "6003011087019",
+          "name": "luxury travel (travel and tourism)",
+          "match": "contains"
+        },
+        {
+          "query": "Luxury Hotels",
+          "id": "6002915656955",
+          "name": "small luxury hotels world",
+          "match": "contains"
+        },
+        {
+          "query": "Luxury Goods",
+          "id": "6007828099136",
+          "name": "Luxury goods (retail)",
+          "match": "contains"
+        },
+        {
+          "query": "Four Seasons",
+          "id": "6003175076849",
+          "name": "Four Seasons Hotels and Resorts",
+          "match": "contains"
+        },
+        {
+          "query": "Ritz-Carlton",
+          "id": "6003495081227",
+          "name": "Ritz-Carlton Hotel Company",
+          "match": "contains"
+        }
+      ]
+    }
+  },
+  {
+    "name": "High end jewellers",
+    "vertical": "lifestyle",
+    "interests": [
+      {
+        "id": "6003762134517",
+        "name": "Cartier (jeweller)"
+      },
+      {
+        "id": "6003508325964",
+        "name": "Tiffany & Co. (luxury goods)"
+      },
+      {
+        "id": "6002998518973",
+        "name": "Harry Winston"
+      },
+      {
+        "id": "6003198892801",
+        "name": "Chopard"
+      },
+      {
+        "id": "6002974787459",
+        "name": "Van Cleef & Arpels"
+      },
+      {
+        "id": "6002898307162",
+        "name": "David Yurman"
+      },
+      {
+        "id": "6016807291376",
+        "name": "Buccellati"
+      },
+      {
+        "id": "6002972136974",
+        "name": "Boucheron"
+      },
+      {
+        "id": "6003587678073",
+        "name": "Rolex (watches)"
+      },
+      {
+        "id": "6003382700604",
+        "name": "Audemars Piguet"
+      },
+      {
+        "id": "6003247937213",
+        "name": "IWC Watches"
+      },
+      {
+        "id": "6003011259419",
+        "name": "TAG Heuer"
+      },
+      {
+        "id": "6003246597567",
+        "name": "Hublot"
+      }
+    ],
+    "evidence": null,
+    "unresolved": [
+      "Graff",
+      "Bvlgari"
+    ],
+    "library": {
+      "tab": null,
+      "column": "High end jewellers",
+      "resolved": [
+        {
+          "query": "Cartier",
+          "id": "6003762134517",
+          "name": "Cartier (jeweller)",
+          "match": "contains"
+        },
+        {
+          "query": "Tiffany & Co",
+          "id": "6003508325964",
+          "name": "Tiffany & Co. (luxury goods)",
+          "match": "contains"
+        },
+        {
+          "query": "Harry Winston",
+          "id": "6002998518973",
+          "name": "Harry Winston",
+          "match": "exact"
+        },
+        {
+          "query": "Chopard",
+          "id": "6003198892801",
+          "name": "Chopard",
+          "match": "exact"
+        },
+        {
+          "query": "Van Cleef",
+          "id": "6002974787459",
+          "name": "Van Cleef & Arpels",
+          "match": "contains"
+        },
+        {
+          "query": "David Yurman",
+          "id": "6002898307162",
+          "name": "David Yurman",
+          "match": "exact"
+        },
+        {
+          "query": "Buccellati",
+          "id": "6016807291376",
+          "name": "Buccellati",
+          "match": "exact"
+        },
+        {
+          "query": "Boucheron",
+          "id": "6002972136974",
+          "name": "Boucheron",
+          "match": "exact"
+        },
+        {
+          "query": "Rolex",
+          "id": "6003587678073",
+          "name": "Rolex (watches)",
+          "match": "contains"
+        },
+        {
+          "query": "Audemars Piguet",
+          "id": "6003382700604",
+          "name": "Audemars Piguet",
+          "match": "exact"
+        },
+        {
+          "query": "IWC",
+          "id": "6003247937213",
+          "name": "IWC Watches",
+          "match": "contains"
+        },
+        {
+          "query": "Tag Heuer",
+          "id": "6003011259419",
+          "name": "TAG Heuer",
+          "match": "exact"
+        },
+        {
+          "query": "Hublot",
+          "id": "6003246597567",
+          "name": "Hublot",
+          "match": "exact"
+        }
+      ]
+    }
+  }
+]
+$seed$::jsonb) as s
+  on conflict (user_id, name) do nothing;
+end $$;
+
+notify pgrst, 'reload schema';

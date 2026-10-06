@@ -6,12 +6,16 @@ import { fileURLToPath } from "node:url";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { embeddedSeedJson } from "../analysis/cluster-seed-sql.ts";
 import { seedFromKeys, type InterestReportJson, type SeedCluster, type SeedKey } from "../analysis/interest-performance.ts";
 import { createDefaultDraft } from "../campaign-defaults.ts";
-import { createInterestCluster } from "../db/interest-clusters.ts";
+import { createInterestCluster, markInterestClusterUsed } from "../db/interest-clusters.ts";
 import {
   addClusterToGroups,
+  clustersForSourceFilter,
+  effectiveClientVertical,
   findClusterForInterests,
+  unresolvedLine,
   rowToInterestCluster,
   sortClusters,
   visibleClusters,
@@ -31,6 +35,7 @@ function cluster(patch: Partial<InterestCluster> & Pick<InterestCluster, "id" | 
     interests: [{ id: "6003902397066", name: "Electronic music (music)" }],
     evidence: null,
     source: "seed",
+    unresolved: [],
     useCount: 0,
     lastUsedAt: null,
     archivedAt: null,
@@ -44,6 +49,13 @@ function seededClusters(): InterestCluster[] {
   return SEED.map((s, i) =>
     cluster({ id: `seed-${i}`, name: s.name, vertical: s.vertical, interests: s.interests, evidence: s.evidence }),
   );
+}
+
+function rowBase(): InterestClusterRow {
+  return {
+    id: "r", name: "R", vertical: "music", interests: [{ id: "1", name: "A" }], evidence: null, source: "seed",
+    use_count: 0, last_used_at: null, archived_at: null, created_at: "2026-10-06T00:00:00Z", updated_at: "2026-10-06T00:00:00Z",
+  };
 }
 
 /** Minimal stand-in for the two Supabase calls createInterestCluster makes. */
@@ -85,8 +97,7 @@ describe("interest clusters", () => {
     assert.match(schema, /constraint interest_clusters_user_name_key unique \(user_id, name\)/);
     assert.match(seedSql, /on conflict \(user_id, name\) do nothing/);
     assert.match(seedSql, /'seed'/);
-    const embedded = seedSql.split("jsonb_array_elements($seed$")[1].split("$seed$::jsonb")[0];
-    assert.deepEqual(JSON.parse(embedded), SEED);
+    assert.deepEqual(embeddedSeedJson(seedSql), SEED);
     assert.equal(new Set(SEED.map((s) => s.name)).size, SEED.length);
   });
 
@@ -159,17 +170,72 @@ describe("interest clusters", () => {
   it("archive hides a cluster from the strip and from duplicate detection", () => {
     const live = cluster({ id: "a", name: "Live" });
     const archived = cluster({ id: "b", name: "Gone", archivedAt: "2026-10-06T00:00:00Z", interests: [{ id: "9", name: "Nine" }] });
-    assert.deepEqual(visibleClusters([live, archived], null).map((c) => c.id), ["a"]);
+    assert.deepEqual(visibleClusters([live, archived], "music").map((c) => c.id), ["a"]);
     assert.equal(findClusterForInterests([archived], [{ id: "9" }]), null);
-    const football = cluster({ id: "f", name: "Football", vertical: "football" });
-    assert.deepEqual(visibleClusters([live, football], "football").map((c) => c.id), ["f"]);
+  });
+
+  it("vertical filter: no client reads as music; lifestyle shows on music and football clients", () => {
+    const all = [
+      cluster({ id: "m", name: "Music" }),
+      cluster({ id: "f", name: "Football", vertical: "football" }),
+      cluster({ id: "l", name: "Lifestyle", vertical: "lifestyle" }),
+      cluster({ id: "o", name: "Other", vertical: "other" }),
+    ];
+    const ids = (v: Parameters<typeof visibleClusters>[1]) => visibleClusters(all, v).map((c) => c.id);
+    assert.deepEqual(ids(null), ["m", "l"]);
+    assert.deepEqual(ids("music"), ["m", "l"]);
+    assert.deepEqual(ids("football"), ["f", "l"]);
+    assert.deepEqual(ids("other"), ["l", "o"]);
+    assert.equal(effectiveClientVertical(null), "music");
+    assert.equal(effectiveClientVertical(undefined), "music");
+    assert.equal(effectiveClientVertical("other"), "other");
+  });
+
+  it("POST /use increments in SQL through the RPC, never read-then-write", async () => {
+    const calls: { fn: string; args: unknown }[] = [];
+    const row = {
+      id: "c1", name: "Deep house", vertical: "music", interests: [{ id: "1", name: "A" }], evidence: null,
+      source: "seed", unresolved: [], use_count: 4, last_used_at: "2026-10-06T21:00:00Z", archived_at: null,
+      created_at: "2026-10-06T00:00:00Z", updated_at: "2026-10-06T21:00:00Z",
+    };
+    const client = {
+      rpc: (fn: string, args: unknown) => {
+        calls.push({ fn, args });
+        return { maybeSingle: async () => ({ data: row, error: null }) };
+      },
+      from: () => {
+        throw new Error("markInterestClusterUsed must not touch the table directly");
+      },
+    } as unknown as SupabaseClient;
+    const result = await markInterestClusterUsed(client, "c1");
+    assert.deepEqual(calls, [{ fn: "increment_interest_cluster_use", args: { p_id: "c1" } }]);
+    assert.equal(result.ok && result.value.useCount, 4);
+
+    const schema = read("supabase/migrations/181_interest_clusters.sql");
+    assert.match(schema, /create or replace function increment_interest_cluster_use\(p_id uuid\)/);
+    assert.match(schema, /set use_count = use_count \+ 1,\s+last_used_at = now\(\)\s+where id = p_id\s+and user_id = auth\.uid\(\)/);
+    assert.match(schema, /raise notice '181: no client with slug 4thefans — vertical not set'/);
+    assert.match(schema, /'music', 'football', 'lifestyle', 'other'/);
+    assert.match(schema, /'seed', 'library', 'operator'/);
+  });
+
+  it("Manage filter chips and unresolved counts", () => {
+    const all = [cluster({ id: "s", name: "S" }), cluster({ id: "l", name: "L", source: "library", unresolved: ["Graff", "Bvlgari"] })];
+    assert.deepEqual(clustersForSourceFilter(all, "library").map((c) => c.id), ["l"]);
+    assert.equal(clustersForSourceFilter(all, "all").length, 2);
+    assert.equal(unresolvedLine(all[1]), "2 names not found on Meta: Graff, Bvlgari");
+    assert.equal(unresolvedLine(all[0]), null);
+    assert.equal(rowToInterestCluster({ ...rowBase(), source: "library", unresolved: ["X", 3, ""] }).unresolved.join(), "X");
   });
 
   it("Best CPR orders by cprIndex, thin clusters after measured ones, no evidence last", () => {
     const all = [...seededClusters(), cluster({ id: "op", name: "Operator set", source: "operator" })];
     const music = sortClusters(visibleClusters(all, "music"), "best_cpr").map((c) => c.name);
-    assert.deepEqual(music.slice(0, 3), ["Streaming — full", "Disc Genre", "Publications"]);
-    assert.deepEqual(music.slice(-5), ["Latest iPhone users", "Music festivals", "Fashion", "Luxury", "Operator set"]);
+    assert.deepEqual(music.slice(0, 3), ["Disc Genre", "Publications", "Electronic music"]);
+    assert.deepEqual(music.slice(-6), ["Latest iPhone users", "Music festivals", "Fashion", "Luxury", "Streaming — full", "Operator set"]);
+    for (const name of ["Streaming — full", "Fashion", "Luxury", "Music festivals"]) {
+      assert.equal(SEED.find((s) => s.name === name)!.evidence.confidence, "thin", name);
+    }
     const football = sortClusters(visibleClusters(all, "football"), "best_cpr").map((c) => c.name);
     assert.deepEqual(football, ["Football Prospecting", "Football interests", "Arsenal"]);
     const used = sortClusters(

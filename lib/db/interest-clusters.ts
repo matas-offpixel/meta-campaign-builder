@@ -2,8 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   findClusterForInterests,
-  isClusterVertical,
+  isClientVertical,
   rowToInterestCluster,
+  type ClientVertical,
   type ClusterVertical,
   type InterestCluster,
   type InterestClusterInterest,
@@ -13,14 +14,14 @@ import { isRelationMissing } from "../plan/schema-probe.ts";
 
 const TABLE = "interest_clusters";
 const COLUMNS =
-  "id, name, vertical, interests, evidence, source, use_count, last_used_at, archived_at, created_at, updated_at";
+  "id, name, vertical, interests, evidence, source, unresolved, use_count, last_used_at, archived_at, created_at, updated_at";
 
 export type ClusterResult<T> =
   | { ok: true; value: T }
   | { ok: false; status: number; error: string; tableMissing?: boolean; existing?: InterestCluster };
 
 function failure<T>(error: { code?: string; message?: string } | null, fallback = 400): ClusterResult<T> {
-  if (isRelationMissing(error)) {
+  if (isRelationMissing(error) || error?.code === "PGRST202") {
     return { ok: false, status: 503, tableMissing: true, error: "interest_clusters is missing — apply migration 181" };
   }
   if (error?.code === "23505") return { ok: false, status: 409, error: "A cluster with that name already exists" };
@@ -45,7 +46,7 @@ export async function loadClientVertical(
   supabase: SupabaseClient,
   userId: string,
   clientId: string,
-): Promise<ClusterVertical | null> {
+): Promise<ClientVertical | null> {
   const { data, error } = await supabase
     .from("clients")
     .select("vertical")
@@ -54,7 +55,7 @@ export async function loadClientVertical(
     .maybeSingle();
   if (error || !data) return null;
   const vertical = (data as { vertical?: unknown }).vertical;
-  return isClusterVertical(vertical) ? vertical : null;
+  return isClientVertical(vertical) ? vertical : null;
 }
 
 /** Operator save. A live cluster with the same interest set is returned as a 409 with `existing`. */
@@ -117,30 +118,13 @@ export async function updateInterestCluster(
   return { ok: true, value: rowToInterestCluster(data as InterestClusterRow) };
 }
 
-/** use_count + 1 and last_used_at = now. Read-then-write; the counter is per user. */
+/** use_count + 1 and last_used_at = now(), in one SQL statement (RPC, migration 181). */
 export async function markInterestClusterUsed(
   supabase: SupabaseClient,
-  userId: string,
   id: string,
 ): Promise<ClusterResult<InterestCluster>> {
-  const { data: current, error: readError } = await supabase
-    .from(TABLE)
-    .select("use_count")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (readError) return failure(readError);
-  if (!current) return { ok: false, status: 404, error: "Cluster not found" };
-  const { data, error } = await supabase
-    .from(TABLE)
-    .update({
-      use_count: ((current as { use_count: number | null }).use_count ?? 0) + 1,
-      last_used_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("user_id", userId)
-    .select(COLUMNS)
-    .maybeSingle();
-  if (error || !data) return failure(error);
+  const { data, error } = await supabase.rpc("increment_interest_cluster_use", { p_id: id }).maybeSingle();
+  if (error) return failure(error);
+  if (!data) return { ok: false, status: 404, error: "Cluster not found" };
   return { ok: true, value: rowToInterestCluster(data as InterestClusterRow) };
 }

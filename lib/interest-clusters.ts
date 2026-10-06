@@ -8,8 +8,16 @@
 
 import type { InterestGroup } from "@/lib/types";
 
-export const CLUSTER_VERTICALS = ["music", "football", "other"] as const;
+/** clients.vertical. */
+export const CLIENT_VERTICALS = ["music", "football", "other"] as const;
+export type ClientVertical = (typeof CLIENT_VERTICALS)[number];
+
+/** interest_clusters.vertical. Lifestyle clusters show on every client. */
+export const CLUSTER_VERTICALS = ["music", "football", "lifestyle", "other"] as const;
 export type ClusterVertical = (typeof CLUSTER_VERTICALS)[number];
+
+export const CLUSTER_SOURCES = ["seed", "library", "operator"] as const;
+export type ClusterSource = (typeof CLUSTER_SOURCES)[number];
 
 export interface InterestClusterInterest {
   id: string;
@@ -19,6 +27,8 @@ export interface InterestClusterInterest {
 export interface InterestClusterEvidence {
   clusterKey?: string;
   adSets: number;
+  /** Ad sets with at least £5 spend; the count the thin rule uses. */
+  fundedAdSets?: number;
   /** GBP. */
   spend: number;
   registrations: number;
@@ -26,9 +36,9 @@ export interface InterestClusterEvidence {
   cpr: number | null;
   cprSource: "first_party" | "pixel";
   clients: string[];
-  /** Cluster CPR ÷ the spend-weighted median CPR of its clients. */
+  /** Cluster CPR ÷ the spend-weighted pooled CPR of its clients. */
   cprIndex: number | null;
-  clientMedianCpr?: number | null;
+  clientBaselineCpr?: number | null;
   confidence?: "thin";
   note?: string;
   dropped?: { id: string; name: string; reason: string }[];
@@ -40,7 +50,9 @@ export interface InterestCluster {
   vertical: ClusterVertical;
   interests: InterestClusterInterest[];
   evidence: InterestClusterEvidence | null;
-  source: "seed" | "operator";
+  source: ClusterSource;
+  /** Library names Meta interest search did not match; not in `interests`. */
+  unresolved: string[];
   useCount: number;
   lastUsedAt: string | null;
   archivedAt: string | null;
@@ -55,6 +67,7 @@ export interface InterestClusterRow {
   interests: unknown;
   evidence: unknown;
   source: string;
+  unresolved?: unknown;
   use_count: number | null;
   last_used_at: string | null;
   archived_at: string | null;
@@ -64,6 +77,19 @@ export interface InterestClusterRow {
 
 export function isClusterVertical(value: unknown): value is ClusterVertical {
   return typeof value === "string" && (CLUSTER_VERTICALS as readonly string[]).includes(value);
+}
+
+export function isClientVertical(value: unknown): value is ClientVertical {
+  return typeof value === "string" && (CLIENT_VERTICALS as readonly string[]).includes(value);
+}
+
+/** A draft with no client, or a client with no readable vertical, is music. */
+export function effectiveClientVertical(vertical: ClientVertical | null | undefined): ClientVertical {
+  return vertical ?? "music";
+}
+
+function isClusterSource(value: unknown): value is ClusterSource {
+  return typeof value === "string" && (CLUSTER_SOURCES as readonly string[]).includes(value);
 }
 
 /** `[{id,name}]` with ids trimmed, blanks dropped, first occurrence kept. Names fall back to the id. */
@@ -88,7 +114,10 @@ export function rowToInterestCluster(row: InterestClusterRow): InterestCluster {
     vertical: isClusterVertical(row.vertical) ? row.vertical : "other",
     interests: normaliseClusterInterests(row.interests),
     evidence: row.evidence && typeof row.evidence === "object" ? (row.evidence as InterestClusterEvidence) : null,
-    source: row.source === "seed" ? "seed" : "operator",
+    source: isClusterSource(row.source) ? row.source : "operator",
+    unresolved: Array.isArray(row.unresolved)
+      ? row.unresolved.filter((n): n is string => typeof n === "string" && n.trim() !== "")
+      : [],
     useCount: row.use_count ?? 0,
     lastUsedAt: row.last_used_at,
     archivedAt: row.archived_at,
@@ -131,12 +160,13 @@ export function addClusterToGroups(
   return { groups: [...groups, added], added };
 }
 
-/** Live clusters; only the given vertical when one is known. */
+/** Live clusters of the client's vertical (music with no client) plus lifestyle. */
 export function visibleClusters(
   clusters: readonly InterestCluster[],
-  vertical: ClusterVertical | null,
+  vertical: ClientVertical | null,
 ): InterestCluster[] {
-  return clusters.filter((c) => !c.archivedAt && (vertical == null || c.vertical === vertical));
+  const v = effectiveClientVertical(vertical);
+  return clusters.filter((c) => !c.archivedAt && (c.vertical === v || c.vertical === "lifestyle"));
 }
 
 export type ClusterSort = "most_used" | "best_cpr";
@@ -172,6 +202,11 @@ export function formatGbpShort(value: number): string {
   return `£${Math.round(value).toLocaleString("en-GB")}`;
 }
 
+/** Ad sets the thin badge counts: funded ones when recorded. */
+export function evidenceAdSets(evidence: InterestClusterEvidence): number {
+  return evidence.fundedAdSets ?? evidence.adSets;
+}
+
 /** e.g. "12 ad sets · £2.4k · 311 regs · £7.72 CPR (first-party)". */
 export function evidenceLine(evidence: InterestClusterEvidence | null): string | null {
   if (!evidence) return null;
@@ -184,6 +219,30 @@ export function evidenceLine(evidence: InterestClusterEvidence | null): string |
     parts.push(`£${evidence.cpr.toFixed(2)} CPR (${evidence.cprSource === "first_party" ? "first-party" : "pixel"})`);
   }
   return parts.join(" · ");
+}
+
+export type ClusterSourceFilter = "all" | ClusterSource;
+
+export const CLUSTER_SOURCE_FILTERS: readonly { value: ClusterSourceFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "seed", label: "Seed" },
+  { value: "library", label: "Library" },
+  { value: "operator", label: "Yours" },
+];
+
+/** Manage dialog chips. Archived clusters stay in every filter. */
+export function clustersForSourceFilter(
+  clusters: readonly InterestCluster[],
+  filter: ClusterSourceFilter,
+): InterestCluster[] {
+  return filter === "all" ? [...clusters] : clusters.filter((c) => c.source === filter);
+}
+
+/** e.g. "3 names not found on Meta: Graff, Bvlgari, Marshmello". */
+export function unresolvedLine(cluster: Pick<InterestCluster, "unresolved">): string | null {
+  const n = cluster.unresolved.length;
+  if (!n) return null;
+  return `${n} name${n === 1 ? "" : "s"} not found on Meta: ${cluster.unresolved.join(", ")}`;
 }
 
 /** A new draft group carrying the cluster's interests. */

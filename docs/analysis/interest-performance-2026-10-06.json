@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T21:04:48.917Z",
+  "generatedAt": "2026-10-06T21:31:17.995Z",
   "since": null,
   "fx": {
     "base": "GBP",
@@ -479,6 +479,7 @@
         "Glasgow Instant Forms": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -537,6 +538,7 @@
         "Leeds": 2
       },
       "adSets": 8,
+      "fundedAdSets": 4,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -641,6 +643,7 @@
         "Broad (All USA)": 1
       },
       "adSets": 20,
+      "fundedAdSets": 20,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -727,6 +730,7 @@
         "Football interests - Glasgow 40km": 1
       },
       "adSets": 15,
+      "fundedAdSets": 12,
       "campaigns": 13,
       "clients": [
         "4theFans"
@@ -801,6 +805,7 @@
         "Arsenal Fans - Glasgow 40km": 1
       },
       "adSets": 10,
+      "fundedAdSets": 6,
       "campaigns": 10,
       "clients": [
         "4theFans"
@@ -878,6 +883,7 @@
         "Sport TV interests - London 40km": 4
       },
       "adSets": 4,
+      "fundedAdSets": 3,
       "campaigns": 4,
       "clients": [
         "4theFans"
@@ -954,6 +960,7 @@
         "Football interests - London 40km": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -1008,6 +1015,7 @@
         "Villa Fans": 3
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 3,
       "clients": [
         "4theFans"
@@ -1083,6 +1091,7 @@
         "Football interests": 3
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "4theFans"
@@ -1115,7 +1124,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 0.85,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "6980917865465",
         "6980929216865",
@@ -1153,6 +1162,7 @@
         "Sport TV interests": 3
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 3,
       "clients": [
         "4theFans"
@@ -1223,6 +1233,7 @@
         "Sport TV interests": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -1277,6 +1288,7 @@
         "Forest Fans": 2
       },
       "adSets": 2,
+      "fundedAdSets": 1,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -1351,6 +1363,7 @@
         "Football interests - London 40km": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -1425,6 +1438,7 @@
         "Football Prospecting Club - Leeds 40km - 18-50": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -1508,6 +1522,7 @@
         "Football Prospecting - Birmingham 40km - 18-50": 1
       },
       "adSets": 20,
+      "fundedAdSets": 18,
       "campaigns": 18,
       "clients": [
         "4theFans"
@@ -1590,6 +1605,7 @@
         "Football interests - International": 3
       },
       "adSets": 3,
+      "fundedAdSets": 3,
       "campaigns": 3,
       "clients": [
         "4theFans"
@@ -1650,6 +1666,7 @@
         "Dublin - Football Interests": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -1738,6 +1755,7 @@
         "Insta Leads": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -1866,6 +1884,7 @@
         "New Leads ad set": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -1931,6 +1950,7 @@
         "Messenger Leads": 1
       },
       "adSets": 2,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2011,6 +2031,7 @@
         "Insta Leads": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2065,6 +2086,7 @@
         "New Leads ad set": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2128,6 +2150,7 @@
         "TOF | LAL 1% - 5%": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2216,6 +2239,7 @@
         "Liverpool Ad Set": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2284,6 +2308,7 @@
         "EFL Spurs_Pre-Reg_Lead_Campaign Ad Set": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2348,6 +2373,7 @@
         "EFL Newcastle Pre-Reg_Leads Ad Set": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -2467,6 +2493,7 @@
         "CinemaBTTF_Leads_InstantForms Ad Set": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2575,6 +2602,7 @@
         "Encanto": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2653,6 +2681,7 @@
         "SixNations25PreReg_Leads_InstantForms_Richmond/Twickenham(5km) Ad Set": 2
       },
       "adSets": 2,
+      "fundedAdSets": 1,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -2732,6 +2761,7 @@
         "CORE2 BOTH1 NEWS1 LOND1 - General London Targeting": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2820,6 +2850,7 @@
         "CORE2 BOTH1 NEWS1 MANC1 - Manchester & Sub-areas Targeting Danny Mills": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2885,6 +2916,7 @@
         "CORE BOTH1 NEWS1 LOND1 - London Targeting": 1
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -2941,6 +2973,7 @@
         "LOOK BOTH1 NEWS1 GBUK1 - Ibiza Lookalike based on Email List": 1
       },
       "adSets": 2,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "4theFans"
@@ -3002,6 +3035,7 @@
         "INTE BOTH1 NEWS1 GBUK1 - High Interest": 1
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -3069,6 +3103,7 @@
         "INTE BOTH1 NEWS1 GBUK1 - Moderate Interest": 1
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 2,
       "clients": [
         "4theFans"
@@ -3131,6 +3166,7 @@
         "House": 5
       },
       "adSets": 10,
+      "fundedAdSets": 4,
       "campaigns": 8,
       "clients": [
         "Electric Brixton",
@@ -3257,6 +3293,7 @@
         "Fashion & Streetwear (13 interests)": 2
       },
       "adSets": 5,
+      "fundedAdSets": 3,
       "campaigns": 5,
       "clients": [
         "Electric Brixton",
@@ -3338,6 +3375,7 @@
         "Media & Entertainment (5 interests)": 2
       },
       "adSets": 5,
+      "fundedAdSets": 2,
       "campaigns": 5,
       "clients": [
         "Electric Brixton",
@@ -3404,6 +3442,7 @@
         "Ibiza (2 interests)": 1
       },
       "adSets": 8,
+      "fundedAdSets": 3,
       "campaigns": 6,
       "clients": [
         "Electric Brixton",
@@ -3476,6 +3515,7 @@
         "Wide": 1
       },
       "adSets": 32,
+      "fundedAdSets": 9,
       "campaigns": 28,
       "clients": [
         "Electric Brixton",
@@ -3589,6 +3629,7 @@
         "Core Clubber — Stacked Interests 18-34": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -3668,6 +3709,7 @@
         "Prospecting - Other - Southampton (18-40)": 1
       },
       "adSets": 5,
+      "fundedAdSets": 3,
       "campaigns": 5,
       "clients": [
         "Puzzle"
@@ -3730,6 +3772,7 @@
         "Festivals": 4
       },
       "adSets": 4,
+      "fundedAdSets": 1,
       "campaigns": 4,
       "clients": [
         "Puzzle"
@@ -3852,6 +3895,7 @@
         "Prospecting - Fashionistas - PT (18-45)": 2
       },
       "adSets": 18,
+      "fundedAdSets": 11,
       "campaigns": 14,
       "clients": [
         "Deep House Bible",
@@ -3958,6 +4002,7 @@
         "Prospecting - Luxury Fashion": 1
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 5,
       "clients": [
         "Louder / Parable",
@@ -4022,6 +4067,7 @@
         "[IG] Prospecting - Tech Genre - London 30km - 18-40 – Copy": 1
       },
       "adSets": 21,
+      "fundedAdSets": 14,
       "campaigns": 21,
       "clients": [
         "IRONWORKS",
@@ -4098,6 +4144,7 @@
         "Frequent flyers": 1
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 5,
       "clients": [
         "Louder / Parable",
@@ -4172,6 +4219,7 @@
         "Radio": 5
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 5,
       "clients": [
         "Louder / Parable",
@@ -4278,6 +4326,7 @@
         "Prospecting - Fashionistas": 1
       },
       "adSets": 6,
+      "fundedAdSets": 3,
       "campaigns": 6,
       "clients": [
         "Louder / Parable",
@@ -4345,6 +4394,7 @@
         "[IG] Prospecting - House Music - London 30km - 18-40 – Copy": 1
       },
       "adSets": 23,
+      "fundedAdSets": 15,
       "campaigns": 23,
       "clients": [
         "IRONWORKS",
@@ -4433,6 +4483,7 @@
         "Tech House Ibiza Gym Bros - Southampton 70km (18-40)": 1
       },
       "adSets": 5,
+      "fundedAdSets": 2,
       "campaigns": 5,
       "clients": [
         "Puzzle"
@@ -4506,6 +4557,7 @@
         "DR banana & Gene - House engaged": 1
       },
       "adSets": 2,
+      "fundedAdSets": 1,
       "campaigns": 2,
       "clients": [
         "Puzzle"
@@ -4632,6 +4684,7 @@
         "Prospecting - fashion - 21-45 - Miami (80km)": 1
       },
       "adSets": 3,
+      "fundedAdSets": 3,
       "campaigns": 3,
       "clients": [
         "Deep House Bible",
@@ -4752,6 +4805,7 @@
         "Prospecting - House Artists - 18-40 - Southampton (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -4825,6 +4879,7 @@
         "Prospecting - Crate Diggers  - 18-40 - Southampton (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -4898,6 +4953,7 @@
         "Prospecting - Publications  - 18-40 - Southampton (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -4982,6 +5038,7 @@
         "Prospecting - Headsy Festivals  - 18-50 - Berlin (30km)": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "IRONWORKS",
@@ -5038,6 +5095,7 @@
         "Genre - 2 Step Garage - 18-40 - Southampton (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5161,6 +5219,7 @@
         "Prospecting - Headsy Artists  - 18-40 - Southampton (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5239,6 +5298,7 @@
         "prospecting: techno - 18-65 -  (50km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5302,6 +5362,7 @@
         "prospecting: House - 18-65 -  (50km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5470,6 +5531,7 @@
         "prospecting: headsy - 18-65 -  (50km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5538,6 +5600,7 @@
         "prospecting (broad): ARTIST CLIPS house & tech house - 18-26 - Southampton (60km) – Copy": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5676,6 +5739,7 @@
         "prospecting: house & tech house - 18-35 - Southampton (60km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5734,6 +5798,7 @@
         "Competition": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Puzzle"
@@ -5794,6 +5859,7 @@
         "Disc Genre": 1
       },
       "adSets": 11,
+      "fundedAdSets": 6,
       "campaigns": 11,
       "clients": [
         "Electric Brixton",
@@ -5898,6 +5964,7 @@
         "Streaming": 5
       },
       "adSets": 15,
+      "fundedAdSets": 6,
       "campaigns": 15,
       "clients": [
         "Electric Brixton",
@@ -5988,6 +6055,7 @@
         "Music Media": 5
       },
       "adSets": 24,
+      "fundedAdSets": 12,
       "campaigns": 23,
       "clients": [
         "Electric Brixton",
@@ -6082,6 +6150,7 @@
         "Lifestyle": 5
       },
       "adSets": 15,
+      "fundedAdSets": 7,
       "campaigns": 15,
       "clients": [
         "Electric Brixton",
@@ -6169,6 +6238,7 @@
         "Fashion": 5
       },
       "adSets": 15,
+      "fundedAdSets": 7,
       "campaigns": 15,
       "clients": [
         "Electric Brixton",
@@ -6256,6 +6326,7 @@
         "Music & Nightlife": 5
       },
       "adSets": 15,
+      "fundedAdSets": 8,
       "campaigns": 15,
       "clients": [
         "Electric Brixton",
@@ -6333,6 +6404,7 @@
         "Wide (2 interests)": 4
       },
       "adSets": 14,
+      "fundedAdSets": 6,
       "campaigns": 14,
       "clients": [
         "Electric Brixton",
@@ -6417,6 +6489,7 @@
         "Music Interests (meta interests) (4 interests)": 4
       },
       "adSets": 25,
+      "fundedAdSets": 6,
       "campaigns": 21,
       "clients": [
         "Electric Brixton",
@@ -6510,6 +6583,7 @@
         "Prospecting - streaming - 21-45 - Miami (80km)": 6
       },
       "adSets": 41,
+      "fundedAdSets": 16,
       "campaigns": 37,
       "clients": [
         "Deep House Bible",
@@ -6636,6 +6710,7 @@
         "Prospecting - Fashionistas (9 interests)": 7
       },
       "adSets": 32,
+      "fundedAdSets": 9,
       "campaigns": 28,
       "clients": [
         "Electric Brixton",
@@ -6738,6 +6813,7 @@
         "Latest phone users (4 interests)": 7
       },
       "adSets": 33,
+      "fundedAdSets": 8,
       "campaigns": 29,
       "clients": [
         "Electric Brixton",
@@ -6851,6 +6927,7 @@
         "Prospecting - Streetwear (6 interests)": 7
       },
       "adSets": 32,
+      "fundedAdSets": 8,
       "campaigns": 28,
       "clients": [
         "Electric Brixton",
@@ -6943,6 +7020,7 @@
         "Wide (2 interests)": 2
       },
       "adSets": 8,
+      "fundedAdSets": 2,
       "campaigns": 6,
       "clients": [
         "Electric Brixton"
@@ -6976,7 +7054,7 @@
       "cprFirstPartyGbp": 1.92,
       "cpr": 1.92,
       "cprSource": "first_party",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120249359092920239",
         "120249359326540239",
@@ -7024,6 +7102,7 @@
         "Prospecting New Interests": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Electric Brixton"
@@ -7082,6 +7161,7 @@
         "Prospecting": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Electric Brixton"
@@ -7152,6 +7232,7 @@
         "Music & Venues": 5
       },
       "adSets": 9,
+      "fundedAdSets": 6,
       "campaigns": 8,
       "clients": [
         "IRONWORKS",
@@ -7252,6 +7333,7 @@
         "Activities & Culture": 5
       },
       "adSets": 9,
+      "fundedAdSets": 6,
       "campaigns": 8,
       "clients": [
         "IRONWORKS",
@@ -7327,6 +7409,7 @@
         "Lifestyle & Nightlife": 5
       },
       "adSets": 9,
+      "fundedAdSets": 6,
       "campaigns": 8,
       "clients": [
         "IRONWORKS",
@@ -7441,6 +7524,7 @@
         "EDM (11 interests)": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -7513,6 +7597,7 @@
         "Wide": 1
       },
       "adSets": 9,
+      "fundedAdSets": 6,
       "campaigns": 7,
       "clients": [
         "IRONWORKS",
@@ -7590,6 +7675,7 @@
         "Wide": 1
       },
       "adSets": 11,
+      "fundedAdSets": 8,
       "campaigns": 8,
       "clients": [
         "IRONWORKS",
@@ -7671,6 +7757,7 @@
         "Fashion & Streetwear": 5
       },
       "adSets": 8,
+      "fundedAdSets": 5,
       "campaigns": 8,
       "clients": [
         "IRONWORKS",
@@ -7748,6 +7835,7 @@
         "Electronic Music (4 interests)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -7808,6 +7896,7 @@
         "Andhim FB + IG - Artwork Static - House + Mixmag Interest 25-55yo": 1
       },
       "adSets": 3,
+      "fundedAdSets": 3,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -7907,6 +7996,7 @@
         "Mathame - FB + IG - Detailed Targeting - Artwork, Video Caption": 1
       },
       "adSets": 5,
+      "fundedAdSets": 3,
       "campaigns": 3,
       "clients": [
         "Louder / Parable"
@@ -7975,6 +8065,7 @@
         "[IG] Prospecting - Techno Music - Boston Manor Park +5km - 18-40": 1
       },
       "adSets": 29,
+      "fundedAdSets": 24,
       "campaigns": 22,
       "clients": [
         "IRONWORKS",
@@ -8059,6 +8150,7 @@
         "[IG] Prospecting - Halloween- London 30km - 18-40": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "IRONWORKS",
@@ -8130,6 +8222,7 @@
         "KAS:ST - FB + IG - Interests - Video": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -8199,6 +8292,7 @@
         "Wide Radio - GB exc. London 40km": 1
       },
       "adSets": 8,
+      "fundedAdSets": 4,
       "campaigns": 6,
       "clients": [
         "Louder / Parable"
@@ -8328,6 +8422,7 @@
         "Prospecting - High End Jewellers - PT (18-45)": 2
       },
       "adSets": 13,
+      "fundedAdSets": 6,
       "campaigns": 11,
       "clients": [
         "Deep House Bible",
@@ -8399,6 +8494,7 @@
         "Melodic - London": 1
       },
       "adSets": 10,
+      "fundedAdSets": 7,
       "campaigns": 8,
       "clients": [
         "Louder / Parable"
@@ -8578,6 +8674,7 @@
         "Wide Electronic Interests (Festivals, Artists) - GB exc. London 40km": 1
       },
       "adSets": 8,
+      "fundedAdSets": 4,
       "campaigns": 6,
       "clients": [
         "Louder / Parable"
@@ -8643,6 +8740,7 @@
         "Afrobeat -  London 40km": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -8696,6 +8794,7 @@
         "African pop- London 40km": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -8774,6 +8873,7 @@
         "Lifestyle - London 40km": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "Louder / Parable"
@@ -8905,6 +9005,7 @@
         "Prospecting - Luxury fashion - London": 2
       },
       "adSets": 8,
+      "fundedAdSets": 5,
       "campaigns": 6,
       "clients": [
         "Louder / Parable"
@@ -8990,6 +9091,7 @@
         "Lifestyle - 21-45 - Miami (80km)": 7
       },
       "adSets": 18,
+      "fundedAdSets": 11,
       "campaigns": 17,
       "clients": [
         "Deep House Bible",
@@ -9068,6 +9170,7 @@
         "French House - London 40km": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9129,6 +9232,7 @@
         "[IG] Prospecting - Electronic Music - London 30km - 18-40 – Copy": 1
       },
       "adSets": 22,
+      "fundedAdSets": 19,
       "campaigns": 22,
       "clients": [
         "IRONWORKS",
@@ -9205,6 +9309,7 @@
         "Daft Punk - London 40km": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9258,6 +9363,7 @@
         "Prospecting - Afrobeat - London": 3
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Louder / Parable"
@@ -9290,7 +9396,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 3.31,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120241640433120708",
         "120241641309330708",
@@ -9313,6 +9419,7 @@
         "Prospecting - Genre - Dancehall - London": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9366,6 +9473,7 @@
         "Prospecting - Genre - Reggae - London": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9424,6 +9532,7 @@
         "Streaming - London": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9497,6 +9606,7 @@
         "Wider Artists - London": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9555,6 +9665,7 @@
         "Wider Electronic - London": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -9643,6 +9754,7 @@
         "Prospecting Radios - London": 2
       },
       "adSets": 2,
+      "fundedAdSets": 1,
       "campaigns": 2,
       "clients": [
         "Louder / Parable"
@@ -9703,6 +9815,7 @@
         "Lifestyle": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "Louder / Parable"
@@ -9768,6 +9881,7 @@
         "Music Genre Interests - House": 1
       },
       "adSets": 2,
+      "fundedAdSets": 1,
       "campaigns": 2,
       "clients": [
         "Louder / Parable"
@@ -9834,6 +9948,7 @@
         "Prospecting - high end artists - 21-45 - Miami (80km) – Copy": 3
       },
       "adSets": 24,
+      "fundedAdSets": 13,
       "campaigns": 19,
       "clients": [
         "Deep House Bible",
@@ -9951,6 +10066,7 @@
         "High end jewellers": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "Louder / Parable"
@@ -10035,6 +10151,7 @@
         "Music Interests - Commercial": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -10098,6 +10215,7 @@
         "targets": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -10166,6 +10284,7 @@
         "targets": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Louder / Parable"
@@ -10239,6 +10358,7 @@
         "Streaming (5 interests)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -10297,6 +10417,7 @@
         "Electronic Music (2 interests)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -10355,6 +10476,7 @@
         "House Music (1 interests)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -10427,6 +10549,7 @@
         "[IG] Prospecting - Festival Commercial - London 30km - 18-40 – Copy": 2
       },
       "adSets": 32,
+      "fundedAdSets": 23,
       "campaigns": 18,
       "clients": [
         "IRONWORKS"
@@ -10511,6 +10634,7 @@
         "[IG] Prospecting - Publications - London 30km - 18-40": 6
       },
       "adSets": 6,
+      "fundedAdSets": 6,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -10604,6 +10728,7 @@
         "[IG] Prospecting - radio + music news - London 30km - 18-40": 6
       },
       "adSets": 6,
+      "fundedAdSets": 6,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -10677,6 +10802,7 @@
         "[IG] Prospecting - Music Platforms - London 30km - 18-40": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -10733,6 +10859,7 @@
         "Prospecting - microgenre - 21-45 - Miami (80km)": 6
       },
       "adSets": 15,
+      "fundedAdSets": 10,
       "campaigns": 13,
       "clients": [
         "Deep House Bible",
@@ -10803,6 +10930,7 @@
         "[IG] Prospecting - Disco - London 30km - 18-40": 5
       },
       "adSets": 5,
+      "fundedAdSets": 5,
       "campaigns": 5,
       "clients": [
         "IRONWORKS"
@@ -10875,6 +11003,7 @@
         "LWE (20%) | Bridge | Innervisions takeover | Sign Up || Interests | Video Link Ad | 18 Feb 2026 - 27 Feb 2026": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -10951,6 +11080,7 @@
         "Prospecting - Festivals - ES (18-45)": 2
       },
       "adSets": 6,
+      "fundedAdSets": 5,
       "campaigns": 4,
       "clients": [
         "Deep House Bible",
@@ -11012,6 +11142,7 @@
         "Prospecting - Health - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11065,6 +11196,7 @@
         "Prospecting - Sound - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11133,6 +11265,7 @@
         "Prospecting - Yoga  - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11191,6 +11324,7 @@
         "Genre - Avant Garde - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11249,6 +11383,7 @@
         "Genre - Live Electronic Music - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11302,6 +11437,7 @@
         "Genre - Experimental - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11355,6 +11491,7 @@
         "Genre - IDM - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11423,6 +11560,7 @@
         "Genre - Techno  - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11521,6 +11659,7 @@
         "Genre - Ambient - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11609,6 +11748,7 @@
         "Prospecting - Publishers + Platforms - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11737,6 +11877,7 @@
         "Prospecting - Shelling Techno  - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11790,6 +11931,7 @@
         "Audiophiles  - 18-50 - Berlin (30km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -11899,6 +12041,7 @@
         "[IG] Prospecting - Melodic Techno - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 3,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -12013,6 +12156,7 @@
         "[IG] Prospecting - Business Techno - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 3,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -12100,6 +12244,7 @@
         "[IG] Prospecting - Commercial Artists - London 30km - 18-40 – Copy": 1
       },
       "adSets": 11,
+      "fundedAdSets": 7,
       "campaigns": 11,
       "clients": [
         "IRONWORKS"
@@ -12226,6 +12371,7 @@
         "[IG] Prospecting - Tech Artists - England - 21-40 – Copy": 1
       },
       "adSets": 10,
+      "fundedAdSets": 4,
       "campaigns": 10,
       "clients": [
         "IRONWORKS"
@@ -12317,6 +12463,7 @@
         "[IG] Prospecting - Venues - London 30km - 18-40 – Copy": 1
       },
       "adSets": 11,
+      "fundedAdSets": 5,
       "campaigns": 11,
       "clients": [
         "IRONWORKS"
@@ -12471,6 +12618,7 @@
         "[IG] Prospecting - Headsy - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 4,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -12570,6 +12718,7 @@
         "[IG] Prospecting - Disco - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 5,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -12642,6 +12791,7 @@
         "[IG] Prospecting - Music Platforms - London 30km - 18-40 – Copy": 1
       },
       "adSets": 11,
+      "fundedAdSets": 8,
       "campaigns": 11,
       "clients": [
         "IRONWORKS"
@@ -12724,6 +12874,7 @@
         "[IG] Prospecting - Publications - London 30km - 18-40 – Copy": 1
       },
       "adSets": 11,
+      "fundedAdSets": 7,
       "campaigns": 11,
       "clients": [
         "IRONWORKS"
@@ -12823,6 +12974,7 @@
         "[IG] Prospecting - radio + music heads - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 4,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -12912,6 +13064,7 @@
         "[IG] Prospecting - Festivals Headsy - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 5,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -12996,6 +13149,7 @@
         "[IG] Prospecting - Labels Other - London 30km - 18-40 – Copy": 1
       },
       "adSets": 6,
+      "fundedAdSets": 5,
       "campaigns": 6,
       "clients": [
         "IRONWORKS"
@@ -13083,6 +13237,7 @@
         "[IG] Prospecting - Festival Tech - London 30km - 18-40 – Copy": 1
       },
       "adSets": 11,
+      "fundedAdSets": 6,
       "campaigns": 11,
       "clients": [
         "IRONWORKS"
@@ -13168,6 +13323,7 @@
         "[IG] Prospecting - Labels Other - England - 21-40 – Copy": 1
       },
       "adSets": 5,
+      "fundedAdSets": 3,
       "campaigns": 5,
       "clients": [
         "IRONWORKS"
@@ -13302,6 +13458,7 @@
         "LWE (15%) | ION Festival | [ION006] ION Festival 2024 | Dec Sign-Up || Interests | VLA/Story | 19 Dec 2023 - 31 Jan 2024": 1
       },
       "adSets": 3,
+      "fundedAdSets": 3,
       "campaigns": 2,
       "clients": [
         "IRONWORKS"
@@ -13368,6 +13525,7 @@
         "LWE (15%) | ION Festival | [ION006] ION Festival 2024 | Announcement/Sign-Up || Interests | VLA/Story | 07 Nov 2023 - 24 Nov 2023": 3
       },
       "adSets": 4,
+      "fundedAdSets": 2,
       "campaigns": 4,
       "clients": [
         "IRONWORKS"
@@ -13400,7 +13558,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 8.11,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "6492379052903",
         "6492869801103",
@@ -13560,6 +13718,7 @@
         "LWE (15%) | ION Festival | [ION003] ION Festival 2023 | February(w/c 6th) || Interests | Link Ad & Story | 10 Feb 2023 - 14 Feb 2023": 1
       },
       "adSets": 2,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -13634,6 +13793,7 @@
         "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Announcement/On-sale || Generic Interests | Link Ad & Story | 01 Feb 2023 - 08 Feb 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -13802,6 +13962,7 @@
         "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Announcement/On-sale || Interests | Video Link Ad | 30 Jan 2023 - 01 Feb 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -14010,6 +14171,7 @@
         "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Signup || Interests | VLA/Story | 17 Jan 2023 - 24 Jan 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -14103,6 +14265,7 @@
         "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Announcement || Interests | Link Ad & Story | 06 Dec 2022 - 08 Dec 2022": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -14207,6 +14370,7 @@
         "press targets": 2
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 3,
       "clients": [
         "IRONWORKS"
@@ -14393,6 +14557,7 @@
         "artist targets": 2
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 3,
       "clients": [
         "IRONWORKS"
@@ -14513,6 +14678,7 @@
         "ENRICO SANGIULIANO targets": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -14606,6 +14772,7 @@
         "LOW STEPPA TARGETS": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -14686,6 +14853,7 @@
         "ION001 - UK - 23-30 - OVERSEAS FESTIVALS": 1
       },
       "adSets": 3,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "IRONWORKS"
@@ -14767,6 +14935,7 @@
         "Prospecting - Electronic Music (6 interests)": 1
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 5,
       "clients": [
         "Electric Brixton",
@@ -14841,6 +15010,7 @@
         "Prospecting - Wider (4 interests)": 1
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 5,
       "clients": [
         "Electric Brixton",
@@ -14925,6 +15095,7 @@
         "Streaming (6 interests)": 1
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 5,
       "clients": [
         "Electric Brixton",
@@ -15004,6 +15175,7 @@
         "Music Interests (meta interests) (5 interests)": 2
       },
       "adSets": 6,
+      "fundedAdSets": 2,
       "campaigns": 6,
       "clients": [
         "Electric Brixton",
@@ -15037,7 +15209,7 @@
       "cprFirstPartyGbp": 1.42,
       "cpr": 1.42,
       "cprSource": "first_party",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120251737977750755",
         "120251891842270755",
@@ -15083,6 +15255,7 @@
         "Music Interests (meta interests) (5 interests)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Electric Brixton"
@@ -15156,6 +15329,7 @@
         "Gym bros": 5
       },
       "adSets": 5,
+      "fundedAdSets": 1,
       "campaigns": 3,
       "clients": [
         "Off/Pixel"
@@ -15259,6 +15433,7 @@
         "Fashion & Streetwear (14 interests)": 2
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible",
@@ -15294,7 +15469,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 0.81,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120245969094590453",
         "120249957294340453",
@@ -15338,6 +15513,7 @@
         "Electronic Music Interests (5 interests)": 2
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible",
@@ -15373,7 +15549,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 0.72,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120245969094290453",
         "120249957293790453",
@@ -15422,6 +15598,7 @@
         "Lifestyle & Nightlife (6 interests)": 2
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible",
@@ -15457,7 +15634,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 0.81,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120245969094370453",
         "120249957293820453",
@@ -15521,6 +15698,7 @@
         "Media & Entertainment (9 interests)": 2
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible",
@@ -15556,7 +15734,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 0.95,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120245969096850453",
         "120249957296280453",
@@ -15615,6 +15793,7 @@
         "Activities & Culture (8 interests)": 2
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible",
@@ -15650,7 +15829,7 @@
       "cprFirstPartyGbp": null,
       "cpr": 0.98,
       "cprSource": "pixel",
-      "thin": false,
+      "thin": true,
       "adSetIds": [
         "120245969096410453",
         "120249957296050453",
@@ -15693,6 +15872,7 @@
         "Electronic Music (5 interests)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Innellea"
@@ -15762,6 +15942,7 @@
         "Festivals Electronic Music - Local (4 interests)": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Junction 2"
@@ -15827,6 +16008,7 @@
         "LWE (20%) | Junction 2 | [UTB033] Junction 2 (2025) | Second Wave Artist - Sign up || Interests | VLA/Story | 29 Jan 2025 - 04 Feb 2025": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -15907,6 +16089,7 @@
         "LWE (20%) | Junction 2 | [UTB033] Junction 2 (2025) | Sign up || Interests | VLA/Story | 17 Oct 2024 - 12 Dec 2024": 1
       },
       "adSets": 3,
+      "fundedAdSets": 3,
       "campaigns": 3,
       "clients": [
         "Junction 2"
@@ -16027,6 +16210,7 @@
         "LWE (20%) | Junction 2 | [UTB025] Junction 2 (2024) | Christmas Sign ups || Interests | VLA/Story | 14 Dec 2023 - 29 Jan 2024": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -16080,6 +16264,7 @@
         "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 24 Nov 2023 - 30 Nov 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -16133,6 +16318,7 @@
         "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 24 Nov 2023 - 30 Nov 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -16191,6 +16377,7 @@
         "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 24 Nov 2023 - 03 Dec 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -16265,6 +16452,7 @@
         "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 09 Nov 2023 - 21 Nov 2023": 1
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "Junction 2"
@@ -16354,6 +16542,7 @@
         "LWE (20%) | Junction 2 | [UTB021] Junction 2 2023 | Lineup Announcement - Sign Ups || Interests (EU) | Video Link Ad | 10 Jan 2023 - 17 Jan 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -16602,6 +16791,7 @@
         "LWE (20%) | Junction 2 | [UTB021] Junction 2 2023 | Lineup Announcement - Sign Ups || Interests | Video Link Ad | 10 Jan 2023 - 17 Jan 2023": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -16721,6 +16911,7 @@
         "festival": 1
       },
       "adSets": 2,
+      "fundedAdSets": 0,
       "campaigns": 2,
       "clients": [
         "Junction 2"
@@ -16930,6 +17121,7 @@
         "artist targets": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -17168,6 +17360,7 @@
         "junction 2 targets": 1
       },
       "adSets": 1,
+      "fundedAdSets": 0,
       "campaigns": 1,
       "clients": [
         "Junction 2"
@@ -17242,6 +17435,7 @@
         "Music & Venues": 1
       },
       "adSets": 2,
+      "fundedAdSets": 0,
       "campaigns": 2,
       "clients": [
         "Off/Pixel"
@@ -17302,6 +17496,7 @@
         "Fashion & Streetwear": 3
       },
       "adSets": 4,
+      "fundedAdSets": 0,
       "campaigns": 4,
       "clients": [
         "Off/Pixel"
@@ -17378,6 +17573,7 @@
         "Music & Venues": 2
       },
       "adSets": 2,
+      "fundedAdSets": 0,
       "campaigns": 2,
       "clients": [
         "Off/Pixel"
@@ -17442,6 +17638,7 @@
         "House Music Interests (3 interests)": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "Deep House Bible"
@@ -17566,6 +17763,7 @@
         "Prospecting - Luxury Fashion - PT (18-45)": 2
       },
       "adSets": 2,
+      "fundedAdSets": 2,
       "campaigns": 2,
       "clients": [
         "Deep House Bible"
@@ -17631,6 +17829,7 @@
         "Prospecting - Medolic & Business Techno - PT (18-45)": 2
       },
       "adSets": 4,
+      "fundedAdSets": 4,
       "campaigns": 2,
       "clients": [
         "Deep House Bible"
@@ -17758,6 +17957,7 @@
         "Prospecting - fashion - 21-45 - Miami (80km)": 6
       },
       "adSets": 8,
+      "fundedAdSets": 4,
       "campaigns": 8,
       "clients": [
         "Deep House Bible"
@@ -17849,6 +18049,7 @@
         "Prospecting - electronic - 21-45 - Miami (80km)": 6
       },
       "adSets": 8,
+      "fundedAdSets": 3,
       "campaigns": 8,
       "clients": [
         "Deep House Bible"
@@ -17916,6 +18117,7 @@
         "[IG] Genre Prospecting - Costa Rica - 18-45": 1
       },
       "adSets": 4,
+      "fundedAdSets": 3,
       "campaigns": 4,
       "clients": [
         "Deep House Bible"
@@ -18027,6 +18229,7 @@
         "Prospecting - high end artists - 21-45 - Miami (80km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Deep House Bible"
@@ -18165,6 +18368,7 @@
         "Prospecting - melodic - 21-45 - Miami (80km)": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Deep House Bible"
@@ -18254,6 +18458,7 @@
         "[IG] Venues Prospecting - Costa Rica - 18-45": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible"
@@ -18395,6 +18600,7 @@
         "[IG] Fashion Prospecting - Costa Rica - 18-45": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible"
@@ -18476,6 +18682,7 @@
         "[IG] Labels Prospecting - Costa Rica - 18-45": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible"
@@ -18552,6 +18759,7 @@
         "[IG] Festivals Prospecting - Costa Rica - 18-45": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible"
@@ -18633,6 +18841,7 @@
         "[IG] Other Prospecting - Costa Rica - 18-45": 1
       },
       "adSets": 3,
+      "fundedAdSets": 2,
       "campaigns": 3,
       "clients": [
         "Deep House Bible"
@@ -18758,6 +18967,7 @@
         "[IG] Melodic Prospecting - Santa Teresa 40km - 18-45": 1
       },
       "adSets": 1,
+      "fundedAdSets": 1,
       "campaigns": 1,
       "clients": [
         "Deep House Bible"
@@ -18798,16 +19008,10 @@
   ],
   "ranked": [
     "6003107902433,6003175194449,6003432221791,6003474194264",
-    "6003108826384,6003135979608,6003155409305,6003902397066,6808891387078",
-    "467691106721833,6003030212255,6003154507633,6003266266843,6003351852600,6003359659004,6003359784404,6003392552125,6003552041427,6003739371891",
-    "6003011087019,6003190279924,6003218161847,6003361714600,6003651391313,6840320758807",
     "6002995710444,6003306191253,6003474194264",
     "6003155409305,6003320931941",
-    "6002995710444,6003306191253,6003350242199,6003472078063,6003474194264",
     "6003064617670,6003115921142",
     "6003182953366",
-    "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,6840320758807,937077532996593",
-    "6002920953955,6003011521797,6003012556997,6003174397615,6003211024030,6003287590941,6834059423499,6846411818012",
     "6002992430794,6003142803216,6003155409305,6003402644747,6015454246390,6816985058496,6840320758807,6892292894574",
     "6003902397066",
     "6002949651174,6003289429270,6003434244943,6003716027062",
@@ -18815,7 +19019,6 @@
     "6002969794329,6003253526111,937077532996593",
     "6003179570015,6003717043662",
     "1022398264437827,6003179570015,6003201387378,6003322656509,6003377472375,6003593748487,6004113429589,6012508498099,6012964633892,6014706650256,6015484651572,6019270066602",
-    "6002911345572,6003009781819,6003182953366,6003616498687,6015454246390",
     "6002909794772,6003152069658,6003644679316,6003711590516,6013281904181,894809510568388",
     "6003479860669",
     "1799665323589776,6002932072362,6002998813092,6003151482905,6003779660852,755432197908955",
@@ -18837,7 +19040,6 @@
     "6003030419607,6003075608915,6003150119230,6003299417538,6003428371740,6004115204424",
     "6003190279924,6003361714600,6003375995381",
     "6003135979608,6003289429270,6003716027062,6808891387078",
-    "6003108826384,6003985771306",
     "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,937077532996593",
     "354341131419906,6003009134797,6003092827017,6003351998032,6003387979405,6003655134820,6007026847701,6012607283546,6013634389778,6015730709639,6018510577307,6020300837514,934079086648956",
     "6003182953366,6003266326542,6003290698256,6008338302231",
@@ -18858,7 +19060,6 @@
     "467691106721833,6002983066219,6003023143356,6003030212255,6003145134190,6003154507633,6003192486414,6003254626969,6003359659004,6003359784404,6003537562673,6003686979507,6004119918789",
     "467691106721833,6002965577572,6002997710782,6003030212255,6003165411122,6003246053342,6003279451780,6003301547660,6003359784404,6003435546331,6003468776474,6003746294946,6007925187168",
     "6003190279924,6003361714600",
-    "6003484812986",
     "6002898307162,6002972136974,6002974787459,6002998518973,6003011259419,6003198892801,6003246597567,6003247937213,6003431493391,6003456096403,6003508325964,6003587678073,6003762134517,6016807291376",
     "6003179570015",
     "6002840959079,6003108826384,6003280559641,6003428102889,6003902397066,6008821391139",
@@ -18866,7 +19067,6 @@
     "6002933146962,6002964263329,6003182953366,6003240910010",
     "6002911345572,6003108826384",
     "6002911345572,6002933404659,6003012260797,6003013521293,6003075191185,6003139973592,6003182953366,6003211257176,6003290698256,6003353908421,6003451423003,6003479860669,6003593748487,6003733944753,6004118725989,6015454246390",
-    "6002910403310,6003290698256,6012921107100",
     "6003182953366,6003479860669",
     "6002995710444,6003064617670,6003107902433,6003115921142,6003306191253,6003442346642",
     "6003531090263",
@@ -18874,9 +19074,15 @@
     "1711794862401024,6002969794329,6003148839749,6003277780179,937077532996593",
     "6003155409305,6003479860669",
     "6003902397066,6808891387078",
+    "6003108826384,6003135979608,6003155409305,6003902397066,6808891387078",
     "6002949651174,6003289429270,6003434244943,6003716027062,6007682793122",
     "1392514054386145,406865796146660,6003211257176,6003277074999,6003412113005,6003429836170,6003733944753,6017559680786",
+    "467691106721833,6003030212255,6003154507633,6003266266843,6003351852600,6003359659004,6003359784404,6003392552125,6003552041427,6003739371891",
+    "6003011087019,6003190279924,6003218161847,6003361714600,6003651391313,6840320758807",
+    "6002995710444,6003306191253,6003350242199,6003472078063,6003474194264",
+    "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,6840320758807,937077532996593",
     "6003155409305,6003182953366,6003479860669,6816985058496",
+    "6002920953955,6003011521797,6003012556997,6003174397615,6003211024030,6003287590941,6834059423499,6846411818012",
     "6002983075419,6003064617670,6003306191253,6008461382636",
     "6003054997881,6003236366049,6003309736053,6003325976709,6003639358907,6003711590516",
     "467691106721833,6002983066219,6002990015768,6003023143356,6003030212255,6003058455881,6003145134190,6003154507633,6003192486414,6003193882366,6003254626969,6003273182308,6003359659004,6003359784404,6003537562673,6003686979507,6004119918789,6014148292188",
@@ -18895,6 +19101,7 @@
     "467691106721833,6002983066219,6003030212255,6003058455881,6003145134190,6003154507633,6003192486414,6003254626969,6003273182308,6003359659004,6003359784404,6003479910147,6003537562673,6003686979507,6004119918789",
     "224690944535071,354341131419906,6003009134797,6003092827017,6003351998032,6003387979405,6003655134820,6007026847701,6012607283546,6013634389778,6015730709639,6018510577307,6020300837514",
     "6002995710444,6003306191253,6003350242199,6003424358337,6003474194264",
+    "6002911345572,6003009781819,6003182953366,6003616498687,6015454246390",
     "1799665323589776",
     "6003117551426,6003792839878",
     "6003052933645,6003066431270,6003118946245,6003305648021,6003323352897,6003373123777,6003391905954,6003835360652,6003967214857,6004114549824",
@@ -18906,6 +19113,7 @@
     "6002895822910,6002983010219,6003108518590,6003177394215,6003188126366,6003210145630,6003256597142,6003256801882,6003279218180,6003372991395,6003400392535,6003645185916,6003650619690,6003655134820,6003719548862,6003902293666,6004114549824,6008418250637,6018713448094",
     "6002909794772,6003152069658,6003644679316,6003711590516,894809510568388",
     "6002949651174,6002969794329,6003135979608,6003253526111,6003434244943,6003716027062,937077532996593",
+    "6003108826384,6003985771306",
     "1022398264437827,6003179570015,6003201387378,6003322656509,6003377472375,6003593748487,6004113429589,6011709966411,6012508498099,6012964633892,6013228813583,6014706650256,6015484651572,6015755934302,6019270066602",
     "6003108826384,6003154859633,6003902397066",
     "1561565230831128,6003048806881,6003172151415,6003191660922,6003252266088,6003284426302,6003485609669,6003540790073,6003655395078,6003677814118,6003854023452,6004108947409,6004118725989,6006576534215,6007774923293,6008821391139",
@@ -18934,6 +19142,7 @@
     "6003672270062",
     "6003009781819,6003114432426,6003182953366,6003290600511,6003616498687",
     "6002911345572,6003133372614,6003161539630,6004040795748",
+    "6003484812986",
     "6003074016139",
     "6002934249459,6003306084421,6003474973243,6003633125183",
     "6003075191185,6003155409305,6003479860669,6003902397066,6003985771306,6808891387078",
@@ -18960,6 +19169,7 @@
     "6003479860669,6003486062469",
     "6003032453893,6003101306197,6003122128722,6003246873267,6003350444039,6003368990002,6003582564838,6003700476383,6007828452206,6015908022889,6018375369348",
     "6002984797619,6003137508950,6003284320325,6003308770453,6003512455442,6003516735664,6003713880583",
+    "6002910403310,6003290698256,6012921107100",
     "6002895822910,6002983010219,6002993440373,6003108518590,6003123172817,6003177394215,6003188126366,6003210145630,6003256597142,6003256801882,6003279218180,6003372991395,6003400392535,6003526780595,6003645185916,6003650619690,6003655134820,6003719548862,6003902293666,6004111952009,6004114549824,6008418250637,6018713448094,621045194716005",
     "1711794862401024,6002969794329,6003148839749,6003253526111,6003277780179,937077532996593",
     "6003075191185,6003155409305,6003479860669,6899293586673",
@@ -19014,11 +19224,11 @@
       "ranked": [
         "6003107902433,6003175194449,6003432221791,6003474194264",
         "6002995710444,6003306191253,6003474194264",
-        "6002995710444,6003306191253,6003350242199,6003472078063,6003474194264",
         "6003064617670,6003115921142",
         "6002995710444,6003064617670,6003107902433,6003115921142,6003306191253,6003442346642",
         "6003531090263",
         "6002911345572,6003054590585,6003075191185,6003108826384,6003147868152,6003149474865,6003155409305,6003179515414,6003288039651,6003395797326,6003479860669,6003596378473,6003717043662,6003805457383,6003902397066",
+        "6002995710444,6003306191253,6003350242199,6003472078063,6003474194264",
         "6002983075419,6003064617670,6003306191253,6008461382636",
         "6003107902433,6003175194449",
         "6003356908154",
@@ -19137,6 +19347,7 @@
             "Glasgow Instant Forms": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -19195,6 +19406,7 @@
             "Leeds": 2
           },
           "adSets": 8,
+          "fundedAdSets": 4,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -19299,6 +19511,7 @@
             "Broad (All USA)": 1
           },
           "adSets": 20,
+          "fundedAdSets": 20,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -19385,6 +19598,7 @@
             "Football interests - Glasgow 40km": 1
           },
           "adSets": 15,
+          "fundedAdSets": 12,
           "campaigns": 13,
           "clients": [
             "4theFans"
@@ -19459,6 +19673,7 @@
             "Arsenal Fans - Glasgow 40km": 1
           },
           "adSets": 10,
+          "fundedAdSets": 6,
           "campaigns": 10,
           "clients": [
             "4theFans"
@@ -19536,6 +19751,7 @@
             "Sport TV interests - London 40km": 4
           },
           "adSets": 4,
+          "fundedAdSets": 3,
           "campaigns": 4,
           "clients": [
             "4theFans"
@@ -19612,6 +19828,7 @@
             "Football interests - London 40km": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -19666,6 +19883,7 @@
             "Villa Fans": 3
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 3,
           "clients": [
             "4theFans"
@@ -19741,6 +19959,7 @@
             "Football interests": 3
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "4theFans"
@@ -19773,7 +19992,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 0.85,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "6980917865465",
             "6980929216865",
@@ -19811,6 +20030,7 @@
             "Sport TV interests": 3
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 3,
           "clients": [
             "4theFans"
@@ -19881,6 +20101,7 @@
             "Sport TV interests": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -19935,6 +20156,7 @@
             "Forest Fans": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -20009,6 +20231,7 @@
             "Football interests - London 40km": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -20083,6 +20306,7 @@
             "Football Prospecting Club - Leeds 40km - 18-50": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20166,6 +20390,7 @@
             "Football Prospecting - Birmingham 40km - 18-50": 1
           },
           "adSets": 20,
+          "fundedAdSets": 18,
           "campaigns": 18,
           "clients": [
             "4theFans"
@@ -20248,6 +20473,7 @@
             "Football interests - International": 3
           },
           "adSets": 3,
+          "fundedAdSets": 3,
           "campaigns": 3,
           "clients": [
             "4theFans"
@@ -20308,6 +20534,7 @@
             "Dublin - Football Interests": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20396,6 +20623,7 @@
             "Insta Leads": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20524,6 +20752,7 @@
             "New Leads ad set": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -20589,6 +20818,7 @@
             "Messenger Leads": 1
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20669,6 +20899,7 @@
             "Insta Leads": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20723,6 +20954,7 @@
             "New Leads ad set": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20786,6 +21018,7 @@
             "TOF | LAL 1% - 5%": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20874,6 +21107,7 @@
             "Liverpool Ad Set": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -20942,6 +21176,7 @@
             "EFL Spurs_Pre-Reg_Lead_Campaign Ad Set": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21006,6 +21241,7 @@
             "EFL Newcastle Pre-Reg_Leads Ad Set": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -21125,6 +21361,7 @@
             "CinemaBTTF_Leads_InstantForms Ad Set": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21233,6 +21470,7 @@
             "Encanto": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21311,6 +21549,7 @@
             "SixNations25PreReg_Leads_InstantForms_Richmond/Twickenham(5km) Ad Set": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -21390,6 +21629,7 @@
             "CORE2 BOTH1 NEWS1 LOND1 - General London Targeting": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21478,6 +21718,7 @@
             "CORE2 BOTH1 NEWS1 MANC1 - Manchester & Sub-areas Targeting Danny Mills": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21543,6 +21784,7 @@
             "CORE BOTH1 NEWS1 LOND1 - London Targeting": 1
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21599,6 +21841,7 @@
             "LOOK BOTH1 NEWS1 GBUK1 - Ibiza Lookalike based on Email List": 1
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "4theFans"
@@ -21660,6 +21903,7 @@
             "INTE BOTH1 NEWS1 GBUK1 - High Interest": 1
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -21727,6 +21971,7 @@
             "INTE BOTH1 NEWS1 GBUK1 - Moderate Interest": 1
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "4theFans"
@@ -21767,8 +22012,10 @@
           ]
         }
       ],
-      "nonThin": 6,
-      "medianCpr": 0.84
+      "nonThin": 5,
+      "spendGbp": 7543.76,
+      "registrations": 7293,
+      "baselineCpr": 1.03
     },
     {
       "client": "Deep House Bible",
@@ -21858,6 +22105,7 @@
             "Media & Entertainment (9 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -21947,6 +22195,7 @@
             "Activities & Culture (8 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22011,6 +22260,7 @@
             "House Music Interests (3 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22110,6 +22360,7 @@
             "Fashion & Streetwear (14 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22189,6 +22440,7 @@
             "Lifestyle & Nightlife (6 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22263,6 +22515,7 @@
             "Electronic Music Interests (5 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22382,6 +22635,7 @@
             "Prospecting - High End Jewellers - PT (18-45)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22458,6 +22712,7 @@
             "Lifestyle - 21-45 - Miami (80km)": 7
           },
           "adSets": 11,
+          "fundedAdSets": 7,
           "campaigns": 11,
           "clients": [
             "Deep House Bible"
@@ -22591,6 +22846,7 @@
             "Prospecting - Luxury Fashion - PT (18-45)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22706,6 +22962,7 @@
             "Prospecting - Fashionistas - PT (18-45)": 2
           },
           "adSets": 4,
+          "fundedAdSets": 4,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22773,6 +23030,7 @@
             "Prospecting - Medolic & Business Techno - PT (18-45)": 2
           },
           "adSets": 4,
+          "fundedAdSets": 4,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22850,6 +23108,7 @@
             "Prospecting - Festivals - ES (18-45)": 2
           },
           "adSets": 4,
+          "fundedAdSets": 4,
           "campaigns": 2,
           "clients": [
             "Deep House Bible"
@@ -22913,6 +23172,7 @@
             "Prospecting - high end artists - 21-45 - Miami (80km) – Copy": 3
           },
           "adSets": 13,
+          "fundedAdSets": 3,
           "campaigns": 8,
           "clients": [
             "Deep House Bible"
@@ -22989,6 +23249,7 @@
             "Prospecting - streaming - 21-45 - Miami (80km)": 6
           },
           "adSets": 8,
+          "fundedAdSets": 4,
           "campaigns": 8,
           "clients": [
             "Deep House Bible"
@@ -23120,6 +23381,7 @@
             "Prospecting - fashion - 21-45 - Miami (80km)": 6
           },
           "adSets": 8,
+          "fundedAdSets": 4,
           "campaigns": 8,
           "clients": [
             "Deep House Bible"
@@ -23211,6 +23473,7 @@
             "Prospecting - electronic - 21-45 - Miami (80km)": 6
           },
           "adSets": 8,
+          "fundedAdSets": 3,
           "campaigns": 8,
           "clients": [
             "Deep House Bible"
@@ -23272,6 +23535,7 @@
             "Prospecting - microgenre - 21-45 - Miami (80km)": 6
           },
           "adSets": 8,
+          "fundedAdSets": 3,
           "campaigns": 8,
           "clients": [
             "Deep House Bible"
@@ -23339,6 +23603,7 @@
             "[IG] Genre Prospecting - Costa Rica - 18-45": 1
           },
           "adSets": 4,
+          "fundedAdSets": 3,
           "campaigns": 4,
           "clients": [
             "Deep House Bible"
@@ -23465,6 +23730,7 @@
             "Prospecting - fashion - 21-45 - Miami (80km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Deep House Bible"
@@ -23573,6 +23839,7 @@
             "Prospecting - high end artists - 21-45 - Miami (80km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Deep House Bible"
@@ -23711,6 +23978,7 @@
             "Prospecting - melodic - 21-45 - Miami (80km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Deep House Bible"
@@ -23800,6 +24068,7 @@
             "[IG] Venues Prospecting - Costa Rica - 18-45": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Deep House Bible"
@@ -23941,6 +24210,7 @@
             "[IG] Fashion Prospecting - Costa Rica - 18-45": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Deep House Bible"
@@ -24022,6 +24292,7 @@
             "[IG] Labels Prospecting - Costa Rica - 18-45": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Deep House Bible"
@@ -24098,6 +24369,7 @@
             "[IG] Festivals Prospecting - Costa Rica - 18-45": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Deep House Bible"
@@ -24179,6 +24451,7 @@
             "[IG] Other Prospecting - Costa Rica - 18-45": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Deep House Bible"
@@ -24304,6 +24577,7 @@
             "[IG] Melodic Prospecting - Santa Teresa 40km - 18-45": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Deep House Bible"
@@ -24343,7 +24617,9 @@
         }
       ],
       "nonThin": 4,
-      "medianCpr": 2.64
+      "spendGbp": 3232.6,
+      "registrations": 2413,
+      "baselineCpr": 1.34
     },
     {
       "client": "Electric Brixton",
@@ -24351,7 +24627,6 @@
         "6003009781819,6003182953366,6015454246390,6899295199673",
         "6003155409305,6003320931941",
         "6003030419607,6003075608915,6003150119230,6003299417538,6003428371740,6004115204424",
-        "6003108826384,6003985771306",
         "6003190279924,6003361714600,6003375995381",
         "6002944044446,6003143160640,6003227434158,6003343155628",
         "6002969794329,6003253526111,937077532996593",
@@ -24359,6 +24634,7 @@
         "6003266266843,6003392552125,6003552041427,6003739371891",
         "467691106721833,6003237287010,6003351852600,6003359784404,6003552041427,6798184996839",
         "6002911345572,6003009781819,6003182953366,6003616498687,6015454246390",
+        "6003108826384,6003985771306",
         "6003155409305,6003479860669,6003902397066,6808891387078",
         "6003009781819,6003182953366,6003616498687,6003985771306,6015454246390",
         "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,937077532996593",
@@ -24411,6 +24687,7 @@
             "Media & Entertainment (5 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Electric Brixton"
@@ -24471,6 +24748,7 @@
             "Ibiza (2 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -24531,6 +24809,7 @@
             "Prospecting - Electronic Music (1 interests)": 6
           },
           "adSets": 19,
+          "fundedAdSets": 6,
           "campaigns": 17,
           "clients": [
             "Electric Brixton"
@@ -24664,6 +24943,7 @@
             "Fashion & Streetwear (13 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Electric Brixton"
@@ -24724,6 +25004,7 @@
             "House Music (2 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Electric Brixton"
@@ -24784,6 +25065,7 @@
             "Disc Genre (1 interests)": 8
           },
           "adSets": 8,
+          "fundedAdSets": 4,
           "campaigns": 8,
           "clients": [
             "Electric Brixton"
@@ -24881,6 +25163,7 @@
             "Streaming (8 interests)": 9
           },
           "adSets": 9,
+          "fundedAdSets": 3,
           "campaigns": 9,
           "clients": [
             "Electric Brixton"
@@ -24959,6 +25242,7 @@
             "Music Media (4 interests)": 9
           },
           "adSets": 9,
+          "fundedAdSets": 3,
           "campaigns": 9,
           "clients": [
             "Electric Brixton"
@@ -25032,6 +25316,7 @@
             "Lifestyle (3 interests)": 9
           },
           "adSets": 9,
+          "fundedAdSets": 4,
           "campaigns": 9,
           "clients": [
             "Electric Brixton"
@@ -25110,6 +25395,7 @@
             "Fashion (7 interests)": 9
           },
           "adSets": 9,
+          "fundedAdSets": 3,
           "campaigns": 9,
           "clients": [
             "Electric Brixton"
@@ -25188,6 +25474,7 @@
             "Music & Nightlife (4 interests)": 9
           },
           "adSets": 9,
+          "fundedAdSets": 4,
           "campaigns": 9,
           "clients": [
             "Electric Brixton"
@@ -25257,6 +25544,7 @@
             "Wide (2 interests)": 4
           },
           "adSets": 10,
+          "fundedAdSets": 4,
           "campaigns": 10,
           "clients": [
             "Electric Brixton"
@@ -25336,6 +25624,7 @@
             "Music Interests (meta interests) (4 interests)": 4
           },
           "adSets": 15,
+          "fundedAdSets": 2,
           "campaigns": 13,
           "clients": [
             "Electric Brixton"
@@ -25415,6 +25704,7 @@
             "Streaming (3 interests)": 6
           },
           "adSets": 17,
+          "fundedAdSets": 3,
           "campaigns": 15,
           "clients": [
             "Electric Brixton"
@@ -25511,6 +25801,7 @@
             "Prospecting - Fashionistas (9 interests)": 7
           },
           "adSets": 18,
+          "fundedAdSets": 6,
           "campaigns": 16,
           "clients": [
             "Electric Brixton"
@@ -25598,6 +25889,7 @@
             "Latest phone users (4 interests)": 7
           },
           "adSets": 19,
+          "fundedAdSets": 5,
           "campaigns": 17,
           "clients": [
             "Electric Brixton"
@@ -25696,6 +25988,7 @@
             "Prospecting - Streetwear (6 interests)": 7
           },
           "adSets": 18,
+          "fundedAdSets": 6,
           "campaigns": 16,
           "clients": [
             "Electric Brixton"
@@ -25773,6 +26066,7 @@
             "Wide (2 interests)": 2
           },
           "adSets": 8,
+          "fundedAdSets": 2,
           "campaigns": 6,
           "clients": [
             "Electric Brixton"
@@ -25806,7 +26100,7 @@
           "cprFirstPartyGbp": 1.92,
           "cpr": 1.92,
           "cprSource": "first_party",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "120249359092920239",
             "120249359326540239",
@@ -25854,6 +26148,7 @@
             "Prospecting New Interests": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -25912,6 +26207,7 @@
             "Prospecting": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -25990,6 +26286,7 @@
             "Prospecting - Electronic Music (6 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -26058,6 +26355,7 @@
             "Prospecting - Wider (4 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -26136,6 +26434,7 @@
             "Streaming (6 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -26209,6 +26508,7 @@
             "Music Interests (meta interests) (5 interests)": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Electric Brixton"
@@ -26283,6 +26583,7 @@
             "Music Interests (meta interests) (5 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Electric Brixton"
@@ -26321,8 +26622,10 @@
           ]
         }
       ],
-      "nonThin": 10,
-      "medianCpr": 1.97
+      "nonThin": 9,
+      "spendGbp": 4191.56,
+      "registrations": 2034,
+      "baselineCpr": 2.06
     },
     {
       "client": "IRONWORKS",
@@ -26346,14 +26649,12 @@
         "6003075191185",
         "6002910403310,6003009781819,6003173201950,6003202970247,6012921107100,6012992239848,724769794320368",
         "6003320931941",
-        "6002911345572,6003155409305,6003792839878,6003902397066",
         "354341131419906,6003138346500,6003154859633,6003260244957,6003316540991,6003343160805,6003359651623,6003717043662,6004118644589,6008125999822,6013014154967,6015843220124",
         "6003084496715,6003106746790,6003224921649,6003322554914,6003349248221,6003407762135,6003425285391,6014420316875,6017539301486",
         "6002969794329,6816985058496,937077532996593",
         "354341131419906,6003009134797,6003092827017,6003351998032,6003387979405,6003655134820,6007026847701,6012607283546,6013634389778,6015730709639,6018510577307,6020300837514,934079086648956",
         "6003182953366,6003266326542,6003290698256,6008338302231",
         "6002911345572,6002933404659,6003012260797,6003013521293,6003075191185,6003139973592,6003182953366,6003211257176,6003290698256,6003353908421,6003451423003,6003479860669,6003593748487,6003733944753,6004118725989,6015454246390",
-        "6002910403310,6003290698256,6012921107100",
         "1711794862401024,6002969794329,6003148839749,6003277780179,937077532996593",
         "6003155409305,6003479860669",
         "6003902397066,6808891387078",
@@ -26369,6 +26670,7 @@
         "6003155409305,6003479860669,6003902397066,6808891387078",
         "6003011087019,6003190279924,6003361714600",
         "6002949651174,6003135979608,6003289429270,6003434244943,6003716027062",
+        "6002911345572,6003155409305,6003792839878,6003902397066",
         "6002895822910,6002983010219,6003108518590,6003177394215,6003188126366,6003210145630,6003256597142,6003256801882,6003279218180,6003372991395,6003400392535,6003645185916,6003650619690,6003655134820,6003719548862,6003902293666,6004114549824,6008418250637,6018713448094",
         "6003266266843,6003392552125,6003552041427,6003739371891",
         "6002909794772,6003152069658,6003644679316,6003711590516,894809510568388",
@@ -26387,6 +26689,7 @@
         "6003672270062",
         "6002911345572,6003133372614,6003161539630,6004040795748",
         "6002934249459,6003306084421,6003474973243,6003633125183",
+        "6002910403310,6003290698256,6012921107100",
         "1022398264437827,107276069615113,6002911345572,6003075191185,6003154859633,6003157753984,6003182953366,6003266326542,6003290698256,6003322359443,6003351624957,6003372991395,6003387979405,6003479860669,6003538490263,6003540790073,6003593748487,6003650619690,6003655134820,6003703215383,6003717043662,6003779960252,6003854023452,6003902397066,6008821391139,6012607283546,6013634389778,6015730709639,6017270863805,6018510577307,6018713448094,934079086648956",
         "1022398264437827,354341131419906,6002911345572,6002933404659,6002972764994,6003012260797,6003042188715,6003075191185,6003139973592,6003154859633,6003177394215,6003182953366,6003201387378,6003211257176,6003260244957,6003266326542,6003290698256,6003353908421,6003451423003,6003532376263,6003593748487,6003655134820,6003733944753,6015454246390",
         "1022398264437827,354341131419906,6002911345572,6002933404659,6002972764994,6003012260797,6003042188715,6003075191185,6003139973592,6003154859633,6003177394215,6003182953366,6003201387378,6003211257176,6003260244957,6003290698256,6003353908421,6003451423003,6003479860669,6003532376263,6003540686986,6003593748487,6003655134820,6003733944753,6003854023452,6003902397066,6007026847701,6015454246390",
@@ -26435,6 +26738,7 @@
             "Streaming (5 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -26493,6 +26797,7 @@
             "Electronic Music (2 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -26552,6 +26857,7 @@
             "Disc Genre (1 interests)": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -26612,6 +26918,7 @@
             "House Music (1 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -26678,6 +26985,7 @@
             "Streaming": 2
           },
           "adSets": 5,
+          "fundedAdSets": 4,
           "campaigns": 3,
           "clients": [
             "IRONWORKS"
@@ -26751,6 +27059,7 @@
             "Electronic Music": 2
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "IRONWORKS"
@@ -26783,7 +27092,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 1.74,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "52522368992907",
             "52523485030307",
@@ -26841,6 +27150,7 @@
             "Activities & Culture": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -26905,6 +27215,7 @@
             "Lifestyle & Nightlife": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -26974,6 +27285,7 @@
             "Music & Venues": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -27044,6 +27356,7 @@
             "Music Media (4 interests)": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "IRONWORKS"
@@ -27115,6 +27428,7 @@
             "Fashion & Streetwear": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -27175,6 +27489,7 @@
             "[IG] Prospecting - Melodic Techno - London 30km - 18-40": 6
           },
           "adSets": 8,
+          "fundedAdSets": 7,
           "campaigns": 8,
           "clients": [
             "IRONWORKS"
@@ -27240,6 +27555,7 @@
             "[IG] Prospecting - Electronic Music - London 30km - 18-40 – Copy": 1
           },
           "adSets": 19,
+          "fundedAdSets": 16,
           "campaigns": 19,
           "clients": [
             "IRONWORKS"
@@ -27314,6 +27630,7 @@
             "[IG] Prospecting - Techno Music - Boston Manor Park +5km - 18-40": 1
           },
           "adSets": 17,
+          "fundedAdSets": 14,
           "campaigns": 15,
           "clients": [
             "IRONWORKS"
@@ -27402,6 +27719,7 @@
             "[IG] Prospecting - Festival Commercial - London 30km - 18-40 – Copy": 2
           },
           "adSets": 32,
+          "fundedAdSets": 23,
           "campaigns": 18,
           "clients": [
             "IRONWORKS"
@@ -27496,6 +27814,7 @@
             "[IG] Prospecting - Music Platforms - London 30km - 18-40": 6
           },
           "adSets": 6,
+          "fundedAdSets": 6,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -27554,6 +27873,7 @@
             "[IG] Prospecting - Publications - London 30km - 18-40": 6
           },
           "adSets": 6,
+          "fundedAdSets": 6,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -27647,6 +27967,7 @@
             "[IG] Prospecting - radio + music news - London 30km - 18-40": 6
           },
           "adSets": 6,
+          "fundedAdSets": 6,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -27705,6 +28026,7 @@
             "[IG] Prospecting - Halloween- London 30km - 18-40": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -27773,6 +28095,7 @@
             "[IG] Prospecting - Music Platforms - London 30km - 18-40": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -27830,6 +28153,7 @@
             "[IG] Prospecting - House Music - London 30km - 18-40 – Copy": 1
           },
           "adSets": 17,
+          "fundedAdSets": 11,
           "campaigns": 17,
           "clients": [
             "IRONWORKS"
@@ -27903,6 +28227,7 @@
             "[IG] Prospecting - Tech Genre - London 30km - 18-40 – Copy": 1
           },
           "adSets": 17,
+          "fundedAdSets": 14,
           "campaigns": 17,
           "clients": [
             "IRONWORKS"
@@ -27973,6 +28298,7 @@
             "[IG] Prospecting - Deep House - London 30km - 18-40": 5
           },
           "adSets": 7,
+          "fundedAdSets": 7,
           "campaigns": 5,
           "clients": [
             "IRONWORKS"
@@ -28032,6 +28358,7 @@
             "[IG] Prospecting - Disco - London 30km - 18-40": 5
           },
           "adSets": 5,
+          "fundedAdSets": 5,
           "campaigns": 5,
           "clients": [
             "IRONWORKS"
@@ -28104,6 +28431,7 @@
             "LWE (20%) | Bridge | Innervisions takeover | Sign Up || Interests | Video Link Ad | 18 Feb 2026 - 27 Feb 2026": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28178,6 +28506,7 @@
             "Prospecting - Festivals - 18 - 45 - London (30km)": 1
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -28232,6 +28561,7 @@
             "Prospecting - Health - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28285,6 +28615,7 @@
             "Prospecting - Sound - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28353,6 +28684,7 @@
             "Prospecting - Yoga  - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28411,6 +28743,7 @@
             "Genre - Avant Garde - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28469,6 +28802,7 @@
             "Genre - Live Electronic Music - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28522,6 +28856,7 @@
             "Genre - Experimental - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28575,6 +28910,7 @@
             "Genre - IDM - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28643,6 +28979,7 @@
             "Genre - Techno  - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28741,6 +29078,7 @@
             "Genre - Ambient - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28864,6 +29202,7 @@
             "Prospecting - Fashionists - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -28952,6 +29291,7 @@
             "Prospecting - Publishers + Platforms - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -29035,6 +29375,7 @@
             "Prospecting - Headsy Festivals  - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -29163,6 +29504,7 @@
             "Prospecting - Shelling Techno  - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -29216,6 +29558,7 @@
             "Audiophiles  - 18-50 - Berlin (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -29325,6 +29668,7 @@
             "[IG] Prospecting - Melodic Techno - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 3,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -29439,6 +29783,7 @@
             "[IG] Prospecting - Business Techno - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 3,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -29526,6 +29871,7 @@
             "[IG] Prospecting - Commercial Artists - London 30km - 18-40 – Copy": 1
           },
           "adSets": 11,
+          "fundedAdSets": 7,
           "campaigns": 11,
           "clients": [
             "IRONWORKS"
@@ -29652,6 +29998,7 @@
             "[IG] Prospecting - Tech Artists - England - 21-40 – Copy": 1
           },
           "adSets": 10,
+          "fundedAdSets": 4,
           "campaigns": 10,
           "clients": [
             "IRONWORKS"
@@ -29743,6 +30090,7 @@
             "[IG] Prospecting - Venues - London 30km - 18-40 – Copy": 1
           },
           "adSets": 11,
+          "fundedAdSets": 5,
           "campaigns": 11,
           "clients": [
             "IRONWORKS"
@@ -29897,6 +30245,7 @@
             "[IG] Prospecting - Headsy - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -29996,6 +30345,7 @@
             "[IG] Prospecting - Disco - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -30068,6 +30418,7 @@
             "[IG] Prospecting - Music Platforms - London 30km - 18-40 – Copy": 1
           },
           "adSets": 11,
+          "fundedAdSets": 8,
           "campaigns": 11,
           "clients": [
             "IRONWORKS"
@@ -30150,6 +30501,7 @@
             "[IG] Prospecting - Publications - London 30km - 18-40 – Copy": 1
           },
           "adSets": 11,
+          "fundedAdSets": 7,
           "campaigns": 11,
           "clients": [
             "IRONWORKS"
@@ -30249,6 +30601,7 @@
             "[IG] Prospecting - radio + music heads - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -30338,6 +30691,7 @@
             "[IG] Prospecting - Festivals Headsy - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -30422,6 +30776,7 @@
             "[IG] Prospecting - Labels Other - London 30km - 18-40 – Copy": 1
           },
           "adSets": 6,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "IRONWORKS"
@@ -30509,6 +30864,7 @@
             "[IG] Prospecting - Festival Tech - London 30km - 18-40 – Copy": 1
           },
           "adSets": 11,
+          "fundedAdSets": 6,
           "campaigns": 11,
           "clients": [
             "IRONWORKS"
@@ -30594,6 +30950,7 @@
             "[IG] Prospecting - Labels Other - England - 21-40 – Copy": 1
           },
           "adSets": 5,
+          "fundedAdSets": 3,
           "campaigns": 5,
           "clients": [
             "IRONWORKS"
@@ -30728,6 +31085,7 @@
             "LWE (15%) | ION Festival | [ION006] ION Festival 2024 | Dec Sign-Up || Interests | VLA/Story | 19 Dec 2023 - 31 Jan 2024": 1
           },
           "adSets": 3,
+          "fundedAdSets": 3,
           "campaigns": 2,
           "clients": [
             "IRONWORKS"
@@ -30794,6 +31152,7 @@
             "LWE (15%) | ION Festival | [ION006] ION Festival 2024 | Announcement/Sign-Up || Interests | VLA/Story | 07 Nov 2023 - 24 Nov 2023": 3
           },
           "adSets": 4,
+          "fundedAdSets": 2,
           "campaigns": 4,
           "clients": [
             "IRONWORKS"
@@ -30826,7 +31185,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 8.11,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "6492379052903",
             "6492869801103",
@@ -30986,6 +31345,7 @@
             "LWE (15%) | ION Festival | [ION003] ION Festival 2023 | February(w/c 6th) || Interests | Link Ad & Story | 10 Feb 2023 - 14 Feb 2023": 1
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -31060,6 +31420,7 @@
             "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Announcement/On-sale || Generic Interests | Link Ad & Story | 01 Feb 2023 - 08 Feb 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -31228,6 +31589,7 @@
             "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Announcement/On-sale || Interests | Video Link Ad | 30 Jan 2023 - 01 Feb 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -31436,6 +31798,7 @@
             "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Signup || Interests | VLA/Story | 17 Jan 2023 - 24 Jan 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -31529,6 +31892,7 @@
             "LWE (15%) | ION Festival | [ION004] ION Festival 2023 | Announcement || Interests | Link Ad & Story | 06 Dec 2022 - 08 Dec 2022": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -31633,6 +31997,7 @@
             "press targets": 2
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 3,
           "clients": [
             "IRONWORKS"
@@ -31819,6 +32184,7 @@
             "artist targets": 2
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 3,
           "clients": [
             "IRONWORKS"
@@ -31939,6 +32305,7 @@
             "ENRICO SANGIULIANO targets": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32032,6 +32399,7 @@
             "LOW STEPPA TARGETS": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32112,6 +32480,7 @@
             "ION001 - UK - 23-30 - OVERSEAS FESTIVALS": 1
           },
           "adSets": 3,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32202,6 +32571,7 @@
             "Streaming (8 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32265,6 +32635,7 @@
             "Lifestyle (3 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32333,6 +32704,7 @@
             "Fashion (7 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32401,6 +32773,7 @@
             "Music & Nightlife (4 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "IRONWORKS"
@@ -32439,8 +32812,10 @@
           ]
         }
       ],
-      "nonThin": 27,
-      "medianCpr": 1.6
+      "nonThin": 25,
+      "spendGbp": 27679.72,
+      "registrations": 19300,
+      "baselineCpr": 1.43
     },
     {
       "client": "Innellea",
@@ -32514,6 +32889,7 @@
             "Fashion (10 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Innellea"
@@ -32587,6 +32963,7 @@
             "Electronic Music V2 (5 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Innellea"
@@ -32665,6 +33042,7 @@
             "Luxury (6 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Innellea"
@@ -32758,6 +33136,7 @@
             "Streaming (9 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Innellea"
@@ -32846,6 +33225,7 @@
             "Contemporary (8 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Innellea"
@@ -32919,6 +33299,7 @@
             "Electronic Music (5 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Innellea"
@@ -32958,7 +33339,9 @@
         }
       ],
       "nonThin": 0,
-      "medianCpr": 1.19
+      "spendGbp": 8.5,
+      "registrations": 3,
+      "baselineCpr": 2.83
     },
     {
       "client": "Junction 2",
@@ -33010,6 +33393,7 @@
             "Festivals Electronic Music - Local (4 interests)": 1
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Junction 2"
@@ -33075,6 +33459,7 @@
             "LWE (20%) | Junction 2 | [UTB033] Junction 2 (2025) | Second Wave Artist - Sign up || Interests | VLA/Story | 29 Jan 2025 - 04 Feb 2025": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33155,6 +33540,7 @@
             "LWE (20%) | Junction 2 | [UTB033] Junction 2 (2025) | Sign up || Interests | VLA/Story | 17 Oct 2024 - 12 Dec 2024": 1
           },
           "adSets": 3,
+          "fundedAdSets": 3,
           "campaigns": 3,
           "clients": [
             "Junction 2"
@@ -33275,6 +33661,7 @@
             "LWE (20%) | Junction 2 | [UTB025] Junction 2 (2024) | Christmas Sign ups || Interests | VLA/Story | 14 Dec 2023 - 29 Jan 2024": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33328,6 +33715,7 @@
             "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 24 Nov 2023 - 30 Nov 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33381,6 +33769,7 @@
             "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 24 Nov 2023 - 30 Nov 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33439,6 +33828,7 @@
             "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 24 Nov 2023 - 03 Dec 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33513,6 +33903,7 @@
             "LWE (20%) | Junction 2 | [UTB022] Junction 2 (2024) | Sign up || Interests | VLA/Story | 09 Nov 2023 - 21 Nov 2023": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Junction 2"
@@ -33602,6 +33993,7 @@
             "LWE (20%) | Junction 2 | [UTB021] Junction 2 2023 | Lineup Announcement - Sign Ups || Interests (EU) | Video Link Ad | 10 Jan 2023 - 17 Jan 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33850,6 +34242,7 @@
             "LWE (20%) | Junction 2 | [UTB021] Junction 2 2023 | Lineup Announcement - Sign Ups || Interests | Video Link Ad | 10 Jan 2023 - 17 Jan 2023": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -33969,6 +34362,7 @@
             "festival": 1
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "Junction 2"
@@ -34178,6 +34572,7 @@
             "artist targets": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -34416,6 +34811,7 @@
             "junction 2 targets": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Junction 2"
@@ -34455,7 +34851,9 @@
         }
       ],
       "nonThin": 1,
-      "medianCpr": 3.4
+      "spendGbp": 5142.82,
+      "registrations": 1729,
+      "baselineCpr": 2.97
     },
     {
       "client": "Louder / Parable",
@@ -34470,7 +34868,6 @@
         "569202086550452,6002911345572,6002969794329,6002985278723,6003020834693,6003108826384,6003149474865,6003155409305,6003902397066",
         "6002911345572,6002949651174,6003009781819,6003032453893,6003075191185,6003101306197,6003122128722,6003135979608,6003155409305,6003179515414,6003182953366,6003253526111,6003289429270,6003434244943,6003479860669,6003596378473,6003716027062,6003717043662,6003805457383,6003902397066,6010899034283,6015454246390,6015908022889,6021463409931",
         "6003009781819,6003182953366,6015454246390,6899295199673",
-        "6003484812986",
         "6003179570015",
         "467691106721833,6002983066219,6003023143356,6003030212255,6003145134190,6003154507633,6003192486414,6003254626969,6003359659004,6003359784404,6003537562673,6003686979507,6004119918789",
         "6002898307162,6002972136974,6002974787459,6002998518973,6003011259419,6003198892801,6003246597567,6003247937213,6003431493391,6003456096403,6003508325964,6003587678073,6003762134517,6016807291376",
@@ -34487,6 +34884,7 @@
         "6003327859980",
         "6002928514373,6002984448523,6003182953366,6015454246390",
         "6002898307162,6002972136974,6002998518973,6003011259419,6003198892801,6003246597567,6003587678073,6016807291376",
+        "6003484812986",
         "6003074016139",
         "6003182953366,6003253526111",
         "6002911345572,6003182953366,6003479860669,6015454246390",
@@ -34540,6 +34938,7 @@
             "Music & Venues": 3
           },
           "adSets": 7,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -34637,6 +35036,7 @@
             "Activities & Culture": 3
           },
           "adSets": 7,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -34714,6 +35114,7 @@
             "Media & Entertainment": 3
           },
           "adSets": 7,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -34786,6 +35187,7 @@
             "Lifestyle & Nightlife": 3
           },
           "adSets": 7,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -34897,6 +35299,7 @@
             "EDM (11 interests)": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -34968,6 +35371,7 @@
             "Electronic Music": 3
           },
           "adSets": 6,
+          "fundedAdSets": 4,
           "campaigns": 5,
           "clients": [
             "Louder / Parable"
@@ -35038,6 +35442,7 @@
             "Streaming": 3
           },
           "adSets": 6,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -35113,6 +35518,7 @@
             "Fashion & Streetwear": 3
           },
           "adSets": 6,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -35187,6 +35593,7 @@
             "Electronic Music (4 interests)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -35247,6 +35654,7 @@
             "Andhim FB + IG - Artwork Static - House + Mixmag Interest 25-55yo": 1
           },
           "adSets": 3,
+          "fundedAdSets": 3,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -35346,6 +35754,7 @@
             "Mathame - FB + IG - Detailed Targeting - Artwork, Video Caption": 1
           },
           "adSets": 5,
+          "fundedAdSets": 3,
           "campaigns": 3,
           "clients": [
             "Louder / Parable"
@@ -35410,6 +35819,7 @@
             "Music Genre Interests - Techno": 1
           },
           "adSets": 12,
+          "fundedAdSets": 10,
           "campaigns": 7,
           "clients": [
             "Louder / Parable"
@@ -35474,6 +35884,7 @@
             "Halloween": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -35542,6 +35953,7 @@
             "KAS:ST - FB + IG - Interests - Video": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -35611,6 +36023,7 @@
             "Wide Radio - GB exc. London 40km": 1
           },
           "adSets": 8,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -35739,6 +36152,7 @@
             "High end jewellers - London": 2
           },
           "adSets": 11,
+          "fundedAdSets": 4,
           "campaigns": 9,
           "clients": [
             "Louder / Parable"
@@ -35805,6 +36219,7 @@
             "Melodic - London": 1
           },
           "adSets": 10,
+          "fundedAdSets": 7,
           "campaigns": 8,
           "clients": [
             "Louder / Parable"
@@ -35984,6 +36399,7 @@
             "Wide Electronic Interests (Festivals, Artists) - GB exc. London 40km": 1
           },
           "adSets": 8,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -36049,6 +36465,7 @@
             "Afrobeat -  London 40km": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36102,6 +36519,7 @@
             "African pop- London 40km": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36180,6 +36598,7 @@
             "Lifestyle - London 40km": 2
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Louder / Parable"
@@ -36311,6 +36730,7 @@
             "Prospecting - Luxury fashion - London": 2
           },
           "adSets": 8,
+          "fundedAdSets": 5,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -36433,6 +36853,7 @@
             "Prospecting - Fashionistas - London": 3
           },
           "adSets": 9,
+          "fundedAdSets": 4,
           "campaigns": 7,
           "clients": [
             "Louder / Parable"
@@ -36516,6 +36937,7 @@
             "Lifestyle - London": 2
           },
           "adSets": 7,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "Louder / Parable"
@@ -36580,6 +37002,7 @@
             "French House - London 40km": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36635,6 +37058,7 @@
             "Prospecting - Electronic Music": 1
           },
           "adSets": 3,
+          "fundedAdSets": 3,
           "campaigns": 3,
           "clients": [
             "Louder / Parable"
@@ -36690,6 +37114,7 @@
             "Daft Punk - London 40km": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36743,6 +37168,7 @@
             "Prospecting - Afrobeat - London": 3
           },
           "adSets": 3,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Louder / Parable"
@@ -36775,7 +37201,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 3.31,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "120241640433120708",
             "120241641309330708",
@@ -36798,6 +37224,7 @@
             "Prospecting - Genre - Dancehall - London": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36851,6 +37278,7 @@
             "Prospecting - Genre - Reggae - London": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36909,6 +37337,7 @@
             "Streaming - London": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -36982,6 +37411,7 @@
             "Wider Artists - London": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37040,6 +37470,7 @@
             "Wider Electronic - London": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37128,6 +37559,7 @@
             "Prospecting Radios - London": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "Louder / Parable"
@@ -37228,6 +37660,7 @@
             "Prospecting - Fashionistas": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Louder / Parable"
@@ -37288,6 +37721,7 @@
             "Lifestyle": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Louder / Parable"
@@ -37353,6 +37787,7 @@
             "Music Genre Interests - House": 1
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "Louder / Parable"
@@ -37414,6 +37849,7 @@
             "Keinemusik (2 interests)": 1
           },
           "adSets": 3,
+          "fundedAdSets": 3,
           "campaigns": 3,
           "clients": [
             "Louder / Parable"
@@ -37506,6 +37942,7 @@
             "High end jewellers": 1
           },
           "adSets": 2,
+          "fundedAdSets": 2,
           "campaigns": 2,
           "clients": [
             "Louder / Parable"
@@ -37560,6 +37997,7 @@
             "Frequent flyers": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37643,6 +38081,7 @@
             "Prospecting - Luxury Fashion": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37711,6 +38150,7 @@
             "Radio": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37794,6 +38234,7 @@
             "Music Interests - Commercial": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37857,6 +38298,7 @@
             "targets": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37925,6 +38367,7 @@
             "targets": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Louder / Parable"
@@ -37963,23 +38406,25 @@
           ]
         }
       ],
-      "nonThin": 18,
-      "medianCpr": 2.76
+      "nonThin": 17,
+      "spendGbp": 8196.82,
+      "registrations": 2873,
+      "baselineCpr": 2.85
     },
     {
       "client": "Off/Pixel",
       "ranked": [
         "6003266266843,6003392552125,6003552041427,6003739371891",
-        "6003009781819,6003182953366,6015454246390,6899295199673",
-        "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,937077532996593",
         "6002944044446,6003143160640,6003227434158,6003343155628",
-        "6003030419607,6003075608915,6003150119230,6003299417538,6003428371740,6004115204424",
-        "6003155409305,6003902397066",
         "6002969794329,6003253526111,937077532996593",
         "6003009781819,6003182953366,6003616498687,6015454246390",
         "467691106721833,6003237287010,6003351852600,6003359784404,6003552041427,6798184996839",
         "6003054590585,6003147868152,6003190279924,6003361714600",
+        "6003009781819,6003182953366,6015454246390,6899295199673",
         "6003190279924,6003361714600,6003375995381",
+        "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,937077532996593",
+        "6003030419607,6003075608915,6003150119230,6003299417538,6003428371740,6004115204424",
+        "6003155409305,6003902397066",
         "6003155409305,6003479860669,6003902397066,6808891387078",
         "1711794862401024,6002969794329,6003148839749,6003253526111,6003277780179,937077532996593",
         "6003075191185,6003479860669",
@@ -38018,6 +38463,7 @@
             "Prospecting - Electronic Music": 10
           },
           "adSets": 11,
+          "fundedAdSets": 2,
           "campaigns": 9,
           "clients": [
             "Off/Pixel"
@@ -38050,7 +38496,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 2,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "120250939703150755",
             "120250940367550755",
@@ -38141,6 +38587,7 @@
             "Fashion & Streetwear": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Off/Pixel"
@@ -38200,6 +38647,7 @@
             "House": 5
           },
           "adSets": 6,
+          "fundedAdSets": 2,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -38278,6 +38726,7 @@
             "Media & Entertainment": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Off/Pixel"
@@ -38356,6 +38805,7 @@
             "Prospecting - Fashionistas": 14
           },
           "adSets": 14,
+          "fundedAdSets": 3,
           "campaigns": 12,
           "clients": [
             "Off/Pixel"
@@ -38437,6 +38887,7 @@
             "Latest phone users": 14
           },
           "adSets": 14,
+          "fundedAdSets": 3,
           "campaigns": 12,
           "clients": [
             "Off/Pixel"
@@ -38528,6 +38979,7 @@
             "Prospecting - Electronic Music": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -38599,6 +39051,7 @@
             "Prospecting - Wider": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -38680,6 +39133,7 @@
             "Streaming": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -38756,6 +39210,7 @@
             "Music Interests (meta interests)": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -38837,6 +39292,7 @@
             "Prospecting - Streetwear": 14
           },
           "adSets": 14,
+          "fundedAdSets": 2,
           "campaigns": 12,
           "clients": [
             "Off/Pixel"
@@ -38869,7 +39325,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 1.9,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "120250939703120755",
             "120250940367380755",
@@ -38918,6 +39374,7 @@
             "Music Media": 5
           },
           "adSets": 5,
+          "fundedAdSets": 2,
           "campaigns": 5,
           "clients": [
             "Off/Pixel"
@@ -38950,7 +39407,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 1.57,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "120251561233340755",
             "120251562063880755",
@@ -39010,6 +39467,7 @@
             "Streaming": 5
           },
           "adSets": 5,
+          "fundedAdSets": 2,
           "campaigns": 5,
           "clients": [
             "Off/Pixel"
@@ -39042,7 +39500,7 @@
           "cprFirstPartyGbp": null,
           "cpr": 1.8,
           "cprSource": "pixel",
-          "thin": false,
+          "thin": true,
           "adSetIds": [
             "120251561233390755",
             "120251562063890755",
@@ -39072,6 +39530,7 @@
             "Disc Genre": 1
           },
           "adSets": 1,
+          "fundedAdSets": 0,
           "campaigns": 1,
           "clients": [
             "Off/Pixel"
@@ -39140,6 +39599,7 @@
             "Fashion": 5
           },
           "adSets": 5,
+          "fundedAdSets": 3,
           "campaigns": 5,
           "clients": [
             "Off/Pixel"
@@ -39207,6 +39667,7 @@
             "Lifestyle": 5
           },
           "adSets": 5,
+          "fundedAdSets": 2,
           "campaigns": 5,
           "clients": [
             "Off/Pixel"
@@ -39279,6 +39740,7 @@
             "Music & Nightlife": 5
           },
           "adSets": 5,
+          "fundedAdSets": 3,
           "campaigns": 5,
           "clients": [
             "Off/Pixel"
@@ -39346,6 +39808,7 @@
             "Streaming": 10
           },
           "adSets": 10,
+          "fundedAdSets": 3,
           "campaigns": 8,
           "clients": [
             "Off/Pixel"
@@ -39423,6 +39886,7 @@
             "Music Interests (meta interests)": 10
           },
           "adSets": 10,
+          "fundedAdSets": 4,
           "campaigns": 8,
           "clients": [
             "Off/Pixel"
@@ -39490,6 +39954,7 @@
             "Ibiza": 5
           },
           "adSets": 5,
+          "fundedAdSets": 2,
           "campaigns": 3,
           "clients": [
             "Off/Pixel"
@@ -39567,6 +40032,7 @@
             "Gym bros": 5
           },
           "adSets": 5,
+          "fundedAdSets": 1,
           "campaigns": 3,
           "clients": [
             "Off/Pixel"
@@ -39629,6 +40095,7 @@
             "Wide": 4
           },
           "adSets": 4,
+          "fundedAdSets": 2,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -39706,6 +40173,7 @@
             "Music & Venues": 1
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "Off/Pixel"
@@ -39766,6 +40234,7 @@
             "Fashion & Streetwear": 3
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Off/Pixel"
@@ -39842,6 +40311,7 @@
             "Music & Venues": 2
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "Off/Pixel"
@@ -39881,8 +40351,10 @@
           ]
         }
       ],
-      "nonThin": 9,
-      "medianCpr": 1.9
+      "nonThin": 5,
+      "spendGbp": 3082.33,
+      "registrations": 1530,
+      "baselineCpr": 2.01
     },
     {
       "client": "Puzzle",
@@ -39940,6 +40412,7 @@
             "House Music": 2
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "Puzzle"
@@ -40054,6 +40527,7 @@
             "Fashion & Streetwear": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "Puzzle"
@@ -40128,6 +40602,7 @@
             "Media & Entertainment": 2
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "Puzzle"
@@ -40187,6 +40662,7 @@
             "Ibiza": 2
           },
           "adSets": 2,
+          "fundedAdSets": 0,
           "campaigns": 2,
           "clients": [
             "Puzzle"
@@ -40246,6 +40722,7 @@
             "Electronic": 2
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "Puzzle"
@@ -40325,6 +40802,7 @@
             "Core Clubber — Stacked Interests 18-34": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -40404,6 +40882,7 @@
             "Prospecting - Other - Southampton (18-40)": 1
           },
           "adSets": 5,
+          "fundedAdSets": 3,
           "campaigns": 5,
           "clients": [
             "Puzzle"
@@ -40466,6 +40945,7 @@
             "Festivals": 4
           },
           "adSets": 4,
+          "fundedAdSets": 1,
           "campaigns": 4,
           "clients": [
             "Puzzle"
@@ -40583,6 +41063,7 @@
             "Prospecting - Fashionistas  - Southampton (18-40)": 1
           },
           "adSets": 5,
+          "fundedAdSets": 3,
           "campaigns": 5,
           "clients": [
             "Puzzle"
@@ -40670,6 +41151,7 @@
             "Luxury Fashion": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Puzzle"
@@ -40726,6 +41208,7 @@
             "Genre - Tech House": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Puzzle"
@@ -40782,6 +41265,7 @@
             "Fashionistas – Copy": 4
           },
           "adSets": 4,
+          "fundedAdSets": 1,
           "campaigns": 4,
           "clients": [
             "Puzzle"
@@ -40853,6 +41337,7 @@
             "Radio": 4
           },
           "adSets": 4,
+          "fundedAdSets": 0,
           "campaigns": 4,
           "clients": [
             "Puzzle"
@@ -40954,6 +41439,7 @@
             "Fashionistas": 4
           },
           "adSets": 4,
+          "fundedAdSets": 1,
           "campaigns": 4,
           "clients": [
             "Puzzle"
@@ -41012,6 +41498,7 @@
             "Genre - House - 18-40 - Southampton (30km)": 1
           },
           "adSets": 6,
+          "fundedAdSets": 4,
           "campaigns": 6,
           "clients": [
             "Puzzle"
@@ -41081,6 +41568,7 @@
             "Tech House Ibiza Gym Bros - Southampton 70km (18-40)": 1
           },
           "adSets": 5,
+          "fundedAdSets": 2,
           "campaigns": 5,
           "clients": [
             "Puzzle"
@@ -41154,6 +41642,7 @@
             "DR banana & Gene - House engaged": 1
           },
           "adSets": 2,
+          "fundedAdSets": 1,
           "campaigns": 2,
           "clients": [
             "Puzzle"
@@ -41278,6 +41767,7 @@
             "Prospecting - Fashionistas  - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41391,6 +41881,7 @@
             "Prospecting - House Artists - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41464,6 +41955,7 @@
             "Prospecting - Crate Diggers  - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41537,6 +42029,7 @@
             "Prospecting - Publications  - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41620,6 +42113,7 @@
             "Prospecting - Headsy Feativals  - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41673,6 +42167,7 @@
             "Genre - 2 Step Garage - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41796,6 +42291,7 @@
             "Prospecting - Headsy Artists  - 18-40 - Southampton (30km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41874,6 +42370,7 @@
             "prospecting: techno - 18-65 -  (50km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -41937,6 +42434,7 @@
             "prospecting: House - 18-65 -  (50km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -42105,6 +42603,7 @@
             "prospecting: headsy - 18-65 -  (50km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -42173,6 +42672,7 @@
             "prospecting (broad): ARTIST CLIPS house & tech house - 18-26 - Southampton (60km) – Copy": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -42311,6 +42811,7 @@
             "prospecting: house & tech house - 18-35 - Southampton (60km)": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -42369,6 +42870,7 @@
             "Competition": 1
           },
           "adSets": 1,
+          "fundedAdSets": 1,
           "campaigns": 1,
           "clients": [
             "Puzzle"
@@ -42408,7 +42910,9 @@
         }
       ],
       "nonThin": 3,
-      "medianCpr": 2.13
+      "spendGbp": 1679.41,
+      "registrations": 828,
+      "baselineCpr": 2.03
     }
   ],
   "interests": [
@@ -42945,7 +43449,7 @@
       "regsPer100Gbp": 117.12,
       "equalShareSpendGbp": 77.18,
       "equalShareRegistrations": 90.4,
-      "thin": false,
+      "thin": true,
       "clients": [
         "4theFans"
       ]
@@ -45105,7 +45609,7 @@
       "regsPer100Gbp": 68.82,
       "equalShareSpendGbp": 10.59,
       "equalShareRegistrations": 7.4,
-      "thin": false,
+      "thin": true,
       "clients": [
         "IRONWORKS",
         "Junction 2",
@@ -48761,7 +49265,7 @@
       "regsPer100Gbp": 81.29,
       "equalShareSpendGbp": 14.81,
       "equalShareRegistrations": 12.1,
-      "thin": false,
+      "thin": true,
       "clients": [
         "IRONWORKS",
         "Junction 2"
@@ -50308,7 +50812,7 @@
       "regsPer100Gbp": 122.82,
       "equalShareSpendGbp": 32.43,
       "equalShareRegistrations": 39.8,
-      "thin": false,
+      "thin": true,
       "clients": [
         "Deep House Bible",
         "Innellea"
@@ -50326,7 +50830,7 @@
       "regsPer100Gbp": 122.82,
       "equalShareSpendGbp": 32.43,
       "equalShareRegistrations": 39.8,
-      "thin": false,
+      "thin": true,
       "clients": [
         "Deep House Bible",
         "Innellea"
@@ -50344,7 +50848,7 @@
       "regsPer100Gbp": 101.63,
       "equalShareSpendGbp": 26.44,
       "equalShareRegistrations": 26.9,
-      "thin": false,
+      "thin": true,
       "clients": [
         "Deep House Bible",
         "Innellea"
@@ -50362,7 +50866,7 @@
       "regsPer100Gbp": 101.63,
       "equalShareSpendGbp": 26.44,
       "equalShareRegistrations": 26.9,
-      "thin": false,
+      "thin": true,
       "clients": [
         "Deep House Bible",
         "Innellea"
@@ -50380,7 +50884,7 @@
       "regsPer100Gbp": 101.63,
       "equalShareSpendGbp": 26.44,
       "equalShareRegistrations": 26.9,
-      "thin": false,
+      "thin": true,
       "clients": [
         "Deep House Bible",
         "Innellea"
@@ -51072,12 +51576,6 @@
     "6003432221791",
     "6003175194449",
     "6003474194264",
-    "6003218161847",
-    "6003651391313",
-    "6003472078063",
-    "6002920953955",
-    "6003012556997",
-    "6003174397615",
     "6003107902433",
     "6840320758807",
     "1711794862401024",
@@ -51089,7 +51587,6 @@
     "6003402644747",
     "6892292894574",
     "6002995710444",
-    "6003854023452",
     "6808891387078",
     "6002983075419",
     "6008461382636",
@@ -51106,7 +51603,6 @@
     "6002969794329",
     "6003155409305",
     "6003253526111",
-    "224690944535071",
     "6003717043662",
     "6013281904181",
     "6003328533909",
@@ -51341,6 +51837,12 @@
     "1392514054386145",
     "6003277074999",
     "6017559680786",
+    "6003218161847",
+    "6003651391313",
+    "6003472078063",
+    "6002920953955",
+    "6003012556997",
+    "6003174397615",
     "6002990015768",
     "6014148292188",
     "6003287978125",
@@ -51349,12 +51851,14 @@
     "6003290551338",
     "6003058455881",
     "6003273182308",
+    "6003854023452",
     "6003072585339",
     "6003145738836",
     "6003585253718",
     "6004054150348",
     "621045194716005",
     "6003424358337",
+    "224690944535071",
     "6003117551426",
     "6003052933645",
     "6003066431270",
@@ -52228,21 +52732,6 @@
           "cpr": 0.67
         },
         "b": {
-          "id": "6003472078063",
-          "name": "Aston Villa F.C.",
-          "cpr": 0.85
-        },
-        "sharedClients": [
-          "4theFans"
-        ]
-      },
-      {
-        "a": {
-          "id": "6003432221791",
-          "name": "FIFA (professional organisation)",
-          "cpr": 0.67
-        },
-        "b": {
           "id": "6003350242199",
           "name": "UEFA Europa League (football competition)",
           "cpr": 1.09
@@ -52298,14 +52787,14 @@
       },
       {
         "a": {
-          "id": "6003175194449",
-          "name": "FIFA World Cup",
-          "cpr": 0.74
+          "id": "6003432221791",
+          "name": "FIFA (professional organisation)",
+          "cpr": 0.67
         },
         "b": {
-          "id": "6003472078063",
-          "name": "Aston Villa F.C.",
-          "cpr": 0.85
+          "id": "6003356908154",
+          "name": "Nottingham Forest",
+          "cpr": 1.3
         },
         "sharedClients": [
           "4theFans"
@@ -52373,6 +52862,21 @@
       },
       {
         "a": {
+          "id": "6003175194449",
+          "name": "FIFA World Cup",
+          "cpr": 0.74
+        },
+        "b": {
+          "id": "6003356908154",
+          "name": "Nottingham Forest",
+          "cpr": 1.3
+        },
+        "sharedClients": [
+          "4theFans"
+        ]
+      },
+      {
+        "a": {
           "id": "6003474194264",
           "name": "football fans (football)",
           "cpr": 0.77
@@ -52403,97 +52907,66 @@
       },
       {
         "a": {
-          "id": "6003218161847",
-          "name": "A Luxury Travel Blog",
-          "cpr": 0.81
+          "id": "6003107902433",
+          "name": "Football (football)",
+          "cpr": 0.99
         },
         "b": {
-          "id": "6002920953955",
-          "name": "Interior design (design)",
-          "cpr": 0.98
+          "id": "6003350242199",
+          "name": "UEFA Europa League (football competition)",
+          "cpr": 1.09
         },
         "sharedClients": [
-          "Deep House Bible",
-          "Innellea"
+          "4theFans"
         ]
       },
       {
         "a": {
-          "id": "6003218161847",
-          "name": "A Luxury Travel Blog",
-          "cpr": 0.81
+          "id": "6003107902433",
+          "name": "Football (football)",
+          "cpr": 0.99
         },
         "b": {
-          "id": "6003012556997",
-          "name": "National Gallery of Art",
-          "cpr": 0.98
+          "id": "6002983075419",
+          "name": "Sky Sports",
+          "cpr": 1.26
         },
         "sharedClients": [
-          "Deep House Bible",
-          "Innellea"
+          "4theFans"
         ]
       },
       {
         "a": {
-          "id": "6003218161847",
-          "name": "A Luxury Travel Blog",
-          "cpr": 0.81
+          "id": "6003107902433",
+          "name": "Football (football)",
+          "cpr": 0.99
         },
         "b": {
-          "id": "6003174397615",
-          "name": "Art exhibition (visual art)",
-          "cpr": 0.98
+          "id": "6008461382636",
+          "name": "BT Sport",
+          "cpr": 1.26
         },
         "sharedClients": [
-          "Deep House Bible",
-          "Innellea"
+          "4theFans"
         ]
       }
     ],
     "clusterOnClient": [
       {
-        "clusterKey": "6003108826384,6003135979608,6003155409305,6003902397066,6808891387078",
-        "clusterName": "Electronic Music Interests (5 interests)",
-        "clusterCpr": 0.72,
+        "clusterKey": "6002949651174,6003289429270,6003434244943,6003716027062",
+        "clusterName": "[IG] Prospecting - Festival Commercial - London 30km - 18-40",
+        "clusterCpr": 1.21,
         "cprSource": "pixel",
-        "client": "IRONWORKS",
+        "client": "Deep House Bible",
         "sibling": {
-          "key": "6003155409305,6003479860669,6003902397066,6808891387078",
-          "name": "Music & Nightlife (4 interests)",
-          "cprOnClient": 1.56,
-          "adSetsOnClient": 1,
-          "jaccard": 0.5
-        }
-      },
-      {
-        "clusterKey": "6003108826384,6003135979608,6003155409305,6003902397066,6808891387078",
-        "clusterName": "Electronic Music Interests (5 interests)",
-        "clusterCpr": 0.72,
-        "cprSource": "pixel",
-        "client": "Junction 2",
-        "sibling": {
-          "key": "6003108826384,6003135979608,6003290600511,6808891387078",
-          "name": "Festivals Electronic Music - Local",
-          "cprOnClient": 1.56,
+          "key": "6002949651174,6003289429270,6003434244943,6003716027062,6007682793122",
+          "name": "[IG] Festivals Prospecting - Santa Teresa 40km - 18-45",
+          "cprOnClient": 0.72,
           "adSetsOnClient": 3,
-          "jaccard": 0.5
-        }
-      },
-      {
-        "clusterKey": "6003011087019,6003190279924,6003218161847,6003361714600,6003651391313,6840320758807",
-        "clusterName": "Lifestyle & Nightlife (6 interests)",
-        "clusterCpr": 0.81,
-        "cprSource": "pixel",
-        "client": "IRONWORKS",
-        "sibling": {
-          "key": "6003011087019,6003190279924,6003361714600",
-          "name": "Lifestyle & Nightlife",
-          "cprOnClient": 1.67,
-          "adSetsOnClient": 2,
-          "jaccard": 0.5
+          "jaccard": 0.8
         }
       }
     ],
-    "medianCpr": 1.86
+    "medianCpr": 1.89
   }
 }

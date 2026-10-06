@@ -8,7 +8,7 @@ import {
   type ClusterResult,
   type InterestClusterPatch,
 } from "@/lib/db/interest-clusters";
-import { normaliseClusterInterests } from "@/lib/interest-clusters";
+import { effectiveClientVertical, normaliseClusterInterests } from "@/lib/interest-clusters";
 import { createClient } from "@/lib/supabase/server";
 
 async function sessionUser() {
@@ -52,8 +52,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!name || interests.length === 0) {
     return NextResponse.json({ ok: false, error: "name and at least one interest are required" }, { status: 400 });
   }
-  const vertical =
-    (typeof body.clientId === "string" && (await loadClientVertical(supabase, user.id, body.clientId))) || "other";
+  const vertical = effectiveClientVertical(
+    typeof body.clientId === "string" && body.clientId ? await loadClientVertical(supabase, user.id, body.clientId) : null,
+  );
   const result = await createInterestCluster(supabase, user.id, { name, vertical, interests });
   if (!result.ok) return fail(result);
   return NextResponse.json({ ok: true, cluster: result.value });

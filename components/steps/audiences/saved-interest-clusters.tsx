@@ -9,14 +9,20 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
 import {
+  clustersForSourceFilter,
+  effectiveClientVertical,
+  evidenceAdSets,
   evidenceLine,
+  unresolvedLine,
+  CLUSTER_SOURCE_FILTERS,
+  type ClusterSourceFilter,
   findClusterForInterests,
   addClusterToGroups,
   isClusterInGroups,
   sortClusters,
   visibleClusters,
   type ClusterSort,
-  type ClusterVertical,
+  type ClientVertical,
   type InterestCluster,
   type InterestClusterInterest,
 } from "@/lib/interest-clusters";
@@ -29,7 +35,7 @@ type ClusterPatch = { name?: string; archived?: boolean; interests?: InterestClu
 
 export interface InterestClustersState {
   clusters: InterestCluster[];
-  vertical: ClusterVertical | null;
+  vertical: ClientVertical | null;
   loading: boolean;
   error: string | null;
   tableMissing: boolean;
@@ -44,7 +50,7 @@ function groupInterests(group: InterestGroup): InterestClusterInterest[] {
 
 export function useInterestClusters(clientId: string | undefined): InterestClustersState {
   const [clusters, setClusters] = useState<InterestCluster[]>([]);
-  const [vertical, setVertical] = useState<ClusterVertical | null>(null);
+  const [vertical, setVertical] = useState<ClientVertical | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tableMissing, setTableMissing] = useState(false);
@@ -59,7 +65,7 @@ export function useInterestClusters(clientId: string | undefined): InterestClust
         const json = (await res.json()) as {
           ok: boolean;
           clusters?: InterestCluster[];
-          vertical?: ClusterVertical | null;
+          vertical?: ClientVertical | null;
           error?: string;
           tableMissing?: boolean;
         };
@@ -153,7 +159,7 @@ export function SavedClustersStrip({
         <div className="flex items-center gap-2">
           <Bookmark className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-xs font-semibold">Saved clusters</span>
-          {state.vertical && <Badge variant="outline">{state.vertical}</Badge>}
+          <Badge variant="outline">{effectiveClientVertical(state.vertical)} + lifestyle</Badge>
         </div>
         <div className="flex items-center gap-1">
           <div className="flex rounded border border-border text-[11px]" role="group" aria-label="Sort clusters">
@@ -189,7 +195,7 @@ export function SavedClustersStrip({
         <StatusLine className="text-[11px] text-warning">{state.error}</StatusLine>
       ) : shown.length === 0 ? (
         <Datum className="text-[11px] text-muted-foreground">
-          No saved clusters{state.vertical ? ` for ${state.vertical}` : ""} yet. Use “Save as cluster” on a group.
+          No saved clusters for {effectiveClientVertical(state.vertical)} yet. Use “Save as cluster” on a group.
         </Datum>
       ) : (
         <div className="flex gap-2 overflow-x-auto pb-1">
@@ -224,7 +230,12 @@ export function SavedClustersStrip({
                   </Badge>
                   {cluster.evidence?.confidence === "thin" && (
                     <Badge variant="warning" className="text-[10px]">
-                      {cluster.evidence.adSets} ad sets
+                      {evidenceAdSets(cluster.evidence)} ad sets
+                    </Badge>
+                  )}
+                  {cluster.source === "library" && (
+                    <Badge variant="outline" className="text-[10px]">
+                      library
                     </Badge>
                   )}
                 </div>
@@ -342,6 +353,7 @@ function ManageRow({
   };
 
   const line = evidenceLine(cluster.evidence);
+  const missing = unresolvedLine(cluster);
   return (
     <li className={`rounded-md border border-border p-3 space-y-2 ${archived ? "opacity-60" : ""}`}>
       <div className="flex items-center gap-2">
@@ -375,6 +387,7 @@ function ManageRow({
         {line ? ` — ${line}` : ""}
         {cluster.evidence?.confidence === "thin" ? " · thin evidence" : ""}
       </Datum>
+      {missing && <StatusLine className="text-[11px] text-warning">{missing}</StatusLine>}
       {cluster.evidence?.dropped?.map((d) => (
         <StatusLine key={d.id} className="text-[11px] text-warning">
           {d.name} was dropped from this cluster — {d.reason}.
@@ -425,13 +438,14 @@ export function ManageClustersDialog({
   state: InterestClustersState;
   groups: InterestGroup[];
 }) {
-  const ordered = useMemo(
-    () => [
-      ...sortClusters(state.clusters.filter((c) => !c.archivedAt), "most_used"),
-      ...sortClusters(state.clusters.filter((c) => c.archivedAt), "most_used"),
-    ],
-    [state.clusters],
-  );
+  const [filter, setFilter] = useState<ClusterSourceFilter>("all");
+  const ordered = useMemo(() => {
+    const pool = clustersForSourceFilter(state.clusters, filter);
+    return [
+      ...sortClusters(pool.filter((c) => !c.archivedAt), "most_used"),
+      ...sortClusters(pool.filter((c) => c.archivedAt), "most_used"),
+    ];
+  }, [state.clusters, filter]);
   return (
     <Dialog open={open} onClose={onClose} panelClassName="max-w-2xl">
       <DialogContent className="max-h-[80vh] overflow-y-auto">
@@ -442,6 +456,23 @@ export function ManageClustersDialog({
             evidence, which measured the old set. Clusters are archived, never deleted.
           </DialogDescription>
         </DialogHeader>
+        <div className="mb-3 flex flex-wrap gap-1" role="group" aria-label="Filter clusters">
+          {CLUSTER_SOURCE_FILTERS.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={filter === value}
+              onClick={() => setFilter(value)}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                filter === value
+                  ? "border-primary bg-primary/10 font-medium text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label} ({clustersForSourceFilter(state.clusters, value).length})
+            </button>
+          ))}
+        </div>
         {ordered.length === 0 ? (
           <div className="rounded-md border border-dashed border-border p-4 text-xs text-muted-foreground space-y-1">
             <Datum>No saved clusters yet. Use “Save as cluster” on an interest group.</Datum>

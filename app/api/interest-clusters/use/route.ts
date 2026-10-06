@@ -16,7 +16,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (typeof body.id !== "string" || !body.id) {
     return NextResponse.json({ ok: false, error: "id is required" }, { status: 400 });
   }
-  const result = await markInterestClusterUsed(supabase, user.id, body.id);
+  const result = await markInterestClusterUsed(supabase, body.id);
   if (!result.ok) {
     return NextResponse.json(
       { ok: false, error: result.error, tableMissing: result.tableMissing ?? false },
