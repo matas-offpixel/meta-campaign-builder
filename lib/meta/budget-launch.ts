@@ -9,6 +9,8 @@
  * No `@/` imports — `node --test` loads it directly.
  */
 
+import { reviewPhaseClause } from "../wizard/event-end-date.ts";
+
 export const CBO_CAMPAIGN_HAS_NO_BUDGET =
   "Campaign level (CBO) has no budget. Set it on the Budget step. Nothing was sent to Meta.";
 
@@ -134,6 +136,7 @@ export function describeLaunchBudget(input: {
   currency: string;
   enabledAdSetCount: number;
   endDate?: string;
+  endDatePhase?: "presale" | "general_sale" | "event";
 }): string {
   const level = input.budgetLevel === "campaign" ? "Campaign level (CBO)" : "Ad set level";
   const kind = input.budgetType === "lifetime" ? "Lifetime" : "Daily";
@@ -143,7 +146,14 @@ export function describeLaunchBudget(input: {
     input.budgetLevel === "ad_set"
       ? ` across ${input.enabledAdSetCount} ad set${input.enabledAdSetCount === 1 ? "" : "s"}`
       : "";
+  const phaseClause = input.endDatePhase
+    ? reviewPhaseClause(input.endDatePhase, input.endDate)
+    : null;
   const endLabel = input.budgetType === "lifetime" ? formatEndLabel(input.endDate) : null;
-  const ends = endLabel ? ` · ends ${endLabel}` : "";
+  const ends = phaseClause
+    ? ` · ${phaseClause}`
+    : endLabel
+      ? ` · ends ${endLabel}`
+      : "";
   return `${level} · ${kind} · ${amount}${perDay}${across}${ends}`;
 }

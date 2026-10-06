@@ -5,6 +5,7 @@
  */
 
 import { buildPromotedObject, resolveOptimisationGoal } from "../meta/adset.ts";
+import { shortLocationLabel } from "./adset-suggestions.ts";
 import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "../meta/location-targeting.ts";
 import type {
   AdCreativeDraft,
@@ -255,13 +256,21 @@ function withTierSuffix(name: string, adSet: AdSetSuggestion): string {
 }
 
 /**
- * Step 5 shows the source group's current name. An operator-typed name
- * stays. The stored `name` is not rewritten here — launch sends that.
+ * The name Step 5 shows and the name launch sends. An operator-typed
+ * name, including a city the operator chose by splitting or picking one
+ * location, stays the stored name. Any other row uses the source group's
+ * current name. A stored name that is only that group name plus a
+ * location suffix keeps the suffix on the current group name. The stored
+ * `name` is not rewritten here.
  */
 export function adSetDisplayName(adSet: AdSetSuggestion, audiences: AudienceSettings): string {
   if (adSet.nameSource === "operator") return adSet.name;
   const group = currentGroupLabel(adSet, audiences);
   if (!group) return adSet.name;
+  const city = adSet.locationLabel ? shortLocationLabel(adSet.locationLabel) : null;
+  if (city && !adSet.locationTier && adSet.name.endsWith(` — ${city}`)) {
+    return `${group.name} — ${city}`;
+  }
   return withTierSuffix(group.name, adSet);
 }
 

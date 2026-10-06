@@ -70,7 +70,8 @@ describe("ad set budget payload", () => {
     assert.equal(payload.lifetime_budget, 5000);
     assert.equal(payload.daily_budget, undefined);
     assert.equal(payload.bid_strategy, "LOWEST_COST_WITHOUT_CAP");
-    assert.equal(payload.end_time, Math.floor(Date.parse("2026-10-08T00:00:00Z") / 1000));
+    // Date-only end is midnight in Europe/London. 8 Oct 2026 is still BST.
+    assert.equal(payload.end_time, Math.floor(Date.parse("2026-10-07T23:00:00Z") / 1000));
   });
 
   it("CBO sends no budget and no bid_strategy on the ad set", () => {
@@ -81,6 +82,6 @@ describe("ad set budget payload", () => {
     assert.equal(payload.daily_budget, undefined);
     assert.equal(payload.lifetime_budget, undefined);
     assert.equal(payload.bid_strategy, undefined);
-    assert.equal(payload.end_time, Math.floor(Date.parse("2026-10-08T00:00:00Z") / 1000));
+    assert.equal(payload.end_time, Math.floor(Date.parse("2026-10-07T23:00:00Z") / 1000));
   });
 });

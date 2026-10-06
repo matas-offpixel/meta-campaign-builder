@@ -483,9 +483,14 @@ export function setAdSetLocations(
         : chosen.length === 1
           ? nameForLocation(stripped, undefined, chosen[0])
           : stripped;
+  const cityNamed =
+    !tier &&
+    chosen.length === 1 &&
+    name.endsWith(` — ${shortLocationLabel(chosen[0].label)}`);
   return {
     ...suggestion,
     name,
+    ...(cityNamed ? { nameSource: "operator" as const } : {}),
     locationGroupIds: chosen.map((g) => g.id),
     locationGroupId: undefined,
     locationTier: tier,

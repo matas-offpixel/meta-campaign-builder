@@ -28,6 +28,8 @@ import type {
 // not type-only, so `--experimental-strip-types` does not erase it — plain
 // Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
+import { zonedLocalToUtc } from "../time.ts";
+import { adSetDisplayName } from "../wizard/import-edits.ts";
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "./location-targeting.ts";
 import { META_INITIATE_CHECKOUT_EVENT } from "./campaign.ts";
@@ -287,41 +289,27 @@ function audienceIdsForLaunch(
 }
 
 /**
- * Convert a date string to a Unix timestamp (seconds, UTC).
+ * Convert a wizard date string to a Unix timestamp (seconds).
  *
- * Accepted formats:
- *   - "YYYY-MM-DD"          legacy / date-only → treated as midnight UTC
- *   - "YYYY-MM-DDTHH:mm"    current wizard (datetime-local, no zone) → treated as UTC
- *   - "YYYY-MM-DDTHH:mm:ssZ" already-ISO with Z suffix → parsed as-is
- *
- * Timezone awareness is a Phase 5 TODO; until then all inputs are UTC.
+ * Datetime-local and date-only strings are wall-clock in `timezone`
+ * (midnight for a date-only string). A trailing `Z` is already UTC.
  * Throws on invalid input — callers must not pass a malformed date string
  * (fail loudly rather than silently send NaN / null to Meta).
  */
-function toUnixTs(dateStr: string): number {
-  let iso: string;
-  if (dateStr.includes("T")) {
-    // datetime-local ("2026-08-06T12:00") or already-ISO ("2026-08-06T12:00:00Z")
-    // Normalise to a full Z-suffixed ISO string so Date() parses as UTC.
-    if (dateStr.endsWith("Z")) {
-      iso = dateStr;
-    } else {
-      // Append seconds if missing, then add Z for UTC.
-      // "2026-08-06T12:00"    → "2026-08-06T12:00:00Z"
-      // "2026-08-06T12:00:00" → "2026-08-06T12:00:00Z"
-      const withSeconds = dateStr.length === 16 ? `${dateStr}:00` : dateStr;
-      iso = `${withSeconds}Z`;
+function toUnixTs(dateStr: string, timezone: string): number {
+  if (dateStr.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(dateStr)) {
+    const ts = Math.floor(new Date(dateStr).getTime() / 1000);
+    if (!Number.isFinite(ts)) {
+      throw new Error(`toUnixTs: invalid date input "${dateStr}"`);
     }
-  } else {
-    // Date-only: "2026-08-06" → midnight UTC
-    iso = `${dateStr}T00:00:00Z`;
+    return ts;
   }
-
-  const ts = Math.floor(new Date(iso).getTime() / 1000);
-  if (!Number.isFinite(ts)) {
+  const local = dateStr.includes("T") ? dateStr.slice(0, 16) : `${dateStr}T00:00`;
+  const instant = zonedLocalToUtc(local, timezone);
+  if (!instant) {
     throw new Error(`toUnixTs: invalid date input "${dateStr}"`);
   }
-  return ts;
+  return Math.floor(instant.getTime() / 1000);
 }
 
 // ─── Targeting builder ────────────────────────────────────────────────────────
@@ -916,7 +904,7 @@ export function buildAdSetPayload(
   const lifetimeAbo = !cbo && type === "lifetime";
 
   const payload: MetaAdSetPayload = {
-    name: adSet.name,
+    name: adSetDisplayName(adSet, audiences),
     campaign_id: campaignId,
     billing_event: mapBillingEvent(effectiveGoal),
     optimization_goal: mapOptimisationGoal(effectiveGoal),
@@ -972,12 +960,13 @@ export function buildAdSetPayload(
     }
   }
 
+  const scheduleTimezone = budgetSchedule.timezone || "Europe/London";
   if (budgetSchedule.startDate) {
-    payload.start_time = toUnixTs(budgetSchedule.startDate);
+    payload.start_time = toUnixTs(budgetSchedule.startDate, scheduleTimezone);
   }
 
   if (budgetSchedule.endDate) {
-    payload.end_time = toUnixTs(budgetSchedule.endDate);
+    payload.end_time = toUnixTs(budgetSchedule.endDate, scheduleTimezone);
   }
 
   const promotedObject = buildPromotedObject(effectiveGoal, objective, pixelId);

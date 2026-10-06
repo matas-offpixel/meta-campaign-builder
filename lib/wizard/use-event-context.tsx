@@ -14,7 +14,7 @@ import type { EventWithClient } from "@/lib/db/events";
 import type { ClientRow } from "@/lib/db/clients";
 import { useFetchEvents, type EventPickerRow } from "@/lib/hooks/useEvents";
 import type { CampaignDraft } from "@/lib/types";
-import { applyEventEndToDraft, derivedEventEnd } from "@/lib/wizard/event-end-date";
+import { applyEventEndToDraft } from "@/lib/wizard/event-end-date";
 
 /**
  * lib/wizard/use-event-context.tsx
@@ -194,32 +194,41 @@ export function EventEndDateSync({
   updateDraft: (updater: (d: CampaignDraft) => CampaignDraft) => void;
 }) {
   const { followsDraft, draftEventId, selectedEvent } = useWizardEventContext();
-  const prev = useRef<{ id: string; date: string | null } | null>(null);
+  const seen = useRef<{ id: string; date: string | null } | undefined>(undefined);
 
   useEffect(() => {
-    if (!followsDraft || !draftEventId || !selectedEvent || selectedEvent.id !== draftEventId) {
+    if (!followsDraft) return;
+    if (!draftEventId) {
+      seen.current = { id: "", date: null };
       return;
     }
-    const nextDate = selectedEvent.event_date;
-    const previous = prev.current;
-    const derived = derivedEventEnd(nextDate);
-    const stored = draft.budgetSchedule.endDate ?? "";
-    const source = draft.budgetSchedule.endDateSource;
-    const eventMoved = !previous || previous.id !== draftEventId || previous.date !== nextDate;
-    const derivedMissing = source === "event" && Boolean(derived) && stored !== derived;
-    const shouldFill = !stored.trim() && source !== "operator" && Boolean(derived);
-    if (!eventMoved && !derivedMissing && !shouldFill) return;
-    const previousEventDate = previous && previous.id !== draftEventId ? previous.date : null;
-    const synced = applyEventEndToDraft(draft, {
+    if (!selectedEvent || selectedEvent.id !== draftEventId) return;
+    const first = seen.current === undefined;
+    const previousId = seen.current?.id ?? "";
+    const eventChanged = !first && previousId !== draftEventId;
+    const previousEventDate = eventChanged ? (seen.current?.date ?? null) : null;
+    seen.current = { id: draftEventId, date: selectedEvent.event_date };
+    const phases = {
       previousEventDate,
-      nextEventDate: nextDate,
+      nextEventDate: selectedEvent.event_date,
+      nextPresaleAt: selectedEvent.presale_at,
+      nextGeneralSaleAt: selectedEvent.general_sale_at,
+      now: new Date(),
+    };
+    const refreshStart = (latest: CampaignDraft) =>
+      latest.budgetSchedule.startDateSource !== "operator" &&
+      (eventChanged || !(latest.budgetSchedule.startDate ?? "").trim());
+    const synced = applyEventEndToDraft(draft, {
+      ...phases,
+      eventChanged,
+      refreshStart: refreshStart(draft),
     });
-    prev.current = { id: draftEventId, date: nextDate };
     if (synced === draft) return;
     updateDraft((latest) =>
       applyEventEndToDraft(latest, {
-        previousEventDate,
-        nextEventDate: nextDate,
+        ...phases,
+        eventChanged,
+        refreshStart: refreshStart(latest),
       }),
     );
   }, [followsDraft, draftEventId, selectedEvent, draft, updateDraft]);

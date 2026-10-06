@@ -351,6 +351,12 @@ describe("DHB import with a europe hit", () => {
     expected.importMeta!.dropped = expected.importMeta!.dropped.filter(
       (row) => row.field !== "label_unresolved",
     );
+    if ((expected.budgetSchedule.startDate ?? "").trim()) {
+      expected.budgetSchedule.startDateSource = "operator";
+    }
+    if ((expected.budgetSchedule.endDate ?? "").trim()) {
+      expected.budgetSchedule.endDateSource = "operator";
+    }
     assert.deepEqual(stripVolatile(labelled), stripVolatile(expected));
   });
 });

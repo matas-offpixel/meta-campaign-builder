@@ -66,6 +66,8 @@ export function saveTemplate(
         startDate: "",
         endDate: "",
         endDateSource: undefined,
+        startDateSource: undefined,
+        endDatePhase: undefined,
       },
     },
     createdAt: new Date().toISOString(),

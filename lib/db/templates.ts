@@ -69,6 +69,8 @@ export async function saveTemplateToDb(
       startDate: "",
       endDate: "",
       endDateSource: undefined,
+      startDateSource: undefined,
+      endDatePhase: undefined,
     },
   };
 
