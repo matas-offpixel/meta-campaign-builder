@@ -1,7 +1,7 @@
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1023
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1023
 - **Branch:** `cursor/generate-rebuilds`
 
 ## Summary
