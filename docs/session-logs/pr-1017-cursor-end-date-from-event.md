@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1017
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1017
 - **Branch:** `cursor/end-date-from-event`
 
 ## Summary
