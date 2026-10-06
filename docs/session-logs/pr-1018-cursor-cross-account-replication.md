@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1018
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1018
 - **Branch:** `cursor/cross-account-replication`
 
 ## Summary
