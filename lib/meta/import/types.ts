@@ -156,6 +156,8 @@ export type MetaImportDropped = {
   adSetName?: string;
   creativeId?: string;
   value: unknown;
+  /** Why the field was dropped, when the field name alone does not say. */
+  reason?: string;
 };
 
 export type MetaImportNotCarried = {

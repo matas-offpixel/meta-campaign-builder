@@ -344,12 +344,15 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
       }
     }
 
-    // Asset completeness: dual/full mode requires all aspect ratio slots to have
-    // a Meta asset ID before launch (assetHash for images, videoId for videos).
-    for (const issue of validateCreativeAssetCompleteness(c)) {
-      errors.push(
-        `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
-      );
+    // A boosted post has no asset slots. The post is the creative.
+    if (sourceType !== "existing_post") {
+      // Asset completeness: dual/full mode requires all aspect ratio slots to have
+      // a Meta asset ID before launch (assetHash for images, videoId for videos).
+      for (const issue of validateCreativeAssetCompleteness(c)) {
+        errors.push(
+          `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
+        );
+      }
     }
 
     // BOOK_NOW + Dual/Full mode silently drops the Feed asset (Meta subcode
