@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1024
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1024
 - **Branch:** `cursor/tier-and-schedule-rules`
 
 ## Summary
