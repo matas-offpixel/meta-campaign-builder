@@ -127,6 +127,13 @@ const emptyAudiences = {
 function draftWith(adSetSuggestions: AdSetSuggestion[], bs: Partial<BudgetScheduleSettings>): CampaignDraft {
   return migrateDraft({
     settings: { objective: "traffic", wizardMode: "new", campaignName: "Test campaign" },
+    audiences: {
+      pageGroups: [],
+      customAudienceGroups: [],
+      savedAudiences: { audienceIds: [] },
+      interestGroups: [{ id: "g1", name: "Pages 1", interests: [{ id: "6003108826384", name: "House", source: "search" }] }],
+      selectedPagesLookalikeGroups: [],
+    },
     budgetSchedule: {
       budgetLevel: "ad_set", budgetType: "daily", budgetAmount: 100, currency: "GBP",
       startDate: "2026-10-01", endDate: "2026-10-10", timezone: "Europe/London", ...bs,

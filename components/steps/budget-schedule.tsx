@@ -87,7 +87,10 @@ import {
 } from "@/lib/meta/location-targeting";
 import { generateSuggestions } from "@/lib/wizard/generate-adset-suggestions";
 import {
+  AUDIENCE_REMOVED_SUBTITLE,
   IMPORTED_AD_SET_BADGE,
+  adSetAudienceRemoved,
+  generateRemovedNotice,
   importedAdSetTitle,
   mergeGeneratedWithImported,
 } from "@/lib/wizard/import-edits";
@@ -1157,18 +1160,21 @@ export function BudgetSchedule({
 
   const handleGenerate = () => {
     const generated = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
-    if (bs.budgetType !== "lifetime") {
-      onSuggestionsChange(mergeGeneratedWithImported(adSetSuggestions, generated));
+    const merged = mergeGeneratedWithImported(adSetSuggestions, generated, audiences);
+    const generatedIds = new Set(generated.map((row) => row.id));
+    const next =
+      bs.budgetType === "lifetime"
+        ? merged.suggestions.map((row) =>
+            generatedIds.has(row.id)
+              ? { ...row, budgetLifetime: row.budgetPerDay, budgetPerDay: 0 }
+              : row,
+          )
+        : merged.suggestions;
+    if (merged.removed > 0) {
+      applyWithUndo(generateRemovedNotice(merged.removed), next);
       return;
     }
-    const generatedIds = new Set(generated.map((row) => row.id));
-    onSuggestionsChange(
-      mergeGeneratedWithImported(adSetSuggestions, generated).map((row) =>
-        generatedIds.has(row.id)
-          ? { ...row, budgetLifetime: row.budgetPerDay, budgetPerDay: 0 }
-          : row,
-      ),
-    );
+    onSuggestionsChange(next);
   };
 
   const distributeBudget = () => {
@@ -1725,18 +1731,24 @@ export function BudgetSchedule({
             <div className="rounded-lg border border-border overflow-hidden">
               {adSetSuggestions.map((s) => {
                 const isBlank = s.sourceType === "blank";
+                const audienceRemoved = adSetAudienceRemoved(s, audiences);
                 const locationSummary = adSetLocationSummary(s, locationGroups);
                 const exclusionSummary = adSetExclusionSummary(s, exclusionPool);
                 return (
                   <div
                     key={s.id}
-                    className={`border-b border-border last:border-b-0 ${s.enabled ? "" : "opacity-50"}`}
+                    className={`border-b border-border last:border-b-0 ${s.enabled && !audienceRemoved ? "" : "opacity-50"}`}
                   >
                     {/* ── Main row ────────────────────────────────────────── */}
                     <div className={ADSET_ROW_MAIN_CLASS}>
                       <Checkbox
-                        checked={s.enabled}
-                        onChange={() => updateSuggestion(s.id, { enabled: !s.enabled })}
+                        checked={audienceRemoved ? false : s.enabled}
+                        disabled={audienceRemoved}
+                        title={audienceRemoved ? "This audience is no longer on the draft" : undefined}
+                        onChange={() => {
+                          if (audienceRemoved) return;
+                          updateSuggestion(s.id, { enabled: !s.enabled });
+                        }}
                       />
                       <div className={ADSET_ROW_NAME_COLUMN_CLASS}>
                         <div className="flex items-center gap-2">
@@ -1763,7 +1775,9 @@ export function BudgetSchedule({
                             </span>
                           ) : null}
                         </div>
-                        <span className="text-xs text-muted-foreground truncate block">{s.sourceName}</span>
+                        <span className="text-xs text-muted-foreground truncate block">
+                          {audienceRemoved ? AUDIENCE_REMOVED_SUBTITLE : s.sourceName}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {/* Per-row locations — only once there's a real choice,

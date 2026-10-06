@@ -30,6 +30,11 @@ import {
 import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
 import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
 import { describeLaunchBudget } from "@/lib/meta/budget-launch";
+import {
+  adSetAudienceRemoved,
+  adSetsSkippedForMissingAudience,
+  skippedAudienceReviewLine,
+} from "@/lib/wizard/import-edits";
 import { formatAttachMultiCampaignReviewLine } from "@/lib/meta/attach-objective";
 import { METRIC_LABELS, TIME_WINDOW_LABELS } from "@/lib/optimisation-rules";
 import {
@@ -1244,6 +1249,18 @@ export function ReviewLaunch({
           </span>
         )}
 
+      {(() => {
+        const skipped = adSetsSkippedForMissingAudience(draft.adSetSuggestions, draft.audiences).length;
+        if (skipped === 0) return null;
+        return (
+          <span data-testid="audience-removed-review">
+            <Datum className="text-sm text-muted-foreground">
+              {skippedAudienceReviewLine(skipped)}
+            </Datum>
+          </span>
+        );
+      })()}
+
       <span data-testid="launch-budget-line">
         <Datum className="text-sm text-foreground">
           {describeLaunchBudget({
@@ -1251,7 +1268,9 @@ export function ReviewLaunch({
             budgetType: bs.budgetType,
             budgetAmount: bs.budgetAmount,
             currency: bs.currency || "GBP",
-            enabledAdSetCount: draft.adSetSuggestions.filter((row) => row.enabled).length,
+            enabledAdSetCount: draft.adSetSuggestions.filter(
+              (row) => row.enabled && !adSetAudienceRemoved(row, draft.audiences),
+            ).length,
             endDate: bs.endDate,
           })}
         </Datum>

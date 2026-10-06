@@ -15,6 +15,7 @@ import {
   enabledAdSetSourceIds,
 } from "./audiences/audience-account.ts";
 import {
+  adSetAudienceRemoved,
   importedAdSetsDefineAudience,
   objectivePixelProblem,
 } from "./wizard/import-edits.ts";
@@ -399,7 +400,9 @@ function validateBudgetSchedule(draft: CampaignDraft): ValidationResult {
   if (bs.startDate && bs.endDate && bs.startDate >= bs.endDate) {
     errors.push("End date must be after start date");
   }
-  const enabled = (draft.adSetSuggestions ?? []).filter((s) => s.enabled);
+  const enabled = (draft.adSetSuggestions ?? []).filter(
+    (s) => s.enabled && !adSetAudienceRemoved(s, draft.audiences),
+  );
   errors.push(...findAdSetLocationProblems(enabled, bs));
   const radiusProblem = cityRadiusProblemInDraft(draft);
   if (radiusProblem) errors.push(radiusProblem);
@@ -443,7 +446,9 @@ function validateAssignCreatives(draft: CampaignDraft): ValidationResult {
     return { valid: errors.length === 0, errors };
   }
 
-  const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
+  const enabledSets = draft.adSetSuggestions.filter(
+    (s) => s.enabled && !adSetAudienceRemoved(s, draft.audiences),
+  );
   if (enabledSets.length === 0) {
     errors.push("Enable at least one ad set");
   }

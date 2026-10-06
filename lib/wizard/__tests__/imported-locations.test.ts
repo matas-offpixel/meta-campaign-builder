@@ -120,7 +120,7 @@ describe("Generate appends an uncreated page group", () => {
       enabled: adSet.enabled,
     }));
     const generated = generateSuggestions(draft.audiences, 100, [], FALLBACK);
-    const merged = mergeGeneratedWithImported(imported, generated);
+    const merged = mergeGeneratedWithImported(imported, generated, draft.audiences).suggestions;
 
     assert.equal(merged.length, 23);
     const added = merged.filter((adSet) => !adSet.importedFromAdSetId);

@@ -177,7 +177,7 @@ describe("§1 adding audiences leaves imported rows alone", () => {
       ],
     };
     const generated = generateSuggestions(audiences, 500, TIERS, FALLBACK);
-    const next = mergeGeneratedWithImported(draft.adSetSuggestions, generated);
+    const next = mergeGeneratedWithImported(draft.adSetSuggestions, generated, audiences).suggestions;
 
     const kept = next.filter((s) => s.importedFromAdSetId);
     assert.deepEqual(snapshot({ ...draft, adSetSuggestions: kept }), before);
@@ -196,14 +196,14 @@ describe("§1 adding audiences leaves imported rows alone", () => {
     const before = snapshot(draft);
     const generated = generateSuggestions(draft.audiences, 500, TIERS, FALLBACK);
     assert.ok(generated.some((s) => s.locationTier), "generation did tier");
-    const next = mergeGeneratedWithImported(draft.adSetSuggestions, generated);
+    const next = mergeGeneratedWithImported(draft.adSetSuggestions, generated, draft.audiences).suggestions;
     assert.deepEqual(snapshot({ ...draft, adSetSuggestions: next }), before);
   });
 
   it("Step 5 Generate goes through the merge", () => {
     assert.match(
       src("components/steps/budget-schedule.tsx"),
-      /onSuggestionsChange\(mergeGeneratedWithImported\(adSetSuggestions, generated\)\)/,
+      /mergeGeneratedWithImported\(adSetSuggestions, generated, audiences\)/,
     );
   });
 
