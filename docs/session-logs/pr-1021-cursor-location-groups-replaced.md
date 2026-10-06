@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1021
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1021
 - **Branch:** `cursor/location-groups-replaced`
 
 ## Summary
