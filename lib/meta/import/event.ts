@@ -20,7 +20,101 @@ export type MetaImportEventRow = MetaImportEventOption & {
 
 export type MetaImportListedEvent = MetaImportEventOption & {
   client_id: string;
+  client_name: string;
+  /** Hint only. The list is not filtered by this. */
+  onImportAccount: boolean;
 };
+
+export const META_IMPORT_EVENTS_ON_ACCOUNT = "On this ad account";
+export const META_IMPORT_EVENTS_OTHER_CLIENTS = "Other clients";
+export const META_IMPORT_NO_EVENT_LABEL = "No event — attach on the Campaign step";
+export const META_IMPORT_NO_EVENTS_YET =
+  "No events yet — import without one and attach on the Campaign step";
+
+export function formatMetaImportEventOptionLabel(event: MetaImportEventOption): string {
+  const code = event.event_code?.trim();
+  const prefix = code ? `[${code}] ` : "";
+  const date = event.event_date ? ` · ${event.event_date}` : "";
+  return `${prefix}${event.name}${date}`;
+}
+
+export type MetaImportEventPickerOption = {
+  value: string;
+  label: string;
+  group?: string;
+  subgroup?: string;
+  keywords?: string;
+};
+
+/** First row is always "no event". Account match is a section, not a filter. */
+export function metaImportEventPickerOptions(
+  events: readonly MetaImportListedEvent[],
+): MetaImportEventPickerOption[] {
+  return [
+    { value: "", label: META_IMPORT_NO_EVENT_LABEL },
+    ...events.map((event) => ({
+      value: event.id,
+      label: formatMetaImportEventOptionLabel(event),
+      group: event.onImportAccount
+        ? META_IMPORT_EVENTS_ON_ACCOUNT
+        : META_IMPORT_EVENTS_OTHER_CLIENTS,
+      subgroup: event.onImportAccount ? undefined : event.client_name,
+      keywords: [event.client_name, event.event_code, event.name]
+        .filter((part): part is string => !!part && part.trim().length > 0)
+        .join(" "),
+    })),
+  ];
+}
+
+type EventListRow = {
+  id: string;
+  name: string;
+  event_code?: string | null;
+  event_date?: string | null;
+  client_id?: string | null;
+  meta_ad_account_id?: string | null;
+  client_name?: string | null;
+  client?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
+function clientNameFrom(row: EventListRow): string {
+  const direct = row.client_name?.trim();
+  if (direct) return direct;
+  const client = Array.isArray(row.client) ? row.client[0] : row.client;
+  return client?.name?.trim() || "Unnamed client";
+}
+
+/**
+ * Matching ad-account events first, then every other event grouped by
+ * client name. An event on another account, or with no account, stays.
+ */
+export function orderMetaImportEvents(
+  rows: readonly EventListRow[],
+  adAccountId: string,
+): MetaImportListedEvent[] {
+  const want = normalizeAdAccountId(adAccountId);
+  const listed = rows.flatMap((row) => {
+    if (!row.client_id) return [];
+    return [{
+      id: row.id,
+      name: row.name,
+      event_code: row.event_code ?? null,
+      event_date: row.event_date ?? null,
+      client_id: row.client_id,
+      client_name: clientNameFrom(row),
+      onImportAccount: want !== "" && normalizeAdAccountId(row.meta_ad_account_id) === want,
+    }];
+  });
+  const onAccount = listed.filter((row) => row.onImportAccount);
+  const others = listed
+    .filter((row) => !row.onImportAccount)
+    .sort((a, b) => {
+      const byClient = a.client_name.localeCompare(b.client_name);
+      if (byClient !== 0) return byClient;
+      return (a.event_date ?? "").localeCompare(b.event_date ?? "");
+    });
+  return [...onAccount, ...others];
+}
 
 export async function clientIdForMetaAdAccount(
   supabase: TypedSupabaseClient,
@@ -41,30 +135,21 @@ export async function clientIdForMetaAdAccount(
 }
 
 /**
- * Events this operator owns that already run on the import's ad account.
- * The client's single `meta_ad_account_id` is not consulted.
+ * Every event this operator owns. The import ad account orders the list
+ * (matches first) and is not a filter. The client's single
+ * `meta_ad_account_id` is not consulted.
  */
 export async function listMetaImportEvents(
   supabase: TypedSupabaseClient,
   args: { userId: string; adAccountId: string },
 ): Promise<MetaImportListedEvent[]> {
-  const want = normalizeAdAccountId(args.adAccountId);
-  if (!want) return [];
   const { data, error } = await supabase
     .from("events")
-    .select("id, name, event_date, event_code, client_id, meta_ad_account_id")
+    .select("id, name, event_date, event_code, client_id, meta_ad_account_id, client:clients(name)")
     .eq("user_id", args.userId)
     .order("event_date", { ascending: true, nullsFirst: false });
   if (error || !data) return [];
-  return data
-    .filter((row) => normalizeAdAccountId(row.meta_ad_account_id) === want && row.client_id)
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      event_code: row.event_code ?? null,
-      event_date: row.event_date ?? null,
-      client_id: row.client_id as string,
-    }));
+  return orderMetaImportEvents(data as EventListRow[], args.adAccountId);
 }
 
 /**

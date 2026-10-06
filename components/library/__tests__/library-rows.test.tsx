@@ -97,6 +97,28 @@ describe("CampaignRow actions", () => {
     expect(labels).toEqual(PUBLISHED_MENU);
   });
 
+  it("a draft with no event shows a muted no event chip", () => {
+    render(
+      <CampaignRow
+        campaign={{ ...campaign("draft"), noEvent: true }}
+        isLoading={false}
+        confirmDelete={false}
+        onOpen={() => undefined}
+        onDuplicate={() => undefined}
+        onArchive={() => undefined}
+        onUnarchive={() => undefined}
+        onDelete={() => undefined}
+        onConfirmDelete={() => undefined}
+        onCancelDelete={() => undefined}
+        onRelaunch={() => undefined}
+        onAddToCampaign={() => undefined}
+        onSaveAsTemplate={() => undefined}
+      />,
+    );
+    const chip = screen.getByText("no event");
+    expect(chip.className).toContain("text-muted-foreground");
+  });
+
   it("hides the four published-only items on a draft", async () => {
     const user = userEvent.setup();
     render(<Row status="draft" />);

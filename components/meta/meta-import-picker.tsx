@@ -28,12 +28,12 @@ import {
 } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { metaAdAccountPickerOptions } from "@/lib/meta/account-picker-options";
-import type { MetaImportEventOption } from "@/lib/meta/import/event";
-import type { MetaImportPickerPayload } from "@/lib/meta/import/picker";
 import {
-  META_IMPORT_NO_EVENTS_ON_ACCOUNT,
-  type MetaImportMeta,
-} from "@/lib/meta/import/types";
+  META_IMPORT_NO_EVENTS_YET,
+  type MetaImportListedEvent,
+} from "@/lib/meta/import/event";
+import type { MetaImportPickerPayload } from "@/lib/meta/import/picker";
+import type { MetaImportMeta } from "@/lib/meta/import/types";
 import type { MetaAdAccount, MetaCampaignSummary, MetaCampaignsResponse } from "@/lib/types";
 
 type PickerResponse = {
@@ -41,7 +41,7 @@ type PickerResponse = {
   saved?: boolean;
   error?: string;
   picker?: MetaImportPickerPayload;
-  events?: MetaImportEventOption[];
+  events?: MetaImportListedEvent[];
   suggestedEventId?: string | null;
   draftId?: string;
   importMeta?: MetaImportMeta;
@@ -64,7 +64,7 @@ export function MetaImportPicker({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<MetaImportPickerPayload | null>(null);
-  const [events, setEvents] = useState<MetaImportEventOption[]>([]);
+  const [events, setEvents] = useState<MetaImportListedEvent[]>([]);
   const [eventId, setEventId] = useState("");
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [saved, setSaved] = useState<{ draftId: string; importMeta: MetaImportMeta } | null>(null);
@@ -164,7 +164,7 @@ export function MetaImportPicker({
   }
 
   async function confirmImport() {
-    if (!picker || metaImportSaveBlocked(eventId, ticked.size)) return;
+    if (!picker || metaImportSaveBlocked(ticked.size)) return;
     setSaving(true);
     setError(null);
     try {
@@ -200,8 +200,8 @@ export function MetaImportPicker({
     router.push(href);
   }
 
-  const noEventsOnAccount = picker != null && events.length === 0;
-  const blocked = metaImportSaveBlocked(eventId, ticked.size);
+  const noEventsYet = picker != null && events.length === 0;
+  const blocked = metaImportSaveBlocked(ticked.size);
   const uncarriedRows = picker?.rows.filter((row) => row.disabled) ?? [];
 
   return (
@@ -300,20 +300,18 @@ export function MetaImportPicker({
               </Button>
             </div>
 
-            {noEventsOnAccount ? (
-              <p className="mt-3 text-sm text-destructive">{META_IMPORT_NO_EVENTS_ON_ACCOUNT}</p>
-            ) : (
-              <div className="mt-3">
-                <MetaImportEventSelect
-                  id="meta-import-event"
-                  events={events}
-                  value={eventId}
-                  onChange={setEventId}
-                  disabled={saving || events.length === 0}
-                  error={!eventId ? "Pick an event before saving. Nothing is saved until you do." : undefined}
-                />
-              </div>
-            )}
+            <div className="mt-3">
+              {noEventsYet ? (
+                <p className="mb-2 text-sm text-muted-foreground">{META_IMPORT_NO_EVENTS_YET}</p>
+              ) : null}
+              <MetaImportEventSelect
+                id="meta-import-event"
+                events={events}
+                value={eventId}
+                onChange={setEventId}
+                disabled={saving}
+              />
+            </div>
 
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
@@ -400,17 +398,13 @@ export function MetaImportPicker({
 
             <div className="mt-4 flex justify-end">
               <Button
-                disabled={saving || noEventsOnAccount || blocked}
+                disabled={saving || blocked}
                 onClick={() => void confirmImport()}
               >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : noEventsOnAccount ? (
-                  META_IMPORT_NO_EVENTS_ON_ACCOUNT
                 ) : ticked.size === 0 ? (
                   "Tick at least one creative — nothing will be saved"
-                ) : !eventId ? (
-                  "Pick an event — nothing will be saved"
                 ) : (
                   `Save ${ticked.size} ${ticked.size === 1 ? "creative" : "creatives"}`
                 )}

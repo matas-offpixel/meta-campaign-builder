@@ -26,6 +26,10 @@ export interface ComboboxOption {
   disabled?: boolean;
   /** Extra haystack for type-to-filter (not shown). */
   keywords?: string;
+  /** Section header. Shown when it changes from the previous visible option. */
+  group?: string;
+  /** Smaller header under `group`, for a client name inside a section. */
+  subgroup?: string;
 }
 
 interface ComboboxProps {
@@ -73,7 +77,9 @@ export function Combobox({
           o.label.toLowerCase().includes(q) ||
           o.value.toLowerCase().includes(q) ||
           (o.sublabel?.toLowerCase().includes(q) ?? false) ||
-          (o.keywords?.toLowerCase().includes(q) ?? false)
+          (o.keywords?.toLowerCase().includes(q) ?? false) ||
+          (o.group?.toLowerCase().includes(q) ?? false) ||
+          (o.subgroup?.toLowerCase().includes(q) ?? false)
         );
       })
     : options;
@@ -108,7 +114,9 @@ export function Combobox({
   // Scroll highlighted item into view
   useEffect(() => {
     if (highlighted < 0 || !listRef.current) return;
-    const item = listRef.current.children[highlighted] as HTMLElement | undefined;
+    const item = listRef.current.querySelector(
+      `[data-option-index="${highlighted}"]`,
+    );
     item?.scrollIntoView({ block: "nearest" });
   }, [highlighted]);
 
@@ -257,31 +265,53 @@ export function Combobox({
               filtered.map((opt, i) => {
                 const isSelected = opt.value === value;
                 const isHighlighted = i === highlighted;
+                const showGroup = !!opt.group && (i === 0 || filtered[i - 1]?.group !== opt.group);
+                const showSubgroup =
+                  !!opt.subgroup &&
+                  (showGroup || filtered[i - 1]?.subgroup !== opt.subgroup);
                 return (
-                  <li
-                    key={opt.value}
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => handleSelect(opt)}
-                    onMouseEnter={() => setHighlighted(i)}
-                    className={[
-                      "flex cursor-pointer items-start gap-2 px-3 py-2",
-                      isHighlighted ? "bg-accent" : "",
-                      opt.dimmed ? "opacity-50" : "",
-                      opt.disabled ? "cursor-not-allowed opacity-30" : "",
-                    ].join(" ")}
-                  >
-                    {/* Checkmark column — keeps layout stable whether selected or not */}
-                    <span className="mt-0.5 h-4 w-4 shrink-0 text-primary">
-                      {isSelected && <Check className="h-4 w-4" />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate">{opt.label}</p>
-                      {opt.sublabel && (
-                        <p className="truncate text-xs text-muted-foreground">
-                          {opt.sublabel}
-                        </p>
-                      )}
+                  <li key={opt.value} className="contents">
+                    {showGroup ? (
+                      <div
+                        role="presentation"
+                        className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                      >
+                        {opt.group}
+                      </div>
+                    ) : null}
+                    {showSubgroup ? (
+                      <div
+                        role="presentation"
+                        className="px-3 pb-0.5 pt-1 text-xs text-muted-foreground"
+                      >
+                        {opt.subgroup}
+                      </div>
+                    ) : null}
+                    <div
+                      role="option"
+                      data-option-index={i}
+                      aria-selected={isSelected}
+                      onClick={() => handleSelect(opt)}
+                      onMouseEnter={() => setHighlighted(i)}
+                      className={[
+                        "flex cursor-pointer items-start gap-2 px-3 py-2",
+                        isHighlighted ? "bg-accent" : "",
+                        opt.dimmed ? "opacity-50" : "",
+                        opt.disabled ? "cursor-not-allowed opacity-30" : "",
+                      ].join(" ")}
+                    >
+                      {/* Checkmark column — keeps layout stable whether selected or not */}
+                      <span className="mt-0.5 h-4 w-4 shrink-0 text-primary">
+                        {isSelected && <Check className="h-4 w-4" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate">{opt.label}</p>
+                        {opt.sublabel && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {opt.sublabel}
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );

@@ -83,6 +83,7 @@ export async function loadCampaignList(
           event,
         }),
       ),
+      noEvent: (row.status ?? "draft") === "draft" && !eventId,
     };
   });
 }

@@ -186,10 +186,12 @@ export type MetaImportMeta = {
    * Absent on drafts imported before this field existed.
    */
   copyNotes?: { creativeId: string; text: string }[];
+  /**
+   * Whether the operator attached an event at import.
+   * Absent on drafts imported before this field existed.
+   */
+  eventAttachment?: "none" | "event";
 };
 
-export const META_IMPORT_EVENT_ID_REQUIRED = "event_id is required";
 export const META_IMPORT_EVENT_ID_CLIENT_MISMATCH =
   "event_id does not belong to this client";
-export const META_IMPORT_NO_EVENTS_ON_ACCOUNT =
-  "No events run on this ad account. Create the event first.";

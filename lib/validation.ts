@@ -21,6 +21,8 @@ import {
 } from "./wizard/import-edits.ts";
 import { ADD_SUBMODE_REQUIRED } from "./library/add-to-campaign.ts";
 
+export const ATTACH_EVENT_BEFORE_LAUNCH = "Attach an event before launching";
+
 /** Uploaded on the draft, but the Meta id was cleared with the previous ad account. */
 export function slotNeedsAccountReupload(slot: {
   uploadStatus?: string;
@@ -149,6 +151,7 @@ function validateCampaignSetup(draft: CampaignDraft): ValidationResult {
   if (!draft.settings.campaignName.trim()) errors.push("Campaign name is required");
   if (!draft.settings.objective) errors.push("Campaign objective is required");
   if (!draft.settings.optimisationGoal) errors.push("Optimisation goal is required");
+  if (!draft.settings.eventId?.trim()) errors.push(ATTACH_EVENT_BEFORE_LAUNCH);
   if (draft.importMeta) {
     const pixelProblem = objectivePixelProblem(draft);
     if (pixelProblem) errors.push(pixelProblem);

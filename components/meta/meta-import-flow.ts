@@ -46,9 +46,9 @@ export function metaImportSaveBody(input: {
   };
 }
 
-/** Save stays disabled until an event is chosen and at least one creative is ticked. */
-export function metaImportSaveBlocked(eventId: string, ticked: number): boolean {
-  return !eventId.trim() || ticked === 0;
+/** Save stays disabled until at least one creative is ticked. An event is optional. */
+export function metaImportSaveBlocked(ticked: number): boolean {
+  return ticked === 0;
 }
 
 export function metaImportDraftHref(draftId: string): string {

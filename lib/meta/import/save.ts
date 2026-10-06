@@ -7,7 +7,6 @@ import { locationSearchQuery, parseLocationSearchHits } from "../location-search
 import { facebookTokenForImport } from "./account.ts";
 import {
   clientIdForMetaAdAccount,
-  eventRunsOnAdAccount,
   listMetaImportEvents,
   loadMetaImportEvent,
   suggestMetaImportEvent,
@@ -30,10 +29,7 @@ import type {
   MetaImportReadProgress,
   MetaLiveCampaignBundle,
 } from "./types.ts";
-import {
-  META_IMPORT_EVENT_ID_CLIENT_MISMATCH,
-  META_IMPORT_EVENT_ID_REQUIRED,
-} from "./types.ts";
+import { META_IMPORT_EVENT_ID_CLIENT_MISMATCH } from "./types.ts";
 
 type TypedSupabaseClient = SupabaseClient<Database>;
 
@@ -224,8 +220,9 @@ function progressOf(err: unknown): MetaImportReadProgress | null {
 
 /**
  * No `carry` → read and return the picker, save nothing.
- * `carry: []` saves nothing. `carry: string[]` maps and saves, and
- * requires `eventId` on the resolved client. Writes nothing to Meta.
+ * `carry: []` saves nothing. `carry: string[]` maps and saves.
+ * `eventId` is optional: absent saves the Meta name verbatim and records
+ * `eventAttachment: "none"`. Writes nothing to Meta.
  */
 export async function handleMetaImport(input: {
   userId: string | null;
@@ -248,9 +245,6 @@ export async function handleMetaImport(input: {
   }
 
   const eventId = typeof input.body.eventId === "string" ? input.body.eventId.trim() : "";
-  if (decision.action === "save" && !eventId) {
-    return { status: 400, body: { ok: false, error: META_IMPORT_EVENT_ID_REQUIRED } };
-  }
 
   const deps = input.deps ?? {};
   const tokenForUser = deps.tokenForUser ?? facebookTokenForImport;
@@ -268,9 +262,9 @@ export async function handleMetaImport(input: {
   }
 
   let event: MetaImportEventRow | null = null;
-  if (decision.action === "save") {
+  if (decision.action === "save" && eventId) {
     event = await loadEvent(input.supabase, { eventId, userId: input.userId! });
-    if (!event || !eventRunsOnAdAccount(event, guard.adAccountId)) {
+    if (!event) {
       return { status: 400, body: { ok: false, error: META_IMPORT_EVENT_ID_CLIENT_MISMATCH } };
     }
   }
@@ -334,8 +328,9 @@ export async function handleMetaImport(input: {
   }
 
   const { accepted, rejected } = classifyMetaImportCarry(bundle, decision.carry);
+  const eventAttachment = event ? "event" : "none";
   console.log(
-    `[meta/import] carry campaign=${guard.campaignId} received=${decision.carry.length} accepted=${accepted.length} rejected=${rejected.join(",") || "none"}`,
+    `[meta/import] carry campaign=${guard.campaignId} received=${decision.carry.length} accepted=${accepted.length} rejected=${rejected.join(",") || "none"} eventAttachment=${eventAttachment}`,
   );
   if (rejected.length > 0) {
     return {
@@ -366,8 +361,9 @@ export async function handleMetaImport(input: {
     carry: accepted,
     availability: [],
     appUsageCallCount: appUsageCallCount(),
-    clientId: event!.client_id,
+    clientId: event?.client_id,
     eventId: event?.id,
+    eventAttachment,
     imageSizes: sizes,
     countryGroupLabels: groupLabels,
   });

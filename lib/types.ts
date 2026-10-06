@@ -1771,6 +1771,8 @@ export interface CampaignListItem {
   updatedAt: string;
   /** Code vs wired event, or column vs JSON. Null when they agree. */
   eventWarning?: string | null;
+  /** Drafts library only. The row shows a muted "no event" chip. */
+  noEvent?: boolean;
 }
 
 // ─── Wizard state ───

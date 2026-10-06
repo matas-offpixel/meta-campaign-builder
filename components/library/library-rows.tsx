@@ -236,6 +236,11 @@ export function CampaignRow({
               {c.name || "Untitled Campaign"}
             </p>
             <StatusBadge status={c.status} />
+            {c.noEvent ? (
+              <span className="inline-flex shrink-0 items-center rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                no event
+              </span>
+            ) : null}
           </div>
           {c.eventWarning ? (
             <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">{c.eventWarning}</p>

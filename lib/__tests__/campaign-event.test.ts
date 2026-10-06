@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { createDefaultDraft } from "../campaign-defaults.ts";
+import { ATTACH_EVENT_BEFORE_LAUNCH, validateStep } from "../validation.ts";
 import {
   applyEventToCampaignSettings,
   buildDuplicatedCampaign,
@@ -371,5 +372,25 @@ describe("production call sites — no silent inherit", () => {
     assert.match(setup, /Wired to/);
     assert.match(setup, /useFetchEvents\(settings\.eventId\)/);
     assert.match(setup, /not in this list/);
+    assert.match(setup, /No event attached/);
+  });
+});
+
+describe("campaign step event", () => {
+  it("validateStep: draft with no event blocks on the Campaign step with that message; attaching an event clears it and derives the code as today", () => {
+    const draft = createDefaultDraft();
+    draft.settings = settings({ eventId: "", clientId: "" });
+    const blocked = validateStep(1, draft);
+    assert.equal(blocked.valid, false);
+    assert.ok(blocked.errors.includes(ATTACH_EVENT_BEFORE_LAUNCH));
+
+    const attached = applyEventToCampaignSettings(draft.settings, AZYR);
+    const next = { ...draft, settings: attached };
+    const cleared = validateStep(1, next);
+    assert.equal(cleared.errors.includes(ATTACH_EVENT_BEFORE_LAUNCH), false);
+    assert.equal(cleared.valid, true);
+    assert.equal(attached.campaignCode, "NX26-AZYR");
+    assert.equal(attached.campaignName, "[NX26-AZYR] SCHAK - Registration");
+    assert.equal(attached.eventId, AZYR.id);
   });
 });

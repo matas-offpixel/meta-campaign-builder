@@ -295,11 +295,12 @@ describe("country-group labels on the save path", () => {
 
 describe("DHB import with a europe hit", () => {
   function stripVolatile(draft: CampaignDraft): Record<string, unknown> {
-    const copy = structuredClone(draft) as unknown as Record<string, unknown>;
+    const copy = structuredClone(draft);
     delete copy.id;
     delete copy.createdAt;
     delete copy.updatedAt;
-    return copy;
+    if (copy.importMeta) delete copy.importMeta.eventAttachment;
+    return copy as unknown as Record<string, unknown>;
   }
 
   it("names the two EU ad sets and matches the no-label import everywhere else", async () => {
