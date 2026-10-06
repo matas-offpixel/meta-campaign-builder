@@ -207,15 +207,13 @@ describe("§1 adding audiences leaves imported rows alone", () => {
     );
   });
 
-  it("an account change after import blocks", async () => {
+  it("an account change after import does not block", async () => {
     const draft = await importedDraft();
     assert.equal(importedAccountProblem(draft), null);
-    assert.equal(importedAccountProblem({ ...draft, settings: { ...draft.settings, metaAdAccountId: "1967530076312" } }), null);
     const moved = { ...draft, settings: { ...draft.settings, metaAdAccountId: "act_42", adAccountId: "act_42" } };
-    const problem = importedAccountProblem(moved);
-    assert.match(problem ?? "", /act_1967530076312/);
-    assert.match(problem ?? "", /act_42/);
-    assert.ok(validateStep(0, moved).errors.includes(problem!));
+    assert.equal(importedAccountProblem(moved), null);
+    assert.equal(validateStep(0, moved).errors.some((error) => /re-import/.test(error)), false);
+    assert.equal(validateStep(0, moved).valid, true);
   });
 });
 

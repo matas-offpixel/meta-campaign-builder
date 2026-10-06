@@ -13,6 +13,7 @@ import { useFetchCustomAudiences } from "@/lib/hooks/useMeta";
 import { NewAudienceControl } from "./new-audience-control";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
 import { customAudienceChips } from "@/lib/meta/import/page-audiences";
+import { foreignAudienceLaunchLabel } from "@/lib/wizard/account-switch";
 
 interface CustomAudiencesPanelProps {
   groups: CustomAudienceGroup[];
@@ -391,6 +392,11 @@ export function CustomAudiencesPanel({
                           {label}
                           {group.populatingAudienceIds?.includes(id) ? (
                             <span className="ml-1 font-normal opacity-80">populating</span>
+                          ) : null}
+                          {group.foreignAccountById?.[id] ? (
+                            <span className="ml-1 font-normal opacity-80">
+                              {foreignAudienceLaunchLabel(group.foreignAccountById[id])}
+                            </span>
                           ) : null}
                           {derived ? <span className="ml-1 font-normal opacity-80">{derived}</span> : null}
                         </Badge>

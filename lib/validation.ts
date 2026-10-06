@@ -15,7 +15,6 @@ import {
   enabledAdSetSourceIds,
 } from "./audiences/audience-account.ts";
 import {
-  importedAccountProblem,
   importedAdSetsDefineAudience,
   objectivePixelProblem,
 } from "./wizard/import-edits.ts";
@@ -65,8 +64,6 @@ function validateAccountSetup(draft: CampaignDraft): ValidationResult {
   const hasAccount =
     !!draft.settings.metaAdAccountId || !!draft.settings.adAccountId;
   if (!hasAccount) errors.push("Ad account is required");
-  const accountProblem = importedAccountProblem(draft);
-  if (accountProblem) errors.push(accountProblem);
   // Facebook page and Instagram account are selected per ad in the Creatives step.
   return { valid: errors.length === 0, errors };
 }

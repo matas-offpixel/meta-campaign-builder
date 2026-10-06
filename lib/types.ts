@@ -446,6 +446,12 @@ export interface CustomAudienceGroup {
    */
   audienceNames?: Record<string, string>;
   /**
+   * Ids in this group that belong to another ad account, keyed by audience
+   * id, value `act_…`. Still listed on the custom tab. Launch targeting
+   * omits them.
+   */
+  foreignAccountById?: Record<string, string>;
+  /**
    * Meta ids added from the creator that are still filling. Meta takes
    * minutes to hours. Not polled — launch treats operation_status 441 as
    * available (lib/audiences/ca-availability-recovery.ts).
