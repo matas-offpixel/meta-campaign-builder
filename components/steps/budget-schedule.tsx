@@ -68,9 +68,11 @@ import {
   patchBudgetSchedule,
 } from "@/lib/wizard/budget-schedule-update";
 import {
-  derivedEventEnd,
+  phaseLocal,
   scheduleEndInputValue,
   scheduleEndNote,
+  schedulePhaseNote,
+  type EndDatePhase,
 } from "@/lib/wizard/event-end-date";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import { CalendarClock } from "lucide-react";
@@ -569,7 +571,7 @@ function LocationPicker({
           {(groups.some((g) => groupTier(g) === "primary") ||
             groups.some((g) => groupTier(g) === "secondary")) && (
             <StatusLine className="mt-2 text-[11px] text-muted-foreground">
-              Generate makes one ad set per audience per non-empty tier. Two audiences with Primary and Secondary is four ad sets. Untiered locations stay on All and Custom.
+              Generate makes one ad set per custom audience per non-empty tier; interest audiences take Primary only.
             </StatusLine>
           )}
           {groups.length > 1 &&
@@ -956,10 +958,30 @@ function ScheduleCard({
   const event =
     selectedEvent && eventId && selectedEvent.id === eventId ? selectedEvent : null;
   const eventDate = event?.event_date ?? null;
-  const eventEnd = derivedEventEnd(eventDate);
+  const timezone = bs.timezone || "Europe/London";
+  const phases = event
+    ? {
+        eventDate: event.event_date,
+        presaleAt: event.presale_at,
+        generalSaleAt: event.general_sale_at,
+      }
+    : null;
   const endValue = scheduleEndInputValue(bs.endDate, bs.endDateSource, eventDate);
-  const showUseEventDate = Boolean(eventEnd && endValue !== eventEnd);
   const noEventNote = scheduleEndNote(eventId);
+  const phaseNote = schedulePhaseNote({
+    eventId,
+    endDate: bs.endDate ?? "",
+    endDateSource: bs.endDateSource,
+    endDatePhase: bs.endDatePhase,
+  });
+  const choices: { phase: EndDatePhase; label: string; local: string | null }[] = phases
+    ? [
+        { phase: "presale", label: "Use presale", local: phaseLocal(phases, "presale", timezone) },
+        { phase: "general_sale", label: "Use general sale", local: phaseLocal(phases, "general_sale", timezone) },
+        { phase: "event", label: "Use event date", local: phaseLocal(phases, "event", timezone) },
+      ]
+    : [];
+  const showPhaseMenu = bs.endDateSource === "operator" && choices.some((choice) => choice.local);
 
   return (
     <Card>
@@ -969,7 +991,7 @@ function ScheduleCard({
           label="Start Date & Time"
           type="datetime-local"
           value={bs.startDate}
-          onChange={(e) => updateBs({ startDate: e.target.value })}
+          onChange={(e) => updateBs({ startDate: e.target.value, startDateSource: "operator" })}
         />
         <div>
           <Input
@@ -980,17 +1002,29 @@ function ScheduleCard({
           />
           {noEventNote ? (
             <Datum className="mt-1.5 text-[11px] text-muted-foreground">{noEventNote}</Datum>
+          ) : phaseNote ? (
+            <span data-testid="schedule-phase-note">
+              <Datum className="mt-1.5 text-[11px] text-muted-foreground">{phaseNote}</Datum>
+            </span>
           ) : null}
-          {showUseEventDate && eventEnd && eventDate ? (
-            <button
-              type="button"
-              onClick={() => updateBs({ endDate: eventEnd, endDateSource: "event" })}
-              className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
-              title="Set end date to the event date"
-            >
-              <CalendarClock className="h-3 w-3" />
-              Use event date ({eventDate.slice(0, 10)})
-            </button>
+          {showPhaseMenu ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              {choices.map((choice) => choice.local ? (
+                <button
+                  key={choice.phase}
+                  type="button"
+                  onClick={() => updateBs({
+                    endDate: choice.local ?? "",
+                    endDateSource: "event",
+                    endDatePhase: choice.phase,
+                  })}
+                  className="inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+                >
+                  <CalendarClock className="h-3 w-3" />
+                  {choice.label}
+                </button>
+              ) : null)}
+            </div>
           ) : null}
         </div>
       </div>

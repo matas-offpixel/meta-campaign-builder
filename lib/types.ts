@@ -883,6 +883,18 @@ export interface BudgetScheduleSettings {
    * saved before this field; `migrateDraft` fills it.
    */
   endDateSource?: "event" | "operator";
+  /**
+   * `"event"` is the quarter-hour start filled when an event is selected.
+   * `"operator"` is a typed start and is not replaced when the event
+   * changes. Absent on drafts saved before this field; `migrateDraft`
+   * fills it.
+   */
+  startDateSource?: "event" | "operator";
+  /**
+   * Which event phase an `"event"` end date follows. Set from the
+   * schedule menu. Absent means the next phase after now.
+   */
+  endDatePhase?: "presale" | "general_sale" | "event";
   timezone: string;
   /** @deprecated — use locationGroups instead */
   locationPresets?: LocationPreset[];

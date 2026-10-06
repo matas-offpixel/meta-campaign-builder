@@ -255,8 +255,9 @@ function withTierSuffix(name: string, adSet: AdSetSuggestion): string {
 }
 
 /**
- * Step 5 shows the source group's current name. An operator-typed name
- * stays. The stored `name` is not rewritten here — launch sends that.
+ * The name Step 5 shows and the name launch sends. An operator-typed
+ * name stays the stored name. Any other row uses the source group's
+ * current name. The stored `name` is not rewritten here.
  */
 export function adSetDisplayName(adSet: AdSetSuggestion, audiences: AudienceSettings): string {
   if (adSet.nameSource === "operator") return adSet.name;

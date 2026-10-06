@@ -1,10 +1,11 @@
 /**
  * lib/wizard/generate-adset-suggestions.ts
  *
- * Step 5 "Generate Suggestions": one ad set per audience source per
- * non-empty picker tier. Untiered locations are not swept into a tier —
- * they stay on All and Custom. When no location is tiered, each audience
- * still gets one ad set targeting every campaign location together.
+ * Step 5 "Generate Suggestions": one ad set per custom audience per
+ * non-empty picker tier. Interest audiences take Primary only. Untiered
+ * locations are not swept into a tier — they stay on All and Custom.
+ * When no location is tiered, each audience still gets one ad set
+ * targeting every campaign location together.
  * Per-city ad sets are an explicit Split by city on the row
  * (`splitAdSetByLocation`), never the default.
  */
@@ -197,7 +198,7 @@ export function generateSuggestions(
   const slices = configured ? generateSlices(unique) : [{ groups: unique }];
 
   const suggestions = baseSuggestions.flatMap((base) =>
-    slices.map((slice) =>
+    slicesFor(base.sourceType, slices, unique).map((slice) =>
       stampLocations(
         slice.tier
           ? {
@@ -228,5 +229,27 @@ function generateSlices(
     if (members.length) slices.push({ tier, groups: members });
   }
   return slices.length > 0 ? slices : [{ groups }];
+}
+
+/** Interest rows and blank rows do not get a Secondary slice. */
+function primaryOnlySource(sourceType: AdSetSuggestion["sourceType"]): boolean {
+  return sourceType === "interest_group" || sourceType === "blank";
+}
+
+/**
+ * Custom-audience rows take every non-empty tier. A primary-only row takes
+ * the Primary slice when one exists. If the only tagged tier is Secondary,
+ * it takes every configured location with no tier, never the Secondary slice.
+ */
+function slicesFor(
+  sourceType: AdSetSuggestion["sourceType"],
+  slices: { tier?: LocationTier; groups: LocationTargetingGroup[] }[],
+  allGroups: LocationTargetingGroup[],
+): { tier?: LocationTier; groups: LocationTargetingGroup[] }[] {
+  if (!primaryOnlySource(sourceType)) return slices;
+  const primary = slices.filter((slice) => slice.tier === "primary");
+  if (primary.length > 0) return primary;
+  if (slices.some((slice) => slice.tier === "secondary")) return [{ groups: allGroups }];
+  return slices;
 }
 

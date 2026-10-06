@@ -16,6 +16,8 @@ export type MetaImportEventOption = {
 export type MetaImportEventRow = MetaImportEventOption & {
   client_id: string;
   meta_ad_account_id: string | null;
+  presale_at?: string | null;
+  general_sale_at?: string | null;
 };
 
 export type MetaImportListedEvent = MetaImportEventOption & {
@@ -189,7 +191,7 @@ export async function loadMetaImportEvent(
 ): Promise<MetaImportEventRow | null> {
   const { data, error } = await supabase
     .from("events")
-    .select("id, name, event_date, event_code, client_id, meta_ad_account_id")
+    .select("id, name, event_date, event_code, client_id, meta_ad_account_id, presale_at, general_sale_at")
     .eq("id", args.eventId)
     .eq("user_id", args.userId)
     .maybeSingle();
@@ -201,5 +203,7 @@ export async function loadMetaImportEvent(
     event_date: data.event_date ?? null,
     client_id: data.client_id,
     meta_ad_account_id: data.meta_ad_account_id ?? null,
+    presale_at: data.presale_at ?? null,
+    general_sale_at: data.general_sale_at ?? null,
   };
 }

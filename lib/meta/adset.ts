@@ -28,6 +28,7 @@ import type {
 // not type-only, so `--experimental-strip-types` does not erase it — plain
 // Node ESM resolution needs a real resolvable specifier, unlike the
 // type-only "@/lib/types" imports above which vanish entirely at runtime.
+import { adSetDisplayName } from "../wizard/import-edits.ts";
 import { resolveEffectivePlacementConfig, buildPlacementConfigTargeting } from "./placement-config.ts";
 import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "./location-targeting.ts";
 import { META_INITIATE_CHECKOUT_EVENT } from "./campaign.ts";
@@ -916,7 +917,7 @@ export function buildAdSetPayload(
   const lifetimeAbo = !cbo && type === "lifetime";
 
   const payload: MetaAdSetPayload = {
-    name: adSet.name,
+    name: adSetDisplayName(adSet, audiences),
     campaign_id: campaignId,
     billing_event: mapBillingEvent(effectiveGoal),
     optimization_goal: mapOptimisationGoal(effectiveGoal),

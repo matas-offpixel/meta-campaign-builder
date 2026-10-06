@@ -191,6 +191,7 @@ describe("imported locations survive later edits", () => {
       endDateSource: duplicated.budgetSchedule.endDateSource,
       previousEventDate: null,
       nextEventDate: "2026-11-01",
+      now: new Date("2026-10-06T12:00:00.000Z"),
     });
     const next: CampaignDraft = {
       ...duplicated,

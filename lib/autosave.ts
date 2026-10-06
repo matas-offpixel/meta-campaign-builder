@@ -3,7 +3,7 @@ import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
 import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
 import { isGeneratedMetaCreativeName } from "./creative-name-from-filename.ts";
 import { readBlankCopy } from "./meta/creative.ts";
-import { migrateEndDateSource } from "./wizard/event-end-date.ts";
+import { migrateEndDateSource, migrateStartDateSource } from "./wizard/event-end-date.ts";
 import { repairImportedLocations } from "./wizard/imported-locations.ts";
 
 const STORAGE_KEY = "campaign_draft";
@@ -437,6 +437,17 @@ export function migrateDraft(
   ) {
     const source = migrateEndDateSource(draft.budgetSchedule.endDate ?? "", eventDate);
     if (source) draft.budgetSchedule.endDateSource = source;
+  }
+  if (
+    draft.budgetSchedule.startDateSource !== "event" &&
+    draft.budgetSchedule.startDateSource !== "operator"
+  ) {
+    const source = migrateStartDateSource(
+      draft.budgetSchedule.startDate ?? "",
+      draft.createdAt,
+      draft.budgetSchedule.timezone,
+    );
+    if (source) draft.budgetSchedule.startDateSource = source;
   }
 
   // Migrate old locationPresets → new locationGroups

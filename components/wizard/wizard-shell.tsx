@@ -685,11 +685,9 @@ function EventDefaultsApplier({ updateDraft }: DefaultsApplierProps) {
         }
       }
 
-      // Schedule defaults: start = today (yyyy-mm-ddT00:00 in local
-      // tz), end = event_date end-of-day. The Input is type
-      // datetime-local so the value must be a 16-char local string
-      // ("YYYY-MM-DDThh:mm"); UTC ISO breaks the picker.
-      if (next.budgetSchedule && !next.budgetSchedule.startDate) {
+      // No event yet: the old midnight start. With an event attached,
+      // EventEndDateSync fills start and end from the phases.
+      if (next.budgetSchedule && !next.budgetSchedule.startDate && !event) {
         next.budgetSchedule = patchBudgetSchedule(next.budgetSchedule, {
           startDate: formatLocalDateTime(new Date(), { hour: 0, minute: 0 }),
         });

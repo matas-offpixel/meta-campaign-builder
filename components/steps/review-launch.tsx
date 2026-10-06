@@ -1272,6 +1272,7 @@ export function ReviewLaunch({
               (row) => row.enabled && !adSetAudienceRemoved(row, draft.audiences),
             ).length,
             endDate: bs.endDate,
+            endDatePhase: bs.endDatePhase,
           })}
         </Datum>
       </span>

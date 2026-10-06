@@ -104,6 +104,8 @@ function pickerRowFromContext(event: EventWithClient): EventPickerRow {
     name: event.name,
     slug: event.slug,
     event_date: event.event_date,
+    presale_at: event.presale_at,
+    general_sale_at: event.general_sale_at,
     status: event.status,
     capacity: event.capacity,
     genres: event.genres ?? [],

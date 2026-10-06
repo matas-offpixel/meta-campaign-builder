@@ -211,9 +211,10 @@ describe("generate: one ad set per audience per non-empty tier", () => {
 
   it("the picker rule line is the place the operator learns the four-ad-set rule", () => {
     const src = readFileSync(new URL("../../../components/steps/budget-schedule.tsx", import.meta.url), "utf8");
-    assert.match(src, /Generate makes one ad set per audience per non-empty tier/);
-    assert.match(src, /Two audiences with Primary and Secondary is four ad sets/);
-    assert.match(src, /Untiered locations stay on All and Custom/);
+    assert.match(
+      src,
+      /Generate makes one ad set per custom audience per non-empty tier; interest audiences take Primary only\./,
+    );
   });
 
   it("an untiered location is in neither tier's ad sets and is present under All", () => {
