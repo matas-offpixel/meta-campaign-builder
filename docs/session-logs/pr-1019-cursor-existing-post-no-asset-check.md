@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1019
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1019
 - **Branch:** `cursor/existing-post-no-asset-check`
 
 ## Summary
