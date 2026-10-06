@@ -93,17 +93,17 @@ function storyText(value: string | undefined): string {
   return value?.trim() ?? "";
 }
 
-/** App-built creatives keep `sourceType: "new"` even when Meta also returns a story id. */
+/**
+ * App-built creatives keep `sourceType: "new"` even when Meta also returns a
+ * story id. Images and videos on `asset_feed_spec` are not that signal: a
+ * boosted post can carry placement ratios, and the existing-post mapper
+ * drops them instead of treating the post as an uploaded creative.
+ */
 function hasAppBuiltSpec(creative: ImportCreativeSource): boolean {
   const feed = creative.asset_feed_spec;
   if (
     feed &&
-    (feed.bodies ||
-      feed.titles ||
-      feed.descriptions ||
-      feed.link_urls ||
-      feed.images ||
-      feed.videos)
+    (feed.bodies || feed.titles || feed.descriptions || feed.link_urls)
   ) {
     return true;
   }

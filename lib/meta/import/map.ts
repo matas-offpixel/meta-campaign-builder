@@ -510,6 +510,17 @@ function existingPostDraft(
   if (!mediaKind) {
     drop(dropped, "media_kind", "not_recorded", { creativeId: creative.id });
   }
+  const feed = source.asset_feed_spec;
+  const feedImages = feed?.images ?? [];
+  const feedVideos = feed?.videos ?? [];
+  if (feedImages.length > 0 || feedVideos.length > 0) {
+    dropped.push({
+      field: "asset_feed_spec",
+      reason: "existing_post",
+      value: { images: feedImages, videos: feedVideos },
+      creativeId: creative.id,
+    });
+  }
   return {
     id: creative.id,
     name: str(creative.name) ?? creative.id,
@@ -520,7 +531,19 @@ function existingPostDraft(
     },
     mediaType,
     assetMode: "single",
-    assetVariations: [],
+    assetVariations: [
+      {
+        id: `var:${creative.id}`,
+        name: "Variation 1",
+        assets: [
+          {
+            id: `asset:${creative.id}`,
+            aspectRatio: "9:16",
+            uploadStatus: "pending",
+          },
+        ],
+      },
+    ],
     captions: [],
     headline: "",
     description: "",

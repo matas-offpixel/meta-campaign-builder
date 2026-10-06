@@ -119,6 +119,33 @@ describe("existing post destination", () => {
     );
   });
 
+  it("existing-post creative with stray assetVariations builds the same object_story_spec as one with none", async () => {
+    const facebook = {
+      source: "facebook" as const,
+      postId: "111_222",
+      mediaKind: "video" as const,
+    };
+    const bare = await buildCreativePayload(existing({
+      existingPost: facebook,
+      assetVariations: [],
+    }));
+    const stray = await buildCreativePayload(existing({
+      existingPost: facebook,
+      assetMode: "dual",
+      assetVariations: [{
+        id: "var-imported",
+        name: "Imported",
+        assets: [
+          { id: "a45", aspectRatio: "4:5", assetHash: "feedhash", uploadStatus: "uploaded" },
+          { id: "a916", aspectRatio: "9:16", videoId: "storyvid", uploadStatus: "uploaded" },
+        ],
+      }],
+    }));
+    assert.deepEqual(stray, bare);
+    assert.equal(stray.object_story_id, "111_222");
+    assert.equal(stray.object_story_spec, undefined);
+  });
+
   it("set every URL updates an existing-post creative", () => {
     const next = setEveryCreativeDestinationUrl([existing()], `  ${URL} `);
     assert.equal(next[0]?.destinationUrl, URL);

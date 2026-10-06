@@ -173,6 +173,38 @@ describe("boosted post import", () => {
     assert.equal(draft.importMeta?.notCarried[0]?.reason, "post_unreachable");
   });
 
+  it("Importer fixture with an existing-post creative carrying asset_feed_spec → assetMode \"single\", dropped[] row field \"asset_feed_spec\" reason \"existing_post\"", () => {
+    const draft = mapMetaLiveCampaign({
+      bundle: bundle({
+        name: "Feed Post 1",
+        effective_object_story_id: "111_222",
+        video_id: "vid",
+        instagram_permalink_url: "https://www.instagram.com/reel/EXAMPLE/",
+        asset_feed_spec: {
+          images: [
+            { hash: "feedhash", adlabels: [{ name: "feed_asset" }] },
+            { hash: "storyhash", adlabels: [{ name: "story_asset" }] },
+          ],
+        },
+      }),
+      adAccountId: "act_1",
+      carry: ["c1"],
+      availability: [],
+    });
+    const creative = draft.creatives[0]!;
+    assert.equal(creative.sourceType, "existing_post");
+    assert.equal(creative.assetMode, "single");
+    assert.deepEqual(
+      creative.assetVariations[0]?.assets.map((asset) => asset.aspectRatio),
+      ["9:16"],
+    );
+    assert.equal(creative.assetVariations[0]?.assets[0]?.assetHash, undefined);
+    assert.equal(creative.assetVariations[0]?.assets[0]?.videoId, undefined);
+    const row = draft.importMeta?.dropped.find((entry) => entry.field === "asset_feed_spec");
+    assert.equal(row?.reason, "existing_post");
+    assert.equal(row?.creativeId, "c1");
+  });
+
   it("keeps an asset_feed_spec creative as a new ad", () => {
     const draft = mapMetaLiveCampaign({
       bundle: bundle({
