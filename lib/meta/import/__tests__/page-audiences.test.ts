@@ -203,7 +203,7 @@ describe("DHB audiences stay as the ad set targeted them", () => {
     assert.ok(locations[0]);
     const generated = generateSuggestions(draft.audiences, 500, locations, locations[0]);
     assert.equal(generated.some((row) => row.sourceType === "page_group"), false);
-    const merged = mergeGeneratedWithImported(draft.adSetSuggestions, generated);
+    const merged = mergeGeneratedWithImported(draft.adSetSuggestions, generated, draft.audiences).suggestions;
     assert.equal(
       merged.filter((row) => row.importedFromAdSetId).length,
       bundle.adSets.length,

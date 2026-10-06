@@ -18,6 +18,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { NextRequest, NextResponse } from "next/server";
+import { adSetAudienceRemoved } from "@/lib/wizard/import-edits";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -780,7 +781,9 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const enabledSets = draft.adSetSuggestions.filter((s) => s.enabled);
+  const launchable = (s: (typeof draft.adSetSuggestions)[number]) =>
+    s.enabled && !adSetAudienceRemoved(s, draft.audiences);
+  const enabledSets = draft.adSetSuggestions.filter(launchable);
 
   console.log("[launch-campaign] ▶ Starting launch", {
     draftId: draft.id,
@@ -1498,7 +1501,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   // before any mutate, so a request that skips the client gate does not
   // reach Meta. validateStep still blocks the wizard; this is the same check.
   const locationProblems = findAdSetLocationProblems(
-    (draft.adSetSuggestions ?? []).filter((s) => s.enabled),
+    (draft.adSetSuggestions ?? []).filter(launchable),
     draft.budgetSchedule,
   );
   if (locationProblems.length > 0) {
@@ -2436,7 +2439,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   const pageGroupTypedSeeds = new Map<string, TypedSeed[]>();
 
   const enabledPageGroupSets = draft.adSetSuggestions.filter(
-    (s) => s.enabled && s.sourceType === "page_group",
+    (s) => launchable(s) && s.sourceType === "page_group",
   );
   const processedGroups = new Set<string>();
 
@@ -2661,7 +2664,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   const splalGroups = draft.audiences.selectedPagesLookalikeGroups ?? [];
   const enabledSplalGroupIds = new Set(
     draft.adSetSuggestions
-      .filter((s) => s.enabled && s.sourceType === "selected_pages_lookalike")
+      .filter((s) => launchable(s) && s.sourceType === "selected_pages_lookalike")
       .map((s) => s.sourceId),
   );
 

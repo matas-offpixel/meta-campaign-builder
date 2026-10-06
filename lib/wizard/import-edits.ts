@@ -9,9 +9,12 @@ import { geoHasNoIncludedArea, resolveAdSetGeoLocations } from "../meta/location
 import type {
   AdCreativeDraft,
   AdSetSuggestion,
+  AudienceSettings,
   CampaignDraft,
   CampaignObjective,
+  LookalikeRange,
 } from "../types.ts";
+import { isCustomAudienceUnavailableSubtitle } from "./account-switch.ts";
 
 export const IMPORTED_AD_SET_BADGE = "imported";
 
@@ -64,26 +67,101 @@ function audienceKey(adSet: AdSetSuggestion): string {
   return `${adSet.sourceType}:${adSet.sourceId}`;
 }
 
+export const AUDIENCE_REMOVED_SUBTITLE = "audience removed";
+
+function rangeStillSelected(
+  ranges: readonly LookalikeRange[] | undefined,
+  range: LookalikeRange | undefined,
+): boolean {
+  if (!range) return true;
+  return (ranges ?? []).includes(range);
+}
+
 /**
- * "Generate" replaces the suggestion list. On an imported draft that list
- * holds the live campaign's ad sets, whose audience groups are also in
- * `draft.audiences` — so generation would both drop them and re-create
- * them as tiered, renamed copies. Imported rows stay exactly as they are;
- * generated rows join them only for audiences no imported row already
- * targets.
+ * The same group lookup `buildMetaTargeting` uses. A blank row has no
+ * audience. A lookalike row also requires its percentage range, when the
+ * row records one, to still be selected on that group.
+ */
+export function adSetSourceExists(
+  adSet: AdSetSuggestion,
+  audiences: AudienceSettings,
+): boolean {
+  switch (adSet.sourceType) {
+    case "blank":
+      return true;
+    case "page_group":
+      return audiences.pageGroups.some((group) => group.id === adSet.sourceId);
+    case "lookalike_group": {
+      const group = audiences.pageGroups.find((row) => row.id === adSet.sourceId);
+      return Boolean(group) && rangeStillSelected(group?.lookalikeRanges, adSet.lookalikeRange);
+    }
+    case "custom_group":
+      return audiences.customAudienceGroups.some((group) => group.id === adSet.sourceId);
+    case "custom_group_lookalike": {
+      const group = audiences.customAudienceGroups.find((row) => row.id === adSet.sourceId);
+      return Boolean(group) && rangeStillSelected(group?.lookalikeRanges, adSet.lookalikeRange);
+    }
+    case "interest_group":
+      return audiences.interestGroups.some((group) => group.id === adSet.sourceId);
+    case "saved_audience":
+      return audiences.savedAudiences.audienceIds.includes(adSet.sourceId);
+    case "selected_pages_lookalike": {
+      const group = (audiences.selectedPagesLookalikeGroups ?? []).find((row) => row.id === adSet.sourceId);
+      return Boolean(group) && rangeStillSelected(group?.lookalikeRanges, adSet.lookalikeRange);
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * The row's audience is gone, or account switch disabled it because the
+ * custom audience cannot move. Both render the same subtitle and are not sent.
+ */
+export function adSetAudienceRemoved(
+  adSet: AdSetSuggestion,
+  audiences: AudienceSettings,
+): boolean {
+  if (adSet.sourceType === "blank") return false;
+  if (!adSetSourceExists(adSet, audiences)) return true;
+  return isCustomAudienceUnavailableSubtitle(adSet.sourceName);
+}
+
+export function adSetsSkippedForMissingAudience(
+  adSets: readonly AdSetSuggestion[],
+  audiences: AudienceSettings,
+): AdSetSuggestion[] {
+  return adSets.filter((adSet) => adSetAudienceRemoved(adSet, audiences));
+}
+
+export function skippedAudienceReviewLine(count: number): string {
+  const noun = count === 1 ? "ad set" : "ad sets";
+  return `${count} ${noun} skipped — audience no longer on draft`;
+}
+
+export function generateRemovedNotice(count: number): string {
+  const noun = count === 1 ? "ad set" : "ad sets";
+  return `Generate removed ${count} ${noun} whose audiences are no longer on this draft.`;
+}
+
+/**
+ * Generate makes the suggestion list match the audiences on the draft.
+ * A row whose source group is gone is dropped, imported or not. A row whose
+ * group is still there is kept as it is. A group with no row gets one
+ * generated row. Blank rows stay.
  */
 export function mergeGeneratedWithImported(
   existing: readonly AdSetSuggestion[],
   generated: readonly AdSetSuggestion[],
-): AdSetSuggestion[] {
-  const imported = existing.filter(isImportedAdSet);
-  if (imported.length === 0) return [...generated];
-  const covered = new Set(imported.filter((s) => s.sourceId).map(audienceKey));
-  const taken = new Set(imported.map((s) => s.id));
+  audiences: AudienceSettings,
+): { suggestions: AdSetSuggestion[]; removed: number } {
+  const kept = existing.filter((adSet) => adSetSourceExists(adSet, audiences));
+  const covered = new Set(kept.filter((adSet) => adSet.sourceId).map(audienceKey));
+  const taken = new Set(kept.map((adSet) => adSet.id));
   const added = generated.filter(
-    (s) => !(s.sourceId && covered.has(audienceKey(s))) && !taken.has(s.id),
+    (adSet) => !(adSet.sourceId && covered.has(audienceKey(adSet))) && !taken.has(adSet.id),
   );
-  return [...imported, ...added];
+  return { suggestions: [...kept, ...added], removed: existing.length - kept.length };
 }
 
 /**

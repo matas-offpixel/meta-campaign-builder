@@ -97,6 +97,11 @@ export function customAudienceUnavailableSubtitle(
   return `Custom audience from ${actLabel(sourceAccountId)} — not available on ${nextAccountName}`;
 }
 
+/** The subtitle `commitAccountSwitch` stamps on a row it disables. */
+export function isCustomAudienceUnavailableSubtitle(sourceName: string): boolean {
+  return /^Custom audience from .+ — not available on .+$/.test(sourceName);
+}
+
 type ImportedCaRef = { id: string; name: string; groupId: string };
 
 type ImportedRowPlan = {
