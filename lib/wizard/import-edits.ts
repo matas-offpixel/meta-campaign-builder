@@ -86,26 +86,12 @@ export function mergeGeneratedWithImported(
   return [...imported, ...added];
 }
 
-function bareAccount(id: string | undefined): string {
-  return (id ?? "").trim().replace(/^act_/i, "");
-}
-
 /**
- * Custom audiences on an imported draft were read from ad sets on the
- * source account. Another account may not be able to target them.
- * The account change is blocked; the import itself does not drop an
- * audience a live ad set is already targeting.
+ * Changing the ad account never blocks. Imported custom audiences are
+ * converted in `commitAccountSwitch`; this stays so older callers compile.
  */
-export function importedAccountProblem(draft: CampaignDraft): string | null {
-  const source = draft.importMeta?.sourceAdAccountId;
-  if (!source) return null;
-  const current = draft.settings.metaAdAccountId || draft.settings.adAccountId;
-  if (!current || bareAccount(current) === bareAccount(source)) return null;
-  const carried = draft.adSetSuggestions.some(
-    (s) => isImportedAdSet(s) && s.sourceType === "custom_group",
-  );
-  if (!carried) return null;
-  return `Custom audiences were read from ad sets on ${source}. This draft now uses ${current}. Switch back to ${source}, or re-import from ${current}.`;
+export function importedAccountProblem(_draft: CampaignDraft): string | null {
+  return null;
 }
 
 const PIXEL_PROBE = "pixel";

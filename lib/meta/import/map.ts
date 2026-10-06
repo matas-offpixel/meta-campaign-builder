@@ -68,7 +68,7 @@ export type MapMetaLiveCampaignInput = {
   /**
    * Ignored. An audience a live ad set on this account is targeting is
    * carried with the name the read returned. Changing the ad account
-   * after import is blocked separately (`importedAccountProblem`).
+   * afterwards drops those custom-audience ids; it does not block.
    */
   availability: readonly MetaAudienceAvailability[];
   appUsageCallCount?: number | null;

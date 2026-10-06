@@ -197,7 +197,9 @@ export function AccountSetup({
 
   function applyAccount(id: string) {
     if (draft && onApplyDraft) {
-      onApplyDraft((current) => commitAccountSwitch(current, id, "confirm"));
+      onApplyDraft((current) =>
+        commitAccountSwitch(current, id, "confirm", { nextAccountName: accountLabel(id) }),
+      );
       return;
     }
     update({

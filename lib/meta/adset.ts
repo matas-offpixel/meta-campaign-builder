@@ -278,6 +278,14 @@ function isRealMetaId(id: string): boolean {
   return /^\d{10,}$/.test(id);
 }
 
+/** Real Meta ids, minus ones marked as belonging to another ad account. */
+function audienceIdsForLaunch(
+  ids: readonly string[],
+  foreign?: Record<string, string>,
+): string[] {
+  return ids.filter((id) => isRealMetaId(id) && !foreign?.[id]);
+}
+
 /**
  * Convert a date string to a Unix timestamp (seconds, UTC).
  *
@@ -438,7 +446,7 @@ export function buildMetaTargeting(
     case "custom_group": {
       const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
       if (group) {
-        const realIds = group.audienceIds.filter(isRealMetaId);
+        const realIds = audienceIdsForLaunch(group.audienceIds, group.foreignAccountById);
         if (realIds.length > 0) {
           targeting.custom_audiences = realIds.map((id) => ({ id }));
         }
@@ -522,14 +530,15 @@ export function buildMetaTargeting(
       const group = audiences.customAudienceGroups.find((g) => g.id === adSet.sourceId);
       if (group) {
         const rangeKey = adSet.lookalikeRange ?? "";
-        const lalIds = (group.lookalikeAudienceIdsByRange?.[rangeKey] ?? []).filter(isRealMetaId);
+        const rawIds = group.lookalikeAudienceIdsByRange?.[rangeKey] ?? [];
+        const lalIds = audienceIdsForLaunch(rawIds, group.foreignAccountById);
         if (lalIds.length > 0) {
           targeting.custom_audiences = lalIds.map((id) => ({ id }));
           console.log(
             `[buildMetaTargeting] custom_group_lookalike "${group.name}" (${rangeKey}): ` +
             `custom_audiences → ${lalIds.join(", ")}`,
           );
-        } else {
+        } else if (rawIds.filter(isRealMetaId).length === 0) {
           throw new Error(
             `Cannot build targeting for custom_group_lookalike "${group.name}" (${rangeKey}): ` +
             `no lookalike audience IDs available — creation likely failed or timed out`,
