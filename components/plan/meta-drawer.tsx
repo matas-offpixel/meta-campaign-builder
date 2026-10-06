@@ -175,12 +175,10 @@ export function MetaDrawer({
   const appliedDefaults = useRef(false);
   useEffect(() => {
     if (!hydrated || !channelDefaults || appliedDefaults.current) return;
-    const next = fillMetaChannelDefaultsIfEmpty(draft, channelDefaults);
     appliedDefaults.current = true;
-    if (!next) return;
-    setDraft(next);
-    autosave(next);
-  }, [hydrated, channelDefaults, draft, setDraft, autosave]);
+    if (!fillMetaChannelDefaultsIfEmpty(draft, channelDefaults)) return;
+    updateDraft((current) => fillMetaChannelDefaultsIfEmpty(current, channelDefaults) ?? current);
+  }, [hydrated, channelDefaults, draft, updateDraft]);
 
   const audienceCount = useMemo(() => {
     const a = draft.audiences;

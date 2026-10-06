@@ -1,3 +1,6 @@
+import type { CampaignDraft } from "../types.ts";
+import { patchBudgetSchedule } from "./budget-schedule-update.ts";
+
 /**
  * End date derived from the attached event. The stored value stays the
  * datetime-local string the Schedule input already uses.
@@ -49,6 +52,35 @@ export function applyEventEndDate(input: {
     return { endDate, endDateSource: "operator" };
   }
   return { endDate, endDateSource: source };
+}
+
+/**
+ * Write the event end onto the draft that is current at flush time.
+ * Other schedule fields, including location groups, stay as they are.
+ */
+export function applyEventEndToDraft(
+  draft: CampaignDraft,
+  input: { previousEventDate: string | null; nextEventDate: string | null },
+): CampaignDraft {
+  const again = applyEventEndDate({
+    endDate: draft.budgetSchedule.endDate ?? "",
+    endDateSource: draft.budgetSchedule.endDateSource,
+    previousEventDate: input.previousEventDate,
+    nextEventDate: input.nextEventDate,
+  });
+  if (
+    again.endDate === (draft.budgetSchedule.endDate ?? "") &&
+    again.endDateSource === draft.budgetSchedule.endDateSource
+  ) {
+    return draft;
+  }
+  return {
+    ...draft,
+    budgetSchedule: patchBudgetSchedule(draft.budgetSchedule, {
+      endDate: again.endDate,
+      ...(again.endDateSource ? { endDateSource: again.endDateSource } : {}),
+    }),
+  };
 }
 
 /** Existing non-empty dates are operator-typed, unless they are the event end. */
