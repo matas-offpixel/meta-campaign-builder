@@ -65,6 +65,9 @@ supabase/.temp/
 # local run state, never shared across machines/operators.
 scripts/.repair-video-thumbnails-checkpoint.json
 
+# Raw Graph caches from analysis scripts (scripts/interest-performance.mts).
+scripts/out/
+
 # Personal accounting — must never be committed
 vat_q*_2026_receipts/
 vat_q*_2027_receipts/
