@@ -3,6 +3,7 @@ import { ATTACHED_AD_SET_ID, attachedAdSetKey } from "./types.ts";
 import { inferRulesObjectiveFromRules } from "./optimisation-rules.ts";
 import { isGeneratedMetaCreativeName } from "./creative-name-from-filename.ts";
 import { readBlankCopy } from "./meta/creative.ts";
+import { migrateEndDateSource } from "./wizard/event-end-date.ts";
 
 const STORAGE_KEY = "campaign_draft";
 
@@ -290,7 +291,10 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
  * Migrate a full draft to ensure all top-level and nested fields exist.
  * Exported so the Supabase persistence layer can reuse it when loading remote drafts.
  */
-export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
+export function migrateDraft(
+  raw: Record<string, unknown>,
+  eventDate?: string | null,
+): CampaignDraft {
   const draft = raw as unknown as CampaignDraft;
 
   // ── Reconcile the two ad account ID fields ─────────────────────────────────
@@ -425,6 +429,14 @@ export function migrateDraft(raw: Record<string, unknown>): CampaignDraft {
     endDate: "",
     timezone: "Europe/London",
   };
+  if (
+    eventDate !== undefined &&
+    draft.budgetSchedule.endDateSource !== "event" &&
+    draft.budgetSchedule.endDateSource !== "operator"
+  ) {
+    const source = migrateEndDateSource(draft.budgetSchedule.endDate ?? "", eventDate);
+    if (source) draft.budgetSchedule.endDateSource = source;
+  }
 
   // Migrate old locationPresets → new locationGroups
   if (draft.budgetSchedule.locationPresets?.length && !draft.budgetSchedule.locationGroups?.length) {

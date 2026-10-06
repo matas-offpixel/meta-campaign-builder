@@ -65,6 +65,7 @@ export function saveTemplate(
         ...snapshot.budgetSchedule,
         startDate: "",
         endDate: "",
+        endDateSource: undefined,
       },
     },
     createdAt: new Date().toISOString(),

@@ -141,8 +141,11 @@ export function CampaignSetup({
     if (eventContext.event && !byId.has(eventContext.event.id)) {
       byId.set(eventContext.event.id, pickerRowFromContext(eventContext.event));
     }
+    if (eventContext.selectedEvent && !byId.has(eventContext.selectedEvent.id)) {
+      byId.set(eventContext.selectedEvent.id, eventContext.selectedEvent);
+    }
     return [...byId.values()];
-  }, [fetchedEvents, eventContext.event]);
+  }, [fetchedEvents, eventContext.event, eventContext.selectedEvent]);
   const pickerEvents = useMemo(
     () => events.map(toPlanEventOption),
     [events],
@@ -163,7 +166,12 @@ export function CampaignSetup({
       })),
     [pickerEvents, settings.eventId],
   );
-  const selectedEvent = events.find((row) => row.id === settings.eventId) ?? null;
+  const selectedEvent =
+    (eventContext.selectedEvent && eventContext.selectedEvent.id === settings.eventId
+      ? eventContext.selectedEvent
+      : null) ??
+    events.find((row) => row.id === settings.eventId) ??
+    null;
   const codeMismatch = describeCodeEventMismatch({
     campaignCode: settings.campaignCode,
     campaignName: settings.campaignName,

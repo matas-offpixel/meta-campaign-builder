@@ -871,6 +871,12 @@ export interface BudgetScheduleSettings {
   currency: string;
   startDate: string;
   endDate: string;
+  /**
+   * `"event"` follows the attached event's end. `"operator"` is a typed
+   * date and is not replaced when the event changes. Absent on drafts
+   * saved before this field; `migrateDraft` fills it.
+   */
+  endDateSource?: "event" | "operator";
   timezone: string;
   /** @deprecated — use locationGroups instead */
   locationPresets?: LocationPreset[];
