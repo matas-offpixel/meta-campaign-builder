@@ -187,6 +187,14 @@ export function useCampaignDraft(draftId: string) {
     [updateDraft],
   );
 
+  const markGenerateReplaceImportedConfirmed = useCallback(
+    () =>
+      updateDraft((d) =>
+        d.generateReplaceImportedConfirmed ? d : { ...d, generateReplaceImportedConfirmed: true },
+      ),
+    [updateDraft],
+  );
+
   const updateOptimisationStrategy = useCallback(
     (optimisationStrategy: OptimisationStrategySettings) =>
       updateDraft((d) => ({ ...d, optimisationStrategy })),
@@ -218,6 +226,7 @@ export function useCampaignDraft(draftId: string) {
     handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
+    markGenerateReplaceImportedConfirmed,
     updateOptimisationStrategy,
     updateCreativeAssignments,
   };

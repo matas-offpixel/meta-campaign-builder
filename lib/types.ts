@@ -934,6 +934,13 @@ export interface AdSetSuggestion {
     | "blank";
   sourceId: string;
   sourceName: string;
+  /**
+   * Who last set `name`. Absent or `"generated"` means Step 5 shows the
+   * source group's current name. `"operator"` means the operator typed
+   * the name, and that string is what the row shows. The stored `name`
+   * is always the launch name; a group rename does not write it.
+   */
+  nameSource?: "generated" | "operator";
   ageMin: number;
   ageMax: number;
   budgetPerDay: number;
@@ -1763,6 +1770,12 @@ export interface CampaignDraft {
    * drafts built in the wizard. Shape lives in `lib/meta/import/types`.
    */
   importMeta?: import("./meta/import/types").MetaImportMeta;
+  /**
+   * The operator has already confirmed that Generate replaces imported
+   * ad sets on this draft. The confirm shows once; after that, Undo is
+   * the only way back to the previous list.
+   */
+  generateReplaceImportedConfirmed?: boolean;
   /** Set after a successful POST to Meta — the live campaign ID (e.g. "23849562890000") */
   metaCampaignId?: string;
   /** Populated after launch — records what was created and what failed */
