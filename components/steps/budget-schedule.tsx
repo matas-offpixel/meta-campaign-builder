@@ -69,6 +69,7 @@ import {
 } from "@/lib/wizard/budget-schedule-update";
 import {
   phaseLocal,
+  presaleTooSoon,
   scheduleEndInputValue,
   scheduleEndNote,
   schedulePhaseNote,
@@ -973,6 +974,12 @@ function ScheduleCard({
     endDate: bs.endDate ?? "",
     endDateSource: bs.endDateSource,
     endDatePhase: bs.endDatePhase,
+    presaleTooSoon: presaleTooSoon({
+      endDate: bs.endDate ?? "",
+      endDateSource: bs.endDateSource,
+      event: phases,
+      timezone,
+    }),
   });
   const choices: { phase: EndDatePhase; label: string; local: string | null }[] = phases
     ? [
@@ -981,7 +988,7 @@ function ScheduleCard({
         { phase: "event", label: "Use event date", local: phaseLocal(phases, "event", timezone) },
       ]
     : [];
-  const showPhaseMenu = bs.endDateSource === "operator" && choices.some((choice) => choice.local);
+  const showPhaseMenu = Boolean(event) && choices.some((choice) => choice.local);
 
   return (
     <Card>

@@ -1,4 +1,5 @@
 import type { CampaignDraft } from "../types.ts";
+import { zoneParts, zonedLocalToUtc } from "../time.ts";
 import { patchBudgetSchedule } from "./budget-schedule-update.ts";
 
 /**
@@ -18,6 +19,7 @@ export interface EventPhaseFields {
 
 export const NO_EVENT_END_NOTE = "No event attached — set one on the Campaign step";
 export const EVENT_DATE_PASSED_NOTE = "Event date has passed — set an end date";
+export const PRESALE_TOO_SOON_NOTE = "Presale is less than 15 minutes away — set the end date";
 export const DEFAULT_SCHEDULE_TIMEZONE = "Europe/London";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -28,65 +30,14 @@ export function derivedEventEnd(eventDate: string | null | undefined): string | 
   return `${day}T23:59`;
 }
 
-function zoneParts(instant: Date, timezone: string): {
-  year: string;
-  month: string;
-  day: string;
-  hour: string;
-  minute: string;
-  second: string;
-} {
-  const fmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const parts = Object.fromEntries(fmt.formatToParts(instant).map((part) => [part.type, part.value]));
-  return {
-    year: parts.year ?? "0000",
-    month: parts.month ?? "01",
-    day: parts.day ?? "01",
-    hour: parts.hour === "24" ? "00" : (parts.hour ?? "00"),
-    minute: parts.minute ?? "00",
-    second: parts.second ?? "00",
-  };
-}
-
 function formatInZone(instant: Date, timezone: string): string {
   const parts = zoneParts(instant, timezone);
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
-/** Local datetime-local string → the UTC instant that clock shows in `timezone`. */
-function zonedLocalToUtc(local: string, timezone: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const want = Date.UTC(year, month - 1, day, hour, minute);
-  let utc = want;
-  for (let pass = 0; pass < 2; pass++) {
-    const seen = zoneParts(new Date(utc), timezone);
-    const seenUtc = Date.UTC(
-      Number(seen.year),
-      Number(seen.month) - 1,
-      Number(seen.day),
-      Number(seen.hour),
-      Number(seen.minute),
-    );
-    const delta = want - seenUtc;
-    if (delta === 0) return new Date(utc);
-    utc += delta;
-  }
-  return new Date(utc);
+function localIsAfterNow(local: string, now: Date, timezone: string): boolean {
+  const instant = zonedLocalToUtc(local.slice(0, 16), timezone);
+  return Boolean(instant && instant.getTime() > now.getTime());
 }
 
 function pad(value: number): string {
@@ -199,14 +150,18 @@ function resolveEnd(input: {
   const now = input.now ?? new Date();
   if (input.endDateSource === "event" && input.endDatePhase) {
     const pinned = phaseLocal(event, input.endDatePhase, timezone);
-    if (pinned) return { endDate: pinned, phase: input.endDatePhase };
+    if (pinned && localIsAfterNow(pinned, now, timezone)) {
+      return { endDate: pinned, phase: input.endDatePhase };
+    }
   }
   return nextCampaignPhaseEnd(event, now, timezone);
 }
 
 /**
  * Empty, or still the previous event's derived end → take the new event.
- * An operator-typed value is left alone. Source `"event"` follows the event.
+ * An operator-typed value is left alone. An `"event"` end is re-derived
+ * only when the event changes or the end is empty. A phase whose date is
+ * already past falls through to the next future phase.
  * `endDatePhase: null` means the event's phases are all in the past.
  */
 export function applyEventEndDate(input: {
@@ -219,6 +174,8 @@ export function applyEventEndDate(input: {
   nextGeneralSaleAt?: string | null;
   now?: Date;
   timezone?: string;
+  /** The attached event's id changed. A date-only difference counts too. */
+  eventChanged?: boolean;
 }): { endDate: string; endDateSource?: EndDateSource; endDatePhase?: EndDatePhase | null } {
   const endDate = input.endDate ?? "";
   const source = input.endDateSource;
@@ -226,8 +183,15 @@ export function applyEventEndDate(input: {
 
   const event = eventFields(input);
   const hasEvent = hasScheduleEvent(event);
-  const next = hasEvent ? resolveEnd(input) : { endDate: "", phase: null as EndDatePhase | null };
-  const nextEnd = next.endDate || null;
+  const timezone = input.timezone || DEFAULT_SCHEDULE_TIMEZONE;
+  const now = input.now ?? new Date();
+  const eventChanged =
+    input.eventChanged === true ||
+    (input.previousEventDate != null && input.previousEventDate !== input.nextEventDate);
+  const upcoming = hasEvent
+    ? nextCampaignPhaseEnd(event, now, timezone)
+    : { endDate: "", phase: null as EndDatePhase | null };
+  const nextEnd = upcoming.endDate || null;
   const prevEnd = derivedEventEnd(input.previousEventDate);
 
   if (!hasEvent) {
@@ -237,20 +201,48 @@ export function applyEventEndDate(input: {
   }
 
   if (!endDate.trim()) {
-    if (nextEnd) return { endDate: nextEnd, endDateSource: "event", endDatePhase: next.phase };
+    if (nextEnd) return { endDate: nextEnd, endDateSource: "event", endDatePhase: upcoming.phase };
     return { endDate: "", endDateSource: "event", endDatePhase: null };
   }
+  if (source === "event" && !eventChanged) {
+    return keepOrAdvancePinnedEnd(input, event, endDate, now, timezone);
+  }
   if (source === "event") {
-    return { endDate: nextEnd ?? "", endDateSource: "event", endDatePhase: next.phase };
+    const next = resolveEnd(input);
+    return { endDate: next.endDate, endDateSource: "event", endDatePhase: next.phase };
   }
   if (prevEnd && endDate === prevEnd && nextEnd && endDate !== nextEnd) {
-    return { endDate: nextEnd, endDateSource: "event", endDatePhase: next.phase };
+    return { endDate: nextEnd, endDateSource: "event", endDatePhase: upcoming.phase };
   }
   if (nextEnd && endDate === nextEnd) {
-    return { endDate, endDateSource: "event", endDatePhase: next.phase };
+    return { endDate, endDateSource: "event", endDatePhase: upcoming.phase };
   }
   if (endDate) return { endDate, endDateSource: "operator" };
   return { endDate, endDateSource: source };
+}
+
+/**
+ * Load of an event-sourced end. No phase means the end was pinned to the
+ * event day. A pin that is still in the future stays. A pin that has
+ * passed takes the next future phase, or an empty end when none remain.
+ */
+function keepOrAdvancePinnedEnd(
+  input: { endDatePhase?: EndDatePhase | null },
+  event: EventPhaseFields,
+  endDate: string,
+  now: Date,
+  timezone: string,
+): { endDate: string; endDateSource: EndDateSource; endDatePhase: EndDatePhase | null } {
+  if (input.endDatePhase) {
+    const pinned = phaseLocal(event, input.endDatePhase, timezone);
+    if (pinned && localIsAfterNow(pinned, now, timezone)) {
+      return { endDate, endDateSource: "event", endDatePhase: input.endDatePhase };
+    }
+  } else if (localIsAfterNow(endDate, now, timezone)) {
+    return { endDate, endDateSource: "event", endDatePhase: "event" };
+  }
+  const upcoming = nextCampaignPhaseEnd(event, now, timezone);
+  return { endDate: upcoming.endDate, endDateSource: "event", endDatePhase: upcoming.phase };
 }
 
 /**
@@ -267,10 +259,12 @@ export function applyEventEndToDraft(
     nextGeneralSaleAt?: string | null;
     now?: Date;
     refreshStart?: boolean;
+    eventChanged?: boolean;
   },
 ): CampaignDraft {
   const timezone = draft.budgetSchedule.timezone || DEFAULT_SCHEDULE_TIMEZONE;
-  const again = applyEventEndDate({
+  const now = input.now ?? new Date();
+  let again = applyEventEndDate({
     endDate: draft.budgetSchedule.endDate ?? "",
     endDateSource: draft.budgetSchedule.endDateSource,
     endDatePhase: draft.budgetSchedule.endDatePhase,
@@ -278,9 +272,17 @@ export function applyEventEndToDraft(
     nextEventDate: input.nextEventDate,
     nextPresaleAt: input.nextPresaleAt,
     nextGeneralSaleAt: input.nextGeneralSaleAt,
-    now: input.now,
+    now,
     timezone,
+    eventChanged: input.eventChanged,
   });
+  if (
+    again.endDateSource === "event" &&
+    again.endDate &&
+    derivedStart(now, timezone) >= again.endDate
+  ) {
+    again = { endDate: "", endDateSource: "event", endDatePhase: null };
+  }
 
   let startDate = draft.budgetSchedule.startDate ?? "";
   let startDateSource = draft.budgetSchedule.startDateSource;
@@ -309,6 +311,44 @@ export function applyEventEndToDraft(
       ...(startSourceChanges && startDateSource ? { startDateSource } : {}),
     }),
   };
+}
+
+/**
+ * An import's start and end came from the live campaign. A non-empty
+ * value is operator-owned and stays. Only an empty end takes the phase rule.
+ * Start is never rewritten from the event.
+ */
+export function applyImportedCampaignSchedule(
+  draft: CampaignDraft,
+  event: {
+    event_date?: string | null;
+    presale_at?: string | null;
+    general_sale_at?: string | null;
+  } | null,
+  now = new Date(),
+): CampaignDraft {
+  const hasPhase = Boolean(
+    event?.event_date?.trim() || event?.presale_at?.trim() || event?.general_sale_at?.trim(),
+  );
+  const importedEnd = (draft.budgetSchedule.endDate ?? "").trim();
+  const importedStart = (draft.budgetSchedule.startDate ?? "").trim();
+  const marked: CampaignDraft = {
+    ...draft,
+    budgetSchedule: {
+      ...draft.budgetSchedule,
+      ...(importedStart ? { startDateSource: "operator" as const } : {}),
+      ...(importedEnd ? { endDateSource: "operator" as const } : {}),
+    },
+  };
+  if (importedEnd || !hasPhase) return marked;
+  return applyEventEndToDraft(marked, {
+    previousEventDate: null,
+    nextEventDate: event?.event_date ?? null,
+    nextPresaleAt: event?.presale_at ?? null,
+    nextGeneralSaleAt: event?.general_sale_at ?? null,
+    now,
+    refreshStart: false,
+  });
 }
 
 /** Existing non-empty dates are operator-typed, unless they are the event end. */
@@ -393,10 +433,33 @@ export function schedulePhaseNote(input: {
   endDate: string;
   endDateSource?: EndDateSource;
   endDatePhase?: EndDatePhase | null;
+  /** The next phase is sooner than the quarter-hour start, so the end was left empty. */
+  presaleTooSoon?: boolean;
 }): string | null {
   if (!input.eventId?.trim()) return null;
   if (input.endDateSource !== "event") return null;
-  if (!input.endDate.trim()) return EVENT_DATE_PASSED_NOTE;
+  if (!input.endDate.trim()) {
+    return input.presaleTooSoon ? PRESALE_TOO_SOON_NOTE : EVENT_DATE_PASSED_NOTE;
+  }
   if (!input.endDatePhase) return null;
   return phaseScheduleNote(input.endDatePhase, input.endDate);
+}
+
+/**
+ * True when an event-sourced end is empty because the next phase is at or
+ * before the quarter-hour start. All-past events are not this case.
+ */
+export function presaleTooSoon(input: {
+  endDate: string;
+  endDateSource?: EndDateSource;
+  event: EventPhaseFields | null;
+  now?: Date;
+  timezone?: string;
+}): boolean {
+  if (input.endDateSource !== "event" || input.endDate.trim() || !input.event) return false;
+  const timezone = input.timezone || DEFAULT_SCHEDULE_TIMEZONE;
+  const now = input.now ?? new Date();
+  const next = nextCampaignPhaseEnd(input.event, now, timezone);
+  if (!next.endDate) return false;
+  return derivedStart(now, timezone) >= next.endDate;
 }

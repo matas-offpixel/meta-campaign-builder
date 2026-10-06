@@ -46,8 +46,22 @@ interface IdempotencyRow {
   op_status: "pending" | "success" | "failed";
 }
 
-export function hashMetaWritePayload(payload: unknown): string {
-  return createHash("sha256").update(stableStringify(payload)).digest("hex");
+/**
+ * Stable hash of a write payload. `adset_create` omits `name`: a group
+ * rename or city-suffix resolution between attempts is the same ad set.
+ * The ledger key stays draft + this hash, and the hash still includes
+ * `campaign_id` and targeting.
+ */
+export function hashMetaWritePayload(payload: unknown, opKind?: MetaWriteOpKind): string {
+  return createHash("sha256").update(stableStringify(payloadForHash(payload, opKind))).digest("hex");
+}
+
+function payloadForHash(payload: unknown, opKind?: MetaWriteOpKind): unknown {
+  if (opKind !== "adset_create") return payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+  const rest = { ...(payload as Record<string, unknown>) };
+  delete rest.name;
+  return rest;
 }
 
 export function isMetaIdempotencyTableMissing(error: {
@@ -100,7 +114,7 @@ export async function withMetaWriteIdempotency(
     return run();
   }
 
-  const payloadHash = hashMetaWritePayload(payload);
+  const payloadHash = hashMetaWritePayload(payload, opKind);
   const { data: existing, error: lookupError } = await context.supabase
     .from("meta_write_idempotency")
     .select("id,op_result_id,op_status")
@@ -275,7 +289,7 @@ export async function invalidateMetaWritePayload(
     .delete()
     .eq("draft_id", context.draftId)
     .eq("op_kind", opKind)
-    .eq("op_payload_hash", hashMetaWritePayload(payload));
+    .eq("op_payload_hash", hashMetaWritePayload(payload, opKind));
   const unavailable = ledgerUnavailableReason(error);
   if (unavailable) {
     console.warn(

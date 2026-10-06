@@ -218,9 +218,19 @@ export function EventEndDateSync({
     const refreshStart = (latest: CampaignDraft) =>
       latest.budgetSchedule.startDateSource !== "operator" &&
       (eventChanged || !(latest.budgetSchedule.startDate ?? "").trim());
-    const synced = applyEventEndToDraft(draft, { ...phases, refreshStart: refreshStart(draft) });
+    const synced = applyEventEndToDraft(draft, {
+      ...phases,
+      eventChanged,
+      refreshStart: refreshStart(draft),
+    });
     if (synced === draft) return;
-    updateDraft((latest) => applyEventEndToDraft(latest, { ...phases, refreshStart: refreshStart(latest) }));
+    updateDraft((latest) =>
+      applyEventEndToDraft(latest, {
+        ...phases,
+        eventChanged,
+        refreshStart: refreshStart(latest),
+      }),
+    );
   }, [followsDraft, draftEventId, selectedEvent, draft, updateDraft]);
 
   return null;

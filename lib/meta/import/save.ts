@@ -24,7 +24,7 @@ import { unlabeledImageHashes, type ImportCreativeSource } from "./creative-copy
 import { buildMetaImportPicker } from "./picker.ts";
 import { readMetaLiveCampaign } from "./readers.ts";
 import { guardMetaImportRaw } from "./raw-guard.ts";
-import { applyEventEndToDraft } from "../../wizard/event-end-date.ts";
+import { applyImportedCampaignSchedule } from "../../wizard/event-end-date.ts";
 import type {
   MetaImportGraphGet,
   MetaImportReadProgress,
@@ -368,30 +368,7 @@ export async function handleMetaImport(input: {
     imageSizes: sizes,
     countryGroupLabels: groupLabels,
   });
-  const hasPhase = Boolean(
-    event?.event_date?.trim() || event?.presale_at?.trim() || event?.general_sale_at?.trim(),
-  );
-  const endLocked = draft.budgetSchedule.endDateSource === "operator";
-  const startLocked = draft.budgetSchedule.startDateSource === "operator";
-  if (hasPhase && !endLocked) {
-    draft.budgetSchedule.endDate = "";
-    draft.budgetSchedule.endDateSource = undefined;
-    draft.budgetSchedule.endDatePhase = undefined;
-  }
-  if (hasPhase && !startLocked) {
-    draft.budgetSchedule.startDate = "";
-    draft.budgetSchedule.startDateSource = undefined;
-  }
-  const scheduled = hasPhase
-    ? applyEventEndToDraft(draft, {
-        previousEventDate: null,
-        nextEventDate: event?.event_date ?? null,
-        nextPresaleAt: event?.presale_at ?? null,
-        nextGeneralSaleAt: event?.general_sale_at ?? null,
-        now: new Date(),
-        refreshStart: !startLocked,
-      })
-    : draft;
+  const scheduled = applyImportedCampaignSchedule(draft, event);
   try {
     await saveDraft(scheduled, input.userId!);
   } catch (err) {

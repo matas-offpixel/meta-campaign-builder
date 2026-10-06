@@ -304,6 +304,41 @@ describe("withMetaWriteIdempotency", () => {
     ]);
   });
 
+  it("same row, different name → same hash → ledger hit; different targeting → miss", async () => {
+    const targeting = { geo_locations: { countries: ["GB"] }, custom_audiences: [{ id: "1" }] };
+    const named = { name: "Innellea", campaign_id: "camp_1", targeting };
+    const renamed = { name: "Innellea — Bristol", campaign_id: "camp_1", targeting };
+    const moved = {
+      name: "Innellea — Bristol",
+      campaign_id: "camp_1",
+      targeting: { geo_locations: { countries: ["US"] }, custom_audiences: [{ id: "1" }] },
+    };
+    assert.equal(
+      hashMetaWritePayload(named, "adset_create"),
+      hashMetaWritePayload(renamed, "adset_create"),
+    );
+    assert.notEqual(
+      hashMetaWritePayload(renamed, "adset_create"),
+      hashMetaWritePayload(moved, "adset_create"),
+    );
+
+    const db = new MemorySupabase();
+    const context = { ...BASE_CONTEXT, supabase: db as unknown as SupabaseClient };
+    let runs = 0;
+    const run = async () => {
+      runs += 1;
+      return `adset_${runs}`;
+    };
+    const first = await withMetaWriteIdempotency(context, "adset_create", named, run);
+    const second = await withMetaWriteIdempotency(context, "adset_create", renamed, run);
+    assert.equal(first, "adset_1");
+    assert.equal(second, "adset_1");
+    assert.equal(runs, 1);
+    const third = await withMetaWriteIdempotency(context, "adset_create", moved, run);
+    assert.equal(third, "adset_2");
+    assert.equal(runs, 2);
+  });
+
   it("hashes payloads stably so key order does not fork the ledger", () => {
     assert.equal(
       hashMetaWritePayload({ b: 1, a: 2 }),

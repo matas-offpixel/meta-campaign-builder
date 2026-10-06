@@ -10,10 +10,9 @@
  * CONFIRMED: Supabase draft eb8e6a17 had endDate="2026-08-06T12:00"; all 8 ad
  * sets in the published campaign showed "Ongoing" in Meta Ads Manager.
  *
- * The fix normalises the input before parsing:
- *   - "YYYY-MM-DD"          → append "T00:00:00Z" (midnight UTC, legacy path)
- *   - "YYYY-MM-DDTHH:mm"    → append ":00Z" (datetime-local, current wizard)
- *   - "YYYY-MM-DDTHH:mm:ssZ" → pass through unchanged (already valid ISO)
+ * Datetime-local and date-only strings are wall-clock in budgetSchedule.timezone
+ * (default Europe/London). A trailing Z is already UTC. Date-only is midnight
+ * in that zone. August 2026 is BST, so those clocks are UTC+1.
  *
  * These tests exercise the exported buildAdSetPayload function indirectly via
  * the payload's start_time / end_time fields, but toUnixTs is private so we
@@ -87,38 +86,51 @@ describe("buildAdSetPayload — end_time / start_time date parsing", () => {
     return { start: payload.start_time, end: payload.end_time };
   }
 
-  // Verified: new Date("2026-08-06T00:00:00Z").getTime() / 1000
-  const AUG_6_MIDNIGHT_UTC = 1785974400;
-  // Verified: new Date("2026-08-06T12:00:00Z").getTime() / 1000 (midnight + 43200s)
-  const AUG_6_NOON_UTC = AUG_6_MIDNIGHT_UTC + 43200;
+  function iso(unix: number | undefined): string {
+    assert.equal(typeof unix, "number");
+    return new Date((unix as number) * 1000).toISOString();
+  }
 
-  it("YYYY-MM-DD endDate → midnight UTC unix timestamp", () => {
-    const { end } = times(makeSchedule({ endDate: "2026-08-06" }));
-    assert.equal(end, AUG_6_MIDNIGHT_UTC,
-      `Expected ${AUG_6_MIDNIGHT_UTC}, got ${end}`);
+  it("YYYY-MM-DD endDate in Europe/London → midnight in that zone", () => {
+    const { end } = times(makeSchedule({ endDate: "2026-08-06", timezone: "Europe/London" }));
+    assert.equal(iso(end), "2026-08-05T23:00:00.000Z");
   });
 
-  it("YYYY-MM-DDTHH:mm endDate (wizard datetime-local) → correct UTC timestamp (the regression)", () => {
+  it("YYYY-MM-DDTHH:mm endDate (wizard datetime-local) → that clock in Europe/London", () => {
     // This was the broken case: "2026-08-06T12:00" → NaN → null → Meta ignored end_time.
-    const { end } = times(makeSchedule({ endDate: "2026-08-06T12:00" }));
-    assert.equal(end, AUG_6_NOON_UTC,
-      `datetime-local "2026-08-06T12:00" should parse to noon UTC ${AUG_6_NOON_UTC}, got ${end}`);
+    // August 2026 is BST, so noon London is 11:00Z.
+    const { end } = times(makeSchedule({ endDate: "2026-08-06T12:00", timezone: "Europe/London" }));
+    assert.equal(iso(end), "2026-08-06T11:00:00.000Z");
   });
 
   it("already-Z-suffixed ISO string passes through unchanged", () => {
-    const { end } = times(makeSchedule({ endDate: "2026-08-06T12:00:00Z" }));
-    assert.equal(end, AUG_6_NOON_UTC,
-      `Already-valid ISO "2026-08-06T12:00:00Z" should equal noon UTC, got ${end}`);
+    const { end } = times(makeSchedule({ endDate: "2026-08-06T12:00:00Z", timezone: "Europe/London" }));
+    assert.equal(iso(end), "2026-08-06T12:00:00.000Z");
   });
 
-  it("YYYY-MM-DD startDate → midnight UTC unix timestamp", () => {
-    const { start } = times(makeSchedule({ startDate: "2026-08-06" }));
-    assert.equal(start, AUG_6_MIDNIGHT_UTC);
+  it("YYYY-MM-DD startDate in Europe/London → midnight in that zone", () => {
+    const { start } = times(makeSchedule({ startDate: "2026-08-06", timezone: "Europe/London" }));
+    assert.equal(iso(start), "2026-08-05T23:00:00.000Z");
   });
 
-  it("YYYY-MM-DDTHH:mm startDate (wizard datetime-local) → correct UTC timestamp", () => {
-    const { start } = times(makeSchedule({ startDate: "2026-08-06T12:00" }));
-    assert.equal(start, AUG_6_NOON_UTC);
+  it("YYYY-MM-DDTHH:mm startDate (wizard datetime-local) → that clock in Europe/London", () => {
+    const { start } = times(makeSchedule({ startDate: "2026-08-06T12:00", timezone: "Europe/London" }));
+    assert.equal(iso(start), "2026-08-06T11:00:00.000Z");
+  });
+
+  it("2026-10-07T12:00 in Europe/London during BST → 11:00Z", () => {
+    const { end } = times(makeSchedule({ endDate: "2026-10-07T12:00", timezone: "Europe/London" }));
+    assert.equal(iso(end), "2026-10-07T11:00:00.000Z");
+  });
+
+  it("same clock time in January in Europe/London → 12:00Z", () => {
+    const { end } = times(makeSchedule({ endDate: "2026-01-07T12:00", timezone: "Europe/London" }));
+    assert.equal(iso(end), "2026-01-07T12:00:00.000Z");
+  });
+
+  it("2026-07-01 date-only in Europe/London → 2026-06-30T23:00Z", () => {
+    const { end } = times(makeSchedule({ endDate: "2026-07-01", timezone: "Europe/London" }));
+    assert.equal(iso(end), "2026-06-30T23:00:00.000Z");
   });
 
   it("empty endDate → end_time not set on payload", () => {

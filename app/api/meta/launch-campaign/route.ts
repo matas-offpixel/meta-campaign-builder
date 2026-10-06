@@ -18,7 +18,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { NextRequest, NextResponse } from "next/server";
-import { adSetAudienceRemoved } from "@/lib/wizard/import-edits";
+import { adSetAudienceRemoved, adSetDisplayName } from "@/lib/wizard/import-edits";
 import { recordWizardMetaLaunch } from "@/lib/plan/record-wizard-launch";
 import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -895,7 +895,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       draft.settings.objective,
       enabledSets.map((adSet) => ({
         id: adSet.id,
-        name: adSet.name,
+        name: adSetDisplayName(adSet, draft.audiences),
         destinationType: resolvedDestination,
       })),
     );
@@ -3651,7 +3651,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           try {
             const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep.payload, launchToken);
             const dur = elapsed(asStart);
-            console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+            console.log(`[launch-campaign] Phase 2 ✓  ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
           } catch (err) {
             // Auto-retry ONCE for deprecated-interest failures. Covers Meta
@@ -3711,7 +3711,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
                 const retryRes = await createMetaAdSetViaLedger(adAccountId, retryPayload, launchToken);
                 launchRetrySucceeded += 1;
                 const dur = elapsed(asStart);
-                console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+                console.log(`[launch-campaign] Phase 2 ✓  ad set (retry): ${adSetDisplayName(adSet, draft.audiences)} → ${retryRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
                 return { adSet, metaAdSetId: retryRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
               }
             }
@@ -3757,7 +3757,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         if (r.status === "fulfilled") {
           const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
           adSetsCreated.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId,
             // ageModeOverride: the subcode-1870196 salvage retry strips
             // Advantage+ Audience and sends explicit ages, so the ad set is
@@ -3776,8 +3776,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         } else {
           const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
           const message = formatMetaError(reason.err, metaCampaignId);
-          console.error("[launch-campaign] Phase 2 ✗  ad set failed:", reason.adSet.name, ":", message);
-          adSetsFailed.push({ name: reason.adSet.name, error: message });
+          console.error("[launch-campaign] Phase 2 ✗  ad set failed:", adSetDisplayName(reason.adSet, draft.audiences), ":", message);
+          adSetsFailed.push({ name: adSetDisplayName(reason.adSet, draft.audiences), error: message });
           adSetLaunchResults[reason.adSet.id] = { launchStatus: "failed", error: message };
         }
       }
@@ -4152,7 +4152,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         const skipReason = "source audience not ready";
         const msg = "Skipped — no lookalike audiences were created for this group (source audience creation failed or timed out)";
         console.log(`[launch-campaign] Phase 2b — skipping lookalike ad set "${adSet.name}"`);
-        adSetsFailed.push({ name: adSet.name, error: msg, skippedReason: skipReason });
+        adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: msg, skippedReason: skipReason });
         adSetLaunchResults[adSet.id] = { launchStatus: "skipped", skippedReason: skipReason, error: msg };
         continue;
       }
@@ -4163,7 +4163,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(phase2Objective, draft.settings.optimisationGoal)) {
         const message = advantageAudienceObjectiveMismatchMessage(adSet.name, phase2Objective);
         console.error(`[launch-campaign] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
-        adSetsFailed.push({ name: adSet.name, error: message });
+        adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
         adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
         continue;
       }
@@ -4219,9 +4219,9 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
 
         const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep2b.payload, launchToken);
         const dur = elapsed(asStart);
-        console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
+        console.log(`[launch-campaign] Phase 2b ✓  lookalike ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
         adSetsCreated.push({
-          name: adSet.name,
+          name: adSetDisplayName(adSet, draft.audiences),
           metaAdSetId: adSetRes.id,
           ageMode: adSet.advantagePlus ? "suggested" : "strict",
           durationMs: dur,
@@ -4265,7 +4265,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             salvageDeps,
           );
           adSetsCreated.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId: salvaged.metaAdSetId,
             ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
             durationMs: salvaged.durationMs,
@@ -4280,8 +4280,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           });
         } catch (salvageErr) {
           const message = formatMetaError(salvageErr);
-          console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSet.name, ":", message);
-          adSetsFailed.push({ name: adSet.name, error: message });
+          console.error("[launch-campaign] Phase 2b ✗  lookalike ad set failed:", adSetDisplayName(adSet, draft.audiences), ":", message);
+          adSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
           adSetLaunchResults[adSet.id] = { launchStatus: "failed", error: message };
         }
       }
@@ -4577,7 +4577,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             try {
               const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep.payload, launchToken);
               const dur = elapsed(asStart);
-              console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
+              console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms)`);
               return { adSet, metaAdSetId: adSetRes.id, durationMs: dur, note: prep.preflightDroppedNote, ageModeOverride: undefined };
             } catch (err) {
               // Retry once for deprecated-interest failures — stays outside
@@ -4601,7 +4601,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
                   }
                   const retryRes = await createMetaAdSetViaLedger(adAccountId, retryPayload, launchToken);
                   const dur = elapsed(asStart);
-                  console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set (retry): ${adSet.name} → ${retryRes.id} (${dur}ms)`);
+                  console.log(`[launch-campaign] MC[${ci}] Phase 2 ✓  ad set (retry): ${adSetDisplayName(adSet, draft.audiences)} → ${retryRes.id} (${dur}ms)`);
                   return { adSet, metaAdSetId: retryRes.id, durationMs: dur, note: undefined, ageModeOverride: undefined };
                 }
               }
@@ -4645,7 +4645,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           if (r.status === "fulfilled") {
             const { adSet, metaAdSetId, durationMs, note, ageModeOverride } = r.value;
             ciAdSetsCreated.push({
-              name: adSet.name,
+              name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId,
               ageMode: ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
               durationMs,
@@ -4659,8 +4659,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           } else {
             const reason = r.reason as { adSet: AdSetSuggestion; err: unknown };
             const message = formatMetaError(reason.err, nextCampaign.id);
-            console.error(`[launch-campaign] MC[${ci}] Phase 2 ✗  ad set failed: ${reason.adSet.name}: ${message}`);
-            ciAdSetsFailed.push({ name: reason.adSet.name, error: message });
+            console.error(`[launch-campaign] MC[${ci}] Phase 2 ✗  ad set failed: ${adSetDisplayName(reason.adSet, draft.audiences)}: ${message}`);
+            ciAdSetsFailed.push({ name: adSetDisplayName(reason.adSet, draft.audiences), error: message });
           }
         }
       }
@@ -4676,7 +4676,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           lalIds = srcGroup?.lookalikeAudienceIdsByRange?.[adSet.lookalikeRange ?? ""] ?? [];
         }
         if (lalIds.length === 0) {
-          ciAdSetsFailed.push({ name: adSet.name, error: "Skipped — no lookalike audiences ready for this group" });
+          ciAdSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: "Skipped — no lookalike audiences ready for this group" });
           continue;
         }
 
@@ -4684,7 +4684,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         // Phase 2 above).
         if (adSet.advantagePlus && !isAdvantageAudienceSupportedForObjective(ciObjective, draft.settings.optimisationGoal)) {
           ciAdSetsFailed.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             error: advantageAudienceObjectiveMismatchMessage(adSet.name, ciObjective),
           });
           continue;
@@ -4723,7 +4723,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           const adSetRes = await createMetaAdSetViaLedger(adAccountId, prep2b.payload, launchToken);
           const dur = elapsed(asStart);
           ciAdSetsCreated.push({
-            name: adSet.name,
+            name: adSetDisplayName(adSet, draft.audiences),
             metaAdSetId: adSetRes.id,
             ageMode: adSet.advantagePlus ? "suggested" : "strict",
             durationMs: dur,
@@ -4733,7 +4733,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
           await recordCreatedAdSet(nextCampaign.id, adSet, adSetRes.id, {
             droppedNote: prep2b.preflightDroppedNote,
           });
-          console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSet.name} → ${adSetRes.id} (${dur}ms)`);
+          console.log(`[launch-campaign] MC[${ci}] Phase 2b ✓  lookalike ad set: ${adSetDisplayName(adSet, draft.audiences)} → ${adSetRes.id} (${dur}ms)`);
         } catch (err) {
           // task #125 — same shared salvage ladder as standard Phase 2b.
           try {
@@ -4762,7 +4762,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
               salvageDeps,
             );
             ciAdSetsCreated.push({
-              name: adSet.name,
+              name: adSetDisplayName(adSet, draft.audiences),
               metaAdSetId: salvaged.metaAdSetId,
               ageMode: salvaged.ageModeOverride ?? (adSet.advantagePlus ? "suggested" : "strict"),
               durationMs: salvaged.durationMs,
@@ -4776,8 +4776,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             });
           } catch (salvageErr) {
             const message = formatMetaError(salvageErr);
-            console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSet.name}: ${message}`);
-            ciAdSetsFailed.push({ name: adSet.name, error: message });
+            console.error(`[launch-campaign] MC[${ci}] Phase 2b ✗  lookalike ad set failed: ${adSetDisplayName(adSet, draft.audiences)}: ${message}`);
+            ciAdSetsFailed.push({ name: adSetDisplayName(adSet, draft.audiences), error: message });
           }
         }
       }

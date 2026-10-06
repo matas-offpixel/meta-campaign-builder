@@ -892,7 +892,8 @@ export interface BudgetScheduleSettings {
   startDateSource?: "event" | "operator";
   /**
    * Which event phase an `"event"` end date follows. Set from the
-   * schedule menu. Absent means the next phase after now.
+   * schedule menu. Absent on an `"event"` end is the event day: drafts
+   * saved before phases existed stay on that day until it has passed.
    */
   endDatePhase?: "presale" | "general_sale" | "event";
   timezone: string;
@@ -947,10 +948,12 @@ export interface AdSetSuggestion {
   sourceId: string;
   sourceName: string;
   /**
-   * Who last set `name`. Absent or `"generated"` means Step 5 shows the
-   * source group's current name. `"operator"` means the operator typed
-   * the name, and that string is what the row shows. The stored `name`
-   * is always the launch name; a group rename does not write it.
+   * Who last set `name`. Absent or `"generated"`: Step 5 and launch use
+   * the source group's current name, plus a tier suffix, or the city
+   * suffix when the stored name is that group name plus a location.
+   * `"operator"`: launch sends the stored string. That is a name the
+   * operator typed, or a city they chose by splitting or picking one
+   * location.
    */
   nameSource?: "generated" | "operator";
   ageMin: number;
