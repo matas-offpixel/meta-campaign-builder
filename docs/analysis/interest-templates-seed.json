@@ -1,0 +1,328 @@
+[
+  {
+    "name": "Football Prospecting - Edinburgh 40km - 18-50",
+    "interestIds": [
+      "6003107902433",
+      "6003175194449",
+      "6003432221791",
+      "6003474194264"
+    ],
+    "interests": [
+      {
+        "id": "6003107902433",
+        "name": "Football (football)"
+      },
+      {
+        "id": "6003175194449",
+        "name": "FIFA World Cup"
+      },
+      {
+        "id": "6003432221791",
+        "name": "FIFA (professional organisation)"
+      },
+      {
+        "id": "6003474194264",
+        "name": "football fans (football)"
+      }
+    ],
+    "evidence": {
+      "adSets": 20,
+      "spend": 2800.75,
+      "registrations": 4184,
+      "cpr": 0.67,
+      "cprSource": "pixel",
+      "clients": [
+        "4theFans"
+      ]
+    }
+  },
+  {
+    "name": "Electronic Music Interests (5 interests)",
+    "interestIds": [
+      "6003108826384",
+      "6003135979608",
+      "6003155409305",
+      "6003902397066",
+      "6808891387078"
+    ],
+    "interests": [
+      {
+        "id": "6003108826384",
+        "name": "Music festivals (events)"
+      },
+      {
+        "id": "6003135979608",
+        "name": "Ultra Music Festival"
+      },
+      {
+        "id": "6003155409305",
+        "name": "Electronic dance music (music)"
+      },
+      {
+        "id": "6003902397066",
+        "name": "Electronic music (music)"
+      },
+      {
+        "id": "6808891387078",
+        "name": "Electronic music festivals (music event)"
+      }
+    ],
+    "evidence": {
+      "adSets": 3,
+      "spend": 262.65,
+      "registrations": 366,
+      "cpr": 0.72,
+      "cprSource": "pixel",
+      "clients": [
+        "Deep House Bible",
+        "Innellea"
+      ]
+    }
+  },
+  {
+    "name": "Fashion & Streetwear (14 interests)",
+    "interestIds": [
+      "467691106721833",
+      "6003030212255",
+      "6003154507633",
+      "6003266266843",
+      "6003351852600",
+      "6003359659004",
+      "6003359784404",
+      "6003392552125",
+      "6003552041427",
+      "6003739371891"
+    ],
+    "interests": [
+      {
+        "id": "467691106721833",
+        "name": "Maison Margiela"
+      },
+      {
+        "id": "6003030212255",
+        "name": "Raf Simons"
+      },
+      {
+        "id": "6003154507633",
+        "name": "Comme des Garçons"
+      },
+      {
+        "id": "6003266266843",
+        "name": "Fashion design (design)"
+      },
+      {
+        "id": "6003351852600",
+        "name": "Helmut Lang (fashion brand)"
+      },
+      {
+        "id": "6003359659004",
+        "name": "Yohji Yamamoto"
+      },
+      {
+        "id": "6003359784404",
+        "name": "Rick Owens"
+      },
+      {
+        "id": "6003392552125",
+        "name": "Luxury Lifestyle (website)"
+      },
+      {
+        "id": "6003552041427",
+        "name": "Vogue (magazine)"
+      },
+      {
+        "id": "6003739371891",
+        "name": "Designer clothing (clothing)"
+      }
+    ],
+    "evidence": {
+      "adSets": 3,
+      "spend": 190.22,
+      "registrations": 234,
+      "cpr": 0.81,
+      "cprSource": "pixel",
+      "clients": [
+        "Deep House Bible",
+        "Innellea"
+      ]
+    }
+  },
+  {
+    "name": "Lifestyle & Nightlife (6 interests)",
+    "interestIds": [
+      "6003011087019",
+      "6003190279924",
+      "6003218161847",
+      "6003361714600",
+      "6003651391313",
+      "6840320758807"
+    ],
+    "interests": [
+      {
+        "id": "6003011087019",
+        "name": "luxury travel (travel and tourism)"
+      },
+      {
+        "id": "6003190279924",
+        "name": "Ibiza"
+      },
+      {
+        "id": "6003218161847",
+        "name": "A Luxury Travel Blog"
+      },
+      {
+        "id": "6003361714600",
+        "name": "Nightclubs (bars, clubs and nightlife)"
+      },
+      {
+        "id": "6003651391313",
+        "name": "SEAT Ibiza"
+      },
+      {
+        "id": "6840320758807",
+        "name": "Music radio (radio)"
+      }
+    ],
+    "evidence": {
+      "adSets": 3,
+      "spend": 194.59,
+      "registrations": 239,
+      "cpr": 0.81,
+      "cprSource": "pixel",
+      "clients": [
+        "Deep House Bible",
+        "Innellea"
+      ]
+    }
+  },
+  {
+    "name": "Football interests - Dublin 40km",
+    "interestIds": [
+      "6002995710444",
+      "6003306191253",
+      "6003474194264"
+    ],
+    "interests": [
+      {
+        "id": "6002995710444",
+        "name": "UEFA Champions League"
+      },
+      {
+        "id": "6003306191253",
+        "name": "Premier League (football league)"
+      },
+      {
+        "id": "6003474194264",
+        "name": "football fans (football)"
+      }
+    ],
+    "evidence": {
+      "adSets": 15,
+      "spend": 1086.56,
+      "registrations": 1317,
+      "cpr": 0.83,
+      "cprSource": "pixel",
+      "clients": [
+        "4theFans"
+      ]
+    }
+  },
+  {
+    "name": "Disc Genre (1 interests)",
+    "interestIds": [
+      "6003155409305",
+      "6003320931941"
+    ],
+    "interests": [
+      {
+        "id": "6003155409305",
+        "name": "Electronic dance music (music)"
+      },
+      {
+        "id": "6003320931941",
+        "name": "Disco"
+      }
+    ],
+    "evidence": {
+      "adSets": 11,
+      "spend": 355.78,
+      "registrations": 365,
+      "cpr": 0.83,
+      "cprSource": "first_party",
+      "clients": [
+        "Electric Brixton",
+        "IRONWORKS",
+        "Off/Pixel"
+      ]
+    }
+  },
+  {
+    "name": "Football interests",
+    "interestIds": [
+      "6002995710444",
+      "6003306191253",
+      "6003350242199",
+      "6003472078063",
+      "6003474194264"
+    ],
+    "interests": [
+      {
+        "id": "6002995710444",
+        "name": "UEFA Champions League"
+      },
+      {
+        "id": "6003306191253",
+        "name": "Premier League (football league)"
+      },
+      {
+        "id": "6003350242199",
+        "name": "UEFA Europa League (football competition)"
+      },
+      {
+        "id": "6003472078063",
+        "name": "Aston Villa F.C."
+      },
+      {
+        "id": "6003474194264",
+        "name": "football fans (football)"
+      }
+    ],
+    "evidence": {
+      "adSets": 3,
+      "spend": 385.92,
+      "registrations": 452,
+      "cpr": 0.85,
+      "cprSource": "pixel",
+      "clients": [
+        "4theFans"
+      ]
+    }
+  },
+  {
+    "name": "Arsenal Fans - Dublin 40km",
+    "interestIds": [
+      "6003064617670",
+      "6003115921142"
+    ],
+    "interests": [
+      {
+        "id": "6003064617670",
+        "name": "Arsenal F.C."
+      },
+      {
+        "id": "6003115921142",
+        "name": "Thierry Henry"
+      }
+    ],
+    "evidence": {
+      "adSets": 10,
+      "spend": 181.55,
+      "registrations": 196,
+      "cpr": 0.93,
+      "cprSource": "pixel",
+      "clients": [
+        "4theFans"
+      ]
+    }
+  }
+]
