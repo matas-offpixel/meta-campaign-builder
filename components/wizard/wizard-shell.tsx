@@ -33,6 +33,7 @@ import { getCachedUserPages } from "@/lib/hooks/useMeta";
 import { FacebookConnectionBanner } from "@/components/facebook-connection-banner";
 import { StepSurfaceProvider } from "@/components/steps/step-surface";
 import {
+  EventEndDateSync,
   WizardEventContextProvider,
   useWizardEventContext,
 } from "@/lib/wizard/use-event-context";
@@ -376,8 +377,9 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   }
 
   return (
-    <WizardEventContextProvider draftId={draftId} enabled={hydrated}>
+    <WizardEventContextProvider draftId={draftId} eventId={draft.settings.eventId} enabled={hydrated}>
       <EventDefaultsApplier updateDraft={updateDraft} />
+      <EventEndDateSync draft={draft} updateDraft={updateDraft} />
       <StepSurfaceProvider surface="wizard" planOwnsDestination={linkedPlan != null}>
       <div className="flex min-h-screen flex-col">
       <div className="border-b border-border bg-card px-6 py-2">
@@ -601,9 +603,9 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
 // hydrated. On the first render where the context fetch completes, it
 // soft-fills the draft with values derived from the linked event +
 // client: ad account / pixel / pages from client defaults, campaign
-// name + event_code from the event, schedule start/end from today +
-// event_date. Only ever touches fields that are still empty — user
-// edits always win.
+// name + event_code from the event, schedule start from today.
+// The end date is owned by EventEndDateSync. Only ever touches fields
+// that are still empty — user edits always win.
 //
 // Guarded by a ref so navigating between steps (which re-renders
 // everything but doesn't change the draft id) doesn't reapply the
@@ -689,9 +691,6 @@ function EventDefaultsApplier({ updateDraft }: DefaultsApplierProps) {
       if (bs) {
         if (!bs.startDate) {
           bs.startDate = formatLocalDateTime(new Date(), { hour: 0, minute: 0 });
-        }
-        if (!bs.endDate && event?.event_date) {
-          bs.endDate = `${event.event_date}T23:59`;
         }
         next.budgetSchedule = bs;
       }

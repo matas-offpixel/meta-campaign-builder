@@ -5,12 +5,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 import type { EventWithClient } from "@/lib/db/events";
 import type { ClientRow } from "@/lib/db/clients";
+import { useFetchEvents, type EventPickerRow } from "@/lib/hooks/useEvents";
+import type { CampaignDraft } from "@/lib/types";
+import { applyEventEndDate, derivedEventEnd } from "@/lib/wizard/event-end-date";
 
 /**
  * lib/wizard/use-event-context.tsx
@@ -33,6 +37,13 @@ export interface WizardEventContextValue {
   columnEventId: string | null;
   resolvedEventId: string | null;
   carriersDisagree: boolean;
+  /**
+   * The event for `draftEventId`, from the same events list the Campaign
+   * step's EVENT block uses. Null when that id is empty or still loading.
+   */
+  followsDraft: boolean;
+  draftEventId: string | null;
+  selectedEvent: EventPickerRow | null;
 }
 
 const EMPTY: WizardEventContextValue = {
@@ -43,16 +54,25 @@ const EMPTY: WizardEventContextValue = {
   columnEventId: null,
   resolvedEventId: null,
   carriersDisagree: false,
+  followsDraft: false,
+  draftEventId: null,
+  selectedEvent: null,
 };
 
 const Ctx = createContext<WizardEventContextValue>(EMPTY);
 
 export function WizardEventContextProvider({
   draftId,
+  eventId = null,
   enabled,
   children,
 }: {
   draftId: string;
+  /**
+   * The draft's current `settings.eventId`. The selected event follows
+   * this, not the one-shot column read.
+   */
+  eventId?: string | null;
   /**
    * False until the parent has finished hydrating its draft. Avoids a
    * pre-hydration round-trip that races the draft load.
@@ -67,6 +87,12 @@ export function WizardEventContextProvider({
   const [resolvedEventId, setResolvedEventId] = useState<string | null>(null);
   const [carriersDisagree, setCarriersDisagree] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const draftEventId = eventId?.trim() || null;
+  const { events: draftEvents } = useFetchEvents(draftEventId);
+  const selectedEvent = useMemo(
+    () => draftEvents.find((row) => row.id === draftEventId) ?? null,
+    [draftEvents, draftEventId],
+  );
 
   useEffect(() => {
     if (!enabled || !draftId) return;
@@ -132,8 +158,21 @@ export function WizardEventContextProvider({
       columnEventId,
       resolvedEventId,
       carriersDisagree,
+      followsDraft: true,
+      draftEventId,
+      selectedEvent,
     }),
-    [event, client, loaded, jsonEventId, columnEventId, resolvedEventId, carriersDisagree],
+    [
+      event,
+      client,
+      loaded,
+      jsonEventId,
+      columnEventId,
+      resolvedEventId,
+      carriersDisagree,
+      draftEventId,
+      selectedEvent,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -141,4 +180,67 @@ export function WizardEventContextProvider({
 
 export function useWizardEventContext(): WizardEventContextValue {
   return useContext(Ctx);
+}
+
+/**
+ * Writes the event end onto the draft when the attached event changes.
+ * An operator-typed end date is left as it is.
+ */
+export function EventEndDateSync({
+  draft,
+  updateDraft,
+}: {
+  draft: CampaignDraft;
+  updateDraft: (updater: (d: CampaignDraft) => CampaignDraft) => void;
+}) {
+  const { followsDraft, draftEventId, selectedEvent } = useWizardEventContext();
+  const prev = useRef<{ id: string; date: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!followsDraft || !draftEventId || !selectedEvent || selectedEvent.id !== draftEventId) {
+      return;
+    }
+    const nextDate = selectedEvent.event_date;
+    const previous = prev.current;
+    const derived = derivedEventEnd(nextDate);
+    const stored = draft.budgetSchedule.endDate ?? "";
+    const source = draft.budgetSchedule.endDateSource;
+    const eventMoved = !previous || previous.id !== draftEventId || previous.date !== nextDate;
+    const derivedMissing = source === "event" && Boolean(derived) && stored !== derived;
+    const shouldFill = !stored.trim() && source !== "operator" && Boolean(derived);
+    if (!eventMoved && !derivedMissing && !shouldFill) return;
+    const previousEventDate = previous && previous.id !== draftEventId ? previous.date : null;
+    const synced = applyEventEndDate({
+      endDate: stored,
+      endDateSource: source,
+      previousEventDate,
+      nextEventDate: nextDate,
+    });
+    prev.current = { id: draftEventId, date: nextDate };
+    if (synced.endDate === stored && synced.endDateSource === source) return;
+    updateDraft((latest) => {
+      const again = applyEventEndDate({
+        endDate: latest.budgetSchedule.endDate,
+        endDateSource: latest.budgetSchedule.endDateSource,
+        previousEventDate,
+        nextEventDate: nextDate,
+      });
+      if (
+        again.endDate === (latest.budgetSchedule.endDate ?? "") &&
+        again.endDateSource === latest.budgetSchedule.endDateSource
+      ) {
+        return latest;
+      }
+      return {
+        ...latest,
+        budgetSchedule: {
+          ...latest.budgetSchedule,
+          endDate: again.endDate,
+          ...(again.endDateSource ? { endDateSource: again.endDateSource } : {}),
+        },
+      };
+    });
+  }, [followsDraft, draftEventId, selectedEvent, draft, updateDraft]);
+
+  return null;
 }

@@ -62,6 +62,11 @@ import {
   selectionFromGeoResult,
   type LocationPresetConfig,
 } from "@/lib/meta/location-search";
+import {
+  derivedEventEnd,
+  scheduleEndInputValue,
+  scheduleEndNote,
+} from "@/lib/wizard/event-end-date";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
 import { CalendarClock } from "lucide-react";
 import {
@@ -925,15 +930,21 @@ function ScheduleCard({
   bs,
   updateBs,
   days,
+  eventId,
 }: {
   bs: BudgetScheduleSettings;
   updateBs: (patch: Partial<BudgetScheduleSettings>) => void;
   days: number;
+  eventId: string | null;
 }) {
-  const { event } = useWizardEventContext();
+  const { selectedEvent } = useWizardEventContext();
+  const event =
+    selectedEvent && eventId && selectedEvent.id === eventId ? selectedEvent : null;
   const eventDate = event?.event_date ?? null;
-  const eventEnd = eventDate ? `${eventDate}T23:59` : null;
-  const showUseEventDate = Boolean(eventEnd && bs.endDate !== eventEnd);
+  const eventEnd = derivedEventEnd(eventDate);
+  const endValue = scheduleEndInputValue(bs.endDate, bs.endDateSource, eventDate);
+  const showUseEventDate = Boolean(eventEnd && endValue !== eventEnd);
+  const noEventNote = scheduleEndNote(eventId);
 
   return (
     <Card>
@@ -949,20 +960,23 @@ function ScheduleCard({
           <Input
             label="End Date & Time"
             type="datetime-local"
-            value={bs.endDate}
-            onChange={(e) => updateBs({ endDate: e.target.value })}
+            value={endValue}
+            onChange={(e) => updateBs({ endDate: e.target.value, endDateSource: "operator" })}
           />
-          {showUseEventDate && eventEnd && eventDate && (
+          {noEventNote ? (
+            <Datum className="mt-1.5 text-[11px] text-muted-foreground">{noEventNote}</Datum>
+          ) : null}
+          {showUseEventDate && eventEnd && eventDate ? (
             <button
               type="button"
-              onClick={() => updateBs({ endDate: eventEnd })}
+              onClick={() => updateBs({ endDate: eventEnd, endDateSource: "event" })}
               className="mt-1.5 inline-flex items-center gap-1 rounded-md border border-border-strong px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
               title="Set end date to the event date"
             >
               <CalendarClock className="h-3 w-3" />
-              Use event date ({eventDate})
+              Use event date ({eventDate.slice(0, 10)})
             </button>
-          )}
+          ) : null}
         </div>
       </div>
       {days > 0 && (
@@ -1439,7 +1453,7 @@ export function BudgetSchedule({
       </Card>
 
       {/* Schedule */}
-      <ScheduleCard bs={bs} updateBs={updateBs} days={days} />
+      <ScheduleCard bs={bs} updateBs={updateBs} days={days} eventId={settings.eventId ?? null} />
 
 
       {/* Suggested age hint */}

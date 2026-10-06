@@ -48,6 +48,11 @@ import { validateStep } from "@/lib/validation";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
 
+import {
+  EventEndDateSync,
+  WizardEventContextProvider,
+} from "@/lib/wizard/use-event-context";
+
 import { MetaDrawerDetails } from "./meta-drawer-details";
 
 type DraftController = CampaignDraftController;
@@ -270,6 +275,8 @@ export function MetaDrawer({
   }, []);
 
   return (
+    <WizardEventContextProvider draftId={draft.id} eventId={settings.eventId} enabled={hydrated}>
+    <EventEndDateSync draft={draft} updateDraft={updateDraft} />
     <>
       <Drawer
         open={open}
@@ -407,6 +414,7 @@ export function MetaDrawer({
         }}
       />
     </>
+    </WizardEventContextProvider>
   );
 }
 

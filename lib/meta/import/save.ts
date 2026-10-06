@@ -24,6 +24,7 @@ import { unlabeledImageHashes, type ImportCreativeSource } from "./creative-copy
 import { buildMetaImportPicker } from "./picker.ts";
 import { readMetaLiveCampaign } from "./readers.ts";
 import { guardMetaImportRaw } from "./raw-guard.ts";
+import { applyEventEndDate } from "../../wizard/event-end-date.ts";
 import type {
   MetaImportGraphGet,
   MetaImportReadProgress,
@@ -367,6 +368,16 @@ export async function handleMetaImport(input: {
     imageSizes: sizes,
     countryGroupLabels: groupLabels,
   });
+  const syncedEnd = applyEventEndDate({
+    endDate: draft.budgetSchedule.endDate,
+    endDateSource: draft.budgetSchedule.endDateSource,
+    previousEventDate: null,
+    nextEventDate: event?.event_date ?? null,
+  });
+  if (syncedEnd.endDate !== draft.budgetSchedule.endDate) {
+    draft.budgetSchedule.endDate = syncedEnd.endDate;
+    if (syncedEnd.endDateSource) draft.budgetSchedule.endDateSource = syncedEnd.endDateSource;
+  }
   try {
     await saveDraft(draft, input.userId!);
   } catch (err) {

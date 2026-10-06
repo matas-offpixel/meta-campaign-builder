@@ -68,6 +68,7 @@ export async function saveTemplateToDb(
       ...snapshot.budgetSchedule,
       startDate: "",
       endDate: "",
+      endDateSource: undefined,
     },
   };
 
