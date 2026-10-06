@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1015
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1015
 - **Branch:** `cursor/import-event-optional`
 
 ## Summary
