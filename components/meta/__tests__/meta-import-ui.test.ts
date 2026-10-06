@@ -19,9 +19,11 @@ import {
   metaImportDraftHref,
   metaImportErrorText,
   metaImportNotCarriedLine,
+  metaImportPickerDropLines,
   metaImportReadBody,
   metaImportSaveBlocked,
   metaImportSaveBody,
+  summariseMetaImportPickerDrops,
 } from "../meta-import-flow.ts";
 
 const ROOT = new URL("../../../", import.meta.url);
@@ -105,8 +107,78 @@ describe("what was not carried", () => {
       "Lookalike — unavailable_on_ad_account",
     );
     assert.match(source("components/meta/meta-import-report.tsx"), /metaImportNotCarriedLine\(row\)/);
-    assert.match(source("components/meta/meta-import-picker.tsx"), /metaImportNotCarriedLine/);
     assert.match(source("components/plan/meta-drawer-details.tsx"), /<MetaImportReport/);
+    const picker = source("components/meta/meta-import-picker.tsx");
+    assert.match(picker, /summariseMetaImportPickerDrops/);
+    assert.doesNotMatch(picker, /metaImportNotCarriedLine/);
+    assert.match(picker, /sticky bottom-0/);
+    assert.match(picker, /max-h-40 overflow-y-auto/);
+    assert.match(picker, /Show all/);
+  });
+
+  it("Picker render helper: 40 unticked + 2 no_media → 40 creatives unticked + one grouped line naming both; no per-row operator_unticked output", () => {
+    const rows = [
+      ...Array.from({ length: 40 }, (_, index) => ({
+        id: `u${index}`,
+        name: `Unticked ${index}`,
+        reason: "operator_unticked",
+      })),
+      { id: "m1", name: "Don Diablo 2026-10-01", reason: "no_media_reported" },
+      { id: "m2", name: "Don Diablo -Feed 2026-09-30", reason: "no_media_reported" },
+    ];
+    const lines = metaImportPickerDropLines(summariseMetaImportPickerDrops(rows));
+    assert.deepEqual(lines, [
+      "40 creatives unticked",
+      "2 creatives have no media on Meta and were skipped: Don Diablo 2026-10-01, Don Diablo -Feed 2026-09-30",
+    ]);
+    assert.equal(lines.join("\n").includes("operator_unticked"), false);
+    assert.equal(lines.join("\n").includes("Unticked 0"), false);
+  });
+
+  it("5 drops of one reason → 3 names + +2 more", () => {
+    const summary = summariseMetaImportPickerDrops(
+      ["One", "Two", "Three", "Four", "Five"].map((name, index) => ({
+        name,
+        reason: "no_media_reported",
+        id: `d${index}`,
+      })),
+    );
+    assert.equal(summary.groups.length, 1);
+    assert.equal(
+      summary.groups[0]?.summary,
+      "5 creatives have no media on Meta and were skipped: One, Two, Three, +2 more",
+    );
+    assert.deepEqual(summary.groups[0]?.names, ["One", "Two", "Three", "Four", "Five"]);
+  });
+
+  it("Suffix stripped in display, present in log payload", () => {
+    const hex = "3c6ea094c3d72e4344ee1523fd4bdfa0";
+    const logPayload = [
+      {
+        id: "m1",
+        name: `Don Diablo 2026-10-01-${hex}`,
+        reason: "no_media_reported",
+      },
+      {
+        id: "m2",
+        name: "Don Diablo -Feed 2026-09-30",
+        reason: "no_media_reported",
+      },
+      {
+        id: "bare",
+        name: hex,
+        reason: "no_asset_reported",
+      },
+    ];
+    const summary = summariseMetaImportPickerDrops(logPayload);
+    assert.equal(
+      summary.groups[0]?.summary,
+      "2 creatives have no media on Meta and were skipped: Don Diablo 2026-10-01, Don Diablo -Feed 2026-09-30",
+    );
+    assert.equal(summary.groups[0]?.summary.includes(hex), false);
+    assert.equal(summary.groups[1]?.names[0], hex);
+    assert.equal(logPayload[0]?.name, `Don Diablo 2026-10-01-${hex}`);
+    assert.equal(logPayload[1]?.name, "Don Diablo -Feed 2026-09-30");
   });
 
   it("counts name ad sets, carried and not carried", () => {

@@ -13,7 +13,8 @@ export type MetaImportPickerRow = {
   copies: number;
   defaultTicked: boolean;
   disabled: boolean;
-  unsupportedReason: "no_asset_reported" | null;
+  /** Why a row cannot be carried. Unticked rows stay enabled; the picker counts those separately. */
+  unsupportedReason: "no_asset_reported" | "no_media_reported" | "post_unreachable" | null;
 };
 
 export type MetaImportPickerPayload = {
@@ -60,7 +61,13 @@ export function buildMetaImportPicker(bundle: MetaLiveCampaignBundle): MetaImpor
       copies: copies.get(str(raw.id) ?? id) ?? 0,
       defaultTicked: canCarry,
       disabled: !canCarry,
-      unsupportedReason: canCarry ? null : "no_asset_reported",
+      unsupportedReason: canCarry
+        ? null
+        : existing && "unreachable" in existing
+          ? "post_unreachable"
+          : existing
+            ? "no_media_reported"
+            : "no_asset_reported",
     });
   }
 

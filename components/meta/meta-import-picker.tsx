@@ -8,13 +8,14 @@ import { MetaImportEventSelect } from "@/components/meta/meta-import-event-selec
 import {
   metaImportDraftHref,
   metaImportErrorText,
-  metaImportNotCarriedLine,
+  metaImportPickerDropInput,
   metaImportReadBody,
   metaImportDeselectAll,
   metaImportSaveBlocked,
   metaImportSaveBody,
   metaImportSelectAll,
   metaImportTickedLine,
+  summariseMetaImportPickerDrops,
 } from "@/components/meta/meta-import-flow";
 import { MetaImportReport } from "@/components/meta/meta-import-report";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,58 @@ import {
 import type { MetaImportPickerPayload } from "@/lib/meta/import/picker";
 import type { MetaImportMeta } from "@/lib/meta/import/types";
 import type { MetaAdAccount, MetaCampaignSummary, MetaCampaignsResponse } from "@/lib/types";
+
+function MetaImportDropPanel({
+  rows,
+  ticked,
+}: {
+  rows: MetaImportPickerPayload["rows"];
+  ticked: ReadonlySet<string>;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const summary = summariseMetaImportPickerDrops(metaImportPickerDropInput(rows, ticked));
+  if (!summary.untickedLine && summary.groups.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {summary.untickedLine ? (
+        <p className="text-sm text-muted-foreground">{summary.untickedLine}</p>
+      ) : null}
+      {summary.groups.length > 0 ? (
+        <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          {summary.groups.map((group) => {
+            const expanded = open[group.reason] === true;
+            return (
+              <div key={group.reason}>
+                <p>{group.summary}</p>
+                {group.names.length > 3 ? (
+                  <>
+                    <button
+                      type="button"
+                      className="mt-1 text-xs underline"
+                      aria-expanded={expanded}
+                      onClick={() =>
+                        setOpen((current) => ({ ...current, [group.reason]: !expanded }))
+                      }
+                    >
+                      {expanded ? "Hide" : "Show all"}
+                    </button>
+                    {expanded ? (
+                      <ul className="mt-2 max-h-40 overflow-y-auto">
+                        {group.names.map((name, index) => (
+                          <li key={`${group.reason}:${index}`}>{name}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 type PickerResponse = {
   ok?: boolean;
@@ -202,11 +255,10 @@ export function MetaImportPicker({
 
   const noEventsYet = picker != null && events.length === 0;
   const blocked = metaImportSaveBlocked(ticked.size);
-  const uncarriedRows = picker?.rows.filter((row) => row.disabled) ?? [];
 
   return (
     <Dialog open={open} onClose={onClose} panelClassName="max-w-3xl">
-      <DialogContent>
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden">
         <DialogHeader onClose={onClose}>
           <DialogTitle>Import from Meta</DialogTitle>
           <DialogDescription>
@@ -285,8 +337,8 @@ export function MetaImportPicker({
         )}
 
         {picker && !saved && (
-          <>
-            <div className="flex items-center justify-between gap-3">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               <p className="text-sm">
                 <span className="font-medium">{picker.campaign.name}</span>
                 <span className="text-muted-foreground">
@@ -295,108 +347,96 @@ export function MetaImportPicker({
                   {picker.campaign.objective ? ` · ${picker.campaign.objective}` : ""}
                 </span>
               </p>
-              <Button variant="ghost" size="sm" onClick={() => setPicker(null)}>
-                Back
-              </Button>
-            </div>
 
-            <div className="mt-3">
-              {noEventsYet ? (
-                <p className="mb-2 text-sm text-muted-foreground">{META_IMPORT_NO_EVENTS_YET}</p>
-              ) : null}
-              <MetaImportEventSelect
-                id="meta-import-event"
-                events={events}
-                value={eventId}
-                onChange={setEventId}
-                disabled={saving}
-              />
-            </div>
+              <div className="mt-3">
+                {noEventsYet ? (
+                  <p className="mb-2 text-sm text-muted-foreground">{META_IMPORT_NO_EVENTS_YET}</p>
+                ) : null}
+                <MetaImportEventSelect
+                  id="meta-import-event"
+                  events={events}
+                  value={eventId}
+                  onChange={setEventId}
+                  disabled={saving}
+                />
+              </div>
 
-            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+              {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
-            {uncarriedRows.length > 0 && (
-              <ul className="mt-3 space-y-1 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-                {uncarriedRows.map((row) => (
-                  <li key={row.key}>
-                    {metaImportNotCarriedLine({
-                      id: row.key,
-                      name: row.name,
-                      reason: row.unsupportedReason ?? "no_asset_reported",
-                    })}
-                  </li>
+              <MetaImportDropPanel rows={picker.rows} ticked={ticked} />
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {metaImportTickedLine(ticked, picker.rows)}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={saving}
+                    onClick={() => setTicked(metaImportSelectAll(picker.rows))}
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={saving}
+                    onClick={() => setTicked(metaImportDeselectAll())}
+                  >
+                    Deselect all
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2 pr-1">
+                {picker.rows.map((row) => (
+                  <label
+                    key={row.key}
+                    className={`flex gap-3 rounded-md border border-border p-3 ${row.disabled ? "opacity-60" : ""}`}
+                  >
+                    <Checkbox
+                      id={`meta-import-${row.key}`}
+                      checked={ticked.has(row.key)}
+                      disabled={row.disabled || saving}
+                      onChange={() => {
+                        if (row.disabled) return;
+                        setTicked((current) => {
+                          const next = new Set(current);
+                          if (next.has(row.key)) next.delete(row.key);
+                          else next.add(row.key);
+                          return next;
+                        });
+                      }}
+                    />
+                    {row.thumbnailUrl ? (
+                      // Meta thumbnails are remote and may expire.
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={row.thumbnailUrl} alt="" className="h-14 w-14 shrink-0 rounded object-cover bg-muted" />
+                    ) : (
+                      <div className="h-14 w-14 shrink-0 rounded bg-muted" />
+                    )}
+                    <div className="min-w-0 flex-1 text-sm">
+                      <p className="font-medium">{row.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {[
+                          row.mediaType,
+                          row.copies > 1 ? `${row.copies} copies` : null,
+                          row.disabled ? row.unsupportedReason : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
+                  </label>
                 ))}
-              </ul>
-            )}
-
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <p className="text-sm text-muted-foreground">
-                {metaImportTickedLine(ticked, picker.rows)}
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => setTicked(metaImportSelectAll(picker.rows))}
-                >
-                  Select all
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => setTicked(metaImportDeselectAll())}
-                >
-                  Deselect all
-                </Button>
               </div>
             </div>
 
-            <div className="mt-3 max-h-[28rem] space-y-2 overflow-auto pr-1">
-              {picker.rows.map((row) => (
-                <label
-                  key={row.key}
-                  className={`flex gap-3 rounded-md border border-border p-3 ${row.disabled ? "opacity-60" : ""}`}
-                >
-                  <Checkbox
-                    id={`meta-import-${row.key}`}
-                    checked={ticked.has(row.key)}
-                    disabled={row.disabled || saving}
-                    onChange={() => {
-                      if (row.disabled) return;
-                      setTicked((current) => {
-                        const next = new Set(current);
-                        if (next.has(row.key)) next.delete(row.key);
-                        else next.add(row.key);
-                        return next;
-                      });
-                    }}
-                  />
-                  {row.thumbnailUrl ? (
-                    // Meta thumbnails are remote and may expire.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={row.thumbnailUrl} alt="" className="h-14 w-14 shrink-0 rounded object-cover bg-muted" />
-                  ) : (
-                    <div className="h-14 w-14 shrink-0 rounded bg-muted" />
-                  )}
-                  <div className="min-w-0 flex-1 text-sm">
-                    <p className="font-medium">{row.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {[
-                        row.mediaType,
-                        row.copies > 1 ? `${row.copies} copies` : null,
-                        row.disabled ? row.unsupportedReason : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </div>
-                </label>
-              ))}
-            </div>
-
-            <div className="mt-4 flex justify-end">
+            <div className="sticky bottom-0 z-10 mt-3 flex shrink-0 items-center justify-between gap-3 border-t border-border bg-background pt-3">
+              <Button variant="ghost" size="sm" onClick={() => setPicker(null)}>
+                Back
+              </Button>
               <Button
                 disabled={saving || blocked}
                 onClick={() => void confirmImport()}
@@ -410,7 +450,7 @@ export function MetaImportPicker({
                 )}
               </Button>
             </div>
-          </>
+          </div>
         )}
 
         {saved && (
