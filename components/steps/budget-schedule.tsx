@@ -63,6 +63,11 @@ import {
   type LocationPresetConfig,
 } from "@/lib/meta/location-search";
 import {
+  mapExcludedLocations,
+  mapLocationGroups,
+  patchBudgetSchedule,
+} from "@/lib/wizard/budget-schedule-update";
+import {
   derivedEventEnd,
   scheduleEndInputValue,
   scheduleEndNote,
@@ -280,7 +285,7 @@ interface BudgetScheduleProps {
   adSetSuggestions: AdSetSuggestion[];
   audiences: AudienceSettings;
   settings: CampaignSettings;
-  onBudgetChange: (bs: BudgetScheduleSettings) => void;
+  onBudgetChange: (update: (prev: BudgetScheduleSettings) => BudgetScheduleSettings) => void;
   onSuggestionsChange: (suggestions: AdSetSuggestion[]) => void;
   onSettingsChange: (settings: CampaignSettings) => void;
 }
@@ -295,9 +300,9 @@ function LocationPicker({
   adSetSuggestions,
 }: {
   groups: LocationTargetingGroup[];
-  onChange: (groups: LocationTargetingGroup[]) => void;
+  onChange: (update: (groups: LocationTargetingGroup[]) => LocationTargetingGroup[]) => void;
   exclusions: LocationSelection[];
-  onExclusionsChange: (exclusions: LocationSelection[]) => void;
+  onExclusionsChange: (update: (excluded: LocationSelection[]) => LocationSelection[]) => void;
   adSetSuggestions: AdSetSuggestion[];
 }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -316,7 +321,7 @@ function LocationPicker({
     const selection = searchResultToSelection(result, addMode, addRadius);
     if (!selection) return;
     if (addMode === "exclude") {
-      onExclusionsChange([...exclusions, selection]);
+      onExclusionsChange((prev) => [...prev, selection]);
       setSearchQuery("");
       locationSearch.clear();
       return;
@@ -327,7 +332,7 @@ function LocationPicker({
       source: "manual",
       selections: [selection],
     };
-    onChange([...groups, newGroup]);
+    onChange((prev) => [...prev, newGroup]);
     setSearchQuery("");
     locationSearch.clear();
   };
@@ -335,7 +340,7 @@ function LocationPicker({
   const togglePreset = useCallback(async (config: LocationPresetConfig) => {
     const existing = groups.find((g) => g.id === config.id);
     if (existing) {
-      onChange(groups.filter((g) => g.id !== config.id));
+      onChange((prev) => prev.filter((g) => g.id !== config.id));
       return;
     }
 
@@ -348,7 +353,7 @@ function LocationPicker({
         return;
       }
       console.log(`[LocationPicker] Preset "${config.short}" resolved:`, JSON.stringify(resolved, null, 2));
-      onChange([...groups, resolved]);
+      onChange((prev) => (prev.some((g) => g.id === resolved.id) ? prev : [...prev, resolved]));
     } catch (err) {
       setPresetError(`Failed to resolve preset: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -357,12 +362,13 @@ function LocationPicker({
   }, [groups, onChange]);
 
   const removeGroup = (id: string) => {
-    const next = groups.filter((g) => g.id !== id);
-    onChange(next);
+    onChange((prev) => prev.filter((g) => g.id !== id));
   };
 
   const setTier = (id: string, tier: LocationTier) =>
-    onChange(groups.map((g) => (g.id === id ? withGroupTier(g, groupTier(g) === tier ? undefined : tier) : g)));
+    onChange((prev) =>
+      prev.map((g) => (g.id === id ? withGroupTier(g, groupTier(g) === tier ? undefined : tier) : g)),
+    );
 
   const enabledAdSets = adSetSuggestions.filter((s) => s.enabled);
   const exclusionUseCount = (id: string) =>
@@ -597,7 +603,7 @@ function LocationPicker({
                     </span>
                     <button
                       type="button"
-                      onClick={() => onExclusionsChange(exclusions.filter((e) => e.id !== sel.id))}
+                      onClick={() => onExclusionsChange((prev) => prev.filter((e) => e.id !== sel.id))}
                       className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       title="Remove from the exclusion pool"
                     >
@@ -1133,7 +1139,7 @@ export function BudgetSchedule({
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateBs = (patch: Partial<BudgetScheduleSettings>) =>
-    onBudgetChange({ ...bs, ...patch });
+    onBudgetChange((prev) => patchBudgetSchedule(prev, patch));
 
   const updateSuggestion = (id: string, patch: Partial<AdSetSuggestion>) =>
     onSuggestionsChange(adSetSuggestions.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -1141,9 +1147,11 @@ export function BudgetSchedule({
   const locationGroups = useMemo(() => bs.locationGroups ?? [], [bs.locationGroups]);
   const exclusionPool = useMemo(() => bs.excludedLocations ?? [], [bs.excludedLocations]);
 
-  const handleLocationGroupsChange = (groups: LocationTargetingGroup[]) => {
-    onBudgetChange({ ...bs, locationGroups: groups });
-    const next = followLocationTiers(adSetSuggestions, groups);
+  const handleLocationGroupsChange = (
+    update: (groups: LocationTargetingGroup[]) => LocationTargetingGroup[],
+  ) => {
+    onBudgetChange((prev) => mapLocationGroups(prev, update));
+    const next = followLocationTiers(adSetSuggestions, update(locationGroups));
     if (next.some((s, i) => s !== adSetSuggestions[i])) onSuggestionsChange(next);
   };
 
@@ -1487,7 +1495,9 @@ export function BudgetSchedule({
             groups={locationGroups}
             onChange={handleLocationGroupsChange}
             exclusions={exclusionPool}
-            onExclusionsChange={(excludedLocations) => onBudgetChange({ ...bs, excludedLocations })}
+            onExclusionsChange={(update) =>
+              onBudgetChange((prev) => mapExcludedLocations(prev, update))
+            }
             adSetSuggestions={adSetSuggestions}
           />
         </div>

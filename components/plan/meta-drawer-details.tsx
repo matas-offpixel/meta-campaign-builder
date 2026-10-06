@@ -44,7 +44,7 @@ export function MetaDrawerDetails({
   draft: CampaignDraft;
   onSettingsChange: (settings: CampaignSettings) => void;
   onApplyDraft?: (updater: (draft: CampaignDraft) => CampaignDraft) => void;
-  onBudgetChange?: (budgetSchedule: BudgetScheduleSettings) => void;
+  onBudgetChange?: (update: (prev: BudgetScheduleSettings) => BudgetScheduleSettings) => void;
   onStrategyChange?: (strategy: OptimisationStrategySettings) => void;
   /**
    * False in an attach mode, where campaign-setup renders in the `⊞` tab

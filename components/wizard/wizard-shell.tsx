@@ -38,6 +38,7 @@ import {
   useWizardEventContext,
 } from "@/lib/wizard/use-event-context";
 import { derivePlanName } from "@/lib/plan/plan-name";
+import { patchBudgetSchedule } from "@/lib/wizard/budget-schedule-update";
 import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
 
@@ -685,14 +686,10 @@ function EventDefaultsApplier({ updateDraft }: DefaultsApplierProps) {
       // tz), end = event_date end-of-day. The Input is type
       // datetime-local so the value must be a 16-char local string
       // ("YYYY-MM-DDThh:mm"); UTC ISO breaks the picker.
-      const bs = next.budgetSchedule
-        ? { ...next.budgetSchedule }
-        : null;
-      if (bs) {
-        if (!bs.startDate) {
-          bs.startDate = formatLocalDateTime(new Date(), { hour: 0, minute: 0 });
-        }
-        next.budgetSchedule = bs;
+      if (next.budgetSchedule && !next.budgetSchedule.startDate) {
+        next.budgetSchedule = patchBudgetSchedule(next.budgetSchedule, {
+          startDate: formatLocalDateTime(new Date(), { hour: 0, minute: 0 }),
+        });
       }
 
       appliedRef.current = true;

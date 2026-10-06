@@ -14,7 +14,7 @@ import type { EventWithClient } from "@/lib/db/events";
 import type { ClientRow } from "@/lib/db/clients";
 import { useFetchEvents, type EventPickerRow } from "@/lib/hooks/useEvents";
 import type { CampaignDraft } from "@/lib/types";
-import { applyEventEndDate, derivedEventEnd } from "@/lib/wizard/event-end-date";
+import { applyEventEndToDraft, derivedEventEnd } from "@/lib/wizard/event-end-date";
 
 /**
  * lib/wizard/use-event-context.tsx
@@ -210,36 +210,18 @@ export function EventEndDateSync({
     const shouldFill = !stored.trim() && source !== "operator" && Boolean(derived);
     if (!eventMoved && !derivedMissing && !shouldFill) return;
     const previousEventDate = previous && previous.id !== draftEventId ? previous.date : null;
-    const synced = applyEventEndDate({
-      endDate: stored,
-      endDateSource: source,
+    const synced = applyEventEndToDraft(draft, {
       previousEventDate,
       nextEventDate: nextDate,
     });
     prev.current = { id: draftEventId, date: nextDate };
-    if (synced.endDate === stored && synced.endDateSource === source) return;
-    updateDraft((latest) => {
-      const again = applyEventEndDate({
-        endDate: latest.budgetSchedule.endDate,
-        endDateSource: latest.budgetSchedule.endDateSource,
+    if (synced === draft) return;
+    updateDraft((latest) =>
+      applyEventEndToDraft(latest, {
         previousEventDate,
         nextEventDate: nextDate,
-      });
-      if (
-        again.endDate === (latest.budgetSchedule.endDate ?? "") &&
-        again.endDateSource === latest.budgetSchedule.endDateSource
-      ) {
-        return latest;
-      }
-      return {
-        ...latest,
-        budgetSchedule: {
-          ...latest.budgetSchedule,
-          endDate: again.endDate,
-          ...(again.endDateSource ? { endDateSource: again.endDateSource } : {}),
-        },
-      };
-    });
+      }),
+    );
   }, [followsDraft, draftEventId, selectedEvent, draft, updateDraft]);
 
   return null;
