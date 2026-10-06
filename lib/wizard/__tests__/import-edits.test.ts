@@ -13,10 +13,12 @@ import { buildMetaImportPicker, defaultMetaImportCarry } from "../../meta/import
 import type { MetaImportRecordedCall, MetaLiveCampaignBundle } from "../../meta/import/types.ts";
 import { duplicateAdSetSuggestion } from "../adset-suggestions.ts";
 import { generateSuggestions } from "../generate-adset-suggestions.ts";
+import { withGroupTier } from "../../meta/location-targeting.ts";
 import {
   IMPORT_OBJECTIVE_NEW_CAMPAIGN_NOTICE,
   importedAccountProblem,
   isAbsoluteHttpUrl,
+  mergeGeneratedWithImported,
   objectivePixelProblem,
   setEveryCreativeDestinationUrl,
 } from "../import-edits.ts";
@@ -76,6 +78,22 @@ async function importedDraft(): Promise<CampaignDraft> {
   return migrateDraft(JSON.parse(JSON.stringify(mapped)));
 }
 
+function city(id: string, label: string, key: string): LocationTargetingGroup {
+  return {
+    id,
+    label,
+    source: "manual",
+    selections: [
+      { id: `sel_${id}`, source: "search", label, mode: "include", locationType: "city", locationKey: key, radius: 40, distanceUnit: "kilometer", countryCode: "GB" },
+    ],
+  };
+}
+
+const TIERS: LocationTargetingGroup[] = [
+  withGroupTier(city("grp_london", "London (+40 km)", "2421178"), "primary"),
+  withGroupTier(city("grp_manchester", "Manchester (+40 km)", "333"), "secondary"),
+];
+
 const FALLBACK: LocationTargetingGroup = {
   id: "preset_gb_nationwide",
   label: "UK (nationwide)",
@@ -84,6 +102,21 @@ const FALLBACK: LocationTargetingGroup = {
     { id: "gb", source: "preset", label: "United Kingdom", mode: "include", locationType: "country", countryCode: "GB" },
   ],
 };
+
+function snapshot(draft: CampaignDraft) {
+  return draft.adSetSuggestions.map((s) => ({
+    id: s.id,
+    name: s.name,
+    importedFromAdSetId: s.importedFromAdSetId,
+    geoLocations: s.geoLocations,
+    locationLabel: s.locationLabel,
+    locationTier: s.locationTier,
+    excludedLocationIds: s.excludedLocationIds,
+    budgetPerDay: s.budgetPerDay,
+    sourceType: s.sourceType,
+    sourceId: s.sourceId,
+  }));
+}
 
 describe("§0 imported ad sets carry their source ad set id", () => {
   it("every mapped row carries the id it was read from; a manual row does not", async () => {
@@ -131,25 +164,46 @@ describe("§0 imported ad sets carry their source ad set id", () => {
 });
 
 describe("§1 adding audiences leaves imported rows alone", () => {
-  it("the Audiences step writes audiences and never Step 5", () => {
-    const step = src("components/steps/audiences/audiences-step.tsx");
-    assert.match(step, /onChange: \(audiences: AudienceSettings\) => void/);
-    assert.doesNotMatch(step, /onSuggestionsChange/);
-    const shell = src("components/wizard/wizard-shell.tsx");
-    const block = shell.slice(shell.indexOf("<AudiencesStep"), shell.indexOf("<Creatives"));
-    assert.match(block, /onChange=\{updateAudiences\}/);
-    assert.doesNotMatch(block, /updateAdSetSuggestions/);
-    const doctrine = src("lib/wizard/import-edits.ts");
-    assert.match(doctrine, /never touches/);
-    assert.match(doctrine, /replaces every row/);
+  it("Generate after adding an audience keeps every imported row's geo, budget and id", async () => {
+    const draft = await importedDraft();
+    const before = snapshot(draft);
+    const assignmentKeys = Object.keys(draft.creativeAssignments ?? {}).sort();
+
+    const audiences = {
+      ...draft.audiences,
+      customAudienceGroups: [
+        ...draft.audiences.customAudienceGroups,
+        { id: "onsale_buyers", name: "On-sale buyers", audienceIds: ["999"] },
+      ],
+    };
+    const generated = generateSuggestions(audiences, 500, TIERS, FALLBACK);
+    const next = mergeGeneratedWithImported(draft.adSetSuggestions, generated, audiences).suggestions;
+
+    const kept = next.filter((s) => s.importedFromAdSetId);
+    assert.deepEqual(snapshot({ ...draft, adSetSuggestions: kept }), before);
+
+    const added = next.filter((s) => !s.importedFromAdSetId);
+    assert.ok(added.length > 0, "the new audience gets rows");
+    assert.ok(added.every((s) => s.sourceId === "onsale_buyers"), JSON.stringify(added.map((s) => s.sourceId)));
+
+    for (const key of assignmentKeys) {
+      assert.ok(next.some((s) => s.id === key), `assignment ${key} still points at a row`);
+    }
   });
 
-  it("Generate replaces the suggestion list instead of keeping imported rows", () => {
-    const budget = src("components/steps/budget-schedule.tsx");
-    assert.doesNotMatch(budget, /mergeGeneratedWithImported/);
+  it("tier generation over imported rows does not rename or regroup them", async () => {
+    const draft = await importedDraft();
+    const before = snapshot(draft);
+    const generated = generateSuggestions(draft.audiences, 500, TIERS, FALLBACK);
+    assert.ok(generated.some((s) => s.locationTier), "generation did tier");
+    const next = mergeGeneratedWithImported(draft.adSetSuggestions, generated, draft.audiences).suggestions;
+    assert.deepEqual(snapshot({ ...draft, adSetSuggestions: next }), before);
+  });
+
+  it("Step 5 Generate goes through the merge", () => {
     assert.match(
-      budget,
-      /applyWithUndo\(generateRebuiltNotice\(next\.length, adSetSuggestions\.length\), next\)/,
+      src("components/steps/budget-schedule.tsx"),
+      /mergeGeneratedWithImported\(adSetSuggestions, generated, audiences\)/,
     );
   });
 

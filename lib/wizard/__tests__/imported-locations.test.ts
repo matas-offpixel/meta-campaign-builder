@@ -9,6 +9,7 @@ import type { MetaImportMeta } from "../../meta/import/types.ts";
 import { validateStep } from "../../validation.ts";
 import { applyEventEndDate } from "../event-end-date.ts";
 import { generateSuggestions } from "../generate-adset-suggestions.ts";
+import { mergeGeneratedWithImported } from "../import-edits.ts";
 import { commitAccountSwitch } from "../account-switch.ts";
 import type {
   AdSetSuggestion,
@@ -73,8 +74,8 @@ function interest(id: string): InterestGroup {
   };
 }
 
-describe("Generate rebuilds from the current audiences", () => {
-  it("includes an uncreated page group and drops the imported rows", () => {
+describe("Generate appends an uncreated page group", () => {
+  it("appends one as_pg row for a page group launch has not created yet", () => {
     const interestIds = ["ig1", "ig2", "ig3", "ig4", "ig5", "ig6"];
     const imported = [
       ...interestIds.map((id, i) =>
@@ -112,14 +113,30 @@ describe("Generate rebuilds from the current audiences", () => {
     draft.audiences.interestGroups = interestIds.map(interest);
     draft.adSetSuggestions = imported;
 
+    const before = imported.map((adSet) => ({
+      id: adSet.id,
+      locationGroupIds: adSet.locationGroupIds,
+      budgetPerDay: adSet.budgetPerDay,
+      enabled: adSet.enabled,
+    }));
     const generated = generateSuggestions(draft.audiences, 100, [], FALLBACK);
-    const pageRow = generated.find((adSet) => adSet.id === `as_pg_${PAGE_ID}`);
-    assert.ok(pageRow);
-    assert.equal(pageRow.enabled, true);
-    assert.deepEqual(pageRow.geoLocations, groupToGeo(FALLBACK));
-    assert.equal(generated.filter((adSet) => adSet.sourceType === "interest_group").length, 6);
-    assert.equal(generated.some((adSet) => adSet.importedFromAdSetId), false);
-    assert.equal(generated.some((adSet) => imported.some((row) => row.id === adSet.id)), false);
+    const merged = mergeGeneratedWithImported(imported, generated, draft.audiences).suggestions;
+
+    assert.equal(merged.length, 23);
+    const added = merged.filter((adSet) => !adSet.importedFromAdSetId);
+    assert.deepEqual(added.map((adSet) => adSet.id), [`as_pg_${PAGE_ID}`]);
+    assert.equal(added[0]!.enabled, true);
+    assert.deepEqual(added[0]!.geoLocations, groupToGeo(FALLBACK));
+    assert.equal(merged.some((adSet) => adSet.id.startsWith("as_ig_")), false);
+    assert.deepEqual(
+      merged.filter((adSet) => adSet.importedFromAdSetId).map((adSet) => ({
+        id: adSet.id,
+        locationGroupIds: adSet.locationGroupIds,
+        budgetPerDay: adSet.budgetPerDay,
+        enabled: adSet.enabled,
+      })),
+      before,
+    );
   });
 });
 

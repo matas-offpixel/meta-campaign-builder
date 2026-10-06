@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 
 import { migrateDraft } from "../../../autosave.ts";
 import { generateSuggestions } from "../../../wizard/generate-adset-suggestions.ts";
+import { mergeGeneratedWithImported } from "../../../wizard/import-edits.ts";
 import { buildMetaTargeting } from "../../adset.ts";
 import { mapMetaLiveCampaign } from "../map.ts";
 import {
@@ -202,7 +203,12 @@ describe("DHB audiences stay as the ad set targeted them", () => {
     assert.ok(locations[0]);
     const generated = generateSuggestions(draft.audiences, 500, locations, locations[0]);
     assert.equal(generated.some((row) => row.sourceType === "page_group"), false);
-    assert.equal(generated.some((row) => row.importedFromAdSetId), false);
+    const merged = mergeGeneratedWithImported(draft.adSetSuggestions, generated, draft.audiences).suggestions;
+    assert.equal(
+      merged.filter((row) => row.importedFromAdSetId).length,
+      bundle.adSets.length,
+    );
+    assert.equal(merged.some((row) => row.sourceType === "page_group"), false);
   });
 
   it("DHB Primary – USA holds ten ids once each, four pairs sharing a name", async () => {

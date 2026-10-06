@@ -63,14 +63,11 @@ export function importedAdSetsDefineAudience(
   return draft.adSetSuggestions.some((adSet) => importedAdSetCarriesTargeting(adSet, draft));
 }
 
-export const AUDIENCE_REMOVED_SUBTITLE = "audience removed";
+function audienceKey(adSet: AdSetSuggestion): string {
+  return `${adSet.sourceType}:${adSet.sourceId}`;
+}
 
-/**
- * Imported rows stay as they are when the operator adds an audience on
- * the Audiences step. That step writes `draft.audiences` and never touches
- * Step 5. Generate is the only action that rebuilds the ad set list, and
- * it replaces every row — imported, blank, and operator-edited.
- */
+export const AUDIENCE_REMOVED_SUBTITLE = "audience removed";
 
 function rangeStillSelected(
   ranges: readonly LookalikeRange[] | undefined,
@@ -142,133 +139,29 @@ export function skippedAudienceReviewLine(count: number): string {
   return `${count} ${noun} skipped — audience no longer on draft`;
 }
 
-export function generateRebuiltNotice(nextCount: number, previousCount: number): string {
-  const noun = nextCount === 1 ? "ad set" : "ad sets";
-  return `Generate rebuilt ${nextCount} ${noun} from the current audiences. Undo to restore the previous ${previousCount}.`;
-}
-
-export function generateReplaceImportedConfirm(importedCount: number): string {
-  const noun = importedCount === 1 ? "ad set" : "ad sets";
-  return `Generate replaces the ${importedCount} imported ${noun} with rows built from the current audiences. Undo is available for 5 seconds.`;
-}
-
-/** The first Generate on a draft that still has imported rows asks once. */
-export function generateNeedsImportedConfirm(
-  adSets: readonly AdSetSuggestion[],
-  confirmed: boolean | undefined,
-): boolean {
-  if (confirmed) return false;
-  return adSets.some((adSet) => Boolean(adSet.importedFromAdSetId));
-}
-
-/** Daily figures from `generateSuggestions` become the lifetime share. */
-export function withLifetimeAdSetBudgets(rows: readonly AdSetSuggestion[]): AdSetSuggestion[] {
-  return rows.map((row) => ({ ...row, budgetLifetime: row.budgetPerDay, budgetPerDay: 0 }));
-}
-
-const RANGE_LABELS: Record<LookalikeRange, string> = {
-  "0-1%": "1%",
-  "1-2%": "2%",
-  "2-3%": "3%",
-};
-
-const LOOKALIKE_RANGES: readonly LookalikeRange[] = ["0-1%", "1-2%", "2-3%"];
-
-function lookalikeRangeOf(adSet: AdSetSuggestion): LookalikeRange | undefined {
-  if (adSet.lookalikeRange) return adSet.lookalikeRange;
-  if (
-    adSet.sourceType !== "lookalike_group" &&
-    adSet.sourceType !== "custom_group_lookalike" &&
-    adSet.sourceType !== "selected_pages_lookalike"
-  ) {
-    return undefined;
-  }
-  return LOOKALIKE_RANGES.find((range) => adSet.id.includes(`_${range}`));
+export function generateRemovedNotice(count: number): string {
+  const noun = count === 1 ? "ad set" : "ad sets";
+  return `Generate removed ${count} ${noun} whose audiences are no longer on this draft.`;
 }
 
 /**
- * The group's current name, plus the lookalike percentage when this row
- * is one range of that group. Null when the row has no group (blank) or
- * the group is gone.
+ * Generate makes the suggestion list match the audiences on the draft.
+ * A row whose source group is gone is dropped, imported or not. A row whose
+ * group is still there is kept as it is. A group with no row gets one
+ * generated row. Blank rows stay.
  */
-function currentGroupLabel(
-  adSet: AdSetSuggestion,
+export function mergeGeneratedWithImported(
+  existing: readonly AdSetSuggestion[],
+  generated: readonly AdSetSuggestion[],
   audiences: AudienceSettings,
-): { name: string; detail: string } | null {
-  const range = lookalikeRangeOf(adSet);
-  const pct = range ? RANGE_LABELS[range] : "";
-  switch (adSet.sourceType) {
-    case "page_group": {
-      const group = audiences.pageGroups.find((row) => row.id === adSet.sourceId);
-      if (!group) return null;
-      const name = group.name || "Page Group";
-      return { name, detail: `${name} (${group.pageIds.length} pages)` };
-    }
-    case "lookalike_group": {
-      const group = audiences.pageGroups.find((row) => row.id === adSet.sourceId);
-      if (!group) return null;
-      const name = group.name || "Page Group";
-      return {
-        name: pct ? `${name} — ${pct} Lookalike` : name,
-        detail: pct ? `${name} ${pct} Lookalike` : name,
-      };
-    }
-    case "custom_group": {
-      const group = audiences.customAudienceGroups.find((row) => row.id === adSet.sourceId);
-      if (!group) return null;
-      const name = group.name || "Custom Audiences";
-      return { name, detail: `${name} (${group.audienceIds.length} audiences)` };
-    }
-    case "custom_group_lookalike": {
-      const group = audiences.customAudienceGroups.find((row) => row.id === adSet.sourceId);
-      if (!group) return null;
-      const name = group.name || "Custom Audiences";
-      return {
-        name: pct ? `${name} — ${pct} Lookalike` : name,
-        detail: pct ? `${name} ${pct} Lookalike` : name,
-      };
-    }
-    case "interest_group": {
-      const group = audiences.interestGroups.find((row) => row.id === adSet.sourceId);
-      if (!group) return null;
-      const name = group.name || "Interest Group";
-      return { name, detail: `${name} (${group.interests.length} interests)` };
-    }
-    case "selected_pages_lookalike": {
-      const group = (audiences.selectedPagesLookalikeGroups ?? []).find((row) => row.id === adSet.sourceId);
-      if (!group) return null;
-      const name = group.name || "Selected Pages";
-      return {
-        name: pct ? `${name} — ${pct} Lookalike` : name,
-        detail: pct ? `${name} (${group.selectedPageIds.length} pages, ${pct})` : name,
-      };
-    }
-    default:
-      return null;
-  }
-}
-
-function withTierSuffix(name: string, adSet: AdSetSuggestion): string {
-  if (adSet.locationTier === "primary") return `${name} — Primary`;
-  if (adSet.locationTier === "secondary") return `${name} — Secondary`;
-  return name;
-}
-
-/**
- * Step 5 shows the source group's current name. An operator-typed name
- * stays. The stored `name` is not rewritten here — launch sends that.
- */
-export function adSetDisplayName(adSet: AdSetSuggestion, audiences: AudienceSettings): string {
-  if (adSet.nameSource === "operator") return adSet.name;
-  const group = currentGroupLabel(adSet, audiences);
-  if (!group) return adSet.name;
-  return withTierSuffix(group.name, adSet);
-}
-
-/** The muted line under the name. A missing audience stays "audience removed". */
-export function adSetDisplaySubtitle(adSet: AdSetSuggestion, audiences: AudienceSettings): string {
-  if (adSetAudienceRemoved(adSet, audiences)) return AUDIENCE_REMOVED_SUBTITLE;
-  return currentGroupLabel(adSet, audiences)?.detail ?? adSet.sourceName;
+): { suggestions: AdSetSuggestion[]; removed: number } {
+  const kept = existing.filter((adSet) => adSetSourceExists(adSet, audiences));
+  const covered = new Set(kept.filter((adSet) => adSet.sourceId).map(audienceKey));
+  const taken = new Set(kept.map((adSet) => adSet.id));
+  const added = generated.filter(
+    (adSet) => !(adSet.sourceId && covered.has(audienceKey(adSet))) && !taken.has(adSet.id),
+  );
+  return { suggestions: [...kept, ...added], removed: existing.length - kept.length };
 }
 
 /**

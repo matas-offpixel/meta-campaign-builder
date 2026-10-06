@@ -24,6 +24,4 @@ Generate Suggestions now drops ad set rows whose source audience is no longer on
 
 ## Notes
 
-Superseded for Generate: keeping a row because its group id still resolved left a renamed group on the imported name, budget and locations. Generate now replaces every row. The stale-row state below still covers a deleted group when the operator does not click Generate.
-
 On draft `[I26-NYC] Registration` the live mix is 11 custom rows with no group, 6 interest rows, 4 blanks, and an existing Innellea page row. Generate removes 11 and appends nothing. The synthetic test uses the written 15-custom contract. The production row was not written; the screenshot used a clone that was deleted.

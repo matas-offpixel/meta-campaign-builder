@@ -127,7 +127,6 @@ export function MetaDrawer({
     handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
-    markGenerateReplaceImportedConfirmed,
     updateCreativeAssignments,
     updateOptimisationStrategy,
     autosave,
@@ -355,7 +354,6 @@ export function MetaDrawer({
               showRows={mode === "new" || mode === "attach_campaign"}
               onBudgetChange={updateBudgetSchedule}
               onSuggestionsChange={updateAdSetSuggestions}
-              onGenerateReplaceImportedConfirmed={markGenerateReplaceImportedConfirmed}
               onSettingsChange={updateSettings}
               onAssignmentsChange={updateCreativeAssignments}
               planId={planId}
@@ -454,7 +452,6 @@ function AdSetsTab({
   showRows,
   onBudgetChange,
   onSuggestionsChange,
-  onGenerateReplaceImportedConfirmed,
   onSettingsChange,
   onAssignmentsChange,
   planId,
@@ -469,7 +466,6 @@ function AdSetsTab({
   showRows: boolean;
   onBudgetChange: DraftController["updateBudgetSchedule"];
   onSuggestionsChange: DraftController["updateAdSetSuggestions"];
-  onGenerateReplaceImportedConfirmed: DraftController["markGenerateReplaceImportedConfirmed"];
   onSettingsChange: DraftController["updateSettings"];
   onAssignmentsChange: DraftController["updateCreativeAssignments"];
   planId: string | null;
@@ -512,8 +508,6 @@ function AdSetsTab({
           onBudgetChange={onBudgetChange}
           onSuggestionsChange={onSuggestionsChange}
           onSettingsChange={onSettingsChange}
-          generateReplaceImportedConfirmed={draft.generateReplaceImportedConfirmed}
-          onGenerateReplaceImportedConfirmed={onGenerateReplaceImportedConfirmed}
         />
       ) : null}
       {showAssign ? (

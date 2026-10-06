@@ -12,7 +12,7 @@ The three edits the importer exists for (Matas, 23 Sept): move an imported
 campaign from signup to on-sale by adding audiences, changing the objective,
 and changing URLs. Every imported ad set now carries the id of the live ad
 set it was read from and shows a quiet `imported · {id}` mark in Step 5.
-Adding an audience on the Audiences step never writes Step 5, so imported rows stay as they are until the operator clicks Generate. Generate itself replaces the whole list (the earlier "Generate keeps imported rows" rule was removed). An
+Generate adds rows for new audiences without touching imported rows. An
 account change after import blocks. An objective that needs a conversion
 event blocks when no pixel is configured. A "set every creative" URL control
 patches imported creatives. The importer and these edits still write nothing
@@ -24,7 +24,7 @@ to Meta; launch creates a new campaign.
 - `lib/meta/import/map.ts`: the only mapper change, which stamps `importedFromAdSetId: id`.
 - `lib/wizard/adset-suggestions.ts`: a duplicated row drops the mark.
 - `lib/wizard/import-edits.ts` (new) contains:
-  - `mergeGeneratedWithImported` (removed; Generate replaces the list)
+  - `mergeGeneratedWithImported`
   - `importedAccountProblem`
   - `objectivePixelProblem`, which calls `resolveOptimisationGoal` and `buildPromotedObject`
   - `setEveryCreativeDestinationUrl`

@@ -87,15 +87,12 @@ import {
 } from "@/lib/meta/location-targeting";
 import { generateSuggestions } from "@/lib/wizard/generate-adset-suggestions";
 import {
+  AUDIENCE_REMOVED_SUBTITLE,
   IMPORTED_AD_SET_BADGE,
   adSetAudienceRemoved,
-  adSetDisplayName,
-  adSetDisplaySubtitle,
-  generateNeedsImportedConfirm,
-  generateRebuiltNotice,
-  generateReplaceImportedConfirm,
+  generateRemovedNotice,
   importedAdSetTitle,
-  withLifetimeAdSetBudgets,
+  mergeGeneratedWithImported,
 } from "@/lib/wizard/import-edits";
 import {
   createBlankAdSetSuggestion,
@@ -294,9 +291,6 @@ interface BudgetScheduleProps {
   onBudgetChange: (update: (prev: BudgetScheduleSettings) => BudgetScheduleSettings) => void;
   onSuggestionsChange: (suggestions: AdSetSuggestion[]) => void;
   onSettingsChange: (settings: CampaignSettings) => void;
-  /** Set once the operator has confirmed Generate replaces imported rows. */
-  generateReplaceImportedConfirmed?: boolean;
-  onGenerateReplaceImportedConfirmed?: () => void;
 }
 
 // ─── Location Picker Component ───────────────────────────────────────────────
@@ -1140,8 +1134,6 @@ export function BudgetSchedule({
   onBudgetChange,
   onSuggestionsChange,
   onSettingsChange,
-  generateReplaceImportedConfirmed,
-  onGenerateReplaceImportedConfirmed,
 }: BudgetScheduleProps) {
   const [expandedPlacementAdSetId, setExpandedPlacementAdSetId] = useState<string | null>(null);
   const [ageModalOpen, setAgeModalOpen] = useState(false);
@@ -1167,14 +1159,22 @@ export function BudgetSchedule({
   };
 
   const handleGenerate = () => {
-    if (generateNeedsImportedConfirm(adSetSuggestions, generateReplaceImportedConfirmed)) {
-      const importedCount = adSetSuggestions.filter((row) => row.importedFromAdSetId).length;
-      if (!window.confirm(generateReplaceImportedConfirm(importedCount))) return;
-      onGenerateReplaceImportedConfirmed?.();
-    }
     const generated = generateSuggestions(audiences, bs.budgetAmount, locationGroups, FALLBACK_UK_NATIONWIDE);
-    const next = bs.budgetType === "lifetime" ? withLifetimeAdSetBudgets(generated) : generated;
-    applyWithUndo(generateRebuiltNotice(next.length, adSetSuggestions.length), next);
+    const merged = mergeGeneratedWithImported(adSetSuggestions, generated, audiences);
+    const generatedIds = new Set(generated.map((row) => row.id));
+    const next =
+      bs.budgetType === "lifetime"
+        ? merged.suggestions.map((row) =>
+            generatedIds.has(row.id)
+              ? { ...row, budgetLifetime: row.budgetPerDay, budgetPerDay: 0 }
+              : row,
+          )
+        : merged.suggestions;
+    if (merged.removed > 0) {
+      applyWithUndo(generateRemovedNotice(merged.removed), next);
+      return;
+    }
+    onSuggestionsChange(next);
   };
 
   const distributeBudget = () => {
@@ -1754,15 +1754,12 @@ export function BudgetSchedule({
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            value={adSetDisplayName(s, audiences)}
+                            value={s.name}
                             onChange={(e) =>
-                              updateSuggestion(s.id, {
-                                name: e.target.value.slice(0, MAX_ADSET_NAME_LENGTH),
-                                nameSource: "operator",
-                              })
+                              updateSuggestion(s.id, { name: e.target.value.slice(0, MAX_ADSET_NAME_LENGTH) })
                             }
                             maxLength={MAX_ADSET_NAME_LENGTH}
-                            title={adSetDisplayName(s, audiences) || "Click to rename this ad set"}
+                            title={s.name || "Click to rename this ad set"}
                             placeholder="Ad set name"
                             className={ADSET_ROW_NAME_INPUT_CLASS}
                           />
@@ -1779,7 +1776,7 @@ export function BudgetSchedule({
                           ) : null}
                         </div>
                         <span className="text-xs text-muted-foreground truncate block">
-                          {adSetDisplaySubtitle(s, audiences)}
+                          {audienceRemoved ? AUDIENCE_REMOVED_SUBTITLE : s.sourceName}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">

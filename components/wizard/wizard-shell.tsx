@@ -69,7 +69,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
     handlePageInstagramOverride,
     updateBudgetSchedule,
     updateAdSetSuggestions,
-    markGenerateReplaceImportedConfirmed,
     updateOptimisationStrategy,
     updateCreativeAssignments,
   } = draftController;
@@ -492,8 +491,6 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
             onBudgetChange={updateBudgetSchedule}
             onSuggestionsChange={updateAdSetSuggestions}
             onSettingsChange={updateSettings}
-            generateReplaceImportedConfirmed={draft.generateReplaceImportedConfirmed}
-            onGenerateReplaceImportedConfirmed={markGenerateReplaceImportedConfirmed}
           />
         )}
         {step === 6 && (() => {
