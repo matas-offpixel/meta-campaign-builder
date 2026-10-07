@@ -315,7 +315,7 @@ describe("upsertCreativeScore", () => {
     assert.equal(row.score, 83);
     assert.equal(rec.table, "creative_scores");
     assert.deepEqual(rec.upsertOpts[0], {
-      onConflict: "event_id,creative_name,axis,fetched_at",
+      onConflict: "event_id,creative_name,axis",
     });
     assert.deepEqual(rec.upserts[0], {
       user_id: USER_ID,

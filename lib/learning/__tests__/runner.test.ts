@@ -137,4 +137,21 @@ describe("migration 186", () => {
     assert.doesNotMatch(sql, /alter column evidence|drop column/);
     assert.match(sql, /notify pgrst, 'reload schema'/);
   });
+
+  it("creative_scores: the fetched_at key is dropped for one row per (event_id, creative_name, axis), duplicates collapsed first", () => {
+    const dedupe = sql.indexOf("delete from creative_scores");
+    const drop = sql.indexOf("drop constraint if exists creative_scores_event_id_creative_name_axis_fetched_at_key");
+    const add = sql.indexOf("add constraint creative_scores_event_creative_axis_key unique (event_id, creative_name, axis)");
+    assert.ok(dedupe > 0 && drop > dedupe && add > drop, "dedupe → drop → add");
+    assert.match(sql, /\(newer\.fetched_at, newer\.id\) > \(s\.fetched_at, s\.id\)/);
+  });
+
+  it("catalog comments match the code: pooled baseline, results floor, updated_at trigger", () => {
+    const comment = (column: string) =>
+      sql.match(new RegExp(`comment on column ${column.replace(/[."]/g, "\\$&")} is\\s+'((?:[^']|'')*)'`))?.[1] ?? "";
+    assert.match(comment("tag_performance.baseline_cpr"), /Pooled cost per result: spend ÷ results/);
+    assert.doesNotMatch(comment("tag_performance.baseline_cpr"), /median|worst/i);
+    assert.match(comment("tag_performance.confidence"), /< 10 stage results/);
+    assert.match(comment("interest_clusters.live_evidence"), /bumps updated_at through the interest_clusters_updated_at trigger \(migration 181\)/);
+  });
 });

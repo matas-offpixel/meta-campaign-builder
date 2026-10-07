@@ -210,14 +210,19 @@ export const TAG_PERFORMANCE_CONFLICT = "scope,scope_id,dimension,value_key,stag
 /**
  * Upsert every row, then delete this window's rows the run did not write
  * (computed_at older than the run): stale keys, and scopes whose client
- * was archived. A failed upsert skips the delete, so a partial run never
- * empties the table.
+ * was archived. A failed upsert skips the delete, and so does a run with
+ * no rows (facts failed to load, every account unresolved, tags missing),
+ * so neither empties the table.
  */
 export async function writeTagPerformance(
   db: Db,
   rows: readonly TagPerformanceRow[],
   opts: { computedAt: string; windowDays?: number },
 ): Promise<{ written: number; deleted: number }> {
+  if (!rows.length) {
+    console.warn("[learning-refresh] tag_performance: no rows, delete skipped");
+    return { written: 0, deleted: 0 };
+  }
   let written = 0;
   for (let i = 0; i < rows.length; i += 500) {
     const chunk = rows.slice(i, i + 500);

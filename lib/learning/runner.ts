@@ -145,9 +145,7 @@ export async function runLearningRefresh(input: {
 
   const jobs = {} as Record<LearningJobName, JobOutcome>;
   jobs.creative_scores = await job("creative_scores", async () => {
-    // One snapshot per UTC day: a same-day re-run upserts onto it.
-    const fetchedAt = `${runAt.slice(0, 10)}T00:00:00.000Z`;
-    const rows = computeCreativeScores(inputs.facts, { userId: await operator(), fetchedAt });
+    const rows = computeCreativeScores(inputs.facts, { userId: await operator(), fetchedAt: runAt });
     const events = new Set(rows.map((r) => r.eventId)).size;
     if (dryRun) return { ok: true, rows: rows.length, detail: { events, dryRun } };
     const written = await writeCreativeScores(input.db, rows);

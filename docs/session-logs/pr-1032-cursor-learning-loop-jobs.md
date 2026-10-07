@@ -21,7 +21,8 @@ A nightly, DB-only job (`/api/cron/learning-refresh`, 03:30 UTC, `ENABLE_LEARNIN
 - `supabase/migrations/186_tag_performance.sql`:
   - `tag_performance`, unique on `(scope, scope_id, dimension, value_key, stage, window_days)`.
   - RLS: read by the operator who owns the client (or any client in the pooled scope); writes are service-role only. `client_users` read nothing.
-  - `interest_clusters.evidence_refreshed_at` and `live_evidence`.
+  - `interest_clusters.evidence_refreshed_at` and `live_evidence`. The `live_evidence` comment notes that the nightly write bumps `updated_at` through the 181 trigger.
+  - `creative_scores`: drops 061's `(event_id, creative_name, axis, fetched_at)` unique and adds `creative_scores_event_creative_axis_key (event_id, creative_name, axis)`. Duplicate keys are collapsed to the latest `fetched_at` first. Prod held 0 rows on 7 Oct.
   - Unapplied: Matas applies.
 - `lib/learning/joins.ts`: the ad-day joins and the service-role loader.
   - Client and event: `resolveAdContext`. An event with no client takes the event's client.
@@ -70,12 +71,18 @@ Rulings from Matas after the first dry run:
 
 My calls where the brief was silent:
 
-1. **Currency.** `ad_daily_insights.spend` is in the account currency, and only 3 of the 8 accounts with ad-days are in `bm_ad_accounts`. The fallback is the account → currency map and the GBP rates read on 2026-10-06 (`docs/analysis/interest-performance-2026-10-06.json`: DHB USD 0.753239, Innellea EUR 0.848824). An account in neither is treated as GBP and listed by the dry run. None are today.
+1. **Currency.** `ad_daily_insights.spend` is in the account currency, and only 3 of the 8 accounts with ad-days are in `bm_ad_accounts`. The fallback is the account → currency map in `lib/learning/currency.ts`, from `docs/analysis/interest-performance-2026-10-06.json`.
+   - Three accounts in that map are not GBP:
+     - `968594768066330` DHB, USD;
+     - `713771672906815` Innellea, EUR;
+     - `759664074876110` Innervisions GmbH, EUR (no ad-days today).
+   - The GBP rates are hardcoded: ECB reference via frankfurter.app on 2026-10-06 (EUR 0.848824, USD 0.753239). Refreshing them is a maintenance step, not a bug.
+   - An account in neither `bm_ad_accounts` nor the map is treated as GBP and listed by the dry run. None are today.
 2. **`all` rows shrink toward 1**, the scope's own norm.
 3. **`n_effective` = funded ads + min(k, the pool's funded ads).**
 4. **`client_funnel_benchmarks.confidence` is `numeric` (158).** Labels are stored as thin 0 / ok 0.5 / strong 1 and read back by `confidenceLabel`.
 5. **`lpv_to_purchase` uses ticket-sale ad-days only.** Registration landing-page views land on signup pages. A rate above 1 is skipped, not clamped (158 checks ≤ 1).
-6. **`creative_scores.significance` is boolean (061).** It is true when the creative clears the thin rule; the count itself is not stored. There is one snapshot per UTC day (`fetched_at` = that day's midnight), so history is kept.
+6. **`creative_scores.significance` is boolean (061).** It is true when the creative clears the thin rule; the count itself is not stored. Since round 2 there is one row per `(event_id, creative_name, axis)`, restated nightly with `fetched_at` = the run, in batched upserts of 500 (about 22 calls for ~10.9k rows). `getCreativeScores` reads the latest run's rows.
 7. **Ad-days with no resolved client** count in no scope, including `all`.
 8. **The baseline is tagged ads only.** `baseline_cpr` is pooled over the scope's *tagged* ads, so the index compares a tag against the ads being ranked.
 
@@ -122,11 +129,22 @@ Top tags exist for DHB, IRONWORKS and Electric (registration), and for Parable, 
 ## Not verified
 
 - Migration 186 is not applied, so no job has written. `--apply` and the cron are untested against the real tables.
-- The `updated_at` trigger on `interest_clusters` will bump `updated_at` nightly when `live_evidence` is written.
-- The creative_scores write is about 10k single-row upserts at concurrency 12, timed only by estimate.
+- The `updated_at` trigger on `interest_clusters` will bump `updated_at` nightly when `live_evidence` is written. This is by design and documented on the column.
+- The `creative_scores` write time is unmeasured. There is no non-prod target: no local Supabase or Docker, and `.env.local` is prod. `--apply` was not run.
+- Rows for creatives that drop out of the facts (an archived client, an ad renamed) are not deleted from `creative_scores`; `getCreativeScores` hides them by reading only the latest `fetched_at`.
+
+## Round 2 (review should-fixes)
+
+1. `writeTagPerformance` returns `{written: 0, deleted: 0}` on an empty run and logs `tag_performance: no rows, delete skipped`. Before, an empty run upserted nothing and then deleted the whole window.
+2. `creative_scores` is one row per creative × axis, restated nightly and batched in upserts of 500 (migration 186 swaps the unique key). `upsertCreativeScore` uses the new key (`CREATIVE_SCORE_CONFLICT`).
+3. Migration 186 comments:
+   - `baseline_cpr` is pooled spend ÷ results in both stages.
+   - `confidence` includes the 10-result floor.
+   - `live_evidence` notes the 181 `updated_at` trigger.
+4. The CLAUDE.md stage precedence reads: event sale dates → `phase_at_launch` → `objective` → `adset_objective` (majority of the ad set's result days) → `unknown`.
 
 ## Validation
 
 - [x] `npx tsc --noEmit`: no errors in touched files (the baseline has unrelated test-file errors)
 - [x] `npm run build` (with git-ignored `scripts/out` moved aside)
-- [x] `npm test`: 6,890 node tests pass, 0 fail; vitest 8/8
+- [x] `npm test`: 6,893 node tests pass, 0 fail; vitest 8/8

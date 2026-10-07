@@ -11,12 +11,15 @@
  * rank; one creative scores 50). significance = the creative's funded ads
  * and spend clear the thin rule; the column is a boolean, so the count
  * itself is not stored.
+ *
+ * One row per (event_id, creative_name, axis), restated nightly with
+ * fetched_at = the run (unique key from migration 186).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { THIN_MIN_AD_SET_SPEND_GBP } from "../analysis/interest-performance.ts";
-import { upsertCreativeScore, type CreativeScoreAxis, type UpsertCreativeScoreArgs } from "../db/creative-tags.ts";
+import { CREATIVE_SCORE_CONFLICT, type CreativeScoreAxis, type UpsertCreativeScoreArgs } from "../db/creative-tags.ts";
 import type { LearningFact } from "./joins.ts";
 import { confidenceOf } from "./shrink.ts";
 
@@ -121,28 +124,34 @@ export function computeCreativeScores(
 
 type Db = Pick<SupabaseClient, "from">;
 
-/** Through `upsertCreativeScore`, a few at a time. */
+export const CREATIVE_SCORE_CHUNK = 500;
+
+/** Batched upserts on the (event_id, creative_name, axis) key; a failed chunk is counted and the rest still write. */
 export async function writeCreativeScores(
   db: Db,
   rows: readonly UpsertCreativeScoreArgs[],
-  concurrency = 12,
+  chunkSize = CREATIVE_SCORE_CHUNK,
 ): Promise<{ written: number; failed: number; firstError: string | null }> {
   let written = 0;
   let failed = 0;
   let firstError: string | null = null;
-  let next = 0;
-  const worker = async () => {
-    while (next < rows.length) {
-      const row = rows[next++]!;
-      try {
-        await upsertCreativeScore(db, row);
-        written += 1;
-      } catch (err) {
-        failed += 1;
-        firstError ??= err instanceof Error ? err.message : String(err);
-      }
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize).map((r) => ({
+      user_id: r.userId,
+      event_id: r.eventId,
+      creative_name: r.creativeName,
+      axis: r.axis,
+      score: r.score,
+      significance: r.significance ?? false,
+      ...(r.fetchedAt ? { fetched_at: r.fetchedAt } : {}),
+    }));
+    const { error } = await db.from("creative_scores").upsert(chunk, { onConflict: CREATIVE_SCORE_CONFLICT });
+    if (error) {
+      failed += chunk.length;
+      firstError ??= error.message;
+    } else {
+      written += chunk.length;
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, rows.length) }, worker));
+  }
   return { written, failed, firstError };
 }

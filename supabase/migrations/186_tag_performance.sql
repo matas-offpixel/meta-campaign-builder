@@ -19,6 +19,12 @@
 -- to the ad sets that ran exactly its interests. evidence (the 6 Oct
 -- offline snapshot) is left as it is.
 --
+-- creative_scores (061) moves to one row per (event_id, creative_name,
+-- axis), restated nightly. 061's unique key included fetched_at, so a
+-- nightly job appended a full snapshot every run. The old constraint is
+-- dropped and replaced; duplicate keys are collapsed to the latest
+-- fetched_at first (prod held 0 rows on 7 Oct 2026).
+--
 -- Apply by hand: prod first, then CI, only when the PR is about to
 -- merge. Idempotent: if not exists + catalog-checked policies.
 
@@ -58,7 +64,7 @@ comment on table tag_performance is
 comment on column tag_performance.funded_ads is
   'Ads carrying the tag with at least £5 spend in the scope, stage and window. The n of the shrinkage.';
 comment on column tag_performance.baseline_cpr is
-  'Median per-ad cost per result over every funded tagged ad in the scope and stage; an ad with no result counts as worst. Null when that median has no result.';
+  'Pooled cost per result: spend ÷ results over every tagged ad in the scope and stage, the same rule in registration and ticket_sale. Null when those ads have no result.';
 comment on column tag_performance."index" is
   'cpr ÷ baseline_cpr. Below 1 beats the scope''s norm.';
 comment on column tag_performance.pool_index is
@@ -66,7 +72,7 @@ comment on column tag_performance.pool_index is
 comment on column tag_performance.shrunk_index is
   '(funded_ads × index + 10 × pool_index) ÷ (funded_ads + 10). See lib/learning/shrink.ts.';
 comment on column tag_performance.confidence is
-  'thin: < 3 funded ads or < £150 spend. strong: ≥ 10 funded ads and ≥ £500. ok otherwise.';
+  'thin: < 3 funded ads, < £150 spend, or < 10 stage results (registrations or purchases). strong: ≥ 10 funded ads and ≥ £500. ok otherwise.';
 
 alter table tag_performance enable row level security;
 
@@ -101,8 +107,33 @@ alter table interest_clusters
   add column if not exists live_evidence jsonb;
 
 comment on column interest_clusters.live_evidence is
-  'Nightly: launched_ad_sets with exactly these interest ids × ad_daily_insights, registration stage. adSets, fundedAdSets, spend (GBP), registrations, cpr, clients, cprIndex, confidence, perClient. evidence stays the offline snapshot. Migration 186.';
+  'Nightly: launched_ad_sets with exactly these interest ids × ad_daily_insights, registration stage. adSets, fundedAdSets, spend (GBP), registrations, cpr, clients, cprIndex, confidence, perClient. evidence stays the offline snapshot. The nightly write bumps updated_at through the interest_clusters_updated_at trigger (migration 181). Migration 186.';
 comment on column interest_clusters.evidence_refreshed_at is
   'When live_evidence was last written. Migration 186.';
+
+delete from creative_scores s
+using creative_scores newer
+where newer.event_id = s.event_id
+  and newer.creative_name = s.creative_name
+  and newer.axis = s.axis
+  and (newer.fetched_at, newer.id) > (s.fetched_at, s.id);
+
+alter table creative_scores
+  drop constraint if exists creative_scores_event_id_creative_name_axis_fetched_at_key;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.creative_scores'::regclass
+      and conname = 'creative_scores_event_creative_axis_key'
+  ) then
+    alter table creative_scores
+      add constraint creative_scores_event_creative_axis_key unique (event_id, creative_name, axis);
+  end if;
+end $$;
+
+comment on column creative_scores.fetched_at is
+  'When the score was last restated. One row per (event_id, creative_name, axis) since migration 186.';
 
 notify pgrst, 'reload schema';

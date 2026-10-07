@@ -411,7 +411,10 @@ ENABLE_LEARNING_REFRESH=
 > activate `/api/cron/learning-refresh` (03:30 UTC, after ad-daily-insights).
 > Unset = 200 with `skippedReason: "killswitch"`. DB-only, zero Meta calls.
 > Joins `ad_daily_insights` to client/event (`resolveAdContext`), stage
-> (event sale dates, else `phase_at_launch`, else `unknown`) and tags
+> (event sale dates → `phase_at_launch` → `objective` (the ad set's
+> `launched_ad_sets.objective`, else the majority of the ad's own result
+> days) → `adset_objective` (the majority of the ad set's result days) →
+> `unknown`; never campaign names) and tags
 > (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
 > runs four independent jobs: `creative_scores`, `tag_performance`
 > (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),

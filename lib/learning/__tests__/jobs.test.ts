@@ -109,6 +109,13 @@ describe("tag_performance job", () => {
     await assert.rejects(writeTagPerformance(db, rows, { computedAt: NOW.toISOString() }), /boom/);
     assert.ok(calls.every((c) => !op(c, "delete")));
   });
+
+  it("an empty run writes nothing and deletes nothing", async () => {
+    const { db, calls } = fakeDb(() => ({ error: null, count: 999 }));
+    const result = await writeTagPerformance(db, [], { computedAt: NOW.toISOString() });
+    assert.deepEqual(result, { written: 0, deleted: 0 });
+    assert.equal(calls.length, 0);
+  });
 });
 
 describe("creative_scores job", () => {
@@ -148,20 +155,31 @@ describe("creative_scores job", () => {
     assert.ok(rows.every((r) => r.userId === "op" && r.fetchedAt === "2026-10-07T00:00:00.000Z"));
   });
 
-  it("writes through upsertCreativeScore and counts failures without stopping", async () => {
+  it("batched upserts of 500 on (event_id, creative_name, axis); a failed chunk is counted and the rest still write", async () => {
     const { db, calls } = fakeDb((call: FakeCall) => {
-      const values = op(call, "upsert")?.[0] as { creative_name: string };
-      return values.creative_name === "bad" ? { data: null, error: { message: "nope" } } : { data: { id: "x" }, error: null };
+      const values = op(call, "upsert")?.[0] as { creative_name: string }[];
+      return values.some((v) => v.creative_name === "bad") ? { error: { message: "nope" } } : { error: null };
     });
-    const base = { userId: "op", eventId: "e1", axis: "click" as const, score: 50, fetchedAt: "2026-10-07T00:00:00.000Z" };
-    const result = await writeCreativeScores(db, [
-      { ...base, creativeName: "good" },
-      { ...base, creativeName: "bad" },
-      { ...base, creativeName: "good 2" },
-    ]);
-    assert.deepEqual(result, { written: 2, failed: 1, firstError: "nope" });
+    const base = { userId: "op", eventId: "e1", axis: "click" as const, score: 50, fetchedAt: "2026-10-07T03:30:00.000Z" };
+    const rows = Array.from({ length: 1201 }, (_, i) => ({ ...base, creativeName: i === 700 ? "bad" : `c${i}` }));
+    const result = await writeCreativeScores(db, rows);
+    assert.deepEqual(result, { written: 701, failed: 500, firstError: "nope" });
+    assert.equal(calls.length, 3);
     assert.ok(calls.every((c) => c.table === "creative_scores"));
-    assert.deepEqual(op(calls[0]!, "upsert")?.[1], { onConflict: "event_id,creative_name,axis,fetched_at" });
+    assert.deepEqual(
+      calls.map((c) => (op(c, "upsert")?.[0] as unknown[]).length),
+      [500, 500, 201],
+    );
+    assert.deepEqual(op(calls[0]!, "upsert")?.[1], { onConflict: "event_id,creative_name,axis" });
+    assert.deepEqual((op(calls[0]!, "upsert")?.[0] as unknown[])[0], {
+      user_id: "op",
+      event_id: "e1",
+      creative_name: "c0",
+      axis: "click",
+      score: 50,
+      significance: false,
+      fetched_at: "2026-10-07T03:30:00.000Z",
+    });
   });
 });
 
