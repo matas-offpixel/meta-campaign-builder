@@ -181,7 +181,17 @@ describe("interest-performance", () => {
     const fashion = "467691106721833,6003030212255,6003154507633,6003266266843,6003351852600,6003359659004,6003359784404,6003392552125,6003552041427,6003739371891";
     const ev = clusterEvidence(REPORT, fashion, { client: "Deep House Bible" })!.evidence;
     assert.equal(ev.clientBaselineCpr, 1.34);
-    assert.equal(ev.cprIndex, Math.round((ev.cpr! / 1.34) * 100) / 100);
+    assert.equal(ev.cprIndex, Math.round((ev.cprPixel! / 1.34) * 100) / 100);
     assert.equal(ev.confidence, "thin");
+  });
+
+  it("cprIndex divides pixel CPR even when the headline CPR is first-party", () => {
+    const discGenre = "6003155409305,6003320931941";
+    const { cluster, evidence } = clusterEvidence(REPORT, discGenre)!;
+    assert.equal(evidence.cprSource, "first_party");
+    assert.equal(evidence.cpr, cluster.cprFirstPartyGbp);
+    assert.equal(evidence.cprPixel, cluster.cprPixelGbp);
+    assert.notEqual(evidence.cpr, evidence.cprPixel);
+    assert.equal(evidence.cprIndex, Math.round((cluster.cprPixelGbp! / evidence.clientBaselineCpr!) * 100) / 100);
   });
 });

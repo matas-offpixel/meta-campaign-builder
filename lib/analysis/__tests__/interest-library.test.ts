@@ -40,25 +40,42 @@ const resolveFrom = (table: Record<string, string>) => (name: string): Resolutio
   table[name] ? { id: table[name], name, match: "exact" } : null;
 
 describe("interest library import", () => {
-  it("parses the Updated tabs only, column header → names", () => {
+  it("parses the original Labels tab and the other Updated tabs, column header → names", () => {
     const parsed = parseLibraryWorkbook(workbookSheets());
     assert.deepEqual(columnMap(parsed, "Labels"), {
-      "Tech House": [],
-      Melodic: [],
-      Headsy: [],
-      "Business Techno": [],
-      "Shelling Techno": [],
-      DNB: [],
-      Techno: [],
+      "Tech House": ["Crosstown Rebels", "Hot creations", "Toolroom", "Defected Records", "Suara"],
+      Melodic: [
+        "Anjuna", "Anjunabeats", "Anjunadeep", "Crosstown Rebels", "Diynamic Music", "Get Physical Music",
+        "Drumcode Records", "Time Warp", "Awakenings", "Kompakt",
+      ],
+      Headsy: ["Warp Records", "Ninja Tune", "Hyperdub", "Perlon"],
+      "Business Techno": ["Kompakt", "Drumcode Records"],
+      "Shelling Techno": ["Minus (record label)", "Ostgut Ton"],
+      DNB: ["Let it Roll", "Hospital Records", "Metalheadz"],
+      Techno: ["Kompakt", "Drumcode", "Minus", "Ostgut Ton", "Time Warp", "Awakenings", "Berghain", "Movement Electronic"],
     });
+    assert.equal(parsed.columns.find((c) => c.tab === "Labels" && c.column === "Techno")!.origin, "heading");
     assert.deepEqual(columnMap(parsed, "Other")["Wide radio"], ["Mixmag", "MTV", "Pandora Radio", "The Fader"]);
     const v1 = parsed.columns.find((c) => c.column === "Prospecting - Previous v1")!;
     assert.equal(v1.origin, "row");
     assert.deepEqual(v1.names.slice(0, 3), ["Techno (music)", "Hardtechno", "Masters of Hardcore"]);
     assert.deepEqual(
-      parsed.stray.map((s) => s.text),
-      ["apri", "T"],
+      parsed.stray.map((s) => `${s.tab} ${s.cell}`),
+      ["Labels H22", "Labels H23", "Labels H24", "Labels H25", "Labels H26", "Labels H27", "Artists M42", "Festivals Venues M15"],
     );
+  });
+
+  it("the committed workbook carries no comments, and the import never reads them", () => {
+    const buf = readFileSync(join(ROOT, "docs/analysis/meta-interest-targets-library.xlsx"));
+    const wb = XLSX.read(buf, { bookFiles: true }) as XLSX.WorkBook & { keys?: string[] };
+    assert.deepEqual((wb.keys ?? []).filter((k) => /comment|person/i.test(k)), []);
+    for (const name of wb.SheetNames) {
+      const sheet = wb.Sheets[name];
+      for (const ref of Object.keys(sheet)) {
+        if (!ref.startsWith("!")) assert.equal((sheet[ref] as XLSX.CellObject).c, undefined, `${name}!${ref}`);
+      }
+    }
+    assert.ok((wb.keys ?? []).some((k) => /worksheets\/sheet1\.xml$/.test(k)), "bookFiles lists the zip entries");
   });
 
   it("splits cells on commas and ' or ', and sets Employers fragments apart", () => {
@@ -82,7 +99,16 @@ describe("interest library import", () => {
       match: "contains",
     });
     assert.equal(resolveInterestName("Graff", [{ id: "3", name: "Graffiti" }]), null);
-    assert.equal(resolveInterestName("Bvlgari", [{ id: "4", name: "Bulgari (luxury goods)" }]), null);
+    assert.deepEqual(resolveInterestName("Bvlgari", [{ id: "4", name: "Bulgari (luxury goods)" }]), {
+      id: "4",
+      name: "Bulgari (luxury goods)",
+      match: "contains",
+    });
+    assert.equal(resolveInterestName("Luxury Hotels", [{ id: "6", name: "small luxury hotels world" }]), null);
+    assert.equal(
+      resolveInterestName("Luxury Hotels", [{ id: "6", name: "small luxury hotels world" }, { id: "7", name: "Hotel" }]),
+      null,
+    );
     assert.equal(resolveInterestName("Techno Music", [{ id: "5", name: "Techno (music)" }]), null);
     assert.equal(resolveInterestName("Marshmello", []), null);
   });

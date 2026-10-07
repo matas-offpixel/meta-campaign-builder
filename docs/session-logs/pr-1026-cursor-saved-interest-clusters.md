@@ -40,7 +40,9 @@ Picking a cluster adds a normal interest group. Targeting, Generate and the Meta
   - `clientBaselineCpr` gives the pooled CPR; the report JSON stores `perClient[].spendGbp`, `.registrations` and `.baselineCpr`.
   - `clusterEvidence` is shared by the seed and the library import.
 - **`lib/analysis/interest-library.ts`** is the importer's pure logic:
-  - Parses the "… Updated" tabs only. A column's names are the unbroken run of cells under its header. A label cell with a list in the next cell counts as a cluster.
+  - Parses the original `Labels` tab (its Updated twin is headers only) and the other "… Updated" tabs.
+  - A column's names are the unbroken run of cells under its header. In a column with no header, the first cell heads the run below it. A label cell with a list in the next cell also counts as a cluster.
+  - Spelling aliases (`bvlgari → bulgari`) and rejected matches (`Luxury Hotels` ≠ "small luxury hotels world") are explicit tables.
   - Splits cells on commas and " or ".
   - Resolves a name on an exact case-insensitive match, else when the top result contains the name as whole words.
   - Skips Frequent flyers, Employers fragments, the single-interest Techno / Tech house / House music sets, and repeats of an existing interest set.
@@ -77,9 +79,10 @@ Picking a cluster adds a normal interest group. Targeting, Generate and the Meta
   | IRONWORKS | £1.43 |
   | Electric Brixton | £2.06 |
 
-  The baseline is pixel. A cluster ranked on first-party CPR (Disc Genre) is therefore divided by a pixel baseline.
+  `cprIndex` is pixel CPR ÷ pooled pixel baseline for every cluster, so indexes are comparable. The card still headlines the first-party CPR when there is one. Disc Genre's index moved from 0.45 to 0.51.
 - **Newly thin under the £5 rule:** Streaming — full, Fashion, Luxury and Music festivals, each with 2 funded ad sets. They sort after the measured clusters.
-- **Labels:** the "Labels Updated" tab holds headers only, so no Labels cluster is imported.
-- **Lifestyle row:** "Luxury Hotels" resolved by whole-word contains to "small luxury hotels world". That follows the rule but may not be the intended interest.
+- **Labels:** the original tab is now imported, but none of its 34 label names resolves. Meta search returns only generic categories ("Record label", "Electronic music (music)"), so the label interests are deprecated, which is why "Labels Updated" was emptied. No Labels cluster is created; the names are listed in `interest-library-unresolved.md`.
+- **Workbook:** re-saved with openpyxl and every comment stripped. The resolved threaded comment and the persons part carried a third-party email; both are gone, and a test asserts the workbook has zero comments. The cell values are unchanged (668 cells compared).
+- **Lifestyle row:** "Luxury Hotels" is left unresolved.
 - **"Latest iPhone users"** evidence is scoped to Off/Pixel (14 ad sets, £369).
 - **Luxury** drops SEAT Ibiza (6003651391313); the Manage dialog notes it.

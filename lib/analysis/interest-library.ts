@@ -3,21 +3,25 @@
  * → interest_clusters rows with source 'library' (migration 183).
  *
  * Pure: the script reads the workbook and calls Meta search; this module
- * parses cells, applies the resolve rule, and builds rows. Only the
- * "… Updated" tabs are read — they are the post-deprecation prune.
+ * parses cells, applies the resolve rule, and builds rows. The "… Updated"
+ * tabs are the post-deprecation prune and are read for every tab except
+ * Labels, whose Updated twin is headers only — see LIBRARY_SHEETS.
  */
 
 import { clusterEvidence, type InterestReportJson, type SeedEvidence } from "./interest-performance.ts";
 
 export interface LibraryColumn {
-  /** Tab name without " Updated", whitespace collapsed: "Festivals Venues". */
+  /** Sheet name without " Updated", whitespace collapsed: "Festivals Venues". */
   tab: string;
   column: string;
   names: string[];
   /** "Employers: …" fragments — work_employers targeting, not interests. */
   employers: string[];
-  /** A header column, or a label cell with its list in the next cell. */
-  origin: "column" | "row";
+  /**
+   * column: a row-1 header. heading: the first cell of a column with no
+   * row-1 header. row: a label cell with its list in the next cell.
+   */
+  origin: "column" | "heading" | "row";
 }
 
 export interface StrayCell {
@@ -33,6 +37,13 @@ export interface ParsedLibrary {
 
 const UPDATED_SUFFIX = / Updated$/;
 
+/** Sheets the import reads, in this order. "Labels Updated" has headers and no names. */
+export const LIBRARY_SHEETS = ["Labels", "Artists Updated", "Festivals Venues Updated", "Other Updated"] as const;
+
+function sheetKey(name: string): string {
+  return name.replace(/\s+/g, " ").trim();
+}
+
 export function libraryTabName(sheetName: string): string {
   return sheetName.replace(UPDATED_SUFFIX, "").replace(/\s+/g, " ").trim();
 }
@@ -42,6 +53,12 @@ function clean(text: string): string {
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Cell text, or "" when it holds no letter or digit (a lone "," is a blank). */
+function cellText(raw: unknown): string {
+  const text = clean(String(raw ?? ""));
+  return /[\p{L}\p{N}]/u.test(text) ? text : "";
 }
 
 /**
@@ -82,14 +99,15 @@ function cellRef(row: number, col: number): string {
 }
 
 /**
- * A header column's names are the unbroken run of cells under it. A
- * non-empty cell outside every run, without a trailing comma, whose
- * right-hand neighbour lists two or more names, is a row-labelled
- * cluster. Anything else left over is stray.
+ * A header column's names are the unbroken run of cells under it. In a
+ * column with no row-1 header, the first non-empty cell heads the run
+ * directly below it (at least one name). A non-empty cell outside every
+ * run, without a trailing comma, whose right-hand neighbour lists two or
+ * more names, is a row-labelled cluster. Anything else left over is stray.
  */
 export function parseLibrarySheet(sheetName: string, rows: readonly (readonly string[])[]): ParsedLibrary {
   const tab = libraryTabName(sheetName);
-  const at = (r: number, c: number) => clean(String(rows[r]?.[c] ?? ""));
+  const at = (r: number, c: number) => cellText(rows[r]?.[c]);
   const consumed = new Set<string>();
   const columns: LibraryColumn[] = [];
   const header = rows[0] ?? [];
@@ -108,6 +126,23 @@ export function parseLibrarySheet(sheetName: string, rows: readonly (readonly st
     columns.push({ tab, column, names, employers, origin: "column" });
   }
   const width = Math.max(0, ...rows.map((r) => r.length));
+  for (let c = 0; c < width; c++) {
+    if (at(0, c)) continue;
+    let top = 1;
+    while (top < rows.length && !at(top, c)) top++;
+    const label = at(top, c);
+    if (!label || label.endsWith(",") || !at(top + 1, c)) continue;
+    consumed.add(`${top}:${c}`);
+    const names: string[] = [];
+    const employers: string[] = [];
+    for (let r = top + 1; at(r, c); r++) {
+      consumed.add(`${r}:${c}`);
+      const split = splitLibraryCell(at(r, c));
+      names.push(...split.names);
+      employers.push(...split.employers);
+    }
+    columns.push({ tab, column: label, names, employers, origin: "heading" });
+  }
   for (let r = 1; r < rows.length; r++) {
     for (let c = 0; c + 1 < width; c++) {
       const label = at(r, c);
@@ -131,11 +166,12 @@ export function parseLibrarySheet(sheetName: string, rows: readonly (readonly st
   return { columns, stray };
 }
 
-/** Only the "… Updated" sheets, in workbook order. */
+/** The LIBRARY_SHEETS, in that order; other sheets are ignored. A missing one throws. */
 export function parseLibraryWorkbook(sheets: readonly { name: string; rows: readonly (readonly string[])[] }[]): ParsedLibrary {
   const out: ParsedLibrary = { columns: [], stray: [] };
-  for (const s of sheets) {
-    if (!UPDATED_SUFFIX.test(s.name)) continue;
+  for (const want of LIBRARY_SHEETS) {
+    const s = sheets.find((x) => sheetKey(x.name) === want);
+    if (!s) throw new Error(`Workbook has no sheet "${want}"`);
     const parsed = parseLibrarySheet(s.name, s.rows);
     out.columns.push(...parsed.columns);
     out.stray.push(...parsed.stray);
@@ -160,19 +196,41 @@ function containsWords(haystack: string, needle: string): boolean {
 }
 
 /**
+ * Spelling variants only, lower-case query → the spelling Meta uses.
+ * Nothing semantic: an alias never maps one audience onto another.
+ */
+export const SPELLING_ALIASES: Readonly<Record<string, string>> = {
+  bvlgari: "bulgari",
+};
+
+/** Lower-case query → lower-case hit name the resolver must not take. */
+export const REJECTED_MATCHES: Readonly<Record<string, string>> = {
+  "luxury hotels": "small luxury hotels world",
+};
+
+/**
  * Meta search hits → one interest. Exact name match (case-insensitive)
  * anywhere in the hits; else the top hit only when its name contains the
  * query as whole words ("Graff" does not match "Graffiti"); else null.
- * Never a guess.
+ * The query is also tried under its SPELLING_ALIASES spelling, and a hit
+ * listed in REJECTED_MATCHES is never taken. Never a guess.
  */
 export function resolveInterestName(query: string, hits: readonly SearchHit[]): Resolution | null {
   const q = clean(query).toLowerCase();
   if (!q) return null;
-  const exact = hits.find((h) => clean(h.name).toLowerCase() === q);
-  if (exact) return { id: String(exact.id), name: exact.name, match: "exact" };
+  const rejected = REJECTED_MATCHES[q];
+  const usable = hits.filter((h) => clean(h.name).toLowerCase() !== rejected);
+  const spellings = SPELLING_ALIASES[q] ? [q, SPELLING_ALIASES[q]] : [q];
+  for (const spelling of spellings) {
+    const exact = usable.find((h) => clean(h.name).toLowerCase() === spelling);
+    if (exact) return { id: String(exact.id), name: exact.name, match: "exact" };
+  }
   const top = hits[0];
-  if (top && containsWords(clean(top.name).toLowerCase(), q)) {
-    return { id: String(top.id), name: top.name, match: "contains" };
+  if (!top || clean(top.name).toLowerCase() === rejected) return null;
+  for (const spelling of spellings) {
+    if (containsWords(clean(top.name).toLowerCase(), spelling)) {
+      return { id: String(top.id), name: top.name, match: "contains" };
+    }
   }
   return null;
 }
@@ -359,7 +417,7 @@ export function renderLibraryUnresolved(
   out.push("# Interest library — unresolved and skipped");
   out.push("");
   out.push(
-    `Source: \`${source}\` ("… Updated" tabs) plus the four lists given in chat. A name resolves only on an exact (case-insensitive) Meta \`adinterest\` match, or when the top result's name contains it. Nothing below was guessed.`,
+    `Source: \`${source}\` (sheets: ${LIBRARY_SHEETS.join(", ")}) plus the four lists given in chat. A name resolves only on an exact (case-insensitive) Meta \`adinterest\` match, or when the top result's name contains it as whole words. Spelling aliases: ${Object.entries(SPELLING_ALIASES).map(([a, b]) => `${a} → ${b}`).join(", ")}. Rejected matches: ${Object.entries(REJECTED_MATCHES).map(([a, b]) => `${a} ≠ "${b}"`).join(", ")}. Nothing below was guessed.`,
   );
   out.push("");
   const groups = [

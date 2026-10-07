@@ -1065,10 +1065,16 @@ export interface SeedEvidence {
   fundedAdSets: number;
   spend: number;
   registrations: number;
+  /** Headline CPR: first-party when measured, else pixel. */
   cpr: number | null;
   cprSource: "first_party" | "pixel";
+  /** Pixel CPR, always; what cprIndex divides. */
+  cprPixel: number | null;
   clients: string[];
-  /** Cluster CPR ÷ the spend-weighted baseline CPR of its clients. Below 1 beats the client's norm. */
+  /**
+   * Pixel CPR ÷ the spend-weighted pooled pixel CPR of its clients, so
+   * every index is comparable. Below 1 beats the client's norm.
+   */
   cprIndex: number | null;
   clientBaselineCpr: number | null;
   confidence?: "thin";
@@ -1119,8 +1125,9 @@ export function clusterEvidence(
       registrations: c.cprSource === "first_party" ? c.fpSignups : c.registrations,
       cpr: c.cpr,
       cprSource: c.cprSource,
+      cprPixel: c.cprPixelGbp,
       clients: c.clients,
-      cprIndex: c.cpr != null && clientBaseline ? round(c.cpr / clientBaseline) : null,
+      cprIndex: c.cprPixelGbp != null && clientBaseline ? round(c.cprPixelGbp / clientBaseline) : null,
       clientBaselineCpr: clientBaseline,
       ...(c.thin || opts.forceThin ? { confidence: "thin" as const } : {}),
     },

@@ -36,7 +36,9 @@ export interface InterestClusterEvidence {
   cpr: number | null;
   cprSource: "first_party" | "pixel";
   clients: string[];
-  /** Cluster CPR ÷ the spend-weighted pooled CPR of its clients. */
+  /** Pixel CPR, always. */
+  cprPixel?: number | null;
+  /** Pixel CPR ÷ the spend-weighted pooled pixel CPR of its clients. */
   cprIndex: number | null;
   clientBaselineCpr?: number | null;
   confidence?: "thin";

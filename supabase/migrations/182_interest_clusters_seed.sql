@@ -55,6 +55,7 @@ begin
       "registrations": 956,
       "cpr": 0.94,
       "cprSource": "pixel",
+      "cprPixel": 0.94,
       "clients": [
         "IRONWORKS"
       ],
@@ -117,6 +118,7 @@ begin
       "registrations": 1376,
       "cpr": 1.12,
       "cprSource": "pixel",
+      "cprPixel": 1.12,
       "clients": [
         "IRONWORKS"
       ],
@@ -144,6 +146,7 @@ begin
       "registrations": 1551,
       "cpr": 1.19,
       "cprSource": "pixel",
+      "cprPixel": 1.19,
       "clients": [
         "IRONWORKS",
         "Louder / Parable"
@@ -187,6 +190,7 @@ begin
       "registrations": 2965,
       "cpr": 1.21,
       "cprSource": "pixel",
+      "cprPixel": 1.21,
       "clients": [
         "IRONWORKS"
       ],
@@ -214,6 +218,7 @@ begin
       "registrations": 757,
       "cpr": 1.22,
       "cprSource": "pixel",
+      "cprPixel": 1.22,
       "clients": [
         "Deep House Bible",
         "IRONWORKS"
@@ -252,6 +257,7 @@ begin
       "registrations": 1743,
       "cpr": 1.25,
       "cprSource": "pixel",
+      "cprPixel": 1.25,
       "clients": [
         "Deep House Bible",
         "Electric Brixton",
@@ -287,6 +293,7 @@ begin
       "registrations": 1215,
       "cpr": 1.28,
       "cprSource": "pixel",
+      "cprPixel": 1.28,
       "clients": [
         "Deep House Bible",
         "IRONWORKS",
@@ -321,12 +328,13 @@ begin
       "registrations": 365,
       "cpr": 0.83,
       "cprSource": "first_party",
+      "cprPixel": 0.95,
       "clients": [
         "Electric Brixton",
         "IRONWORKS",
         "Off/Pixel"
       ],
-      "cprIndex": 0.45,
+      "cprIndex": 0.51,
       "clientBaselineCpr": 1.86
     }
   },
@@ -390,6 +398,7 @@ begin
       "registrations": 297,
       "cpr": 0.95,
       "cprSource": "pixel",
+      "cprPixel": 0.95,
       "clients": [
         "Deep House Bible",
         "Innellea"
@@ -464,6 +473,7 @@ begin
       "registrations": 233,
       "cpr": 0.81,
       "cprSource": "pixel",
+      "cprPixel": 0.81,
       "clients": [
         "Deep House Bible"
       ],
@@ -512,6 +522,7 @@ begin
       "registrations": 239,
       "cpr": 0.81,
       "cprSource": "pixel",
+      "cprPixel": 0.81,
       "clients": [
         "Deep House Bible"
       ],
@@ -563,6 +574,7 @@ begin
       "registrations": 204,
       "cpr": 1.81,
       "cprSource": "pixel",
+      "cprPixel": 1.81,
       "clients": [
         "Off/Pixel"
       ],
@@ -610,6 +622,7 @@ begin
       "registrations": 364,
       "cpr": 0.72,
       "cprSource": "pixel",
+      "cprPixel": 0.72,
       "clients": [
         "Deep House Bible"
       ],
@@ -653,6 +666,7 @@ begin
       "registrations": 4184,
       "cpr": 0.67,
       "cprSource": "pixel",
+      "cprPixel": 0.67,
       "clients": [
         "4theFans"
       ],
@@ -690,6 +704,7 @@ begin
       "registrations": 1317,
       "cpr": 0.83,
       "cprSource": "pixel",
+      "cprPixel": 0.83,
       "clients": [
         "4theFans"
       ],
@@ -722,6 +737,7 @@ begin
       "registrations": 196,
       "cpr": 0.93,
       "cprSource": "pixel",
+      "cprPixel": 0.93,
       "clients": [
         "4theFans"
       ],

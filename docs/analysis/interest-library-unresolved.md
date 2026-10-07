@@ -1,8 +1,8 @@
 # Interest library — unresolved and skipped
 
-Source: `docs/analysis/meta-interest-targets-library.xlsx` ("… Updated" tabs) plus the four lists given in chat. A name resolves only on an exact (case-insensitive) Meta `adinterest` match, or when the top result's name contains it. Nothing below was guessed.
+Source: `docs/analysis/meta-interest-targets-library.xlsx` (sheets: Labels, Artists Updated, Festivals Venues Updated, Other Updated) plus the four lists given in chat. A name resolves only on an exact (case-insensitive) Meta `adinterest` match, or when the top result's name contains it as whole words. Spelling aliases: bvlgari → bulgari. Rejected matches: luxury hotels ≠ "small luxury hotels world". Nothing below was guessed.
 
-## Unresolved names (23)
+## Unresolved names (57)
 
 Meta's top search result is shown for review; it was not used.
 
@@ -11,9 +11,51 @@ Meta's top search result is shown for review; it was not used.
 - **Prospecting - Fashionistas**
   - METAL Magazine — top result: "List of fashion magazines"
   - Damir Doma — top result: "Fashion design (design)"
+- **Lifestyle**
+  - Luxury Hotels — top result: "small luxury hotels world"
 - **High end jewellers**
   - Graff — top result: "Graffiti"
-  - Bvlgari — top result: "Bulgari (luxury goods)"
+- **Labels — Tech House (not imported)**
+  - Crosstown Rebels — top result: "Record label"
+  - Hot creations — top result: "Record label"
+  - Toolroom — top result: "Electronic dance music (music)"
+  - Defected Records — top result: "Record label"
+  - Suara — top result: "Pop music of the 2010s (music)"
+- **Labels — Melodic (not imported)**
+  - Anjuna — top result: "India"
+  - Anjunabeats — top result: "House music (music)"
+  - Anjunadeep — top result: "House music (music)"
+  - Crosstown Rebels — top result: "Record label"
+  - Diynamic Music — top result: "Record label"
+  - Get Physical Music — top result: "Electronic music (music)"
+  - Drumcode Records — top result: "Record label"
+  - Time Warp — top result: "Electronic music festivals (music event)"
+  - Awakenings — top result: "Drama films (films)"
+  - Kompakt — top result: "Record label"
+- **Labels — Headsy (not imported)**
+  - Warp Records — top result: "Electronic music (music)"
+  - Ninja Tune — top result: "Record label"
+  - Hyperdub — top result: "Record label"
+  - Perlon — top result: "Electronic music (music)"
+- **Labels — Business Techno (not imported)**
+  - Kompakt — top result: "Record label"
+  - Drumcode Records — top result: "Record label"
+- **Labels — Shelling Techno (not imported)**
+  - Minus (record label) — top result: "Record label"
+  - Ostgut Ton — top result: "Record label"
+- **Labels — DNB (not imported)**
+  - Let it Roll — top result: "Electronic music festivals (music event)"
+  - Hospital Records — top result: "Record label"
+  - Metalheadz — top result: "Record label"
+- **Labels — Techno (not imported)**
+  - Kompakt — top result: "Record label"
+  - Drumcode — top result: "Record label"
+  - Minus — top result: "Record label"
+  - Ostgut Ton — top result: "Record label"
+  - Time Warp — top result: "Electronic music festivals (music event)"
+  - Awakenings — top result: "Drama films (films)"
+  - Berghain — top result: "Nightclubs (bars, clubs and nightlife)"
+  - Movement Electronic — top result: "Electronic music festivals (music event)"
 - **Artists — Techno (not imported)**
   - Techno Music — top result: "Techno (music)"
 - **Artists — Prospecting - Previous v1 (not imported)**
@@ -38,13 +80,13 @@ Meta's top search result is shown for review; it was not used.
 
 ## Not imported
 
-- Labels — Tech House: no names in the Updated tab
-- Labels — Melodic: no names in the Updated tab
-- Labels — Headsy: no names in the Updated tab
-- Labels — Business Techno: no names in the Updated tab
-- Labels — Shelling Techno: no names in the Updated tab
-- Labels — DNB: no names in the Updated tab
-- Labels — Techno: no names in the Updated tab
+- Labels — Tech House: no name resolved on Meta
+- Labels — Melodic: no name resolved on Meta
+- Labels — Headsy: no name resolved on Meta
+- Labels — Business Techno: no name resolved on Meta
+- Labels — Shelling Techno: no name resolved on Meta
+- Labels — DNB: no name resolved on Meta
+- Labels — Techno: no name resolved on Meta
 - Artists — Commercial House: no names in the Updated tab
 - Artists — House & Tech House: no names in the Updated tab
 - Artists — Oldschool House: no names in the Updated tab
@@ -79,5 +121,11 @@ Meta's top search result is shown for review; it was not used.
 
 ## Stray cells ignored
 
+- Labels H22: "Diynamic Music"
+- Labels H23: "Crosstown Rebels"
+- Labels H24: "Get Physical Music"
+- Labels H25: "Anjuna"
+- Labels H26: "Anjunabeats"
+- Labels H27: "Anjunadeep"
 - Artists M42: "apri"
 - Festivals Venues M15: "T"

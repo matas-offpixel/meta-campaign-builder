@@ -280,6 +280,7 @@ begin
       "registrations": 79,
       "cpr": 3.39,
       "cprSource": "pixel",
+      "cprPixel": 3.39,
       "clients": [
         "Louder / Parable"
       ],
@@ -513,6 +514,7 @@ begin
       "registrations": 94,
       "cpr": 2.39,
       "cprSource": "pixel",
+      "cprPixel": 2.39,
       "clients": [
         "Deep House Bible",
         "IRONWORKS"
@@ -579,6 +581,7 @@ begin
       "registrations": 36,
       "cpr": 2.37,
       "cprSource": "pixel",
+      "cprPixel": 2.37,
       "clients": [
         "Puzzle"
       ],
@@ -661,6 +664,7 @@ begin
       "registrations": 6,
       "cpr": 4.19,
       "cprSource": "pixel",
+      "cprPixel": 4.19,
       "clients": [
         "Louder / Parable"
       ],
@@ -775,6 +779,7 @@ begin
       "registrations": 66,
       "cpr": 3.72,
       "cprSource": "pixel",
+      "cprPixel": 3.72,
       "clients": [
         "Louder / Parable"
       ],
@@ -878,6 +883,7 @@ begin
       "registrations": 185,
       "cpr": 2.97,
       "cprSource": "pixel",
+      "cprPixel": 2.97,
       "clients": [
         "Deep House Bible",
         "Louder / Parable",
@@ -1168,10 +1174,6 @@ begin
         "name": "luxury travel (travel and tourism)"
       },
       {
-        "id": "6002915656955",
-        "name": "small luxury hotels world"
-      },
-      {
         "id": "6007828099136",
         "name": "Luxury goods (retail)"
       },
@@ -1184,22 +1186,10 @@ begin
         "name": "Ritz-Carlton Hotel Company"
       }
     ],
-    "evidence": {
-      "clusterKey": "6002915656955,6003011087019,6003175076849,6003495081227,6007828099136",
-      "adSets": 18,
-      "fundedAdSets": 11,
-      "spend": 371.86,
-      "registrations": 126,
-      "cpr": 2.95,
-      "cprSource": "pixel",
-      "clients": [
-        "Deep House Bible",
-        "Louder / Parable"
-      ],
-      "cprIndex": 1.57,
-      "clientBaselineCpr": 1.88
-    },
-    "unresolved": [],
+    "evidence": null,
+    "unresolved": [
+      "Luxury Hotels"
+    ],
     "library": {
       "tab": null,
       "column": "Lifestyle",
@@ -1208,12 +1198,6 @@ begin
           "query": "Luxury Travel",
           "id": "6003011087019",
           "name": "luxury travel (travel and tourism)",
-          "match": "contains"
-        },
-        {
-          "query": "Luxury Hotels",
-          "id": "6002915656955",
-          "name": "small luxury hotels world",
           "match": "contains"
         },
         {
@@ -1270,6 +1254,10 @@ begin
         "name": "Buccellati"
       },
       {
+        "id": "6003431493391",
+        "name": "Bulgari (luxury goods)"
+      },
+      {
         "id": "6002972136974",
         "name": "Boucheron"
       },
@@ -1296,8 +1284,7 @@ begin
     ],
     "evidence": null,
     "unresolved": [
-      "Graff",
-      "Bvlgari"
+      "Graff"
     ],
     "library": {
       "tab": null,
@@ -1344,6 +1331,12 @@ begin
           "id": "6016807291376",
           "name": "Buccellati",
           "match": "exact"
+        },
+        {
+          "query": "Bvlgari",
+          "id": "6003431493391",
+          "name": "Bulgari (luxury goods)",
+          "match": "contains"
         },
         {
           "query": "Boucheron",
