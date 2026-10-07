@@ -96,6 +96,10 @@
     {
       "path": "/api/cron/budget-pacing-check",
       "schedule": "0 */1 * * *"
+    },
+    {
+      "path": "/api/cron/ad-daily-insights",
+      "schedule": "30 2 * * *"
     }
   ]
 }

@@ -33,7 +33,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { bindLaunchAdRecorder, noopRecordCreatedAd } from "@/lib/launched-ads/launch-recorder";
 import {
   createMetaCreative,
   createMetaAd,
@@ -272,6 +273,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // Bookkeeping only — never throws into the attach path. No draft here:
+  // client/event come from the target ad set's launched_ad_sets row.
+  const recordCreatedAd = await bindLaunchAdRecorder({
+    session: supabase,
+    serviceRole: createServiceRoleClient,
+    creatives: newCreatives,
+    userId: user.id,
+    adAccountId,
+    launchRunId: crypto.randomUUID(),
+    fillFromLaunchedAdSets: true,
+  }).catch(() => noopRecordCreatedAd);
+
   // ── Per-campaign serial execution ────────────────────────────────────────
   const results: CampaignAttachResult[] = [];
   let totalAdsCreated = 0;
@@ -418,6 +431,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           console.error(
             `[bulk-attach-ads]   ad created: "${adName}" → adSet ${adSetId} adId=${adId}`,
           );
+          await recordCreatedAd({
+            creative,
+            adName,
+            metaAdId: adId,
+            metaCreativeId,
+            metaAdSetId: adSetId,
+            metaCampaignId: campaignId,
+          });
         } catch (err) {
           const metaErr = err instanceof MetaApiError ? err : null;
           const kind = classifyLaunchMetaCode(metaErr?.code);
