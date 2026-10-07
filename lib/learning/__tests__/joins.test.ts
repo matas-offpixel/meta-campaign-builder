@@ -10,6 +10,7 @@ import {
   objectiveStage,
   resultOf,
   resultStageByAd,
+  resultStageByAdSet,
   resultTypeStage,
   stageOf,
   tagsForAd,
@@ -99,6 +100,8 @@ describe("learning joins: stage", () => {
     assert.equal(st("2026-10-01", undated, "on_sale", "registration"), "ticket_sale/phase_at_launch");
     assert.equal(st("2026-10-01", undated, null, "registration"), "registration/objective");
     assert.equal(st("2026-10-01", null, null, "ticket_sale"), "ticket_sale/objective");
+    assert.equal(st("2026-10-01", undated, null, null, "ticket_sale"), "ticket_sale/adset_objective");
+    assert.equal(st("2026-10-01", undated, null, "registration", "ticket_sale"), "registration/objective");
     assert.equal(st("2026-10-01", undated, null), "unknown/unknown");
     assert.equal(st("2026-10-01", null, null, null), "unknown/unknown");
   });
@@ -134,6 +137,29 @@ describe("learning joins: stage", () => {
       { meta_ad_id: "none", result_action_type: null },
     ]);
     assert.deepEqual(Object.fromEntries(map), { r: "registration", p: "ticket_sale" });
+  });
+
+  it("ad set result type: the stage most of the ad set's result days carry, across its ads", () => {
+    const reg = "offsite_conversion.fb_pixel_complete_registration";
+    const map = resultStageByAdSet([
+      { meta_ad_id: "a1", meta_adset_id: "s1", result_action_type: reg },
+      { meta_ad_id: "a2", meta_adset_id: "s1", result_action_type: reg },
+      { meta_ad_id: "a3", meta_adset_id: "s1", result_action_type: null },
+      { meta_ad_id: "a4", meta_adset_id: null, result_action_type: reg },
+      { meta_ad_id: "a5", meta_adset_id: "s2", result_action_type: null },
+    ]);
+    assert.deepEqual(Object.fromEntries(map), { s1: "registration" });
+  });
+
+  it("joinAdDay: an ad with no result day takes its ad set's result stage, recorded as adset_objective", () => {
+    const ctx = joinContext({
+      adResultStage: new Map([["ad-own", "ticket_sale"]]),
+      adSetResultStage: new Map([["adset-sib", "registration"]]),
+    });
+    const quiet = joinAdDay(adDay({ meta_ad_id: "ad-quiet", meta_adset_id: "adset-sib", campaign_name: "[CODE-C]", spend: 9 }), ctx);
+    assert.deepEqual([quiet.stage, quiet.stageSource, quiet.result], ["registration", "adset_objective", 0]);
+    const own = joinAdDay(adDay({ meta_ad_id: "ad-own", meta_adset_id: "adset-sib", campaign_name: "[CODE-C]" }), ctx);
+    assert.deepEqual([own.stage, own.stageSource], ["ticket_sale", "objective"]);
   });
 
   it("joinAdDay reads the ad set's phase when the event has no dates; unknown is kept with no result", () => {

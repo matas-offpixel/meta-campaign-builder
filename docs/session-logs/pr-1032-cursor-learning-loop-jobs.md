@@ -30,7 +30,8 @@ A nightly, DB-only job (`/api/cron/learning-refresh`, 03:30 UTC, `ENABLE_LEARNIN
     1. `event_dates`: before general sale (presale when there is no general-sale date) is `registration`, on or after it is `ticket_sale`.
     2. `phase_at_launch`: `presale` / `waiting_list` → registration, `on_sale` → ticket_sale.
     3. `objective`: the ad set's `launched_ad_sets.objective` (registration / lead → registration, purchase → ticket_sale), else the ad's `result_action_type` (registration / lead pixel types → registration, purchase → ticket_sale).
-    4. `unknown`.
+    4. `adset_objective`: an ad with no result day takes the stage most of its ad set's result days carry. It is recorded apart from rule 3, so the dry run shows how much rests on the fallback.
+    5. `unknown`.
   - Campaign names are never read for stage.
   - Result: registrations, purchases, or none for `unknown`.
   - Join rate per client.
@@ -61,6 +62,7 @@ Rulings from Matas after the first dry run:
 - **Stage fallback** is the objective, not campaign-name keywords.
   - It comes after event dates and `phase_at_launch`: the ad set's `launched_ad_sets.objective` first, else the ad's `result_action_type`.
   - The result type is read per ad, not per ad-day: the stage most of the ad's result days carry, with no stage on a tie. Read per ad-day, an ad's days with no result would stay `unknown`, their spend would drop out, and the stage's cost would look cheaper than it was.
+  - An ad with no result day then takes its ad set's result stage (`adset_objective`). An ad set has one optimisation goal, so its other ads' result type is the ad set's objective.
 - **Pooled costs in both stages.** A tag's cpr and `baseline_cpr` are both spend ÷ results, never a median of per-ad costs. This is the rule #1026 adopted for registration.
 - **A results floor in confidence.** A row is thin under 10 stage results.
   - Applied to `tag_performance`, interest live evidence (registrations), and the `creative_scores` `convert` axis.
@@ -77,45 +79,43 @@ My calls where the brief was silent:
 7. **Ad-days with no resolved client** count in no scope, including `all`.
 8. **The baseline is tagged ads only.** `baseline_cpr` is pooled over the scope's *tagged* ads, so the index compares a tag against the ads being ranked.
 
-## Dry run against prod (2026-10-07, read-only, nothing written; after the rulings)
+## Dry run against prod (2026-10-07, read-only, nothing written; after the rulings and the ad-set fallback)
 
-- Run time: 8 s.
+- Run time: 10 s.
 - 45,220 ad-days in total. 32,342 are joined to an active client, 12,878 have no client, and none belong to an archived client.
 
 | Job | Would write |
 |---|---|
-| creative_scores | 10,636 rows over 28 events |
-| tag_performance | 516 rows (client 258, vertical 129, all 129; thin 259, ok 32, strong 225) |
+| creative_scores | 10,903 rows over 28 events |
+| tag_performance | 506 rows (client 256, vertical 125, all 125; thin 248, ok 30, strong 228) |
 | client_funnel_benchmarks | 17 rows, 1 skipped (Innellea `lpv_to_purchase`, no ticket-sale LPVs) |
 | interest_live_evidence | 36 clusters, 8 with matching ad sets |
 
 | Client | Ad-days | Tagged | Join rate | by meta_ad_id | by name | registration | ticket_sale | unknown |
 |---|---|---|---|---|---|---|---|---|
-| Electric Brixton | 16,748 | 8,827 | 52.7% | 1,174 | 7,653 | 5,156 | 11,099 | 493 |
-| IRONWORKS | 10,984 | 7,996 | 72.8% | 494 | 7,502 | 5,025 | 1,452 | 4,507 |
-| Louder / Parable | 2,280 | 102 | 4.5% | 102 | 0 | 953 | 1,276 | 51 |
-| Puzzle | 1,167 | 312 | 26.7% | 0 | 312 | 0 | 170 | 997 |
-| Deep House Bible | 1,146 | 560 | 48.9% | 130 | 430 | 660 | 466 | 20 |
+| Electric Brixton | 16,748 | 8,827 | 52.7% | 1,174 | 7,653 | 5,248 | 11,197 | 303 |
+| IRONWORKS | 10,984 | 7,996 | 72.8% | 494 | 7,502 | 6,866 | 2,182 | 1,936 |
+| Louder / Parable | 2,280 | 102 | 4.5% | 102 | 0 | 974 | 1,276 | 30 |
+| Puzzle | 1,167 | 312 | 26.7% | 0 | 312 | 0 | 487 | 680 |
+| Deep House Bible | 1,146 | 560 | 48.9% | 130 | 430 | 660 | 479 | 7 |
 | Innellea | 17 | 0 | 0.0% | 0 | 0 | 17 | 0 | 0 |
 
-| Client | Stage from event_dates | phase_at_launch | objective | unknown |
-|---|---|---|---|---|
-| Electric Brixton | 15,418 | 0 | 837 | 493 |
-| IRONWORKS | 0 | 0 | 6,477 | 4,507 |
-| Louder / Parable | 1,821 | 0 | 408 | 51 |
-| Puzzle | 0 | 0 | 170 | 997 |
-| Deep House Bible | 690 | 0 | 436 | 20 |
-| Innellea | 0 | 0 | 17 | 0 |
+Ad-days by where the stage came from, and the spend left `unknown`:
 
-Top tags now exist for DHB, IRONWORKS and Electric (registration), and for Parable, IRONWORKS and Electric (ticket sale). The full tables are in the PR description.
+| Client | event_dates | phase_at_launch | objective | adset_objective | unknown | Unknown spend £ | Total £ | Share |
+|---|---|---|---|---|---|---|---|---|
+| Electric Brixton | 15,418 | 0 | 837 | 190 | 303 | 644.78 | 25,672.93 | 2.5% |
+| IRONWORKS | 0 | 0 | 6,477 | 2,571 | 1,936 | 9,282.06 | 55,122.27 | 16.8% |
+| Louder / Parable | 1,821 | 0 | 408 | 21 | 30 | 24.73 | 4,819.96 | 0.5% |
+| Puzzle | 0 | 0 | 170 | 317 | 680 | 699.04 | 1,411.44 | 49.5% |
+| Deep House Bible | 690 | 0 | 436 | 13 | 7 | 1.22 | 3,120.83 | 0.0% |
+| Innellea | 0 | 0 | 17 | 0 | 0 | 0 | 14.55 | 0.0% |
+
+Top tags exist for DHB, IRONWORKS and Electric (registration), and for Parable, IRONWORKS and Electric (ticket sale). The full tables are in the PR description.
 
 ## What the dry run found
 
-- **Stage still unknown for about a quarter of IRONWORKS' spend.** £13,171 of £55,122 (23.9%) is still `unknown`, and 72% of Puzzle's £1,411.
-  - These are ads that never logged a result.
-  - Taking the stage from the ad set's other ads would recover about £3,888 of IRONWORKS' unknown spend and £318 of Puzzle's.
-  - The rest (IRONWORKS £9,282) is in ad sets where no ad logged a result, which are likely traffic or awareness campaigns.
-  - Not built: it needs a ruling.
+- **Spend still `unknown`.** It is in ad sets where no ad logged a result: IRONWORKS £9,282 (16.8%), Puzzle £699 (49.5%). These are likely traffic or awareness campaigns, so they stay unknown.
 - **12,878 ad-days have no client.** They are bracketed campaigns whose code matches no event (DHB 3,046 of 3,046; Parable 2,909 of 3,162; IRONWORKS 1,414 of 1,526; NX 1,072 of 2,160), plus campaigns with no code (Puzzle, Electric Sheffield and Bristol, Innellea).
 - **Live evidence matches 8 of 36 clusters.** Only launched ad sets carry `interest_ids`. The seed clusters built from IRONWORKS (Publications and others) were measured from Graph targeting.
 
@@ -129,4 +129,4 @@ Top tags now exist for DHB, IRONWORKS and Electric (registration), and for Parab
 
 - [x] `npx tsc --noEmit`: no errors in touched files (the baseline has unrelated test-file errors)
 - [x] `npm run build` (with git-ignored `scripts/out` moved aside)
-- [x] `npm test`: 6,888 node tests pass, 0 fail; vitest 8/8
+- [x] `npm test`: 6,890 node tests pass, 0 fail; vitest 8/8

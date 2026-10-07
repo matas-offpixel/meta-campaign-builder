@@ -47,6 +47,8 @@ export type LearningRefreshResult =
       stages: Record<string, Record<Stage, number>>;
       /** Ad-days per client by where the stage came from. */
       stageSources: Record<string, Record<StageSource, number>>;
+      /** GBP spend per client, all ad-days and those with stage 'unknown'. */
+      spend: Record<string, { total: number; unknown: number }>;
       currencyAssumed: string[];
       /** Dry run only: what the jobs computed. */
       preview?: {
@@ -84,8 +86,22 @@ function stageCounts(facts: LearningInputs["facts"]): Record<string, Record<Stag
 function stageSourceCounts(facts: LearningInputs["facts"]): Record<string, Record<StageSource, number>> {
   const out: Record<string, Record<StageSource, number>> = {};
   for (const f of facts) {
-    const c = (out[f.clientId ?? ""] ??= { event_dates: 0, phase_at_launch: 0, objective: 0, unknown: 0 });
+    const c = (out[f.clientId ?? ""] ??= { event_dates: 0, phase_at_launch: 0, objective: 0, adset_objective: 0, unknown: 0 });
     c[f.stageSource] += 1;
+  }
+  return out;
+}
+
+function spendCounts(facts: LearningInputs["facts"]): Record<string, { total: number; unknown: number }> {
+  const out: Record<string, { total: number; unknown: number }> = {};
+  for (const f of facts) {
+    const c = (out[f.clientId ?? ""] ??= { total: 0, unknown: 0 });
+    c.total += f.spendGbp;
+    if (f.stage === "unknown") c.unknown += f.spendGbp;
+  }
+  for (const c of Object.values(out)) {
+    c.total = Math.round(c.total * 100) / 100;
+    c.unknown = Math.round(c.unknown * 100) / 100;
   }
   return out;
 }
@@ -176,6 +192,7 @@ export async function runLearningRefresh(input: {
     joinRates: Object.fromEntries(joinRates(inputs.facts)),
     stages: stageCounts(inputs.facts),
     stageSources: stageSourceCounts(inputs.facts),
+    spend: spendCounts(inputs.facts),
     currencyAssumed: [...inputs.currency.assumed].sort(),
   };
   if (dryRun) {

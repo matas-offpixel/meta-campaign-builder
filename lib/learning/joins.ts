@@ -20,7 +20,11 @@
  *      ad, not per ad-day: the stage most of the ad's result days carry,
  *      none on a tie. Per ad-day, the ad's days with no result would stay
  *      'unknown' and their spend would drop out of the stage's cost.
- *   4. 'unknown', which is kept. Campaign names are never read for stage.
+ *   4. adset_objective: an ad with no result day takes the stage most of
+ *      its ad set's result days carry. An ad set has one optimisation
+ *      goal, so its other ads' result type is the ad set's objective.
+ *      Recorded apart from 3 so the dry run shows how much rests on it.
+ *   5. 'unknown', which is kept. Campaign names are never read for stage.
  * - Result: registrations in registration, purchases in ticket_sale, none
  *   in unknown.
  */
@@ -55,8 +59,8 @@ export type AdDayRow = {
   result_action_type?: string | null;
 };
 
-export type StageSource = "event_dates" | "phase_at_launch" | "objective" | "unknown";
-export const STAGE_SOURCES: readonly StageSource[] = ["event_dates", "phase_at_launch", "objective", "unknown"];
+export type StageSource = "event_dates" | "phase_at_launch" | "objective" | "adset_objective" | "unknown";
+export const STAGE_SOURCES: readonly StageSource[] = ["event_dates", "phase_at_launch", "objective", "adset_objective", "unknown"];
 
 export type StageEvent = {
   clientId: string | null;
@@ -86,15 +90,17 @@ export function resultTypeStage(resultActionType: string | null | undefined): St
   return null;
 }
 
-/** meta_ad_id → the stage most of the ad's result days carry; ties and ads with no result day are left out. */
-export function resultStageByAd(rows: readonly Pick<AdDayRow, "meta_ad_id" | "result_action_type">[]): Map<string, Stage> {
+type ResultRow = Pick<AdDayRow, "meta_ad_id" | "result_action_type"> & { meta_adset_id?: string | null };
+
+function majorityResultStage(rows: readonly ResultRow[], keyOf: (row: ResultRow) => string | null): Map<string, Stage> {
   const counts = new Map<string, { registration: number; ticket_sale: number }>();
   for (const r of rows) {
+    const key = keyOf(r);
     const stage = resultTypeStage(r.result_action_type);
-    if (stage !== "registration" && stage !== "ticket_sale") continue;
-    const c = counts.get(r.meta_ad_id) ?? { registration: 0, ticket_sale: 0 };
+    if (!key || (stage !== "registration" && stage !== "ticket_sale")) continue;
+    const c = counts.get(key) ?? { registration: 0, ticket_sale: 0 };
     c[stage] += 1;
-    counts.set(r.meta_ad_id, c);
+    counts.set(key, c);
   }
   const out = new Map<string, Stage>();
   for (const [ad, c] of counts) {
@@ -104,11 +110,22 @@ export function resultStageByAd(rows: readonly Pick<AdDayRow, "meta_ad_id" | "re
   return out;
 }
 
+/** meta_ad_id → the stage most of the ad's result days carry; ties and ads with no result day are left out. */
+export function resultStageByAd(rows: readonly ResultRow[]): Map<string, Stage> {
+  return majorityResultStage(rows, (r) => r.meta_ad_id);
+}
+
+/** meta_adset_id → the stage most of the ad set's result days carry, across its ads; ties left out. */
+export function resultStageByAdSet(rows: readonly ResultRow[]): Map<string, Stage> {
+  return majorityResultStage(rows, (r) => r.meta_adset_id ?? null);
+}
+
 export function stageOf(
   date: string,
   event: StageEvent | null | undefined,
   phaseAtLaunch: string | null | undefined,
   objective?: Stage | null,
+  adSetObjective?: Stage | null,
 ): { stage: Stage; source: StageSource } {
   const boundary = (event?.generalSaleAt ?? event?.presaleAt ?? "").slice(0, 10);
   if (boundary) return { stage: date < boundary ? "registration" : "ticket_sale", source: "event_dates" };
@@ -116,6 +133,9 @@ export function stageOf(
   if (REGISTRATION_PHASES.has(phase)) return { stage: "registration", source: "phase_at_launch" };
   if (TICKET_PHASES.has(phase)) return { stage: "ticket_sale", source: "phase_at_launch" };
   if (objective === "registration" || objective === "ticket_sale") return { stage: objective, source: "objective" };
+  if (adSetObjective === "registration" || adSetObjective === "ticket_sale") {
+    return { stage: adSetObjective, source: "adset_objective" };
+  }
   return { stage: "unknown", source: "unknown" };
 }
 
@@ -196,6 +216,8 @@ export type JoinContext = {
   adSetObjective?: ReadonlyMap<string, string | null>;
   /** meta_ad_id → stage from the ad's result days (`resultStageByAd`). */
   adResultStage?: ReadonlyMap<string, Stage>;
+  /** meta_adset_id → stage from the ad set's result days (`resultStageByAdSet`). */
+  adSetResultStage?: ReadonlyMap<string, Stage>;
   tags: TagIndex;
   currency: CurrencyResolver;
 };
@@ -207,7 +229,13 @@ export function joinAdDay(row: AdDayRow, ctx: JoinContext): LearningFact {
   const adSetId = row.meta_adset_id;
   const objective =
     (adSetId ? objectiveStage(ctx.adSetObjective?.get(adSetId)) : null) ?? ctx.adResultStage?.get(row.meta_ad_id) ?? null;
-  const { stage, source } = stageOf(row.date, event, adSetId ? ctx.adSetPhase.get(adSetId) : null, objective);
+  const { stage, source } = stageOf(
+    row.date,
+    event,
+    adSetId ? ctx.adSetPhase.get(adSetId) : null,
+    objective,
+    adSetId ? ctx.adSetResultStage?.get(adSetId) : null,
+  );
   const { tagIds, via } = tagsForAd(row.meta_ad_id, resolved.eventId, row.ad_name, ctx.tags);
   return {
     row,
@@ -339,6 +367,7 @@ export async function loadLearningInputs(db: Db): Promise<LearningInputs> {
     adSetPhase: new Map(adSets.map((a) => [a.meta_adset_id, a.phase_at_launch])),
     adSetObjective: new Map(adSets.map((a) => [a.meta_adset_id, a.objective ?? null])),
     adResultStage: resultStageByAd(adDays),
+    adSetResultStage: resultStageByAdSet(adDays),
     tags: buildTagIndex(assignments, new Set(tags.keys())),
     currency,
   };
