@@ -12,7 +12,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadArchivedClientIds, logSkippedArchivedClients } from "../db/client-status.ts";
 import { normalizeAdAccountId } from "../meta/ad-account.ts";
 import { deriveAdDailyInsight, type AdDailyInsightRow } from "./derive.ts";
-import { fetchAdAccountInsights, type AccountFetchStatus, type GraphGet } from "./fetch.ts";
+import { fetchAdAccountInsightsAdaptive, type AccountFetchStatus, type GraphGet } from "./fetch.ts";
 
 export const AD_DAILY_INSIGHTS_DAYS = 3;
 const UPSERT_CHUNK = 500;
@@ -25,6 +25,8 @@ export type AccountOutcome = {
   pages: number;
   rows: number;
   error?: string;
+  /** Set when a failing span was split into smaller ones. */
+  windowSplit?: { from: number; to: number };
 };
 
 export type AdDailyInsightsRunResult = {
@@ -145,33 +147,41 @@ export async function runAdDailyInsights(deps: {
   let metaCalls = 0;
   let rowsWritten = 0;
   for (const adAccountId of loaded.accounts) {
-    const fetched = await fetchAdAccountInsights(deps.graphGet, adAccountId, since, until);
+    let written = 0;
+    const fetched = await fetchAdAccountInsightsAdaptive(
+      deps.graphGet,
+      adAccountId,
+      since,
+      until,
+      async (span) => {
+        // One upsert cannot touch the same (ad, day) twice.
+        const byKey = new Map<string, AdDailyInsightRow>();
+        for (const raw of span.rows) {
+          const row = deriveAdDailyInsight(adAccountId, raw, now);
+          if (row) byKey.set(`${row.meta_ad_id}|${row.date}`, row);
+        }
+        const rows = [...byKey.values()];
+        if (rows.length === 0) return null;
+        const writeError = await upsertRows(deps.db, rows);
+        if (!writeError) written += rows.length;
+        return writeError;
+      },
+    );
     metaCalls += fetched.calls;
-    // One upsert cannot touch the same (ad, day) twice.
-    const byKey = new Map<string, AdDailyInsightRow>();
-    for (const raw of fetched.rows) {
-      const row = deriveAdDailyInsight(adAccountId, raw, now);
-      if (row) byKey.set(`${row.meta_ad_id}|${row.date}`, row);
-    }
-    const rows = [...byKey.values()];
+    rowsWritten += written;
     const outcome: AccountOutcome = {
       adAccountId,
       status: fetched.status,
       calls: fetched.calls,
       pages: fetched.pages,
-      rows: 0,
+      rows: written,
       ...(fetched.error ? { error: fetched.error } : {}),
+      ...(fetched.windowSplit ? { windowSplit: fetched.windowSplit } : {}),
     };
-    // Partial pages from a failed account are still facts; keep them.
-    if (rows.length > 0) {
-      const writeError = await upsertRows(deps.db, rows);
-      if (writeError) {
-        outcome.status = "write_error";
-        outcome.error = writeError;
-      } else {
-        outcome.rows = rows.length;
-        rowsWritten += rows.length;
-      }
+    if (fetched.windowSplit) {
+      console.log(
+        `[ad-daily-insights] ${adAccountId} window_split=${fetched.windowSplit.from}d→${fetched.windowSplit.to}d status=${outcome.status} meta_calls=${outcome.calls}`,
+      );
     }
     if (outcome.status !== "ok") {
       console.error(`[ad-daily-insights] ${adAccountId} ${outcome.status}: ${outcome.error ?? ""}`);
