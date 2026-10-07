@@ -156,7 +156,9 @@ function mediaIdentities(spec: CreativeContentSpec, nameStem: string): string[] 
  *
  * Residual risk, video without a poster hash:
  * - With a stem: two different videos under the same ad name, copy and
- *   account are one creative.
+ *   account are one creative. The stem also replaces every video entry with
+ *   one token, so a single-video object and a feed+story object with the
+ *   same stem, copy and account merge.
  * - Without a stem: two different videos given the same poster image (an
  *   operator's preferred-frame override) in the same slot, with the same copy
  *   and account, are one creative; and copies whose poster file changed stay

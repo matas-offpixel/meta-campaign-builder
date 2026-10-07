@@ -22,8 +22,8 @@ import type { MetaLiveCampaignBundle } from "../types.ts";
 import { GDS_ACCOUNT, gdsDuplicatedBundle } from "../__fixtures__/gds-duplicated-77.ts";
 
 const GDS_NAMES = [
-  "GDS - Static – Copy",
-  "GDS - Video – Copy",
+  "GDS - Static",
+  "GDS - Video",
   "ES - Static",
   "ES - Video",
   "GDS Video (With Text)",
@@ -102,8 +102,8 @@ describe("GDS duplicated campaign: 77 objects, 5 creatives", () => {
     const last = bundle.adSets[15]!.id as string;
     const nameOf = (id: string) => draft.creatives.find((row) => row.id === id)!.name;
     assert.deepEqual(draft.creativeAssignments[first]!.map(nameOf), [
-      "GDS - Static – Copy",
-      "GDS - Video – Copy",
+      "GDS - Static",
+      "GDS - Video",
       "ES - Static",
       "ES - Video",
     ]);
@@ -402,6 +402,6 @@ describe("imported creative on reload", () => {
     const reloaded = migrateDraft(JSON.parse(JSON.stringify(draft)) as Record<string, unknown>);
     assert.deepEqual(reloaded.creatives[0]!.importedMeta, draft.creatives[0]!.importedMeta);
     assert.equal(reloaded.creatives[0]!.nameSource, "file");
-    assert.equal(reloaded.creatives[0]!.name, "GDS - Static – Copy");
+    assert.equal(reloaded.creatives[0]!.name, "GDS - Static");
   });
 });

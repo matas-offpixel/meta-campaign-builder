@@ -7,7 +7,6 @@ import {
 } from "./creative-copy.ts";
 import {
   adNameStem,
-  adNameWithoutAdSetSuffix,
   creativeContentKey,
   isMetaAutoCreativeName,
   stripMetaAutoCreativeName,
@@ -51,9 +50,7 @@ export function metaImportCreativeCarriable(creative: RawCreative & { id: string
 
 type Ad = {
   id: string;
-  /** Without our launcher's ` — <ad set>` suffix. */
-  name: string | null;
-  /** `adNameStem`: also without Ads Manager's ` – Copy N`. */
+  /** `adNameStem`: without our launcher's ` — <ad set>` suffix and Ads Manager's ` – Copy N`. */
   stem: string | null;
   adSetId: string | null;
   creativeId: string;
@@ -73,7 +70,6 @@ function adsByCreated(bundle: MetaLiveCampaignBundle): Ad[] {
     const rawName = str(raw.name);
     ads.push({
       id: str(raw.id) ?? "",
-      name: rawName ? adNameWithoutAdSetSuffix(rawName, adSetNames) || null : null,
       stem: rawName ? adNameStem(rawName, adSetNames) || null : null,
       adSetId: str(raw.adset_id),
       creativeId,
@@ -96,11 +92,11 @@ function mostCommon(values: readonly (string | null)[]): string | null {
 }
 
 /**
- * The ad name. A Meta auto-name on the object is never used; a name the
+ * The ad name stem, the same one the content key uses. A Meta auto-name on the object is never used; a name the
  * operator gave the object is used only when no ad carries a name.
  */
 function groupName(ads: readonly Ad[], objectNames: readonly string[], fallback: string): string {
-  const adName = mostCommon(ads.map((ad) => ad.name));
+  const adName = mostCommon(ads.map((ad) => ad.stem));
   if (adName) return adName;
   const own = objectNames.find((name) => !isMetaAutoCreativeName(name));
   if (own) return own;

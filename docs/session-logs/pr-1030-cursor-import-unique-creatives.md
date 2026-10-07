@@ -36,7 +36,7 @@ A key on `video_id`, as the brief specified, gives 48 groups here. Round 1 keyed
 |---|---|---|
 | Picker rows | 77 (77 ticked by default) | 5 (5 ticked) |
 | Header | `16 ad sets` · `77 of 77 ticked` | `5 creatives (77 ads) · 5 ticked` |
-| Draft creatives on Select all | 77, auto-named | 5: ES - Static (16 ads), ES - Video (16), GDS - Static – Copy (15), GDS - Video – Copy (15), GDS Video (With Text) (15) |
+| Draft creatives on Select all | 77, auto-named | 5: ES - Static (16 ads), ES - Video (16), GDS - Static (15), GDS - Video (15), GDS Video (With Text) (15) |
 | `creativeCounts` | `{read 77, carried, notCarried}` | `{read 77, uniqueCreatives 5, adsRead 77, carried 5, notCarried 0}` |
 
 The same numbers come from the live read saved locally and from the fixture `lib/meta/import/__fixtures__/gds-duplicated-77.ts`.
@@ -56,7 +56,7 @@ One "JJ - Static 1 … Copy 2" ad runs the Lineup Artwork image. It groups with 
     - The sorted media set: image hashes (link_data, child_attachments, asset_feed_spec), plus videos. A video with a poster hash is keyed by that hash. A video without one is keyed by the ad name stem, or by poster file plus slot when its ads carry no name, or by id.
     - Bodies, titles, descriptions, links and CTAs.
     - `page_id` and `instagram_user_id`. This is wider than the brief: two identical creatives posted from different accounts launch as different ads.
-- **Name:** the most common ad name in the group, after our ` — <ad set>` / ` — attached:<id>` suffix is stripped, with ties going to the earliest `created_time`. When no ad carries a name, the object's own name is used, but never a Meta auto-name (`/^(.+?)\s\d{4}-\d{2}-\d{2}-[0-9a-f]{32}$/`). The stripped prefix comes after that, then the id.
+- **Name:** the most common ad name stem in the group (`adNameStem`: our ` — <ad set>` / ` — attached:<id>` suffix and Ads Manager's ` – Copy N` stripped, the same stem the content key uses), with ties going to the earliest `created_time`. When no ad carries a name, the object's own name is used, but never a Meta auto-name (`/^(.+?)\s\d{4}-\d{2}-\d{2}-[0-9a-f]{32}$/`). The stripped prefix comes after that, then the id.
 - **Representative object:** the first carriable object by ad `created_time`. The draft row is built from it, and its id is the carry key. Any member id in `carry` carries the whole group, so a stale client still saves.
 - **Counts:** `notCarried` is per unique creative. The Review line reads `N ad sets · carried of uniqueCreatives creatives carried (adsRead ads) · notCarried not carried`. Older drafts fall back to `read`.
 - `migrateDraft` now passes `importedMeta` through. Before this change, `migrateCreative` rebuilt every field explicitly and would have dropped it.
@@ -100,7 +100,7 @@ One "JJ - Static 1 … Copy 2" ad runs the Lineup Artwork image. It groups with 
   - Naming:
     - an object's own name is kept only when no ad name exists;
     - an auto-name with no ad name falls back to the stripped prefix;
-    - the most common ad name wins, and a tie goes to the first created.
+    - the most common ad name stem wins, and a tie goes to the first created.
   - Existing posts group by story id, and each group keeps its ad sets.
   - `migrateDraft` keeps `importedMeta` and `nameSource: "file"`.
 - Updated:
@@ -133,7 +133,7 @@ One "JJ - Static 1 … Copy 2" ad runs the Lineup Artwork image. It groups with 
 
 1. **Ad set suffix in names.** Draft creatives were named "Static - Ahmed  — Wide", "Motion - Ahmed  — attached:120249957296630453" and "JJ - Motion 4 — Jamie Jones Adv+". With `nameSource: "file"`, #1009 never repaired them, and a relaunch would have appended a second suffix.
    - `adNameWithoutAdSetSuffix` now strips a trailing ` — <text>` before the majority vote, when `<text>` is an ad set name in the bundle or matches `attached:<digits>`. It also collapses double spaces.
-   - An Ads Manager ` – Copy` that follows the suffix is kept: "Adam Ten - Static 1  — Adam ten Adv+ – Copy" becomes "Adam Ten - Static 1 – Copy".
+   - `adNameWithoutAdSetSuffix` keeps an Ads Manager ` – Copy` that follows the suffix, so "Adam Ten - Static 1  — Adam ten Adv+ – Copy" becomes "Adam Ten - Static 1 – Copy". Round 3 names groups by the stem, which drops that too.
 2. **A poster is not a video identity.** In DHB, poster `813650309_…_n.jpg` is the feed video of the Ahmed-body copies and the story video of the Artwork-body copies: 8 `video_id`s, two videos. The original "Motion - Ahmed" (posters 813059653 / 813773856) and its copies (813650309 / 813692178) share an ad name and body but no poster. Round 1 gave 4 motion rows where there are 2.
    - A video is keyed by its poster hash when Meta returns one. That is `asset_feed_spec.videos[].thumbnail_hash` or `object_story_spec.video_data.image_hash`. On 52522388611107 it is the second: every video there is `video_data` with an `image_hash`. DHB has no hash on any of its 20 video entries.
    - Otherwise the video is keyed by the **ad name stem**: the suffix-stripped name without ` – Copy N` (`adNameStem`), plus copy and account. The original and its copies merge, and Ahmed and Artwork stay apart because their stems and bodies differ.
@@ -154,3 +154,10 @@ DHB rows before and after round 2:
 | Feed - Motion — Wide ×2, — All customs 2 ×2, — DHB Primary (5 boosted posts, disabled) | Feed - Motion ×5, each with `post …<6 digits>` (disabled) |
 
 That is 2 motion and 2 static rows that can be carried, plus the 5 boosted posts. Those posts have no permalink or Instagram account in the read, so they stay `no_asset_reported`, as they have since #977.
+
+## Round 3
+
+- **Group name is the stem.** Round 2 named a group by the most common suffix-stripped ad name. On the GDS fixture that kept " – Copy": the merged "GDS - Video" (1 ad) plus "GDS - Video – Copy" (14 ads) row was shown and drafted as "GDS - Video – Copy". With `nameSource: "file"` it would have launched as "GDS - Video – Copy — <ad set>". `groupName` now votes on `adNameStem`, the same stem the content key uses. The identity is unchanged.
+  - GDS rows: GDS - Static, GDS - Video, ES - Static, ES - Video, GDS Video (With Text).
+  - DHB stays at 9 rows (4 carriable). 52522388611107 stays at 40, and none of its row names ends in " – Copy" (asserted). The "Adam Ten - Static 1 – Copy" row there is now "Adam Ten - Static 1".
+- **Residual risk, added to `creativeContentKey`:** the stem path replaces every video entry with one token. A single-video object and a feed+story object with the same stem, copy and account therefore merge.

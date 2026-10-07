@@ -137,7 +137,7 @@ describe("DHB capture: unique creatives", () => {
 describe("Jamie Jones capture: unique creatives", () => {
   const bundlePromise = readCapture("52522388611107", "act_1967530076312");
 
-  it("301 objects are 40 rows; no name keeps our ad set suffix", async () => {
+  it("301 objects are 40 rows; no name keeps our ad set suffix or a – Copy", async () => {
     const bundle = await bundlePromise;
     const adSetNames = new Set(bundle.adSets.map((adSet) => String(adSet.name)));
     const picker = buildMetaImportPicker(bundle);
@@ -146,8 +146,9 @@ describe("Jamie Jones capture: unique creatives", () => {
     for (const row of picker.rows) {
       const tail = row.name.split(" — ").pop()!;
       assert.equal(row.name.includes(" — ") && adSetNames.has(tail), false, row.name);
+      assert.doesNotMatch(row.name, /\s[–-]\s+Copy(\s+\d+)?$/i);
     }
-    assert.ok(picker.rows.some((row) => row.name === "Adam Ten - Static 1 – Copy"));
+    assert.ok(picker.rows.some((row) => row.name === "Adam Ten - Static 1"));
     assert.ok(picker.rows.some((row) => row.name === "JJ - Motion 4"));
   });
 
