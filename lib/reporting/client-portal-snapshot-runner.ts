@@ -1,4 +1,5 @@
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { activeClientFilter } from "@/lib/db/client-status";
 import { loadClientPortalByClientId } from "@/lib/db/client-portal-server";
 import { writeClientPortalSnapshot } from "@/lib/reporting/client-portal-snapshot";
 
@@ -57,10 +58,11 @@ function withTimeout<T>(
 /**
  * Refresh the portal snapshot for every active client.
  *
- * Client set: `status != 'archived'` — active + paused clients are still
- * surfaced across the dashboard (Today pacing alerts, client list, per-client
- * detail), so their snapshots are worth keeping warm. Archived clients are
- * hidden from the dashboard, so caching them would be wasted work + memory.
+ * Client set: `activeClientFilter` (active + paused) — those are the clients
+ * the dashboard shows by default, so their snapshots are worth keeping warm.
+ * Archived clients are hidden from default dashboard views and crons (see
+ * `lib/db/client-status.ts`); their shares and portal still render from a
+ * live load, just without a warm snapshot.
  * (`clients` has no soft-delete column; `status` is the only lifecycle flag.)
  */
 export async function refreshAllClientPortalSnapshots(): Promise<RefreshAllResult> {
@@ -76,10 +78,8 @@ export async function refreshAllClientPortalSnapshots(): Promise<RefreshAllResul
     return { ok: 0, failed: [] };
   }
 
-  const { data: clients, error } = await admin
-    .from("clients")
-    .select("id")
-    .neq("status", "archived");
+  const clientsQuery = admin.from("clients").select("id");
+  const { data: clients, error } = await activeClientFilter(clientsQuery);
   if (error) {
     console.error(
       `[client-portal-refresh] failed to enumerate clients: ${error.message}`,

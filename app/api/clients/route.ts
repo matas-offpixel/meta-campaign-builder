@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { listClientsServer } from "@/lib/db/clients-server";
 import type { ClientStatus } from "@/lib/db/clients";
+import type { ALL_CLIENT_STATUSES } from "@/lib/db/client-status";
 
 /**
  * GET /api/clients
@@ -13,7 +14,8 @@ import type { ClientStatus } from "@/lib/db/clients";
  * `listClientsServer`.
  *
  * Query params:
- *   - status — optional filter (active / paused / archived)
+ *   - status — optional filter (active / paused / archived / all);
+ *               unset hides archived clients
  *   - q      — substring filter on client name
  *
  * Returns a flat shape (id, name, slug, primary_type, status) — pickers
@@ -34,7 +36,7 @@ export async function GET(req: NextRequest) {
   }
 
   const sp = req.nextUrl.searchParams;
-  const status = sp.get("status") as ClientStatus | null;
+  const status = sp.get("status") as ClientStatus | typeof ALL_CLIENT_STATUSES | null;
   const clients = await listClientsServer(user.id, {
     status: status ?? undefined,
     q: sp.get("q"),

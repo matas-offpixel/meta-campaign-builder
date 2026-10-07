@@ -1815,6 +1815,8 @@ export interface CampaignListItem {
   eventWarning?: string | null;
   /** Drafts library only. The row shows a muted "no event" chip. */
   noEvent?: boolean;
+  /** Client (or the event's client) is archived: listed under Archived only. */
+  clientArchived?: boolean;
 }
 
 // ─── Wizard state ───

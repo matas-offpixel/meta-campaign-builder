@@ -100,8 +100,8 @@ export function TodayDashboard({
         return;
       }
       const [ev, cl, dr] = await Promise.all([
-        listEvents(user.id),
-        listClients(user.id),
+        listEvents(user.id, { excludeArchivedClients: true }),
+        listClients(user.id, { excludeArchived: true }),
         listDraftsForUserByEvent(user.id),
       ]);
       setEvents(ev);

@@ -29,6 +29,7 @@ import {
   type RefreshResult,
 } from "@/lib/reporting/active-creatives-refresh-runner";
 import { loadActiveCreativesCronEligibility } from "@/lib/dashboard/cron-eligibility";
+import { logSkippedArchivedClients } from "@/lib/db/client-status";
 import { orderByStalestFirst } from "@/lib/dashboard/cron-rotation";
 import type { ConceptGroupRow } from "@/lib/reporting/group-creatives";
 import type { ShareActiveCreativesResult } from "@/lib/reporting/share-active-creatives";
@@ -330,6 +331,11 @@ export async function GET(req: NextRequest) {
   >;
   try {
     eligibility = await loadActiveCreativesCronEligibility(supabase);
+    logSkippedArchivedClients(
+      "cron refresh-active-creatives",
+      eligibility.skippedArchivedClients,
+      `skipped_archived_events=${eligibility.skippedArchivedEvents}`,
+    );
   } catch (err) {
     return NextResponse.json(
       {

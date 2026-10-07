@@ -7,7 +7,7 @@ afterEach(() => {
   cleanup();
 });
 
-import { CampaignRow } from "@/components/library/library-rows";
+import { CampaignRow, filterLibraryCampaigns } from "@/components/library/library-rows";
 import type { CampaignListItem } from "@/lib/types";
 
 vi.mock("@/lib/db/drafts", () => ({
@@ -164,5 +164,34 @@ describe("CampaignRow actions", () => {
     expect(screen.getByRole("heading", { name: "Set website destination" })).toBeTruthy();
     expect(screen.getByText(/Setting a website destination on a live ad set is disabled/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set to Website" })).toHaveProperty("disabled", true);
+  });
+});
+
+describe("archived clients in the library", () => {
+  const items: CampaignListItem[] = [
+    { ...campaign("published"), id: "pub-active" },
+    { ...campaign("published"), id: "pub-archived-client", clientArchived: true },
+    { ...campaign("draft"), id: "draft-archived-client", clientArchived: true },
+    { ...campaign("draft"), id: "draft-import" },
+    { ...campaign("archived"), id: "archived-draft" },
+  ];
+  const ids = (tab: "drafts" | "published" | "archived") =>
+    filterLibraryCampaigns(items, tab, "").map((c) => c.id);
+
+  it("Drafts and Published hide archived-client rows; Archived lists them", () => {
+    expect(ids("drafts")).toEqual(["draft-import"]);
+    expect(ids("published")).toEqual(["pub-active"]);
+    expect(ids("archived")).toEqual(["pub-archived-client", "draft-archived-client", "archived-draft"]);
+  });
+
+  it("an archived-client row shows a client archived chip", () => {
+    render(
+      <CampaignRow
+        campaign={{ ...campaign("published"), clientArchived: true }}
+        isLoading={false}
+        onOpen={() => undefined}
+      />,
+    );
+    expect(screen.getByText("client archived")).toBeTruthy();
   });
 });

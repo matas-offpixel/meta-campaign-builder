@@ -25,6 +25,11 @@ import type { CampaignEligibilityFacts } from "@/lib/optimisation/eligibility";
 import { notify } from "@/lib/notify/slack";
 import { buildLiveNotifyDeps } from "@/lib/notify/slack-deps";
 import { isCampaignPlanPhase } from "@/lib/plan/phase";
+import {
+  isArchivedClientDraft,
+  loadArchivedClientScope,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
 
 function isUndefinedColumnError(
   error: { message?: string; code?: string } | null | undefined,
@@ -66,6 +71,7 @@ function anySb(supabase: SupabaseClient): AnySupabase {
 interface OptedInDraftRow {
   id: string;
   ad_account_id: string | null;
+  client_id: string | null;
   event_id: string | null;
   draft_json: Record<string, unknown>;
   optimisation_automation_live: boolean | null;
@@ -95,11 +101,14 @@ export async function loadOptedInCampaignsForAutomation(
   supabase: SupabaseClient,
 ): Promise<CampaignAutomationInput[]> {
   const sb = anySb(supabase);
-  const { data, error } = await sb
-    .from("campaign_drafts")
-    .select("id, ad_account_id, event_id, draft_json, optimisation_automation_live")
-    .eq("status", "published")
-    .eq("optimisation_automation_enabled", true);
+  const [{ data, error }, archivedScope] = await Promise.all([
+    sb
+      .from("campaign_drafts")
+      .select("id, ad_account_id, client_id, event_id, draft_json, optimisation_automation_live")
+      .eq("status", "published")
+      .eq("optimisation_automation_enabled", true),
+    loadArchivedClientScope(supabase),
+  ]);
 
   if (error) {
     throw new Error(`loadOptedInCampaignsForAutomation: query failed: ${error.message}`);
@@ -111,9 +120,19 @@ export async function loadOptedInCampaignsForAutomation(
     input: CampaignAutomationInput;
     eventId: string | null;
   }> = [];
+  let skippedArchivedDrafts = 0;
   for (const row of rows) {
     try {
       const draft = migrateDraft(row.draft_json);
+      if (
+        isArchivedClientDraft(
+          { clientId: row.client_id, eventIds: [row.event_id, draft.settings.eventId] },
+          archivedScope,
+        )
+      ) {
+        skippedArchivedDrafts += 1;
+        continue;
+      }
       if (!draft.metaCampaignId) {
         console.warn(
           `[campaign-automation-decisions] draft=${row.id} opted in but has no metaCampaignId — skipping`,
@@ -161,6 +180,11 @@ export async function loadOptedInCampaignsForAutomation(
     }
   }
 
+  logSkippedArchivedClients(
+    "campaign-automation-decisions",
+    archivedScope.clientIds.size,
+    `skipped_archived_drafts=${skippedArchivedDrafts}`,
+  );
   const factsByDraft = await loadEligibilityFactsForDrafts(
     sb,
     parsed.map((item) => ({ draftId: item.input.draftId, eventId: item.eventId })),

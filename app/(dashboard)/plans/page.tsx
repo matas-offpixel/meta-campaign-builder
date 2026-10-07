@@ -21,6 +21,11 @@ import { isRelationMissing } from "@/lib/plan/schema-probe";
 import { IDLE_PLAN_LAUNCH, type CampaignPlan, type CampaignPlanLaunches } from "@/lib/plan/types";
 import { PLAN_SURFACE_MAX_WIDTH_CLASS } from "@/lib/plan/surface";
 import { createClient } from "@/lib/supabase/server";
+import {
+  dropArchivedClientRows,
+  dropArchivedEventRows,
+  loadArchivedClientScope,
+} from "@/lib/db/client-status";
 
 interface PlanListRow {
   id: string;
@@ -62,17 +67,22 @@ export default async function PlansPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data, error } = await supabase
-    .from("campaign_plans")
-    .select(
-      "id, name, status, event_id, objective_intent, total_daily_budget, start_date, end_date, start_time, end_time, created_at, updated_at",
-    )
-    .eq("user_id", user.id)
-    .order("updated_at", { ascending: false });
+  const [{ data, error }, archivedScope] = await Promise.all([
+    supabase
+      .from("campaign_plans")
+      .select(
+        "id, name, status, event_id, objective_intent, total_daily_budget, start_date, end_date, start_time, end_time, created_at, updated_at",
+      )
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false }),
+    loadArchivedClientScope(supabase),
+  ]);
 
   const tableMissing = isRelationMissing(error);
 
-  const rows = tableMissing ? [] : ((data ?? []) as PlanListRow[]);
+  const rows = tableMissing
+    ? []
+    : dropArchivedEventRows((data ?? []) as PlanListRow[], archivedScope);
   const ids = rows.map((row) => row.id);
   const launchesByPlan = new Map<string, CampaignPlanLaunches>();
   if (ids.length > 0) {
@@ -116,7 +126,7 @@ export default async function PlansPage() {
     .eq("user_id", user.id)
     .order("event_date", { ascending: false });
 
-  const eventRows = (events ?? []) as {
+  const eventRows = dropArchivedClientRows((events ?? []) as {
     id: string;
     name: string;
     client_id: string | null;
@@ -129,7 +139,7 @@ export default async function PlansPage() {
     kind: string | null;
     ticket_url: string | null;
     signup_url: string | null;
-  }[];
+  }[], archivedScope.clientIds);
   const clientIds = [...new Set(eventRows.map((event) => event.client_id).filter(Boolean))] as string[];
   const { data: clients } = clientIds.length
     ? await supabase.from("clients").select("id, name").in("id", clientIds)

@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
+  dropArchivedClientRows,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
+import {
   syncMailchimpAudienceForEvent,
   syncMailchimpTagForEvent,
   syncMailchimpTagDailyHistory,
@@ -64,18 +69,24 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
 
-  const { data: audienceData, error: audienceError } = await sb
-    .from("events")
-    .select(
-      "id, user_id, kind, mailchimp_audience_id, client_id, client:clients ( mailchimp_account_id, mailchimp_audience_id )",
-    )
-    .eq("kind", "brand_campaign");
+  const [{ data: audienceData, error: audienceError }, archivedClientIds] = await Promise.all([
+    sb
+      .from("events")
+      .select(
+        "id, user_id, kind, mailchimp_audience_id, client_id, client:clients ( mailchimp_account_id, mailchimp_audience_id )",
+      )
+      .eq("kind", "brand_campaign"),
+    loadArchivedClientIds(supabase),
+  ]);
 
   if (audienceError) {
     return NextResponse.json({ ok: false, error: audienceError.message }, { status: 500 });
   }
 
-  const audienceEvents = (audienceData ?? []) as (MailchimpSyncEventRow & { client_id?: string | null })[];
+  const audienceEvents = dropArchivedClientRows(
+    (audienceData ?? []) as (MailchimpSyncEventRow & { client_id?: string | null })[],
+    archivedClientIds,
+  );
 
   const audienceResults: Array<{
     eventId: string;
@@ -122,7 +133,15 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const tagEvents = (tagData ?? []) as (MailchimpTagSyncEventRow & { client_id?: string | null })[];
+  const tagEvents = dropArchivedClientRows(
+    (tagData ?? []) as (MailchimpTagSyncEventRow & { client_id?: string | null })[],
+    archivedClientIds,
+  );
+  logSkippedArchivedClients(
+    "sync-mailchimp-audiences",
+    archivedClientIds.size,
+    `skipped_archived_events=${(audienceData ?? []).length - audienceEvents.length + (tagData ?? []).length - tagEvents.length}`,
+  );
 
   const tagResults: Array<{
     eventId: string;

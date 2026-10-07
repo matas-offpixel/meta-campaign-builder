@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import { isPendingAction } from "@/lib/dashboard/format";
+import { dropArchivedClientRows, loadArchivedClientIds } from "@/lib/db/client-status";
 import type {
   EventWithClient,
   EventLinkedDraft,
@@ -57,9 +58,12 @@ export async function listEventsServer(
      * Pickers pass the wired id so a correctly-linked draft never looks empty.
      */
     includeId?: string | null;
+    /** Keep events of archived clients. Implied by `clientId`. */
+    includeArchivedClients?: boolean;
   },
 ): Promise<EventWithClient[]> {
   const supabase = await createClient();
+  const hideArchived = !options?.clientId && !options?.includeArchivedClients;
   let query = supabase
     .from("events")
     .select("*, client:clients ( id, name, slug, primary_type, meta_business_id, meta_ad_account_id, meta_pixel_id, tiktok_account_id, google_ads_account_id )")
@@ -79,16 +83,20 @@ export async function listEventsServer(
         new Map<string, { id: string; updated_at: string }>(),
       );
 
-  const [{ data, error }, draftMap] = await Promise.all([
+  const [{ data, error }, draftMap, archivedClientIds] = await Promise.all([
     query,
     draftMapPromise,
+    hideArchived ? loadArchivedClientIds(supabase) : Promise.resolve(new Set<string>()),
   ]);
 
   if (error) {
     console.warn("Supabase listEventsServer error:", error.message);
     return [];
   }
-  let rows = (data ?? []) as unknown as EventWithClient[];
+  let rows = dropArchivedClientRows(
+    (data ?? []) as unknown as EventWithClient[],
+    archivedClientIds,
+  );
 
   if (options?.q) {
     const needle = options.q.trim().toLowerCase();

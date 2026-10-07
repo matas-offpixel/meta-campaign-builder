@@ -7,6 +7,7 @@ import {
 } from "@/lib/campaign-event";
 import type { CampaignDraft, CampaignListItem } from "@/lib/types";
 import { migrateDraft } from "@/lib/autosave";
+import { loadArchivedClientIds } from "@/lib/db/client-status";
 
 // ─── List ────────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,7 @@ export async function loadCampaignList(
   const supabase = createClient();
   let query = supabase
     .from("campaign_drafts")
-    .select("id, name, objective, status, ad_account_id, created_at, updated_at, event_id")
+    .select("id, name, objective, status, ad_account_id, created_at, updated_at, event_id, client_id")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
 
@@ -25,7 +26,10 @@ export async function loadCampaignList(
     query = query.eq("status", status);
   }
 
-  const { data, error } = await query;
+  const [{ data, error }, archivedClientIds] = await Promise.all([
+    query,
+    loadArchivedClientIds(supabase),
+  ]);
 
   if (error || !data) {
     console.warn("Supabase campaign list error:", error?.message);
@@ -41,6 +45,7 @@ export async function loadCampaignList(
     created_at: string;
     updated_at: string;
     event_id: string | null;
+    client_id: string | null;
   }>;
 
   const eventIds = [
@@ -84,6 +89,7 @@ export async function loadCampaignList(
         }),
       ),
       noEvent: (row.status ?? "draft") === "draft" && !eventId,
+      clientArchived: archivedClientIds.has(row.client_id ?? event?.client_id ?? ""),
     };
   });
 }

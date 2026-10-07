@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { loadArchivedClientIds, logSkippedArchivedClients } from "../db/client-status.ts";
 import { normalizeAdAccountId } from "../meta/ad-account.ts";
 import { deriveAdDailyInsight, type AdDailyInsightRow } from "./derive.ts";
 import { fetchAdAccountInsights, type AccountFetchStatus, type GraphGet } from "./fetch.ts";
@@ -53,41 +54,64 @@ export function insightsWindow(now: Date, days: number = AD_DAILY_INSIGHTS_DAYS)
   return { since: isoDay(since), until: isoDay(until) };
 }
 
-async function loadColumn(db: SupabaseClient, table: string, column: string): Promise<string[]> {
-  const out: string[] = [];
+async function loadColumn(
+  db: SupabaseClient,
+  table: string,
+  column: string,
+  clientColumn: string,
+): Promise<{ account: string; clientId: string | null }[]> {
+  const out: { account: string; clientId: string | null }[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db
       .from(table)
-      .select(column)
+      .select(`${column}, ${clientColumn}`)
       .not(column, "is", null)
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`${table}.${column}: ${error.message}`);
     const rows = (data ?? []) as unknown as Record<string, string | null>[];
-    for (const row of rows) if (row[column]) out.push(row[column] as string);
+    for (const row of rows) {
+      if (row[column]) out.push({ account: row[column] as string, clientId: row[clientColumn] ?? null });
+    }
     if (rows.length < PAGE) break;
   }
   return out;
 }
 
-export async function loadClientAdAccounts(db: SupabaseClient): Promise<{ accounts: string[]; errors: string[] }> {
-  const sources: [string, string][] = [
-    ["clients", "meta_ad_account_id"],
-    ["events", "meta_ad_account_id"],
-    ["launched_ad_sets", "ad_account_id"],
+/**
+ * An account is fetched when any non-archived client, event or launched
+ * ad set uses it. Rows with no client count as active.
+ */
+export async function loadClientAdAccounts(
+  db: SupabaseClient,
+): Promise<{ accounts: string[]; errors: string[]; skippedArchivedAccounts: number }> {
+  const sources: [table: string, column: string, clientColumn: string][] = [
+    ["clients", "meta_ad_account_id", "id"],
+    ["events", "meta_ad_account_id", "client_id"],
+    ["launched_ad_sets", "ad_account_id", "client_id"],
   ];
+  const archivedClientIds = await loadArchivedClientIds(db);
   const accounts = new Set<string>();
+  const archivedOnly = new Set<string>();
   const errors: string[] = [];
-  for (const [table, column] of sources) {
+  for (const [table, column, clientColumn] of sources) {
     try {
-      for (const raw of await loadColumn(db, table, column)) {
-        const id = normalizeAdAccountId(raw);
-        if (id) accounts.add(id);
+      for (const row of await loadColumn(db, table, column, clientColumn)) {
+        const id = normalizeAdAccountId(row.account);
+        if (!id) continue;
+        if (row.clientId && archivedClientIds.has(row.clientId)) archivedOnly.add(id);
+        else accounts.add(id);
       }
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
     }
   }
-  return { accounts: [...accounts].sort(), errors };
+  const skippedArchivedAccounts = [...archivedOnly].filter((id) => !accounts.has(id)).length;
+  logSkippedArchivedClients(
+    "ad-daily-insights",
+    archivedClientIds.size,
+    `skipped_archived_accounts=${skippedArchivedAccounts}`,
+  );
+  return { accounts: [...accounts].sort(), errors, skippedArchivedAccounts };
 }
 
 async function upsertRows(db: SupabaseClient, rows: AdDailyInsightRow[]): Promise<string | null> {
