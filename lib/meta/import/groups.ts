@@ -6,6 +6,8 @@ import {
   type ImportCreativeSource,
 } from "./creative-copy.ts";
 import {
+  adNameStem,
+  adNameWithoutAdSetSuffix,
   creativeContentKey,
   isMetaAutoCreativeName,
   stripMetaAutoCreativeName,
@@ -47,17 +49,32 @@ export function metaImportCreativeCarriable(creative: RawCreative & { id: string
   return deriveAssetSignature(creative) != null;
 }
 
-type Ad = { id: string; name: string | null; adSetId: string | null; creativeId: string; at: number; index: number };
+type Ad = {
+  id: string;
+  /** Without our launcher's ` — <ad set>` suffix. */
+  name: string | null;
+  /** `adNameStem`: also without Ads Manager's ` – Copy N`. */
+  stem: string | null;
+  adSetId: string | null;
+  creativeId: string;
+  at: number;
+  index: number;
+};
 
 function adsByCreated(bundle: MetaLiveCampaignBundle): Ad[] {
+  const adSetNames = new Set(
+    bundle.adSets.map((adSet) => str(adSet.name)).filter((name): name is string => name != null),
+  );
   const ads: Ad[] = [];
   bundle.ads.forEach((raw, index) => {
     const creativeId = str(record(raw.creative)?.id);
     if (!creativeId) return;
     const at = Date.parse(str(raw.created_time) ?? "");
+    const rawName = str(raw.name);
     ads.push({
       id: str(raw.id) ?? "",
-      name: str(raw.name),
+      name: rawName ? adNameWithoutAdSetSuffix(rawName, adSetNames) || null : null,
+      stem: rawName ? adNameStem(rawName, adSetNames) || null : null,
       adSetId: str(raw.adset_id),
       creativeId,
       at: Number.isFinite(at) ? at : Number.POSITIVE_INFINITY,
@@ -67,10 +84,10 @@ function adsByCreated(bundle: MetaLiveCampaignBundle): Ad[] {
   return ads.sort((a, b) => a.at - b.at || a.index - b.index);
 }
 
-/** Most common ad name; a tie goes to the name whose first ad was created first. */
-function commonAdName(ads: readonly Ad[]): string | null {
+/** Most common value; a tie goes to the one whose first ad was created first. */
+function mostCommon(values: readonly (string | null)[]): string | null {
   const counts = new Map<string, number>();
-  for (const ad of ads) if (ad.name) counts.set(ad.name, (counts.get(ad.name) ?? 0) + 1);
+  for (const value of values) if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
   let best: string | null = null;
   for (const [name, count] of counts) {
     if (best == null || count > counts.get(best)!) best = name;
@@ -83,7 +100,7 @@ function commonAdName(ads: readonly Ad[]): string | null {
  * operator gave the object is used only when no ad carries a name.
  */
 function groupName(ads: readonly Ad[], objectNames: readonly string[], fallback: string): string {
-  const adName = commonAdName(ads);
+  const adName = mostCommon(ads.map((ad) => ad.name));
   if (adName) return adName;
   const own = objectNames.find((name) => !isMetaAutoCreativeName(name));
   if (own) return own;
@@ -108,7 +125,8 @@ export function groupMetaImportCreatives(bundle: MetaLiveCampaignBundle): MetaIm
     const creative = raw as RawCreative & { id?: string };
     const id = str(creative.id) ?? key;
     const named = { ...creative, id };
-    const contentKey = creativeContentKey(named as CreativeContentSpec) ?? `id:${id}`;
+    const nameStem = mostCommon((adsOf.get(id) ?? []).map((ad) => ad.stem));
+    const contentKey = creativeContentKey(named as CreativeContentSpec, { nameStem }) ?? `id:${id}`;
     members.set(contentKey, [...(members.get(contentKey) ?? []), named]);
   }
 

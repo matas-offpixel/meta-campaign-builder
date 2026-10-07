@@ -33,7 +33,12 @@ export type CreativeContentSpec = {
   };
   asset_feed_spec?: {
     images?: { hash?: string }[];
-    videos?: { video_id?: string; thumbnail_hash?: string; thumbnail_url?: string }[];
+    videos?: {
+      video_id?: string;
+      thumbnail_hash?: string;
+      thumbnail_url?: string;
+      adlabels?: { name?: string }[];
+    }[];
     bodies?: Text[];
     titles?: Text[];
     descriptions?: Text[];
@@ -63,47 +68,69 @@ function urlFile(url: string): string {
   }
 }
 
+type VideoEntry = { videoId: string; hash: string; posterUrl: string; role: string };
+
 /**
- * A video by the poster image it carries, then by id. Ads Manager gives every
- * duplicated ad its own copy of the video (a new `video_id`) but keeps the
- * poster file, so the id alone splits one creative into one row per ad.
+ * One video, in order of trust:
+ *
+ * 1. A poster image hash (`video_data.image_hash`, `asset_feed_spec.videos[].thumbnail_hash`).
+ * 2. The poster file in the URL plus its placement slot (feed / story). The slot
+ *    matters: one DHB poster file is the feed video of one creative and the
+ *    story video of another.
+ * 3. The video id.
+ *
+ * `video_id` is last because Ads Manager gives every duplicated ad its own
+ * copy of the video.
  */
-function videoIdentity(input: { videoId: string; posterHash: string; posterUrl: string }): string {
-  if (input.posterHash) return `video:poster-hash:${input.posterHash}`;
-  const file = urlFile(input.posterUrl);
-  if (file) return `video:poster:${file}`;
-  return input.videoId ? `video:id:${input.videoId}` : "";
+function videoIdentity(entry: VideoEntry): string {
+  if (entry.hash) return `video:hash:${entry.hash}${entry.role ? `@${entry.role}` : ""}`;
+  const file = urlFile(entry.posterUrl);
+  if (file) return `video:poster:${file}@${entry.role || "any"}`;
+  return entry.videoId ? `video:id:${entry.videoId}` : "";
 }
 
-function mediaIdentities(spec: CreativeContentSpec): string[] {
+function role(labels: readonly { name?: string }[] | undefined): string {
+  return sortedUnique((labels ?? []).map((label) => text(label?.name))).join("+");
+}
+
+function videoEntries(spec: CreativeContentSpec): VideoEntry[] {
+  const out: VideoEntry[] = [];
+  const video = spec.object_story_spec?.video_data;
+  if (video) {
+    out.push({
+      videoId: text(video.video_id),
+      hash: text(video.image_hash),
+      posterUrl: text(video.image_url),
+      role: "",
+    });
+  }
+  for (const row of spec.asset_feed_spec?.videos ?? []) {
+    out.push({
+      videoId: text(row?.video_id),
+      hash: text(row?.thumbnail_hash),
+      posterUrl: text(row?.thumbnail_url),
+      role: role(row?.adlabels),
+    });
+  }
+  return out;
+}
+
+function mediaIdentities(spec: CreativeContentSpec, nameStem: string): string[] {
   const out: string[] = [];
   const link = spec.object_story_spec?.link_data;
-  const video = spec.object_story_spec?.video_data;
-  const feed = spec.asset_feed_spec;
   if (text(link?.image_hash)) out.push(`image:${text(link?.image_hash)}`);
   for (const child of link?.child_attachments ?? []) {
     if (text(child?.image_hash)) out.push(`image:${text(child.image_hash)}`);
   }
-  if (video) {
-    out.push(
-      videoIdentity({
-        videoId: text(video.video_id),
-        posterHash: text(video.image_hash),
-        posterUrl: text(video.image_url),
-      }),
-    );
-  }
-  for (const image of feed?.images ?? []) {
+  for (const image of spec.asset_feed_spec?.images ?? []) {
     if (text(image?.hash)) out.push(`image:${text(image.hash)}`);
   }
-  for (const row of feed?.videos ?? []) {
-    out.push(
-      videoIdentity({
-        videoId: text(row?.video_id),
-        posterHash: text(row?.thumbnail_hash),
-        posterUrl: text(row?.thumbnail_url),
-      }),
-    );
+  const videos = videoEntries(spec);
+  if (videos.length > 0 && nameStem && videos.every((entry) => !entry.hash)) {
+    // No poster hash: the ad name stem, with copy and account, is the identity.
+    out.push(`video:stem:${nameStem}`);
+  } else {
+    out.push(...videos.map(videoIdentity));
   }
   const media = sortedUnique(out);
   if (media.length > 0) return media;
@@ -120,8 +147,25 @@ function mediaIdentities(spec: CreativeContentSpec): string[] {
  * `object_story_id`, then `effective_object_story_id`). Anything else is its
  * media plus copy, link, CTA and the page / Instagram account it runs as.
  * `null` when the read carries neither.
+ *
+ * Images are their hashes. A video with a poster hash is that hash. A video
+ * without one is keyed by `nameStem` (`adNameStem` of its ads) when the
+ * caller passes it, otherwise by poster file and placement slot. Ads Manager
+ * copies change both `video_id` and the poster file but keep the ad name, so
+ * the stem is what joins an original to its copies.
+ *
+ * Residual risk, video without a poster hash:
+ * - With a stem: two different videos under the same ad name, copy and
+ *   account are one creative.
+ * - Without a stem: two different videos given the same poster image (an
+ *   operator's preferred-frame override) in the same slot, with the same copy
+ *   and account, are one creative; and copies whose poster file changed stay
+ *   separate.
  */
-export function creativeContentKey(spec: CreativeContentSpec): string | null {
+export function creativeContentKey(
+  spec: CreativeContentSpec,
+  options: { nameStem?: string | null } = {},
+): string | null {
   if (!hasAppBuiltSpec(spec as ImportCreativeSource)) {
     const post =
       text(spec.source_instagram_media_id) ||
@@ -129,7 +173,7 @@ export function creativeContentKey(spec: CreativeContentSpec): string | null {
       text(spec.effective_object_story_id);
     if (post) return `post:${post}`;
   }
-  const media = mediaIdentities(spec);
+  const media = mediaIdentities(spec, text(options.nameStem));
   if (media.length === 0) return null;
   const oss = spec.object_story_spec;
   const link = oss?.link_data;
@@ -166,4 +210,42 @@ export function isMetaAutoCreativeName(name: string): boolean {
 export function stripMetaAutoCreativeName(name: string): string | null {
   const match = META_AUTO_CREATIVE_NAME.exec(name.trim());
   return match ? match[1]!.trim() || null : null;
+}
+
+/** Our launcher's ad name suffix for an attached ad set: ` — attached:<ad set id>`. */
+const ATTACHED_SUFFIX = /^attached:\d+$/;
+const SUFFIX = /^(.*\S)\s+—\s+(.+)$/;
+const COPY_SUFFIX = /\s+[–-]\s+Copy(?:\s+\d+)?$/i;
+
+function collapseSpaces(name: string): string {
+  return name.replace(/\s+/g, " ").trim();
+}
+
+function isAdSetSuffix(tail: string, adSetNames: ReadonlySet<string>): boolean {
+  return ATTACHED_SUFFIX.test(tail) || adSetNames.has(tail) || adSetNames.has(collapseSpaces(tail));
+}
+
+/**
+ * The ad name without the ` — <ad set>` suffix our launcher adds per ad set
+ * (an ad set name in this campaign, or `attached:<id>`). Other ` — ` text stays.
+ * An Ads Manager ` – Copy N` after the suffix is kept: `X — Wide – Copy` → `X – Copy`.
+ */
+export function adNameWithoutAdSetSuffix(name: string, adSetNames: ReadonlySet<string>): string {
+  const match = SUFFIX.exec(name.trim());
+  if (match) {
+    const tail = match[2]!.trim();
+    if (isAdSetSuffix(tail, adSetNames)) return collapseSpaces(match[1]!);
+    const copy = COPY_SUFFIX.exec(tail);
+    if (copy && isAdSetSuffix(tail.slice(0, copy.index).trim(), adSetNames)) {
+      return collapseSpaces(`${match[1]!}${copy[0]}`);
+    }
+  }
+  return collapseSpaces(name);
+}
+
+/** The name an original and its Ads Manager copies share: no ad set suffix, no ` – Copy N`. */
+export function adNameStem(name: string, adSetNames: ReadonlySet<string>): string {
+  let stem = adNameWithoutAdSetSuffix(name, adSetNames);
+  while (COPY_SUFFIX.test(stem)) stem = stem.replace(COPY_SUFFIX, "");
+  return stem.trim();
 }

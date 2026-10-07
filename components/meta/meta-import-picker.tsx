@@ -420,7 +420,12 @@ export function MetaImportPicker({
                       <div className="h-14 w-14 shrink-0 rounded bg-muted" />
                     )}
                     <div className="min-w-0 flex-1 text-sm">
-                      <p className="font-medium">{row.name}</p>
+                      <p className="font-medium">
+                        {row.name}
+                        {row.nameHint ? (
+                          <span className="ml-1.5 font-normal text-muted-foreground">{row.nameHint}</span>
+                        ) : null}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {[row.mediaType, row.disabled ? row.unsupportedReason : null]
                           .filter(Boolean)

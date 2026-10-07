@@ -10,6 +10,8 @@ import { migrateDraft } from "../../../autosave.ts";
 import { creativeContentKey } from "../../../learning/ad-facts.ts";
 import { creativeContentKey as importContentKey } from "../content-key.ts";
 import {
+  adNameStem,
+  adNameWithoutAdSetSuffix,
   isMetaAutoCreativeName,
   stripMetaAutoCreativeName,
 } from "../content-key.ts";
@@ -204,6 +206,84 @@ describe("creativeContentKey", () => {
 
   it("null when the read carries neither media nor a post", () => {
     assert.equal(creativeContentKey({}), null);
+  });
+});
+
+describe("ad name suffixes", () => {
+  const adSets = new Set(["Wide", "Adam ten Adv+", "Jamie Jones – Copy"]);
+
+  it("strips our ` — <ad set>` and ` — attached:<id>` suffixes and collapses spaces", () => {
+    assert.equal(adNameWithoutAdSetSuffix("Static - Ahmed  — Wide", adSets), "Static - Ahmed");
+    assert.equal(
+      adNameWithoutAdSetSuffix("Motion - Ahmed  — attached:120249957296630453", adSets),
+      "Motion - Ahmed",
+    );
+    assert.equal(adNameWithoutAdSetSuffix("JJ - Motion 3 — Jamie Jones – Copy", adSets), "JJ - Motion 3");
+  });
+
+  it("keeps an Ads Manager ` – Copy` that follows the suffix, and a ` — ` that is not an ad set", () => {
+    assert.equal(
+      adNameWithoutAdSetSuffix("Adam Ten - Static 1  — Adam ten Adv+ – Copy", adSets),
+      "Adam Ten - Static 1 – Copy",
+    );
+    assert.equal(adNameWithoutAdSetSuffix("Promo — Halloween", adSets), "Promo — Halloween");
+    assert.equal(adNameWithoutAdSetSuffix("Motion — attached:abc", adSets), "Motion — attached:abc");
+  });
+
+  it("the stem also drops ` – Copy N`, so an original and its copies agree", () => {
+    assert.equal(adNameStem("GDS - Video – Copy", adSets), "GDS - Video");
+    assert.equal(adNameStem("GDS - Video - Copy 2", adSets), "GDS - Video");
+    assert.equal(adNameStem("Adam Ten - Static 1  — Adam ten Adv+ – Copy", adSets), "Adam Ten - Static 1");
+    assert.equal(adNameStem("Copycat", adSets), "Copycat");
+  });
+});
+
+describe("creativeContentKey: videos without a poster hash", () => {
+  const video = (poster: string, label: string, body = "Hi") => ({
+    asset_feed_spec: {
+      videos: [{ video_id: poster, thumbnail_url: `https://cdn.test/v/${poster}_n.jpg`, adlabels: [{ name: label }] }],
+      bodies: [{ text: body }],
+    },
+  });
+
+  it("the same poster file in a different slot is a different video", () => {
+    assert.notEqual(
+      creativeContentKey(video("813650309", "feed_asset")),
+      creativeContentKey(video("813650309", "story_asset")),
+    );
+  });
+
+  it("with an ad name stem, different posters under one stem, copy and account are one creative", () => {
+    assert.equal(
+      creativeContentKey(video("813059653", "feed_asset"), { nameStem: "Motion - Ahmed" }),
+      creativeContentKey(video("813650309", "feed_asset"), { nameStem: "Motion - Ahmed" }),
+    );
+  });
+
+  it("with an ad name stem, the same poster under different stems or copy stays apart", () => {
+    const shared = video("813650309", "feed_asset");
+    assert.notEqual(
+      creativeContentKey(shared, { nameStem: "Motion - Ahmed" }),
+      creativeContentKey(shared, { nameStem: "Motion - Artwork" }),
+    );
+    assert.notEqual(
+      creativeContentKey(shared, { nameStem: "Motion - Ahmed" }),
+      creativeContentKey(video("813650309", "feed_asset", "Other"), { nameStem: "Motion - Ahmed" }),
+    );
+  });
+
+  it("a poster hash wins over the stem", () => {
+    const hashed = (hash: string) => ({
+      object_story_spec: { video_data: { video_id: "v", image_hash: hash, message: "Hi" } },
+    });
+    assert.equal(
+      creativeContentKey(hashed("aa"), { nameStem: "One" }),
+      creativeContentKey(hashed("aa"), { nameStem: "Two" }),
+    );
+    assert.notEqual(
+      creativeContentKey(hashed("aa"), { nameStem: "One" }),
+      creativeContentKey(hashed("bb"), { nameStem: "One" }),
+    );
   });
 });
 
