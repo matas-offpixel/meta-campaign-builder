@@ -28,7 +28,8 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { launchFailureLead, type LaunchErrorSource } from "@/lib/meta/launch-failure-copy";
-import type { CampaignDraft, CampaignSettings, LaunchSummary } from "@/lib/types";
+import { attachedAdSetKey, type CampaignDraft, type CampaignSettings, type LaunchSummary } from "@/lib/types";
+import { urlTagsReviewLine } from "@/lib/meta/url-tags";
 import { describeLaunchBudget } from "@/lib/meta/budget-launch";
 import {
   adSetAudienceRemoved,
@@ -1220,6 +1221,23 @@ export function ReviewLaunch({
           </button>
         </div>
       </Card>
+
+      {(() => {
+        const adSetKeys = isAttachAdSet
+          ? (draft.settings.existingMetaAdSets ??
+              (draft.settings.existingMetaAdSet ? [draft.settings.existingMetaAdSet] : [])
+            ).map((a) => attachedAdSetKey(a.id))
+          : draft.adSetSuggestions
+              .filter((row) => row.enabled && !adSetAudienceRemoved(row, draft.audiences))
+              .map((row) => row.id);
+        const line = urlTagsReviewLine(draft.creatives, draft.creativeAssignments ?? {}, adSetKeys);
+        if (!line) return null;
+        return (
+          <span data-testid="url-tags-review-line">
+            <Datum className="text-sm text-muted-foreground">{line}</Datum>
+          </span>
+        );
+      })()}
 
       {!isAttachAdSet && (
         <AutomationArmControl

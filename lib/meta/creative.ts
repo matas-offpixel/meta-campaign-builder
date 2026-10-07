@@ -40,6 +40,7 @@
 
 import type { AdCreativeDraft, CTAType, AdSetSuggestion } from "@/lib/types";
 import { fetchVideoThumbnailWithRetry } from "./video-thumbnail-poll.ts";
+import { urlTagsFor } from "./url-tags.ts";
 
 // ─── CTA mapping ──────────────────────────────────────────────────────────────
 
@@ -272,6 +273,12 @@ export interface MetaCreativePayload {
    * per-source builders. See its docstring for the full feature list.
    */
   degrees_of_freedom_spec?: DegreesOfFreedomSpec;
+  /**
+   * Query string Meta appends to the landing URL — see `lib/meta/url-tags.ts`.
+   * Set once by {@link buildCreativePayload} on every shape; omitted when the
+   * operator's destination URL already carries its own utm tags.
+   */
+  url_tags?: string;
 }
 
 export interface MetaAdPayload {
@@ -1203,6 +1210,16 @@ export interface BuildCreativePayloadOpts {
 }
 
 export async function buildCreativePayload(
+  creative: AdCreativeDraft,
+  opts?: BuildCreativePayloadOpts,
+): Promise<MetaCreativePayload> {
+  const payload = await buildCreativePayloadShape(creative, opts);
+  const urlTags = urlTagsFor(creative.destinationUrl);
+  console.log(`[url_tags] ${urlTags ? "applied" : "operator_utm_kept"} "${creative.name}"`);
+  return urlTags ? { ...payload, url_tags: urlTags } : payload;
+}
+
+async function buildCreativePayloadShape(
   creative: AdCreativeDraft,
   opts?: BuildCreativePayloadOpts,
 ): Promise<MetaCreativePayload> {

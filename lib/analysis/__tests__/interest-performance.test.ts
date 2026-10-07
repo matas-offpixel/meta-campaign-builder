@@ -157,6 +157,35 @@ describe("interest-performance", () => {
     assert.equal(result.unmatchedPaidSignups, 4);
   });
 
+  it("resolves utm_term to the Meta ad id inside a resolved ad set, behind the same ratio gate", () => {
+    const rows = [
+      adSet({ id: "120001", name: "Disco", campaignId: "900001", campaignName: "[EV1] Signup", regActions: { complete_registration: 100 } }),
+      adSet({ id: "120002", name: "House", campaignId: "900001", campaignName: "[EV1] Signup", regActions: { complete_registration: 0 } }),
+      adSet({ id: "220001", name: "Disco", campaignId: "900002", campaignName: "[EV2] Signup", regActions: { complete_registration: 2 } }),
+    ];
+    const csv = [
+      "page_slug,crm_base_tag,utm_campaign,utm_content,utm_term,meta_sourced,count,first_seen,last_seen",
+      "p,t,900001,120001,7770001,true,60,,",
+      "p,t,900001,120001,7770002,true,20,,",
+      "p,t,900001,120002,7770003,true,10,,",
+      "p,t,900001,120001,{{ad.id}},true,3,,",
+      "p,t,900001,999999,7770009,true,2,,",
+      "p,t,900002,220001,8880001,true,90,,",
+    ].join("\n");
+    const result = joinFirstParty(rows, parseUtmCsv(csv), { chosenType: { acc: "complete_registration" } });
+    assert.equal(result.perAd["8880001"], undefined, "ratio out of range → no per-ad credit");
+    assert.deepEqual(result.perAd, {
+      "7770001": { adSetId: "120001", campaignId: "900001", signups: 60 },
+      "7770002": { adSetId: "120001", campaignId: "900001", signups: 20 },
+      "7770003": { adSetId: "120002", campaignId: "900001", signups: 10 },
+    });
+    const byId = new Map(result.campaigns.map((c) => [c.campaignId, c]));
+    assert.equal(byId.get("900001")!.adMatchedSignups, 90);
+    assert.equal(byId.get("900001")!.adSetMatchedSignups, 93);
+    assert.equal(byId.get("900002")!.ratioOutOfRange, true);
+    assert.equal(byId.get("900002")!.adMatchedSignups, 90);
+  });
+
   it("thin counts only ad sets with at least £5 spend", () => {
     const funded = [adSet({ id: "1", spend: 100 }), adSet({ id: "2", spend: 100 })];
     const [twoPlusCrumb] = buildClusters([...funded, adSet({ id: "3", spend: 1.44 })], ctx());

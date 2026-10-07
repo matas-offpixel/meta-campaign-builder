@@ -569,7 +569,8 @@ function existingPostDraft(
 /**
  * Map a live Meta campaign onto a `CampaignDraft`. Targeting the draft
  * cannot represent is named on `importMeta.dropped` and never defaulted.
- * Does not call Meta.
+ * Does not call Meta. The source creative's `url_tags` are not copied:
+ * imported creatives get our tags at launch (`lib/meta/url-tags.ts`).
  */
 export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDraft {
   const campaign = input.bundle.campaign;
