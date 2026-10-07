@@ -1,0 +1,55 @@
+[
+  { "key": "6003182953366", "name": "Publications", "vertical": "music" },
+  {
+    "key": "6002992430794,6003142803216,6003155409305,6003402644747,6015454246390,6816985058496,6840320758807,6892292894574",
+    "name": "Radio + music news",
+    "vertical": "music"
+  },
+  { "key": "6003902397066", "name": "Electronic music", "vertical": "music" },
+  { "key": "6002949651174,6003289429270,6003434244943,6003716027062", "name": "Festival Commercial", "vertical": "music" },
+  { "key": "6003596378473", "name": "Deep house", "vertical": "music" },
+  { "key": "6002969794329,6003253526111,937077532996593", "name": "Streaming", "vertical": "music" },
+  { "key": "6003179570015,6003717043662", "name": "Melodic Techno", "vertical": "music" },
+  { "key": "6003155409305,6003320931941", "name": "Disc Genre", "vertical": "music" },
+  {
+    "key": "1711794862401024,569202086550452,6002969794329,6003148839749,6003253526111,6003277780179,6816985058496,6840320758807,937077532996593",
+    "name": "Streaming — full",
+    "vertical": "music"
+  },
+  {
+    "key": "467691106721833,6003030212255,6003154507633,6003266266843,6003351852600,6003359659004,6003359784404,6003392552125,6003552041427,6003739371891",
+    "name": "Fashion",
+    "vertical": "music",
+    "client": "Deep House Bible",
+    "confidence": "thin"
+  },
+  {
+    "key": "6003011087019,6003190279924,6003218161847,6003361714600,6003651391313,6840320758807",
+    "name": "Luxury",
+    "vertical": "music",
+    "client": "Deep House Bible",
+    "confidence": "thin",
+    "drop": [{ "id": "6003651391313", "reason": "it is the car" }],
+    "note": "measured with SEAT Ibiza included"
+  },
+  {
+    "key": "6002944044446,6003143160640,6003227434158,6003343155628",
+    "name": "Latest iPhone users",
+    "vertical": "music",
+    "client": "Off/Pixel"
+  },
+  {
+    "key": "6003108826384,6003135979608,6003155409305,6003902397066,6808891387078",
+    "name": "Music festivals",
+    "vertical": "music",
+    "client": "Deep House Bible",
+    "confidence": "thin"
+  },
+  {
+    "key": "6003107902433,6003175194449,6003432221791,6003474194264",
+    "name": "Football Prospecting",
+    "vertical": "football"
+  },
+  { "key": "6002995710444,6003306191253,6003474194264", "name": "Football interests", "vertical": "football" },
+  { "key": "6003064617670,6003115921142", "name": "Arsenal", "vertical": "football" }
+]

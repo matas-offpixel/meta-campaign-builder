@@ -18,6 +18,8 @@ export type RegActionType = (typeof REG_ACTION_TYPES)[number];
 
 export const THIN_MIN_AD_SETS = 3;
 export const THIN_MIN_SPEND_GBP = 150;
+/** An ad set counts toward THIN_MIN_AD_SETS only at or above this spend. */
+export const THIN_MIN_AD_SET_SPEND_GBP = 5;
 /** Share of a cluster's spend that must sit in UTM-measured ad sets before its first-party CPR ranks. */
 export const FIRST_PARTY_MIN_COVERAGE = 0.8;
 /**
@@ -223,6 +225,8 @@ export interface ClusterStats {
   name: string;
   groupNames: Record<string, number>;
   adSets: number;
+  /** Ad sets with at least THIN_MIN_AD_SET_SPEND_GBP spend. */
+  fundedAdSets: number;
   campaigns: number;
   clients: string[];
   accounts: string[];
@@ -271,6 +275,14 @@ export function spendGbpOf(adSet: AnalysisAdSet, ctx: AggregateContext): number 
   const rate = ctx.fx[adSet.currency];
   if (rate == null) throw new Error(`No GBP rate for ${adSet.currency}`);
   return adSet.spend * rate;
+}
+
+export function fundedAdSetCount(adSets: readonly AnalysisAdSet[], ctx: AggregateContext): number {
+  return adSets.filter((a) => spendGbpOf(a, ctx) >= THIN_MIN_AD_SET_SPEND_GBP).length;
+}
+
+export function isThin(fundedAdSets: number, spendGbp: number): boolean {
+  return fundedAdSets < THIN_MIN_AD_SETS || spendGbp < THIN_MIN_SPEND_GBP;
 }
 
 function round(value: number, places = 2): number {
@@ -332,7 +344,8 @@ export function summarise(key: string, adSets: readonly AnalysisAdSet[], ctx: Ag
   const fpCoverage = spendGbp > 0 ? fpMeasuredSpendGbp / spendGbp : 0;
   const cprFirstPartyGbp =
     fpCoverage >= FIRST_PARTY_MIN_COVERAGE && fpSignups > 0 ? fpMeasuredSpendGbp / fpSignups : null;
-  const thin = adSets.length < THIN_MIN_AD_SETS || spendGbp < THIN_MIN_SPEND_GBP;
+  const fundedAdSets = fundedAdSetCount(adSets, ctx);
+  const thin = isThin(fundedAdSets, spendGbp);
   return {
     key,
     interestIds,
@@ -340,6 +353,7 @@ export function summarise(key: string, adSets: readonly AnalysisAdSet[], ctx: Ag
     name: mostCommon(groupNames),
     groupNames,
     adSets: adSets.length,
+    fundedAdSets,
     campaigns: new Set(adSets.map((a) => a.campaignId)).size,
     clients: [...new Set(adSets.map((a) => a.clientName))].sort(),
     accounts: [...new Set(adSets.map((a) => a.accountId))].sort(),
@@ -461,7 +475,7 @@ export function buildInterestStats(adSets: readonly AnalysisAdSet[], ctx: Aggreg
       regsPer100Gbp: spendGbp > 0 ? round((registrations / spendGbp) * 100) : 0,
       equalShareSpendGbp: round(row.shareSpend),
       equalShareRegistrations: round(row.shareRegs, 1),
-      thin: row.adSets.length < THIN_MIN_AD_SETS || spendGbp < THIN_MIN_SPEND_GBP,
+      thin: isThin(fundedAdSetCount(row.adSets, ctx), spendGbp),
       clients: [...new Set(row.adSets.map((a) => a.clientName))].sort(),
     };
   });
@@ -753,7 +767,12 @@ export interface InterestReportJson {
   actionTypes: AccountActionFinding[];
   clusters: ClusterStats[];
   ranked: string[];
-  perClient: { client: string; ranked: string[]; clusters: ClusterStats[]; nonThin: number }[];
+  perClient: ({
+    client: string;
+    ranked: string[];
+    clusters: ClusterStats[];
+    nonThin: number;
+  } & ClientBaseline)[];
   interests: InterestStats[];
   rankedInterests: string[];
   noActions: { id: string; name: string; accountId: string; campaignName: string; spend: number; currency: string; hasInsights: boolean }[];
@@ -836,7 +855,7 @@ export function renderInterestReport(json: InterestReportJson): string {
   );
   out.push("");
   out.push(
-    `Thin = fewer than ${THIN_MIN_AD_SETS} ad sets or under £${THIN_MIN_SPEND_GBP} spend. Ranking: non-thin clusters by first-party CPR where UTM-measured ad sets cover at least ${FIRST_PARTY_MIN_COVERAGE * 100}% of the cluster's spend, else pixel CPR; registrations per £100 breaks ties. The Source column says which.`,
+    `Thin = fewer than ${THIN_MIN_AD_SETS} ad sets with at least £${THIN_MIN_AD_SET_SPEND_GBP} spend each, or under £${THIN_MIN_SPEND_GBP} spend in total. Ranking: non-thin clusters by first-party CPR where UTM-measured ad sets cover at least ${FIRST_PARTY_MIN_COVERAGE * 100}% of the cluster's spend, else pixel CPR; registrations per £100 breaks ties. The Source column says which.`,
   );
   out.push("");
   out.push(
@@ -853,6 +872,10 @@ export function renderInterestReport(json: InterestReportJson): string {
     const map = new Map(pc.clusters.map((c) => [c.key, c]));
     const top = pc.ranked.map((k) => map.get(k)!).filter((c) => c && !c.thin).slice(0, 5);
     out.push(`### ${pc.client}`);
+    out.push("");
+    out.push(
+      `Client baseline CPR ${gbp(pc.baselineCpr ?? null)} (${gbp(pc.spendGbp)} ÷ ${pc.registrations} pixel registrations across every registration-phase ad set with interests).`,
+    );
     out.push("");
     if (!top.length) {
       out.push(`No non-thin cluster (${pc.clusters.length} clusters, all thin).`);
@@ -993,38 +1016,158 @@ export function renderInterestReport(json: InterestReportJson): string {
   return out.join("\n");
 }
 
-export interface SeedCluster {
-  name: string;
-  interestIds: string[];
-  interests: { id: string; name: string }[];
-  evidence: {
-    adSets: number;
-    spend: number;
-    registrations: number;
-    cpr: number;
-    cprSource: "first_party" | "pixel";
-    clients: string[];
+export interface ClientBaseline {
+  spendGbp: number;
+  /** Pixel registrations, the account's chosen action type. */
+  registrations: number;
+  /** spendGbp ÷ registrations; null with no registrations. */
+  baselineCpr: number | null;
+}
+
+/**
+ * A client's pooled CPR: total spend ÷ total registrations across all of
+ * its registration-phase ad sets with interests, thin clusters included.
+ */
+export function clientBaselineCpr(adSets: readonly AnalysisAdSet[], ctx: AggregateContext): ClientBaseline {
+  let spend = 0;
+  let registrations = 0;
+  for (const a of adSets) {
+    spend += spendGbpOf(a, ctx);
+    registrations += registrationsOf(a, ctx);
+  }
+  return {
+    spendGbp: round(spend),
+    registrations,
+    baselineCpr: registrations > 0 ? round(spend / registrations) : null,
   };
 }
 
-/** Top `n` non-thin clusters with a CPR, as the saved-cluster seed. Spend and CPR are GBP. */
-export function seedFromReport(json: InterestReportJson, n = 8): SeedCluster[] {
-  const byKey = new Map(json.clusters.map((c) => [c.key, c]));
-  return json.ranked
-    .map((k) => byKey.get(k)!)
-    .filter((c) => c && !c.thin && c.cpr != null)
-    .slice(0, n)
-    .map((c) => ({
-      name: c.name,
-      interestIds: c.interestIds,
-      interests: c.interests.map((i) => ({ id: i.id, name: i.name ?? i.id })),
+export type SeedVertical = "music" | "football" | "lifestyle" | "other";
+
+/** One curated row in the seed-keys file. */
+export interface SeedKey {
+  /** Cluster key in the report JSON (sorted interest ids, comma-joined). */
+  key: string;
+  name: string;
+  vertical: SeedVertical;
+  /** Take evidence from this client's slice of the cluster only. */
+  client?: string;
+  confidence?: "thin";
+  /** Interests left out of the seeded group; evidence stays as measured with them. */
+  drop?: { id: string; reason: string }[];
+  note?: string;
+}
+
+export interface SeedEvidence {
+  clusterKey: string;
+  adSets: number;
+  /** Ad sets with at least THIN_MIN_AD_SET_SPEND_GBP spend. */
+  fundedAdSets: number;
+  spend: number;
+  registrations: number;
+  /** Headline CPR: first-party when measured, else pixel. */
+  cpr: number | null;
+  cprSource: "first_party" | "pixel";
+  /** Pixel CPR, always; what cprIndex divides. */
+  cprPixel: number | null;
+  clients: string[];
+  /**
+   * Pixel CPR ÷ the spend-weighted pooled pixel CPR of its clients, so
+   * every index is comparable. Below 1 beats the client's norm.
+   */
+  cprIndex: number | null;
+  clientBaselineCpr: number | null;
+  confidence?: "thin";
+  note?: string;
+  dropped?: { id: string; name: string; reason: string }[];
+}
+
+export interface SeedCluster {
+  name: string;
+  vertical: SeedVertical;
+  interestIds: string[];
+  interests: { id: string; name: string }[];
+  evidence: SeedEvidence;
+}
+
+/**
+ * Evidence for one report cluster, whole or one client's slice. The
+ * baseline is each client's pooled CPR weighted by the cluster's spend on
+ * that client. Thin follows the report; `forceThin` can only add it.
+ * Returns null when the key or the slice is not in the report.
+ */
+export function clusterEvidence(
+  json: InterestReportJson,
+  key: string,
+  opts: { client?: string; forceThin?: boolean } = {},
+): { cluster: ClusterStats; evidence: SeedEvidence } | null {
+  const perClient = new Map(json.perClient.map((pc) => [pc.client, pc]));
+  const sliceOf = (client: string) => perClient.get(client)?.clusters.find((c) => c.key === key);
+  const c = opts.client ? sliceOf(opts.client) : json.clusters.find((x) => x.key === key);
+  if (!c) return null;
+  let weighted = 0;
+  let weight = 0;
+  for (const client of c.clients) {
+    const baseline = perClient.get(client)?.baselineCpr ?? null;
+    const spend = sliceOf(client)?.spendGbp ?? 0;
+    if (baseline == null || spend <= 0) continue;
+    weighted += baseline * spend;
+    weight += spend;
+  }
+  const clientBaseline = weight > 0 ? round(weighted / weight) : null;
+  return {
+    cluster: c,
+    evidence: {
+      clusterKey: key,
+      adSets: c.adSets,
+      fundedAdSets: c.fundedAdSets,
+      spend: c.spendGbp,
+      registrations: c.cprSource === "first_party" ? c.fpSignups : c.registrations,
+      cpr: c.cpr,
+      cprSource: c.cprSource,
+      cprPixel: c.cprPixelGbp,
+      clients: c.clients,
+      cprIndex: c.cprPixelGbp != null && clientBaseline ? round(c.cprPixelGbp / clientBaseline) : null,
+      clientBaselineCpr: clientBaseline,
+      ...(c.thin || opts.forceThin ? { confidence: "thin" as const } : {}),
+    },
+  };
+}
+
+/**
+ * Seed rows from curated keys, in the file's order. Evidence and
+ * interest names come from the report JSON; a key missing from it throws.
+ * Spend and CPR are GBP.
+ */
+export function seedFromKeys(json: InterestReportJson, keys: readonly SeedKey[]): SeedCluster[] {
+  return keys.map((k) => {
+    if (!json.clusters.some((c) => c.key === k.key)) throw new Error(`Seed key not in report: ${k.name} (${k.key})`);
+    const found = clusterEvidence(json, k.key, { client: k.client, forceThin: k.confidence === "thin" });
+    if (!found) throw new Error(`Seed key ${k.name} has no slice for client ${k.client}`);
+    const { cluster: c, evidence } = found;
+    const dropIds = new Set((k.drop ?? []).map((d) => d.id));
+    for (const id of dropIds) {
+      if (!c.interestIds.includes(id)) throw new Error(`Seed key ${k.name}: drop id ${id} not in cluster`);
+    }
+    const interests = c.interests.map((i) => ({ id: i.id, name: i.name ?? i.id }));
+    return {
+      name: k.name,
+      vertical: k.vertical,
+      interestIds: c.interestIds.filter((id) => !dropIds.has(id)),
+      interests: interests.filter((i) => !dropIds.has(i.id)),
       evidence: {
-        adSets: c.adSets,
-        spend: c.spendGbp,
-        registrations: c.cprSource === "first_party" ? c.fpSignups : c.registrations,
-        cpr: c.cpr as number,
-        cprSource: c.cprSource,
-        clients: c.clients,
+        ...evidence,
+        ...(k.note ? { note: k.note } : {}),
+        ...(k.drop?.length
+          ? {
+              dropped: k.drop.map((d) => ({
+                id: d.id,
+                name: interests.find((i) => i.id === d.id)?.name ?? d.id,
+                reason: d.reason,
+              })),
+            }
+          : {}),
       },
-    }));
+    };
+  });
 }

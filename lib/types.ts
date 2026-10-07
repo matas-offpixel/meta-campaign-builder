@@ -476,6 +476,8 @@ export interface SavedAudienceSelection {
 export interface InterestGroup {
   id: string;
   name: string;
+  /** "generated" when the name came from a saved cluster pick; operator-typed otherwise. */
+  nameSource?: "generated" | "operator";
   interests: InterestSuggestion[];
   aiPrompt?: string;
   /**

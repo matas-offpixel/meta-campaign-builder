@@ -1,3 +1,39 @@
+-- Migration 182 — seed interest_clusters for the operator
+--
+-- Rows are docs/analysis/interest-templates-seed.json, embedded verbatim
+-- between the $seed$ tags (lib/__tests__/interest-clusters.test.ts keeps
+-- the two identical). Regenerate both with:
+--   npx tsx scripts/interest-performance.mts --seed-keys=docs/analysis/interest-clusters-seed-keys.json
+--
+-- Idempotent on (user_id, name): a re-run inserts nothing and leaves
+-- operator edits alone. Skips with a notice when the operator user is absent.
+--
+-- Deliberately not seeded: the single-interest Techno, Tech house and
+-- House music clusters — they run ~40% worse than the branded clusters on
+-- the same account.
+--
+-- Requires migration 181. Apply manually after review.
+
+do $$
+declare
+  v_user_id uuid;
+begin
+  select id into v_user_id from auth.users where email = 'matas@offpixel.co.uk' limit 1;
+  if v_user_id is null then
+    raise notice 'migration 182: operator user not found, no clusters seeded';
+    return;
+  end if;
+
+  insert into interest_clusters (user_id, name, vertical, interests, evidence, source, unresolved)
+  select
+    v_user_id,
+    s ->> 'name',
+    s ->> 'vertical',
+    s -> 'interests',
+    s -> 'evidence',
+    'seed',
+    coalesce(s -> 'unresolved', '[]'::jsonb)
+  from jsonb_array_elements($seed$
 [
   {
     "name": "Publications",
@@ -710,3 +746,8 @@
     }
   }
 ]
+$seed$::jsonb) as s
+  on conflict (user_id, name) do nothing;
+end $$;
+
+notify pgrst, 'reload schema';

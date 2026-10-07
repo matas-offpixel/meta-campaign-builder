@@ -5,10 +5,14 @@
 //   npx tsx --env-file=.env.local scripts/interest-performance.mts \
 //     [--since 2026-01-01] [--refresh] [--cirqlin-csv docs/analysis/cirqlin-signup-utms-2026-10-06.csv]
 //
+//   npx tsx scripts/interest-performance.mts \
+//     --seed-keys=docs/analysis/interest-clusters-seed-keys.json [--report docs/analysis/interest-performance-<date>.json]
+//
 // Raw ad sets are cached at scripts/out/interest-insights/<account_id>/<adset_id>.json
 // (custom audience lists replaced by their counts). Re-runs read the cache
-// unless --refresh. Writes docs/analysis/interest-performance-<date>.{md,json}
-// and docs/analysis/interest-templates-seed.json.
+// unless --refresh. Writes docs/analysis/interest-performance-<date>.{md,json}.
+// --seed-keys reads only the report JSON and writes
+// docs/analysis/interest-templates-seed.json and rewrites supabase/migrations/182, which embeds it.
 //
 // Requires env: META_ACCESS_TOKEN, NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 
@@ -35,14 +39,17 @@ import {
   regActionsOf,
   registrationReason,
   renderInterestReport,
-  seedFromReport,
+  clientBaselineCpr,
+  seedFromKeys,
   whatToTestNext,
   type AggregateContext,
   type AnalysisAdSet,
   type InterestReportJson,
   type LaunchedDescriptor,
   type RegActionType,
+  type SeedKey,
 } from "../lib/analysis/interest-performance.ts";
+import { clusterSeedMigrationSql } from "../lib/analysis/cluster-seed-sql.ts";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const CACHE = path.join(ROOT, "scripts/out/interest-insights");
@@ -50,6 +57,8 @@ const OUT_DIR = path.join(ROOT, "docs/analysis");
 
 const args = process.argv.slice(2);
 function flag(name: string): string | null {
+  const inline = args.find((a) => a.startsWith(`--${name}=`));
+  if (inline) return inline.slice(name.length + 3);
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? (args[i + 1] ?? null) : null;
 }
@@ -57,6 +66,58 @@ const SINCE = flag("since");
 const REFRESH = args.includes("--refresh");
 const TODAY = new Date().toISOString().slice(0, 10);
 const CIRQLIN_CSV = flag("cirqlin-csv") ?? latestCirqlinCsv();
+
+const SEED_KEYS = flag("seed-keys");
+if (SEED_KEYS) {
+  writeSeed(SEED_KEYS, flag("report") ?? latestReportJson());
+  process.exit(0);
+}
+
+/** Seed-only mode: no Meta or Supabase calls, the report JSON is the whole input. */
+function writeSeed(keysPath: string, reportPath: string | null) {
+  if (!reportPath) throw new Error("No docs/analysis/interest-performance-*.json — pass --report");
+  const json = JSON.parse(readFileSync(reportPath, "utf8")) as InterestReportJson;
+  const keys = JSON.parse(readFileSync(keysPath, "utf8")) as SeedKey[];
+  const seed = seedFromKeys(json, keys);
+  const out = path.join(OUT_DIR, "interest-templates-seed.json");
+  const rowsJson = `${JSON.stringify(seed, null, 2)}\n`;
+  writeFileSync(out, rowsJson);
+  const migration = path.join(ROOT, "supabase/migrations/182_interest_clusters_seed.sql");
+  writeFileSync(
+    migration,
+    clusterSeedMigrationSql({
+      number: 182,
+      source: "seed",
+      rowsJson,
+      header: [
+        "Migration 182 — seed interest_clusters for the operator",
+        "",
+        "Rows are docs/analysis/interest-templates-seed.json, embedded verbatim",
+        "between the $seed$ tags (lib/__tests__/interest-clusters.test.ts keeps",
+        "the two identical). Regenerate both with:",
+        "  npx tsx scripts/interest-performance.mts --seed-keys=docs/analysis/interest-clusters-seed-keys.json",
+        "",
+        "Idempotent on (user_id, name): a re-run inserts nothing and leaves",
+        "operator edits alone. Skips with a notice when the operator user is absent.",
+        "",
+        "Deliberately not seeded: the single-interest Techno, Tech house and",
+        "House music clusters — they run ~40% worse than the branded clusters on",
+        "the same account.",
+        "",
+        "Requires migration 181. Apply manually after review.",
+      ],
+    }),
+  );
+  console.log(
+    `wrote ${path.relative(ROOT, out)} + ${path.relative(ROOT, migration)}: ${seed.length} clusters from ${path.relative(ROOT, reportPath)}`,
+  );
+}
+
+function latestReportJson(): string | null {
+  if (!existsSync(OUT_DIR)) return null;
+  const files = readdirSync(OUT_DIR).filter((f) => /^interest-performance-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+  return files.length ? path.join(OUT_DIR, files[files.length - 1]) : null;
+}
 
 const TOKEN = process.env.META_ACCESS_TOKEN;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -483,9 +544,16 @@ async function main() {
   const ranked = rankClusters(clusters.filter((c) => !c.thin)).concat(rankClusters(clusters.filter((c) => c.thin)));
   const clientsSeen = [...new Set(clustered.map((a) => a.clientName))].sort();
   const perClient = clientsSeen.map((client) => {
-    const cs = buildClusters(clustered.filter((a) => a.clientName === client), ctx);
+    const own = clustered.filter((a) => a.clientName === client);
+    const cs = buildClusters(own, ctx);
     const r = rankClusters(cs.filter((c) => !c.thin)).concat(rankClusters(cs.filter((c) => c.thin)));
-    return { client, ranked: r.map((c) => c.key), clusters: cs, nonThin: cs.filter((c) => !c.thin).length };
+    return {
+      client,
+      ranked: r.map((c) => c.key),
+      clusters: cs,
+      nonThin: cs.filter((c) => !c.thin).length,
+      ...clientBaselineCpr(own, ctx),
+    };
   });
   const interests = buildInterestStats(clustered, ctx);
   const rankedInterests = rankClusters(
@@ -547,7 +615,6 @@ async function main() {
   const base = path.join(OUT_DIR, `interest-performance-${TODAY}`);
   writeFileSync(`${base}.json`, `${JSON.stringify(json, null, 2)}\n`);
   writeFileSync(`${base}.md`, renderInterestReport(json));
-  writeFileSync(path.join(OUT_DIR, "interest-templates-seed.json"), `${JSON.stringify(seedFromReport(json), null, 2)}\n`);
   console.log(
     `wrote ${path.relative(ROOT, base)}.{md,json}: ${registration.length} registration ad sets, ${clusters.length} clusters (${clusters.filter((c) => !c.thin).length} non-thin)`,
   );

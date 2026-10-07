@@ -47,6 +47,7 @@ import {
   type InterestValidateRequestItem,
 } from "@/lib/interest-targetability";
 import { Datum, StatusLine } from "@/components/steps/step-surface";
+import { GroupClusterAction, SavedClustersStrip, useInterestClusters } from "./saved-interest-clusters";
 
 interface DiscoveredItem {
   interest: InterestSuggestion;
@@ -59,6 +60,8 @@ interface InterestGroupsPanelProps {
   onChange: (groups: InterestGroup[]) => void;
   /** Optional campaign name for richer interest suggestions */
   campaignName?: string;
+  /** Draft client; scopes the saved clusters strip to its vertical. */
+  clientId?: string;
 }
 
 function createEmptyInterestGroup(): InterestGroup {
@@ -740,10 +743,11 @@ function GroupInterestSection({ group, cluster, onAdd, onRemove, onReplace, onRe
   );
 }
 
-export function InterestGroupsPanel({ groups, audiences, onChange, campaignName }: InterestGroupsPanelProps) {
+export function InterestGroupsPanel({ groups, audiences, onChange, campaignName, clientId }: InterestGroupsPanelProps) {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(
     groups[0]?.id ?? null
   );
+  const clusterState = useInterestClusters(clientId);
   const [searchByGroup, setSearchByGroup] = useState<Record<string, string>>({});
   const [activeSearchGroupId, setActiveSearchGroupId] = useState<string | null>(null);
   const [discoveringGroupId, setDiscoveringGroupId] = useState<string | null>(null);
@@ -1354,6 +1358,15 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
         </div>
       </div>
 
+      <SavedClustersStrip
+        state={clusterState}
+        groups={groups}
+        onAddGroup={(g) => {
+          onChange([...groups, g]);
+          setExpandedGroupId(g.id);
+        }}
+      />
+
       {/* Auto-generate prompt when no groups exist */}
       {groups.length === 0 && (
         <Card className="py-8 text-center">
@@ -1414,6 +1427,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                 <Badge variant="primary">{group.interests.length} interests</Badge>
               </div>
               <div className="flex items-center gap-2">
+                <GroupClusterAction state={clusterState} group={group} />
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); removeGroup(group.id); }}
@@ -1461,6 +1475,7 @@ export function InterestGroupsPanel({ groups, audiences, onChange, campaignName 
                     const inferred = inferClusterFromName(name);
                     updateGroup(group.id, {
                       name,
+                      ...(group.nameSource ? { nameSource: "operator" as const } : {}),
                       ...(inferred && !group.clusterType ? { clusterType: inferred } : {}),
                     });
                   }}
