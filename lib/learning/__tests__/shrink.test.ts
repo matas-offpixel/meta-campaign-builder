@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { THIN_MIN_AD_SETS, THIN_MIN_SPEND_GBP } from "../../analysis/interest-performance.ts";
-import { CONFIDENCE_SCORE, SHRINK_K, choosePool, confidenceLabel, confidenceOf, shrinkIndex } from "../shrink.ts";
+import { CONFIDENCE_SCORE, SHRINK_K, THIN_MIN_RESULTS, choosePool, confidenceLabel, confidenceOf, shrinkIndex } from "../shrink.ts";
 
 describe("shrinkage", () => {
   it("(n·index + k·pool) / (n + k) with k = 10", () => {
@@ -57,12 +57,22 @@ describe("confidence", () => {
     assert.equal(confidenceOf(10, 500), "strong");
   });
 
+  it("results count too: under 10 stage results is thin, whatever the ads and spend", () => {
+    assert.equal(THIN_MIN_RESULTS, 10);
+    assert.equal(confidenceOf(40, 5000, 9), "thin");
+    assert.equal(confidenceOf(40, 5000, 10), "strong");
+    assert.equal(confidenceOf(3, 150, 10), "ok");
+    assert.equal(confidenceOf(40, 5000), "strong");
+  });
+
   it("the numeric score round-trips to the label", () => {
     for (const label of ["thin", "ok", "strong"] as const) assert.equal(confidenceLabel(CONFIDENCE_SCORE[label]), label);
     assert.equal(confidenceLabel(null), null);
   });
 
-  it("the file header documents the choice of k", () => {
-    assert.match(readFileSync("lib/learning/shrink.ts", "utf8"), /k = 10 is the number of funded ads/);
+  it("the file header documents the choice of k and the results floor", () => {
+    const header = readFileSync("lib/learning/shrink.ts", "utf8");
+    assert.match(header, /k = 10 is the number of funded ads/);
+    assert.match(header, /thin unless its ads have at least\s+\* THIN_MIN_RESULTS \(10\) results/);
   });
 });

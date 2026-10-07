@@ -14,6 +14,14 @@
  * Pools: client → vertical, but → all when the vertical row is itself
  * thin; vertical → all; all → 1 (the scope's own norm). A missing pool
  * index falls back along the same chain.
+ *
+ * Confidence counts results as well as ads and spend. Purchases are
+ * sparse: a tag can clear the ad and spend bars on ticket-sale ads with
+ * two purchases, and its cost per purchase is then one or two sales
+ * either way. A row is thin unless its ads have at least
+ * THIN_MIN_RESULTS (10) results in scope: purchases in ticket_sale,
+ * registrations in registration. Callers with no stage result (funnel
+ * rates) omit it.
  */
 
 import { THIN_MIN_AD_SETS, THIN_MIN_SPEND_GBP } from "../analysis/interest-performance.ts";
@@ -21,11 +29,13 @@ import { THIN_MIN_AD_SETS, THIN_MIN_SPEND_GBP } from "../analysis/interest-perfo
 export const SHRINK_K = 10;
 export const STRONG_MIN_FUNDED = 10;
 export const STRONG_MIN_SPEND_GBP = 500;
+export const THIN_MIN_RESULTS = 10;
 
 export type Confidence = "thin" | "ok" | "strong";
 
-export function confidenceOf(fundedAds: number, spendGbp: number): Confidence {
+export function confidenceOf(fundedAds: number, spendGbp: number, results?: number): Confidence {
   if (fundedAds < THIN_MIN_AD_SETS || spendGbp < THIN_MIN_SPEND_GBP) return "thin";
+  if (results !== undefined && results < THIN_MIN_RESULTS) return "thin";
   if (fundedAds >= STRONG_MIN_FUNDED && spendGbp >= STRONG_MIN_SPEND_GBP) return "strong";
   return "ok";
 }

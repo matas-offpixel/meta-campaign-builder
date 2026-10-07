@@ -144,7 +144,7 @@ export function computeLiveEvidence(
           cpr: pooled.baselineCpr,
           clientBaselineCpr: base,
           cprIndex: pooled.baselineCpr != null && base ? round(pooled.baselineCpr / base) : null,
-          confidence: confidenceOf(funded, pooled.spendGbp),
+          confidence: confidenceOf(funded, pooled.spendGbp, pooled.registrations),
         };
       })
       .sort((a, b) => b.spend - a.spend || a.client.localeCompare(b.client));
@@ -170,7 +170,7 @@ export function computeLiveEvidence(
       clients: perClient.map((c) => c.client).sort(),
       clientBaselineCpr: baseline,
       cprIndex: total.baselineCpr != null && baseline ? round(total.baselineCpr / baseline) : null,
-      confidence: confidenceOf(funded, total.spendGbp),
+      confidence: confidenceOf(funded, total.spendGbp, total.registrations),
       perClient,
       computedAt: opts.now.toISOString(),
     });

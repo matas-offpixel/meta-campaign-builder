@@ -40,15 +40,40 @@ describe("tag_performance job", () => {
     assert.equal(row(rows, "client", "client-a", "still")!.spend, 10);
   });
 
-  it("baseline = lower median per-ad CPR over the scope's funded tagged ads; no result counts as worst", () => {
-    // client-a per-ad CPR: 2, 4, 10 → median 4.
-    assert.equal(row(rows, "client", "client-a", "motion")!.baseline_cpr, 4);
-    assert.equal(row(rows, "client", "client-a", "motion")!.index, 0.75);
-    // vertical music: 2, 2, 4, 10, ∞ → median 4.
-    assert.equal(row(rows, "vertical", "music", "motion")!.baseline_cpr, 4);
-    // client-b: 2, ∞ → lower median 2.
-    assert.equal(row(rows, "client", "client-b", "motion")!.baseline_cpr, 2);
+  it("baseline = pooled spend ÷ results over the scope's tagged ads in the stage, not a median of per-ad costs", () => {
+    // client-a: £40 / 11 regs.
+    assert.equal(row(rows, "client", "client-a", "motion")!.baseline_cpr, 3.6364);
+    assert.equal(row(rows, "client", "client-a", "motion")!.index, 0.825);
+    // vertical music: £54 / 14 regs.
+    assert.equal(row(rows, "vertical", "music", "motion")!.baseline_cpr, 3.8571);
+    // client-b: £14 / 3 regs; its motion ad sold nothing, so no cpr.
+    assert.equal(row(rows, "client", "client-b", "motion")!.baseline_cpr, 4.6667);
     assert.equal(row(rows, "client", "client-b", "motion")!.cpr, null);
+  });
+
+  it("ticket_sale gets a pooled baseline when most ads have no purchase; under 10 purchases is thin", () => {
+    const ticket = (id: string, purchases: number, tag: string) =>
+      fact({ meta_ad_id: id, spend: 100, purchases }, { clientId: "client-a", stage: "ticket_sale", tagIds: [tag] });
+    const sparse = [
+      ticket("p1", 0, "t-motion"),
+      ticket("p2", 0, "t-motion"),
+      ticket("p3", 4, "t-motion"),
+      ticket("p4", 0, "t-still"),
+      ticket("p5", 0, "t-still"),
+      ticket("p6", 0, "t-still"),
+      ticket("p7", 12, "t-still"),
+    ];
+    const out = computeTagPerformance(sparse, CLIENTS, TAGS, { now: NOW });
+    const motion = row(out, "client", "client-a", "motion", "ticket_sale")!;
+    const still = row(out, "client", "client-a", "still", "ticket_sale")!;
+    // £700 / 16 purchases; per-ad median would be "no purchase".
+    assert.equal(motion.baseline_cpr, 43.75);
+    assert.equal(motion.cpr, 75);
+    assert.equal(still.cpr, 33.3333);
+    assert.equal(still.index, 0.7619);
+    // Both clear 3 funded ads and £150; motion has 4 purchases → thin, still has 12 → ok.
+    assert.equal(motion.confidence, "thin");
+    assert.equal(still.confidence, "ok");
   });
 
   it("client rows shrink toward vertical, vertical toward all, all toward 1", () => {
@@ -59,7 +84,7 @@ describe("tag_performance job", () => {
     const motionA = row(rows, "client", "client-a", "motion")!;
     // vertical motion is thin (£38) → pool falls back to all; all is thin too → the last pool with an index.
     assert.equal(motionA.pool_index, all.index);
-    assert.equal(motionA.shrunk_index, Math.round(((2 * 0.75 + 10 * all.index!) / 12) * 1e4) / 1e4);
+    assert.equal(motionA.shrunk_index, Math.round(((2 * motionA.index! + 10 * all.index!) / 12) * 1e4) / 1e4);
     assert.equal(motionA.confidence, "thin");
   });
 

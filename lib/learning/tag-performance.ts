@@ -3,13 +3,15 @@
  * rolling window, from learning facts. Pure compute + one writer.
  *
  * Per ad (meta_ad_id) and stage the window's ad-days are summed first, so
- * `ads` and `funded_ads` count ads, not ad-days. A tag's cpr is pooled
- * (spend ÷ results). baseline_cpr is the scope's lower median per-ad cost
- * per result over every funded (≥ £5) tagged ad in the stage, with an ad
- * that has no result counted as the worst; null when that median has no
- * result. Funded only, so a £0.40 ad with one registration does not set
- * the norm. Then client rows shrink toward vertical, vertical toward all,
- * all toward 1 (lib/learning/shrink.ts).
+ * `ads` and `funded_ads` count ads, not ad-days. Both costs are pooled,
+ * never a median of per-ad costs: a tag's cpr is spend ÷ results over its
+ * ads, and baseline_cpr is spend ÷ results over every tagged ad in the
+ * scope and stage (the rule #1026 adopted for registration). Same rule in
+ * both stages, so registration and ticket-sale indexes compare. A median
+ * of per-ad costs has no purchase in ticket_sale (most ads sell nothing)
+ * and sits below the pooled cost in registration. Then client rows shrink
+ * toward vertical, vertical toward all, all toward 1
+ * (lib/learning/shrink.ts).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -67,13 +69,6 @@ export function windowStart(now: Date, days: number): string {
 function round(value: number, places: number): number {
   const f = 10 ** places;
   return Math.round(value * f) / f;
-}
-
-/** Lower median, the report's rule (`whatToTestNext`). */
-function lowerMedian(sorted: readonly number[]): number | null {
-  if (!sorted.length) return null;
-  const m = sorted[Math.floor((sorted.length - 1) / 2)]!;
-  return Number.isFinite(m) ? m : null;
 }
 
 function adStages(facts: readonly LearningFact[], since: string): AdStage[] {
@@ -145,11 +140,9 @@ export function computeTagPerformance(
       baseline.set(key, null);
       continue;
     }
-    const cprs = ads
-      .filter((a) => a.spend >= THIN_MIN_AD_SET_SPEND_GBP)
-      .map((a) => (a.results > 0 ? a.spend / a.results : Number.POSITIVE_INFINITY))
-      .sort((x, y) => x - y);
-    baseline.set(key, lowerMedian(cprs));
+    const spend = ads.reduce((s, a) => s + a.spend, 0);
+    const results = ads.reduce((s, a) => s + a.results, 0);
+    baseline.set(key, results > 0 ? spend / results : null);
   }
 
   const rows = new Map<string, TagPerformanceRow>();
@@ -185,7 +178,7 @@ export function computeTagPerformance(
       pool_index: null,
       n_effective: null,
       shrunk_index: null,
-      confidence: confidenceOf(funded, spend),
+      confidence: confidenceOf(funded, spend, results),
       computed_at: computedAt,
     });
   }

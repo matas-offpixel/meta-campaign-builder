@@ -17,7 +17,7 @@ import { logSkippedArchivedClients } from "../db/client-status.ts";
 import { computeCreativeScores, writeCreativeScores } from "./creative-scores.ts";
 import { computeFunnelBenchmarks, writeFunnelBenchmarks, type FunnelBenchmarkRow, type FunnelSkip } from "./funnel-benchmarks.ts";
 import { computeLiveEvidence, loadOperatorClusters, writeLiveEvidence, type LiveEvidence } from "./interest-evidence.ts";
-import { joinRates, loadLearningInputs, type JoinRate, type LearningInputs, type Stage } from "./joins.ts";
+import { joinRates, loadLearningInputs, type JoinRate, type LearningInputs, type Stage, type StageSource } from "./joins.ts";
 import { computeTagPerformance, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
 
 export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
@@ -45,6 +45,8 @@ export type LearningRefreshResult =
       joinRates: Record<string, JoinRate>;
       /** Ad-days per client per stage. */
       stages: Record<string, Record<Stage, number>>;
+      /** Ad-days per client by where the stage came from. */
+      stageSources: Record<string, Record<StageSource, number>>;
       currencyAssumed: string[];
       /** Dry run only: what the jobs computed. */
       preview?: {
@@ -75,6 +77,15 @@ function stageCounts(facts: LearningInputs["facts"]): Record<string, Record<Stag
   for (const f of facts) {
     const c = (out[f.clientId ?? ""] ??= { registration: 0, ticket_sale: 0, unknown: 0 });
     c[f.stage] += 1;
+  }
+  return out;
+}
+
+function stageSourceCounts(facts: LearningInputs["facts"]): Record<string, Record<StageSource, number>> {
+  const out: Record<string, Record<StageSource, number>> = {};
+  for (const f of facts) {
+    const c = (out[f.clientId ?? ""] ??= { event_dates: 0, phase_at_launch: 0, objective: 0, unknown: 0 });
+    c[f.stageSource] += 1;
   }
   return out;
 }
@@ -164,6 +175,7 @@ export async function runLearningRefresh(input: {
     dropped: inputs.dropped,
     joinRates: Object.fromEntries(joinRates(inputs.facts)),
     stages: stageCounts(inputs.facts),
+    stageSources: stageSourceCounts(inputs.facts),
     currencyAssumed: [...inputs.currency.assumed].sort(),
   };
   if (dryRun) {

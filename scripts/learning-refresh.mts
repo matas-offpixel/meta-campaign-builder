@@ -6,7 +6,7 @@
  *
  * --dry-run reads prod (service role, SELECTs only), computes every job
  * and writes nothing. It prints rows per job, the tag join rate per
- * client, ad-days per stage, and each active client's top 5 tags by
+ * client, ad-days per stage and per stage source, and each active client's top 5 tags by
  * shrunk index with n. --apply runs the same code as the cron, writes
  * included. Zero Meta calls either way.
  */
@@ -57,6 +57,14 @@ console.log("|---|---|---|---|---|---|---|---|---|");
 for (const [id, r] of Object.entries(result.joinRates).sort((a, b) => b[1].adDays - a[1].adDays)) {
   const s = result.stages[id] ?? { registration: 0, ticket_sale: 0, unknown: 0 };
   console.log(`| ${nameOf(id)} | ${r.adDays} | ${r.tagged} | ${pct(r.rate)} | ${r.byAdId} | ${r.byName} | ${s.registration} | ${s.ticket_sale} | ${s.unknown} |`);
+}
+
+console.log(`\n## Where each ad-day's stage came from\n`);
+console.log("| Client | event_dates | phase_at_launch | objective | unknown |");
+console.log("|---|---|---|---|---|");
+for (const [id] of Object.entries(result.joinRates).sort((a, b) => b[1].adDays - a[1].adDays)) {
+  const s = result.stageSources[id] ?? { event_dates: 0, phase_at_launch: 0, objective: 0, unknown: 0 };
+  console.log(`| ${nameOf(id)} | ${s.event_dates} | ${s.phase_at_launch} | ${s.objective} | ${s.unknown} |`);
 }
 
 if (result.preview) {

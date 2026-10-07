@@ -110,7 +110,7 @@ export function computeCreativeScores(
           creativeName: c.name,
           axis,
           score: percentileRank(m, values),
-          significance: confidenceOf(funded, c.spend) !== "thin",
+          significance: confidenceOf(funded, c.spend, axis === "convert" ? c.results : undefined) !== "thin",
           fetchedAt: opts.fetchedAt,
         });
       }

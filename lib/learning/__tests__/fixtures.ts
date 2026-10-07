@@ -68,6 +68,7 @@ export function fact(
     eventId: meta.eventId ?? null,
     contextSource: "launched_ads",
     stage,
+    stageSource: stage === "unknown" ? "unknown" : "event_dates",
     result: stage === "registration" ? row.registrations : stage === "ticket_sale" ? row.purchases : null,
     spendGbp: meta.spendGbp ?? row.spend,
     tagIds: meta.tagIds ?? [],
