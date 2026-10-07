@@ -592,6 +592,8 @@ export interface UtmRow {
   crm_base_tag: string | null;
   utm_campaign: string | null;
   utm_content: string | null;
+  /** Meta ad id on launches tagged by `lib/meta/url-tags.ts`; absent on older exports. */
+  utm_term?: string | null;
   meta_sourced: boolean;
   count: number;
 }
@@ -633,6 +635,7 @@ export function parseUtmCsv(text: string): UtmRow[] {
     crm_base_tag: get(l, "crm_base_tag") || null,
     utm_campaign: get(l, "utm_campaign") || null,
     utm_content: get(l, "utm_content") || null,
+    utm_term: get(l, "utm_term") || null,
     meta_sourced: get(l, "meta_sourced") === "true",
     count: Number(get(l, "count")) || 0,
   }));
@@ -657,18 +660,37 @@ export interface CampaignFirstParty {
   adSetLevel: "per_ad_set" | "campaign-level only";
   /** utm_content resolved, but first-party ÷ pixel sat outside FIRST_PARTY_RATIO_RANGE, so ad sets were not credited. */
   ratioOutOfRange: boolean;
+  /** Of adSetMatchedSignups, those whose utm_term carried an ad id. */
+  adMatchedSignups: number;
+}
+
+export interface FirstPartyAd {
+  adSetId: string;
+  campaignId: string;
+  signups: number;
 }
 
 /**
  * utm_campaign ↔ campaign id or name; utm_content ↔ ad set id or name
- * inside that campaign. A campaign whose utm_content never resolves is
- * "campaign-level only" and its ad sets get no first-party number.
+ * inside that campaign; utm_term ↔ ad id inside that ad set. A campaign
+ * whose utm_content never resolves is "campaign-level only" and its ad
+ * sets get no first-party number.
+ *
+ * The analyser reads ad sets, not ads, so an ad id is trusted only on a
+ * row whose utm_content already resolved to an ad set in the campaign.
+ * Per-ad counts pass the same ratio gate as per-ad-set counts.
  */
 export function joinFirstParty(
   registrationAdSets: readonly AnalysisAdSet[],
   rows: readonly UtmRow[],
   ctx: Pick<AggregateContext, "chosenType">,
-): { campaigns: CampaignFirstParty[]; adSets: Record<string, FirstPartyAdSet>; unmatchedPaidRows: number; unmatchedPaidSignups: number } {
+): {
+  campaigns: CampaignFirstParty[];
+  adSets: Record<string, FirstPartyAdSet>;
+  perAd: Record<string, FirstPartyAd>;
+  unmatchedPaidRows: number;
+  unmatchedPaidSignups: number;
+} {
   const campaigns = new Map<string, AnalysisAdSet[]>();
   for (const a of registrationAdSets) {
     const list = campaigns.get(a.campaignId) ?? [];
@@ -705,6 +727,7 @@ export function joinFirstParty(
     perCampaign.set(id, entry);
   }
   const adSetFp: Record<string, FirstPartyAdSet> = {};
+  const perAd: Record<string, FirstPartyAd> = {};
   const out: CampaignFirstParty[] = [];
   for (const [campaignId, entry] of perCampaign) {
     const list = campaigns.get(campaignId)!;
@@ -712,13 +735,22 @@ export function joinFirstParty(
     const byAdSetName = new Map<string, AnalysisAdSet[]>();
     for (const a of list) byAdSetName.set(norm(a.name), [...(byAdSetName.get(norm(a.name)) ?? []), a]);
     const counts = new Map<string, number>();
+    const adCounts = new Map<string, FirstPartyAd>();
     let adSetMatched = 0;
+    let adMatched = 0;
     for (const r of entry.rows) {
       const content = (r.utm_content ?? "").trim();
       const hit = byId.get(content) ?? ((byAdSetName.get(norm(content)) ?? []).length === 1 ? byAdSetName.get(norm(content))![0] : undefined);
       if (!hit) continue;
       counts.set(hit.id, (counts.get(hit.id) ?? 0) + r.count);
       adSetMatched += r.count;
+      const term = (r.utm_term ?? "").trim();
+      if (!/^\d+$/.test(term)) continue;
+      const ad = adCounts.get(term) ?? { adSetId: hit.id, campaignId, signups: 0 };
+      if (ad.adSetId !== hit.id) continue;
+      ad.signups += r.count;
+      adCounts.set(term, ad);
+      adMatched += r.count;
     }
     const pixelType = ctx.chosenType[list[0].accountId] ?? null;
     const pixel = pixelType ? list.reduce((s, a) => s + (a.regActions[pixelType] ?? 0), 0) : 0;
@@ -726,7 +758,10 @@ export function joinFirstParty(
     const ratio = pixel > 0 ? fp / pixel : null;
     const plausible = ratio != null && ratio >= FIRST_PARTY_RATIO_RANGE[0] && ratio <= FIRST_PARTY_RATIO_RANGE[1];
     const perAdSet = adSetMatched > 0 && plausible;
-    if (perAdSet) for (const a of list) adSetFp[a.id] = { signups: counts.get(a.id) ?? 0 };
+    if (perAdSet) {
+      for (const a of list) adSetFp[a.id] = { signups: counts.get(a.id) ?? 0 };
+      for (const [adId, ad] of adCounts) perAd[adId] = ad;
+    }
     out.push({
       campaignId,
       campaignName: list[0].campaignName,
@@ -740,10 +775,11 @@ export function joinFirstParty(
       adSetMatchedSignups: adSetMatched,
       adSetLevel: perAdSet ? "per_ad_set" : "campaign-level only",
       ratioOutOfRange: adSetMatched > 0 && !plausible,
+      adMatchedSignups: adMatched,
     });
   }
   out.sort((a, b) => b.firstPartySignups - a.firstPartySignups || a.campaignId.localeCompare(b.campaignId));
-  return { campaigns: out, adSets: adSetFp, unmatchedPaidRows, unmatchedPaidSignups };
+  return { campaigns: out, adSets: adSetFp, perAd, unmatchedPaidRows, unmatchedPaidSignups };
 }
 
 // ─── Report rendering (from the JSON only) ────────────────────────────────────
@@ -779,6 +815,8 @@ export interface InterestReportJson {
   firstParty: {
     source: string;
     campaigns: CampaignFirstParty[];
+    /** Meta ad id → signups, from utm_term. Absent on reports generated before url_tags. */
+    perAd?: Record<string, FirstPartyAd>;
     unmatchedPaidRows: number;
     unmatchedPaidSignups: number;
     events: {

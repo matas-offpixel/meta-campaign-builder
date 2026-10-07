@@ -5,7 +5,9 @@ import {
   inferSignupSource,
   normalizeHandle,
   parseSignupSubmission,
+  utmFromSearch,
 } from "../signup-schema.ts";
+import { URL_TAGS } from "../../meta/url-tags.ts";
 import type { SignupFormValues } from "../types.ts";
 
 /**
@@ -213,6 +215,26 @@ describe("normalizeHandle / inferSignupSource", () => {
     assert.equal(inferSignupSource({ gclid: "xyz" }), "paid_google");
     assert.equal(inferSignupSource({}), "organic");
     assert.equal(inferSignupSource({ utm_source: "newsletter" }), "other_newsletter");
+  });
+
+  it("a landing URL carrying the launch url_tags lands as paid_meta with all five utm keys", () => {
+    const search = `?${URL_TAGS
+      .replace("{{campaign.id}}", "120246955060140582")
+      .replace("{{adset.id}}", "120246955060530582")
+      .replace("{{ad.id}}", "120246955061460582")}`;
+    const utm = utmFromSearch(search);
+    assert.deepEqual(utm, {
+      utm_source: "meta",
+      utm_medium: "paid",
+      utm_campaign: "120246955060140582",
+      utm_term: "120246955061460582",
+      utm_content: "120246955060530582",
+    });
+    const result = parseSignupSubmission({ email: "amelia@example.com", consent_gdpr: true, utm });
+    assert.ok(result.ok);
+    if (!result.ok) return;
+    assert.equal(result.data.source, "paid_meta");
+    assert.deepEqual(result.data.utm, utm);
   });
 });
 

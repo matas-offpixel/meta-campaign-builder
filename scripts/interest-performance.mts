@@ -597,6 +597,7 @@ async function main() {
     firstParty: {
       source: CIRQLIN_CSV ? path.relative(ROOT, CIRQLIN_CSV) : "no Cirqlin CSV",
       campaigns: fpJoin.campaigns,
+      perAd: fpJoin.perAd,
       unmatchedPaidRows: fpJoin.unmatchedPaidRows,
       unmatchedPaidSignups: fpJoin.unmatchedPaidSignups,
       events: [...eventRows.values()].sort((a, b) => b.allSignups - a.allSignups),

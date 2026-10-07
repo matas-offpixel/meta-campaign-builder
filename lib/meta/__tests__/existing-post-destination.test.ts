@@ -79,6 +79,7 @@ describe("existing post destination", () => {
       "instagram_user_id",
       "name",
       "source_instagram_media_id",
+      "url_tags",
     ]);
   });
 
