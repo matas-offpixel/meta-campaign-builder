@@ -2,7 +2,9 @@
 //
 // History backfill for ad_daily_insights (migration 185), one ad account
 // at a time. Same fetch/derive/upsert path as the nightly cron, in 7-day
-// windows with a 2 s pause before every Graph call after the first.
+// windows with a 2 s pause before every Graph call after the first. A
+// window Meta fails with code 1/2 is split 7 → 3 → 1 days by the runner
+// (`fetchAdAccountInsightsAdaptive`); every split call is counted.
 //
 // Dry-run by default: prints the window plan and the minimum call count
 // (one call per window; +1 per extra page of 500 ad-days) and calls
@@ -19,9 +21,10 @@ import { createClient } from "@supabase/supabase-js";
 
 import { graphGetWithToken } from "../lib/meta/client.ts";
 import { normalizeAdAccountId } from "../lib/meta/ad-account.ts";
+import { AD_INSIGHTS_WINDOW_DAYS, insightsSpans } from "../lib/ad-daily-insights/fetch.ts";
 import { runAdDailyInsights } from "../lib/ad-daily-insights/runner.ts";
 
-const CHUNK_DAYS = 7;
+const CHUNK_DAYS = AD_INSIGHTS_WINDOW_DAYS[0];
 const PAUSE_MS = 2000;
 
 function arg(name: string): string | undefined {
@@ -38,23 +41,15 @@ if (!account || !since || !until || !DAY.test(since) || !DAY.test(until) || sinc
   throw new Error("Usage: --account act_… --since YYYY-MM-DD --until YYYY-MM-DD [--apply]");
 }
 
-function windows(from: string, to: string): { since: string; until: string }[] {
-  const out: { since: string; until: string }[] = [];
-  const end = Date.parse(`${to}T00:00:00Z`);
-  for (let start = Date.parse(`${from}T00:00:00Z`); start <= end; start += CHUNK_DAYS * 86_400_000) {
-    const stop = Math.min(start + (CHUNK_DAYS - 1) * 86_400_000, end);
-    out.push({ since: new Date(start).toISOString().slice(0, 10), until: new Date(stop).toISOString().slice(0, 10) });
-  }
-  return out;
-}
-
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
-  const plan = windows(since!, until!);
+  const plan = insightsSpans(since!, until!, CHUNK_DAYS);
   console.log(`account: ${account}`);
   console.log(`range:   ${since}..${until} → ${plan.length} window(s) of ≤${CHUNK_DAYS} days`);
-  console.log(`minimum Meta calls: ${plan.length} (one per window; +1 per extra page of 500 ad-days)`);
+  console.log(
+    `minimum Meta calls: ${plan.length} (one per window; +1 per extra page of 500 ad-days; a split 7-day window costs up to 10 more)`,
+  );
   console.log(`minimum wall time:  ~${Math.ceil(((plan.length - 1) * PAUSE_MS) / 1000)}s of pauses`);
   if (!APPLY) {
     console.log("\nDry run — no Meta calls made. Re-run with --apply to fetch and write.");
@@ -91,6 +86,7 @@ async function main() {
     rows += result.rowsWritten ?? 0;
     console.log(
       `${window.since}..${window.until} status=${outcome?.status} calls=${outcome?.calls} rows=${outcome?.rows}` +
+        (outcome?.windowSplit ? ` window_split=${outcome.windowSplit.from}d→${outcome.windowSplit.to}d` : "") +
         (outcome?.error ? ` error=${outcome.error}` : ""),
     );
     if (outcome?.status === "rate_limited" || outcome?.status === "auth_error") {
