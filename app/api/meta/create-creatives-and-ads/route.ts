@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
+import { bindLaunchAdRecorder, noopRecordCreatedAd } from "@/lib/launched-ads/launch-recorder";
 import {
   createMetaCreative,
   createMetaAd,
@@ -162,6 +163,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
 
+  // Bookkeeping only — never throws into the ad path. No draft here:
+  // campaign/client/event come from the ad set's launched_ad_sets row.
+  const recordCreatedAd = await bindLaunchAdRecorder({
+    session: supabase,
+    serviceRole: createServiceRoleClient,
+    creatives: patchedCreatives,
+    userId: user.id,
+    adAccountId: metaAdAccountId,
+    launchRunId: crypto.randomUUID(),
+    fillFromLaunchedAdSets: true,
+  }).catch(() => noopRecordCreatedAd);
+
   // ── Create creatives + ads ────────────────────────────────────────────────
   const created: CreativeCreationResult[] = [];
   const failed: CreativeFailureResult[] = [];
@@ -307,6 +320,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             ` metaAdId=${adRes.id} metaCreativeId=${metaCreativeId}` +
             ` strictMode=${strictMode}`,
         );
+        await recordCreatedAd({
+          creative,
+          adName: adPayload.name,
+          metaAdId: adRes.id,
+          metaCreativeId,
+          metaAdSetId: adSet.metaAdSetId,
+        });
       } catch (err) {
         const message =
           err instanceof MetaApiError

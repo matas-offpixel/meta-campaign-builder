@@ -161,6 +161,10 @@ import {
   bindLaunchAdSetRecorder,
   type RecordCreatedAdSet,
 } from "@/lib/launched-ad-sets/launch-recorder";
+import {
+  bindLaunchAdRecorder,
+  noopRecordCreatedAd,
+} from "@/lib/launched-ads/launch-recorder";
 
 // ─── Timing helper ──────────────────────────────────────────────────────────
 
@@ -3299,6 +3303,23 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+  // Bookkeeping only, same doctrine. Binds while ad sets are created;
+  // attach modes record too, against the ad set's own campaign.
+  const adRecorderReady = bindLaunchAdRecorder({
+    session: supabase,
+    serviceRole: createServiceRoleClient,
+    draft,
+    creatives: draft.creatives,
+    userId: user.id,
+    adAccountId,
+    launchRunId,
+  }).catch((err) => {
+    console.error("[launched_ads] bind failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return noopRecordCreatedAd;
+  });
+  const attachCampaignIdByMetaAdSetId = new Map<string, string>();
 
   const adSetsCreated: LaunchSummary["adSetsCreated"] = [];
   const adSetsFailed: LaunchSummary["adSetsFailed"] = [];
@@ -3335,6 +3356,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       adSetLaunchResults[synthKey] = { launchStatus: "created", metaAdSetId };
     }
     for (const r of pooled.registered) {
+      attachCampaignIdByMetaAdSetId.set(r.metaAdSetId, r.campaignId);
       console.log(
         `[launch-campaign] Phase 2 (attach_all_adsets) — registered ad set ${r.metaAdSetId}` +
           ` ("${r.name}") from campaign "${r.campaignName}"`,
@@ -3374,6 +3396,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
     for (const liveAdSet of liveAdSets) {
       const synthKey = attachedAdSetKey(liveAdSet.id);
       adSetMetaIds.set(synthKey, liveAdSet.id);
+      if (liveAdSet.campaign_id) attachCampaignIdByMetaAdSetId.set(liveAdSet.id, liveAdSet.campaign_id);
       adSetLaunchResults[synthKey] = {
         launchStatus: "created",
         metaAdSetId: liveAdSet.id,
@@ -4340,6 +4363,8 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
         : ""),
   );
 
+  const recordCreatedAd = await adRecorderReady;
+
   // Create all ads in parallel batches
   const adCreationTasks: Promise<void>[] = [];
   // Orphan ad-set keys: in creativeAssignments but not in adSetMetaIds (stale
@@ -4391,6 +4416,14 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
             const dur = elapsed(adStart);
             console.log(`[launch-campaign] Phase 4 ✓  ad: ${creative.name} × ${adSetName} → ${adRes.id} (${dur}ms) tokenSource=${launchTokenSource}`);
             creativeEntry.ads.push({ adSetName, metaAdId: adRes.id, durationMs: dur });
+            await recordCreatedAd({
+              creative,
+              adName: adPayload.name,
+              metaAdId: adRes.id,
+              metaCreativeId: creativeEntry.metaCreativeId,
+              metaAdSetId,
+              metaCampaignId: attachCampaignIdByMetaAdSetId.get(metaAdSetId) ?? metaCampaignId,
+            });
           } catch (err) {
             const websiteUrl = err instanceof MetaApiError
               ? websiteUrlRequiredMessage(creative.name, err)
@@ -4813,6 +4846,14 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
                 const recordedMcAdIds = multiCampaignAdIdsByName.get(creative.name);
                 if (recordedMcAdIds) recordedMcAdIds.push(adRes.id);
                 else multiCampaignAdIdsByName.set(creative.name, [adRes.id]);
+                await recordCreatedAd({
+                  creative,
+                  adName: adPayload.name,
+                  metaAdId: adRes.id,
+                  metaCreativeId: creativeEntry.metaCreativeId,
+                  metaAdSetId,
+                  metaCampaignId: nextCampaign.id,
+                });
               } catch (err) {
                 const message = formatMetaError(err);
                 console.error(`[launch-campaign] MC[${ci}] Phase 4 ✗  ad failed: ${creative.name} × ${adSetName}: ${message}`);

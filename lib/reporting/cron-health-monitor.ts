@@ -59,6 +59,7 @@ const TABLE_CONFIG: readonly TableConfigEntry[] = [
   { table: "share_insight_snapshots", freshColumn: "fetched_at", thresholdMinutes: 360 },
   { table: "audience_source_cache", freshColumn: "fetched_at", thresholdMinutes: 1440 },
   { table: "mailchimp_tag_snapshots", freshColumn: "snapshot_at", thresholdMinutes: 1440 },
+  { table: "ad_daily_insights", freshColumn: "fetched_at", thresholdMinutes: 1560 },
 ];
 
 /**
