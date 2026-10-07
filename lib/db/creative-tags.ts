@@ -412,6 +412,9 @@ export async function listCreativeTagAssignmentsByEvents(
   return normalizeAssignmentRows(data ?? []);
 }
 
+/** creative_scores unique key since migration 186: one row per creative × axis. */
+export const CREATIVE_SCORE_CONFLICT = "event_id,creative_name,axis";
+
 export async function upsertCreativeScore(
   supabase: DbClient,
   args: UpsertCreativeScoreArgs,
@@ -428,7 +431,7 @@ export async function upsertCreativeScore(
         significance: args.significance ?? false,
         ...(args.fetchedAt ? { fetched_at: args.fetchedAt } : {}),
       },
-      { onConflict: "event_id,creative_name,axis,fetched_at" },
+      { onConflict: CREATIVE_SCORE_CONFLICT },
     )
     .select(SCORE_SELECT)
     .maybeSingle();
