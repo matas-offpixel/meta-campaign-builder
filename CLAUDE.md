@@ -165,6 +165,7 @@ SLACK_WEBHOOK_ADS_URGENT=
 SLACK_WEBHOOK_ADS_AUTOMATION=
 ENABLE_BUDGET_PACING_ALERTS=
 ENABLE_AD_DAILY_INSIGHTS=
+ENABLE_LEARNING_REFRESH=
 ```
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
@@ -406,6 +407,19 @@ ENABLE_AD_DAILY_INSIGHTS=
 > `scripts/backfill-ad-daily-insights.mts` (dry-run by default). Campaign
 > grain is a SUM over `ad_daily_insights`.
 
+> **`ENABLE_LEARNING_REFRESH`** (learning loop B) must be exactly `"1"` to
+> activate `/api/cron/learning-refresh` (03:30 UTC, after ad-daily-insights).
+> Unset = 200 with `skippedReason: "killswitch"`. DB-only, zero Meta calls.
+> Joins `ad_daily_insights` to client/event (`resolveAdContext`), stage
+> (event sale dates, else `phase_at_launch`, else `unknown`) and tags
+> (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
+> runs four independent jobs: `creative_scores`, `tag_performance`
+> (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),
+> `client_funnel_benchmarks` (`learned`, never over `manually-overridden`)
+> and `interest_clusters.live_evidence` (never `evidence`). Archived clients
+> are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
+> `scripts/learning-refresh.mts --dry-run`.
+
 > **D2C orchestration env vars** (brief→campaign automation, PR #647):
 > - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C
 >   provider credentials (`get_d2c_credentials` / `set_d2c_credentials`, migration
@@ -427,7 +441,7 @@ ENABLE_AD_DAILY_INSIGHTS=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`). Before it: `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
@@ -560,6 +574,9 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/ad-daily-insights` (02:30 UTC) — learning loop A. Per-ad
   per-day insights into `ad_daily_insights` (see `ENABLE_AD_DAILY_INSIGHTS`
   above). Zero Meta writes.
+- `/api/cron/learning-refresh` (03:30 UTC) — learning loop B. Stored
+  learnings with n and confidence (see `ENABLE_LEARNING_REFRESH` above).
+  Zero Meta calls.
 
 ### Canonical spec
 
