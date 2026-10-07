@@ -178,7 +178,17 @@ export type MetaImportMeta = {
   sourceAdAccountId: string;
   dropped: MetaImportDropped[];
   notCarried: MetaImportNotCarried[];
-  creativeCounts: { read: number; carried: number; notCarried: number };
+  /**
+   * `read` is AdCreative objects. `uniqueCreatives` and `adsRead` are absent on
+   * drafts imported before creatives were grouped by content.
+   */
+  creativeCounts: {
+    read: number;
+    uniqueCreatives?: number;
+    adsRead?: number;
+    carried: number;
+    notCarried: number;
+  };
   /** Per source ad set. Absent stays distinct from an empty array. */
   flexibleSpec: Record<string, MetaImportFlexibleSpec>;
   /** `X-App-Usage` call_count when a read reported one. */

@@ -190,6 +190,16 @@ describe("what was not carried", () => {
       "3 ad sets · 5 of 8 creatives carried · 3 not carried",
     );
   });
+
+  it("counts unique creatives and the ads behind them after grouping", () => {
+    assert.equal(
+      metaImportCountsLine({
+        adSetCount: 16,
+        creativeCounts: { read: 77, uniqueCreatives: 5, adsRead: 77, carried: 5, notCarried: 0 },
+      }),
+      "16 ad sets · 5 of 5 creatives carried (77 ads) · 0 not carried",
+    );
+  });
 });
 
 describe("route errors", () => {

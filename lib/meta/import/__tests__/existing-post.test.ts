@@ -78,7 +78,7 @@ describe("boosted post import", () => {
     );
   });
 
-  it("reads the URL from call_to_action.value.link for thirteen boosted videos", () => {
+  it("reads the URL from call_to_action.value.link for thirteen boosts of one post, carried as one creative", () => {
     const creatives: MetaLiveCampaignBundle["creatives"] = {};
     const ids: string[] = [];
     for (let i = 0; i < 13; i++) {
@@ -104,7 +104,10 @@ describe("boosted post import", () => {
       carry: ids,
       availability: [],
     });
-    assert.equal(draft.creatives.length, 13);
+    assert.equal(draft.creatives.length, 1);
+    assert.deepEqual(draft.creatives[0]!.importedMeta?.creativeIds, ids);
+    assert.equal(draft.importMeta?.creativeCounts.uniqueCreatives, 1);
+    assert.equal(draft.importMeta?.creativeCounts.read, 13);
     assert.ok(draft.creatives.every((c) => c.destinationUrl === "https://www.schak-newcastle.com/"));
     assert.ok(draft.creatives.every((c) => c.cta === "sign_up"));
     assert.ok(draft.creatives.every((c) => c.existingPost?.mediaKind === "video"));

@@ -12,8 +12,8 @@ import { describe, it } from "node:test";
 
 import {
   metaImportDeselectAll,
+  metaImportPickerHeaderLine,
   metaImportSelectAll,
-  metaImportTickedLine,
 } from "../../../../components/meta/meta-import-flow.ts";
 import { metaAdAccountPickerOptions } from "../../account-picker-options.ts";
 import { validateStep } from "../../../validation.ts";
@@ -170,12 +170,23 @@ describe("DHB capture", () => {
   });
 
   describe("carry", () => {
-    it("20 ticked ids carry 20 creatives and report none as unticked", async () => {
+    it("20 carriable objects are 4 unique creatives; 4 ticked carry 4 and report none as unticked", async () => {
       const bundle = await bundlePromise;
       const carry = defaultMetaImportCarry(buildMetaImportPicker(bundle));
-      assert.equal(carry.length, 20);
+      assert.equal(carry.length, 4);
       const draft = importDraft(bundle, carry);
-      assert.equal(draft.creatives.length, 20);
+      assert.equal(draft.creatives.length, 4);
+      assert.equal(
+        draft.creatives.reduce((sum, row) => sum + (row.importedMeta?.creativeIds.length ?? 0), 0),
+        20,
+      );
+      assert.deepEqual(draft.importMeta!.creativeCounts, {
+        read: 25,
+        uniqueCreatives: 9,
+        adsRead: 105,
+        carried: 4,
+        notCarried: 5,
+      });
       assert.deepEqual(
         draft.creatives.map((row) => row.id).sort(),
         [...carry].sort(),
@@ -198,7 +209,7 @@ describe("DHB capture", () => {
         ),
         false,
       );
-      assert.equal(draft.creatives.length, 20);
+      assert.equal(draft.creatives.length, 4);
     });
 
     it("the route refuses a carry with a rejected key, names it, and saves nothing", async () => {
@@ -416,14 +427,14 @@ describe("DHB capture", () => {
       assert.equal(disabled.length, 5);
 
       const all = metaImportSelectAll(picker.rows);
-      assert.equal(all.size, 20);
+      assert.equal(all.size, 4);
       for (const key of disabled) assert.equal(all.has(key), false);
       assert.deepEqual([...all].sort(), defaultMetaImportCarry(picker).sort());
-      assert.equal(metaImportTickedLine(all, picker.rows), "20 of 20 ticked");
+      assert.equal(metaImportPickerHeaderLine(picker, all), "9 creatives (105 ads) · 4 ticked");
 
       const none = metaImportDeselectAll();
       assert.equal(none.size, 0);
-      assert.equal(metaImportTickedLine(none, picker.rows), "0 of 20 ticked");
+      assert.equal(metaImportPickerHeaderLine(picker, none), "9 creatives (105 ads) · 0 ticked");
     });
   });
 });

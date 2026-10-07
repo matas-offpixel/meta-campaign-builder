@@ -13,8 +13,9 @@ import {
   metaImportDeselectAll,
   metaImportSaveBlocked,
   metaImportSaveBody,
+  metaImportPickerHeaderLine,
+  metaImportRowAdSetsLine,
   metaImportSelectAll,
-  metaImportTickedLine,
   summariseMetaImportPickerDrops,
 } from "@/components/meta/meta-import-flow";
 import { MetaImportReport } from "@/components/meta/meta-import-report";
@@ -120,6 +121,7 @@ export function MetaImportPicker({
   const [events, setEvents] = useState<MetaImportListedEvent[]>([]);
   const [eventId, setEventId] = useState("");
   const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [adSetsOpen, setAdSetsOpen] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState<{ draftId: string; importMeta: MetaImportMeta } | null>(null);
 
   useEffect(() => {
@@ -128,6 +130,7 @@ export function MetaImportPicker({
       setEvents([]);
       setEventId("");
       setTicked(new Set());
+      setAdSetsOpen({});
       setSaved(null);
       setError(null);
       return;
@@ -367,7 +370,7 @@ export function MetaImportPicker({
 
               <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="text-sm text-muted-foreground">
-                  {metaImportTickedLine(ticked, picker.rows)}
+                  {metaImportPickerHeaderLine(picker, ticked)}
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -417,16 +420,41 @@ export function MetaImportPicker({
                       <div className="h-14 w-14 shrink-0 rounded bg-muted" />
                     )}
                     <div className="min-w-0 flex-1 text-sm">
-                      <p className="font-medium">{row.name}</p>
+                      <p className="font-medium">
+                        {row.name}
+                        {row.nameHint ? (
+                          <span className="ml-1.5 font-normal text-muted-foreground">{row.nameHint}</span>
+                        ) : null}
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        {[
-                          row.mediaType,
-                          row.copies > 1 ? `${row.copies} copies` : null,
-                          row.disabled ? row.unsupportedReason : null,
-                        ]
+                        {[row.mediaType, row.disabled ? row.unsupportedReason : null]
                           .filter(Boolean)
                           .join(" · ")}
+                        {row.adSets.length > 0 ? (
+                          <>
+                            {row.mediaType || row.disabled ? " · " : ""}
+                            <button
+                              type="button"
+                              className="underline decoration-dotted"
+                              title={row.adSets.map((adSet) => adSet.name).join("\n")}
+                              aria-expanded={adSetsOpen[row.key] === true}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setAdSetsOpen((current) => ({ ...current, [row.key]: !current[row.key] }));
+                              }}
+                            >
+                              {metaImportRowAdSetsLine(row)}
+                            </button>
+                          </>
+                        ) : null}
                       </p>
+                      {adSetsOpen[row.key] ? (
+                        <ul className="mt-1 text-xs text-muted-foreground">
+                          {row.adSets.map((adSet) => (
+                            <li key={adSet.id}>{adSet.name}</li>
+                          ))}
+                        </ul>
+                      ) : null}
                     </div>
                   </label>
                 ))}

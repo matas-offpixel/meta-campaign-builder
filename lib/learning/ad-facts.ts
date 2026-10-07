@@ -15,6 +15,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { campaignMatchesBracketedEventCode } from "../insights/meta-event-code-match.ts";
 import { normalizeAdAccountId, resolveEventAdAccountId } from "../meta/ad-account.ts";
 
+/**
+ * Group ads by what they show, not by name. The same key the Meta import
+ * uses to collapse one-object-per-ad duplicates into one creative.
+ */
+export { creativeContentKey, type CreativeContentSpec } from "../meta/import/content-key.ts";
+
 export type AdContextSource = "launched_ads" | "launched_ad_sets" | "campaign_code";
 
 export type AdContext = {
