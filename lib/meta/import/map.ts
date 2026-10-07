@@ -24,6 +24,11 @@ import {
   type ImportCreativeSource,
   type ImportedExistingPost,
 } from "./creative-copy.ts";
+import {
+  groupMetaImportCreatives,
+  metaImportCreativeCarriable,
+  type MetaImportCreativeGroup,
+} from "./groups.ts";
 import type {
   MetaImportDropped,
   MetaImportFlexibleSpec,
@@ -101,12 +106,7 @@ export function carriableMetaCreativeIds(bundle: MetaLiveCampaignBundle): Set<st
   for (const [key, raw] of Object.entries(bundle.creatives)) {
     const creative = raw as RawCreative & { id?: string };
     const id = str(creative.id) ?? key;
-    const source = { ...creative, id } as ImportCreativeSource;
-    const existing = classifyImportedExistingPost(source);
-    const postMedia = existing && !("unreachable" in existing) ? importedExistingPostMedia(source) : null;
-    if (postMedia || (existing == null && deriveAssetSignature({ ...creative, id }))) {
-      ids.add(id);
-    }
+    if (metaImportCreativeCarriable({ ...creative, id })) ids.add(id);
   }
   return ids;
 }
@@ -441,8 +441,24 @@ function interestSuggestions(
   return out;
 }
 
+function importedCreativeFields(group: MetaImportCreativeGroup): Pick<
+  AdCreativeDraft,
+  "name" | "nameSource" | "importedMeta"
+> {
+  return {
+    name: group.name,
+    nameSource: "file",
+    importedMeta: {
+      creativeIds: [...group.creativeIds],
+      adIds: [...group.adIds],
+      adSetIds: [...group.adSetIds],
+    },
+  };
+}
+
 function creativeDraft(
   creative: RawCreative & { id: string },
+  group: MetaImportCreativeGroup,
   dropped: MetaImportDropped[],
   imageSizes: Readonly<Record<string, { width: number; height: number }>>,
   headlineNotes: { creativeId: string; text: string }[],
@@ -465,7 +481,7 @@ function creativeDraft(
   const oss = source.object_story_spec;
   return {
     id: creative.id,
-    name: str(creative.name) ?? creative.id,
+    ...importedCreativeFields(group),
     sourceType: "new",
     identity: {
       pageId: str(oss?.page_id) ?? "",
@@ -496,6 +512,7 @@ function creativeDraft(
 function existingPostDraft(
   creative: RawCreative & { id: string },
   post: ImportedExistingPost,
+  group: MetaImportCreativeGroup,
   mediaType: "video" | "image",
   dropped: MetaImportDropped[],
 ): AdCreativeDraft {
@@ -523,7 +540,7 @@ function existingPostDraft(
   }
   return {
     id: creative.id,
-    name: str(creative.name) ?? creative.id,
+    ...importedCreativeFields(group),
     sourceType: "existing_post",
     identity: {
       pageId: post.pageId,
@@ -756,13 +773,26 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
   const creatives: AdCreativeDraft[] = [];
   const headlineNotes: { creativeId: string; text: string }[] = [];
   const creativeIds = Object.keys(input.bundle.creatives);
-  for (const creativeId of creativeIds) {
-    const creative = input.bundle.creatives[creativeId] as RawCreative & { id?: string };
-    const id = str(creative.id) ?? creativeId;
-    const named = { ...creative, id };
+  const byId = new Map<string, RawCreative & { id: string }>();
+  for (const key of creativeIds) {
+    const creative = input.bundle.creatives[key] as RawCreative & { id?: string };
+    const id = str(creative.id) ?? key;
+    byId.set(id, { ...creative, id });
+  }
+  const groups = groupMetaImportCreatives(input.bundle);
+  const assignGroup = (group: MetaImportCreativeGroup) => {
+    for (const adSetId of group.adSetIds) {
+      const list = assignments[adSetId];
+      if (list && !list.includes(group.representativeId)) list.push(group.representativeId);
+    }
+  };
+  for (const group of groups) {
+    const id = group.representativeId;
+    const named = byId.get(id)!;
+    const name = group.name;
+    const ticked = group.creativeIds.some((memberId) => carry.has(memberId));
     const existing = classifyImportedExistingPost(named as ImportCreativeSource);
     if (existing) {
-      const name = str(named.name) ?? id;
       if ("unreachable" in existing) {
         notCarried.push({ id, name, reason: "post_unreachable" });
         continue;
@@ -772,51 +802,31 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
         notCarried.push({ id, name, reason: "no_media_reported" });
         continue;
       }
-      if (!carry.has(id)) {
+      if (!ticked) {
         notCarried.push({ id, name, reason: "operator_unticked" });
         continue;
       }
-      creatives.push(existingPostDraft(named, existing, mediaType, dropped));
+      creatives.push(existingPostDraft(named, existing, group, mediaType, dropped));
+      assignGroup(group);
       continue;
     }
-    const signature = deriveAssetSignature(named);
-    if (!signature) {
-      notCarried.push({
-        id,
-        name: str(named.name) ?? id,
-        reason: "no_asset_reported",
-      });
+    if (!deriveAssetSignature(named)) {
+      notCarried.push({ id, name, reason: "no_asset_reported" });
       continue;
     }
-    if (!carry.has(id)) {
-      notCarried.push({
-        id,
-        name: str(named.name) ?? id,
-        reason: "operator_unticked",
-      });
+    if (!ticked) {
+      notCarried.push({ id, name, reason: "operator_unticked" });
       continue;
     }
-    const draftCreative = creativeDraft(named, dropped, input.imageSizes ?? {}, headlineNotes);
+    const draftCreative = creativeDraft(named, group, dropped, input.imageSizes ?? {}, headlineNotes);
     if (!draftCreative) continue;
     creatives.push(draftCreative);
+    assignGroup(group);
   }
 
-  const readIds = new Set(
-    creativeIds.map((key) => str((input.bundle.creatives[key] as { id?: unknown }).id) ?? key),
-  );
   for (const key of carry) {
-    if (readIds.has(key)) continue;
+    if (byId.has(key)) continue;
     notCarried.push({ id: key, name: key, reason: META_IMPORT_CARRY_KEY_REJECTED });
-  }
-
-  const carriedIds = new Set(creatives.map((creative) => creative.id));
-  for (const ad of input.bundle.ads) {
-    const adSetId = str(ad.adset_id);
-    const creative = asRecord(ad.creative);
-    const creativeId = str(creative?.id);
-    if (!adSetId || !creativeId || !carriedIds.has(creativeId)) continue;
-    const list = assignments[adSetId];
-    if (list && !list.includes(creativeId)) list.push(creativeId);
   }
 
   const draft = createDefaultDraft();
@@ -893,6 +903,8 @@ export function mapMetaLiveCampaign(input: MapMetaLiveCampaignInput): CampaignDr
     notCarried,
     creativeCounts: {
       read: creativeIds.length,
+      uniqueCreatives: groups.length,
+      adsRead: input.bundle.ads.length,
       carried: creatives.length,
       notCarried: notCarried.filter(
         (row) => row.reason === "no_asset_reported" || row.reason === "operator_unticked",

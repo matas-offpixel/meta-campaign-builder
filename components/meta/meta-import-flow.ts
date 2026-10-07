@@ -1,4 +1,4 @@
-import type { MetaImportPickerRow } from "@/lib/meta/import/picker";
+import type { MetaImportPickerPayload, MetaImportPickerRow } from "@/lib/meta/import/picker";
 import type { MetaImportMeta, MetaImportNotCarried } from "@/lib/meta/import/types";
 
 /** Select all: every row that can be carried. A row with no asset stays unticked. */
@@ -10,13 +10,22 @@ export function metaImportDeselectAll(): Set<string> {
   return new Set();
 }
 
-export function metaImportTickedLine(
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** Picker header: unique creatives, the ads behind them, and how many are ticked. */
+export function metaImportPickerHeaderLine(
+  picker: Pick<MetaImportPickerPayload, "rows" | "adsRead">,
   ticked: ReadonlySet<string>,
-  rows: readonly MetaImportPickerRow[],
 ): string {
-  const carriable = rows.filter((row) => !row.disabled);
-  const count = carriable.filter((row) => ticked.has(row.key)).length;
-  return `${count} of ${carriable.length} ticked`;
+  const count = picker.rows.filter((row) => !row.disabled && ticked.has(row.key)).length;
+  return `${plural(picker.rows.length, "creative", "creatives")} (${plural(picker.adsRead, "ad", "ads")}) · ${count} ticked`;
+}
+
+/** "in 15 ad sets" for a picker row. Empty when the creative ran in none. */
+export function metaImportRowAdSetsLine(row: Pick<MetaImportPickerRow, "adSets">): string {
+  return row.adSets.length > 0 ? `in ${plural(row.adSets.length, "ad set", "ad sets")}` : "";
 }
 
 /** Read posts no `carry`, so the route returns the picker and saves nothing. */
@@ -173,6 +182,8 @@ export function metaImportPickerDropLines(summary: MetaImportPickerDropSummary):
 export function metaImportCountsLine(meta: Pick<MetaImportMeta, "creativeCounts"> & {
   adSetCount: number;
 }): string {
-  const { read, carried, notCarried } = meta.creativeCounts;
-  return `${meta.adSetCount} ad sets · ${carried} of ${read} creatives carried · ${notCarried} not carried`;
+  const { read, uniqueCreatives, adsRead, carried, notCarried } = meta.creativeCounts;
+  const of = uniqueCreatives ?? read;
+  const ads = adsRead != null ? ` (${plural(adsRead, "ad", "ads")})` : "";
+  return `${meta.adSetCount} ad sets · ${carried} of ${of} creatives carried${ads} · ${notCarried} not carried`;
 }

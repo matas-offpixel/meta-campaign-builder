@@ -99,7 +99,7 @@ function storyText(value: string | undefined): string {
  * boosted post can carry placement ratios, and the existing-post mapper
  * drops them instead of treating the post as an uploaded creative.
  */
-function hasAppBuiltSpec(creative: ImportCreativeSource): boolean {
+export function hasAppBuiltSpec(creative: ImportCreativeSource): boolean {
   const feed = creative.asset_feed_spec;
   if (
     feed &&

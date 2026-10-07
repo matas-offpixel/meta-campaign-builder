@@ -283,6 +283,7 @@ function migrateCreative(c: Partial<AdCreativeDraft> & { id: string }): AdCreati
     cta: c.cta ?? "book_now",
     existingPost: c.existingPost,
     enhancements: c.enhancements ?? { ...DEFAULT_ENHANCEMENTS },
+    ...(c.importedMeta ? { importedMeta: c.importedMeta } : {}),
   };
 }
 

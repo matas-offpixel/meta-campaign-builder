@@ -796,6 +796,11 @@ export interface AdCreativeDraft {
    * multi-campaign attach ids. Stored on the published draft only.
    */
   metaAdIds?: string[];
+  /**
+   * Imported from a live Meta campaign: every AdCreative object, ad and ad set
+   * the source ran this creative as. Ads Manager stores one object per ad.
+   */
+  importedMeta?: { creativeIds: string[]; adIds: string[]; adSetIds: string[] };
 }
 
 // ─── Budget & schedule types ───
