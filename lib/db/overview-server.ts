@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { dropArchivedClientRows, loadArchivedClientIds } from "@/lib/db/client-status";
 import type {
   OverviewActivity,
   OverviewFilter,
@@ -47,7 +48,10 @@ export async function listOverviewEvents(
     ? q.gte("event_date", todayYmd).order("event_date", { ascending: true, nullsFirst: false })
     : q.lt("event_date", todayYmd).order("event_date", { ascending: false, nullsFirst: false });
 
-  const { data: eventRows, error } = await q;
+  const [{ data: eventRows, error }, archivedClientIds] = await Promise.all([
+    q,
+    loadArchivedClientIds(supabase),
+  ]);
   if (error) {
     console.warn("[overview-server] events fetch error:", error.message);
     return [];
@@ -56,7 +60,7 @@ export async function listOverviewEvents(
   // many-to-one; the actual payload is one object per event. Cast via
   // `unknown` after normalising the embed shape so call sites get a
   // single client object (or null).
-  const events: OverviewEventBase[] = (eventRows ?? []).map((row) => {
+  const allEvents: OverviewEventBase[] = (eventRows ?? []).map((row) => {
     const raw = row as unknown as Omit<OverviewEventBase, "client"> & {
       client:
         | OverviewEventBase["client"]
@@ -68,6 +72,7 @@ export async function listOverviewEvents(
       : raw.client;
     return { ...raw, client: clientRel };
   });
+  const events = dropArchivedClientRows(allEvents, archivedClientIds, (e) => e.client?.id);
   if (events.length === 0) return [];
 
   const eventIds = events.map((e) => e.id);

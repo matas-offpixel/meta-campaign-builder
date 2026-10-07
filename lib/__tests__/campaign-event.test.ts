@@ -326,7 +326,7 @@ describe("production call sites — no silent inherit", () => {
     );
     assert.match(
       fn,
-      /\.select\("id, name, objective, status, ad_account_id, created_at, updated_at, event_id"\)/,
+      /\.select\("id, name, objective, status, ad_account_id, created_at, updated_at, event_id, client_id"\)/,
     );
     assert.doesNotMatch(fn, /draft_json/);
     assert.doesNotMatch(fn, /migrateDraft/);

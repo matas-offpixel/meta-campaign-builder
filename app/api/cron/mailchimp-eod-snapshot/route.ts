@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import {
+  dropArchivedClientRows,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "@/lib/db/client-status";
 import { getMailchimpCredentials } from "@/lib/mailchimp/credentials";
 import { getMailchimpCredsFromD2CConnection } from "@/lib/mailchimp/d2c-credentials-adapter";
 import { getAudienceSegments } from "@/lib/mailchimp/client";
@@ -44,17 +49,26 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
 
-  const { data: events, error: eventsErr } = await sb
-    .from("events")
-    .select(
-      "id, user_id, client_id, event_code, mailchimp_audience_id, mailchimp_tag, client:clients ( mailchimp_account_id )",
-    )
-    .not("mailchimp_tag", "is", null)
-    .not("mailchimp_audience_id", "is", null);
+  const [{ data: taggedEvents, error: eventsErr }, archivedClientIds] = await Promise.all([
+    sb
+      .from("events")
+      .select(
+        "id, user_id, client_id, event_code, mailchimp_audience_id, mailchimp_tag, client:clients ( mailchimp_account_id )",
+      )
+      .not("mailchimp_tag", "is", null)
+      .not("mailchimp_audience_id", "is", null),
+    loadArchivedClientIds(supabase),
+  ]);
 
   if (eventsErr) {
     return NextResponse.json({ ok: false, error: eventsErr.message }, { status: 500 });
   }
+  const events = dropArchivedClientRows((taggedEvents ?? []) as { client_id: string | null }[], archivedClientIds);
+  logSkippedArchivedClients(
+    "mailchimp-eod-snapshot",
+    archivedClientIds.size,
+    `skipped_archived_events=${(taggedEvents ?? []).length - events.length}`,
+  );
 
   const day = todayUtc();
   const dayStart = `${day}T00:00:00Z`;
@@ -189,11 +203,14 @@ export async function GET(req: NextRequest) {
 
   const { data: taggedForCirqlin } = await sb
     .from("events")
-    .select("id, mailchimp_tag")
+    .select("id, client_id, mailchimp_tag")
     .not("mailchimp_tag", "is", null);
 
   const cirqlinEvents: { id: string; mailchimp_tag: string }[] = [];
-  for (const raw of taggedForCirqlin ?? []) {
+  for (const raw of dropArchivedClientRows(
+    (taggedForCirqlin ?? []) as { client_id: string | null }[],
+    archivedClientIds,
+  )) {
     const event = raw as { id?: unknown; mailchimp_tag?: unknown };
     if (typeof event.id !== "string") continue;
     if (typeof event.mailchimp_tag !== "string" || !event.mailchimp_tag) continue;

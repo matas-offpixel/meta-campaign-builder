@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import type { TablesInsert } from "@/lib/db/database.types";
+import { isArchivedClientStatus } from "@/lib/db/client-status";
 import {
   calculateInvoiceAmounts,
   calculateQuote,
@@ -72,7 +73,7 @@ export async function listClientsForQuoteFormServer(
   }>;
 
   return rows
-    .filter((r) => (r.status ?? "active") !== "archived")
+    .filter((r) => !isArchivedClientStatus(r.status))
     .map((r) => ({
       id: r.id,
       name: r.name,

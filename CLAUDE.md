@@ -91,6 +91,10 @@ Standalone Meta still launches ACTIVE from `ReviewLaunch` (launch panel only). S
 - **D2C** — `lib/db/d2c.ts` (CRUD on `d2c_connections`, `d2c_scheduled_sends`,
   `d2c_event_copy`, `d2c_brief_ingest_jobs`)
 
+### Archived clients
+
+`clients.status = 'archived'` hides a client from default dashboard views (clients list, Today, events, overview, plans, library Drafts/Published, Armed) and from every cron (rollup-sync, refresh-active-creatives, show-week-burst, refresh-creative-insights, scan-enhancement-flags, budget-pacing, optimisation-tick, ad-daily-insights, Mailchimp, funnel-pacing, portal snapshots). Events, drafts, and plans are archived through their client (`campaign_drafts.client_id`, else the draft's event). Rows with no client stay visible. `paused` counts as active. The clients-list "Archived" / "All" filters and an explicit `clientId` still show archived clients. Share links and the client portal never check status. Use `lib/db/client-status.ts` (`ARCHIVED`, `activeClientFilter`, `loadArchivedClientIds`, `loadArchivedClientScope`). `lib/db/__tests__/client-status-guard.test.ts` fails on inline client-status `"archived"` literals.
+
 ### Meta API layer
 
 - `lib/meta/` — `client.ts`, `campaign.ts`, `adset.ts`, `creative.ts`, `upload.ts`

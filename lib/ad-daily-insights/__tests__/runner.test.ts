@@ -126,6 +126,7 @@ describe("runAdDailyInsights", () => {
 
   it("accounts are the normalised distinct union of clients, events and launched_ad_sets", async () => {
     const { db, calls } = fakeDb((call) => {
+      if (call.table === "clients" && op(call, "eq")) return { data: [] };
       if (call.table === "clients") return { data: [{ meta_ad_account_id: "111111" }, { meta_ad_account_id: "act_222222" }] };
       if (call.table === "events") return { data: [{ meta_ad_account_id: "act_111111" }] };
       if (call.table === "launched_ad_sets") return { data: [{ ad_account_id: "act_333333" }] };

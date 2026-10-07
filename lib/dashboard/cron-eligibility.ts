@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { loadArchivedClientScope } from "../db/client-status.ts";
+
 type DbClient = Pick<SupabaseClient, "from">;
 
 /**
@@ -44,6 +46,18 @@ export interface CronEligibilityResult {
   sinceISO: string;
   untilISO: string;
   codeMatchSinceDate: string;
+  /** Archived clients whose events were dropped from every set. */
+  skippedArchivedClients: number;
+  /** Events dropped because their client is archived. */
+  skippedArchivedEvents: number;
+}
+
+interface EligibilityIdSets {
+  ticketingIds: string[];
+  saleDateIds: string[];
+  codeMatchIds: string[];
+  googleAdsIds: string[];
+  brandCampaignIds: string[];
 }
 
 interface CodeMatchRow {
@@ -102,7 +116,7 @@ export async function loadActiveCreativesCronEligibility(
   supabase: DbClient,
   now: Date = new Date(),
 ): Promise<CronEligibilityResult> {
-  const sets = await loadEligibilitySets(supabase, now, {
+  const { archived, ...sets } = await loadEligibilitySets(supabase, now, {
     windowDays: ACTIVE_CREATIVES_WINDOW_DAYS,
     includeGoogleAds: false,
     includeBrandCampaigns: false,
@@ -110,6 +124,7 @@ export async function loadActiveCreativesCronEligibility(
   return {
     ...sets,
     eligibleIds: mergeActiveCreativesEligibilityIds(sets),
+    skippedArchivedEvents: mergeActiveCreativesEligibilityIds(archived).length,
   };
 }
 
@@ -117,7 +132,7 @@ export async function loadRollupSyncCronEligibility(
   supabase: DbClient,
   now: Date = new Date(),
 ): Promise<CronEligibilityResult> {
-  const sets = await loadEligibilitySets(supabase, now, {
+  const { archived, ...sets } = await loadEligibilitySets(supabase, now, {
     windowDays: ROLLUP_SYNC_WINDOW_DAYS,
     includeGoogleAds: true,
     includeBrandCampaigns: true,
@@ -125,6 +140,7 @@ export async function loadRollupSyncCronEligibility(
   return {
     ...sets,
     eligibleIds: mergeRollupSyncEligibilityIds(sets),
+    skippedArchivedEvents: mergeRollupSyncEligibilityIds(archived).length,
   };
 }
 
@@ -150,21 +166,33 @@ async function loadEligibilitySets(
     includeGoogleAds: boolean;
     includeBrandCampaigns: boolean;
   },
-): Promise<Omit<CronEligibilityResult, "eligibleIds">> {
+): Promise<
+  Omit<CronEligibilityResult, "eligibleIds" | "skippedArchivedEvents"> & {
+    /** The same five sets, archived clients' events only. */
+    archived: EligibilityIdSets;
+  }
+> {
   const { sinceISO, untilISO } = computeSaleDateWindow(now, options.windowDays);
   const codeMatchSinceDate = ymdDaysAgo(
     now,
     CODE_MATCH_EVENT_DATE_LOOKBACK_DAYS,
   );
 
-  const [ticketingIds, saleDateIds, codeMatchIds, googleAdsIds, brandCampaignIds] =
-    await Promise.all([
+  const [raw, archived] = await Promise.all([
+    Promise.all([
       loadTicketingIds(supabase),
       loadSaleDateIds(supabase, sinceISO, untilISO),
       loadCodeMatchIds(supabase, now),
       options.includeGoogleAds ? loadGoogleAdsIds(supabase) : Promise.resolve([]),
       options.includeBrandCampaigns ? loadBrandCampaignIds(supabase) : Promise.resolve([]),
-    ]);
+    ]),
+    loadArchivedClientScope(supabase),
+  ]);
+  const isArchived = (id: string) => archived.eventIds.has(id);
+  const [ticketingIds, saleDateIds, codeMatchIds, googleAdsIds, brandCampaignIds] = raw.map(
+    (ids) => ids.filter((id) => !isArchived(id)),
+  );
+  const [aTicketing, aSaleDate, aCodeMatch, aGoogleAds, aBrand] = raw.map((ids) => ids.filter(isArchived));
 
   const ticketingSet = new Set(ticketingIds);
   const saleDateSet = new Set(saleDateIds);
@@ -182,6 +210,14 @@ async function loadEligibilitySets(
     sinceISO,
     untilISO,
     codeMatchSinceDate,
+    skippedArchivedClients: archived.clientIds.size,
+    archived: {
+      ticketingIds: aTicketing,
+      saleDateIds: aSaleDate,
+      codeMatchIds: aCodeMatch,
+      googleAdsIds: aGoogleAds,
+      brandCampaignIds: aBrand,
+    },
   };
 }
 

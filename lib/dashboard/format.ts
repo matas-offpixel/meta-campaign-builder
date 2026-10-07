@@ -14,6 +14,7 @@
  */
 
 import type { EventWithClient } from "@/lib/db/events";
+import { ALL_CLIENT_STATUSES, ARCHIVED } from "../db/client-status.ts";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -457,7 +458,7 @@ export function parseEventStatus(
     : null;
 }
 
-const CLIENT_STATUS_WHITELIST = ["active", "paused", "archived"] as const;
+const CLIENT_STATUS_WHITELIST = ["active", "paused", ARCHIVED, ALL_CLIENT_STATUSES] as const;
 export type ClientStatusParam = (typeof CLIENT_STATUS_WHITELIST)[number];
 
 export function parseClientStatus(

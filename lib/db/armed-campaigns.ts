@@ -43,6 +43,7 @@ import {
 } from "@/lib/campaign-event-rewire";
 import { loadDescribeCellsForClients } from "@/lib/db/describe-cells";
 import { loadClientEvents } from "@/lib/db/rewire";
+import { isArchivedClientDraft, loadArchivedClientScope } from "@/lib/db/client-status";
 import {
   describeLineForDraft,
   formatDescribeUnreadable,
@@ -63,6 +64,7 @@ interface DraftFleetRow {
   objective: string | null;
   status: string | null;
   event_id: string | null;
+  client_id: string | null;
   draft_json: unknown;
   optimisation_automation_enabled: boolean | null;
   optimisation_automation_live: boolean | null;
@@ -73,9 +75,9 @@ export type ArmedFleetQuery =
   | { kind: "event"; eventId: string };
 
 /**
- * Badge count only. One `count: exact, head: true` — no draft_json,
- * no events, no 2N decisions. Same `_enabled` filter and owner scope
- * as the Armed tab read.
+ * Badge count only. Ids and event carriers — no draft_json body, no
+ * 2N decisions. Same `_enabled` filter, owner scope and archived-client
+ * exclusion as the Armed tab read.
  */
 export async function countArmedCampaigns(
   supabase: SupabaseClient,
@@ -84,16 +86,27 @@ export async function countArmedCampaigns(
   const sb = anySb(supabase);
   let q = sb
     .from("campaign_drafts")
-    .select("id", { count: "exact", head: true })
+    .select("id, client_id, event_id, json_event_id:draft_json->settings->>eventId")
     .eq("optimisation_automation_enabled", true);
   if (!viewer.isOperator) {
     q = q.eq("user_id", viewer.userId);
   }
-  const { count, error } = await q;
+  const [{ data, error }, scope] = await Promise.all([q, loadArchivedClientScope(supabase)]);
   if (error) {
     throw new Error(`countArmedCampaigns: ${error.message}`);
   }
-  return count ?? 0;
+  const rows = (data ?? []) as Array<{
+    client_id: string | null;
+    event_id: string | null;
+    json_event_id: string | null;
+  }>;
+  return rows.filter(
+    (row) =>
+      !isArchivedClientDraft(
+        { clientId: row.client_id, eventIds: [row.event_id, row.json_event_id] },
+        scope,
+      ),
+  ).length;
 }
 
 export async function loadArmedCampaignRows(
@@ -109,7 +122,7 @@ export async function loadArmedCampaignRows(
   let q = sb
     .from("campaign_drafts")
     .select(
-      "id, user_id, name, objective, status, event_id, draft_json, optimisation_automation_enabled, optimisation_automation_live",
+      "id, user_id, name, objective, status, event_id, client_id, draft_json, optimisation_automation_enabled, optimisation_automation_live",
     )
     .order("updated_at", { ascending: false });
 
@@ -124,7 +137,10 @@ export async function loadArmedCampaignRows(
     q = q.eq("user_id", viewer.userId);
   }
 
-  const { data, error } = await q;
+  const [{ data, error }, archivedScope] = await Promise.all([
+    q,
+    query.kind === "armed" ? loadArchivedClientScope(supabase) : Promise.resolve(null),
+  ]);
   if (error) {
     throw new Error(`loadArmedCampaignRows: ${error.message}`);
   }
@@ -135,7 +151,17 @@ export async function loadArmedCampaignRows(
   const filtered =
     query.kind === "event"
       ? parsed.filter((item) => item.resolvedEventId === query.eventId)
-      : parsed;
+      : parsed.filter(
+          (item) =>
+            !archivedScope ||
+            !isArchivedClientDraft(
+              {
+                clientId: item.row.client_id,
+                eventIds: [item.resolvedEventId, item.columnEventId, item.jsonEventId],
+              },
+              archivedScope,
+            ),
+        );
 
   const eventIds = [
     ...new Set(

@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
       results: [],
     };
     console.log(
-      `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+      `[cron rollup-sync-events] cadence=base no eligible events; linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=0 window=${eligibility.sinceISO}..${eligibility.untilISO} skipped_archived_clients=${eligibility.skippedArchivedClients} skipped_archived_events=${eligibility.skippedArchivedEvents}`,
     );
     await runShowClosePass(supabase);
     return NextResponse.json(empty);
@@ -216,7 +216,7 @@ export async function GET(req: NextRequest) {
   const events = (rawEvents ?? []) as unknown as EventToSync[];
 
   console.log(
-    `[cron rollup-sync-events] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO}`,
+    `[cron rollup-sync-events] considering=${events.length} linked_and_dated=${eligibility.linkedAndDatedIds.length} ticketing=${eligibility.ticketingIds.length} sale_date=${eligibility.saleDateIds.length} google_ads=${eligibility.googleAdsIds.length} code_match=${eligibility.codeMatchIds.length} total=${eligibility.eligibleIds.length} window=${eligibility.sinceISO}..${eligibility.untilISO} skipped_archived_clients=${eligibility.skippedArchivedClients} skipped_archived_events=${eligibility.skippedArchivedEvents}`,
   );
 
   const results: EventSyncResult[] = [];

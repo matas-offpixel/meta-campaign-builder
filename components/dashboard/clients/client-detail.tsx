@@ -23,6 +23,7 @@ import {
   type ClientRow,
 } from "@/lib/db/clients";
 import { type EventWithClient } from "@/lib/db/events";
+import { ARCHIVED, isArchivedClientStatus } from "@/lib/db/client-status";
 import { VerifyMetaConnection } from "./verify-meta-connection";
 import { PlatformAccountsCard } from "./platform-accounts-card";
 import { ChannelDefaultsCard } from "./channel-defaults-card";
@@ -276,8 +277,8 @@ export function ClientDetail({
   const handleArchive = async () => {
     setWorking(true);
     try {
-      await setClientStatus(client.id, "archived");
-      setClient({ ...client, status: "archived" });
+      await setClientStatus(client.id, ARCHIVED);
+      setClient({ ...client, status: ARCHIVED });
     } finally {
       setWorking(false);
     }
@@ -361,7 +362,7 @@ export function ClientDetail({
               <Pencil className="h-3.5 w-3.5" />
               Edit
             </Button>
-            {client.status === "archived" ? (
+            {isArchivedClientStatus(client.status) ? (
               <Button variant="ghost" onClick={handleUnarchive} disabled={working}>
                 Unarchive
               </Button>

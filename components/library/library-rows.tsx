@@ -62,7 +62,11 @@ export function filterLibraryCampaigns(
   search: string,
 ): CampaignListItem[] {
   const statusFilter = tab === "drafts" ? "draft" : tab === "published" ? "published" : "archived";
-  let items = campaigns.filter((c) => c.status === statusFilter);
+  let items = campaigns.filter((c) =>
+    statusFilter === "archived"
+      ? c.status === statusFilter || Boolean(c.clientArchived)
+      : c.status === statusFilter && !c.clientArchived,
+  );
   if (search.trim()) {
     const q = search.toLowerCase();
     items = items.filter(
@@ -239,6 +243,11 @@ export function CampaignRow({
             {c.noEvent ? (
               <span className="inline-flex shrink-0 items-center rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                 no event
+              </span>
+            ) : null}
+            {c.clientArchived ? (
+              <span className="inline-flex shrink-0 items-center rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                client archived
               </span>
             ) : null}
           </div>

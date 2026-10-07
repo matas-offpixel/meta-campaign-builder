@@ -2,6 +2,13 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  activeClientFilter,
+  dropArchivedClientRows,
+  loadArchivedClientIds,
+  logSkippedArchivedClients,
+} from "./client-status.ts";
+
 import type {
   CreativeDatePreset,
   CreativeInsightRow,
@@ -437,10 +444,10 @@ export async function listEligibleAccountPairs(
 ): Promise<{ userId: string; adAccountId: string }[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as unknown as any;
-  const { data, error } = await sb
-    .from("clients")
-    .select("user_id, meta_ad_account_id")
-    .not("meta_ad_account_id", "is", null);
+  const archivedClientIds = await loadArchivedClientIds(supabase);
+  const { data, error } = await activeClientFilter(
+    sb.from("clients").select("user_id, meta_ad_account_id"),
+  ).not("meta_ad_account_id", "is", null);
 
   // Per-event ad account overrides (events.meta_ad_account_id) are a
   // second source of eligible accounts. A client whose default account
@@ -449,8 +456,19 @@ export async function listEligibleAccountPairs(
   // creative-insights panel falls back to a slow live load every time.
   const { data: eventData, error: eventError } = await sb
     .from("events")
-    .select("user_id, meta_ad_account_id")
+    .select("user_id, client_id, meta_ad_account_id")
     .not("meta_ad_account_id", "is", null);
+  const eventRows = (eventData ?? []) as {
+    user_id: string;
+    client_id: string | null;
+    meta_ad_account_id: string | null;
+  }[];
+  const activeEventRows = dropArchivedClientRows(eventRows, archivedClientIds);
+  logSkippedArchivedClients(
+    "creative-insight-snapshots listEligibleAccountPairs",
+    archivedClientIds.size,
+    `skipped_event_overrides=${eventRows.length - activeEventRows.length}`,
+  );
   if (eventError) {
     console.warn(
       "[creative-insight-snapshots listEligibleAccountPairs] event override query failed:",
@@ -473,10 +491,7 @@ export async function listEligibleAccountPairs(
       user_id: string;
       meta_ad_account_id: string | null;
     }[]),
-    ...((eventData ?? []) as {
-      user_id: string;
-      meta_ad_account_id: string | null;
-    }[]),
+    ...activeEventRows,
   ];
   for (const row of rows) {
     const raw = (row.meta_ad_account_id ?? "").trim();
