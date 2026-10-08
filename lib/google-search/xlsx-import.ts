@@ -50,6 +50,7 @@
 import * as XLSX from "xlsx";
 
 import { derivePlanDailyBudget, formatPounds } from "./budget.ts";
+import { headerKey, isKeywordsTab, isNegativesTab, sheetTokens } from "./workbook.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
   DEFAULT_PACING,
@@ -463,12 +464,6 @@ export function classifyCharOverflow(
   };
 }
 
-function headerKey(raw: unknown): string {
-  return String(raw ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
 function cell(value: unknown): string {
   if (value == null) return "";
   return String(value).trim();
@@ -490,13 +485,6 @@ interface IndexedTabs {
   campaigns: XLSX.WorkSheet | null;
   /** Only the plan total row is read; the phase grid is not. */
   budget: XLSX.WorkSheet | null;
-}
-
-function sheetTokens(name: string): string[] {
-  return String(name)
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((token) => token.length > 0);
 }
 
 /**
@@ -528,8 +516,8 @@ function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
   for (const name of workbook.SheetNames) {
     const key = headerKey(name);
     const sheet = workbook.Sheets[name];
-    if (key.includes("negative")) out.negativeKeywords ??= sheet;
-    else if (key.includes("keyword")) out.keywords ??= sheet;
+    if (isNegativesTab(name)) out.negativeKeywords ??= sheet;
+    else if (isKeywordsTab(name)) out.keywords ??= sheet;
     else if (isAdCopySheet(name)) out.adCopy ??= sheet;
     else if (isCampaignsSheet(name)) out.campaigns ??= sheet;
     else if (key.includes("overview") || key.includes("summary")) out.overview ??= sheet;
