@@ -19,6 +19,11 @@ import { hydrateDraftIdentityBcId } from "../identity.ts";
 import { hydrateDraftCoverImageIds } from "./cover-image.ts";
 import { fetchAdvertiserCampaignNames } from "./campaign-names.ts";
 import { collectTikTokLaunchPreflight } from "./preflight.ts";
+import { collectTikTokDraftLaunchPreflight } from "./launch-preflight.ts";
+import { launchTikTokAttachPlan } from "./attach-orchestrator.ts";
+import { isTikTokAttachMode, type TikTokAttachMode } from "../attach/plan.ts";
+import { readTikTokAttachTargets } from "../attach/read.ts";
+import { tikTokAttachAlreadyLaunchedMessage } from "../attach/summary.ts";
 import { tiktokGet } from "../client.ts";
 import { fetchTikTokAdvertiserInfo } from "../advertiser.ts";
 import type { TikTokPost, Sleep } from "./idempotency.ts";
@@ -31,6 +36,9 @@ export interface TikTokLaunchSuccessBody {
   ad_ids: string[];
   launched_at: string;
   entities: LaunchTikTokDraftResult["entities"];
+  /** Attach modes only. `campaign_id` is then the first target. */
+  launch_mode?: TikTokAttachMode;
+  campaign_ids?: string[];
 }
 
 export interface TikTokLaunchErrorBody {
@@ -88,6 +96,18 @@ export async function handleTikTokLaunch(input: {
   }
   draft.launchPaused = parsedPaused.value;
 
+  const attachMode = isTikTokAttachMode(draft.launchMode);
+  if (attachMode && (draft.publishedIds || draft.status === "published")) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: tikTokAttachAlreadyLaunchedMessage(draft.publishedIds?.launchedAt ?? null),
+        reason: "already_launched",
+      },
+    };
+  }
+
   const advertiserId = draft.accountSetup.advertiserId;
   if (!advertiserId) {
     return { status: 400, body: { ok: false, error: "TikTok advertiser is missing" } };
@@ -131,17 +151,19 @@ export async function handleTikTokLaunch(input: {
   }
 
   let existingCampaignNames: string[] = [];
-  try {
-    existingCampaignNames = await fetchAdvertiserCampaignNames({
-      advertiserId,
-      token: credentials.accessToken,
-      request: input.requestGet,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[tiktok/launch] campaign name preflight read failed advertiser=${advertiserId}: ${message}`,
-    );
+  if (!attachMode) {
+    try {
+      existingCampaignNames = await fetchAdvertiserCampaignNames({
+        advertiserId,
+        token: credentials.accessToken,
+        request: input.requestGet,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[tiktok/launch] campaign name preflight read failed advertiser=${advertiserId}: ${message}`,
+      );
+    }
   }
 
   try {
@@ -162,9 +184,19 @@ export async function handleTikTokLaunch(input: {
     draft.accountSetup.timezone = null;
   }
 
-  const preflight = collectTikTokLaunchPreflight(draft, {
+  const attachTargets = attachMode
+    ? await readTikTokAttachTargets({
+        draft,
+        advertiserId,
+        token: credentials.accessToken,
+        request: input.requestGet,
+      })
+    : undefined;
+
+  const preflight = collectTikTokDraftLaunchPreflight(draft, {
     existingCampaignNames,
     advertiserTimezone: draft.accountSetup.timezone,
+    attachTargets,
   });
   if (!preflight.ok) {
     return {
@@ -178,18 +210,54 @@ export async function handleTikTokLaunch(input: {
   }
 
   try {
-    const result = await launchTikTokDraftState(
-      {
-        supabase: input.admin,
+    const writeContext = {
+      supabase: input.admin,
+      userId: input.userId,
+      eventId: draft.eventId!,
+      draftId: draft.id,
+      token: credentials.accessToken,
+      request: input.request,
+      sleep: input.sleep,
+      onProgress: input.onProgress,
+    };
+    if (preflight.attachPlan) {
+      const result = await launchTikTokAttachPlan(
+        { ...writeContext, advertiserId },
+        preflight.attachPlan,
+      );
+      const launchedAt = new Date().toISOString();
+      const campaignId = result.campaign_ids[0] ?? "";
+      await upsertTikTokDraft(input.session, draft.id, {
+        ...draft,
         userId: input.userId,
-        eventId: draft.eventId!,
-        draftId: draft.id,
-        token: credentials.accessToken,
-        request: input.request,
-        existingCampaignNames,
-        sleep: input.sleep,
-        onProgress: input.onProgress,
-      },
+        status: "published",
+        launchPaused: parsedPaused.value,
+        publishedIds: {
+          campaignId,
+          adgroupIds: result.adgroup_ids,
+          adIds: result.ad_ids,
+          launchedAt,
+          launchMode: result.mode,
+          campaignIds: result.campaign_ids,
+        },
+      });
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          campaign_id: campaignId,
+          adgroup_ids: result.adgroup_ids,
+          ad_ids: result.ad_ids,
+          launched_at: launchedAt,
+          entities: result.entities,
+          launch_mode: result.mode,
+          campaign_ids: result.campaign_ids,
+        },
+      };
+    }
+
+    const result = await launchTikTokDraftState(
+      { ...writeContext, existingCampaignNames },
       draft,
     );
 

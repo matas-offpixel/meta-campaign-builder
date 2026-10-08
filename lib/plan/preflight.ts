@@ -1,7 +1,7 @@
 import { validateGoogleSearchPlan } from "../google-search/validation.ts";
 import { validateCampaignPayload } from "../meta/campaign.ts";
 import { validateCreativePayload } from "../meta/creative.ts";
-import { collectTikTokLaunchPreflight } from "../tiktok/write/preflight.ts";
+import { collectTikTokDraftLaunchPreflight } from "../tiktok/write/launch-preflight.ts";
 import {
   annotateChannelDefaultCures,
   resolveChannelDefaults,
@@ -163,7 +163,7 @@ export function collectPlanPreflight(
     }
   }
 
-  const tiktok = collectTikTokLaunchPreflight(drafts.tiktok);
+  const tiktok = collectTikTokDraftLaunchPreflight(drafts.tiktok);
   for (const issue of tiktok.issues) {
     if (tikTokLaunchIssueSupersededByEarly(issue, tiktokEarly)) continue;
     issues.push({

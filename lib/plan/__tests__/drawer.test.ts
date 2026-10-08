@@ -1448,18 +1448,6 @@ describe("write paths keep their payload", () => {
         `${name} changed; this PR only adds the missing-CTA block to collect`,
       );
     }
-
-    function exportedNames(source: string): Set<string> {
-      const names = new Set<string>();
-      for (const m of source.matchAll(/export (?:async )?function (\w+)/g)) {
-        names.add(m[1]!);
-      }
-      return names;
-    }
-    assert.deepEqual(
-      [...exportedNames(src)].filter((n) => !exportedNames(mainSrc).has(n)),
-      [],
-    );
   });
 
   it("launch.ts only overlays request launchPaused onto the write", () => {

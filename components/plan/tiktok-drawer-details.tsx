@@ -6,6 +6,7 @@ import { AccountSetupStep } from "@/components/tiktok-wizard/steps/account-setup
 import { BudgetScheduleStep } from "@/components/tiktok-wizard/steps/budget-schedule";
 import { CampaignSetupStep } from "@/components/tiktok-wizard/steps/campaign-setup";
 import { OptimisationStrategyStep } from "@/components/tiktok-wizard/steps/optimisation-strategy";
+import { TikTokLaunchInto } from "@/components/tiktok-wizard/launch-into";
 import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
@@ -50,6 +51,16 @@ export function TikTokDrawerDetails({
 
   return (
     <section aria-label="details" className="mt-4 border-t border-border pt-2">
+      {/* Standalone pages render this at the top of Review instead. */}
+      {planId ? (
+        <div className="mb-2">
+          <TikTokLaunchInto
+            draft={draft}
+            onSave={onSave}
+            disabled={Boolean(draft.publishedIds?.campaignId)}
+          />
+        </div>
+      ) : null}
       <button
         type="button"
         aria-expanded={open}

@@ -215,6 +215,12 @@ ENABLE_LEARNING_REFRESH=
 > campaign **and** clears `tiktok_write_idempotency` for that draft so retry
 > cannot target deleted IDs. The flag has been `true` in production since
 > 20 Aug 2026; the paused smoke test ran 21 Aug (campaign `1874142286754113`).
+> `launchMode` (`attach_campaign` / `attach_adgroup` / `attach_all_adgroups`,
+> `lib/tiktok/attach/`, `lib/tiktok/write/attach-orchestrator.ts`) launches
+> into existing objects. Objective, CBO (`budget_optimize_on`) and the
+> default pixel/event come from the target. A pre-existing campaign or ad
+> group is never modified. A failed attach deletes only the ad groups and
+> ads that run created.
 
 > **Landing-page env vars** (PR 2 of the landing-page arc):
 > `LANDING_PAGES_TOKEN_KEY` is the pgcrypto key for `event_signups` fan PII

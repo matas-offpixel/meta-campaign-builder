@@ -5,7 +5,7 @@ import type {
 } from "../../types/tiktok-draft.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
 import {
-  withTikTokWriteIdempotency,
+  withTikTokWriteIdempotencyOutcome,
   type TikTokWriteContext,
 } from "./idempotency.ts";
 import { buildTikTokAdGroupPayload } from "./mapping.ts";
@@ -51,10 +51,17 @@ export async function createTikTokAdGroup(
   args: CreateTikTokAdGroupArgs,
 ): Promise<{ adgroup_id: string }> {
   assertTikTokWritesEnabled();
+  const { adgroup_id } = await postTikTokAdGroupCreate(args, buildTikTokAdGroupWritePayload(args));
+  return { adgroup_id };
+}
 
-  const payload = buildTikTokAdGroupWritePayload(args);
-
-  const adgroupId = await withTikTokWriteIdempotency(
+/** `/adgroup/create/` for a body that is already built (attach modes). */
+export async function postTikTokAdGroupCreate(
+  args: TikTokWriteContext,
+  payload: Record<string, BodyValue>,
+): Promise<{ adgroup_id: string; reused: boolean }> {
+  assertTikTokWritesEnabled();
+  const { id: adgroupId, reused } = await withTikTokWriteIdempotencyOutcome(
     args,
     "adgroup_create",
     payload,
@@ -74,5 +81,5 @@ export async function createTikTokAdGroup(
     },
   );
 
-  return { adgroup_id: adgroupId };
+  return { adgroup_id: adgroupId, reused };
 }

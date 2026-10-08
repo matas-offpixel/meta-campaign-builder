@@ -71,14 +71,26 @@ export interface TikTokLaunchPreflightResult {
   warnings: TikTokLaunchPreflightIssue[];
 }
 
+export interface TikTokLaunchPreflightOptions {
+  existingCampaignNames?: string[];
+  now?: Date;
+  advertiserTimezone?: string | null;
+  /**
+   * False when the launch writes into an existing campaign
+   * (`attach_campaign`). Campaign-level payload and budget checks are
+   * skipped; the ad-group checks still run.
+   */
+  createsCampaign?: boolean;
+  /** Target campaign has `budget_optimize_on: true`: no ad-group budgets. */
+  campaignBudgetOptimisation?: boolean;
+}
+
 export function collectTikTokLaunchPreflight(
   draft: TikTokCampaignDraft,
-  options: {
-    existingCampaignNames?: string[];
-    now?: Date;
-    advertiserTimezone?: string | null;
-  } = {},
+  options: TikTokLaunchPreflightOptions = {},
 ): TikTokLaunchPreflightResult {
+  const createsCampaign = options.createsCampaign !== false;
+  const cbo = options.campaignBudgetOptimisation === true;
   const issues: TikTokLaunchPreflightIssue[] = [];
   const warnings: TikTokLaunchPreflightIssue[] = [];
   const campaignName = draft.campaignSetup.campaignName.trim();
@@ -110,38 +122,7 @@ export function collectTikTokLaunchPreflight(
       issue("advertiser", "advertiser_id", "TikTok advertiser is required"),
     );
   }
-  if (!draft.accountSetup.identityId) {
-    issues.push(
-      issue(
-        "identity",
-        "identity_id",
-        "Select a TikTok identity (manual display names cannot be launched)",
-      ),
-    );
-  } else {
-    const identityType = mapTikTokIdentityType(draft.accountSetup.identityType);
-    if (!identityType.ok) {
-      issues.push(
-        issue("identity-type", identityType.error.field, identityType.error.message),
-      );
-    } else if (
-      identityType.value === "BC_AUTH_TT" &&
-      !draft.accountSetup.identityBcId?.trim()
-    ) {
-      const name =
-        draft.accountSetup.identityDisplayName ??
-        draft.accountSetup.identityManualName ??
-        draft.accountSetup.identityId ??
-        "unknown";
-      issues.push(
-        issue(
-          "identity-bc-id",
-          "identity_bc_id",
-          `Identity "${name}" is BC_AUTH_TT but no Business Center id could be resolved. TikTok requires identity_bc_id for Business-Center-shared identities.`,
-        ),
-      );
-    }
-  }
+  issues.push(...collectTikTokIdentityPreflightIssues(draft));
 
   if (draft.optimisation.smartPlusEnabled) {
     issues.push(issue("smart-plus", "smartPlusEnabled", SMART_PLUS_BLOCK_MESSAGE));
@@ -246,12 +227,14 @@ export function collectTikTokLaunchPreflight(
     );
   }
 
-  const campaign = buildTikTokCampaignPayload({
-    advertiserId: draft.accountSetup.advertiserId ?? "",
-    draft,
-  });
-  if (!campaign.ok) {
-    issues.push(issue(`campaign-${campaign.error.field}`, campaign.error.field, campaign.error.message));
+  if (createsCampaign) {
+    const campaign = buildTikTokCampaignPayload({
+      advertiserId: draft.accountSetup.advertiserId ?? "",
+      draft,
+    });
+    if (!campaign.ok) {
+      issues.push(issue(`campaign-${campaign.error.field}`, campaign.error.field, campaign.error.message));
+    }
   }
 
   const { startAt: start, endAt: end } = tikTokWriteSchedule(draft);
@@ -302,7 +285,9 @@ export function collectTikTokLaunchPreflight(
   });
   const currencyLabel =
     (draft.accountSetup.currency ?? "").trim().toUpperCase() || "unknown";
-  if (campaignBudget == null) {
+  if (!createsCampaign) {
+    // The target campaign exists; ad-group budgets are checked below.
+  } else if (campaignBudget == null) {
     issues.push(issue("budget", "budget", "Budget is required"));
   } else if (!campaignFloor.ok) {
     issues.push(
@@ -358,7 +343,9 @@ export function collectTikTokLaunchPreflight(
       endAt: end,
       currency: draft.accountSetup.currency,
     });
-    if (groupBudget == null) {
+    if (cbo) {
+      // Campaign budget optimisation: the ad group sends no budget.
+    } else if (groupBudget == null) {
       issues.push(
         issue(
           `adgroup-budget-${adGroup.id}`,
@@ -396,6 +383,7 @@ export function collectTikTokLaunchPreflight(
       campaignId: "preflight",
       draft,
       adGroup,
+      ...(cbo ? { campaignBudgetOptimisation: true } : {}),
     });
     if (!groupPayload.ok) {
       // The explicit ad-group budget check above already emitted
@@ -423,65 +411,7 @@ export function collectTikTokLaunchPreflight(
       }
     }
 
-    for (const creative of creatives) {
-      if (!isAbsoluteHttpUrl(creative.landingPageUrl)) {
-        issues.push(
-          issue(
-            `landing-${creative.id}`,
-            "landing_page_url",
-            `Creative "${creative.name}" needs an absolute landing page URL`,
-            { scope: "creative", creativeId: creative.id },
-          ),
-        );
-      }
-      if (
-        tikTokCtaRequiredForObjective(draft.campaignSetup.objective) &&
-        !(creative.cta ?? "").trim()
-      ) {
-        issues.push(
-          issue(
-            `cta-${creative.id}`,
-            "call_to_action",
-            tikTokCreativeCtaMissingMessage(creative.name),
-            {
-              scope: "creative",
-              creativeId: creative.id,
-              reason: tikTokCreativeCtaMissingMessage(creative.name),
-            },
-          ),
-        );
-      }
-      const storedCoverError = creative.coverImageError?.trim() ?? "";
-      if (storedCoverError) {
-        issues.push(
-          issue(`cover-${creative.id}`, "image_ids", storedCoverError, {
-            scope: "creative",
-            creativeId: creative.id,
-            reason: storedCoverError,
-          }),
-        );
-      }
-      const adPayload = buildTikTokAdPayload({
-        advertiserId: draft.accountSetup.advertiserId ?? "",
-        adGroupId: "preflight",
-        draft,
-        creative,
-      });
-      if (!adPayload.ok && !(storedCoverError && adPayload.error.field === "image_ids")) {
-        issues.push(
-          issue(
-            `ad-${creative.id}-${adPayload.error.field}`,
-            adPayload.error.field,
-            `${creative.name}: ${adPayload.error.message}`,
-            {
-              scope: "creative",
-              creativeId: creative.id,
-              reason: adPayload.error.message,
-            },
-          ),
-        );
-      }
-    }
+    issues.push(...collectTikTokCreativePreflightIssues(draft, creatives));
   }
 
   const hashtagCount = (draft.audiences.interestGroups ?? []).reduce(
@@ -515,6 +445,117 @@ export function collectTikTokLaunchPreflight(
     issues: collapsed,
     warnings: dedupeIssues(warnings),
   };
+}
+
+/**
+ * Per-creative checks: landing URL, CTA, cover, and the `/ad/create/`
+ * body. Shared by every launch mode — the ad is the one write every mode
+ * makes.
+ */
+export function collectTikTokCreativePreflightIssues(
+  draft: TikTokCampaignDraft,
+  creatives: readonly TikTokCampaignDraft["creatives"]["items"][number][],
+): TikTokLaunchPreflightIssue[] {
+  const issues: TikTokLaunchPreflightIssue[] = [];
+  for (const creative of creatives) {
+    if (!isAbsoluteHttpUrl(creative.landingPageUrl)) {
+      issues.push(
+        issue(
+          `landing-${creative.id}`,
+          "landing_page_url",
+          `Creative "${creative.name}" needs an absolute landing page URL`,
+          { scope: "creative", creativeId: creative.id },
+        ),
+      );
+    }
+    if (
+      tikTokCtaRequiredForObjective(draft.campaignSetup.objective) &&
+      !(creative.cta ?? "").trim()
+    ) {
+      issues.push(
+        issue(
+          `cta-${creative.id}`,
+          "call_to_action",
+          tikTokCreativeCtaMissingMessage(creative.name),
+          {
+            scope: "creative",
+            creativeId: creative.id,
+            reason: tikTokCreativeCtaMissingMessage(creative.name),
+          },
+        ),
+      );
+    }
+    const storedCoverError = creative.coverImageError?.trim() ?? "";
+    if (storedCoverError) {
+      issues.push(
+        issue(`cover-${creative.id}`, "image_ids", storedCoverError, {
+          scope: "creative",
+          creativeId: creative.id,
+          reason: storedCoverError,
+        }),
+      );
+    }
+    const adPayload = buildTikTokAdPayload({
+      advertiserId: draft.accountSetup.advertiserId ?? "",
+      adGroupId: "preflight",
+      draft,
+      creative,
+    });
+    if (!adPayload.ok && !(storedCoverError && adPayload.error.field === "image_ids")) {
+      issues.push(
+        issue(
+          `ad-${creative.id}-${adPayload.error.field}`,
+          adPayload.error.field,
+          `${creative.name}: ${adPayload.error.message}`,
+          {
+            scope: "creative",
+            creativeId: creative.id,
+            reason: adPayload.error.message,
+          },
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
+export function collectTikTokIdentityPreflightIssues(
+  draft: TikTokCampaignDraft,
+): TikTokLaunchPreflightIssue[] {
+  const issues: TikTokLaunchPreflightIssue[] = [];
+  if (!draft.accountSetup.identityId) {
+    issues.push(
+      issue(
+        "identity",
+        "identity_id",
+        "Select a TikTok identity (manual display names cannot be launched)",
+      ),
+    );
+  } else {
+    const identityType = mapTikTokIdentityType(draft.accountSetup.identityType);
+    if (!identityType.ok) {
+      issues.push(
+        issue("identity-type", identityType.error.field, identityType.error.message),
+      );
+    } else if (
+      identityType.value === "BC_AUTH_TT" &&
+      !draft.accountSetup.identityBcId?.trim()
+    ) {
+      const name =
+        draft.accountSetup.identityDisplayName ??
+        draft.accountSetup.identityManualName ??
+        draft.accountSetup.identityId ??
+        "unknown";
+      issues.push(
+        issue(
+          "identity-bc-id",
+          "identity_bc_id",
+          `Identity "${name}" is BC_AUTH_TT but no Business Center id could be resolved. TikTok requires identity_bc_id for Business-Center-shared identities.`,
+        ),
+      );
+    }
+  }
+  return issues;
 }
 
 export function isBlankTikTokAdGroupName(
