@@ -12,6 +12,7 @@ import {
   describeEmptyGoogleSearchImport,
   parseGoogleSearchPlanXlsx,
 } from "@/lib/google-search/xlsx-import";
+import { detectWorkbookKindFromBuffer, videoWorkbookMessage } from "@/lib/google-search/workbook";
 
 /**
  * POST /api/google-search/import
@@ -19,7 +20,8 @@ import {
  * Accepts a multipart upload of a Google Search plan xlsx (J2 Melodic
  * format), parses it into a draft tree, inserts the tree under the
  * authenticated user's account, and returns the new plan id + parser
- * warnings.
+ * warnings. A YouTube video build sheet (`detectWorkbookKind` → video)
+ * is refused with 422 `{ kind: "video" }` before anything is parsed.
  *
  * Form fields:
  *   - file                  required, xlsx binary
@@ -65,6 +67,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let draft: ReturnType<typeof parseGoogleSearchPlanXlsx>;
   try {
     const buffer = new Uint8Array(await file.arrayBuffer());
+    const detected = detectWorkbookKindFromBuffer(buffer);
+    if (detected.kind === "video") {
+      return NextResponse.json(
+        {
+          ok: false,
+          kind: detected.kind,
+          error: videoWorkbookMessage(detected.tabs),
+          tabs: detected.tabs,
+        },
+        { status: 422 },
+      );
+    }
     draft = parseGoogleSearchPlanXlsx(buffer, {
       fallbackPlanName: planNameOverride ?? file.name?.replace(/\.xlsx$/i, "") ?? undefined,
       structureMode,
