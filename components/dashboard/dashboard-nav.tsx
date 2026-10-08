@@ -46,9 +46,9 @@ type NavSection = {
 };
 
 /**
- * Two-section nav. The original flat list is preserved as the unnamed
- * top section; "Platforms" groups the per-channel surfaces (TikTok in
- * Slice 3, Google Ads in Slice 4) introduced by the overnight scaffold.
+ * Sectioned nav. The unnamed top section holds the cross-channel
+ * surfaces; "Platforms" groups the per-channel campaign libraries:
+ * Meta (the Campaign Library at "/"), TikTok and Google Ads.
  */
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -74,12 +74,6 @@ const NAV_SECTIONS: NavSection[] = [
         match: (p) => p === "/events" || p.startsWith("/events/"),
       },
       {
-        href: "/",
-        label: "Campaigns",
-        icon: Megaphone,
-        match: (p) => p === "/" || p.startsWith("/campaign/"),
-      },
-      {
         href: "/plans",
         label: "Plans",
         icon: Layers,
@@ -98,6 +92,12 @@ const NAV_SECTIONS: NavSection[] = [
   {
     heading: "Platforms",
     items: [
+      {
+        href: "/",
+        label: "Meta",
+        icon: Megaphone,
+        match: (p) => p === "/" || p.startsWith("/campaign/"),
+      },
       {
         href: "/tiktok",
         label: "TikTok",
