@@ -262,7 +262,14 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
             >
               <Input value={plan.total_budget ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ total_budget: numberOrNull(e.target.value) })} />
             </Field>
-            <Field label="Daily budget per campaign (£)" hint={plan.total_budget != null ? "Not used: the total budget wins." : "Written as a daily budget."}>
+            <Field label="Daily budget per campaign (£)" hint={
+                plan.total_budget != null
+                  ? "Not used: the total budget wins."
+                  : plan.start_date && plan.end_date
+                    ? "Written as a campaign total: this × the days from start to end."
+                    : "No end date: written as an average daily budget."
+              }
+            >
               <Input value={plan.daily_budget ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ daily_budget: numberOrNull(e.target.value) })} />
             </Field>
             <Field label="Start date">

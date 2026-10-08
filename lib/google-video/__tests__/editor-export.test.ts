@@ -215,22 +215,36 @@ describe("budget type", () => {
       .filter((r) => r["Campaign Type"])
       .map((r) => [r.Campaign, r.Budget, r["Budget type"]]);
 
-  it("a plan total is a campaign total; a campaign's own daily budget stays daily", () => {
+  it("with dates, a campaign's own daily × inclusive days is a campaign total; a plan total is used as is", () => {
     assert.deepEqual(budgetRows(tree()), [
-      ['[IRW9999] Video, "Quoted"', "12.50", "Daily"],
+      ['[IRW9999] Video, "Quoted"', "125.00", "Campaign total"],
       ["[IRW9999] Reserve", "100.00", "Campaign total"],
     ]);
   });
 
-  it("no total: the plan daily budget is written as Daily, never as a campaign total", () => {
+  it("with dates and no total, the plan daily × inclusive days, to 2 dp", () => {
+    const t = tree();
+    t.plan.total_budget = null;
+    t.plan.daily_budget = 3.33;
+    t.plan.end_date = "2026-11-03";
+    t.campaigns[0].daily_budget = null;
+    assert.deepEqual(budgetRows(t), [
+      ['[IRW9999] Video, "Quoted"', "9.99", "Campaign total"],
+      ["[IRW9999] Reserve", "9.99", "Campaign total"],
+    ]);
+  });
+
+  it("Daily only without an end date", () => {
     const t = tree();
     t.plan.total_budget = null;
     t.plan.daily_budget = 8.8;
+    t.plan.end_date = null;
     t.campaigns[0].daily_budget = null;
     assert.deepEqual(budgetRows(t), [
       ['[IRW9999] Video, "Quoted"', "8.80", "Daily"],
       ["[IRW9999] Reserve", "8.80", "Daily"],
     ]);
+    assert.deepEqual(reviewGoogleVideoPlan(t, TODAY).budgets[0], '[IRW9999] Video, "Quoted": £8.80 a day (no end date)');
   });
 
   it("a total wins over the plan daily budget", () => {
@@ -239,10 +253,10 @@ describe("budget type", () => {
     assert.deepEqual(budgetRows(t)[1], ["[IRW9999] Reserve", "100.00", "Campaign total"]);
   });
 
-  it("Review shows which type and the amount", () => {
+  it("Review shows the campaign total with the daily rate and the days", () => {
     assert.deepEqual(reviewGoogleVideoPlan(tree(), TODAY).budgets, [
-      '[IRW9999] Video, "Quoted": £12.50 a day',
-      "[IRW9999] Reserve: £100.00 campaign total (the whole run)",
+      '[IRW9999] Video, "Quoted": £125.00 campaign total (≈ £12.50/day over 10 days)',
+      "[IRW9999] Reserve: £100.00 campaign total (≈ £10.00/day over 10 days)",
     ]);
   });
 
