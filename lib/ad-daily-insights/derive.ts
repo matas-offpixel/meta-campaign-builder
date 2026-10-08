@@ -40,6 +40,8 @@ export const AD_DAILY_INSIGHTS_FIELDS = [
   "adset_name",
   "campaign_id",
   "campaign_name",
+  "objective",
+  "optimization_goal",
 ].join(",");
 
 export type MetaActionRow = { action_type?: string; value?: string | number };
@@ -52,6 +54,9 @@ export type MetaAdInsightRow = {
   adset_name?: string;
   campaign_id?: string;
   campaign_name?: string;
+  /** The campaign objective (insights field `objective`). */
+  objective?: string;
+  optimization_goal?: string;
   spend?: string | number;
   impressions?: string | number;
   reach?: string | number;
@@ -85,6 +90,15 @@ export type AdDailyInsightRow = {
   purchases: number;
   actions: MetaActionRow[];
   result_action_type: string | null;
+  /**
+   * Migration 187. Each key is present only when its value is known: an
+   * upsert must not send a column it cannot fill, or it would write NULL
+   * over the stored value.
+   */
+  campaign_objective?: string;
+  optimization_goal?: string;
+  /** The ad set's promoted_object.custom_event_type: not on the insights row, set by the runner. */
+  promoted_event?: string;
   fetched_at: string;
 };
 
@@ -158,6 +172,8 @@ export function deriveAdDailyInsight(
     purchases: purchases?.value ?? 0,
     actions: row.actions ?? [],
     result_action_type: result?.type ?? null,
+    ...(row.objective?.trim() ? { campaign_objective: row.objective.trim() } : {}),
+    ...(row.optimization_goal?.trim() ? { optimization_goal: row.optimization_goal.trim() } : {}),
     fetched_at: fetchedAt.toISOString(),
   };
 }

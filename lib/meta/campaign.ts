@@ -200,7 +200,8 @@ export function mapMetaObjectiveToInternal(
   return undefined;
 }
 
-const SALES_FAMILY = new Set([
+/** Meta objectives whose ad sets carry a conversion event (current and legacy). */
+export const SALES_FAMILY: ReadonlySet<string> = new Set([
   "OUTCOME_SALES",
   "CONVERSIONS",
   "PRODUCT_CATALOG_SALES",

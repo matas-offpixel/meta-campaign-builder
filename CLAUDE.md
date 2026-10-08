@@ -403,17 +403,31 @@ ENABLE_LEARNING_REFRESH=
 > `meta_ad_account_id` and `launched_ad_sets.ad_account_id`. Read-only
 > against Meta, one attempt per call, call count logged per run
 > (`meta_calls=`); a rate-limited or auth-failed account is skipped and
-> reported. Logic: `lib/ad-daily-insights/`. History backfill:
-> `scripts/backfill-ad-daily-insights.mts` (dry-run by default). Campaign
-> grain is a SUM over `ad_daily_insights`.
+> reported. Each row also carries the insights `objective` (as
+> `campaign_objective`) and `optimization_goal`, plus `promoted_event`, the ad
+> set's `promoted_object.custom_event_type` (migration 187). That event is read
+> only for sales conversion ad sets, whose insights row says
+> `OFFSITE_CONVERSIONS` for Complete Registration and Purchase alike. The read
+> is one batched `GET /?ids=…` per ≤50 ad sets not already known in the run or
+> on the table, and it is counted in `meta_calls`. An unresolved field is left
+> out of the upsert (batches are split by key set), so a stored value is never
+> overwritten with NULL. Logic:
+> `lib/ad-daily-insights/`. History backfill:
+> `scripts/backfill-ad-daily-insights.mts` (dry-run by default). Objective
+> backfill for older rows: `scripts/backfill-insights-objective.mts`
+> (dry-run by default, `--fetch` reads only, `--apply` writes). Campaign grain
+> is a SUM over `ad_daily_insights`.
 
 > **`ENABLE_LEARNING_REFRESH`** (learning loop B) must be exactly `"1"` to
 > activate `/api/cron/learning-refresh` (03:30 UTC, after ad-daily-insights).
 > Unset = 200 with `skippedReason: "killswitch"`. DB-only, zero Meta calls.
 > Joins `ad_daily_insights` to client/event (`resolveAdContext`), stage
-> (`phase_at_launch` → event sale dates → `objective` (the majority of
-> the ad's own result days) → `adset_objective` (the majority of the ad
-> set's result days) → `unknown`; never campaign names) and tags
+> (`phase_at_launch` → `meta_objective` (`phaseFromMetaObjective` over the
+> ad-day's campaign objective, goal and promoted event: Complete Registration
+> and leads → registration, every other known objective → ticket sale) →
+> event sale dates → `objective` (the majority of the ad's own result days)
+> → `adset_objective` (the majority of the ad set's result days) →
+> `unknown`; never campaign names) and tags
 > (`creative_tag_assignments` by `meta_ad_id`, else event + ad name), then
 > runs four independent jobs: `creative_scores`, `tag_performance`
 > (migration 186; client → vertical → all shrinkage, `lib/learning/shrink.ts`),
@@ -443,7 +457,7 @@ ENABLE_LEARNING_REFRESH=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`). Before it: `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default

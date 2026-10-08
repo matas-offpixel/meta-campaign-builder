@@ -17,7 +17,16 @@ import { logSkippedArchivedClients } from "../db/client-status.ts";
 import { computeCreativeScores, writeCreativeScores } from "./creative-scores.ts";
 import { computeFunnelBenchmarks, writeFunnelBenchmarks, type FunnelBenchmarkRow, type FunnelSkip } from "./funnel-benchmarks.ts";
 import { computeLiveEvidence, loadOperatorClusters, writeLiveEvidence, type LiveEvidence } from "./interest-evidence.ts";
-import { joinRates, loadLearningInputs, type JoinRate, type LearningInputs, type Stage, type StageSource } from "./joins.ts";
+import {
+  joinRates,
+  loadLearningInputs,
+  STAGE_SOURCES,
+  type JoinRate,
+  type LearningInputs,
+  type LoadLearningOptions,
+  type Stage,
+  type StageSource,
+} from "./joins.ts";
 import { computeTagPerformance, writeTagPerformance, type TagPerformanceRow } from "./tag-performance.ts";
 
 export function isLearningRefreshEnabled(env: Record<string, string | undefined>): boolean {
@@ -86,7 +95,7 @@ function stageCounts(facts: LearningInputs["facts"]): Record<string, Record<Stag
 function stageSourceCounts(facts: LearningInputs["facts"]): Record<string, Record<StageSource, number>> {
   const out: Record<string, Record<StageSource, number>> = {};
   for (const f of facts) {
-    const c = (out[f.clientId ?? ""] ??= { phase_at_launch: 0, event_dates: 0, objective: 0, adset_objective: 0, unknown: 0 });
+    const c = (out[f.clientId ?? ""] ??= Object.fromEntries(STAGE_SOURCES.map((s) => [s, 0])) as Record<StageSource, number>);
     c[f.stageSource] += 1;
   }
   return out;
@@ -127,12 +136,15 @@ export async function runLearningRefresh(input: {
   operatorUserId?: string;
   /** Tests: inject the loaded inputs. */
   inputs?: LearningInputs;
+  /** Dry runs: see `LoadLearningOptions`. */
+  load?: LoadLearningOptions;
 }): Promise<LearningRefreshResult> {
   const dryRun = input.dryRun === true;
   if (!dryRun && !isLearningRefreshEnabled(input.env)) return { ok: true, skippedReason: "killswitch" };
   const now = input.now ?? new Date();
   const runAt = now.toISOString();
-  const inputs = input.inputs ?? (await loadLearningInputs(input.db));
+  if (input.load?.adSetMeta && !dryRun) throw new Error("load.adSetMeta is for dry runs only");
+  const inputs = input.inputs ?? (await loadLearningInputs(input.db, input.load));
   logSkippedArchivedClients("learning-refresh", inputs.archivedClientIds.size, `dropped_ad_days=${inputs.dropped.archived}`);
 
   let operatorId: string | null = input.operatorUserId ?? null;

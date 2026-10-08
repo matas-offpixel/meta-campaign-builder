@@ -6,8 +6,10 @@ import type { AdSetSuggestion, AudienceSettings, CampaignObjective } from "../..
 import {
   effectiveAdvantagePlus,
   interestIdsFromGroup,
+  metaObjectiveNeedsPromotedEvent,
   phaseAtLaunchFromEvent,
   phaseAtLaunchFromObjective,
+  phaseFromMetaObjective,
   snapshotAudienceDescriptor,
 } from "../snapshot.ts";
 
@@ -113,6 +115,61 @@ describe("phaseAtLaunchFromObjective", () => {
     assert.equal(phaseAtLaunchFromObjective(""), null);
     assert.equal(phaseAtLaunchFromObjective("OUTCOME_LEADS"), null);
     assert.equal(phaseAtLaunchFromObjective("lead"), null);
+  });
+});
+
+describe("phaseFromMetaObjective", () => {
+  const cases: [string | null, string | null, string | null, "presale" | "on_sale" | null][] = [
+    // Complete Registration → presale, whatever the objective says.
+    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "COMPLETE_REGISTRATION", "presale"],
+    ["CONVERSIONS", "OFFSITE_CONVERSIONS", "COMPLETE_REGISTRATION", "presale"],
+    [null, null, "COMPLETE_REGISTRATION", "presale"],
+    // Leads → presale (sign-up campaigns in practice; Matas may overrule).
+    ["OUTCOME_LEADS", "LEAD_GENERATION", null, "presale"],
+    ["OUTCOME_LEADS", "OFFSITE_CONVERSIONS", "LEAD", "presale"],
+    ["OUTCOME_LEADS", "OFFSITE_CONVERSIONS", null, "presale"],
+    ["LEAD_GENERATION", null, null, "presale"],
+    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "LEAD", "presale"],
+    // Every other known objective → on_sale.
+    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "PURCHASE", "on_sale"],
+    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", "INITIATED_CHECKOUT", "on_sale"],
+    ["OUTCOME_SALES", "VALUE", "PURCHASE", "on_sale"],
+    ["OUTCOME_SALES", "LANDING_PAGE_VIEWS", null, "on_sale"],
+    ["CONVERSIONS", "OFFSITE_CONVERSIONS", "PURCHASE", "on_sale"],
+    ["OUTCOME_TRAFFIC", "LANDING_PAGE_VIEWS", null, "on_sale"],
+    ["LINK_CLICKS", "LINK_CLICKS", null, "on_sale"],
+    ["LINK_CLICKS", "LANDING_PAGE_VIEWS", null, "on_sale"],
+    ["OUTCOME_AWARENESS", "REACH", null, "on_sale"],
+    ["REACH", "REACH", null, "on_sale"],
+    ["BRAND_AWARENESS", "AD_RECALL_LIFT", null, "on_sale"],
+    ["OUTCOME_ENGAGEMENT", "POST_ENGAGEMENT", null, "on_sale"],
+    ["POST_ENGAGEMENT", "POST_ENGAGEMENT", null, "on_sale"],
+    ["VIDEO_VIEWS", "THRUPLAY", null, "on_sale"],
+    ["outcome_awareness", "reach", null, "on_sale"],
+    // Sales conversion ad set with no promoted event yet → null, never a guess.
+    ["OUTCOME_SALES", "OFFSITE_CONVERSIONS", null, null],
+    ["OUTCOME_SALES", null, null, null],
+    ["CONVERSIONS", "VALUE", null, null],
+    // Unknown or missing objective → null.
+    ["OUTCOME_APP_PROMOTION", "APP_INSTALLS", null, null],
+    [null, "REACH", null, null],
+    [null, null, null, null],
+    ["", "", "", null],
+  ];
+  for (const [campaignObjective, optimizationGoal, promotedEvent, want] of cases) {
+    it(`${campaignObjective} | ${optimizationGoal} | ${promotedEvent} → ${want}`, () => {
+      assert.equal(phaseFromMetaObjective({ campaignObjective, optimizationGoal, promotedEvent }), want);
+    });
+  }
+
+  it("promoted event is needed only for a sales-family conversion ad set", () => {
+    assert.equal(metaObjectiveNeedsPromotedEvent("OUTCOME_SALES", "OFFSITE_CONVERSIONS"), true);
+    assert.equal(metaObjectiveNeedsPromotedEvent("CONVERSIONS", "VALUE"), true);
+    assert.equal(metaObjectiveNeedsPromotedEvent("OUTCOME_SALES", null), true);
+    assert.equal(metaObjectiveNeedsPromotedEvent("OUTCOME_SALES", "LANDING_PAGE_VIEWS"), false);
+    assert.equal(metaObjectiveNeedsPromotedEvent("OUTCOME_AWARENESS", "REACH"), false);
+    assert.equal(metaObjectiveNeedsPromotedEvent("OUTCOME_LEADS", "OFFSITE_CONVERSIONS"), false);
+    assert.equal(metaObjectiveNeedsPromotedEvent(null, "OFFSITE_CONVERSIONS"), false);
   });
 });
 
