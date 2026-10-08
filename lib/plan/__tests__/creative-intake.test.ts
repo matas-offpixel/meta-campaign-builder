@@ -14,13 +14,18 @@ import {
   intakeAspect,
   intakeCreativeFingerprint,
   intakeSendChanges,
+  isIntakeUploadPath,
   matchAssetMode,
   matchRefusal,
+  mayDeleteIntakeUpload,
   planIntakeSend,
   singleGroupKey,
   tiedStandardAspects,
+  uploadIntakeSlots,
+  type IntakeMetaUploadSlot,
   META_CROSS_PUBLISH_NOTE,
   META_LAUNCHED_UNROUTE_NOTE,
+  META_LAUNCHED_UPDATE_NOTE,
   isMultiPlacementEnabled,
   type IntakeOwnedCreative,
   type IntakeSendAsset,
@@ -255,7 +260,16 @@ describe("send plan", () => {
     assert.deepEqual(plan.removeCreativeIds, []);
     assert.deepEqual(plan.tiktokWrites, []);
     assert.ok(plan.notes.includes(META_LAUNCHED_UNROUTE_NOTE));
-    assert.ok(plan.notes.includes(TIKTOK_LAUNCHED_UNROUTE_NOTE));
+
+    const launchedIntake = planIntakeSend({
+      assets: [video("wide", "4:5")],
+      owned: [],
+      routes: [{ assetId: "wide", enabled: true, uploadStatus: "launched" }],
+      metaLaunched: false,
+      tiktokLaunched: true,
+    });
+    assert.deepEqual(launchedIntake.tiktokWrites, []);
+    assert.ok(launchedIntake.notes.includes(TIKTOK_LAUNCHED_UNROUTE_NOTE));
   });
 
   it("drops the untouched starter once Send writes the real creatives", () => {
@@ -323,6 +337,98 @@ describe("send plan", () => {
     assert.equal(again.changed, false);
     assert.equal(again.draft.creatives[0]?.id, applied.draft.creatives[0]?.id);
     assert.equal(creativeDraftFingerprint(again.draft.creatives[0]!), owned[0]?.fingerprint);
+  });
+});
+
+describe("send round 2", () => {
+  it("leaves an enabled TikTok route alone when that asset is not in this intake", () => {
+    const plan = planIntakeSend({
+      assets: [video("reel", "9:16")],
+      owned: [],
+      routes: [
+        { assetId: "reel", enabled: true, uploadStatus: "idle" },
+        { assetId: "drawer-video", enabled: true, uploadStatus: "idle" },
+      ],
+      metaLaunched: false,
+      tiktokLaunched: false,
+    });
+    assert.deepEqual(plan.tiktokWrites, []);
+  });
+
+  it("does not update an MML creative after Meta has launched, and still inserts a new one", () => {
+    const plan = planIntakeSend({
+      assets: [
+        { ...image("feed", "4:5"), groupId: "g1" },
+        { ...image("story", "9:16"), groupId: "g1" },
+        image("square", "1:1"),
+      ],
+      owned: [stamp("g1", "c1", "dual", ["feed", "old"])],
+      routes: [],
+      metaLaunched: true,
+      tiktokLaunched: false,
+    });
+    assert.equal(plan.meta.find((row) => row.key === "g1")?.action, "noop");
+    assert.equal(plan.meta.find((row) => row.key === singleGroupKey("square"))?.action, "insert");
+    assert.ok(plan.notes.includes(META_LAUNCHED_UPDATE_NOTE));
+  });
+
+  it("deletes only an mml- path this drop created", () => {
+    const fresh = "images/mml-11111111-1111-1111-1111-111111111111-shot.png";
+    assert.equal(isIntakeUploadPath(fresh), true);
+    assert.equal(mayDeleteIntakeUpload(fresh, "images/kept.png"), true);
+    assert.equal(mayDeleteIntakeUpload(fresh, fresh), false);
+    assert.equal(mayDeleteIntakeUpload("images/kept.png", "images/other.png"), false);
+    assert.equal(mayDeleteIntakeUpload("videos/mml-11111111-1111-1111-1111-111111111111-reel.mp4", null), true);
+  });
+
+  it("a channel hit makes no upload call, and a second send makes no call", async () => {
+    let calls = 0;
+    const pending = (id: string, mediaKind: "image" | "video"): IntakeMetaUploadSlot => ({
+      registryAssetId: id,
+      mediaKind,
+      uploadStatus: "pending",
+    });
+    const hit = await uploadIntakeSlots({
+      slots: [pending("a", "image")],
+      channelPlatformId: () => "stored-hash",
+      upload: async () => {
+        calls += 1;
+        return { ok: true, hash: "from-call" };
+      },
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual(hit.called, []);
+    assert.equal(hit.slots[0]?.uploadStatus, "uploaded");
+    assert.equal(hit.slots[0]?.assetHash, "stored-hash");
+
+    const first = await uploadIntakeSlots({
+      slots: [pending("b", "video")],
+      channelPlatformId: () => null,
+      upload: async () => {
+        calls += 1;
+        return { ok: true, videoId: "vid-1" };
+      },
+    });
+    assert.equal(calls, 1);
+    const second = await uploadIntakeSlots({
+      slots: first.slots,
+      channelPlatformId: () => null,
+      upload: async () => {
+        calls += 1;
+        return { ok: true, videoId: "vid-2" };
+      },
+    });
+    assert.equal(calls, 1);
+    assert.deepEqual(second.called, []);
+    assert.equal(second.slots[0]?.videoId, "vid-1");
+
+    const failed = await uploadIntakeSlots({
+      slots: [pending("c", "image")],
+      channelPlatformId: () => null,
+      upload: async () => ({ ok: false, error: "Meta said no" }),
+    });
+    assert.equal(failed.slots[0]?.uploadStatus, "pending");
+    assert.equal(failed.slots[0]?.error, "Meta said no");
   });
 });
 

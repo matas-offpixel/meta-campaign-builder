@@ -31,6 +31,7 @@ interface IntakeAsset {
   reason: string | null;
   thumbnailUrl: string | null;
   groupId: string | null;
+  uploadError: string | null;
 }
 
 interface IntakeGroup {
@@ -175,7 +176,8 @@ export function MmlCreativeIntake({
         const hashed = await sha256HexOfBlob(file);
         const kind = file.type.startsWith("video/") ? "videos" : "images";
         const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || (kind === "videos" ? "mp4" : "jpg");
-        const storagePath = `${kind}/${crypto.randomUUID()}.${ext}`;
+        const safe = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "").slice(-40) || ext;
+        const storagePath = `${kind}/mml-${crypto.randomUUID()}-${safe}`;
         await uploadFileToCampaignAssets(file, storagePath);
         await post({
           action: "register",
@@ -317,9 +319,12 @@ export function MmlCreativeIntake({
               <span>
                 Matched · {group.mode} · {group.label}
               </span>
-              <button type="button" className="underline" disabled={busy} onClick={() => void unmatch(group.id)}>
-                Unmatch
-              </button>
+              <span className="flex items-center gap-2">
+                <button type="button" className="underline" disabled={busy} onClick={() => void unmatch(group.id)}>
+                  Unmatch
+                </button>
+                <Datum className="text-muted-foreground">splits the group. Send updates the drafts.</Datum>
+              </span>
             </li>
           ))}
         </ul>
@@ -371,6 +376,9 @@ export function MmlCreativeIntake({
                       ) : null}
                       {asset.bucket === "other" && asset.reason ? (
                         <span className={`block text-muted-foreground ${VIZ_TYPE.label}`}>{asset.reason}</span>
+                      ) : null}
+                      {asset.uploadError ? (
+                        <StatusLine tone="alert" className={`text-destructive ${VIZ_TYPE.label}`}>{asset.uploadError}</StatusLine>
                       ) : null}
                     </button>
                   </article>

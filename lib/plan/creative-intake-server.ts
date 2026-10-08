@@ -8,11 +8,13 @@ import {
   resolveChannelDefaults,
 } from "../clients/channel-defaults.ts";
 import {
+  findChannelId,
   fingerprintBytes,
   loadAssetsByIds,
   upsertRegisteredAsset,
   type CreativeAssetRow,
 } from "../creatives/asset-registry.ts";
+import { handleUploadAsset } from "../meta/upload-asset-handler.ts";
 import { upsertPlanAssetRoute, loadPlanAssetRoutes } from "./asset-routing-db.ts";
 import { runPlanTikTokAssetFanout } from "./asset-routing-server.ts";
 import { tikTokLaunchIsLive } from "./asset-routing-execute.ts";
@@ -25,9 +27,13 @@ import {
   intakeAspect,
   isMultiPlacementEnabled,
   matchRefusal,
+  isIntakeUploadPath,
+  mayDeleteIntakeUpload,
   planIntakeSend,
   intakeSendChanges,
+  uploadIntakeSlots,
   type IntakeBucket,
+  type IntakeMetaUploadSlot,
   type IntakeSendAsset,
 } from "./creative-intake.ts";
 import {
@@ -42,6 +48,7 @@ import {
   stampIntakeGroup,
 } from "./creative-intake-db.ts";
 import { loadLinkedDraftsForPlan, upsertLinkedMetaDraft } from "./linked-drafts.ts";
+import type { CampaignDraft } from "../types.ts";
 import type { CampaignPlan } from "./types.ts";
 
 const BUCKET = "campaign-assets";
@@ -55,6 +62,7 @@ type StorageClient = {
         path: string,
         seconds: number,
       ) => Promise<{ data: { signedUrl: string } | null; error: { message?: string } | null }>;
+      copy: (from: string, to: string) => Promise<{ error: { message?: string } | null }>;
     };
   };
 };
@@ -76,6 +84,7 @@ export interface IntakeViewAsset {
   reason: string | null;
   thumbnailUrl: string | null;
   groupId: string | null;
+  uploadError: string | null;
 }
 
 export interface IntakeView {
@@ -128,6 +137,17 @@ export async function loadCreativeIntakeView(
     if (group.stableKey.startsWith("single:")) continue;
     for (const assetId of group.assetIds) groupOf.set(assetId, group.id);
   }
+  const drafts = await loadLinkedDraftsForPlan(supabase, plan);
+  const uploadErrorByAsset = new Map<string, string>();
+  for (const creative of drafts.meta?.creatives ?? []) {
+    for (const variation of creative.assetVariations ?? []) {
+      for (const asset of variation.assets ?? []) {
+        if (asset.registryAssetId && asset.uploadStatus === "pending" && asset.error) {
+          uploadErrorByAsset.set(asset.registryAssetId, asset.error);
+        }
+      }
+    }
+  }
   const viewAssets: IntakeViewAsset[] = [];
   for (const row of assets.assets) {
     const asset = byId.get(row.assetId);
@@ -145,6 +165,7 @@ export async function loadCreativeIntakeView(
       reason: row.unreadableReason,
       thumbnailUrl: asset.thumbnailUrl ?? (await signedUrl(supabase, asset.storagePath)),
       groupId: groupOf.get(asset.id) ?? null,
+      uploadError: uploadErrorByAsset.get(asset.id) ?? null,
     });
   }
   return {
@@ -226,6 +247,9 @@ export async function registerIntakeUpload(
     durationSeconds: number | null;
   },
 ): Promise<{ ok: true; assetId: string; created: boolean } | { ok: false; status: number; error: string; tableMissing?: boolean }> {
+  if (!isIntakeUploadPath(input.storagePath)) {
+    return { ok: false, status: 400, error: "storagePath must be an images/mml- or videos/mml- path" };
+  }
   const measured = await measureStoredFile({
     supabase,
     storagePath: input.storagePath,
@@ -251,7 +275,10 @@ export async function registerIntakeUpload(
   if (!upserted.ok) {
     return { ok: false, status: upserted.tableMissing ? 503 : 500, error: upserted.error, tableMissing: upserted.tableMissing };
   }
-  if (!upserted.created && upserted.asset.storagePath !== input.storagePath) {
+  if (
+    !upserted.created &&
+    mayDeleteIntakeUpload(input.storagePath, upserted.asset.storagePath)
+  ) {
     await storageOf(supabase).from(BUCKET).remove([input.storagePath]).catch(() => undefined);
   }
   const attached = await attachIntakeAsset(supabase, {
@@ -328,9 +355,7 @@ export async function unmatchIntakeGroup(
 ): Promise<{ ok: true; notes: string[] } | { ok: false; status: number; error: string }> {
   const cleared = await clearGroupMembers(supabase, { planId: plan.id, groupId });
   if (!cleared.ok) return { ok: false, status: cleared.tableMissing ? 503 : 500, error: cleared.error };
-  const drafts = await loadLinkedDraftsForPlan(supabase, plan);
-  if (!drafts.meta) return { ok: true, notes: [] };
-  return syncPlanCreativeIntake(supabase, plan);
+  return { ok: true, notes: [] };
 }
 
 export async function syncPlanCreativeIntake(
@@ -412,8 +437,15 @@ export async function syncPlanCreativeIntake(
     pageId: drafts.meta.settings.metaPageId || resolved.facebookPage.value || "",
     instagramActorId: drafts.meta.settings.metaIGAccountId || resolved.instagramActor.value || "",
   });
-  if (applied.changed) {
-    const saved = await upsertLinkedMetaDraft(supabase, applied.draft, plan.userId);
+  const uploaded = await uploadMmlDraftAssets({
+    supabase,
+    draft: applied.draft,
+    creativeIds: new Set(applied.fingerprints.map((row) => row.creativeId)),
+    userId: plan.userId,
+    byRegistry,
+  });
+  if (applied.changed || uploaded.changed) {
+    const saved = await upsertLinkedMetaDraft(supabase, uploaded.draft, plan.userId);
     if (!saved.ok) return { ok: false, status: 500, error: saved.error };
   }
   for (const [index, stamped] of applied.fingerprints.entries()) {
@@ -457,7 +489,177 @@ export async function syncPlanCreativeIntake(
       }
     }
   }
-  return { ok: true, notes: [...new Set(notes)], changed: applied.changed || intakeSendChanges(planSend) };
+  return {
+    ok: true,
+    notes: [...new Set(notes)],
+    changed: applied.changed || uploaded.changed || intakeSendChanges(planSend),
+  };
+}
+
+/**
+ * Uploads pending MML assets through `/api/meta/upload-asset`'s storage-path
+ * body. A `creative_asset_channel_ids` hit for this ad account makes no call.
+ * The route is given a copy, never the registry object's path, because a
+ * failed upload deletes the path it was handed.
+ */
+async function uploadMmlDraftAssets(input: {
+  supabase: unknown;
+  draft: CampaignDraft;
+  creativeIds: Set<string>;
+  userId: string;
+  byRegistry: Map<string, CreativeAssetRow>;
+}): Promise<{ draft: CampaignDraft; changed: boolean }> {
+  type Slot = IntakeMetaUploadSlot & { assetId: string };
+  const slots: Slot[] = [];
+  for (const creative of input.draft.creatives) {
+    if (!input.creativeIds.has(creative.id)) continue;
+    for (const variation of creative.assetVariations) {
+      for (const asset of variation.assets) {
+        if (!asset.registryAssetId || !asset.storagePath) continue;
+        const row = input.byRegistry.get(asset.registryAssetId);
+        slots.push({
+          assetId: asset.id,
+          registryAssetId: asset.registryAssetId,
+          mediaKind: row?.mediaKind ?? (creative.mediaType === "video" ? "video" : "image"),
+          uploadStatus: asset.uploadStatus,
+          assetHash: asset.assetHash,
+          videoId: asset.videoId,
+          error: asset.error,
+        });
+      }
+    }
+  }
+  if (slots.length === 0) return { draft: input.draft, changed: false };
+
+  const adAccountId = input.draft.settings.adAccountId || input.draft.settings.metaAdAccountId || "";
+  if (!adAccountId) {
+    const flagged = slots.map((slot) =>
+      slot.uploadStatus === "uploaded"
+        ? slot
+        : { ...slot, uploadStatus: "pending" as const, error: "No Meta ad account on this draft" },
+    );
+    return { draft: writeUploadOntoDraft(input.draft, flagged, input.creativeIds), changed: flagged.some((slot, index) => slot.error !== slots[index]?.error) };
+  }
+
+  const channelId = new Map<string, string | null>();
+  const readError = new Map<string, string>();
+  for (const slot of slots) {
+    if (channelId.has(slot.registryAssetId) || readError.has(slot.registryAssetId)) continue;
+    const found = await findChannelId(input.supabase, {
+      assetId: slot.registryAssetId,
+      userId: input.userId,
+      channel: "meta",
+      scope: adAccountId,
+    });
+    if (!found.ok) readError.set(slot.registryAssetId, found.error);
+    else channelId.set(slot.registryAssetId, found.platformId);
+  }
+
+  const result = await uploadIntakeSlots({
+    slots,
+    channelPlatformId: (assetId) => channelId.get(assetId) ?? null,
+    upload: async (slot) => {
+      const failed = readError.get(slot.registryAssetId);
+      if (failed) return { ok: false as const, error: failed };
+      const row = input.byRegistry.get(slot.registryAssetId);
+      if (!row) return { ok: false as const, error: "Asset is not in the registry" };
+      return postStoredAssetToMeta(input.supabase, {
+        adAccountId,
+        filename: row.filename,
+        mediaKind: slot.mediaKind,
+        contentHash: row.contentHash,
+        byteSize: row.byteSize,
+        storagePath: row.storagePath,
+        aspectRatio: row.aspectRatio === "other" ? undefined : row.aspectRatio,
+      });
+    },
+  });
+  return {
+    draft: writeUploadOntoDraft(input.draft, result.slots, input.creativeIds),
+    changed: result.slots.some(
+      (slot, index) =>
+        slot.uploadStatus !== slots[index]?.uploadStatus ||
+        slot.assetHash !== slots[index]?.assetHash ||
+        slot.videoId !== slots[index]?.videoId ||
+        slot.error !== slots[index]?.error,
+    ),
+  };
+}
+
+async function postStoredAssetToMeta(
+  supabase: unknown,
+  input: {
+    adAccountId: string;
+    filename: string;
+    mediaKind: "image" | "video";
+    contentHash: string;
+    byteSize: number;
+    storagePath: string;
+    aspectRatio?: string;
+  },
+): Promise<{ ok: true; hash?: string; videoId?: string } | { ok: false; error: string }> {
+  const folder = input.mediaKind === "video" ? "videos" : "images";
+  const copyPath = `${folder}/mml-${crypto.randomUUID()}-meta-upload`;
+  const copied = await storageOf(supabase).from(BUCKET).copy(input.storagePath, copyPath);
+  if (copied.error) {
+    return { ok: false, error: copied.error.message ?? "Could not copy the file for Meta" };
+  }
+  try {
+    const response = await handleUploadAsset(
+      new Request("http://localhost/api/meta/upload-asset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storagePath: copyPath,
+          storageBucket: BUCKET,
+          type: input.mediaKind,
+          adAccountId: input.adAccountId,
+          fileName: input.filename,
+          contentHash: input.contentHash,
+          byteSize: input.byteSize,
+          aspectRatio: input.aspectRatio,
+        }),
+      }),
+    );
+    const json = (await response.json().catch(() => null)) as { error?: string; hash?: string; videoId?: string } | null;
+    if (!response.ok) return { ok: false, error: json?.error ?? `HTTP ${response.status}` };
+    return { ok: true, hash: json?.hash, videoId: json?.videoId };
+  } finally {
+    if (mayDeleteIntakeUpload(copyPath, input.storagePath)) {
+      await storageOf(supabase).from(BUCKET).remove([copyPath]).catch(() => undefined);
+    }
+  }
+}
+
+function writeUploadOntoDraft(
+  draft: CampaignDraft,
+  slots: Array<IntakeMetaUploadSlot & { assetId: string }>,
+  creativeIds: Set<string>,
+): CampaignDraft {
+  const byAsset = new Map(slots.map((slot) => [slot.assetId, slot]));
+  return {
+    ...draft,
+    creatives: draft.creatives.map((creative) => {
+      if (!creativeIds.has(creative.id)) return creative;
+      return {
+        ...creative,
+        assetVariations: creative.assetVariations.map((variation) => ({
+          ...variation,
+          assets: variation.assets.map((asset) => {
+            const slot = byAsset.get(asset.id);
+            if (!slot) return asset;
+            return {
+              ...asset,
+              uploadStatus: slot.uploadStatus,
+              assetHash: slot.assetHash,
+              videoId: slot.videoId,
+              error: slot.error,
+            };
+          }),
+        })),
+      };
+    }),
+  };
 }
 
 function toApplyAsset(row: CreativeAssetRow, bucket: Exclude<IntakeBucket, "other">): ApplyAsset {

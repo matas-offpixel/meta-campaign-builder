@@ -8,7 +8,7 @@ import {
   syncPlanCreativeIntake,
   unmatchIntakeGroup,
 } from "@/lib/plan/creative-intake-server";
-import { INTAKE_BUCKETS, type IntakeBucket } from "@/lib/plan/creative-intake";
+import { INTAKE_BUCKETS, isIntakeUploadPath, type IntakeBucket } from "@/lib/plan/creative-intake";
 import { loadPlanLaunchRecords } from "@/lib/plan/load";
 import { rowToCampaignPlanIntent } from "@/lib/plan/persist";
 import type { CampaignPlan } from "@/lib/plan/types";
@@ -95,8 +95,8 @@ export async function POST(
     const contentHash = typeof body.contentHash === "string" ? body.contentHash : "";
     const byteSize = typeof body.byteSize === "number" ? body.byteSize : -1;
     const mediaKind = body.mediaKind === "image" || body.mediaKind === "video" ? body.mediaKind : null;
-    if (!/^(images|videos)\/[A-Za-z0-9._-]+$/.test(storagePath)) {
-      return NextResponse.json({ ok: false, error: "storagePath must be images/ or videos/ in campaign-assets" }, { status: 400 });
+    if (!isIntakeUploadPath(storagePath)) {
+      return NextResponse.json({ ok: false, error: "storagePath must be an images/mml- or videos/mml- path" }, { status: 400 });
     }
     if (!filename || !mediaKind || !/^[a-f0-9]{64}$/.test(contentHash) || byteSize < 0) {
       return NextResponse.json({ ok: false, error: "filename, mediaKind, contentHash and byteSize are required" }, { status: 400 });

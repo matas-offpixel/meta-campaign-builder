@@ -29,6 +29,27 @@ export const META_CROSS_PUBLISH_NOTE =
 export const META_LAUNCHED_UNROUTE_NOTE =
   "This plan's Meta campaign is already launched — removing it here will not delete the live ad.";
 
+export const META_LAUNCHED_UPDATE_NOTE =
+  "This plan's Meta campaign is already launched — this creative was left as it is.";
+
+/** Paths this intake upload created. Anything else is never deleted. */
+const INTAKE_UPLOAD_PATH =
+  /^(images|videos)\/mml-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-[A-Za-z0-9._-]+$/;
+
+export function isIntakeUploadPath(path: string): boolean {
+  return INTAKE_UPLOAD_PATH.test(path);
+}
+
+/**
+ * Delete only the object this drop just wrote. A path that is already
+ * `creative_assets.storage_path` stays, and so does every non-mml path.
+ */
+export function mayDeleteIntakeUpload(path: string, registryStoragePath: string | null): boolean {
+  if (!isIntakeUploadPath(path)) return false;
+  if (registryStoragePath != null && path === registryStoragePath) return false;
+  return true;
+}
+
 /** Same gate `buildMultiPlacementCreative` reads. Anything else is the legacy path. */
 export function isMultiPlacementEnabled(flag: string | undefined): boolean {
   return flag === "1";
@@ -319,6 +340,17 @@ export function planIntakeSend(input: {
       owned.fingerprint != null &&
       owned.draftFingerprint === owned.fingerprint &&
       owned.fingerprint.startsWith(`${row.mode}\u001f${row.assetIds.join(",")}\u001f`);
+    if (!unchanged && input.metaLaunched) {
+      notes.push(META_LAUNCHED_UPDATE_NOTE);
+      meta.push({
+        key: row.key,
+        creativeId: owned.creativeId,
+        mode: row.mode,
+        assetIds: row.assetIds,
+        action: "noop",
+      });
+      continue;
+    }
     meta.push({
       key: row.key,
       creativeId: owned.creativeId,
@@ -348,9 +380,7 @@ export function planIntakeSend(input: {
 
   const routeByAsset = new Map(input.routes.map((route) => [route.assetId, route]));
   const tiktokWrites: IntakeSendPlan["tiktokWrites"] = [];
-  const seenRoute = new Set<string>();
   for (const asset of input.assets) {
-    seenRoute.add(asset.id);
     const want = tiktokWants(asset);
     const current = routeByAsset.get(asset.id);
     if (current?.enabled === want) continue;
@@ -365,14 +395,6 @@ export function planIntakeSend(input: {
       continue;
     }
     tiktokWrites.push({ assetId: asset.id, enabled: want });
-  }
-  for (const route of input.routes) {
-    if (seenRoute.has(route.assetId) || !route.enabled) continue;
-    if (route.uploadStatus === "launched" || input.tiktokLaunched) {
-      notes.push(TIKTOK_LAUNCHED_UNROUTE_NOTE);
-      continue;
-    }
-    tiktokWrites.push({ assetId: route.assetId, enabled: false });
   }
 
   return {
@@ -394,4 +416,62 @@ export function intakeSendChanges(plan: IntakeSendPlan): boolean {
 /** Registry aspect stored on creative_assets. Other is a real bucket, not a guess. */
 export function registryAspect(bucket: IntakeBucket): RegistryAspect {
   return bucket;
+}
+
+export interface IntakeMetaUploadSlot {
+  registryAssetId: string;
+  mediaKind: RegistryMediaKind;
+  uploadStatus: "pending" | "uploading" | "uploaded" | "error";
+  assetHash?: string;
+  videoId?: string;
+  error?: string;
+}
+
+export type IntakeMetaUploadOutcome =
+  | { ok: true; hash?: string; videoId?: string }
+  | { ok: false; error: string };
+
+/**
+ * A channel-id hit, or a slot already uploaded, makes no call.
+ * A failed call stays pending and keeps the error.
+ */
+export async function uploadIntakeSlots<T extends IntakeMetaUploadSlot>(input: {
+  slots: readonly T[];
+  channelPlatformId: (registryAssetId: string) => string | null;
+  upload: (slot: T) => Promise<IntakeMetaUploadOutcome>;
+}): Promise<{ slots: T[]; called: string[] }> {
+  const called: string[] = [];
+  const slots: T[] = [];
+  for (const slot of input.slots) {
+    const hit = input.channelPlatformId(slot.registryAssetId);
+    if (hit) {
+      slots.push(markIntakeUploaded(slot, slot.mediaKind === "video" ? { videoId: hit } : { hash: hit }));
+      continue;
+    }
+    if (slot.uploadStatus === "uploaded" && (slot.assetHash || slot.videoId)) {
+      slots.push({ ...slot, error: undefined });
+      continue;
+    }
+    called.push(slot.registryAssetId);
+    const result = await input.upload(slot);
+    if (!result.ok) {
+      slots.push({ ...slot, uploadStatus: "pending", error: result.error });
+      continue;
+    }
+    slots.push(markIntakeUploaded(slot, { hash: result.hash, videoId: result.videoId }));
+  }
+  return { slots, called };
+}
+
+function markIntakeUploaded<T extends IntakeMetaUploadSlot>(
+  slot: T,
+  ids: { hash?: string; videoId?: string },
+): T {
+  return {
+    ...slot,
+    uploadStatus: "uploaded",
+    assetHash: ids.hash ?? slot.assetHash,
+    videoId: ids.videoId ?? slot.videoId,
+    error: undefined,
+  };
 }
