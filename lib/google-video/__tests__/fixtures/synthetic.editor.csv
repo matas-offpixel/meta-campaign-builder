@@ -1,0 +1,18 @@
+﻿Campaign,Campaign Type,Campaign Status,Budget,Bid Strategy Type,Networks,Languages,Start Date,End Date,TV Screen Bid Modifier,Location,Location ID,Bid adjustment,Type,Ad Group,Ad Group Type,Ad Group Status,Max CPV,Placement,Ad Name,Video ID,Headline,Long headline,Description,Call to action,Final URL,Display URL,Status
+"[IRW9999] Video, ""Quoted""",Video,Enabled,12.50,Manual CPV,YouTube Search;YouTube Videos;Video Partners,en;fr,2026-11-01,2026-11-10,,,,,,,,,,,,,,,,,,,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,United Kingdom,2826,,,,,,,,,,,,,,,,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,Manchester,1006520,-10%,,,,,,,,,,,,,,,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,Ireland,2372,,Negative,,,,,,,,,,,,,,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,,V1 In-stream,In-stream,Enabled,0.05,,,,,,,,,,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,,V1 In-stream,,,,https://www.youtube.com/channel/UCbDgBFAketcO26wz-pR6OKA,,,,,,,,,Enabled
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,,V1 In-stream,,,,https://www.youtube.com/watch?v=Q-gTWjK62vw,,,,,,,,,Paused
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,,V1 In-stream,,,,,Lead,ozh-w-EBw58,Sat 24 Oct,"Tickets from £44.50, ""final release""","Line one, line two",Book now,https://example.com/event?utm_source=youtube,example.com,Enabled
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,,V1 In-stream,,,,,"Held, complete",Q-gTWjK62vw,,,,Go,https://example.com/other,example.com,Paused
+[IRW9999] Reserve,Video,Paused,10.00,Manual CPV,YouTube Search;YouTube Videos;Video Partners,en;fr,2026-11-01,2026-11-10,,,,,,,,,,,,,,,,,,,
+[IRW9999] Reserve,,,,,,,,,,United Kingdom,2826,,,,,,,,,,,,,,,,
+[IRW9999] Reserve,,,,,,,,,,Manchester,1006520,-10%,,,,,,,,,,,,,,,
+[IRW9999] Reserve,,,,,,,,,,Ireland,2372,,Negative,,,,,,,,,,,,,,
+[IRW9999] Reserve,,,,,,,,,,,,,,V2 In-stream,In-stream,Paused,0.04,,,,,,,,,,
+[IRW9999] Reserve,,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@Mixmag,,,,,,,,,Paused
+[IRW9999] Reserve,,,,,,,,,,,,,,V2 In-stream,,,,,Lead,ozh-w-EBw58,Sat 24 Oct,"Tickets from £44.50, ""final release""","Line one, line two",Book now,https://example.com/event?utm_source=youtube,example.com,Enabled
+[IRW9999] Reserve,,,,,,,,,,,,,,V2 In-stream,,,,,"Held, complete",Q-gTWjK62vw,,,,Go,https://example.com/other,example.com,Paused

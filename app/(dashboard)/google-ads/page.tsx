@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { listGoogleSearchPlansForUser } from "@/lib/db/google-search-plans";
+import { listGoogleVideoPlansForUser } from "@/lib/db/google-video-plans";
+import type { GoogleVideoPlan } from "@/lib/google-video/types";
 import type { GoogleSearchPlan } from "@/lib/google-search/types";
 
 import { GoogleSearchPlanActions } from "@/components/google-search/plan-actions";
@@ -14,6 +16,12 @@ const STATUS_BADGE: Record<GoogleSearchPlan["status"], string> = {
   pushed: "bg-emerald-100 text-emerald-900",
   partially_pushed: "bg-amber-100 text-amber-900",
   archived: "bg-muted text-muted-foreground",
+};
+
+const VIDEO_STATUS_BADGE: Record<GoogleVideoPlan["status"], string> = {
+  draft: "bg-muted text-foreground",
+  exported: "bg-amber-100 text-amber-900",
+  live: "bg-emerald-100 text-emerald-900",
 };
 
 /**
@@ -35,8 +43,10 @@ export default async function GoogleAdsPlansPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [plans, accountsRes, eventsRes] = await Promise.all([
+  const [plans, videoPlans, accountsRes, eventsRes] = await Promise.all([
     listGoogleSearchPlansForUser(supabase, user.id),
+    // Empty until migration 190 is applied.
+    listGoogleVideoPlansForUser(supabase, user.id).catch((): GoogleVideoPlan[] => []),
     supabase
       .from("google_ads_accounts")
       .select("id, account_name, google_customer_id")
@@ -66,7 +76,7 @@ export default async function GoogleAdsPlansPage() {
     <>
       <PageHeader
         title="Google Ads"
-        description="Search-side plan trees per event. Import a J2-style xlsx to seed a draft, or build one from scratch."
+        description="Search and YouTube video plans per event. Import a build sheet to seed a draft, or build a Search plan from scratch."
         actions={<GoogleSearchPlanActions accounts={accounts} events={events} />}
       />
       <main className="flex-1 px-6 py-6">
@@ -136,6 +146,64 @@ export default async function GoogleAdsPlansPage() {
                 </tbody>
               </table>
             </div>
+          )}
+          {videoPlans.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                YouTube video plans
+              </h2>
+              <div className="overflow-hidden rounded-md border border-border bg-card">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Linked event</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Daily budget</th>
+                      <th className="p-3">Updated</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {videoPlans.map((plan) => {
+                      const event = plan.event_id ? eventsById.get(plan.event_id) : null;
+                      return (
+                        <tr key={plan.id} className="border-t border-border">
+                          <td className="p-3 font-medium">{plan.name}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {event
+                              ? `${event.name}${event.event_code ? ` (${event.event_code})` : ""}`
+                              : "—"}
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                VIDEO_STATUS_BADGE[plan.status]
+                              }`}
+                            >
+                              {plan.status}
+                            </span>
+                          </td>
+                          <td className="p-3 text-muted-foreground">
+                            {plan.daily_budget != null ? `£${plan.daily_budget.toFixed(2)}` : "—"}
+                          </td>
+                          <td className="p-3 text-muted-foreground">
+                            {new Date(plan.updated_at).toLocaleDateString("en-GB")}
+                          </td>
+                          <td className="p-3 text-right">
+                            <Link href={`/google-video/${plan.id}`}>
+                              <Button variant="outline" size="sm">
+                                Open plan
+                              </Button>
+                            </Link>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           )}
         </div>
       </main>

@@ -54,12 +54,17 @@ npm run lint     # ESLint
 | `/plan/[id]` | Campaign **canvas** — one screen, seven zones (header · window · budget · target · three channel rows · assets · one `⏸ Launch`), one button. Everything not one of the three adjustable inputs is a badge or is derived. Row `open ▸` opens a `Drawer` (`?drawer=f\|tt\|g`). See `docs/CAMPAIGN_CREATOR_REDESIGN_2026-09-04.md` §2 |
 | `/tiktok-campaign/[id]` | Standalone TikTok draft — same TikTok `Drawer` (`variant="page"`), plus Launch |
 | `/google-search/[id]` | Standalone Google Search tree — same Google `Drawer` (`variant="page"`), plus Push |
+| `/google-video/[id]` | YouTube video plan: Settings → Targeting → Placements → Ads → Review. Review downloads a Google Ads Editor CSV. No Google API writes. See "Google video plans" below |
 | `/d2c/brief-ingest` | Upload a PDF (or paste text) brief → background parse into a scheduled D2C campaign |
 | `/d2c/event/[id]` | D2C orchestration: resolved artwork, WhatsApp community URL paste, per-send Matas approval |
 | `/l/[clientSlug]/[eventSlug]` | Public fan-facing event landing page (Supreme renderer) |
 | `/business-managers` | Operator BM Asset Sync tool: enumerate client Business Manager pages, flag missing access, one-click ADVERTISER grants. Auth = operator session + allowlist (NOT the client `/admin/*` namespace). See migration 145 |
 | `/admin/login` + `/admin/auth/callback` | CLIENT dashboard magic-link login (OP909 — distinct from operator `/login`) |
 | `/admin/[clientSlug]/*` | Client self-service dashboard: pages, fans, insights, integrations, settings. Auth = session + `client_users` membership + slug match (403 on mismatch). See `docs/ADMIN_DASHBOARD_ARCHITECTURE.md` |
+
+### Google video plans
+
+The Google Ads API can read and report on Video campaigns, but it cannot create or change them ([Video campaigns, API limitations](https://developers.google.com/google-ads/api/docs/video/overview)). So a YouTube video plan is never pushed. The import (`POST /api/google-search/import`, `detectWorkbookKind` → `video`, `lib/google-video/xlsx-import.ts`) stores it in migration 190's `google_video_*` tables. Review (`lib/google-video/validation.ts`) gates `POST /api/google-video/[id]/export`, which returns a Google Ads Editor CSV (`lib/google-video/editor-export.ts`) and sets `status = 'exported'` and `exported_at`. The operator imports the CSV in Editor (Get recent changes → Account → Import → From file → review → Post). Every column header comes from Editor's [CSV file columns](https://support.google.com/google-ads/editor/answer/57747) page. Frequency cap, content exclusions, ad schedule and the other settings the CSV has no column for are listed on Review to set by hand in Editor. Connected TV is excluded (TV screen bid adjustment -100%) unless the operator opts in.
 
 ### WhatsApp community button URL
 
@@ -463,7 +468,7 @@ ENABLE_LEARNING_REFRESH=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns). Unapplied — Matas applies. Before it: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default

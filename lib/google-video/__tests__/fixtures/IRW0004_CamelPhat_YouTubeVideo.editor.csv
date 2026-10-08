@@ -1,0 +1,22 @@
+﻿Campaign,Campaign Type,Campaign Status,Budget,Bid Strategy Type,Networks,Languages,Start Date,End Date,TV Screen Bid Modifier,Location,Location ID,Bid adjustment,Type,Ad Group,Ad Group Type,Ad Group Status,Max CPV,Placement,Ad Name,Video ID,Headline,Long headline,Description,Call to action,Final URL,Display URL,Status
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,Video,Enabled,8.80,Manual CPV,YouTube Search;YouTube Videos,en,2026-10-09,2026-10-24,-100%,,,,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,,,,,,,,,,United Kingdom,2826,,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,,,,,,,,,,London,1006886,+25%,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,,,,,,,,,,South East England,9049069,+15%,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,,,,,,,,,,,,,,V1 In-stream,In-stream,Enabled,0.03,,,,,,,,,,
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,,,,,,,,,,,,,,V1 In-stream,,,,https://www.youtube.com/watch?v=Q-gTWjK62vw,,,,,,,,,Enabled
+[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag,,,,,,,,,,,,,,V1 In-stream,,,,,Ad 2 — full recap,ozh-w-EBw58,See It Yourself,"See inside London's new 7,000-cap venue. CamelPhat, Sat 24 Oct. Last show with tickets.","7,000-cap warehouse and Thames terrace. Tickets from £44.50.",Buy Now,https://www.ironworks.london/event/camelphat?utm_source=youtube&utm_medium=video&utm_campaign=irw0004_camelphat_video&utm_content={placement},ironworks.london,Enabled
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),Video,Paused,8.80,Manual CPV,YouTube Search;YouTube Videos,en,2026-10-09,2026-10-24,-100%,,,,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,United Kingdom,2826,,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,London,1006886,+25%,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,South East England,9049069,+15%,,,,,,,,,,,,,,,
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,In-stream,Paused,0.03,,,,,,,,,,
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@Mixmag,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@defected,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@Cercle,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@boilerroom,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@anjunadeep,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@ToolroomRecords,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@DJMag,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,https://www.youtube.com/@ironworkslondon,,,,,,,,,Paused
+[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED),,,,,,,,,,,,,,V2 In-stream,,,,,Ad 2 — full recap,ozh-w-EBw58,See It Yourself,"See inside London's new 7,000-cap venue. CamelPhat, Sat 24 Oct. Last show with tickets.","7,000-cap warehouse and Thames terrace. Tickets from £44.50.",Buy Now,https://www.ironworks.london/event/camelphat?utm_source=youtube&utm_medium=video&utm_campaign=irw0004_camelphat_video&utm_content={placement},ironworks.london,Enabled

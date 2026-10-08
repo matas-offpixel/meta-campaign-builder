@@ -10,6 +10,7 @@ import {
   googleAdsAccountPickerOptions,
   googleSearchEventPickerOptions,
 } from "@/lib/google-ads/account-picker-options";
+import { WORKBOOK_KIND_LABELS, type GoogleWorkbookKind } from "@/lib/google-search/workbook-kind-labels";
 
 type StructureMode = "single_campaign" | "campaign_per_theme";
 
@@ -23,7 +24,8 @@ interface PlanActionsProps {
  *
  *  1. "New plan" → POST /api/google-search → redirect to wizard
  *  2. "Import xlsx" → POST /api/google-search/import (Phase 1 route)
- *     → redirect to wizard with imported tree
+ *     → the Search wizard, or /google-video/[id] for a YouTube video
+ *     build sheet. The detected plan type shows under the controls.
  *
  * Both are intentionally chrome-light — the wizard's Plan Setup step
  * collects the event link / ads account / name once you're inside.
@@ -35,6 +37,7 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detected, setDetected] = useState<GoogleWorkbookKind | null>(null);
   const [eventId, setEventId] = useState<string>("");
   const [accountId, setAccountId] = useState<string>("");
   const [structureMode, setStructureMode] = useState<StructureMode>("single_campaign");
@@ -68,6 +71,7 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
 
   async function handleImport(file: File) {
     setError(null);
+    setDetected(null);
     setImporting(true);
     try {
       const form = new FormData();
@@ -77,14 +81,15 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
       form.set("structure_mode", structureMode);
       const res = await fetch("/api/google-search/import", { method: "POST", body: form });
       const json = (await res.json().catch(() => null)) as
-        | { ok: true; plan_id: string; summary?: { campaigns: number } }
-        | { ok: false; error: string }
+        | { ok: true; kind?: GoogleWorkbookKind; plan_id: string }
+        | { ok: false; kind?: GoogleWorkbookKind; error: string }
         | null;
+      setDetected(json?.kind ?? null);
       if (!json || !json.ok) {
         setError((json && !json.ok && json.error) || "Failed to import xlsx.");
         return;
       }
-      router.push(`/google-search/${json.plan_id}`);
+      router.push(json.kind === "video" ? `/google-video/${json.plan_id}` : `/google-search/${json.plan_id}`);
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -149,6 +154,9 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
           />
         </div>
       </div>
+      {detected && (
+        <p className="text-xs text-muted-foreground">Detected: {WORKBOOK_KIND_LABELS[detected]}</p>
+      )}
       {error && (
         <p className="text-xs text-destructive" role="alert">
           {error}
