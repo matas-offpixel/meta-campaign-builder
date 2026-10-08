@@ -1,0 +1,16 @@
+﻿Campaign,Campaign Type,Networks,Budget,Budget type,EU political ads,Languages,Bid Strategy Type,Start Date,End Date,Ad Group,Target CPV,Ad Group Type,ID,Location,Location type,Website,Final URL,Ad type,Ad Name,Video ID 1,Call to action 1,Call to action 2,Call to action 3,Call to action 4,Call to action 5,Headline 1,Headline 2,Headline 3,Headline 4,Headline 5,Long headline 1,Long headline 2,Long headline 3,Long headline 4,Long headline 5,Description 1,Description 2,Description 3,Description 4,Description 5,Business name,Campaign Status,Ad Group Status,Status
+"[IRW9999] Video, ""Quoted""",Video,YouTube Search;YouTube Videos;Video Partners,12.50,Daily,Doesn't have EU political ads,en;fr,Target CPV,2026-11-01,2026-11-10,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Enabled,,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,V1 In-stream,0.05,Responsive video,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Enabled,Enabled,
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,V1 In-stream,,,,,,www.youtube.com/channel/UCbDgBFAketcO26wz-pR6OKA,,,,,,,,,,,,,,,,,,,,,,,,,,Enabled,Enabled,Enabled
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,V1 In-stream,,,,,,www.youtube.com/watch?v=Q-gTWjK62vw,,,,,,,,,,,,,,,,,,,,,,,,,,Enabled,Enabled,Paused
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,V1 In-stream,,,,,,,https://example.com/event?utm_source=youtube,Responsive video ad,Lead,ozh-w-EBw58,Book now,Tickets,,,,Sat 24 Oct,Final release,Doors 14:00,,,"Tickets from £44.50, ""final release""",,,,,"Line one, line two",,,,,Example Venue,Enabled,Enabled,Enabled
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,V1 In-stream,,,,,,,https://example.com/other,Responsive video ad,"Held, complete",Q-gTWjK62vw,Go,,,,,,,,,,,,,,,,,,,,Example Venue,Enabled,Enabled,Paused
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,2826,United Kingdom,Country,,,,,,,,,,,,,,,,,,,,,,,,,,,Enabled,,Enabled
+"[IRW9999] Video, ""Quoted""",,,,,,,,,,,,,1006912,"Manchester, Manchester, England, United Kingdom",City,,,,,,,,,,,,,,,,,,,,,,,,,,,Enabled,,Enabled
+[IRW9999] Reserve,Video,YouTube Search;YouTube Videos;Video Partners,100.00,Campaign total,Doesn't have EU political ads,en;fr,Target CPV,2026-11-01,2026-11-10,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Paused,,
+[IRW9999] Reserve,,,,,,,,,,V2 In-stream,0.04,Responsive video,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,Paused,Paused,
+[IRW9999] Reserve,,,,,,,,,,V2 In-stream,,,,,,www.youtube.com/@Mixmag,,,,,,,,,,,,,,,,,,,,,,,,,,Paused,Paused,Paused
+[IRW9999] Reserve,,,,,,,,,,V2 In-stream,,,,,,,https://example.com/event?utm_source=youtube,Responsive video ad,Lead,ozh-w-EBw58,Book now,Tickets,,,,Sat 24 Oct,Final release,Doors 14:00,,,"Tickets from £44.50, ""final release""",,,,,"Line one, line two",,,,,Example Venue,Paused,Paused,Enabled
+[IRW9999] Reserve,,,,,,,,,,V2 In-stream,,,,,,,https://example.com/other,Responsive video ad,"Held, complete",Q-gTWjK62vw,Go,,,,,,,,,,,,,,,,,,,,Example Venue,Paused,Paused,Paused
+[IRW9999] Reserve,,,,,,,,,,,,,2826,United Kingdom,Country,,,,,,,,,,,,,,,,,,,,,,,,,,,Paused,,Enabled
+[IRW9999] Reserve,,,,,,,,,,,,,1006912,"Manchester, Manchester, England, United Kingdom",City,,,,,,,,,,,,,,,,,,,,,,,,,,,Paused,,Enabled

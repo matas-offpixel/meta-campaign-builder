@@ -12,7 +12,18 @@ import {
   describeEmptyGoogleSearchImport,
   parseGoogleSearchPlanXlsx,
 } from "@/lib/google-search/xlsx-import";
-import { detectWorkbookKindFromBuffer, videoWorkbookMessage } from "@/lib/google-search/workbook";
+import {
+  detectWorkbookKindFromBuffer,
+  tabsReadSuffix,
+  unknownWorkbookMessage,
+  type GoogleWorkbookDetection,
+} from "@/lib/google-search/workbook";
+import { createGoogleVideoPlanTreeFromDraft, defaultVideoBusinessName } from "@/lib/db/google-video-plans";
+import {
+  countDraftPlacements,
+  describeEmptyGoogleVideoImport,
+  parseGoogleVideoPlanXlsx,
+} from "@/lib/google-video/xlsx-import";
 
 /**
  * POST /api/google-search/import
@@ -20,8 +31,11 @@ import { detectWorkbookKindFromBuffer, videoWorkbookMessage } from "@/lib/google
  * Accepts a multipart upload of a Google Search plan xlsx (J2 Melodic
  * format), parses it into a draft tree, inserts the tree under the
  * authenticated user's account, and returns the new plan id + parser
- * warnings. A YouTube video build sheet (`detectWorkbookKind` → video)
- * is refused with 422 `{ kind: "video" }` before anything is parsed.
+ * warnings. `detectWorkbookKind` decides the importer first:
+ *   - video: the YouTube video importer; the plan opens at /google-video/[id].
+ *   - unknown: 422 with the tabs found and the tabs each kind needs.
+ *   - search: as before. "Parsed 0 campaigns" also names the tabs read.
+ * Every response carries `kind`.
  *
  * Form fields:
  *   - file                  required, xlsx binary
@@ -65,19 +79,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       : DEFAULT_STRUCTURE_MODE;
 
   let draft: ReturnType<typeof parseGoogleSearchPlanXlsx>;
+  let detected: GoogleWorkbookDetection;
   try {
     const buffer = new Uint8Array(await file.arrayBuffer());
-    const detected = detectWorkbookKindFromBuffer(buffer);
-    if (detected.kind === "video") {
+    detected = detectWorkbookKindFromBuffer(buffer);
+    if (detected.kind === "unknown") {
       return NextResponse.json(
         {
           ok: false,
           kind: detected.kind,
-          error: videoWorkbookMessage(detected.tabs),
+          error: unknownWorkbookMessage(detected.tabs),
           tabs: detected.tabs,
         },
         { status: 422 },
       );
+    }
+    if (detected.kind === "video") {
+      return importVideoPlan(supabase, user.id, buffer, {
+        planName: planNameOverride ?? file.name?.replace(/\.xlsx$/i, "") ?? null,
+        sourceFilename: file.name || null,
+        eventId,
+        googleAdsAccountId,
+      });
     }
     draft = parseGoogleSearchPlanXlsx(buffer, {
       fallbackPlanName: planNameOverride ?? file.name?.replace(/\.xlsx$/i, "") ?? undefined,
@@ -98,8 +121,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         ok: false,
-        error: describeEmptyGoogleSearchImport(draft.warnings),
+        kind: detected.kind,
+        error: `${describeEmptyGoogleSearchImport(draft.warnings)} ${tabsReadSuffix(detected)}`,
         warnings: draft.warnings,
+        tabs: detected.tabs,
       },
       { status: 422 },
     );
@@ -135,6 +160,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         ok: true,
+        kind: "search",
         plan_id,
         warnings: draft.warnings,
         summary: {
@@ -157,6 +183,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         ok: false,
+        error: `Insert failed: ${err instanceof Error ? err.message : "unknown error"}`,
+        warnings: draft.warnings,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function importVideoPlan(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  buffer: Uint8Array,
+  options: {
+    planName: string | null;
+    sourceFilename: string | null;
+    eventId: string | null;
+    googleAdsAccountId: string | null;
+  },
+): Promise<NextResponse> {
+  const draft = parseGoogleVideoPlanXlsx(buffer, {
+    fallbackPlanName: options.planName ?? undefined,
+    sourceFilename: options.sourceFilename,
+  });
+  const placements = countDraftPlacements(draft);
+  if (placements === 0) {
+    return NextResponse.json(
+      { ok: false, kind: "video", error: describeEmptyGoogleVideoImport(draft.tabs), warnings: draft.warnings, tabs: draft.tabs },
+      { status: 422 },
+    );
+  }
+  try {
+    draft.plan.business_name ??= await defaultVideoBusinessName(supabase, userId, options.eventId);
+    const { plan_id } = await createGoogleVideoPlanTreeFromDraft(supabase, userId, draft, {
+      event_id: options.eventId,
+      google_ads_account_id: options.googleAdsAccountId,
+    });
+    return NextResponse.json(
+      {
+        ok: true,
+        kind: "video",
+        plan_id,
+        warnings: draft.warnings,
+        summary: { campaigns: draft.campaigns.length, placements, ads: draft.ads.length },
+      },
+      { status: 200 },
+    );
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        kind: "video",
         error: `Insert failed: ${err instanceof Error ? err.message : "unknown error"}`,
         warnings: draft.warnings,
       },

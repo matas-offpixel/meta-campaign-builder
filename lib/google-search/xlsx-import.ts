@@ -50,7 +50,16 @@
 import * as XLSX from "xlsx";
 
 import { derivePlanDailyBudget, formatPounds } from "./budget.ts";
-import { headerKey, isKeywordsTab, isNegativesTab, sheetTokens } from "./workbook.ts";
+import {
+  cell,
+  headerKey,
+  isKeywordsTab,
+  isNegativesTab,
+  numericOrNull,
+  rawRows,
+  recordsFromRawRowsWithHeaderScan,
+  sheetTokens,
+} from "./workbook.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
   DEFAULT_PACING,
@@ -464,17 +473,6 @@ export function classifyCharOverflow(
   };
 }
 
-function cell(value: unknown): string {
-  if (value == null) return "";
-  return String(value).trim();
-}
-
-function numericOrNull(value: unknown): number | null {
-  if (value == null || value === "") return null;
-  const n = typeof value === "number" ? value : Number(String(value).replace(/[^0-9.\-]/g, ""));
-  return Number.isFinite(n) ? n : null;
-}
-
 // ─── Tab indexing ──────────────────────────────────────────────────────
 
 interface IndexedTabs {
@@ -538,11 +536,6 @@ export function readPlanTotalBudget(sheet: XLSX.WorkSheet | null): number | null
     if (value != null && value > 0) return value;
   }
   return null;
-}
-
-function rawRows(sheet: XLSX.WorkSheet | null): unknown[][] {
-  if (!sheet) return [];
-  return XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][];
 }
 
 // ─── Keywords tab ──────────────────────────────────────────────────────
@@ -713,41 +706,6 @@ function applyOverview(
       numericOrNull(row.monthlybudget ?? row.budget) ?? campaign.monthly_budget;
     campaign.notes = cell(row.notes) || campaign.notes;
   }
-}
-
-/**
- * Convert `rawRows` (header:1 aoa) into header-keyed records by locating
- * the first row containing every `requiredHeader`. Returns [] when no
- * header row is found. Headers are normalised via `headerKey()` for
- * tolerant matching downstream.
- */
-function recordsFromRawRowsWithHeaderScan(
-  raw: unknown[][],
-  requiredHeaders: string[],
-): Record<string, unknown>[] {
-  if (raw.length === 0) return [];
-  let headerIdx = -1;
-  for (let i = 0; i < raw.length; i += 1) {
-    const keys = (raw[i] ?? []).map((c) => headerKey(c));
-    if (requiredHeaders.every((h) => keys.includes(headerKey(h)))) {
-      headerIdx = i;
-      break;
-    }
-  }
-  if (headerIdx < 0) return [];
-  const headerKeys = (raw[headerIdx] ?? []).map((c) => headerKey(c));
-  const records: Record<string, unknown>[] = [];
-  for (let i = headerIdx + 1; i < raw.length; i += 1) {
-    const row = raw[i] ?? [];
-    if (row.every((c) => c == null || c === "")) continue;
-    const record: Record<string, unknown> = {};
-    for (let j = 0; j < headerKeys.length; j += 1) {
-      const key = headerKeys[j];
-      if (key) record[key] = row[j];
-    }
-    records.push(record);
-  }
-  return records;
 }
 
 function extractPlanNameFromOverview(sheet: XLSX.WorkSheet | null): string | null {
