@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createClient } from "@/lib/supabase/server";
 import {
+  linkEventGoogleAdsAccountIfUnset,
   loadGoogleSearchPlanTree,
   setGoogleSearchAdGroupResource,
   setGoogleSearchCampaignResource,
@@ -238,6 +239,15 @@ export async function POST(
       launchPaused: launchPaused.value,
       confirmStart: confirmStart.value,
     });
+    if (summary.ok && tree.plan.event_id) {
+      try {
+        await linkEventGoogleAdsAccountIfUnset(supabase, tree.plan.event_id, tree.plan.google_ads_account_id);
+      } catch (err) {
+        console.error(
+          `[google-search-push] event ${tree.plan.event_id} account link failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     return NextResponse.json(summary, { status: summary.ok ? 200 : 207 });
   } catch (err) {
     return NextResponse.json(

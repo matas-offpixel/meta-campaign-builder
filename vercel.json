@@ -104,6 +104,10 @@
     {
       "path": "/api/cron/learning-refresh",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/google-ads-daily-insights",
+      "schedule": "0 4 * * *"
     }
   ]
 }

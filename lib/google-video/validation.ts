@@ -13,6 +13,7 @@
 
 import { derivePlanDailyBudget, inclusiveDays } from "../google-search/budget.ts";
 import { headerKey } from "../google-search/header-key.ts";
+import { NO_LOCATIONS_MESSAGE } from "../google-search/validation.ts";
 import { editorLocation } from "./locations.ts";
 import {
   AD_COPY_SLOTS,
@@ -35,6 +36,7 @@ export interface VideoReviewIssue {
     | "no_budget"
     | "total_budget_no_end_date"
     | "no_business_name"
+    | "no_locations"
     | "location_not_in_file"
     | "ad_over_limit"
     | "placement_unparseable"
@@ -229,6 +231,9 @@ export function reviewGoogleVideoPlan(tree: VideoTreeLike, today: string): Video
   }
   if (!plan.business_name?.trim()) {
     blockers.push({ code: "no_business_name", message: "No business name. Every responsive video ad needs one; set it in Settings." });
+  }
+  if (!plan.geo_targets.some((geo) => !geo.negative && editorLocation(geo.name))) {
+    blockers.push({ code: "no_locations", message: NO_LOCATIONS_MESSAGE });
   }
   for (const geo of plan.geo_targets) {
     if (geo.negative || editorLocation(geo.name)) continue;
