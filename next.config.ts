@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
+import { MML_LEGACY_REDIRECTS } from "./lib/plan/mml-routes";
+
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@remotion/renderer", "@remotion/bundler", "remotion"],
+  async redirects() {
+    return MML_LEGACY_REDIRECTS.map((rule) => ({ ...rule }));
+  },
   // The Remotion serve bundle is generated at build time into .remotion/bundle
   // (see scripts/bundle-remotion.ts + the `prebuild` hook in package.json).
   // Next can't statically trace `path.join(process.cwd(), ".remotion/bundle")`

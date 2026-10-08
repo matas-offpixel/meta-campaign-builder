@@ -663,7 +663,7 @@ describe("LAUNCH review round 1 — surface wiring", () => {
   it("header identity is planIdentityMetaId; ⓘ names the client default", () => {
     const header = readFileSync("components/plan/canvas-header.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(header, /planIdentityMetaId/);
     assert.match(header, /draftAdAccountId: launchedMeta.draftAdAccountId/);
     assert.match(header, /formatIdentitySentence/);
@@ -809,9 +809,9 @@ describe("LAUNCH review round 1 — surface wiring", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     assert.match(workspace, /blockerCounts=\{planPreflightBlockerCounts\(issues\)\}/);
     assert.match(workspace, /blockerCount: planPreflightBlockerCount\(issues\)/);
-    assert.match(workspace, /blockerItems=\{launchBlockerRows\(issues\)\}/);
+    assert.match(workspace, /blockerGroups=\{launchBlockerGroups\(issues\)\}/);
     const launch = readFileSync("components/plan/canvas-launch.tsx", "utf8");
-    assert.match(launch, /PlanBlockerItems/);
+    assert.match(launch, /PlanBlockerGroups/);
     const frames = readFileSync("components/plan/plan-frame-mount.tsx", "utf8");
     assert.doesNotMatch(frames, /blockerItems/);
     assert.doesNotMatch(frames, /onOpenBlocker/);

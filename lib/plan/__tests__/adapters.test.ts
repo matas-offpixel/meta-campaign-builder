@@ -9,7 +9,7 @@ import { collectTikTokLaunchPreflight } from "../../tiktok/write/preflight.ts";
 import { planToGoogleDraft } from "../adapters/google.ts";
 import { planToMetaDraft } from "../adapters/meta.ts";
 import { mapIntentToTikTokObjective, planToTikTokDraft } from "../adapters/tiktok.ts";
-import { collectPlanPreflight } from "../preflight.ts";
+import { collectPlanPreflight, scopedGoogleIssueMessage } from "../preflight.ts";
 import {
   IDLE_PLAN_LAUNCH,
   type CampaignPlan,
@@ -164,7 +164,7 @@ describe("plan-level preflight reuses platform validators", () => {
       planMessages("google", true),
       google
         .filter((i) => i.severity === "error")
-        .map((i) => (i.scope ? `${i.scope}: ${i.message}` : i.message))
+        .map((i) => scopedGoogleIssueMessage(i.scope, i.message))
         .sort(),
     );
     assert.equal(result.ok, false);

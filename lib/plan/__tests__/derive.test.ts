@@ -569,8 +569,8 @@ describe("plan page guards (extends #852)", () => {
   it("plan pages still grow no targeting, account-picker or upload UI", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "app/(dashboard)/plans/page.tsx",
-      "app/(dashboard)/plan/[id]/page.tsx",
+      "app/(dashboard)/mml/page.tsx",
+      "app/(dashboard)/mml/[id]/page.tsx",
       "components/plan/canvas-window.tsx",
       "components/library/campaign-library-picker.tsx",
       "components/library/plan-library.tsx",

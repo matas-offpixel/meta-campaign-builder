@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { PlanBlockerItems } from "@/components/plan/blocker-items";
+import { PlanBlockerGroups } from "@/components/plan/blocker-items";
 import { FunnelStageBar } from "@/components/viz/funnel-stage-bar";
 import { InfoTip } from "@/components/viz/info-tip";
 import { joinInfoTips, PLAN_CANVAS_COPY, type PlanLaunchButtonModel } from "@/lib/plan/canvas";
@@ -9,19 +9,21 @@ import {
   LAUNCH_INFO_VARIANT,
   formatLaunchCreatesLine,
   launchControlsVisible,
+  type LaunchBlockerGroup,
 } from "@/lib/plan/launch-face";
 import type { PlanAdapterName } from "@/lib/plan/types";
 import { WIZARD_ACTIVE_VS_PLAN_PAUSED } from "@/lib/plan/schedule";
 import type { EventFunnelStage } from "@/lib/dashboard/event-funnel";
-import type { BlockerAnchor, BlockerRowModel } from "@/lib/viz/blockers";
+import type { BlockerAnchor } from "@/lib/viz/blockers";
 import { platformSharePercents, proportionalBarWidths } from "@/lib/viz/funnel-scale";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 /**
- * Zone G — can I go. One button. `Launch` is enabled only when preflight
- * has no blockers; once the platforms hold paused campaigns the same
- * button becomes `Resume n`, because launching twice is the mistake this
- * screen exists to prevent.
+ * MML ⑦ — can I go. One button. `Launch all (paused)` is enabled only when
+ * preflight has no blockers; once the platforms hold paused campaigns the
+ * same button becomes `Resume n`, because launching twice is the mistake
+ * this screen exists to prevent. Blockers sit under the button, grouped
+ * by channel.
  *
  * The funnel stack appears only in LIVE. The tickets stage stays dashed
  * until manual entry lands — `FunnelStageBar` renders `not instrumented`
@@ -36,7 +38,7 @@ export function CanvasLaunch({
   role = "operator",
   readyAdapters = [],
   blockerSentence = null,
-  blockerItems = [],
+  blockerGroups = [],
   onOpenBlocker,
   preflightSettled = true,
 }: {
@@ -48,8 +50,8 @@ export function CanvasLaunch({
   role?: "operator" | "client";
   readyAdapters?: PlanAdapterName[];
   blockerSentence?: string | null;
-  /** Count is the heading; items sit under it. Omitted on frames. */
-  blockerItems?: readonly BlockerRowModel[];
+  /** Count is the heading; channel groups sit under it. Omitted on frames. */
+  blockerGroups?: readonly LaunchBlockerGroup[];
   onOpenBlocker?: (anchor: BlockerAnchor) => void;
   /** First preflight response has arrived — until then, nothing beside the button. */
   preflightSettled?: boolean;
@@ -91,27 +93,18 @@ export function CanvasLaunch({
         </div>
       ) : null}
 
-      <div className="flex items-center justify-end gap-1.5">
-        {!preflightSettled ? null : fanoutOff ? (
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{PLAN_CANVAS_COPY.fanoutOff}</span>
-        ) : button.kind === "launch" && !button.disabled && readyAdapters.length > 0 ? (
-          <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-            {formatLaunchCreatesLine(readyAdapters)}
-          </span>
-        ) : button.kind === "launch" && button.disabled ? (
-          onOpenBlocker ? (
-            <div className="min-w-0 space-y-1 text-right">
-              <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-                {blockerSentence}
-              </span>
-              <PlanBlockerItems items={blockerItems} onOpenAnchor={onOpenBlocker} />
-            </div>
-          ) : (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="min-w-0 flex-1">
+          {!preflightSettled ? null : fanoutOff ? (
+            <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{PLAN_CANVAS_COPY.fanoutOff}</span>
+          ) : button.kind === "launch" && !button.disabled && readyAdapters.length > 0 ? (
             <span className={`${VIZ_TYPE.label} text-muted-foreground`}>
-              {blockerSentence}
+              {formatLaunchCreatesLine(readyAdapters)}
             </span>
-          )
-        ) : null}
+          ) : button.kind === "launch" && button.disabled ? (
+            <span className={`${VIZ_TYPE.label} text-muted-foreground`}>{blockerSentence}</span>
+          ) : null}
+        </div>
         {tip ? <InfoTip variant={LAUNCH_INFO_VARIANT} label={tip} /> : null}
         {!controls.launch || button.kind === "none" ? null : (
           <Button
@@ -123,6 +116,9 @@ export function CanvasLaunch({
           </Button>
         )}
       </div>
+      {preflightSettled && button.kind === "launch" && onOpenBlocker ? (
+        <PlanBlockerGroups groups={blockerGroups} onOpenAnchor={onOpenBlocker} />
+      ) : null}
     </section>
   );
 }

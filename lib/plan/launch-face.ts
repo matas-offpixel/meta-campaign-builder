@@ -461,6 +461,52 @@ export function launchBlockerRows(issues: readonly PlanPreflightIssue[]): Blocke
   }));
 }
 
+export interface LaunchBlockerGroup {
+  adapter: PlanAdapterName;
+  label: string;
+  /** Distinct blockers; `full` carries `(×n)` when the same cure repeats. */
+  rows: BlockerRowModel[];
+  /** Every blocker in the channel, repeats included — matches the channel card count. */
+  count: number;
+}
+
+const LAUNCH_BLOCKER_GROUP_ORDER: readonly PlanAdapterName[] = ["meta", "tiktok", "google"];
+
+/**
+ * The launch blockers, one group per channel, so the list under Launch
+ * reads by channel instead of one long column. The same message on five
+ * creatives is one row with `(×5)`.
+ */
+export function launchBlockerGroups(issues: readonly PlanPreflightIssue[]): LaunchBlockerGroup[] {
+  const blockers = collectPlanPreflightBlockers(issues);
+  return LAUNCH_BLOCKER_GROUP_ORDER.flatMap((adapter) => {
+    const mine = blockers.filter((issue) => issue.adapter === adapter);
+    if (mine.length === 0) return [];
+    const byMessage = new Map<string, { row: BlockerRowModel; n: number }>();
+    for (const issue of mine) {
+      const key = issue.message.trim();
+      const seen = byMessage.get(key);
+      if (seen) {
+        seen.n += 1;
+        continue;
+      }
+      byMessage.set(key, {
+        row: {
+          ...blockerRowFromIssue(issue),
+          kind: "blocker" as const,
+          href: issue.href ?? null,
+          anchor: anchorForIssue(issue),
+        },
+        n: 1,
+      });
+    }
+    const rows = [...byMessage.values()].map(({ row, n }) =>
+      n > 1 ? { ...row, full: `${row.full} (×${n})` } : row,
+    );
+    return [{ adapter, label: VIZ_PLATFORM_LABEL[adapter], rows, count: mine.length }];
+  });
+}
+
 export function formatYouSetThis(differs: boolean): string | null {
   return differs ? "you set this" : null;
 }

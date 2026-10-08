@@ -41,6 +41,7 @@ import { derivePlanName } from "@/lib/plan/plan-name";
 import { patchBudgetSchedule } from "@/lib/wizard/budget-schedule-update";
 import { useCampaignDraft } from "@/lib/wizard/use-campaign-draft";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 
 interface WizardShellProps {
   draftId: string;
@@ -52,7 +53,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
   const router = useRouter();
   const [step, setStep] = useState<WizardStep>(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
-  /** One loader, one autosave, shared with the drawer on `/plan/[id]`. */
+  /** One loader, one autosave, shared with the drawer on `/mml/[id]`. */
   const draftController = useCampaignDraft(draftId);
   const {
     draft,
@@ -563,7 +564,7 @@ export function WizardShell({ draftId, linkedPlan = null }: WizardShellProps) {
         launching={launching}
         launchCooldownLabel={launchCooldown.label}
         showLaunch={!linkedPlan}
-        planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
+        planHref={linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
         onBack={handleBack}
         onContinue={handleContinue}
         onSaveDraft={handleSaveDraft}

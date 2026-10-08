@@ -25,6 +25,7 @@ import {
   saveTikTokTemplateToDb,
 } from "@/lib/db/tiktok-templates";
 import type { LinkedPlanSummary } from "@/lib/plan/linked-plan";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { createClient } from "@/lib/supabase/client";
 import {
   resolveTikTokDraftIdentityBcIdOnLoad,
@@ -318,7 +319,7 @@ export function TikTokWizardShell({
           validationErrors={validationErrors}
           saveStatus={saveStatus}
           showLaunch={false}
-          planHref={linkedPlan ? `/plan/${linkedPlan.id}` : null}
+          planHref={linkedPlan ? mmlPlanHref(linkedPlan.id) : null}
           onBack={handleBack}
           onContinue={handleContinue}
           onSaveDraft={() => {

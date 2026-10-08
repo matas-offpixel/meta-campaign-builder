@@ -248,8 +248,8 @@ export default async function PlansPage() {
       <PageHeader
         title={
           <span className="inline-flex items-center gap-2">
-            Plans
-            <InfoTip label="One set of inputs for Meta, TikTok, and Google. Everything launches paused." />
+            MML
+            <InfoTip label="Multi Media Launcher. One set of inputs for Meta, TikTok, and Google. Everything launches paused." />
           </span>
         }
         contentClassName={PLAN_SURFACE_MAX_WIDTH_CLASS}

@@ -127,7 +127,7 @@ describe("plan event picker filter and sort", () => {
 describe("plan event picker wiring vs parent sha", () => {
   it("workspace reuses Combobox and drops the native name-only select", () => {
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(workspace, /from "@\/components\/ui\/combobox"/);
     // The past-events checkbox is gone — the typeahead ranks them last.
     assert.doesNotMatch(workspace, /Show past events/);

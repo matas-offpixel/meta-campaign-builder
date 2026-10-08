@@ -36,6 +36,17 @@ export interface PlanPreflightIssue {
   href?: string;
 }
 
+/**
+ * Most Google validator messages already name their campaign or ad group
+ * (`Plan campaign: No daily budget resolved …`); prefixing the scope again
+ * printed it twice.
+ */
+export function scopedGoogleIssueMessage(scope: string | undefined, message: string): string {
+  const trimmed = scope?.trim();
+  if (!trimmed || message.includes(trimmed)) return message;
+  return `${trimmed}: ${message}`;
+}
+
 export function collectPlanPreflightBlockers(
   issues: readonly PlanPreflightIssue[],
 ): PlanPreflightIssue[] {
@@ -190,7 +201,7 @@ export function collectPlanPreflight(
       adapter: "google",
       id: `google:${issue.code}`,
       field: issue.code,
-      message: issue.scope ? `${issue.scope}: ${issue.message}` : issue.message,
+      message: scopedGoogleIssueMessage(issue.scope, issue.message),
       blocking: issue.severity === "error",
     });
   }

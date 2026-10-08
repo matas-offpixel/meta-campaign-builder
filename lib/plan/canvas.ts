@@ -241,7 +241,7 @@ export function planCanvasState(input: {
 
 export interface PlanLaunchButtonModel {
   /**
-   * `⏸ Launch`, `▷ Resume 3` once something is paused on-platform, or
+   * `Launch all (paused)`, `▷ Resume 3` once something is paused on-platform, or
    * `none` when a delivering plan has nothing left to press.
    */
   kind: "launch" | "resume" | "none";
@@ -309,7 +309,7 @@ export function planLaunchButton(input: {
               : null;
   return {
     kind: "launch",
-    label: "⏸ Launch",
+    label: PLAN_CANVAS_COPY.launchAll,
     disabled: reason != null,
     reason,
     resumeCount: 0,
@@ -417,6 +417,7 @@ export function joinInfoTips(...parts: Array<string | null | undefined | false>)
  * components the grep-guard scans for long literals.
  */
 export const PLAN_CANVAS_COPY = {
+  launchAll: "Launch all (paused)",
   fanoutOff: "Launch is switched off for this account",
   fanoutOffTip: "ENABLE_PLAN_FANOUT is not \"1\".",
   windowUnset: "set start and end",

@@ -4,6 +4,8 @@
  * adapter behaviour they already had — no silent shift on old rows.
  */
 
+import { mmlPlanHref } from "./mml-routes.ts";
+
 const TIME_HH_MM = /^(\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 /** Normalise a persisted or typed time to `HH:MM`, or null. */
@@ -69,7 +71,7 @@ export const TIKTOK_DEFAULT_END_HOUR = "21:00:00";
 export const PLAN_STEP2_HASH = "plan-step-2";
 
 export function planContinuationHref(planId: string): string {
-  return `/plan/${planId}#${PLAN_STEP2_HASH}`;
+  return `${mmlPlanHref(planId)}#${PLAN_STEP2_HASH}`;
 }
 
 export const WIZARD_ACTIVE_VS_PLAN_PAUSED =

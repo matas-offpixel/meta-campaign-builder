@@ -10,6 +10,7 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { GOOGLE_DRAWER_COPY, googleDetailRows, resolveDetailField } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
 import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
 
@@ -89,7 +90,7 @@ export function GoogleDrawerDetails({
           ))}
           {planId ? (
             <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
-              <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
+              <a className="text-muted-foreground underline" href={mmlPlanHref(planId)}>
                 canvas ↗
               </a>
             </div>
