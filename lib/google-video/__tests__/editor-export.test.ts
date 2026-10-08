@@ -238,6 +238,34 @@ describe("import char-limit warnings", () => {
     assert.equal(draft.campaigns[0].name, "[IRW0004] CP | Video");
   });
 
+  it("a ';' in a copy field warns, naming the ad and field", async () => {
+    const XLSX = await import("xlsx");
+    const { parseGoogleVideoPlanXlsx } = await import("../xlsx-import.ts");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Campaign", "Placement", "URL / ID", "Status"],
+        ["[IRW0004] CP | Video", "One", "https://youtu.be/Q-gTWjK62vw", "Enabled"],
+      ]),
+      "4 Placements",
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Ad", "Field", "Text"],
+        ["Ad A", "Description", "Sold out before; final release now"],
+        ["Ad A", "Headline", "Sat 24 Oct"],
+      ]),
+      "5 Ad Copy & Creative",
+    );
+    const draft = parseGoogleVideoPlanXlsx(new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" })));
+    assert.deepEqual(
+      draft.warnings.filter((w) => w.code === "ad_semicolon").map((w) => w.message),
+      ['Ad A: Description "Sold out before; final release now" contains ";". Editor reads ";" as a separator between values in one cell; replace it.'],
+    );
+  });
+
   it("no placements → 'Parsed 0 placements' with the tabs found", async () => {
     const { describeEmptyGoogleVideoImport } = await import("../xlsx-import.ts");
     assert.equal(

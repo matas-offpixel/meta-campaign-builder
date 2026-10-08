@@ -141,6 +141,7 @@ export interface GoogleVideoCampaignDraftNode extends Draft<GoogleVideoCampaign>
 export interface GoogleVideoImportWarning {
   code:
     | "ad_over_limit"
+    | "ad_semicolon"
     | "ad_video_not_a_link"
     | "placement_unparseable"
     | "location_skipped"

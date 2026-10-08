@@ -35,3 +35,4 @@ PR 3 of the Google launcher v2 arc. The Google Ads API cannot create or change V
 - Merge gate: Matas imports `lib/google-video/__tests__/fixtures/IRW0004_CamelPhat_YouTubeVideo.editor.csv` in Editor without posting. It must show zero errors.
 - On the CamelPhat sheet, the ads' Video cells hold titles, not links. The golden file links Ad 2 to `ozh-w-EBw58`, which the sheet's Summary names as the full recap. Ad 1's 15s cut isn't uploaded yet (checklist item 1), so the file leaves it out. In the app, Review blocks download until both enabled ads have a link.
 - Editor's CSV pages don't document the values for Bid Strategy Type, Ad Group Type, bid-modifier formats or YouTube placement URLs. Those are the import's real test.
+- Review round 1: PATCH loads the plan first (404 like PUT); the export route catches a failed status update (500); import warns when ad copy contains ";" (Editor value separator). Migration 190 applied to prod 2026-10-08. PR 4a uses 191.

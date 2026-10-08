@@ -335,6 +335,12 @@ export function parseGoogleVideoPlanXlsx(
           message: `${ad.name}: ${AD_FIELD_LABELS[field]} "${value}" is ${value.length} characters; the limit is ${AD_LIMITS[field]}.`,
         });
       }
+      if (value?.includes(";")) {
+        warnings.push({
+          code: "ad_semicolon",
+          message: `${ad.name}: ${AD_FIELD_LABELS[field]} "${value}" contains ";". Editor reads ";" as a separator between values in one cell; replace it.`,
+        });
+      }
     }
     return { ...ad, note, status };
   });

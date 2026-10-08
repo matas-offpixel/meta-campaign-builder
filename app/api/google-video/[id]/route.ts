@@ -72,6 +72,13 @@ export async function PATCH(
   if (!status || status === "exported" || !(VIDEO_PLAN_STATUSES as readonly string[]).includes(status)) {
     return NextResponse.json({ ok: false, error: 'status must be "draft" or "live".' }, { status: 400 });
   }
+  const { data: plan, error: loadError } = await supabase
+    .from("google_video_plans")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadError) return NextResponse.json({ ok: false, error: loadError.message }, { status: 500 });
+  if (!plan) return NextResponse.json({ ok: false, error: "Plan not found" }, { status: 404 });
   try {
     await setGoogleVideoPlanStatus(supabase, id, status);
   } catch (err) {

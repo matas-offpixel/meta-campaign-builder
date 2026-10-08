@@ -36,7 +36,14 @@ export async function POST(
 
   const csv = buildEditorCsv(tree);
   if (tree.plan.status === "draft") {
-    await setGoogleVideoPlanStatus(supabase, id, "exported");
+    try {
+      await setGoogleVideoPlanStatus(supabase, id, "exported");
+    } catch (err) {
+      return NextResponse.json(
+        { ok: false, error: err instanceof Error ? err.message : "Set status failed" },
+        { status: 500 },
+      );
+    }
   } else {
     const { error } = await supabase
       .from("google_video_plans")
