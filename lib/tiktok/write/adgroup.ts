@@ -51,9 +51,15 @@ export async function createTikTokAdGroup(
   args: CreateTikTokAdGroupArgs,
 ): Promise<{ adgroup_id: string }> {
   assertTikTokWritesEnabled();
+  return postTikTokAdGroupCreate(args, buildTikTokAdGroupWritePayload(args));
+}
 
-  const payload = buildTikTokAdGroupWritePayload(args);
-
+/** `/adgroup/create/` for a body that is already built (attach modes). */
+export async function postTikTokAdGroupCreate(
+  args: TikTokWriteContext,
+  payload: Record<string, BodyValue>,
+): Promise<{ adgroup_id: string }> {
+  assertTikTokWritesEnabled();
   const adgroupId = await withTikTokWriteIdempotency(
     args,
     "adgroup_create",

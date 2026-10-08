@@ -25,6 +25,21 @@ export interface TikTokCampaignDraft {
    * Stamp explicitly on launch so a published row is never inferred.
    */
   launchPaused?: boolean;
+  /**
+   * Where Launch writes. Absent or `"new"` creates a campaign (today's
+   * path). The attach modes never create, modify or delete an existing
+   * campaign or ad group. Draft JSON only — no migration.
+   */
+  launchMode?: TikTokLaunchMode;
+  /** Campaigns picked for `attach_campaign` / `attach_all_adgroups`, or the parents of `attachAdGroups`. */
+  attachCampaigns?: TikTokAttachCampaignSnapshot[];
+  /** Ad groups picked for `attach_adgroup`. May span campaigns. */
+  attachAdGroups?: TikTokAttachAdGroupSnapshot[];
+  /**
+   * `attach_campaign` only. Null inherits the most common pixel and
+   * event from each campaign's existing ad groups.
+   */
+  attachConversionOverride?: TikTokAttachConversionOverride | null;
   createdAt: string;
   updatedAt: string;
   /**
@@ -90,11 +105,67 @@ export type TikTokImportMeta = {
 };
 
 export interface TikTokPublishedIds {
+  /** Created campaign, or the first target campaign in an attach mode. */
   campaignId: string;
+  /** Ad groups this launch created. Never includes attach targets. */
   adgroupIds: string[];
   adIds: string[];
   /** ISO timestamp written on a successful launch. Omitted on older drafts. */
   launchedAt: string | null;
+  /** Absent on drafts launched before attach modes existed (= "new"). */
+  launchMode?: TikTokLaunchMode;
+  /** Every campaign the launch wrote into. Attach modes only. */
+  campaignIds?: string[];
+}
+
+export type TikTokLaunchMode =
+  | "new"
+  | "attach_campaign"
+  | "attach_adgroup"
+  | "attach_all_adgroups";
+
+export const TIKTOK_LAUNCH_MODES: readonly TikTokLaunchMode[] = [
+  "new",
+  "attach_campaign",
+  "attach_adgroup",
+  "attach_all_adgroups",
+];
+
+/** Captured at selection time from `/campaign/get/`. */
+export interface TikTokAttachCampaignSnapshot {
+  id: string;
+  name: string;
+  /** `operation_status`: ENABLE | DISABLE. */
+  status: string | null;
+  /** `objective_type`, e.g. WEB_CONVERSIONS. */
+  objectiveType: string | null;
+  /** `budget_mode`, e.g. BUDGET_MODE_DAY | BUDGET_MODE_INFINITE. */
+  budgetMode: string | null;
+  /** `budget_optimize_on`. TikTok omits the key unless it is true. */
+  budgetOptimizeOn: boolean;
+  /** `campaign_automation_type`: MANUAL | UPGRADED_SMART_PLUS. */
+  automationType: string | null;
+  adGroupCount: number | null;
+  capturedAt: string;
+}
+
+/** Captured at selection time from `/adgroup/get/`. */
+export interface TikTokAttachAdGroupSnapshot {
+  id: string;
+  name: string;
+  campaignId: string;
+  campaignName: string;
+  status: string | null;
+  optimizationGoal: string | null;
+  optimizationEvent: string | null;
+  pixelId: string | null;
+  automationType: string | null;
+  capturedAt: string;
+}
+
+export interface TikTokAttachConversionOverride {
+  pixelId: string;
+  optimisationEvent: string;
 }
 
 export interface TikTokAccountSetup {

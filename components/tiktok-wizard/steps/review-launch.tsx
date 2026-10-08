@@ -54,10 +54,10 @@ import {
   reviewScheduleFieldDisabled,
   shouldPersistReviewSchedule,
 } from "@/lib/tiktok-wizard/review-schedule";
-import {
-  collectTikTokLaunchPreflight,
-  type TikTokLaunchPreflightIssue,
-} from "@/lib/tiktok/write/preflight";
+import type { TikTokLaunchPreflightIssue } from "@/lib/tiktok/write/preflight";
+import { collectTikTokDraftLaunchPreflight } from "@/lib/tiktok/write/launch-preflight";
+import { tikTokAttachConfirmMessage } from "@/lib/tiktok/attach/summary";
+import { TikTokLaunchInto } from "@/components/tiktok-wizard/launch-into";
 import type {
   TikTokAdGroupDraft,
   TikTokCampaignDraft,
@@ -125,7 +125,7 @@ export function ReviewLaunchStep({
   });
   const adGroups = suggestTikTokAdGroups(draft);
   const wideningNotes = tikTokTargetingWideningNotes(draft.audiences);
-  const launchPreflight = collectTikTokLaunchPreflight(draft);
+  const launchPreflight = collectTikTokDraftLaunchPreflight(draft);
   const clientIssues = filterClientResolvableTikTokPreflightIssues(
     launchPreflight.issues,
     draft,
@@ -237,10 +237,12 @@ export function ReviewLaunchStep({
     }
   }
 
-  const launchConfirmMessage = tikTokLaunchConfirmMessage(
-    { ...draft, launchPaused },
-    { advertiserName: context?.advertiserName },
-  );
+  const launchConfirmMessage =
+    tikTokAttachConfirmMessage({ ...draft, launchPaused }) ??
+    tikTokLaunchConfirmMessage(
+      { ...draft, launchPaused },
+      { advertiserName: context?.advertiserName },
+    );
 
   async function persistLaunchPaused(paused: boolean) {
     setLaunchPaused(paused);
@@ -284,6 +286,9 @@ export function ReviewLaunchStep({
         adgroupIds: body.adgroup_ids,
         adIds: body.ad_ids,
         launchedAt: body.launched_at,
+        ...(body.launch_mode
+          ? { launchMode: body.launch_mode, campaignIds: body.campaign_ids ?? [] }
+          : {}),
       };
       await onSave({
         status: "published",
@@ -318,7 +323,11 @@ export function ReviewLaunchStep({
   return (
     <StepSurfaceProvider surface={surface}>
     <div className="space-y-6">
-      
+      <TikTokLaunchInto
+        draft={draft}
+        onSave={onSave}
+        disabled={alreadyLaunched || launch.status === "launching"}
+      />
 
       <button
         type="button"

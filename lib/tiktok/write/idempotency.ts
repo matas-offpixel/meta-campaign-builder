@@ -111,6 +111,24 @@ export async function clearTikTokWriteIdempotency(
   if (error) throw new Error(error.message);
 }
 
+/**
+ * Attach-mode rollback. Drops only the rows whose result is an object
+ * this run created and then deleted, so earlier launches into the same
+ * targets keep their ledger.
+ */
+export async function clearTikTokWriteIdempotencyForResults(
+  context: Pick<TikTokWriteContext, "supabase" | "draftId">,
+  resultIds: readonly string[],
+): Promise<void> {
+  if (resultIds.length === 0) return;
+  const { error } = await context.supabase
+    .from("tiktok_write_idempotency")
+    .delete()
+    .eq("draft_id", context.draftId)
+    .in("op_result_id", [...resultIds]);
+  if (error) throw new Error(error.message);
+}
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);

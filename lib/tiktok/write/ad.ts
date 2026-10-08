@@ -75,9 +75,15 @@ export async function createTikTokAd(
   args: CreateTikTokAdArgs,
 ): Promise<{ ad_id: string }> {
   assertTikTokWritesEnabled();
+  return postTikTokAdCreate(args, buildTikTokAdWritePayload(args));
+}
 
-  const payload = buildTikTokAdWritePayload(args);
-
+/** `/ad/create/` for a body that is already built (attach modes). */
+export async function postTikTokAdCreate(
+  args: TikTokWriteContext,
+  payload: Record<string, BodyValue>,
+): Promise<{ ad_id: string }> {
+  assertTikTokWritesEnabled();
   const adId = await withTikTokWriteIdempotency(args, "ad_create", payload, async () => {
     logTikTokAdCreateIdentityFields(payload);
     const res = await postTikTokWrite<CreateAdResponse>({

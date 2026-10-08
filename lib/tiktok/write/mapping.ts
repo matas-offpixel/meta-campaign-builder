@@ -601,8 +601,14 @@ export function buildTikTokAdGroupPayload(input: {
   campaignId: string;
   draft: TikTokCampaignDraft;
   adGroup: TikTokAdGroupDraft;
+  /**
+   * The parent campaign has `budget_optimize_on: true`. The campaign owns
+   * the budget, so `budget` and `budget_mode` are left off the ad group.
+   */
+  campaignBudgetOptimisation?: boolean;
 }): MappingResult<Record<string, BodyValue>> {
   const { draft, adGroup } = input;
+  const cbo = input.campaignBudgetOptimisation === true;
   const bidStrategy =
     draft.optimisation.bidStrategy ?? draft.campaignSetup.bidStrategy;
   const bidType = mapTikTokBidType(bidStrategy);
@@ -641,29 +647,35 @@ export function buildTikTokAdGroupPayload(input: {
   const promotion = mapTikTokPromotionType(draft.campaignSetup.objective);
   if (!promotion.ok) return promotion;
 
-  const budget = resolveTikTokAdGroupBudget(draft, adGroup);
-  if (budget == null) return missing("budget", "Ad group budget is required");
-  const floor = tikTokAdGroupBudgetFloor({
-    budgetMode: draft.budgetSchedule.budgetMode,
-    startAt,
-    endAt,
-    currency: draft.accountSetup.currency,
-  });
-  if (!floor.ok) return floor;
-  if (floor.value != null && budget < floor.value) {
-    const currency = (draft.accountSetup.currency ?? "").trim().toUpperCase() || "GBP";
-    return missing(
-      "budget",
-      `Ad group "${adGroup.name}" budget ${budget} is below TikTok's ${currency} minimum of ${floor.value} for ${draft.budgetSchedule.budgetMode} mode`,
-    );
+  const budget = cbo ? null : resolveTikTokAdGroupBudget(draft, adGroup);
+  if (!cbo) {
+    if (budget == null) return missing("budget", "Ad group budget is required");
+    const floor = tikTokAdGroupBudgetFloor({
+      budgetMode: draft.budgetSchedule.budgetMode,
+      startAt,
+      endAt,
+      currency: draft.accountSetup.currency,
+    });
+    if (!floor.ok) return floor;
+    if (floor.value != null && budget < floor.value) {
+      const currency = (draft.accountSetup.currency ?? "").trim().toUpperCase() || "GBP";
+      return missing(
+        "budget",
+        `Ad group "${adGroup.name}" budget ${budget} is below TikTok's ${currency} minimum of ${floor.value} for ${draft.budgetSchedule.budgetMode} mode`,
+      );
+    }
   }
 
   const payload: Record<string, BodyValue> = {
     advertiser_id: input.advertiserId,
     campaign_id: input.campaignId,
     adgroup_name: adGroup.name,
-    budget,
-    budget_mode: mapTikTokBudgetMode(draft.budgetSchedule.budgetMode),
+    ...(budget == null
+      ? {}
+      : {
+          budget,
+          budget_mode: mapTikTokBudgetMode(draft.budgetSchedule.budgetMode),
+        }),
     schedule_type: scheduleType.value,
     schedule_start_time: startTime.value,
     optimization_goal: goal.value,
