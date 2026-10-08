@@ -27,6 +27,11 @@ export type GoogleSearchPlanStatus = (typeof PLAN_STATUSES)[number];
 export const BIDDING_STRATEGIES = ["maximize_clicks", "manual_cpc"] as const;
 export type GoogleSearchBiddingStrategy = (typeof BIDDING_STRATEGIES)[number];
 
+/** Migration 188. Only `even` changes what push sends today. */
+export const PACING_MODES = ["even", "front_loaded", "phased"] as const;
+export type GoogleSearchPacing = (typeof PACING_MODES)[number];
+export const DEFAULT_PACING: GoogleSearchPacing = "even";
+
 /**
  * Campaign structure mode — how C-codes from the xlsx are mapped to
  * Google Ads campaigns.
@@ -98,6 +103,13 @@ export interface GoogleSearchPlan {
   name: string;
   status: GoogleSearchPlanStatus;
   total_budget: number | null;
+  /**
+   * `total_budget` ÷ inclusive days of `date_range`, 2dp (migration 188).
+   * Derived on save; null when either input is missing. Read-only in the
+   * wizard. See `lib/google-search/budget.ts`.
+   */
+  daily_budget: number | null;
+  pacing: GoogleSearchPacing;
   bidding_strategy: GoogleSearchBiddingStrategy;
   /**
    * Campaign structure mode. Set at import time (or at plan creation for
@@ -164,6 +176,12 @@ export interface GoogleSearchNegative {
   plan_id: string;
   /** null = plan-scoped (shared negative list); set = campaign-scoped. */
   campaign_id: string | null;
+  /**
+   * Set = this ad group only (migration 188). Always under `campaign_id`.
+   * Single-campaign mode writes these for negatives the sheet scoped to
+   * one source campaign.
+   */
+  ad_group_id?: string | null;
   keyword: string;
   match_type: GoogleSearchMatchType;
   reason: string | null;
@@ -262,15 +280,19 @@ export type GoogleSearchKeywordDraft = Omit<
 
 export type GoogleSearchNegativeDraft = Omit<
   GoogleSearchNegative,
-  "id" | "plan_id" | "campaign_id" | "pushed_resource_name" | "created_at"
+  "id" | "plan_id" | "campaign_id" | "ad_group_id" | "pushed_resource_name" | "created_at"
 > & {
   /**
    * Parser scope. The CRUD layer resolves this against the inserted
-   * campaign ids before writing the row.
+   * campaign / ad group ids before writing the row.
    *   - { scope: "plan" } → plan-scoped negative
    *   - { scope: "campaign", campaign_name: "..." } → maps to that campaign
+   *   - { scope: "ad_group", campaign_name, ad_group_name } → that ad group
    */
-  scope: { kind: "plan" } | { kind: "campaign"; campaign_name: string };
+  scope:
+    | { kind: "plan" }
+    | { kind: "campaign"; campaign_name: string }
+    | { kind: "ad_group"; campaign_name: string; ad_group_name: string };
 };
 
 export type GoogleSearchRsaDraft = Omit<
@@ -329,10 +351,9 @@ export interface GoogleSearchImportWarning {
      *  will need a `Default final URL` set in the wizard before push
      *  (Google Ads rejects RSAs without `finalUrls`). */
     | "missing_final_url"
-    /** In `single_campaign` mode, a campaign-scoped negative was promoted to
-     *  plan-scoped because all C-codes share one campaign and per-C-code
-     *  campaign-scope is meaningless. */
-    | "campaign_negative_promoted_to_plan"
+    /** In `single_campaign` mode, a campaign-scoped negative became an
+     *  ad-group negative on each ad group that came from that campaign. */
+    | "campaign_negative_to_ad_groups"
     /** Which Ad Copy shape was read: tall (one RSA copied onto every ad
      *  group) or wide (one row, attached to the named ad group). */
     | "rsa_layout"

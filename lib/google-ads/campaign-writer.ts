@@ -45,10 +45,17 @@
  * reporting layer's matcher scopes them. Plans without a linked
  * event push the campaign name as-is with a warning in the summary.
  *
+ * Budget: `resolveCampaignDailyBudgets` (campaign daily → monthly ÷ 30 →
+ * plan daily split → £5 last resort, which Review blocks).
+ *
  * Bidding:
  *  - `maximize_clicks` → `target_spend.cpc_bid_ceiling_micros` (the
  *    field name verified by the spike for the Maximise-Clicks
- *    strategy). Ceiling defaults to £2.00 (2,000,000 micros).
+ *    strategy). Ceiling = the campaign's `max_cpc_cap`, else £2.00.
+ *  - Ad-group `cpcBidMicros` = `default_cpc`, floored at 1p.
+ *
+ * Negatives are ad-group criteria: plan-scoped on every ad group,
+ * campaign-scoped on the campaign's ad groups, ad-group-scoped on one.
  *  - `manual_cpc` → `manualCpc: {}`. Untested by the spike — flagged
  *    in the launch summary warnings the first time it's used.
  */
@@ -85,6 +92,13 @@ import type {
   GoogleSearchSitelink,
 } from "../google-search/types.ts";
 import { collectPlanFinalUrlState } from "../google-search/final-url-state.ts";
+import {
+  FALLBACK_DAILY_BUDGET_POUNDS,
+  MIN_DAILY_BUDGET_MICROS,
+  poundsToMicros as poundsToMicrosShared,
+  resolveCampaignDailyBudgets,
+} from "../google-search/budget.ts";
+import { resolveAdGroupCpcMicros, resolveCpcCeilingMicros } from "../google-search/bids.ts";
 import { resolveGeoLocations, type GeoResolution } from "./geo-resolve.ts";
 import {
   formatGoogleSearchServingUrlBlocks,
@@ -95,12 +109,8 @@ import {
   type GoogleSearchEntityStatus,
 } from "./push-status.ts";
 
-// ─── Defaults (verified by the Phase 0 spike) ─────────────────────────
-
-const DEFAULT_DAILY_BUDGET_POUNDS = 5;
-const DEFAULT_CPC_CEILING_MICROS = 2_000_000; // £2.00 — safer default than the spike's £0.50
-const DEFAULT_AD_GROUP_CPC_MICROS = 250_000; // £0.25 — matches spike
-const MIN_DAILY_BUDGET_MICROS = 1_000_000; // £1.00 — Google's effective floor for GBP
+// Budgets, ceilings, and bids come from the client-safe helpers so Review
+// shows exactly what push sends.
 
 // Result types live in `./campaign-writer-types.ts` (client-safe).
 // Re-exported below so existing server-side imports keep working.
@@ -375,7 +385,7 @@ async function pushSingleCampaign(args: PushSingleCampaignArgs): Promise<void> {
   }
 
   // ── Triad step 1: campaign budget ─────────────────────────────────
-  const budgetOp = buildBudgetOp(campaign, args.customerId);
+  const budgetOp = buildBudgetOp(campaign, args.customerId, planTree);
   let budgetResource: string;
   try {
     const res = await client.mutate(credentials, "campaignBudgets", [budgetOp]);
@@ -724,7 +734,7 @@ async function pushAdGroupCriteria(args: PushCriteriaArgs): Promise<void> {
 
   // Filter out already-pushed rows (idempotency).
   const pendingKeywords = adGroup.keywords.filter((k) => !k.pushed_resource_name);
-  const negativeSources = collectNegativesForCampaign(planTree, campaign);
+  const negativeSources = collectNegativesForAdGroup(planTree, campaign, adGroup);
   const pendingNegatives = negativeSources.filter((n) => !n.pushed_resource_name);
 
   // Record reused ones immediately.
@@ -976,11 +986,17 @@ export function buildGeoCriterionOp(
   return { create };
 }
 
+/**
+ * `tree` supplies the plan daily budget for a campaign with none of its
+ * own. Without it only the campaign's own figures and the £5 last resort
+ * apply.
+ */
 export function buildBudgetOp(
   campaign: GoogleSearchCampaignNode,
   customerId: string,
+  tree?: Pick<GoogleSearchPlanTree, "plan" | "campaigns">,
 ): { create: Record<string, unknown> } {
-  const daily = resolveDailyBudgetMicros(campaign);
+  const daily = resolveDailyBudgetMicros(campaign, tree);
   return {
     create: {
       resourceName: `customers/${customerId}/campaignBudgets/-1`,
@@ -1039,7 +1055,8 @@ export function buildCampaignOp(args: {
     containsEuPoliticalAdvertising: "DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING",
   };
   if (biddingStrategy === "maximize_clicks") {
-    create.targetSpend = { cpcBidCeilingMicros: String(DEFAULT_CPC_CEILING_MICROS) };
+    const ceiling = resolveCpcCeilingMicros(campaign.bid_adjustments);
+    create.targetSpend = { cpcBidCeilingMicros: String(ceiling.micros) };
   } else {
     create.manualCpc = {};
   }
@@ -1053,10 +1070,7 @@ export function buildAdGroupOp(args: {
   status: GoogleSearchEntityStatus;
 }): { create: Record<string, unknown> } {
   const { adGroup, campaignResource, customerId, status } = args;
-  const cpcMicros =
-    adGroup.default_cpc != null
-      ? Math.max(MIN_DAILY_BUDGET_MICROS, Math.round(adGroup.default_cpc * 1_000_000))
-      : DEFAULT_AD_GROUP_CPC_MICROS;
+  const cpcMicros = resolveAdGroupCpcMicros(adGroup.default_cpc);
   return {
     create: {
       resourceName: `customers/${customerId}/adGroups/-3`,
@@ -1139,27 +1153,40 @@ export function prefixCampaignName(name: string, eventCode: string | null): stri
 }
 
 export function poundsToMicros(pounds: number): number {
-  return Math.round(pounds * 1_000_000);
+  return poundsToMicrosShared(pounds);
 }
 
-function resolveDailyBudgetMicros(campaign: GoogleSearchCampaignNode): number {
-  if (campaign.daily_budget != null && campaign.daily_budget > 0) {
-    return Math.max(MIN_DAILY_BUDGET_MICROS, poundsToMicros(campaign.daily_budget));
-  }
-  if (campaign.monthly_budget != null && campaign.monthly_budget > 0) {
-    const daily = campaign.monthly_budget / 30;
-    return Math.max(MIN_DAILY_BUDGET_MICROS, poundsToMicros(daily));
-  }
-  return poundsToMicros(DEFAULT_DAILY_BUDGET_POUNDS);
-}
-
-function collectNegativesForCampaign(
-  tree: GoogleSearchPlanTree,
+/**
+ * Order lives in `resolveCampaignDailyBudgets`. The £5 last resort stays,
+ * and Review hard-blocks any campaign that would reach it.
+ */
+export function resolveDailyBudgetMicros(
   campaign: GoogleSearchCampaignNode,
+  tree?: Pick<GoogleSearchPlanTree, "plan" | "campaigns">,
+): number {
+  const scope = tree ?? {
+    plan: { total_budget: null, daily_budget: null, date_range: null } as GoogleSearchPlanTree["plan"],
+    campaigns: [campaign],
+  };
+  const resolved = resolveCampaignDailyBudgets(scope).find((b) => b.campaignId === campaign.id);
+  return resolved?.micros ?? Math.max(MIN_DAILY_BUDGET_MICROS, poundsToMicros(FALLBACK_DAILY_BUDGET_POUNDS));
+}
+
+/**
+ * Negatives for one ad group: plan-scoped first, then the campaign's,
+ * then this ad group's own. Stable so the index → row mapping in
+ * pushAdGroupCriteria is deterministic.
+ */
+export function collectNegativesForAdGroup(
+  tree: Pick<GoogleSearchPlanTree, "plan_negatives">,
+  campaign: GoogleSearchCampaignNode,
+  adGroup: Pick<GoogleSearchAdGroupNode, "id">,
 ): GoogleSearchNegative[] {
-  // Order: plan-scoped first, then campaign-scoped. Stable so the
-  // index → row mapping in pushAdGroupCriteria is deterministic.
-  return [...tree.plan_negatives, ...campaign.negatives];
+  return [
+    ...tree.plan_negatives,
+    ...campaign.negatives.filter((n) => !n.ad_group_id),
+    ...campaign.negatives.filter((n) => n.ad_group_id === adGroup.id),
+  ];
 }
 
 function pinnedFieldForHeadline(position: 1 | 2 | 3): string {

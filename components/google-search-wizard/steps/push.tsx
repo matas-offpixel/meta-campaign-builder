@@ -16,9 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   hasHardErrors,
+  REVIEW_WARNING_CODES,
   validateGoogleSearchPlan,
 } from "@/lib/google-search/validation";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
+import { campaignPushPreview } from "@/lib/google-search/push-preview";
 import { updatePlan } from "@/lib/google-search/tree-mutations";
 import {
   googleAdsCampaignDeepLink,
@@ -49,7 +51,11 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
   const [confirmStart, setConfirmStart] = useState(false);
   const issues = validateGoogleSearchPlan(tree);
   const blocking = hasHardErrors(issues);
+  const reviewWarnings = issues.filter(
+    (i) => i.severity === "warning" && REVIEW_WARNING_CODES.has(i.code),
+  );
   const outcome = describeGoogleSearchPush(tree, launchPaused);
+  const preview = campaignPushPreview(tree);
   const startBlocks = launchPaused
     ? []
     : googleSearchLiveStartBlocks({
@@ -198,7 +204,46 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
           </div>
         )}
 
+        {reviewWarnings.length > 0 && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <StatusLine className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Check before pushing
+            </StatusLine>
+            <ul className="mt-2 space-y-1">
+              {reviewWarnings.map((issue, index) => (
+                <li key={`${issue.code}-${index}`}>{issue.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <Datum className="mt-5 text-sm text-foreground">{outcome}</Datum>
+
+        {preview.length > 0 && (
+          <ul className="mt-3 divide-y divide-border rounded-md border border-border text-xs">
+            {preview.map((row) => (
+              <li key={row.campaignId} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-3 py-2">
+                <Datum className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {row.campaignName}
+                  {!row.serves && <span className="ml-1 font-normal text-muted-foreground">(paused)</span>}
+                </Datum>
+                <Datum
+                  className={`tabular-nums ${row.source === "fallback" ? "text-destructive" : "text-foreground"}`}
+                >
+                  {row.daily}/day
+                  <span className="ml-1 text-muted-foreground">· {row.sourceLabel}</span>
+                </Datum>
+                {row.ceiling && (
+                  <Datum className="tabular-nums text-foreground">
+                    max CPC {row.ceiling}
+                    {!row.ceilingFromSheet && <span className="ml-1 text-muted-foreground">· default</span>}
+                  </Datum>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
 
         {startBlocks.length > 0 && (
           <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">

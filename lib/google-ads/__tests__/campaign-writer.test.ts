@@ -152,6 +152,8 @@ function tree(overrides: Partial<GoogleSearchPlanTree> = {}): GoogleSearchPlanTr
       name: "Junction 2 Melodic",
       status: "draft",
       total_budget: 500,
+      daily_budget: null,
+      pacing: "even",
       bidding_strategy: "maximize_clicks",
       structure_mode: "single_campaign",
       geo_targets: [],
@@ -793,6 +795,98 @@ describe("buildBudgetOp — daily_budget is the source of truth", () => {
     const op = buildBudgetOp(c, CUSTOMER_ID);
     // DEFAULT_DAILY_BUDGET_POUNDS = 5 → 5_000_000 micros
     assert.equal(op.create.amountMicros, String(5_000_000));
+  });
+
+  it("a campaign with no budget of its own takes the plan daily budget: £500 over 17 days → 29_410_000", () => {
+    const c = campaign({ daily_budget: null, monthly_budget: null });
+    const t = tree({ campaigns: [c] });
+    t.plan.total_budget = 500;
+    t.plan.date_range = { since: "2099-06-01", until: "2099-06-17" };
+    assert.equal(buildBudgetOp(c, CUSTOMER_ID, t).create.amountMicros, "29410000");
+  });
+
+  it("splits the plan daily budget evenly; an explicit campaign daily budget wins", () => {
+    const a = campaign({ id: "c-a", name: "C1 A", daily_budget: null, monthly_budget: null });
+    const b = campaign({ id: "c-b", name: "C2 B", daily_budget: null, monthly_budget: null });
+    const own = campaign({ id: "c-own", name: "C3 Own", daily_budget: 7, monthly_budget: null });
+    const t = tree({ campaigns: [a, b, own] });
+    t.plan.total_budget = 300;
+    t.plan.date_range = { since: "2099-06-01", until: "2099-06-10" };
+    // £30/day across 3 campaigns = £10 each; C3 keeps its own £7.
+    assert.equal(buildBudgetOp(a, CUSTOMER_ID, t).create.amountMicros, "10000000");
+    assert.equal(buildBudgetOp(b, CUSTOMER_ID, t).create.amountMicros, "10000000");
+    assert.equal(buildBudgetOp(own, CUSTOMER_ID, t).create.amountMicros, "7000000");
+  });
+});
+
+// ─── Payload snapshots: ceiling, bid, negatives (launcher v2 PR 1) ────
+
+describe("pushGoogleSearchPlan — CPC ceiling, ad-group bid, negatives", () => {
+  async function push(t: GoogleSearchPlanTree) {
+    const { client, calls } = makeFakeClient();
+    const summary = await pushGoogleSearchPlan({ tree: t, credentials: CREDS, eventCode: "IRW0004", client });
+    assert.equal(summary.ok, true, JSON.stringify(summary.campaignsFailed));
+    const creates = (resource: string) =>
+      calls
+        .filter((c) => c.resource === resource)
+        .flatMap((c) => c.operations.map((op) => (op as { create: Record<string, unknown> }).create));
+    return { calls, creates };
+  }
+
+  it("Maximise Clicks ceiling = the campaign's max CPC cap", async () => {
+    const { creates } = await push(tree({ campaigns: [campaign({ bid_adjustments: { max_cpc_cap: 0.8 } })] }));
+    assert.deepEqual(creates("campaigns")[0].targetSpend, { cpcBidCeilingMicros: "800000" });
+  });
+
+  it("ceiling falls back to £2.00 without a cap", async () => {
+    const { creates } = await push(tree());
+    assert.deepEqual(creates("campaigns")[0].targetSpend, { cpcBidCeilingMicros: "2000000" });
+  });
+
+  it("ad-group bid: default_cpc 0.7 → cpcBidMicros 700000 (no £1 budget floor on bids)", async () => {
+    const { creates } = await push(
+      tree({ campaigns: [campaign({ ad_groups: [adGroup({ default_cpc: 0.7 })] })] }),
+    );
+    assert.equal(creates("adGroups")[0].cpcBidMicros, "700000");
+  });
+
+  it("ad-group bid floor is 1p", async () => {
+    const { creates } = await push(
+      tree({ campaigns: [campaign({ ad_groups: [adGroup({ default_cpc: 0.001 })] })] }),
+    );
+    assert.equal(creates("adGroups")[0].cpcBidMicros, "10000");
+  });
+
+  it("an ad-group negative lands only on its ad group; plan and campaign negatives land on every ad group", async () => {
+    const agA = adGroup({ id: "ag-a", name: "C1 – Brand", keywords: [keyword({ id: "kw-a", ad_group_id: "ag-a", keyword: "camelphat tickets" })] });
+    const agB = adGroup({ id: "ag-b", name: "C4 – Conquest", keywords: [keyword({ id: "kw-b", ad_group_id: "ag-b", keyword: "fisher tickets" })] });
+    const t = tree({
+      plan_negatives: [negative({ id: "neg-plan", keyword: "free" })],
+      campaigns: [
+        campaign({
+          ad_groups: [agA, agB],
+          negatives: [
+            negative({ id: "neg-camp", campaign_id: "c-1", keyword: "jobs" }),
+            negative({ id: "neg-ag", campaign_id: "c-1", ad_group_id: "ag-a", keyword: "fisher", match_type: "BROAD" }),
+          ],
+        }),
+      ],
+    });
+    const { calls } = await push(t);
+    const criteria = calls.filter((c) => c.resource === "adGroupCriteria");
+    assert.equal(criteria.length, 2);
+    const negativesFor = (i: number) =>
+      criteria[i].operations
+        .map((op) => (op as { create: Record<string, unknown> }).create)
+        .filter((c) => c.negative === true)
+        .map((c) => (c.keyword as { text: string; matchType: string }).text);
+    assert.deepEqual(negativesFor(0), ["free", "jobs", "fisher"]);
+    assert.deepEqual(negativesFor(1), ["free", "jobs"]);
+    const fisher = criteria[0].operations
+      .map((op) => (op as { create: Record<string, unknown> }).create)
+      .find((c) => (c.keyword as { text: string }).text === "fisher")!;
+    assert.deepEqual(fisher.keyword, { text: "fisher", matchType: "BROAD" });
+    assert.equal(fisher.negative, true);
   });
 });
 

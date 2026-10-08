@@ -19,10 +19,18 @@
  *                       Description 1..4 columns (tab may be named RSAs)
  *   - Negative Keywords — scope (all / campaign name) | negative keyword |
  *                       match type (also "Criterion Type") | reason
- *   - Campaigns       — status at launch, bid strategy, max CPC cap,
+ *   - Campaigns       — status at launch, bid strategy, max CPC cap
+ *                       (`Max CPC cap (£)` or a phased `Cap (£) A → B`),
  *                       ad schedule, start, end, networks. Stored on
  *                       notes, bid_adjustments, and ad-group default CPC.
- *   - Budget Phasing  — not read.
+ *                       Push reads status at launch (via
+ *                       `resolveGoogleSearchPushStatus`: live unless the
+ *                       operator pushes paused or the sheet says Paused)
+ *                       and the cap (Maximise Clicks ceiling). Schedule
+ *                       and networks are stored only.
+ *   - Budget & Phasing — only the `Total Google Search budget (£)` row,
+ *                       which becomes the plan total. The phase grid is
+ *                       not read.
  *
  * Defensive choices:
  *   - All header lookups normalise via `headerKey()` (lowercase, strip
@@ -41,8 +49,10 @@
 
 import * as XLSX from "xlsx";
 
+import { derivePlanDailyBudget, formatPounds } from "./budget.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
+  DEFAULT_PACING,
   DEFAULT_STRUCTURE_MODE,
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchAdGroupDraftNode,
@@ -149,10 +159,14 @@ export function parseGoogleSearchPlanXlsx(
     options.fallbackPlanName ??
     "Imported Google Search Plan";
 
+  const totalBudget = readPlanTotalBudget(tabs.budget);
+  const planDailyBudget = derivePlanDailyBudget(totalBudget, campaignHints.dateRange);
+
   // Step 6: apply structure mode.
   // In single_campaign mode: collapse all C-code campaigns into one campaign
   // whose ad groups are named "{C-prefix} – {original ad group name}".
-  // In campaign_per_theme mode: pass the skeleton through unchanged.
+  // In campaign_per_theme mode: pass the skeleton through unchanged; push
+  // splits the plan daily budget across campaigns with no budget of their own.
   let finalCampaigns = skeleton.campaigns;
   let finalNegatives = negatives;
   if (structureMode === "single_campaign" && skeleton.campaigns.length > 0) {
@@ -173,7 +187,9 @@ export function parseGoogleSearchPlanXlsx(
       google_ads_account_id: null,
       status: "draft",
       structure_mode: structureMode,
-      total_budget: null,
+      total_budget: totalBudget,
+      daily_budget: planDailyBudget,
+      pacing: DEFAULT_PACING,
       bidding_strategy: campaignHints.biddingStrategy ?? "maximize_clicks",
       geo_targets: [],
       geo_target_type: DEFAULT_GEO_TARGET_TYPE,
@@ -199,17 +215,18 @@ export function parseGoogleSearchPlanXlsx(
  *
  * Negatives:
  *   - Plan-scoped negatives pass through unchanged.
- *   - Campaign-scoped negatives are PROMOTED to plan-scoped, because in
- *     single-campaign mode there is only one campaign and per-C-code
- *     campaign isolation is meaningless. Each promoted negative emits a
- *     `campaign_negative_promoted_to_plan` info warning so the operator
- *     knows what happened.
+ *   - Campaign-scoped negatives become AD-GROUP negatives on each ad group
+ *     that came from that campaign. Promoting them to plan scope would put
+ *     C1–C4's competitor negatives on the conquest ad groups that bid on
+ *     those competitors. One `campaign_negative_to_ad_groups` warning per
+ *     source campaign says how many moved.
  *
- * The merged campaign inherits no `monthly_budget` or `daily_budget` —
- * the operator sets the daily budget in the wizard (the plan `total_budget`
- * envelope is the reference figure). Source-campaign notes, including a
- * Paused-at-launch line, are concatenated onto the merged campaign.
- * Ad-group default CPC set from a campaign CPC cap stays on each ad group.
+ * The merged campaign has no `daily_budget` of its own: push resolves it
+ * from the plan (total ÷ days) every time, so editing the plan total or
+ * dates cannot leave it stale. Source-campaign notes, including
+ * a Paused-at-launch line, are concatenated onto the merged campaign.
+ * Its `max_cpc_cap` is the highest source cap — Maximise Clicks has one
+ * ceiling per campaign. Each ad group keeps its own default CPC.
  */
 export function restructureAsSingleCampaign(
   campaigns: GoogleSearchCampaignDraftNode[],
@@ -218,6 +235,7 @@ export function restructureAsSingleCampaign(
   warnings: GoogleSearchImportWarning[],
 ): { campaign: GoogleSearchCampaignDraftNode; negatives: GoogleSearchNegativeDraft[] } {
   const adGroups: GoogleSearchAdGroupDraftNode[] = [];
+  const adGroupNamesBySource = new Map<string, string[]>();
   let adGroupSortOrder = 0;
 
   for (const campaign of campaigns) {
@@ -227,32 +245,73 @@ export function restructureAsSingleCampaign(
         code: "sheet_field_recorded",
         message:
           `Campaign "${campaign.name}" is marked Paused at launch. ` +
-          "Single-campaign mode keeps that note on the merged campaign. " +
-          "Push creates the one campaign PAUSED and has no per-theme pause.",
+          "Single-campaign mode creates its ad groups PAUSED inside the merged campaign.",
         context: { campaign: campaign.name },
       });
     }
+    const names: string[] = [];
     for (const ag of campaign.ad_groups) {
-      adGroups.push({
-        ...ag,
-        name: prefix ? `${prefix} – ${ag.name}` : `${campaign.name} – ${ag.name}`,
-        sort_order: adGroupSortOrder++,
-      });
+      const name = prefix ? `${prefix} – ${ag.name}` : `${campaign.name} – ${ag.name}`;
+      names.push(name);
+      adGroups.push({ ...ag, name, sort_order: adGroupSortOrder++ });
     }
+    adGroupNamesBySource.set(campaign.name, names);
   }
 
-  // Promote campaign-scoped negatives to plan-scoped.
-  const promotedNegatives: GoogleSearchNegativeDraft[] = negatives.map((neg) => {
-    if (neg.scope.kind === "campaign") {
-      warnings.push({
-        code: "campaign_negative_promoted_to_plan",
-        message: `Negative "${neg.keyword}" was scoped to campaign "${neg.scope.campaign_name}" — promoted to plan-scoped (single-campaign mode, all C-codes share one campaign).`,
-        context: { keyword: neg.keyword, original_campaign: neg.scope.campaign_name },
-      });
-      return { ...neg, scope: { kind: "plan" } };
+  const scopedNegatives: GoogleSearchNegativeDraft[] = [];
+  const movedBySource = new Map<string, number>();
+  for (const neg of negatives) {
+    if (neg.scope.kind !== "campaign") {
+      scopedNegatives.push(neg);
+      continue;
     }
-    return neg;
-  });
+    const source = neg.scope.campaign_name;
+    const targets = adGroupNamesBySource.get(source) ?? [];
+    if (targets.length === 0) {
+      warnings.push({
+        code: "missing_campaign",
+        message: `Negative "${neg.keyword}" is scoped to "${source}", which has no ad groups — it was not imported.`,
+        context: { negative: neg.keyword, original_campaign: source },
+      });
+      continue;
+    }
+    for (const adGroupName of targets) {
+      scopedNegatives.push({
+        ...neg,
+        scope: { kind: "ad_group", campaign_name: planName, ad_group_name: adGroupName },
+      });
+    }
+    movedBySource.set(source, (movedBySource.get(source) ?? 0) + 1);
+  }
+  for (const [source, count] of movedBySource) {
+    const adGroupCount = adGroupNamesBySource.get(source)?.length ?? 0;
+    warnings.push({
+      code: "campaign_negative_to_ad_groups",
+      message:
+        `${count} negative${count === 1 ? "" : "s"} scoped to "${source}" became ad-group negatives on its ` +
+        `${adGroupCount} ad group${adGroupCount === 1 ? "" : "s"} (single-campaign mode). Other ad groups do not get them.`,
+      context: { original_campaign: source, negatives: count, ad_groups: adGroupCount },
+    });
+  }
+
+  const caps = campaigns
+    .map((c) => (typeof c.bid_adjustments.max_cpc_cap === "number" ? c.bid_adjustments.max_cpc_cap : null))
+    .filter((cap): cap is number => cap != null && cap > 0);
+  const capByCampaign: Record<string, number> = {};
+  for (const c of campaigns) {
+    if (typeof c.bid_adjustments.max_cpc_cap === "number") {
+      capByCampaign[c.name] = c.bid_adjustments.max_cpc_cap;
+    }
+  }
+  const mergedCap = caps.length > 0 ? Math.max(...caps) : null;
+  if (mergedCap != null && new Set(caps).size > 1) {
+    warnings.push({
+      code: "sheet_field_recorded",
+      message:
+        `Source campaigns have different CPC caps (${[...new Set(caps)].sort((a, b) => a - b).map((c) => `£${c.toFixed(2)}`).join(", ")}). ` +
+        `Single-campaign mode has one Maximise Clicks ceiling, so push uses the highest: £${mergedCap.toFixed(2)}.`,
+    });
+  }
 
   const noteLines = campaigns
     .map((c) => c.notes)
@@ -265,21 +324,27 @@ export function restructureAsSingleCampaign(
     }
   }
 
+  const bidAdjustments: Record<string, unknown> = {};
+  if (Object.keys(launchByCampaign).length > 0) {
+    bidAdjustments.status_at_launch_by_campaign = launchByCampaign;
+  }
+  if (mergedCap != null) {
+    bidAdjustments.max_cpc_cap = mergedCap;
+    bidAdjustments.max_cpc_cap_by_campaign = capByCampaign;
+  }
+
   const campaign: GoogleSearchCampaignDraftNode = {
     name: planName,
     priority: null,
     monthly_budget: null,
     daily_budget: null,
-    bid_adjustments:
-      Object.keys(launchByCampaign).length > 0
-        ? { status_at_launch_by_campaign: launchByCampaign }
-        : {},
+    bid_adjustments: bidAdjustments,
     notes: noteLines.length > 0 ? noteLines.join("\n") : null,
     sort_order: 0,
     ad_groups: adGroups,
   };
 
-  return { campaign, negatives: promotedNegatives };
+  return { campaign, negatives: scopedNegatives };
 }
 
 /**
@@ -423,7 +488,8 @@ interface IndexedTabs {
   adCopy: XLSX.WorkSheet | null;
   negativeKeywords: XLSX.WorkSheet | null;
   campaigns: XLSX.WorkSheet | null;
-  // budget phasing intentionally not consumed (no daily-budget grid reader).
+  /** Only the plan total row is read; the phase grid is not. */
+  budget: XLSX.WorkSheet | null;
 }
 
 function sheetTokens(name: string): string[] {
@@ -457,6 +523,7 @@ function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
     adCopy: null,
     negativeKeywords: null,
     campaigns: null,
+    budget: null,
   };
   for (const name of workbook.SheetNames) {
     const key = headerKey(name);
@@ -466,8 +533,23 @@ function indexTabs(workbook: XLSX.WorkBook): IndexedTabs {
     else if (isAdCopySheet(name)) out.adCopy ??= sheet;
     else if (isCampaignsSheet(name)) out.campaigns ??= sheet;
     else if (key.includes("overview") || key.includes("summary")) out.overview ??= sheet;
+    else if (sheetTokens(name).includes("budget")) out.budget ??= sheet;
   }
   return out;
+}
+
+/**
+ * `Total Google Search budget (£) | 500` on the Budget & Phasing tab.
+ * The first row whose label reads "total … budget" wins.
+ */
+export function readPlanTotalBudget(sheet: XLSX.WorkSheet | null): number | null {
+  for (const row of rawRows(sheet)) {
+    const label = headerKey(row[0]);
+    if (!label.startsWith("total") || !label.includes("budget")) continue;
+    const value = numericOrNull(row[1]);
+    if (value != null && value > 0) return value;
+  }
+  return null;
 }
 
 function rawRows(sheet: XLSX.WorkSheet | null): unknown[][] {
@@ -1141,12 +1223,50 @@ interface CampaignSheetHints {
 }
 
 /**
+ * The cap column header varies by sheet: `Max CPC cap (£)` (Jamie Jones),
+ * `Cap (£) A → B` (CamelPhat), `Cap (£) A/B → C` (Appetite). After
+ * `headerKey()` those are `maxcpccap`, `capab`, `capabc`.
+ */
+function readCpcCapCell(row: Record<string, unknown>): unknown {
+  for (const [key, value] of Object.entries(row)) {
+    if (key.startsWith("maxcpccap") || key.startsWith("cpccap") || key.startsWith("cap")) {
+      return value;
+    }
+  }
+  return row.maxcpc;
+}
+
+/** A cap above this is a typo (or a missed decimal), not a bid. */
+export const MAX_SHEET_CPC_CAP_POUNDS = 20;
+
+/**
+ * Every cap in the cell, in order. `0.8` → [0.8]; `"£0.80"` → [0.8];
+ * `"0.80 → 1.10"` → [0.8, 1.1] (launch phase first); `"0,80"` → [0.8];
+ * `"Phase 1: 0.80 → Phase 2: 1.10"` → [0.8, 1.1]. Range checks are the
+ * caller's.
+ */
+export function parseCpcCapCell(value: unknown): number[] {
+  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? [value] : [];
+  const text = cell(value)
+    .replace(/phase\s*\d+\s*:?/gi, " ")
+    .replace(/£/g, " ")
+    .replace(/(\d),(\d)/g, "$1.$2");
+  if (!text) return [];
+  const out: number[] = [];
+  for (const match of text.matchAll(/\d+(?:\.\d+)?|\.\d+/g)) {
+    const n = Number(match[0]);
+    if (Number.isFinite(n) && n > 0) out.push(n);
+  }
+  return out;
+}
+
+/**
  * `3 Campaigns` holds launch status, bid strategy, a CPC cap, schedule,
  * dates, and network flags. Those land on notes and bid_adjustments,
- * which the existing tree writer already stores. The CPC cap is also
- * written to each ad group's default CPC, because that is the bid push
- * actually sends. There is no campaign-status column, and this function
- * does not invent one.
+ * which the existing tree writer already stores. Push reads
+ * `status_at_launch` and `max_cpc_cap` (the Maximise Clicks ceiling);
+ * the cap is also each ad group's default CPC. There is no
+ * campaign-status column, and this function does not invent one.
  */
 function applyCampaignsSheet(
   campaigns: GoogleSearchCampaignDraftNode[],
@@ -1189,7 +1309,19 @@ function applyCampaignsSheet(
     const status = normaliseLaunchStatus(cell(row.statusatlaunch ?? row.status));
     const bidRaw = cell(row.bidstrategy);
     const bid = normaliseBidStrategy(bidRaw);
-    const cap = numericOrNull(row.maxcpccap ?? row.maxcpc);
+    const capCell = readCpcCapCell(row);
+    let capPhases = parseCpcCapCell(capCell);
+    if (capPhases.some((phase) => phase > MAX_SHEET_CPC_CAP_POUNDS)) {
+      warnings.push({
+        code: "sheet_field_recorded",
+        message:
+          `${campaign.name}: max CPC cap "${cell(capCell)}" is over ${formatPounds(MAX_SHEET_CPC_CAP_POUNDS)} — not stored. ` +
+          "Push uses the £2.00 default ceiling until a cap is set.",
+        context: { campaign: campaign.name, cap: cell(capCell) },
+      });
+      capPhases = [];
+    }
+    const cap = capPhases[0] ?? null;
     const schedule = cell(row.adschedule);
     const start = dateCell(row.start);
     const end = dateCell(row.end);
@@ -1209,7 +1341,7 @@ function applyCampaignsSheet(
     if (status === "PAUSED") lines.push("Status at launch: Paused");
     else if (status === "ENABLED") lines.push("Status at launch: Enabled");
     if (bidRaw) lines.push(`Bid strategy: ${bidRaw}`);
-    if (cap != null) lines.push(`Max CPC cap: ${cap}`);
+    if (cap != null) lines.push(`Max CPC cap: ${capPhases.join(" → ")}`);
     if (schedule) lines.push(`Ad schedule: ${schedule}`);
     if (start) lines.push(`Start: ${start}`);
     if (end) lines.push(`End: ${end}`);
@@ -1223,6 +1355,7 @@ function applyCampaignsSheet(
     if (status) adjustments.status_at_launch = status;
     if (bidRaw) adjustments.bid_strategy = bidRaw;
     if (cap != null) adjustments.max_cpc_cap = cap;
+    if (capPhases.length > 1) adjustments.max_cpc_cap_phases = capPhases;
     if (schedule) adjustments.ad_schedule = schedule;
     if (start) adjustments.start = start;
     if (end) adjustments.end = end;
@@ -1235,8 +1368,9 @@ function applyCampaignsSheet(
       code: "sheet_field_recorded",
       message:
         "Campaigns tab was stored on each campaign (status at launch, bid strategy, max CPC cap, ad schedule, start, end, networks). " +
-        "Max CPC cap is also written to each ad group's default CPC, which push sends as the ad group bid. " +
-        "Push still creates every campaign PAUSED and does not apply the sheet's status, ad schedule, or network flags.",
+        "Max CPC cap is the campaign's Maximise Clicks ceiling and each ad group's default CPC. A phased cap (A → B) launches on the first value. " +
+        "Push creates campaigns live unless you push paused; a campaign marked Paused here is created PAUSED. " +
+        "Ad schedule and network flags are not applied — push always sends Google Search only.",
       context: { campaigns: matched },
     });
   }
@@ -1253,12 +1387,20 @@ function applyCampaignsSheet(
   }
 
   const uniqueRanges = new Set(ranges.map((range) => `${range.since}|${range.until}`));
-  const dateRange = uniqueRanges.size === 1 ? ranges[0] ?? null : null;
-  if (uniqueRanges.size > 1) {
+  // ISO dates sort as strings.
+  const dateRange =
+    ranges.length > 0
+      ? {
+          since: ranges.map((r) => r.since).sort()[0]!,
+          until: ranges.map((r) => r.until).sort().at(-1)!,
+        }
+      : null;
+  if (uniqueRanges.size > 1 && dateRange) {
     warnings.push({
       code: "sheet_field_recorded",
       message:
-        "Campaigns tab lists more than one start/end. Dates stay on each campaign's notes; the plan date range was left empty.",
+        `Campaigns tab lists more than one start/end. The plan runs ${dateRange.since} → ${dateRange.until} ` +
+        "(first start to last end) and the plan budget is spread over that window; each campaign's own dates stay in its notes.",
     });
   }
 

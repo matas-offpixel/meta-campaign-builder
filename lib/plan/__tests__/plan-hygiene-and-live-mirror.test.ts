@@ -558,6 +558,8 @@ function emptyGoogleTree() {
       name: "DOD",
       status: "draft" as const,
       total_budget: null,
+      daily_budget: null,
+      pacing: "even" as const,
       bidding_strategy: "maximize_clicks" as const,
       structure_mode: "single_campaign" as const,
       geo_targets: [],

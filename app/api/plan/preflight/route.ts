@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadChannelDefaultsForEvent } from "@/lib/clients/channel-defaults";
 import { createClient } from "@/lib/supabase/server";
 import { loadLinkedDraftsForPlan } from "@/lib/plan/linked-drafts";
+import { plannedDailySpend } from "@/lib/google-search/budget";
 import { collectPlanPreflight } from "@/lib/plan/preflight";
 import type { CampaignPlan } from "@/lib/plan/types";
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       google: {
         name: result.drafts.google.plan.name,
         objective: "search",
-        dailyBudget: result.drafts.google.plan.total_budget,
+        dailyBudget: plannedDailySpend(result.drafts.google),
         destinationUrl: result.drafts.google.campaigns[0]?.ad_groups[0]?.rsas[0]?.final_url ?? null,
       },
     },

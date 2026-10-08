@@ -22,6 +22,7 @@ import {
   type GoogleSearchPlanTree,
 } from "@/lib/google-search/types";
 import { collectPlanFinalUrlState } from "@/lib/google-search/final-url-state";
+import { effectivePlanDailyBudget, formatPounds, inclusiveDays } from "@/lib/google-search/budget";
 
 import type { GoogleSearchWizardContext } from "../wizard-shell";
 
@@ -47,6 +48,8 @@ export function PlanSetupStep({
   surface?: StepSurface;
 }) {
   const plan = tree.plan;
+  const planDaily = effectivePlanDailyBudget(plan);
+  const planDays = inclusiveDays(plan.date_range);
 
   const eventOptions = [
     { value: "", label: "— no event link —" },
@@ -112,21 +115,28 @@ export function PlanSetupStep({
               </StatusLine>
             )}
           </div>
-          <Input
-            id="gs-plan-budget"
-            label="Total plan budget (£)"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.01"
-            value={plan.total_budget ?? ""}
-            onChange={(e) => {
-              const raw = e.target.value;
-              const num = raw === "" ? null : Number(raw);
-              updateField("total_budget", Number.isFinite(num) ? (num as number | null) : null);
-            }}
-            placeholder="e.g. 5000"
-          />
+          <div className="flex flex-col gap-1.5">
+            <Input
+              id="gs-plan-budget"
+              label="Total plan budget (£)"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={plan.total_budget ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const num = raw === "" ? null : Number(raw);
+                updateField("total_budget", Number.isFinite(num) ? (num as number | null) : null);
+              }}
+              placeholder="e.g. 5000"
+            />
+            <StatusLine className="text-xs text-muted-foreground">
+              {planDaily != null
+                ? `≈ ${formatPounds(planDaily)}/day over ${planDays} day${planDays === 1 ? "" : "s"}`
+                : "Set a total and a date range to get a daily budget."}
+            </StatusLine>
+          </div>
         </div>
       </Card>
 
