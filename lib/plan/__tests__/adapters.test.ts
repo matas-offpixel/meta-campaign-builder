@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { inclusiveDays } from "../../google-search/budget.ts";
 import { validateGoogleSearchPlan } from "../../google-search/validation.ts";
 import { validateCampaignPayload } from "../../meta/campaign.ts";
 import { validateCreativePayload } from "../../meta/creative.ts";
@@ -84,7 +85,12 @@ describe("plan adapters — golden plan invariants", () => {
     );
 
     assert.equal(google.plan.event_id, plan.intent.eventId);
-    assert.equal(google.plan.total_budget, plan.intent.budget.googleDaily);
+    const googleDays = inclusiveDays(google.plan.date_range);
+    assert.equal(
+      google.plan.total_budget,
+      googleDays ? Math.round(plan.intent.budget.googleDaily * googleDays * 100) / 100 : null,
+      "plan total is daily × days, never the daily figure",
+    );
     assert.ok(
       google.campaigns.some((c) => c.daily_budget === plan.intent.budget.googleDaily),
     );

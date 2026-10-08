@@ -63,7 +63,7 @@ function makeCampaign(
   id: string,
   name: string,
   adGroups: GoogleSearchAdGroupNode[],
-  options: { monthly_budget?: number; negatives?: GoogleSearchNegative[] } = {},
+  options: { monthly_budget?: number; daily_budget?: number; negatives?: GoogleSearchNegative[] } = {},
 ): GoogleSearchCampaignNode {
   return {
     id,
@@ -71,7 +71,7 @@ function makeCampaign(
     name,
     priority: null,
     monthly_budget: options.monthly_budget ?? null,
-    daily_budget: null,
+    daily_budget: options.daily_budget ?? null,
     bid_adjustments: {},
     notes: null,
     sort_order: 0,
@@ -92,6 +92,8 @@ function makeTree(overrides: Partial<GoogleSearchPlanTree["plan"]> = {}): Google
       name: "Test plan",
       status: "draft",
       total_budget: 1000,
+      daily_budget: null,
+      pacing: "even",
       bidding_strategy: "maximize_clicks",
       structure_mode: "single_campaign",
       geo_targets: [],
@@ -184,9 +186,12 @@ describe("validateGoogleSearchPlan — char limits", () => {
   it("passes a well-formed RSA", () => {
     const tree = makeTree();
     tree.campaigns = [
-      makeCampaign("c-1", "C1", [
-        makeAdGroup("ag-1", [{ keyword: "tickets" }], [makeRsa([15, 15, 15], [40, 40])]),
-      ]),
+      makeCampaign(
+        "c-1",
+        "C1",
+        [makeAdGroup("ag-1", [{ keyword: "tickets" }], [makeRsa([15, 15, 15], [40, 40])])],
+        { daily_budget: 10 },
+      ),
     ];
 
     const issues = validateGoogleSearchPlan(tree).filter((i) => i.severity === "error");
@@ -194,10 +199,10 @@ describe("validateGoogleSearchPlan — char limits", () => {
   });
 });
 
-// ─── Conflict detection: keyword cannibalised by negative ─────────────
+// ─── Conflict detection: a negative that blocks a keyword ─────────────
 
 describe("validateGoogleSearchPlan — conflict detection", () => {
-  it("warns when a keyword exactly matches a plan-scoped negative", () => {
+  it("hard-blocks when a keyword exactly matches a plan-scoped negative, naming the pair", () => {
     const tree = makeTree();
     tree.plan_negatives = [makePlanNegative("free tickets")];
     tree.campaigns = [
@@ -207,13 +212,14 @@ describe("validateGoogleSearchPlan — conflict detection", () => {
     ];
 
     const issues = validateGoogleSearchPlan(tree);
-    const conflict = issues.find((i) => i.code === "keyword_cannibalised_by_negative");
-    assert.ok(conflict, "expected cannibalisation warning");
-    assert.equal(conflict.severity, "warning");
-    assert.match(conflict.message, /free tickets/);
+    const conflicts = issues.filter((i) => i.code === "negative_blocks_keyword");
+    assert.equal(conflicts.length, 1, JSON.stringify(conflicts));
+    assert.equal(conflicts[0].severity, "error");
+    assert.match(conflicts[0].message, /plan negative "free tickets" \(phrase\) blocks keyword "free tickets"/);
+    assert.equal(hasHardErrors(issues), true);
   });
 
-  it("warns when a keyword matches a campaign-scoped negative", () => {
+  it("hard-blocks when a keyword matches a same-campaign negative", () => {
     const tree = makeTree();
     const negative: GoogleSearchNegative = {
       id: "neg-1",
@@ -235,7 +241,18 @@ describe("validateGoogleSearchPlan — conflict detection", () => {
     ];
 
     const issues = validateGoogleSearchPlan(tree);
-    assert.ok(issues.some((i) => i.code === "keyword_cannibalised_by_negative"));
+    assert.ok(issues.some((i) => i.code === "negative_blocks_keyword" && i.severity === "error"));
+  });
+
+  it("does not block a keyword in another campaign", () => {
+    const tree = makeTree();
+    const negative: GoogleSearchNegative = { ...makePlanNegative("promo"), campaign_id: "c-1" };
+    tree.campaigns = [
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "tickets" }])], { negatives: [negative] }),
+      makeCampaign("c-2", "C2", [makeAdGroup("ag-2", [{ keyword: "promo tickets" }])]),
+    ];
+    const issues = validateGoogleSearchPlan(tree);
+    assert.equal(issues.filter((i) => i.code === "negative_blocks_keyword").length, 0);
   });
 
   it("warns when a campaign has no negatives at all", () => {
@@ -376,7 +393,7 @@ describe("validateGoogleSearchPlan — RSA final URL", () => {
     rsa.final_url = "http://offpixel.com/event";
     const tree = makeTree();
     tree.campaigns = [
-      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "kw" }], [rsa])]),
+      makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "kw" }], [rsa])], { daily_budget: 10 }),
     ];
     const issues = validateGoogleSearchPlan(tree);
     const warning = issues.find((i) => i.code === "rsa_final_url_http");

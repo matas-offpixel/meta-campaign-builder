@@ -104,6 +104,8 @@ export function toGoogleSearchPlanDraftTree(
       name: tree.plan.name,
       status: tree.plan.status,
       total_budget: tree.plan.total_budget,
+      daily_budget: tree.plan.daily_budget,
+      pacing: tree.plan.pacing,
       bidding_strategy: tree.plan.bidding_strategy,
       structure_mode: tree.plan.structure_mode,
       geo_targets: tree.plan.geo_targets,
@@ -147,12 +149,23 @@ export function toGoogleSearchPlanDraftTree(
         scope: { kind: "plan" as const },
       })),
       ...tree.campaigns.flatMap((campaign) =>
-        campaign.negatives.map((negative) => ({
-          keyword: negative.keyword,
-          match_type: negative.match_type,
-          reason: negative.reason,
-          scope: { kind: "campaign" as const, campaign_name: campaign.name },
-        })),
+        campaign.negatives.map((negative) => {
+          const adGroup = negative.ad_group_id
+            ? campaign.ad_groups.find((ag) => ag.id === negative.ad_group_id)
+            : undefined;
+          return {
+            keyword: negative.keyword,
+            match_type: negative.match_type,
+            reason: negative.reason,
+            scope: adGroup
+              ? {
+                  kind: "ad_group" as const,
+                  campaign_name: campaign.name,
+                  ad_group_name: adGroup.name,
+                }
+              : { kind: "campaign" as const, campaign_name: campaign.name },
+          };
+        }),
       ),
     ],
     sitelinks: tree.sitelinks.map((sitelink) => ({

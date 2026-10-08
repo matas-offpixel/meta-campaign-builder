@@ -14,7 +14,16 @@
  * and the xlsx parser agree.
  */
 
+import {
+  FALLBACK_DAILY_BUDGET_POUNDS,
+  PLAN_OVERSPEND_TOLERANCE,
+  formatPounds,
+  plannedCampaignSpend,
+  positiveAmount,
+  resolveCampaignDailyBudgets,
+} from "./budget.ts";
 import { isValidLandingUrl } from "./final-url-state.ts";
+import { findNegativeKeywordConflicts } from "./negative-conflicts.ts";
 import {
   GOOGLE_SEARCH_LIMITS,
   type GoogleSearchPlanTree,
@@ -241,6 +250,48 @@ function validateBudget(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue
   return issues;
 }
 
+/** What push would actually send per day, checked against the plan. */
+function validatePushBudgets(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const issues: GoogleSearchValidationIssue[] = [];
+  for (const budget of resolveCampaignDailyBudgets(tree)) {
+    if (budget.source !== "fallback") continue;
+    issues.push({
+      severity: "error",
+      code: "budget_fallback_daily",
+      message: `${budget.campaignName}: No daily budget resolved — push would spend ${formatPounds(FALLBACK_DAILY_BUDGET_POUNDS)}/day. Set a daily budget on the campaign, or a plan total and date range.`,
+      scope: budget.campaignName,
+    });
+  }
+  const total = positiveAmount(tree.plan.total_budget);
+  const planned = plannedCampaignSpend(tree);
+  if (total != null && planned && planned.spend > total * (1 + PLAN_OVERSPEND_TOLERANCE)) {
+    issues.push({
+      severity: "error",
+      code: "budget_exceeds_plan",
+      message: `Campaigns would spend ${formatPounds(planned.spend)} over ${planned.days} days against a ${formatPounds(total)} plan.`,
+    });
+  }
+  return issues;
+}
+
+function validateNegativeConflicts(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  return findNegativeKeywordConflicts(tree).map((conflict) => {
+    const scope = `${conflict.campaignName} → ${conflict.adGroupName}`;
+    const level =
+      conflict.negativeScope === "plan"
+        ? "plan negative"
+        : conflict.negativeScope === "campaign"
+          ? "campaign negative"
+          : "ad-group negative";
+    return {
+      severity: "error" as const,
+      code: "negative_blocks_keyword",
+      message: `${scope}: ${level} "${conflict.negative}" (${conflict.negativeMatchType.toLowerCase()}) blocks keyword "${conflict.keyword}" — it would never serve.`,
+      scope,
+    };
+  });
+}
+
 /**
  * Hard validation for sitelinks. Char overruns block push because Google
  * Ads `assets:mutate` rejects them. Empty link_text also blocks (required).
@@ -304,6 +355,8 @@ export function validateGoogleSearchPlan(
     ...validateKeywords(tree),
     ...validateAllRsas(tree),
     ...validateBudget(tree),
+    ...validatePushBudgets(tree),
+    ...validateNegativeConflicts(tree),
     ...validateSitelinks(tree),
     ...softWarnings(tree),
   ];
@@ -329,19 +382,6 @@ function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[]
         message: `Campaign "${c.name}" has no negatives — consider adding generic noise filters (e.g. "free", "stream").`,
         scope: c.name,
       });
-    }
-
-    for (const ag of c.ad_groups) {
-      for (const k of ag.keywords) {
-        if (campaignNegativeSet.has(normaliseKeyword(k.keyword))) {
-          warnings.push({
-            severity: "warning",
-            code: "keyword_cannibalised_by_negative",
-            message: `${c.name} → ${ag.name}: keyword "${k.keyword}" is also a negative — it will never serve.`,
-            scope: `${c.name} → ${ag.name}`,
-          });
-        }
-      }
     }
   }
 

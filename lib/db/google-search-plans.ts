@@ -15,10 +15,14 @@ import {
   parseGeoTargetsColumn,
   serializeGeoTargetsColumn,
 } from "../google-search/geo-targets-codec.ts";
+import { derivePlanDailyBudget } from "../google-search/budget.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
+  DEFAULT_PACING,
   DEFAULT_STRUCTURE_MODE,
+  PACING_MODES,
   STRUCTURE_MODES,
+  type GoogleSearchPacing,
   type GoogleSearchAdGroup,
   type GoogleSearchAdGroupNode,
   type GoogleSearchCampaign,
@@ -58,6 +62,7 @@ export interface CreatePlanInput {
   event_id?: string | null;
   google_ads_account_id?: string | null;
   total_budget?: number | null;
+  pacing?: GoogleSearchPacing;
   bidding_strategy?: GoogleSearchPlan["bidding_strategy"];
   structure_mode?: GoogleSearchStructureMode;
   geo_targets?: GoogleSearchPlan["geo_targets"];
@@ -84,6 +89,8 @@ export async function createGoogleSearchPlan(
       google_ads_account_id: input.google_ads_account_id ?? null,
       name: input.name,
       total_budget: input.total_budget ?? null,
+      daily_budget: derivePlanDailyBudget(input.total_budget, input.date_range),
+      pacing: input.pacing ?? DEFAULT_PACING,
       bidding_strategy: input.bidding_strategy ?? "maximize_clicks",
       structure_mode: input.structure_mode ?? DEFAULT_STRUCTURE_MODE,
       geo_targets: serializeGeoTargetsColumn({
@@ -136,12 +143,30 @@ export function hydratePlan(raw: Record<string, unknown>): GoogleSearchPlan {
     typeof rawMode === "string" && (STRUCTURE_MODES as readonly string[]).includes(rawMode)
       ? (rawMode as GoogleSearchStructureMode)
       : DEFAULT_STRUCTURE_MODE;
+  const rawPacing = raw.pacing;
+  const pacing: GoogleSearchPacing =
+    typeof rawPacing === "string" && (PACING_MODES as readonly string[]).includes(rawPacing)
+      ? (rawPacing as GoogleSearchPacing)
+      : DEFAULT_PACING;
   return {
-    ...(raw as Omit<GoogleSearchPlan, "geo_targets" | "geo_target_type" | "structure_mode">),
+    ...(raw as Omit<
+      GoogleSearchPlan,
+      "geo_targets" | "geo_target_type" | "structure_mode" | "daily_budget" | "pacing"
+    >),
+    total_budget: numericColumn(raw.total_budget),
+    daily_budget: numericColumn(raw.daily_budget),
+    pacing,
     geo_targets: decoded.targets,
     geo_target_type: decoded.geo_target_type,
     structure_mode,
   } as GoogleSearchPlan;
+}
+
+/** Postgres `numeric` arrives as a string over PostgREST. */
+function numericColumn(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function listGoogleSearchPlansForEvent(
@@ -447,6 +472,7 @@ export async function createGoogleSearchPlanTreeFromDraft(
     google_ads_account_id:
       options.google_ads_account_id ?? draft.plan.google_ads_account_id ?? null,
     total_budget: draft.plan.total_budget,
+    pacing: draft.plan.pacing,
     bidding_strategy: draft.plan.bidding_strategy,
     structure_mode: draft.plan.structure_mode,
     geo_targets: draft.plan.geo_targets,
@@ -455,6 +481,7 @@ export async function createGoogleSearchPlanTreeFromDraft(
   });
 
   const campaignNameToId = new Map<string, string>();
+  const adGroupKeyToId = new Map<string, string>();
   for (const campaignDraft of draft.campaigns) {
     const { data: campaignRow, error: campaignErr } = await supabase
       .from("google_search_campaigns")
@@ -491,6 +518,8 @@ export async function createGoogleSearchPlanTreeFromDraft(
         throw new Error(`Insert ad group "${adGroupDraft.name}" failed: ${adGroupErr?.message ?? "no row"}`);
       }
       const adGroupId = (adGroupRow as { id: string }).id;
+      const adGroupKey = `${campaignDraft.name}::${adGroupDraft.name}`;
+      if (!adGroupKeyToId.has(adGroupKey)) adGroupKeyToId.set(adGroupKey, adGroupId);
 
       if (adGroupDraft.keywords.length > 0) {
         const { error: kwErr } = await supabase
@@ -529,12 +558,20 @@ export async function createGoogleSearchPlanTreeFromDraft(
   if (draft.negatives.length > 0) {
     const negRows = draft.negatives.map((n) => {
       const campaignId =
-        n.scope.kind === "campaign"
-          ? campaignNameToId.get(n.scope.campaign_name) ?? null
+        n.scope.kind === "plan" ? null : campaignNameToId.get(n.scope.campaign_name) ?? null;
+      const adGroupId =
+        n.scope.kind === "ad_group"
+          ? adGroupKeyToId.get(`${n.scope.campaign_name}::${n.scope.ad_group_name}`) ?? null
           : null;
+      if (n.scope.kind === "ad_group" && (!campaignId || !adGroupId)) {
+        throw new Error(
+          `Negative "${n.keyword}" names ad group "${n.scope.ad_group_name}" in "${n.scope.campaign_name}", which was not inserted.`,
+        );
+      }
       return {
         plan_id: plan.id,
         campaign_id: campaignId,
+        ad_group_id: adGroupId,
         keyword: n.keyword,
         match_type: n.match_type,
         reason: n.reason,
@@ -599,6 +636,8 @@ export async function saveGoogleSearchPlanTree(
       event_id: tree.plan.event_id,
       google_ads_account_id: tree.plan.google_ads_account_id,
       total_budget: tree.plan.total_budget,
+      daily_budget: derivePlanDailyBudget(tree.plan.total_budget, tree.plan.date_range),
+      pacing: tree.plan.pacing ?? DEFAULT_PACING,
       bidding_strategy: tree.plan.bidding_strategy,
       structure_mode: tree.plan.structure_mode,
       geo_targets: serializeGeoTargetsColumn({
@@ -960,10 +999,17 @@ export async function saveGoogleSearchPlanTree(
 
   // Tag each negative with its target campaign id (null for plan-scoped)
   // BEFORE diffing so inserts can resolve the FK without an extra map.
+  // An ad-group negative whose ad group left the tree is dropped, never
+  // widened to the whole campaign.
+  const treeAdGroupIdsByCampaign = new Map(
+    tree.campaigns.map((c) => [c.id, new Set(c.ad_groups.map((ag) => ag.id))]),
+  );
   const taggedNegatives = [
     ...tree.plan_negatives.map((n) => ({ n, campaignId: null as string | null })),
     ...tree.campaigns.flatMap((c) =>
-      c.negatives.map((n) => ({ n, campaignId: resolveCampaignId(c.id) })),
+      c.negatives
+        .filter((n) => !n.ad_group_id || treeAdGroupIdsByCampaign.get(c.id)?.has(n.ad_group_id))
+        .map((n) => ({ n, campaignId: resolveCampaignId(c.id) })),
     ),
   ];
   const negativePlan = partitionTreeRows(
@@ -973,6 +1019,13 @@ export async function saveGoogleSearchPlanTree(
   const negativeCampaignByTreeId = new Map(
     taggedNegatives.map(({ n, campaignId }) => [n.id, campaignId]),
   );
+  const resolveNegativeAdGroupId = (
+    n: GoogleSearchNegative,
+    campaignId: string | null,
+  ): string | null => {
+    if (!campaignId || !n.ad_group_id) return null;
+    return resolveAdGroupId(n.ad_group_id);
+  };
 
   if (negativePlan.deletes.length > 0) {
     const { error } = await supabase
@@ -993,6 +1046,7 @@ export async function saveGoogleSearchPlanTree(
       .from("google_search_negatives")
       .update({
         campaign_id: resolvedCampaignId,
+        ad_group_id: resolveNegativeAdGroupId(n, resolvedCampaignId),
         keyword: n.keyword,
         match_type: n.match_type,
         reason: n.reason,
@@ -1008,6 +1062,7 @@ export async function saveGoogleSearchPlanTree(
     const rows = negativePlan.inserts.map((n) => ({
       plan_id: tree.plan.id,
       campaign_id: negativeCampaignByTreeId.get(n.id) ?? null,
+      ad_group_id: resolveNegativeAdGroupId(n, negativeCampaignByTreeId.get(n.id) ?? null),
       keyword: n.keyword,
       match_type: n.match_type,
       reason: n.reason,

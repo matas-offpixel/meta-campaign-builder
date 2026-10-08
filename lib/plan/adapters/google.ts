@@ -1,5 +1,7 @@
+import { derivePlanDailyBudget, inclusiveDays } from "../../google-search/budget.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
+  DEFAULT_PACING,
   DEFAULT_STRUCTURE_MODE,
   type GoogleSearchPlanTree,
 } from "../../google-search/types.ts";
@@ -24,6 +26,15 @@ export function planToGoogleDraft(plan: CampaignPlan): GoogleSearchPlanTree {
   const adGroupId = crypto.randomUUID();
   const rsaId = crypto.randomUUID();
   const name = plan.name?.trim() || "Plan campaign";
+  const dateRange =
+    intent.startDate && intent.endDate
+      ? { since: intent.startDate, until: intent.endDate }
+      : null;
+  const days = inclusiveDays(dateRange);
+  const totalBudget =
+    days && intent.budget.googleDaily > 0
+      ? Math.round(intent.budget.googleDaily * days * 100) / 100
+      : null;
 
   return {
     plan: {
@@ -33,17 +44,18 @@ export function planToGoogleDraft(plan: CampaignPlan): GoogleSearchPlanTree {
       google_ads_account_id: null,
       name,
       status: "draft",
-      total_budget: intent.budget.googleDaily,
+      // A plan total, not a daily figure: Review checks campaign spend
+      // over the window against it.
+      total_budget: totalBudget,
+      daily_budget: derivePlanDailyBudget(totalBudget, dateRange),
+      pacing: DEFAULT_PACING,
       bidding_strategy: "maximize_clicks",
       structure_mode: DEFAULT_STRUCTURE_MODE,
       geo_targets: [],
       geo_target_type: DEFAULT_GEO_TARGET_TYPE,
       // Google Ads campaign date_range is date-level. Plan start/end times
       // are not invented into a time-of-day the API does not accept.
-      date_range:
-        intent.startDate && intent.endDate
-          ? { since: intent.startDate, until: intent.endDate }
-          : null,
+      date_range: dateRange,
       pushed_at: null,
       created_at: now,
       updated_at: now,

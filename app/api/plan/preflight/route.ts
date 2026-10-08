@@ -58,7 +58,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       google: {
         name: result.drafts.google.plan.name,
         objective: "search",
-        dailyBudget: result.drafts.google.plan.total_budget,
+        dailyBudget: result.drafts.google.campaigns[0]?.daily_budget ?? null,
         destinationUrl: result.drafts.google.campaigns[0]?.ad_groups[0]?.rsas[0]?.final_url ?? null,
       },
     },

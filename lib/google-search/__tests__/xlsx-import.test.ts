@@ -955,7 +955,15 @@ describe("parseGoogleSearchPlanXlsx — Ironworks wide workbook", () => {
     assert.equal(single.campaigns.length, 1);
     assert.equal(adGroupCount(single), 12);
     assert.equal(keywordCount(single), 272);
-    assert.equal(single.negatives.length, 256);
+    // Campaign negatives land once per ad group of their source campaign.
+    const perTheme = parseGoogleSearchPlanXlsx(buf, { structureMode: "campaign_per_theme" });
+    const expectedNegatives = perTheme.negatives.reduce((sum, n) => {
+      if (n.scope.kind !== "campaign") return sum + 1;
+      const name = n.scope.campaign_name;
+      return sum + (perTheme.campaigns.find((c) => c.name === name)?.ad_groups.length ?? 0);
+    }, 0);
+    assert.equal(single.negatives.length, expectedNegatives);
+    assert.equal(single.negatives.filter((n) => n.scope.kind === "campaign").length, 0);
     const names = single.campaigns[0]!.ad_groups.map((ag) => ag.name);
     assert.ok(names.includes("C1 – AG1 Event – Voyager"));
     assert.ok(names.includes("C1 – AG2 Venue – Ironworks"));
