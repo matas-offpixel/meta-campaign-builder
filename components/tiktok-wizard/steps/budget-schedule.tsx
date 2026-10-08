@@ -12,9 +12,34 @@ import {
 } from "@/lib/tiktok-wizard/budget-schedule";
 import { suggestTikTokAdGroups } from "@/lib/tiktok-wizard/review";
 import { tikTokAdvertiserClockLabel } from "@/lib/plan/tiktok-early";
+import { TikTokInheritedStepNote } from "@/components/tiktok-wizard/inherited-step-note";
+import {
+  isTikTokAdsOnlyLaunchMode,
+  tikTokInheritedStepNote,
+  tikTokLaunchModeOf,
+} from "@/lib/tiktok-wizard/launch-mode";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
-export function BudgetScheduleStep({
+export function BudgetScheduleStep(props: {
+  draft: TikTokCampaignDraft;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
+}) {
+  const mode = tikTokLaunchModeOf(props.draft);
+  const note = tikTokInheritedStepNote(props.draft, "budget");
+  if (note && isTikTokAdsOnlyLaunchMode(mode)) return <TikTokInheritedStepNote note={note} />;
+  if (note) {
+    return (
+      <div className="space-y-4">
+        <TikTokInheritedStepNote note={note} />
+        <BudgetScheduleStepBody {...props} />
+      </div>
+    );
+  }
+  return <BudgetScheduleStepBody {...props} />;
+}
+
+function BudgetScheduleStepBody({
   draft,
   onSave,
   surface = "wizard",

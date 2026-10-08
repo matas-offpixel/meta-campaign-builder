@@ -35,10 +35,27 @@ import {
   everyAdGroupHasCreative,
   everyCreativeAssigned,
 } from "@/lib/tiktok-wizard/review";
+import { TikTokInheritedStepNote } from "@/components/tiktok-wizard/inherited-step-note";
+import {
+  isTikTokAdsOnlyLaunchMode,
+  tikTokInheritedStepNote,
+  tikTokLaunchModeOf,
+} from "@/lib/tiktok-wizard/launch-mode";
 import { collectTikTokLaunchPreflight } from "@/lib/tiktok/write/preflight";
 import type { TikTokAdGroupDraft, TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 
-export function AssignCreativesStep({
+export function AssignCreativesStep(props: {
+  draft: TikTokCampaignDraft;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
+}) {
+  const mode = tikTokLaunchModeOf(props.draft);
+  const note = tikTokInheritedStepNote(props.draft, "assign");
+  if (note && isTikTokAdsOnlyLaunchMode(mode)) return <TikTokInheritedStepNote note={note} />;
+  return <AssignCreativesStepBody {...props} />;
+}
+
+function AssignCreativesStepBody({
   draft,
   onSave,
   surface = "wizard",

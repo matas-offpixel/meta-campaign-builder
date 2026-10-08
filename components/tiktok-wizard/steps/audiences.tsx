@@ -64,6 +64,12 @@ import {
 import {
   TIKTOK_SEMANTIC_FALLBACK_NOTE,
 } from "@/lib/tiktok-wizard/keyword-recommend";
+import { TikTokInheritedStepNote } from "@/components/tiktok-wizard/inherited-step-note";
+import {
+  isTikTokAdsOnlyLaunchMode,
+  tikTokInheritedStepNote,
+  tikTokLaunchModeOf,
+} from "@/lib/tiktok-wizard/launch-mode";
 import type {
   TikTokAudienceCategory,
   TikTokAudienceListItem,
@@ -100,7 +106,18 @@ interface CategoryFailed {
   savedAudiences: boolean;
 }
 
-export function AudiencesStep({
+export function AudiencesStep(props: {
+  draft: TikTokCampaignDraft;
+  onSave: (patch: Partial<TikTokCampaignDraft>) => Promise<void>;
+  surface?: StepSurface;
+}) {
+  const mode = tikTokLaunchModeOf(props.draft);
+  const note = tikTokInheritedStepNote(props.draft, "audiences");
+  if (note && isTikTokAdsOnlyLaunchMode(mode)) return <TikTokInheritedStepNote note={note} />;
+  return <AudiencesStepBody {...props} />;
+}
+
+function AudiencesStepBody({
   draft,
   onSave,
   surface = "wizard",
