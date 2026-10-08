@@ -61,13 +61,13 @@ for (const [id, r] of Object.entries(result.joinRates).sort((a, b) => b[1].adDay
 }
 
 console.log(`\n## Where each ad-day's stage came from, and spend left in 'unknown'\n`);
-console.log("| Client | event_dates | phase_at_launch | objective | adset_objective | unknown | Unknown spend £ | of total £ | Share |");
+console.log("| Client | phase_at_launch | event_dates | objective | adset_objective | unknown | Unknown spend £ | of total £ | Share |");
 console.log("|---|---|---|---|---|---|---|---|---|");
 for (const [id] of Object.entries(result.joinRates).sort((a, b) => b[1].adDays - a[1].adDays)) {
-  const s = result.stageSources[id] ?? { event_dates: 0, phase_at_launch: 0, objective: 0, adset_objective: 0, unknown: 0 };
+  const s = result.stageSources[id] ?? { phase_at_launch: 0, event_dates: 0, objective: 0, adset_objective: 0, unknown: 0 };
   const sp = result.spend[id] ?? { total: 0, unknown: 0 };
   console.log(
-    `| ${nameOf(id)} | ${s.event_dates} | ${s.phase_at_launch} | ${s.objective} | ${s.adset_objective} | ${s.unknown} | ${sp.unknown} | ${sp.total} | ${sp.total > 0 ? pct(sp.unknown / sp.total) : "—"} |`,
+    `| ${nameOf(id)} | ${s.phase_at_launch} | ${s.event_dates} | ${s.objective} | ${s.adset_objective} | ${s.unknown} | ${sp.unknown} | ${sp.total} | ${sp.total > 0 ? pct(sp.unknown / sp.total) : "—"} |`,
   );
 }
 

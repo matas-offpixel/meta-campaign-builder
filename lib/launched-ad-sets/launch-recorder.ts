@@ -1,6 +1,7 @@
 /**
- * Bind a never-throw recorder for one launch run. Event facts are
+ * Bind a never-throw recorder for one launch run. The event's client is
  * loaded once; each successful Meta create awaits one upsert.
+ * phase_at_launch comes from the draft objective, never the event dates.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -9,7 +10,7 @@ import { resolveDraftEventId } from "../campaign-event.ts";
 import { createServiceRoleClient } from "../supabase/server.ts";
 import type { AdSetSuggestion, CampaignDraft } from "../types.ts";
 import { recordLaunchedAdSet, uuidOrNull } from "./record.ts";
-import { phaseAtLaunchFromEvent, stampLaunchGeo } from "./snapshot.ts";
+import { phaseAtLaunchFromObjective, stampLaunchGeo } from "./snapshot.ts";
 
 export type RecordCreatedAdSetAccepted = {
   ageModeOverride?: "strict" | null;
@@ -39,33 +40,23 @@ export async function bindLaunchAdSetRecorder(input: {
   }
 
   const eventId = resolveDraftEventId(input.draft.settings.eventId, null);
-  let phaseAtLaunch: string | null = null;
+  const objective = input.draft.settings.objective;
+  const phaseAtLaunch = phaseAtLaunchFromObjective(objective);
   let clientId = uuidOrNull(input.draft.settings.clientId);
 
   if (eventId) {
     try {
       const { data } = await db
         .from("events")
-        .select("client_id, presale_at, general_sale_at, sold_out_at")
+        .select("client_id")
         .eq("id", eventId)
         .maybeSingle();
       if (data) {
-        const row = data as {
-          client_id?: string | null;
-          presale_at?: string | null;
-          general_sale_at?: string | null;
-          sold_out_at?: string | null;
-        };
+        const row = data as { client_id?: string | null };
         clientId = uuidOrNull(row.client_id) ?? clientId;
-        phaseAtLaunch = phaseAtLaunchFromEvent({
-          launchedAt: new Date(),
-          presaleAt: row.presale_at ?? null,
-          generalSaleAt: row.general_sale_at ?? null,
-          soldOutAt: row.sold_out_at ?? null,
-        });
       }
     } catch (err) {
-      console.error("[launched_ad_sets] event facts failed", {
+      console.error("[launched_ad_sets] event client lookup failed", {
         event_id: eventId,
         error: err instanceof Error ? err.message : String(err),
       });
@@ -82,7 +73,7 @@ export async function bindLaunchAdSetRecorder(input: {
       clientId,
       eventId,
       launchRunId: input.launchRunId,
-      objective: input.draft.settings.objective,
+      objective,
       phaseAtLaunch,
       descriptorSource: "launch",
       suggestion: stampLaunchGeo(

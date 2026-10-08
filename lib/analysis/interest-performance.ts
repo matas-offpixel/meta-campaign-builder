@@ -90,7 +90,7 @@ export function registrationReason(adSet: {
   if ((adSet.customEventType ?? "").toUpperCase() === "COMPLETE_REGISTRATION") return "promoted_object";
   if ((adSet.optimizationGoal ?? "").toUpperCase() === "LEAD_GENERATION") return "optimization_goal";
   const phase = (adSet.launched?.phaseAtLaunch ?? "").toLowerCase();
-  if (phase === "signup" || phase === "registration") return "phase_at_launch";
+  if (phase === "signup" || phase === "registration" || phase === "presale") return "phase_at_launch";
   if (mapMetaObjectiveToInternal(adSet.campaignObjective, adSet.customEventType) === "registration") {
     return "campaign_objective";
   }

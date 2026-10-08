@@ -9,16 +9,18 @@
  *   carries the ad's id, else by (event_id, creative_name = ad_name) —
  *   creative_name holds the Meta AD name (audit two §5).
  * - Stage, first that applies (recorded as `stageSource`):
- *   1. event_dates: 'registration' before the event's general sale
+ *   1. phase_at_launch on the ad set, which comes from the campaign
+ *      objective (`phaseAtLaunchFromObjective`: registration → presale,
+ *      every other objective → on_sale). presale / waiting_list →
+ *      registration, on_sale → ticket_sale. A registration ad set running
+ *      after general sale is still a registration-stage ad.
+ *   2. event_dates: 'registration' before the event's general sale
  *      (presale when there is no general sale date), 'ticket_sale' on or
- *      after it.
- *   2. phase_at_launch on the ad set.
- *   3. objective: the ad set's launched_ad_sets.objective
- *      (registration / lead → registration, purchase → ticket_sale), else
- *      the ad's result_action_type (registration / lead pixel types →
- *      registration, purchase → ticket_sale). The result type is read per
- *      ad, not per ad-day: the stage most of the ad's result days carry,
- *      none on a tie. Per ad-day, the ad's days with no result would stay
+ *      after it. For ad sets the app did not launch.
+ *   3. objective: the ad's own result_action_type (registration / lead
+ *      pixel types → registration, purchase → ticket_sale), read per ad,
+ *      not per ad-day: the stage most of the ad's result days carry, none
+ *      on a tie. Per ad-day, the ad's days with no result would stay
  *      'unknown' and their spend would drop out of the stage's cost.
  *   4. adset_objective: an ad with no result day takes the stage most of
  *      its ad set's result days carry. An ad set has one optimisation
@@ -59,8 +61,8 @@ export type AdDayRow = {
   result_action_type?: string | null;
 };
 
-export type StageSource = "event_dates" | "phase_at_launch" | "objective" | "adset_objective" | "unknown";
-export const STAGE_SOURCES: readonly StageSource[] = ["event_dates", "phase_at_launch", "objective", "adset_objective", "unknown"];
+export type StageSource = "phase_at_launch" | "event_dates" | "objective" | "adset_objective" | "unknown";
+export const STAGE_SOURCES: readonly StageSource[] = ["phase_at_launch", "event_dates", "objective", "adset_objective", "unknown"];
 
 export type StageEvent = {
   clientId: string | null;
@@ -71,17 +73,8 @@ export type StageEvent = {
 const REGISTRATION_PHASES = new Set(["presale", "waiting_list", "signup", "registration"]);
 const TICKET_PHASES = new Set(["on_sale", "general_sale"]);
 
-const REGISTRATION_OBJECTIVES = new Set(["registration", "lead", "leads"]);
-const TICKET_OBJECTIVES = new Set(["purchase"]);
 const REGISTRATION_RESULT_TYPES = new Set<string>([...REGISTRATION_ACTION_TYPES, ...LEAD_ACTION_TYPES]);
 const TICKET_RESULT_TYPES = new Set<string>(PURCHASE_ACTION_TYPES);
-
-export function objectiveStage(objective: string | null | undefined): Stage | null {
-  const o = (objective ?? "").trim().toLowerCase();
-  if (REGISTRATION_OBJECTIVES.has(o)) return "registration";
-  if (TICKET_OBJECTIVES.has(o)) return "ticket_sale";
-  return null;
-}
 
 export function resultTypeStage(resultActionType: string | null | undefined): Stage | null {
   const t = (resultActionType ?? "").trim();
@@ -127,11 +120,11 @@ export function stageOf(
   objective?: Stage | null,
   adSetObjective?: Stage | null,
 ): { stage: Stage; source: StageSource } {
-  const boundary = (event?.generalSaleAt ?? event?.presaleAt ?? "").slice(0, 10);
-  if (boundary) return { stage: date < boundary ? "registration" : "ticket_sale", source: "event_dates" };
   const phase = (phaseAtLaunch ?? "").toLowerCase();
   if (REGISTRATION_PHASES.has(phase)) return { stage: "registration", source: "phase_at_launch" };
   if (TICKET_PHASES.has(phase)) return { stage: "ticket_sale", source: "phase_at_launch" };
+  const boundary = (event?.generalSaleAt ?? event?.presaleAt ?? "").slice(0, 10);
+  if (boundary) return { stage: date < boundary ? "registration" : "ticket_sale", source: "event_dates" };
   if (objective === "registration" || objective === "ticket_sale") return { stage: objective, source: "objective" };
   if (adSetObjective === "registration" || adSetObjective === "ticket_sale") {
     return { stage: adSetObjective, source: "adset_objective" };
@@ -212,8 +205,6 @@ export type JoinContext = {
   events: ReadonlyMap<string, StageEvent>;
   /** meta_adset_id → phase_at_launch. */
   adSetPhase: ReadonlyMap<string, string | null>;
-  /** meta_adset_id → launched_ad_sets.objective. */
-  adSetObjective?: ReadonlyMap<string, string | null>;
   /** meta_ad_id → stage from the ad's result days (`resultStageByAd`). */
   adResultStage?: ReadonlyMap<string, Stage>;
   /** meta_adset_id → stage from the ad set's result days (`resultStageByAdSet`). */
@@ -227,8 +218,7 @@ export function joinAdDay(row: AdDayRow, ctx: JoinContext): LearningFact {
   const event = resolved.eventId ? ctx.events.get(resolved.eventId) : undefined;
   const clientId = resolved.clientId ?? event?.clientId ?? null;
   const adSetId = row.meta_adset_id;
-  const objective =
-    (adSetId ? objectiveStage(ctx.adSetObjective?.get(adSetId)) : null) ?? ctx.adResultStage?.get(row.meta_ad_id) ?? null;
+  const objective = ctx.adResultStage?.get(row.meta_ad_id) ?? null;
   const { stage, source } = stageOf(
     row.date,
     event,
@@ -304,7 +294,6 @@ export type LaunchedAdSetRow = {
   client_id: string | null;
   event_id: string | null;
   phase_at_launch: string | null;
-  objective?: string | null;
   interest_ids: unknown;
 };
 
@@ -348,7 +337,7 @@ export async function loadLearningInputs(db: Db): Promise<LearningInputs> {
       "events",
       "id, client_id, general_sale_at, presale_at",
     ),
-    loadAll<LaunchedAdSetRow>(db, "launched_ad_sets", "id, meta_adset_id, client_id, event_id, phase_at_launch, objective, interest_ids"),
+    loadAll<LaunchedAdSetRow>(db, "launched_ad_sets", "id, meta_adset_id, client_id, event_id, phase_at_launch, interest_ids"),
     loadAll<TagAssignment>(db, "creative_tag_assignments", "id, event_id, creative_name, tag_id, meta_ad_id"),
     loadAll<CreativeTag>(db, "creative_tags", "id, dimension, value_key, value_label", (q) => q.not("dimension", "is", null)),
     loadAll<{ ad_account_id: string; currency: string | null }>(db, "bm_ad_accounts", "id, ad_account_id, currency"),
@@ -365,7 +354,6 @@ export async function loadLearningInputs(db: Db): Promise<LearningInputs> {
       events.map((e) => [e.id, { clientId: e.client_id, generalSaleAt: e.general_sale_at, presaleAt: e.presale_at }]),
     ),
     adSetPhase: new Map(adSets.map((a) => [a.meta_adset_id, a.phase_at_launch])),
-    adSetObjective: new Map(adSets.map((a) => [a.meta_adset_id, a.objective ?? null])),
     adResultStage: resultStageByAd(adDays),
     adSetResultStage: resultStageByAdSet(adDays),
     tags: buildTagIndex(assignments, new Set(tags.keys())),
