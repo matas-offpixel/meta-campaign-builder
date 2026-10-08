@@ -59,6 +59,34 @@ describe("planLaunchedAdSetBackfill", () => {
     assert.equal(plan.writes[0]?.source_type, "page_group");
   });
 
+  it("phase_at_launch comes from the draft objective, not the event's sale dates", () => {
+    const plan = (objective: CampaignDraft["settings"]["objective"] | undefined) => {
+      const draft = draftWithResults(
+        {
+          launchRunId: "run-old",
+          metaCampaignId: "camp-1",
+          adSetLaunchResults: { "sug-1": { launchStatus: "created", metaAdSetId: "120399" } },
+        } as unknown as CampaignDraft["launchSummary"],
+        [suggestion("sug-1")],
+      );
+      draft.settings.objective = objective as CampaignDraft["settings"]["objective"];
+      const events = new Map([
+        [
+          "11111111-1111-4111-8111-111111111111",
+          { clientId: null, presaleAt: "2026-01-01T09:00:00Z", generalSaleAt: "2026-02-01T09:00:00Z", soldOutAt: null },
+        ],
+      ]);
+      return planLaunchedAdSetBackfill(
+        [{ id: "draft-1", user_id: "user-1", event_id: null, draft_json: draft }],
+        events,
+        new Date("2026-10-08T12:00:00Z"),
+      ).writes[0]?.phase_at_launch;
+    };
+    assert.equal(plan("registration"), "presale");
+    assert.equal(plan("traffic"), "on_sale");
+    assert.equal(plan(undefined), null);
+  });
+
   it("reports a missing suggestion instead of guessing", () => {
     const draft = draftWithResults(
       {

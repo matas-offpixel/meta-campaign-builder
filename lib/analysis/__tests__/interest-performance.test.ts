@@ -88,6 +88,14 @@ describe("interest-performance", () => {
     assert.equal(registrationReason(adSet({ customEventType: "PURCHASE" })), null);
   });
 
+  it("phase_at_launch 'presale' (a registration objective) counts as registration; 'on_sale' does not", () => {
+    const withPhase = (phaseAtLaunch: string) =>
+      adSet({ customEventType: "PURCHASE", launched: { phaseAtLaunch } as AnalysisAdSet["launched"] });
+    assert.equal(registrationReason(withPhase("presale")), "phase_at_launch");
+    assert.equal(registrationReason(withPhase("PRESALE")), "phase_at_launch");
+    assert.equal(registrationReason(withPhase("on_sale")), registrationReason(adSet({ customEventType: "PURCHASE" })));
+  });
+
   it("picks one action type per account by total and never sums", () => {
     const rows = [
       adSet({ id: "1", regActions: { lead: 10 } }),

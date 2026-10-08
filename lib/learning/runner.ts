@@ -86,7 +86,7 @@ function stageCounts(facts: LearningInputs["facts"]): Record<string, Record<Stag
 function stageSourceCounts(facts: LearningInputs["facts"]): Record<string, Record<StageSource, number>> {
   const out: Record<string, Record<StageSource, number>> = {};
   for (const f of facts) {
-    const c = (out[f.clientId ?? ""] ??= { event_dates: 0, phase_at_launch: 0, objective: 0, adset_objective: 0, unknown: 0 });
+    const c = (out[f.clientId ?? ""] ??= { phase_at_launch: 0, event_dates: 0, objective: 0, adset_objective: 0, unknown: 0 });
     c[f.stageSource] += 1;
   }
   return out;

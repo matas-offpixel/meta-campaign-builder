@@ -7,7 +7,6 @@ import {
   interestKeyOf,
   joinAdDay,
   joinRates,
-  objectiveStage,
   resultOf,
   resultStageByAd,
   resultStageByAdSet,
@@ -81,9 +80,17 @@ describe("learning joins: stage", () => {
     return `${stage}/${source}`;
   };
 
-  it("before general sale is registration; the general sale day and after is ticket_sale", () => {
+  it("phase_at_launch first, ahead of event dates: a presale ad set after general sale stays registration", () => {
     const event = { clientId: "c", generalSaleAt: "2026-10-03T09:00:00Z", presaleAt: "2026-09-30T09:00:00Z" };
-    assert.equal(st("2026-10-02", event, "on_sale", "ticket_sale"), "registration/event_dates");
+    assert.equal(st("2026-10-05", event, "presale"), "registration/phase_at_launch");
+    assert.equal(st("2026-10-01", event, "on_sale"), "ticket_sale/phase_at_launch");
+    assert.equal(st("2026-10-01", event, "waiting_list"), "registration/phase_at_launch");
+    assert.equal(st("2026-10-01", null, "on_sale", "registration", "registration"), "ticket_sale/phase_at_launch");
+  });
+
+  it("no phase → event dates: before general sale is registration; the general sale day and after is ticket_sale", () => {
+    const event = { clientId: "c", generalSaleAt: "2026-10-03T09:00:00Z", presaleAt: "2026-09-30T09:00:00Z" };
+    assert.equal(st("2026-10-02", event, null, "ticket_sale"), "registration/event_dates");
     assert.equal(st("2026-10-03", event, null), "ticket_sale/event_dates");
   });
 
@@ -93,24 +100,14 @@ describe("learning joins: stage", () => {
     assert.equal(st("2026-10-02", event, null), "ticket_sale/event_dates");
   });
 
-  it("no dates → phase_at_launch, then objective, else unknown", () => {
+  it("no phase and no dates → the ad's result type, then the ad set's, else unknown", () => {
     const undated = { clientId: "c", generalSaleAt: null, presaleAt: null };
-    assert.equal(st("2026-10-01", undated, "presale"), "registration/phase_at_launch");
-    assert.equal(st("2026-10-01", undated, "waiting_list"), "registration/phase_at_launch");
-    assert.equal(st("2026-10-01", undated, "on_sale", "registration"), "ticket_sale/phase_at_launch");
     assert.equal(st("2026-10-01", undated, null, "registration"), "registration/objective");
     assert.equal(st("2026-10-01", null, null, "ticket_sale"), "ticket_sale/objective");
     assert.equal(st("2026-10-01", undated, null, null, "ticket_sale"), "ticket_sale/adset_objective");
     assert.equal(st("2026-10-01", undated, null, "registration", "ticket_sale"), "registration/objective");
     assert.equal(st("2026-10-01", undated, null), "unknown/unknown");
     assert.equal(st("2026-10-01", null, null, null), "unknown/unknown");
-  });
-
-  it("objective: registration / lead → registration, purchase → ticket_sale, anything else nothing", () => {
-    assert.equal(objectiveStage("registration"), "registration");
-    assert.equal(objectiveStage("LEAD"), "registration");
-    assert.equal(objectiveStage("purchase"), "ticket_sale");
-    for (const o of ["traffic", "awareness", "initiate_checkout", "engagement", "", null]) assert.equal(objectiveStage(o), null);
   });
 
   it("result type: registration and lead pixel types → registration, purchase → ticket_sale", () => {
@@ -170,17 +167,16 @@ describe("learning joins: stage", () => {
     assert.deepEqual([unknown.stage, unknown.stageSource, unknown.result], ["unknown", "unknown", null]);
   });
 
-  it("joinAdDay: the ad set's objective first, then the ad's result days; event dates still win", () => {
+  it("joinAdDay: the ad set's phase beats the event's dates; with no phase, dates beat the ad's result days", () => {
     const ctx = joinContext({
-      adSetObjective: new Map([["adset-obj", "registration"]]),
-      adResultStage: new Map([["ad-buys", "ticket_sale"]]),
+      adSetPhase: new Map([["adset-pre", "presale"]]),
+      adResultStage: new Map([["ad-launched", "ticket_sale"]]),
     });
-    const byObjective = joinAdDay(adDay({ meta_ad_id: "ad-buys", meta_adset_id: "adset-obj", campaign_name: "[CODE-C]", registrations: 4 }), ctx);
-    assert.deepEqual([byObjective.stage, byObjective.stageSource, byObjective.result], ["registration", "objective", 4]);
-    const byResult = joinAdDay(adDay({ meta_ad_id: "ad-buys", campaign_name: "[CODE-C]", purchases: 1 }), ctx);
-    assert.deepEqual([byResult.stage, byResult.stageSource, byResult.result], ["ticket_sale", "objective", 1]);
-    const dated = joinAdDay(adDay({ meta_ad_id: "ad-launched", meta_adset_id: "adset-obj" }), ctx);
-    assert.equal(dated.stageSource, "event_dates");
+    // event-a's general sale is 2026-10-03; this day is after it.
+    const late = joinAdDay(adDay({ meta_ad_id: "ad-launched", meta_adset_id: "adset-pre", date: "2026-10-05", registrations: 4 }), ctx);
+    assert.deepEqual([late.eventId, late.stage, late.stageSource, late.result], ["event-a", "registration", "phase_at_launch", 4]);
+    const dated = joinAdDay(adDay({ meta_ad_id: "ad-launched", date: "2026-10-05", purchases: 1 }), ctx);
+    assert.deepEqual([dated.stage, dated.stageSource, dated.result], ["ticket_sale", "event_dates", 1]);
   });
 
   it("result: registrations in registration, purchases in ticket_sale", () => {

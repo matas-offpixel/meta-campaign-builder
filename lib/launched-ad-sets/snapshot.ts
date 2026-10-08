@@ -10,6 +10,7 @@ import type {
   AdSetGeoLocations,
   AdSetSuggestion,
   AudienceSettings,
+  CampaignObjective,
   InterestGroup,
   LocationSelection,
   LocationTargetingGroup,
@@ -102,6 +103,35 @@ export function joinLaunchNotes(
 ): string | null {
   const parts = notes.map((note) => note?.trim()).filter((note): note is string => Boolean(note));
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+const ON_SALE_OBJECTIVES: ReadonlySet<string> = new Set<CampaignObjective>([
+  "purchase",
+  "initiate_checkout",
+  "traffic",
+  "awareness",
+  "engagement",
+]);
+
+/**
+ * launched_ad_sets.phase_at_launch. Matas, 2026-10-08: "this should be
+ * automatically known from the objective of a campaign. If it's a
+ * complete reg then it's a presale phase, if it's traffic / purchase
+ * conversion / awareness then it's an on sale phase."
+ *
+ * 'registration' (Complete Registration) → 'presale'; purchase,
+ * initiate_checkout, traffic, awareness, engagement → 'on_sale'; a
+ * missing or unknown objective → null, never a guess. The event calendar
+ * does not enter: a registration ad set launched after general sale is
+ * still presale.
+ */
+export function phaseAtLaunchFromObjective(
+  objective: CampaignObjective | string | null | undefined,
+): CampaignPlanPhase | null {
+  const o = (objective ?? "").trim().toLowerCase();
+  if (o === "registration") return "presale";
+  if (ON_SALE_OBJECTIVES.has(o)) return "on_sale";
+  return null;
 }
 
 /** Same derivation as campaign_plans.phase / eligibility — do not invent another. */

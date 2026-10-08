@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { createDefaultDraft } from "../../campaign-defaults.ts";
-import type { AdSetSuggestion, AudienceSettings } from "../../types.ts";
+import type { AdSetSuggestion, AudienceSettings, CampaignObjective } from "../../types.ts";
 import {
   effectiveAdvantagePlus,
   interestIdsFromGroup,
   phaseAtLaunchFromEvent,
+  phaseAtLaunchFromObjective,
   snapshotAudienceDescriptor,
 } from "../snapshot.ts";
 
@@ -81,6 +82,37 @@ describe("effectiveAdvantagePlus", () => {
     assert.equal(effectiveAdvantagePlus(true, "strict"), false);
     assert.equal(effectiveAdvantagePlus(true, undefined), true);
     assert.equal(effectiveAdvantagePlus(false, undefined), false);
+  });
+});
+
+describe("phaseAtLaunchFromObjective", () => {
+  it("registration (Complete Registration) → presale", () => {
+    assert.equal(phaseAtLaunchFromObjective("registration"), "presale");
+  });
+
+  it("every other CampaignObjective → on_sale", () => {
+    const others: CampaignObjective[] = ["purchase", "initiate_checkout", "traffic", "awareness", "engagement"];
+    for (const objective of others) assert.equal(phaseAtLaunchFromObjective(objective), "on_sale", objective);
+  });
+
+  it("maps every CampaignObjective (a new objective fails to compile here)", () => {
+    const all: Record<CampaignObjective, true> = {
+      purchase: true,
+      initiate_checkout: true,
+      registration: true,
+      traffic: true,
+      awareness: true,
+      engagement: true,
+    };
+    for (const objective of Object.keys(all)) assert.notEqual(phaseAtLaunchFromObjective(objective), null, objective);
+  });
+
+  it("missing or unknown objective → null, never a guess", () => {
+    assert.equal(phaseAtLaunchFromObjective(null), null);
+    assert.equal(phaseAtLaunchFromObjective(undefined), null);
+    assert.equal(phaseAtLaunchFromObjective(""), null);
+    assert.equal(phaseAtLaunchFromObjective("OUTCOME_LEADS"), null);
+    assert.equal(phaseAtLaunchFromObjective("lead"), null);
   });
 });
 
