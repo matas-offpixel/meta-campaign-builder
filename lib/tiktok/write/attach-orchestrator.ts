@@ -96,9 +96,9 @@ export async function launchTikTokAttachPlan(
   const adIds: string[] = [];
   /** Returned by a create POST in this run; the only deletable ids. */
   const createdAdGroups: string[] = [];
-  /** Ads created inside an existing ad group (ads-only modes). */
+  /** Ads created inside an ad group this run did not create: deleted by ad id. */
   const createdLooseAds: string[] = [];
-  /** Ads created inside an ad group this run created. */
+  /** Ads created inside an ad group this run created: deleted with it. */
   const createdNestedAds: string[] = [];
   /** Ids an earlier success row already held. Never deleted, never cleared. */
   const reused = new Set<string>();
@@ -135,6 +135,8 @@ export async function launchTikTokAttachPlan(
           const { ad_id, reused: adReused } = await postTikTokAdCreate(context, payload);
           adIds.push(ad_id);
           if (adReused) reused.add(ad_id);
+          // A reused group is never deleted, so its new ads go by ad id.
+          else if (groupReused) createdLooseAds.push(ad_id);
           else createdNestedAds.push(ad_id);
           entities.push({ kind: "ad", id: ad_id, name: ad.creative.name, status: "created" });
           report("ad", campaign.campaignId);

@@ -456,7 +456,18 @@ function planOneCampaign(
     const ads: TikTokAttachAdPlan[] = [];
     for (const creativeId of effective.creativeAssignments.byAdGroupId[adGroup.id] ?? []) {
       const creative = effective.creatives.items.find((item) => item.id === creativeId);
-      if (creative?.videoId) ads.push({ creative, draft: effective });
+      if (creative?.videoId) {
+        ads.push({ creative, draft: effective });
+      } else {
+        issues.push(
+          block(
+            `attach-ad-video-${live.id}-${adGroup.id}-${creativeId}`,
+            "video_id",
+            `Creative "${creative?.name ?? creativeId}" is assigned to ad group "${adGroup.name}" but has no uploaded video, so its ad can't be created. Upload the video or unassign it.`,
+            "adgroup",
+          ),
+        );
+      }
     }
     adGroups.push({ draftAdGroupId: adGroup.id, name: adGroup.name, payload: payload.value, ads });
   }

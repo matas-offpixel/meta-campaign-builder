@@ -200,6 +200,11 @@ Probe 2 (cross-tabs of the same reads):
 - **S4:** the draft's `smartPlusEnabled` blocker now also runs in the ads-only modes.
 - **N3:** ads-only payloads are built from `adDraft`, the draft with the target's objective. `buildTikTokAdPayload` never reads the objective, so the body is identical. A test proves this for WEB_CONVERSIONS, LEAD_GENERATION and TRAFFIC parents.
 
+## Round 3
+
+- **A new ad under a reused ad group was counted as nested.** Rollback assumes nested ads go when their parent group is deleted, but a reused group is never deleted. So the ad stayed live, lost its ledger row, and was not reported. It now goes to the delete-by-ad-id list. Its row is cleared only after a successful delete, and set to `failed` (and reported as left behind) when the delete fails.
+- **An assigned creative with no video was skipped silently in attach_campaign.** It now blocks by name. The shared `collectTikTokLaunchPreflight` check `adgroup-creative-{id}` blocks only a group where no creative has a video, so a mixed group used to pass. New mode still skips these (`orchestrator.ts`) and is unchanged.
+
 ## Records (follow-up, no migration here)
 
 New TikTok ad groups and ads are **not** recorded in this PR:

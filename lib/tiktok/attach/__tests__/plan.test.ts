@@ -245,6 +245,28 @@ describe("attach_campaign plan", () => {
     assert.equal(preview.ok, true, JSON.stringify(preview.issues));
   });
 
+  it("blocks an assigned creative with no video by name; the shared check covers a group with none at all", () => {
+    const c = campaign("c1");
+    const mixed = { ...salesDraft(), launchMode: "attach_campaign" as const, attachCampaigns: [snap(c)] };
+    const noVideo = mixed.creatives.items[1]!;
+    noVideo.videoId = null;
+    // ag-draft-1 has creative-1 (video) and creative-2 (none): the shared
+    // preflight passes it, so attach blocks the one creative.
+    const out = planTikTokAttachLaunch(mixed, live([c], []), OPTS);
+    assert.equal(out.ok, false);
+    assert.equal(out.plan, null);
+    const issue = out.issues.find((i) => i.id === `attach-ad-video-c1-ag-draft-1-${noVideo.id}`);
+    assert.ok(issue, JSON.stringify(out.issues));
+    assert.match(issue.message, new RegExp(`Creative "${noVideo.name}" is assigned to ad group ".*" but has no uploaded video`));
+
+    // A group whose every creative lacks a video is the shared
+    // collectTikTokLaunchPreflight check `adgroup-creative-{id}`.
+    const none = { ...salesDraft(), launchMode: "attach_campaign" as const, attachCampaigns: [snap(c)] };
+    for (const item of none.creatives.items) item.videoId = null;
+    const blocked = planTikTokAttachLaunch(none, live([c], []), OPTS);
+    assert.ok(blocked.issues.some((i) => /needs at least one assigned creative with a videoId/.test(i.message)), JSON.stringify(blocked.issues));
+  });
+
   it("blocks with the reason when a new ad group's payload can't be built", () => {
     const c = campaign("c1");
     const draft = { ...salesDraft(), launchMode: "attach_campaign" as const, attachCampaigns: [snap(c)] };

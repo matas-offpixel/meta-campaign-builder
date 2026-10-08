@@ -171,10 +171,15 @@ function snapGroup(g: TikTokAttachAdGroup) {
 }
 
 /** One campaign; one draft ad group per name, one ad each. */
-function adGroupPlan(names: string[], paused = false): TikTokAttachPlan {
+function adGroupPlan(
+  names: string[],
+  paused = false,
+  edit: (draft: TikTokCampaignDraft) => void = () => {},
+): TikTokAttachPlan {
   const c = campaign("existing_campaign");
   const draft = salesDraft();
   draft.launchPaused = paused;
+  edit(draft);
   draft.budgetSchedule.adGroups = names.map((name) => ({
     id: `ag-${name}`,
     name,
@@ -392,6 +397,59 @@ describe("ids reused from an earlier launch are never deleted", () => {
     assertNoTargetTouched(second.calls);
     const survivors = ledger.rows.filter((r) => r.op_status === "success").map((r) => r.op_result_id);
     assert.deepEqual(survivors.sort(), [...earlier.ad_ids].sort());
+  });
+
+  it("a new ad under a reused ad group is deleted by ad id on a later failure, and its ledger row is cleared only after a successful delete", async () => {
+    const editedCopy = (draft: TikTokCampaignDraft) => {
+      draft.creatives.items[0]!.adText = "Edited after the first launch";
+    };
+    for (const deleteFails of [false, true]) {
+      process.env.OFFPIXEL_TIKTOK_WRITES_ENABLED = "true";
+      const ledger = new Ledger();
+      const first = recorder();
+      const earlier = await launchTikTokAttachPlan(context(ledger, first.request), adGroupPlan(["A"]));
+      const [reusedGroup] = earlier.adgroup_ids;
+      const [earlierAd] = earlier.ad_ids;
+
+      // Group A hashes the same (reused); its ad's copy changed, so the ad
+      // is new. Then B's create fails.
+      const second = recorder(
+        (path, nth) =>
+          (path === "/adgroup/create/" && nth === 1) ||
+          (deleteFails && path === TIKTOK_AD_STATUS_UPDATE_PATH),
+        "run2",
+      );
+      let message = "";
+      await assert.rejects(
+        launchTikTokAttachPlan(context(ledger, second.request), adGroupPlan(["A", "B"], false, editedCopy)),
+        (err: unknown) => {
+          message = err instanceof Error ? err.message : String(err);
+          return true;
+        },
+      );
+      const newAd = "run2_ad_1";
+      assert.deepEqual(
+        second.calls.map((c) => c.path),
+        ["/ad/create/", "/adgroup/create/", TIKTOK_AD_STATUS_UPDATE_PATH],
+        `deleteFails=${deleteFails}`,
+      );
+      assert.equal(second.calls[0]!.body.adgroup_id, reusedGroup);
+      assert.deepEqual(second.calls[2]!.body.ad_ids, [newAd]);
+      for (const call of second.calls.filter((c) => c.path === TIKTOK_ADGROUP_STATUS_UPDATE_PATH)) {
+        assert.equal((call.body.adgroup_ids as string[]).includes(reusedGroup!), false);
+      }
+
+      const row = (id: string) => ledger.rows.find((r) => r.op_result_id === id);
+      assert.equal(row(reusedGroup!)?.op_status, "success");
+      assert.equal(row(earlierAd!)?.op_status, "success");
+      if (deleteFails) {
+        assert.equal(row(newAd)?.op_status, "failed");
+        assert.match(message, new RegExp(`ads ${newAd}`));
+      } else {
+        assert.equal(row(newAd), undefined);
+        assert.doesNotMatch(message, /could not remove/);
+      }
+    }
   });
 
   it("the guard drops reused ids from every status call, ads as well as ad groups", async () => {
