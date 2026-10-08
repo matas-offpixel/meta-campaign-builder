@@ -16,6 +16,7 @@ import {
   serializeGeoTargetsColumn,
 } from "../google-search/geo-targets-codec.ts";
 import { derivePlanDailyBudget } from "../google-search/budget.ts";
+import { orphanedAdGroupNegatives } from "../google-search/negative-conflicts.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
   DEFAULT_PACING,
@@ -1001,14 +1002,19 @@ export async function saveGoogleSearchPlanTree(
   // BEFORE diffing so inserts can resolve the FK without an extra map.
   // An ad-group negative whose ad group left the tree is dropped, never
   // widened to the whole campaign.
-  const treeAdGroupIdsByCampaign = new Map(
-    tree.campaigns.map((c) => [c.id, new Set(c.ad_groups.map((ag) => ag.id))]),
-  );
+  const orphanedNegatives = orphanedAdGroupNegatives(tree);
+  if (orphanedNegatives.length > 0) {
+    console.warn(
+      `[google-search] saveGoogleSearchPlanTree plan=${tree.plan.id}: dropped ${orphanedNegatives.length} ad-group negative(s) whose ad group left the tree: ` +
+        orphanedNegatives.map((n) => `"${n.keyword}"`).join(", "),
+    );
+  }
+  const orphanedIds = new Set(orphanedNegatives.map((n) => n.id));
   const taggedNegatives = [
     ...tree.plan_negatives.map((n) => ({ n, campaignId: null as string | null })),
     ...tree.campaigns.flatMap((c) =>
       c.negatives
-        .filter((n) => !n.ad_group_id || treeAdGroupIdsByCampaign.get(c.id)?.has(n.ad_group_id))
+        .filter((n) => !orphanedIds.has(n.id))
         .map((n) => ({ n, campaignId: resolveCampaignId(c.id) })),
     ),
   ];

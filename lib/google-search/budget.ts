@@ -137,15 +137,22 @@ export function resolveCampaignDailyBudgets(
   });
 }
 
+/** Σ daily budgets push sends for the campaigns that serve, in pounds. Null with no campaigns. */
+export function plannedDailySpend(tree: Pick<GoogleSearchPlanTree, "plan" | "campaigns">): number | null {
+  if (tree.campaigns.length === 0) return null;
+  const perDay = resolveCampaignDailyBudgets(tree)
+    .filter((b) => b.serves)
+    .reduce((sum, b) => sum + b.micros / 1_000_000, 0);
+  return Math.round(perDay * 100) / 100;
+}
+
 /** Total the serving campaigns would spend over the plan window. Null without a window. */
 export function plannedCampaignSpend(
   tree: Pick<GoogleSearchPlanTree, "plan" | "campaigns">,
 ): { spend: number; days: number } | null {
   const days = inclusiveDays(tree.plan.date_range);
   if (!days) return null;
-  const perDay = resolveCampaignDailyBudgets(tree)
-    .filter((b) => b.serves)
-    .reduce((sum, b) => sum + b.micros / 1_000_000, 0);
+  const perDay = plannedDailySpend(tree) ?? 0;
   return { spend: Math.round(perDay * days * 100) / 100, days };
 }
 

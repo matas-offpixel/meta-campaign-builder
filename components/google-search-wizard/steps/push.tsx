@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   hasHardErrors,
+  REVIEW_WARNING_CODES,
   validateGoogleSearchPlan,
 } from "@/lib/google-search/validation";
 import type { GoogleSearchPlanTree } from "@/lib/google-search/types";
@@ -50,6 +51,9 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
   const [confirmStart, setConfirmStart] = useState(false);
   const issues = validateGoogleSearchPlan(tree);
   const blocking = hasHardErrors(issues);
+  const reviewWarnings = issues.filter(
+    (i) => i.severity === "warning" && REVIEW_WARNING_CODES.has(i.code),
+  );
   const outcome = describeGoogleSearchPush(tree, launchPaused);
   const preview = campaignPushPreview(tree);
   const startBlocks = launchPaused
@@ -197,6 +201,20 @@ export function PushStep({surface = "wizard",  tree, onChange, onOpenStep }: Pro
                   ))}
               </ul>
             ) : null}
+          </div>
+        )}
+
+        {reviewWarnings.length > 0 && (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <StatusLine className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Check before pushing
+            </StatusLine>
+            <ul className="mt-2 space-y-1">
+              {reviewWarnings.map((issue, index) => (
+                <li key={`${issue.code}-${index}`}>{issue.message}</li>
+              ))}
+            </ul>
           </div>
         )}
 

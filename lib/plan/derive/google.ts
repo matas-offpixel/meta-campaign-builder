@@ -4,6 +4,7 @@ import type {
   GoogleSearchPlanDraftTree,
   GoogleSearchPlanTree,
 } from "../../google-search/types.ts";
+import { orphanedAdGroupNegatives } from "../../google-search/negative-conflicts.ts";
 import { topVocabularyTerms, type VocabularyTerm } from "./vocabulary.ts";
 
 /**
@@ -97,6 +98,8 @@ export function deriveGoogleNoiseNegatives(): Array<{
 export function toGoogleSearchPlanDraftTree(
   tree: GoogleSearchPlanTree,
 ): GoogleSearchPlanDraftTree {
+  const orphaned = orphanedAdGroupNegatives(tree);
+  const orphanedIds = new Set(orphaned.map((negative) => negative.id));
   return {
     plan: {
       event_id: tree.plan.event_id,
@@ -149,23 +152,25 @@ export function toGoogleSearchPlanDraftTree(
         scope: { kind: "plan" as const },
       })),
       ...tree.campaigns.flatMap((campaign) =>
-        campaign.negatives.map((negative) => {
-          const adGroup = negative.ad_group_id
-            ? campaign.ad_groups.find((ag) => ag.id === negative.ad_group_id)
-            : undefined;
-          return {
-            keyword: negative.keyword,
-            match_type: negative.match_type,
-            reason: negative.reason,
-            scope: adGroup
-              ? {
-                  kind: "ad_group" as const,
-                  campaign_name: campaign.name,
-                  ad_group_name: adGroup.name,
-                }
-              : { kind: "campaign" as const, campaign_name: campaign.name },
-          };
-        }),
+        campaign.negatives
+          .filter((negative) => !orphanedIds.has(negative.id))
+          .map((negative) => {
+            const adGroup = negative.ad_group_id
+              ? campaign.ad_groups.find((ag) => ag.id === negative.ad_group_id)
+              : undefined;
+            return {
+              keyword: negative.keyword,
+              match_type: negative.match_type,
+              reason: negative.reason,
+              scope: adGroup
+                ? {
+                    kind: "ad_group" as const,
+                    campaign_name: campaign.name,
+                    ad_group_name: adGroup.name,
+                  }
+                : { kind: "campaign" as const, campaign_name: campaign.name },
+            };
+          }),
       ),
     ],
     sitelinks: tree.sitelinks.map((sitelink) => ({
@@ -175,7 +180,11 @@ export function toGoogleSearchPlanDraftTree(
       description2: sitelink.description2,
       sort_order: sitelink.sort_order,
     })),
-    warnings: [],
+    warnings: orphaned.map((negative) => ({
+      code: "missing_ad_group" as const,
+      message: `Negative "${negative.keyword}" belonged to an ad group no longer in the plan — it was dropped, not widened to the campaign.`,
+      context: { negative: negative.keyword, ad_group_id: negative.ad_group_id ?? null },
+    })),
   };
 }
 

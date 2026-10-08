@@ -2,8 +2,8 @@
 
 ## PR
 
-- **Number:** pending
-- **URL:** pending
+- **Number:** 1035
+- **URL:** https://github.com/matas-offpixel/meta-campaign-builder/pull/1035
 - **Branch:** `cursor/google-budgets-caps-negatives`
 
 ## Summary
@@ -52,7 +52,51 @@ No live Google campaign is touched and nothing is backfilled to Google.
 
 - [x] `npx tsc --noEmit` (no new errors vs `main`)
 - [x] `npm run build`
-- [x] `npm test` — 6987 tests, 0 failures. Acceptance tests are in `launcher-v2-budgets-caps-negatives.test.ts`, and the writer payload snapshots are in `campaign-writer.test.ts`.
+- [x] `npm test` — 7006 tests, 0 failures after round 2.
+  - Acceptance tests: `launcher-v2-budgets-caps-negatives.test.ts`.
+  - Round-2 tests: `google-repush-caps-negatives.test.ts`.
+  - Writer payload snapshots: `campaign-writer.test.ts`.
+
+## Round 2 (review fixes)
+
+**B1 — existing canvas plans.**
+- **Problem:** before this PR, prepare-draft saved canvas Google plans with `total_budget = googleDaily` and its one campaign's `daily_budget = googleDaily`. `buildPlanLaunchDrafts` prefers the linked DB tree, so any such plan longer than a day would trip `budget_exceeds_plan`.
+- **Prod count (read-only, 2026-10-08): 0.**
+  - `campaign_plan_google_launch` has 0 rows (4 canvas plans exist; none has prepared a Google draft).
+  - No `google_search_plans` row anywhere has `total_budget` equal to a campaign's `daily_budget`.
+  - Ids corrected: none.
+- **Fix:** migration `189_canvas_google_plan_total_budget.sql`.
+  - It sets `total_budget = daily × inclusive days` and `daily_budget = daily`.
+  - It only touches rows that are canvas-linked (`campaign_plan_google_launch.draft_id`), have exactly one campaign, have that campaign's daily equal to the plan total, and have a valid window of two days or more.
+  - It touches 0 rows today. It is kept so that drafts prepared on `main` before this deploys are corrected too.
+  - Apply after 188.
+
+**B2 — blockers on pushed rows.**
+- The £5 fallback check skips campaigns that already have a `pushed_resource_name`.
+- Overspend becomes a warning when every serving campaign is already live. Push cannot change those budgets.
+- A negative/keyword conflict blocks only when this push creates it:
+  - a new negative (which push sends to the ad group), or
+  - a new keyword in an already-pushed ad group, under a live negative.
+- A live negative never reaches a new ad group (the writer only sends unpushed negatives), so it does not block that ad group's keywords.
+
+**S1 — cap cells.**
+- Comma decimals are read as decimals, and `£` and `Phase N:` labels are stripped.
+- A cap over £20 is rejected with a warning and not stored.
+
+**S2 — exact negative vs phrase/broad keyword.**
+- An exact negative on a phrase or broad keyword is now a warning (`negative_blocks_exact_query`): the keyword still serves longer queries.
+- Against an exact keyword it stays a blocker.
+- A phrase or broad negative that matches the keyword's text stays a blocker: it matches every longer query too.
+
+**S3 — merged single campaign.** Its `daily_budget` is left null. Push resolves it from the plan every time, so editing the plan total or dates cannot leave it stale.
+
+**S4 — merged cap spread.**
+- Review warns (`merged_cap_spread`) when a source cap is more than 50% below the merged ceiling, and names those themes.
+- Review now lists the new warnings: `budget_exceeds_plan` (live), `negative_blocks_exact_query`, `merged_cap_spread`.
+
+**Notes.**
+- An orphaned ad-group negative is now dropped by both derive (with an import warning) and save (with a server log line), never widened to the campaign.
+- Preflight's Google `dailyBudget` is Σ of the serving campaigns.
 
 ## Notes
 

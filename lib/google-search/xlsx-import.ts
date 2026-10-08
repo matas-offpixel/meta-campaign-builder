@@ -49,7 +49,7 @@
 
 import * as XLSX from "xlsx";
 
-import { derivePlanDailyBudget } from "./budget.ts";
+import { derivePlanDailyBudget, formatPounds } from "./budget.ts";
 import {
   DEFAULT_GEO_TARGET_TYPE,
   DEFAULT_PACING,
@@ -175,7 +175,6 @@ export function parseGoogleSearchPlanXlsx(
       negatives,
       planName,
       warnings,
-      { dailyBudget: planDailyBudget },
     );
     finalCampaigns = [result.campaign];
     finalNegatives = result.negatives;
@@ -222,8 +221,9 @@ export function parseGoogleSearchPlanXlsx(
  *     those competitors. One `campaign_negative_to_ad_groups` warning per
  *     source campaign says how many moved.
  *
- * The merged campaign's `daily_budget` is the plan daily budget
- * (`options.dailyBudget`, total ÷ days). Source-campaign notes, including
+ * The merged campaign has no `daily_budget` of its own: push resolves it
+ * from the plan (total ÷ days) every time, so editing the plan total or
+ * dates cannot leave it stale. Source-campaign notes, including
  * a Paused-at-launch line, are concatenated onto the merged campaign.
  * Its `max_cpc_cap` is the highest source cap — Maximise Clicks has one
  * ceiling per campaign. Each ad group keeps its own default CPC.
@@ -233,7 +233,6 @@ export function restructureAsSingleCampaign(
   negatives: GoogleSearchNegativeDraft[],
   planName: string,
   warnings: GoogleSearchImportWarning[],
-  options: { dailyBudget?: number | null } = {},
 ): { campaign: GoogleSearchCampaignDraftNode; negatives: GoogleSearchNegativeDraft[] } {
   const adGroups: GoogleSearchAdGroupDraftNode[] = [];
   const adGroupNamesBySource = new Map<string, string[]>();
@@ -334,12 +333,11 @@ export function restructureAsSingleCampaign(
     bidAdjustments.max_cpc_cap_by_campaign = capByCampaign;
   }
 
-  const dailyBudget = options.dailyBudget ?? null;
   const campaign: GoogleSearchCampaignDraftNode = {
     name: planName,
     priority: null,
     monthly_budget: null,
-    daily_budget: dailyBudget != null && dailyBudget > 0 ? dailyBudget : null,
+    daily_budget: null,
     bid_adjustments: bidAdjustments,
     notes: noteLines.length > 0 ? noteLines.join("\n") : null,
     sort_order: 0,
@@ -1238,13 +1236,21 @@ function readCpcCapCell(row: Record<string, unknown>): unknown {
   return row.maxcpc;
 }
 
+/** A cap above this is a typo (or a missed decimal), not a bid. */
+export const MAX_SHEET_CPC_CAP_POUNDS = 20;
+
 /**
  * Every cap in the cell, in order. `0.8` → [0.8]; `"£0.80"` → [0.8];
- * `"0.80 → 1.10"` → [0.8, 1.1] (launch phase first).
+ * `"0.80 → 1.10"` → [0.8, 1.1] (launch phase first); `"0,80"` → [0.8];
+ * `"Phase 1: 0.80 → Phase 2: 1.10"` → [0.8, 1.1]. Range checks are the
+ * caller's.
  */
 export function parseCpcCapCell(value: unknown): number[] {
   if (typeof value === "number") return Number.isFinite(value) && value > 0 ? [value] : [];
-  const text = cell(value);
+  const text = cell(value)
+    .replace(/phase\s*\d+\s*:?/gi, " ")
+    .replace(/£/g, " ")
+    .replace(/(\d),(\d)/g, "$1.$2");
   if (!text) return [];
   const out: number[] = [];
   for (const match of text.matchAll(/\d+(?:\.\d+)?|\.\d+/g)) {
@@ -1303,7 +1309,18 @@ function applyCampaignsSheet(
     const status = normaliseLaunchStatus(cell(row.statusatlaunch ?? row.status));
     const bidRaw = cell(row.bidstrategy);
     const bid = normaliseBidStrategy(bidRaw);
-    const capPhases = parseCpcCapCell(readCpcCapCell(row));
+    const capCell = readCpcCapCell(row);
+    let capPhases = parseCpcCapCell(capCell);
+    if (capPhases.some((phase) => phase > MAX_SHEET_CPC_CAP_POUNDS)) {
+      warnings.push({
+        code: "sheet_field_recorded",
+        message:
+          `${campaign.name}: max CPC cap "${cell(capCell)}" is over ${formatPounds(MAX_SHEET_CPC_CAP_POUNDS)} — not stored. ` +
+          "Push uses the £2.00 default ceiling until a cap is set.",
+        context: { campaign: campaign.name, cap: cell(capCell) },
+      });
+      capPhases = [];
+    }
     const cap = capPhases[0] ?? null;
     const schedule = cell(row.adschedule);
     const start = dateCell(row.start);

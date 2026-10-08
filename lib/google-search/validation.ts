@@ -251,10 +251,18 @@ function validateBudget(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue
 }
 
 /** What push would actually send per day, checked against the plan. */
+/**
+ * Budgets push will create. An already-pushed campaign keeps the budget
+ * Google has (the writer never re-sends it), so it cannot hit the £5
+ * fallback. When every serving campaign is already pushed, overspend is
+ * a warning: push cannot change it.
+ */
 function validatePushBudgets(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
   const issues: GoogleSearchValidationIssue[] = [];
-  for (const budget of resolveCampaignDailyBudgets(tree)) {
-    if (budget.source !== "fallback") continue;
+  const pushed = new Set(tree.campaigns.filter((c) => c.pushed_resource_name).map((c) => c.id));
+  const budgets = resolveCampaignDailyBudgets(tree);
+  for (const budget of budgets) {
+    if (budget.source !== "fallback" || pushed.has(budget.campaignId)) continue;
     issues.push({
       severity: "error",
       code: "budget_fallback_daily",
@@ -265,31 +273,89 @@ function validatePushBudgets(tree: GoogleSearchPlanTree): GoogleSearchValidation
   const total = positiveAmount(tree.plan.total_budget);
   const planned = plannedCampaignSpend(tree);
   if (total != null && planned && planned.spend > total * (1 + PLAN_OVERSPEND_TOLERANCE)) {
+    const pushCreatesBudget = budgets.some((b) => b.serves && !pushed.has(b.campaignId));
     issues.push({
-      severity: "error",
+      severity: pushCreatesBudget ? "error" : "warning",
       code: "budget_exceeds_plan",
-      message: `Campaigns would spend ${formatPounds(planned.spend)} over ${planned.days} days against a ${formatPounds(total)} plan.`,
+      message: pushCreatesBudget
+        ? `Campaigns would spend ${formatPounds(planned.spend)} over ${planned.days} days against a ${formatPounds(total)} plan.`
+        : `Live campaigns are set to spend ${formatPounds(planned.spend)} over ${planned.days} days against a ${formatPounds(total)} plan. Push does not change live budgets — edit them in Google Ads.`,
+    });
+  }
+  return issues;
+}
+
+/** Warnings the Push/Review panel lists next to its blockers. */
+export const REVIEW_WARNING_CODES: ReadonlySet<string> = new Set([
+  "budget_exceeds_plan",
+  "negative_blocks_exact_query",
+  "merged_cap_spread",
+]);
+
+/** Above this ratio a merged campaign's single ceiling is far from a theme's own cap. */
+const CAP_SPREAD_WARN_RATIO = 1.5;
+
+/** Display name for a source campaign: the part after the last `|`. */
+function themeName(sourceCampaign: string): string {
+  return sourceCampaign.split("|").pop()?.trim() || sourceCampaign;
+}
+
+/**
+ * Single-campaign mode has one Maximise Clicks ceiling — the highest
+ * source cap. A theme whose own cap is far below it bids well above what
+ * the sheet planned. Warns; never blocks.
+ */
+function validateMergedCapSpread(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const issues: GoogleSearchValidationIssue[] = [];
+  for (const campaign of tree.campaigns) {
+    const byCampaign = campaign.bid_adjustments?.max_cpc_cap_by_campaign;
+    if (!byCampaign || typeof byCampaign !== "object") continue;
+    const caps = Object.entries(byCampaign as Record<string, unknown>)
+      .map(([name, cap]) => [name, positiveAmount(cap)] as const)
+      .filter((entry): entry is readonly [string, number] => entry[1] != null);
+    if (caps.length < 2) continue;
+    const ceiling = Math.max(...caps.map(([, cap]) => cap));
+    const low = caps.filter(([, cap]) => cap * CAP_SPREAD_WARN_RATIO < ceiling);
+    if (low.length === 0) continue;
+    const themes = low.map(([name]) => themeName(name)).join(", ");
+    const keep = [...new Set(low.map(([, cap]) => formatPounds(cap)))].join(" / ");
+    issues.push({
+      severity: "warning",
+      code: "merged_cap_spread",
+      message: `${campaign.name}: ${themes} ad groups will bid up to ${formatPounds(ceiling)} — use one campaign per theme to keep ${keep}.`,
+      scope: campaign.name,
     });
   }
   return issues;
 }
 
 function validateNegativeConflicts(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
-  return findNegativeKeywordConflicts(tree).map((conflict) => {
-    const scope = `${conflict.campaignName} → ${conflict.adGroupName}`;
-    const level =
-      conflict.negativeScope === "plan"
-        ? "plan negative"
-        : conflict.negativeScope === "campaign"
-          ? "campaign negative"
-          : "ad-group negative";
-    return {
-      severity: "error" as const,
-      code: "negative_blocks_keyword",
-      message: `${scope}: ${level} "${conflict.negative}" (${conflict.negativeMatchType.toLowerCase()}) blocks keyword "${conflict.keyword}" — it would never serve.`,
-      scope,
-    };
-  });
+  return findNegativeKeywordConflicts(tree)
+    .filter((conflict) => conflict.createdByPush)
+    .map((conflict) => {
+      const scope = `${conflict.campaignName} → ${conflict.adGroupName}`;
+      const level =
+        conflict.negativeScope === "plan"
+          ? "plan negative"
+          : conflict.negativeScope === "campaign"
+            ? "campaign negative"
+            : "ad-group negative";
+      const pair = `${level} "${conflict.negative}" (${conflict.negativeMatchType.toLowerCase()})`;
+      if (!conflict.neverServes) {
+        return {
+          severity: "warning" as const,
+          code: "negative_blocks_exact_query",
+          message: `${scope}: ${pair} blocks the exact query "${conflict.keyword}" — keyword still serves longer queries.`,
+          scope,
+        };
+      }
+      return {
+        severity: "error" as const,
+        code: "negative_blocks_keyword",
+        message: `${scope}: ${pair} blocks keyword "${conflict.keyword}" — it would never serve.`,
+        scope,
+      };
+    });
 }
 
 /**
@@ -357,6 +423,7 @@ export function validateGoogleSearchPlan(
     ...validateBudget(tree),
     ...validatePushBudgets(tree),
     ...validateNegativeConflicts(tree),
+    ...validateMergedCapSpread(tree),
     ...validateSitelinks(tree),
     ...softWarnings(tree),
   ];
