@@ -3,6 +3,13 @@
  *
  *   npx tsx --env-file=.env.local scripts/learning-refresh.mts --dry-run
  *   npx tsx --env-file=.env.local scripts/learning-refresh.mts --apply
+ *   npx tsx --env-file=.env.local scripts/learning-refresh.mts --dry-run \
+ *     --adset-meta scripts/out/insights-objective-adsets.json
+ *
+ * --adset-meta (dry run only) stages from a
+ * `backfill-insights-objective.mts --fetch` snapshot instead of the
+ * migration 187 columns, so the meta_objective rung can be previewed
+ * before 187 is applied and backfilled.
  *
  * --dry-run reads prod (service role, SELECTs only), computes every job
  * and writes nothing. It prints rows per job, the tag join rate per
@@ -12,17 +19,24 @@
  * included. Zero Meta calls either way.
  */
 
+import { readFileSync } from "node:fs";
+
 import { createClient } from "@supabase/supabase-js";
 
+import { STAGE_SOURCES, type LoadLearningOptions, type StageSource } from "../lib/learning/joins.ts";
 import { runLearningRefresh } from "../lib/learning/runner.ts";
 import type { TagPerformanceRow } from "../lib/learning/tag-performance.ts";
 
 const args = new Set(process.argv.slice(2));
-if (args.has("--dry-run") === args.has("--apply")) {
-  console.error("usage: scripts/learning-refresh.mts --dry-run | --apply");
+const adSetMetaPath = process.argv.includes("--adset-meta") ? process.argv[process.argv.indexOf("--adset-meta") + 1] : null;
+if (args.has("--dry-run") === args.has("--apply") || (adSetMetaPath !== null && !args.has("--dry-run"))) {
+  console.error("usage: scripts/learning-refresh.mts --dry-run [--adset-meta <file>] | --apply");
   process.exit(2);
 }
 const dryRun = args.has("--dry-run");
+const load: LoadLearningOptions = adSetMetaPath
+  ? { adSetMeta: new Map(Object.entries(JSON.parse(readFileSync(adSetMetaPath, "utf8")))) }
+  : {};
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -32,7 +46,7 @@ if (!url || !key) {
 }
 const db = createClient(url, key, { auth: { persistSession: false } });
 
-const result = await runLearningRefresh({ env: { ...process.env, ENABLE_LEARNING_REFRESH: "1" }, db, dryRun });
+const result = await runLearningRefresh({ env: { ...process.env, ENABLE_LEARNING_REFRESH: "1" }, db, dryRun, load });
 if ("skippedReason" in result) {
   console.log(result);
   process.exit(0);
@@ -60,14 +74,14 @@ for (const [id, r] of Object.entries(result.joinRates).sort((a, b) => b[1].adDay
   console.log(`| ${nameOf(id)} | ${r.adDays} | ${r.tagged} | ${pct(r.rate)} | ${r.byAdId} | ${r.byName} | ${s.registration} | ${s.ticket_sale} | ${s.unknown} |`);
 }
 
-console.log(`\n## Where each ad-day's stage came from, and spend left in 'unknown'\n`);
-console.log("| Client | phase_at_launch | event_dates | objective | adset_objective | unknown | Unknown spend £ | of total £ | Share |");
-console.log("|---|---|---|---|---|---|---|---|---|");
+console.log(`\n## Where each ad-day's stage came from, and spend left in 'unknown'${adSetMetaPath ? ` (meta_objective from ${adSetMetaPath})` : ""}\n`);
+console.log(`| Client | ${STAGE_SOURCES.join(" | ")} | Unknown spend £ | of total £ | Share |`);
+console.log(`|---|${STAGE_SOURCES.map(() => "---|").join("")}---|---|---|`);
 for (const [id] of Object.entries(result.joinRates).sort((a, b) => b[1].adDays - a[1].adDays)) {
-  const s = result.stageSources[id] ?? { phase_at_launch: 0, event_dates: 0, objective: 0, adset_objective: 0, unknown: 0 };
+  const s: Partial<Record<StageSource, number>> = result.stageSources[id] ?? {};
   const sp = result.spend[id] ?? { total: 0, unknown: 0 };
   console.log(
-    `| ${nameOf(id)} | ${s.phase_at_launch} | ${s.event_dates} | ${s.objective} | ${s.adset_objective} | ${s.unknown} | ${sp.unknown} | ${sp.total} | ${sp.total > 0 ? pct(sp.unknown / sp.total) : "—"} |`,
+    `| ${nameOf(id)} | ${STAGE_SOURCES.map((k) => s[k] ?? 0).join(" | ")} | ${sp.unknown} | ${sp.total} | ${sp.total > 0 ? pct(sp.unknown / sp.total) : "—"} |`,
   );
 }
 

@@ -4,7 +4,9 @@
 // at a time. Same fetch/derive/upsert path as the nightly cron, in 7-day
 // windows with a 2 s pause before every Graph call after the first. A
 // window Meta fails with code 1/2 is split 7 → 3 → 1 days by the runner
-// (`fetchAdAccountInsightsAdaptive`); every split call is counted.
+// (`fetchAdAccountInsightsAdaptive`); every split call is counted, and
+// so is every batched ad set promoted_object read (≤50 ids a call, only
+// sales conversion ad sets not already known).
 //
 // Dry-run by default: prints the window plan and the minimum call count
 // (one call per window; +1 per extra page of 500 ad-days) and calls
@@ -15,7 +17,7 @@
 //     --account act_123 --since 2026-07-01 --until 2026-10-06 [--apply]
 //
 // Requires env: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
-// META_ACCESS_TOKEN. --apply requires migration 185.
+// META_ACCESS_TOKEN. --apply requires migrations 185 and 187.
 
 import { createClient } from "@supabase/supabase-js";
 
@@ -48,7 +50,7 @@ async function main() {
   console.log(`account: ${account}`);
   console.log(`range:   ${since}..${until} → ${plan.length} window(s) of ≤${CHUNK_DAYS} days`);
   console.log(
-    `minimum Meta calls: ${plan.length} (one per window; +1 per extra page of 500 ad-days; a split 7-day window costs up to 10 more)`,
+    `minimum Meta calls: ${plan.length} (one per window; +1 per extra page of 500 ad-days; a split 7-day window costs up to 10 more; +1 per 50 new sales conversion ad sets)`,
   );
   console.log(`minimum wall time:  ~${Math.ceil(((plan.length - 1) * PAUSE_MS) / 1000)}s of pauses`);
   if (!APPLY) {
@@ -85,9 +87,10 @@ async function main() {
     calls += result.metaCalls ?? 0;
     rows += result.rowsWritten ?? 0;
     console.log(
-      `${window.since}..${window.until} status=${outcome?.status} calls=${outcome?.calls} rows=${outcome?.rows}` +
+      `${window.since}..${window.until} status=${outcome?.status} calls=${outcome?.calls} adset_calls=${outcome?.adsetCalls} rows=${outcome?.rows}` +
         (outcome?.windowSplit ? ` window_split=${outcome.windowSplit.from}d→${outcome.windowSplit.to}d` : "") +
-        (outcome?.error ? ` error=${outcome.error}` : ""),
+        (outcome?.error ? ` error=${outcome.error}` : "") +
+        (outcome?.adsetError ? ` adset_error=${outcome.adsetError}` : ""),
     );
     if (outcome?.status === "rate_limited" || outcome?.status === "auth_error") {
       console.log("Stopping: account-level Meta error. Re-run from this window later.");

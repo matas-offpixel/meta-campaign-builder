@@ -46,7 +46,7 @@ describe("action-type lists", () => {
   it("the Meta fields string is the one the cron sends", () => {
     assert.equal(
       AD_DAILY_INSIGHTS_FIELDS,
-      "spend,impressions,reach,clicks,inline_link_clicks,actions,video_15_sec_watched_actions,video_p100_watched_actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name",
+      "spend,impressions,reach,clicks,inline_link_clicks,actions,video_15_sec_watched_actions,video_p100_watched_actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,objective,optimization_goal",
     );
   });
 });
@@ -148,6 +148,20 @@ describe("deriveAdDailyInsight", () => {
         fetched_at: "2026-10-07T02:30:00.000Z",
       },
     );
+  });
+
+  it("copies the campaign objective and optimization goal only when present; promoted_event is left for the runner", () => {
+    const out = deriveAdDailyInsight(
+      "act_1",
+      row([], { objective: "OUTCOME_SALES", optimization_goal: " OFFSITE_CONVERSIONS " }),
+      FETCHED,
+    );
+    assert.deepEqual([out?.campaign_objective, out?.optimization_goal], ["OUTCOME_SALES", "OFFSITE_CONVERSIONS"]);
+    assert.equal("promoted_event" in out!, false);
+    const bare = deriveAdDailyInsight("act_1", row([]), FETCHED)!;
+    for (const key of ["campaign_objective", "optimization_goal", "promoted_event"]) {
+      assert.equal(key in bare, false, `${key} omitted when absent, so the upsert never nulls it`);
+    }
   });
 
   it("drops rows without an ad id or date", () => {
