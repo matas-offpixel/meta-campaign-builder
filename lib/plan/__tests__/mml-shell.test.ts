@@ -220,7 +220,7 @@ describe("MML canvas — section order on /mml/[id]", () => {
     };
     const zones: Record<string, RegExp[]> = {
       event: [/<CanvasHeader/, /<MmlPromoterIdentity/, /<CanvasWindow/, /<Combobox/],
-      creatives: [/<CanvasAssets/],
+      creatives: [/<MmlCreativeIntake/, /<CanvasAssets/],
       budget: [/<CanvasBudget/, /<CanvasTarget/, /<CanvasAdjust/, /<CanvasLearn/],
       channels: [/<CanvasChannels/, /id=\{PLAN_STEP2_HASH\}/],
       launch: [/<CanvasLaunch/],
@@ -231,18 +231,19 @@ describe("MML canvas — section order on /mml/[id]", () => {
     assert.match(body("budget"), /<aside[^>]*>\s*\{maybePlanNoShowLock\(\s*noShow,\s*<CanvasTarget/);
   });
 
-  it("②, ③ and ⑤ are placeholder cards naming their PR, operator-only, with no controls", () => {
-    assert.match(MML_SECTION.creatives.placeholder ?? "", /^Coming in M2/);
+  it("③ and ⑤ are placeholder cards naming their PR, operator-only, with no controls", () => {
+    assert.equal(MML_SECTION.creatives.placeholder, undefined);
     assert.match(MML_SECTION.copy.placeholder ?? "", /^Coming in M3/);
     assert.match(MML_SECTION.locations.placeholder ?? "", /^Coming in M4/);
-    for (const id of ["event", "budget", "channels", "launch"] as const) {
+    for (const id of ["event", "creatives", "budget", "channels", "launch"] as const) {
       assert.equal(MML_SECTION[id].placeholder, undefined, id);
     }
     const src = read("components/plan/plan-workspace.tsx");
-    for (const id of ["creatives", "copy", "locations"]) {
+    for (const id of ["copy", "locations"]) {
       assert.match(src, new RegExp(`<MmlPlaceholderCard>\\{MML_SECTION\\.${id}\\.placeholder\\}</MmlPlaceholderCard>`));
     }
-    assert.equal(src.match(/readOnly \? null : \(\s*<(MmlPlaceholderCard|MmlSection section=\{MML_SECTION\.(copy|locations)\})/g)?.length, 3);
+    assert.match(src, /<MmlCreativeIntake/);
+    assert.equal(src.match(/readOnly \? null : \(\s*<(MmlPlaceholderCard|MmlSection section=\{MML_SECTION\.(copy|locations)\})/g)?.length, 2);
     const card = read("components/plan/mml-section.tsx");
     const placeholder = card.slice(card.indexOf("export function MmlPlaceholderCard"));
     assert.doesNotMatch(placeholder, /<(button|input|select|textarea|Button)\b/);

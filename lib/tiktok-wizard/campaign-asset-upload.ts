@@ -3,7 +3,8 @@
 import { createClient } from "@/lib/supabase/client";
 import { RESUMABLE_UPLOAD_THRESHOLD } from "@/lib/tiktok-wizard/resumable-threshold";
 
-const STORAGE_BUCKET = "campaign-assets";
+export const CAMPAIGN_ASSETS_BUCKET = "campaign-assets";
+const STORAGE_BUCKET = CAMPAIGN_ASSETS_BUCKET;
 
 export interface TikTokVideoUploadResult {
   videoId: string;
@@ -33,7 +34,7 @@ export async function uploadTikTokVideoViaStorage(input: {
   const storagePath = `tiktok-videos/${crypto.randomUUID()}.${ext}`;
 
   input.onStage?.("storage");
-  await uploadCampaignAsset(input.file, storagePath);
+  await uploadFileToCampaignAssets(input.file, storagePath);
 
   input.onStage?.("tiktok");
   let res: Response;
@@ -62,7 +63,8 @@ export async function uploadTikTokVideoViaStorage(input: {
   return json;
 }
 
-async function uploadCampaignAsset(file: File, storagePath: string): Promise<void> {
+/** Browser upload into campaign-assets. Simple under 40 MB, TUS above that (PR #594/#597). */
+export async function uploadFileToCampaignAssets(file: File, storagePath: string): Promise<void> {
   const supabase = createClient();
   if (file.size >= RESUMABLE_UPLOAD_THRESHOLD) {
     await uploadResumableTusFromBrowser(STORAGE_BUCKET, storagePath, file);

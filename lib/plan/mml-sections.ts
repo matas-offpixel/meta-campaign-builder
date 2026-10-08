@@ -35,13 +35,7 @@ export interface MmlSectionSpec {
 
 export const MML_SECTIONS: readonly MmlSectionSpec[] = [
   { id: "event", n: 1, title: "Event & promoter" },
-  {
-    id: "creatives",
-    n: 2,
-    title: "Creatives",
-    placeholder:
-      "Coming in M2: drop every file once. Files sort into 4:5, 1:1 and 9:16 by their pixels, you match them into Meta creatives, and 9:16 videos go to TikTok too.",
-  },
+  { id: "creatives", n: 2, title: "Creatives" },
   {
     id: "copy",
     n: 3,
