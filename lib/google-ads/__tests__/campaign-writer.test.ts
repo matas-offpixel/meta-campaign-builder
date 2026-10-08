@@ -1121,13 +1121,13 @@ describe("pushGoogleSearchPlan — geo location criteria", () => {
     const { client, calls } = makeFakeClient({
       geoSuggestMap: {
         london: { resourceName: "geoTargetConstants/1006886", displayName: "London" },
-        "south east": { resourceName: "geoTargetConstants/9049069", displayName: "South East England" },
+        manchester: { resourceName: "geoTargetConstants/1006912", displayName: "Manchester" },
       },
     });
     const summary = await pushGoogleSearchPlan({
       tree: treeWithGeo([
         { location: "london", bid_modifier_pct: 20 },
-        { location: "south east", bid_modifier_pct: 15 },
+        { location: "manchester", bid_modifier_pct: 15 },
       ]),
       credentials: CREDS,
       eventCode: "J2",
@@ -1137,6 +1137,31 @@ describe("pushGoogleSearchPlan — geo location criteria", () => {
     assert.equal(calls[geoIdx].operations.length, 2);
     assert.equal(summary.geoTargetsCreated.length, 2);
     assert.equal(summary.geoTargetsFailed.length, 0);
+  });
+
+  it("an English region is not pushed, even when suggest would return another place", async () => {
+    const { client, calls } = makeFakeClient({
+      geoSuggestMap: {
+        london: { resourceName: "geoTargetConstants/1006886", displayName: "London" },
+        "south east": { resourceName: "geoTargetConstants/9049069", displayName: "Estepona" },
+      },
+    });
+    const summary = await pushGoogleSearchPlan({
+      tree: treeWithGeo([
+        { location: "london", bid_modifier_pct: null },
+        { location: "south east", bid_modifier_pct: 15 },
+      ]),
+      credentials: CREDS,
+      eventCode: "J2",
+      client,
+    });
+    const geoCall = calls.find((c) => c.resource === "campaignCriteria");
+    assert.equal(geoCall?.operations.length, 1);
+    assert.equal(summary.geoTargetsCreated.length, 1);
+    assert.equal(summary.geoTargetsFailed.length, 1);
+    assert.equal(summary.geoTargetsFailed[0].location, "south east");
+    assert.match(summary.geoTargetsFailed[0].error, /could not resolve/i);
+    assert.equal(JSON.stringify(geoCall).includes("9049069"), false);
   });
 
   it("no geo targets → no campaignCriteria:mutate (existing test baseline)", async () => {

@@ -199,6 +199,8 @@ interface ResolveState {
   canonicalName?: string;
   /** Present when status === 'no_match'. The attempted location string. */
   attempted?: string;
+  /** Set when Google has no target for an English region name. */
+  warning?: string;
 }
 
 interface GeoRowProps {
@@ -251,7 +253,7 @@ function GeoRow({ geo, accountId, onUpdate, onRemove }: GeoRowProps) {
         });
         const json = (await res.json()) as
           | { ok: true; matches: Array<{ canonicalName: string; resourceName: string }> }
-          | { ok: false; reason: string };
+          | { ok: false; reason: string; warning?: string };
 
         if (json.ok && json.matches.length > 0) {
           const top = json.matches[0];
@@ -262,7 +264,11 @@ function GeoRow({ geo, accountId, onUpdate, onRemove }: GeoRowProps) {
             resolved_name: top.canonicalName,
           });
         } else {
-          setResolveState({ status: "no_match", attempted: trimmed });
+          setResolveState({
+            status: "no_match",
+            attempted: trimmed,
+            warning: json.ok ? undefined : json.warning,
+          });
           onUpdate({ resolved_resource_name: null, resolved_name: null });
         }
       } catch (err) {
@@ -357,7 +363,7 @@ function GeoResolveHint({ state }: { state: ResolveState }) {
     return (
       <StatusLine className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-700">
         <AlertTriangle className="h-2.5 w-2.5" />
-        No match for &ldquo;{state.attempted}&rdquo; — check spelling
+        {state.warning ?? `No match for “${state.attempted}” — check spelling`}
       </StatusLine>
     );
   }

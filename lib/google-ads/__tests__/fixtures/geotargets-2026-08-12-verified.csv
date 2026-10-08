@@ -1,0 +1,28 @@
+Criteria ID,Name,Canonical Name,Parent ID,Country Code,Target Type,Status
+2826,United Kingdom,United Kingdom,,GB,Country,Active
+20339,England,"England,United Kingdom",2826,GB,Province,Active
+20341,Northern Ireland,"Northern Ireland,United Kingdom",2826,GB,Province,Active
+20342,Scotland,"Scotland,United Kingdom",2826,GB,Province,Active
+20343,Wales,"Wales,United Kingdom",2826,GB,Province,Active
+1006886,London,"London,England,United Kingdom",20339,GB,City,Active
+1006912,Manchester,"Manchester,Manchester,England,United Kingdom",20339,GB,City,Active
+1006524,Birmingham,"Birmingham,West Midlands,England,United Kingdom",20339,GB,City,Active
+1006864,Leeds,"Leeds,West Yorkshire,England,United Kingdom",20339,GB,City,Active
+1006884,Liverpool,"Liverpool,England,United Kingdom",20339,GB,City,Active
+1006567,Bristol,"Bristol,England,United Kingdom",20339,GB,City,Active
+1006565,Brighton,"Brighton,England,United Kingdom",20339,GB,City,Active
+1007064,Sheffield,"Sheffield,South Yorkshire,England,United Kingdom",20339,GB,City,Active
+1006965,Nottingham,"Nottingham,Nottingham,England,United Kingdom",20339,GB,City,Active
+1006867,Leicester,"Leicester,Leicester,England,United Kingdom",20339,GB,City,Active
+1006948,Newcastle upon Tyne,"Newcastle upon Tyne,Newcastle upon Tyne,England,United Kingdom",20339,GB,City,Active
+1007326,Edinburgh,"Edinburgh,Scotland,United Kingdom",20342,GB,City,Active
+1007336,Glasgow,"Glasgow,Scotland,United Kingdom",20342,GB,City,Active
+1007416,Cardiff,"Cardiff,Wales,United Kingdom",20343,GB,City,Active
+1007274,Belfast,"Belfast,Northern Ireland,United Kingdom",20341,GB,City,Active
+2372,Ireland,Ireland,,IE,Country,Active
+2276,Germany,Germany,,DE,Country,Active
+2250,France,France,,FR,Country,Active
+2528,Netherlands,Netherlands,,NL,Country,Active
+2724,Spain,Spain,,ES,Country,Active
+2380,Italy,Italy,,IT,Country,Active
+2056,Belgium,Belgium,,BE,Country,Active

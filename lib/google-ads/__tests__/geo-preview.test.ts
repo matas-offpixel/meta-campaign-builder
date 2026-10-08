@@ -261,7 +261,7 @@ describe("push adapter — pre-resolved IDs skip suggest", () => {
 
   it("mixed: pre-resolved + unresolved — suggest called for unresolved only", async () => {
     const { client, getSuggestCalledWith } = makeTrackingClient({
-      manchester: { resourceName: "geoTargetConstants/1006520", displayName: "Manchester" },
+      manchester: { resourceName: "geoTargetConstants/1006912", displayName: "Manchester" },
     });
     const tree = makeMinimalTree();
     tree.plan.geo_targets = [

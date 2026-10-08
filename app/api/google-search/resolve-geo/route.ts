@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { GoogleAdsClient } from "@/lib/google-ads/client";
 import { getGoogleAdsCredentials } from "@/lib/google-ads/credentials";
-import { resolveGeoLocation } from "@/lib/google-ads/geo-resolve";
+import { englishRegionWarning, resolveGeoLocation } from "@/lib/google-ads/geo-resolve";
 
 /**
  * POST /api/google-search/resolve-geo
@@ -97,7 +97,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   });
 
   if (!match) {
-    return NextResponse.json({ ok: false, reason: "no_match" });
+    const warning = englishRegionWarning(location);
+    return NextResponse.json({ ok: false, reason: "no_match", ...(warning ? { warning } : {}) });
   }
 
   return NextResponse.json({ ok: true, matches: [match] });
