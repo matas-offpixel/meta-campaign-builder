@@ -78,6 +78,32 @@ export function tikTokLaunchLiveSuccessDescription(input: {
   return `Campaign created live on TikTok. Delivery starts ${start}.`;
 }
 
+/** A published live launch, by when it ran — not the draft's current schedule. */
+export function tikTokLaunchedLiveDescription(input: {
+  launchedAt: string | null;
+  timezone: string | null;
+}): string {
+  const at = input.launchedAt ? new Date(input.launchedAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return "Created live on TikTok.";
+  const zone = input.timezone?.trim() || "UTC";
+  let clock: string;
+  try {
+    clock = at.toLocaleString("en-GB", {
+      timeZone: zone,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    clock = at.toISOString().slice(0, 16).replace("T", " ");
+    return `Created live on TikTok ${clock} UTC.`;
+  }
+  return `Created live on TikTok ${clock} ${zone}.`;
+}
+
 export function tikTokLaunchPausedSuccessDescription(): string {
   return "Campaign created paused on TikTok. Nothing will deliver until it is enabled in Ads Manager.";
 }
