@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { buildEditorCsv, buildEditorRows } from "../editor-export.ts";
-import { reviewGoogleVideoPlan } from "../validation.ts";
+import { reviewGoogleVideoPlan, YOUTUBE_CHANNEL_MANUAL_STEP, YOUTUBE_VIDEO_MANUAL_STEP } from "../validation.ts";
 import { countDraftPlacements, parseGoogleVideoPlanXlsx } from "../xlsx-import.ts";
 
 const SHEET = new URL("./fixtures/IRW0004_CamelPhat_YouTubeVideo_BuildSheet.xlsx", import.meta.url);
@@ -143,6 +143,12 @@ describe("CamelPhat YouTube build sheet — review", () => {
     }
     assert.ok(review.editorOnly.some((l) => l.startsWith("Frequency cap: 2 per user per day")));
     assert.ok(review.editorOnly.some((l) => l.includes("end 18:00")));
+    assert.ok(review.editorOnly.includes(YOUTUBE_VIDEO_MANUAL_STEP));
+    assert.ok(review.editorOnly.includes(YOUTUBE_CHANNEL_MANUAL_STEP));
+    assert.equal(review.editorOnly.some((l) => /content exclusion/i.test(l)), false);
+    assert.equal(review.editorOnly.some((l) => l.startsWith("Objective")), false);
+    assert.equal(review.editorOnly.some((l) => l.startsWith("Campaign subtype")), false);
+    assert.equal(review.editorOnly.some((l) => /United Kingdom/.test(l) && /\(Base\)/.test(l)), false);
   });
 });
 
@@ -173,21 +179,11 @@ describe("CamelPhat YouTube build sheet — Editor CSV", () => {
     );
   });
 
-  it("V1 matches the rows of the template Editor accepted", () => {
+  it("V1 matches the rows of the template Editor accepted, without YouTube URLs in Website", () => {
     const rows = buildEditorRows(withFullRecapLinked());
     const v1 = "[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag";
-    assert.deepEqual(
-      rows.find((r) => r.Website && r.Campaign === v1),
-      {
-        Campaign: v1,
-        "Ad Group": "V1 In-stream",
-        Website: "www.youtube.com/watch?v=Q-gTWjK62vw",
-        "Campaign Status": "Enabled",
-        "Ad Group Status": "Enabled",
-        Status: "Enabled",
-      },
-    );
-    assert.equal(rows.filter((r) => r.Website).length, 1 + 8);
+    assert.equal(rows.some((r) => r.Website), false);
+    assert.equal(buildEditorCsv(withFullRecapLinked()).includes("youtube.com"), false);
     const ad = rows.find((r) => r["Ad Name"] && r.Campaign === v1);
     assert.deepEqual(
       ad && [ad["Ad type"], ad["Video ID 1"], ad["Call to action 1"], ad["Headline 1"], ad["Business name"], ad.Status],

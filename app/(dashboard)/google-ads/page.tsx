@@ -10,7 +10,10 @@ import type { GoogleVideoPlan } from "@/lib/google-video/types";
 import type { GoogleSearchPlan } from "@/lib/google-search/types";
 
 import { GoogleSearchPlanActions } from "@/components/google-search/plan-actions";
+import { DeleteVideoPlanButton } from "@/components/google-video/delete-plan-button";
 import { runningBlindAccountIds, type ConversionActionCount } from "@/lib/google-ads/conversion-tracking";
+import { googleAdsLibraryTab } from "@/lib/google-ads/library-tab";
+import { videoPlanDeletable } from "@/lib/google-video/delete-plan";
 
 const STATUS_BADGE: Record<GoogleSearchPlan["status"], string> = {
   draft: "bg-muted text-foreground",
@@ -49,7 +52,12 @@ function RunningBlindBadge({ accountId, blind }: { accountId: string | null; bli
  * compatibility with existing bookmarks / links). The list at
  * /google-search redirects here.
  */
-export default async function GoogleAdsPlansPage() {
+export default async function GoogleAdsPlansPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string | string[] }>;
+}) {
+  const tab = googleAdsLibraryTab((await searchParams).tab);
   const supabase = await createClient();
   const {
     data: { user },
@@ -102,7 +110,90 @@ export default async function GoogleAdsPlansPage() {
       />
       <main className="flex-1 px-6 py-6">
         <div className="mx-auto max-w-6xl space-y-4">
-          {plans.length === 0 ? (
+          <nav className="flex gap-4 text-sm" aria-label="Plan type">
+            <Link
+              href="/google-ads?tab=search"
+              className={tab === "search" ? "font-medium underline" : "text-muted-foreground"}
+              aria-current={tab === "search" ? "page" : undefined}
+            >
+              Search
+            </Link>
+            <Link
+              href="/google-ads?tab=youtube"
+              className={tab === "youtube" ? "font-medium underline" : "text-muted-foreground"}
+              aria-current={tab === "youtube" ? "page" : undefined}
+            >
+              YouTube
+            </Link>
+          </nav>
+          {tab === "youtube" ? (
+            videoPlans.length === 0 ? (
+              <section className="rounded-md border border-dashed border-border bg-card p-12 text-center">
+                <p className="font-heading text-lg tracking-wide">No YouTube plans yet</p>
+                <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                  Import a YouTube video build sheet. The plan opens for review and an Editor download.
+                </p>
+              </section>
+            ) : (
+              <div className="overflow-hidden rounded-md border border-border bg-card">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                    <tr>
+                      <th className="p-3">Name</th>
+                      <th className="p-3">Linked event</th>
+                      <th className="p-3">Status</th>
+                      <th className="p-3">Daily budget</th>
+                      <th className="p-3">Updated</th>
+                      <th className="p-3 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {videoPlans.map((plan) => {
+                      const event = plan.event_id ? eventsById.get(plan.event_id) : null;
+                      return (
+                        <tr key={plan.id} className="border-t border-border">
+                          <td className="p-3 font-medium">{plan.name}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {event
+                              ? `${event.name}${event.event_code ? ` (${event.event_code})` : ""}`
+                              : "—"}
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                VIDEO_STATUS_BADGE[plan.status]
+                              }`}
+                            >
+                              {plan.status}
+                            </span>
+                            <RunningBlindBadge accountId={plan.google_ads_account_id} blind={blindAccountIds} />
+                          </td>
+                          <td className="p-3 text-muted-foreground">
+                            {plan.daily_budget != null ? `£${plan.daily_budget.toFixed(2)}` : "—"}
+                          </td>
+                          <td className="p-3 text-muted-foreground">
+                            {new Date(plan.updated_at).toLocaleDateString("en-GB")}
+                          </td>
+                          <td className="p-3 text-right">
+                            <span className="inline-flex items-center justify-end gap-2">
+                              {videoPlanDeletable(plan.status) && (
+                                <DeleteVideoPlanButton planId={plan.id} planName={plan.name} />
+                              )}
+                              <Link href={`/google-video/${plan.id}`}>
+                                <Button variant="outline" size="sm">
+                                  Open plan
+                                </Button>
+                              </Link>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : plans.length === 0 ? (
             <section className="rounded-md border border-dashed border-border bg-card p-12 text-center">
               <p className="font-heading text-lg tracking-wide">No plans yet</p>
               <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
@@ -168,65 +259,6 @@ export default async function GoogleAdsPlansPage() {
                 </tbody>
               </table>
             </div>
-          )}
-          {videoPlans.length > 0 && (
-            <section className="space-y-2">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                YouTube video plans
-              </h2>
-              <div className="overflow-hidden rounded-md border border-border bg-card">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="p-3">Name</th>
-                      <th className="p-3">Linked event</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Daily budget</th>
-                      <th className="p-3">Updated</th>
-                      <th className="p-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {videoPlans.map((plan) => {
-                      const event = plan.event_id ? eventsById.get(plan.event_id) : null;
-                      return (
-                        <tr key={plan.id} className="border-t border-border">
-                          <td className="p-3 font-medium">{plan.name}</td>
-                          <td className="p-3 text-muted-foreground">
-                            {event
-                              ? `${event.name}${event.event_code ? ` (${event.event_code})` : ""}`
-                              : "—"}
-                          </td>
-                          <td className="p-3">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                VIDEO_STATUS_BADGE[plan.status]
-                              }`}
-                            >
-                              {plan.status}
-                            </span>
-                            <RunningBlindBadge accountId={plan.google_ads_account_id} blind={blindAccountIds} />
-                          </td>
-                          <td className="p-3 text-muted-foreground">
-                            {plan.daily_budget != null ? `£${plan.daily_budget.toFixed(2)}` : "—"}
-                          </td>
-                          <td className="p-3 text-muted-foreground">
-                            {new Date(plan.updated_at).toLocaleDateString("en-GB")}
-                          </td>
-                          <td className="p-3 text-right">
-                            <Link href={`/google-video/${plan.id}`}>
-                              <Button variant="outline" size="sm">
-                                Open plan
-                              </Button>
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
           )}
         </div>
       </main>
