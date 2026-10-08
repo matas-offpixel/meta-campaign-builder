@@ -1,7 +1,7 @@
 /**
  * lib/db/google-video-plans.ts
  *
- * CRUD for YouTube video plans (migration 190). Session-bound client:
+ * CRUD for YouTube video plans (migrations 190, 191). Session-bound client:
  * RLS limits every read and write to the plan owner. Saves update rows
  * in place; the plan tree's shape (campaigns, ad groups, placements,
  * ads) comes from the import and is not added to or removed here.
@@ -9,15 +9,19 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type {
-  GoogleVideoAd,
-  GoogleVideoAdGroupNode,
-  GoogleVideoCampaignNode,
-  GoogleVideoPlacement,
-  GoogleVideoPlan,
-  GoogleVideoPlanDraftTree,
-  GoogleVideoPlanStatus,
-  GoogleVideoPlanTree,
+import {
+  AD_COPY_SLOTS,
+  AD_LIMITS,
+  type AdLimitField,
+  type GoogleVideoAd,
+  type GoogleVideoAdExtraCopy,
+  type GoogleVideoAdGroupNode,
+  type GoogleVideoCampaignNode,
+  type GoogleVideoPlacement,
+  type GoogleVideoPlan,
+  type GoogleVideoPlanDraftTree,
+  type GoogleVideoPlanStatus,
+  type GoogleVideoPlanTree,
 } from "@/lib/google-video/types";
 import { parseYouTubeRef, videoIdFrom } from "@/lib/google-video/youtube-url";
 
@@ -33,6 +37,19 @@ function strArray(value: unknown): string[] {
 
 function jsonArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/** Slots 2..5 per copy field: trimmed strings, blanks dropped, at most four. */
+export function hydrateExtraCopy(value: unknown): GoogleVideoAdExtraCopy {
+  const out: GoogleVideoAdExtraCopy = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const field of Object.keys(AD_LIMITS) as AdLimitField[]) {
+    const raw = (value as Record<string, unknown>)[field];
+    if (!Array.isArray(raw)) continue;
+    const slots = raw.map((v) => String(v ?? "").trim()).filter(Boolean).slice(0, AD_COPY_SLOTS - 1);
+    if (slots.length > 0) out[field] = slots;
+  }
+  return out;
 }
 
 export function hydrateVideoPlan(raw: Record<string, unknown>): GoogleVideoPlan {
@@ -113,7 +130,10 @@ export async function loadGoogleVideoPlanTree(
   return {
     plan: hydrateVideoPlan(planRow as Record<string, unknown>),
     campaigns,
-    ads: (adsRes.data ?? []) as unknown as GoogleVideoAd[],
+    ads: ((adsRes.data ?? []) as Record<string, unknown>[]).map((a) => ({
+      ...(a as unknown as GoogleVideoAd),
+      extra_copy: hydrateExtraCopy(a.extra_copy),
+    })),
   };
 }
 
@@ -126,6 +146,24 @@ async function insertOne(
   const { data, error } = await supabase.from(table).insert(row).select("id").single();
   if (error || !data) throw new Error(`Insert ${what} failed: ${error?.message ?? "no row"}`);
   return (data as { id: string }).id;
+}
+
+/** The event's client name, else its venue name. Null without an event. */
+export async function defaultVideoBusinessName(
+  supabase: SupabaseClient,
+  userId: string,
+  eventId: string | null,
+): Promise<string | null> {
+  if (!eventId) return null;
+  const { data } = await supabase
+    .from("events")
+    .select("venue_name, client:clients(name)")
+    .eq("id", eventId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const row = data as { venue_name?: string | null; client?: { name?: string | null } | { name?: string | null }[] | null } | null;
+  const client = Array.isArray(row?.client) ? row?.client[0] : row?.client;
+  return client?.name?.trim() || row?.venue_name?.trim() || null;
 }
 
 export async function createGoogleVideoPlanTreeFromDraft(
@@ -199,6 +237,7 @@ const PLAN_EDITABLE = [
   "final_url",
   "display_url",
   "call_to_action",
+  "business_name",
 ] as const;
 
 function pick<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Pick<T, K> {
@@ -258,6 +297,7 @@ export async function saveGoogleVideoPlanTree(
           headline: ad.headline,
           long_headline: ad.long_headline,
           description: ad.description,
+          extra_copy: hydrateExtraCopy(ad.extra_copy),
         })
         .eq("id", ad.id)
         .eq("plan_id", planId),

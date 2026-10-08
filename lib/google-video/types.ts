@@ -52,6 +52,8 @@ export interface GoogleVideoPlan {
   final_url: string | null;
   display_url: string | null;
   call_to_action: string | null;
+  /** On every responsive video ad. Required by Editor (migration 191). */
+  business_name: string | null;
   settings_rows: GoogleVideoSheetRow[];
   targeting_rows: GoogleVideoSheetRow[];
   source_filename: string | null;
@@ -109,6 +111,8 @@ export interface GoogleVideoAd {
   headline: string | null;
   long_headline: string | null;
   description: string | null;
+  /** Slots 2..5. Slot 1 is the field above (migration 191). */
+  extra_copy: GoogleVideoAdExtraCopy;
   note: string | null;
   sort_order: number;
 }
@@ -142,6 +146,7 @@ export interface GoogleVideoImportWarning {
   code:
     | "ad_over_limit"
     | "ad_semicolon"
+    | "ad_too_many_slots"
     | "ad_video_not_a_link"
     | "placement_unparseable"
     | "location_skipped"
@@ -170,6 +175,11 @@ export const AD_LIMITS = {
 } as const;
 
 export type AdLimitField = keyof typeof AD_LIMITS;
+
+/** A responsive video ad takes up to five of each copy field. */
+export const AD_COPY_SLOTS = 5;
+
+export type GoogleVideoAdExtraCopy = Partial<Record<AdLimitField, string[]>>;
 
 export const AD_FIELD_LABELS: Record<AdLimitField, string> = {
   call_to_action: "CTA",

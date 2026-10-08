@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
+  AD_COPY_SLOTS,
   AD_FIELD_LABELS,
   AD_LIMITS,
   CONNECTED_TV,
@@ -245,17 +246,24 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
             <Field label="Plan name">
               <Input value={plan.name} onChange={(e) => patchPlan({ name: e.target.value })} />
             </Field>
-            <Field label="CPV bid (£)" hint="Max CPV on every ad group, Manual CPV bidding.">
+            <Field label="Target CPV (£)" hint="Target CPV bidding; written on every ad group.">
               <Input value={plan.cpv_bid ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ cpv_bid: numberOrNull(e.target.value) })} />
             </Field>
-            <Field
-              label="Daily budget per campaign (£)"
-              hint={plan.daily_budget == null && derivedDaily != null ? `Blank: £${derivedDaily.toFixed(2)} from the total over the dates.` : undefined}
-            >
-              <Input value={plan.daily_budget ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ daily_budget: numberOrNull(e.target.value) })} />
+            <Field label="Business name" hint="On every ad. Required by Editor.">
+              <Input value={plan.business_name ?? ""} onChange={(e) => patchPlan({ business_name: e.target.value || null })} />
             </Field>
-            <Field label="Total budget (£)" hint="Used only when the daily budget is blank.">
+            <Field
+              label="Total budget per campaign (£)"
+              hint={
+                plan.total_budget != null
+                  ? `Written as a campaign total for the whole run${derivedDaily != null ? ` (about £${derivedDaily.toFixed(2)} a day)` : ""}.`
+                  : "Blank: the daily budget is used."
+              }
+            >
               <Input value={plan.total_budget ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ total_budget: numberOrNull(e.target.value) })} />
+            </Field>
+            <Field label="Daily budget per campaign (£)" hint={plan.total_budget != null ? "Not used: the total budget wins." : "Written as a daily budget."}>
+              <Input value={plan.daily_budget ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ daily_budget: numberOrNull(e.target.value) })} />
             </Field>
             <Field label="Start date">
               <Input type="date" value={plan.start_date ?? ""} onChange={(e) => patchPlan({ start_date: e.target.value || null })} />
@@ -265,9 +273,6 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
             </Field>
             <Field label="Default final URL" hint="Used by an ad with no final URL of its own.">
               <Input value={plan.final_url ?? ""} onChange={(e) => patchPlan({ final_url: e.target.value || null })} />
-            </Field>
-            <Field label="Display URL">
-              <Input value={plan.display_url ?? ""} onChange={(e) => patchPlan({ display_url: e.target.value || null })} />
             </Field>
             <Field label="Default call to action" hint={`${plan.call_to_action?.length ?? 0}/${AD_LIMITS.call_to_action}`}>
               <Input value={plan.call_to_action ?? ""} onChange={(e) => patchPlan({ call_to_action: e.target.value || null })} />
@@ -302,7 +307,8 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
               label="Show ads on connected TV screens"
             />
             <p className="text-xs text-muted-foreground">
-              Off by default: a click on a TV cannot reach a checkout. The file sets a TV screen bid adjustment of -100%.
+              Off by default: a click on a TV cannot reach a checkout. The file cannot carry this; Review lists
+              &quot;Include Google TV: Disabled&quot; to set in Editor. Location bid adjustments are set there too.
             </p>
             <div>
               <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Locations</h2>
@@ -396,14 +402,34 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
                 <Field label="Final URL" hint={ad.final_url ? undefined : "Blank: the plan default final URL."}>
                   <Input value={ad.final_url ?? ""} onChange={(e) => patchAd(ad.id, { final_url: e.target.value || null })} />
                 </Field>
-                {(Object.keys(AD_LIMITS) as AdLimitField[]).map((field) => (
-                  <Field key={field} label={AD_FIELD_LABELS[field]}>
-                    <div className="flex items-center gap-2">
-                      <Input value={ad[field] ?? ""} onChange={(e) => patchAd(ad.id, { [field]: e.target.value || null })} />
-                      <CharCount value={ad[field]} limit={AD_LIMITS[field]} />
-                    </div>
-                  </Field>
-                ))}
+                {(Object.keys(AD_LIMITS) as AdLimitField[]).map((field) => {
+                  const extra = ad.extra_copy[field] ?? [];
+                  const setSlot = (i: number, value: string) => {
+                    const next = Array.from({ length: AD_COPY_SLOTS - 1 }, (_, j) => (j === i ? value : (extra[j] ?? "")));
+                    while (next.length > 0 && next[next.length - 1] === "") next.pop();
+                    patchAd(ad.id, { extra_copy: { ...ad.extra_copy, [field]: next } });
+                  };
+                  return (
+                    <Field key={field} label={`${AD_FIELD_LABELS[field]} (up to ${AD_COPY_SLOTS})`}>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Input value={ad[field] ?? ""} onChange={(e) => patchAd(ad.id, { [field]: e.target.value || null })} />
+                          <CharCount value={ad[field]} limit={AD_LIMITS[field]} />
+                        </div>
+                        {Array.from({ length: Math.min(extra.length + 1, AD_COPY_SLOTS - 1) }, (_, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <Input
+                              value={extra[i] ?? ""}
+                              placeholder={`${AD_FIELD_LABELS[field]} ${i + 2}`}
+                              onChange={(e) => setSlot(i, e.target.value)}
+                            />
+                            <CharCount value={extra[i] ?? null} limit={AD_LIMITS[field]} />
+                          </div>
+                        ))}
+                      </div>
+                    </Field>
+                  );
+                })}
                 {ad.note && <p className="text-[11px] text-muted-foreground sm:col-span-2">Sheet note: {ad.note}</p>}
               </section>
             ))}
@@ -412,6 +438,16 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
 
         {step === "Review" && (
           <section className="space-y-4 rounded-md border border-border bg-card p-4 text-sm">
+            {review.budgets.length > 0 && (
+              <div>
+                <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Budget in the file</h2>
+                <ul className="list-disc space-y-1 pl-5 text-xs">
+                  {review.budgets.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {review.blockers.length > 0 && (
               <div>
                 <h2 className="mb-1 text-xs font-medium uppercase tracking-wide text-destructive">Fix before download</h2>

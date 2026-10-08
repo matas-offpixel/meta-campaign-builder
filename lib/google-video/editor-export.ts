@@ -7,73 +7,80 @@
  * the operator imports this file in Editor: Account → Import → From
  * file, then reviews and posts.
  *
- * Format, per "Prepare a CSV file"
- * (https://support.google.com/google-ads/editor/answer/56368): a header
- * row, one entity per row, `;` between values in one cell. Every header
- * is a column on "CSV file columns"
- * (https://support.google.com/google-ads/editor/answer/57747). Values
- * those pages don't list are marked below; the Editor import decides.
+ * Every header and fixed value is spelled as in a campaign Editor
+ * exported with 0 errors (`__tests__/fixtures/editor-template-export.tsv`):
+ * Target CPV bidding, "Responsive video" ad groups, "Responsive video ad"
+ * ads with slotted copy, placements in "Website" without a scheme, and
+ * locations by ID. Editor deprecates Manual CPV and in-stream ad groups.
+ * The file has no TV screen or location bid modifiers, frequency cap,
+ * Google TV switch or logo; Review lists them as manual steps.
  *
- * UTF-8 with a byte-order mark, so `£` in ad copy survives.
+ * UTF-8 with a byte-order mark, comma-separated, so `£` survives.
  *
  * Pure: the same tree gives the same bytes.
  */
 
-import { lookupFallbackGeoConstant } from "../google-ads/geo-resolve.ts";
-import { CONNECTED_TV } from "./types.ts";
+import { editorLocation } from "./locations.ts";
+import { AD_COPY_SLOTS, type AdLimitField } from "./types.ts";
 import { parseYouTubeRef } from "./youtube-url.ts";
 import {
-  adCallToAction,
+  adCopySlots,
   adFinalUrl,
   adVideoId,
-  campaignDailyBudget,
+  campaignBudget,
   exportableAds,
   exportablePlacements,
   type VideoTreeLike,
 } from "./validation.ts";
 
-export const EDITOR_COLUMNS = [
+const SLOTTED: ReadonlyArray<[label: string, field: AdLimitField]> = [
+  ["Call to action", "call_to_action"],
+  ["Headline", "headline"],
+  ["Long headline", "long_headline"],
+  ["Description", "description"],
+];
+
+function slotColumns(label: string): string[] {
+  return Array.from({ length: AD_COPY_SLOTS }, (_, i) => `${label} ${i + 1}`);
+}
+
+/** In the template's column order. */
+export const EDITOR_COLUMNS: readonly string[] = [
   "Campaign",
   "Campaign Type",
-  "Campaign Status",
-  "Budget",
-  "Bid Strategy Type",
   "Networks",
+  "Budget",
+  "Budget type",
+  "EU political ads",
   "Languages",
+  "Bid Strategy Type",
   "Start Date",
   "End Date",
-  "TV Screen Bid Modifier",
-  "Location",
-  "Location ID",
-  "Bid adjustment",
-  "Type",
   "Ad Group",
+  "Target CPV",
   "Ad Group Type",
-  "Ad Group Status",
-  "Max CPV",
-  "Placement",
-  "Ad Name",
-  "Video ID",
-  "Headline",
-  "Long headline",
-  "Description",
-  "Call to action",
+  "ID",
+  "Location",
+  "Location type",
+  "Website",
   "Final URL",
-  "Display URL",
+  "Ad type",
+  "Ad Name",
+  "Video ID 1",
+  ...SLOTTED.flatMap(([label]) => slotColumns(label)),
+  "Business name",
+  "Campaign Status",
+  "Ad Group Status",
   "Status",
-] as const;
+];
 
-type Column = (typeof EDITOR_COLUMNS)[number];
-type Row = Partial<Record<Column, string>>;
+type Row = Record<string, string>;
 
-/** Documented: answer/57747 "Campaign type". */
 const CAMPAIGN_TYPE = "Video";
-/** Not in the CSV doc. The Editor video help (answer/6365848) names this bid strategy. */
-const BID_STRATEGY = "Manual CPV";
-/** Not in the CSV doc. The Editor video help (answer/6365848) names the in-stream ad group type. */
-const AD_GROUP_TYPE = "In-stream";
-/** Not in the CSV doc: the bid-modifier value format. Editor shows adjustments as percentages. */
-const TV_EXCLUDED = "-100%";
+const BID_STRATEGY = "Target CPV";
+const AD_GROUP_TYPE = "Responsive video";
+const AD_TYPE = "Responsive video ad";
+const NO_EU_POLITICAL_ADS = "Doesn't have EU political ads";
 
 function status(value: string): string {
   return value === "paused" ? "Paused" : "Enabled";
@@ -83,12 +90,6 @@ function money(value: number | null | undefined): string {
   return value == null ? "" : Number(value).toFixed(2);
 }
 
-function percent(value: number | null): string {
-  if (value == null) return "";
-  return `${value > 0 ? "+" : ""}${value}%`;
-}
-
-/** Documented: answer/57747 "Networks", video values. */
 function networks(includePartners: boolean): string {
   return ["YouTube Search", "YouTube Videos", ...(includePartners ? ["Video Partners"] : [])].join(";");
 }
@@ -98,8 +99,13 @@ function csvCell(value: string | undefined): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-function placementUrl(value: string): string {
-  return parseYouTubeRef(value)?.url ?? value;
+/** `www.youtube.com/watch?v=…`, `/channel/UC…` or `/@handle`, no scheme. */
+export function placementWebsite(value: string): string | null {
+  const ref = parseYouTubeRef(value);
+  if (!ref) return null;
+  if (ref.kind === "video") return `www.youtube.com/watch?v=${ref.id}`;
+  if (ref.kind === "channel") return `www.youtube.com/channel/${ref.id}`;
+  return `www.youtube.com/${ref.id.startsWith("@") ? ref.id : `@${ref.id}`}`;
 }
 
 export function buildEditorRows(tree: VideoTreeLike): Row[] {
@@ -108,59 +114,71 @@ export function buildEditorRows(tree: VideoTreeLike): Row[] {
   const rows: Row[] = [];
   for (const campaign of tree.campaigns) {
     const name = campaign.name;
+    const campaignStatus = status(campaign.status);
+    const budget = campaignBudget(plan, campaign);
     rows.push({
       Campaign: name,
       "Campaign Type": CAMPAIGN_TYPE,
-      "Campaign Status": status(campaign.status),
-      Budget: money(campaignDailyBudget(plan, campaign)),
-      "Bid Strategy Type": BID_STRATEGY,
       Networks: networks(plan.include_video_partners),
+      Budget: money(budget?.amount),
+      "Budget type": budget?.type ?? "",
+      "EU political ads": NO_EU_POLITICAL_ADS,
       Languages: plan.language_codes.join(";"),
+      "Bid Strategy Type": BID_STRATEGY,
       "Start Date": plan.start_date ?? "",
       "End Date": plan.end_date ?? "",
-      "TV Screen Bid Modifier": plan.device_exclusions.includes(CONNECTED_TV) ? TV_EXCLUDED : "",
+      "Campaign Status": campaignStatus,
     });
-    for (const geo of plan.geo_targets) {
-      const id = lookupFallbackGeoConstant(geo.name)?.replace("geoTargetConstants/", "") ?? "";
-      rows.push({
-        Campaign: name,
-        Location: geo.name,
-        "Location ID": id,
-        "Bid adjustment": geo.negative ? "" : percent(geo.bid_modifier_pct),
-        Type: geo.negative ? "Negative" : "",
-      });
-    }
     for (const adGroup of campaign.ad_groups) {
+      const groupRow = { Campaign: name, "Ad Group": adGroup.name };
+      const adGroupStatus = status(adGroup.status);
       rows.push({
-        Campaign: name,
-        "Ad Group": adGroup.name,
+        ...groupRow,
+        "Target CPV": money(adGroup.cpv_bid ?? plan.cpv_bid),
         "Ad Group Type": AD_GROUP_TYPE,
-        "Ad Group Status": status(adGroup.status),
-        "Max CPV": money(adGroup.cpv_bid ?? plan.cpv_bid),
+        "Campaign Status": campaignStatus,
+        "Ad Group Status": adGroupStatus,
       });
       for (const p of exportablePlacements(adGroup)) {
         rows.push({
-          Campaign: name,
-          "Ad Group": adGroup.name,
-          Placement: placementUrl(p.value),
+          ...groupRow,
+          Website: placementWebsite(p.value) ?? "",
+          "Campaign Status": campaignStatus,
+          "Ad Group Status": adGroupStatus,
           Status: status(p.status),
         });
       }
       for (const ad of ads) {
-        rows.push({
-          Campaign: name,
-          "Ad Group": adGroup.name,
-          "Ad Name": ad.name,
-          "Video ID": adVideoId(ad) ?? "",
-          Headline: ad.headline ?? "",
-          "Long headline": ad.long_headline ?? "",
-          Description: ad.description ?? "",
-          "Call to action": adCallToAction(plan, ad) ?? "",
+        const row: Row = {
+          ...groupRow,
           "Final URL": adFinalUrl(plan, ad) ?? "",
-          "Display URL": plan.display_url ?? "",
+          "Ad type": AD_TYPE,
+          "Ad Name": ad.name,
+          "Video ID 1": adVideoId(ad) ?? "",
+          "Business name": plan.business_name?.trim() ?? "",
+          "Campaign Status": campaignStatus,
+          "Ad Group Status": adGroupStatus,
           Status: status(ad.status),
-        });
+        };
+        for (const [label, field] of SLOTTED) {
+          adCopySlots(plan, ad, field).forEach((value, i) => {
+            row[`${label} ${i + 1}`] = value;
+          });
+        }
+        rows.push(row);
       }
+    }
+    for (const geo of plan.geo_targets) {
+      const loc = geo.negative ? null : editorLocation(geo.name);
+      if (!loc) continue;
+      rows.push({
+        Campaign: name,
+        ID: loc.id,
+        Location: loc.location,
+        "Location type": loc.type ?? "",
+        "Campaign Status": campaignStatus,
+        Status: "Enabled",
+      });
     }
   }
   return rows;

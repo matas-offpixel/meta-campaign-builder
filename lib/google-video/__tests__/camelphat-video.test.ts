@@ -21,6 +21,7 @@ function withFullRecapLinked() {
   const recap = draft.ads.find((a) => a.name.startsWith("Ad 2"));
   assert.ok(recap);
   recap.video_value = "https://www.youtube.com/watch?v=ozh-w-EBw58";
+  draft.plan.business_name = "Ironworks";
   return draft;
 }
 
@@ -108,25 +109,38 @@ describe("CamelPhat YouTube build sheet — import", () => {
 });
 
 describe("CamelPhat YouTube build sheet — review", () => {
-  it("as imported, the two running ads block the download until their videos are linked", () => {
+  it("as imported (no event, so no business name), the download is blocked until the videos are linked and a name is set", () => {
     const review = reviewGoogleVideoPlan(parse(), "2026-10-08");
     assert.deepEqual(
       review.blockers.map((b) => b.code),
-      ["ad_video_unparseable", "ad_video_unparseable"],
+      ["no_business_name", "ad_video_unparseable", "ad_video_unparseable"],
     );
-    assert.match(review.blockers[0].message, /^Ad 1 — 15s cut \(lead\): /);
-    assert.match(review.blockers[1].message, /^Ad 2 — full recap: /);
+    assert.match(review.blockers[1].message, /^Ad 1 — 15s cut \(lead\): /);
+    assert.match(review.blockers[2].message, /^Ad 2 — full recap: /);
   });
 
-  it("with both videos linked there are no blockers, and the paused leftovers are warnings", () => {
+  it("with both videos linked there are no blockers; South East England and the paused leftovers are warnings", () => {
     const draft = withFullRecapLinked();
     draft.ads[0].video_value = "https://youtu.be/AAAAAAAAAAA";
     const review = reviewGoogleVideoPlan(draft, "2026-10-08");
     assert.deepEqual(review.blockers, []);
     assert.deepEqual(
       review.warnings.map((w) => w.code),
-      ["left_out", "left_out", "left_out"],
+      ["location_not_in_file", "left_out", "left_out", "left_out"],
     );
+    assert.match(review.warnings[0].message, /^Location "South East England" has no checked Google location ID/);
+    assert.deepEqual(review.budgets, [
+      "[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag: £8.80 a day",
+      "[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED): £8.80 a day",
+    ]);
+    for (const line of [
+      "Include Google TV: Disabled (TV screens are excluded)",
+      "Location bid adjustment: London +25%",
+      "Location bid adjustment: South East England +15%",
+      "Logo: add it on each responsive video ad (an image asset)",
+    ]) {
+      assert.ok(review.editorOnly.includes(line), line);
+    }
     assert.ok(review.editorOnly.some((l) => l.startsWith("Frequency cap: 2 per user per day")));
     assert.ok(review.editorOnly.some((l) => l.includes("end 18:00")));
   });
@@ -139,30 +153,51 @@ describe("CamelPhat YouTube build sheet — Editor CSV", () => {
     assert.equal(csv, readFileSync(GOLDEN, "utf8"));
   });
 
-  it("has £8.80 on both campaigns, connected TV at -100%, and V2 paused", () => {
+  it("£8.80 Daily on both campaigns, Target CPV £0.03, V2 paused", () => {
     const rows = buildEditorRows(withFullRecapLinked());
     const campaigns = rows.filter((r) => r["Campaign Type"]);
     assert.deepEqual(
-      campaigns.map((r) => [r["Campaign Status"], r.Budget, r["TV Screen Bid Modifier"]]),
+      campaigns.map((r) => [r["Campaign Status"], r.Budget, r["Budget type"], r["Bid Strategy Type"], r["EU political ads"]]),
       [
-        ["Enabled", "8.80", "-100%"],
-        ["Paused", "8.80", "-100%"],
+        ["Enabled", "8.80", "Daily", "Target CPV", "Doesn't have EU political ads"],
+        ["Paused", "8.80", "Daily", "Target CPV", "Doesn't have EU political ads"],
       ],
     );
-    const placements = rows.filter((r) => r.Placement);
-    assert.equal(placements.length, 1 + 8);
-    assert.deepEqual(placements[0], {
-      Campaign: "[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag",
-      "Ad Group": "V1 In-stream",
-      Placement: "https://www.youtube.com/watch?v=Q-gTWjK62vw",
-      Status: "Enabled",
-    });
-    const ads = rows.filter((r) => r["Ad Name"]);
+    const adGroups = rows.filter((r) => r["Ad Group Type"]);
     assert.deepEqual(
-      ads.map((r) => [r["Ad Group"], r["Ad Name"], r["Video ID"]]),
+      adGroups.map((r) => [r["Ad Group"], r["Ad Group Type"], r["Target CPV"], r["Ad Group Status"]]),
       [
-        ["V1 In-stream", "Ad 2 — full recap", "ozh-w-EBw58"],
-        ["V2 In-stream", "Ad 2 — full recap", "ozh-w-EBw58"],
+        ["V1 In-stream", "Responsive video", "0.03", "Enabled"],
+        ["V2 In-stream", "Responsive video", "0.03", "Paused"],
+      ],
+    );
+  });
+
+  it("V1 matches the rows of the template Editor accepted", () => {
+    const rows = buildEditorRows(withFullRecapLinked());
+    const v1 = "[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag";
+    assert.deepEqual(
+      rows.find((r) => r.Website && r.Campaign === v1),
+      {
+        Campaign: v1,
+        "Ad Group": "V1 In-stream",
+        Website: "www.youtube.com/watch?v=Q-gTWjK62vw",
+        "Campaign Status": "Enabled",
+        "Ad Group Status": "Enabled",
+        Status: "Enabled",
+      },
+    );
+    assert.equal(rows.filter((r) => r.Website).length, 1 + 8);
+    const ad = rows.find((r) => r["Ad Name"] && r.Campaign === v1);
+    assert.deepEqual(
+      ad && [ad["Ad type"], ad["Video ID 1"], ad["Call to action 1"], ad["Headline 1"], ad["Business name"], ad.Status],
+      ["Responsive video ad", "ozh-w-EBw58", "Buy Now", "See It Yourself", "Ironworks", "Enabled"],
+    );
+    assert.deepEqual(
+      rows.filter((r) => r.ID && r.Campaign === v1).map((r) => [r.ID, r.Location, r["Location type"]]),
+      [
+        ["2826", "United Kingdom", "Country"],
+        ["1006886", "London, England, United Kingdom", "City"],
       ],
     );
   });

@@ -2,10 +2,12 @@ import { strict as assert } from "node:assert";
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { EDITOR_COLUMNS, buildEditorCsv } from "../editor-export.ts";
+import { EDITOR_COLUMNS, buildEditorCsv, buildEditorRows, placementWebsite } from "../editor-export.ts";
+import { editorLocation } from "../locations.ts";
 import { reviewGoogleVideoPlan, type VideoTreeLike } from "../validation.ts";
 
 const GOLDEN = new URL("./fixtures/synthetic.editor.csv", import.meta.url);
+const TEMPLATE = new URL("./fixtures/editor-template-export.tsv", import.meta.url);
 
 function tree(): VideoTreeLike {
   return {
@@ -32,6 +34,7 @@ function tree(): VideoTreeLike {
       final_url: "https://example.com/event?utm_source=youtube",
       display_url: "example.com",
       call_to_action: "Book now",
+      business_name: "Example Venue",
       settings_rows: [],
       targeting_rows: [],
       source_filename: null,
@@ -89,6 +92,7 @@ function tree(): VideoTreeLike {
         headline: "Sat 24 Oct",
         long_headline: "Tickets from £44.50, \"final release\"",
         description: "Line one, line two",
+        extra_copy: { headline: ["Final release", "Doors 14:00"], call_to_action: ["Tickets"] },
         note: null,
         sort_order: 0,
       },
@@ -102,6 +106,7 @@ function tree(): VideoTreeLike {
         headline: null,
         long_headline: null,
         description: null,
+        extra_copy: {},
         note: null,
         sort_order: 1,
       },
@@ -115,6 +120,7 @@ function tree(): VideoTreeLike {
         headline: null,
         long_headline: null,
         description: null,
+        extra_copy: {},
         note: null,
         sort_order: 2,
       },
@@ -136,14 +142,183 @@ describe("buildEditorCsv", () => {
     assert.ok(csv.includes("£44.50"));
   });
 
-  it("derives a daily budget from total ÷ inclusive days when the plan has none", () => {
-    const lines = buildEditorCsv(tree()).split("\r\n");
-    const reserve = lines.find((l) => l.startsWith("[IRW9999] Reserve,Video,"));
-    assert.ok(reserve?.includes(",10.00,"), reserve);
-  });
-
   it("is deterministic", () => {
     assert.equal(buildEditorCsv(tree()), buildEditorCsv(tree()));
+  });
+});
+
+/** Editor's own export of a campaign it accepted with 0 errors: UTF-16LE, tab-separated. */
+function template(): { headers: string[]; rows: Record<string, string>[] } {
+  const text = new TextDecoder("utf-16le").decode(readFileSync(TEMPLATE)).replace(/^\uFEFF/, "");
+  const [head, ...lines] = text.split(/\r?\n/).filter((l) => l.length > 0);
+  const cells = (line: string) => line.split("\t").map((v) => (/^".*"$/.test(v) ? v.slice(1, -1).replace(/""/g, '"') : v));
+  const headers = cells(head);
+  return {
+    headers,
+    rows: lines.map((l) => Object.fromEntries(cells(l).map((v, i) => [headers[i], v]))),
+  };
+}
+
+describe("Editor template (editor-template-export.tsv)", () => {
+  it("has 111 columns", () => {
+    assert.equal(template().headers.length, 111);
+  });
+
+  it("every header we write is in the template, in the template's order", () => {
+    const { headers } = template();
+    const missing = EDITOR_COLUMNS.filter((c) => !headers.includes(c));
+    assert.deepEqual(missing, []);
+    const positions = EDITOR_COLUMNS.map((c) => headers.indexOf(c));
+    assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+  });
+
+  it("every fixed value we write is spelled as in the template", () => {
+    const { rows } = template();
+    const values = (column: string) => new Set(rows.map((r) => r[column]).filter(Boolean));
+    const ours = buildEditorRows(tree());
+    for (const column of ["Campaign Type", "Networks", "Budget type", "EU political ads", "Bid Strategy Type", "Ad Group Type", "Ad type", "Location type"]) {
+      const theirs = values(column);
+      for (const v of new Set(ours.map((r) => r[column]).filter(Boolean))) {
+        if (column === "Networks" && v.includes("Video Partners")) continue;
+        if (column === "Budget type" && v === "Daily") continue;
+        assert.ok(theirs.has(v), `${column}: "${v}" is not in the template (${[...theirs].join(" | ")})`);
+      }
+    }
+  });
+
+  it("writes placements the way the template does: Website, no scheme", () => {
+    const { rows } = template();
+    assert.equal(rows.find((r) => r.Website)?.Website, "www.youtube.com/watch?v=Q-gTWjK62vw");
+    assert.equal(placementWebsite("https://youtu.be/Q-gTWjK62vw?si=x"), "www.youtube.com/watch?v=Q-gTWjK62vw");
+    assert.equal(placementWebsite("https://www.youtube.com/@Mixmag"), "www.youtube.com/@Mixmag");
+    assert.equal(
+      placementWebsite("https://www.youtube.com/channel/UCbDgBFAketcO26wz-pR6OKA"),
+      "www.youtube.com/channel/UCbDgBFAketcO26wz-pR6OKA",
+    );
+  });
+
+  it("the template's location IDs match ours for the UK and London", () => {
+    const { rows } = template();
+    const byId = (id: string) => rows.find((r) => r.ID === id);
+    assert.equal(byId("2826")?.Location, editorLocation("United Kingdom")?.location);
+    assert.equal(byId("1006886")?.Location, editorLocation("London")?.location);
+    assert.equal(byId("1006886")?.["Location type"], "City");
+    assert.equal(byId("9049069")?.["Location type"], "Unknown");
+    assert.equal(editorLocation("South East England"), null);
+  });
+});
+
+describe("budget type", () => {
+  const TODAY = "2026-10-08";
+  const budgetRows = (t: VideoTreeLike) =>
+    buildEditorRows(t)
+      .filter((r) => r["Campaign Type"])
+      .map((r) => [r.Campaign, r.Budget, r["Budget type"]]);
+
+  it("a plan total is a campaign total; a campaign's own daily budget stays daily", () => {
+    assert.deepEqual(budgetRows(tree()), [
+      ['[IRW9999] Video, "Quoted"', "12.50", "Daily"],
+      ["[IRW9999] Reserve", "100.00", "Campaign total"],
+    ]);
+  });
+
+  it("no total: the plan daily budget is written as Daily, never as a campaign total", () => {
+    const t = tree();
+    t.plan.total_budget = null;
+    t.plan.daily_budget = 8.8;
+    t.campaigns[0].daily_budget = null;
+    assert.deepEqual(budgetRows(t), [
+      ['[IRW9999] Video, "Quoted"', "8.80", "Daily"],
+      ["[IRW9999] Reserve", "8.80", "Daily"],
+    ]);
+  });
+
+  it("a total wins over the plan daily budget", () => {
+    const t = tree();
+    t.plan.daily_budget = 8.8;
+    assert.deepEqual(budgetRows(t)[1], ["[IRW9999] Reserve", "100.00", "Campaign total"]);
+  });
+
+  it("Review shows which type and the amount", () => {
+    assert.deepEqual(reviewGoogleVideoPlan(tree(), TODAY).budgets, [
+      '[IRW9999] Video, "Quoted": £12.50 a day',
+      "[IRW9999] Reserve: £100.00 campaign total (the whole run)",
+    ]);
+  });
+
+  it("a campaign total without an end date is a blocker", () => {
+    const t = tree();
+    t.plan.end_date = null;
+    assert.deepEqual(reviewGoogleVideoPlan(t, TODAY).blockers.map((b) => b.code), ["total_budget_no_end_date"]);
+  });
+});
+
+describe("responsive video ad", () => {
+  const leadRow = (t: VideoTreeLike) => buildEditorRows(t).find((r) => r["Ad Name"] === "Lead");
+
+  it("sheet copy goes to slot 1, extra copy to slots 2..5, the plan CTA fills an empty slot 1", () => {
+    const row = leadRow(tree());
+    assert.ok(row);
+    assert.equal(row["Ad type"], "Responsive video ad");
+    assert.equal(row["Video ID 1"], "ozh-w-EBw58");
+    assert.deepEqual(
+      ["Headline 1", "Headline 2", "Headline 3", "Headline 4"].map((c) => row[c]),
+      ["Sat 24 Oct", "Final release", "Doors 14:00", undefined],
+    );
+    assert.deepEqual([row["Call to action 1"], row["Call to action 2"]], ["Book now", "Tickets"]);
+    assert.equal(row["Long headline 1"], 'Tickets from £44.50, "final release"');
+    assert.equal(row["Description 1"], "Line one, line two");
+    assert.equal(row["Business name"], "Example Venue");
+  });
+
+  it("blank slots close up, and no more than five are written", () => {
+    const t = tree();
+    t.ads[0].headline = null;
+    t.ads[0].extra_copy = { headline: ["", "A", "B", "C", "D", "E"] };
+    const row = leadRow(t);
+    assert.deepEqual(
+      ["Headline 1", "Headline 2", "Headline 3", "Headline 4", "Headline 5"].map((c) => row?.[c]),
+      ["A", "B", "C", "D", "E"],
+    );
+  });
+
+  it("a slot over its limit blocks, naming it", () => {
+    const t = tree();
+    t.ads[0].extra_copy = { headline: ["Far too long a headline"] };
+    const [blocker] = reviewGoogleVideoPlan(t, "2026-10-08").blockers;
+    assert.equal(blocker.message, 'Lead: Headline "Far too long a headline" is 23 characters (limit 15).');
+  });
+
+  it("no business name is a blocker", () => {
+    const t = tree();
+    t.plan.business_name = "  ";
+    const review = reviewGoogleVideoPlan(t, "2026-10-08");
+    assert.deepEqual(review.blockers.map((b) => b.code), ["no_business_name"]);
+    assert.equal(review.blockers[0].message, "No business name. Every responsive video ad needs one; set it in Settings.");
+  });
+
+  it("writes no TV or location bid modifier; Review lists them by hand", () => {
+    const t = tree();
+    t.plan.device_exclusions = ["CONNECTED_TV"];
+    const csv = buildEditorCsv(t);
+    assert.ok(!csv.includes("Bid Modifier"));
+    assert.ok(!csv.includes("-10%"));
+    const { editorOnly } = reviewGoogleVideoPlan(t, "2026-10-08");
+    assert.ok(editorOnly.includes("Include Google TV: Disabled (TV screens are excluded)"));
+    assert.ok(editorOnly.includes("Location bid adjustment: Manchester -10%"));
+    assert.ok(editorOnly.includes("Excluded location: Ireland"));
+    assert.ok(editorOnly.includes("Logo: add it on each responsive video ad (an image asset)"));
+  });
+
+  it("locations go by checked ID; an excluded location is not written", () => {
+    const locations = buildEditorRows(tree())
+      .filter((r) => r.ID)
+      .map((r) => [r.ID, r.Location, r["Location type"]]);
+    assert.deepEqual(locations.slice(0, 2), [
+      ["2826", "United Kingdom", "Country"],
+      ["1006912", "Manchester, Manchester, England, United Kingdom", "City"],
+    ]);
+    assert.equal(locations.length, 4);
   });
 });
 
@@ -156,12 +331,12 @@ describe("reviewGoogleVideoPlan blockers", () => {
     assert.ok(review.warnings.some((w) => w.code === "connected_tv_included"));
   });
 
-  it("no daily budget", () => {
+  it("no budget", () => {
     const t = tree();
     t.plan.total_budget = null;
     t.campaigns[0].daily_budget = null;
     const codes = reviewGoogleVideoPlan(t, TODAY).blockers.map((b) => b.code);
-    assert.deepEqual(codes, ["no_daily_budget", "no_daily_budget"]);
+    assert.deepEqual(codes, ["no_budget", "no_budget"]);
   });
 
   it("an ad over a character limit, named", () => {
@@ -263,6 +438,57 @@ describe("import char-limit warnings", () => {
     assert.deepEqual(
       draft.warnings.filter((w) => w.code === "ad_semicolon").map((w) => w.message),
       ['Ad A: Description "Sold out before; final release now" contains ";". Editor reads ";" as a separator between values in one cell; replace it.'],
+    );
+  });
+
+  it("a second Headline row, or 'Headline 2', fills slot 2; a sixth value warns and is dropped", async () => {
+    const XLSX = await import("xlsx");
+    const { parseGoogleVideoPlanXlsx } = await import("../xlsx-import.ts");
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Setting", "Value"],
+        ["Business name", "Ironworks"],
+      ]),
+      "2 Campaign Settings",
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Campaign", "Placement", "URL / ID", "Status"],
+        ["[IRW0004] CP | Video", "One", "https://youtu.be/Q-gTWjK62vw", "Enabled"],
+      ]),
+      "4 Placements",
+    );
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ["Ad", "Field", "Text"],
+        ["Ad A", "Headline", "One"],
+        ["Ad A", "Headline 2", "Two"],
+        ["Ad A", "Headline", "Three"],
+        ["Ad A", "Description", "Only"],
+        ["Ad B", "CTA", "A"],
+        ["Ad B", "CTA", "B"],
+        ["Ad B", "CTA", "C"],
+        ["Ad B", "CTA", "D"],
+        ["Ad B", "CTA", "E"],
+        ["Ad B", "CTA", "F"],
+      ]),
+      "5 Ad Copy & Creative",
+    );
+    const draft = parseGoogleVideoPlanXlsx(new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" })));
+    const [a, b] = draft.ads;
+    assert.equal(draft.plan.business_name, "Ironworks");
+    assert.equal(a.headline, "One");
+    assert.deepEqual(a.extra_copy, { headline: ["Two", "Three"] });
+    assert.equal(a.description, "Only");
+    assert.equal(b.call_to_action, "A");
+    assert.deepEqual(b.extra_copy, { call_to_action: ["B", "C", "D", "E"] });
+    assert.deepEqual(
+      draft.warnings.filter((w) => w.code === "ad_too_many_slots").map((w) => w.message),
+      ["Ad B: 6 CTA values; a responsive video ad takes 5. The rest are dropped."],
     );
   });
 

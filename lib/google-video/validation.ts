@@ -13,7 +13,9 @@
 
 import { derivePlanDailyBudget } from "../google-search/budget.ts";
 import { headerKey } from "../google-search/header-key.ts";
+import { editorLocation } from "./locations.ts";
 import {
+  AD_COPY_SLOTS,
   AD_FIELD_LABELS,
   AD_LIMITS,
   CONNECTED_TV,
@@ -30,7 +32,10 @@ type Placement = AdGroup["placements"][number];
 
 export interface VideoReviewIssue {
   code:
-    | "no_daily_budget"
+    | "no_budget"
+    | "total_budget_no_end_date"
+    | "no_business_name"
+    | "location_not_in_file"
     | "ad_over_limit"
     | "placement_unparseable"
     | "ad_video_unparseable"
@@ -48,19 +53,48 @@ export interface VideoReviewIssue {
 export interface VideoReview {
   blockers: VideoReviewIssue[];
   warnings: VideoReviewIssue[];
+  /** `Campaign: £150.00 campaign total` per campaign, as the file writes it. */
+  budgets: string[];
   /** `Setting: value` lines to set by hand in Editor. */
   editorOnly: string[];
 }
 
+/** Editor's "Budget type" values. "Campaign total" is from Editor's own export; "Daily" is its other option. */
+export type EditorBudgetType = "Campaign total" | "Daily";
+
+export interface CampaignBudget {
+  amount: number;
+  type: EditorBudgetType;
+}
+
+/** Display only: total ÷ inclusive days, or the daily budget. */
 export function effectivePlanDailyBudget(plan: VideoTreeLike["plan"]): number | null {
   if (plan.daily_budget != null && Number(plan.daily_budget) > 0) return Number(plan.daily_budget);
   if (!plan.start_date || !plan.end_date) return null;
   return derivePlanDailyBudget(plan.total_budget, { since: plan.start_date, until: plan.end_date });
 }
 
-export function campaignDailyBudget(plan: VideoTreeLike["plan"], campaign: Campaign): number | null {
-  if (campaign.daily_budget != null && Number(campaign.daily_budget) > 0) return Number(campaign.daily_budget);
-  return effectivePlanDailyBudget(plan);
+/**
+ * A campaign's own daily budget, else the plan total as a campaign total,
+ * else the plan daily budget. A daily figure is never a campaign total.
+ */
+export function campaignBudget(plan: VideoTreeLike["plan"], campaign: Campaign): CampaignBudget | null {
+  if (campaign.daily_budget != null && Number(campaign.daily_budget) > 0) {
+    return { amount: Number(campaign.daily_budget), type: "Daily" };
+  }
+  if (plan.total_budget != null && Number(plan.total_budget) > 0) {
+    return { amount: Number(plan.total_budget), type: "Campaign total" };
+  }
+  if (plan.daily_budget != null && Number(plan.daily_budget) > 0) {
+    return { amount: Number(plan.daily_budget), type: "Daily" };
+  }
+  return null;
+}
+
+export function describeBudget(budget: CampaignBudget): string {
+  return budget.type === "Daily"
+    ? `£${budget.amount.toFixed(2)} a day`
+    : `£${budget.amount.toFixed(2)} campaign total (the whole run)`;
 }
 
 export function adFinalUrl(plan: VideoTreeLike["plan"], ad: Ad): string | null {
@@ -75,15 +109,27 @@ export function adVideoId(ad: Ad): string | null {
   return videoIdFrom(ad.video_value) ?? videoIdFrom(ad.video_id);
 }
 
+/** Slot 1 (CTA falls back to the plan default), then slots 2..5; blanks dropped. */
+export function adCopySlots(plan: VideoTreeLike["plan"], ad: Ad, field: AdLimitField): string[] {
+  const first = field === "call_to_action" ? adCallToAction(plan, ad) : ad[field]?.trim();
+  const rest = (ad.extra_copy?.[field] ?? []).map((v) => v.trim());
+  return [first ?? "", ...rest].filter(Boolean).slice(0, AD_COPY_SLOTS);
+}
+
 function overLimit(plan: VideoTreeLike["plan"], ad: Ad): string[] {
   const out: string[] = [];
   for (const field of Object.keys(AD_LIMITS) as AdLimitField[]) {
-    const value = field === "call_to_action" ? adCallToAction(plan, ad) : ad[field];
-    if (value && value.length > AD_LIMITS[field]) {
-      out.push(`${AD_FIELD_LABELS[field]} "${value}" is ${value.length} characters (limit ${AD_LIMITS[field]})`);
+    for (const value of adCopySlots(plan, ad, field)) {
+      if (value.length > AD_LIMITS[field]) {
+        out.push(`${AD_FIELD_LABELS[field]} "${value}" is ${value.length} characters (limit ${AD_LIMITS[field]})`);
+      }
     }
   }
   return out;
+}
+
+function percent(value: number): string {
+  return `${value > 0 ? "+" : ""}${value}%`;
 }
 
 function adComplete(plan: VideoTreeLike["plan"], ad: Ad): boolean {
@@ -131,6 +177,14 @@ function editorOnlyLines(tree: VideoTreeLike): string[] {
       );
     }
   }
+  if (plan.device_exclusions.includes(CONNECTED_TV)) {
+    lines.push("Include Google TV: Disabled (TV screens are excluded)");
+  }
+  for (const geo of plan.geo_targets) {
+    if (geo.negative) lines.push(`Excluded location: ${geo.name}`);
+    else if (geo.bid_modifier_pct != null) lines.push(`Location bid adjustment: ${geo.name} ${percent(geo.bid_modifier_pct)}`);
+  }
+  lines.push("Logo: add it on each responsive video ad (an image asset)");
   for (const row of plan.targeting_rows) {
     const type = headerKey(row.type);
     if (type === "language") continue;
@@ -146,13 +200,30 @@ export function reviewGoogleVideoPlan(tree: VideoTreeLike, today: string): Video
   const blockers: VideoReviewIssue[] = [];
   const warnings: VideoReviewIssue[] = [];
 
+  const budgets: string[] = [];
   for (const campaign of tree.campaigns) {
-    if (campaignDailyBudget(plan, campaign) == null) {
+    const budget = campaignBudget(plan, campaign);
+    if (budget == null) {
+      blockers.push({ code: "no_budget", message: `${campaign.name}: no budget. Set a total budget or a daily budget.` });
+      continue;
+    }
+    budgets.push(`${campaign.name}: ${describeBudget(budget)}`);
+    if (budget.type === "Campaign total" && !plan.end_date) {
       blockers.push({
-        code: "no_daily_budget",
-        message: `${campaign.name}: no daily budget. Set a daily budget, or a total budget with start and end dates.`,
+        code: "total_budget_no_end_date",
+        message: `${campaign.name}: a campaign total budget needs an end date.`,
       });
     }
+  }
+  if (!plan.business_name?.trim()) {
+    blockers.push({ code: "no_business_name", message: "No business name. Every responsive video ad needs one; set it in Settings." });
+  }
+  for (const geo of plan.geo_targets) {
+    if (geo.negative || editorLocation(geo.name)) continue;
+    warnings.push({
+      code: "location_not_in_file",
+      message: `Location "${geo.name}" has no checked Google location ID, so it is left out of the file. Google has no English region targets; add the counties or cities you mean in Editor.`,
+    });
   }
 
   const placements = tree.campaigns.flatMap((c) =>
@@ -209,7 +280,7 @@ export function reviewGoogleVideoPlan(tree: VideoTreeLike, today: string): Video
     });
   }
   const cpvMissing = tree.campaigns.some((c) => c.ad_groups.some((ag) => (ag.cpv_bid ?? plan.cpv_bid) == null));
-  if (cpvMissing) warnings.push({ code: "no_cpv_bid", message: "No CPV bid. Editor will ask for a Max CPV on each ad group." });
+  if (cpvMissing) warnings.push({ code: "no_cpv_bid", message: "No Target CPV. Editor will ask for one on each ad group." });
   if (plan.start_date && plan.start_date < today) {
     warnings.push({
       code: "start_date_past",
@@ -217,5 +288,5 @@ export function reviewGoogleVideoPlan(tree: VideoTreeLike, today: string): Video
     });
   }
 
-  return { blockers, warnings, editorOnly: editorOnlyLines(tree) };
+  return { blockers, warnings, budgets, editorOnly: editorOnlyLines(tree) };
 }

@@ -18,7 +18,7 @@ import {
   unknownWorkbookMessage,
   type GoogleWorkbookDetection,
 } from "@/lib/google-search/workbook";
-import { createGoogleVideoPlanTreeFromDraft } from "@/lib/db/google-video-plans";
+import { createGoogleVideoPlanTreeFromDraft, defaultVideoBusinessName } from "@/lib/db/google-video-plans";
 import {
   countDraftPlacements,
   describeEmptyGoogleVideoImport,
@@ -214,6 +214,7 @@ async function importVideoPlan(
     );
   }
   try {
+    draft.plan.business_name ??= await defaultVideoBusinessName(supabase, userId, options.eventId);
     const { plan_id } = await createGoogleVideoPlanTreeFromDraft(supabase, userId, draft, {
       event_id: options.eventId,
       google_ads_account_id: options.googleAdsAccountId,

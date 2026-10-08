@@ -19,7 +19,6 @@
 
 import type * as XLSX from "xlsx";
 
-import { derivePlanDailyBudget } from "../google-search/budget.ts";
 import {
   cell,
   headerKey,
@@ -31,6 +30,7 @@ import {
   sheetTokens,
 } from "../google-search/workbook.ts";
 import {
+  AD_COPY_SLOTS,
   AD_FIELD_LABELS,
   AD_LIMITS,
   CONNECTED_TV,
@@ -107,6 +107,21 @@ const LANGUAGE_CODES: Record<string, string> = {
 
 const AD_FIELDS = new Set(["video", "finalurl", "cta", "calltoaction", "headline", "longheadline", "description"]);
 
+const COPY_FIELD: Record<string, AdLimitField> = {
+  cta: "call_to_action",
+  calltoaction: "call_to_action",
+  headline: "headline",
+  longheadline: "long_headline",
+  description: "description",
+};
+
+/** `Headline 2` → `headline`; other keys unchanged. */
+function adFieldKey(raw: unknown): string {
+  const key = headerKey(raw);
+  const base = key.replace(/[1-5]$/, "");
+  return COPY_FIELD[base] ? base : key;
+}
+
 function isPausedText(text: string): boolean {
   return /\bpaused?\b/i.test(text);
 }
@@ -152,6 +167,7 @@ export function parseGoogleVideoPlanXlsx(
   let callToAction: string | null = null;
   let capDay: number | null = null;
   let capWeek: number | null = null;
+  let businessName: string | null = null;
 
   for (const r of recordsFromRawRowsWithHeaderScan(rawRows(settingsSheet), ["setting", "value"])) {
     const setting = cell(r.setting);
@@ -180,6 +196,8 @@ export function parseGoogleVideoPlanXlsx(
       displayUrl = value || null;
     } else if (key === "calltoaction" || key === "cta") {
       callToAction = value || null;
+    } else if (key === "businessname") {
+      businessName = value || null;
     } else if (key.includes("frequency")) {
       ({ day: capDay, week: capWeek } = frequencyCapInText(value));
     }
@@ -282,7 +300,7 @@ export function parseGoogleVideoPlanXlsx(
   const adsByName = new Map<string, GoogleVideoPlanDraftTree["ads"][number] & { notes: string[] }>();
   for (const r of recordsFromRawRowsWithHeaderScan(rawRows(adsSheet), ["ad", "field", "text"])) {
     const name = cell(r.ad);
-    const field = headerKey(r.field);
+    const field = adFieldKey(r.field);
     if (!name || !AD_FIELDS.has(field)) continue;
     let ad = adsByName.get(name);
     if (!ad) {
@@ -296,6 +314,7 @@ export function parseGoogleVideoPlanXlsx(
         headline: null,
         long_headline: null,
         description: null,
+        extra_copy: {},
         note: null,
         sort_order: adsByName.size,
         notes: [],
@@ -318,28 +337,38 @@ export function parseGoogleVideoPlanXlsx(
         });
       }
     } else if (field === "finalurl") ad.final_url = text;
-    else if (field === "cta" || field === "calltoaction") ad.call_to_action = text;
-    else if (field === "headline") ad.headline = text;
-    else if (field === "longheadline") ad.long_headline = text;
-    else if (field === "description") ad.description = text;
+    else if (COPY_FIELD[field] && text) {
+      const copyField = COPY_FIELD[field];
+      if (ad[copyField] == null) ad[copyField] = text;
+      else (ad.extra_copy[copyField] ??= []).push(text);
+    }
   }
 
   const ads = [...adsByName.values()].map(({ notes, ...ad }) => {
     const note = notes.join(" ") || null;
     const status: GoogleVideoEntityStatus = isHeldAd(`${ad.name} ${note ?? ""}`) ? "paused" : "enabled";
     for (const field of Object.keys(AD_LIMITS) as AdLimitField[]) {
-      const value = ad[field];
-      if (value && value.length > AD_LIMITS[field]) {
+      const extra = ad.extra_copy[field] ?? [];
+      if (extra.length > AD_COPY_SLOTS - 1) {
         warnings.push({
-          code: "ad_over_limit",
-          message: `${ad.name}: ${AD_FIELD_LABELS[field]} "${value}" is ${value.length} characters; the limit is ${AD_LIMITS[field]}.`,
+          code: "ad_too_many_slots",
+          message: `${ad.name}: ${1 + extra.length} ${AD_FIELD_LABELS[field]} values; a responsive video ad takes ${AD_COPY_SLOTS}. The rest are dropped.`,
         });
+        ad.extra_copy[field] = extra.slice(0, AD_COPY_SLOTS - 1);
       }
-      if (value?.includes(";")) {
-        warnings.push({
-          code: "ad_semicolon",
-          message: `${ad.name}: ${AD_FIELD_LABELS[field]} "${value}" contains ";". Editor reads ";" as a separator between values in one cell; replace it.`,
-        });
+      for (const value of [ad[field], ...(ad.extra_copy[field] ?? [])]) {
+        if (value && value.length > AD_LIMITS[field]) {
+          warnings.push({
+            code: "ad_over_limit",
+            message: `${ad.name}: ${AD_FIELD_LABELS[field]} "${value}" is ${value.length} characters; the limit is ${AD_LIMITS[field]}.`,
+          });
+        }
+        if (value?.includes(";")) {
+          warnings.push({
+            code: "ad_semicolon",
+            message: `${ad.name}: ${AD_FIELD_LABELS[field]} "${value}" contains ";". Editor reads ";" as a separator between values in one cell; replace it.`,
+          });
+        }
       }
     }
     return { ...ad, note, status };
@@ -348,9 +377,8 @@ export function parseGoogleVideoPlanXlsx(
   if (cpvBid == null && settingsSheet) {
     warnings.push({ code: "no_cpv_bid", message: "No CPV bid found under Bid strategy. Set one in Settings." });
   }
-  const dateRange = startDate && endDate ? { since: startDate, until: endDate } : null;
-  if (dailyBudget == null && derivePlanDailyBudget(totalBudget, dateRange) == null) {
-    warnings.push({ code: "no_daily_budget", message: "No daily budget, and no total budget with start and end dates to derive one." });
+  if (dailyBudget == null && totalBudget == null) {
+    warnings.push({ code: "no_daily_budget", message: "No budget found. Set a total or a daily budget in Settings." });
   }
 
   return {
@@ -373,6 +401,7 @@ export function parseGoogleVideoPlanXlsx(
       final_url: finalUrl,
       display_url: displayUrl,
       call_to_action: callToAction,
+      business_name: businessName,
       settings_rows: settingsRows,
       targeting_rows: targetingRows,
       source_filename: options.sourceFilename ?? null,
