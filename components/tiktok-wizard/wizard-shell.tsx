@@ -232,12 +232,12 @@ export function TikTokWizardShell({
               type="button"
               onClick={() => {
                 void flush();
-                router.push("/");
+                router.push("/tiktok");
               }}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <ArrowLeft className="h-3 w-3" />
-              Campaign Library
+              TikTok campaigns
             </button>
           </div>
         </div>
