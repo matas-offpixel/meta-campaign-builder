@@ -43,6 +43,21 @@ export async function withTikTokWriteIdempotency(
   payload: Record<string, BodyValue>,
   run: () => Promise<string>,
 ): Promise<string> {
+  return (await withTikTokWriteIdempotencyOutcome(context, opKind, payload, run)).id;
+}
+
+export interface TikTokWriteOutcome {
+  id: string;
+  /** True when the id came from an earlier success row, not this call's POST. */
+  reused: boolean;
+}
+
+export async function withTikTokWriteIdempotencyOutcome(
+  context: TikTokWriteContext,
+  opKind: TikTokWriteOpKind,
+  payload: Record<string, BodyValue>,
+  run: () => Promise<string>,
+): Promise<TikTokWriteOutcome> {
   const payloadHash = hashTikTokWritePayload(payload);
   const { data: existing, error: lookupError } = await context.supabase
     .from("tiktok_write_idempotency")
@@ -56,7 +71,7 @@ export async function withTikTokWriteIdempotency(
 
   const existingRow = existing as IdempotencyRow | null;
   if (existingRow?.op_status === "success" && existingRow.op_result_id) {
-    return existingRow.op_result_id;
+    return { id: existingRow.op_result_id, reused: true };
   }
 
   const { data: pending, error: pendingError } = await context.supabase
@@ -87,7 +102,7 @@ export async function withTikTokWriteIdempotency(
       .update({ op_result_id: resultId, op_status: "success" })
       .eq("id", rowId);
     if (successError) throw new Error(successError.message);
-    return resultId;
+    return { id: resultId, reused: false };
   } catch (err) {
     await context.supabase
       .from("tiktok_write_idempotency")
@@ -124,6 +139,24 @@ export async function clearTikTokWriteIdempotencyForResults(
   const { error } = await context.supabase
     .from("tiktok_write_idempotency")
     .delete()
+    .eq("draft_id", context.draftId)
+    .in("op_result_id", [...resultIds]);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Attach-mode rollback could not delete these objects. Their success rows
+ * become `failed` (the 062 CHECK allows only pending/success/failed) so a
+ * retry never treats an object the operator deletes by hand as live.
+ */
+export async function markTikTokWriteIdempotencyResultsFailed(
+  context: Pick<TikTokWriteContext, "supabase" | "draftId">,
+  resultIds: readonly string[],
+): Promise<void> {
+  if (resultIds.length === 0) return;
+  const { error } = await context.supabase
+    .from("tiktok_write_idempotency")
+    .update({ op_status: "failed" })
     .eq("draft_id", context.draftId)
     .in("op_result_id", [...resultIds]);
   if (error) throw new Error(error.message);

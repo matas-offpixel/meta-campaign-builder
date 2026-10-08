@@ -96,9 +96,9 @@ export function tikTokAttachCampaignIds(draft: TikTokCampaignDraft): string[] {
 }
 
 /**
- * Launch-time re-read of the targets. A failed read is logged and the
- * selection-time snapshot stands in — the plan refuses only on what a
- * successful read proves (#1013/#1014 doctrine).
+ * Launch-time re-read of the targets. A failed read is logged and
+ * returned as `read_failed`, which the plan refuses: a snapshot can't
+ * rule out Smart+.
  */
 export async function readTikTokAttachTargets(input: {
   draft: TikTokCampaignDraft;
@@ -109,9 +109,9 @@ export async function readTikTokAttachTargets(input: {
   const snapshot = tikTokAttachTargetsFromSnapshots(input.draft);
   const campaignIds = tikTokAttachCampaignIds(input.draft);
   if (campaignIds.length === 0) return snapshot;
+  const failed = { ...snapshot, source: "read_failed" as const };
 
-  let campaigns: TikTokAttachCampaign[] = snapshot.campaigns;
-  let source: TikTokAttachLiveTargets["source"] = "live";
+  let campaigns: TikTokAttachCampaign[];
   try {
     campaigns = await listTikTokAttachCampaigns({
       advertiserId: input.advertiserId,
@@ -120,15 +120,12 @@ export async function readTikTokAttachTargets(input: {
       request: input.request,
     });
   } catch (err) {
-    source = "snapshot";
     console.error(
       `[tiktok/attach] campaign read failed advertiser=${input.advertiserId} campaigns=${campaignIds.join(",")}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
-    if (input.draft.launchMode === "attach_adgroup" && campaigns.length === 0) {
-      campaigns = snapshotParents(input.draft);
-    }
+    return failed;
   }
 
   try {
@@ -138,39 +135,13 @@ export async function readTikTokAttachTargets(input: {
       campaignIds,
       request: input.request,
     });
-    return { source, campaigns, adGroups, adGroupReadFailed: [] };
+    return { source: "live", campaigns, adGroups };
   } catch (err) {
     console.error(
       `[tiktok/attach] ad group read failed advertiser=${input.advertiserId} campaigns=${campaignIds.join(",")}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
-    return {
-      source: "snapshot",
-      campaigns,
-      adGroups: snapshot.adGroups,
-      adGroupReadFailed: campaignIds,
-    };
+    return failed;
   }
-}
-
-/** `attach_adgroup` may store only ad groups; their parents come from them. */
-function snapshotParents(draft: TikTokCampaignDraft): TikTokAttachCampaign[] {
-  const seen = new Map<string, TikTokAttachCampaign>();
-  for (const group of draft.attachAdGroups ?? []) {
-    if (seen.has(group.campaignId)) continue;
-    seen.set(group.campaignId, {
-      id: group.campaignId,
-      name: group.campaignName,
-      operationStatus: null,
-      secondaryStatus: null,
-      objectiveType: null,
-      salesDestination: null,
-      budgetMode: null,
-      budgetOptimizeOn: false,
-      automationType: null,
-      isSmartPerformanceCampaign: false,
-    });
-  }
-  return [...seen.values()];
 }

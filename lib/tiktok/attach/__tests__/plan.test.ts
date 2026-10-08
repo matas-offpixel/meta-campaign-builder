@@ -4,18 +4,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createMockTikTokClient } from "../../__mocks__/client.ts";
 import { hashTikTokWritePayload } from "../../write/idempotency.ts";
+import { buildTikTokAdPayload } from "../../write/mapping.ts";
 import { collectTikTokDraftLaunchPreflight } from "../../write/launch-preflight.ts";
 import { launchTikTokDraftState } from "../../write/orchestrator.ts";
 import { collectTikTokLaunchPreflight } from "../../write/preflight.ts";
 import { duplicateTikTokDraftState } from "../../../tiktok-wizard/library.ts";
 import { migrateTikTokDraft } from "../../../tiktok-wizard/migrate-draft.ts";
 import { inheritTikTokConversion, planTikTokAttachLaunch } from "../plan.ts";
-import { listTikTokAttachAdGroups } from "../read.ts";
+import { listTikTokAttachAdGroups, readTikTokAttachTargets } from "../read.ts";
 import { describeTikTokAttachLaunch } from "../summary.ts";
-import type {
-  TikTokAttachAdGroup,
-  TikTokAttachCampaign,
-  TikTokAttachLiveTargets,
+import {
+  tikTokAttachTargetsFromSnapshots,
+  type TikTokAttachAdGroup,
+  type TikTokAttachCampaign,
+  type TikTokAttachLiveTargets,
 } from "../targets.ts";
 import { ATTACH_CONTEXT, salesDraft } from "./fixtures.ts";
 import golden from "./new-mode-golden.json" with { type: "json" };
@@ -57,7 +59,7 @@ function adGroup(id: string, campaignId: string, extra: Partial<TikTokAttachAdGr
 }
 
 function live(campaigns: TikTokAttachCampaign[], adGroups: TikTokAttachAdGroup[]): TikTokAttachLiveTargets {
-  return { source: "live", campaigns, adGroups, adGroupReadFailed: [] };
+  return { source: "live", campaigns, adGroups };
 }
 
 function snap(c: TikTokAttachCampaign, adGroupCount: number | null = null) {
@@ -233,14 +235,26 @@ describe("attach_campaign plan", () => {
     assert.equal(out.plan!.campaigns[0]!.adGroups[0]!.payload.pixel_id, "pixel_draft");
   });
 
-  it("blocks a campaign a successful read no longer returns; a failed read falls back to the snapshot", () => {
+  it("blocks a campaign a successful read no longer returns; the browser preview of the selection does not", () => {
     const c = campaign("c1");
     const draft = { ...salesDraft(), launchMode: "attach_campaign" as const, attachCampaigns: [snap(c)] };
     const gone = planTikTokAttachLaunch(draft, live([], []), OPTS);
     assert.ok(gone.issues.some((i) => i.id === "attach-campaign-missing-c1"));
 
-    const fromSnapshot = collectTikTokDraftLaunchPreflight(draft, OPTS);
-    assert.equal(fromSnapshot.ok, true, JSON.stringify(fromSnapshot.issues));
+    const preview = collectTikTokDraftLaunchPreflight(draft, OPTS);
+    assert.equal(preview.ok, true, JSON.stringify(preview.issues));
+  });
+
+  it("blocks with the reason when a new ad group's payload can't be built", () => {
+    const c = campaign("c1");
+    const draft = { ...salesDraft(), launchMode: "attach_campaign" as const, attachCampaigns: [snap(c)] };
+    draft.budgetSchedule.adGroups[1]!.budget = 1;
+    const out = planTikTokAttachLaunch(draft, live([c], []), OPTS);
+    assert.equal(out.ok, false);
+    assert.equal(out.plan, null);
+    const issue = out.issues.find((i) => i.id === "attach-adgroup-payload-c1-ag-draft-2");
+    assert.ok(issue, JSON.stringify(out.issues));
+    assert.match(issue.message, /can't be built for campaign "Campaign c1": .*below TikTok's .* minimum/);
   });
 
   it("launchPaused makes the new ad groups and ads DISABLE", () => {
@@ -323,15 +337,94 @@ describe("ads-only plans", () => {
     assert.ok(out.warnings.some((w) => w.id === "attach-adgroup-paused-g2"));
   });
 
-  it("attach_all_adgroups refuses when the ad-group read failed — there is nothing to attach to", () => {
+  it("a failed launch-time read blocks every attach mode, even when the snapshots look clean", () => {
+    const c1 = campaign("c1");
+    const g1 = adGroup("g1", "c1");
+    const drafts = [
+      { ...salesDraft(), launchMode: "attach_campaign" as const, attachCampaigns: [snap(c1)] },
+      { ...salesDraft(), launchMode: "attach_adgroup" as const, attachAdGroups: [snapGroup(g1)] },
+      { ...salesDraft(), launchMode: "attach_all_adgroups" as const, attachCampaigns: [snap(c1)] },
+    ];
+    for (const draft of drafts) {
+      const targets: TikTokAttachLiveTargets = {
+        ...tikTokAttachTargetsFromSnapshots(draft),
+        source: "read_failed",
+      };
+      const out = planTikTokAttachLaunch(draft, targets, OPTS);
+      assert.equal(out.ok, false, draft.launchMode);
+      assert.equal(out.plan, null);
+      assert.deepEqual(out.issues.map((i) => i.id), ["attach-read-failed"]);
+      assert.match(out.issues[0]!.message, /Smart\+/);
+    }
+  });
+
+  it("the launch read reports read_failed when either TikTok read throws", async () => {
     const c1 = campaign("c1");
     const draft = { ...salesDraft(), launchMode: "attach_all_adgroups" as const, attachCampaigns: [snap(c1)] };
-    const out = planTikTokAttachLaunch(
-      draft,
-      { source: "snapshot", campaigns: [c1], adGroups: [], adGroupReadFailed: ["c1"] },
-      OPTS,
-    );
-    assert.ok(out.issues.some((i) => i.id === "attach-adgroup-read-c1"));
+    for (const failing of ["/campaign/get/", "/adgroup/get/"]) {
+      const request = (async (path: string) => {
+        if (path === failing) throw new Error("rate limited");
+        if (path === "/campaign/get/") {
+          return { list: [{ campaign_id: "c1", campaign_name: "Campaign c1", operation_status: "ENABLE" }], page_info: { page: 1, total_page: 1 } };
+        }
+        return { list: [], page_info: { page: 1, total_page: 1 } };
+      }) as never;
+      const targets = await readTikTokAttachTargets({ draft, advertiserId: "adv", token: "t", request });
+      assert.equal(targets.source, "read_failed", failing);
+    }
+  });
+
+  it("attach_all_adgroups previews in the browser without ad groups; only a live read can prove a campaign empty", () => {
+    const c1 = campaign("c1");
+    const draft = { ...salesDraft(), launchMode: "attach_all_adgroups" as const, attachCampaigns: [snap(c1)] };
+    const preview = collectTikTokDraftLaunchPreflight(draft, OPTS);
+    assert.ok(!preview.issues.some((i) => i.id === "attach-campaign-empty-c1"), JSON.stringify(preview.issues));
+    const empty = planTikTokAttachLaunch(draft, live([c1], []), OPTS);
+    assert.ok(empty.issues.some((i) => i.id === "attach-campaign-empty-c1"));
+  });
+
+  it("blocks a draft with Smart+ turned on in the ads-only modes", () => {
+    const c1 = campaign("c1");
+    const g1 = adGroup("g1", "c1");
+    const draft = { ...salesDraft(), launchMode: "attach_adgroup" as const, attachAdGroups: [snapGroup(g1)] };
+    draft.optimisation.smartPlusEnabled = true;
+    const out = planTikTokAttachLaunch(draft, live([c1], [g1]), OPTS);
+    assert.equal(out.ok, false);
+    assert.ok(out.issues.some((i) => i.id === "smart-plus"), JSON.stringify(out.issues));
+  });
+
+  it("blocks with the reason when an ad's payload can't be built", () => {
+    const c1 = campaign("c1");
+    const g1 = adGroup("g1", "c1");
+    const draft = { ...salesDraft(), launchMode: "attach_adgroup" as const, attachAdGroups: [snapGroup(g1)] };
+    draft.creatives.items[1]!.coverImageId = null;
+    const out = planTikTokAttachLaunch(draft, live([c1], [g1]), OPTS);
+    assert.equal(out.ok, false);
+    assert.equal(out.plan, null);
+    const creative = draft.creatives.items[1]!;
+    const issue = out.issues.find((i) => i.id === `attach-ad-payload-g1-${creative.id}`);
+    assert.ok(issue, JSON.stringify(out.issues));
+    assert.match(issue.message, new RegExp(`Ad "${creative.name}" can't be built for ad group "Ad group g1": .*cover image`));
+  });
+
+  it("ads are built from the target-objective draft, and that changes nothing in the ad body", () => {
+    for (const objectiveType of ["WEB_CONVERSIONS", "LEAD_GENERATION", "TRAFFIC"]) {
+      const c1 = campaign("c1", { objectiveType, salesDestination: objectiveType === "WEB_CONVERSIONS" ? "WEBSITE" : null });
+      const g1 = adGroup("g1", "c1");
+      const draft = {
+        ...salesDraft(),
+        campaignSetup: { ...salesDraft().campaignSetup, objective: "TRAFFIC" as const },
+        launchMode: "attach_adgroup" as const,
+        attachAdGroups: [snapGroup(g1)],
+      };
+      const out = planTikTokAttachLaunch(draft, live([c1], [g1]), OPTS);
+      assert.ok(out.plan, `${objectiveType}: ${JSON.stringify(out.issues)}`);
+      for (const ad of out.plan.adGroups[0]!.ads) {
+        const fromDraft = buildTikTokAdPayload({ advertiserId: draft.accountSetup.advertiserId!, adGroupId: "g1", draft, creative: ad.creative });
+        assert.ok(fromDraft.ok);
+        assert.equal(JSON.stringify(ad.payload), JSON.stringify(fromDraft.value), objectiveType);
+      }
+    }
   });
 
   it("launchPaused makes the new ads DISABLE; no payload targets an existing ad group's status", () => {

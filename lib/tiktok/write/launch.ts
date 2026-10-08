@@ -23,6 +23,7 @@ import { collectTikTokDraftLaunchPreflight } from "./launch-preflight.ts";
 import { launchTikTokAttachPlan } from "./attach-orchestrator.ts";
 import { isTikTokAttachMode, type TikTokAttachMode } from "../attach/plan.ts";
 import { readTikTokAttachTargets } from "../attach/read.ts";
+import { tikTokAttachAlreadyLaunchedMessage } from "../attach/summary.ts";
 import { tiktokGet } from "../client.ts";
 import { fetchTikTokAdvertiserInfo } from "../advertiser.ts";
 import type { TikTokPost, Sleep } from "./idempotency.ts";
@@ -95,6 +96,18 @@ export async function handleTikTokLaunch(input: {
   }
   draft.launchPaused = parsedPaused.value;
 
+  const attachMode = isTikTokAttachMode(draft.launchMode);
+  if (attachMode && (draft.publishedIds || draft.status === "published")) {
+    return {
+      status: 409,
+      body: {
+        ok: false,
+        error: tikTokAttachAlreadyLaunchedMessage(draft.publishedIds?.launchedAt ?? null),
+        reason: "already_launched",
+      },
+    };
+  }
+
   const advertiserId = draft.accountSetup.advertiserId;
   if (!advertiserId) {
     return { status: 400, body: { ok: false, error: "TikTok advertiser is missing" } };
@@ -137,7 +150,6 @@ export async function handleTikTokLaunch(input: {
     }
   }
 
-  const attachMode = isTikTokAttachMode(draft.launchMode);
   let existingCampaignNames: string[] = [];
   if (!attachMode) {
     try {

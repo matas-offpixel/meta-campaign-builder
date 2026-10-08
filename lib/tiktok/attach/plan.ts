@@ -25,6 +25,7 @@ import { isUnsupportedTikTokOptimisationEvent } from "../optimisation-event.ts";
 import {
   buildTikTokAdGroupPayload,
   buildTikTokAdPayload,
+  SMART_PLUS_BLOCK_MESSAGE,
 } from "../write/mapping.ts";
 import {
   collapseTikTokLaunchPreflightIssues,
@@ -238,6 +239,20 @@ export function planTikTokAttachLaunch(
   if (!isTikTokAttachMode(mode)) {
     throw new Error(`planTikTokAttachLaunch called for launch mode ${mode ?? "new"}`);
   }
+  if (targets.source === "read_failed") {
+    return {
+      ok: false,
+      issues: [
+        block(
+          "attach-read-failed",
+          "attachCampaigns",
+          "Could not read the selected campaigns and ad groups from TikTok, so this launch can't confirm they exist or that none is Smart+. Nothing was created. Retry the launch.",
+        ),
+      ],
+      warnings: [],
+      plan: null,
+    };
+  }
   const result =
     mode === "attach_campaign"
       ? planAttachCampaign(draft, targets, options)
@@ -428,7 +443,16 @@ function planOneCampaign(
       adGroup,
       ...(cbo ? { campaignBudgetOptimisation: true } : {}),
     });
-    if (!payload.ok) continue;
+    if (!payload.ok) {
+      issues.push(
+        block(
+          `attach-adgroup-payload-${live.id}-${adGroup.id}`,
+          payload.error.field,
+          `Ad group "${adGroup.name}" can't be built for campaign "${live.name}": ${payload.error.message}`,
+        ),
+      );
+      continue;
+    }
     const ads: TikTokAttachAdPlan[] = [];
     for (const creativeId of effective.creativeAssignments.byAdGroupId[adGroup.id] ?? []) {
       const creative = effective.creatives.items.find((item) => item.id === creativeId);
@@ -455,6 +479,9 @@ function planAttachAds(
   const warnings: TikTokLaunchPreflightIssue[] = [];
   const advertiserId = draft.accountSetup.advertiserId ?? "";
   issues.push(...collectTikTokIdentityPreflightIssues(draft));
+  if (draft.optimisation.smartPlusEnabled) {
+    issues.push(block("smart-plus", "smartPlusEnabled", SMART_PLUS_BLOCK_MESSAGE));
+  }
 
   const creatives = tikTokAttachCreatives(draft);
   if (creatives.length === 0) {
@@ -470,9 +497,8 @@ function planAttachAds(
     }
     for (const pick of picks) {
       const live = targets.adGroups.find((row) => row.id === pick.id);
-      const readOk = targets.source === "live" && !targets.adGroupReadFailed.includes(pick.campaignId);
       if (live) chosen.push(live);
-      else if (readOk) {
+      else if (targets.source === "live") {
         issues.push(
           block(
             `attach-adgroup-missing-${pick.id}`,
@@ -489,16 +515,6 @@ function planAttachAds(
       issues.push(block("attach-campaigns", "attachCampaigns", "Pick at least one existing campaign to launch into"));
     }
     for (const pick of picks) {
-      if (targets.adGroupReadFailed.includes(pick.id)) {
-        issues.push(
-          block(
-            `attach-adgroup-read-${pick.id}`,
-            "attachCampaigns",
-            `Could not read the ad groups of campaign "${pick.name}", so there is nothing to attach to. Retry the launch.`,
-          ),
-        );
-        continue;
-      }
       if (targets.source === "live" && !campaignById.has(pick.id)) {
         issues.push(
           block(
@@ -510,7 +526,7 @@ function planAttachAds(
         continue;
       }
       const groups = targets.adGroups.filter((row) => row.campaignId === pick.id);
-      if (groups.length === 0) {
+      if (groups.length === 0 && targets.source === "live") {
         issues.push(
           block(
             `attach-campaign-empty-${pick.id}`,
@@ -581,8 +597,19 @@ function planAttachAds(
     }
     const ads: TikTokAttachTargetAdGroupPlan["ads"] = [];
     for (const creative of creatives) {
-      const payload = buildTikTokAdPayload({ advertiserId, adGroupId: group.id, draft, creative });
-      if (payload.ok) ads.push({ creative, payload: payload.value });
+      const payload = buildTikTokAdPayload({ advertiserId, adGroupId: group.id, draft: adDraft, creative });
+      if (payload.ok) {
+        ads.push({ creative, payload: payload.value });
+      } else {
+        issues.push(
+          block(
+            `attach-ad-payload-${group.id}-${creative.id}`,
+            payload.error.field,
+            `Ad "${creative.name}" can't be built for ad group "${group.name}": ${payload.error.message}`,
+            "adgroup",
+          ),
+        );
+      }
     }
     plans.push({
       adGroupId: group.id,

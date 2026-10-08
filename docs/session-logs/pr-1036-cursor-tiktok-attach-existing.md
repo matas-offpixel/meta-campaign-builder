@@ -188,6 +188,18 @@ Probe 2 (cross-tabs of the same reads):
 - [x] `npm test`
 - [x] `frames:check` (passes in CI, which is the source of truth because the baselines are Ubuntu)
 
+## Round 2 (review fixes)
+
+- **B1: rollback could delete live objects from an earlier launch.** A ledger hit returned the earlier `op_result_id`, and the orchestrator counted it as created by this run.
+  - `withTikTokWriteIdempotencyOutcome` now returns `{ id, reused }`. `withTikTokWriteIdempotency` wraps it, so the new-mode signature and bodies are unchanged.
+  - Attach rollback deletes and clears only ids that a create POST in this run returned. `deletableIds` drops target ids and reused ids right before every status call, for ads as well as ad groups.
+  - `handleTikTokLaunch` returns 409 (`reason: "already_launched"`) for an attach draft that has `publishedIds` or `status: "published"`. The check runs before any credential read or TikTok call. New mode is not gated.
+- **S1: failed cleanup left live-looking ledger rows.** Rows for objects the cleanup could not delete are now set to `failed`, so a retry creates again instead of reusing ids that may be gone. The 062 CHECK allows only pending/success/failed, so there is no separate `orphaned` value. That would need a migration.
+- **S2: a failed read fell back to snapshots.** A failed launch-time read now blocks every attach mode (`source: "read_failed"`). The browser preview's selection snapshots are `source: "selection"`, so Review and the canvas still plan. `adGroupReadFailed` and `snapshotParents` are gone. A related fix: attach_all's "campaign has no ad groups" blocker now needs a live read; before, the browser preview always tripped it.
+- **S3: unbuildable payloads were skipped silently.** An ad group or ad whose payload can't be built now blocks, with TikTok's mapping reason in the message.
+- **S4:** the draft's `smartPlusEnabled` blocker now also runs in the ads-only modes.
+- **N3:** ads-only payloads are built from `adDraft`, the draft with the target's objective. `buildTikTokAdPayload` never reads the objective, so the body is identical. A test proves this for WEB_CONVERSIONS, LEAD_GENERATION and TRAFFIC parents.
+
 ## Records (follow-up, no migration here)
 
 New TikTok ad groups and ads are **not** recorded in this PR:

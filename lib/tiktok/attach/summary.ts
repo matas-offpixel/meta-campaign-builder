@@ -77,3 +77,8 @@ export function describeTikTokAttachLaunch(draft: TikTokCampaignDraft): {
     ),
   };
 }
+
+export function tikTokAttachAlreadyLaunchedMessage(launchedAt: string | null): string {
+  const when = launchedAt ? ` on ${launchedAt.slice(0, 10)}` : "";
+  return `This draft already launched into existing TikTok objects${when}. Launching it again could write the same ads twice. Duplicate the draft to launch again.`;
+}

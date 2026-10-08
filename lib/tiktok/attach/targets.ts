@@ -44,17 +44,20 @@ export interface TikTokAttachAdGroup {
 }
 
 /**
- * Launch-time view of the targets. `source: "snapshot"` means the live
- * read failed (or this is the browser) and the values were captured at
- * selection time.
+ * The targets a plan is built against.
+ * - `live`: read from TikTok at launch.
+ * - `selection`: the snapshots stored on the draft, for the browser's
+ *   Review / canvas preview. Nothing is launched from these.
+ * - `read_failed`: the launch-time read failed. Snapshots can't rule out
+ *   Smart+ (they carry no `is_smart_performance_campaign`, and a parent
+ *   recovered from an ad group has no automation type), so the plan
+ *   blocks.
  */
 export interface TikTokAttachLiveTargets {
-  source: "live" | "snapshot";
+  source: "live" | "selection" | "read_failed";
   campaigns: TikTokAttachCampaign[];
   /** Every ad group of `campaigns`, deleted rows already dropped. */
   adGroups: TikTokAttachAdGroup[];
-  /** Campaign ids whose ad-group read failed. */
-  adGroupReadFailed: string[];
 }
 
 export const TIKTOK_ATTACH_CAMPAIGN_FIELDS = [
@@ -219,7 +222,7 @@ export function tikTokAttachTargetsFromSnapshots(draft: {
   attachAdGroups?: TikTokAttachAdGroupSnapshot[];
 }): TikTokAttachLiveTargets {
   return {
-    source: "snapshot",
+    source: "selection",
     campaigns: (draft.attachCampaigns ?? []).map((snap) => ({
       id: snap.id,
       name: snap.name,
@@ -246,6 +249,5 @@ export function tikTokAttachTargetsFromSnapshots(draft: {
       automationType: snap.automationType,
       isSmartPerformanceCampaign: false,
     })),
-    adGroupReadFailed: [],
   };
 }

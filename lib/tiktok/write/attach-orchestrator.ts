@@ -2,10 +2,11 @@
  * Launch into existing TikTok campaigns / ad groups.
  *
  * Never creates a campaign, and never modifies or deletes a campaign or
- * ad group that existed before the run. On failure it deletes only what
- * this run created and clears only those idempotency rows. Targets are
- * excluded from every status-update body by construction and by
- * `assertNotTarget`.
+ * ad group that existed before the run. On failure it deletes only ids a
+ * create POST in this run returned, and clears only those idempotency
+ * rows. An id reused from an earlier success row may be live and serving,
+ * so it is never deleted. `deletableIds` drops targets and reused ids
+ * right before every status call.
  */
 
 import { TikTokApiError, type BodyValue } from "../client.ts";
@@ -15,6 +16,7 @@ import { postTikTokAdGroupCreate } from "./adgroup.ts";
 import { assertTikTokWritesEnabled } from "./feature-flag.ts";
 import {
   clearTikTokWriteIdempotencyForResults,
+  markTikTokWriteIdempotencyResultsFailed,
   type TikTokWriteContext,
 } from "./idempotency.ts";
 import type { TikTokLaunchProgress } from "./progress.ts";
@@ -89,27 +91,38 @@ export async function launchTikTokAttachPlan(
   const context: TikTokWriteContext = args;
   const adGroupsTotal = plan.counts.adGroupsCreated;
   const adsTotal = plan.counts.ads;
+  /** Every ad group id this run wrote into (created or reused). */
+  const adGroupIds: string[] = [];
+  const adIds: string[] = [];
+  /** Returned by a create POST in this run; the only deletable ids. */
   const createdAdGroups: string[] = [];
   /** Ads created inside an existing ad group (ads-only modes). */
   const createdLooseAds: string[] = [];
   /** Ads created inside an ad group this run created. */
   const createdNestedAds: string[] = [];
+  /** Ids an earlier success row already held. Never deleted, never cleared. */
+  const reused = new Set<string>();
   const entities: TikTokLaunchEntity[] = [];
   const report = (phase: TikTokLaunchProgress["phase"], campaignId: string) =>
     args.onProgress?.({
       phase,
       campaignId,
-      adGroupsDone: createdAdGroups.length,
+      adGroupsDone: adGroupIds.length,
       adGroupsTotal,
-      adsDone: createdLooseAds.length + createdNestedAds.length,
+      adsDone: adIds.length,
       adsTotal,
     });
 
   try {
     for (const campaign of plan.campaigns) {
       for (const adGroup of campaign.adGroups) {
-        const { adgroup_id } = await postTikTokAdGroupCreate(context, adGroup.payload);
-        createdAdGroups.push(adgroup_id);
+        const { adgroup_id, reused: groupReused } = await postTikTokAdGroupCreate(
+          context,
+          adGroup.payload,
+        );
+        adGroupIds.push(adgroup_id);
+        if (groupReused) reused.add(adgroup_id);
+        else createdAdGroups.push(adgroup_id);
         entities.push({ kind: "adgroup", id: adgroup_id, name: adGroup.name, status: "created" });
         report("adgroup", campaign.campaignId);
         for (const ad of adGroup.ads) {
@@ -119,8 +132,10 @@ export async function launchTikTokAttachPlan(
             draft: ad.draft,
             creative: ad.creative,
           });
-          const { ad_id } = await postTikTokAdCreate(context, payload);
-          createdNestedAds.push(ad_id);
+          const { ad_id, reused: adReused } = await postTikTokAdCreate(context, payload);
+          adIds.push(ad_id);
+          if (adReused) reused.add(ad_id);
+          else createdNestedAds.push(ad_id);
           entities.push({ kind: "ad", id: ad_id, name: ad.creative.name, status: "created" });
           report("ad", campaign.campaignId);
         }
@@ -128,8 +143,10 @@ export async function launchTikTokAttachPlan(
     }
     for (const target of plan.adGroups) {
       for (const ad of target.ads) {
-        const { ad_id } = await postTikTokAdCreate(context, ad.payload);
-        createdLooseAds.push(ad_id);
+        const { ad_id, reused: adReused } = await postTikTokAdCreate(context, ad.payload);
+        adIds.push(ad_id);
+        if (adReused) reused.add(ad_id);
+        else createdLooseAds.push(ad_id);
         entities.push({ kind: "ad", id: ad_id, name: ad.creative.name, status: "created" });
         report("ad", target.campaignId);
       }
@@ -139,6 +156,7 @@ export async function launchTikTokAttachPlan(
       adgroupIds: createdAdGroups,
       nestedAdIds: createdNestedAds,
       looseAdIds: createdLooseAds,
+      reusedIds: [...reused],
     });
     throw left.adgroupIds.length || left.adIds.length ? withLeftBehind(err, left) : err;
   }
@@ -152,21 +170,25 @@ export async function launchTikTokAttachPlan(
   return {
     mode: plan.mode,
     campaign_ids: campaignIds,
-    adgroup_ids: createdAdGroups,
-    ad_ids: [...createdNestedAds, ...createdLooseAds],
+    adgroup_ids: adGroupIds,
+    ad_ids: adIds,
     entities,
   };
 }
 
-function assertNotTarget(
+/**
+ * The last check before a status call: drops any target campaign or ad
+ * group and any id reused from an earlier launch.
+ */
+function deletableIds(
   ids: readonly string[],
-  targets: Set<string>,
+  blocked: ReadonlySet<string>,
   kind: string,
 ): string[] {
-  const safe = ids.filter((id) => !targets.has(id));
+  const safe = ids.filter((id) => !blocked.has(id));
   if (safe.length !== ids.length) {
     console.error(
-      `[tiktok-write] attach rollback refused to delete pre-existing ${kind} ${ids.filter((id) => targets.has(id)).join(",")}`,
+      `[tiktok-write] attach rollback refused to delete ${kind} ${ids.filter((id) => blocked.has(id)).join(",")} (pre-existing or reused)`,
     );
   }
   return safe;
@@ -208,21 +230,29 @@ async function postStatusDelete(
 
 /**
  * Deletes what this run created. Ads inside a created ad group go with
- * it; ads inside an existing ad group are deleted one by one. Returns
- * what could not be removed.
+ * it; ads inside an existing ad group are deleted by id. Returns what
+ * could not be removed; those ledger rows become `failed` so a retry
+ * never reuses an object that may be gone.
  */
 export async function rollbackTikTokAttach(
   context: TikTokWriteContext,
   plan: TikTokAttachPlan,
-  created: { adgroupIds: string[]; nestedAdIds: string[]; looseAdIds: string[] },
+  created: {
+    adgroupIds: string[];
+    nestedAdIds: string[];
+    looseAdIds: string[];
+    reusedIds?: string[];
+  },
 ): Promise<{ adgroupIds: string[]; adIds: string[] }> {
   const targets = tikTokAttachTargetIds(plan);
-  const adgroupIds = assertNotTarget(
-    assertNotTarget(created.adgroupIds, targets.adGroupIds, "ad group"),
-    targets.campaignIds,
-    "campaign",
-  );
-  const looseAdIds = created.looseAdIds;
+  const blocked = new Set([
+    ...targets.campaignIds,
+    ...targets.adGroupIds,
+    ...(created.reusedIds ?? []),
+  ]);
+  const adgroupIds = deletableIds(created.adgroupIds, blocked, "ad group");
+  const nestedAdIds = deletableIds(created.nestedAdIds, blocked, "ad");
+  const looseAdIds = deletableIds(created.looseAdIds, blocked, "ad");
 
   const deletedGroups = adgroupIds.length
     ? await postStatusDelete(context, TIKTOK_ADGROUP_STATUS_UPDATE_PATH, "adgroup_ids", adgroupIds)
@@ -232,25 +262,23 @@ export async function rollbackTikTokAttach(
     : [];
 
   const groupsGone = deletedGroups.length === adgroupIds.length;
-  const removed = [
-    ...deletedGroups,
-    ...(groupsGone ? created.nestedAdIds : []),
-    ...deletedAds,
-  ];
+  const removed = [...deletedGroups, ...(groupsGone ? nestedAdIds : []), ...deletedAds];
+  const left = {
+    adgroupIds: adgroupIds.filter((id) => !deletedGroups.includes(id)),
+    adIds: [
+      ...looseAdIds.filter((id) => !deletedAds.includes(id)),
+      ...(groupsGone ? [] : nestedAdIds),
+    ],
+  };
   try {
     await clearTikTokWriteIdempotencyForResults(context, removed);
+    await markTikTokWriteIdempotencyResultsFailed(context, [...left.adgroupIds, ...left.adIds]);
   } catch (err) {
     console.warn(
-      `[tiktok-write] failed to clear attach idempotency for draft ${context.draftId}: ${
+      `[tiktok-write] failed to update attach idempotency for draft ${context.draftId}: ${
         err instanceof Error ? err.message : String(err)
       }`,
     );
   }
-  return {
-    adgroupIds: adgroupIds.filter((id) => !deletedGroups.includes(id)),
-    adIds: [
-      ...looseAdIds.filter((id) => !deletedAds.includes(id)),
-      ...(groupsGone ? [] : created.nestedAdIds),
-    ],
-  };
+  return left;
 }
