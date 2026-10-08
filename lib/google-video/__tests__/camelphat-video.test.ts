@@ -130,8 +130,8 @@ describe("CamelPhat YouTube build sheet — review", () => {
     );
     assert.match(review.warnings[0].message, /^Location "South East England" has no checked Google location ID/);
     assert.deepEqual(review.budgets, [
-      "[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag: £8.80 a day",
-      "[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED): £8.80 a day",
+      "[IRW0004] CP | Video | V1 Placement-CamelPhat-Mixmag: £140.80 campaign total (≈ £8.80/day over 16 days)",
+      "[IRW0004] CP | Video | V2 Placement-Tier2-Reserve (PAUSED): £140.80 campaign total (≈ £8.80/day over 16 days)",
     ]);
     for (const line of [
       "Include Google TV: Disabled (TV screens are excluded)",
@@ -153,14 +153,14 @@ describe("CamelPhat YouTube build sheet — Editor CSV", () => {
     assert.equal(csv, readFileSync(GOLDEN, "utf8"));
   });
 
-  it("£8.80 Daily on both campaigns, Target CPV £0.03, V2 paused", () => {
+  it("9–24 Oct is 16 days × £8.80 = £140.80 campaign total on both campaigns, Target CPV £0.03, V2 paused", () => {
     const rows = buildEditorRows(withFullRecapLinked());
     const campaigns = rows.filter((r) => r["Campaign Type"]);
     assert.deepEqual(
       campaigns.map((r) => [r["Campaign Status"], r.Budget, r["Budget type"], r["Bid Strategy Type"], r["EU political ads"]]),
       [
-        ["Enabled", "8.80", "Daily", "Target CPV", "Doesn't have EU political ads"],
-        ["Paused", "8.80", "Daily", "Target CPV", "Doesn't have EU political ads"],
+        ["Enabled", "140.80", "Campaign total", "Target CPV", "Doesn't have EU political ads"],
+        ["Paused", "140.80", "Campaign total", "Target CPV", "Doesn't have EU political ads"],
       ],
     );
     const adGroups = rows.filter((r) => r["Ad Group Type"]);

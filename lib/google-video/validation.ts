@@ -11,7 +11,7 @@
  * with a warning naming it.
  */
 
-import { derivePlanDailyBudget } from "../google-search/budget.ts";
+import { derivePlanDailyBudget, inclusiveDays } from "../google-search/budget.ts";
 import { headerKey } from "../google-search/header-key.ts";
 import { editorLocation } from "./locations.ts";
 import {
@@ -59,12 +59,19 @@ export interface VideoReview {
   editorOnly: string[];
 }
 
-/** Editor's "Budget type" values. "Campaign total" is from Editor's own export; "Daily" is its other option. */
+/** Editor's "Budget type" values. Editor imports "Daily" as "Avg. daily". */
 export type EditorBudgetType = "Campaign total" | "Daily";
 
 export interface CampaignBudget {
   amount: number;
   type: EditorBudgetType;
+  /** Inclusive days from start to end date, when both are set. */
+  days: number | null;
+}
+
+function planDays(plan: VideoTreeLike["plan"]): number | null {
+  if (!plan.start_date || !plan.end_date) return null;
+  return inclusiveDays({ since: plan.start_date, until: plan.end_date });
 }
 
 /** Display only: total ÷ inclusive days, or the daily budget. */
@@ -75,26 +82,31 @@ export function effectivePlanDailyBudget(plan: VideoTreeLike["plan"]): number | 
 }
 
 /**
- * A campaign's own daily budget, else the plan total as a campaign total,
- * else the plan daily budget. A daily figure is never a campaign total.
+ * Editor warns on an average daily budget with an end date, so a dated
+ * plan is always a campaign total. The daily figure (the campaign's own,
+ * else the plan's) × inclusive days, unless the campaign has no daily of
+ * its own and the plan has a total, which is used as is. "Daily" only
+ * when there are no start and end dates.
  */
 export function campaignBudget(plan: VideoTreeLike["plan"], campaign: Campaign): CampaignBudget | null {
-  if (campaign.daily_budget != null && Number(campaign.daily_budget) > 0) {
-    return { amount: Number(campaign.daily_budget), type: "Daily" };
-  }
-  if (plan.total_budget != null && Number(plan.total_budget) > 0) {
-    return { amount: Number(plan.total_budget), type: "Campaign total" };
-  }
-  if (plan.daily_budget != null && Number(plan.daily_budget) > 0) {
-    return { amount: Number(plan.daily_budget), type: "Daily" };
-  }
-  return null;
+  const days = planDays(plan);
+  const own = positive(campaign.daily_budget);
+  const total = positive(plan.total_budget);
+  if (own == null && total != null) return { amount: total, type: "Campaign total", days };
+  const daily = own ?? positive(plan.daily_budget);
+  if (daily == null) return null;
+  if (days != null) return { amount: Math.round(daily * days * 100) / 100, type: "Campaign total", days };
+  return { amount: daily, type: "Daily", days: null };
+}
+
+function positive(value: number | null | undefined): number | null {
+  return value != null && Number(value) > 0 ? Number(value) : null;
 }
 
 export function describeBudget(budget: CampaignBudget): string {
-  return budget.type === "Daily"
-    ? `£${budget.amount.toFixed(2)} a day`
-    : `£${budget.amount.toFixed(2)} campaign total (the whole run)`;
+  if (budget.type === "Daily") return `£${budget.amount.toFixed(2)} a day (no end date)`;
+  const over = budget.days != null ? ` (≈ £${(budget.amount / budget.days).toFixed(2)}/day over ${budget.days} days)` : "";
+  return `£${budget.amount.toFixed(2)} campaign total${over}`;
 }
 
 export function adFinalUrl(plan: VideoTreeLike["plan"], ad: Ad): string | null {
