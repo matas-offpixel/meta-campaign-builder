@@ -12,6 +12,7 @@ import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import { ThresholdBand } from "@/components/viz/threshold-band";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { META_DRAWER_COPY, detailRows, resolveDetailField, type DetailRowId } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { formatPlanScheduleRange } from "@/lib/plan/format-schedule";
 import type {
   BudgetScheduleSettings,
@@ -138,7 +139,7 @@ export function MetaDrawerDetails({
           ) : null}
           {planId ? (
             <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
-              <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
+              <a className="text-muted-foreground underline" href={mmlPlanHref(planId)}>
                 canvas ↗
               </a>
             </div>

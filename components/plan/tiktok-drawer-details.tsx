@@ -11,6 +11,7 @@ import { InfoTip } from "@/components/viz/info-tip";
 import { ProvenanceBadge } from "@/components/viz/provenance-badge";
 import type { ResolvedChannelDefaults } from "@/lib/clients/channel-defaults";
 import { TIKTOK_DRAWER_COPY, resolveDetailField, tiktokDetailRows } from "@/lib/plan/drawer";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { formatPlanScheduleRange } from "@/lib/plan/format-schedule";
 import type { TikTokCampaignDraft } from "@/lib/types/tiktok-draft";
 import { VIZ_TYPE, VIZ_TYPE_NUM, type VizProvenance } from "@/lib/viz/tokens";
@@ -84,7 +85,7 @@ export function TikTokDrawerDetails({
           ))}
           {planId ? (
             <div className={`col-span-3 mt-1 ${VIZ_TYPE.label}`}>
-              <a className="text-muted-foreground underline" href={`/plan/${planId}`}>
+              <a className="text-muted-foreground underline" href={mmlPlanHref(planId)}>
                 canvas ↗
               </a>
             </div>

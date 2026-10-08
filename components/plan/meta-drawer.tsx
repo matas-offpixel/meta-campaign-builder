@@ -44,6 +44,7 @@ import {
   type CampaignTemplate,
 } from "@/lib/types";
 import { applyTemplate } from "@/lib/templates";
+import { mmlPlanHref } from "@/lib/plan/mml-routes";
 import { validateStep } from "@/lib/validation";
 import type { BlockerAnchor } from "@/lib/viz/blockers";
 import { VIZ_TYPE, type VizStatus } from "@/lib/viz/tokens";
@@ -570,7 +571,7 @@ function LaunchIssues({
           */}
           <RetryFailedAdsPanel
             draftId={draft.id}
-            onRetryFailedAds={() => router.push(`/plan/${planId}`)}
+            onRetryFailedAds={() => router.push(mmlPlanHref(planId))}
           />
           <RetryLookalikesPanel draft={draft} />
         </div>

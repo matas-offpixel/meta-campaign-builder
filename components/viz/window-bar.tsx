@@ -17,6 +17,7 @@ import {
   handleLabelLeftPx,
   joinRailNouns,
   momentGlyph,
+  momentLabelBox,
   momentMarkAlign,
   nudgeWindowHandle,
   snapToMoments,
@@ -144,13 +145,14 @@ export function WindowBar({
   const hiddenNouns = collapseOverlappingMomentLabels(
     remaining.map((mark) => ({
       id: mark.id,
-      x: mark.x,
-      width: rail.joinedLabel.has(mark.id)
-        ? Math.max(mark.width, (rail.joinedLabel.get(mark.id)?.length ?? 0) * 8)
-        : mark.width,
+      ...momentLabelBox({
+        x: mark.x,
+        noun: rail.joinedLabel.get(mark.id) ?? mark.noun,
+        align: momentMarkAlign(width > 1 ? mark.x / width : 0),
+      }),
+      keep: rail.joinedLabel.has(mark.id),
     })),
   );
-  for (const id of rail.joinedLabel.keys()) hiddenNouns.delete(id);
   const paceState = windowPaceState({
     empty,
     spent: pace?.spent,
@@ -220,9 +222,7 @@ export function WindowBar({
           ) : null}
           {marks.map((mark) => {
             const ratio = width > 1 ? mark.x / width : 0;
-            const joined = rail.joinedLabel.has(mark.id);
-            const hideNoun =
-              (!joined && hiddenNouns.has(mark.id)) || rail.hideNounIds.has(mark.id);
+            const hideNoun = hiddenNouns.has(mark.id) || rail.hideNounIds.has(mark.id);
             const hideGlyph = rail.hideGlyphIds.has(mark.id);
             const markTip =
               hideGlyph || rail.hideNounIds.has(mark.id)
@@ -369,12 +369,17 @@ function MomentMark({
       style={{ left: `${pct}%` }}
     >
       {hideGlyph ? null : (
-      <span className={`block ${VIZ_TYPE.body} leading-none`} aria-hidden="true">
-        {glyph}
-      </span>
+        <span className={`relative block ${VIZ_TYPE.body} leading-none`}>
+          <span aria-hidden="true">{glyph}</span>
+          {hideNoun && tip ? (
+            <span className="absolute left-full top-1/2 ml-0.5 -translate-y-1/2" data-moment-tip>
+              <InfoTip variant="card" label={tip} />
+            </span>
+          ) : null}
+        </span>
       )}
       {hideNoun ? (
-        tip ? <InfoTip variant="card" label={tip} /> : null
+        tip && hideGlyph ? <InfoTip variant="card" label={tip} /> : null
       ) : (
         <span className={`mt-0.5 flex items-center justify-center gap-0.5 whitespace-nowrap ${VIZ_TYPE.label}`}>
           {noun}

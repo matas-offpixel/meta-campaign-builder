@@ -126,11 +126,11 @@ export function ChannelDefaultsCard({
   }
 
   return (
-    <section className="rounded-md border border-border bg-card p-5 space-y-4">
+    <section id="channel-defaults" className="scroll-mt-6 rounded-md border border-border bg-card p-5 space-y-4">
       <div>
         <h2 className="font-heading text-base tracking-wide">Channel defaults</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Set once. Plan prepare and the wizards pick these up when a draft has
+          Set once. MML and the wizards pick these up when a draft has
           no identity of its own. Advertiser and Google account are on Platform
           accounts above.
         </p>

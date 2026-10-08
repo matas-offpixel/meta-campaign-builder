@@ -122,13 +122,13 @@ describe("planAdsManagerLinks reuses existing builders", () => {
 
 describe("plan UI honest copy", () => {
   it("list and workspace name empty states and the paused launch gate", () => {
-    const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
+    const list = readFileSync("app/(dashboard)/mml/page.tsx", "utf8");
     const library = readFileSync("components/library/plan-library.tsx", "utf8");
     const workspace = readFileSync("components/plan/plan-workspace.tsx", "utf8");
     const nav = readFileSync("components/dashboard/dashboard-nav.tsx", "utf8");
     assert.match(list, /Migration 157 has not been applied/);
     assert.match(`${list}\n${library}`, /no plans yet|PLAN_LIST_EMPTY/);
-    assert.match(nav, /href: "\/plans"/);
+    assert.match(nav, /href: MML_LIST_PATH/);
     assert.match(workspace, /No events yet/);
     assert.doesNotMatch(workspace, /Migration 157 is required to persist/);
 

@@ -51,7 +51,9 @@ npm run lint     # ESLint
 | `/login` | Magic link, invite-only email allowlist |
 | `/auth/callback` | Supabase code exchange |
 | `/auth/logout` | Sign out |
-| `/plan/[id]` | Campaign **canvas** — one screen, seven zones (header · window · budget · target · three channel rows · assets · one `⏸ Launch`), one button. Everything not one of the three adjustable inputs is a badge or is derived. Row `open ▸` opens a `Drawer` (`?drawer=f\|tt\|g`). See `docs/CAMPAIGN_CREATOR_REDESIGN_2026-09-04.md` §2 |
+| `/mml` | MML (Multi Media Launcher) list — one row per `campaign_plans` row. First item under Platforms in the nav |
+| `/mml/[id]` | MML **canvas** — one scrolling page, seven numbered sections: ① Event & promoter · ② Creatives · ③ Copy · ④ Budget & schedule · ⑤ Locations & placements · ⑥ Channels · ⑦ Launch. ⑥ has one card per channel; `Adjust` opens its `Drawer` (`?drawer=f\|tt\|g`). ⑦ is one `Launch all (paused)` button behind `ENABLE_PLAN_FANOUT`, with blockers grouped by channel under it. ② ③ ⑤ are placeholders until M2–M4. Spec: `docs/session-logs/mml-multi-media-launcher-spec-2026-10-08.md` |
+| `/plans` → `/mml`, `/plan/[id]` → `/mml/[id]` | Permanent (308) redirects in `next.config.ts` (`MML_LEGACY_REDIRECTS`, `lib/plan/mml-routes.ts`). The query string is kept, so `?drawer=tt` deep links still land |
 | `/tiktok-campaign/[id]` | Standalone TikTok draft — same TikTok `Drawer` (`variant="page"`), plus Launch |
 | `/google-search/[id]` | Standalone Google Search tree — same Google `Drawer` (`variant="page"`), plus Push |
 | `/google-video/[id]` | YouTube video plan: Settings → Targeting → Placements → Ads → Review. Review downloads a Google Ads Editor CSV. No Google API writes. See "Google video plans" below |
@@ -74,13 +76,13 @@ New D2C templates use `https://crqln.com/j/{code}` (`COMMUNITY_REDIRECT_BASE` in
 
 ### Canvas + drawers
 
-`/plan/[id]`, `/campaign/[id]`, `/tiktok-campaign/[id]`, and `/google-search/[id]` all mount `components/viz/drawer.tsx`. The old eight-step ladders are gone; each drawer is a tab bar.
+`/mml/[id]`, `/campaign/[id]`, `/tiktok-campaign/[id]`, and `/google-search/[id]` all mount `components/viz/drawer.tsx`. The old eight-step ladders are gone; each drawer is a tab bar.
 
 | Route | Drawer | Tabs |
 |---|---|---|
-| `/plan/[id]` + `/campaign/[id]` | Meta (`components/plan/meta-drawer.tsx`) | `👥 audiences` · `▤ creatives` · `⊞ ad sets` · `details` disclosure |
-| `/plan/[id]` + `/tiktok-campaign/[id]` | TikTok (`components/plan/tiktok-drawer.tsx`) | `▶ video` · `👥 refine` · `⊞ assign` (only when videos > 1) · `details` |
-| `/plan/[id]` + `/google-search/[id]` | Google (`components/plan/google-drawer.tsx`) | `⌕ keywords` · `¶ copy` · `details` |
+| `/mml/[id]` + `/campaign/[id]` | Meta (`components/plan/meta-drawer.tsx`) | `👥 audiences` · `▤ creatives` · `⊞ ad sets` · `details` disclosure |
+| `/mml/[id]` + `/tiktok-campaign/[id]` | TikTok (`components/plan/tiktok-drawer.tsx`) | `▶ video` · `👥 refine` · `⊞ assign` (only when videos > 1) · `details` |
+| `/mml/[id]` + `/google-search/[id]` | Google (`components/plan/google-drawer.tsx`) | `⌕ keywords` · `¶ copy` · `details` |
 
 Standalone Meta still launches ACTIVE from `ReviewLaunch` (launch panel only). Standalone TikTok keeps `ReviewLaunchStep`. Standalone Google keeps `PushStep`. Plan-linked drafts launch from the canvas, paused. `validateStep` still gates drawer blockers. The chrome codemod (`scripts/codemod-step-chrome.mjs`) is gone — chrome is deleted, not hidden.
 

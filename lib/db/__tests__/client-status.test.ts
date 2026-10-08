@@ -98,7 +98,7 @@ describe("archived-client wiring in routes and pages", () => {
   const read = (path: string) => readFileSync(path, "utf8");
 
   it("plans page drops plans and picker events of archived clients", () => {
-    const src = read("app/(dashboard)/plans/page.tsx");
+    const src = read("app/(dashboard)/mml/page.tsx");
     assert.match(src, /loadArchivedClientScope\(supabase\)/);
     assert.match(src, /dropArchivedEventRows\(\(data \?\? \[\]\) as PlanListRow\[\], archivedScope\)/);
     assert.match(src, /archivedScope\.clientIds\)/);

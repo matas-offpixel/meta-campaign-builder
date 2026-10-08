@@ -247,7 +247,7 @@ describe("plan library reuses library-rows and keeps #863 gating", () => {
     assert.match(rows, /export function PlanRow/);
     assert.match(rows, /PlanDeleteAction/);
     assert.match(rows, /LibraryTab/);
-    const page = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/page.tsx", "utf8");
     assert.match(page, /PlanLibrary/);
     assert.match(page, /Migration 157 has not been applied/);
     const library = readFileSync("components/library/plan-library.tsx", "utf8");

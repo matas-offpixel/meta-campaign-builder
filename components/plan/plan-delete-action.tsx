@@ -18,6 +18,7 @@ import {
   planDisposalAction,
 } from "@/lib/plan/delete-policy";
 import type { CampaignPlanLaunches } from "@/lib/plan/types";
+import { MML_LIST_PATH } from "@/lib/plan/mml-routes";
 import { VIZ_TYPE } from "@/lib/viz/tokens";
 
 export function PlanDeleteAction({
@@ -54,7 +55,7 @@ export function PlanDeleteAction({
     if (!persisted) {
       setOpen(false);
       onDeleted?.();
-      router.push("/plans");
+      router.push(MML_LIST_PATH);
       return;
     }
     setBusy(true);
@@ -72,7 +73,7 @@ export function PlanDeleteAction({
       }
       setOpen(false);
       onDeleted?.();
-      router.push("/plans");
+      router.push(MML_LIST_PATH);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : `Could not ${action} plan`);

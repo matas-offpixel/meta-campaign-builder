@@ -164,8 +164,8 @@ describe("G11 — /plans dates and £ per day", () => {
 describe("width — plan surfaces only", () => {
   it("applies the 1280px reading cap on /plans and /plan/[id], not the shared header default", () => {
     assert.equal(PLAN_SURFACE_MAX_WIDTH_CLASS, "max-w-[1280px]");
-    const list = readFileSync("app/(dashboard)/plans/page.tsx", "utf8");
-    const detail = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const list = readFileSync("app/(dashboard)/mml/page.tsx", "utf8");
+    const detail = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(list, /PLAN_SURFACE_MAX_WIDTH_CLASS/);
     assert.match(detail, /PLAN_SURFACE_MAX_WIDTH_CLASS/);
     assert.doesNotMatch(list, /max-w-6xl/);

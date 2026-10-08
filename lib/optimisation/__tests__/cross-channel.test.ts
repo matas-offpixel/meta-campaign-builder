@@ -316,8 +316,8 @@ describe("M.4 grep-guards — no new rules UI, migration 162 unapplied", () => {
   it("plan surfaces do not grow an Optimisation Strategy editor", () => {
     const files = [
       "components/plan/plan-workspace.tsx",
-      "app/(dashboard)/plans/page.tsx",
-      "app/(dashboard)/plan/[id]/page.tsx",
+      "app/(dashboard)/mml/page.tsx",
+      "app/(dashboard)/mml/[id]/page.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");

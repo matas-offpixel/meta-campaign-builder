@@ -307,7 +307,7 @@ describe("continuation link only for plan-linked drafts", () => {
     const page = readFileSync("app/campaign/[id]/page.tsx", "utf8");
     assert.match(page, /loadPlanForMetaDraft/);
     assert.match(page, /linkedPlan=\{linkedPlan\}/);
-    assert.equal(planContinuationHref("plan-1"), "/plan/plan-1#plan-step-2");
+    assert.equal(planContinuationHref("plan-1"), "/mml/plan-1#plan-step-2");
   });
 
   it("launch route records the plan child on wizard success and Phase 1 failure", () => {

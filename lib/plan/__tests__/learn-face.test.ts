@@ -227,7 +227,7 @@ describe("LEARN surface guards", () => {
   });
 
   it("page reads campaign_plan_predictions; archive writes actual", () => {
-    const page = readFileSync("app/(dashboard)/plan/[id]/page.tsx", "utf8");
+    const page = readFileSync("app/(dashboard)/mml/[id]/page.tsx", "utf8");
     assert.match(page, /loadPlanPredictions/);
     const route = readFileSync("app/api/plan/[id]/route.ts", "utf8");
     assert.match(route, /loadPlanWindowActual/);

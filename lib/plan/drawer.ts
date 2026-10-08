@@ -66,7 +66,7 @@ export function tabForAnchor(
 // ── URL state ──────────────────────────────────────────────────────────
 
 /**
- * A drawer is not a route — the URL stays `/plan/[id]` (§3). But a
+ * A drawer is not a route — the URL stays `/mml/[id]` (§3). But a
  * refresh with a drawer open should reopen it, so the open drawer and its
  * tab ride in the query string and are written with a shallow replace.
  */

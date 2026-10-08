@@ -132,7 +132,7 @@ describe("event artwork — existing sources only", () => {
       "lib/viz/event-artwork.ts",
       "lib/plan/event-artwork-load.ts",
       "components/viz/event-thumb.tsx",
-      "app/(dashboard)/plans/page.tsx",
+      "app/(dashboard)/mml/page.tsx",
     ];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
