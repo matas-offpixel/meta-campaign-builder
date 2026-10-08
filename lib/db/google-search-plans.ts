@@ -241,6 +241,26 @@ export async function setGoogleSearchPlanStatus(
   if (error) throw new Error(`setGoogleSearchPlanStatus failed: ${error.message}`);
 }
 
+/**
+ * After a successful push, the event reports Google spend from the
+ * account the plan pushed to. Only fills a null; a set account is kept.
+ * Returns whether a row changed.
+ */
+export async function linkEventGoogleAdsAccountIfUnset(
+  supabase: SupabaseClient,
+  eventId: string,
+  googleAdsAccountId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("events")
+    .update({ google_ads_account_id: googleAdsAccountId })
+    .eq("id", eventId)
+    .is("google_ads_account_id", null)
+    .select("id");
+  if (error) throw new Error(`linkEventGoogleAdsAccountIfUnset failed: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
 export async function setGoogleSearchCampaignResource(
   supabase: SupabaseClient,
   campaignId: string,

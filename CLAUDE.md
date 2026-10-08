@@ -171,6 +171,7 @@ SLACK_WEBHOOK_ADS_AUTOMATION=
 ENABLE_BUDGET_PACING_ALERTS=
 ENABLE_AD_DAILY_INSIGHTS=
 ENABLE_LEARNING_REFRESH=
+ENABLE_GOOGLE_ADS_DAILY_INSIGHTS=
 ```
 
 > **`BM_TOKEN_KEY`** (migration 145 — Business Manager Asset Sync) is the pgcrypto
@@ -447,6 +448,30 @@ ENABLE_LEARNING_REFRESH=
 > are excluded. Readers: `lib/learning/read.ts`. Check before enabling:
 > `scripts/learning-refresh.mts --dry-run`.
 
+> **`ENABLE_GOOGLE_ADS_DAILY_INSIGHTS`** must be exactly `"1"` to activate
+> `/api/cron/google-ads-daily-insights` (04:00 UTC). Unset = 200 with
+> `skippedReason: "killswitch"`. Read-only against Google Ads (GAQL search,
+> never a mutate). Restates the last three complete days, for every account a
+> non-archived client or event links, into migration 192's
+> `google_ads_daily_snapshots` (campaign × day, every channel type; VIDEO
+> carries TrueView views, view rate and CPV in micros, SEARCH carries
+> impression share), `google_ads_search_terms_snapshots` (`search_term_view`)
+> and `google_ads_location_snapshots` (`geographic_view`: country and
+> presence/interest). `plan_id` is matched on the campaign resource name
+> (`google_search_campaigns.pushed_resource_name`, else
+> `google_video_campaigns.google_campaign_resource_name`). `event_code` is the
+> first `[CODE]` in the campaign name exactly as written, never uppercased. The
+> event grain is still `event_daily_rollups.google_ads_*` from rollup-sync.
+> An account whose event rollup shows Google spend on a day with no campaign
+> rows is failed (`rollup_spend_without_campaign_rows`), the route returns
+> 207, and the run's `google_ads_insights_runs` row shows as `failed` on
+> `/admin/cron-health` with the account and days. The run also writes
+> `google_ads_accounts.enabled_conversion_actions` (GOOGLE_HOSTED excluded);
+> 0 shows a "running blind" badge on `/google-ads` plans. Calls per account
+> per run: four (a window that fills a 10,000-row page is halved). Backfill:
+> `scripts/backfill-google-ads-insights.mts` (dry-run fetches and writes
+> nothing, `--apply` writes, `--since`/`--until`, `--show-locations CODE`).
+
 > **D2C orchestration env vars** (brief→campaign automation, PR #647):
 > - `D2C_TOKEN_KEY` — pgcrypto symmetric key used to encrypt/decrypt D2C
 >   provider credentials (`get_d2c_credentials` / `set_d2c_credentials`, migration
@@ -468,7 +493,7 @@ ENABLE_LEARNING_REFRESH=
 
 Schema: `supabase/schema.sql`. Tables: `campaign_drafts`, `campaign_templates` (both with RLS per user).
 
-**Latest migration:** `191_google_video_responsive_ads.sql` (`google_video_plans.business_name`, `google_video_ads.extra_copy` for copy slots 2..5). Unapplied — Matas applies. Before it: `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns; applied to prod 2026-10-08). Before that: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
+**Latest migration:** `192_google_ads_campaign_insights.sql` (`google_ads_daily_snapshots`, `google_ads_search_terms_snapshots`, `google_ads_location_snapshots`, the `google_ads_insights_runs` run log, and `google_ads_accounts.enabled_conversion_actions`; owner-only read RLS, service-role writes). Unapplied — Matas applies. Before it: `191_google_video_responsive_ads.sql` (`google_video_plans.business_name`, `google_video_ads.extra_copy` for copy slots 2..5; applied to prod). Before that: `190_google_video_plans.sql` (YouTube video plans: `google_video_plans` / `campaigns` / `ad_groups` / `placements` / `ads`, owner-only RLS, no push columns; applied to prod 2026-10-08). Before that: `188`/`189` (Google Search plan budgets, CPC caps, ad-group negatives, canvas total budget), then `187_ad_daily_insights_objective.sql` (`campaign_objective`, `optimization_goal`, `promoted_event` on `ad_daily_insights`). Before it: `186_tag_performance.sql` (learning loop B: `tag_performance` + `interest_clusters.live_evidence`), then `185_ad_daily_insights.sql` (per-ad per-day Meta insights) with `184_launched_ads.sql` (one row per Meta ad the app creates, written by `lib/launched-ads/`). Unapplied — Matas applies. Join an ad to client/event with `resolveAdContext` (`lib/learning/ad-facts.ts`). Earlier: `179_meta_write_idempotency_adset_targeting.sql` (`adset_targeting_update` on the Meta write ledger). Prior numbered note: `168_campaign_plan_benchmarks_v.sql` (166 predictions, 167 `events.venue_key`, 168 benchmark view). 168 windows: signup/click/lpv/lead before general sale; purchase on or after; ticket through last ticket day; view whole run (`meta_reach` ÷ 1000). TikTok click → `tiktok_clicks` only.
 
 - Optimisation automation live flag (task #120 PR B, August 2026):
   `campaign_drafts.optimisation_automation_live` (migration 154) — default
@@ -604,6 +629,9 @@ Notable recently-added tables / columns (dashboard-era, April 2026):
 - `/api/cron/learning-refresh` (03:30 UTC) — learning loop B. Stored
   learnings with n and confidence (see `ENABLE_LEARNING_REFRESH` above).
   Zero Meta calls.
+- `/api/cron/google-ads-daily-insights` (04:00 UTC) — Google Ads campaign,
+  search-term and location facts per day (see
+  `ENABLE_GOOGLE_ADS_DAILY_INSIGHTS` above). Zero Google Ads mutates.
 
 ### Canonical spec
 

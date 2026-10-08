@@ -303,6 +303,23 @@ describe("responsive video ad", () => {
     assert.equal(blocker.message, 'Lead: Headline "Far too long a headline" is 23 characters (limit 15).');
   });
 
+  it("no location is a blocker: an empty list, only exclusions, or only names without a Google ID", () => {
+    const message = "No locations — this would run worldwide. Add at least one location.";
+    const cases: VideoTreeLike["plan"]["geo_targets"][] = [
+      [],
+      [{ name: "Ireland", bid_modifier_pct: null, negative: true }],
+      [{ name: "South East England", bid_modifier_pct: null, negative: false }],
+    ];
+    for (const geo of cases) {
+      const t = tree();
+      t.plan.geo_targets = geo;
+      const blockers = reviewGoogleVideoPlan(t, "2026-10-08").blockers;
+      assert.deepEqual(blockers.map((b) => b.code), ["no_locations"], JSON.stringify(geo));
+      assert.equal(blockers[0].message, message);
+    }
+    assert.ok(!reviewGoogleVideoPlan(tree(), "2026-10-08").blockers.some((b) => b.code === "no_locations"));
+  });
+
   it("no business name is a blocker", () => {
     const t = tree();
     t.plan.business_name = "  ";

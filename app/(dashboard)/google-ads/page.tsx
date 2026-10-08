@@ -10,6 +10,7 @@ import type { GoogleVideoPlan } from "@/lib/google-video/types";
 import type { GoogleSearchPlan } from "@/lib/google-search/types";
 
 import { GoogleSearchPlanActions } from "@/components/google-search/plan-actions";
+import { runningBlindAccountIds, type ConversionActionCount } from "@/lib/google-ads/conversion-tracking";
 
 const STATUS_BADGE: Record<GoogleSearchPlan["status"], string> = {
   draft: "bg-muted text-foreground",
@@ -23,6 +24,18 @@ const VIDEO_STATUS_BADGE: Record<GoogleVideoPlan["status"], string> = {
   exported: "bg-amber-100 text-amber-900",
   live: "bg-emerald-100 text-emerald-900",
 };
+
+function RunningBlindBadge({ accountId, blind }: { accountId: string | null; blind: ReadonlySet<string> }) {
+  if (!accountId || !blind.has(accountId)) return null;
+  return (
+    <span
+      title="The Google Ads account has no enabled conversion action, so Google cannot see a single sale."
+      className="ml-1.5 inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-900"
+    >
+      running blind
+    </span>
+  );
+}
 
 /**
  * Google Ads / Google Search plans library.
@@ -43,7 +56,7 @@ export default async function GoogleAdsPlansPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [plans, videoPlans, accountsRes, eventsRes] = await Promise.all([
+  const [plans, videoPlans, accountsRes, eventsRes, conversionRes] = await Promise.all([
     listGoogleSearchPlansForUser(supabase, user.id),
     // Empty until migration 190 is applied.
     listGoogleVideoPlansForUser(supabase, user.id).catch((): GoogleVideoPlan[] => []),
@@ -58,6 +71,11 @@ export default async function GoogleAdsPlansPage() {
       .eq("user_id", user.id)
       .order("event_date", { ascending: false })
       .limit(200),
+    // Its own query: errors until migration 192 is applied, and must not empty the account list.
+    supabase
+      .from("google_ads_accounts")
+      .select("id, enabled_conversion_actions")
+      .eq("user_id", user.id),
   ]);
 
   const accounts = (accountsRes.data ?? []) as Array<{
@@ -71,6 +89,9 @@ export default async function GoogleAdsPlansPage() {
     event_code: string | null;
   }>;
   const eventsById = new Map(events.map((e) => [e.id, e]));
+  const blindAccountIds = runningBlindAccountIds(
+    conversionRes.error ? [] : ((conversionRes.data ?? []) as unknown as ConversionActionCount[]),
+  );
 
   return (
     <>
@@ -124,6 +145,7 @@ export default async function GoogleAdsPlansPage() {
                           >
                             {plan.status}
                           </span>
+                          <RunningBlindBadge accountId={plan.google_ads_account_id} blind={blindAccountIds} />
                         </td>
                         <td className="p-3 text-muted-foreground">
                           {plan.total_budget != null
@@ -183,6 +205,7 @@ export default async function GoogleAdsPlansPage() {
                             >
                               {plan.status}
                             </span>
+                            <RunningBlindBadge accountId={plan.google_ads_account_id} blind={blindAccountIds} />
                           </td>
                           <td className="p-3 text-muted-foreground">
                             {plan.daily_budget != null ? `£${plan.daily_budget.toFixed(2)}` : "—"}

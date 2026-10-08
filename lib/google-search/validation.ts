@@ -425,9 +425,22 @@ export function validateGoogleSearchPlan(
     ...validateNegativeConflicts(tree),
     ...validateMergedCapSpread(tree),
     ...validateSitelinks(tree),
+    ...validateLocations(tree),
     ...softWarnings(tree),
   ];
   return dedupe(issues);
+}
+
+export const NO_LOCATIONS_MESSAGE = "No locations — this would run worldwide. Add at least one location.";
+
+/**
+ * Google targets everywhere when a campaign has no location criterion, so
+ * a plan with no resolved location is a push blocker (CamelPhat IRW0004
+ * went out with `targets: []` and served worldwide on 7–8 Oct 2026).
+ */
+function validateLocations(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {
+  const resolved = tree.plan.geo_targets.some((g) => Boolean(g.resolved_resource_name?.trim()));
+  return resolved ? [] : [{ severity: "error", code: "no_locations", message: NO_LOCATIONS_MESSAGE }];
 }
 
 function softWarnings(tree: GoogleSearchPlanTree): GoogleSearchValidationIssue[] {

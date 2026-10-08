@@ -24,6 +24,7 @@ interface ReportTableRow {
   age_minutes: number | null;
   threshold_minutes: number;
   status: CronHealthStatus;
+  detail?: string;
 }
 
 interface ReportRow {
@@ -36,6 +37,7 @@ const STATUS_STYLES: Record<CronHealthStatus, string> = {
   fresh: "bg-green-100 text-green-800",
   stale: "bg-amber-100 text-amber-800",
   missing: "bg-red-100 text-red-800",
+  failed: "bg-red-100 text-red-800",
 };
 
 function formatAge(minutes: number | null): string {
@@ -129,7 +131,10 @@ export default async function CronHealthPage() {
               <tbody className="divide-y divide-border">
                 {tables.map((t) => (
                   <tr key={t.name}>
-                    <td className="px-4 py-2.5 font-mono text-xs">{t.name}</td>
+                    <td className="px-4 py-2.5 font-mono text-xs">
+                      {t.name}
+                      {t.detail && <p className="mt-1 font-sans text-red-800">{t.detail}</p>}
+                    </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
                       {formatTimestamp(t.last_refreshed_at)}
                     </td>

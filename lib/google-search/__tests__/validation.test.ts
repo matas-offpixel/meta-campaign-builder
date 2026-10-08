@@ -96,7 +96,9 @@ function makeTree(overrides: Partial<GoogleSearchPlanTree["plan"]> = {}): Google
       pacing: "even",
       bidding_strategy: "maximize_clicks",
       structure_mode: "single_campaign",
-      geo_targets: [],
+      geo_targets: [
+        { location: "London", bid_modifier_pct: null, resolved_resource_name: "geoTargetConstants/1006886" },
+      ],
       geo_target_type: "PRESENCE",
       date_range: null,
       pushed_at: null,
@@ -181,6 +183,41 @@ describe("validateGoogleSearchPlan — char limits", () => {
 
     const issues = validateGoogleSearchPlan(tree);
     assert.ok(issues.some((i) => i.code === "rsa_too_few_descriptions"));
+  });
+
+  it("blocks a push with no resolved location: Google would run it worldwide", () => {
+    const message = "No locations — this would run worldwide. Add at least one location.";
+    const wellFormed = () => {
+      const tree = makeTree();
+      tree.campaigns = [
+        makeCampaign("c-1", "C1", [makeAdGroup("ag-1", [{ keyword: "tickets" }])], { daily_budget: 10 }),
+      ];
+      return tree;
+    };
+    const cases: GoogleSearchPlanTree["plan"]["geo_targets"][] = [
+      [],
+      [{ location: "londo", bid_modifier_pct: null, resolved_resource_name: null }],
+      [{ location: "London", bid_modifier_pct: null }],
+      [{ location: "London", bid_modifier_pct: null, resolved_resource_name: "  " }],
+    ];
+    for (const geo of cases) {
+      const tree = wellFormed();
+      tree.plan.geo_targets = geo;
+      const issues = validateGoogleSearchPlan(tree);
+      const blocker = issues.find((i) => i.code === "no_locations");
+      assert.equal(blocker?.severity, "error", JSON.stringify(geo));
+      assert.equal(blocker?.message, message);
+      assert.equal(hasHardErrors(issues), true);
+    }
+    assert.ok(!validateGoogleSearchPlan(wellFormed()).some((i) => i.code === "no_locations"));
+  });
+
+  it("the push route refuses a plan with hard errors before any Google call", async () => {
+    const { readFileSync } = await import("node:fs");
+    const route = readFileSync("app/api/google-search/[id]/push/route.ts", "utf8");
+    const gate = route.indexOf("hasHardErrors(issues)");
+    assert.ok(gate > 0 && gate < route.indexOf("pushGoogleSearchPlan({"));
+    assert.ok(gate < route.indexOf("getGoogleAdsCredentials("));
   });
 
   it("passes a well-formed RSA", () => {

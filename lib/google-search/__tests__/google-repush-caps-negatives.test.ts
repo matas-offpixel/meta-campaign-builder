@@ -123,7 +123,9 @@ function pushedPlan(): GoogleSearchPlanTree {
       pacing: "even",
       bidding_strategy: "maximize_clicks",
       structure_mode: "campaign_per_theme",
-      geo_targets: [],
+      geo_targets: [
+        { location: "London", bid_modifier_pct: null, resolved_resource_name: "geoTargetConstants/1006886" },
+      ],
       geo_target_type: "PRESENCE",
       date_range: { since: "2099-10-07", until: "2099-10-24" },
       pushed_at: NOW,

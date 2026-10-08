@@ -1,4 +1,5 @@
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { describeFailedAccounts } from "@/lib/reporting/cron-health-monitor-format";
 
 /**
  * lib/reporting/cron-health-monitor.ts
@@ -28,9 +29,11 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
  *   share_insight_snapshots           → fetched_at   (NB: traffic-driven, not cron-driven)
  *   tiktok_breakdown_snapshots        → fetched_at
  *   mailchimp_tag_snapshots           → snapshot_at
+ *   google_ads_insights_runs          → run_at, plus `ok` (one row per run)
  */
 
-export type CronHealthStatus = "fresh" | "stale" | "missing";
+/** `failed`: the freshest row is a run log row with `ok = false`. */
+export type CronHealthStatus = "fresh" | "stale" | "missing" | "failed";
 
 export interface TableStatus {
   name: string;
@@ -38,13 +41,20 @@ export interface TableStatus {
   ageMinutes: number | null;
   thresholdMinutes: number;
   status: CronHealthStatus;
+  /** Why a run-log row failed, e.g. the failed accounts. */
+  detail?: string;
 }
 
 interface TableConfigEntry {
   table: string;
   freshColumn: string;
   thresholdMinutes: number;
+  /** Run-log tables: the freshest row's boolean column; false → `failed`. */
+  okColumn?: string;
+  /** Run-log tables: the failure detail column, rendered by `describeFailure`. */
+  detailColumn?: string;
 }
+
 
 /**
  * The monitored set. `thresholdMinutes` = expected cron cadence + grace.
@@ -61,6 +71,7 @@ const TABLE_CONFIG: readonly TableConfigEntry[] = [
   { table: "mailchimp_tag_snapshots", freshColumn: "snapshot_at", thresholdMinutes: 1440 },
   { table: "ad_daily_insights", freshColumn: "fetched_at", thresholdMinutes: 1560 },
   { table: "tag_performance", freshColumn: "computed_at", thresholdMinutes: 1560 },
+  { table: "google_ads_insights_runs", freshColumn: "run_at", thresholdMinutes: 1560, okColumn: "ok", detailColumn: "failed_accounts" },
 ];
 
 /**
@@ -87,6 +98,7 @@ export async function runCronHealthCheck(): Promise<{
     let lastRefreshedAt: string | null = null;
     let ageMinutes: number | null = null;
     let status: CronHealthStatus = "missing";
+    let detail: string | undefined;
 
     try {
       // Freshest row = MAX(freshColumn). Expressed as order-desc-limit-1 so we
@@ -94,7 +106,7 @@ export async function runCronHealthCheck(): Promise<{
       // null timestamp doesn't masquerade as fresh.
       const { data, error } = await sb
         .from(cfg.table)
-        .select(cfg.freshColumn)
+        .select([cfg.freshColumn, cfg.okColumn, cfg.detailColumn].filter(Boolean).join(", "))
         .not(cfg.freshColumn, "is", null)
         .order(cfg.freshColumn, { ascending: false })
         .limit(1)
@@ -110,6 +122,10 @@ export async function runCronHealthCheck(): Promise<{
         if (Number.isFinite(ts)) {
           ageMinutes = Math.floor((now - ts) / 60_000);
           status = ageMinutes <= cfg.thresholdMinutes ? "fresh" : "stale";
+          if (cfg.okColumn && data[cfg.okColumn] === false) {
+            status = "failed";
+            detail = cfg.detailColumn ? describeFailedAccounts(data[cfg.detailColumn]) : undefined;
+          }
         } else {
           console.error(
             `[cron-health] table=${cfg.table} column=${cfg.freshColumn} unparseable_timestamp value=${lastRefreshedAt}`,
@@ -126,7 +142,11 @@ export async function runCronHealthCheck(): Promise<{
       );
     }
 
-    if (status === "stale") {
+    if (status === "failed") {
+      console.error(
+        `[cron-health] FAILED table=${cfg.table} latest run at ${lastRefreshedAt} reported ${cfg.okColumn}=false ${detail ?? ""}`,
+      );
+    } else if (status === "stale") {
       console.error(
         `[cron-health] STALE table=${cfg.table} age_min=${ageMinutes} threshold_min=${cfg.thresholdMinutes}`,
       );
@@ -142,6 +162,7 @@ export async function runCronHealthCheck(): Promise<{
       ageMinutes,
       thresholdMinutes: cfg.thresholdMinutes,
       status,
+      ...(detail ? { detail } : {}),
     });
   }
 
@@ -169,6 +190,7 @@ export async function writeCronHealthReport(report: {
         age_minutes: t.ageMinutes,
         threshold_minutes: t.thresholdMinutes,
         status: t.status,
+        ...(t.detail ? { detail: t.detail } : {}),
       })),
     },
     any_stale: report.anyStale,
