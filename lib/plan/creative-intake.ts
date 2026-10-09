@@ -110,6 +110,46 @@ export function bucketFromMeasurement(input: {
   return { bucket: input.snapped, source: "pixels", reason: null };
 }
 
+/**
+ * A dedupe hit keeps the registry ratio, except when that row is still
+ * "other" or empty and this upload measured a standard ratio. One standard
+ * ratio is never replaced with another.
+ */
+export function detectedBucketAfterRegister(input: {
+  created: boolean;
+  existingAspect: string | null;
+  measured: IntakeBucket;
+}): { bucket: IntakeBucket; upgradeAsset: boolean } {
+  if (input.created) return { bucket: input.measured, upgradeAsset: false };
+  const existing = input.existingAspect;
+  const stale = existing == null || existing === "" || existing === "other";
+  if (stale && input.measured !== "other") {
+    return { bucket: input.measured, upgradeAsset: true };
+  }
+  if (existing === "4:5" || existing === "1:1" || existing === "9:16" || existing === "other") {
+    return { bucket: existing, upgradeAsset: false };
+  }
+  return { bucket: input.measured, upgradeAsset: false };
+}
+
+/** Shown while Send uploads. `Uploading 1 of 3…`. */
+export function intakeUploadProgress(index: number, total: number): string {
+  return `Uploading ${index} of ${total}…`;
+}
+
+export interface IntakeSendReport {
+  label: string;
+  error: string | null;
+  tiktok: boolean;
+}
+
+export function intakeSendResultLine(row: IntakeSendReport): string {
+  if (row.error) return `${row.label}: ${row.error}`;
+  return row.tiktok
+    ? `✓ ${row.label} uploaded to Meta · ✓ routed to TikTok`
+    : `✓ ${row.label} uploaded to Meta`;
+}
+
 export function intakeAspect(input: {
   width: number | null;
   height: number | null;

@@ -51,6 +51,13 @@ describe("fact check", () => {
     assert.equal(unsupportedFact("CamelPhat at Printworks on 24 Oct, tickets £44.50", corpus()), null);
   });
 
+  it("keeps a possessive when the name is on the page, and ignores the word Experience", () => {
+    const page = factCorpus("Folamour at NX Newcastle.", event());
+    assert.equal(unsupportedFact("Folamour's night in Newcastle", page), null);
+    assert.equal(unsupportedFact("Newcastle's weekend", page), null);
+    assert.equal(unsupportedFact("Experience Folamour", page), null);
+  });
+
   it("drops a venue the page and the event do not name", () => {
     assert.match(unsupportedFact("CamelPhat at Fabric", corpus()) ?? "", /Fabric/);
   });

@@ -50,6 +50,8 @@ const STOP = new Set(
     "see", "watch", "now", "new", "live", "music", "dance", "event", "show", "night",
     "doors", "only", "just", "on", "at", "in", "to", "be", "are", "is", "it", "we", "you",
     "of", "out", "sale", "presale", "general",
+    // A capital letter marks a name. "Experience" is a sentence word, not one.
+    "experience",
   ].map((word) => word.toLowerCase()),
 );
 
@@ -117,6 +119,11 @@ function normalise(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+/** "Folamour's" and "Folamour’s" match the page's "Folamour". */
+function foldPossessive(value: string): string {
+  return value.toLowerCase().replace(/['’]s\b/g, "");
+}
+
 /** Hyphens and punctuation fold away so "sold-out" and "sold out!" are one phrase. */
 function phraseKey(value: string): string {
   return value
@@ -147,6 +154,7 @@ export function unsupportedFact(suggestion: string, corpus: string): string | nu
   const text = suggestion.trim();
   if (!text) return "empty";
   const haystack = normalise(corpus);
+  const folded = foldPossessive(haystack);
   const phrases = phraseKey(corpus);
   const lower = phraseKey(text);
   for (const phrase of BANNED_PHRASES) {
@@ -167,8 +175,9 @@ export function unsupportedFact(suggestion: string, corpus: string): string | nu
   for (const word of words) {
     const claim = /^[A-Z]/.test(word) || /^[A-Z]{2,}$/.test(word);
     if (!claim) continue;
-    if (STOP.has(word.toLowerCase())) continue;
-    if (!haystack.includes(word.toLowerCase())) {
+    const token = foldPossessive(word);
+    if (STOP.has(token)) continue;
+    if (!folded.includes(token)) {
       return `${word} is not in the page or the event`;
     }
   }
