@@ -10,8 +10,10 @@
  * Every header and fixed value is spelled as in a campaign Editor
  * exported with 0 errors (`__tests__/fixtures/editor-template-export.tsv`):
  * Target CPV bidding, "Responsive video" ad groups, "Responsive video ad"
- * ads with slotted copy, placements in "Website" without a scheme, and
- * locations by ID. Editor deprecates Manual CPV and in-stream ad groups.
+ * ads with slotted copy, and locations by ID. YouTube placements are not
+ * written into Website: the template has no YouTube video or channel
+ * column, and Editor rejects a YouTube URL in Website. Review lists the
+ * manual step. Editor deprecates Manual CPV and in-stream ad groups.
  * The file has no TV screen or location bid modifiers, frequency cap,
  * Google TV switch or logo; Review lists them as manual steps.
  *
@@ -22,14 +24,13 @@
 
 import { editorLocation } from "./locations.ts";
 import { AD_COPY_SLOTS, type AdLimitField } from "./types.ts";
-import { parseYouTubeRef } from "./youtube-url.ts";
 import {
   adCopySlots,
   adFinalUrl,
   adVideoId,
   campaignBudget,
+  pausedCampaignWithoutBudget,
   exportableAds,
-  exportablePlacements,
   type VideoTreeLike,
 } from "./validation.ts";
 
@@ -99,23 +100,15 @@ function csvCell(value: string | undefined): string {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-/** `www.youtube.com/watch?v=…`, `/channel/UC…` or `/@handle`, no scheme. */
-export function placementWebsite(value: string): string | null {
-  const ref = parseYouTubeRef(value);
-  if (!ref) return null;
-  if (ref.kind === "video") return `www.youtube.com/watch?v=${ref.id}`;
-  if (ref.kind === "channel") return `www.youtube.com/channel/${ref.id}`;
-  return `www.youtube.com/${ref.id.startsWith("@") ? ref.id : `@${ref.id}`}`;
-}
-
 export function buildEditorRows(tree: VideoTreeLike): Row[] {
   const { plan } = tree;
   const ads = exportableAds(tree);
   const rows: Row[] = [];
   for (const campaign of tree.campaigns) {
+    if (pausedCampaignWithoutBudget(plan, campaign, tree.campaigns)) continue;
     const name = campaign.name;
     const campaignStatus = status(campaign.status);
-    const budget = campaignBudget(plan, campaign);
+    const budget = campaignBudget(plan, campaign, tree.campaigns);
     rows.push({
       Campaign: name,
       "Campaign Type": CAMPAIGN_TYPE,
@@ -139,15 +132,6 @@ export function buildEditorRows(tree: VideoTreeLike): Row[] {
         "Campaign Status": campaignStatus,
         "Ad Group Status": adGroupStatus,
       });
-      for (const p of exportablePlacements(adGroup)) {
-        rows.push({
-          ...groupRow,
-          Website: placementWebsite(p.value) ?? "",
-          "Campaign Status": campaignStatus,
-          "Ad Group Status": adGroupStatus,
-          Status: status(p.status),
-        });
-      }
       for (const ad of ads) {
         const row: Row = {
           ...groupRow,

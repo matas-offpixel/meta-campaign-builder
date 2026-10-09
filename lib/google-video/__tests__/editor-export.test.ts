@@ -2,9 +2,17 @@ import { strict as assert } from "node:assert";
 import { readFileSync, writeFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { EDITOR_COLUMNS, buildEditorCsv, buildEditorRows, placementWebsite } from "../editor-export.ts";
-import { editorLocation } from "../locations.ts";
-import { reviewGoogleVideoPlan, type VideoTreeLike } from "../validation.ts";
+import { EDITOR_COLUMNS, buildEditorCsv, buildEditorRows } from "../editor-export.ts";
+import { addPlanLocation, editorLocation, editorLocationChoices, removePlanLocation } from "../locations.ts";
+import { NO_LOCATIONS_MESSAGE } from "../../google-search/validation.ts";
+import {
+  pausedNoBudgetMessage,
+  reviewGoogleVideoPlan,
+  splitMoney,
+  YOUTUBE_CHANNEL_MANUAL_STEP,
+  YOUTUBE_VIDEO_MANUAL_STEP,
+  type VideoTreeLike,
+} from "../validation.ts";
 
 const GOLDEN = new URL("./fixtures/synthetic.editor.csv", import.meta.url);
 const TEMPLATE = new URL("./fixtures/editor-template-export.tsv", import.meta.url);
@@ -64,7 +72,7 @@ function tree(): VideoTreeLike {
         name: "[IRW9999] Reserve",
         tier: "V2",
         status: "paused",
-        daily_budget: null,
+        daily_budget: 4,
         google_campaign_resource_name: null,
         sort_order: 1,
         ad_groups: [
@@ -186,15 +194,26 @@ describe("Editor template (editor-template-export.tsv)", () => {
     }
   });
 
-  it("writes placements the way the template does: Website, no scheme", () => {
-    const { rows } = template();
-    assert.equal(rows.find((r) => r.Website)?.Website, "www.youtube.com/watch?v=Q-gTWjK62vw");
-    assert.equal(placementWebsite("https://youtu.be/Q-gTWjK62vw?si=x"), "www.youtube.com/watch?v=Q-gTWjK62vw");
-    assert.equal(placementWebsite("https://www.youtube.com/@Mixmag"), "www.youtube.com/@Mixmag");
+  it("has Website and Video ID columns, and no YouTube video or channel placement column", () => {
+    const { headers } = template();
+    assert.ok(headers.includes("Website"));
+    assert.ok(headers.includes("Video ID 1"));
+    assert.equal(headers.includes("YouTube video"), false);
+    assert.equal(headers.includes("YouTube channel"), false);
     assert.equal(
-      placementWebsite("https://www.youtube.com/channel/UCbDgBFAketcO26wz-pR6OKA"),
-      "www.youtube.com/channel/UCbDgBFAketcO26wz-pR6OKA",
+      headers.some((header) => /youtube (video|channel)/i.test(header)),
+      false,
     );
+  });
+
+  it("does not write YouTube placements into Website, and Review says to add the video id by hand", () => {
+    const rows = buildEditorRows(tree());
+    assert.equal(rows.some((row) => row.Website), false);
+    assert.equal(buildEditorCsv(tree()).includes("youtube.com"), false);
+    assert.equal(rows.find((row) => row["Ad Name"] === "Lead")?.["Video ID 1"], "ozh-w-EBw58");
+    const { editorOnly } = reviewGoogleVideoPlan(tree(), "2026-10-08");
+    assert.ok(editorOnly.includes(YOUTUBE_VIDEO_MANUAL_STEP));
+    assert.ok(editorOnly.includes(YOUTUBE_CHANNEL_MANUAL_STEP));
   });
 
   it("the template's location IDs match ours for the UK and London", () => {
@@ -215,10 +234,89 @@ describe("budget type", () => {
       .filter((r) => r["Campaign Type"])
       .map((r) => [r.Campaign, r.Budget, r["Budget type"]]);
 
-  it("with dates, a campaign's own daily × inclusive days is a campaign total; a plan total is used as is", () => {
+  it("with dates, a plan total is split across enabled campaigns; a paused campaign keeps its own daily × days", () => {
     assert.deepEqual(budgetRows(tree()), [
-      ['[IRW9999] Video, "Quoted"', "125.00", "Campaign total"],
-      ["[IRW9999] Reserve", "100.00", "Campaign total"],
+      ['[IRW9999] Video, "Quoted"', "100.00", "Campaign total"],
+      ["[IRW9999] Reserve", "40.00", "Campaign total"],
+    ]);
+  });
+
+  it("CamelPhat shape: two campaigns, one paused, neither with its own daily — the enabled campaign gets the whole total", () => {
+    const t = tree();
+    t.plan.total_budget = 150;
+    t.campaigns[0].daily_budget = null;
+    t.campaigns[1].daily_budget = null;
+    assert.equal(t.campaigns[1].status, "paused");
+    assert.deepEqual(budgetRows(t), [
+      ['[IRW9999] Video, "Quoted"', "150.00", "Campaign total"],
+    ]);
+  });
+
+  it("a paused campaign with no daily is left out of the file, and Review blocks, because the template has no blank campaign Budget", () => {
+    const { rows } = template();
+    const campaignRows = rows.filter((row) => row["Campaign Type"]);
+    assert.ok(campaignRows.length > 0);
+    assert.ok(campaignRows.every((row) => row.Budget.trim() !== ""));
+    assert.equal(campaignRows[0].Budget, "150.00");
+
+    const t = tree();
+    t.campaigns[1].daily_budget = null;
+    const review = reviewGoogleVideoPlan(t, TODAY);
+    assert.deepEqual(
+      review.blockers.map((b) => b.message),
+      [pausedNoBudgetMessage("[IRW9999] Reserve")],
+    );
+    assert.equal(review.budgets.some((line) => line.startsWith("[IRW9999] Reserve")), false);
+    const written = buildEditorRows(t);
+    assert.equal(written.some((row) => row.Campaign === "[IRW9999] Reserve"), false);
+    assert.equal(written.some((row) => row["Campaign Type"] && row.Budget === "0.00"), false);
+    assert.equal(written.some((row) => row["Campaign Type"] && row.Budget === ""), false);
+    assert.equal(written.find((row) => row["Campaign Type"])?.Budget, "100.00");
+  });
+
+  it("weights the split by each enabled campaign's daily budget, remainder on the largest, parts sum to the total", () => {
+    const t = tree();
+    t.plan.total_budget = 10;
+    t.campaigns[0].daily_budget = 1;
+    t.campaigns[1].status = "enabled";
+    t.campaigns[1].daily_budget = 2;
+    assert.deepEqual(budgetRows(t), [
+      ['[IRW9999] Video, "Quoted"', "3.33", "Campaign total"],
+      ["[IRW9999] Reserve", "6.67", "Campaign total"],
+    ]);
+    const pence = budgetRows(t).reduce((sum, row) => sum + Math.round(Number(row[1]) * 100), 0);
+    assert.equal(pence, 1000);
+
+    const equal = tree();
+    equal.plan.total_budget = 10;
+    equal.campaigns[0].daily_budget = null;
+    equal.campaigns[1].status = "enabled";
+    equal.campaigns[1].daily_budget = null;
+    equal.campaigns.push({
+      name: "Third",
+      tier: null,
+      status: "enabled",
+      daily_budget: null,
+      google_campaign_resource_name: null,
+      sort_order: 2,
+      ad_groups: [],
+    });
+    assert.deepEqual(
+      budgetRows(equal).map((row) => row[1]),
+      ["3.34", "3.33", "3.33"],
+    );
+    assert.deepEqual(splitMoney(10, [1, 1, 1]), [3.34, 3.33, 3.33]);
+  });
+
+  it("an enabled campaign without its own daily makes the split equal, not weighted", () => {
+    const t = tree();
+    t.plan.total_budget = 10;
+    t.campaigns[0].daily_budget = 9;
+    t.campaigns[1].status = "enabled";
+    t.campaigns[1].daily_budget = null;
+    assert.deepEqual(budgetRows(t), [
+      ['[IRW9999] Video, "Quoted"', "5.00", "Campaign total"],
+      ["[IRW9999] Reserve", "5.00", "Campaign total"],
     ]);
   });
 
@@ -228,6 +326,7 @@ describe("budget type", () => {
     t.plan.daily_budget = 3.33;
     t.plan.end_date = "2026-11-03";
     t.campaigns[0].daily_budget = null;
+    t.campaigns[1].daily_budget = null;
     assert.deepEqual(budgetRows(t), [
       ['[IRW9999] Video, "Quoted"', "9.99", "Campaign total"],
       ["[IRW9999] Reserve", "9.99", "Campaign total"],
@@ -240,6 +339,7 @@ describe("budget type", () => {
     t.plan.daily_budget = 8.8;
     t.plan.end_date = null;
     t.campaigns[0].daily_budget = null;
+    t.campaigns[1].daily_budget = null;
     assert.deepEqual(budgetRows(t), [
       ['[IRW9999] Video, "Quoted"', "8.80", "Daily"],
       ["[IRW9999] Reserve", "8.80", "Daily"],
@@ -247,22 +347,26 @@ describe("budget type", () => {
     assert.deepEqual(reviewGoogleVideoPlan(t, TODAY).budgets[0], '[IRW9999] Video, "Quoted": £8.80 a day (no end date)');
   });
 
-  it("a total wins over the plan daily budget", () => {
+  it("a total wins over the plan daily budget, and the paused campaign does not receive it again", () => {
     const t = tree();
     t.plan.daily_budget = 8.8;
-    assert.deepEqual(budgetRows(t)[1], ["[IRW9999] Reserve", "100.00", "Campaign total"]);
+    assert.deepEqual(budgetRows(t), [
+      ['[IRW9999] Video, "Quoted"', "100.00", "Campaign total"],
+      ["[IRW9999] Reserve", "40.00", "Campaign total"],
+    ]);
   });
 
   it("Review shows the campaign total with the daily rate and the days", () => {
     assert.deepEqual(reviewGoogleVideoPlan(tree(), TODAY).budgets, [
-      '[IRW9999] Video, "Quoted": £125.00 campaign total (≈ £12.50/day over 10 days)',
-      "[IRW9999] Reserve: £100.00 campaign total (≈ £10.00/day over 10 days)",
+      '[IRW9999] Video, "Quoted": £100.00 campaign total (≈ £10.00/day over 10 days)',
+      "[IRW9999] Reserve: £40.00 campaign total (≈ £4.00/day over 10 days)",
     ]);
   });
 
   it("a campaign total without an end date is a blocker", () => {
     const t = tree();
     t.plan.end_date = null;
+    t.campaigns[1].daily_budget = null;
     assert.deepEqual(reviewGoogleVideoPlan(t, TODAY).blockers.map((b) => b.code), ["total_budget_no_end_date"]);
   });
 });
@@ -341,6 +445,52 @@ describe("responsive video ad", () => {
     assert.ok(editorOnly.includes("Logo: add it on each responsive video ad (an image asset)"));
   });
 
+  it("drops content exclusions, and location, objective and subtype lines that contradict the plan", () => {
+    const t = tree();
+    t.plan.settings_rows = [
+      { setting: "Content exclusions", value: "Exclude: embedded videos, live streaming videos" },
+      { setting: "Objective", value: "Create a campaign without a goal's guidance" },
+      { setting: "Campaign subtype", value: "Video views" },
+      { setting: "Campaign type", value: "Video" },
+      { setting: "Frequency cap", value: "2 per day" },
+    ];
+    t.plan.targeting_rows = [
+      { type: "Location", setting: "United Kingdom (presence, not interest)", value: "Base" },
+    ];
+    const { editorOnly } = reviewGoogleVideoPlan(t, "2026-10-08");
+    assert.equal(editorOnly.some((line) => /content exclusion/i.test(line)), false);
+    assert.equal(editorOnly.some((line) => line.startsWith("Objective")), false);
+    assert.equal(editorOnly.some((line) => line.startsWith("Campaign subtype")), false);
+    assert.equal(editorOnly.some((line) => /United Kingdom/.test(line) && /Base/.test(line)), false);
+    assert.ok(editorOnly.some((line) => line.startsWith("Frequency cap")));
+    assert.ok(editorOnly.includes("Location bid adjustment: Manchester -10%"));
+  });
+
+  it("locations can be added and removed only from the checked list, and no location still blocks Review", () => {
+    const added = addPlanLocation([], "Manchester");
+    assert.ok(added);
+    assert.equal(added[0]?.name, "Manchester");
+    assert.equal(editorLocation(added[0]?.name ?? "")?.id, "1006912");
+    assert.equal(addPlanLocation([], "South East England"), null);
+    assert.equal(addPlanLocation([], "Estepona"), null);
+    assert.equal(addPlanLocation(added, "greater london")?.[1]?.name, "London");
+    assert.equal(addPlanLocation(added, "Manchester"), added);
+    const cleared = removePlanLocation(
+      [{ name: "United Kingdom", bid_modifier_pct: null, negative: false }],
+      "United Kingdom",
+    );
+    assert.deepEqual(cleared, []);
+    const t = tree();
+    t.plan.geo_targets = cleared;
+    const blockers = reviewGoogleVideoPlan(t, "2026-10-08").blockers;
+    assert.deepEqual(blockers.map((b) => b.code), ["no_locations"]);
+    assert.equal(blockers[0]?.message, NO_LOCATIONS_MESSAGE);
+    const ids = new Set(editorLocationChoices().map((choice) => choice.id));
+    assert.equal(ids.has("1006886"), true);
+    assert.equal(ids.has("2826"), true);
+    assert.equal(ids.has("9049069"), false);
+  });
+
   it("locations go by checked ID; an excluded location is not written", () => {
     const locations = buildEditorRows(tree())
       .filter((r) => r.ID)
@@ -366,6 +516,7 @@ describe("reviewGoogleVideoPlan blockers", () => {
     const t = tree();
     t.plan.total_budget = null;
     t.campaigns[0].daily_budget = null;
+    t.campaigns[1].daily_budget = null;
     const codes = reviewGoogleVideoPlan(t, TODAY).blockers.map((b) => b.code);
     assert.deepEqual(codes, ["no_budget", "no_budget"]);
   });

@@ -6,6 +6,7 @@ import {
   saveGoogleVideoPlanTree,
   setGoogleVideoPlanStatus,
 } from "@/lib/db/google-video-plans";
+import { videoPlanDeletable } from "@/lib/google-video/delete-plan";
 import { VIDEO_PLAN_STATUSES, type GoogleVideoPlanStatus, type GoogleVideoPlanTree } from "@/lib/google-video/types";
 
 /**
@@ -15,6 +16,9 @@ import { VIDEO_PLAN_STATUSES, type GoogleVideoPlanStatus, type GoogleVideoPlanTr
  *
  * PATCH /api/google-video/[id] — `{ status: "draft" | "live" }`. The
  * export route sets "exported".
+ *
+ * DELETE /api/google-video/[id] — draft or exported only. Deletes the
+ * plan row (children cascade). Does not call Google Ads.
  */
 async function signedIn() {
   const supabase = await createClient();
@@ -84,5 +88,31 @@ export async function PATCH(
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "Update failed" }, { status: 500 });
   }
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+): Promise<NextResponse> {
+  const { id } = await params;
+  const { supabase, user } = await signedIn();
+  if (!user) return NextResponse.json({ ok: false, error: "Not signed in" }, { status: 401 });
+  const { data: plan, error: loadError } = await supabase
+    .from("google_video_plans")
+    .select("id, status, name")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadError) return NextResponse.json({ ok: false, error: loadError.message }, { status: 500 });
+  if (!plan) return NextResponse.json({ ok: false, error: "Plan not found" }, { status: 404 });
+  const status = plan.status as GoogleVideoPlanStatus;
+  if (!videoPlanDeletable(status)) {
+    return NextResponse.json(
+      { ok: false, error: "Only a draft or an exported plan can be deleted." },
+      { status: 409 },
+    );
+  }
+  const { error } = await supabase.from("google_video_plans").delete().eq("id", id);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

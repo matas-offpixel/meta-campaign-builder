@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Upload } from "lucide-react";
 
@@ -37,6 +38,8 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<{ message: string; href: string; name: string } | null>(null);
+  const pendingFile = useRef<File | null>(null);
   const [detected, setDetected] = useState<GoogleWorkbookKind | null>(null);
   const [eventId, setEventId] = useState<string>("");
   const [accountId, setAccountId] = useState<string>("");
@@ -69,8 +72,9 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
     }
   }
 
-  async function handleImport(file: File) {
+  async function handleImport(file: File, importAsNew = false) {
     setError(null);
+    setDuplicate(null);
     setDetected(null);
     setImporting(true);
     try {
@@ -79,12 +83,36 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
       if (eventId) form.set("event_id", eventId);
       if (accountId) form.set("google_ads_account_id", accountId);
       form.set("structure_mode", structureMode);
+      if (importAsNew) form.set("import_as_new", "1");
       const res = await fetch("/api/google-search/import", { method: "POST", body: form });
       const json = (await res.json().catch(() => null)) as
         | { ok: true; kind?: GoogleWorkbookKind; plan_id: string }
-        | { ok: false; kind?: GoogleWorkbookKind; error: string }
+        | {
+            ok: false;
+            kind?: GoogleWorkbookKind;
+            error: string;
+            code?: string;
+            existing_plan_href?: string;
+            existing_plan_name?: string;
+          }
         | null;
       setDetected(json?.kind ?? null);
+      if (
+        res.status === 409 &&
+        json &&
+        !json.ok &&
+        json.code === "duplicate_import" &&
+        json.existing_plan_href
+      ) {
+        pendingFile.current = file;
+        setDuplicate({
+          message: json.error,
+          href: json.existing_plan_href,
+          name: json.existing_plan_name || "Open the existing plan",
+        });
+        return;
+      }
+      pendingFile.current = null;
       if (!json || !json.ok) {
         setError((json && !json.ok && json.error) || "Failed to import xlsx.");
         return;
@@ -156,6 +184,26 @@ export function GoogleSearchPlanActions({ accounts, events }: PlanActionsProps) 
       </div>
       {detected && (
         <p className="text-xs text-muted-foreground">Detected: {WORKBOOK_KIND_LABELS[detected]}</p>
+      )}
+      {duplicate && (
+        <p className="text-xs text-destructive" role="alert">
+          {duplicate.message}{" "}
+          <Link href={duplicate.href} className="underline">
+            {duplicate.name}
+          </Link>
+          .{" "}
+          <button
+            type="button"
+            className="underline"
+            disabled={importing || !pendingFile.current}
+            onClick={() => {
+              const file = pendingFile.current;
+              if (file) void handleImport(file, true);
+            }}
+          >
+            Import as new anyway
+          </button>
+        </p>
       )}
       {error && (
         <p className="text-xs text-destructive" role="alert">

@@ -19,6 +19,7 @@ import {
   type GoogleVideoPlan,
   type GoogleVideoPlanTree,
 } from "@/lib/google-video/types";
+import { addPlanLocation, editorLocation, editorLocationChoices, removePlanLocation } from "@/lib/google-video/locations";
 import { effectivePlanDailyBudget, reviewGoogleVideoPlan } from "@/lib/google-video/validation";
 import { parseYouTubeRef } from "@/lib/google-video/youtube-url";
 
@@ -61,6 +62,40 @@ function StatusToggle({
       <option value="enabled">Enabled</option>
       <option value="paused">Paused</option>
     </select>
+  );
+}
+
+function LocationAdd({
+  taken,
+  onAdd,
+}: {
+  taken: GoogleVideoPlan["geo_targets"];
+  onAdd: (name: string) => void;
+}) {
+  const choices = editorLocationChoices().filter(
+    (choice) => !taken.some((g) => !g.negative && editorLocation(g.name)?.id === choice.id),
+  );
+  const [picked, setPicked] = useState("");
+  const selected = choices.some((choice) => choice.name === picked) ? picked : (choices[0]?.name ?? "");
+  if (choices.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <select
+        aria-label="Add a location"
+        value={selected}
+        onChange={(e) => setPicked(e.target.value)}
+        className="h-8 max-w-md rounded-md border border-border-strong bg-background px-2 text-xs"
+      >
+        {choices.map((choice) => (
+          <option key={choice.id} value={choice.name}>
+            {choice.location} ({choice.id})
+          </option>
+        ))}
+      </select>
+      <Button type="button" size="sm" variant="outline" onClick={() => onAdd(selected)}>
+        Add location
+      </Button>
+    </div>
   );
 }
 
@@ -253,18 +288,18 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
               <Input value={plan.business_name ?? ""} onChange={(e) => patchPlan({ business_name: e.target.value || null })} />
             </Field>
             <Field
-              label="Total budget per campaign (£)"
+              label="Total budget (£)"
               hint={
                 plan.total_budget != null
-                  ? `Written as a campaign total for the whole run${derivedDaily != null ? ` (about £${derivedDaily.toFixed(2)} a day)` : ""}.`
+                  ? `Split across the enabled campaigns${derivedDaily != null ? ` (about £${derivedDaily.toFixed(2)} a day in total)` : ""}. A paused campaign does not get another copy.`
                   : "Blank: the daily budget is used."
               }
             >
               <Input value={plan.total_budget ?? ""} inputMode="decimal" onChange={(e) => patchPlan({ total_budget: numberOrNull(e.target.value) })} />
             </Field>
-            <Field label="Daily budget per campaign (£)" hint={
+            <Field label="Daily budget (£)" hint={
                 plan.total_budget != null
-                  ? "Not used: the total budget wins."
+                  ? "Weights the split when every enabled campaign has its own daily budget. Otherwise the total is split equally."
                   : plan.start_date && plan.end_date
                     ? "Written as a campaign total: this × the days from start to end."
                     : "No end date: written as an average daily budget."
@@ -321,16 +356,37 @@ export function GoogleVideoPlanEditor({ initialTree }: { initialTree: GoogleVide
               <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Locations</h2>
               <table className="min-w-full text-xs">
                 <tbody>
-                  {plan.geo_targets.map((g) => (
-                    <tr key={g.name} className="border-t border-border">
-                      <td className="py-1.5">{g.name}</td>
-                      <td className="py-1.5 text-muted-foreground">
-                        {g.negative ? "Excluded" : g.bid_modifier_pct != null ? `${g.bid_modifier_pct > 0 ? "+" : ""}${g.bid_modifier_pct}%` : "Base"}
-                      </td>
-                    </tr>
-                  ))}
+                  {plan.geo_targets.map((g) => {
+                    const known = editorLocation(g.name);
+                    return (
+                      <tr key={g.name} className="border-t border-border">
+                        <td className="py-1.5">{g.name}</td>
+                        <td className="py-1.5 text-muted-foreground">
+                          {g.negative ? "Excluded" : g.bid_modifier_pct != null ? `${g.bid_modifier_pct > 0 ? "+" : ""}${g.bid_modifier_pct}%` : "Base"}
+                        </td>
+                        <td className="py-1.5 text-muted-foreground">{known ? known.id : "no Google location ID"}</td>
+                        <td className="py-1.5 text-right">
+                          <button
+                            type="button"
+                            className="text-muted-foreground underline"
+                            onClick={() => patchPlan({ geo_targets: removePlanLocation(plan.geo_targets, g.name) })}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+              <LocationAdd
+                taken={plan.geo_targets}
+                onAdd={(name) => {
+                  const next = addPlanLocation(plan.geo_targets, name);
+                  if (!next || next === plan.geo_targets) return;
+                  patchPlan({ geo_targets: [...next] });
+                }}
+              />
             </div>
             <Field label="Languages (codes, comma-separated)">
               <Input

@@ -19,6 +19,7 @@ import {
   type GoogleWorkbookDetection,
 } from "@/lib/google-search/workbook";
 import { createGoogleVideoPlanTreeFromDraft, defaultVideoBusinessName } from "@/lib/db/google-video-plans";
+import { findVideoReimport } from "@/lib/google-video/reimport";
 import {
   countDraftPlacements,
   describeEmptyGoogleVideoImport,
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         sourceFilename: file.name || null,
         eventId,
         googleAdsAccountId,
+        importAsNew: form.get("import_as_new") === "1",
       });
     }
     draft = parseGoogleSearchPlanXlsx(buffer, {
@@ -200,8 +202,39 @@ async function importVideoPlan(
     sourceFilename: string | null;
     eventId: string | null;
     googleAdsAccountId: string | null;
+    importAsNew: boolean;
   },
 ): Promise<NextResponse> {
+  if (!options.importAsNew && options.eventId && options.sourceFilename) {
+    const { data, error } = await supabase
+      .from("google_video_plans")
+      .select("id, name, event_id, source_filename")
+      .eq("user_id", userId)
+      .eq("event_id", options.eventId)
+      .eq("source_filename", options.sourceFilename);
+    if (error) {
+      return NextResponse.json({ ok: false, kind: "video", error: error.message }, { status: 500 });
+    }
+    const match = findVideoReimport(
+      (data ?? []) as Array<{ id: string; name: string; event_id: string | null; source_filename: string | null }>,
+      options.eventId,
+      options.sourceFilename,
+    );
+    if (match) {
+      return NextResponse.json(
+        {
+          ok: false,
+          kind: "video",
+          code: "duplicate_import",
+          error: `This event already has a YouTube plan from ${options.sourceFilename}.`,
+          existing_plan_id: match.id,
+          existing_plan_name: match.name,
+          existing_plan_href: `/google-video/${match.id}`,
+        },
+        { status: 409 },
+      );
+    }
+  }
   const draft = parseGoogleVideoPlanXlsx(buffer, {
     fallbackPlanName: options.planName ?? undefined,
     sourceFilename: options.sourceFilename,

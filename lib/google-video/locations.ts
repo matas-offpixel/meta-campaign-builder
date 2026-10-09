@@ -15,6 +15,7 @@
  */
 
 import { VERIFIED_GEOTARGETS } from "../google-ads/verified-geotargets.ts";
+import type { GoogleVideoGeoTarget } from "./types.ts";
 
 export interface EditorLocation {
   id: string;
@@ -35,4 +36,43 @@ const BY_KEY = new Map(LOCATIONS.flatMap(({ keys, ...loc }) => keys.map((k) => [
 
 export function editorLocation(name: string): EditorLocation | null {
   return BY_KEY.get(name.toLowerCase().trim().replace(/\s+/g, " ")) ?? null;
+}
+
+function titleCase(key: string): string {
+  return key.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+}
+
+/** One row per checked location ID. `name` is a key `editorLocation` accepts. */
+export function editorLocationChoices(): ReadonlyArray<{ name: string; id: string } & EditorLocation> {
+  const seen = new Set<string>();
+  const out: Array<{ name: string; id: string } & EditorLocation> = [];
+  for (const row of LOCATIONS) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    out.push({ name: titleCase(row.keys[0]), id: row.id, location: row.location, type: row.type });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name, "en"));
+}
+
+/**
+ * Add a location the operator can pick. Unknown names (including English
+ * regions, which Google does not target) are rejected. A name already on
+ * the plan as a positive target is left as it is.
+ */
+export function addPlanLocation(
+  geo: readonly GoogleVideoGeoTarget[],
+  name: string,
+): readonly GoogleVideoGeoTarget[] | null {
+  const loc = editorLocation(name);
+  if (!loc) return null;
+  if (geo.some((g) => !g.negative && editorLocation(g.name)?.id === loc.id)) return geo;
+  const canonical = editorLocationChoices().find((choice) => choice.id === loc.id)?.name ?? name.trim();
+  return [...geo, { name: canonical, bid_modifier_pct: null, negative: false }];
+}
+
+export function removePlanLocation(
+  geo: readonly GoogleVideoGeoTarget[],
+  name: string,
+): GoogleVideoGeoTarget[] {
+  return geo.filter((g) => g.name !== name);
 }
