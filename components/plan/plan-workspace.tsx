@@ -13,6 +13,7 @@ import { CanvasHeader } from "@/components/plan/canvas-header";
 import { CanvasLaunch } from "@/components/plan/canvas-launch";
 import { CanvasTarget } from "@/components/plan/canvas-target";
 import { CanvasWindow } from "@/components/plan/canvas-window";
+import { MmlCreativeIntake } from "@/components/plan/mml-creative-intake";
 import { MmlPlaceholderCard, MmlSection } from "@/components/plan/mml-section";
 import { MmlPromoterIdentity } from "@/components/plan/mml-promoter-identity";
 import { maybePlanNoShowLock } from "@/components/plan/plan-no-show-lock";
@@ -1295,7 +1296,12 @@ export function PlanWorkspace({
 
       <MmlSection section={MML_SECTION.creatives} numbered={numbered}>
         {readOnly ? null : (
-          <MmlPlaceholderCard>{MML_SECTION.creatives.placeholder}</MmlPlaceholderCard>
+          <MmlCreativeIntake
+            planId={plan.id}
+            clientId={selectedEvent?.clientId ?? null}
+            persisted={persisted}
+            onLaunches={(launches) => setPlan((current) => ({ ...current, launches }))}
+          />
         )}
         <CanvasAssets
           planId={plan.id}
