@@ -36,6 +36,7 @@ import { afterEach, describe, it } from "node:test";
 
 import {
   buildCreativePayload,
+  creativeTriggersVariationRotation,
   sanitizeCreativeForStrictMode,
   type MetaCreativePayload,
 } from "../creative.ts";
@@ -206,10 +207,10 @@ describe("buildVariationRotationCreative — video (Single mode, flag ON)", () =
   });
 });
 
-// ─── CTA = BOOK_NOW + N variations → single-asset fallback ────────────────────
+// ─── CTA = book_now + N variations → rotation with BOOK_TRAVEL ────────────────
 
-describe("Single mode + N variations + BOOK_NOW → single-asset fallback (constraint 1885396)", () => {
-  it("falls back to variation[0] via link_data, no asset_feed_spec", async () => {
+describe("Single mode + N variations + book_now → rotation, CTA BOOK_TRAVEL", () => {
+  it("rotates all 4 images, call_to_action_types BOOK_TRAVEL", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       cta: "book_now",
@@ -222,12 +223,16 @@ describe("Single mode + N variations + BOOK_NOW → single-asset fallback (const
     });
     const payload = await buildCreativePayload(creative);
 
-    assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped for BOOK_NOW");
-    assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_1", "uses variation[0] only");
-    assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW", "CTA preserved");
+    assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BOOK_TRAVEL"]);
+    assert.deepEqual(
+      (payload.asset_feed_spec?.images ?? []).map((i) => i.hash),
+      ["hash_1", "hash_2", "hash_3", "hash_4"],
+    );
+    assert.equal(payload.object_story_spec?.link_data, undefined);
+    assert.equal(creativeTriggersVariationRotation(creative), true, "ad set must be dynamic");
   });
 
-  it("video variant: falls back to variation[0] via video_data, no asset_feed_spec", async () => {
+  it("video variant: rotates both videos, call_to_action_types BOOK_TRAVEL", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       mediaType: "video",
@@ -239,9 +244,11 @@ describe("Single mode + N variations + BOOK_NOW → single-asset fallback (const
     });
     const payload = await buildCreativePayload(creative);
 
-    assert.equal(payload.asset_feed_spec, undefined);
-    assert.equal(payload.object_story_spec?.video_data?.video_id, "vid_1");
-    assert.equal(payload.object_story_spec?.video_data?.call_to_action?.type, "BOOK_NOW");
+    assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BOOK_TRAVEL"]);
+    assert.deepEqual(
+      (payload.asset_feed_spec?.videos ?? []).map((v) => v.video_id),
+      ["vid_1", "vid_2"],
+    );
   });
 });
 
@@ -299,7 +306,7 @@ describe("Dual mode + N variations — out of scope, falls back to variation[0]"
     );
   });
 
-  it("BOOK_NOW + dual mode + 1 variation → existing vertical fallback unchanged", async () => {
+  it("book_now + dual mode + 1 variation → per-placement AFS with BOOK_TRAVEL", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const creative = baseCreative({
       assetMode: "dual",
@@ -316,9 +323,9 @@ describe("Dual mode + N variations — out of scope, falls back to variation[0]"
       ],
     });
     const payload = await buildCreativePayload(creative);
-    assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — BOOK_NOW vertical fallback");
-    assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_916", "uses 9:16 hash, NOT 4:5");
-    assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW");
+    assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BOOK_TRAVEL"]);
+    assert.equal(payload.asset_feed_spec?.asset_customization_rules?.length, 2);
+    assert.equal(payload.object_story_spec?.link_data, undefined);
   });
 });
 

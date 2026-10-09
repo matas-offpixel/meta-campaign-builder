@@ -73,7 +73,7 @@ export function planToMetaDraft(plan: CampaignPlan): CampaignDraft {
     ];
   }
 
-  const creative = createDefaultCreative();
+  const creative = createDefaultCreative(intent.objectiveIntent);
   creative.name = plan.name?.trim() || "Plan creative";
   creative.destinationUrl = intent.destinationUrl;
   draft.creatives = [creative];

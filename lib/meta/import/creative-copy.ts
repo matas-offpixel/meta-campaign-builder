@@ -6,6 +6,8 @@ export const CTA_FROM_META: Record<string, CTAType> = {
   SIGN_UP: "sign_up",
   LEARN_MORE: "learn_more",
   BOOK_NOW: "book_now",
+  /** What `mapCTAToAssetFeed` writes for Book now in an `asset_feed_spec`. */
+  BOOK_TRAVEL: "book_now",
   BUY_TICKETS: "buy_tickets",
 };
 
