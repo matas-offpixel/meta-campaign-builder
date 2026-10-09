@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 import { MML_LEGACY_REDIRECTS } from "./lib/plan/mml-routes";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@remotion/renderer", "@remotion/bundler", "remotion"],
+  serverExternalPackages: ["@remotion/renderer", "@remotion/bundler", "remotion", "undici"],
   async redirects() {
     return MML_LEGACY_REDIRECTS.map((rule) => ({ ...rule }));
   },

@@ -36,13 +36,7 @@ export interface MmlSectionSpec {
 export const MML_SECTIONS: readonly MmlSectionSpec[] = [
   { id: "event", n: 1, title: "Event & promoter" },
   { id: "creatives", n: 2, title: "Creatives" },
-  {
-    id: "copy",
-    n: 3,
-    title: "Copy",
-    placeholder:
-      "Coming in M3: paste the event URL, pick from suggested captions, headlines and descriptions, and copy them across every creative and the Google Search plan.",
-  },
+  { id: "copy", n: 3, title: "Copy" },
   { id: "budget", n: 4, title: "Budget & schedule" },
   {
     id: "locations",
