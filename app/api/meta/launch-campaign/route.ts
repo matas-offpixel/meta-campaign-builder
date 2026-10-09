@@ -827,7 +827,7 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
   //      their own ad set.
   //
   // Detection mirrors buildCreativePayload exactly (creativeTriggersVariationRotation
-  // is gated on ENABLE_MULTI_PLACEMENT_ASSETS and skips BOOK_NOW), so nothing is
+  // is gated on ENABLE_MULTI_PLACEMENT_ASSETS), so nothing is
   // flagged dynamic when rotation cannot actually fire. Attach modes reuse
   // existing ad sets whose is_dynamic_creative flag cannot be changed, so this
   // only affects ad sets we create.
@@ -3986,28 +3986,11 @@ async function launchCampaign(req: NextRequest): Promise<NextResponse> {
       }
 
       const isMultiPlacement = !!creativePayload.asset_feed_spec?.asset_customization_rules?.length;
-      // Detect BOOK_NOW + dual-mode fallback: dual assets were uploaded but the
-      // creative landed on the single-asset path AND the CTA is BOOK_NOW.
-      // This signals the per-placement fallback fired (Meta subcode 1885396).
-      const isBookNowVerticalFallback =
-        !isMultiPlacement &&
-        creative.cta === "book_now" &&
-        (creative.assetVariations?.[0]?.assets ?? []).filter(
-          (a) => (a.videoId || a.assetHash) && (a.aspectRatio === "4:5" || a.aspectRatio === "1:1" || a.aspectRatio === "9:16"),
-        ).length >= 2;
-      if (isBookNowVerticalFallback) {
-        console.error(
-          `[launch-campaign] ⚠ BOOK_NOW + dual-aspect: per-placement routing unavailable` +
-            ` (Meta API constraint 1885396). Creative "${creative.name}" is using the 9:16 vertical` +
-            ` asset for all placements. 4:5 feed asset NOT used.` +
-            ` To preserve per-placement routing, switch CTA to LEARN_MORE, SIGN_UP, or BUY_TICKETS.`,
-        );
-      }
       console.log(
         `[launch-campaign] Phase 3 — POSTing creative "${creative.name}" to Meta:`,
         JSON.stringify({
           path: isMultiPlacement ? "multi_placement" : "single_asset",
-          bookNowVerticalFallback: isBookNowVerticalFallback,
+          ctaTypes: creativePayload.asset_feed_spec?.call_to_action_types,
           hasAssetFeedSpec: !!creativePayload.asset_feed_spec,
           assetFeedVideoCount: creativePayload.asset_feed_spec?.videos?.length ?? 0,
           assetFeedImageCount: creativePayload.asset_feed_spec?.images?.length ?? 0,

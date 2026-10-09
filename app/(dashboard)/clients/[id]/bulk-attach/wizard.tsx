@@ -64,7 +64,6 @@ import {
 import { useFetchPages } from "@/lib/hooks/useMeta";
 import type { AdSetGuardInfo } from "@/lib/meta/client";
 import type { AdSetGuardResponse } from "@/app/api/meta/bulk-attach-ads/adset-guard/route";
-import { parseAspectFromFilename } from "@/lib/clients/asset-queue/aspect-detect";
 import { resolveOrganiserDestinationUrl, resolveUniversalClientUrl } from "@/lib/clients/asset-queue/destination-url";
 import {
   applyUploadedAssetsToCreative,
@@ -74,7 +73,6 @@ import {
   type QueueLibraryItem,
   type UploadedQueueAsset,
 } from "@/lib/clients/asset-queue/queue-creative-bind";
-import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
 import type { AssetRatio } from "@/lib/types";
 import type { AdCreativeDraft, CTAType, MetaCampaignSummary } from "@/lib/types";
 import type { BulkAttachResult } from "@/app/api/meta/bulk-attach-ads/route";
@@ -106,19 +104,6 @@ interface Props {
   clientSlug?: string | null;
   adAccountId: string;
   queueContext?: QueueContextProps;
-}
-
-function isBookNowQueueCta(metaCta: string | null | undefined): boolean {
-  return (metaCta ?? "").trim().toUpperCase() === "BOOK_NOW";
-}
-
-function queueHasDualAspectFromPaths(paths: string[]): boolean {
-  const aspects = new Set(
-    paths
-      .map((p) => parseAspectFromFilename(p.split("/").pop() ?? ""))
-      .filter((a): a is AssetRatio => a === "4:5" || a === "9:16" || a === "1:1"),
-  );
-  return aspects.has("4:5") && aspects.has("9:16");
 }
 
 function mapMetaCtaToDraft(metaCta: string | null | undefined): CTAType {
@@ -216,10 +201,6 @@ function QueueContextBanner({
         ? [queueContext.assetBlobUrl]
         : [];
 
-  const showBookNowDualWarning =
-    isBookNowQueueCta(queueContext.generatedCta) &&
-    queueHasDualAspectFromPaths(paths);
-
   const venueCount = queueContext.venueCodes?.length ?? 0;
   const brandHomepage = resolveUniversalClientUrl(clientSlug);
 
@@ -234,12 +215,6 @@ function QueueContextBanner({
               ? ` → Event ${queueContext.eventCode}`
               : ""}
         </p>
-        {showBookNowDualWarning && (
-          <p className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
-            BOOK_NOW will use the 9:16 asset on all placements — per-placement Feed/Stories
-            split is not available with this CTA.
-          </p>
-        )}
       </div>
     );
   }
@@ -278,13 +253,6 @@ function QueueContextBanner({
         <p className="mt-1 text-xs text-muted-foreground">
           Copy, CTA, and destination URL are pre-filled from the prepared asset.
           Assets auto-upload to Meta when you reach this step — override manually if needed.
-        </p>
-      )}
-      {showBookNowDualWarning && (
-        <p className="mt-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
-          <strong>BOOK_NOW + dual aspects:</strong> Meta blocks per-placement routing for
-          BOOK_NOW, so all placements will use the 9:16 asset. For separate 4:5 Feed and 9:16
-          Stories/Reels creatives, change the CTA to Learn More or Get Tickets before launch.
         </p>
       )}
       {paths.length > 0 && (
@@ -529,12 +497,6 @@ export function ClientBulkAttachWizard({
   });
   const assetCompletenessIssues = validateAllCreativesAssetCompleteness(creatives);
   const assetCompletenessError = formatAssetCompletenessIssues(assetCompletenessIssues);
-  // BOOK_NOW + Dual/Full mode silently drops the Feed asset (Meta subcode
-  // 1885396) — block launch instead of only warning. See creativeHasBookNowMultiPlacementConflict.
-  const bookNowMultiPlacementConflicts = creatives.filter((c) =>
-    creativeHasBookNowMultiPlacementConflict(c),
-  );
-
   // ── Active template match pattern (from applied template, step 1) ────────────
   const [adSetMatchPattern, setAdSetMatchPattern] = useState<string[]>([]);
 
@@ -1590,11 +1552,6 @@ export function ClientBulkAttachWizard({
                 Upload all required aspect ratios before continuing.
               </p>
             )}
-            {bookNowMultiPlacementConflicts.length > 0 && (
-              <p className="rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
-                Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-              </p>
-            )}
             <Button
               size="sm"
               onClick={() => setStep(3)}
@@ -1605,8 +1562,7 @@ export function ClientBulkAttachWizard({
                     v.assets?.some((a) => a.uploadStatus === "uploaded"),
                   ),
                 ) ||
-                assetCompletenessIssues.length > 0 ||
-                bookNowMultiPlacementConflicts.length > 0
+                assetCompletenessIssues.length > 0
               }
             >
               Review & launch <ChevronRight className="ml-1 h-3.5 w-3.5" />
@@ -1707,11 +1663,6 @@ export function ClientBulkAttachWizard({
                 </p>
               </div>
             )}
-            {bookNowMultiPlacementConflicts.length > 0 && (
-              <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
-                Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-              </div>
-            )}
           </div>
 
           <div className="flex flex-col items-end gap-2">
@@ -1731,8 +1682,7 @@ export function ClientBulkAttachWizard({
               disabled={
                 launching ||
                 !creativeLaunchReadiness.ready ||
-                assetCompletenessIssues.length > 0 ||
-                bookNowMultiPlacementConflicts.length > 0
+                assetCompletenessIssues.length > 0
               }
             >
               {launching ? (
@@ -1885,11 +1835,6 @@ export function ClientBulkAttachWizard({
                     />
                     Start from the creative config I just launched (otherwise resets to blank)
                   </label>
-                  {relaunchKeepCreatives && bookNowMultiPlacementConflicts.length > 0 && (
-                    <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
-                      Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                    </div>
-                  )}
                   <div className="flex justify-end gap-2">
                     <Button
                       variant="outline"
@@ -1901,7 +1846,6 @@ export function ClientBulkAttachWizard({
                     <Button
                       size="sm"
                       onClick={confirmLaunchAnotherVariation}
-                      disabled={relaunchKeepCreatives && bookNowMultiPlacementConflicts.length > 0}
                     >
                       Continue to Configure creatives
                     </Button>
@@ -1920,12 +1864,6 @@ export function ClientBulkAttachWizard({
                 variant="outline"
                 size="sm"
                 onClick={openRelaunchPanel}
-                disabled={bookNowMultiPlacementConflicts.length > 0}
-                title={
-                  bookNowMultiPlacementConflicts.length > 0
-                    ? "Can't launch: switch CTA to Buy Tickets to preserve per-placement asset routing."
-                    : undefined
-                }
               >
                 Launch another variation to these ad sets
               </Button>

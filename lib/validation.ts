@@ -6,7 +6,6 @@ import type { CampaignDraft, WizardStep } from "./types.ts";
 import { attachedAdSetKey, getVisibleSteps } from "./types.ts";
 import { findMultiIgPagesMissingOverride } from "./validation/page-instagram.ts";
 import { validateCreativeAssetCompleteness } from "./validation/asset-completeness.ts";
-import { creativeHasBookNowMultiPlacementConflict } from "./meta/creative.ts";
 import { findAdSetLocationProblems, findAdSetLocationWarnings } from "./meta/location-targeting.ts";
 import { cityRadiusProblemInDraft } from "./meta/location-radius.ts";
 import {
@@ -354,16 +353,6 @@ function validateCreatives(draft: CampaignDraft): ValidationResult {
           `${label} › ${issue.variationName}: ${issue.assetMode} mode requires ${issue.missingRatios.join(" + ")} — upload the missing aspect ratio(s) or switch to Single mode`,
         );
       }
-    }
-
-    // BOOK_NOW + Dual/Full mode silently drops the Feed asset (Meta subcode
-    // 1885396, PR #574/#575) — hard-block here rather than only showing the
-    // inline warning. Bulk-attach already blocks this (PR #719); this closes
-    // the same gap in the main wizard (task #93).
-    if (creativeHasBookNowMultiPlacementConflict(c)) {
-      errors.push(
-        `${label}: Can't launch with "Book Now" CTA across multiple asset placements — switch CTA to Buy Tickets (or another non-Book Now CTA) to preserve per-placement asset routing`,
-      );
     }
   });
 

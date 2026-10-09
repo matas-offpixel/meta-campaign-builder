@@ -65,7 +65,7 @@ import {
   deriveMultiIgPageIds,
 } from "@/components/wizard/page-instagram-overrides-panel";
 import { applyPageInstagramOverrideToCreative } from "@/lib/meta/apply-page-instagram-overrides";
-import { creativeHasBookNowMultiPlacementConflict } from "@/lib/meta/creative";
+import { BuyTicketsEventNote } from "@/components/steps/buy-tickets-event-note";
 import { EventPageDestination } from "@/components/wizard/event-page-destination";
 import { slotNeedsAccountReupload } from "@/lib/validation";
 import { useWizardEventContext } from "@/lib/wizard/use-event-context";
@@ -278,7 +278,7 @@ function CreativesBody({
   );
 
   const addAd = () => {
-    const c = createDefaultCreative();
+    const c = createDefaultCreative(settings?.objective);
     c.name = `Ad ${creatives.length + 1}`;
     onChange([...creatives, c]);
     setActiveId(c.id);
@@ -485,7 +485,7 @@ function CreativesBody({
     const template = active;
     const newAds: AdCreativeDraft[] = [];
     for (let i = 0; i < fileCount; i++) {
-      const c = createDefaultCreative();
+      const c = createDefaultCreative(settings?.objective);
       c.name = `Ad ${creatives.length + i + 1}`;
       if (template) {
         c.identity = { ...template.identity };
@@ -1243,16 +1243,7 @@ function CreativesBody({
                           options={CTA_OPTIONS}
                         />
                       </div>
-                      {creativeHasBookNowMultiPlacementConflict(active) && (
-                        <StatusLine tone="alert" className="mt-1 rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-1.5 text-xs font-medium text-destructive">
-                          Can&apos;t launch: switch CTA to Buy Tickets to preserve per-placement asset routing.
-                        </StatusLine>
-                      )}
-                      {active.cta === "book_now" && active.assetMode === "single" && (active.assetVariations ?? []).length >= 2 && (
-                        <StatusLine className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                          <strong>Book Now blocks variation rotation:</strong> Only variation 1 will run. Switch CTA to <strong>Learn More</strong> or <strong>Sign Up</strong> to rotate all {(active.assetVariations ?? []).length} variations.
-                        </StatusLine>
-                      )}
+                      <BuyTicketsEventNote creative={active} />
                     </div>
                   </Card>
                   {drawer ? (

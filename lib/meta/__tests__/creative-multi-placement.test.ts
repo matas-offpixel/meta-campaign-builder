@@ -9,7 +9,7 @@
  *   - Mixed media (image + video) → falls through to single-asset path
  *   - Feature flag OFF → legacy single-asset path even for multi-ratio
  *   - Sanitizer: user-configured asset_feed_spec preserved; Advantage+ stripped
- *   - BOOK_NOW + dual-mode → vertical fallback (Meta API constraint 1885396)
+ *   - Book now + dual-mode → asset_feed_spec with BOOK_TRAVEL (BOOK_NOW is subcode 1885396)
  *
  * Run: node --test (the repo's test runner). The build path is gated behind
  * ENABLE_MULTI_PLACEMENT_ASSETS — these tests set/unset it per-case.
@@ -333,59 +333,43 @@ describe("sanitizeCreativeForStrictMode — asset_feed_spec discrimination", () 
   });
 });
 
-// ─── BOOK_NOW + dual-mode → vertical (9:16) fallback ─────────────────────────
+// ─── Book now + dual-mode → asset_feed_spec with BOOK_TRAVEL ─────────────────
 //
-// Meta API constraint (subcode=1885396): asset_feed_spec.call_to_action_types
-// rejects "BOOK_NOW" for every objective and every media type.  The wizard must
-// fall through to single-asset using the 9:16 vertical asset while preserving
-// the CTA in link_data / video_data.
+// Meta rejects "BOOK_NOW" in asset_feed_spec.call_to_action_types (subcode
+// 1885396). Book now goes in as BOOK_TRAVEL, which Ads Manager shows as
+// "Book now" with a Website destination. Full payload snapshots live in
+// creative-book-travel-afs.test.ts.
 
-describe("BOOK_NOW + dual-mode → vertical fallback (flag ON)", () => {
-  it("dual image + BOOK_NOW → no asset_feed_spec, link_data uses 9:16 hash", async () => {
+describe("Book now + dual-mode → per-placement asset_feed_spec (flag ON)", () => {
+  it("dual image + book_now → both hashes in AFS, CTA BOOK_TRAVEL", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const payload = await buildCreativePayload(dualImageCreative("book_now"));
 
-    assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
-
-    const ld = payload.object_story_spec?.link_data;
-    assert.ok(ld, "link_data present");
-    assert.equal(ld!.image_hash, "hash_916", "uses 9:16 hash, NOT 4:5");
-    assert.equal(ld!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
+    assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BOOK_TRAVEL"]);
+    assert.deepEqual(
+      (payload.asset_feed_spec?.images ?? []).map((i) => i.hash),
+      ["hash_45", "hash_916"],
+    );
+    assert.equal(payload.object_story_spec?.link_data, undefined);
   });
 
-  it("dual video + BOOK_NOW → no asset_feed_spec, video_data uses 9:16 video", async () => {
+  it("dual video + book_now → both videos in AFS, CTA BOOK_TRAVEL", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    // image_url required at create time (PR #767 regression); image_hash
-    // never set (/adimages App-Review-blocked). Without a token, falls back
-    // to Asset.thumbnailUrl on the vertical slot.
     const payload = await buildCreativePayload(dualVideoCreative("book_now"));
 
-    assert.equal(payload.asset_feed_spec, undefined, "no asset_feed_spec — AFS path skipped");
-
-    const vd = payload.object_story_spec?.video_data;
-    assert.ok(vd, "video_data present");
-    assert.equal(vd!.video_id, "vid_916", "uses 9:16 video_id, NOT 4:5");
-    assert.equal(vd!.image_url, "https://cdn/thumb_916.jpg", "image_url from vertical Asset.thumbnailUrl fallback");
-    assert.equal(vd!.image_hash, undefined, "no image_hash — /adimages is App-Review-blocked (task #90)");
-    assert.equal(vd!.call_to_action?.type, "BOOK_NOW", "CTA preserved as BOOK_NOW");
-  });
-
-  it("dual image + BOOK_NOW + AWARENESS → same vertical fallback (constraint is universal)", async () => {
-    process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
-    // Objective is not encoded on the creative draft itself — the same payload
-    // builder is used regardless of objective.  This test confirms the fallback
-    // fires based solely on CTA + dual assets, independent of objective context.
-    const payload = await buildCreativePayload(dualImageCreative("book_now"));
-    assert.equal(payload.asset_feed_spec, undefined);
-    assert.equal(payload.object_story_spec?.link_data?.image_hash, "hash_916");
-    assert.equal(payload.object_story_spec?.link_data?.call_to_action?.type, "BOOK_NOW");
+    assert.deepEqual(payload.asset_feed_spec?.call_to_action_types, ["BOOK_TRAVEL"]);
+    assert.deepEqual(
+      (payload.asset_feed_spec?.videos ?? []).map((v) => v.video_id),
+      ["vid_45", "vid_916"],
+    );
+    assert.equal(payload.object_story_spec?.video_data, undefined);
   });
 
   it("dual image + LEARN_MORE → asset_feed_spec PRESENT (LEARN_MORE not affected)", async () => {
     process.env.ENABLE_MULTI_PLACEMENT_ASSETS = "1";
     const payload = await buildCreativePayload(dualImageCreative("learn_more"));
 
-    assert.ok(payload.asset_feed_spec, "asset_feed_spec present for non-BOOK_NOW CTA");
+    assert.ok(payload.asset_feed_spec, "asset_feed_spec present");
     assert.deepEqual(
       payload.asset_feed_spec?.call_to_action_types,
       ["LEARN_MORE"],
